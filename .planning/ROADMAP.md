@@ -59,7 +59,17 @@ Decimal phases appear between their surrounding integers in numeric order.
   3. Feeding the admission gate a module that uses relaxed-SIMD opcodes, `atomic.*`/shared memory, an import outside the frozen allow-list, or `memory.initial !== memory.maximum` returns a rejection naming the offending construct; a clean module passes — and the gate is a pure function with no platform imports
   4. A committed written verdict names the v1 integrity mechanism: N-version comparison if the harness is byte-identical everywhere, backbone-anchored audit sampling if it is not — and the verdict states which later phases change shape under the negative branch
   5. The benchmark methodology is written and committed before any number exists — metrics, machine inventory, run counts, cold/warm code-cache policy, redundancy factor, skew profile, and the single-threaded baseline
-**Plans**: TBD
+**Plans**: 8 plans in 4 waves
+
+Plans:
+- [ ] 01-01-PLAN.md — Root + @o2/core project skeleton, vitest multi-project config, toolchain version lock (Wave 1)
+- [ ] 01-02-PLAN.md — BENCH-02: benchmark methodology pre-registration, committed before any number exists (Wave 1)
+- [ ] 01-03-PLAN.md — DET-01: admission-gate scanner (LEB128 reader, import/memory checks, Code-section opcode walker) (Wave 2)
+- [ ] 01-04-PLAN.md — DET-05: canonical-form output hashing (NaN/-0.0 normalization, crypto.subtle) (Wave 2)
+- [ ] 01-05-PLAN.md — DET-01: publish-time scanner (wabt/binaryen) + parity test against the runtime scanner (T-1-02) (Wave 3)
+- [ ] 01-06-PLAN.md — DET-04: WAT probes (incl. NaN-bit-leak) + AssemblyScript float kernel, compiled to wasm (Wave 2)
+- [ ] 01-07-PLAN.md — DET-04: divergence-harness runner, diff tool, and the CI matrix workflow (Wave 3)
+- [ ] 01-08-PLAN.md — VER-07: trigger CI, download raw results, write the committed 01-VERDICT.md (Wave 4)
 
 Notes: Repository disclosure hygiene is established here as an invariant (no deploy
 workflow file present at all — not disabled, absent; `"private": true` in every
