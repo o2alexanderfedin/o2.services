@@ -1,0 +1,262 @@
+# Roadmap: o2.services — P2P Native Cloud
+
+## Overview
+
+The journey runs from an empirical question to a published number. It opens with the
+one experiment that decides the trust model — whether two honest nodes on different
+CPU architectures can agree on a float result at all — because every downstream design
+is shaped by the answer. From there it builds vertically: a complete job (shard →
+execute redundantly → verify → result CID) running inside a single process on all
+three targets, then the same job across two OS processes, then the same job across two
+browser tabs on different machines. Only once that chain is proven does the project
+add its differentiators, in the order that keeps each one honest: sovereignty as a hard
+constraint *before* the scheduler learns to optimise, tree-reduce *before* placement
+so a placement decision has something real to decide about, decentralized discovery and
+enrollment *after* both, then churn survival, then benchmarks, then a demo that is
+built but deliberately not deployed. The native→WASM AOT pipeline runs on a separate
+track throughout and lands last, because it is a C++/LLVM build toolchain with zero
+TypeScript coupling and it must not block the capacity-scaling thesis.
+
+**Two things the roadmap is written to survive.** First, the Phase 1 determinism gate
+has two possible outcomes, and every later phase reads correctly under either — if
+cross-architecture divergence bites, integrity becomes backbone-anchored audit sampling
+instead of N-version comparison, and no phase is re-cut. Second, the verification claim
+is split by design: full N-version applies to public/shared data and to the aggregation
+tree; sovereign maps are owner-attested and carried by an egress manifest and coverage
+report, because pinning data to one node structurally removes the second executor.
+
+## Phases
+
+**Phase Numbering:**
+- Integer phases (1, 2, 3): Planned milestone work
+- Decimal phases (2.1, 2.2): Urgent insertions (marked with INSERTED)
+
+Decimal phases appear between their surrounding integers in numeric order.
+
+- [ ] **Phase 1: Determinism Gate & Trust-Model Verdict** - Measure cross-architecture WASM divergence and commit to one of the two integrity mechanisms before any code is designed around either
+- [ ] **Phase 2: Portable Kernel & Loopback Map Slice** - A complete redundant, verified job runs end to end in one process, on node/browser/webworker, with no network involved
+- [ ] **Phase 3: Real Network, Node ↔ Node** - The same job runs across two OS processes over a real transport, proving the port boundary held
+- [ ] **Phase 4: Browser Tier & Backbone Relay** - Two browser tabs on different machines run a distributed redundant job against a self-hosted backbone needing no certificate operations
+- [ ] **Phase 5: Sovereignty, Authorization & Artifact Signing** - Owner-pinned data becomes a constraint the placer cannot relax, and every artifact resolves through a signed name
+- [ ] **Phase 6: Decomposable Tree-Reduce** - Cross-owner aggregation merges up a derived tree with no shuffle, no consensus, and no state to migrate
+- [ ] **Phase 7: Discovery, Placement & Enrollment** - The static peer list disappears; nodes find each other and choose placement under identity and diversity constraints
+- [ ] **Phase 8: Churn, Stragglers & Coordinator Survival** - A job finishes correctly when the machines running it — including the submitter — vanish mid-flight
+- [ ] **Phase 9: Benchmark Harness** - The scaling claim becomes a reproducible published number with its costs included rather than excluded
+- [ ] **Phase 10: Public Demo, Consent UX & Disclosure Gate** - A visitor consents, contributes to a job someone cares about, and nothing publishes without a deliberate human action
+- [ ] **Phase 11: elfconv AOT Native→WASM Pipeline** - A statically-linked native binary becomes a fabric-executable artifact under the same admission checks and verification
+
+## Phase Details
+
+### Phase 1: Determinism Gate & Trust-Model Verdict
+**Goal**: The project knows from measurement, not assumption, whether N-version comparison can carry the integrity claim — and has committed in writing to one of the two trust models before any kernel code is designed around either
+**Mode:** mvp
+**Depends on**: Nothing (first phase)
+**Requirements**: DET-01, DET-04, DET-05, VER-07, BENCH-02
+**Research**: Needed — the divergence result is unmeasured and no published figure exists anywhere; the negative-branch design (backbone-anchored audit sampling) needs its own design work; JS-side WASM fuel metering has no maintained tool and is an open build-vs-accept-Worker-timeout decision
+**Success Criteria** (what must be TRUE):
+  1. A CI harness runs one float-heavy module against identical input on x86-64 (Chrome, Firefox, Node) and arm64 (Safari, Chrome, Node), plus Android Chrome, and reports a byte-level diff of the canonical-form output hash for every pair — the raw numbers exist and are committed
+  2. Output comparison is by canonical form derived from a declared output schema, never by a raw linear-memory slice; a module whose padding bytes or allocator residue differ still compares equal, and a module whose declared float fields differ does not
+  3. Feeding the admission gate a module that uses relaxed-SIMD opcodes, `atomic.*`/shared memory, an import outside the frozen allow-list, or `memory.initial !== memory.maximum` returns a rejection naming the offending construct; a clean module passes — and the gate is a pure function with no platform imports
+  4. A committed written verdict names the v1 integrity mechanism: N-version comparison if the harness is byte-identical everywhere, backbone-anchored audit sampling if it is not — and the verdict states which later phases change shape under the negative branch
+  5. The benchmark methodology is written and committed before any number exists — metrics, machine inventory, run counts, cold/warm code-cache policy, redundancy factor, skew profile, and the single-threaded baseline
+**Plans**: TBD
+
+Notes: Repository disclosure hygiene is established here as an invariant (no deploy
+workflow file present at all — not disabled, absent; `"private": true` in every
+package.json), and is verified as a success criterion in Phase 10 under DEMO-04.
+
+### Phase 2: Portable Kernel & Loopback Map Slice
+**Goal**: A complete job — shard, execute redundantly, verify, return a result CID — runs end to end inside one process on all three targets, with no networking whatsoever
+**Mode:** mvp
+**Depends on**: Phase 1
+**Requirements**: DET-02, DET-06, DET-07, VER-01, VER-02, VER-05, VER-06, DATA-01, MR-01, SCHED-04
+**Research**: Standard patterns — hexagonal architecture, dag-cbor schemas, Worker pools, and the compile-once/share-`Module` pattern are all documented and verified. Two decisions to settle in planning: aegir vs. vitest for the three-target discipline (the `webworker` target is non-negotiable either way), and the fuel-bounding choice carried over from Phase 1
+**Success Criteria** (what must be TRUE):
+  1. `submitJob` with 4 shards executed at R=2 over an in-memory transport returns a result CID; the verifier reports agreement with the contributing node IDs, and injecting one divergent executor surfaces the disagreement with its dissenting node ID rather than majority-voting it away
+  2. Task inputs, outputs, and intermediates are content-addressed and retrievable by CID; the task reads its partition index and count from the narrow host ABI, and each shard executes independently
+  3. An executor handed a module that fails the admission check refuses to instantiate it, and every task runs inside a Worker against exactly four host functions — no clock, randomness, environment, or filesystem is reachable from the guest, and nothing ever executes on the main thread
+  4. The identical task-execution test suite passes under `node`, `browser`, and `webworker` targets with no target-specific branches in the kernel source
+  5. Redundancy is a per-job dial that reaches 1 (off); receipts are commit-then-reveal so a replica cannot plagiarize a peer's answer; the compared digest covers `(task, outputs)` only — a receipt whose timing or fuel differs still verifies — and every completed job reports gross vs. useful node-seconds with the verification multiplier as a measured cost
+  6. A user-set CPU duty-cycle cap is honoured by the executor with measured CPU staying under it, and the node's advertised capacity drops accordingly
+**Plans**: TBD
+
+### Phase 3: Real Network, Node ↔ Node
+**Goal**: The same job runs across two real operating-system processes over a real network transport, proving the port boundary was drawn in the right place
+**Mode:** mvp
+**Depends on**: Phase 2
+**Requirements**: NET-01, NET-07
+**Research**: Standard patterns — the exact compatible libp2p module set is published in libp2p's own integration tests, and the TCP/noise/yamux path is the most-trodden in the ecosystem
+**Success Criteria** (what must be TRUE):
+  1. Two Node.js processes discover each other and complete a 2×-redundant map job over a real transport, with blocks exchanged on the wire — and the kernel package is byte-for-byte unchanged from Phase 2, because only an adapter was swapped
+  2. Results written by one process persist to a filesystem blockstore and are retrievable by CID from the other process, and survive a restart
+  3. A constants-regression test asserts every relay and transport limit the system depends on — 15 concurrent reservations, 2-minute duration, 128 KiB data, 16 KiB WebRTC message — and fails CI when a dependency upgrade changes any of them; every libp2p dependency is pinned to an exact version with no range specifier
+**Plans**: TBD
+
+### Phase 4: Browser Tier & Backbone Relay
+**Goal**: Two browser tabs on different machines run a distributed, redundant job against a self-hosted backbone that requires no manual certificate operations — the project's core bet, demonstrated
+**Mode:** mvp
+**Depends on**: Phase 3
+**Requirements**: NET-02, NET-03, NET-04, NET-05, DATA-02, BROW-03, BROW-05
+**Research**: Needed — Safari + WebRTC-Direct support is unverified from any authoritative source (fallback branch: Safari = WSS-only); no credible published throughput figures exist for js-libp2p WebRTC at N>50 browser peers; real relay capacity under partial-result traffic is unmeasured. Playwright `webkit` in CI from day one is the mitigation
+**Success Criteria** (what must be TRUE):
+  1. Two browser tabs on different machines connect over WebRTC using a self-hosted Circuit Relay v2 peer for SDP signaling, complete a 2×-redundant map job, and agree on the result
+  2. The backbone relay auto-acquires its TLS certificate and presents a browser-dialable address with zero certificate operations; no `/certhash/` literal appears anywhere in source and bootstrap addresses resolve at runtime, so a demo recorded today still joins fourteen days later
+  3. Sixteen or more browser peers reserve simultaneously against the tuned relay and hold for over an hour under churn; every registered protocol negotiates over `p2p-circuit` because it is registered with `runOnLimitedConnection` on both handle and dial; and relayed byte counters stay in single-digit KiB per peer, proving the relay carries signaling only
+  4. A relay at reservation capacity reports exhaustion by name to the joining node and to its own metrics, instead of failing in a way indistinguishable from a network outage
+  5. Blocks written from a browser persist to IndexedDB and from Node to the filesystem behind one unchanged blockstore interface, with the same CIDs on both sides
+  6. The node runs embedded in a third-party page served without COOP/COEP headers, throttles within a second of the tab being backgrounded, and resumes on return without losing its job
+**Plans**: TBD
+
+### Phase 5: Sovereignty, Authorization & Artifact Signing
+**Goal**: Owner-pinned data becomes a hard scheduling constraint the placer has no code path to relax, and every artifact the fabric executes is resolved through a signed name rather than a bare CID
+**Mode:** mvp
+**Depends on**: Phase 4
+**Requirements**: DATA-03, DATA-04, DATA-05, DATA-06, DATA-07, DATA-08, DET-03, AUTH-03
+**Research**: Standard patterns, with one bounded investigation — UCAN vs. SPKI capability-chain library selection and its expiry/delegation semantics. The C3 structural conflict (sovereignty vs. redundant execution) is already resolved by a logged decision: verify the reduce, not the sovereign map. Do not re-open it
+**Success Criteria** (what must be TRUE):
+  1. A sovereignty label travels with its data and pins its map task to the owner's node; a test that applies artificial load pressure specifically to force relocation fails to move it, because the placement planner has no branch that can
+  2. A stream tap on the owner node's network interface fails the test if a single raw sovereign byte crosses it during a cross-owner job — filters, projections, and partial aggregation have pushed down to the owner, so only the aggregate leaves
+  3. Every job emits an owner-signed egress manifest recording exactly what left each owner's node, with byte counts, and the manifest is complete by construction rather than by audit
+  4. A task arriving without a valid, unexpired capability chain rooted at the data owner's key is refused before the module is instantiated, and the refusal names the missing link
+  5. Artifacts resolve only through signed `key → CID` mappings validated against pinned trust anchors — an unsigned mapping, or one signed by an untrusted key, is refused — and each artifact carries a published determinism certificate asserting admission-check compliance and NaN normalization
+**Plans**: TBD
+
+### Phase 6: Decomposable Tree-Reduce
+**Goal**: Cross-owner aggregation happens up a hierarchical tree that every participant derives identically — no all-to-all shuffle, no consensus, no leader election, and no state to migrate when an aggregator disappears
+**Mode:** mvp
+**Depends on**: Phase 5
+**Requirements**: MR-02, MR-03, MR-04, MR-05, MR-06, MR-07
+**Research**: Needed — the HRW-assigned, CID-derived reduce tree with pure-recompute repair is a synthesis, not a copy of any shipped system. Every ingredient is standard; the combination is not, and nobody in the category exposes a reduce at all
+**Success Criteria** (what must be TRUE):
+  1. Eight or more nodes each compute a local partial over their own data with no map-side data movement, and the aggregate merged up the tree is bit-identical to a single-node reference computation of the same job
+  2. Every participant independently derives the same reduce tree from the sorted partial CIDs with no message exchanged to agree on topology; changing one partial changes the derived tree deterministically for everyone at once
+  3. Combine executors are assigned by rendezvous hashing, and each assignment yields a ranked fallback list, so the next executor is known locally without a lookup
+  4. Killing an aggregator mid-combine causes its combine to be recomputed elsewhere purely from its content-addressed inputs with no state transferred, and a late duplicate result arriving afterwards is discarded harmlessly because it carries the same CID
+  5. Reduce partials stay inside a tested single-digit-KiB size budget so the browser mesh can carry them, and combines execute redundantly — so the aggregation over owner-attested sovereign partials is verified even though the sovereign maps themselves are not
+**Plans**: TBD
+
+Notes: Browsers are leaves in v1. Internal combine nodes are placed on backbone peers
+only, because background-tab timer throttling (≥1 minute) would falsely kill any lease
+short enough to be useful.
+
+### Phase 7: Discovery, Placement & Enrollment
+**Goal**: The static peer list the previous phases leaned on disappears — nodes find each other and decide where work runs from local information, under identity and diversity constraints that make a forged quorum expensive
+**Mode:** mvp
+**Depends on**: Phase 6
+**Requirements**: SCHED-01, SCHED-02, SCHED-03, SCHED-05, NET-06, AUTH-01, AUTH-02, AUTH-04, VER-03, VER-04
+**Research**: Needed — S/Kademlia disjoint-path lookups are not implemented in js-libp2p, so sybil/eclipse resistance is build-not-configure; `@libp2p/pubsub-peer-discovery` is unverified against `@libp2p/interface@^3` and libp2p's own docs call pubsub discovery not production-fit (hardening path: a custom `/o2/rendezvous/1.0.0` on the backbone); enrollment design touches the PROJECT.md scope boundary and needs its own sizing
+**Success Criteria** (what must be TRUE):
+  1. A requestor with no static peer list finds candidate executors by intersecting the providers of a data CID with signed capability records, and dispatches successfully — while browser peers, running kad-dht in client mode only, resolve the same records through backbone-served delegated routing
+  2. Placement samples d candidates (d=2..4) and selects the least-loaded using local information only; an over-committed node rejects the offer with a stated reason and the requestor re-picks without the job failing
+  3. Under artificial load pressure that would otherwise relocate it, a sovereignty-pinned task still lands on its owner — placement cost heuristics are evaluated as a filter after the constraint, never as a score that can outweigh it
+  4. A node generates its identity key on-device and receives a provider-signed certificate through a rate-limited enrollment flow; a peer verifies that certificate offline with no call to any live certificate authority, and mass fake-node creation is measurably costly
+  5. Every verification quorum contains at least one backbone-anchored replica and no two replicas supplied by the same operator; a test that attempts to fill a whole quorum from one operator's nodes is refused, and a threat model naming "attacker controls up to k of n" is committed with k stated
+**Plans**: TBD
+
+### Phase 8: Churn, Stragglers & Coordinator Survival
+**Goal**: A job finishes correctly when the machines running it — including the machine that submitted it — go away mid-flight
+**Mode:** mvp
+**Depends on**: Phase 7
+**Requirements**: CHURN-01, CHURN-02, CHURN-03, CHURN-04, CHURN-05
+**Research**: Needed — tree-reduce robustness under aggregation-backbone churn is one of the design doc's three named research risks and has no shipped prior art to copy
+**Success Criteria** (what must be TRUE):
+  1. Killing 30% of participating nodes mid-execution still produces the correct final aggregate, with the re-dispatches visible in the job history rather than hidden
+  2. A task whose lease expires is re-dispatched automatically, and the original worker self-terminates on expiry and releases whatever it has to content-addressed storage rather than writing a stale result
+  3. A straggler is duplicated speculatively under a global speculation budget and the first result wins; the loser is discarded harmlessly, and the speculation multiplier appears in the job's cost accounting
+  4. Closing the requestor's browser tab mid-job either resumes the job from coordinator state checkpointed as a content-addressed block, or fails cleanly with recoverable partials — never orphaned leases and never a silently abandoned job
+  5. A cross-owner job over owners that are partly offline returns a coverage report (`covered: X/Y owners`) alongside the aggregate, so a partial number is never presented as a complete one
+**Plans**: TBD
+
+### Phase 9: Benchmark Harness
+**Goal**: The scaling claim becomes a reproducible published number with its costs included rather than excluded — a separate and harder claim than "it works"
+**Mode:** mvp
+**Depends on**: Phase 6 (dispatch API frozen); executes the methodology pre-registered in Phase 1. Runs in parallel with Phases 7-8
+**Requirements**: BENCH-01, BENCH-03, BENCH-04, BENCH-05, BENCH-06
+**Research**: Standard patterns — `@libp2p/perf` is a specified cross-implementation protocol so numbers compare to published go/rust-libp2p figures, and the hard part (methodology) was written in Phase 1
+**Success Criteria** (what must be TRUE):
+  1. The harness measures job makespan against participating node count reproducibly, over both the in-memory transport and the real transport — and the gap between the two curves is reported as the connectivity tax
+  2. Published results report p50/p95/p99 makespan and never a bare mean, with the raw data and the harness itself published alongside so a third party can re-run them
+  3. Reported cost includes the verification tax as an explicit line item, with gross node-seconds and useful node-seconds both shown, never one without the other
+  4. A COST crossover number is published — the node count at which the system beats a competent single-threaded implementation of the same job — even if that number is embarrassing, together with a skewed-data configuration and cold-vs-warm code-cache disclosure
+  5. Every published run carries its machine inventory including relay and aggregator hardware, and any same-machine multi-tab measurement is labelled as such rather than counted as N nodes
+**Plans**: TBD
+
+### Phase 10: Public Demo, Consent UX & Disclosure Gate
+**Goal**: A visitor opens a page, understands exactly what will run, chooses to allow it, and contributes to a job someone actually cares about — while publication remains a deliberate human action rather than a consequence of a phase completing
+**Mode:** mvp
+**Depends on**: Phase 8 and Phase 9
+**Research**: Standard patterns — the consent-UX pattern set is fully documented by BOINC's shipped controls and the Coinhive post-mortems. It needs care and vocabulary discipline, not research
+**Requirements**: DEMO-01, DEMO-02, DEMO-03, BROW-01, BROW-02, BROW-04, DEMO-04
+**Success Criteria** (what must be TRUE):
+  1. A static client distributes a real job across multiple browser tabs on multiple machines, showing live placement and results arriving
+  2. The demo runs a task a person cares about the answer to, not a synthetic protocol exercise, and a visitor can check that the answer is right
+  3. No CPU is consumed before the visitor gives explicit informed consent; a persistent, always-visible surface shows what is running and for whom, and one click provably drops CPU to zero
+  4. The client reports the percentage of visitors where the node failed to start, segmented by browser, so a blocklist cliff shows up as a metric instead of as quietly missing capacity
+  5. The demo builds and runs against static hosting with no server-side process beyond the backbone relay, and the repository contains no deploy workflow file at all — publishing requires a separately-triggered human action, because publishing forfeits EPO and China patent rights permanently
+**Plans**: TBD
+**UI hint**: yes
+
+Notes: Vocabulary discipline is a hard constraint on this phase — no "mining",
+"hashrate", "earn", "credits", or "tokens" anywhere in the UI or the repository. A
+plain-language policy page written for a human blocklist reviewer, and pre-registered
+appeal paths, ship with the demo.
+
+### Phase 11: elfconv AOT Native→WASM Pipeline
+**Goal**: A statically-linked native binary becomes a fabric-executable artifact under the same admission checks, signing, and verification as a source-compiled module
+**Mode:** mvp
+**Depends on**: Phase 5 (signed `key → CID` infrastructure). Fully parallelizable from Phase 4 onward — a C++/LLVM/Remill build-time toolchain in `tools/aot/` with zero TypeScript coupling
+**Requirements**: AOT-01, AOT-02, AOT-03, AOT-04, AOT-05
+**Research**: Needed — elfconv's real-world lift success rate, Binaryen `denan` behaviour on actual elfconv output, and the deterministic WASI-subset surface are all unverified against real artifacts
+**Success Criteria** (what must be TRUE):
+  1. A statically-linked, unstripped AArch64 binary translates to a `.wasm` artifact through the containerized elfconv toolchain, and an unsupported binary (indirect or computed jumps, dynamic linking, wrong architecture) is refused by a compatibility checker with a named reason rather than producing a silently wrong artifact
+  2. Translating the same input twice on different machines yields an identical CID, and the cache key demonstrably covers input digest, toolchain versions, target, and WASM feature set — changing any one of them changes the CID
+  3. A translated artifact passes the same admission gate, carries the same signed `key → CID` mapping and determinism certificate, and is verified by the same redundant-execution path as a source-compiled module — the native path cannot ship unsigned because the infrastructure to ship it unsigned does not exist
+  4. A browser loads a translated artifact via `compileStreaming` against a stable gateway URL, and a second visit measurably hits the V8 code cache
+**Plans**: TBD
+
+Notes: Constraints recorded before any artifact is compiled, because retrofitting them
+is a recompile of everything — `TARGET=aarch64-wasi32` (not the Emscripten bundle,
+which emits JS glue and splits the ABI); no `-pthread` in any edge artifact; AArch64
+static unstripped input only.
+
+## Progress
+
+**Execution Order:**
+Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 → 9 → 10 → 11
+
+Parallel tracks (config `parallelization: true`):
+- Phase 9 (benchmark) runs alongside Phases 7-8 against the dispatch API frozen in Phase 6
+- Phase 11 (elfconv AOT) runs alongside everything from Phase 4 onward; it only needs Phase 5's signing infrastructure to land before its own exit
+
+| Phase | Plans Complete | Status | Completed |
+|-------|----------------|--------|-----------|
+| 1. Determinism Gate & Trust-Model Verdict | 0/TBD | Not started | - |
+| 2. Portable Kernel & Loopback Map Slice | 0/TBD | Not started | - |
+| 3. Real Network, Node ↔ Node | 0/TBD | Not started | - |
+| 4. Browser Tier & Backbone Relay | 0/TBD | Not started | - |
+| 5. Sovereignty, Authorization & Artifact Signing | 0/TBD | Not started | - |
+| 6. Decomposable Tree-Reduce | 0/TBD | Not started | - |
+| 7. Discovery, Placement & Enrollment | 0/TBD | Not started | - |
+| 8. Churn, Stragglers & Coordinator Survival | 0/TBD | Not started | - |
+| 9. Benchmark Harness | 0/TBD | Not started | - |
+| 10. Public Demo, Consent UX & Disclosure Gate | 0/TBD | Not started | - |
+| 11. elfconv AOT Native→WASM Pipeline | 0/TBD | Not started | - |
+
+## Requirement Coverage
+
+70 of 70 v1 requirements mapped, each to exactly one phase.
+
+| Phase | Requirements | Count |
+|-------|--------------|-------|
+| 1 | DET-01, DET-04, DET-05, VER-07, BENCH-02 | 5 |
+| 2 | DET-02, DET-06, DET-07, VER-01, VER-02, VER-05, VER-06, DATA-01, MR-01, SCHED-04 | 10 |
+| 3 | NET-01, NET-07 | 2 |
+| 4 | NET-02, NET-03, NET-04, NET-05, DATA-02, BROW-03, BROW-05 | 7 |
+| 5 | DATA-03, DATA-04, DATA-05, DATA-06, DATA-07, DATA-08, DET-03, AUTH-03 | 8 |
+| 6 | MR-02, MR-03, MR-04, MR-05, MR-06, MR-07 | 6 |
+| 7 | SCHED-01, SCHED-02, SCHED-03, SCHED-05, NET-06, AUTH-01, AUTH-02, AUTH-04, VER-03, VER-04 | 10 |
+| 8 | CHURN-01, CHURN-02, CHURN-03, CHURN-04, CHURN-05 | 5 |
+| 9 | BENCH-01, BENCH-03, BENCH-04, BENCH-05, BENCH-06 | 5 |
+| 10 | DEMO-01, DEMO-02, DEMO-03, DEMO-04, BROW-01, BROW-02, BROW-04 | 7 |
+| 11 | AOT-01, AOT-02, AOT-03, AOT-04, AOT-05 | 5 |
+| **Total** | | **70** |
