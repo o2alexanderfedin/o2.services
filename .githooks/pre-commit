@@ -1,0 +1,61 @@
+#!/bin/bash
+# Pre-commit hook to prevent direct commits to protected branches
+# and enforce git-flow branch naming conventions
+
+# Get current branch name
+BRANCH=$(git rev-parse --abbrev-ref HEAD)
+
+# Protected branches - no direct commits allowed
+PROTECTED_BRANCHES="^(main|develop)$"
+
+# Check if committing to protected branch
+if [[ $BRANCH =~ $PROTECTED_BRANCHES ]]; then
+  echo ""
+  echo "❌ Direct commits to '$BRANCH' branch are not allowed!"
+  echo ""
+  echo "Protected branches: main, develop"
+  echo ""
+  echo "Use git-flow instead:"
+  echo ""
+  echo "  For new features:"
+  echo "    git flow feature start <feature-name>"
+  echo "    # Make changes..."
+  echo "    git flow feature finish <feature-name>"
+  echo ""
+  echo "  For releases:"
+  echo "    git flow release start <version>"
+  echo "    # Prepare release..."
+  echo "    git flow release finish <version>"
+  echo ""
+  echo "  For hotfixes:"
+  echo "    git flow hotfix start <version>"
+  echo "    # Fix issue..."
+  echo "    git flow hotfix finish <version>"
+  echo ""
+  echo "Or manually switch to a feature branch:"
+  echo "  git checkout develop"
+  echo "  git checkout -b feature/<feature-name>"
+  echo ""
+  exit 1
+fi
+
+# Enforce git-flow branch naming conventions
+# Valid patterns: feature/*, release/*, hotfix/*, bugfix/*
+VALID_BRANCH_PATTERN="^(feature|release|hotfix|bugfix)/.+"
+
+if [[ ! $BRANCH =~ $VALID_BRANCH_PATTERN ]]; then
+  echo ""
+  echo "⚠️  Warning: Branch '$BRANCH' doesn't follow git-flow conventions"
+  echo ""
+  echo "Recommended branch naming:"
+  echo "  - feature/<name>  - New features"
+  echo "  - release/<version> - Release preparation"
+  echo "  - hotfix/<version>  - Production fixes"
+  echo "  - bugfix/<name>     - Development fixes"
+  echo ""
+  echo "Proceeding with commit (not enforced for other branches)..."
+  echo ""
+fi
+
+# Allow commit to proceed
+exit 0
