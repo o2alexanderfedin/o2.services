@@ -111,7 +111,7 @@ package.json), and is verified as a success criterion in Phase 10 under DEMO-04.
 **Goal**: Owner-pinned data becomes a hard scheduling constraint the placer has no code path to relax, and every artifact the fabric executes is resolved through a signed name rather than a bare CID
 **Mode:** mvp
 **Depends on**: Phase 4
-**Requirements**: DATA-03, DATA-04, DATA-05, DATA-06, DATA-07, DATA-08, DET-03, AUTH-03
+**Requirements**: DATA-03, DATA-04, DATA-05, DATA-06, DATA-07, DATA-08, DATA-09, DET-03, AUTH-03
 **Research**: Standard patterns, with one bounded investigation — UCAN vs. SPKI capability-chain library selection and its expiry/delegation semantics. The C3 structural conflict (sovereignty vs. redundant execution) is already resolved by a logged decision: verify the reduce, not the sovereign map. Do not re-open it
 **Success Criteria** (what must be TRUE):
   1. A sovereignty label travels with its data and pins its map task to the owner's node; a test that applies artificial load pressure specifically to force relocation fails to move it, because the placement planner has no branch that can
@@ -119,6 +119,7 @@ package.json), and is verified as a success criterion in Phase 10 under DEMO-04.
   3. Every job emits an owner-signed egress manifest recording exactly what left each owner's node, with byte counts, and the manifest is complete by construction rather than by audit
   4. A task arriving without a valid, unexpired capability chain rooted at the data owner's key is refused before the module is instantiated, and the refusal names the missing link
   5. Artifacts resolve only through signed `key → CID` mappings validated against pinned trust anchors — an unsigned mapping, or one signed by an untrusted key, is refused — and each artifact carries a published determinism certificate asserting admission-check compliance and NaN normalization
+  6. A backbone-held encrypted replica of sovereign data satisfies availability queries but is refused as an execution target — the placer will not dispatch a sovereign task to it, because executing would require handing a non-owner node the decryption key
 **Plans**: TBD
 
 ### Phase 6: Decomposable Tree-Reduce
@@ -143,7 +144,7 @@ short enough to be useful.
 **Goal**: The static peer list the previous phases leaned on disappears — nodes find each other and decide where work runs from local information, under identity and diversity constraints that make a forged quorum expensive
 **Mode:** mvp
 **Depends on**: Phase 6
-**Requirements**: SCHED-01, SCHED-02, SCHED-03, SCHED-05, NET-06, AUTH-01, AUTH-02, AUTH-04, VER-03, VER-04
+**Requirements**: SCHED-01, SCHED-02, SCHED-03, SCHED-05, NET-06, AUTH-01, AUTH-02, AUTH-04, AUTH-05, VER-03, VER-04, VER-08, VER-09, VER-10
 **Research**: Needed — S/Kademlia disjoint-path lookups are not implemented in js-libp2p, so sybil/eclipse resistance is build-not-configure; `@libp2p/pubsub-peer-discovery` is unverified against `@libp2p/interface@^3` and libp2p's own docs call pubsub discovery not production-fit (hardening path: a custom `/o2/rendezvous/1.0.0` on the backbone); enrollment design touches the PROJECT.md scope boundary and needs its own sizing
 **Success Criteria** (what must be TRUE):
   1. A requestor with no static peer list finds candidate executors by intersecting the providers of a data CID with signed capability records, and dispatches successfully — while browser peers, running kad-dht in client mode only, resolve the same records through backbone-served delegated routing
@@ -151,13 +152,15 @@ short enough to be useful.
   3. Under artificial load pressure that would otherwise relocate it, a sovereignty-pinned task still lands on its owner — placement cost heuristics are evaluated as a filter after the constraint, never as a score that can outweigh it
   4. A node generates its identity key on-device and receives a provider-signed certificate through a rate-limited enrollment flow; a peer verifies that certificate offline with no call to any live certificate authority, and mass fake-node creation is measurably costly
   5. Every verification quorum contains at least one backbone-anchored replica and no two replicas supplied by the same operator; a test that attempts to fill a whole quorum from one operator's nodes is refused, and a threat model naming "attacker controls up to k of n" is committed with k stated
+  6. Several node certificates chaining to one owner's user key resolve as a single discoverable replica set; a sovereignty-pinned task with two or more of that owner's nodes live executes on two of them and the outputs are compared, with a stream tap confirming no data left the owner's trust domain
+  7. The same task with only one of the owner's nodes live executes once and its receipt reads owner-attested, not verified — and an owner-domain agreement is labelled distinctly from an independent-operator agreement everywhere it surfaces, so a reader cannot mistake the weaker claim for the stronger one
 **Plans**: TBD
 
 ### Phase 8: Churn, Stragglers & Coordinator Survival
 **Goal**: A job finishes correctly when the machines running it — including the machine that submitted it — go away mid-flight
 **Mode:** mvp
 **Depends on**: Phase 7
-**Requirements**: CHURN-01, CHURN-02, CHURN-03, CHURN-04, CHURN-05
+**Requirements**: CHURN-01, CHURN-02, CHURN-03, CHURN-04, CHURN-05, CHURN-06
 **Research**: Needed — tree-reduce robustness under aggregation-backbone churn is one of the design doc's three named research risks and has no shipped prior art to copy
 **Success Criteria** (what must be TRUE):
   1. Killing 30% of participating nodes mid-execution still produces the correct final aggregate, with the re-dispatches visible in the job history rather than hidden
@@ -165,6 +168,7 @@ short enough to be useful.
   3. A straggler is duplicated speculatively under a global speculation budget and the first result wins; the loser is discarded harmlessly, and the speculation multiplier appears in the job's cost accounting
   4. Closing the requestor's browser tab mid-job either resumes the job from coordinator state checkpointed as a content-addressed block, or fails cleanly with recoverable partials — never orphaned leases and never a silently abandoned job
   5. A cross-owner job over owners that are partly offline returns a coverage report (`covered: X/Y owners`) alongside the aggregate, so a partial number is never presented as a complete one
+  6. Speculative duplication of a sovereign task selects only from that owner's own node set; a test asserting a sovereign speculative duplicate never reaches another owner's node passes, so the straggler fix cannot quietly breach the sovereignty constraint
 **Plans**: TBD
 
 ### Phase 9: Benchmark Harness
@@ -244,7 +248,7 @@ Parallel tracks (config `parallelization: true`):
 
 ## Requirement Coverage
 
-70 of 70 v1 requirements mapped, each to exactly one phase.
+76 of 76 v1 requirements mapped, each to exactly one phase.
 
 | Phase | Requirements | Count |
 |-------|--------------|-------|
@@ -252,11 +256,11 @@ Parallel tracks (config `parallelization: true`):
 | 2 | DET-02, DET-06, DET-07, VER-01, VER-02, VER-05, VER-06, DATA-01, MR-01, SCHED-04 | 10 |
 | 3 | NET-01, NET-07 | 2 |
 | 4 | NET-02, NET-03, NET-04, NET-05, DATA-02, BROW-03, BROW-05 | 7 |
-| 5 | DATA-03, DATA-04, DATA-05, DATA-06, DATA-07, DATA-08, DET-03, AUTH-03 | 8 |
+| 5 | DATA-03, DATA-04, DATA-05, DATA-06, DATA-07, DATA-08, DATA-09, DET-03, AUTH-03 | 9 |
 | 6 | MR-02, MR-03, MR-04, MR-05, MR-06, MR-07 | 6 |
-| 7 | SCHED-01, SCHED-02, SCHED-03, SCHED-05, NET-06, AUTH-01, AUTH-02, AUTH-04, VER-03, VER-04 | 10 |
-| 8 | CHURN-01, CHURN-02, CHURN-03, CHURN-04, CHURN-05 | 5 |
+| 7 | SCHED-01, SCHED-02, SCHED-03, SCHED-05, NET-06, AUTH-01, AUTH-02, AUTH-04, AUTH-05, VER-03, VER-04, VER-08, VER-09, VER-10 | 14 |
+| 8 | CHURN-01, CHURN-02, CHURN-03, CHURN-04, CHURN-05, CHURN-06 | 6 |
 | 9 | BENCH-01, BENCH-03, BENCH-04, BENCH-05, BENCH-06 | 5 |
 | 10 | DEMO-01, DEMO-02, DEMO-03, DEMO-04, BROW-01, BROW-02, BROW-04 | 7 |
 | 11 | AOT-01, AOT-02, AOT-03, AOT-04, AOT-05 | 5 |
-| **Total** | | **70** |
+| **Total** | | **76** |

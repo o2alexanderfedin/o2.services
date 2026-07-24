@@ -44,6 +44,14 @@
       verification tax is reported as a measured cost on every job
 - [ ] **VER-07**: If DET-04 shows divergence, integrity falls back to
       backbone-anchored audit sampling instead of N-version comparison
+- [ ] **VER-08**: When an owner has two or more live nodes, a sovereignty-pinned
+      task executes redundantly across the owner's own node set and the outputs
+      are compared — no data leaves the owner's trust domain
+- [ ] **VER-09**: When an owner has fewer than two live nodes, the task executes
+      once and the receipt records it as owner-attested rather than verified
+- [ ] **VER-10**: Owner-domain quorum agreement is reported as a distinct,
+      weaker claim than independent-operator agreement, so the stronger guarantee
+      is never implied by the weaker one
 
 ### Data, Content Addressing & Sovereignty
 
@@ -53,8 +61,8 @@
       the filesystem in Node behind one interface
 - [ ] **DATA-03**: Data carries a sovereignty label that travels with it and acts
       as a hard scheduling constraint
-- [ ] **DATA-04**: A sovereignty-pinned task executes on the owner's node only —
-      the scheduler cannot relocate it to balance load
+- [ ] **DATA-04**: A sovereignty-pinned task executes only within the owner's own
+      node set — the scheduler cannot relocate it outside that set to balance load
 - [ ] **DATA-05**: A stream-tap test fails if raw sovereign bytes cross the network
       boundary
 - [ ] **DATA-06**: Every job emits an egress manifest recording exactly what left
@@ -63,6 +71,9 @@
       owner's node so the least data leaves
 - [ ] **DATA-08**: Artifact `key → CID` mappings are signed by a trusted build
       authority and never resolved by CID alone
+- [ ] **DATA-09**: Backbone encrypted replicas serve availability only and are
+      never execution-eligible for sovereign tasks — executing requires
+      decryption, which would expose plaintext to a non-owner node
 
 ### Authorization & Node Identity
 
@@ -74,6 +85,8 @@
       rooted at the data owner's key, verified before execution
 - [ ] **AUTH-04**: Enrollment is provider-gated and rate-limited, so mass fake-node
       creation is costly
+- [ ] **AUTH-05**: Multiple node identity certificates chain to a single owner's
+      user key, forming a discoverable replica set that the scheduler can target
 
 ### Transport, Discovery & Connectivity
 
@@ -131,6 +144,8 @@
 - [ ] **CHURN-04**: Task ownership is leased and re-dispatched on lease expiry
 - [ ] **CHURN-05**: A cross-owner job over unavailable owners returns a coverage
       report rather than a silently partial result
+- [ ] **CHURN-06**: Speculative duplicates of a sovereign task are scoped to the
+      owner's own node set and never dispatched across owners
 
 ### Browser Node Experience
 
@@ -191,7 +206,6 @@
 - TEE / confidential-computing backbone tier with remote attestation
 - Native execution in Firecracker / Kata microVMs
 - Delegated tree-coordination for single very large jobs
-- Multi-device replica sets within an owner's trust domain
 - S/Kademlia hardening (not implemented in js-libp2p — build, not configure)
 - Cryptographic proofs of computation
 
@@ -218,7 +232,7 @@
 
 ## Traceability
 
-All 70 v1 requirements are mapped, each to exactly one phase. See
+All 76 v1 requirements are mapped, each to exactly one phase. See
 `.planning/ROADMAP.md` for phase goals and success criteria.
 
 | Requirement | Phase | Status |
@@ -237,6 +251,9 @@ All 70 v1 requirements are mapped, each to exactly one phase. See
 | VER-05 | Phase 2 — Portable Kernel & Loopback Map Slice | Pending |
 | VER-06 | Phase 2 — Portable Kernel & Loopback Map Slice | Pending |
 | VER-07 | Phase 1 — Determinism Gate & Trust-Model Verdict | Pending |
+| VER-08 | Phase 7 — Discovery, Placement & Enrollment | Pending |
+| VER-09 | Phase 7 — Discovery, Placement & Enrollment | Pending |
+| VER-10 | Phase 7 — Discovery, Placement & Enrollment | Pending |
 | DATA-01 | Phase 2 — Portable Kernel & Loopback Map Slice | Pending |
 | DATA-02 | Phase 4 — Browser Tier & Backbone Relay | Pending |
 | DATA-03 | Phase 5 — Sovereignty, Authorization & Artifact Signing | Pending |
@@ -245,10 +262,12 @@ All 70 v1 requirements are mapped, each to exactly one phase. See
 | DATA-06 | Phase 5 — Sovereignty, Authorization & Artifact Signing | Pending |
 | DATA-07 | Phase 5 — Sovereignty, Authorization & Artifact Signing | Pending |
 | DATA-08 | Phase 5 — Sovereignty, Authorization & Artifact Signing | Pending |
+| DATA-09 | Phase 5 — Sovereignty, Authorization & Artifact Signing | Pending |
 | AUTH-01 | Phase 7 — Discovery, Placement & Enrollment | Pending |
 | AUTH-02 | Phase 7 — Discovery, Placement & Enrollment | Pending |
 | AUTH-03 | Phase 5 — Sovereignty, Authorization & Artifact Signing | Pending |
 | AUTH-04 | Phase 7 — Discovery, Placement & Enrollment | Pending |
+| AUTH-05 | Phase 7 — Discovery, Placement & Enrollment | Pending |
 | NET-01 | Phase 3 — Real Network, Node ↔ Node | Pending |
 | NET-02 | Phase 4 — Browser Tier & Backbone Relay | Pending |
 | NET-03 | Phase 4 — Browser Tier & Backbone Relay | Pending |
@@ -273,6 +292,7 @@ All 70 v1 requirements are mapped, each to exactly one phase. See
 | CHURN-03 | Phase 8 — Churn, Stragglers & Coordinator Survival | Pending |
 | CHURN-04 | Phase 8 — Churn, Stragglers & Coordinator Survival | Pending |
 | CHURN-05 | Phase 8 — Churn, Stragglers & Coordinator Survival | Pending |
+| CHURN-06 | Phase 8 — Churn, Stragglers & Coordinator Survival | Pending |
 | BROW-01 | Phase 10 — Public Demo, Consent UX & Disclosure Gate | Pending |
 | BROW-02 | Phase 10 — Public Demo, Consent UX & Disclosure Gate | Pending |
 | BROW-03 | Phase 4 — Browser Tier & Backbone Relay | Pending |

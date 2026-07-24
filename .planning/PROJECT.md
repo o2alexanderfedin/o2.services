@@ -16,18 +16,35 @@ leaving its owner's device.** If everything else fails, a map/reduce job must
 distribute across N independently-owned nodes, return a result whose integrity is
 demonstrable, and demonstrably never move the underlying data off the owner's node.
 
-**What "demonstrable integrity" means precisely** — sovereignty and N-version
-verification cannot both apply to the same task, because pinning data to one node
-removes the second independent executor. The system therefore splits the claim:
+**What "demonstrable integrity" means precisely** — sovereignty constrains *who*
+may execute, so integrity is layered by threat rather than claimed uniformly.
+Sovereignty is a boundary around the **owner**, not around one device: an owner's
+node set (their own devices) can hold the same data and execute redundantly
+without any data leaving the owner's trust domain (§3.5 already scopes
+speculation to "the owner's node set, never across owners").
 
 | Data | Integrity mechanism |
 |------|--------------------|
 | Public / shared | Full N-version redundant execution with commit-reveal, ≥1 replica backbone-anchored |
-| Sovereign (owner-pinned) | Map is **owner-attested**; the aggregation *over* contributions is verified |
+| Sovereign, owner has ≥2 live nodes | N-version **within the owner's node set** — catches faults, buggy builds, and cross-architecture divergence |
+| Sovereign, owner has 1 live node | Map is **owner-attested**; recorded as such in the receipt |
+| Any cross-owner aggregate | The aggregation *over* contributions is verified, independent of how each partial was produced |
 
-Stated plainly: *the owner's contribution is trusted; the aggregation over
-contributions is verified.* The sovereignty claim itself is carried by an egress
-manifest and coverage report, not by a quorum.
+**What owner-domain replication does not do.** Redundant execution derives its
+power from executor *independence*. Two devices under one owner are correlated —
+same operator, same intent, likely the same build — so an owner-domain quorum
+catches accidental corruption but **not** a malicious owner biasing their own
+contribution. All replicas under one adversary make a quorum unanimous on a
+forgery rather than degrading, the same structure as an eclipsed DHT lookup.
+Defence against a biased owner is therefore the **verified reduce** plus backbone
+anchoring, not the owner's own quorum. Owner-domain agreement must be reported
+distinctly from independent-operator agreement so the stronger claim is never
+implied by the weaker one.
+
+**Backbone encrypted replicas are availability-only.** Executing a map requires
+decryption, so a backbone node running a sovereign task would see plaintext —
+reintroducing exactly the exposure sovereignty prevents. Without a TEE (v2),
+execution-eligible replicas are the owner's own devices only.
 
 ## Requirements
 
@@ -152,7 +169,8 @@ a signed commercial agreement. Both licenses are unreviewed drafts.
 | Full scope in v1, Part I sequenced last | Fine granularity allows elfconv AOT as late phases, so it doesn't block the capacity-scaling and sovereignty thesis the doc's §6 front-loads deliberately | — Pending |
 | Demo target: multi-machine + multi-tab, plus benchmark harness | A live demo proves it *works*; published benchmark numbers prove the *scaling thesis*. Source proves authorship. All three are needed | — Pending |
 | No outside contributions | Sole authorship keeps the commercial license track available for every line, with no CLA machinery | — Pending |
-| **Verify the reduce, not the map** (resolves C3) | Sovereignty removes the second executor, so N-version cannot apply to a sovereign map. Partials *do* move, so the aggregation tree is replicable and backbone-anchorable. Full N-version is demonstrated on public/shared data where no conflict exists. Requires no MVP scope addition | — Pending |
+| **Verify the reduce, not the map** (resolves C3) | Sovereignty removes the second *independently-operated* executor, so cross-operator N-version cannot apply to a sovereign map. Partials *do* move, so the aggregation tree is replicable and backbone-anchorable. Full N-version is demonstrated on public/shared data where no conflict exists | — Pending |
+| **Owner-domain replication promoted to v1** (amends C3) | Sovereignty bounds the *owner*, not one device — an owner's own devices share data without leaving the trust domain, so N-version applies within the owner's node set. Catches faults, buggy builds, and cross-arch divergence; does **not** defend against a biased owner, so it supplements rather than replaces the verified reduce. Doc §3.3/§3.5/§4 already assume owner node *sets*; §3.9's node-key/user-key split is the enabling primitive. Lands as increments to Phases 5 and 7, no new phase | — Pending |
 | **P0 determinism spike gates the trust model; plan both branches** | V8 has no NaN-canonicalization and x86/ARM disagree on NaN sign bits, so honest nodes may split the quorum. If divergence bites, the trust model becomes backbone-anchored audit sampling rather than N-version. Phases are written to accommodate either outcome, avoiding a mid-project re-roadmap | — Pending |
 | Enrollment (§3.9) in scope; incentives (§3.8) out | Enrollment enables quorum anti-affinity and audit sampling — load-bearing for integrity. Incentives are a market layer, and browser compute demonstrably cannot be paid | — Pending |
 
