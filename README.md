@@ -86,7 +86,11 @@ Commercial licensing: **af@O2.services**
 > commercial agreement, or make this repository public before an attorney
 > reviews them.
 >
-> **No outside contributions may be merged until a CLA is in place** — a
-> contribution the licensor does not own cannot be relicensed commercially, which
-> would break the dual-license model. See
-> [LICENSE-COMMERCIAL.md](LICENSE-COMMERCIAL.md#contributions-and-the-right-to-dual-license).
+## Contributions
+
+**Not accepted.** Pull requests will be closed without review — see
+[CONTRIBUTING.md](CONTRIBUTING.md). This keeps the dual-license model intact by
+construction: the licensor owns every right in the software, so the commercial
+track stays available for all of it.
+
+Bug reports are welcome as issues. Security reports go to **af@O2.services**.

@@ -79,12 +79,11 @@ Trademark use always requires separate written permission.
 Dual-licensing only works if the licensor owns or controls **all** rights in the
 software. A contribution accepted under the default license alone cannot be
 relicensed commercially, because the contributor retains their copyright — one
-such contribution is enough to break the commercial track for the whole file.
+such contribution is enough to break the commercial track for that file
+permanently.
 
-The default license prohibits modification and derivative works, so it does not
-authorize contributions in the first place. Before accepting any outside
-contribution, the licensor must obtain a Contributor License Agreement assigning
-or broadly licensing those rights, including the right to sublicense under
-commercial terms.
-
-**No outside contributions may be merged until a CLA is in place.**
+**This project therefore accepts no contributions** — see
+[CONTRIBUTING.md](CONTRIBUTING.md). Sole authorship is what keeps the commercial
+track available for the entire codebase. Should that policy ever change, a
+Contributor License Agreement granting the licensor the right to sublicense
+under commercial terms must be in place *before* the first patch is merged.
