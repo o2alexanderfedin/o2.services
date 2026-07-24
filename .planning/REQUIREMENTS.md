@@ -218,8 +218,80 @@
 
 ## Traceability
 
-<!-- Filled by roadmap creation -->
+All 70 v1 requirements are mapped, each to exactly one phase. See
+`.planning/ROADMAP.md` for phase goals and success criteria.
 
-| Requirement | Phase |
-|-------------|-------|
-| *(pending roadmap)* | |
+| Requirement | Phase | Status |
+|-------------|-------|--------|
+| DET-01 | Phase 1 — Determinism Gate & Trust-Model Verdict | Pending |
+| DET-02 | Phase 2 — Portable Kernel & Loopback Map Slice | Pending |
+| DET-03 | Phase 5 — Sovereignty, Authorization & Artifact Signing | Pending |
+| DET-04 | Phase 1 — Determinism Gate & Trust-Model Verdict | Pending |
+| DET-05 | Phase 1 — Determinism Gate & Trust-Model Verdict | Pending |
+| DET-06 | Phase 2 — Portable Kernel & Loopback Map Slice | Pending |
+| DET-07 | Phase 2 — Portable Kernel & Loopback Map Slice | Pending |
+| VER-01 | Phase 2 — Portable Kernel & Loopback Map Slice | Pending |
+| VER-02 | Phase 2 — Portable Kernel & Loopback Map Slice | Pending |
+| VER-03 | Phase 7 — Discovery, Placement & Enrollment | Pending |
+| VER-04 | Phase 7 — Discovery, Placement & Enrollment | Pending |
+| VER-05 | Phase 2 — Portable Kernel & Loopback Map Slice | Pending |
+| VER-06 | Phase 2 — Portable Kernel & Loopback Map Slice | Pending |
+| VER-07 | Phase 1 — Determinism Gate & Trust-Model Verdict | Pending |
+| DATA-01 | Phase 2 — Portable Kernel & Loopback Map Slice | Pending |
+| DATA-02 | Phase 4 — Browser Tier & Backbone Relay | Pending |
+| DATA-03 | Phase 5 — Sovereignty, Authorization & Artifact Signing | Pending |
+| DATA-04 | Phase 5 — Sovereignty, Authorization & Artifact Signing | Pending |
+| DATA-05 | Phase 5 — Sovereignty, Authorization & Artifact Signing | Pending |
+| DATA-06 | Phase 5 — Sovereignty, Authorization & Artifact Signing | Pending |
+| DATA-07 | Phase 5 — Sovereignty, Authorization & Artifact Signing | Pending |
+| DATA-08 | Phase 5 — Sovereignty, Authorization & Artifact Signing | Pending |
+| AUTH-01 | Phase 7 — Discovery, Placement & Enrollment | Pending |
+| AUTH-02 | Phase 7 — Discovery, Placement & Enrollment | Pending |
+| AUTH-03 | Phase 5 — Sovereignty, Authorization & Artifact Signing | Pending |
+| AUTH-04 | Phase 7 — Discovery, Placement & Enrollment | Pending |
+| NET-01 | Phase 3 — Real Network, Node ↔ Node | Pending |
+| NET-02 | Phase 4 — Browser Tier & Backbone Relay | Pending |
+| NET-03 | Phase 4 — Browser Tier & Backbone Relay | Pending |
+| NET-04 | Phase 4 — Browser Tier & Backbone Relay | Pending |
+| NET-05 | Phase 4 — Browser Tier & Backbone Relay | Pending |
+| NET-06 | Phase 7 — Discovery, Placement & Enrollment | Pending |
+| NET-07 | Phase 3 — Real Network, Node ↔ Node | Pending |
+| SCHED-01 | Phase 7 — Discovery, Placement & Enrollment | Pending |
+| SCHED-02 | Phase 7 — Discovery, Placement & Enrollment | Pending |
+| SCHED-03 | Phase 7 — Discovery, Placement & Enrollment | Pending |
+| SCHED-04 | Phase 2 — Portable Kernel & Loopback Map Slice | Pending |
+| SCHED-05 | Phase 7 — Discovery, Placement & Enrollment | Pending |
+| MR-01 | Phase 2 — Portable Kernel & Loopback Map Slice | Pending |
+| MR-02 | Phase 6 — Decomposable Tree-Reduce | Pending |
+| MR-03 | Phase 6 — Decomposable Tree-Reduce | Pending |
+| MR-04 | Phase 6 — Decomposable Tree-Reduce | Pending |
+| MR-05 | Phase 6 — Decomposable Tree-Reduce | Pending |
+| MR-06 | Phase 6 — Decomposable Tree-Reduce | Pending |
+| MR-07 | Phase 6 — Decomposable Tree-Reduce | Pending |
+| CHURN-01 | Phase 8 — Churn, Stragglers & Coordinator Survival | Pending |
+| CHURN-02 | Phase 8 — Churn, Stragglers & Coordinator Survival | Pending |
+| CHURN-03 | Phase 8 — Churn, Stragglers & Coordinator Survival | Pending |
+| CHURN-04 | Phase 8 — Churn, Stragglers & Coordinator Survival | Pending |
+| CHURN-05 | Phase 8 — Churn, Stragglers & Coordinator Survival | Pending |
+| BROW-01 | Phase 10 — Public Demo, Consent UX & Disclosure Gate | Pending |
+| BROW-02 | Phase 10 — Public Demo, Consent UX & Disclosure Gate | Pending |
+| BROW-03 | Phase 4 — Browser Tier & Backbone Relay | Pending |
+| BROW-04 | Phase 10 — Public Demo, Consent UX & Disclosure Gate | Pending |
+| BROW-05 | Phase 4 — Browser Tier & Backbone Relay | Pending |
+| BENCH-01 | Phase 9 — Benchmark Harness | Pending |
+| BENCH-02 | Phase 1 — Determinism Gate & Trust-Model Verdict | Pending |
+| BENCH-03 | Phase 9 — Benchmark Harness | Pending |
+| BENCH-04 | Phase 9 — Benchmark Harness | Pending |
+| BENCH-05 | Phase 9 — Benchmark Harness | Pending |
+| BENCH-06 | Phase 9 — Benchmark Harness | Pending |
+| DEMO-01 | Phase 10 — Public Demo, Consent UX & Disclosure Gate | Pending |
+| DEMO-02 | Phase 10 — Public Demo, Consent UX & Disclosure Gate | Pending |
+| DEMO-03 | Phase 10 — Public Demo, Consent UX & Disclosure Gate | Pending |
+| DEMO-04 | Phase 10 — Public Demo, Consent UX & Disclosure Gate | Pending |
+| AOT-01 | Phase 11 — elfconv AOT Native→WASM Pipeline | Pending |
+| AOT-02 | Phase 11 — elfconv AOT Native→WASM Pipeline | Pending |
+| AOT-03 | Phase 11 — elfconv AOT Native→WASM Pipeline | Pending |
+| AOT-04 | Phase 11 — elfconv AOT Native→WASM Pipeline | Pending |
+| AOT-05 | Phase 11 — elfconv AOT Native→WASM Pipeline | Pending |
+
+**Coverage: 70/70 mapped. No orphans, no duplicates.**
