@@ -13,8 +13,21 @@ potential compute node.
 
 **Usable capacity grows super-linearly with the user base, without any raw data
 leaving its owner's device.** If everything else fails, a map/reduce job must
-distribute across N independently-owned nodes, return a verified-correct result,
-and demonstrably never move the underlying data off the owner's node.
+distribute across N independently-owned nodes, return a result whose integrity is
+demonstrable, and demonstrably never move the underlying data off the owner's node.
+
+**What "demonstrable integrity" means precisely** — sovereignty and N-version
+verification cannot both apply to the same task, because pinning data to one node
+removes the second independent executor. The system therefore splits the claim:
+
+| Data | Integrity mechanism |
+|------|--------------------|
+| Public / shared | Full N-version redundant execution with commit-reveal, ≥1 replica backbone-anchored |
+| Sovereign (owner-pinned) | Map is **owner-attested**; the aggregation *over* contributions is verified |
+
+Stated plainly: *the owner's contribution is trusted; the aggregation over
+contributions is verified.* The sovereignty claim itself is carried by an egress
+manifest and coverage report, not by a quorum.
 
 ## Requirements
 
@@ -56,7 +69,12 @@ and demonstrably never move the underlying data off the owner's node.
   hatch for exact holistic ops; decomposable reduce and mergeable sketches cover
   the target workloads
 - **Incentives, payments, staking, reputation** (§3.8) — a market layer is
-  meaningless before capacity scaling is proven
+  meaningless before capacity scaling is proven. **Note:** this excludes the
+  *market*, not §3.9 provider-gated enrollment. Enrollment (node identity,
+  hardware-backed keys, provider-signed certificates) is **in scope** — it is what
+  makes quorum anti-affinity and backbone audit-sampling possible, and browser
+  compute cannot be paid anyway (Coinhive's largest operators earned single-digit
+  dollars over months before being blocked by default)
 - **Emulation fallback / container2wasm** (Part I.5) — ~10x+ slowdown for kernel
   fidelity nobody has asked for yet
 - **Making the repository or demo public** — gated on a separate explicit decision
@@ -134,6 +152,9 @@ a signed commercial agreement. Both licenses are unreviewed drafts.
 | Full scope in v1, Part I sequenced last | Fine granularity allows elfconv AOT as late phases, so it doesn't block the capacity-scaling and sovereignty thesis the doc's §6 front-loads deliberately | — Pending |
 | Demo target: multi-machine + multi-tab, plus benchmark harness | A live demo proves it *works*; published benchmark numbers prove the *scaling thesis*. Source proves authorship. All three are needed | — Pending |
 | No outside contributions | Sole authorship keeps the commercial license track available for every line, with no CLA machinery | — Pending |
+| **Verify the reduce, not the map** (resolves C3) | Sovereignty removes the second executor, so N-version cannot apply to a sovereign map. Partials *do* move, so the aggregation tree is replicable and backbone-anchorable. Full N-version is demonstrated on public/shared data where no conflict exists. Requires no MVP scope addition | — Pending |
+| **P0 determinism spike gates the trust model; plan both branches** | V8 has no NaN-canonicalization and x86/ARM disagree on NaN sign bits, so honest nodes may split the quorum. If divergence bites, the trust model becomes backbone-anchored audit sampling rather than N-version. Phases are written to accommodate either outcome, avoiding a mid-project re-roadmap | — Pending |
+| Enrollment (§3.9) in scope; incentives (§3.8) out | Enrollment enables quorum anti-affinity and audit sampling — load-bearing for integrity. Incentives are a market layer, and browser compute demonstrably cannot be paid | — Pending |
 
 ## Evolution
 
