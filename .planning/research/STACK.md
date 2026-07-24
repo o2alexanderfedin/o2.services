@@ -108,8 +108,9 @@ The canonical, mutually-compatible set, taken from [`packages/integration-tests/
 | `rolldown-plugin-dts` | `0.27.14` | `.d.ts` generation | Bundled into tsdown. Set `isolatedDeclarations: true` in tsconfig ⇒ it uses the **Oxc** generator and needs no TypeScript API at all, side-stepping the TS 7.0 "no stable API until 7.1" problem entirely. |
 | `vite` | `8.1.5` | Dev server + demo app bundle | For the browser demo/benchmark harness (not the library). Node 20.19+/22.12+ required. |
 | `vitest` | `4.1.10` | Test runner — **Node and browser from one config** | Use the `projects` feature: one project `environment: 'node'`, another with `browser.enabled`. Same test files, two runtimes. This is the single most important tool choice for "runs identically in browser and Node". |
-| `@vitest/browser` | `4.1.10` | Browser-mode runner | Provider `playwright`, `instances: [{browser:'chromium'},{browser:'firefox'},{browser:'webkit'}]`. Requires Chrome ≥87 / Firefox ≥78 / Safari ≥15.4. |
-| `playwright` / `@playwright/test` | `1.61.1` | Multi-browser E2E + multi-tab orchestration | Doubles as the **benchmark driver**: `browser.newContext()` × N gives N isolated "nodes" in one process for the tabs-scaling curve. |
+| `@vitest/browser` | `4.1.10` | Browser-mode runner | `instances: [{browser:'chromium'},{browser:'firefox'},{browser:'webkit'}]`. Requires Chrome ≥87 / Firefox ≥78 / Safari ≥15.4. |
+| `@vitest/browser-playwright` | `4.1.10` | Playwright provider for browser mode | **CORRECTED 2026-07-24 (Phase 1 research).** The provider is a separate package imported as a *function*, not a `provider: 'playwright'` string: `import { playwright } from '@vitest/browser-playwright'` → `browser: { provider: playwright(), instances: [...] }`. The string form was a vitest 3.x-era assumption and does not work on 4.x. |
+| `playwright` / `@playwright/test` | ~~`1.61.1`~~ → **re-verify at install time** | Multi-browser E2E + multi-tab orchestration | Doubles as the **benchmark driver**: `browser.newContext()` × N gives N isolated "nodes" in one process for the tabs-scaling curve. `1.62.0` was current on 2026-07-24; must be checked for mutual compatibility with `@vitest/browser-playwright`'s `peerDependencies` before locking `package.json`. |
 | `tinybench` | `6.1.2` | Micro-benchmarks, browser + Node | What `vitest bench` uses under the hood. Correct for per-op measurement (CID hashing, WASM instantiate, Noise handshake). |
 | `eslint` + `typescript-eslint` | `10.7.0` / `8.65.0` | Lint | Or `oxlint@1.75.0` for speed. Not load-bearing. |
 
@@ -180,8 +181,8 @@ npm install -D \
   tsdown@0.22.14 \
   vite@8.1.5 \
   vitest@4.1.10 \
-  @vitest/browser@4.1.10 \
-  playwright@1.61.1 @playwright/test@1.61.1 \
+  @vitest/browser@4.1.10 @vitest/browser-playwright@4.1.10 \
+  playwright @playwright/test \
   tinybench@6.1.2 \
   binaryen@131.0.0 \
   wabt@1.0.39 \
@@ -431,7 +432,7 @@ The [official libp2p perf protocol](https://github.com/libp2p/specs/blob/master/
 | `@helia/block-brokers@5.2.4` | ⚠️ **lags** | Still on `@helia/interface ^6.2.1` / `@helia/utils ^2.5.2` while `helia@7` uses `@helia/interface ^7.1.0`. **Do not add it directly** — use `helia@7`'s built-in composition (`withBitswap`, `withHTTP`) instead. Same caution for `@helia/routers@5.1.1` (last touched 2026-05-29) vs the newer split packages `@helia/delegated-routing-client` / `@helia/trustless-gateway-client` / `@helia/fallback-router` (all 2026-07-24). |
 | `typescript@7.0.2` | `rolldown-plugin-dts@0.27.14` | The plugin auto-selects the `tsgo` generator when TS 7 is present. Prefer `isolatedDeclarations: true` ⇒ `oxc` generator ⇒ no TS API dependency at all. |
 | `typescript@7.0.2` | `typescript-eslint@8.65.0` | Verify before adopting — typescript-eslint uses the TS API heavily, and TS 7's API is unstable until 7.1. **Fallback: `oxlint@1.75.0`, which has no TS-API dependency.** |
-| `vitest@4.1.10` | `@vitest/browser@4.1.10` + `playwright@1.61.1` | Versions must match exactly between `vitest` and `@vitest/browser`. |
+| `vitest@4.1.10` | `@vitest/browser@4.1.10` + `@vitest/browser-playwright@4.1.10` + `playwright` (pin at install) | `vitest`, `@vitest/browser`, and `@vitest/browser-playwright` must match exactly. `playwright` pin is resolved against the provider's `peerDependencies` at install time. |
 | `vite@8.1.5` | Node ≥20.19 / ≥22.12 | Node 24 LTS satisfies this. |
 | `@bjorn3/browser_wasi_shim@0.4.2` | any | Zero dependencies, pure JS. No compatibility surface. |
 
