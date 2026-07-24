@@ -1,8 +1,16 @@
 # o2.services
 
-[Add project description here]
+A peer-to-peer compute fabric that runs both managed (WASM) and native code,
+moves code to data (or data to code), keeps data on the owner's node for
+sovereignty, and scales processing with the user base via massive task graphs.
 
-> Newly initialized repository — no application code yet.
+> Design stage — no application code yet.
+
+## Documentation
+
+| Document | Contents |
+| -------- | -------- |
+| [P2P Native Cloud — Master Architecture Design](docs/p2p-native-cloud-design.md) | Part I: the execution substrate (native→WASM AOT, artifact caching). Part II: the P2P fabric (trust topology, scheduling, map/reduce, sovereignty). |
 
 ## Setup
 
