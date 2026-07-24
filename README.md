@@ -64,4 +64,17 @@ the branch-protection hook:
 
 ## License
 
-[Add license information]
+Source-available, **not** open source — see [LICENSE](LICENSE).
+
+| | |
+| --- | --- |
+| View source | ✅ |
+| Commercial trial evaluation | ✅ up to 32 days |
+| Use beyond trial | ❌ separate commercial license required |
+| Modification | ❌ |
+| Derivative works | ❌ |
+| Redistribution | ❌ |
+| Patent rights | ❌ expressly reserved |
+
+> **Draft — not reviewed by counsel.** Do not rely on this license or make this
+> repository public before an attorney reviews it.
