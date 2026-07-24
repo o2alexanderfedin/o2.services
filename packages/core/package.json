@@ -1,0 +1,13 @@
+{
+  "name": "@o2/core",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@ipld/dag-cbor": "10.0.1",
+    "multiformats": "14.0.5"
+  }
+}
