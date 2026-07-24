@@ -43,7 +43,7 @@ export type EncodeError =
   | { kind: 'codec-rejected'; detail: string }
 
 export type EncodeResult =
-  | { ok: true; bytes: Uint8Array }
+  | { ok: true; bytes: Uint8Array<ArrayBuffer> }
   | { ok: false; error: EncodeError }
 
 /**
@@ -81,7 +81,11 @@ export function encodeCanonical(value: CanonicalValue): EncodeResult {
   const nonFinite = findNonFinite(value, '')
   if (nonFinite) return { ok: false, error: nonFinite }
   try {
-    return { ok: true, bytes: dagCbor.encode(value) }
+    // dag-cbor allocates a fresh ArrayBuffer-backed view; the annotation records
+    // that a block is never SharedArrayBuffer-backed, which matches the admission
+    // gate refusing shared memory in the first place.
+    const bytes = dagCbor.encode(value) as Uint8Array<ArrayBuffer>
+    return { ok: true, bytes }
   } catch (cause) {
     return {
       ok: false,
@@ -91,7 +95,7 @@ export function encodeCanonical(value: CanonicalValue): EncodeResult {
 }
 
 export type HashResult =
-  | { ok: true; cid: CID; bytes: Uint8Array }
+  | { ok: true; cid: CID; bytes: Uint8Array<ArrayBuffer> }
   | { ok: false; error: EncodeError }
 
 /**
@@ -108,6 +112,6 @@ export async function canonicalCid(value: CanonicalValue): Promise<HashResult> {
 }
 
 /** Decode canonical bytes back to a value. */
-export function decodeCanonical(bytes: Uint8Array): CanonicalValue {
+export function decodeCanonical(bytes: Uint8Array<ArrayBuffer>): CanonicalValue {
   return dagCbor.decode(bytes) as CanonicalValue
 }
