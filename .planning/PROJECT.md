@@ -98,8 +98,20 @@ a signed commercial agreement. Both licenses are unreviewed drafts.
   in host apps without a separate build per target
 - **Connectivity**: Browser-to-browser libp2p requires a publicly reachable
   Circuit Relay v2 node for the WebRTC SDP handshake, and browsers can only dial
-  `DNS + WSS` multiaddrs. Circuit Relay v2 reservations are capped at ~1 hour with
-  bandwidth limits by design
+  `DNS + WSS`, WebTransport, or WebRTC-Direct. The relay is a **signaling channel,
+  not a data path** — verified defaults in
+  `transport-circuit-relay-v2/src/constants.ts`: `DURATION_LIMIT` 2 minutes,
+  `DATA_LIMIT` 128 KiB, `MAX_RESERVATION_STORE_SIZE` 15 concurrent reservations.
+  Protocols will not negotiate over a relayed connection unless registered with
+  `runOnLimitedConnection: true`
+- **WebRTC data path**: 16 KiB max message (hardcoded in js-libp2p); Chromium
+  closes the channel above 256 KiB and does not reassemble Firefox's fragments.
+  The browser mesh cannot carry bulk data — partials must stay small (§3.5) and
+  artifacts fetch over an IPFS gateway (§I.6)
+- **Determinism**: V8 exposes no NaN-canonicalization or relaxed-SIMD control
+  (measured against `node --v8-options`; Wasmtime has both). Determinism must
+  therefore be enforced as a property of the **published artifact at publish
+  time**, not as runtime configuration
 - **Hosting**: GitHub Pages serves static files only and runs no server-side
   process — it can host the client but not a relay or bootstrap node
 - **Disclosure**: Public hosting is public disclosure. EPO and China have no
@@ -117,7 +129,7 @@ a signed commercial agreement. Both licenses are unreviewed drafts.
 | Decision | Rationale | Outcome |
 |----------|-----------|---------|
 | TypeScript + WASM for the node agent | Portability is the product; browser execution makes "capacity scales with users" literal. Collapses the WASM-runtime layer to V8 in the browser | — Pending |
-| Relay: DHT-discovered public IPFS infra primary, own backbone relay as fallback | Public infra is on-message and is functionality §3.4 needs anyway; Relay v2's 1-hour capped reservations make it too flaky to be the demo's only path. Doc §3.7 already prescribes running relays on the backbone | — Pending |
+| ~~Relay: public IPFS infra primary, own relay fallback~~ **INVERTED** → own backbone relay primary, public infra opportunistic | Research disproved the original. Browsers can only dial DNS+WSS / WebTransport / WebRTC-Direct, and most public nodes offer none of those (`no valid addresses available to dial`). Browser kad-dht is client-mode only; pubsub discovery is documented as not production-fit. Doc §3.7 already prescribed backbone relays | ⚠️ Revised 2026-07-24 |
 | Build the public demo, gate publishing separately | Building discloses nothing; deploying does. Keeps the provisional-patent option alive until explicitly surrendered | — Pending |
 | Full scope in v1, Part I sequenced last | Fine granularity allows elfconv AOT as late phases, so it doesn't block the capacity-scaling and sovereignty thesis the doc's §6 front-loads deliberately | — Pending |
 | Demo target: multi-machine + multi-tab, plus benchmark harness | A live demo proves it *works*; published benchmark numbers prove the *scaling thesis*. Source proves authorship. All three are needed | — Pending |
