@@ -13,16 +13,21 @@ cd o2.services
 
 ## Development
 
-This project uses [git-flow](https://github.com/petervanderdoes/gitflow-avh).
+This project uses [git-flow](https://github.com/nvie/gitflow) (v0.4.1).
 
-| Branch      | Purpose                    |
-| ----------- | -------------------------- |
-| `main`      | Production releases        |
-| `develop`   | Development integration    |
-| `feature/*` | New features               |
-| `release/*` | Release preparation        |
-| `hotfix/*`  | Production fixes           |
-| `bugfix/*`  | Development fixes          |
+| Branch      | Purpose                 | `git flow` subcommand |
+| ----------- | ----------------------- | --------------------- |
+| `main`      | Production releases     | —                     |
+| `develop`   | Development integration | —                     |
+| `feature/*` | New features            | `feature`             |
+| `release/*` | Release preparation     | `release`             |
+| `hotfix/*`  | Production fixes        | `hotfix`              |
+| `support/*` | Long-lived support      | `support`             |
+
+`bugfix/*` is also accepted by the hook, but has no `git flow` subcommand in
+v0.4.1 — create it manually, or upgrade to
+[gitflow-avh](https://github.com/petervanderdoes/gitflow-avh)
+(`brew install git-flow-avh`) which adds `git flow bugfix`.
 
 `main` and `develop` are protected by a `pre-commit` hook — direct commits are
 rejected. All work goes through a branch:
