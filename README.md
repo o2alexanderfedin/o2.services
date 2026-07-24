@@ -64,17 +64,29 @@ the branch-protection hook:
 
 ## License
 
-Source-available, **not** open source — see [LICENSE](LICENSE).
+**Dual-licensed**, source-available, **not** open source. The default track
+applies automatically; the commercial track requires a signed agreement. You
+cannot elect between them.
 
-| | |
-| --- | --- |
-| View source | ✅ |
-| Commercial trial evaluation | ✅ up to 32 days |
-| Use beyond trial | ❌ separate commercial license required |
-| Modification | ❌ |
-| Derivative works | ❌ |
-| Redistribution | ❌ |
-| Patent rights | ❌ expressly reserved |
+| | [Default](LICENSE) | [Commercial](LICENSE-COMMERCIAL.md) |
+| --- | --- | --- |
+| Applies to | everyone, automatically | signed parties only |
+| View source | ✅ | ✅ |
+| Commercial trial evaluation | ✅ up to 32 days | ✅ |
+| Use beyond trial / production | ❌ | ✅ negotiated |
+| Modification | ❌ | ✅ negotiated |
+| Derivative works | ❌ | ✅ negotiated |
+| Redistribution / embedding | ❌ | ✅ negotiated |
+| Patent rights | ❌ reserved | ✅ negotiated |
+| Support, SLA, indemnity | ❌ | ✅ negotiated |
 
-> **Draft — not reviewed by counsel.** Do not rely on this license or make this
-> repository public before an attorney reviews it.
+Commercial licensing: **af@O2.services**
+
+> **Draft — not reviewed by counsel.** Do not rely on either license, execute a
+> commercial agreement, or make this repository public before an attorney
+> reviews them.
+>
+> **No outside contributions may be merged until a CLA is in place** — a
+> contribution the licensor does not own cannot be relicensed commercially, which
+> would break the dual-license model. See
+> [LICENSE-COMMERCIAL.md](LICENSE-COMMERCIAL.md#contributions-and-the-right-to-dual-license).
