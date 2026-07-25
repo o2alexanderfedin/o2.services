@@ -1,6 +1,6 @@
 # Phase 3 — Browser Tier & Backbone Relay
 
-**Status:** IN PROGRESS — 3 of 6 criteria met, 1 open problem, 2 blocked on a human decision
+**Status:** IN PROGRESS — 4 of 6 criteria met (criterion 1 met locally), 1 blocked on a human decision
 **Requirements:** NET-02, NET-03, NET-04, NET-05, DATA-02, BROW-03, BROW-05
 **Branch:** `feature/phase-3-browser-tier`
 
@@ -16,8 +16,8 @@ tsc --noEmit  clean
 | 5 | IndexedDB + filesystem behind one interface, same CIDs | **met** — DATA-02 |
 | 4 | Relay at capacity reports exhaustion by name | **met** — NET-05 |
 | 2 | No `/certhash/` literal; addresses resolve at runtime | **half met** — the source/runtime half is verified; real AutoTLS is blocked |
-| 3 | 16+ simultaneous reservations; `runOnLimitedConnection` on handle *and* dial; relayed bytes stay small | **partial** — the flag is verified on both sides and a relayed circuit is obtained; 16-peer concurrency is not verified |
-| 1 | Two browser tabs **on different machines** over WebRTC | **not met** — see open problem, then the blocker |
+| 3 | 16+ simultaneous reservations; `runOnLimitedConnection` on handle *and* dial; relayed bytes stay small | **partial** — the flag is verified on both sides, a relayed circuit is obtained, and the relay is *proven* to stay out of the data path; 16-peer concurrency is not verified |
+| 1 | Two browser tabs **on different machines** over WebRTC | **met on one machine** — the "different machines" half is blocked |
 | 6 | Embedded, no COOP/COEP, throttles when backgrounded | **not started** — BROW-03, BROW-05 |
 
 ## Delivered
@@ -51,58 +51,52 @@ opposite responses. The watcher observes libp2p's own reported status through th
 `logger` injection point and classifies it. Verified end to end against a real relay
 at capacity, not by construction.
 
-## Open problem — must be settled before criterion 1
+## Two tabs, one machine — done
 
-**Requiring the responder to dial back does not survive the relayed topology, and
-cannot survive the browser one.**
+Two genuinely separate browser tabs complete a 4-shard, 2×-redundant map job over a
+**direct** browser-to-browser WebRTC connection, with a self-hosted Circuit Relay v2
+peer carrying only the SDP exchange.
 
-Phase 2 made `Transport` a one-way datagram port and put request/response
-correlation above it in `@o2/net`. A reply is therefore a *new* `send`, which opens a
-new stream by dialling the requester. On TCP that is free. Over circuit relay it
-means each reply opens a second relayed circuit in the opposite direction, and
-between two browser tabs it is simply impossible — neither can dial the other.
+The relay dropping out of the data path is **asserted, not assumed**. libp2p marks a
+relayed circuit as *limited* (2 min / 128 KiB) and a WebRTC connection as unlimited,
+so the test reads the live connection and requires a `/webrtc` remote address with
+`limits === undefined`. A job secretly running over the relay fails that assertion.
 
-Observed directly. Three relay-only peers, 2 shards at R=2: one shard agreed at
-`replicas: 1`, the other failed on both executors with
+Two isolated `BrowserContext`s rather than two pages in one context, so the tabs share
+no IndexedDB, no peer identity, and no libp2p state — separate nodes in every sense
+except the machine.
 
-```
-rpc send to 12D3Koo… failed: Remote closed connection during opening
-```
+Verified by falsification before being trusted: flipping `limited` to `true` and the
+expected partitions to `[9,9,9,9]` makes the assertions fail with real values, so they
+genuinely execute rather than passing vacuously.
 
-So relayed streams do work; the *topology* does not hold up under a job's worth of
-them. The tests that exposed this were removed rather than committed red, and are
-reproduced below.
+## Correction to an earlier finding
 
-**The fix is a design change, not a patch: carry the reply on the request's own
-stream.** That removes the dial-back entirely, halves circuits per exchange, and
-fits inside the relay's 128 KiB budget. It means `Transport` gains a reply channel —
-revisiting a Phase 2 decision — which is why it is written down here rather than
-rushed. It is the right change: the browser tier is the reason the port exists, and
-the current shape cannot serve it.
+An earlier version of this summary recorded an "open problem": that requiring the
+responder to dial back could not survive the browser topology. **That was mis-scoped
+and is withdrawn.**
 
-Do this **before** attempting criterion 1. Browser↔browser WebRTC built on the
-current shape would fail for this reason and the failure would be misread as a
-WebRTC or ICE problem.
+The observed failure came from running an entire job over `/p2p-circuit` — a topology
+the architecture explicitly does not support, because the relay is a *signalling
+channel and not a data path*. Over an established WebRTC connection the dial-back is
+fine: the connection is unlimited and either side can open streams on it, which is
+exactly what the two-tab test now demonstrates.
 
-Reproduction to restore once the reply path is fixed:
+So `Transport` stays a one-way datagram port and the Phase 2 decision stands. What
+remains true and worth remembering is the narrower fact: **a relayed circuit cannot
+carry a job**, and any test that tries is testing an unsupported configuration.
 
-1. `RelayNode.start({ maxReservations: 8 })`
-2. three `FabricNode.start({ listen: [], relayAddrs: [<relay ws addr>] })`
-3. wait for `circuitAddrs.length > 0` on all three
-4. submitter dials both workers at their `/p2p-circuit` addresses
-5. `submitJob` with 2 shards, R=2, both executors remote — expect `complete: true`
-
-A second, separate failure appeared in the 16-concurrent-reservation test:
+Still not diagnosed, and unrelated to the above:
 
 ```
 EncryptionFailedError: Unexpected EOF - stream closed while reading 0/1 bytes
   at Upgrader._encryptOutbound
 ```
 
-16 nodes dialling one relay simultaneously from a single process. Not diagnosed —
-it may be relay connection-manager limits, or simply 16 libp2p nodes starting at
-once in one process. Criterion 3 wants 16+ *browser* peers, so the eventual test
-probably belongs in Playwright contexts rather than one Node process.
+16 nodes dialling one relay simultaneously from a single Node process. Criterion 3
+wants 16+ *browser* peers, so that test probably belongs in Playwright contexts
+rather than one process — which is now a cheap thing to build, since the two-tab
+harness already opens isolated contexts against a live relay.
 
 ## Blocked on a human decision
 
@@ -110,8 +104,10 @@ Not attempted, deliberately.
 
 1. **Criterion 2, real AutoTLS.** Needs a publicly reachable host so
    `registration.libp2p.direct` can complete a Let's Encrypt challenge.
-2. **Criterion 1, "on different machines".** Needs a second machine or a publicly
-   reachable relay.
+2. **Criterion 1, "on different machines".** The WebRTC path itself is now proven on
+   one machine; extending it across two needs a second machine or a publicly
+   reachable relay. Nothing in the code should have to change — only the relay
+   address the tabs are given.
 
 Both mean standing up public infrastructure, which is an outward-facing,
 hard-to-reverse action that collides with a standing constraint: the repository stays
@@ -119,11 +115,15 @@ private until publication, publishing forfeits EPO and China patent rights
 permanently, and `DEMO-04` requires that no deploy workflow file exist at all.
 Deciding this is the user's call, not an autonomous one.
 
-A local two-context Playwright equivalent of criterion 1 is buildable without any of
-that — after the reply-path fix.
+The local two-context equivalent of criterion 1 is built and passing.
 
 ## Decisions
 
+- **`@o2/libp2p` is a third tier.** The libp2p `Transport` adapter is dual-target, so
+  it was extracted from `@o2/node` rather than duplicated into `@o2/browser` or
+  reached across for. The rule is now enforced by `purity.node.test.ts`: `core`/`net`
+  may not reference a platform *or libp2p*; `libp2p`/`browser` may use libp2p but no
+  `node:` builtins; `node` may use anything.
 - **`idb` over `blockstore-idb`** — our port is four methods; the alternative brings
   a wider interface and six dependencies to reach it.
 - **Conformance vectors are literals, not computed.** See above.
@@ -163,9 +163,17 @@ that — after the reply-path fix.
    transport module but the status *name* comes from the protobuf enum. Corrected to
    pin all three real locations.
 5. **Committed Vitest failure screenshots.** Removed and added to `.gitignore`.
+6. **`optimizeDeps: { noDiscovery: true }` broke the browser page** with
+   `does not provide an export named 'Netmask'`. Several libp2p transitive
+   dependencies are CommonJS (`netmask`, via `@libp2p/utils`) and need Vite's
+   pre-bundling for ESM interop. The error reads like a missing module and is not;
+   a comment at the call site says so.
 
 ## Carried forward
 
+- **Criterion 6 is untouched** — BROW-03 (throttle when the tab is backgrounded) and
+  BROW-05 (embedded in a third-party page with no COOP/COEP). The two-tab harness is
+  the natural place to test both.
 - `packages/node` is accumulating both the backbone-relay role and the worker role.
   If Phase 6 adds enrollment, splitting `@o2/backbone` out is worth considering.
 - Node 23.11.0 remains non-LTS and outside vitest's declared range — see STATE.md.
