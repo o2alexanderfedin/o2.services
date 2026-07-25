@@ -14,16 +14,18 @@ that is built but deliberately not deployed. The native→WASM AOT pipeline runs
 separate track throughout and lands last, because it is a C++/LLVM build toolchain with
 zero TypeScript coupling and it must not block the capacity-scaling thesis.
 
-**Determinism is a codec decision, not a measurement.** Anything hashed or
-content-addressed is encoded with strict DAG-CBOR, which forbids `NaN`, `Infinity`, and
-`-Infinity` outright and mandates a single canonical form for `-0.0` and one float width.
-Protobuf bytes are never hashed — protobuf serialization is explicitly not canonical
-across languages, builds, or schema versions. That one rule subsumes every float-bit
-concern; the admission gate handles the sources the codec cannot (relaxed-SIMD, threads,
-non-allow-listed imports, unbounded memory).
+**Determinism is enforced at the serialization boundary, and detected — never
+predicted.** Anything hashed or content-addressed is encoded with strict DAG-CBOR,
+which forbids `NaN`, `Infinity`, and `-Infinity` outright and mandates a single
+canonical form for `-0.0` and one float width. Protobuf bytes are never hashed.
+Beyond that there is no static analysis of task modules: two nodes run the same
+module, their outputs are compared byte for byte, and a mismatch is reported with
+the dissenting node named. The sandbox needs no allow-list — a module importing
+anything the host does not supply fails at `WebAssembly.instantiate`.
 
-**The verification claim is split by design:** full N-version applies to public/shared
-data and to the aggregation tree; sovereign maps run redundantly within the owner's own
+**Verification compares the same module run twice, not two implementations.**
+Cross-implementation verification is out of scope. The claim is split by owner:
+cross-operator redundancy applies to public/shared data and to the aggregation tree; sovereign maps run redundantly within the owner's own
 node set when two or more of their nodes are live, and are owner-attested otherwise.
 
 ## Phases
@@ -196,7 +198,7 @@ appeal paths, ship with the demo.
 **Success Criteria** (what must be TRUE):
   1. A statically-linked, unstripped AArch64 binary translates to a `.wasm` artifact through the containerized elfconv toolchain, and an unsupported binary (indirect or computed jumps, dynamic linking, wrong architecture) is refused by a compatibility checker with a named reason rather than producing a silently wrong artifact
   2. Translating the same input twice on different machines yields an identical CID, and the cache key demonstrably covers input digest, toolchain versions, target, and WASM feature set — changing any one of them changes the CID
-  3. A translated artifact passes the same admission gate, carries the same signed `key → CID` mapping and determinism certificate, and is verified by the same redundant-execution path as a source-compiled module — the native path cannot ship unsigned because the infrastructure to ship it unsigned does not exist
+  3. A translated artifact carries the same signed `key → CID` mapping and is verified by the same redundant-execution path as a source-compiled module — the native path cannot ship unsigned because the infrastructure to ship it unsigned does not exist
   4. A browser loads a translated artifact via `compileStreaming` against a stable gateway URL, and a second visit measurably hits the V8 code cache
 **Plans**: TBD
 

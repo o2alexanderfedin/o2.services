@@ -42,8 +42,9 @@ Progress: [░░░░░░░░░░] 0%
 Decisions are logged in PROJECT.md Key Decisions table.
 Recent decisions affecting current work:
 
-- Phase 1 gates the trust model. V8 has no NaN canonicalization and x86/ARM disagree on new-NaN sign bits, so honest nodes may split a quorum. Both branches are pre-planned: N-version comparison if the harness is clean, backbone-anchored audit sampling (VER-07) if not. No re-roadmap either way.
-- The verification claim is split (C3, decided): full N-version on public/shared data and on the aggregation tree; sovereign maps are owner-attested, carried by egress manifest + coverage report. Do not plan N-version over sovereign maps.
+- Verification compares the SAME module run on two nodes, byte for byte. Not multiple implementations of the same computation — cross-implementation verification is explicitly out of scope.
+- There is no static determinism analysis. Divergence is detected by the comparison, not predicted ahead of it. The admission gate was built and then deleted; do not reintroduce it. The import object is the sandbox — WebAssembly.instantiate refuses any import the host does not supply.
+- The verification claim is split (C3, decided): redundant execution on public/shared data and on the aggregation tree; sovereign maps run redundantly within the owner's own node set when two or more are live, and are owner-attested otherwise.
 - Relay decision inverted by evidence: own backbone relay primary (AutoTLS + webRTCDirect), public infra opportunistic only. Browsers structurally cannot dial the majority of public libp2p nodes.
 - Ordering is load-bearing: sovereignty before placement, tree-reduce before placement, artifact signing at content-addressing time (not at elfconv time), coordinator checkpointing in the churn phase, governor + benchmark instrumentation in the kernel phase.
 - Part I (elfconv AOT) sequenced last and run as a parallel track; it must not block the capacity-scaling thesis.

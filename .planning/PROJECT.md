@@ -25,8 +25,8 @@ speculation to "the owner's node set, never across owners").
 
 | Data | Integrity mechanism |
 |------|--------------------|
-| Public / shared | Full N-version redundant execution with commit-reveal, ≥1 replica backbone-anchored |
-| Sovereign, owner has ≥2 live nodes | N-version **within the owner's node set** — catches faults, buggy builds, and cross-architecture divergence |
+| Public / shared | Redundant execution of the identical module on independent nodes, with commit-reveal, ≥1 replica backbone-anchored |
+| Sovereign, owner has ≥2 live nodes | Redundant execution **within the owner's node set** — catches faults and environmental divergence without data leaving the trust domain |
 | Sovereign, owner has 1 live node | Map is **owner-attested**; recorded as such in the receipt |
 | Any cross-owner aggregate | The aggregation *over* contributions is verified, independent of how each partial was produced |
 
@@ -143,10 +143,10 @@ a signed commercial agreement. Both licenses are unreviewed drafts.
   closes the channel above 256 KiB and does not reassemble Firefox's fragments.
   The browser mesh cannot carry bulk data — partials must stay small (§3.5) and
   artifacts fetch over an IPFS gateway (§I.6)
-- **Determinism**: V8 exposes no NaN-canonicalization or relaxed-SIMD control
-  (measured against `node --v8-options`; Wasmtime has both). Determinism must
-  therefore be enforced as a property of the **published artifact at publish
-  time**, not as runtime configuration
+- **Determinism**: enforced at the serialization boundary, not by analysis. Anything
+  hashed or content-addressed is encoded with strict DAG-CBOR, which rejects
+  `NaN`/`Infinity`/`-Infinity`, normalizes `-0.0`, and mandates one float width.
+  Protobuf bytes are never hashed
 - **Hosting**: GitHub Pages serves static files only and runs no server-side
   process — it can host the client but not a relay or bootstrap node
 - **Disclosure**: Public hosting is public disclosure. EPO and China have no
@@ -169,9 +169,10 @@ a signed commercial agreement. Both licenses are unreviewed drafts.
 | Full scope in v1, Part I sequenced last | Fine granularity allows elfconv AOT as late phases, so it doesn't block the capacity-scaling and sovereignty thesis the doc's §6 front-loads deliberately | — Pending |
 | Demo target: multi-machine + multi-tab, plus benchmark harness | A live demo proves it *works*; published benchmark numbers prove the *scaling thesis*. Source proves authorship. All three are needed | — Pending |
 | No outside contributions | Sole authorship keeps the commercial license track available for every line, with no CLA machinery | — Pending |
-| **Verify the reduce, not the map** (resolves C3) | Sovereignty removes the second *independently-operated* executor, so cross-operator N-version cannot apply to a sovereign map. Partials *do* move, so the aggregation tree is replicable and backbone-anchorable. Full N-version is demonstrated on public/shared data where no conflict exists | — Pending |
-| **Owner-domain replication promoted to v1** (amends C3) | Sovereignty bounds the *owner*, not one device — an owner's own devices share data without leaving the trust domain, so N-version applies within the owner's node set. Catches faults, buggy builds, and cross-arch divergence; does **not** defend against a biased owner, so it supplements rather than replaces the verified reduce. Doc §3.3/§3.5/§4 already assume owner node *sets*; §3.9's node-key/user-key split is the enabling primitive. Lands as increments to Phases 5 and 7, no new phase | — Pending |
-| **P0 determinism spike gates the trust model; plan both branches** | V8 has no NaN-canonicalization and x86/ARM disagree on NaN sign bits, so honest nodes may split the quorum. If divergence bites, the trust model becomes backbone-anchored audit sampling rather than N-version. Phases are written to accommodate either outcome, avoiding a mid-project re-roadmap | — Pending |
+| **Verify the reduce, not the map** (resolves C3) | Sovereignty removes the second *independently-operated* node, so cross-operator redundancy cannot apply to a sovereign map. Partials *do* move, so the aggregation tree is replicable and backbone-anchorable. Full cross-operator redundancy is demonstrated on public/shared data where no conflict exists | — Pending |
+| **Owner-domain replication promoted to v1** (amends C3) | Sovereignty bounds the *owner*, not one device — an owner's own devices share data without leaving the trust domain, so redundant execution applies within the owner's node set. Catches faults and environmental divergence; does **not** defend against a biased owner, so it supplements rather than replaces the verified reduce. Doc §3.3/§3.5/§4 already assume owner node *sets*; §3.9's node-key/user-key split is the enabling primitive. Lands as increments to Phases 5 and 7, no new phase | — Pending |
+| **Determinism is detected, not predicted** (supersedes the deleted P0 spike) | Verification is a byte comparison of two runs of the same module. Predicting statically that a module cannot diverge is a far harder problem and the comparison is the mechanism regardless. An admission gate was built and deleted: every check was either enforced by the runtime already (imports), impossible in one thread (atomics), or self-reporting as a disagreement. Cost of a nondeterministic module is one wasted redundant execution | ✓ Good |
+| **Cross-implementation verification is out of scope** | Verification compares the same module on two nodes, never two independent implementations of the same computation. Nothing in the system dispatches differing code for comparison | ✓ Good |
 | Enrollment (§3.9) in scope; incentives (§3.8) out | Enrollment enables quorum anti-affinity and audit sampling — load-bearing for integrity. Incentives are a market layer, and browser compute demonstrably cannot be paid | — Pending |
 
 ## Evolution
