@@ -5,16 +5,25 @@
 See: .planning/PROJECT.md (updated 2026-07-24)
 
 **Core value:** Usable capacity grows super-linearly with the user base, without any raw data leaving its owner's device.
-**Current focus:** Phase 1 — Determinism Gate & Trust-Model Verdict
+**Current focus:** Phase 2 — Real Network, Node ↔ Node
 
 ## Current Position
 
-Phase: 1 of 11 (Determinism Gate & Trust-Model Verdict)
+Phase: 2 of 10 (Real Network, Node ↔ Node) — not yet planned
 Plan: 0 of TBD in current phase
-Status: Ready to plan
-Last activity: 2026-07-24 — Roadmap created; 70/70 v1 requirements mapped across 11 phases
+Status: Ready to discuss
+Last activity: 2026-07-25 — Phase 1 complete and verified: 149 tests green across node/browser/webworker, `tsc --noEmit` clean
 
-Progress: [░░░░░░░░░░] 0%
+Progress: [█░░░░░░░░░] 10% (1 of 10 phases complete)
+
+**Note on the old "Phase 1 — Determinism Gate & Trust-Model Verdict":** that phase no
+longer exists. It was deleted from the roadmap (11 phases → 10, 76 → 72 requirements,
+`ce1ceb0`) because the question it was built to answer is settled by two specs: the WASM
+spec makes a generated NaN's sign nondeterministic, so measuring it could never change
+the design, and strict DAG-CBOR forbids the value at the serialization boundary anyway.
+The corresponding code — an admission gate that parsed WASM instruction streams — was
+deleted at `afb3cad`, 1,214 lines. `.planning/phases/` is empty because the only phase
+directory that existed belonged to that phase. This is expected, not damage.
 
 ## Performance Metrics
 
@@ -69,6 +78,8 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-07-24
-Stopped at: ROADMAP.md and STATE.md written; REQUIREMENTS.md traceability populated
-Resume file: None
+Last session: 2026-07-25
+Stopped at: Phase 1 complete, merged to `main` and pushed (`5be2829`). Handoff written.
+Resume file: `.planning/.continue-here.md` — leads with three blocking constraints
+(no static determinism analysis, no cross-implementation verification, no host-import
+allow-list). Read it before planning Phase 2.
