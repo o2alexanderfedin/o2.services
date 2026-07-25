@@ -51,12 +51,12 @@ Decimal phases appear between their surrounding integers in numeric order.
 **Goal**: A complete job — shard, execute redundantly, verify, return a result CID — runs end to end inside one process on all three targets, with no networking whatsoever
 **Mode:** mvp
 **Depends on**: Nothing (first phase)
-**Requirements**: DET-01, DET-02, DET-05, DET-06, DET-07, VER-01, VER-02, VER-05, VER-06, DATA-01, MR-01, SCHED-04
+**Requirements**: DET-05, DET-06, DET-07, VER-01, VER-02, VER-05, VER-06, DATA-01, MR-01, SCHED-04
 **Research**: Standard patterns — hexagonal architecture, dag-cbor schemas, Worker pools, and the compile-once/share-`Module` pattern are all documented and verified. Two decisions to settle in planning: aegir vs. vitest for the three-target discipline (the `webworker` target is non-negotiable either way), and the fuel-bounding decision (no maintained JS-side WASM metering tool exists — build vs. accept a Worker timeout)
 **Success Criteria** (what must be TRUE):
   1. `submitJob` with 4 shards executed at R=2 over an in-memory transport returns a result CID; the verifier reports agreement with the contributing node IDs, and injecting one divergent executor surfaces the disagreement with its dissenting node ID rather than majority-voting it away
   2. Task inputs, outputs, and intermediates are content-addressed and retrievable by CID; the task reads its partition index and count from the narrow host ABI, and each shard executes independently
-  3. An executor handed a module that fails the admission check refuses to instantiate it, and every task runs inside a Worker against exactly four host functions — no clock, randomness, environment, or filesystem is reachable from the guest, and nothing ever executes on the main thread
+  3. Every task runs inside a Worker against exactly four host functions, and a module importing anything else — a clock, an RNG, a WASI function — fails at instantiation with the offending import named by the runtime; nothing ever executes on the main thread
   4. The identical task-execution test suite passes under `node`, `browser`, and `webworker` targets with no target-specific branches in the kernel source
   5. Redundancy is a per-job dial that reaches 1 (off); receipts are commit-then-reveal so a replica cannot plagiarize a peer's answer; the compared digest covers `(task, outputs)` only — a receipt whose timing or fuel differs still verifies — and every completed job reports gross vs. useful node-seconds with the verification multiplier as a measured cost
   6. A user-set CPU duty-cycle cap is honoured by the executor with measured CPU staying under it, and the node's advertised capacity drops accordingly
@@ -100,7 +100,7 @@ Decimal phases appear between their surrounding integers in numeric order.
   2. A stream tap on the owner node's network interface fails the test if a single raw sovereign byte crosses it during a cross-owner job — filters, projections, and partial aggregation have pushed down to the owner, so only the aggregate leaves
   3. Every job emits an owner-signed egress manifest recording exactly what left each owner's node, with byte counts, and the manifest is complete by construction rather than by audit
   4. A task arriving without a valid, unexpired capability chain rooted at the data owner's key is refused before the module is instantiated, and the refusal names the missing link
-  5. Artifacts resolve only through signed `key → CID` mappings validated against pinned trust anchors — an unsigned mapping, or one signed by an untrusted key, is refused — and each artifact carries a published determinism certificate asserting admission-check compliance and DAG-CBOR output encoding
+  5. Artifacts resolve only through signed `key → CID` mappings validated against pinned trust anchors — an unsigned mapping, or one signed by an untrusted key, is refused — because content addressing proves integrity, not provenance
   6. A backbone-held encrypted replica of sovereign data satisfies availability queries but is refused as an execution target — the placer will not dispatch a sovereign task to it, because executing would require handing a non-owner node the decryption key
 **Plans**: TBD
 
@@ -229,11 +229,11 @@ Parallel tracks (config `parallelization: true`):
 
 ## Requirement Coverage
 
-74 of 74 v1 requirements mapped, each to exactly one phase.
+72 of 72 v1 requirements mapped, each to exactly one phase.
 
 | Phase | Requirements | Count |
 |-------|--------------|-------|
-| 1 | DET-01, DET-02, DET-05, DET-06, DET-07, VER-01, VER-02, VER-05, VER-06, DATA-01, MR-01, SCHED-04 | 12 |
+| 1 | DET-05, DET-06, DET-07, VER-01, VER-02, VER-05, VER-06, DATA-01, MR-01, SCHED-04 | 10 |
 | 2 | NET-01, NET-07 | 2 |
 | 3 | NET-02, NET-03, NET-04, NET-05, DATA-02, BROW-03, BROW-05 | 7 |
 | 4 | DATA-03, DATA-04, DATA-05, DATA-06, DATA-07, DATA-08, DATA-09, DET-03, AUTH-03 | 9 |
@@ -243,4 +243,4 @@ Parallel tracks (config `parallelization: true`):
 | 8 | BENCH-01, BENCH-02, BENCH-03, BENCH-04, BENCH-05, BENCH-06 | 6 |
 | 9 | DEMO-01, DEMO-02, DEMO-03, DEMO-04, BROW-01, BROW-02, BROW-04 | 7 |
 | 10 | AOT-01, AOT-02, AOT-03, AOT-04, AOT-05 | 5 |
-| **Total** | | **74** |
+| **Total** | | **72** |

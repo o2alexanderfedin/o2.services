@@ -8,22 +8,26 @@
  *   o2.output_write(ptr, len) -> void  take len bytes at ptr as the declared output
  *   o2.partition()            -> i32   (index << 16) | count
  *
- * No clock, no randomness, no environment, no filesystem, no WASI. WASI would
- * hand the guest all four of those, which is four nondeterminism vectors in the
- * one place determinism is the requirement.
+ * **The import object is the sandbox.** A module importing anything else — a
+ * clock, an RNG, a WASI function — fails at `WebAssembly.instantiate` with a
+ * TypeError naming the import. There is no allow-list to maintain, because the
+ * runtime enforces it.
  *
- * The module is re-validated by the admission gate here, before instantiation
- * (DET-02) — a node never runs a module it did not itself check, because it
- * cannot know whether publish-time validation was performed honestly.
+ * There is deliberately no static determinism analysis here. Divergence is
+ * *detected*, not predicted: two nodes run the task, their outputs are serialized
+ * and compared, and a mismatch is reported with the dissenting node named (see
+ * `../job/verify.ts`). Trying to prove ahead of time that a module cannot diverge
+ * is a far harder problem than comparing two byte strings, and the comparison is
+ * the mechanism regardless. The cost of a nondeterministic module is one wasted
+ * redundant execution and a reported disagreement — which is exactly what
+ * redundancy exists to surface.
  *
  * `WebAssembly` is a global in Node and in every browser, so this file has no
  * platform import and runs unchanged in all three targets.
  */
 
-import type { CID } from 'multiformats/cid'
 import { decodeCanonical } from '../canonical/encode.ts'
 import type { CanonicalValue } from '../canonical/encode.ts'
-import { scanModule } from '../admission/gate.ts'
 import type { Blockstore, ExecutionOutcome, Executor, Task } from '../ports.ts'
 
 /** Name of the export a task module must provide. */
@@ -64,27 +68,18 @@ export class WasmExecutor implements Executor {
       return { ok: false, reason: `input block missing: ${task.inputCid.toString()}` }
     }
 
-    // DET-02: re-validate before instantiation, with the same pure function used
-    // at publish time.
-    const admission = scanModule(moduleBytes)
-    if (!admission.ok) {
-      const kinds = admission.rejections.map((r) => r.kind).join(', ')
-      return { ok: false, reason: `module refused by admission gate: ${kinds}` }
-    }
-
-    // A holder rather than a bare `let`: the value is assigned inside a host
-    // callback, and TypeScript's control-flow analysis cannot see that, so a
-    // plain `let` narrows to `never` after the null check below.
+    // Assigned inside a host callback, which TypeScript's control-flow analysis
+    // cannot see — a bare `let` would narrow to `never` after the null check below.
     const sink: { bytes: Uint8Array<ArrayBuffer> | null } = { bytes: null }
     let readCursor = 0
+    let memory: WebAssembly.Memory | null = null
 
     const imports = {
       o2: {
         input_len: (): number => inputBytes.length,
         input_read: (ptr: number, len: number): number => {
-          const mem = memory
-          if (mem === null) return 0
-          const view = new Uint8Array(mem.buffer)
+          if (memory === null) return 0
+          const view = new Uint8Array(memory.buffer)
           const available = inputBytes.length - readCursor
           const n = Math.max(0, Math.min(len, available))
           if (ptr < 0 || ptr + n > view.length) return 0
@@ -93,10 +88,9 @@ export class WasmExecutor implements Executor {
           return n
         },
         output_write: (ptr: number, len: number): void => {
-          const mem = memory
-          if (mem === null) return
+          if (memory === null) return
           if (len < 0 || len > this.#maxOutputBytes) return
-          const view = new Uint8Array(mem.buffer)
+          const view = new Uint8Array(memory.buffer)
           if (ptr < 0 || ptr + len > view.length) return
           // Copy out — the guest's memory is not stable after it returns.
           sink.bytes = view.slice(ptr, ptr + len)
@@ -106,12 +100,13 @@ export class WasmExecutor implements Executor {
       },
     }
 
-    let memory: WebAssembly.Memory | null = null
     let instance: WebAssembly.Instance
     try {
       const module = await WebAssembly.compile(moduleBytes)
       instance = await WebAssembly.instantiate(module, imports)
     } catch (cause) {
+      // Covers malformed bytes, a failed validation, and — importantly — any
+      // import the host does not provide.
       return {
         ok: false,
         reason: `instantiation failed: ${cause instanceof Error ? cause.message : String(cause)}`,
@@ -157,19 +152,4 @@ export class WasmExecutor implements Executor {
     // precisely so a cost metric can never cause honest nodes to disagree.
     return { ok: true, output: decoded, fuelUsed: inputBytes.length + output.length }
   }
-}
-
-/** Store a module in the blockstore and confirm it passes admission. */
-export async function publishModule(
-  bytes: Uint8Array<ArrayBuffer>,
-  blockstore: Blockstore,
-): Promise<{ ok: true; cid: CID } | { ok: false; reason: string }> {
-  const admission = scanModule(bytes)
-  if (!admission.ok) {
-    return {
-      ok: false,
-      reason: `refused: ${admission.rejections.map((r) => r.kind).join(', ')}`,
-    }
-  }
-  return { ok: true, cid: await blockstore.put(bytes) }
 }

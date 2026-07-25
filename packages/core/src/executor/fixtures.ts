@@ -150,16 +150,16 @@ export const MODULE_NO_OUTPUT: Uint8Array<ArrayBuffer> = build([0x01]) // nop
 /** Traps immediately. */
 export const MODULE_TRAPS: Uint8Array<ArrayBuffer> = build([0x00]) // unreachable
 
-/** Uses a SIMD opcode — admission must refuse it before instantiation. */
-export const MODULE_USES_SIMD: Uint8Array<ArrayBuffer> = build([0xfd, 0x0c])
 
-/** Declares growable memory — admission must refuse it. */
-export const MODULE_GROWABLE_MEMORY: Uint8Array<ArrayBuffer> = new Uint8Array([
+
+/**
+ * Imports `env.now`, which the host does not provide.
+ *
+ * No allow-list check is needed for this: `WebAssembly.instantiate` refuses the
+ * module with a TypeError naming the import. The runtime is the sandbox.
+ */
+export const MODULE_IMPORTS_CLOCK: Uint8Array<ArrayBuffer> = new Uint8Array([
   ...HEADER,
   ...TYPES,
-  ...IMPORTS,
-  ...FUNCS,
-  ...section(5, [0x01, 0x01, 0x01, 0x10]), // min=1, max=16
-  ...EXPORTS,
-  ...code([0x01]),
+  ...section(2, [0x01, ...utf8('env'), ...utf8('now'), 0x00, 0x00]),
 ])

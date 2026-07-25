@@ -4,13 +4,12 @@ import { encodeCanonical } from '../canonical/encode.ts'
 import { submitJob } from '../job/submit.ts'
 import {
   MODULE_ECHOES_INPUT,
-  MODULE_GROWABLE_MEMORY,
+  MODULE_IMPORTS_CLOCK,
   MODULE_NO_OUTPUT,
   MODULE_TRAPS,
-  MODULE_USES_SIMD,
   MODULE_WRITES_PARTITION,
 } from './fixtures.ts'
-import { WasmExecutor, publishModule } from './wasm.ts'
+import { WasmExecutor } from './wasm.ts'
 
 /** The fixture emits its partition index as a 4-byte little-endian byte string. */
 function partitionOf(output: unknown): number {
@@ -21,169 +20,116 @@ function partitionOf(output: unknown): number {
   return new DataView(p.buffer, p.byteOffset, 4).getUint32(0, true)
 }
 
+/** Store a module and an input, ready to execute. */
+async function setup(moduleBytes: Uint8Array<ArrayBuffer>, input: unknown = {}) {
+  const store = new MemoryBlockstore()
+  const moduleCid = await store.put(moduleBytes)
+  const encoded = encodeCanonical(input as never)
+  if (!encoded.ok) throw new Error('encode failed')
+  const inputCid = await store.put(encoded.bytes)
+  return { store, moduleCid, inputCid }
+}
+
 describe('fixtures are genuinely valid WASM', () => {
-  // This is the check that matters: it proves the hand-assembly is correct
-  // according to V8, not merely acceptable to our own admission gate.
+  // Proves the hand-assembly is correct according to V8.
   it.each([
     ['writes-partition', MODULE_WRITES_PARTITION],
     ['echoes-input', MODULE_ECHOES_INPUT],
     ['no-output', MODULE_NO_OUTPUT],
     ['traps', MODULE_TRAPS],
-    ['growable-memory', MODULE_GROWABLE_MEMORY],
+    ['imports-clock', MODULE_IMPORTS_CLOCK],
   ])('%s validates', (_name, bytes) => {
     expect(WebAssembly.validate(bytes)).toBe(true)
   })
 })
 
-describe('publishModule — admission is enforced at publish', () => {
-  it('stores an admissible module and returns its CID', async () => {
-    const store = new MemoryBlockstore()
-    const r = await publishModule(MODULE_WRITES_PARTITION, store)
-    expect(r.ok).toBe(true)
-    if (r.ok) expect(await store.has(r.cid)).toBe(true)
-  })
-
-  it('refuses a module using SIMD', async () => {
-    const r = await publishModule(MODULE_USES_SIMD, new MemoryBlockstore())
-    expect(r.ok).toBe(false)
-    if (!r.ok) expect(r.reason).toContain('simd')
-  })
-
-  it('refuses a module with growable memory', async () => {
-    const r = await publishModule(MODULE_GROWABLE_MEMORY, new MemoryBlockstore())
-    expect(r.ok).toBe(false)
-    if (!r.ok) expect(r.reason).toContain('unbounded-memory')
-  })
-})
-
 describe('WasmExecutor — the four-function host ABI (DET-06)', () => {
   it('runs a module and decodes its declared output', async () => {
-    const store = new MemoryBlockstore()
-    const mod = await publishModule(MODULE_WRITES_PARTITION, store)
-    expect(mod.ok).toBe(true)
-    if (!mod.ok) return
-    const input = encodeCanonical({ ignored: true })
-    expect(input.ok).toBe(true)
-    if (!input.ok) return
-    const inputCid = await store.put(input.bytes)
-
+    const { store, moduleCid, inputCid } = await setup(MODULE_WRITES_PARTITION)
     const exec = new WasmExecutor({ nodeId: 'n1', blockstore: store })
-    const out = await exec.execute({
-      moduleCid: mod.cid,
-      inputCid,
-      partitionIndex: 3,
-      partitionCount: 8,
-    })
+    const out = await exec.execute({ moduleCid, inputCid, partitionIndex: 3, partitionCount: 8 })
     expect(out.ok).toBe(true)
     if (out.ok) expect(partitionOf(out.output)).toBe(3)
   })
 
   it('passes the partition index through to the guest for every shard', async () => {
-    const store = new MemoryBlockstore()
-    const mod = await publishModule(MODULE_WRITES_PARTITION, store)
-    if (!mod.ok) throw new Error('publish failed')
-    const input = encodeCanonical({})
-    if (!input.ok) throw new Error('encode failed')
-    const inputCid = await store.put(input.bytes)
+    const { store, moduleCid, inputCid } = await setup(MODULE_WRITES_PARTITION)
     const exec = new WasmExecutor({ nodeId: 'n1', blockstore: store })
-
     for (const index of [0, 1, 5, 200]) {
-      const out = await exec.execute({
-        moduleCid: mod.cid,
-        inputCid,
-        partitionIndex: index,
-        partitionCount: 256,
-      })
+      const out = await exec.execute({ moduleCid, inputCid, partitionIndex: index, partitionCount: 256 })
       expect(out.ok).toBe(true)
       if (out.ok) expect(partitionOf(out.output)).toBe(index)
     }
   })
 
   it('round-trips input through input_len + input_read', async () => {
-    const store = new MemoryBlockstore()
-    const mod = await publishModule(MODULE_ECHOES_INPUT, store)
-    if (!mod.ok) throw new Error('publish failed')
     const value = { hello: 'world', n: 42 }
-    const input = encodeCanonical(value)
-    if (!input.ok) throw new Error('encode failed')
-    const inputCid = await store.put(input.bytes)
-
+    const { store, moduleCid, inputCid } = await setup(MODULE_ECHOES_INPUT, value)
     const exec = new WasmExecutor({ nodeId: 'n1', blockstore: store })
-    const out = await exec.execute({
-      moduleCid: mod.cid,
-      inputCid,
-      partitionIndex: 0,
-      partitionCount: 1,
-    })
+    const out = await exec.execute({ moduleCid, inputCid, partitionIndex: 0, partitionCount: 1 })
     expect(out.ok).toBe(true)
     if (out.ok) expect(out.output).toEqual(value)
   })
+})
 
-  it('re-validates the module before instantiation (DET-02)', async () => {
-    const store = new MemoryBlockstore()
-    // Bypass publishModule entirely — simulate a module that was stored by a node
-    // that skipped or lied about publish-time validation.
-    const cid = await store.put(MODULE_USES_SIMD)
-    const input = encodeCanonical({})
-    if (!input.ok) throw new Error('encode failed')
-    const inputCid = await store.put(input.bytes)
-
+describe('WasmExecutor — the import object is the sandbox', () => {
+  it('refuses a module importing a clock, with no allow-list code involved', async () => {
+    // The host supplies four functions. Anything else fails at instantiation,
+    // enforced by the runtime rather than by a hand-written scanner.
+    const { store, moduleCid, inputCid } = await setup(MODULE_IMPORTS_CLOCK)
     const exec = new WasmExecutor({ nodeId: 'n1', blockstore: store })
-    const out = await exec.execute({ moduleCid: cid, inputCid, partitionIndex: 0, partitionCount: 1 })
+    const out = await exec.execute({ moduleCid, inputCid, partitionIndex: 0, partitionCount: 1 })
     expect(out.ok).toBe(false)
-    if (!out.ok) expect(out.reason).toContain('admission gate')
+    if (!out.ok) {
+      expect(out.reason).toContain('instantiation failed')
+      // The runtime names the offending import for us.
+      expect(out.reason).toContain('env')
+    }
   })
 })
 
 describe('WasmExecutor — failure modes are reported, never thrown', () => {
-  const setup = async (moduleBytes: Uint8Array<ArrayBuffer>) => {
-    const store = new MemoryBlockstore()
-    const cid = await store.put(moduleBytes)
-    const input = encodeCanonical({})
-    if (!input.ok) throw new Error('encode failed')
-    const inputCid = await store.put(input.bytes)
-    return { store, cid, inputCid }
-  }
-
   it('reports a module that writes no output', async () => {
-    const { store, cid, inputCid } = await setup(MODULE_NO_OUTPUT)
+    const { store, moduleCid, inputCid } = await setup(MODULE_NO_OUTPUT)
     const exec = new WasmExecutor({ nodeId: 'n1', blockstore: store })
-    const out = await exec.execute({ moduleCid: cid, inputCid, partitionIndex: 0, partitionCount: 1 })
+    const out = await exec.execute({ moduleCid, inputCid, partitionIndex: 0, partitionCount: 1 })
     expect(out.ok).toBe(false)
     if (!out.ok) expect(out.reason).toBe('module produced no output')
   })
 
   it('reports a trap instead of propagating it', async () => {
-    const { store, cid, inputCid } = await setup(MODULE_TRAPS)
+    const { store, moduleCid, inputCid } = await setup(MODULE_TRAPS)
     const exec = new WasmExecutor({ nodeId: 'n1', blockstore: store })
-    const out = await exec.execute({ moduleCid: cid, inputCid, partitionIndex: 0, partitionCount: 1 })
+    const out = await exec.execute({ moduleCid, inputCid, partitionIndex: 0, partitionCount: 1 })
     expect(out.ok).toBe(false)
     if (!out.ok) expect(out.reason).toContain('trap')
+  })
+
+  it('reports garbage bytes as a failed instantiation rather than crashing', async () => {
+    const store = new MemoryBlockstore()
+    const moduleCid = await store.put(new Uint8Array([1, 2, 3, 4, 5, 6, 7, 8]))
+    const encoded = encodeCanonical({})
+    if (!encoded.ok) throw new Error('encode failed')
+    const inputCid = await store.put(encoded.bytes)
+    const exec = new WasmExecutor({ nodeId: 'n1', blockstore: store })
+    const out = await exec.execute({ moduleCid, inputCid, partitionIndex: 0, partitionCount: 1 })
+    expect(out.ok).toBe(false)
+    if (!out.ok) expect(out.reason).toContain('instantiation failed')
   })
 
   it('reports a missing module block', async () => {
     const { store, inputCid } = await setup(MODULE_NO_OUTPUT)
     const absent = await new MemoryBlockstore().put(new Uint8Array([9, 9, 9]))
     const exec = new WasmExecutor({ nodeId: 'n1', blockstore: store })
-    const out = await exec.execute({
-      moduleCid: absent,
-      inputCid,
-      partitionIndex: 0,
-      partitionCount: 1,
-    })
+    const out = await exec.execute({ moduleCid: absent, inputCid, partitionIndex: 0, partitionCount: 1 })
     expect(out.ok).toBe(false)
     if (!out.ok) expect(out.reason).toContain('module block missing')
   })
 
   it('refuses a partition count beyond the packed ABI range', async () => {
-    const { store, cid, inputCid } = await setup(MODULE_NO_OUTPUT)
+    const { store, moduleCid, inputCid } = await setup(MODULE_NO_OUTPUT)
     const exec = new WasmExecutor({ nodeId: 'n1', blockstore: store })
-    const out = await exec.execute({
-      moduleCid: cid,
-      inputCid,
-      partitionIndex: 0,
-      partitionCount: 70000,
-    })
+    const out = await exec.execute({ moduleCid, inputCid, partitionIndex: 0, partitionCount: 70000 })
     expect(out.ok).toBe(false)
     if (!out.ok) expect(out.reason).toContain('partitionCount exceeds')
   })
@@ -192,13 +138,11 @@ describe('WasmExecutor — failure modes are reported, never thrown', () => {
 describe('end to end — a real WASM job at R=2', () => {
   it('shards, executes redundantly, verifies, and returns result CIDs', async () => {
     const store = new MemoryBlockstore()
-    const mod = await publishModule(MODULE_WRITES_PARTITION, store)
-    expect(mod.ok).toBe(true)
-    if (!mod.ok) return
+    const moduleCid = await store.put(MODULE_WRITES_PARTITION)
 
     const r = await submitJob(
       {
-        moduleCid: mod.cid,
+        moduleCid,
         shards: [{ a: 1 }, { a: 2 }, { a: 3 }, { a: 4 }],
         executors: [
           new WasmExecutor({ nodeId: 'n1', blockstore: store }),
@@ -215,8 +159,6 @@ describe('end to end — a real WASM job at R=2', () => {
     expect(r.job.complete).toBe(true)
     expect(r.job.verificationMultiplier).toBe(2)
 
-    // Every shard agreed, and its output carries that shard's own index — so the
-    // partition genuinely reached the guest rather than being assumed.
     for (const [i, shard] of r.job.shards.entries()) {
       expect(shard.verification.status).toBe('agreed')
       if (shard.verification.status === 'agreed') {

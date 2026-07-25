@@ -18,14 +18,6 @@ export type {
   Transport,
 } from './ports.ts'
 
-// WASM binary reading.
-export { Reader } from './wasm/reader.ts'
-export type { ReadError, ReadResult } from './wasm/reader.ts'
-
-// Admission gate — DET-01, DET-02.
-export { HOST_ABI_ALLOWLIST, scanModule } from './admission/gate.ts'
-export type { AdmissionResult, Rejection } from './admission/gate.ts'
-
 // Canonical encoding — DET-05.
 export { canonicalCid, decodeCanonical, encodeCanonical } from './canonical/encode.ts'
 export type {
@@ -36,7 +28,7 @@ export type {
 } from './canonical/encode.ts'
 
 // Execution — DET-06.
-export { MAX_PARTITIONS, TASK_ENTRYPOINT, WasmExecutor, publishModule } from './executor/wasm.ts'
+export { MAX_PARTITIONS, TASK_ENTRYPOINT, WasmExecutor } from './executor/wasm.ts'
 export type { WasmExecutorOptions } from './executor/wasm.ts'
 
 // Redundant execution and verification — VER-01, VER-02, VER-05, VER-06.

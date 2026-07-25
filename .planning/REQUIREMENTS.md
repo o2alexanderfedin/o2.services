@@ -11,13 +11,21 @@
 
 ### Determinism & Execution Substrate
 
-- [ ] **DET-01**: A published WASM artifact is rejected at publish time if it uses
-      relaxed-SIMD opcodes, `atomic.*` / shared memory, imports outside a frozen
-      allow-list, or declares `memory.initial !== memory.maximum`
-- [ ] **DET-02**: The executor re-runs the same admission check before
-      instantiation, so a node never executes a module it did not itself validate
-- [ ] **DET-03**: A signed determinism certificate is published alongside each
-      artifact CID, asserting admission-check compliance and NaN normalization
+> **Determinism is detected, not predicted.** There is deliberately no static
+> analysis of task modules. Two nodes execute, their outputs are serialized and
+> compared, and a mismatch is reported with the dissenting node named. Proving
+> ahead of time that a module *cannot* diverge is a far harder problem than
+> comparing two byte strings, and the comparison is the mechanism regardless —
+> the cost of a nondeterministic module is one wasted redundant execution and a
+> reported disagreement, which is what redundancy exists to surface.
+>
+> The sandbox needs no allow-list either: the host supplies four functions, and a
+> module importing anything else fails at `WebAssembly.instantiate` with the
+> offending import named. The runtime enforces it.
+
+- [ ] **DET-03**: Artifacts resolve only through a `key → CID` mapping signed by a
+      trusted build authority, never by a bare CID — content addressing proves
+      integrity, not provenance
 - [ ] **DET-05**: Anything hashed or content-addressed is encoded with strict
       DAG-CBOR — which rejects `NaN`/`Infinity`/`-Infinity`, forces `-0.0` to `+0.0`,
       and mandates one float width — and protobuf bytes are never hashed. Comparison is
@@ -229,13 +237,11 @@
 
 ## Traceability
 
-All 74 v1 requirements are mapped, each to exactly one phase. See
+All 72 v1 requirements are mapped, each to exactly one phase. See
 `.planning/ROADMAP.md` for phase goals and success criteria.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| DET-01 | Phase 1 — Portable Kernel & Loopback Map Slice | Pending |
-| DET-02 | Phase 1 — Portable Kernel & Loopback Map Slice | Pending |
 | DET-03 | Phase 4 — Sovereignty, Authorization & Artifact Signing | Pending |
 | DET-05 | Phase 1 — Portable Kernel & Loopback Map Slice | Pending |
 | DET-06 | Phase 1 — Portable Kernel & Loopback Map Slice | Pending |
