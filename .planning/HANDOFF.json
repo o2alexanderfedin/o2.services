@@ -1,0 +1,69 @@
+{
+  "version": "1.0",
+  "timestamp": "2026-07-25T01:10:11.774Z",
+  "phase": "1",
+  "phase_name": "Portable Kernel & Loopback Map Slice",
+  "phase_dir": null,
+  "plan": null,
+  "task": null,
+  "total_tasks": null,
+  "status": "phase_complete",
+  "completed_tasks": [
+    { "id": 1, "name": "Project skeleton — TS 7.0.2, vitest, @o2/core workspace", "status": "done", "commit": "595edf6" },
+    { "id": 2, "name": "DET-05 canonical output encoding (strict DAG-CBOR + CID)", "status": "done", "commit": "595edf6" },
+    { "id": 3, "name": "Ports — Blockstore, Executor, Transport, Governor", "status": "done", "commit": "517d145" },
+    { "id": 4, "name": "VER-01/02/05/06 redundant execution + commit-reveal verification", "status": "done", "commit": "517d145" },
+    { "id": 5, "name": "MR-01 / DATA-01 job submission, sharding, content addressing", "status": "done", "commit": "517d145" },
+    { "id": 6, "name": "DET-06 WASM executor, four-function host ABI", "status": "done", "commit": "517d145" },
+    { "id": 7, "name": "SCHED-04 duty-cycle CPU governor", "status": "done", "commit": "517d145" },
+    { "id": 8, "name": "Delete the admission gate — 1214 lines removed", "status": "done", "commit": "afb3cad" },
+    { "id": 9, "name": "Loopback transport behind the Transport port", "status": "done", "commit": "f0a1158" },
+    { "id": 10, "name": "DET-07 node + browser + worker targets", "status": "done", "commit": "e644f31" }
+  ],
+  "remaining_tasks": [
+    { "id": 11, "name": "Phase 2 — Real Network, Node <-> Node (NET-01, NET-07)", "status": "not_started" }
+  ],
+  "blockers": [],
+  "human_actions_pending": [
+    {
+      "action": "Legal review of LICENSE and LICENSE-COMMERCIAL.md",
+      "context": "Both are unreviewed drafts. The commercial one is the instrument that would be signed and taken money against.",
+      "blocking": false
+    },
+    {
+      "action": "Decide defensive vs offensive patent posture before publishing anything",
+      "context": "Publishing forfeits EPO and China patent rights permanently — no grace period. A provisional (~$65 micro entity) preserves both options. Repo is private; nothing is disclosed yet.",
+      "blocking": false
+    }
+  ],
+  "decisions": [
+    {
+      "decision": "Determinism is detected, not predicted. No static analysis of task modules.",
+      "rationale": "Verification is a byte comparison of the same module run on two nodes. Predicting statically that a module cannot diverge is an unboundedly harder problem, and the comparison is the mechanism regardless. An admission gate was built and deleted: every check was either already enforced by the runtime (imports), impossible with one thread (atomics), or self-reporting as a disagreement.",
+      "phase": "1"
+    },
+    {
+      "decision": "The import object is the sandbox — no allow-list code.",
+      "rationale": "WebAssembly.instantiate refuses any import the host does not supply, naming it. A hand-written allow-list was reimplementing V8.",
+      "phase": "1"
+    },
+    {
+      "decision": "Cross-implementation verification is out of scope.",
+      "rationale": "Verification compares the same module on two nodes. Never two independent implementations of the same computation.",
+      "phase": "1"
+    },
+    {
+      "decision": "Determinism is enforced at the serialization boundary via strict DAG-CBOR.",
+      "rationale": "DAG-CBOR forbids NaN/Infinity/-Infinity, normalizes -0.0, and mandates one float width. Protobuf bytes are never hashed — its own docs state serialization is not canonical across languages, builds, or schema versions.",
+      "phase": "1"
+    },
+    {
+      "decision": "Phase 1 (determinism gate) deleted from the roadmap; 11 phases -> 10, 76 -> 72 requirements.",
+      "rationale": "The WASM spec makes a generated NaN's sign nondeterministic, so measuring it could never change the design, and DAG-CBOR forbids the value entirely. The gate phase was answering a settled question.",
+      "phase": "1"
+    }
+  ],
+  "uncommitted_files": [],
+  "next_action": "Start Phase 2 (Real Network, Node <-> Node). Swap a libp2p adapter in behind the existing Transport port; the kernel package must stay byte-for-byte unchanged, which is the actual test that the port boundary was drawn correctly. Covers NET-01 and NET-07.",
+  "context_notes": "Phase 1 is complete and green: 149 tests across node/browser/worker, tsc --noEmit clean, all four git refs in sync, tree clean, repo private. The dominant lesson of this session was over-engineering: roughly 1200 lines of WASM instruction parsing and a whole roadmap phase were built to statically prove determinism, then deleted once it was clear that comparing two byte strings already did the job. STATE.md carries explicit do-not-reintroduce notes for both the gate and cross-implementation verification. When planning Phase 2, resist the same pull — the transport swap is one adapter class, not a research project."
+}
