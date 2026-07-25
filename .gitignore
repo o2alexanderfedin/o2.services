@@ -19,3 +19,6 @@ tmp/
 node_modules/
 dist/
 *.tsbuildinfo
+
+# Vitest browser-mode failure screenshots
+__screenshots__/
