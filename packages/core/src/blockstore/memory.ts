@@ -11,6 +11,12 @@ import { CID } from 'multiformats/cid'
 import { sha256 } from 'multiformats/hashes/sha2'
 import type { Blockstore } from '../ports.ts'
 
+function copyOf(bytes: Uint8Array<ArrayBuffer>): Uint8Array<ArrayBuffer> {
+  const copy = new Uint8Array(bytes.byteLength)
+  copy.set(bytes)
+  return copy
+}
+
 export class MemoryBlockstore implements Blockstore {
   readonly #blocks = new Map<string, Uint8Array<ArrayBuffer>>()
 
@@ -19,12 +25,22 @@ export class MemoryBlockstore implements Blockstore {
     const cid = CID.create(1, dagCbor.code, digest)
     // Content-addressed: re-putting identical bytes is a no-op, which is what
     // makes intermediate dedup free.
-    this.#blocks.set(cid.toString(), bytes)
+    //
+    // Stored as a copy, and handed back as a copy in `get`. A persistent adapter
+    // cannot alias — the filesystem one snapshots on write and copies out of
+    // Node's Buffer pool on read, and IndexedDB structured-clones both ways. An
+    // in-memory Map would otherwise let a caller mutate a block after storing it,
+    // or mutate a retrieved block and corrupt the store, so code that is correct
+    // against a real backend would break here. Same reasoning as `MemoryNetwork`
+    // copying per recipient: the loopback adapter must not be more permissive than
+    // what it stands in for.
+    this.#blocks.set(cid.toString(), copyOf(bytes))
     return cid
   }
 
   async get(cid: CID): Promise<Uint8Array<ArrayBuffer> | undefined> {
-    return this.#blocks.get(cid.toString())
+    const stored = this.#blocks.get(cid.toString())
+    return stored === undefined ? undefined : copyOf(stored)
   }
 
   async has(cid: CID): Promise<boolean> {

@@ -20,3 +20,7 @@ export { RemoteExecutor } from './remote-executor.ts'
 
 export { RpcBlockSource, serveAgent } from './agent.ts'
 export type { AgentOptions } from './agent.ts'
+
+// DATA-02 — one addressing contract, checked against every Blockstore adapter.
+export { BLOCK_VECTORS, CONFORMANCE_BLOCK_COUNT, checkBlockstoreConformance } from './conformance.ts'
+export type { BlockVector, ConformanceReport } from './conformance.ts'
