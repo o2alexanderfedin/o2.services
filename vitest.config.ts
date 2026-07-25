@@ -30,6 +30,11 @@ export default defineConfig({
         test: {
           name: 'browser',
           include: ['packages/*/src/**/*.test.ts', 'packages/*/src/**/*.browser.test.ts'],
+          // `@o2/node` holds the adapters that exist precisely because a browser
+          // cannot do these things — real sockets, a filesystem, child processes.
+          // Its specs are Node-only by definition; the symmetric counterpart of
+          // the browser project's `*.browser.test.ts`.
+          exclude: ['**/*.node.test.ts'],
           browser: {
             enabled: true,
             provider: playwright(),

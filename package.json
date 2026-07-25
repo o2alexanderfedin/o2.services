@@ -20,5 +20,9 @@
     "playwright": "^1.62.0",
     "typescript": "7.0.2",
     "vitest": "4.1.10"
+  },
+  "overrides": {
+    "multiformats": "14.0.5",
+    "uint8arrays": "6.1.1"
   }
 }
