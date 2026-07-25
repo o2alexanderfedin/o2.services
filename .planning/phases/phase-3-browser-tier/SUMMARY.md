@@ -1,6 +1,6 @@
 # Phase 3 — Browser Tier & Backbone Relay
 
-**Status:** IN PROGRESS — 4 of 6 criteria met (criterion 1 met locally), 1 blocked on a human decision
+**Status:** IN PROGRESS — 5 of 6 criteria met, the remaining gaps all blocked on a public host or out of scope for a test suite
 **Requirements:** NET-02, NET-03, NET-04, NET-05, DATA-02, BROW-03, BROW-05
 **Branch:** `feature/phase-3-browser-tier`
 
@@ -16,9 +16,9 @@ tsc --noEmit  clean
 | 5 | IndexedDB + filesystem behind one interface, same CIDs | **met** — DATA-02 |
 | 4 | Relay at capacity reports exhaustion by name | **met** — NET-05 |
 | 2 | No `/certhash/` literal; addresses resolve at runtime | **half met** — the source/runtime half is verified; real AutoTLS is blocked |
-| 3 | 16+ simultaneous reservations; `runOnLimitedConnection` on handle *and* dial; relayed bytes stay small | **partial** — the flag is verified on both sides, a relayed circuit is obtained, and the relay is *proven* to stay out of the data path; 16-peer concurrency is not verified |
+| 3 | 16+ simultaneous reservations; `runOnLimitedConnection` on handle *and* dial; relayed bytes stay small | **substantially met** — 16 real browser peers reserve simultaneously; the flag is verified on both sides; the relay is *proven* out of the data path. Not done: the >1 hour hold under churn, and per-peer relayed byte counters (js-libp2p exposes none) |
 | 1 | Two browser tabs **on different machines** over WebRTC | **met on one machine** — the "different machines" half is blocked |
-| 6 | Embedded, no COOP/COEP, throttles when backgrounded | **not started** — BROW-03, BROW-05 |
+| 6 | Embedded, no COOP/COEP, throttles when backgrounded | **met** — BROW-03, BROW-05 |
 
 ## Delivered
 
@@ -70,6 +70,68 @@ Verified by falsification before being trusted: flipping `limited` to `true` and
 expected partitions to `[9,9,9,9]` makes the assertions fail with real values, so they
 genuinely execute rather than passing vacuously.
 
+## Criterion 6 — throttling and no-COOP/COEP operation
+
+**BROW-05.** The node runs on an ordinary page with neither COOP nor COEP, asserted
+from both ends: the HTTP response carries neither header, and the page reports
+`crossOriginIsolated === false` with `SharedArrayBuffer` undefined. That absence is
+also the concrete reason WASM threads are unavailable to this tier, so each executor
+gets its own instance.
+
+**BROW-03.** `VisibilityGovernor` drives the duty cycle from document visibility —
+full rate visible, 0.05 hidden, never zero. Zero would abandon a task in flight rather
+than pace it, and `GovernedExecutor` yields only *between* tasks, so work already
+started always finishes. That is what "resumes on return without losing its job"
+actually requires.
+
+### The governor did not throttle anything at first
+
+`submitJob` dispatches shards under `Promise.all`. A `GovernedExecutor` that merely
+awaited `yieldSlice()` per task therefore had all four yields resolve at once and then
+ran the entire job at full speed — **the cap silently bypassed by concurrency**. A duty
+cycle only exists if the node computes one slice at a time with the idle gap in
+between, so throttled execution is now serialized. At a duty cycle of 1 the
+serialization is skipped entirely, so an unthrottled node loses neither time nor
+parallelism. Both halves are tested: peak concurrency 1 while throttled, >1 while not.
+
+### Honest limitation, verified rather than assumed
+
+**Chromium under automation never reports a page as hidden.** `page.bringToFront()`
+changes nothing and fires no `visibilitychange`, in headless *and* headed mode, because
+no window manager is driving tab activation; and CDP offers no visibility override
+(`Page.setWebLifecycleState` is frozen/active, which fires `freeze` instead). So the
+browser's *signal* is simulated — `document.hidden` shadowed, a real
+`Event('visibilitychange')` dispatched — while everything downstream is genuine: the
+real `document`, real dispatch, the governor's real listener, the real
+`GovernedExecutor`, and a real job over a real WebRTC connection. The state machine
+itself is covered exhaustively against an injected source, in Node and Chromium both.
+
+## The limits that actually cap a relay's browser capacity
+
+Criterion 3's "sixteen or more" failed at first, and the cause was neither the
+reservation limit nor anything in this codebase. Two libp2p connection-manager defaults
+bind long before `maxReservations` does:
+
+| Default | Value | Effect |
+|---|---|---|
+| `MAX_INCOMING_PENDING_CONNECTIONS` | 10 | simultaneous inbound handshakes |
+| `INBOUND_CONNECTION_THRESHOLD` | **5** | inbound connections per second **from one host** |
+
+The second is the real culprit and the more interesting one. It is per *host*, so it
+binds whenever peers share an IP — every tab in a local test on `127.0.0.1`, and in
+production every volunteer behind one NAT: a school, an office, a carrier running
+CGNAT. For a fabric whose premise is many browsers, that is not an edge case.
+
+Exceeding either rejects the connection *during* the noise handshake, which the dialer
+reports as `EncryptionFailedError: Unexpected EOF - stream closed while reading 0/1
+bytes` — indistinguishable from a network fault unless you know where to look. This is
+what the earlier 16-node failure was; it was never an environment quirk.
+
+Found by bisection, not by reading: eight simultaneous joins already failed three of
+eight, adding a stagger fixed it, and raising the reservation and pending-handshake
+limits did **not**. `RelayNode` now derives both from `maxReservations`, never below
+libp2p's own defaults, and both values are pinned by `constants.node.test.ts`.
+
 ## Correction to an earlier finding
 
 An earlier version of this summary recorded an "open problem": that requiring the
@@ -86,17 +148,9 @@ So `Transport` stays a one-way datagram port and the Phase 2 decision stands. Wh
 remains true and worth remembering is the narrower fact: **a relayed circuit cannot
 carry a job**, and any test that tries is testing an unsupported configuration.
 
-Still not diagnosed, and unrelated to the above:
-
-```
-EncryptionFailedError: Unexpected EOF - stream closed while reading 0/1 bytes
-  at Upgrader._encryptOutbound
-```
-
-16 nodes dialling one relay simultaneously from a single Node process. Criterion 3
-wants 16+ *browser* peers, so that test probably belongs in Playwright contexts
-rather than one process — which is now a cheap thing to build, since the two-tab
-harness already opens isolated contexts against a live relay.
+The `EncryptionFailedError` recorded here earlier as "not diagnosed" **is diagnosed** —
+it was the per-host inbound rate limit, described above. It was never specific to
+running many nodes in one process.
 
 ## Blocked on a human decision
 

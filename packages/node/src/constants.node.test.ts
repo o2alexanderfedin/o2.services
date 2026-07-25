@@ -4,6 +4,8 @@ import { dirname, join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import {
+  LIBP2P_INBOUND_CONNECTION_THRESHOLD,
+  LIBP2P_MAX_INCOMING_PENDING_CONNECTIONS,
   RELAY_DATA_LIMIT_BYTES,
   RELAY_DURATION_LIMIT_MS,
   RELAY_MAX_RESERVATIONS,
@@ -75,6 +77,26 @@ describe('NET-07 — circuit relay v2 limits', () => {
 
     // 2 hours.
     expect(c['DEFAULT_MAX_RESERVATION_TTL']).toBe(RELAY_MAX_RESERVATION_TTL_MS)
+  })
+})
+
+describe('NET-07 — connection-manager limits that cap browser-peer capacity', () => {
+  it('matches libp2p’s inbound defaults, both of which bind before reservations do', async () => {
+    const c = await importInternal('libp2p', 'connection-manager/constants.defaults.js')
+
+    // Simultaneous inbound handshakes. Ten browser tabs joining at once already sit
+    // at the edge; the eleventh dies part-way through the noise handshake.
+    expect(c['MAX_INCOMING_PENDING_CONNECTIONS']).toBe(LIBP2P_MAX_INCOMING_PENDING_CONNECTIONS)
+
+    // Inbound connections per second from ONE HOST. The limit that actually stops a
+    // burst of browser peers, and it binds whenever peers share an IP — every tab in
+    // a local test, and every volunteer behind one NAT in production.
+    expect(c['INBOUND_CONNECTION_THRESHOLD']).toBe(LIBP2P_INBOUND_CONNECTION_THRESHOLD)
+
+    // Both are below the reservation limit, which is the whole point: tuning
+    // reservations alone leaves the extra capacity unreachable.
+    expect(LIBP2P_MAX_INCOMING_PENDING_CONNECTIONS).toBeLessThan(RELAY_MAX_RESERVATIONS)
+    expect(LIBP2P_INBOUND_CONNECTION_THRESHOLD).toBeLessThan(RELAY_MAX_RESERVATIONS)
   })
 })
 

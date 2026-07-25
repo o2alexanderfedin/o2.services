@@ -27,6 +27,43 @@ export const RELAY_DATA_LIMIT_BYTES = 131_072n
 /** Concurrent reservations one relay server accepts by default. */
 export const RELAY_MAX_RESERVATIONS = 15
 
+/**
+ * Simultaneous *inbound handshakes* libp2p permits by default.
+ *
+ * The limit that actually caps a relay's browser-peer capacity, and it binds well
+ * before `RELAY_MAX_RESERVATIONS` does. Ten browser tabs joining at once already sit
+ * at the edge; the eleventh is dropped part-way through the noise handshake and
+ * surfaces as `EncryptionFailedError: Unexpected EOF - stream closed while reading
+ * 0/1 bytes` — which reads like a network fault and is a configured limit.
+ *
+ * Discovered by sixteen browser peers failing to join a relay whose reservation limit
+ * was 32. Raising reservations alone is not enough: the two have to move together,
+ * which is why `RelayNode` derives one from the other.
+ */
+export const LIBP2P_MAX_INCOMING_PENDING_CONNECTIONS = 10
+
+/**
+ * Inbound connections per second libp2p accepts **from a single host** by default.
+ *
+ * The limit that actually stops sixteen browser peers joining a relay at once, and the
+ * most surprising one in this file. It is per *host*, not per peer — so it binds
+ * whenever many peers share an IP:
+ *
+ *   - every tab in a local multi-tab test, all on `127.0.0.1`;
+ *   - and, in production, every volunteer behind one NAT — a school, an office, a
+ *     carrier running CGNAT. For a fabric whose whole premise is many browsers, that
+ *     is not an edge case.
+ *
+ * Exceeding it rejects the connection *during* the noise handshake, which the dialer
+ * reports as `EncryptionFailedError: Unexpected EOF - stream closed while reading 0/1
+ * bytes` — indistinguishable from a network fault unless you know to look here.
+ *
+ * Found by bisection: eight simultaneous joins already failed three of eight, and
+ * adding a stagger fixed it, while raising the reservation and pending-handshake
+ * limits did not.
+ */
+export const LIBP2P_INBOUND_CONNECTION_THRESHOLD = 5
+
 /** How long a reservation remains valid. */
 export const RELAY_MAX_RESERVATION_TTL_MS = 7_200_000
 

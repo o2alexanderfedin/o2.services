@@ -9,10 +9,10 @@ See: .planning/PROJECT.md (updated 2026-07-24)
 
 ## Current Position
 
-Phase: 3 of 10 (Browser Tier & Backbone Relay) — **in progress, 4 of 6 criteria met**
+Phase: 3 of 10 (Browser Tier & Backbone Relay) — **in progress, 5 of 6 criteria met**
 Plan: partial — see `phases/phase-3-browser-tier/SUMMARY.md`
-Status: Criterion 6 not started; "different machines" and real AutoTLS need a host
-Last activity: 2026-07-25 — 235 tests green, `tsc --noEmit` clean. NET-02 met on one machine: two tabs, direct WebRTC, relay proven out of the data path
+Status: Remaining gaps need a public host, or are out of scope for a test suite
+Last activity: 2026-07-25 — 264 tests green, `tsc --noEmit` clean. Criterion 6 met (BROW-03, BROW-05); 16 real browser peers reserve simultaneously
 
 Progress: [██░░░░░░░░] 20% (2 of 10 phases complete; Phase 3 partial)
 
@@ -30,8 +30,9 @@ architecture never supported, since the relay is a signalling channel and not a 
 path. The Phase 2 decision stands. The narrower true fact to keep: **a relayed circuit
 cannot carry a job.**
 
-Remaining in Phase 3: criterion 6 (BROW-03 throttle on background, BROW-05 embedded
-with no COOP/COEP), 16-peer concurrency, and the two halves that need a host.
+Remaining in Phase 3: only the parts needing a public host (real AutoTLS, "different
+machines"), plus two out-of-scope items — a >1 hour hold under churn, and per-peer
+relayed byte counters, which js-libp2p does not expose.
 
 ## Performance Metrics
 
@@ -72,6 +73,14 @@ Recent decisions affecting current work:
   aliasing in-memory adapter made kernel tests pass on semantics no real backend has.
 - **Conformance vectors are hardcoded literals, never computed (Phase 3).** A
   computed expectation only proves an implementation agrees with itself.
+- **A relay's browser capacity is capped by inbound limits, not reservations (Phase 3).**
+  `INBOUND_CONNECTION_THRESHOLD` is 5 **per host** and
+  `MAX_INCOMING_PENDING_CONNECTIONS` is 10 — both below the 15 reservation default.
+  Per-host matters in production too: every volunteer behind one NAT shares the budget.
+  Exceeding either kills the noise handshake and looks like a network fault.
+- **A duty cycle must serialize to mean anything (Phase 3).** Shards dispatch
+  concurrently, so per-task yielding lets every yield resolve at once and the cap is
+  bypassed. `GovernedExecutor` serializes while throttled, and only while throttled.
 - **A relayed circuit cannot carry a job (Phase 3).** The relay is a signalling
   channel; the data path is WebRTC. A test that runs a job over `/p2p-circuit` is
   testing an unsupported configuration.
