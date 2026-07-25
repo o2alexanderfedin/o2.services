@@ -32,6 +32,22 @@ export interface TabConnection {
   readonly limited: boolean
 }
 
+/** BROW-03 — what the visibility governor is doing right now. */
+export interface TabGovernorState {
+  readonly hidden: boolean
+  readonly dutyCycle: number
+  readonly transitions: number
+  readonly sleptMs: number
+}
+
+/** BROW-05 — the isolation state of the page hosting this node. */
+export interface TabIsolation {
+  /** False on a page served without COOP/COEP, which is the supported case. */
+  readonly crossOriginIsolated: boolean
+  readonly hasSharedArrayBuffer: boolean
+  readonly inIframe: boolean
+}
+
 export interface TabAddresses {
   readonly peerId: string
   readonly webrtc: readonly string[]
@@ -48,6 +64,21 @@ export interface TabApi {
   connectionsTo(peerId: string): TabConnection[]
   putModule(bytes: number[]): Promise<string>
   storedBlocks(): Promise<number>
+  governor(): TabGovernorState
+  isolation(): TabIsolation
+  /**
+   * Force the page's visibility signal, then dispatch a real `visibilitychange`.
+   *
+   * Exists only because **Chromium under automation never reports a page as
+   * hidden** — verified: neither `page.bringToFront()` nor headed mode produces a
+   * hidden state or fires the event, because there is no window manager driving tab
+   * activation. So the browser's *signal* is simulated and everything downstream is
+   * real: the actual `document`, a real event dispatch, the governor's real listener,
+   * and the real execution path.
+   *
+   * Test-only. Nothing in the production path calls it.
+   */
+  simulateHidden(hidden: boolean): void
   hasBlock(cid: string): Promise<boolean>
   runJob(options: {
     moduleCid: string
