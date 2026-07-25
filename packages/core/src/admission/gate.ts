@@ -30,6 +30,9 @@ export type Rejection =
   | { kind: 'malformed'; offset: number; detail: string }
   | { kind: 'simd'; offset: number }
   | { kind: 'atomics'; offset: number }
+  | { kind: 'unknown-opcode'; offset: number; opcode: number }
+  | { kind: 'start-section'; offset: number }
+  | { kind: 'unknown-import-kind'; offset: number; importKind: number }
   | { kind: 'shared-memory'; offset: number }
   | { kind: 'unbounded-memory'; offset: number }
   | { kind: 'forbidden-import'; offset: number; module: string; name: string }
@@ -48,6 +51,7 @@ export const HOST_ABI_ALLOWLIST: readonly string[] = [
 
 const SECTION_IMPORT = 2
 const SECTION_MEMORY = 5
+const SECTION_START = 8
 const SECTION_CODE = 10
 
 const IMPORT_KIND_MEMORY = 2
@@ -85,6 +89,51 @@ const IMMEDIATES = new Map<number, 'l' | 'll' | 'b' | '4' | '8'>([
 const isMemArg = (op: number): boolean => op >= 0x28 && op <= 0x3e
 
 /**
+ * Opcodes that genuinely carry no immediates.
+ *
+ * Listed explicitly rather than inferred by exclusion: "not in the immediates
+ * table" must mean "refuse", not "assume zero immediates". The numeric and
+ * comparison block 0x45..0xC4 is contiguous and handled as a range at the call
+ * site.
+ */
+const NO_IMMEDIATE: ReadonlySet<number> = new Set([
+  0x00, // unreachable
+  0x01, // nop
+  0x05, // else
+  0x0b, // end
+  0x0f, // return
+  0x1a, // drop
+  0x1b, // select
+  0xd1, // ref.is_null
+])
+
+/**
+ * Immediate count for each `0xFC`-prefixed instruction.
+ *
+ * Taken from the binary-format spec, not inferred. Every immediate in this space
+ * is an index or a reserved zero byte, and a zero byte is itself a valid
+ * single-byte LEB, so counting LEBs is sufficient — but the *count* must be
+ * exact. Over-count by one and the walker eats the next opcode, which would let a
+ * SIMD or atomics instruction placed after one of these pass undetected.
+ *
+ * https://webassembly.github.io/spec/core/binary/instructions.html
+ */
+const FC_IMMEDIATE_COUNT: ReadonlyMap<number, number> = new Map([
+  // 0..7 — i32/i64.trunc_sat_*: no immediates
+  [0, 0], [1, 0], [2, 0], [3, 0], [4, 0], [5, 0], [6, 0], [7, 0],
+  [8, 2],  // memory.init  dataidx, memidx
+  [9, 1],  // data.drop    dataidx
+  [10, 2], // memory.copy  memidx, memidx
+  [11, 1], // memory.fill  memidx
+  [12, 2], // table.init   elemidx, tableidx
+  [13, 1], // elem.drop    elemidx
+  [14, 2], // table.copy   tableidx, tableidx
+  [15, 1], // table.grow   tableidx
+  [16, 1], // table.size   tableidx
+  [17, 1], // table.fill   tableidx
+])
+
+/**
  * Walk one function body's instruction stream, rejecting forbidden prefixes.
  * Returns the first rejection found, or null if the body is clean.
  */
@@ -99,15 +148,18 @@ function walkBody(r: Reader, endOffset: number): Rejection | null {
     if (opcode === 0xfd) return { kind: 'simd', offset: opAt }
     if (opcode === 0xfe) return { kind: 'atomics', offset: opAt }
 
-    // Bulk-memory / table prefix: deterministic, but its immediates must be skipped.
+    // Bulk-memory / table prefix: deterministic, so permitted — but its immediates
+    // must be consumed with the exact arity, or the walker desynchronizes.
     if (opcode === 0xfc) {
       const sub = r.u32()
       if (!sub.ok) return { kind: 'malformed', offset: opAt, detail: '0xFC subopcode' }
-      // memory.init(8)=1 LEB+1 byte, data.drop(9)=1, memory.copy(10)=2 bytes,
-      // memory.fill(11)=1 byte, table.* (12..17)=1-2 LEBs. Skipping LEBs covers all
-      // shapes because every immediate in this space is a LEB or a zero byte.
-      const extra = sub.value === 10 ? 2 : sub.value === 11 || sub.value === 8 ? 1 : sub.value <= 7 ? 0 : 2
-      for (let i = 0; i < extra; i++) {
+      const arity = FC_IMMEDIATE_COUNT.get(sub.value)
+      if (arity === undefined) {
+        // Guessing an unknown subopcode's arity is precisely how a walker loses
+        // sync and then misses a forbidden opcode downstream. Refuse instead.
+        return { kind: 'malformed', offset: opAt, detail: `unknown 0xFC subopcode ${sub.value}` }
+      }
+      for (let i = 0; i < arity; i++) {
         const e = skipLeb(r)
         if (e) return e
       }
@@ -143,7 +195,17 @@ function walkBody(r: Reader, endOffset: number): Rejection | null {
     }
 
     const shape = IMMEDIATES.get(opcode)
-    if (shape === undefined) continue // no immediates
+    if (shape === undefined) {
+      // Fail closed. An opcode we do not recognise may carry immediates we would
+      // not skip, and a desynchronized walker silently stops finding forbidden
+      // instructions. Unassigned encodings and every future proposal prefix
+      // (0xFB GC, and anything else) land here and are refused, which is the
+      // correct answer for a gate whose job is to reason about determinism.
+      if (!NO_IMMEDIATE.has(opcode) && !(opcode >= 0x45 && opcode <= 0xc4)) {
+        return { kind: 'unknown-opcode', offset: opAt, opcode }
+      }
+      continue
+    }
     if (shape === 'b') {
       if (!r.u8().ok) return { kind: 'malformed', offset: opAt, detail: 'byte immediate' }
     } else if (shape === '4') {
@@ -159,6 +221,31 @@ function walkBody(r: Reader, endOffset: number): Rejection | null {
     }
   }
   return null
+}
+
+/**
+ * Skip a table's limits without applying the memory rules to it.
+ *
+ * `initial === maximum` exists to stop growth-dependent OOM divergence in linear
+ * memory; applying it to a table and reporting `unbounded-memory` would be a
+ * misleading rejection for a different construct. The bytes must still be
+ * consumed exactly, or the import section desynchronizes and later imports go
+ * unchecked — which would be a false negative on the allow-list.
+ */
+function skipTableLimits(r: Reader, rejections: Rejection[]): void {
+  const at = r.offset
+  const flags = r.u8()
+  if (!flags.ok) {
+    rejections.push({ kind: 'malformed', offset: at, detail: 'table limits flags' })
+    return
+  }
+  if (!r.u32().ok) {
+    rejections.push({ kind: 'malformed', offset: at, detail: 'table minimum' })
+    return
+  }
+  if ((flags.value & 0x01) !== 0 && !r.u32().ok) {
+    rejections.push({ kind: 'malformed', offset: at, detail: 'table maximum' })
+  }
 }
 
 /** Parse memory limits. Flags bit 0 = has max, bit 1 = shared. */
@@ -240,7 +327,13 @@ export function scanModule(
       break
     }
 
-    if (id.value === SECTION_IMPORT) {
+    if (id.value === SECTION_START) {
+      // A start function runs during instantiation, before the host has resolved
+      // the instance's exported memory — so host calls made from it would see no
+      // memory and silently misbehave. A task module has `run` as its entrypoint
+      // and no legitimate need for a start section.
+      rejections.push({ kind: 'start-section', offset: idAt })
+    } else if (id.value === SECTION_IMPORT) {
       const count = r.u32()
       if (count.ok) {
         for (let i = 0; i < count.value; i++) {
@@ -269,13 +362,24 @@ export function scanModule(
           if (kind.value === 0) {
             skipLeb(r) // typeidx
           } else if (kind.value === 1) {
-            r.u8() // reftype
-            checkLimits(r, rejections)
+            if (!r.u8().ok) {
+              rejections.push({ kind: 'malformed', offset: at, detail: 'table reftype' })
+              break
+            }
+            skipTableLimits(r, rejections)
           } else if (kind.value === IMPORT_KIND_MEMORY) {
             checkLimits(r, rejections)
           } else if (kind.value === 3) {
-            r.u8() // valtype
-            r.u8() // mutability
+            if (!r.u8().ok || !r.u8().ok) {
+              rejections.push({ kind: 'malformed', offset: at, detail: 'global descriptor' })
+              break
+            }
+          } else {
+            // An unrecognised descriptor has an unknown length, so continuing would
+            // desynchronize and leave the remaining imports unchecked against the
+            // allow-list — a false negative. Stop scanning this section.
+            rejections.push({ kind: 'unknown-import-kind', offset: at, importKind: kind.value })
+            break
           }
         }
       }
