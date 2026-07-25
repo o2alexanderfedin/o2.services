@@ -14,7 +14,7 @@ import {
   RELAY_DATA_LIMIT_BYTES,
   RELAY_DURATION_LIMIT_MS,
   RELAY_MAX_RESERVATIONS,
-} from './constants.ts'
+} from '@o2/libp2p'
 import { RelayNode } from './relay-node.ts'
 import {
   RESERVATION_FAILURE_PREFIX,

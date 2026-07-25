@@ -10,7 +10,7 @@ import {
   RELAY_MAX_RESERVATION_TTL_MS,
   WEBRTC_MAX_BUFFERED_BYTES,
   WEBRTC_MAX_MESSAGE_BYTES,
-} from './constants.ts'
+} from '@o2/libp2p'
 
 /**
  * NET-07 — a dependency upgrade that moves a transport limit must fail here.

@@ -20,8 +20,20 @@ import { describe, expect, it } from 'vitest'
 
 const ROOT = fileURLToPath(new URL('../../..', import.meta.url))
 
-/** Packages that must run unchanged in Node, a browser, and a Worker. */
+/**
+ * Packages that must run unchanged in Node, a browser, and a Worker — and must not
+ * reference libp2p either, because they also have to work over the in-process
+ * transport.
+ */
 const PORTABLE = ['core', 'net']
+
+/**
+ * Packages that may use libp2p but still must not touch a platform.
+ *
+ * `@o2/libp2p` is the middle tier: both `@o2/node` and `@o2/browser` depend on it, so
+ * a `node:` import here would break the browser build.
+ */
+const DUAL_TARGET = ['libp2p', 'browser']
 
 /**
  * Import specifiers a portable package may not reference.
@@ -37,6 +49,12 @@ const FORBIDDEN: readonly { readonly pattern: RegExp; readonly why: string }[] =
   { pattern: /^@libp2p\//, why: 'libp2p modules belong in an adapter package' },
   { pattern: /^@chainsafe\//, why: 'libp2p crypto modules belong in an adapter package' },
   { pattern: /^@o2\/node$/, why: 'a portable package must not depend on the Node adapters' },
+]
+
+/** The subset of the above that also applies to the dual-target tier. */
+const NO_PLATFORM: readonly { readonly pattern: RegExp; readonly why: string }[] = [
+  { pattern: /^node:/, why: 'a Node builtin does not exist in a browser' },
+  { pattern: /^@o2\/node$/, why: 'a dual-target package must not depend on the Node adapters' },
 ]
 
 async function sourceFiles(dir: string): Promise<string[]> {
@@ -90,6 +108,28 @@ describe('portability of @o2/core and @o2/net', () => {
         FORBIDDEN.some(({ pattern }) => pattern.test(name)),
       )
       expect(offending).toEqual([])
+    })
+  }
+})
+
+describe('dual-target packages touch no platform', () => {
+  for (const pkg of DUAL_TARGET) {
+    it(`@o2/${pkg} references no Node builtin`, async () => {
+      const files = await sourceFiles(join(ROOT, 'packages', pkg, 'src'))
+      expect(files.length).toBeGreaterThan(0)
+
+      const violations: string[] = []
+      for (const file of files) {
+        const source = readFileSync(file, 'utf8')
+        for (const specifier of specifiersOf(source)) {
+          for (const { pattern, why } of NO_PLATFORM) {
+            if (pattern.test(specifier)) {
+              violations.push(`${file.slice(ROOT.length)} imports "${specifier}" — ${why}`)
+            }
+          }
+        }
+      }
+      expect(violations).toEqual([])
     })
   }
 })

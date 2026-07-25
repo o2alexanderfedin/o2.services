@@ -9,36 +9,29 @@ See: .planning/PROJECT.md (updated 2026-07-24)
 
 ## Current Position
 
-Phase: 3 of 10 (Browser Tier & Backbone Relay) — **in progress, 3 of 6 criteria met**
+Phase: 3 of 10 (Browser Tier & Backbone Relay) — **in progress, 4 of 6 criteria met**
 Plan: partial — see `phases/phase-3-browser-tier/SUMMARY.md`
-Status: One open design problem blocks criterion 1; two criteria blocked on a human decision
-Last activity: 2026-07-25 — 230 tests green, `tsc --noEmit` clean. DATA-02, NET-03, NET-05 delivered; NET-02 blocked on the reply-path problem below
+Status: Criterion 6 not started; "different machines" and real AutoTLS need a host
+Last activity: 2026-07-25 — 235 tests green, `tsc --noEmit` clean. NET-02 met on one machine: two tabs, direct WebRTC, relay proven out of the data path
 
 Progress: [██░░░░░░░░] 20% (2 of 10 phases complete; Phase 3 partial)
 
-### THE NEXT THING TO FIX — read this before writing any browser code
+### Where Phase 3 stands
 
-**Requiring the responder to dial back does not survive the relayed topology, and
-cannot survive the browser one.** Phase 2 made `Transport` one-way, so a reply is a
-new `send` that dials the requester. Over circuit relay each reply opens a second
-relayed circuit; between two browser tabs it is impossible, since neither can dial
-the other. Observed directly: three relay-only peers, 2 shards at R=2 — one shard
-agreed at `replicas: 1`, the other failed on both executors with `Remote closed
-connection during opening`.
+Two browser tabs on one machine now complete a 4-shard 2×-redundant job over a
+**direct WebRTC** connection, with the relay carrying only SDP. The relay's exit from
+the data path is asserted, not assumed: libp2p marks a relayed circuit as *limited*,
+so the test requires a `/webrtc` connection with `limits === undefined`.
 
-**Fix: carry the reply on the request's own stream**, removing the dial-back. This
-revisits a Phase 2 decision and changes the `Transport` port. Do it *before*
-attempting browser↔browser WebRTC, or the failure will be misdiagnosed as an ICE
-problem. Full reproduction is in the Phase 3 SUMMARY.
+**Correction, carried deliberately:** an earlier note here claimed the one-way
+`Transport` port could not survive the browser topology. That was mis-scoped and is
+withdrawn — the failure came from running a whole job over `/p2p-circuit`, which the
+architecture never supported, since the relay is a signalling channel and not a data
+path. The Phase 2 decision stands. The narrower true fact to keep: **a relayed circuit
+cannot carry a job.**
 
-**Note on the old "Phase 1 — Determinism Gate & Trust-Model Verdict":** that phase no
-longer exists. It was deleted from the roadmap (11 phases → 10, 76 → 72 requirements,
-`ce1ceb0`) because the question it was built to answer is settled by two specs: the WASM
-spec makes a generated NaN's sign nondeterministic, so measuring it could never change
-the design, and strict DAG-CBOR forbids the value at the serialization boundary anyway.
-The corresponding code — an admission gate that parsed WASM instruction streams — was
-deleted at `afb3cad`, 1,214 lines. `.planning/phases/` is empty because the only phase
-directory that existed belonged to that phase. This is expected, not damage.
+Remaining in Phase 3: criterion 6 (BROW-03 throttle on background, BROW-05 embedded
+with no COOP/COEP), 16-peer concurrency, and the two halves that need a host.
 
 ## Performance Metrics
 
@@ -79,6 +72,12 @@ Recent decisions affecting current work:
   aliasing in-memory adapter made kernel tests pass on semantics no real backend has.
 - **Conformance vectors are hardcoded literals, never computed (Phase 3).** A
   computed expectation only proves an implementation agrees with itself.
+- **A relayed circuit cannot carry a job (Phase 3).** The relay is a signalling
+  channel; the data path is WebRTC. A test that runs a job over `/p2p-circuit` is
+  testing an unsupported configuration.
+- **Packages form three tiers (Phase 3).** `core`/`net` portable — no platform *and no
+  libp2p*; `libp2p`/`browser` dual-target — libp2p but no `node:`; `node` anything.
+  Enforced by `purity.node.test.ts`.
 - **Wire framing is uniform across transports (Phase 2).** One stream per message, completion signalled by the sender closing its write end — so no length prefix and no framing state machine. Chunked at 16 KiB with `runOnLimitedConnection: true` even on TCP, so the same path survives relaying in Phase 3.
 - Part I (elfconv AOT) sequenced last and run as a parallel track; it must not block the capacity-scaling thesis.
 
@@ -111,10 +110,9 @@ Resume file: `.planning/.continue-here.md` — leads with three blocking constra
 (no static determinism analysis, no cross-implementation verification, no host-import
 allow-list). Still current; they apply to every later phase.
 
-**Phase 3 still needs a human decision for two of its six criteria.** Real AutoTLS
-(criterion 2) and "two tabs on different machines" (criterion 1) both require
-standing up publicly reachable infrastructure — an outward-facing, hard-to-reverse
-action that collides with the disclosure gate below. Deliberately not done
-autonomously. Everything else in Phase 3 is buildable locally; the blocker on
-criterion 1 right now is the reply-path design problem above, not the hosting
-question.
+**Phase 3 still needs a human decision for the "public host" halves.** Real AutoTLS
+(criterion 2) and "two tabs on *different machines*" (criterion 1) both require
+publicly reachable infrastructure — outward-facing and hard to reverse, and it
+collides with the disclosure gate below. Deliberately not done autonomously. The
+WebRTC path itself is proven locally, so crossing machines should need no code change,
+only a different relay address.

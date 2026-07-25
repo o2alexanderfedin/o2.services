@@ -31,7 +31,7 @@ import { FetchingBlockstore, RpcBlockSource, RpcEndpoint, serveAgent } from '@o2
 import { createLibp2p } from 'libp2p'
 import type { Libp2p } from '@libp2p/interface'
 import { FsBlockstore } from './fs-blockstore.ts'
-import { Libp2pTransport } from './libp2p-transport.ts'
+import { Libp2pTransport } from '@o2/libp2p'
 import type { ReservationWatcher } from './reservation-watch.ts'
 
 export interface FabricNodeOptions {

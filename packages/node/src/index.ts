@@ -12,11 +12,12 @@ export type { FabricNodeOptions } from './fabric-node.ts'
 
 export { FsBlockstore } from './fs-blockstore.ts'
 
-export { DEFAULT_SEND_TIMEOUT_MS, Libp2pTransport, O2_RPC_PROTOCOL } from './libp2p-transport.ts'
-export type { Libp2pTransportOptions } from './libp2p-transport.ts'
-
-// NET-07 — transport limits the architecture depends on.
+// The libp2p transport and the NET-07 constants now live in @o2/libp2p, shared
+// with @o2/browser. Re-exported so existing importers of @o2/node are unaffected.
 export {
+  DEFAULT_SEND_TIMEOUT_MS,
+  Libp2pTransport,
+  O2_RPC_PROTOCOL,
   RELAY_DATA_LIMIT_BYTES,
   RELAY_DURATION_LIMIT_MS,
   RELAY_MAX_RESERVATIONS,
@@ -24,7 +25,8 @@ export {
   WEBRTC_MAX_BUFFERED_BYTES,
   WEBRTC_MAX_MESSAGE_BYTES,
   WIRE_CHUNK_BYTES,
-} from './constants.ts'
+} from '@o2/libp2p'
+export type { Libp2pTransportOptions } from '@o2/libp2p'
 
 // NET-03 — the backbone relay.
 export { RelayNode } from './relay-node.ts'

@@ -7,3 +7,6 @@
  */
 
 export { IdbBlockstore } from './idb-blockstore.ts'
+export { BrowserNode } from './browser-node.ts'
+export type { BrowserNodeOptions } from './browser-node.ts'
+export type { TabAddresses, TabApi, TabJobReport } from './tab-api.ts'

@@ -1,0 +1,16 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>o2 node</title>
+  </head>
+  <body>
+    <!--
+      The page a tab loads in the two-tab test. Deliberately inert: it starts no
+      node on load, so the harness controls when each tab joins and can assert on
+      the sequence. A real embedding page would call start() behind a consent gate.
+    -->
+    <p id="status">idle</p>
+    <script type="module" src="./main.ts"></script>
+  </body>
+</html>
