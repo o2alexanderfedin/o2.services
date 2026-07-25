@@ -18,10 +18,12 @@
  */
 
 import { noise } from '@chainsafe/libp2p-noise'
+import { circuitRelayTransport } from '@libp2p/circuit-relay-v2'
 import { yamux } from '@chainsafe/libp2p-yamux'
 import { identify, identifyPush } from '@libp2p/identify'
 import { ping } from '@libp2p/ping'
 import { tcp } from '@libp2p/tcp'
+import { webSockets } from '@libp2p/websockets'
 import { multiaddr } from '@multiformats/multiaddr'
 import { WasmExecutor } from '@o2/core'
 import type { Executor } from '@o2/core'
@@ -30,6 +32,7 @@ import { createLibp2p } from 'libp2p'
 import type { Libp2p } from '@libp2p/interface'
 import { FsBlockstore } from './fs-blockstore.ts'
 import { Libp2pTransport } from './libp2p-transport.ts'
+import type { ReservationWatcher } from './reservation-watch.ts'
 
 export interface FabricNodeOptions {
   /** Directory backing the persistent blockstore. */
@@ -38,6 +41,16 @@ export interface FabricNodeOptions {
   readonly listen?: readonly string[]
   /** Overrides the RPC request timeout; mainly useful to keep tests quick. */
   readonly rpcTimeoutMs?: number
+  /**
+   * Relays to reserve a `/p2p-circuit` address on.
+   *
+   * Supplying any switches the node into the topology a browser peer is forced
+   * into: reachable only through a relay. Adds WebSockets (to dial the relay) and
+   * the circuit-relay transport, and listens on `/p2p-circuit`.
+   */
+  readonly relayAddrs?: readonly string[]
+  /** Observes relay reservation outcomes — see NET-05. */
+  readonly reservationWatcher?: ReservationWatcher
 }
 
 export class FabricNode {
@@ -68,10 +81,20 @@ export class FabricNode {
 
   static async start(options: FabricNodeOptions): Promise<FabricNode> {
     const store = await FsBlockstore.open(options.blockstoreDir)
+    const relayAddrs = options.relayAddrs ?? []
+    const viaRelay = relayAddrs.length > 0
 
     const libp2p = await createLibp2p({
-      addresses: { listen: [...(options.listen ?? ['/ip4/127.0.0.1/tcp/0'])] },
-      transports: [tcp()],
+      addresses: {
+        listen: [
+          ...(options.listen ?? (viaRelay ? [] : ['/ip4/127.0.0.1/tcp/0'])),
+          // Asks libp2p to reserve on any relay it connects to.
+          ...(viaRelay ? ['/p2p-circuit'] : []),
+        ],
+      },
+      transports: viaRelay
+        ? [tcp(), webSockets(), circuitRelayTransport()]
+        : [tcp()],
       connectionEncrypters: [noise()],
       streamMuxers: [yamux()],
       services: {
@@ -79,7 +102,16 @@ export class FabricNode {
         identifyPush: identifyPush(),
         ping: ping(),
       },
+      ...(options.reservationWatcher === undefined
+        ? {}
+        : { logger: options.reservationWatcher.logger }),
     })
+
+    // Connecting is what triggers the reservation; the `/p2p-circuit` listen entry
+    // above is what makes libp2p ask for one.
+    for (const address of relayAddrs) {
+      await libp2p.dial(multiaddr(address))
+    }
 
     const transport = await Libp2pTransport.start(libp2p)
     const rpc = new RpcEndpoint(
@@ -106,6 +138,16 @@ export class FabricNode {
   /** Addresses a peer can dial to reach this node. */
   get multiaddrs(): readonly string[] {
     return this.libp2p.getMultiaddrs().map((ma) => ma.toString())
+  }
+
+  /**
+   * The relayed subset — the only kind of address a browser peer ever has.
+   *
+   * Empty until a relay has granted a reservation, which is why callers wait on it
+   * rather than reading it immediately after `start`.
+   */
+  get circuitAddrs(): readonly string[] {
+    return this.multiaddrs.filter((ma) => ma.includes('/p2p-circuit'))
   }
 
   /** Dial a peer and return its peer id. */

@@ -5,16 +5,31 @@
 See: .planning/PROJECT.md (updated 2026-07-24)
 
 **Core value:** Usable capacity grows super-linearly with the user base, without any raw data leaving its owner's device.
-**Current focus:** Phase 3 — Browser Tier & Backbone Relay
+**Current focus:** Phase 3 — Browser Tier & Backbone Relay (in progress)
 
 ## Current Position
 
-Phase: 3 of 10 (Browser Tier & Backbone Relay) — not yet planned
-Plan: 0 of TBD in current phase
-Status: Ready to discuss
-Last activity: 2026-07-25 — Phase 2 complete and verified: 206 tests green (node 112, Chromium 94), `tsc --noEmit` clean, `@o2/core` byte-for-byte unchanged
+Phase: 3 of 10 (Browser Tier & Backbone Relay) — **in progress, 3 of 6 criteria met**
+Plan: partial — see `phases/phase-3-browser-tier/SUMMARY.md`
+Status: One open design problem blocks criterion 1; two criteria blocked on a human decision
+Last activity: 2026-07-25 — 230 tests green, `tsc --noEmit` clean. DATA-02, NET-03, NET-05 delivered; NET-02 blocked on the reply-path problem below
 
-Progress: [██░░░░░░░░] 20% (2 of 10 phases complete)
+Progress: [██░░░░░░░░] 20% (2 of 10 phases complete; Phase 3 partial)
+
+### THE NEXT THING TO FIX — read this before writing any browser code
+
+**Requiring the responder to dial back does not survive the relayed topology, and
+cannot survive the browser one.** Phase 2 made `Transport` one-way, so a reply is a
+new `send` that dials the requester. Over circuit relay each reply opens a second
+relayed circuit; between two browser tabs it is impossible, since neither can dial
+the other. Observed directly: three relay-only peers, 2 shards at R=2 — one shard
+agreed at `replicas: 1`, the other failed on both executors with `Remote closed
+connection during opening`.
+
+**Fix: carry the reply on the request's own stream**, removing the dial-back. This
+revisits a Phase 2 decision and changes the `Transport` port. Do it *before*
+attempting browser↔browser WebRTC, or the failure will be misdiagnosed as an ICE
+problem. Full reproduction is in the Phase 3 SUMMARY.
 
 **Note on the old "Phase 1 — Determinism Gate & Trust-Model Verdict":** that phase no
 longer exists. It was deleted from the roadmap (11 phases → 10, 76 → 72 requirements,
@@ -59,6 +74,11 @@ Recent decisions affecting current work:
 - **A remote executor is just an `Executor` (Phase 2).** `submitJob` takes `Executor[]` and cannot tell where one runs, so the network arrived without a kernel change. Any future "distributed" feature should first be checked against this: if it can be an adapter behind an existing port, it must be.
 - **Packages split on the portability line, not the feature line (Phase 2).** `@o2/net` is portable and its tests run in Node *and* Chromium; `@o2/node` holds everything a browser cannot do. `purity.node.test.ts` enforces it — no `node:`/`libp2p`/`@chainsafe` import may appear in a portable package.
 - **`Transport` stays a one-way datagram port (Phase 2).** Request/response correlation lives in `@o2/net` instead, because a datagram shape is the smallest thing an in-process table, a libp2p stream, and a relayed WebRTC channel can all implement.
+- **A blockstore adapter must not alias its input or its storage (Phase 3).** Found
+  by the conformance suite in `MemoryBlockstore`; the persistent adapters copy, so an
+  aliasing in-memory adapter made kernel tests pass on semantics no real backend has.
+- **Conformance vectors are hardcoded literals, never computed (Phase 3).** A
+  computed expectation only proves an implementation agrees with itself.
 - **Wire framing is uniform across transports (Phase 2).** One stream per message, completion signalled by the sender closing its write end — so no length prefix and no framing state machine. Chunked at 16 KiB with `runOnLimitedConnection: true` even on TCP, so the same path survives relaying in Phase 3.
 - Part I (elfconv AOT) sequenced last and run as a parallel track; it must not block the capacity-scaling thesis.
 
@@ -91,9 +111,10 @@ Resume file: `.planning/.continue-here.md` — leads with three blocking constra
 (no static determinism analysis, no cross-implementation verification, no host-import
 allow-list). Still current; they apply to every later phase.
 
-**Phase 3 needs a human decision before it can finish.** Its criterion is two browser
-tabs *on different machines* against a self-hosted backbone. The buildable part —
-`circuitRelayServer` backbone, browser transport profile, IndexedDB blockstore, and a
-two-context Playwright job against a locally-run relay — needs nothing. "Different
-machines" needs either a second machine or a publicly reachable host, and a publicly
-reachable relay touches the disclosure gate below.
+**Phase 3 still needs a human decision for two of its six criteria.** Real AutoTLS
+(criterion 2) and "two tabs on different machines" (criterion 1) both require
+standing up publicly reachable infrastructure — an outward-facing, hard-to-reverse
+action that collides with the disclosure gate below. Deliberately not done
+autonomously. Everything else in Phase 3 is buildable locally; the blocker on
+criterion 1 right now is the reply-path design problem above, not the hosting
+question.
