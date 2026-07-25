@@ -94,25 +94,36 @@ describe('portability of @o2/core and @o2/net', () => {
   }
 })
 
-describe('the kernel is unchanged by the arrival of a network', () => {
-  it('has no uncommitted or committed change to packages/core on this branch', () => {
-    // Criterion 1 of Phase 2 stated as an executable check. `develop` is the
-    // pre-phase baseline; a non-empty diff means the transport swap needed the
-    // kernel's help, which would mean the port boundary was drawn wrong.
-    //
-    // Skipped rather than failed once the branch has been merged and `develop`
-    // has moved on — at that point the claim is history, not a live invariant.
-    const merged = execFileSync('git', ['branch', '--contains', 'HEAD', '--list', 'develop'], {
+describe('the kernel does not depend on its adapters', () => {
+  /**
+   * Phase 2's criterion — "the kernel is byte-for-byte unchanged" — was verified at
+   * the time with `git diff --name-only develop -- packages/core` returning empty,
+   * and is recorded in `phases/phase-2-real-network/SUMMARY.md`. It is deliberately
+   * *not* asserted here as a standing rule: that would forbid legitimate kernel
+   * fixes, and it already did — Phase 3's blockstore conformance suite found a real
+   * aliasing defect in `MemoryBlockstore` that had to be corrected in `@o2/core`.
+   *
+   * What endures is the dependency direction. Adapters may depend on the kernel;
+   * the kernel may never depend on an adapter. That is what keeps a transport swap
+   * a one-package change, and it is checked rather than remembered.
+   */
+  it('has no dependency edge from @o2/core to any adapter package', () => {
+    const manifest = JSON.parse(
+      readFileSync(join(ROOT, 'packages', 'core', 'package.json'), 'utf8'),
+    ) as { dependencies?: Record<string, string> }
+
+    const deps = Object.keys(manifest.dependencies ?? {})
+    expect(deps.filter((name) => name.startsWith('@o2/'))).toEqual([])
+  })
+
+  it('is checked into git, so the Phase 2 claim stays reproducible', () => {
+    // The verification above is only meaningful against real history. If the
+    // kernel were untracked, `git diff` would have trivially returned empty and
+    // the Phase 2 criterion would have been vacuously "met".
+    const tracked = execFileSync('git', ['ls-files', 'packages/core/src'], {
       cwd: ROOT,
       encoding: 'utf8',
     }).trim()
-    if (merged !== '') return
-
-    const diff = execFileSync('git', ['diff', '--name-only', 'develop', '--', 'packages/core'], {
-      cwd: ROOT,
-      encoding: 'utf8',
-    }).trim()
-
-    expect(diff).toBe('')
+    expect(tracked.split('\n').filter((f) => f.endsWith('.ts')).length).toBeGreaterThan(5)
   })
 })

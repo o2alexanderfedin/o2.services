@@ -1,0 +1,14 @@
+{
+  "name": "@o2/browser",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@o2/core": "*",
+    "@o2/net": "*",
+    "idb": "8.0.3"
+  }
+}

@@ -25,3 +25,17 @@ export {
   WEBRTC_MAX_MESSAGE_BYTES,
   WIRE_CHUNK_BYTES,
 } from './constants.ts'
+
+// NET-03 — the backbone relay.
+export { RelayNode } from './relay-node.ts'
+export type { RelayCapacity, RelayNodeOptions } from './relay-node.ts'
+
+// NET-05 — relay exhaustion reported by name.
+export {
+  RESERVATION_FAILURE_PREFIX,
+  ReservationWatcher,
+  STATUS_PERMISSION_DENIED,
+  STATUS_RESERVATION_REFUSED,
+  classifyReservationFailure,
+} from './reservation-watch.ts'
+export type { ReservationFailure } from './reservation-watch.ts'
