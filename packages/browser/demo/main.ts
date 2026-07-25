@@ -35,6 +35,8 @@ const api: TabApi = {
       relayAddrs: options.relayAddrs,
       blockstoreName: options.blockstoreName,
       rpcTimeoutMs: 60_000,
+      // Aggressive so the throttle is unmistakable in a test rather than marginal.
+      backgroundDutyCycle: 0.05,
       // Loopback relay: refused by libp2p's browser defaults, correct to allow here.
       allowPrivateAddrs: true,
     })
@@ -74,6 +76,36 @@ const api: TabApi = {
         remoteAddr: connection.remoteAddr.toString(),
         limited: connection.limits !== undefined,
       }))
+  },
+
+  governor() {
+    const g = required().governor
+    return {
+      hidden: g.hidden,
+      dutyCycle: g.dutyCycle,
+      transitions: g.transitions,
+      sleptMs: g.sleptMs,
+    }
+  },
+
+  isolation() {
+    return {
+      crossOriginIsolated: globalThis.crossOriginIsolated,
+      hasSharedArrayBuffer: typeof SharedArrayBuffer !== 'undefined',
+      inIframe: window.self !== window.top,
+    }
+  },
+
+  simulateHidden(hidden) {
+    // Shadow the read-only getters on this document instance, then fire the genuine
+    // event. The governor's listener, the duty cycle, and the execution path are all
+    // untouched by this — only the browser's own signal is stood in for.
+    Object.defineProperty(document, 'hidden', { configurable: true, get: () => hidden })
+    Object.defineProperty(document, 'visibilityState', {
+      configurable: true,
+      get: () => (hidden ? 'hidden' : 'visible'),
+    })
+    document.dispatchEvent(new Event('visibilitychange'))
   },
 
   async storedBlocks() {

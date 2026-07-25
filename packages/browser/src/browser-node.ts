@@ -34,10 +34,11 @@ import { multiaddr } from '@multiformats/multiaddr'
 import { WasmExecutor } from '@o2/core'
 import type { Executor } from '@o2/core'
 import { Libp2pTransport } from '@o2/libp2p'
-import { FetchingBlockstore, RpcBlockSource, RpcEndpoint, serveAgent } from '@o2/net'
+import { FetchingBlockstore, GovernedExecutor, RpcBlockSource, RpcEndpoint, serveAgent } from '@o2/net'
 import { createLibp2p } from 'libp2p'
 import type { Libp2p } from '@libp2p/interface'
 import { IdbBlockstore } from './idb-blockstore.ts'
+import { VisibilityGovernor } from './visibility-governor.ts'
 
 export interface BrowserNodeOptions {
   /** Relays to reserve on. At least one is required to be addressable at all. */
@@ -45,6 +46,13 @@ export interface BrowserNodeOptions {
   /** IndexedDB database name. Distinct names give one origin several independent nodes. */
   readonly blockstoreName?: string
   readonly rpcTimeoutMs?: number
+  /**
+   * Duty cycle to fall back to while the tab is hidden.
+   *
+   * BROW-03. Defaults to 0.1 — a backgrounded tab throttles hard but never stops, so
+   * a task already in flight still finishes.
+   */
+  readonly backgroundDutyCycle?: number
   /**
    * Permit dialling loopback and private addresses.
    *
@@ -61,7 +69,9 @@ export class BrowserNode {
   /** IndexedDB plus network fallback — what the executor reads from. */
   readonly blockstore: FetchingBlockstore
   readonly store: IdbBlockstore
+  /** Governed: throttles with tab visibility. */
   readonly executor: Executor
+  readonly governor: VisibilityGovernor
 
   private constructor(parts: {
     libp2p: Libp2p
@@ -70,6 +80,7 @@ export class BrowserNode {
     blockstore: FetchingBlockstore
     store: IdbBlockstore
     executor: Executor
+    governor: VisibilityGovernor
   }) {
     this.libp2p = parts.libp2p
     this.transport = parts.transport
@@ -77,6 +88,7 @@ export class BrowserNode {
     this.blockstore = parts.blockstore
     this.store = parts.store
     this.executor = parts.executor
+    this.governor = parts.governor
   }
 
   static async start(options: BrowserNodeOptions): Promise<BrowserNode> {
@@ -106,10 +118,22 @@ export class BrowserNode {
       options.rpcTimeoutMs === undefined ? {} : { timeoutMs: options.rpcTimeoutMs },
     )
     const blockstore = new FetchingBlockstore(store, new RpcBlockSource(rpc, () => transport.peers))
-    const executor = new WasmExecutor({ nodeId: libp2p.peerId.toString(), blockstore })
+    // BROW-03: every task this tab runs — its own and other peers' — is paced by
+    // the visibility governor. Wrapping here rather than at the submit site means a
+    // backgrounded tab throttles work it is *serving*, which is the case that
+    // actually affects a visitor.
+    const governor = new VisibilityGovernor(
+      options.backgroundDutyCycle === undefined
+        ? {}
+        : { backgroundDutyCycle: options.backgroundDutyCycle },
+    )
+    const executor = new GovernedExecutor(
+      new WasmExecutor({ nodeId: libp2p.peerId.toString(), blockstore }),
+      governor,
+    )
     serveAgent({ rpc, executor, blockstore })
 
-    return new BrowserNode({ libp2p, transport, rpc, blockstore, store, executor })
+    return new BrowserNode({ libp2p, transport, rpc, blockstore, store, executor, governor })
   }
 
   get peerId(): string {
@@ -143,6 +167,7 @@ export class BrowserNode {
     this.rpc.close()
     await this.transport.stop()
     await this.libp2p.stop()
+    this.governor.stop()
     this.store.close()
   }
 }

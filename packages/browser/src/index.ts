@@ -9,4 +9,12 @@
 export { IdbBlockstore } from './idb-blockstore.ts'
 export { BrowserNode } from './browser-node.ts'
 export type { BrowserNodeOptions } from './browser-node.ts'
-export type { TabAddresses, TabApi, TabJobReport } from './tab-api.ts'
+export type {
+  TabAddresses,
+  TabApi,
+  TabGovernorState,
+  TabIsolation,
+  TabJobReport,
+} from './tab-api.ts'
+export { VisibilityGovernor } from './visibility-governor.ts'
+export type { Sleep, VisibilityGovernorOptions, VisibilitySource } from './visibility-governor.ts'

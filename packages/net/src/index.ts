@@ -24,3 +24,6 @@ export type { AgentOptions } from './agent.ts'
 // DATA-02 — one addressing contract, checked against every Blockstore adapter.
 export { BLOCK_VECTORS, CONFORMANCE_BLOCK_COUNT, checkBlockstoreConformance } from './conformance.ts'
 export type { BlockVector, ConformanceReport } from './conformance.ts'
+
+// SCHED-04 / BROW-03 — the governor applied to the execution path.
+export { GovernedExecutor } from './governed-executor.ts'

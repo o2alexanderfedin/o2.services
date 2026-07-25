@@ -16,6 +16,8 @@ export { FsBlockstore } from './fs-blockstore.ts'
 // with @o2/browser. Re-exported so existing importers of @o2/node are unaffected.
 export {
   DEFAULT_SEND_TIMEOUT_MS,
+  LIBP2P_INBOUND_CONNECTION_THRESHOLD,
+  LIBP2P_MAX_INCOMING_PENDING_CONNECTIONS,
   Libp2pTransport,
   O2_RPC_PROTOCOL,
   RELAY_DATA_LIMIT_BYTES,

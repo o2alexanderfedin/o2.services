@@ -209,6 +209,23 @@ describe('NET-05 — exhaustion is reported by name', () => {
     expect(relay.capacity.granted).toBe(1)
   }, 60_000)
 
+  it('raises the inbound limits alongside reservations, since both bind first', async () => {
+    // Raising maxReservations without raising these leaves the extra capacity
+    // unreachable: a burst of joins is rejected mid-handshake, and the dialer sees
+    // an EncryptionFailedError that reads like a network fault.
+    const relay = await RelayNode.start({ maxReservations: 40 })
+    started.push(relay)
+    expect(relay.maxIncomingPendingConnections).toBe(40)
+    expect(relay.inboundConnectionThreshold).toBe(40)
+  }, 30_000)
+
+  it('never lowers an inbound limit below libp2p’s own default', async () => {
+    const relay = await RelayNode.start({ maxReservations: 2 })
+    started.push(relay)
+    expect(relay.maxIncomingPendingConnections).toBe(10)
+    expect(relay.inboundConnectionThreshold).toBe(5)
+  }, 30_000)
+
   it('reports capacity for a raised limit, the tuning the browser tier needs', async () => {
     // 16+ simultaneous browser peers is criterion 3's target, which the default 15
     // cannot serve. Confirms the limit is actually applied rather than ignored.

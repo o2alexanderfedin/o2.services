@@ -31,6 +31,8 @@ import { webSockets } from '@libp2p/websockets'
 import { createLibp2p } from 'libp2p'
 import type { Libp2p } from '@libp2p/interface'
 import {
+  LIBP2P_INBOUND_CONNECTION_THRESHOLD,
+  LIBP2P_MAX_INCOMING_PENDING_CONNECTIONS,
   RELAY_DATA_LIMIT_BYTES,
   RELAY_DURATION_LIMIT_MS,
   RELAY_MAX_RESERVATIONS,
@@ -50,6 +52,24 @@ export interface RelayNodeOptions {
   readonly reservationTtlMs?: number
   readonly durationLimitMs?: number
   readonly dataLimitBytes?: bigint
+  /**
+   * Simultaneous inbound handshakes to permit.
+   *
+   * Defaults to `max(libp2p's 10, maxReservations)`. This is not a knob to leave
+   * alone: a burst of browser tabs all joining at once is the normal case, and the
+   * default of ten silently drops the excess *during* the noise handshake. Raising
+   * `maxReservations` without raising this makes the extra capacity unreachable.
+   */
+  readonly maxIncomingPendingConnections?: number
+  /**
+   * Inbound connections per second to accept from one host.
+   *
+   * Defaults to `max(libp2p's 5, maxReservations)` because libp2p's default of five
+   * is far too low for this fabric: it is a *per-host* rate limit, so every peer
+   * behind one NAT — or every tab in a local test — shares the budget. See
+   * `LIBP2P_INBOUND_CONNECTION_THRESHOLD`.
+   */
+  readonly inboundConnectionThreshold?: number
 }
 
 /**
@@ -87,14 +107,35 @@ function hasReservations(value: unknown): value is RelayService {
 export class RelayNode {
   readonly libp2p: Libp2p
   readonly #limit: number
+  readonly #pending: number
+  readonly #inboundPerSecond: number
 
-  private constructor(libp2p: Libp2p, limit: number) {
+  private constructor(libp2p: Libp2p, limit: number, pending: number, inboundPerSecond: number) {
     this.libp2p = libp2p
     this.#limit = limit
+    this.#pending = pending
+    this.#inboundPerSecond = inboundPerSecond
+  }
+
+  /** Simultaneous inbound handshakes this relay will accept. */
+  get maxIncomingPendingConnections(): number {
+    return this.#pending
+  }
+
+  /** Inbound connections per second this relay accepts from one host. */
+  get inboundConnectionThreshold(): number {
+    return this.#inboundPerSecond
   }
 
   static async start(options: RelayNodeOptions = {}): Promise<RelayNode> {
     const limit = options.maxReservations ?? RELAY_MAX_RESERVATIONS
+    // Coupled deliberately — see the option's documentation.
+    const pending =
+      options.maxIncomingPendingConnections ??
+      Math.max(LIBP2P_MAX_INCOMING_PENDING_CONNECTIONS, limit)
+    const inboundPerSecond =
+      options.inboundConnectionThreshold ??
+      Math.max(LIBP2P_INBOUND_CONNECTION_THRESHOLD, limit)
 
     const libp2p = await createLibp2p({
       addresses: {
@@ -105,6 +146,12 @@ export class RelayNode {
       transports: [webSockets(), tcp()],
       connectionEncrypters: [noise()],
       streamMuxers: [yamux()],
+      connectionManager: {
+        maxIncomingPendingConnections: pending,
+        // Per *host*, so a burst of tabs from one machine — or of volunteers behind
+        // one NAT — would otherwise be rejected mid-handshake.
+        inboundConnectionThreshold: inboundPerSecond,
+      },
       services: {
         identify: identify(),
         identifyPush: identifyPush(),
@@ -123,7 +170,7 @@ export class RelayNode {
     // The server dispatches no events whatsoever, so there is nothing to subscribe
     // to here — capacity is read from the reservation store on demand, and the
     // joining node's side is handled in `reservation-watch.ts`.
-    return new RelayNode(libp2p, limit)
+    return new RelayNode(libp2p, limit, pending, inboundPerSecond)
   }
 
   get peerId(): string {
