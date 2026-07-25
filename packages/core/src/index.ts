@@ -41,5 +41,7 @@ export type { JobResult, JobSpec, ShardResult, SubmitError, SubmitResult } from 
 
 // Adapters.
 export { MemoryBlockstore } from './blockstore/memory.ts'
+export { MemoryNetwork, TransportError } from './transport/memory.ts'
+export type { SendError } from './transport/memory.ts'
 export { DutyCycleGovernor } from './governor.ts'
 export type { DutyCycleOptions, Sleep } from './governor.ts'

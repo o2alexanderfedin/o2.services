@@ -52,8 +52,8 @@ export interface Executor {
 /** Moves messages between nodes. The loopback implementation has no network. */
 export interface Transport {
   readonly localId: string
-  send(to: string, message: Uint8Array): Promise<void>
-  onMessage(handler: (from: string, message: Uint8Array) => void): () => void
+  send(to: string, message: Uint8Array<ArrayBuffer>): Promise<void>
+  onMessage(handler: (from: string, message: Uint8Array<ArrayBuffer>) => void): () => void
   readonly peers: readonly string[]
 }
 
