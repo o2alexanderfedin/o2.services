@@ -55,7 +55,7 @@ describe('NET-04 — protocols negotiate over p2p-circuit', () => {
   it('registers runOnLimitedConnection on both handle and dial', () => {
     // Both halves are required. Setting it on only one produces a connection that
     // works for identify and ping but silently refuses the fabric's own protocol.
-    const source = readFileSync(new URL('./libp2p-transport.ts', import.meta.url), 'utf8')
+    const source = readFileSync(new URL('../../libp2p/src/libp2p-transport.ts', import.meta.url), 'utf8')
     const occurrences = source.match(/runOnLimitedConnection:\s*true/g) ?? []
     expect(occurrences.length).toBe(2)
 

@@ -35,7 +35,7 @@ import {
   RELAY_DURATION_LIMIT_MS,
   RELAY_MAX_RESERVATIONS,
   RELAY_MAX_RESERVATION_TTL_MS,
-} from './constants.ts'
+} from '@o2/libp2p'
 
 export interface RelayNodeOptions {
   /**

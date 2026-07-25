@@ -1,0 +1,15 @@
+{
+  "name": "@o2/libp2p",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@libp2p/interface": "3.2.5",
+    "@libp2p/peer-id": "6.0.12",
+    "@o2/core": "*",
+    "libp2p": "3.3.6"
+  }
+}

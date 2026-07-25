@@ -22,3 +22,7 @@ dist/
 
 # Vitest browser-mode failure screenshots
 __screenshots__/
+
+# Vite dependency pre-bundling cache
+.vite/
+node_modules/.vite/
