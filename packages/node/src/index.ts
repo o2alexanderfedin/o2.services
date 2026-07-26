@@ -43,3 +43,7 @@ export {
   classifyReservationFailure,
 } from './reservation-watch.ts'
 export type { ReservationFailure } from './reservation-watch.ts'
+
+// The LAN seed: one command another device on the network can join.
+export { SeedServer, lanAddresses, localHostname, relayAddrForHost } from './seed-server.ts'
+export type { BootstrapInfo, SeedServerOptions } from './seed-server.ts'

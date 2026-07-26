@@ -73,6 +73,18 @@ Recent decisions affecting current work:
   aliasing in-memory adapter made kernel tests pass on semantics no real backend has.
 - **Conformance vectors are hardcoded literals, never computed (Phase 3).** A
   computed expectation only proves an implementation agrees with itself.
+- **The kernel must never need `crypto.subtle` (Phase 3).** A LAN origin
+  (`http://10.144.82.249:5173`, `http://laptop.local:5173`) is *not* a secure context,
+  so WebCrypto is absent. `multiformats/hashes/sha2` uses it, which silently broke every
+  CID on any non-localhost page — while the node still *started*, so it failed at the
+  first block rather than at join. Hashing is now `@noble/hashes`, pure JS. The
+  import-scanning purity tests cannot catch this class of bug; a dedicated browser test
+  removes `crypto.subtle` and requires the hashing path to survive.
+- **A browser cannot do mDNS (Phase 3).** No API, any browser. LAN discovery is
+  therefore: one URL (preferably the machine's existing `.local` Bonjour name, which
+  iOS resolves natively and which survives DHCP churn), after which the page fetches
+  `/bootstrap.json` from *its own origin* and is told to dial the same host it already
+  reached. Nothing hardcoded, nothing guessed from network interfaces.
 - **A relay's browser capacity is capped by inbound limits, not reservations (Phase 3).**
   `INBOUND_CONNECTION_THRESHOLD` is 5 **per host** and
   `MAX_INCOMING_PENDING_CONNECTIONS` is 10 — both below the 15 reservation default.

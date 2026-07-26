@@ -25,7 +25,7 @@
 
 import * as dagCbor from '@ipld/dag-cbor'
 import { CID } from 'multiformats/cid'
-import { sha256 } from 'multiformats/hashes/sha2'
+import { sha256 } from '@o2/core'
 import { openDB } from 'idb'
 import type { DBSchema, IDBPDatabase } from 'idb'
 import type { Blockstore } from '@o2/core'

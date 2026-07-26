@@ -56,6 +56,15 @@ export interface TabAddresses {
 
 export interface TabApi {
   start(options: { relayAddrs: string[]; blockstoreName: string }): Promise<string>
+  /**
+   * Join using whatever the page's own origin says to dial.
+   *
+   * The whole of "automatic discovery" from the browser's side. The page fetches
+   * `/bootstrap.json` from the host it was itself loaded from, so a phone that opened
+   * `http://laptop.local:5173` is told to dial `/dns4/laptop.local/...` — nothing
+   * hardcoded, nothing guessed, and no address that can go stale in a build.
+   */
+  autoStart(options?: { blockstoreName?: string }): Promise<{ peerId: string; relayAddrs: string[] }>
   addresses(): TabAddresses
   /** Resolves once a relay reservation has produced a dialable `/webrtc` address. */
   waitForWebrtcAddr(timeoutMs: number): Promise<string[]>

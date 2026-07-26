@@ -19,7 +19,7 @@
  * event this mechanism exists to detect.
  */
 
-import { sha256 } from 'multiformats/hashes/sha2'
+import { sha256 } from '../hash.ts'
 import type { CID } from 'multiformats/cid'
 import { canonicalCid } from '../canonical/encode.ts'
 import type { CanonicalValue } from '../canonical/encode.ts'

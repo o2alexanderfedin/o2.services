@@ -45,6 +45,23 @@ const api: TabApi = {
     return node.peerId
   },
 
+  async autoStart(options = {}) {
+    // Same-origin, so it works over `.local`, a raw IP, or localhost without knowing
+    // which was used. `cache: 'no-store'` because a stale relay address is worse than
+    // a slow one.
+    const response = await fetch('/bootstrap.json', { cache: 'no-store' })
+    if (!response.ok) throw new Error(`bootstrap failed: HTTP ${response.status}`)
+    const info = (await response.json()) as { relayAddrs: string[] }
+    if (!Array.isArray(info.relayAddrs) || info.relayAddrs.length === 0) {
+      throw new Error('bootstrap returned no relay addresses')
+    }
+    const peerId = await api.start({
+      relayAddrs: info.relayAddrs,
+      blockstoreName: options.blockstoreName ?? 'o2-blocks',
+    })
+    return { peerId, relayAddrs: info.relayAddrs }
+  },
+
   addresses() {
     const n = required()
     return { peerId: n.peerId, webrtc: [...n.webrtcAddrs], circuit: [...n.circuitAddrs] }
