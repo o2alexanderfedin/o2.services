@@ -5,17 +5,17 @@
 See: .planning/PROJECT.md (updated 2026-07-24)
 
 **Core value:** Usable capacity grows super-linearly with the user base, without any raw data leaving its owner's device.
-**Current focus:** Phase 5 — Decomposable Tree-Reduce
+**Current focus:** Phase 6 — Discovery, Placement & Enrollment
 
 ## Current Position
 
-Phase: 5 of 10 (Decomposable Tree-Reduce) — not yet started.
-Phase 3 is 5/6 (real AutoTLS needs a public host); Phase 4 is complete.
+Phase: 6 of 10 (Discovery, Placement & Enrollment) — not yet started.
+Phase 3 is 5/6 (real AutoTLS needs a public host); Phases 4 and 5 are complete.
 Plan: partial — see `phases/phase-3-browser-tier/SUMMARY.md`
 Status: Only real AutoTLS (criterion 2) remains, and it needs a public host
 Last activity: 2026-07-26 — an iPhone running Safari and a laptop running Chromium completed a 4-shard R=2 job over a **direct** WebRTC connection. 277 tests green, `tsc --noEmit` clean
 
-Progress: [███░░░░░░░] 35% (3 of 10 complete; Phase 3 at 5/6, blocked only on hosting)
+Progress: [████░░░░░░] 45% (4 of 10 complete; Phase 3 at 5/6, blocked only on hosting)
 
 ### Where Phase 3 stands
 
@@ -78,6 +78,15 @@ Recent decisions affecting current work:
 - **A remote executor is just an `Executor` (Phase 2).** `submitJob` takes `Executor[]` and cannot tell where one runs, so the network arrived without a kernel change. Any future "distributed" feature should first be checked against this: if it can be an adapter behind an existing port, it must be.
 - **Packages split on the portability line, not the feature line (Phase 2).** `@o2/net` is portable and its tests run in Node *and* Chromium; `@o2/node` holds everything a browser cannot do. `purity.node.test.ts` enforces it — no `node:`/`libp2p`/`@chainsafe` import may appear in a portable package.
 - **`Transport` stays a one-way datagram port (Phase 2).** Request/response correlation lives in `@o2/net` instead, because a datagram shape is the smallest thing an in-process table, a libp2p stream, and a relayed WebRTC channel can all implement.
+- **Derive topology, never agree on it (Phase 5).** The reduce tree is a pure function
+  of sorted partial CIDs, so every participant computes the same one with zero
+  messages — no leader election, no consensus, nothing to lose. Assignment is HRW, and
+  the ranking *is* the fallback list. Repair is recompute from CIDs, not state
+  transfer; a late duplicate dedupes into nothing.
+- **Associativity is the reduce contract; commutativity is not (Phase 5).** An earlier
+  comment claimed both were required and justified it wrongly — a probe showed an
+  order-dependent reducer breaks nothing, because grouping is canonical. The
+  bit-identical single-node reference test is what enforces associativity.
 - **Sovereignty is structural, never a preference (Phase 4).** `planPlacement` narrows
   to the owner's nodes *before* load is consulted; there is no branch that widens it.
   A sovereign shard with nowhere to run stalls. Verified by adding the forbidden
