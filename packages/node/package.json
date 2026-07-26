@@ -21,6 +21,7 @@
     "@o2/core": "*",
     "@o2/libp2p": "*",
     "@o2/net": "*",
-    "libp2p": "3.3.6"
+    "libp2p": "3.3.6",
+    "qrcode-terminal": "0.12.0"
   }
 }
