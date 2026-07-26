@@ -3,6 +3,10 @@
 Required by Phase 6 criterion 5: *"a threat model naming 'attacker controls up to k of
 n' is committed with k stated."*
 
+Extended 2026-07-26 with attackers 17–19, the surface discovery introduces. The
+requirement asks only for the quorum bound, but a model that stopped where the
+requirement did would omit the newest attack surface in the system.
+
 Scoped to what is built and tested today. Where a defence is partial, it says so — an
 overstated threat model is worse than none, because it stops people looking.
 
@@ -58,6 +62,9 @@ distinct operator identities an attacker can obtain** — see the gap below.
 | 14 | Exhausts a relay's reservations | Capacity reported by name; refusal distinguishable from an outage | **built** — `RelayNode`, `ReservationWatcher` |
 | 15 | Mass-creates node identities to win quorum slots | Rate-limited enrollment per user key | **gap** — see below |
 | 16 | Eclipses a node's view of the DHT | S/Kademlia disjoint-path lookups | **not built** |
+| 17 | Injects fake providers into a lookup answer | A provider with no verifiable certificate is excluded by name at the requestor | **built** — `discoverExecutors` |
+| 18 | Advertises engine features it does not have | Claim is signed by a node key a pinned provider certified, so it is attributable | **partial** — see below |
+| 19 | Understates its load to attract work | Load is a hint; the node's own offer is the only authority, and it must still answer | **bounded** — see below |
 
 ## Gaps, stated plainly
 
@@ -76,6 +83,24 @@ or re-encoded copies would not match. It catches the failure that actually happe
 map step that forgot to aggregate. A stronger claim needs taint tracking through the
 guest.
 
+**A false capability claim is attributable, not prevented (attacker 18).** A capability
+record is self-signed and therefore worthless alone — an attacker can mint one claiming
+anything. It gains nothing because discovery also requires a certificate from a pinned
+provider for that same node key, so a false claim is bound to a certified identity. What
+that buys is attribution after the fact, not prevention: a node claiming `simd128` it
+cannot run will be dispatched to and will fail, and the requestor re-picks. The cost is
+one wasted dispatch, and the operator is named. Making the claim self-verifying would
+mean challenging the node to execute a probe module, which is not built.
+
+**Load is a hint by design, and lying about it is bounded (attacker 19).** Power-of-d
+deliberately treats the requestor's load figure as possibly stale; the authority is the
+node's own answer to an offer. A node understating its load attracts more offers, and
+must then either refuse them — costing the requestor one probe and a re-pick, both
+recorded — or accept work it cannot finish, which makes it a straggler rather than a
+liar with an advantage. Straggler handling is Phase 7. What this does **not** cover is a
+node that accepts everything in order to deny service by stalling; that needs a
+completion-time reputation, which is not built.
+
 **Eclipse resistance is absent (attacker 16).** js-libp2p implements Kademlia
 "augmented with notions from S/Kademlia", which is not the same as disjoint-path
 lookups. Treat this as build-not-configure work, currently unbuilt.
@@ -89,5 +114,7 @@ counts and destinations, which is itself metadata an observer could use.
 
 ## Revision
 
-Written 2026-07-26 against Phase 6. Revisit when: enrollment gains a real cost
-function; multiple providers are supported; or disjoint-path lookups are implemented.
+Written 2026-07-26 against Phase 6, extended the same day with the discovery surface.
+Revisit when: enrollment gains a real cost function; multiple providers are supported;
+disjoint-path lookups are implemented; or straggler handling (Phase 7) gives completion
+time a consequence, which is what would close attacker 19.

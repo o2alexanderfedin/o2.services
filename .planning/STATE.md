@@ -5,41 +5,71 @@
 See: .planning/PROJECT.md (updated 2026-07-24)
 
 **Core value:** Usable capacity grows super-linearly with the user base, without any raw data leaving its owner's device.
-**Current focus:** Phase 6 — Discovery, Placement & Enrollment (in progress, 3/7)
+**Current focus:** Phase 7 — Churn, Stragglers & Coordinator Survival (not started)
 
 ## Current Position
 
-Phase: 6 of 10 (Discovery, Placement & Enrollment) — **in progress, 3 of 7 criteria**.
-Enrollment, quorum diversity and attestation labelling are done; discovery and
-power-of-d placement are the next unit.
-Phase 3 is 5/6 (real AutoTLS needs a public host); Phases 4 and 5 are complete.
-Plan: partial — see `phases/phase-3-browser-tier/SUMMARY.md`
-Status: Only real AutoTLS (criterion 2) remains, and it needs a public host
-Last activity: 2026-07-26 — an iPhone running Safari and a laptop running Chromium completed a 4-shard R=2 job over a **direct** WebRTC connection. 277 tests green, `tsc --noEmit` clean
+Phase: 6 of 10 (Discovery, Placement & Enrollment) — **complete, 7 of 7 criteria**.
+Phase 3 is 5/6 (real AutoTLS needs a publicly reachable host); Phases 1, 2, 4, 5, 6 are
+complete. Next unit is Phase 7.
 
-Progress: [████░░░░░░] 45% (4 of 10 complete; Phase 3 at 5/6, blocked only on hosting)
+```
+Test Files  55 passed
+     Tests  571 passed
+tsc --noEmit  clean
+Requirements  47 / 72
+```
+
+Progress: [█████░░░░░] 55% (5 of 10 complete; Phase 3 at 5/6, blocked only on hosting)
+
+Last activity: 2026-07-26 — Phase 6 closed. The static peer list is gone: a requestor
+knowing one bootstrap peer and a data CID discovers executors, places work with
+power-of-d, and dispatches it.
+
+### Where Phase 6 landed
+
+**Discovery is an intersection of three independently-sourced facts** — who holds the
+block (content routing), who the node is (provider-signed certificate), and what it can
+run (node-signed capability record). None is worth anything alone, and that is stated as
+a passing test: an attacker mints a perfectly valid capability record and gains nothing,
+because the same key must also carry a certificate a pinned provider signed.
+
+**The power-of-d sample is derived, not drawn.** Candidates come from rendezvous ranking
+on the shard id rather than `random()`, so two requestors racing on one shard converge
+instead of doubling up, re-placement after a crash re-derives the same candidates, and
+the ranking tail is already the re-pick list.
+
+**Load is a hint; the offer is the authority.** `LocalCapacity` takes no ports and makes
+no calls, so "local information only" is a property of the type rather than a promise in
+a comment. A refusal is not an error path — it is how a guess made from stale data
+becomes a correct decision.
+
+**Sovereignty survived the addition, and was falsified again.** `eligibleNodes` is now
+exported so there is exactly one eligibility gate, with sampling entirely behind it.
+Planting the forbidden branch — *"nobody who is allowed will take it, so ask someone
+else"* — probed 10 nodes instead of 2, leaking a sovereign shard id into another owner's
+fabric. Caught, reverted.
+
+**A real finding from wiring it up:** an unreachable node cost a full RPC timeout before
+the re-pick, which destroys the saving power-of-d exists to buy. Offers now carry a
+2-second probe deadline and silence is a *stated* refusal. No unit test could have shown
+this — in a unit test the admission callback returns immediately.
 
 ### Where Phase 3 stands
 
-Two browser tabs on one machine now complete a 4-shard 2×-redundant job over a
-**direct WebRTC** connection, with the relay carrying only SDP. The relay's exit from
-the data path is asserted, not assumed: libp2p marks a relayed circuit as *limited*,
-so the test requires a `/webrtc` connection with `limits === undefined`.
+Two browser tabs, and separately an iPhone running Safari and a laptop running Chromium,
+complete a 4-shard 2×-redundant job over a **direct WebRTC** connection with the relay
+carrying only SDP. The relay's exit from the data path is asserted, not assumed: libp2p
+marks a relayed circuit as *limited*, so the test requires `limits === undefined`.
 
-**Correction, carried deliberately:** an earlier note here claimed the one-way
-`Transport` port could not survive the browser topology. That was mis-scoped and is
-withdrawn — the failure came from running a whole job over `/p2p-circuit`, which the
-architecture never supported, since the relay is a signalling channel and not a data
-path. The Phase 2 decision stands. The narrower true fact to keep: **a relayed circuit
-cannot carry a job.**
+**Correction, carried deliberately:** an earlier note claimed the one-way `Transport`
+port could not survive the browser topology. Withdrawn — the failure came from running a
+whole job over `/p2p-circuit`, which the architecture never supported. The narrower true
+fact to keep: **a relayed circuit cannot carry a job.**
 
-**Criterion 1 is met on genuinely different machines** — iPhone Safari ↔ laptop
-Chromium, direct WebRTC (`limited=false`), relay carrying only the handshake, all four
-shards agreed by both peers.
-
-Remaining in Phase 3: real AutoTLS, which needs a publicly reachable host. Two items
-are out of scope for a test suite — a >1 hour hold under churn, and per-peer relayed
-byte counters, which js-libp2p does not expose.
+Remaining in Phase 3: real AutoTLS, which needs a publicly reachable host. Two items are
+out of scope for a test suite — a >1 hour hold under churn, and per-peer relayed byte
+counters, which js-libp2p does not expose.
 
 **Settled on real iOS hardware** (nothing in the suite reaches Safari): iOS resolves
 `.local` with no setup; Safari runs the node on a **non-secure** origin, including the
@@ -92,6 +122,25 @@ Recent decisions affecting current work:
   assumptions, both reversed. Background-tab throttling is a lease-duration problem, not
   a capability one. **If a decision keys on node kind, it is wrong** — the only
   legitimate use is shared-dependency analysis over the discovery graph.
+- **Discovery is an intersection, and each part is worthless alone (Phase 6).** Who
+  holds the block, who the node is, and what it can run come from three independent
+  sources — content routing, a provider-signed certificate, a node-signed capability
+  record. The self-signed record looks like theatre until you see what it is bolted to;
+  a test mints a valid one for an uncertified key and shows it buys nothing. Splitting
+  it lets a node re-sign locally when its engine changes.
+- **Every exclusion is named (Phase 6).** Silent filtering leaves a requestor unable to
+  tell a dead network from a wrong clock from a module nobody can run.
+- **The power-of-d sample is derived, not drawn (Phase 6).** Rendezvous ranking on the
+  shard id instead of `random()`: same load result, but two requestors racing on one
+  shard converge, re-placement re-derives the same candidates, the tail is already the
+  re-pick list, and a decision can be replayed from its inputs.
+- **Load is a hint; the offer is the authority (Phase 6).** `LocalCapacity` takes no
+  ports and makes no calls, so "local information only" is a property of the type. A
+  refusal is not an error path — it is how a stale guess becomes a correct decision.
+- **A probe needs its own deadline (Phase 6).** An unreachable node cost a full RPC
+  timeout before the re-pick, destroying the saving power-of-d exists to buy. Offers
+  carry a 2s deadline and silence is a *stated* refusal. Only the wired-up test could
+  find this — a unit test's admission callback returns immediately.
 - **Attestation strength is derived, never declared (Phase 6).** owner-attested /
   owner-domain / independent, computed from certificates. Owner-domain and independent
   both show two replicas, so the count cannot distinguish them and the label must travel
@@ -187,9 +236,14 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-07-25
-Stopped at: Phase 2 complete — `@o2/net` and `@o2/node` added, 206 tests green,
-kernel unchanged. See `phases/phase-2-real-network/SUMMARY.md`.
+Last session: 2026-07-26
+Stopped at: **Phase 6 complete — 7 of 7 criteria.** 571 tests green, `tsc --noEmit`
+clean, 47/72 requirements. The static peer list is gone. See
+`phases/phase-6-discovery-enrollment/SUMMARY.md`.
+Next unit: **Phase 7 — churn, stragglers and coordinator survival.** Phase 6 left it
+two things to build on: rendezvous ranking already provides the fallback order with no
+lookup, and threat model 19 names the gap Phase 7 must close — a node that accepts work
+to stall it is not covered without completion-time consequence.
 Resume file: `.planning/.continue-here.md` — leads with three blocking constraints
 (no static determinism analysis, no cross-implementation verification, no host-import
 allow-list). Still current; they apply to every later phase.

@@ -21,6 +21,10 @@ export { RemoteExecutor } from './remote-executor.ts'
 export { RpcBlockSource, serveAgent } from './agent.ts'
 export type { AgentOptions, Authorizer } from './agent.ts'
 
+// Discovery and admission over RPC — SCHED-01, SCHED-03, NET-06.
+export { DEFAULT_PROBE_TIMEOUT_MS, RpcRecordIndex, rpcAdmission } from './discovery.ts'
+export type { AdmissionOptions } from './discovery.ts'
+
 // DATA-02 — one addressing contract, checked against every Blockstore adapter.
 export { BLOCK_VECTORS, CONFORMANCE_BLOCK_COUNT, checkBlockstoreConformance } from './conformance.ts'
 export type { BlockVector, ConformanceReport } from './conformance.ts'
