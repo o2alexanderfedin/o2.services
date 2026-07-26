@@ -240,6 +240,16 @@ export class LeaseTable {
     const stale =
       lease === undefined || lease.nodeId !== nodeId || lease.expiresAt <= now
     if (stale) {
+      // Release a lapsed lease held by *this* node before refusing it.
+      //
+      // The refusal and the release are separate concerns and conflating them leaks:
+      // returning early left the entry in `#held` forever, so `outstanding` kept
+      // naming a task that had finished, and a table reused across runs grew without
+      // bound. The different-holder case is deliberately untouched — that is the
+      // correctness check, and deleting there would knock another node off its lease.
+      if (lease !== undefined && lease.nodeId === nodeId) {
+        this.#held.delete(taskId)
+      }
       this.#history.push({
         kind: 'stale-completion',
         taskId,
@@ -291,10 +301,21 @@ export class LeaseTable {
    * The caller re-dispatches whatever comes back `redispatchable`, choosing the node
    * through placement as usual. A task that has used its last generation comes back
    * `redispatchable: false` and is recorded as abandoned.
+   *
+   * `taskId` narrows the sweep to one task. A coordinator running many shards against
+   * one table needs that: reaping globally from inside one shard's loop would expire
+   * a *sibling's* lease while its dispatch is still in flight, and the sibling would
+   * then have its perfectly good completion refused as stale. Correct in the abstract,
+   * astonishing in practice — so the caller says which task it is talking about.
    */
-  reap(now: number): readonly Reaped[] {
+  reap(now: number, taskId?: string): readonly Reaped[] {
     const reaped: Reaped[] = []
-    for (const lease of [...this.#held.values()]) {
+    const scope =
+      taskId === undefined
+        ? [...this.#held.values()]
+        : [this.#held.get(taskId)].filter((lease): lease is Lease => lease !== undefined)
+
+    for (const lease of scope) {
       if (lease.expiresAt > now) continue
       this.#expire(lease, now)
       const redispatchable = lease.generation < this.#maxGenerations

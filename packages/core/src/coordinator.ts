@@ -18,12 +18,36 @@
  *
  * ## Failure is a fact, silence is a deadline
  *
- * The two are handled differently and it matters. A dispatch that comes back `null` is
- * *observed* failure — the node refused, or its connection died — so the lease is
- * surrendered immediately and the task moves on. Silence gets a deadline instead,
- * because silence is indistinguishable from slowness and the only safe response to
- * "I cannot tell" is to wait a bounded time. Conflating them would either waste a full
- * lease on a node known to be gone, or declare a slow node dead on no evidence.
+ * The two are handled differently and it matters. A dispatch that reports failure is
+ * *observed* — the node refused, or its connection died — so the lease is surrendered
+ * immediately and the task moves on. Silence gets a deadline instead, because silence
+ * is indistinguishable from slowness and the only safe response to "I cannot tell" is
+ * to wait a bounded time. Conflating them would either waste a full lease on a node
+ * known to be gone, or declare a slow node dead on no evidence.
+ *
+ * **The deadline is the lease, and it is enforced here rather than assumed.** An
+ * earlier version of this module stated the rule above and then never checked
+ * `expiresAt` anywhere: once speculation became impossible the loop awaited the
+ * pending dispatch with no timer at all, so a peer that simply never answered hung
+ * the shard, and `Promise.all` hung the job. Nothing bounded it, because the transport
+ * timeout belongs to the transport and a caller may not have one.
+ *
+ * ## Disagreement must survive speculation
+ *
+ * When a duplicate wins, the loser is *not* abandoned unexamined. That was the other
+ * thing this module got wrong: breaking out of the race on the first arrival meant a
+ * second copy's answer was never compared, so `disagreed` could not become true on any
+ * input — timing alone picked which of two different CIDs became the job's answer, and
+ * the run reported clean. That is majority-vote-by-race, the thing this project has
+ * explicitly refused.
+ *
+ * The fix keeps speculation's whole point intact. Waiting for the loser would undo the
+ * latency saving — the loser is usually the straggler. So the winner returns
+ * immediately and the outstanding copies are compared **after every shard has
+ * settled**, which costs nothing because the job was going to wait for its slowest
+ * shard anyway. A copy that has still not answered by then is reported as uncompared
+ * rather than as agreeing; you cannot compare an answer that never arrived, and saying
+ * "no disagreement" about it would be a claim nobody checked.
  *
  * ## Speculation is adaptive, not a fixed timeout
  *
@@ -119,6 +143,13 @@ export interface CoordinatorOptions {
     readonly factor?: number
     /** Poll interval. Also the floor on how quickly a straggler can be spotted. */
     readonly watchdogMs?: number
+    /**
+     * Extra time a losing copy gets to answer once every shard has settled.
+     *
+     * Only bounds the *comparison*, never the result: the winner is already decided
+     * and returned. A copy that misses this window is reported as `uncompared`.
+     */
+    readonly compareGraceMs?: number
     readonly sleep?: Sleep
   }
   /**
@@ -144,6 +175,13 @@ export interface ShardOutcome {
   readonly speculated: boolean
   /** True when a duplicate produced a *different* CID — reported, never resolved. */
   readonly disagreed: boolean
+  /**
+   * Copies that had still not answered when the job finished comparing.
+   *
+   * Deliberately distinct from "agreed". An unfinished copy tells us nothing, and
+   * folding it into agreement would assert something nobody checked.
+   */
+  readonly uncompared: readonly string[]
 }
 
 export interface CoordinatorOutcome {
@@ -240,6 +278,7 @@ export async function runResilient(options: CoordinatorOptions): Promise<Coordin
     fraction: options.speculation?.fraction ?? DEFAULT_SPECULATION_FRACTION,
   })
   const watchdogMs = options.speculation?.watchdogMs ?? DEFAULT_WATCHDOG_MS
+  const compareGraceMs = options.speculation?.compareGraceMs ?? watchdogMs
   const factor = options.speculation?.factor ?? DEFAULT_STRAGGLER_FACTOR
   const sleep: Sleep = options.speculation?.sleep ?? ((ms) => new Promise((r) => setTimeout(r, ms)))
   const offerOptions: OfferOptions =
@@ -249,7 +288,30 @@ export async function runResilient(options: CoordinatorOptions): Promise<Coordin
 
   /** Durations of shards that have finished, shared so the median means something. */
   const completedDurations: number[] = []
-  const contributors = new Set<OwnerId>()
+
+  /**
+   * Shards each owner contributed, against shards each owner *owes*.
+   *
+   * Counting an owner as covered the moment any one of their shards lands overstates
+   * coverage exactly where it matters most: an owner with four shards, three of which
+   * failed, would be reported as having contributed, and `complete` would be true over
+   * a quarter of their data. That is the failure `coverage.ts` exists to prevent,
+   * arriving through the composition rather than through `coverageOf`.
+   */
+  const owedByOwner = new Map<OwnerId, number>()
+  const doneByOwner = new Map<OwnerId, number>()
+  for (const shard of options.work) {
+    if (shard.ownerId === undefined) continue
+    owedByOwner.set(shard.ownerId, (owedByOwner.get(shard.ownerId) ?? 0) + 1)
+  }
+
+  /** Speculative copies that lost the race and have not been compared yet. */
+  const outstanding: {
+    readonly shardId: string
+    readonly nodeId: string
+    readonly winnerCid: string
+    readonly copy: Promise<Raced>
+  }[] = []
 
   const runShard = async (shard: ShardWork): Promise<ShardOutcome> => {
     const attempted: string[] = []
@@ -301,25 +363,48 @@ export async function runResilient(options: CoordinatorOptions): Promise<Coordin
       const answers: SpeculativeAnswer[] = []
 
       /**
-       * Whether the watchdog can still change anything for this shard.
+       * Whether a tick can still *speculate* for this shard.
        *
-       * Once a duplicate is running, the budget is spent, or there is no eligible
-       * node left to duplicate onto, no further tick can act — and every one of those
-       * conditions is permanent, because the budget only shrinks and `attempted` only
-       * grows. Racing a timer that provably cannot do anything is how a poll loop
-       * becomes a spin loop.
+       * Once a duplicate is running, the budget is spent, or there is no eligible node
+       * left to duplicate onto, no further tick can start one — and each of those is
+       * permanent, because the budget only shrinks and `attempted` only grows. So the
+       * flag skips the evaluation.
+       *
+       * It emphatically does **not** stop the timer. An earlier version used it to
+       * drop the watchdog out of the race entirely, which left the loop awaiting a
+       * promise that might never settle — the flag was doing double duty as an
+       * optimisation and as a (broken) termination argument. Termination is the
+       * lease deadline's job, and only its job.
        */
       let watching = true
+      /** Set when the lease deadline passed with nothing having answered. */
+      let lapsed = false
 
       while (pending.size > 0) {
-        const raced: Raced = watching
-          ? await Promise.race<Raced>([
-              ...pending.values(),
-              sleep(watchdogMs).then((): Raced => ({ tick: true })),
-            ])
-          : await Promise.race<Raced>([...pending.values()])
+        // The timer is unconditional. `watching` only decides whether a tick may
+        // *speculate*; it must never remove the deadline, or a peer that simply
+        // never answers hangs this shard and, through Promise.all, the whole job.
+        const raced: Raced = await Promise.race<Raced>([
+          ...pending.values(),
+          sleep(watchdogMs).then((): Raced => ({ tick: true })),
+        ])
 
         if (raced.tick) {
+          // The bounded wait the module header promises, actually enforced.
+          if (options.now() >= lease.expiresAt) {
+            for (const stalledOn of pending.keys()) {
+              failures.push({
+                nodeId: stalledOn,
+                kind: 'node',
+                reason: `no answer before the lease expired at ${lease.expiresAt}`,
+              })
+            }
+            lapsed = true
+            break
+          }
+
+          if (!watching) continue
+
           if (ledger.duplicated(shard.shardId) || ledger.remaining <= 0) {
             watching = false
             continue
@@ -364,9 +449,10 @@ export async function runResilient(options: CoordinatorOptions): Promise<Coordin
           failures.push({ nodeId: answer.nodeId, ...failure })
           if (failure.kind === 'task') taskFailures += 1
         }
-        // First result wins. Copies still running are left to finish into nothing —
-        // they carry the same CID, so there is nothing to cancel and nothing to
-        // clean up if the cancel itself were to fail.
+        // First result wins — but the copies still running are *registered*, not
+        // forgotten. Nothing is cancelled: a losing copy carries the same CID and
+        // dedupes into nothing, and if it does not, that is the single most
+        // informative event this system can observe. See the module note.
         if (answer.resultCid !== null) break
       }
 
@@ -376,12 +462,22 @@ export async function runResilient(options: CoordinatorOptions): Promise<Coordin
         for (const loser of settled.losers) {
           ledger.discard(shard.shardId, loser.nodeId, loser.disagreed)
         }
+        for (const [copyOn, promise] of pending) {
+          outstanding.push({
+            shardId: shard.shardId,
+            nodeId: copyOn,
+            winnerCid: settled.resultCid,
+            copy: promise,
+          })
+        }
         // The winner may be a speculative copy rather than the lease holder, so the
         // lease is closed against whoever actually holds it.
         const holder = leases.holder(shard.shardId)
         if (holder !== undefined) leases.complete(shard.shardId, holder.nodeId, options.now())
         completedDurations.push(Math.max(1, options.now() - startedAt))
-        if (shard.ownerId !== undefined) contributors.add(shard.ownerId)
+        if (shard.ownerId !== undefined) {
+          doneByOwner.set(shard.ownerId, (doneByOwner.get(shard.ownerId) ?? 0) + 1)
+        }
         return {
           shardId: shard.shardId,
           resultCid: settled.resultCid,
@@ -391,7 +487,15 @@ export async function runResilient(options: CoordinatorOptions): Promise<Coordin
           rejections,
           speculated,
           disagreed,
+          uncompared: [],
         }
+      }
+
+      // The lease ran out with nothing to show. Reap *this* task only — a global
+      // sweep from inside one shard's loop would expire a sibling's live lease.
+      if (lapsed) {
+        leases.reap(options.now(), shard.shardId)
+        continue
       }
 
       // Observed failure, not silence: give the lease back now rather than spending
@@ -408,10 +512,52 @@ export async function runResilient(options: CoordinatorOptions): Promise<Coordin
       rejections,
       speculated,
       disagreed,
+      uncompared: [],
     }
   }
 
-  const shards = await Promise.all(options.work.map(runShard))
+  const settledShards = await Promise.all(options.work.map(runShard))
+
+  // Every shard has finished. Now compare the speculative copies that lost, which
+  // costs nothing extra: the job was already waiting for its slowest shard, and by
+  // now the losers have had that whole time to answer.
+  const lateDisagreements = new Map<string, string[]>()
+  const lateUncompared = new Map<string, string[]>()
+  await Promise.all(
+    outstanding.map(async (copy) => {
+      const settled = await Promise.race<Raced | null>([
+        copy.copy,
+        sleep(compareGraceMs).then(() => null),
+      ])
+      const answer = settled === null || settled.tick ? null : settled.attempt.answer
+      const record = (into: Map<string, string[]>): void => {
+        const existing = into.get(copy.shardId)
+        if (existing) existing.push(copy.nodeId)
+        else into.set(copy.shardId, [copy.nodeId])
+      }
+
+      if (answer === null || answer.resultCid === null) {
+        // Never answered, or failed. Not evidence of agreement either way — and
+        // recording it as agreement would assert something nobody checked.
+        if (answer === null) record(lateUncompared)
+        return
+      }
+      const disagrees = answer.resultCid !== copy.winnerCid
+      ledger.discard(copy.shardId, copy.nodeId, disagrees)
+      if (disagrees) record(lateDisagreements)
+    }),
+  )
+
+  const shards: ShardOutcome[] = settledShards.map((shard) => {
+    const late = lateDisagreements.get(shard.shardId)
+    const unseen = lateUncompared.get(shard.shardId)
+    if (late === undefined && unseen === undefined) return shard
+    return {
+      ...shard,
+      disagreed: shard.disagreed || late !== undefined,
+      uncompared: unseen ?? [],
+    }
+  })
 
   const results = new Map<string, string>()
   const failed: string[] = []
@@ -437,7 +583,9 @@ export async function runResilient(options: CoordinatorOptions): Promise<Coordin
     history: leases.history,
     speculationMultiplier: ledger.multiplier,
     speculationSpent: ledger.spent,
-    coverage: coverageOf(expectedOwners, [...contributors]),
+    coverage: coverageOf(expectedOwners, [...owedByOwner]
+      .filter(([owner, owed]) => (doneByOwner.get(owner) ?? 0) >= owed)
+      .map(([owner]) => owner)),
     disagreements,
   }
 }

@@ -410,6 +410,39 @@ describe('CHURN-05 — the aggregate carries its coverage', () => {
     expect(outcome.coverage.complete).toBe(false)
   })
 
+  it('refuses to call an owner covered when only some of their shards landed', async () => {
+    // The granularity bug: counting an owner the moment *any* one of their shards
+    // succeeds reports `complete` over a quarter of their data. Both earlier CHURN-05
+    // tests used exactly one shard per owner, so neither could see it.
+    const time = fakeTime()
+    const nodes = [node('alice-1'), node('alice-2'), node('bob-1', 'bob')]
+    const work: ShardWork[] = [
+      { shardId: 'a0', label: 'sovereign', ownerId: 'alice' },
+      { shardId: 'a1', label: 'sovereign', ownerId: 'alice' },
+      { shardId: 'a2', label: 'sovereign', ownerId: 'alice' },
+      { shardId: 'a3', label: 'sovereign', ownerId: 'alice' },
+      { shardId: 'b0', label: 'sovereign', ownerId: 'bob' },
+    ]
+
+    const outcome = await runResilient({
+      work,
+      nodes,
+      now: time.now,
+      // Only alice's first shard succeeds; the other three cannot be computed.
+      dispatch: async (shard) =>
+        shard.shardId === 'a0' || shard.shardId === 'b0'
+          ? answered(shard.shardId)
+          : taskBroke('partition unreadable'),
+      expectedOwners: ['alice', 'bob'],
+      speculation: { sleep: time.sleep },
+    })
+
+    expect(outcome.failed).toEqual(['a1', 'a2', 'a3'])
+    expect(outcome.coverage.covered).toBe(1)
+    expect(outcome.coverage.missing).toEqual(['alice'])
+    expect(outcome.coverage.complete).toBe(false)
+  })
+
   it('reports complete coverage only when every owner contributed', async () => {
     const time = fakeTime()
     const nodes = [node('alice-1'), node('bob-1', 'bob')]
@@ -432,33 +465,175 @@ describe('CHURN-05 — the aggregate carries its coverage', () => {
 })
 
 describe('a disagreement fails the run rather than footnoting it', () => {
+  /**
+   * A gate the primary awaits and the speculative copy opens.
+   *
+   * Deliberately explicit rather than `setTimeout(0)`. The earlier version of this
+   * test raced a microtask-resolving fake `sleep` against a macrotask, so the second
+   * answer provably could not arrive before the shard returned — and every assertion
+   * sat inside `if (outcome.disagreements.length > 0)`, a condition that was then
+   * never true. The test passed while asserting nothing, and deleting disagreement
+   * reporting outright left the whole suite green. Both arrivals are now guaranteed,
+   * and both assertions are unconditional.
+   */
+  function gate() {
+    let open = (): void => {}
+    const opened = new Promise<void>((resolve) => {
+      open = resolve
+    })
+    return { opened, open: () => open() }
+  }
+
   it('surfaces a speculative copy that produced a different answer', async () => {
     const time = fakeTime()
     const nodes = Array.from({ length: 6 }, (_, i) => node(`n${i}`))
+    const primary = gate()
 
-    // The primary is slow and then answers *differently*. Two copies of a
-    // deterministic function over content-addressed inputs must agree.
-    let slowed = false
+    let first = true
     const outcome = await runResilient({
       work: publicWork(6),
       nodes,
       now: time.now,
       dispatch: async (shard) => {
-        if (shard.shardId === 's0' && !slowed) {
-          slowed = true
-          return new Promise<DispatchOutcome>((resolve) => {
-            setTimeout(() => resolve({ ok: true, resultCid: 'bafy-DIFFERENT' }), 0)
-          })
+        if (shard.shardId !== 's0') return answered(shard.shardId)
+        if (first) {
+          // The primary: blocked until the duplicate has answered.
+          first = false
+          await primary.opened
+          return answered('s0')
         }
-        return answered(shard.shardId)
+        // The duplicate: answers differently, then releases the primary.
+        primary.open()
+        return { ok: true, resultCid: 'bafy-DIFFERENT' }
       },
-      speculation: { fraction: 1, watchdogMs: 5, sleep: time.sleep },
+      speculation: { fraction: 1, watchdogMs: 5, compareGraceMs: 50, sleep: time.sleep },
     })
 
-    // Whichever copy won, if the two differed the run is not ok.
-    if (outcome.disagreements.length > 0) {
-      expect(outcome.disagreements).toContain('s0')
-      expect(outcome.ok).toBe(false)
-    }
+    // Both copies provably ran and returned different CIDs. Timing picked a winner;
+    // it must not have picked a *truth*.
+    expect(outcome.shards.find((s) => s.shardId === 's0')?.speculated).toBe(true)
+    expect(outcome.disagreements).toContain('s0')
+    expect(outcome.ok).toBe(false)
+  })
+
+  it('reports agreement between copies as agreement, not as a disagreement', async () => {
+    const time = fakeTime()
+    const nodes = Array.from({ length: 6 }, (_, i) => node(`n${i}`))
+    const primary = gate()
+
+    let first = true
+    const outcome = await runResilient({
+      work: publicWork(6),
+      nodes,
+      now: time.now,
+      dispatch: async (shard) => {
+        if (shard.shardId !== 's0') return answered(shard.shardId)
+        if (first) {
+          first = false
+          await primary.opened
+          return answered('s0')
+        }
+        primary.open()
+        return answered('s0')
+      },
+      speculation: { fraction: 1, watchdogMs: 5, compareGraceMs: 50, sleep: time.sleep },
+    })
+
+    expect(outcome.shards.find((s) => s.shardId === 's0')?.speculated).toBe(true)
+    expect(outcome.disagreements).toEqual([])
+    expect(outcome.ok).toBe(true)
+  })
+
+  it('reports a copy that never answered as uncompared, never as agreeing', async () => {
+    const time = fakeTime()
+    const nodes = Array.from({ length: 6 }, (_, i) => node(`n${i}`))
+
+    let first = true
+    const outcome = await runResilient({
+      work: publicWork(6),
+      nodes,
+      now: time.now,
+      dispatch: async (shard) => {
+        if (shard.shardId !== 's0') return answered(shard.shardId)
+        if (first) {
+          first = false
+          return stall() // the straggler that provoked the duplicate, never answers
+        }
+        return answered('s0')
+      },
+      speculation: { fraction: 1, watchdogMs: 5, compareGraceMs: 20, sleep: time.sleep },
+    })
+
+    const s0 = outcome.shards.find((s) => s.shardId === 's0')
+    expect(s0?.speculated).toBe(true)
+    expect(s0?.resultCid).toBe(resultOf('s0'))
+    // Silence is not evidence of agreement. It is recorded as what it is.
+    expect(s0?.uncompared).toHaveLength(1)
+    expect(outcome.disagreements).toEqual([])
+  })
+})
+
+describe('the lease is the coordinator’s own deadline, and it is enforced', () => {
+  it('does not hang on a peer that never answers when speculation cannot help', async () => {
+    // The default configuration reaches this: floor(tasks * 0.1) is 0 for any job
+    // under ten shards, so the budget is empty and no duplicate can ever start.
+    // Before the deadline was enforced, this awaited a promise that never settles.
+    const time = fakeTime()
+    const leases = new LeaseTable({ leaseMs: 200, maxGenerations: 4 })
+    const nodes = Array.from({ length: 4 }, (_, i) => node(`n${i}`))
+
+    const outcome = await runResilient({
+      work: [{ shardId: 's0', label: 'public' }],
+      nodes,
+      leases,
+      now: time.now,
+      dispatch: async (_shard, nodeId) => (nodeId === 'n0' ? answered('s0') : stall()),
+      speculation: { watchdogMs: 20, sleep: time.sleep },
+    })
+
+    // It finished — that is the whole assertion. Somebody answered eventually.
+    expect(outcome.results.get('s0')).toBe(resultOf('s0'))
+    const lapses = outcome.shards[0]?.failures.filter((f) => f.reason.includes('lease expired'))
+    expect((lapses ?? []).length).toBeGreaterThan(0)
+  })
+
+  it('gives up when every node stays silent, rather than waiting forever', async () => {
+    const time = fakeTime()
+    const leases = new LeaseTable({ leaseMs: 100, maxGenerations: 5 })
+    const outcome = await runResilient({
+      work: [{ shardId: 's0', label: 'public' }],
+      nodes: [node('n0'), node('n1'), node('n2')],
+      leases,
+      now: time.now,
+      dispatch: async () => stall(),
+      speculation: { watchdogMs: 10, sleep: time.sleep },
+    })
+
+    expect(outcome.ok).toBe(false)
+    expect(outcome.failed).toEqual(['s0'])
+    expect(outcome.shards[0]?.attempted).toHaveLength(3)
+    // Each silent node cost exactly one lease, and the history says so.
+    expect(leases.history.filter((e) => e.kind === 'expired')).toHaveLength(3)
+  })
+
+  it('records a completion as completed, not as stale, for a slow-but-live shard', async () => {
+    // A dispatch outliving the lease used to be accepted *and* recorded as a refused
+    // stale completion, leaving the task permanently in `outstanding`.
+    const time = fakeTime()
+    const leases = new LeaseTable({ leaseMs: 30_000, maxGenerations: 3 })
+    const outcome = await runResilient({
+      work: publicWork(3),
+      nodes: Array.from({ length: 4 }, (_, i) => node(`n${i}`)),
+      leases,
+      now: time.now,
+      dispatch: async (shard) => answered(shard.shardId),
+      speculation: { sleep: time.sleep },
+    })
+
+    expect(outcome.ok).toBe(true)
+    expect(leases.history.filter((e) => e.kind === 'completed')).toHaveLength(3)
+    expect(leases.history.filter((e) => e.kind === 'stale-completion')).toHaveLength(0)
+    // No phantom holders left behind for tasks that finished.
+    expect(leases.outstanding).toEqual([])
   })
 })
