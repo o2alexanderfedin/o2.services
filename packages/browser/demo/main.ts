@@ -45,21 +45,45 @@ const api: TabApi = {
     return node.peerId
   },
 
+  async discoverRelays() {
+    // 1. An explicit `?relay=` wins. This is what makes one bundle work on a static
+    //    host: the page has no server to ask, so the address comes from the link.
+    const fromQuery = new URLSearchParams(location.search).getAll('relay').filter((a) => a !== '')
+    if (fromQuery.length > 0) return { source: 'query' as const, relayAddrs: fromQuery }
+
+    // 2. Otherwise ask this page's own origin. Works when a seed node is serving the
+    //    page — over `.local`, a raw IP, or localhost — without knowing which.
+    //    Absolute: the seed mounts it at the root, and on a static host it simply 404s.
+    //    `no-store` because a stale relay address is worse than a slow one.
+    try {
+      const response = await fetch('/bootstrap.json', { cache: 'no-store' })
+      if (response.ok) {
+        const info = (await response.json()) as { relayAddrs?: unknown }
+        const addrs = Array.isArray(info.relayAddrs)
+          ? info.relayAddrs.filter((a): a is string => typeof a === 'string')
+          : []
+        if (addrs.length > 0) return { source: 'origin' as const, relayAddrs: addrs }
+      }
+    } catch {
+      // A static host answers 404, or HTML, or nothing. Not an error — just means
+      // there is no seed node here.
+    }
+
+    return { source: 'none' as const, relayAddrs: [] }
+  },
+
   async autoStart(options = {}) {
-    // Same-origin, so it works over `.local`, a raw IP, or localhost without knowing
-    // which was used. `cache: 'no-store'` because a stale relay address is worse than
-    // a slow one.
-    const response = await fetch('/bootstrap.json', { cache: 'no-store' })
-    if (!response.ok) throw new Error(`bootstrap failed: HTTP ${response.status}`)
-    const info = (await response.json()) as { relayAddrs: string[] }
-    if (!Array.isArray(info.relayAddrs) || info.relayAddrs.length === 0) {
-      throw new Error('bootstrap returned no relay addresses')
+    const { source, relayAddrs } = await api.discoverRelays()
+    if (source === 'none') {
+      throw new Error(
+        'no relay available: this page was not served by a seed node, and no ?relay= was given',
+      )
     }
     const peerId = await api.start({
-      relayAddrs: info.relayAddrs,
+      relayAddrs,
       blockstoreName: options.blockstoreName ?? 'o2-blocks',
     })
-    return { peerId, relayAddrs: info.relayAddrs }
+    return { peerId, relayAddrs }
   },
 
   addresses() {

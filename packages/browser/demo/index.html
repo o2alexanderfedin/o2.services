@@ -2,15 +2,135 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <title>o2 node</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>o2.services — node</title>
+    <style>
+      :root { color-scheme: light dark; }
+      body {
+        font: 15px/1.55 ui-monospace, SFMono-Regular, Menlo, monospace;
+        margin-inline: auto; max-width: 46rem; padding: 2rem 1.25rem;
+      }
+      h1 { font-size: 1.1rem; margin: 0 0 .25rem; letter-spacing: .02em; }
+      .sub { opacity: .65; margin: 0 0 1.75rem; font-size: .85rem; }
+      .state {
+        border: 1px solid currentColor; border-radius: 6px;
+        padding: .85rem 1rem; margin-bottom: 1.25rem;
+      }
+      .state[data-tone='idle']    { opacity: .7; }
+      .state[data-tone='working'] { border-color: #b58900; }
+      .state[data-tone='live']    { border-color: #2aa198; }
+      .state[data-tone='blocked'] { border-color: #cb4b16; }
+      dl { display: grid; grid-template-columns: max-content 1fr; gap: .3rem .9rem; margin: 0 0 1.25rem; }
+      dt { opacity: .6; }
+      dd { margin: 0; overflow-wrap: anywhere; }
+      button {
+        font: inherit; padding: .45rem 1rem; border-radius: 5px;
+        border: 1px solid currentColor; background: transparent; color: inherit;
+        cursor: pointer;
+      }
+      button[disabled] { opacity: .4; cursor: default; }
+      .note { font-size: .85rem; opacity: .75; }
+      .note code {
+        background: color-mix(in srgb, currentColor 12%, transparent);
+        padding: .1em .35em; border-radius: 3px;
+      }
+    </style>
   </head>
   <body>
+    <h1>o2.services — peer-to-peer compute node</h1>
+    <p class="sub">
+      This page can become a compute node in a peer-to-peer fabric.
+      Nothing runs until you start it.
+    </p>
+
     <!--
-      The page a tab loads in the two-tab test. Deliberately inert: it starts no
-      node on load, so the harness controls when each tab joins and can assert on
-      the sequence. A real embedding page would call start() behind a consent gate.
+      Deliberately inert on load. No node starts by itself: a visitor's CPU is not
+      taken without an explicit action, and the two-tab tests need to control exactly
+      when each tab joins.
     -->
-    <p id="status">idle</p>
+    <div class="state" id="state" data-tone="idle">checking for a relay…</div>
+
+    <p><button id="join" disabled>Start node</button></p>
+
+    <dl id="facts"></dl>
+
+    <p class="note" id="explain"></p>
+
     <script type="module" src="./main.ts"></script>
+    <script type="module">
+      const stateEl = document.getElementById('state')
+      const factsEl = document.getElementById('facts')
+      const joinEl = document.getElementById('join')
+      const explainEl = document.getElementById('explain')
+
+      const setState = (tone, text) => {
+        stateEl.dataset.tone = tone
+        stateEl.textContent = text
+      }
+      const setFacts = (pairs) => {
+        factsEl.replaceChildren(
+          ...pairs.flatMap(([key, value]) => {
+            const dt = document.createElement('dt')
+            dt.textContent = key
+            const dd = document.createElement('dd')
+            dd.textContent = value
+            return [dt, dd]
+          }),
+        )
+      }
+
+      // Wait for the module script to install window.o2.
+      while (typeof window.o2 === 'undefined') await new Promise((r) => setTimeout(r, 30))
+
+      const { source, relayAddrs } = await window.o2.discoverRelays()
+
+      if (source === 'none') {
+        // Saying so plainly beats a page that merely looks broken. A static host has
+        // no seed node to ask, so the relay address has to come from the link.
+        setState('blocked', 'no relay reachable from this page')
+        setFacts([
+          ['relay source', 'none'],
+          ['secure context', String(window.isSecureContext)],
+        ])
+        explainEl.innerHTML =
+          'A browser cannot accept incoming connections, so two tabs need a publicly ' +
+          'reachable <strong>Circuit Relay v2</strong> peer to exchange WebRTC ' +
+          'signalling. This page was served by a static host, which cannot run one. ' +
+          'Either point it at a relay with <code>?relay=&lt;multiaddr&gt;</code>, or ' +
+          'run <code>o2 seed</code> on your own machine and open the URL it prints — ' +
+          'that page serves its own relay address and needs no configuration.'
+      } else {
+        setState('idle', `relay found via ${source} — ready to start`)
+        setFacts([
+          ['relay', relayAddrs[0]],
+          ['relay source', source],
+        ])
+        joinEl.disabled = false
+      }
+
+      joinEl.addEventListener('click', async () => {
+        joinEl.disabled = true
+        setState('working', 'starting node and reserving on the relay…')
+        try {
+          const { peerId } = await window.o2.autoStart({})
+          const addrs = await window.o2.waitForWebrtcAddr(60_000)
+          setState('live', 'node running — reachable by other tabs')
+          setFacts([
+            ['peer id', peerId],
+            ['relay', relayAddrs[0]],
+            ['address', addrs[0] ?? '(none yet)'],
+          ])
+          explainEl.textContent =
+            'Open this same URL in another tab or on another device and the two find ' +
+            'each other over WebRTC. The relay only carries the handshake.'
+        } catch (error) {
+          setState(
+            'blocked',
+            `could not join: ${error instanceof Error ? error.message : String(error)}`,
+          )
+          joinEl.disabled = false
+        }
+      })
+    </script>
   </body>
 </html>

@@ -65,6 +65,14 @@ export interface TabApi {
    * hardcoded, nothing guessed, and no address that can go stale in a build.
    */
   autoStart(options?: { blockstoreName?: string }): Promise<{ peerId: string; relayAddrs: string[] }>
+  /**
+   * Where this page would look for a relay, without joining.
+   *
+   * `source` is `'query'` when relays came from `?relay=<multiaddr>`, `'origin'` when
+   * they came from a same-origin `/bootstrap.json`, and `'none'` when neither is
+   * available — which is the normal state on a static host with no relay configured.
+   */
+  discoverRelays(): Promise<{ source: 'query' | 'origin' | 'none'; relayAddrs: string[] }>
   addresses(): TabAddresses
   /** Resolves once a relay reservation has produced a dialable `/webrtc` address. */
   waitForWebrtcAddr(timeoutMs: number): Promise<string[]>
