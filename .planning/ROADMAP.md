@@ -120,9 +120,12 @@ Decimal phases appear between their surrounding integers in numeric order.
   5. Reduce partials stay inside a tested single-digit-KiB size budget so the browser mesh can carry them, and combines execute redundantly — so the aggregation over owner-attested sovereign partials is verified even though the sovereign maps themselves are not
 **Plans**: complete — see `phases/phase-5-tree-reduce/SUMMARY.md`
 
-Notes: Browsers are leaves in v1. Internal combine nodes are placed on backbone peers
-only, because background-tab timer throttling (≥1 minute) would falsely kill any lease
-short enough to be useful.
+Notes (revised 2026-07-26): Browsers are **not** leaves. A browser peer is a full peer
+and may host internal combines. The real constraint is narrower and is about *leases*,
+not capability: a backgrounded tab has its timers throttled to roughly once a minute,
+so any lease shorter than that would be falsely declared dead. The fix belongs in the
+lease duration and in the visibility governor already built in Phase 3 — not in a rule
+that demotes an entire tier.
 
 ### Phase 6: Discovery, Placement & Enrollment
 **Goal**: The static peer list the previous phases leaned on disappears — nodes find each other and decide where work runs from local information, under identity and diversity constraints that make a forged quorum expensive
@@ -131,7 +134,7 @@ short enough to be useful.
 **Requirements**: SCHED-01, SCHED-02, SCHED-03, SCHED-05, NET-06, AUTH-01, AUTH-02, AUTH-04, AUTH-05, VER-03, VER-04, VER-08, VER-09, VER-10
 **Research**: Needed — S/Kademlia disjoint-path lookups are not implemented in js-libp2p, so sybil/eclipse resistance is build-not-configure; `@libp2p/pubsub-peer-discovery` is unverified against `@libp2p/interface@^3` and libp2p's own docs call pubsub discovery not production-fit (hardening path: a custom `/o2/rendezvous/1.0.0` on the backbone); enrollment design touches the PROJECT.md scope boundary and needs its own sizing
 **Success Criteria** (what must be TRUE):
-  1. A requestor with no static peer list finds candidate executors by intersecting the providers of a data CID with signed capability records, and dispatches successfully — while browser peers, running kad-dht in client mode only, resolve the same records through backbone-served delegated routing
+  1. A requestor with no static peer list finds candidate executors by intersecting the providers of a data CID with signed capability records, and dispatches successfully — and a browser peer resolves and serves the same records as a full participant, falling back to backbone-served delegated routing only when it holds no relay reservation (revised 2026-07-26: browser peers are not client-mode-only; see NET-06)
   2. Placement samples d candidates (d=2..4) and selects the least-loaded using local information only; an over-committed node rejects the offer with a stated reason and the requestor re-picks without the job failing
   3. Under artificial load pressure that would otherwise relocate it, a sovereignty-pinned task still lands on its owner — placement cost heuristics are evaluated as a filter after the constraint, never as a score that can outweigh it
   4. A node generates its identity key on-device and receives a provider-signed certificate through a rate-limited enrollment flow; a peer verifies that certificate offline with no call to any live certificate authority, and mass fake-node creation is measurably costly

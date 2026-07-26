@@ -5,11 +5,13 @@
 See: .planning/PROJECT.md (updated 2026-07-24)
 
 **Core value:** Usable capacity grows super-linearly with the user base, without any raw data leaving its owner's device.
-**Current focus:** Phase 6 — Discovery, Placement & Enrollment
+**Current focus:** Phase 6 — Discovery, Placement & Enrollment (in progress, 3/7)
 
 ## Current Position
 
-Phase: 6 of 10 (Discovery, Placement & Enrollment) — not yet started.
+Phase: 6 of 10 (Discovery, Placement & Enrollment) — **in progress, 3 of 7 criteria**.
+Enrollment, quorum diversity and attestation labelling are done; discovery and
+power-of-d placement are the next unit.
 Phase 3 is 5/6 (real AutoTLS needs a public host); Phases 4 and 5 are complete.
 Plan: partial — see `phases/phase-3-browser-tier/SUMMARY.md`
 Status: Only real AutoTLS (criterion 2) remains, and it needs a public host
@@ -78,6 +80,16 @@ Recent decisions affecting current work:
 - **A remote executor is just an `Executor` (Phase 2).** `submitJob` takes `Executor[]` and cannot tell where one runs, so the network arrived without a kernel change. Any future "distributed" feature should first be checked against this: if it can be an adapter behind an existing port, it must be.
 - **Packages split on the portability line, not the feature line (Phase 2).** `@o2/net` is portable and its tests run in Node *and* Chromium; `@o2/node` holds everything a browser cannot do. `purity.node.test.ts` enforces it — no `node:`/`libp2p`/`@chainsafe` import may appear in a portable package.
 - **`Transport` stays a one-way datagram port (Phase 2).** Request/response correlation lives in `@o2/net` instead, because a datagram shape is the smallest thing an in-process table, a libp2p stream, and a relayed WebRTC channel can all implement.
+- **A browser peer is a full peer (owner decision, 2026-07-26).** The only difference
+  is that it cannot bind a listening socket; a relay reservation makes it dialable,
+  proven cross-device in Phase 3. "Client-mode-only DHT" and "browsers are leaves" were
+  inherited assumptions and are reversed. Background-tab throttling is a lease-duration
+  problem, not a capability one. Anywhere a scheduling decision keys on node role, the
+  reason must be reachability or durability — never that an edge node is worth less.
+- **Attestation strength is derived, never declared (Phase 6).** owner-attested /
+  owner-domain / independent, computed from certificates. Owner-domain and independent
+  both show two replicas, so the count cannot distinguish them and the label must travel
+  with the result.
 - **Derive topology, never agree on it (Phase 5).** The reduce tree is a pure function
   of sorted partial CIDs, so every participant computes the same one with zero
   messages — no leader election, no consensus, nothing to lose. Assignment is HRW, and
