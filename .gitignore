@@ -26,3 +26,6 @@ __screenshots__/
 # Vite dependency pre-bundling cache
 .vite/
 node_modules/.vite/
+
+# Production bundle output (built on demand, never committed)
+packages/browser/dist/
