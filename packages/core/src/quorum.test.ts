@@ -194,3 +194,43 @@ describe('VER-10 / criterion 7 — a weaker claim cannot be read as a stronger o
     expect(receipt.description).toContain('not independently verified')
   })
 })
+
+describe('a seed has no discovery dependency, whatever relays it lists', () => {
+  it('does not refuse seeds that merely advertise through one relay', () => {
+    // Regression. `sharedRelay` originally read relayIds without consulting
+    // discoverability, so three directly-dialable seeds that happened to share an
+    // advertisement relay were refused as if they would vanish together. They would
+    // not: losing the relay costs a seed nothing, because it can still be dialled.
+    const seedsAdvertising = [
+      cert('n1', 'op-a', ['relay-1']),
+      cert('n2', 'op-b', ['relay-1']),
+      cert('n3', 'op-c', ['relay-1']),
+    ].map((c) => ({ ...c, discoverability: 'seed' as const }))
+
+    expect(sharedRelay(seedsAdvertising)).toBeNull()
+    expect(composeQuorum(seedsAdvertising, { size: 3 }).ok).toBe(true)
+  })
+
+  it('still refuses when the same relay is the members’ only way to be found', () => {
+    // The distinction that makes the rule meaningful: identical relayIds, opposite
+    // verdicts, decided by whether the node can be reached without them.
+    const onlyViaRelay = [
+      cert('n1', 'op-a', ['relay-1']),
+      cert('n2', 'op-b', ['relay-1']),
+      cert('n3', 'op-c', ['relay-1']),
+    ]
+    expect(onlyViaRelay.every((c) => c.discoverability === 'via-relay')).toBe(true)
+    expect(sharedRelay(onlyViaRelay)).toBe('relay-1')
+    expect(composeQuorum(onlyViaRelay, { size: 3 }).ok).toBe(false)
+  })
+
+  it('lets one seed break a shared dependency among relay-discovered peers', () => {
+    const mixed = [
+      cert('n1', 'op-a', ['relay-1']),
+      cert('n2', 'op-b', ['relay-1']),
+      { ...cert('n3', 'op-c', ['relay-1']), discoverability: 'seed' as const },
+    ]
+    expect(sharedRelay(mixed)).toBeNull()
+    expect(composeQuorum(mixed, { size: 3 }).ok).toBe(true)
+  })
+})

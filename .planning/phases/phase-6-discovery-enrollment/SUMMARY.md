@@ -46,6 +46,24 @@ the quorum rule discriminated on them, which still encodes a tier. The model is 
 - `relayIds` is inside the signed certificate, so a node cannot understate its
   discovery dependencies to slip into a quorum it should not share. Tested.
 
+### A false positive the correction exposed
+
+Restating the rule as a table (*"3 servers behind one relay → refused"*) prompted the
+right question — *is that a bug?* — and probing it found one.
+
+`sharedRelay` read `relayIds` and never consulted `discoverability`. So three
+**seeds** that merely *advertised* through one relay were refused, as though they would
+vanish together. They would not: a seed stays directly dialable, so losing an
+advertisement channel costs it nothing.
+
+Fixed: a seed contributes no discovery dependency whatever relays it lists. Only a node
+whose *sole* discovery path is a relay actually depends on it. Three certificates with
+identical `relayIds` now get opposite verdicts depending on whether they can be reached
+without them — which is the distinction that makes the rule mean anything.
+
+Confirmed by falsification: reverting to the `relayIds`-only reading fails both
+regression tests.
+
 This reverses two inherited assumptions and they were **assumptions, not measurements**.
 The research phase recorded "a browser node cannot serve DHT records" and Phase 5 noted
 "browsers are leaves in v1". Both were carried forward unexamined.

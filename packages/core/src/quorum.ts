@@ -170,13 +170,23 @@ export function sharedRelay(members: readonly NodeCertificate[]): string | null 
   const first = members[0]
   if (first === undefined) return null
 
-  // Start from the first member's relays and intersect down. A directly reachable
-  // member has none, so it short-circuits: no relay can be common to all.
-  let common: string[] = [...first.relayIds]
+  // A seed has *no* discovery dependency, whatever relays it happens to list.
+  //
+  // This distinction is the whole correctness of the rule. A seed may advertise
+  // through relays as a convenience — more ways to be found — but it stays directly
+  // dialable, so losing those relays costs it nothing. Counting them would refuse a
+  // perfectly independent quorum: three seeds that share an advertisement channel are
+  // not three nodes that vanish together. Only a node whose *sole* discovery path is a
+  // relay actually depends on it.
+  const dependenciesOf = (member: NodeCertificate): readonly string[] =>
+    member.discoverability === 'seed' ? [] : member.relayIds
+
+  let common: string[] = [...dependenciesOf(first)]
   for (const member of members) {
-    if (member.relayIds.length === 0) return null
-    const relays = new Set<string>(member.relayIds)
-    common = common.filter((id) => relays.has(id))
+    const relays = dependenciesOf(member)
+    if (relays.length === 0) return null
+    const lookup = new Set<string>(relays)
+    common = common.filter((id) => lookup.has(id))
     if (common.length === 0) return null
   }
   return [...common].sort()[0] ?? null
