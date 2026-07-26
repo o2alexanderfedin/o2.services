@@ -67,3 +67,22 @@ export type { Ability, ChainFailure, ChainResult, Delegation, PublicKeyHex, Veri
 // Signed artifact names — DATA-07, DATA-08.
 export { describeResolveFailure, SignedNameResolver, signName } from './naming.ts'
 export type { NameRecord, ResolveFailure, ResolveResult } from './naming.ts'
+
+// Decomposable tree-reduce — MR-02 through MR-07.
+export {
+  DEFAULT_FANOUT,
+  MAX_PARTIAL_BYTES,
+  deriveReduceTree,
+  executeReduce,
+  localDispatch,
+  rendezvousRank,
+} from './reduce.ts'
+export type {
+  CombineDispatch,
+  CombineTask,
+  Combiner,
+  ReduceOutcome,
+  ReduceRun,
+  ReduceTree,
+  ReduceTreeNode,
+} from './reduce.ts'

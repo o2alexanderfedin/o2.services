@@ -40,7 +40,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 2: Real Network, Node ↔ Node** - The same job runs across two OS processes over a real transport, proving the port boundary held
 - [ ] **Phase 3: Browser Tier & Backbone Relay** - Two browser tabs on different machines run a distributed redundant job against a self-hosted backbone needing no certificate operations
 - [x] **Phase 4: Sovereignty, Authorization & Artifact Signing** - Owner-pinned data becomes a constraint the placer cannot relax, and every artifact resolves through a signed name
-- [ ] **Phase 5: Decomposable Tree-Reduce** - Cross-owner aggregation merges up a derived tree with no shuffle, no consensus, and no state to migrate
+- [x] **Phase 5: Decomposable Tree-Reduce** - Cross-owner aggregation merges up a derived tree with no shuffle, no consensus, and no state to migrate
 - [ ] **Phase 6: Discovery, Placement & Enrollment** - The static peer list disappears; nodes find each other and choose placement under identity and diversity constraints
 - [ ] **Phase 7: Churn, Stragglers & Coordinator Survival** - A job finishes correctly when the machines running it — including the submitter — vanish mid-flight
 - [ ] **Phase 8: Benchmark Harness** - The scaling claim becomes a reproducible published number with its costs included rather than excluded
@@ -118,7 +118,7 @@ Decimal phases appear between their surrounding integers in numeric order.
   3. Combine executors are assigned by rendezvous hashing, and each assignment yields a ranked fallback list, so the next executor is known locally without a lookup
   4. Killing an aggregator mid-combine causes its combine to be recomputed elsewhere purely from its content-addressed inputs with no state transferred, and a late duplicate result arriving afterwards is discarded harmlessly because it carries the same CID
   5. Reduce partials stay inside a tested single-digit-KiB size budget so the browser mesh can carry them, and combines execute redundantly — so the aggregation over owner-attested sovereign partials is verified even though the sovereign maps themselves are not
-**Plans**: TBD
+**Plans**: complete — see `phases/phase-5-tree-reduce/SUMMARY.md`
 
 Notes: Browsers are leaves in v1. Internal combine nodes are placed on backbone peers
 only, because background-tab timer throttling (≥1 minute) would falsely kill any lease

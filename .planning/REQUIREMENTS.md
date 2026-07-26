@@ -125,17 +125,17 @@
 
 - [x] **MR-01**: A job partitions into N shards, each executing independently, with
       a partition index and count available to the task
-- [ ] **MR-02**: Each owner computes a local partial over its own data with no
+- [x] **MR-02**: Each owner computes a local partial over its own data with no
       map-side data movement
-- [ ] **MR-03**: Partials merge up a hierarchical tree via an associative,
+- [x] **MR-03**: Partials merge up a hierarchical tree via an associative,
       commutative combine
-- [ ] **MR-04**: The reduce tree is derived deterministically from sorted partial
+- [x] **MR-04**: The reduce tree is derived deterministically from sorted partial
       CIDs, so every participant computes an identical tree with no consensus
-- [ ] **MR-05**: Combine executors are assigned by rendezvous hashing, yielding a
+- [x] **MR-05**: Combine executors are assigned by rendezvous hashing, yielding a
       ranked fallback list
-- [ ] **MR-06**: A combine lost to churn is recomputed elsewhere from its
+- [x] **MR-06**: A combine lost to churn is recomputed elsewhere from its
       content-addressed inputs, with no state migration
-- [ ] **MR-07**: A duplicate combine result is discarded harmlessly because it
+- [x] **MR-07**: A duplicate combine result is discarded harmlessly because it
       carries the same CID
 
 ### Resilience
@@ -282,12 +282,12 @@ All 72 v1 requirements are mapped, each to exactly one phase. See
 | SCHED-04 | Phase 1 — Portable Kernel & Loopback Map Slice | Done |
 | SCHED-05 | Phase 6 — Discovery, Placement & Enrollment | Pending |
 | MR-01 | Phase 1 — Portable Kernel & Loopback Map Slice | Done |
-| MR-02 | Phase 5 — Decomposable Tree-Reduce | Pending |
-| MR-03 | Phase 5 — Decomposable Tree-Reduce | Pending |
-| MR-04 | Phase 5 — Decomposable Tree-Reduce | Pending |
-| MR-05 | Phase 5 — Decomposable Tree-Reduce | Pending |
-| MR-06 | Phase 5 — Decomposable Tree-Reduce | Pending |
-| MR-07 | Phase 5 — Decomposable Tree-Reduce | Pending |
+| MR-02 | Phase 5 — Decomposable Tree-Reduce | Done |
+| MR-03 | Phase 5 — Decomposable Tree-Reduce | Done |
+| MR-04 | Phase 5 — Decomposable Tree-Reduce | Done |
+| MR-05 | Phase 5 — Decomposable Tree-Reduce | Done |
+| MR-06 | Phase 5 — Decomposable Tree-Reduce | Done |
+| MR-07 | Phase 5 — Decomposable Tree-Reduce | Done |
 | CHURN-01 | Phase 7 — Churn, Stragglers & Coordinator Survival | Pending |
 | CHURN-02 | Phase 7 — Churn, Stragglers & Coordinator Survival | Pending |
 | CHURN-03 | Phase 7 — Churn, Stragglers & Coordinator Survival | Pending |
