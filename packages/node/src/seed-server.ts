@@ -62,6 +62,19 @@ export interface SeedServerOptions {
   readonly relayPort?: number
   readonly blockstoreDir: string
   readonly maxReservations?: number
+  /**
+   * Hostnames the page may be requested by.
+   *
+   * Vite refuses any `Host` it does not recognise, as protection against DNS
+   * rebinding, and **allows only `localhost`, `.localhost`, and IP literals by
+   * default**. A seed exists to be reached from another device — typically by the
+   * machine's Bonjour name — so the default here adds `.local`, which covers every
+   * name mDNS can hand out and nothing else.
+   *
+   * Extend it for other naming schemes (a Tailscale `.ts.net` name, say). `true`
+   * disables the check entirely and is not recommended.
+   */
+  readonly allowedHosts?: readonly string[] | true
 }
 
 /** Strip a `:port` suffix from a Host header, leaving IPv6 brackets intact. */
@@ -154,7 +167,15 @@ export class SeedServer {
       logLevel: 'error',
       // host: true binds every interface. Without it the phone cannot reach the page
       // at all, however good the discovery story is.
-      server: { port: options.httpPort ?? 0, host: true },
+      server: {
+        port: options.httpPort ?? 0,
+        host: true,
+        // Without this the `.local` URL this very class prints is rejected with
+        // "Blocked request. This host is not allowed." IP literals are exempt by
+        // default, which is exactly why an IP-only test would not notice.
+        allowedHosts:
+          options.allowedHosts === true ? true : [...(options.allowedHosts ?? ['.local'])],
+      },
       plugins: [
         {
           name: 'o2-bootstrap',
