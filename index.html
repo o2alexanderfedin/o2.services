@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>o2.services — node</title>
+    <style>
+      :root { color-scheme: light dark; }
+      body {
+        font: 15px/1.55 ui-monospace, SFMono-Regular, Menlo, monospace;
+        margin-inline: auto; max-width: 46rem; padding: 2rem 1.25rem;
+      }
+      h1 { font-size: 1.1rem; margin: 0 0 .25rem; letter-spacing: .02em; }
+      .sub { opacity: .65; margin: 0 0 1.75rem; font-size: .85rem; }
+      .state {
+        border: 1px solid currentColor; border-radius: 6px;
+        padding: .85rem 1rem; margin-bottom: 1.25rem;
+      }
+      .state[data-tone='idle']    { opacity: .7; }
+      .state[data-tone='working'] { border-color: #b58900; }
+      .state[data-tone='live']    { border-color: #2aa198; }
+      .state[data-tone='blocked'] { border-color: #cb4b16; }
+      dl { display: grid; grid-template-columns: max-content 1fr; gap: .3rem .9rem; margin: 0 0 1.25rem; }
+      dt { opacity: .6; }
+      dd { margin: 0; overflow-wrap: anywhere; }
+      button {
+        font: inherit; padding: .45rem 1rem; border-radius: 5px;
+        border: 1px solid currentColor; background: transparent; color: inherit;
+        cursor: pointer;
+      }
+      button[disabled] { opacity: .4; cursor: default; }
+      .note { font-size: .85rem; opacity: .75; }
+      .note code {
+        background: color-mix(in srgb, currentColor 12%, transparent);
+        padding: .1em .35em; border-radius: 3px;
+      }
+    </style>
+    <script type="module" crossorigin src="./assets/index-Bv4UEfgy.js"></script>
+    <link rel="modulepreload" crossorigin href="./assets/cid-BXpsijIc.js">
+  </head>
+  <body>
+    <h1>o2.services — peer-to-peer compute node</h1>
+    <p class="sub">
+      This page can become a compute node in a peer-to-peer fabric.
+      Nothing runs until you start it.
+    </p>
+
+    <!--
+      Deliberately inert on load. No node starts by itself: a visitor's CPU is not
+      taken without an explicit action, and the two-tab tests need to control exactly
+      when each tab joins.
+    -->
+    <div class="state" id="state" data-tone="idle">checking for a relay…</div>
+
+    <p><button id="join" disabled>Start node</button></p>
+
+    <dl id="facts"></dl>
+
+    <p class="note" id="explain"></p>
+
+  </body>
+</html>
