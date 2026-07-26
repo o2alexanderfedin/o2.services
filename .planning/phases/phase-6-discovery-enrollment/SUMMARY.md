@@ -1,23 +1,26 @@
 # Phase 6 — Discovery, Placement & Enrollment
 
-**Status:** IN PROGRESS — 3 of 7 criteria met, 1 partial, 3 not started
+**Status:** COMPLETE — 7 of 7 criteria met
 **Requirements:** SCHED-01/02/03/05, NET-06, AUTH-01/02/04/05, VER-03/04/08/09/10
-**Branch:** `feature/phase-6-enrollment-quorum`
+**Branches:** `feature/phase-6-enrollment-quorum`, `feature/phase-6-discovery-placement`
 
 ```
 tsc --noEmit  clean
-455 tests     all green (was 407)
+571 tests     all green (was 407 at phase start)
 ```
 
 | # | Criterion | Status |
 |---|---|---|
+| 1 | Discovery by intersecting CID providers with capability records | **met** |
+| 2 | Power-of-d placement, rejection and re-pick | **met** |
+| 3 | Sovereignty outranks cost heuristics under load | **met** — falsified twice |
 | 4 | On-device key, provider-signed cert, offline verify, rate-limited enrollment | **met** — with a stated gap on "costly" |
-| 5 | Quorum diversity, backbone anchor, threat model with `k` stated | **met** — `.planning/THREAT-MODEL.md` |
+| 5 | Quorum diversity, path independence, threat model with `k` stated | **met** — `.planning/THREAT-MODEL.md` |
+| 6 | Owner replica set resolves; 2-of-owner execution with a stream tap | **met** |
 | 7 | Owner-domain agreement labelled distinctly from independent | **met** |
-| 6 | Owner replica set resolves; 2-of-owner execution with a stream tap | **partial** — replica sets built; end-to-end execution not wired |
-| 1 | Discovery by intersecting CID providers with capability records | **not started** |
-| 2 | Power-of-d placement, rejection and re-pick | **not started** |
-| 3 | Sovereignty outranks cost heuristics under load | **substantially covered by Phase 4** — `planPlacement` already filters before scoring, falsified there; needs the d-choices integration |
+
+The static peer list every earlier phase leaned on is gone. A requestor that knows one
+bootstrap peer and a data CID now finds executors, places work, and dispatches it.
 
 ## Architecture correction from the owner, applied (twice)
 
@@ -128,14 +131,116 @@ Derived from certificates, **never declared by the caller** — a caller that co
 point that matters: owner-domain and independent both show `replicas: 2`, so the count
 alone cannot distinguish them, which is exactly why the label must travel.
 
-## Not started, and why the ordering was chosen
+## Criteria 1 and 2 — what discovery actually is
 
-Discovery (criterion 1) and power-of-d placement (criterion 2) are untouched. They are
-the natural next unit and depend on enrollment, which is why enrollment went first:
-discovery intersects providers with **signed capability records**, and there were no
-node certificates to intersect against until now.
+Discovery is an **intersection of three independently-sourced facts**, and the
+intersection is the whole design, because no one of them is worth anything alone:
 
-Criterion 3 is largely already satisfied by Phase 4's `planPlacement`, which filters on
-sovereignty *before* consulting load and was falsified by adding the forbidden
-relax-under-pressure branch. What remains is integrating d-candidate sampling behind
-that same filter — the constraint-first ordering must survive it.
+| Fact | Source | Alone it proves |
+|---|---|---|
+| holds the input block | content routing (`providers`) | nothing about identity |
+| is an enrolled node of user U, operator O | provider-signed `NodeCertificate` | nothing about capability |
+| supports these engine features | node-signed `CapabilityRecord` | nothing — anyone can mint a key |
+
+A capability record being self-signed looks like security theatre until you see what it
+is bolted to. It is worthless in isolation, and that is stated as a **passing test**: an
+attacker mints a perfectly valid record claiming everything and gains nothing, because
+the same node key must also carry a certificate a *pinned provider* signed. Splitting
+the two lets a node re-sign locally when its engine changes rather than returning to the
+provider for a fresh certificate.
+
+**Every exclusion is named and returned.** Silent filtering is how a requestor ends up
+staring at an empty candidate list unable to distinguish a dead network from a wrong
+clock from a module nobody can run. Six exclusion kinds, each with a line fit to show a
+human.
+
+### The sample is derived, not drawn
+
+Classic power-of-d draws its `d` candidates at random. Here they come from rendezvous
+(HRW) ranking on the shard id — the same mechanism the reduce tree already uses. Per
+shard the ranking is an arbitrary permutation, which is what the load-balancing result
+needs; across shards it differs, so work still spreads. What it buys over `random()`:
+
+- **No shared state and no clock.** Two requestors racing on the same shard converge
+  instead of doubling up, and re-placement after a crash re-derives the same candidates.
+- **The tail is the re-pick list**, already ordered and already local.
+- **Reproducible** — a placement can be replayed from the shard id and the node set.
+
+### Load is a hint; the offer is the authority
+
+The requestor's `load` figure may be seconds stale, and treating it as truth is what
+makes several requestors stampede the same "least-loaded" node. So it only orders an
+already-sampled pair, and the decision belongs to the node: `LocalCapacity` takes **no
+ports and makes no calls**, so "local information only" is a property of the type rather
+than a promise in a comment. A refusal is not an error path — it is the mechanism by
+which a guess made from stale data becomes a correct decision.
+
+## Criterion 3 — falsified again, and it held
+
+Phase 4 established that `planPlacement` filters on sovereignty before consulting load.
+The risk this phase introduced is that a *second* placer would re-derive eligibility and
+drift. So `eligibleNodes` is now **exported so that there is exactly one of it**, and
+power-of-d runs entirely behind it on a pool that is only ever shrunk.
+
+Falsified by planting the branch the rule forbids — *"nobody who is allowed will take
+it, so let me ask someone else"* — which is exactly the pressure a refusal creates. The
+result: 10 nodes probed instead of 2, leaking a sovereign shard id into another owner's
+fabric. One test caught it, and caught the leak itself rather than an incidental
+assertion. Reverted.
+
+## Criterion 6 — the assembly was the missing part
+
+Every piece existed and was unit-tested alone. The claim lives in the assembly: a
+sovereignty-pinned task discovered from a CID, placed on two of one owner's nodes,
+executed redundantly, outputs compared, receipt labelled `owner-domain` **not**
+`independent`, and an egress manifest showing what left was derived.
+
+Bob's node makes DATA-09 concrete rather than hypothetical. It provides the same CID —
+an encrypted replica is genuinely useful for availability — and is excluded from
+execution *twice*: at discovery on its capability record, and at placement on the
+sovereignty filter. Being a fine block source and an impossible executor is the point.
+
+**The clean manifest is only worth reading if the tap can fail.** So the same wiring runs
+again with a module that echoes its input — the map step that forgot to aggregate, which
+is the failure this requirement exists to catch — and the tap flags it. Without that
+test, `violations: []` is indistinguishable from a tap that is not plugged in.
+
+## A real finding from wiring it up
+
+An unreachable node cost a **full RPC timeout** before the re-pick. That destroys the
+saving power-of-d exists to buy: the whole point is that a placement costs two questions
+instead of a global view, and that evaporates if one dead peer stalls the decision for
+thirty seconds. Offers now carry their own 2-second probe deadline, and silence is a
+*stated* refusal — so a dead peer appears in the rejection list beside a busy one, and
+"why did this land here" stays answerable after the fact.
+
+Found only because the test suite ran it against a closed endpoint. No unit test would
+have shown it, because in a unit test the admission callback returns immediately.
+
+## NET-06 — availability, never node kind
+
+The fallback chain is ordered by **availability at this moment**: "can peers reach me to
+ask", which is true of a listening server and of a browser tab holding a relay
+reservation, and false of either before it gets there. A server whose index is not yet
+available falls back exactly as a browser without a reservation does, **and a test
+asserts that symmetry** — a rule that exempted one of them would be a tier by another
+name.
+
+The strongest evidence is structural rather than argued: every new spec in this phase
+runs unchanged in the `browser` project, in real Chromium. A browser peer resolves
+records, serves them, places work and executes it with the identical code path.
+
+## Where the honesty is
+
+- **Sybil resistance is still rate-limiting, not cost.** Unchanged, and still the
+  weakest link, because quorum diversity assumes operator identities are scarce.
+- **A false capability claim is attributable, not prevented** (threat model 18). A node
+  claiming a feature it lacks will be dispatched to and fail; the cost is one wasted
+  dispatch and the operator is named. Preventing it needs a probe module.
+- **Lying about load is bounded, not stopped** (threat model 19). A liar attracts offers
+  it must then refuse — costing a probe — or accept and become a straggler, which is
+  Phase 7's problem. A node that accepts everything to stall is not covered; that needs
+  completion-time reputation.
+- **`RpcRecordIndex` returns the first useful answer, not a merged view.** Waiting for
+  every peer would be as slow as the slowest. A caller wanting a fuller picture asks
+  again with a different peer order.
