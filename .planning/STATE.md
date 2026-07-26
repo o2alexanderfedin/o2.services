@@ -5,76 +5,88 @@
 See: .planning/PROJECT.md (updated 2026-07-24)
 
 **Core value:** Usable capacity grows super-linearly with the user base, without any raw data leaving its owner's device.
-**Current focus:** Phase 7 — Churn, Stragglers & Coordinator Survival (not started)
+**Current focus:** Phase 8 — Benchmark Harness (not started)
 
 ## Current Position
 
-Phase: 6 of 10 (Discovery, Placement & Enrollment) — **complete, 7 of 7 criteria**.
-Phase 3 is 5/6 (real AutoTLS needs a publicly reachable host); Phases 1, 2, 4, 5, 6 are
-complete. Next unit is Phase 7.
+Phase: 7 of 10 (Churn, Stragglers & Coordinator Survival) — **complete, 6 of 6 criteria**.
+Phase 3 is 5/6 (real AutoTLS needs a publicly reachable host); Phases 1, 2, 4, 5, 6, 7
+are complete. Next unit is Phase 8.
 
 ```
-Test Files  55 passed
-     Tests  571 passed
+Test Files  67 passed
+     Tests  733 passed
 tsc --noEmit  clean
-Requirements  47 / 72
+Requirements  53 / 72
 ```
 
-Progress: [█████░░░░░] 55% (5 of 10 complete; Phase 3 at 5/6, blocked only on hosting)
+Progress: [██████░░░░] 65% (6 of 10 complete; Phase 3 at 5/6, blocked only on hosting)
 
-Last activity: 2026-07-26 — Phase 6 closed. The static peer list is gone: a requestor
-knowing one bootstrap peer and a data CID discovers executors, places work with
-power-of-d, and dispatches it.
+Last activity: 2026-07-26 — Phase 7 closed. A job now finishes correctly when the
+machines running it, including the submitter, vanish mid-flight.
+
+### Where Phase 7 landed
+
+**The invariant everything rests on:** *liveness changes who computes a task and when,
+never what the answer is.* True because a result is a pure function of
+`(module, input, partition)` and content-addressed, so every recovery action is at worst
+wasted work. That is what lets the loop be aggressive — and it is the first thing to
+re-check if any of this changes.
+
+**A lease is a deadline, not a lock.** Criterion 4's "never orphaned leases" needs no
+cleanup code: nobody releases a deadline and no keeper notices the coordinator left. A
+lock would have needed the holder-liveness protocol the deadline replaces. The same idea
+makes resume trivial — a checkpoint holds CIDs, never values, so "starting" and
+"resuming" are the same code path.
+
+**Speculation's loser is harmless because both copies produce the same CID**, not because
+anything cancels it — cancellation is what fails when a node vanishes mid-cancel.
+
+**Three real defects, each found by a test:**
+
+1. *Re-dispatch picked the same dead node every generation.* Placement is deterministic
+   by design, so a retry re-derived the identical choice. Tried nodes are now excluded
+   before placement; narrowing the input keeps the sovereignty gate intact.
+2. *One `null` collapsed "node is gone" and "task is broken".* Three unlucky dead picks
+   retired a good shard, making the 30% criterion unachievable rather than merely slow.
+   They now carry a kind and get opposite retry policies.
+3. *The straggler watchdog was an OOM crash waiting for real I/O.* It re-wrapped every
+   pending promise per iteration and kept racing a timer that could no longer act. No
+   kernel test could show it — with a fake dispatch the loop never spins. The first test
+   using real RPC found it in 36 seconds and 4 GB.
+
+**A claim corrected rather than left standing:** the deadline half of the
+stale-completion check is a *contract* rule, not a correctness one. The holder check is
+what stops a re-granted task being overwritten. The strict version is kept — a lease
+whose expiry is negotiable is not a deadline — but the comment now says what each half
+actually buys.
 
 ### Where Phase 6 landed
 
 **Discovery is an intersection of three independently-sourced facts** — who holds the
-block (content routing), who the node is (provider-signed certificate), and what it can
-run (node-signed capability record). None is worth anything alone, and that is stated as
-a passing test: an attacker mints a perfectly valid capability record and gains nothing,
-because the same key must also carry a certificate a pinned provider signed.
+block, who the node is (provider-signed certificate), and what it can run (node-signed
+capability record). None is worth anything alone, stated as a passing test: an attacker
+mints a valid capability record and gains nothing without a certificate from a pinned
+provider for the same key.
 
-**The power-of-d sample is derived, not drawn.** Candidates come from rendezvous ranking
-on the shard id rather than `random()`, so two requestors racing on one shard converge
-instead of doubling up, re-placement after a crash re-derives the same candidates, and
-the ranking tail is already the re-pick list.
-
-**Load is a hint; the offer is the authority.** `LocalCapacity` takes no ports and makes
-no calls, so "local information only" is a property of the type rather than a promise in
-a comment. A refusal is not an error path — it is how a guess made from stale data
-becomes a correct decision.
-
-**Sovereignty survived the addition, and was falsified again.** `eligibleNodes` is now
-exported so there is exactly one eligibility gate, with sampling entirely behind it.
-Planting the forbidden branch — *"nobody who is allowed will take it, so ask someone
-else"* — probed 10 nodes instead of 2, leaking a sovereign shard id into another owner's
-fabric. Caught, reverted.
-
-**A real finding from wiring it up:** an unreachable node cost a full RPC timeout before
-the re-pick, which destroys the saving power-of-d exists to buy. Offers now carry a
-2-second probe deadline and silence is a *stated* refusal. No unit test could have shown
-this — in a unit test the admission callback returns immediately.
+**The power-of-d sample is derived, not drawn.** Rendezvous ranking on the shard id, so
+requestors converge instead of doubling up and a decision can be replayed. **Load is a
+hint; the offer is the authority** — `LocalCapacity` takes no ports, so "local
+information only" is a property of the type.
 
 ### Where Phase 3 stands
 
 Two browser tabs, and separately an iPhone running Safari and a laptop running Chromium,
 complete a 4-shard 2×-redundant job over a **direct WebRTC** connection with the relay
-carrying only SDP. The relay's exit from the data path is asserted, not assumed: libp2p
-marks a relayed circuit as *limited*, so the test requires `limits === undefined`.
-
-**Correction, carried deliberately:** an earlier note claimed the one-way `Transport`
-port could not survive the browser topology. Withdrawn — the failure came from running a
-whole job over `/p2p-circuit`, which the architecture never supported. The narrower true
-fact to keep: **a relayed circuit cannot carry a job.**
+carrying only SDP. The relay's exit from the data path is asserted, not assumed.
 
 Remaining in Phase 3: real AutoTLS, which needs a publicly reachable host. Two items are
 out of scope for a test suite — a >1 hour hold under churn, and per-peer relayed byte
 counters, which js-libp2p does not expose.
 
-**Settled on real iOS hardware** (nothing in the suite reaches Safari): iOS resolves
-`.local` with no setup; Safari runs the node on a **non-secure** origin, including the
-WebRTC listen path; and the pure-JS hashing change was load-bearing — without it the
-phone would have joined and then failed at its first block.
+**Settled on real iOS hardware:** iOS resolves `.local` with no setup; Safari runs the
+node on a **non-secure** origin, including the WebRTC listen path; and the pure-JS
+hashing change was load-bearing.
 
 ## Performance Metrics
 
@@ -122,6 +134,25 @@ Recent decisions affecting current work:
   assumptions, both reversed. Background-tab throttling is a lease-duration problem, not
   a capability one. **If a decision keys on node kind, it is wrong** — the only
   legitimate use is shared-dependency analysis over the discovery graph.
+- **Liveness changes who computes and when, never what the answer is (Phase 7).** The
+  invariant every churn mechanism rests on. True because a result is a pure function of
+  (module, input, partition) and content-addressed, so a re-dispatch recomputes
+  byte-identical output and every recovery action is at worst wasted work. Re-check this
+  first if any of the churn code changes.
+- **A lease is a deadline, not a lock (Phase 7).** Nobody releases it and no keeper
+  notices the coordinator left, so "never orphaned leases" needs no cleanup code. A lock
+  would have required the holder-liveness protocol the deadline replaces.
+- **A node failure and a task failure warrant opposite policies (Phase 7).** Collapsing
+  both into `null` makes the 30%-node-loss criterion unachievable — three unlucky dead
+  picks retire a good shard. Node failures retry until the pool is exhausted; task
+  failures stop after three independent nodes fail the same work.
+- **Re-dispatch must exclude tried nodes before placement (Phase 7).** Placement is
+  deterministic by design, so a retry otherwise re-derives the identical dead choice.
+  Narrowing the input is safe — the sovereignty gate still runs inside `placeWithOffers`.
+- **Never race a timer that provably cannot act (Phase 7).** The straggler watchdog
+  re-wrapped every pending promise per iteration and kept polling after speculation
+  became impossible; against real I/O that is unbounded allocation, not a slow loop.
+  Fake-dispatch tests cannot show this class of bug.
 - **Discovery is an intersection, and each part is worthless alone (Phase 6).** Who
   holds the block, who the node is, and what it can run come from three independent
   sources — content routing, a provider-signed certificate, a node-signed capability
@@ -237,13 +268,13 @@ Items acknowledged and carried forward from previous milestone close:
 ## Session Continuity
 
 Last session: 2026-07-26
-Stopped at: **Phase 6 complete — 7 of 7 criteria.** 571 tests green, `tsc --noEmit`
-clean, 47/72 requirements. The static peer list is gone. See
-`phases/phase-6-discovery-enrollment/SUMMARY.md`.
-Next unit: **Phase 7 — churn, stragglers and coordinator survival.** Phase 6 left it
-two things to build on: rendezvous ranking already provides the fallback order with no
-lookup, and threat model 19 names the gap Phase 7 must close — a node that accepts work
-to stall it is not covered without completion-time consequence.
+Stopped at: **Phase 7 complete — 6 of 6 criteria.** 733 tests green, `tsc --noEmit`
+clean, 53/72 requirements. A job survives its machines — and its submitter — vanishing
+mid-flight. See `phases/phase-7-churn/SUMMARY.md`.
+Next unit: **Phase 8 — benchmark harness.** The scaling claim becomes a reproducible
+published number with its costs included rather than excluded. Phase 7 supplies two of
+those costs already in the shape the harness needs: `speculationMultiplier` and
+`redispatches`, both reported on every run beside `verificationMultiplier`.
 Resume file: `.planning/.continue-here.md` — leads with three blocking constraints
 (no static determinism analysis, no cross-implementation verification, no host-import
 allow-list). Still current; they apply to every later phase.
