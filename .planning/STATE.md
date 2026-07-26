@@ -15,7 +15,7 @@ are complete. Next unit is Phase 8.
 
 ```
 Test Files  67 passed
-     Tests  733 passed
+     Tests  745 passed
 tsc --noEmit  clean
 Requirements  53 / 72
 ```
@@ -60,6 +60,17 @@ stale-completion check is a *contract* rule, not a correctness one. The holder c
 what stops a re-granted task being overwritten. The strict version is kept — a lease
 whose expiry is negotiable is not a deadline — but the comment now says what each half
 actually buys.
+
+**Then an adversarial review found five more defects, none refuted.** The worst was the
+phase's own central claim failing: breaking out of the speculation race on the first
+arrival meant a losing copy's answer was never compared, so timing alone could pick
+between two *different* CIDs and the run reported clean — majority-vote-by-race, through
+the mechanism built for latency. The test guarding it was vacuous, with every assertion
+inside an `if` that could never be true; deleting disagreement reporting outright left
+all 374 node tests green. Also: the lease deadline was documented but never enforced, so
+a silent peer hung the whole job on *default* settings; coverage counted an owner as
+covered on any single shard; and a lapsed completion leaked its lease. All fixed, all
+mutation-tested.
 
 ### Where Phase 6 landed
 
@@ -149,6 +160,19 @@ Recent decisions affecting current work:
 - **Re-dispatch must exclude tried nodes before placement (Phase 7).** Placement is
   deterministic by design, so a retry otherwise re-derives the identical dead choice.
   Narrowing the input is safe — the sovereignty gate still runs inside `placeWithOffers`.
+- **A fake that is faster than the real thing cannot see a timing bug (Phase 7).** The
+  worst two churn defects — a hang, and a losing copy never compared — were both
+  invisible to a suite whose dispatch resolved on a microtask. The integration test with
+  real RPC found the OOM spin; the rest needed code read specifically for what the tests
+  could not reach.
+- **Speculation must not become a vote (Phase 7).** Returning the first arrival and
+  discarding the other copy unexamined lets timing choose between two different answers.
+  The winner may return immediately, but the loser has to be *compared* — after every
+  shard settles, which costs nothing — and a copy that never answers is `uncompared`,
+  never "agreed".
+- **A documented bound is not an enforced one (Phase 7).** The coordinator's header
+  promised silence gets a bounded wait while the code never read `expiresAt`. Grep for
+  the mechanism whenever a comment states a guarantee.
 - **Never race a timer that provably cannot act (Phase 7).** The straggler watchdog
   re-wrapped every pending promise per iteration and kept polling after speculation
   became impossible; against real I/O that is unbounded allocation, not a slow loop.
@@ -268,7 +292,8 @@ Items acknowledged and carried forward from previous milestone close:
 ## Session Continuity
 
 Last session: 2026-07-26
-Stopped at: **Phase 7 complete — 6 of 6 criteria.** 733 tests green, `tsc --noEmit`
+Stopped at: **Phase 7 complete — 6 of 6 criteria, then adversarially reviewed and five
+defects fixed.** 745 tests green, `tsc --noEmit`
 clean, 53/72 requirements. A job survives its machines — and its submitter — vanishing
 mid-flight. See `phases/phase-7-churn/SUMMARY.md`.
 Next unit: **Phase 8 — benchmark harness.** The scaling claim becomes a reproducible

@@ -6,7 +6,7 @@
 
 ```
 tsc --noEmit  clean
-733 tests     all green (was 571)
+745 tests     all green (was 571)
 ```
 
 | # | Criterion | Status |
@@ -101,6 +101,62 @@ the breach itself rather than an incidental assertion: `['alice-2', 'bob-0', 'bo
 The stale-completion guard was also relaxed and caught. Notably only **one** test
 failed, which is what prompted the correction above: the tests were measuring the
 holder check, and the deadline check needed a claim that matched what it does.
+
+## What an adversarial review found afterwards
+
+The implementation passed 733 tests and `tsc` before review. Five lenses then ran over
+it independently, each finding verified by execution and attacked by a separate
+skeptic. **Five defects were confirmed and none refuted** — three of them severe, and
+one of them the phase's own central claim failing.
+
+**Speculation could change the answer.** Breaking out of the race on the first arrival
+meant `settleRace` never saw a second result, so `disagreed` could not become true on
+any input; `outcome.disagreements`, the `ok` term reading it, and every `ledger.discard`
+call were dead code. A probe made both copies answer with *different* CIDs: timing alone
+decided which became the job's answer, and the run reported ok. Majority-vote-by-race —
+the one thing this project has explicitly refused — arriving through the mechanism built
+to improve latency.
+
+The fix keeps speculation's point. Waiting for the loser would undo the latency saving,
+because the loser is usually the straggler. So the winner returns immediately and the
+outstanding copies are compared once *every* shard has settled, which costs nothing —
+the job was already waiting for its slowest shard. A copy still unanswered by then is
+`uncompared`, never "agreed": silence is not evidence, and folding it into agreement
+asserts something nobody checked.
+
+**The test guarding that was vacuous, and it was written by the same person who wrote
+the warning against it.** Every assertion sat inside `if (outcome.disagreements.length >
+0)`, a condition that could never hold. The reviewer proved it by mutation — deleting
+disagreement reporting outright left all 374 node tests green. The handoff file's
+anti-pattern table already contained "assertions guarded by an `if()` so they can be
+skipped entirely". Knowing the rule did not prevent breaking it; only running the
+mutation did.
+
+**Nothing enforced the lease deadline.** This module's own header said silence gets a
+bounded wait. The code never read `expiresAt` anywhere. Once speculation became
+impossible the loop awaited the dispatch with no timer at all, so a peer that never
+answered hung the shard and, through `Promise.all`, the job — on *default* settings,
+since `floor(tasks * 0.1)` is 0 for any job under ten shards.
+
+**Coverage counted an owner on any single shard.** Four shards, three failed, and the
+report said `complete`. Exactly the failure `coverage.ts` exists to prevent, arriving
+through the composition rather than through `coverageOf`. Both CHURN-05 tests used one
+shard per owner, so neither could see it.
+
+**A lapsed completion leaked its lease**, leaving finished tasks listed as outstanding
+forever.
+
+Every fix was mutation-tested afterwards. The lease-deadline mutant is worth noting: it
+does not fail an assertion, it *crashes the worker* — which is itself the finding, since
+the deadline is what bounds the loop at all.
+
+### The lesson, stated so it survives
+
+Three of these were invisible to a suite that used a fake dispatch resolving on a
+microtask. **A test whose fake is faster than the real thing cannot see a timing bug**,
+and the two worst defects here — the hang and the unexamined loser — are both timing.
+The 30%-churn integration test found the OOM spin; nothing found these until code was
+read specifically looking for what the tests could not reach.
 
 ## Where the honesty is
 
