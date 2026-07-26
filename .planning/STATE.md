@@ -5,16 +5,17 @@
 See: .planning/PROJECT.md (updated 2026-07-24)
 
 **Core value:** Usable capacity grows super-linearly with the user base, without any raw data leaving its owner's device.
-**Current focus:** Phase 3 — Browser Tier & Backbone Relay (in progress)
+**Current focus:** Phase 5 — Decomposable Tree-Reduce
 
 ## Current Position
 
-Phase: 3 of 10 (Browser Tier & Backbone Relay) — **5 of 6 criteria met, incl. criterion 1 on real separate devices**
+Phase: 5 of 10 (Decomposable Tree-Reduce) — not yet started.
+Phase 3 is 5/6 (real AutoTLS needs a public host); Phase 4 is complete.
 Plan: partial — see `phases/phase-3-browser-tier/SUMMARY.md`
 Status: Only real AutoTLS (criterion 2) remains, and it needs a public host
 Last activity: 2026-07-26 — an iPhone running Safari and a laptop running Chromium completed a 4-shard R=2 job over a **direct** WebRTC connection. 277 tests green, `tsc --noEmit` clean
 
-Progress: [██░░░░░░░░] 20% (2 of 10 phases complete; Phase 3 partial)
+Progress: [███░░░░░░░] 35% (3 of 10 complete; Phase 3 at 5/6, blocked only on hosting)
 
 ### Where Phase 3 stands
 
@@ -77,6 +78,17 @@ Recent decisions affecting current work:
 - **A remote executor is just an `Executor` (Phase 2).** `submitJob` takes `Executor[]` and cannot tell where one runs, so the network arrived without a kernel change. Any future "distributed" feature should first be checked against this: if it can be an adapter behind an existing port, it must be.
 - **Packages split on the portability line, not the feature line (Phase 2).** `@o2/net` is portable and its tests run in Node *and* Chromium; `@o2/node` holds everything a browser cannot do. `purity.node.test.ts` enforces it — no `node:`/`libp2p`/`@chainsafe` import may appear in a portable package.
 - **`Transport` stays a one-way datagram port (Phase 2).** Request/response correlation lives in `@o2/net` instead, because a datagram shape is the smallest thing an in-process table, a libp2p stream, and a relayed WebRTC channel can all implement.
+- **Sovereignty is structural, never a preference (Phase 4).** `planPlacement` narrows
+  to the owner's nodes *before* load is consulted; there is no branch that widens it.
+  A sovereign shard with nowhere to run stalls. Verified by adding the forbidden
+  relax-under-pressure branch and watching four tests fail.
+- **Authorisation runs before execution, and the test proves the ordering (Phase 4).**
+  A node that executes and *then* refuses has already read the data, so the test
+  asserts the executor was never called, not merely that the reply said "unauthorized".
+- **Integrity is not provenance (Phase 4).** A CID proves bytes match a hash; it says
+  nothing about who published them. Nothing executes a bare CID — names resolve through
+  signed records from anchors pinned at construction, and the resolver has no method to
+  learn a new one.
 - **A blockstore adapter must not alias its input or its storage (Phase 3).** Found
   by the conformance suite in `MemoryBlockstore`; the persistent adapters copy, so an
   aliasing in-memory adapter made kernel tests pass on semantics no real backend has.
