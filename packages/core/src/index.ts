@@ -103,7 +103,7 @@ export type {
   EnrollmentRequest,
   EnrollmentResult,
   NodeCertificate,
-  NodeRole,
+  Discoverability,
   ReplicaSet,
 } from './enrollment.ts'
 
@@ -114,6 +114,7 @@ export {
   classifyAttestation,
   composeQuorum,
   describeAttestation,
+  sharedRelay,
 } from './quorum.ts'
 export type {
   AttestationReceipt,

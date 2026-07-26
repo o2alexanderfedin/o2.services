@@ -19,10 +19,32 @@ tsc --noEmit  clean
 | 2 | Power-of-d placement, rejection and re-pick | **not started** |
 | 3 | Sovereignty outranks cost heuristics under load | **substantially covered by Phase 4** — `planPlacement` already filters before scoring, falsified there; needs the d-choices integration |
 
-## Architecture correction from the owner, applied
+## Architecture correction from the owner, applied (twice)
 
 > *"browser peers are not client-mode only, they must be no different from backbone,
 > except that they cannot listen to websockets"*
+>
+> *"all nodes are of equal functionality. The only difference is in the connectivity
+> capabilities"*
+>
+> *"it is not 'reachable with relay', it is 'cannot be discovered as seed node
+> directly, only via relay'"*
+
+The first pass was applied too weakly: `backbone`/`edge` survived as node *classes* and
+the quorum rule discriminated on them, which still encodes a tier. The model is now:
+
+- **`NodeRole` is gone.** A certificate carries `discoverability: 'seed' | 'via-relay'`
+  plus the `relayIds` a node is found through. It says how a node is *discovered* and
+  nothing about what it may do.
+- **"Reachability" was also wrong**, and the third correction sharpened it: once two
+  peers are connected they are indistinguishable. What a browser cannot do is act as a
+  **seed a newcomer dials cold**, because it has no stable address to publish.
+- **The quorum rule no longer mentions node kinds at all.** It refuses a quorum whose
+  members are *all discoverable only through one relay* — a statement about the
+  discovery graph. Three browser peers on three relays pass; three servers published
+  behind one do not. Symmetry is asserted by test: servers get no exemption.
+- `relayIds` is inside the signed certificate, so a node cannot understate its
+  discovery dependencies to slip into a quorum it should not share. Tested.
 
 This reverses two inherited assumptions and they were **assumptions, not measurements**.
 The research phase recorded "a browser node cannot serve DHT records" and Phase 5 noted

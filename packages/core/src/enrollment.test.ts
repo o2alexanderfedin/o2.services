@@ -29,12 +29,13 @@ function authority(overrides: { maxPerWindow?: number; windowMs?: number } = {})
   })
 }
 
-function enrol(auth: EnrollmentAuthority, seed: number, opts: { operatorId?: string; role?: 'backbone' | 'edge'; at?: number } = {}) {
+function enrol(auth: EnrollmentAuthority, seed: number, opts: { operatorId?: string; relayIds?: string[]; at?: number } = {}) {
   const node = keypair(seed)
   const request = requestEnrollment(node.priv, {
     userKey: alice.pub,
     operatorId: opts.operatorId ?? 'alice-op',
-    role: opts.role ?? 'edge',
+    discoverability: (opts.relayIds ?? ['relay-1']).length > 0 ? 'via-relay' : 'seed',
+    relayIds: opts.relayIds ?? ['relay-1'],
   })
   return { node, result: auth.enrol(request, opts.at ?? NOW) }
 }
@@ -51,7 +52,7 @@ describe('AUTH-01 — the private key never leaves the device', () => {
 
     // Nothing in the request carries a secret. If a provider could issue without
     // proof, it could impersonate every node it ever enrolled.
-    const request = requestEnrollment(node.priv, { userKey: alice.pub, operatorId: 'o', role: 'edge' })
+    const request = requestEnrollment(node.priv, { userKey: alice.pub, operatorId: 'o', discoverability: 'seed', relayIds: [] })
     expect(Object.values(request).some((v) => v === toHex(node.priv))).toBe(false)
   })
 
@@ -61,7 +62,7 @@ describe('AUTH-01 — the private key never leaves the device', () => {
     const attacker = keypair(3)
 
     // The attacker claims the victim's public key but signs with their own.
-    const forged = requestEnrollment(attacker.priv, { userKey: alice.pub, operatorId: 'o', role: 'edge' })
+    const forged = requestEnrollment(attacker.priv, { userKey: alice.pub, operatorId: 'o', discoverability: 'seed', relayIds: [] })
     const result = auth.enrol({ ...forged, nodeKey: victim.pub }, NOW)
 
     expect(result.ok).toBe(false)
@@ -148,10 +149,10 @@ describe('AUTH-04 — enrollment is rate-limited per user key', () => {
     const auth = authority({ maxPerWindow: 1 })
     const bob = keypair(50)
 
-    const first = requestEnrollment(keypair(30).priv, { userKey: alice.pub, operatorId: 'a', role: 'edge' })
+    const first = requestEnrollment(keypair(30).priv, { userKey: alice.pub, operatorId: 'a', discoverability: 'seed', relayIds: [] })
     expect(auth.enrol(first, NOW).ok).toBe(true)
 
-    const second = requestEnrollment(keypair(31).priv, { userKey: bob.pub, operatorId: 'b', role: 'edge' })
+    const second = requestEnrollment(keypair(31).priv, { userKey: bob.pub, operatorId: 'b', discoverability: 'seed', relayIds: [] })
     expect(auth.enrol(second, NOW).ok).toBe(true)
 
     expect(auth.issuedWithin(alice.pub, NOW)).toBe(1)
@@ -197,20 +198,35 @@ describe('AUTH-05 — certificates chain to a user key, forming a replica set', 
   })
 })
 
-describe('a browser peer is a full peer', () => {
-  it('enrols with the same certificate shape as a backbone node', () => {
-    // Revised 2026-07-26: role describes reachability, not privilege. An edge
-    // certificate carries the same fields and the same weight; the only difference
-    // is that reaching the node needs a relay.
+describe('all nodes have equal functionality', () => {
+  it('issues an identical certificate however the node is discovered', () => {
+    // The certificate says how a node is found and nothing about what it may do.
+    // A relay-discovered peer and a seed differ in one field's value — never in
+    // shape, weight, or which checks apply.
     const auth = authority({ maxPerWindow: 10 })
-    const edge = enrol(auth, 90, { role: 'edge' }).result
-    const backbone = enrol(auth, 91, { role: 'backbone' }).result
-    expect(edge.ok && backbone.ok).toBe(true)
-    if (!edge.ok || !backbone.ok) return
+    const relayed = enrol(auth, 90, { relayIds: ['relay-1'] }).result
+    const direct = enrol(auth, 91, { relayIds: [] }).result
+    expect(relayed.ok && direct.ok).toBe(true)
+    if (!relayed.ok || !direct.ok) return
 
-    expect(Object.keys(edge.certificate).sort()).toEqual(Object.keys(backbone.certificate).sort())
+    expect(Object.keys(relayed.certificate).sort()).toEqual(Object.keys(direct.certificate).sort())
+    expect(relayed.certificate.discoverability).toBe('via-relay')
+    expect(direct.certificate.discoverability).toBe('seed')
+
+    // Both verify by exactly the same path.
     const anchors = new Set([auth.issuerKey])
-    expect(verifyCertificate(edge.certificate, anchors, NOW).ok).toBe(true)
-    expect(verifyCertificate(backbone.certificate, anchors, NOW).ok).toBe(true)
+    expect(verifyCertificate(relayed.certificate, anchors, NOW).ok).toBe(true)
+    expect(verifyCertificate(direct.certificate, anchors, NOW).ok).toBe(true)
+  })
+
+  it('signs the relay set, so a shared dependency cannot be hidden', () => {
+    // Quorum path-diversity reads relayIds. If they were unsigned, a node could
+    // understate its discovery dependencies and slip into a quorum it should not
+    // share.
+    const auth = authority()
+    const { result } = enrol(auth, 92, { relayIds: ['relay-1'] })
+    if (!result.ok) return
+    const understated = { ...result.certificate, relayIds: [] }
+    expect(verifyCertificate(understated, new Set([auth.issuerKey]), NOW).ok).toBe(false)
   })
 })

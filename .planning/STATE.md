@@ -80,12 +80,18 @@ Recent decisions affecting current work:
 - **A remote executor is just an `Executor` (Phase 2).** `submitJob` takes `Executor[]` and cannot tell where one runs, so the network arrived without a kernel change. Any future "distributed" feature should first be checked against this: if it can be an adapter behind an existing port, it must be.
 - **Packages split on the portability line, not the feature line (Phase 2).** `@o2/net` is portable and its tests run in Node *and* Chromium; `@o2/node` holds everything a browser cannot do. `purity.node.test.ts` enforces it — no `node:`/`libp2p`/`@chainsafe` import may appear in a portable package.
 - **`Transport` stays a one-way datagram port (Phase 2).** Request/response correlation lives in `@o2/net` instead, because a datagram shape is the smallest thing an in-process table, a libp2p stream, and a relayed WebRTC channel can all implement.
-- **A browser peer is a full peer (owner decision, 2026-07-26).** The only difference
-  is that it cannot bind a listening socket; a relay reservation makes it dialable,
-  proven cross-device in Phase 3. "Client-mode-only DHT" and "browsers are leaves" were
-  inherited assumptions and are reversed. Background-tab throttling is a lease-duration
-  problem, not a capability one. Anywhere a scheduling decision keys on node role, the
-  reason must be reachability or durability — never that an edge node is worth less.
+- **All nodes have equal functionality (owner decision, 2026-07-26, restated twice).**
+  There is no tier, no class, no lesser node. Every node executes tasks, holds blocks,
+  serves records, hosts reduce combines, and takes quorum slots on identical terms.
+  **The only difference is discovery**: a browser cannot bind a listening socket, so it
+  cannot act as a seed a newcomer dials cold — it must be found through a relay that
+  can. That is narrower than "reachability", which was the previous wording and was
+  still wrong: once connected, the peers are indistinguishable. Proven in Phase 3, where
+  an iPhone was dialled at its `/p2p-circuit/webrtc` address and ran half of a
+  2×-redundant job. "Client-mode-only DHT" and "browsers are leaves" were inherited
+  assumptions, both reversed. Background-tab throttling is a lease-duration problem, not
+  a capability one. **If a decision keys on node kind, it is wrong** — the only
+  legitimate use is shared-dependency analysis over the discovery graph.
 - **Attestation strength is derived, never declared (Phase 6).** owner-attested /
   owner-domain / independent, computed from certificates. Owner-domain and independent
   both show two replicas, so the count cannot distinguish them and the label must travel
