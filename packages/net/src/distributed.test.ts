@@ -1,4 +1,4 @@
-import { MemoryBlockstore, MemoryNetwork, WasmExecutor, submitJob } from '@o2/core'
+import { MemoryBlockstore, MemoryNetwork, WasmExecutor, delegate, submitJob } from '@o2/core'
 import type { CanonicalValue, Executor, Task } from '@o2/core'
 import { CID } from 'multiformats/cid'
 import { describe, expect, it } from 'vitest'
@@ -7,8 +7,20 @@ import { describe, expect, it } from 'vitest'
 // this phase must leave byte-for-byte unchanged. Reaching the file directly
 // keeps the fixture DRY without touching the package it lives in.
 import { MODULE_WRITES_PARTITION } from '../../core/src/executor/fixtures.ts'
-import { FetchingBlockstore, RemoteExecutor, RpcBlockSource, RpcEndpoint, blockCid, serveAgent } from './index.ts'
+import {
+  FetchingBlockstore,
+  RemoteExecutor,
+  RpcBlockSource,
+  RpcEndpoint,
+  blockCid,
+  encodeRequest,
+  parseRequest,
+  serveAgent,
+} from './index.ts'
 import type { BlockSource } from './index.ts'
+
+/** A stable CID for encoding round-trips, where the content is irrelevant. */
+const FIXED_CID = CID.parse('bafyreihdwdcefgh4dqkjv67uzcmw7ojee6xedzdetojuzjevtenxquvyku')
 
 /** Read the 4-byte little-endian partition index the fixture emits. */
 function partitionOf(output: CanonicalValue): number {
@@ -380,5 +392,125 @@ describe('protocol validation', () => {
     const cid = await blockCid(new Uint8Array([1, 2, 3]))
     const parsed = CID.parse(cid.toString())
     expect(parsed.equals(cid)).toBe(true)
+  })
+})
+
+describe('AUTH-03 — a task is refused before the module is instantiated', () => {
+  it('never calls the executor when the capability chain is missing', async () => {
+    const network = new MemoryNetwork()
+    const store = new MemoryBlockstore()
+    const moduleCid = await store.put(MODULE_WRITES_PARTITION)
+    const inputCid = await store.put(new Uint8Array([0x80]))
+
+    // The ordering is the whole requirement, so the test watches for execution
+    // rather than only for the refusal: a node that runs the module and *then*
+    // returns "unauthorized" has already read the owner's data.
+    let executed = 0
+    const watched: Executor = {
+      nodeId: 'w0',
+      async execute() {
+        executed += 1
+        return { ok: true, output: null, fuelUsed: 1 }
+      },
+    }
+
+    const workerRpc = new RpcEndpoint(network.connect('w0'), { timeoutMs: 5_000 })
+    serveAgent({
+      rpc: workerRpc,
+      executor: watched,
+      blockstore: store,
+      authorize: ({ capability }) =>
+        capability.length === 0 ? 'no capability chain supplied' : null,
+    })
+
+    const callerRpc = new RpcEndpoint(network.connect('caller'), { timeoutMs: 5_000 })
+    try {
+      const outcome = await new RemoteExecutor('w0', callerRpc).execute({
+        moduleCid,
+        inputCid,
+        partitionIndex: 0,
+        partitionCount: 1,
+      })
+
+      expect(outcome.ok).toBe(false)
+      if (outcome.ok) return
+      expect(outcome.reason).toContain('unauthorized')
+      expect(outcome.reason).toContain('no capability chain')
+      // The point of the test.
+      expect(executed).toBe(0)
+    } finally {
+      callerRpc.close()
+      workerRpc.close()
+    }
+  })
+
+  it('runs the task when the authorizer approves', async () => {
+    const network = new MemoryNetwork()
+    const store = new MemoryBlockstore()
+    const moduleCid = await store.put(MODULE_WRITES_PARTITION)
+    const inputCid = await store.put(new Uint8Array([0x80]))
+
+    const workerRpc = new RpcEndpoint(network.connect('w0'), { timeoutMs: 5_000 })
+    serveAgent({
+      rpc: workerRpc,
+      executor: new WasmExecutor({ nodeId: 'w0', blockstore: store }),
+      blockstore: store,
+      authorize: () => null,
+    })
+
+    const callerRpc = new RpcEndpoint(network.connect('caller'), { timeoutMs: 5_000 })
+    try {
+      const outcome = await new RemoteExecutor('w0', callerRpc).execute({
+        moduleCid,
+        inputCid,
+        partitionIndex: 3,
+        partitionCount: 4,
+      })
+      expect(outcome.ok).toBe(true)
+      if (!outcome.ok) return
+      expect(partitionOf(outcome.output)).toBe(3)
+    } finally {
+      callerRpc.close()
+      workerRpc.close()
+    }
+  })
+
+  it('carries a capability chain across the wire intact', async () => {
+    const priv = new Uint8Array(32).fill(7)
+    const chain = [
+      delegate(priv, {
+        ownerId: 'alice',
+        audience: 'worker-key',
+        abilities: ['execute'] as const,
+        expiresAt: 2_000_000_000_000,
+      }),
+    ]
+
+    // Round-tripping matters because a signature is over exact bytes: a field
+    // reordered or a number widened in transit invalidates the chain.
+    const encoded = encodeRequest({
+      kind: 'exec',
+      task: { moduleCid: FIXED_CID, inputCid: FIXED_CID, partitionIndex: 0, partitionCount: 1 },
+      capability: chain,
+    })
+    const parsed = parseRequest(encoded)
+
+    expect(parsed).not.toBeNull()
+    if (parsed === null || parsed.kind !== 'exec') return
+    expect(parsed.capability).toEqual(chain)
+  })
+
+  it('refuses a request whose chain is malformed, rather than truncating it', async () => {
+    // Dropping the unparseable links and proceeding with the rest would let an
+    // attacker prune a chain down to a prefix that happens to verify.
+    const parsed = parseRequest({
+      kind: 'exec',
+      moduleCid: FIXED_CID,
+      inputCid: FIXED_CID,
+      partitionIndex: 0,
+      partitionCount: 1,
+      capability: [{ issuer: 'a', audience: 'b', ownerId: 'alice', abilities: ['nope'], expiresAt: 1, signature: 'x' }],
+    })
+    expect(parsed).toBeNull()
   })
 })

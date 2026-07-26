@@ -19,7 +19,7 @@ export type { BlockSource } from './block.ts'
 export { RemoteExecutor } from './remote-executor.ts'
 
 export { RpcBlockSource, serveAgent } from './agent.ts'
-export type { AgentOptions } from './agent.ts'
+export type { AgentOptions, Authorizer } from './agent.ts'
 
 // DATA-02 — one addressing contract, checked against every Blockstore adapter.
 export { BLOCK_VECTORS, CONFORMANCE_BLOCK_COUNT, checkBlockstoreConformance } from './conformance.ts'
@@ -27,3 +27,7 @@ export type { BlockVector, ConformanceReport } from './conformance.ts'
 
 // SCHED-04 / BROW-03 — the governor applied to the execution path.
 export { GovernedExecutor } from './governed-executor.ts'
+
+// Egress control — DATA-04, DATA-05.
+export { EgressGuard } from './egress.ts'
+export type { EgressEntry, EgressManifest } from './egress.ts'

@@ -14,10 +14,15 @@
  */
 
 import { CID } from 'multiformats/cid'
-import type { CanonicalValue, ExecutionOutcome, Task } from '@o2/core'
+import type { CanonicalValue, Delegation, ExecutionOutcome, Task } from '@o2/core'
 
 export type AgentRequest =
-  | { readonly kind: 'exec'; readonly task: Task }
+  | {
+      readonly kind: 'exec'
+      readonly task: Task
+      /** AUTH-03. Absent means unauthenticated, which an authorizing node refuses. */
+      readonly capability?: readonly Delegation[]
+    }
   | { readonly kind: 'block'; readonly cid: CID }
 
 export type AgentResponse =
@@ -51,13 +56,45 @@ export function encodeRequest(request: AgentRequest): CanonicalValue {
     return { kind: 'block', cid: request.cid }
   }
   const { task } = request
-  return {
+  const base: { readonly [k: string]: CanonicalValue } = {
     kind: 'exec',
     moduleCid: task.moduleCid,
     inputCid: task.inputCid,
     partitionIndex: task.partitionIndex,
     partitionCount: task.partitionCount,
   }
+  if (request.capability === undefined) return base
+  return { ...base, capability: request.capability.map(delegationToValue) }
+}
+
+/** Delegations are plain records, but must be listed explicitly to stay canonical. */
+function delegationToValue(link: Delegation): CanonicalValue {
+  return {
+    issuer: link.issuer,
+    audience: link.audience,
+    ownerId: link.ownerId,
+    abilities: [...link.abilities],
+    expiresAt: link.expiresAt,
+    signature: link.signature,
+  }
+}
+
+/** Parse a delegation off the wire. Every field validated — this is a security input. */
+function parseDelegation(value: CanonicalValue): Delegation | null {
+  const record = asRecord(value)
+  if (record === null) return null
+  const { issuer, audience, ownerId, expiresAt, signature } = record
+  if (typeof issuer !== 'string' || typeof audience !== 'string') return null
+  if (typeof ownerId !== 'string' || typeof signature !== 'string') return null
+  if (typeof expiresAt !== 'number' || !Number.isFinite(expiresAt)) return null
+  const abilities = record['abilities']
+  if (!Array.isArray(abilities)) return null
+  const parsed: ('execute' | 'read' | 'delegate')[] = []
+  for (const ability of abilities) {
+    if (ability !== 'execute' && ability !== 'read' && ability !== 'delegate') return null
+    parsed.push(ability)
+  }
+  return { issuer, audience, ownerId, abilities: parsed, expiresAt, signature }
 }
 
 export function parseRequest(body: CanonicalValue): AgentRequest | null {
@@ -80,10 +117,20 @@ export function parseRequest(body: CanonicalValue): AgentRequest | null {
   // A partition index outside its own count is incoherent — refuse it here rather
   // than letting the executor derive a nonsensical shard.
   if (partitionCount === 0 || partitionIndex >= partitionCount) return null
-  return {
-    kind: 'exec',
-    task: { moduleCid, inputCid, partitionIndex, partitionCount },
+  const task: Task = { moduleCid, inputCid, partitionIndex, partitionCount }
+
+  const capabilityValue = record['capability']
+  if (capabilityValue === undefined) return { kind: 'exec', task }
+  if (!Array.isArray(capabilityValue)) return null
+  const capability: Delegation[] = []
+  for (const value of capabilityValue) {
+    const link = parseDelegation(value)
+    // A malformed chain is refused outright rather than silently truncated to the
+    // links that happened to parse.
+    if (link === null) return null
+    capability.push(link)
   }
+  return { kind: 'exec', task, capability }
 }
 
 export function encodeResponse(response: AgentResponse): CanonicalValue {

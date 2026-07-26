@@ -48,3 +48,22 @@ export { MemoryNetwork, TransportError } from './transport/memory.ts'
 export type { SendError } from './transport/memory.ts'
 export { DutyCycleGovernor } from './governor.ts'
 export type { DutyCycleOptions, Sleep } from './governor.ts'
+
+// Sovereignty and placement — DATA-03, DATA-06, DATA-09.
+export { planPlacement } from './sovereignty.ts'
+export type {
+  NodeDescriptor,
+  OwnerId,
+  Placement,
+  PlacementPlan,
+  PlacementRequest,
+  Sovereignty,
+} from './sovereignty.ts'
+
+// Capability chains — AUTH-03, DET-03.
+export { delegate, describeFailure, fromHex, toHex, verifyChain } from './capability.ts'
+export type { Ability, ChainFailure, ChainResult, Delegation, PublicKeyHex, VerifyOptions } from './capability.ts'
+
+// Signed artifact names — DATA-07, DATA-08.
+export { describeResolveFailure, SignedNameResolver, signName } from './naming.ts'
+export type { NameRecord, ResolveFailure, ResolveResult } from './naming.ts'

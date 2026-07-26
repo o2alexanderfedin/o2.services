@@ -10,7 +10,7 @@
  */
 
 import type { CID } from 'multiformats/cid'
-import type { Blockstore, CanonicalValue, Executor } from '@o2/core'
+import type { Blockstore, CanonicalValue, Delegation, Executor, Task } from '@o2/core'
 import type { BlockSource } from './block.ts'
 import { encodeRequest, encodeResponse, parseRequest, parseResponse } from './protocol.ts'
 import type { AgentResponse } from './protocol.ts'
@@ -48,12 +48,23 @@ export class RpcBlockSource implements BlockSource {
   }
 }
 
+/** Decides whether a dispatched task may run. Returning a string refuses it. */
+export interface Authorizer {
+  (request: { readonly task: Task; readonly capability: readonly Delegation[] }): string | null
+}
+
 export interface AgentOptions {
   readonly rpc: RpcEndpoint
   /** Runs dispatched tasks. Typically a `WasmExecutor`. */
   readonly executor: Executor
   /** Serves block requests, and is where the executor reads its inputs from. */
   readonly blockstore: Blockstore
+  /**
+   * AUTH-03. Consulted **before** the executor is called, so a task without a valid
+   * capability chain never reaches `WebAssembly.instantiate`. Omit to serve
+   * unauthenticated, which is only appropriate for public data.
+   */
+  readonly authorize?: Authorizer
 }
 
 /** Install the request handler that makes this endpoint a serving node. */
@@ -71,7 +82,16 @@ export function serveAgent(options: AgentOptions): void {
       const bytes = await blockstore.get(request.cid)
       response = { kind: 'block', bytes: bytes ?? null }
     } else {
-      response = { kind: 'exec', outcome: await executor.execute(request.task) }
+      // Authorisation first. The ordering is the requirement: refusing after
+      // execution would already have run the module against the owner's data.
+      const refusal = options.authorize?.({
+        task: request.task,
+        capability: request.capability ?? [],
+      })
+      response =
+        refusal === null || refusal === undefined
+          ? { kind: 'exec', outcome: await executor.execute(request.task) }
+          : { kind: 'exec', outcome: { ok: false, reason: `unauthorized: ${refusal}` } }
     }
     return encodeResponse(response)
   })
