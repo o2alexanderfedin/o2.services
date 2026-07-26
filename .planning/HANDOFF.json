@@ -1,69 +1,106 @@
 {
   "version": "1.0",
-  "timestamp": "2026-07-25T01:10:11.774Z",
-  "phase": "1",
-  "phase_name": "Portable Kernel & Loopback Map Slice",
-  "phase_dir": null,
+  "timestamp": "2026-07-26T09:05:00.000Z",
+  "phase": "6",
+  "phase_name": "Discovery, Placement & Enrollment",
+  "phase_dir": ".planning/phases/phase-6-discovery-enrollment",
   "plan": null,
   "task": null,
-  "total_tasks": null,
-  "status": "phase_complete",
+  "total_tasks": 7,
+  "status": "phase_in_progress",
+  "verification": {
+    "tests_passing": 467,
+    "test_files": 47,
+    "typecheck": "clean",
+    "requirements_done": 42,
+    "requirements_total": 72,
+    "head": "b12fb02",
+    "refs_in_sync": true,
+    "working_tree": "clean",
+    "repository_visibility": "public"
+  },
   "completed_tasks": [
-    { "id": 1, "name": "Project skeleton — TS 7.0.2, vitest, @o2/core workspace", "status": "done", "commit": "595edf6" },
-    { "id": 2, "name": "DET-05 canonical output encoding (strict DAG-CBOR + CID)", "status": "done", "commit": "595edf6" },
-    { "id": 3, "name": "Ports — Blockstore, Executor, Transport, Governor", "status": "done", "commit": "517d145" },
-    { "id": 4, "name": "VER-01/02/05/06 redundant execution + commit-reveal verification", "status": "done", "commit": "517d145" },
-    { "id": 5, "name": "MR-01 / DATA-01 job submission, sharding, content addressing", "status": "done", "commit": "517d145" },
-    { "id": 6, "name": "DET-06 WASM executor, four-function host ABI", "status": "done", "commit": "517d145" },
-    { "id": 7, "name": "SCHED-04 duty-cycle CPU governor", "status": "done", "commit": "517d145" },
-    { "id": 8, "name": "Delete the admission gate — 1214 lines removed", "status": "done", "commit": "afb3cad" },
-    { "id": 9, "name": "Loopback transport behind the Transport port", "status": "done", "commit": "f0a1158" },
-    { "id": 10, "name": "DET-07 node + browser + worker targets", "status": "done", "commit": "e644f31" }
+    { "id": 1, "name": "Phase 1 — Portable kernel & loopback map slice", "status": "done" },
+    { "id": 2, "name": "Phase 2 — Real network, node <-> node (NET-01, NET-07)", "status": "done" },
+    { "id": 3, "name": "Phase 3 — Browser tier & backbone relay", "status": "partial", "detail": "5 of 6 criteria; real AutoTLS needs a public host" },
+    { "id": 4, "name": "Phase 4 — Sovereignty, authorization & artifact signing", "status": "done" },
+    { "id": 5, "name": "Phase 5 — Decomposable tree-reduce (MR-02..MR-07)", "status": "done" },
+    { "id": 6, "name": "Phase 6 criterion 4 — enrollment, offline certificate verification", "status": "done" },
+    { "id": 7, "name": "Phase 6 criterion 5 — quorum diversity + threat model with k stated", "status": "done" },
+    { "id": 8, "name": "Phase 6 criterion 7 — attestation strength labelling", "status": "done" }
   ],
   "remaining_tasks": [
-    { "id": 11, "name": "Phase 2 — Real Network, Node <-> Node (NET-01, NET-07)", "status": "not_started" }
+    { "id": 9, "name": "Phase 6 criterion 1 — discovery by intersecting CID providers with signed capability records (SCHED-01, NET-06)", "status": "not_started" },
+    { "id": 10, "name": "Phase 6 criterion 2 — power-of-d placement, rejection and re-pick (SCHED-02, SCHED-03)", "status": "not_started" },
+    { "id": 11, "name": "Phase 6 criterion 3 — thread d-candidate sampling behind the sovereignty filter (SCHED-05)", "status": "mostly_done", "detail": "planPlacement already filters before scoring; the constraint-first ordering must survive the sampling integration" },
+    { "id": 12, "name": "Phase 6 criterion 6 — owner-domain execution end to end with a stream tap", "status": "partial", "detail": "replica sets resolve; execution not wired" },
+    { "id": 13, "name": "Phase 7 — Churn, stragglers & coordinator survival", "status": "not_started" },
+    { "id": 14, "name": "Phase 8 — Benchmark harness", "status": "not_started" },
+    { "id": 15, "name": "Phase 9 — Public demo, consent UX & disclosure gate", "status": "not_started" },
+    { "id": 16, "name": "Phase 10 — elfconv AOT native->WASM pipeline (parallel track)", "status": "not_started" }
   ],
   "blockers": [],
   "human_actions_pending": [
     {
-      "action": "Legal review of LICENSE and LICENSE-COMMERCIAL.md",
-      "context": "Both are unreviewed drafts. The commercial one is the instrument that would be signed and taken money against.",
+      "action": "File a US provisional patent",
+      "context": "THE ONLY HARD DEADLINE. The 12-month clock started when the repository was made public on 2026-07-26. EPO and China rights are already permanently forfeit; the US provisional under 35 USC 102(b)(1) is the sole remaining option and it expires. Roughly $65 micro entity, confidential.",
+      "blocking": false,
+      "deadline": "2027-07-26"
+    },
+    {
+      "action": "Decide on a hosted relay with AutoTLS",
+      "context": "Closes Phase 3's last criterion. Now purely a hosting decision — no disclosure consequence remains since the repository is already public. Also what a GitHub Pages deployment needs to function, since an HTTPS page cannot dial ws:// and Pages runs no server process.",
       "blocking": false
     },
     {
-      "action": "Decide defensive vs offensive patent posture before publishing anything",
-      "context": "Publishing forfeits EPO and China patent rights permanently — no grace period. A provisional (~$65 micro entity) preserves both options. Repo is private; nothing is disclosed yet.",
+      "action": "Legal review of LICENSE and LICENSE-COMMERCIAL.md",
+      "context": "Both are unreviewed drafts and now publicly visible. The commercial one is the instrument that would be signed.",
       "blocking": false
     }
   ],
   "decisions": [
     {
-      "decision": "Determinism is detected, not predicted. No static analysis of task modules.",
-      "rationale": "Verification is a byte comparison of the same module run on two nodes. Predicting statically that a module cannot diverge is an unboundedly harder problem, and the comparison is the mechanism regardless. An admission gate was built and deleted: every check was either already enforced by the runtime (imports), impossible with one thread (atomics), or self-reporting as a disagreement.",
+      "decision": "All nodes have equal functionality; the only difference is discovery.",
+      "rationale": "No tier, no class, no lesser node. A browser cannot bind a listening socket, so it cannot be a seed a newcomer dials cold and must be found via a relay — but once connected, peers are indistinguishable, and a browser executes, stores, serves and takes quorum slots identically. Proven cross-device in Phase 3. Any decision keying on node kind is wrong; the only legitimate use is shared-dependency analysis over the discovery graph. Stated by the owner three times because the first two applications changed the vocabulary while leaving the mechanism discriminating.",
+      "phase": "6"
+    },
+    {
+      "decision": "A seed contributes no discovery dependency, whatever relays it advertises through.",
+      "rationale": "Only a node whose sole discovery path is a relay depends on it. Two certificates with identical relayIds therefore get opposite quorum verdicts. Found by the owner questioning a summary table; the original rule read relayIds without consulting discoverability and refused independent quorums.",
+      "phase": "6"
+    },
+    {
+      "decision": "Attestation strength is derived from certificates, never declared by a caller.",
+      "rationale": "owner-attested / owner-domain / independent. Owner-domain and independent both show two replicas, so the count alone cannot distinguish them and the label must travel with the result. A caller able to assert 'independently verified' would eventually assert one that was not.",
+      "phase": "6"
+    },
+    {
+      "decision": "Disagreement is reported, never voted on.",
+      "rationale": "In execution, reduce, and quorum composition alike. At R=2 there is no majority anyway, and voting silently converts 'something is wrong' into 'the majority was right' — the event verification exists to surface.",
       "phase": "1"
     },
     {
-      "decision": "The import object is the sandbox — no allow-list code.",
-      "rationale": "WebAssembly.instantiate refuses any import the host does not supply, naming it. A hand-written allow-list was reimplementing V8.",
-      "phase": "1"
+      "decision": "Sovereignty is structural, not a preference.",
+      "rationale": "planPlacement narrows to the owner's nodes before load is consulted; no branch widens it. A sovereign shard with nowhere to run stalls. Verified by adding the forbidden relax-under-pressure branch and watching four tests fail.",
+      "phase": "4"
     },
     {
-      "decision": "Cross-implementation verification is out of scope.",
-      "rationale": "Verification compares the same module on two nodes. Never two independent implementations of the same computation.",
-      "phase": "1"
+      "decision": "Derive topology, never agree on it.",
+      "rationale": "The reduce tree is a pure function of sorted partial CIDs — zero messages, no leader, no consensus. HRW ranking is itself the fallback list. Repair is recompute from content-addressed inputs, not state transfer; a late duplicate dedupes into nothing.",
+      "phase": "5"
     },
     {
-      "decision": "Determinism is enforced at the serialization boundary via strict DAG-CBOR.",
-      "rationale": "DAG-CBOR forbids NaN/Infinity/-Infinity, normalizes -0.0, and mandates one float width. Protobuf bytes are never hashed — its own docs state serialization is not canonical across languages, builds, or schema versions.",
-      "phase": "1"
+      "decision": "The kernel must never require crypto.subtle.",
+      "rationale": "A LAN origin is not a secure context. multiformats/hashes/sha2 uses WebCrypto and silently broke every CID on any non-localhost page, while the node still started — so it failed at the first block rather than at join. Now @noble/hashes, pure JS, with a browser test that deletes crypto.subtle.",
+      "phase": "3"
     },
     {
-      "decision": "Phase 1 (determinism gate) deleted from the roadmap; 11 phases -> 10, 76 -> 72 requirements.",
-      "rationale": "The WASM spec makes a generated NaN's sign nondeterministic, so measuring it could never change the design, and DAG-CBOR forbids the value entirely. The gate phase was answering a settled question.",
-      "phase": "1"
+      "decision": "Relay browser capacity is capped by inbound limits, not reservations.",
+      "rationale": "INBOUND_CONNECTION_THRESHOLD is 5 per HOST and MAX_INCOMING_PENDING_CONNECTIONS is 10, both below the 15 reservation default. Per-host binds in production too: every volunteer behind one NAT shares the budget. Exceeding either kills the noise handshake and reads like a network fault.",
+      "phase": "3"
     }
   ],
   "uncommitted_files": [],
-  "next_action": "Start Phase 2 (Real Network, Node <-> Node). Swap a libp2p adapter in behind the existing Transport port; the kernel package must stay byte-for-byte unchanged, which is the actual test that the port boundary was drawn correctly. Covers NET-01 and NET-07.",
-  "context_notes": "Phase 1 is complete and green: 149 tests across node/browser/worker, tsc --noEmit clean, all four git refs in sync, tree clean, repo private. The dominant lesson of this session was over-engineering: roughly 1200 lines of WASM instruction parsing and a whole roadmap phase were built to statically prove determinism, then deleted once it was clear that comparing two byte strings already did the job. STATE.md carries explicit do-not-reintroduce notes for both the gate and cross-implementation verification. When planning Phase 2, resist the same pull — the transport swap is one adapter class, not a research project."
+  "next_action": "Continue Phase 6 with criterion 1 (discovery by intersecting CID providers with signed capability records) and criterion 2 (power-of-d placement with rejection and re-pick). Enrollment was built first so there are certificates to intersect against. When integrating d-candidate sampling, the sovereignty constraint-first ordering from Phase 4 must survive it — that is criterion 3.",
+  "context_notes": "467 tests green, tsc clean, 42/72 requirements, repository public, Pages deployed by hand with no workflow file. The dominant lesson of this session was that a claim which sounds right is not one that is right: three separate bugs were found by restating a rule plainly and probing it — a fake self-measuring metric, a duty cycle bypassed by concurrency, and a quorum rule that refused independent nodes. Every new checker in this codebase is now falsified with a planted violation before being trusted. The owner corrected the node-equality model three times; the first two attempts changed comments while leaving backbone/edge as classes, so after any design correction, grep for the mechanism rather than the vocabulary."
 }
