@@ -80,6 +80,73 @@ export type {
   Rejection,
 } from './placement.ts'
 
+// Task leases and re-dispatch — CHURN-04, and the history CHURN-01 needs.
+export {
+  DEFAULT_LEASE_MS,
+  DEFAULT_MAX_GENERATIONS,
+  LeaseTable,
+  RENEW_AT,
+  checkLease,
+  shouldRenew,
+} from './lease.ts'
+export type { Lease, LeaseCheck, LeaseEvent, LeaseTableOptions, Reaped } from './lease.ts'
+
+// Speculative duplication of stragglers — CHURN-02, CHURN-06.
+export {
+  DEFAULT_SPECULATION_FRACTION,
+  DEFAULT_STRAGGLER_FACTOR,
+  MIN_SAMPLES,
+  SpeculationLedger,
+  median,
+  settleRace,
+  speculativeCandidates,
+  stragglers,
+} from './speculation.ts'
+export type {
+  Discarded,
+  InFlight,
+  RaceOutcome,
+  SpeculativeAnswer,
+  StragglerOptions,
+} from './speculation.ts'
+
+// Coordinator state as a content-addressed block — CHURN-03.
+export {
+  checkpointChain,
+  checkpointOf,
+  isComplete,
+  readCheckpoint,
+  recoverCheckpoint,
+  remainingWork,
+  writeCheckpoint,
+} from './checkpoint.ts'
+export type {
+  CheckpointFailure,
+  CheckpointResult,
+  CompletedShard,
+  JobCheckpoint,
+  RecoveredCheckpoint,
+} from './checkpoint.ts'
+
+// Coverage over owners — CHURN-05.
+export { coverageOf, describeCoverage, withCoverage } from './coverage.ts'
+export type { CoverageReport, CoveredAggregate } from './coverage.ts'
+
+// The resilient run loop where the churn criteria compose — CHURN-01.
+export {
+  DEFAULT_MAX_TASK_FAILURES,
+  DEFAULT_WATCHDOG_MS,
+  runResilient,
+} from './coordinator.ts'
+export type {
+  CoordinatorOptions,
+  CoordinatorOutcome,
+  DispatchOutcome,
+  ShardDispatch,
+  ShardOutcome,
+  ShardWork,
+} from './coordinator.ts'
+
 // Discovery from a data CID — SCHED-01, NET-06.
 export {
   discoverExecutors,
