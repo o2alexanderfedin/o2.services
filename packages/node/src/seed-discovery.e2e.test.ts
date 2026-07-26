@@ -1,6 +1,7 @@
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { request as httpRequest } from 'node:http'
 import { chromium } from 'playwright'
 import type { Browser, BrowserContext } from 'playwright'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
@@ -63,6 +64,67 @@ describe('relayAddrForHost', () => {
     expect(seed.joinUrl).toContain(localHostname())
     expect(seed.joinUrl).toContain(`:${seed.httpPort}`)
   })
+})
+
+/**
+ * Fetch over the loopback socket while claiming to be `host`.
+ *
+ * `fetch` will not let the Host header be overridden, and that override is the whole
+ * point: a phone reaching the seed by its Bonjour name sends `Host: laptop.local`,
+ * and Vite decides whether to answer based on that string alone. Testing only via an
+ * IP address proves nothing here, because **IP literals are exempt from the check by
+ * default** — which is exactly how the `.local` URL this class prints shipped broken.
+ */
+async function getAs(host: string, path: string, port: number): Promise<{ status: number; body: string }> {
+  return new Promise((resolve, reject) => {
+    const req = httpRequest(
+      { host: '127.0.0.1', port, path, method: 'GET', headers: { host } },
+      (res) => {
+        let body = ''
+        res.setEncoding('utf8')
+        res.on('data', (chunk: string) => {
+          body += chunk
+        })
+        res.on('end', () => resolve({ status: res.statusCode ?? 0, body }))
+      },
+    )
+    req.on('error', reject)
+    req.end()
+  })
+}
+
+describe('the printed .local URL is actually served', () => {
+  it('answers a request whose Host is the Bonjour name', async () => {
+    const name = localHostname()
+
+    // Regression: Vite allows only localhost, .localhost and IP literals by default,
+    // so this returned "Blocked request. This host is not allowed." while every
+    // IP-based test passed.
+    const page = await getAs(name, '/packages/browser/demo/index.html', seed.httpPort)
+    expect(page.status).toBe(200)
+    expect(page.body).not.toContain('not allowed')
+
+    // And an arbitrary Bonjour name, since the machine's own may change.
+    const other = await getAs('some-other-laptop.local', '/packages/browser/demo/index.html', seed.httpPort)
+    expect(other.status).toBe(200)
+  }, 60_000)
+
+  it('hands that same name back as the relay address to dial', async () => {
+    const name = localHostname()
+    const { status, body } = await getAs(name, '/bootstrap.json', seed.httpPort)
+    expect(status).toBe(200)
+
+    const info = JSON.parse(body) as { relayAddrs: string[] }
+    // /dns4, not /ip4 — a name behind /ip4 parses and never dials.
+    expect(info.relayAddrs[0]).toBe(`/dns4/${name}/tcp/${seed.relayPort}/ws/p2p/${seed.relay.peerId}`)
+  }, 60_000)
+
+  it('still refuses a host it was never told about', async () => {
+    // The protection is narrowed, not removed: an attacker-controlled public domain
+    // resolving to this machine must still be turned away.
+    const blocked = await getAs('evil.example.com', '/packages/browser/demo/index.html', seed.httpPort)
+    expect(blocked.status).not.toBe(200)
+  }, 60_000)
 })
 
 describe('bootstrap is derived from the host the client used', () => {
