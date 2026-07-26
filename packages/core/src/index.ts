@@ -86,3 +86,39 @@ export type {
   ReduceTree,
   ReduceTreeNode,
 } from './reduce.ts'
+
+// Enrollment and node identity — AUTH-01, AUTH-02, AUTH-04, AUTH-05.
+export {
+  EnrollmentAuthority,
+  possessionChallenge,
+  requestEnrollment,
+  resolveReplicaSets,
+  verifyCertificate,
+} from './enrollment.ts'
+export type {
+  AuthorityOptions,
+  CertificateFailure,
+  CertificateResult,
+  EnrollmentRefusal,
+  EnrollmentRequest,
+  EnrollmentResult,
+  NodeCertificate,
+  NodeRole,
+  ReplicaSet,
+} from './enrollment.ts'
+
+// Quorum composition and attestation strength — VER-03, VER-04, VER-08, VER-09, VER-10.
+export {
+  attestationRank,
+  attestationReceipt,
+  classifyAttestation,
+  composeQuorum,
+  describeAttestation,
+} from './quorum.ts'
+export type {
+  AttestationReceipt,
+  AttestationStrength,
+  QuorumRefusal,
+  QuorumResult,
+  QuorumRules,
+} from './quorum.ts'

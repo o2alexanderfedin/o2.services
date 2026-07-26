@@ -41,20 +41,20 @@
       outputs compared, with disagreement surfaced rather than silently resolved
 - [x] **VER-02**: Executors commit to a result hash before revealing the result,
       so a replica cannot plagiarize a peer's answer
-- [ ] **VER-03**: At least one replica of every verification quorum is anchored on
+- [x] **VER-03**: At least one replica of every verification quorum is anchored on
       a backbone node, so eclipsing a quorum requires a backbone compromise
-- [ ] **VER-04**: Quorum members are selected with anti-affinity, so one operator
+- [x] **VER-04**: Quorum members are selected with anti-affinity, so one operator
       cannot supply a whole quorum
 - [x] **VER-05**: The verifier compares `(task, outputs)` only — timing, fuel, and
       node metadata sit outside the signed digest
 - [x] **VER-06**: Redundancy factor is a per-job dial reaching 1 (off), and the
       verification tax is reported as a measured cost on every job
-- [ ] **VER-08**: When an owner has two or more live nodes, a sovereignty-pinned
+- [x] **VER-08**: When an owner has two or more live nodes, a sovereignty-pinned
       task executes redundantly across the owner's own node set and the outputs
       are compared — no data leaves the owner's trust domain
-- [ ] **VER-09**: When an owner has fewer than two live nodes, the task executes
+- [x] **VER-09**: When an owner has fewer than two live nodes, the task executes
       once and the receipt records it as owner-attested rather than verified
-- [ ] **VER-10**: Owner-domain quorum agreement is reported as a distinct,
+- [x] **VER-10**: Owner-domain quorum agreement is reported as a distinct,
       weaker claim than independent-operator agreement, so the stronger guarantee
       is never implied by the weaker one
 
@@ -82,15 +82,15 @@
 
 ### Authorization & Node Identity
 
-- [ ] **AUTH-01**: A node's identity key is generated on-device and its public half
+- [x] **AUTH-01**: A node's identity key is generated on-device and its public half
       is signed into a provider-issued certificate
-- [ ] **AUTH-02**: A node verifies a peer's provider-signed certificate offline,
+- [x] **AUTH-02**: A node verifies a peer's provider-signed certificate offline,
       with no live certificate authority
 - [x] **AUTH-03**: A task carries a delegatable, expiry-scoped capability chain
       rooted at the data owner's key, verified before execution
-- [ ] **AUTH-04**: Enrollment is provider-gated and rate-limited, so mass fake-node
+- [x] **AUTH-04**: Enrollment is provider-gated and rate-limited, so mass fake-node
       creation is costly
-- [ ] **AUTH-05**: Multiple node identity certificates chain to a single owner's
+- [x] **AUTH-05**: Multiple node identity certificates chain to a single owner's
       user key, forming a discoverable replica set that the scheduler can target
 
 ### Transport, Discovery & Connectivity
@@ -105,8 +105,15 @@
       and no hardcoded certhash multiaddr is required to join
 - [x] **NET-05**: Relay reservation exhaustion is detected and reported rather than
       failing silently
-- [ ] **NET-06**: Backbone nodes serve DHT records on behalf of browser peers,
-      which run client-mode only
+- [ ] **NET-06**: Browser peers participate in routing as full peers. Backbone nodes
+      may serve records on their behalf as an optimisation and as a fallback when a
+      browser holds no relay reservation — not because a browser is incapable.
+      **Revised 2026-07-26** (owner decision): a browser peer differs from a backbone
+      peer only in that it cannot bind a listening socket. Holding a relay
+      reservation makes it dialable, which was demonstrated in Phase 3 when an iPhone
+      was dialled at its `/p2p-circuit/webrtc` address and ran half of a 2×-redundant
+      job. Client-mode-only was an assumption inherited from research, not a measured
+      limit
 - [x] **NET-07**: A constants-regression test asserts the relay and transport
       limits the system depends on, failing CI when an upgrade changes them
 
@@ -248,13 +255,13 @@ All 72 v1 requirements are mapped, each to exactly one phase. See
 | DET-07 | Phase 1 — Portable Kernel & Loopback Map Slice | Done |
 | VER-01 | Phase 1 — Portable Kernel & Loopback Map Slice | Done |
 | VER-02 | Phase 1 — Portable Kernel & Loopback Map Slice | Done |
-| VER-03 | Phase 6 — Discovery, Placement & Enrollment | Pending |
-| VER-04 | Phase 6 — Discovery, Placement & Enrollment | Pending |
+| VER-03 | Phase 6 — Discovery, Placement & Enrollment | Done |
+| VER-04 | Phase 6 — Discovery, Placement & Enrollment | Done |
 | VER-05 | Phase 1 — Portable Kernel & Loopback Map Slice | Done |
 | VER-06 | Phase 1 — Portable Kernel & Loopback Map Slice | Done |
-| VER-08 | Phase 6 — Discovery, Placement & Enrollment | Pending |
-| VER-09 | Phase 6 — Discovery, Placement & Enrollment | Pending |
-| VER-10 | Phase 6 — Discovery, Placement & Enrollment | Pending |
+| VER-08 | Phase 6 — Discovery, Placement & Enrollment | Done |
+| VER-09 | Phase 6 — Discovery, Placement & Enrollment | Done |
+| VER-10 | Phase 6 — Discovery, Placement & Enrollment | Done |
 | DATA-01 | Phase 1 — Portable Kernel & Loopback Map Slice | Done |
 | DATA-02 | Phase 3 — Browser Tier & Backbone Relay | Done |
 | DATA-03 | Phase 4 — Sovereignty, Authorization & Artifact Signing | Done |
@@ -264,11 +271,11 @@ All 72 v1 requirements are mapped, each to exactly one phase. See
 | DATA-07 | Phase 4 — Sovereignty, Authorization & Artifact Signing | Done |
 | DATA-08 | Phase 4 — Sovereignty, Authorization & Artifact Signing | Done |
 | DATA-09 | Phase 4 — Sovereignty, Authorization & Artifact Signing | Done |
-| AUTH-01 | Phase 6 — Discovery, Placement & Enrollment | Pending |
-| AUTH-02 | Phase 6 — Discovery, Placement & Enrollment | Pending |
+| AUTH-01 | Phase 6 — Discovery, Placement & Enrollment | Done |
+| AUTH-02 | Phase 6 — Discovery, Placement & Enrollment | Done |
 | AUTH-03 | Phase 4 — Sovereignty, Authorization & Artifact Signing | Done |
-| AUTH-04 | Phase 6 — Discovery, Placement & Enrollment | Pending |
-| AUTH-05 | Phase 6 — Discovery, Placement & Enrollment | Pending |
+| AUTH-04 | Phase 6 — Discovery, Placement & Enrollment | Done |
+| AUTH-05 | Phase 6 — Discovery, Placement & Enrollment | Done |
 | NET-01 | Phase 2 — Real Network, Node ↔ Node | Done |
 | NET-02 | Phase 3 — Browser Tier & Backbone Relay | Done |
 | NET-03 | Phase 3 — Browser Tier & Backbone Relay | Partial — relay is browser-dialable; AutoTLS needs a public host |
