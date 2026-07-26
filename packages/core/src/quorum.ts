@@ -8,13 +8,13 @@
  *
  *   1. **No two replicas from the same operator.** Otherwise "3 of 3 agreed" can mean
  *      one person agreeing with themselves.
- *   2. **At least one backbone-anchored replica.** Not because edge nodes are worth
- *      less — a browser peer is a full peer, and one ran half of a 2×-redundant job
- *      across devices in Phase 3. The reason is narrower and is about *reachability
- *      under failure*: every edge node is reachable only through a relay, so a quorum
- *      composed entirely of them shares a single dependency, and a relay outage takes
- *      the whole quorum with it. One directly-dialable member removes that shared
- *      failure. It is a durability rule, not a caste rule.
+ *   2. **No single relay every member is discovered through.** Not a rule about kinds
+ *      of node — **all nodes have equal functionality** and a browser peer fills any
+ *      slot a server can. It is a statement about the discovery *graph*: if every
+ *      member is found only via relay R, then R failing loses the whole quorum, and
+ *      the redundancy was never real. Three browser peers discoverable through three
+ *      different relays pass; three servers published behind one do not. The rule
+ *      reads the actual discovery paths, never a node's category.
  *
  * ## Attestation strength is a label, not a footnote
  *
@@ -72,8 +72,14 @@ export function describeAttestation(strength: AttestationStrength): string {
 export interface QuorumRules {
   /** Replicas wanted. */
   readonly size: number
-  /** Require at least one `backbone` replica. Defaults to true. */
-  readonly requireBackboneAnchor?: boolean
+  /**
+   * Refuse a quorum whose members all depend on one relay. Defaults to true.
+   *
+   * Turn off only when the shared dependency is acceptable — a single-relay test
+   * fixture, say. It is on by default because a quorum with a common single point of
+   * failure reports redundancy it does not have.
+   */
+  readonly requireIndependentPaths?: boolean
 }
 
 export type QuorumRefusal =
@@ -82,7 +88,7 @@ export type QuorumRefusal =
       readonly wanted: number
       readonly distinctOperators: number
     }
-  | { readonly kind: 'no-backbone-anchor' }
+  | { readonly kind: 'shared-relay-dependency'; readonly relayId: string }
   | { readonly kind: 'no-candidates' }
 
 export type QuorumResult =
@@ -109,7 +115,7 @@ export function composeQuorum(
 
   if (candidates.length === 0) return refuse({ kind: 'no-candidates' }, 'no candidate nodes')
 
-  const requireAnchor = rules.requireBackboneAnchor ?? true
+  const requireIndependentPaths = rules.requireIndependentPaths ?? true
 
   // One node per operator, chosen deterministically. Taking the first per operator
   // — rather than the first N candidates — is what makes "no two from the same
@@ -127,20 +133,23 @@ export function composeQuorum(
     )
   }
 
-  // Backbone first only so the anchor requirement is met by ordering rather than by
-  // a retry loop. Beyond satisfying that one rule, edge nodes are equal members and
-  // fill the remaining slots on the same terms.
-  const ordered = [...distinct].sort((a, b) => {
-    if (a.role !== b.role) return a.role === 'backbone' ? -1 : 1
-    return a.nodeKey.localeCompare(b.nodeKey)
-  })
+  // Fewest discovery dependencies first — a seed depends on none, so it sorts ahead
+  // naturally. This is path diversity, not a preference for a kind of node: a peer
+  // discoverable through an otherwise-unused relay sorts ahead of a second peer on a
+  // relay already represented.
+  const ordered = [...distinct].sort(
+    (a, b) => a.relayIds.length - b.relayIds.length || a.nodeKey.localeCompare(b.nodeKey),
+  )
   const members = ordered.slice(0, rules.size)
 
-  if (requireAnchor && !members.some((member) => member.role === 'backbone')) {
-    return refuse(
-      { kind: 'no-backbone-anchor' },
-      'quorum contains no backbone-anchored replica; edge-only quorums are refused',
-    )
+  if (requireIndependentPaths) {
+    const shared = sharedRelay(members)
+    if (shared !== null) {
+      return refuse(
+        { kind: 'shared-relay-dependency', relayId: shared },
+        `every member of the quorum is discoverable only through relay ${shared}; its failure would lose the whole quorum`,
+      )
+    }
   }
 
   return {
@@ -149,6 +158,28 @@ export function composeQuorum(
     operators: members.map((member) => member.operatorId),
     strength: 'independent',
   }
+}
+
+/**
+ * A relay every member is discovered through, or `null` if their paths are independent.
+ *
+ * A seed node depends on no relay to be found, so its presence alone means there is no
+ * single shared discovery path and the answer is `null`.
+ */
+export function sharedRelay(members: readonly NodeCertificate[]): string | null {
+  const first = members[0]
+  if (first === undefined) return null
+
+  // Start from the first member's relays and intersect down. A directly reachable
+  // member has none, so it short-circuits: no relay can be common to all.
+  let common: string[] = [...first.relayIds]
+  for (const member of members) {
+    if (member.relayIds.length === 0) return null
+    const relays = new Set<string>(member.relayIds)
+    common = common.filter((id) => relays.has(id))
+    if (common.length === 0) return null
+  }
+  return [...common].sort()[0] ?? null
 }
 
 /**
@@ -176,7 +207,8 @@ export interface AttestationReceipt {
   readonly replicas: number
   readonly operators: readonly string[]
   readonly userKeys: readonly PublicKeyHex[]
-  readonly backboneAnchored: boolean
+  /** A relay every replica depended on, or `null` when their paths were independent. */
+  readonly sharedRelay: string | null
 }
 
 /** Build the receipt that accompanies a result wherever it surfaces. */
@@ -188,6 +220,6 @@ export function attestationReceipt(agreeing: readonly NodeCertificate[]): Attest
     replicas: agreeing.length,
     operators: [...new Set(agreeing.map((c) => c.operatorId))].sort(),
     userKeys: [...new Set(agreeing.map((c) => c.userKey))].sort(),
-    backboneAnchored: agreeing.some((c) => c.role === 'backbone'),
+    sharedRelay: sharedRelay(agreeing),
   }
 }

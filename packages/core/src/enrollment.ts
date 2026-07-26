@@ -39,28 +39,34 @@ import { fromHex, toHex } from './capability.ts'
 import type { PublicKeyHex } from './capability.ts'
 
 /**
- * How a node is reachable — **not** a privilege level.
+ * **All nodes have equal functionality.** The only thing that varies is how a node can
+ * be *discovered*.
  *
- * A browser peer is a full peer. It executes tasks, holds blocks, serves records, and
- * can host internal reduce combines exactly like any other node. The single difference
- * is inbound reachability: it cannot bind a listening socket, so it is reachable only
- * through a relay-signalled WebRTC address rather than directly.
+ * Every node executes tasks, holds blocks, serves records, hosts reduce combines, and
+ * takes quorum slots on identical terms. There is no tier and no lesser node anywhere
+ * in this codebase. Once two peers are connected they are indistinguishable in what
+ * they can do — a browser peer was dialled at its `/p2p-circuit/webrtc` address from
+ * another machine in Phase 3 and ran half of a 2×-redundant job.
  *
- * That is a transport fact, and it is narrower than it is often stated. A browser
- * holding a relay reservation *is* dialable — demonstrated in Phase 3, where an
- * iPhone was dialled at its `/p2p-circuit/webrtc` address from another machine and ran
- * half of a 2×-redundant job. Treating such a node as a second-class leaf would give
- * away most of the capacity the whole project is a bet on.
+ * The one genuine difference is narrower than "reachability": a browser cannot bind a
+ * listening socket, so **it cannot act as a seed that a newcomer dials cold**. It has
+ * no stable address to publish as a bootstrap entry point, and must instead be found
+ * through a relay that does.
  *
- * So this type answers "what does it take to reach you", and nothing else. Anywhere a
- * scheduling decision depends on it, the reason must be reachability or durability —
- * never an assumption that an edge node is worth less.
+ *   `seed`       can be dialled directly as a bootstrap entry point
+ *   `via-relay`  discoverable only through the relays named in `relayIds`
+ *
+ * This is a property of *discovery*, not of capability and not of the connection that
+ * results from it. The one place it may legitimately affect a decision is
+ * shared-dependency analysis: nodes discoverable only through the same relay are found
+ * — and lost — together, which is a fact about the discovery path and would be equally
+ * true of two servers published behind one bootstrap host.
  */
-export type NodeRole =
-  /** Binds a listening socket; directly dialable without a relay. */
-  | 'backbone'
-  /** Reachable via relay-signalled WebRTC. Same capabilities, different path in. */
-  | 'edge'
+export type Discoverability =
+  /** Dialable directly; usable as a bootstrap entry point. */
+  | 'seed'
+  /** Discoverable only through the relays named in `relayIds`. */
+  | 'via-relay'
 
 /**
  * A provider's signed statement about one node.
@@ -76,7 +82,15 @@ export interface NodeCertificate {
   readonly userKey: PublicKeyHex
   /** Who runs the hardware. The unit of quorum diversity. */
   readonly operatorId: string
-  readonly role: NodeRole
+  /** How this node can be discovered. Not a capability statement — see above. */
+  readonly discoverability: Discoverability
+  /**
+   * Relays this node depends on to be reachable. Empty when `direct`.
+   *
+   * Recorded so shared-dependency analysis can be done on the actual dependency
+   * graph rather than on a node's category.
+   */
+  readonly relayIds: readonly string[]
   readonly issuedAt: number
   readonly expiresAt: number
   readonly issuer: PublicKeyHex
@@ -88,7 +102,8 @@ function payloadOf(certificate: Omit<NodeCertificate, 'signature'>): Uint8Array<
     nodeKey: certificate.nodeKey,
     userKey: certificate.userKey,
     operatorId: certificate.operatorId,
-    role: certificate.role,
+    discoverability: certificate.discoverability,
+    relayIds: [...certificate.relayIds].sort(),
     issuedAt: certificate.issuedAt,
     expiresAt: certificate.expiresAt,
     issuer: certificate.issuer,
@@ -110,7 +125,8 @@ export interface EnrollmentRequest {
   readonly nodeKey: PublicKeyHex
   readonly userKey: PublicKeyHex
   readonly operatorId: string
-  readonly role: NodeRole
+  readonly discoverability: Discoverability
+  readonly relayIds: readonly string[]
   /** Signature over `possessionChallenge`, by the node's own private key. */
   readonly proofOfPossession: string
 }
@@ -214,7 +230,8 @@ export class EnrollmentAuthority {
       nodeKey: request.nodeKey,
       userKey: request.userKey,
       operatorId: request.operatorId,
-      role: request.role,
+      discoverability: request.discoverability,
+      relayIds: [...request.relayIds].sort(),
       issuedAt: now,
       expiresAt: now + this.#lifetimeMs,
       issuer: this.#issuer,
