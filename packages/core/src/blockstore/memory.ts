@@ -8,7 +8,7 @@
 
 import * as dagCbor from '@ipld/dag-cbor'
 import { CID } from 'multiformats/cid'
-import { sha256 } from 'multiformats/hashes/sha2'
+import { sha256 } from '../hash.ts'
 import type { Blockstore } from '../ports.ts'
 
 function copyOf(bytes: Uint8Array<ArrayBuffer>): Uint8Array<ArrayBuffer> {

@@ -25,7 +25,7 @@
 
 import * as dagCbor from '@ipld/dag-cbor'
 import { CID } from 'multiformats/cid'
-import { sha256 } from 'multiformats/hashes/sha2'
+import { sha256 } from '../hash.ts'
 
 /** Values the IPLD data model admits. Deliberately excludes non-finite floats. */
 export type CanonicalValue =
