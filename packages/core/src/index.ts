@@ -50,7 +50,7 @@ export { DutyCycleGovernor } from './governor.ts'
 export type { DutyCycleOptions, Sleep } from './governor.ts'
 
 // Sovereignty and placement — DATA-03, DATA-06, DATA-09.
-export { planPlacement } from './sovereignty.ts'
+export { eligibleNodes, planPlacement } from './sovereignty.ts'
 export type {
   NodeDescriptor,
   OwnerId,
@@ -59,6 +59,47 @@ export type {
   PlacementRequest,
   Sovereignty,
 } from './sovereignty.ts'
+
+// Power-of-d placement with rejection and re-pick — SCHED-02, SCHED-03, SCHED-05.
+export {
+  DEFAULT_D,
+  LocalCapacity,
+  MAX_D,
+  MIN_D,
+  placeWithOffers,
+  planWithOffers,
+  sampleCandidates,
+} from './placement.ts'
+export type {
+  Admission,
+  AdmissionControl,
+  CapacityOptions,
+  Offer,
+  OfferedPlacement,
+  OfferOptions,
+  Rejection,
+} from './placement.ts'
+
+// Discovery from a data CID — SCHED-01, NET-06.
+export {
+  discoverExecutors,
+  FallbackRecordIndex,
+  MemoryRecordIndex,
+  publishCapabilities,
+  verifyCapabilityRecord,
+} from './discovery.ts'
+export type {
+  CapabilityRecord,
+  DiscoveredExecutor,
+  DiscoveryOptions,
+  DiscoveryResult,
+  Exclusion,
+  ExclusionReason,
+  ExecutorQuery,
+  IndexSource,
+  NodeRecords,
+  RecordIndex,
+} from './discovery.ts'
 
 // Capability chains — AUTH-03, DET-03.
 export { delegate, describeFailure, fromHex, toHex, verifyChain } from './capability.ts'

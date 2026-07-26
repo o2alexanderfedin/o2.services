@@ -93,8 +93,14 @@ export type Placement =
  * returns the owner's executable nodes or returns nothing. There is no path from a
  * sovereign request to a node belonging to someone else, which is what makes
  * criterion 1 a property of the code rather than of the test.
+ *
+ * **Exported so that there is exactly one of it.** `placement.ts` adds power-of-d
+ * sampling and an offer/reject loop on top of placement, and the temptation there is
+ * to re-derive "who could run this" from the candidate list it was handed. Every
+ * placer calls *this* function first instead, so a second entry point cannot drift
+ * from the rule — SCHED-05 survives the addition rather than being re-argued by it.
  */
-function eligibleNodes(
+export function eligibleNodes(
   request: PlacementRequest,
   nodes: readonly NodeDescriptor[],
 ): readonly NodeDescriptor[] {

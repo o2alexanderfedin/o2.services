@@ -1,20 +1,38 @@
 /**
- * The agent wire protocol — two request kinds, nothing more.
+ * The agent wire protocol — five request kinds, nothing more.
  *
  * `exec` dispatches one task; `block` fetches one content-addressed block. That
  * is the entire vocabulary needed to run a distributed map: a task is addressed
  * purely by CID, so a node that has never seen a module or an input can obtain
  * both by asking, and needs no payload pushed to it.
  *
+ * Phase 6 adds the three that remove the static peer list. `providers` and
+ * `records` are the two halves of a lookup — who holds a block, and what a node is
+ * allowed and able to do — and `offer` is a node's own answer to "will you take this
+ * shard", which is the only authoritative source for that (SCHED-03).
+ *
  * Everything arriving here came off a wire, so every field is validated before
  * use. The parsers return `null` rather than throwing — a malformed frame from a
- * peer is an expected condition, not an exception.
+ * peer is an expected condition, not an exception. That matters more for the record
+ * kinds than for the others: a certificate is a security input, and a parser that
+ * accepted a partially-formed one would hand discovery something to verify that was
+ * never what the provider signed.
  *
  * Pure module.
  */
 
 import { CID } from 'multiformats/cid'
-import type { CanonicalValue, Delegation, ExecutionOutcome, Task } from '@o2/core'
+import type {
+  CanonicalValue,
+  CapabilityRecord,
+  Delegation,
+  Discoverability,
+  ExecutionOutcome,
+  NodeCertificate,
+  NodeRecords,
+  PublicKeyHex,
+  Task,
+} from '@o2/core'
 
 export type AgentRequest =
   | {
@@ -24,11 +42,21 @@ export type AgentRequest =
       readonly capability?: readonly Delegation[]
     }
   | { readonly kind: 'block'; readonly cid: CID }
+  /** SCHED-01: who advertises a copy of this block. */
+  | { readonly kind: 'providers'; readonly cid: CID }
+  /** SCHED-01: the signed records for a node key. */
+  | { readonly kind: 'records'; readonly nodeKey: PublicKeyHex }
+  /** SCHED-03: will you take this shard? */
+  | { readonly kind: 'offer'; readonly shardId: string }
 
 export type AgentResponse =
   | { readonly kind: 'exec'; readonly outcome: ExecutionOutcome }
   /** `bytes: null` means "I do not have that block", which is not an error. */
   | { readonly kind: 'block'; readonly bytes: Uint8Array<ArrayBuffer> | null }
+  | { readonly kind: 'providers'; readonly nodeKeys: readonly PublicKeyHex[] }
+  /** `records: null` means "I hold none for that key", which is not an error. */
+  | { readonly kind: 'records'; readonly records: NodeRecords | null }
+  | { readonly kind: 'offer'; readonly accepted: boolean; readonly reason: string }
   | { readonly kind: 'error'; readonly reason: string }
 
 /** Copy any byte view into a plainly-owned ArrayBuffer-backed one. */
@@ -51,9 +79,106 @@ function asIndex(value: CanonicalValue | undefined): number | null {
   return value
 }
 
+/** A list of hex strings off the wire, or `null` if any element is not one. */
+function asKeyList(value: CanonicalValue | undefined): readonly string[] | null {
+  if (!Array.isArray(value)) return null
+  const keys: string[] = []
+  for (const entry of value) {
+    if (typeof entry !== 'string') return null
+    keys.push(entry)
+  }
+  return keys
+}
+
+function asFiniteNumber(value: CanonicalValue | undefined): number | null {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return null
+  return value
+}
+
+function certificateToValue(certificate: NodeCertificate): CanonicalValue {
+  return {
+    nodeKey: certificate.nodeKey,
+    userKey: certificate.userKey,
+    operatorId: certificate.operatorId,
+    discoverability: certificate.discoverability,
+    relayIds: [...certificate.relayIds],
+    issuedAt: certificate.issuedAt,
+    expiresAt: certificate.expiresAt,
+    issuer: certificate.issuer,
+    signature: certificate.signature,
+  }
+}
+
+/**
+ * Parse a node certificate off the wire.
+ *
+ * Every field is required and typed. Nothing here judges whether the certificate is
+ * *valid* — that is `verifyCertificate`'s job against pinned issuer keys, and keeping
+ * the two separate is deliberate: a parser that also verified would tempt a caller to
+ * treat "parsed" as "trusted".
+ */
+function parseCertificate(value: CanonicalValue | undefined): NodeCertificate | null {
+  const record = value === undefined ? null : asRecord(value)
+  if (record === null) return null
+  const { nodeKey, userKey, operatorId, discoverability, issuer, signature } = record
+  if (typeof nodeKey !== 'string' || typeof userKey !== 'string') return null
+  if (typeof operatorId !== 'string' || typeof issuer !== 'string') return null
+  if (typeof signature !== 'string') return null
+  if (discoverability !== 'seed' && discoverability !== 'via-relay') return null
+  const relayIds = asKeyList(record['relayIds'])
+  const issuedAt = asFiniteNumber(record['issuedAt'])
+  const expiresAt = asFiniteNumber(record['expiresAt'])
+  if (relayIds === null || issuedAt === null || expiresAt === null) return null
+  return {
+    nodeKey,
+    userKey,
+    operatorId,
+    discoverability: discoverability satisfies Discoverability,
+    relayIds,
+    issuedAt,
+    expiresAt,
+    issuer,
+    signature,
+  }
+}
+
+function capabilitiesToValue(capabilities: CapabilityRecord): CanonicalValue {
+  return {
+    nodeKey: capabilities.nodeKey,
+    features: [...capabilities.features],
+    sovereignFor: [...capabilities.sovereignFor],
+    issuedAt: capabilities.issuedAt,
+    expiresAt: capabilities.expiresAt,
+    signature: capabilities.signature,
+  }
+}
+
+function parseCapabilities(value: CanonicalValue | undefined): CapabilityRecord | null {
+  const record = value === undefined ? null : asRecord(value)
+  if (record === null) return null
+  const { nodeKey, signature } = record
+  if (typeof nodeKey !== 'string' || typeof signature !== 'string') return null
+  const features = asKeyList(record['features'])
+  const sovereignFor = asKeyList(record['sovereignFor'])
+  const issuedAt = asFiniteNumber(record['issuedAt'])
+  const expiresAt = asFiniteNumber(record['expiresAt'])
+  if (features === null || sovereignFor === null) return null
+  if (issuedAt === null || expiresAt === null) return null
+  return { nodeKey, features, sovereignFor, issuedAt, expiresAt, signature }
+}
+
 export function encodeRequest(request: AgentRequest): CanonicalValue {
   if (request.kind === 'block') {
     return { kind: 'block', cid: request.cid }
+  }
+  if (request.kind === 'providers') {
+    return { kind: 'providers', cid: request.cid }
+  }
+  if (request.kind === 'records') {
+    return { kind: 'records', nodeKey: request.nodeKey }
+  }
+  if (request.kind === 'offer') {
+    return { kind: 'offer', shardId: request.shardId }
   }
   const { task } = request
   const base: { readonly [k: string]: CanonicalValue } = {
@@ -107,6 +232,24 @@ export function parseRequest(body: CanonicalValue): AgentRequest | null {
     return { kind: 'block', cid }
   }
 
+  if (record['kind'] === 'providers') {
+    const cid = CID.asCID(record['cid'] ?? null)
+    if (cid === null) return null
+    return { kind: 'providers', cid }
+  }
+
+  if (record['kind'] === 'records') {
+    const nodeKey = record['nodeKey']
+    if (typeof nodeKey !== 'string') return null
+    return { kind: 'records', nodeKey }
+  }
+
+  if (record['kind'] === 'offer') {
+    const shardId = record['shardId']
+    if (typeof shardId !== 'string') return null
+    return { kind: 'offer', shardId }
+  }
+
   if (record['kind'] !== 'exec') return null
   const moduleCid = CID.asCID(record['moduleCid'] ?? null)
   const inputCid = CID.asCID(record['inputCid'] ?? null)
@@ -141,6 +284,19 @@ export function encodeResponse(response: AgentResponse): CanonicalValue {
       return response.bytes === null
         ? { kind: 'block', found: false }
         : { kind: 'block', found: true, bytes: response.bytes }
+    case 'providers':
+      return { kind: 'providers', nodeKeys: [...response.nodeKeys] }
+    case 'records':
+      return response.records === null
+        ? { kind: 'records', found: false }
+        : {
+            kind: 'records',
+            found: true,
+            certificate: certificateToValue(response.records.certificate),
+            capabilities: capabilitiesToValue(response.records.capabilities),
+          }
+    case 'offer':
+      return { kind: 'offer', accepted: response.accepted, reason: response.reason }
     case 'exec':
       return response.outcome.ok
         ? {
@@ -167,6 +323,26 @@ export function parseResponse(body: CanonicalValue): AgentResponse | null {
       const bytes = record['bytes']
       if (!(bytes instanceof Uint8Array)) return null
       return { kind: 'block', bytes: ownBytes(bytes) }
+    }
+    case 'providers': {
+      const nodeKeys = asKeyList(record['nodeKeys'])
+      if (nodeKeys === null) return null
+      return { kind: 'providers', nodeKeys }
+    }
+    case 'records': {
+      if (record['found'] !== true) return { kind: 'records', records: null }
+      const certificate = parseCertificate(record['certificate'])
+      const capabilities = parseCapabilities(record['capabilities'])
+      // Half a record is not a record. Returning one would leave discovery holding a
+      // certificate with nothing to check it against, or claims with no identity.
+      if (certificate === null || capabilities === null) return null
+      return { kind: 'records', records: { certificate, capabilities } }
+    }
+    case 'offer': {
+      const accepted = record['accepted']
+      const reason = record['reason']
+      if (typeof accepted !== 'boolean') return null
+      return { kind: 'offer', accepted, reason: typeof reason === 'string' ? reason : '' }
     }
     case 'exec': {
       if (record['ok'] === true) {
