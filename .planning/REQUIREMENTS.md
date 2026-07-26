@@ -23,31 +23,31 @@
 > module importing anything else fails at `WebAssembly.instantiate` with the
 > offending import named. The runtime enforces it.
 
-- [ ] **DET-03**: Artifacts resolve only through a `key → CID` mapping signed by a
+- [x] **DET-03**: Artifacts resolve only through a `key → CID` mapping signed by a
       trusted build authority, never by a bare CID — content addressing proves
       integrity, not provenance
-- [ ] **DET-05**: Anything hashed or content-addressed is encoded with strict
+- [x] **DET-05**: Anything hashed or content-addressed is encoded with strict
       DAG-CBOR — which rejects `NaN`/`Infinity`/`-Infinity`, forces `-0.0` to `+0.0`,
       and mandates one float width — and protobuf bytes are never hashed. Comparison is
       over the declared schema's encoded bytes, never a raw linear-memory slice
-- [ ] **DET-06**: A WASM task executes in a Web Worker with a narrow host ABI
+- [x] **DET-06**: A WASM task executes in a Web Worker with a narrow host ABI
       (no WASI clock, randomness, environment, or filesystem)
-- [ ] **DET-07**: The identical task-execution test suite passes under `node`,
+- [x] **DET-07**: The identical task-execution test suite passes under `node`,
       `browser`, and `webworker` targets
 
 ### Integrity & Verification
 
-- [ ] **VER-01**: A task can be dispatched to N independent executors and their
+- [x] **VER-01**: A task can be dispatched to N independent executors and their
       outputs compared, with disagreement surfaced rather than silently resolved
-- [ ] **VER-02**: Executors commit to a result hash before revealing the result,
+- [x] **VER-02**: Executors commit to a result hash before revealing the result,
       so a replica cannot plagiarize a peer's answer
 - [ ] **VER-03**: At least one replica of every verification quorum is anchored on
       a backbone node, so eclipsing a quorum requires a backbone compromise
 - [ ] **VER-04**: Quorum members are selected with anti-affinity, so one operator
       cannot supply a whole quorum
-- [ ] **VER-05**: The verifier compares `(task, outputs)` only — timing, fuel, and
+- [x] **VER-05**: The verifier compares `(task, outputs)` only — timing, fuel, and
       node metadata sit outside the signed digest
-- [ ] **VER-06**: Redundancy factor is a per-job dial reaching 1 (off), and the
+- [x] **VER-06**: Redundancy factor is a per-job dial reaching 1 (off), and the
       verification tax is reported as a measured cost on every job
 - [ ] **VER-08**: When an owner has two or more live nodes, a sovereignty-pinned
       task executes redundantly across the owner's own node set and the outputs
@@ -60,23 +60,23 @@
 
 ### Data, Content Addressing & Sovereignty
 
-- [ ] **DATA-01**: Task inputs, outputs, and intermediates are content-addressed
+- [x] **DATA-01**: Task inputs, outputs, and intermediates are content-addressed
       and retrievable by CID
-- [ ] **DATA-02**: A blockstore adapter works against IndexedDB in the browser and
+- [x] **DATA-02**: A blockstore adapter works against IndexedDB in the browser and
       the filesystem in Node behind one interface
-- [ ] **DATA-03**: Data carries a sovereignty label that travels with it and acts
+- [x] **DATA-03**: Data carries a sovereignty label that travels with it and acts
       as a hard scheduling constraint
-- [ ] **DATA-04**: A sovereignty-pinned task executes only within the owner's own
+- [x] **DATA-04**: A sovereignty-pinned task executes only within the owner's own
       node set — the scheduler cannot relocate it outside that set to balance load
-- [ ] **DATA-05**: A stream-tap test fails if raw sovereign bytes cross the network
+- [x] **DATA-05**: A stream-tap test fails if raw sovereign bytes cross the network
       boundary
-- [ ] **DATA-06**: Every job emits an egress manifest recording exactly what left
+- [x] **DATA-06**: Every job emits an egress manifest recording exactly what left
       each owner's node
-- [ ] **DATA-07**: Filters, projections, and partial aggregation push down to the
+- [x] **DATA-07**: Filters, projections, and partial aggregation push down to the
       owner's node so the least data leaves
-- [ ] **DATA-08**: Artifact `key → CID` mappings are signed by a trusted build
+- [x] **DATA-08**: Artifact `key → CID` mappings are signed by a trusted build
       authority and never resolved by CID alone
-- [ ] **DATA-09**: Backbone encrypted replicas serve availability only and are
+- [x] **DATA-09**: Backbone encrypted replicas serve availability only and are
       never execution-eligible for sovereign tasks — executing requires
       decryption, which would expose plaintext to a non-owner node
 
@@ -86,7 +86,7 @@
       is signed into a provider-issued certificate
 - [ ] **AUTH-02**: A node verifies a peer's provider-signed certificate offline,
       with no live certificate authority
-- [ ] **AUTH-03**: A task carries a delegatable, expiry-scoped capability chain
+- [x] **AUTH-03**: A task carries a delegatable, expiry-scoped capability chain
       rooted at the data owner's key, verified before execution
 - [ ] **AUTH-04**: Enrollment is provider-gated and rate-limited, so mass fake-node
       creation is costly
@@ -95,19 +95,19 @@
 
 ### Transport, Discovery & Connectivity
 
-- [ ] **NET-01**: Two Node.js processes discover each other and exchange tasks over
+- [x] **NET-01**: Two Node.js processes discover each other and exchange tasks over
       a real network transport
-- [ ] **NET-02**: Two browser tabs connect to each other via WebRTC using a
+- [x] **NET-02**: Two browser tabs connect to each other via WebRTC using a
       Circuit Relay v2 peer for SDP signaling
 - [ ] **NET-03**: A backbone relay node auto-acquires a TLS certificate and accepts
       browser reservations without manual certificate management
-- [ ] **NET-04**: Relayed protocol handlers register with `runOnLimitedConnection`,
+- [x] **NET-04**: Relayed protocol handlers register with `runOnLimitedConnection`,
       and no hardcoded certhash multiaddr is required to join
-- [ ] **NET-05**: Relay reservation exhaustion is detected and reported rather than
+- [x] **NET-05**: Relay reservation exhaustion is detected and reported rather than
       failing silently
 - [ ] **NET-06**: Backbone nodes serve DHT records on behalf of browser peers,
       which run client-mode only
-- [ ] **NET-07**: A constants-regression test asserts the relay and transport
+- [x] **NET-07**: A constants-regression test asserts the relay and transport
       limits the system depends on, failing CI when an upgrade changes them
 
 ### Scheduling & Placement
@@ -117,13 +117,13 @@
 - [ ] **SCHED-02**: Placement samples d candidate nodes and selects the
       least-loaded, using local information only
 - [ ] **SCHED-03**: An over-committed node rejects work and the requestor re-picks
-- [ ] **SCHED-04**: A resource governor caps node CPU by duty cycle, is
+- [x] **SCHED-04**: A resource governor caps node CPU by duty cycle, is
       user-adjustable, and is honoured by the executor
 - [ ] **SCHED-05**: Sovereignty constraints override placement cost heuristics
 
 ### Map / Reduce
 
-- [ ] **MR-01**: A job partitions into N shards, each executing independently, with
+- [x] **MR-01**: A job partitions into N shards, each executing independently, with
       a partition index and count available to the task
 - [ ] **MR-02**: Each owner computes a local partial over its own data with no
       map-side data movement
@@ -158,10 +158,10 @@
       begins
 - [ ] **BROW-02**: The node reports the percentage of visitors where it failed to
       start, segmented by browser, so blocking is visible rather than silent
-- [ ] **BROW-03**: Compute pauses or throttles when the tab is backgrounded, and
+- [x] **BROW-03**: Compute pauses or throttles when the tab is backgrounded, and
       resumes on return
 - [ ] **BROW-04**: A visitor can see what the node is doing and stop it at any time
-- [ ] **BROW-05**: The node runs embedded in a third-party page without requiring
+- [x] **BROW-05**: The node runs embedded in a third-party page without requiring
       COOP/COEP headers
 
 ### Benchmark & Proof
@@ -242,46 +242,46 @@ All 72 v1 requirements are mapped, each to exactly one phase. See
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| DET-03 | Phase 4 — Sovereignty, Authorization & Artifact Signing | Pending |
-| DET-05 | Phase 1 — Portable Kernel & Loopback Map Slice | Pending |
-| DET-06 | Phase 1 — Portable Kernel & Loopback Map Slice | Pending |
-| DET-07 | Phase 1 — Portable Kernel & Loopback Map Slice | Pending |
-| VER-01 | Phase 1 — Portable Kernel & Loopback Map Slice | Pending |
-| VER-02 | Phase 1 — Portable Kernel & Loopback Map Slice | Pending |
+| DET-03 | Phase 4 — Sovereignty, Authorization & Artifact Signing | Done |
+| DET-05 | Phase 1 — Portable Kernel & Loopback Map Slice | Done |
+| DET-06 | Phase 1 — Portable Kernel & Loopback Map Slice | Done |
+| DET-07 | Phase 1 — Portable Kernel & Loopback Map Slice | Done |
+| VER-01 | Phase 1 — Portable Kernel & Loopback Map Slice | Done |
+| VER-02 | Phase 1 — Portable Kernel & Loopback Map Slice | Done |
 | VER-03 | Phase 6 — Discovery, Placement & Enrollment | Pending |
 | VER-04 | Phase 6 — Discovery, Placement & Enrollment | Pending |
-| VER-05 | Phase 1 — Portable Kernel & Loopback Map Slice | Pending |
-| VER-06 | Phase 1 — Portable Kernel & Loopback Map Slice | Pending |
+| VER-05 | Phase 1 — Portable Kernel & Loopback Map Slice | Done |
+| VER-06 | Phase 1 — Portable Kernel & Loopback Map Slice | Done |
 | VER-08 | Phase 6 — Discovery, Placement & Enrollment | Pending |
 | VER-09 | Phase 6 — Discovery, Placement & Enrollment | Pending |
 | VER-10 | Phase 6 — Discovery, Placement & Enrollment | Pending |
-| DATA-01 | Phase 1 — Portable Kernel & Loopback Map Slice | Pending |
-| DATA-02 | Phase 3 — Browser Tier & Backbone Relay | Pending |
-| DATA-03 | Phase 4 — Sovereignty, Authorization & Artifact Signing | Pending |
-| DATA-04 | Phase 4 — Sovereignty, Authorization & Artifact Signing | Pending |
-| DATA-05 | Phase 4 — Sovereignty, Authorization & Artifact Signing | Pending |
-| DATA-06 | Phase 4 — Sovereignty, Authorization & Artifact Signing | Pending |
-| DATA-07 | Phase 4 — Sovereignty, Authorization & Artifact Signing | Pending |
-| DATA-08 | Phase 4 — Sovereignty, Authorization & Artifact Signing | Pending |
-| DATA-09 | Phase 4 — Sovereignty, Authorization & Artifact Signing | Pending |
+| DATA-01 | Phase 1 — Portable Kernel & Loopback Map Slice | Done |
+| DATA-02 | Phase 3 — Browser Tier & Backbone Relay | Done |
+| DATA-03 | Phase 4 — Sovereignty, Authorization & Artifact Signing | Done |
+| DATA-04 | Phase 4 — Sovereignty, Authorization & Artifact Signing | Done |
+| DATA-05 | Phase 4 — Sovereignty, Authorization & Artifact Signing | Done |
+| DATA-06 | Phase 4 — Sovereignty, Authorization & Artifact Signing | Done |
+| DATA-07 | Phase 4 — Sovereignty, Authorization & Artifact Signing | Done |
+| DATA-08 | Phase 4 — Sovereignty, Authorization & Artifact Signing | Done |
+| DATA-09 | Phase 4 — Sovereignty, Authorization & Artifact Signing | Done |
 | AUTH-01 | Phase 6 — Discovery, Placement & Enrollment | Pending |
 | AUTH-02 | Phase 6 — Discovery, Placement & Enrollment | Pending |
-| AUTH-03 | Phase 4 — Sovereignty, Authorization & Artifact Signing | Pending |
+| AUTH-03 | Phase 4 — Sovereignty, Authorization & Artifact Signing | Done |
 | AUTH-04 | Phase 6 — Discovery, Placement & Enrollment | Pending |
 | AUTH-05 | Phase 6 — Discovery, Placement & Enrollment | Pending |
-| NET-01 | Phase 2 — Real Network, Node ↔ Node | Pending |
-| NET-02 | Phase 3 — Browser Tier & Backbone Relay | Pending |
-| NET-03 | Phase 3 — Browser Tier & Backbone Relay | Pending |
-| NET-04 | Phase 3 — Browser Tier & Backbone Relay | Pending |
-| NET-05 | Phase 3 — Browser Tier & Backbone Relay | Pending |
+| NET-01 | Phase 2 — Real Network, Node ↔ Node | Done |
+| NET-02 | Phase 3 — Browser Tier & Backbone Relay | Done |
+| NET-03 | Phase 3 — Browser Tier & Backbone Relay | Partial — relay is browser-dialable; AutoTLS needs a public host |
+| NET-04 | Phase 3 — Browser Tier & Backbone Relay | Done |
+| NET-05 | Phase 3 — Browser Tier & Backbone Relay | Done |
 | NET-06 | Phase 6 — Discovery, Placement & Enrollment | Pending |
-| NET-07 | Phase 2 — Real Network, Node ↔ Node | Pending |
+| NET-07 | Phase 2 — Real Network, Node ↔ Node | Done |
 | SCHED-01 | Phase 6 — Discovery, Placement & Enrollment | Pending |
 | SCHED-02 | Phase 6 — Discovery, Placement & Enrollment | Pending |
 | SCHED-03 | Phase 6 — Discovery, Placement & Enrollment | Pending |
-| SCHED-04 | Phase 1 — Portable Kernel & Loopback Map Slice | Pending |
+| SCHED-04 | Phase 1 — Portable Kernel & Loopback Map Slice | Done |
 | SCHED-05 | Phase 6 — Discovery, Placement & Enrollment | Pending |
-| MR-01 | Phase 1 — Portable Kernel & Loopback Map Slice | Pending |
+| MR-01 | Phase 1 — Portable Kernel & Loopback Map Slice | Done |
 | MR-02 | Phase 5 — Decomposable Tree-Reduce | Pending |
 | MR-03 | Phase 5 — Decomposable Tree-Reduce | Pending |
 | MR-04 | Phase 5 — Decomposable Tree-Reduce | Pending |
@@ -296,9 +296,9 @@ All 72 v1 requirements are mapped, each to exactly one phase. See
 | CHURN-06 | Phase 7 — Churn, Stragglers & Coordinator Survival | Pending |
 | BROW-01 | Phase 9 — Public Demo, Consent UX & Disclosure Gate | Pending |
 | BROW-02 | Phase 9 — Public Demo, Consent UX & Disclosure Gate | Pending |
-| BROW-03 | Phase 3 — Browser Tier & Backbone Relay | Pending |
+| BROW-03 | Phase 3 — Browser Tier & Backbone Relay | Done |
 | BROW-04 | Phase 9 — Public Demo, Consent UX & Disclosure Gate | Pending |
-| BROW-05 | Phase 3 — Browser Tier & Backbone Relay | Pending |
+| BROW-05 | Phase 3 — Browser Tier & Backbone Relay | Done |
 | BENCH-01 | Phase 8 — Benchmark Harness | Pending |
 | BENCH-02 | Phase 8 — Benchmark Harness | Pending |
 | BENCH-03 | Phase 8 — Benchmark Harness | Pending |
