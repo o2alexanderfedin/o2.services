@@ -114,6 +114,13 @@ None yet.
   of that date are forfeit.** Do not plan around recovering them. A US provisional
   remains possible for 12 months from first disclosure under §102(b)(1), and that
   window is now running — it is the only patent option left, and it is time-limited.
+- **GitHub Pages is live** at <https://o2alexanderfedin.github.io/o2.services/>, served
+  from the `gh-pages` branch, deployed **by hand** on 2026-07-26. Verified against the
+  real URL: loads with zero page errors, correctly reports that no relay is reachable
+  with Start disabled, `crossOriginIsolated` false (BROW-05 holding in production), and
+  the kernel computes a CID byte-identical to local. It cannot join a peer until a
+  public `wss://` relay exists — an HTTPS page cannot dial `ws://`, and Pages runs no
+  server process.
 - **DEMO-04 still holds.** No deploy workflow file may exist in the repository at all —
   absent, not disabled. Making the repo public was authorised; automating deployment
   was not. Deployment stays a separately-triggered human action.

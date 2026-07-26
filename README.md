@@ -4,7 +4,40 @@ A peer-to-peer compute fabric that runs both managed (WASM) and native code,
 moves code to data (or data to code), keeps data on the owner's node for
 sovereignty, and scales processing with the user base via massive task graphs.
 
-> Design stage — no application code yet.
+**Live:** <https://o2alexanderfedin.github.io/o2.services/>
+
+That page is a real node — but it cannot join anything on its own, and it says
+so. A browser cannot accept incoming connections, so two tabs need a publicly
+reachable [Circuit Relay v2](https://github.com/libp2p/specs/blob/master/relay/circuit-v2.md)
+peer to exchange WebRTC signalling, and GitHub Pages runs no server process.
+Supply one with `?relay=<multiaddr>`.
+
+To see it actually work, run a seed on your own machine and open the URL it
+prints — including from a phone on the same network:
+
+```bash
+node packages/node/src/bin/seed.ts
+```
+
+It prints a `.local` URL and a QR code. The page then asks its own origin which
+relay to dial, so nothing needs configuring.
+
+## Status
+
+Phases 1 and 2 complete, Phase 3 (browser tier) mostly complete. 274 tests
+across Node, Chromium, and end-to-end browser runs. What is demonstrated:
+
+- a redundant, verified map job running in one process on Node, in a browser,
+  and in a Worker;
+- the same job across two OS processes over TCP, with the kernel byte-for-byte
+  unchanged because only adapters were swapped;
+- two browser tabs completing a 2×-redundant job over a **direct** WebRTC
+  connection, with the relay proven to be out of the data path;
+- IndexedDB and filesystem blockstores producing identical CIDs;
+- 16 browser peers holding relay reservations simultaneously.
+
+Not yet done: peers on genuinely different machines over the public internet,
+which needs a hosted relay with automatic TLS.
 
 ## Documentation
 
