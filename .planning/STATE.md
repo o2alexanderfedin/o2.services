@@ -108,7 +108,15 @@ None yet.
 
 ### Blockers/Concerns
 
-- **Disclosure gate:** publishing forfeits EPO/China patent rights permanently. No deploy workflow file may exist in the repository at all — absent, not disabled. Deployment is a separately-triggered human action (DEMO-04).
+- **Disclosure gate: CROSSED on 2026-07-26.** The repository was made public by explicit
+  owner decision, after being told that EPO and China have no patent grace period and
+  that the loss is permanent. **EPO and China patent rights for everything disclosed as
+  of that date are forfeit.** Do not plan around recovering them. A US provisional
+  remains possible for 12 months from first disclosure under §102(b)(1), and that
+  window is now running — it is the only patent option left, and it is time-limited.
+- **DEMO-04 still holds.** No deploy workflow file may exist in the repository at all —
+  absent, not disabled. Making the repo public was authorised; automating deployment
+  was not. Deployment stays a separately-triggered human action.
 - **Version traps (C5): resolved in Phase 2.** js-libp2p 3.x installed with exact pins; none of the four trap packages are present. Two duplicate resolutions were found and fixed with npm `overrides` — `multiformats` had both 14.0.5 and 13.4.2 (a v13/v14 `CID instanceof` boundary), and an invalid `uint8arrays@5.1.1` was hoisted above the 6.1.1 libp2p v3 needs. **`npm install` alone kept the stale tree; a clean re-resolution was required.** `constants.node.test.ts` now asserts one copy of each plus every relay/transport limit.
 - **Doc correction:** the relay constants are named `DEFAULT_DURATION_LIMIT`, `DEFAULT_DATA_LIMIT`, `DEFAULT_MAX_RESERVATION_STORE_SIZE` — `DEFAULT_`-prefixed, unlike what PROJECT.md and STACK.md record. Values are as documented (2 min / 128 KiB / 15 / 2 h).
 - **Node 23.11.0 is the host runtime and is not LTS.** Outside vitest's declared range (`^20 || ^22 || >=24`), so every install prints `EBADENGINE`, and `packages/node/src/bin/agent.ts` depends on Node's experimental native type stripping. Everything passes today. `STACK.md` specifies Node 24 LTS — switching the toolchain is a human action, deliberately not taken autonomously.
@@ -134,6 +142,7 @@ allow-list). Still current; they apply to every later phase.
 **Phase 3 still needs a human decision for the "public host" halves.** Real AutoTLS
 (criterion 2) and "two tabs on *different machines*" (criterion 1) both require
 publicly reachable infrastructure — outward-facing and hard to reverse, and it
-collides with the disclosure gate below. Deliberately not done autonomously. The
+collides with the disclosure gate below (now crossed — but a public relay is still a
+hosting decision, not a disclosure one). Deliberately not done autonomously. The
 WebRTC path itself is proven locally, so crossing machines should need no code change,
 only a different relay address.

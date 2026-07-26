@@ -95,7 +95,7 @@ execution-eligible replicas are the owner's own devices only.
 - **Emulation fallback / container2wasm** (Part I.5) — ~10x+ slowdown for kernel
   fidelity nobody has asked for yet
 - **Making the repository or demo public** — gated on a separate explicit decision
-  pending the provisional-patent question; building is not disclosing
+  superseded 2026-07-26: the repository was made public by owner decision
 
 ## Context
 
@@ -150,7 +150,9 @@ a signed commercial agreement. Both licenses are unreviewed drafts.
 - **Hosting**: GitHub Pages serves static files only and runs no server-side
   process — it can host the client but not a relay or bootstrap node
 - **Disclosure**: Public hosting is public disclosure. EPO and China have no
-  patent grace period, so publishing forfeits those rights permanently. Deployment
+  patent grace period. **The repository was made public on 2026-07-26, so those rights
+  are already forfeit for what was disclosed then; the US provisional window is
+  running.** Deployment
   must be a separately-triggered gate, not an automatic consequence of a phase
   completing
 - **Platform**: `elfconv` requires AArch64, statically-linked, unstripped binaries
@@ -165,7 +167,8 @@ a signed commercial agreement. Both licenses are unreviewed drafts.
 |----------|-----------|---------|
 | TypeScript + WASM for the node agent | Portability is the product; browser execution makes "capacity scales with users" literal. Collapses the WASM-runtime layer to V8 in the browser | — Pending |
 | ~~Relay: public IPFS infra primary, own relay fallback~~ **INVERTED** → own backbone relay primary, public infra opportunistic | Research disproved the original. Browsers can only dial DNS+WSS / WebTransport / WebRTC-Direct, and most public nodes offer none of those (`no valid addresses available to dial`). Browser kad-dht is client-mode only; pubsub discovery is documented as not production-fit. Doc §3.7 already prescribed backbone relays | ⚠️ Revised 2026-07-24 |
-| Build the public demo, gate publishing separately | Building discloses nothing; deploying does. Keeps the provisional-patent option alive until explicitly surrendered | — Pending |
+| Build the public demo, gate publishing separately | Building discloses nothing; deploying does. Kept the provisional-patent option alive until explicitly surrendered | — **Superseded 2026-07-26** |
+| Make the repository public | Owner decision, taken with the consequence stated: EPO/China rights permanently forfeited, US provisional window (12 months from first disclosure) now running. DEMO-04 unaffected — no deploy workflow was added | — Done |
 | Full scope in v1, Part I sequenced last | Fine granularity allows elfconv AOT as late phases, so it doesn't block the capacity-scaling and sovereignty thesis the doc's §6 front-loads deliberately | — Pending |
 | Demo target: multi-machine + multi-tab, plus benchmark harness | A live demo proves it *works*; published benchmark numbers prove the *scaling thesis*. Source proves authorship. All three are needed | — Pending |
 | No outside contributions | Sole authorship keeps the commercial license track available for every line, with no CLA machinery | — Pending |
