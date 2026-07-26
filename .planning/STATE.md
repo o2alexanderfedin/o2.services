@@ -9,10 +9,10 @@ See: .planning/PROJECT.md (updated 2026-07-24)
 
 ## Current Position
 
-Phase: 3 of 10 (Browser Tier & Backbone Relay) — **in progress, 5 of 6 criteria met**
+Phase: 3 of 10 (Browser Tier & Backbone Relay) — **5 of 6 criteria met, incl. criterion 1 on real separate devices**
 Plan: partial — see `phases/phase-3-browser-tier/SUMMARY.md`
-Status: Remaining gaps need a public host, or are out of scope for a test suite
-Last activity: 2026-07-25 — 264 tests green, `tsc --noEmit` clean. Criterion 6 met (BROW-03, BROW-05); 16 real browser peers reserve simultaneously
+Status: Only real AutoTLS (criterion 2) remains, and it needs a public host
+Last activity: 2026-07-26 — an iPhone running Safari and a laptop running Chromium completed a 4-shard R=2 job over a **direct** WebRTC connection. 277 tests green, `tsc --noEmit` clean
 
 Progress: [██░░░░░░░░] 20% (2 of 10 phases complete; Phase 3 partial)
 
@@ -30,9 +30,18 @@ architecture never supported, since the relay is a signalling channel and not a 
 path. The Phase 2 decision stands. The narrower true fact to keep: **a relayed circuit
 cannot carry a job.**
 
-Remaining in Phase 3: only the parts needing a public host (real AutoTLS, "different
-machines"), plus two out-of-scope items — a >1 hour hold under churn, and per-peer
-relayed byte counters, which js-libp2p does not expose.
+**Criterion 1 is met on genuinely different machines** — iPhone Safari ↔ laptop
+Chromium, direct WebRTC (`limited=false`), relay carrying only the handshake, all four
+shards agreed by both peers.
+
+Remaining in Phase 3: real AutoTLS, which needs a publicly reachable host. Two items
+are out of scope for a test suite — a >1 hour hold under churn, and per-peer relayed
+byte counters, which js-libp2p does not expose.
+
+**Settled on real iOS hardware** (nothing in the suite reaches Safari): iOS resolves
+`.local` with no setup; Safari runs the node on a **non-secure** origin, including the
+WebRTC listen path; and the pure-JS hashing change was load-bearing — without it the
+phone would have joined and then failed at its first block.
 
 ## Performance Metrics
 
