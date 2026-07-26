@@ -12,6 +12,12 @@ import { defineConfig } from 'vitest/config'
  * The provider comes from `@vitest/browser-playwright` as a *function*. The
  * `provider: 'playwright'` string form is vitest 3.x and silently does nothing on
  * 4.x.
+ *
+ * Three projects, split by what a test needs rather than by what it covers:
+ *
+ *   node     everything that runs in a plain Node process
+ *   browser  the same portable specs, in real Chromium
+ *   e2e      specs that drive Playwright themselves — see below
  */
 export default defineConfig({
   test: {
@@ -22,8 +28,8 @@ export default defineConfig({
           environment: 'node',
           include: ['packages/*/src/**/*.test.ts'],
           // `?worker` is a browser bundling concern; that target runs in the
-          // browser project only.
-          exclude: ['**/*.browser.test.ts'],
+          // browser project only. `*.e2e.test.ts` has its own project.
+          exclude: ['**/*.browser.test.ts', '**/*.e2e.test.ts'],
         },
       },
       {
@@ -34,13 +40,34 @@ export default defineConfig({
           // cannot do these things — real sockets, a filesystem, child processes.
           // Its specs are Node-only by definition; the symmetric counterpart of
           // the browser project's `*.browser.test.ts`.
-          exclude: ['**/*.node.test.ts'],
+          exclude: ['**/*.node.test.ts', '**/*.e2e.test.ts'],
           browser: {
             enabled: true,
             provider: playwright(),
             headless: true,
             instances: [{ browser: 'chromium' }],
           },
+        },
+      },
+      {
+        test: {
+          name: 'e2e',
+          environment: 'node',
+          include: ['packages/*/src/**/*.e2e.test.ts'],
+          /**
+           * One file at a time.
+           *
+           * Each of these launches its own Chromium, its own relay, and its own
+           * Vite server. Run in parallel they contend for CPU and sockets, and the
+           * symptom is a timeout in whichever one lost — a flake that looks like a
+           * WebRTC or relay bug and is neither. Observed once under load from a
+           * concurrent `git push`, which is exactly the kind of intermittency that
+           * is expensive to chase later.
+           *
+           * Serialising costs wall-clock and buys determinism. For tests whose
+           * whole job is to prove real network behaviour, that is the right trade.
+           */
+          fileParallelism: false,
         },
       },
     ],
