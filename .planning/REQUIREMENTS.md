@@ -105,7 +105,7 @@
       and no hardcoded certhash multiaddr is required to join
 - [x] **NET-05**: Relay reservation exhaustion is detected and reported rather than
       failing silently
-- [ ] **NET-06**: Browser peers participate in routing as full peers. Backbone nodes
+- [x] **NET-06**: Browser peers participate in routing as full peers. Backbone nodes
       may serve records on their behalf as an optimisation and as a fallback when a
       browser holds no relay reservation — not because a browser is incapable.
       **Revised 2026-07-26** (owner decision): a browser peer differs from a backbone
@@ -119,14 +119,14 @@
 
 ### Scheduling & Placement
 
-- [ ] **SCHED-01**: A requestor discovers candidate nodes by querying providers of
+- [x] **SCHED-01**: A requestor discovers candidate nodes by querying providers of
       a data CID intersected with required capability records
-- [ ] **SCHED-02**: Placement samples d candidate nodes and selects the
+- [x] **SCHED-02**: Placement samples d candidate nodes and selects the
       least-loaded, using local information only
-- [ ] **SCHED-03**: An over-committed node rejects work and the requestor re-picks
+- [x] **SCHED-03**: An over-committed node rejects work and the requestor re-picks
 - [x] **SCHED-04**: A resource governor caps node CPU by duty cycle, is
       user-adjustable, and is honoured by the executor
-- [ ] **SCHED-05**: Sovereignty constraints override placement cost heuristics
+- [x] **SCHED-05**: Sovereignty constraints override placement cost heuristics
 
 ### Map / Reduce
 
@@ -281,13 +281,13 @@ All 72 v1 requirements are mapped, each to exactly one phase. See
 | NET-03 | Phase 3 — Browser Tier & Backbone Relay | Partial — relay is browser-dialable; AutoTLS needs a public host |
 | NET-04 | Phase 3 — Browser Tier & Backbone Relay | Done |
 | NET-05 | Phase 3 — Browser Tier & Backbone Relay | Done |
-| NET-06 | Phase 6 — Discovery, Placement & Enrollment | Pending |
+| NET-06 | Phase 6 — Discovery, Placement & Enrollment | Done |
 | NET-07 | Phase 2 — Real Network, Node ↔ Node | Done |
-| SCHED-01 | Phase 6 — Discovery, Placement & Enrollment | Pending |
-| SCHED-02 | Phase 6 — Discovery, Placement & Enrollment | Pending |
-| SCHED-03 | Phase 6 — Discovery, Placement & Enrollment | Pending |
+| SCHED-01 | Phase 6 — Discovery, Placement & Enrollment | Done |
+| SCHED-02 | Phase 6 — Discovery, Placement & Enrollment | Done |
+| SCHED-03 | Phase 6 — Discovery, Placement & Enrollment | Done |
 | SCHED-04 | Phase 1 — Portable Kernel & Loopback Map Slice | Done |
-| SCHED-05 | Phase 6 — Discovery, Placement & Enrollment | Pending |
+| SCHED-05 | Phase 6 — Discovery, Placement & Enrollment | Done |
 | MR-01 | Phase 1 — Portable Kernel & Loopback Map Slice | Done |
 | MR-02 | Phase 5 — Decomposable Tree-Reduce | Done |
 | MR-03 | Phase 5 — Decomposable Tree-Reduce | Done |
