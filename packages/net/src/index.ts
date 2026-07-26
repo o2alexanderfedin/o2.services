@@ -21,6 +21,10 @@ export { RemoteExecutor } from './remote-executor.ts'
 export { RpcBlockSource, serveAgent } from './agent.ts'
 export type { AgentOptions, Authorizer } from './agent.ts'
 
+// Dispatching a shard over RPC with the failure kind preserved — CHURN-01.
+export { remoteDispatch } from './churn.ts'
+export type { RemoteDispatchOptions } from './churn.ts'
+
 // Discovery and admission over RPC — SCHED-01, SCHED-03, NET-06.
 export { DEFAULT_PROBE_TIMEOUT_MS, RpcRecordIndex, rpcAdmission } from './discovery.ts'
 export type { AdmissionOptions } from './discovery.ts'

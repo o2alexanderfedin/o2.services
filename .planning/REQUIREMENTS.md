@@ -147,16 +147,16 @@
 
 ### Resilience
 
-- [ ] **CHURN-01**: A job completes correctly when 30% of participating nodes are
+- [x] **CHURN-01**: A job completes correctly when 30% of participating nodes are
       killed mid-execution
-- [ ] **CHURN-02**: Slow tasks are duplicated speculatively and the first result
+- [x] **CHURN-02**: Slow tasks are duplicated speculatively and the first result
       wins
-- [ ] **CHURN-03**: Coordinator state is checkpointed to content-addressed storage
+- [x] **CHURN-03**: Coordinator state is checkpointed to content-addressed storage
       so a departed requestor does not lose the job
-- [ ] **CHURN-04**: Task ownership is leased and re-dispatched on lease expiry
-- [ ] **CHURN-05**: A cross-owner job over unavailable owners returns a coverage
+- [x] **CHURN-04**: Task ownership is leased and re-dispatched on lease expiry
+- [x] **CHURN-05**: A cross-owner job over unavailable owners returns a coverage
       report rather than a silently partial result
-- [ ] **CHURN-06**: Speculative duplicates of a sovereign task are scoped to the
+- [x] **CHURN-06**: Speculative duplicates of a sovereign task are scoped to the
       owner's own node set and never dispatched across owners
 
 ### Browser Node Experience
@@ -295,12 +295,12 @@ All 72 v1 requirements are mapped, each to exactly one phase. See
 | MR-05 | Phase 5 — Decomposable Tree-Reduce | Done |
 | MR-06 | Phase 5 — Decomposable Tree-Reduce | Done |
 | MR-07 | Phase 5 — Decomposable Tree-Reduce | Done |
-| CHURN-01 | Phase 7 — Churn, Stragglers & Coordinator Survival | Pending |
-| CHURN-02 | Phase 7 — Churn, Stragglers & Coordinator Survival | Pending |
-| CHURN-03 | Phase 7 — Churn, Stragglers & Coordinator Survival | Pending |
-| CHURN-04 | Phase 7 — Churn, Stragglers & Coordinator Survival | Pending |
-| CHURN-05 | Phase 7 — Churn, Stragglers & Coordinator Survival | Pending |
-| CHURN-06 | Phase 7 — Churn, Stragglers & Coordinator Survival | Pending |
+| CHURN-01 | Phase 7 — Churn, Stragglers & Coordinator Survival | Done |
+| CHURN-02 | Phase 7 — Churn, Stragglers & Coordinator Survival | Done |
+| CHURN-03 | Phase 7 — Churn, Stragglers & Coordinator Survival | Done |
+| CHURN-04 | Phase 7 — Churn, Stragglers & Coordinator Survival | Done |
+| CHURN-05 | Phase 7 — Churn, Stragglers & Coordinator Survival | Done |
+| CHURN-06 | Phase 7 — Churn, Stragglers & Coordinator Survival | Done |
 | BROW-01 | Phase 9 — Public Demo, Consent UX & Disclosure Gate | Pending |
 | BROW-02 | Phase 9 — Public Demo, Consent UX & Disclosure Gate | Pending |
 | BROW-03 | Phase 3 — Browser Tier & Backbone Relay | Done |
