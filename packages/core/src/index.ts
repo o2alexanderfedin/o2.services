@@ -18,6 +18,9 @@ export type {
   Transport,
 } from './ports.ts'
 
+// Hashing — pure JS, so it works outside a secure context. See hash.ts.
+export { SHA256_CODE, sha256 } from './hash.ts'
+
 // Canonical encoding — DET-05.
 export { canonicalCid, decodeCanonical, encodeCanonical } from './canonical/encode.ts'
 export type {

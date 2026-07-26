@@ -1,5 +1,5 @@
 {
-  "name": "@o2/core",
+  "name": "@o2/net",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -8,7 +8,7 @@
   },
   "dependencies": {
     "@ipld/dag-cbor": "10.0.1",
-    "@noble/hashes": "2.2.0",
+    "@o2/core": "*",
     "multiformats": "14.0.5"
   }
 }

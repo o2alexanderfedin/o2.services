@@ -1,5 +1,5 @@
 {
-  "name": "@o2/core",
+  "name": "@o2/libp2p",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -7,8 +7,9 @@
     ".": "./src/index.ts"
   },
   "dependencies": {
-    "@ipld/dag-cbor": "10.0.1",
-    "@noble/hashes": "2.2.0",
-    "multiformats": "14.0.5"
+    "@libp2p/interface": "3.2.5",
+    "@libp2p/peer-id": "6.0.12",
+    "@o2/core": "*",
+    "libp2p": "3.3.6"
   }
 }

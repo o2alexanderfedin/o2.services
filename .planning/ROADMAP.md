@@ -36,8 +36,8 @@ node set when two or more of their nodes are live, and are owner-attested otherw
 
 Decimal phases appear between their surrounding integers in numeric order.
 
-- [ ] **Phase 1: Portable Kernel & Loopback Map Slice** - A complete redundant, verified job runs end to end in one process, on node/browser/webworker, with no network involved
-- [ ] **Phase 2: Real Network, Node ↔ Node** - The same job runs across two OS processes over a real transport, proving the port boundary held
+- [x] **Phase 1: Portable Kernel & Loopback Map Slice** - A complete redundant, verified job runs end to end in one process, on node/browser/webworker, with no network involved
+- [x] **Phase 2: Real Network, Node ↔ Node** - The same job runs across two OS processes over a real transport, proving the port boundary held
 - [ ] **Phase 3: Browser Tier & Backbone Relay** - Two browser tabs on different machines run a distributed redundant job against a self-hosted backbone needing no certificate operations
 - [ ] **Phase 4: Sovereignty, Authorization & Artifact Signing** - Owner-pinned data becomes a constraint the placer cannot relax, and every artifact resolves through a signed name
 - [ ] **Phase 5: Decomposable Tree-Reduce** - Cross-owner aggregation merges up a derived tree with no shuffle, no consensus, and no state to migrate
@@ -71,10 +71,10 @@ Decimal phases appear between their surrounding integers in numeric order.
 **Requirements**: NET-01, NET-07
 **Research**: Standard patterns — the exact compatible libp2p module set is published in libp2p's own integration tests, and the TCP/noise/yamux path is the most-trodden in the ecosystem
 **Success Criteria** (what must be TRUE):
-  1. Two Node.js processes discover each other and complete a 2×-redundant map job over a real transport, with blocks exchanged on the wire — and the kernel package is byte-for-byte unchanged from Phase 2, because only an adapter was swapped
+  1. Two Node.js processes discover each other and complete a 2×-redundant map job over a real transport, with blocks exchanged on the wire — and the kernel package is byte-for-byte unchanged from Phase 1, because only an adapter was swapped
   2. Results written by one process persist to a filesystem blockstore and are retrievable by CID from the other process, and survive a restart
   3. A constants-regression test asserts every relay and transport limit the system depends on — 15 concurrent reservations, 2-minute duration, 128 KiB data, 16 KiB WebRTC message — and fails CI when a dependency upgrade changes any of them; every libp2p dependency is pinned to an exact version with no range specifier
-**Plans**: TBD
+**Plans**: complete — see `phases/phase-2-real-network/SUMMARY.md`
 
 ### Phase 3: Browser Tier & Backbone Relay
 **Goal**: Two browser tabs on different machines run a distributed, redundant job against a self-hosted backbone that requires no manual certificate operations — the project's core bet, demonstrated
@@ -89,7 +89,7 @@ Decimal phases appear between their surrounding integers in numeric order.
   4. A relay at reservation capacity reports exhaustion by name to the joining node and to its own metrics, instead of failing in a way indistinguishable from a network outage
   5. Blocks written from a browser persist to IndexedDB and from Node to the filesystem behind one unchanged blockstore interface, with the same CIDs on both sides
   6. The node runs embedded in a third-party page served without COOP/COEP headers, throttles within a second of the tab being backgrounded, and resumes on return without losing its job
-**Plans**: TBD
+**Plans**: in progress — 3 of 6 criteria met, see `phases/phase-3-browser-tier/SUMMARY.md`
 
 ### Phase 4: Sovereignty, Authorization & Artifact Signing
 **Goal**: Owner-pinned data becomes a hard scheduling constraint the placer has no code path to relax, and every artifact the fabric executes is resolved through a signed name rather than a bare CID

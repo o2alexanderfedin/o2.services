@@ -19,3 +19,13 @@ tmp/
 node_modules/
 dist/
 *.tsbuildinfo
+
+# Vitest browser-mode failure screenshots
+__screenshots__/
+
+# Vite dependency pre-bundling cache
+.vite/
+node_modules/.vite/
+
+# Production bundle output (built on demand, never committed)
+packages/browser/dist/
