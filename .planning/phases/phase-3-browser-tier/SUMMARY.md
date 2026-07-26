@@ -1,6 +1,6 @@
 # Phase 3 — Browser Tier & Backbone Relay
 
-**Status:** IN PROGRESS — 5 of 6 criteria met, the remaining gaps all blocked on a public host or out of scope for a test suite
+**Status:** 5 of 6 criteria met **including criterion 1 on genuinely different machines**. Only real AutoTLS (criterion 2) remains, and it needs a public host.
 **Requirements:** NET-02, NET-03, NET-04, NET-05, DATA-02, BROW-03, BROW-05
 **Branch:** `feature/phase-3-browser-tier`
 
@@ -17,7 +17,7 @@ tsc --noEmit  clean
 | 4 | Relay at capacity reports exhaustion by name | **met** — NET-05 |
 | 2 | No `/certhash/` literal; addresses resolve at runtime | **half met** — the source/runtime half is verified; real AutoTLS is blocked |
 | 3 | 16+ simultaneous reservations; `runOnLimitedConnection` on handle *and* dial; relayed bytes stay small | **substantially met** — 16 real browser peers reserve simultaneously; the flag is verified on both sides; the relay is *proven* out of the data path. Not done: the >1 hour hold under churn, and per-peer relayed byte counters (js-libp2p exposes none) |
-| 1 | Two browser tabs **on different machines** over WebRTC | **met on one machine** — the "different machines" half is blocked |
+| 1 | Two browser tabs **on different machines** over WebRTC | **met** — iPhone Safari ↔ laptop Chromium, direct WebRTC, verified on real hardware |
 | 6 | Embedded, no COOP/COEP, throttles when backgrounded | **met** — BROW-03, BROW-05 |
 
 ## Delivered
@@ -50,6 +50,45 @@ appeared — indistinguishable from the relay being unreachable, and the two nee
 opposite responses. The watcher observes libp2p's own reported status through the
 `logger` injection point and classifies it. Verified end to end against a real relay
 at capacity, not by construction.
+
+## Criterion 1 — met on real, separate devices
+
+An iPhone running Safari and this laptop running Chromium completed a 4-shard,
+2×-redundant map job over a **direct** WebRTC connection, signalled through the
+self-hosted relay. Every shard agreed, with both peer IDs named:
+
+```
+laptop  12D3KooWPaKeDxPvWRkBmcSSJtnJYbT3NWGVh3NPnKwsdFTfk4TA
+phone   12D3KooWQZjbsXAbgiw3mkNm3bXb2xDimby8D3QNTLD5VjbWL3iy
+replicas [2, 2, 2, 2]   verificationMultiplier 2   rejected 0
+```
+
+The relay stayed out of the data path, and that is not inferred — both connections to
+the phone were inspected:
+
+```
+transport=relayed  limited=true    ← the signalling circuit
+transport=WEBRTC   limited=false   ← the data path
+```
+
+libp2p marks a relayed circuit as *limited* (2 min / 128 KiB). The WebRTC connection
+is not, so it is a genuine direct peer-to-peer link.
+
+### What iOS settled that no local test could
+
+Three risks were open because nothing in the suite reaches real Safari. All three are
+now closed, on an actual iPhone over the LAN:
+
+- **iOS resolves `.local` with no setup.** The phone reached
+  `http://Alexanders-MacBook-Pro.local:5173` straight from a QR scan — no app, no
+  profile, no IP typed, and nothing that breaks when the DHCP lease changes.
+- **Safari runs the node on a non-secure origin.** This was the largest doubt, since
+  Safari is stricter than Chromium about secure contexts. It is not strict *here*: the
+  node started, dialled `ws://`, reserved on the relay, and obtained a `/webrtc`
+  address, all over plain HTTP.
+- **The pure-JS hashing change was load-bearing, not defensive.** Without it this
+  would have joined and then failed at the first block, because `crypto.subtle` does
+  not exist on that origin.
 
 ## Two tabs, one machine — done
 
