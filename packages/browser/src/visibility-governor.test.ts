@@ -1,4 +1,4 @@
-import { MemoryBlockstore, submitJob } from '@o2/core'
+import { MemoryBlockstore, publicNodes, submitJob } from '@o2/core'
 import type { Executor, Task } from '@o2/core'
 import { GovernedExecutor } from '@o2/net'
 import { describe, expect, it } from 'vitest'
@@ -160,11 +160,13 @@ describe('BROW-03 — a job spanning a visibility change', () => {
 
     const store = new MemoryBlockstore()
     const moduleCid = await store.put(new Uint8Array([0]))
+    const executors = [new GovernedExecutor(counting, governor)]
     const result = await submitJob(
       {
         moduleCid,
-        shards: [{ a: 0 }, { a: 1 }, { a: 2 }, { a: 3 }],
-        executors: [new GovernedExecutor(counting, governor)],
+        shards: [{ a: 0 }, { a: 1 }, { a: 2 }, { a: 3 }].map((value) => ({ value, label: 'public' as const })),
+        executors,
+        nodes: publicNodes(executors),
         redundancy: 1,
       },
       store,
@@ -228,11 +230,13 @@ describe('GovernedExecutor — concurrency cannot bypass the cap', () => {
 
     const store = new MemoryBlockstore()
     const moduleCid = await store.put(new Uint8Array([1]))
+    const executors = [governed]
     const result = await submitJob(
       {
         moduleCid,
-        shards: [{ a: 0 }, { a: 1 }, { a: 2 }, { a: 3 }],
-        executors: [governed],
+        shards: [{ a: 0 }, { a: 1 }, { a: 2 }, { a: 3 }].map((value) => ({ value, label: 'public' as const })),
+        executors,
+        nodes: publicNodes(executors),
         redundancy: 1,
       },
       store,
@@ -269,11 +273,13 @@ describe('GovernedExecutor — concurrency cannot bypass the cap', () => {
 
     const store = new MemoryBlockstore()
     const moduleCid = await store.put(new Uint8Array([2]))
+    const executors = [new GovernedExecutor(inner, governor)]
     await submitJob(
       {
         moduleCid,
-        shards: [{ a: 0 }, { a: 1 }, { a: 2 }, { a: 3 }],
-        executors: [new GovernedExecutor(inner, governor)],
+        shards: [{ a: 0 }, { a: 1 }, { a: 2 }, { a: 3 }].map((value) => ({ value, label: 'public' as const })),
+        executors,
+        nodes: publicNodes(executors),
         redundancy: 1,
       },
       store,

@@ -20,7 +20,7 @@
  * a third party I was here".
  */
 
-import { submitJob } from '@o2/core'
+import { publicNodes, submitJob } from '@o2/core'
 import type { CanonicalValue, StartFailure, StartOutcome } from '@o2/core'
 import {
   RemoteExecutor,
@@ -300,14 +300,16 @@ const api: TabApi = {
     const input = buildInput(options.n, DEFAULT_BUDGET)
     const moduleCid = await node.store.put(kernelBytes)
 
+    const executors = [
+      node.executor,
+      ...options.peerIds.map((id) => new RemoteExecutor(id, node.rpc)),
+    ]
     const result = await submitJob(
       {
         moduleCid,
-        shards: Array.from({ length: options.cubes }, () => input),
-        executors: [
-          node.executor,
-          ...options.peerIds.map((id) => new RemoteExecutor(id, node.rpc)),
-        ],
+        shards: Array.from({ length: options.cubes }, () => ({ value: input, label: 'public' as const })),
+        executors,
+        nodes: publicNodes(executors),
         redundancy: options.redundancy,
       },
       node.store,
@@ -529,17 +531,22 @@ const api: TabApi = {
   async runJob(options) {
     const n = required()
     const { CID } = await import('multiformats/cid')
+    const executors = [
+      // This tab contributes its own compute when asked. With two tabs that is
+      // what makes R=2 possible: one tab submits *and* executes, the other
+      // executes, and the two must agree.
+      ...(options.includeSelf === true ? [n.executor] : []),
+      ...options.peerIds.map((id) => new RemoteExecutor(id, n.rpc)),
+    ]
     const result = await submitJob(
       {
         moduleCid: CID.parse(options.moduleCid),
-        shards: Array.from({ length: options.shards }, (_unused, i) => ({ a: i })),
-        executors: [
-          // This tab contributes its own compute when asked. With two tabs that is
-          // what makes R=2 possible: one tab submits *and* executes, the other
-          // executes, and the two must agree.
-          ...(options.includeSelf === true ? [n.executor] : []),
-          ...options.peerIds.map((id) => new RemoteExecutor(id, n.rpc)),
-        ],
+        shards: Array.from({ length: options.shards }, (_unused, i) => ({
+          value: { a: i },
+          label: 'public' as const,
+        })),
+        executors,
+        nodes: publicNodes(executors),
         redundancy: options.redundancy,
       },
       n.store,

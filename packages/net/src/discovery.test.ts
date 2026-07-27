@@ -217,6 +217,9 @@ describe('criterion 1 — a requestor with no peer list runs a job', () => {
             inputCid: fabric.inputCid,
             partitionIndex,
             partitionCount: 4,
+            // Correction 2: parseRequest now refuses an exec request with no
+            // label at the wire boundary.
+            label: 'public',
           })
         }),
       )

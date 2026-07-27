@@ -287,8 +287,22 @@ export function encodeRequest(request: AgentRequest): CanonicalValue {
     partitionIndex: task.partitionIndex,
     partitionCount: task.partitionCount,
   }
-  if (request.capability === undefined) return base
-  return { ...base, capability: request.capability.map(delegationToValue) }
+  // DATA-07/DATA-09: carry the sovereignty label to the serving node, so a
+  // refusal can be made there (`guardSovereignty`, sovereignty-guard.ts) rather
+  // than trusted to whoever dispatched the task. Never an explicit `undefined`
+  // key — this project's canonical encoding treats that as a different shape
+  // from "absent". A `'sovereign'` task with no `ownerId` deliberately encodes
+  // with no `ownerId` key at all, so `parseRequest`'s mirrored check refuses it
+  // (the wire-side twin of `submitJob`'s `shard-missing-owner`) instead of the
+  // parser guessing one.
+  const labelled: { readonly [k: string]: CanonicalValue } =
+    task.label === undefined
+      ? base
+      : task.label === 'sovereign' && task.ownerId !== undefined
+        ? { ...base, label: task.label, ownerId: task.ownerId }
+        : { ...base, label: task.label }
+  if (request.capability === undefined) return labelled
+  return { ...labelled, capability: request.capability.map(delegationToValue) }
 }
 
 /** Delegations are plain records, but must be listed explicitly to stay canonical. */
@@ -382,7 +396,28 @@ export function parseRequest(body: CanonicalValue): AgentRequest | null {
   // A partition index outside its own count is incoherent — refuse it here rather
   // than letting the executor derive a nonsensical shard.
   if (partitionCount === 0 || partitionIndex >= partitionCount) return null
-  const task: Task = { moduleCid, inputCid, partitionIndex, partitionCount }
+
+  // T-12-07 (Correction 2): the label is not optional at the wire, even though
+  // it stays optional on `Task` itself (kept that way so the ~65 unrelated
+  // in-process `Task` literals across the repo need no change). A task that
+  // crossed the network without one would reach `guardSovereignty`
+  // (sovereignty-guard.ts) unlabelled and pass through it as a no-op — that is
+  // exactly "trusted to whoever dispatched the task", the thing the guard's own
+  // docstring says it exists so a refusal does not have to be. So this parser
+  // refuses the whole request rather than defaulting the label or leaving it
+  // absent; every exec request that survives parsing carries one.
+  const labelValue = record['label']
+  if (labelValue !== 'public' && labelValue !== 'sovereign') return null
+  let task: Task
+  if (labelValue === 'sovereign') {
+    const ownerId = record['ownerId']
+    // The wire-side mirror of `submitJob`'s `shard-missing-owner`: a sovereign
+    // label with no owner is not a wide-open task, it is a broken one.
+    if (typeof ownerId !== 'string' || ownerId.length === 0) return null
+    task = { moduleCid, inputCid, partitionIndex, partitionCount, label: 'sovereign', ownerId }
+  } else {
+    task = { moduleCid, inputCid, partitionIndex, partitionCount, label: 'public' }
+  }
 
   const capabilityValue = record['capability']
   if (capabilityValue === undefined) return { kind: 'exec', task }

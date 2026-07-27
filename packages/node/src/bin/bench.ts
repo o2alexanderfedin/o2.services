@@ -32,6 +32,7 @@ import {
   MemoryNetwork,
   WasmExecutor,
   canonicalCid,
+  publicNodes,
   submitJob,
 } from '@o2/core'
 import type { CanonicalValue, Executor, Task } from '@o2/core'
@@ -223,7 +224,13 @@ function runnerFor(build: (nodes: number) => Promise<Fabric>): {
 
     const started = performance.now()
     const result = await submitJob(
-      { moduleCid: fabric.moduleCid, shards, executors, redundancy: config.redundancy },
+      {
+        moduleCid: fabric.moduleCid,
+        shards: shards.map((value) => ({ value, label: 'public' as const })),
+        executors,
+        nodes: publicNodes(executors),
+        redundancy: config.redundancy,
+      },
       fabric.blockstore,
     )
     const makespanMs = performance.now() - started
