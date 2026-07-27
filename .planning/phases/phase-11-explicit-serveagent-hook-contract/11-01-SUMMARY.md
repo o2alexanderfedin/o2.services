@@ -109,13 +109,14 @@ Each task was committed atomically:
 - **Verification:** `npx tsc --noEmit` clean on this file; `discovery.test.ts` and `sovereign-execution.test.ts` (which exercise `records` with real indexes) pass unchanged.
 - **Committed in:** `42cbad7` (Task 1 commit)
 
-**2. [Rule 1 - Bug] Pre-existing, plan-file-caused `vocabulary.node.test.ts` failure**
+**2. [Rule 1 - Bug] `vocabulary.node.test.ts` failure caused by planning prose**
 - **Found during:** Task 3, running the two repo-wide guards (`vocabulary.node.test.ts`, `purity.node.test.ts`) as instructed
-- **Issue:** `11-01-PLAN.md` (committed in `64ac6da`, before this execution began) quotes the vocabulary guard's own banned-word list twice in prose ("mining, miner, hashrate, earn, credits, token") — once in its `<read_first>` block, once in its `<verification>` block. `EXEMPT_LINES` had no entry for this file, so the guard flagged 12 violations across 5 banned terms. Confirmed pre-existing by running the same test at `git stash` / prior commits before any of this plan's edits — same 5 failures, same file.
-- **Fix:** Added one `EXEMPT_LINES` entry for `.planning/phases/phase-11-explicit-serveagent-hook-contract/11-01-PLAN.md`, phrase `'mining, miner, hashrate, earn, credits, token'` — same shape as the existing `bench.ts` and `ROADMAP.md` entries for the identical situation (a document telling the reader what the rule bans).
-- **Files modified:** `packages/node/src/vocabulary.node.test.ts`
-- **Verification:** `npx vitest run packages/node/src/vocabulary.node.test.ts packages/node/src/purity.node.test.ts` — 38/38 passing (was 33/38 before the fix).
-- **Committed in:** `82df80f` (Task 3 commit)
+- **Issue:** `11-01-PLAN.md` (committed in `64ac6da`, before this execution began) reproduced the guard's own prohibited-term list verbatim in two places — its `<read_first>` block and its `<verification>` block — while telling the executor to check for those terms. The guard scans the real tree, `.planning/` included, so the instruction violated the rule it was stating. 12 flagged occurrences across 5 terms.
+- **First fix, later reverted:** an `EXEMPT_LINES` entry naming the plan file and the quoted phrase. It worked, and it was the wrong shape: every subsequent v1.1 phase plan would need its own entry, and the SUMMARY explaining each entry would trip the guard in turn — which is exactly what happened, leaving the suite red at 5 failures after this SUMMARY was first written.
+- **Final fix:** removed the exemption and reworded all four offending lines to point at the `BANNED` array in `packages/node/src/vocabulary.node.test.ts` as the authoritative list instead of copying it. The prohibition is now stated once, in the file that enforces it. Phase 11 adds **no** new exemption.
+- **Why this way:** the project's recorded precedent is to reword rather than exempt — Phase 10 hit the same guard twice on its own prose and reworded both times. An exemption is right only where the text cannot be reworded without losing its purpose; a plan can simply cite the list instead of repeating it, so it can.
+- **Files modified:** `.planning/phases/phase-11-explicit-serveagent-hook-contract/11-01-PLAN.md`, this SUMMARY
+- **Verification:** `npx vitest run packages/node/src/vocabulary.node.test.ts` — 24/24 passing, with `EXEMPT_LINES` unchanged from its pre-phase state.
 
 ---
 

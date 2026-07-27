@@ -185,12 +185,6 @@ const EXEMPT_LINES: readonly LineExemption[] = [
     phrase: 'rule earning its place',
     reason: 'ordinary English — a comment about the incomplete-run rule catching a real case',
   },
-  {
-    file: '.planning/phases/phase-11-explicit-serveagent-hook-contract/11-01-PLAN.md',
-    phrase: 'mining, miner, hashrate, earn, credits, token',
-    reason:
-      'the plan telling its own executor to check this file for banned vocabulary — the quoted list is the prohibition itself, same shape as the ROADMAP.md and bench.ts entries above',
-  },
 ]
 
 /**
