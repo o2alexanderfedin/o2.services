@@ -234,10 +234,15 @@
           return
         }
         barEl.hidden = false
+        // "and for whom" is the half of the criterion a peer count does not answer.
+        const short = (id) => `${id.slice(0, 6)}…${id.slice(-4)}`
         $('bar-what').textContent =
-          activity.tasksExecuted === 0
-            ? `running — waiting for work from ${activity.peers} peer(s)`
-            : `running work for ${activity.peers} peer(s)`
+          activity.servedFor.length === 0
+            ? `running — waiting for work · ${activity.peers} peer(s) connected`
+            : `running work for ${activity.servedFor
+                .slice(0, 2)
+                .map((s) => `${short(s.peerId)} (${s.tasks})`)
+                .join(', ')}${activity.servedFor.length > 2 ? ` +${activity.servedFor.length - 2} more` : ''}`
         $('bar-stats').textContent =
           `${Math.round(activity.dutyCycle * 100)}% of one thread` +
           (activity.hidden ? ' (tab in background)' : '') +

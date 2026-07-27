@@ -166,6 +166,11 @@ describe('DEMO-01 — a real job, distributed across tabs, with placement visibl
     // Tab B executed replicas for tab A's job. If this is zero, the job ran
     // entirely in one tab and the distribution claim above is hollow.
     expect(activity?.tasksExecuted ?? 0).toBeGreaterThan(0)
+
+    // "and for whom" — the half of the criterion a peer count does not answer.
+    // Tab B is working for tab A specifically, and both the API and the bar say so.
+    expect(activity?.servedFor.map((s) => s.peerId)).toContain(a.peerId)
+    expect(await b.page.textContent('#bar-what')).toContain('running work for')
   }, 120_000)
 })
 

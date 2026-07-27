@@ -74,6 +74,13 @@ export interface TabActivity {
   readonly dutyCycle: number
   readonly hidden: boolean
   readonly peers: number
+  /**
+   * Whose work this node has run, most first.
+   *
+   * The criterion says the surface shows what is running *and for whom*. A peer
+   * count answers only the first half.
+   */
+  readonly servedFor: readonly { readonly peerId: string; readonly tasks: number }[]
   /** Blocks this tab has pulled from peers, and refused for a CID mismatch. */
   readonly fetched: number
   readonly rejected: number

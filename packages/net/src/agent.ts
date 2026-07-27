@@ -99,13 +99,21 @@ export interface AgentOptions {
    * from an unreachable node only by the requestor getting an answer at all.
    */
   readonly ledger?: StartOutcomeLedger
+  /**
+   * BROW-04. Called when a peer dispatches a task here, before it runs.
+   *
+   * The always-visible surface has to say what is running *and for whom*, and the
+   * executor cannot answer the second half — a `Task` is addressed entirely by CID
+   * and carries no requestor. Only the serving side knows, and only here.
+   */
+  readonly onDispatch?: (from: string) => void
 }
 
 /** Install the request handler that makes this endpoint a serving node. */
 export function serveAgent(options: AgentOptions): void {
   const { rpc, executor, blockstore } = options
 
-  rpc.serve(async (_from, body): Promise<CanonicalValue> => {
+  rpc.serve(async (from, body): Promise<CanonicalValue> => {
     const request = parseRequest(body)
     if (request === null) {
       return encodeResponse({ kind: 'error', reason: 'malformed request' })
@@ -133,6 +141,7 @@ export function serveAgent(options: AgentOptions): void {
           ? { kind: 'offer', accepted: true, reason: '' }
           : { kind: 'offer', accepted: false, reason: decision.reason }
     } else {
+      options.onDispatch?.(from)
       // Authorisation first. The ordering is the requirement: refusing after
       // execution would already have run the module against the owner's data.
       const refusal = options.authorize?.({

@@ -98,6 +98,34 @@ export class BrowserNode {
    * checkable instead of assumed — see `offMainThread`.
    */
   readonly worker: WorkerExecutor | null
+  /**
+   * Peers whose work this node has run, and how much of it — BROW-04.
+   *
+   * The surface must say what is running *and for whom*. A `Task` is addressed
+   * entirely by CID and names no requestor, so this is recorded where the answer
+   * exists: at the point a peer dispatches.
+   */
+  readonly servedFor: Map<string, number> = new Map<string, number>()
+  readonly #activityListeners = new Set<() => void>()
+
+  /**
+   * Subscribe to "this node is now doing something different".
+   *
+   * Pushed rather than polled for the reason measured in this phase: Chromium
+   * throttles timers hard in a tab that is not in front, so a background tab
+   * serving a peer's work would show a stale surface — or none — for as long as
+   * nobody was looking at it, which is the case BROW-04 exists for.
+   */
+  onActivity(listener: () => void): () => void {
+    this.#activityListeners.add(listener)
+    return () => {
+      this.#activityListeners.delete(listener)
+    }
+  }
+
+  #announce(): void {
+    for (const listener of this.#activityListeners) listener()
+  }
 
   private constructor(parts: {
     libp2p: Libp2p
@@ -177,9 +205,17 @@ export class BrowserNode {
       worker ?? new WasmExecutor({ nodeId, blockstore }),
       governor,
     )
-    serveAgent({ rpc, executor, blockstore })
-
-    return new BrowserNode({ libp2p, transport, rpc, blockstore, store, executor, governor, worker })
+    const node = new BrowserNode({ libp2p, transport, rpc, blockstore, store, executor, governor, worker })
+    serveAgent({
+      rpc,
+      executor,
+      blockstore,
+      onDispatch: (from) => {
+        node.servedFor.set(from, (node.servedFor.get(from) ?? 0) + 1)
+        node.#announce()
+      },
+    })
+    return node
   }
 
   get peerId(): string {

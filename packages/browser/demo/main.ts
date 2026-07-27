@@ -175,6 +175,9 @@ const api: TabApi = {
       throw error
     }
     noteOutcome(null)
+    // A peer dispatching work here changes what the surface must say, and the page
+    // cannot poll for it — see `onActivity`.
+    node.onActivity(notify)
     notify()
     return node.peerId
   },
@@ -234,6 +237,9 @@ const api: TabApi = {
       dutyCycle: node.executor.dutyCycle,
       hidden: node.governor.hidden,
       peers: node.transport.peers.length,
+      servedFor: [...node.servedFor]
+        .map(([peerId, tasks]) => ({ peerId, tasks }))
+        .sort((a, b) => b.tasks - a.tasks || a.peerId.localeCompare(b.peerId)),
       fetched: node.blockstore.fetched,
       rejected: node.blockstore.rejected,
     }
