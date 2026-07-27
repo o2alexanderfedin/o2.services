@@ -1,11 +1,20 @@
 ---
-status: gaps_found
+status: passed
 phase: 12
 verified: 2026-07-27
-criteria_met: 3
+criteria_met: 4
 criteria_total: 4
-score: 3/4 criteria verified
-gaps:
+score: 4/4 criteria verified
+gap_closed_after_verification:
+  - truth: "criterion 1 — placement discrimination through bin/agent.ts"
+    closed_by: "packages/node/src/sovereignty-placement.node.test.ts (commit 7680fd5)"
+    note: >
+      This pass reported criterion 1 as PARTIAL because plan 12-03 had never been
+      executed — the orchestrator dropped it between two dispatches. The finding was
+      correct and is preserved verbatim below. 12-03 was then run and the gap closed;
+      see the addendum at the end of this file. The frontmatter reads 4/4 because that
+      is now true, not because the finding was wrong.
+gaps_as_originally_found:
   - truth: "A job submitted through bin/agent.ts whose input carries an owner's sovereignty label places its map task only on that owner's nodes; a test that applies artificial load pressure specifically to force relocation onto a non-owner node fails to move it, because the live placement path has no branch that can"
     status: partial
     reason: >
@@ -499,3 +508,81 @@ $ npx tsc --noEmit
 
 *Verified: 2026-07-27*
 *Verifier: Claude (gsd-verifier)*
+
+---
+
+# Addendum — criterion 1 closed, 2026-07-27
+
+The finding above was correct: plan 12-03 had never been executed. The orchestrator
+dispatched 12-02 alone as "Wave 2", told that executor 12-03 was not its plan, and went
+on to Wave 3. The plan fell between two dispatches. Nothing about the finding is revised
+here; it is closed.
+
+## What was built
+
+`packages/node/src/sovereignty-placement.node.test.ts` — commit `7680fd5`.
+
+Three genuine operating-system processes via
+`spawn(process.execPath, [AGENT, '--dir', dir, ...])` where `AGENT` resolves to
+`bin/agent.ts`, the same mechanism `two-process.node.test.ts` already uses for NET-01.
+Alice, bob1 and bob2 each run their own `FabricNode`, dialled after a one-line stdout
+handshake, sharing nothing but a TCP socket.
+
+The arrangement is the discrimination:
+
+| node | owner | `canExecuteSovereign` | load |
+|---|---|---|---|
+| alice | alice | true | **1** (saturated) |
+| bob1 | bob | true | 0 (idle) |
+| bob2 | bob | true | 0 (idle) |
+
+Both bob nodes are `canExecuteSovereign: **true**` — they are fully capable of sovereign
+work in general, and excluded solely by *ownership*. That separates the sovereignty
+constraint from the clearance constraint, so this test cannot pass for the wrong reason.
+
+## Confirmed independently
+
+```
+npx tsc --noEmit                                                    clean, exit 0
+npx vitest run packages/node/src/sovereignty-placement.node.test.ts 1 passed
+```
+
+Checked for a skip guard rather than assuming: the verbose reporter shows `✓` not `↓`,
+and the file contains no `skipIf`/`skip`/`todo`. The 638 ms runtime looked implausible
+for three process spawns, so it was compared against precedent — `two-process.node.test.ts`
+runs 3 real-spawn tests in 1.47 s. Node's native type stripping plus loopback TCP is
+genuinely that fast.
+
+## The mutation, and what it revealed
+
+The widen-under-pressure branch was planted in `submitJob`'s placement loop and the new
+test watched failing: `expected 'insufficient' to be 'agreed'`.
+
+The captured output is more interesting than a plain failure. Placement *did* leak — the
+mutation picked `bob2`, idle and foreign — and then **bob2's own process refused it**,
+through the `guardSovereignty` wrap Phase 12 put on every production node:
+
+> `sovereignty violation: node … is not cleared to execute sovereign data for owner alice`
+
+So the shard stalled as `insufficient` rather than completing as a silently-wrong
+`agreed`. That is a strictly stronger signature than plan 12-02's in-memory equivalent,
+which has no serving-side guard and does execute on the wrong node. The two defences —
+placement and the serving-side gate — are independent, and this test shows both firing in
+the real production composition.
+
+Reverted; `git diff` empty; `tsc` clean.
+
+## Plan adaptation
+
+`bin/agent.ts` parsed only `--dir`/`--port`, so a spawned process could not be cleared for
+its own owner and the central assertion could never reach `agreed`. Added `--owner-id` and
+`--can-execute-sovereign` as a pass-through to the `FabricNodeOptions.sovereignty` option
+that already existed — not a new mechanism, and no branch on node kind. Omitting
+`--owner-id` keeps the safe default: cleared for nobody.
+
+## Still open, unchanged by this addendum
+
+The `human_verification` item stands. The browser tier's `guardSovereignty` wiring remains
+structurally identical to `fabric-node.ts`'s and unproven at runtime — zero occurrences of
+`sovereign` under `packages/browser` or in any `*.e2e.test.ts`. Phase 19's WIRE-03 is where
+the browser tier gets real coverage.
