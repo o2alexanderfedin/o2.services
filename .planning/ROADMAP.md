@@ -281,7 +281,12 @@ Plans:
   1. A stream tap installed on the wire between two nodes started via `bin/agent.ts` fails a running cross-owner job if a single raw sovereign byte crosses it
   2. Every job run through `bin/agent.ts` or the browser demo emits an egress manifest recording exactly what left each owner's node, with byte counts, retrievable from the job's own result metadata after completion — not only inside a test harness
   3. The manifest for a job with zero sovereign data crossing the network reports zero sovereign bytes, and the manifest for a job that legitimately moves an aggregate reports only the aggregate's size, never the raw input's
-**Plans**: TBD
+**Plans**: 3 plans
+
+Plans:
+- [ ] 13-01-PLAN.md — Build registerSovereignInputs (a production caller for EgressGuard.guard()) and submitJobWithEgress (per-job manifest attachment), both in @o2/net, proven against a real RpcEndpoint/serveAgent fabric
+- [ ] 13-02-PLAN.md — Wire both FabricNode and BrowserNode to construct RpcEndpoint over a new EgressGuard field and auto-register every sovereign task's input before executing it
+- [ ] 13-03-PLAN.md — Prove all three criteria against real FabricNode instances over real RPC, and plant/watch-fail/revert both required mutations (registration removed, transport wrap removed)
 
 ### Phase 14: Signed Artifact Resolution
 **Goal**: A production node resolves a task's module through a `key → CID` mapping signed by a trusted build authority — never a bare CID — on the live dispatch path
