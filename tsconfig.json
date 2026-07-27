@@ -16,5 +16,5 @@
     "noEmit": true,
     "types": ["node"]
   },
-  "include": ["packages/*/src/**/*.ts", "packages/*/src/**/*.d.ts", "tools/**/*.ts"]
+  "include": ["packages/*/src/**/*.ts", "packages/*/src/**/*.d.ts", "packages/*/demo/**/*.ts", "tools/**/*.ts"]
 }
