@@ -11,6 +11,7 @@
 
 import type { CID } from 'multiformats/cid'
 import type { CanonicalValue } from './canonical/encode.ts'
+import type { OwnerId, Sovereignty } from './sovereignty.ts'
 
 /** Content-addressed block storage. */
 export interface Blockstore {
@@ -30,6 +31,20 @@ export interface Task {
   readonly partitionIndex: number
   /** Total shard count for the job. */
   readonly partitionCount: number
+  /**
+   * Sovereignty label and owner, carried to the serving node so a refusal can be
+   * made there (DATA-09) rather than trusted to whoever dispatched the task.
+   *
+   * Deliberately optional at this interface level, not because the label is
+   * optional in principle — the ~25 call sites across the repo that build a raw
+   * `Task` literal for executor/protocol/verification tests unrelated to
+   * sovereignty must keep compiling unchanged. `submitJob`'s own input contract
+   * (`ShardSpec` in `job/submit.ts`) is where "every shard has a real label" is
+   * actually enforced, as a compile-time discriminated union: every `Task`
+   * `submitJob` itself constructs always carries one.
+   */
+  readonly label?: Sovereignty
+  readonly ownerId?: OwnerId
 }
 
 /** What an executor produces. Output is a declared value, never raw memory. */

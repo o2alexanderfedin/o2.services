@@ -38,9 +38,9 @@ export type { WasmExecutorOptions } from './executor/wasm.ts'
 export { commitmentDigest, executeVerified } from './job/verify.ts'
 export type { Commitment, Receipt, Reveal, VerificationResult } from './job/verify.ts'
 
-// Job submission — MR-01, DATA-01.
+// Job submission — MR-01, DATA-01, DATA-03, DATA-04.
 export { submitJob } from './job/submit.ts'
-export type { JobResult, JobSpec, ShardResult, SubmitError, SubmitResult } from './job/submit.ts'
+export type { JobResult, JobSpec, ShardResult, ShardSpec, SubmitError, SubmitResult } from './job/submit.ts'
 
 // Adapters.
 export { MemoryBlockstore } from './blockstore/memory.ts'
@@ -50,7 +50,7 @@ export { DutyCycleGovernor } from './governor.ts'
 export type { DutyCycleOptions, Sleep } from './governor.ts'
 
 // Sovereignty and placement — DATA-03, DATA-06, DATA-09.
-export { eligibleNodes, planPlacement } from './sovereignty.ts'
+export { eligibleNodes, planPlacement, publicNodes } from './sovereignty.ts'
 export type {
   NodeDescriptor,
   OwnerId,
