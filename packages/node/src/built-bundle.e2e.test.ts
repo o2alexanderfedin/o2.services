@@ -124,9 +124,13 @@ describe('BROW-01 — nothing runs, and nothing is contacted, before consent', (
 
     // And the gate is what is on screen, with the rest of the page not merely
     // hidden but never having run.
-    expect(await page.getAttribute('#gate', 'hidden')).toBeNull()
-    expect(await page.getAttribute('#main', 'hidden')).not.toBeNull()
-    expect(await page.getAttribute('#bar', 'hidden')).not.toBeNull()
+    // Visibility, not the attribute. An id rule that sets `display` outranks the
+    // browser's own `[hidden]`, so the attribute can be correct while the element
+    // is on screen — which is how an "always-visible" bar came to be visible while
+    // idle, reported from a phone rather than caught here.
+    expect(await page.isVisible('#gate')).toBe(true)
+    expect(await page.isVisible('#main')).toBe(false)
+    expect(await page.isVisible('#bar')).toBe(false)
 
     await page.close()
   }, 180_000)
@@ -256,17 +260,13 @@ describe('the built bundle on a static host', () => {
     // BROW-04: the always-visible bar appears with the node and says what it is
     // doing, including that execution is off the main thread — without which
     // "stop drops CPU to zero" would be a claim rather than a fact.
-    await page.waitForFunction(() => document.getElementById('bar')?.hasAttribute('hidden') === false, null, {
-      timeout: 30_000,
-    })
+    await page.waitForSelector('#bar', { state: 'visible', timeout: 30_000 })
     expect(await page.textContent('#bar-stats')).not.toContain('ON MAIN THREAD')
     expect(await page.evaluate(() => window.o2.activity()?.offMainThread)).toBe(true)
 
     // And Stop empties it: the thread ends and the connections close.
     await page.click('#stop')
-    await page.waitForFunction(() => document.getElementById('bar')?.hasAttribute('hidden') === true, null, {
-      timeout: 30_000,
-    })
+    await page.waitForSelector('#bar', { state: 'hidden', timeout: 30_000 })
     expect(await page.evaluate(() => window.o2.activity())).toBeNull()
 
     await page.close()

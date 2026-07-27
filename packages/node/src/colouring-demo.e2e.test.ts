@@ -157,7 +157,10 @@ describe('DEMO-01 — a real job, distributed across tabs, with placement visibl
       // Both tabs, not just the one that submitted. A background tab running
       // someone else's work with no visible surface is the case BROW-04 exists for,
       // and it is the one a foreground-only check would miss.
-      expect(await tab.page.getAttribute('#bar', 'hidden')).toBeNull()
+      // `isVisible`, not the attribute: a `display` rule on an id outranks the
+      // browser's own `[hidden]`, so the attribute can be right while the element
+      // is on screen. That is exactly what happened.
+      expect(await tab.page.isVisible('#bar')).toBe(true)
       expect(await tab.page.textContent('#bar-stats')).toContain('of one thread')
     }
     const activity = await b.page.evaluate(() => window.o2.activity())

@@ -6,6 +6,16 @@
     <title>o2.services — node</title>
     <style>
       :root { color-scheme: light dark; }
+      /*
+        The browser's own `[hidden] { display: none }` is an attribute selector, so
+        *any* id or class rule that sets `display` silently outranks it. `#bar` set
+        `display: flex` and the always-visible bar became the always-visible bar in
+        the literal sense — shown, reading "idle", offering to Stop a node that did
+        not exist. Reported from an iPhone; not caught here, because the tests
+        asserted the `hidden` *attribute* rather than whether anything was on screen.
+        One rule closes the whole class.
+      */
+      [hidden] { display: none !important; }
       body {
         font: 15px/1.55 ui-monospace, SFMono-Regular, Menlo, monospace;
         margin-inline: auto; max-width: 46rem;
