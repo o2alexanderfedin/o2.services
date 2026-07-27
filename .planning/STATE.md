@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Wire What Was Built
 status: verifying
-stopped_at: Phase 12 Plan 02 complete — guardSovereignty (DATA-09 serving-side gate) built and mutation-tested; submitJob load-pressure discrimination, DATA-09 replica-holder, degraded, and rejection semantics proven at the submitJob level. 116 files / 1749 tests passing, tsc clean. Wave 2 remainder (12-03/12-04) not yet executed.
-last_updated: "2026-07-27T19:19:24.195Z"
+stopped_at: Phase 12 Plan 04 complete — Task.label/ownerId now survive the wire and are required at parseRequest's trust boundary; guardSovereignty wired into both production node constructors (fabric-node.ts, browser-node.ts) with a safe cleared-for-nobody default. Criteria 3 and 4 proven over real RPC. All four ROADMAP criteria for Phase 12 demonstrated on the live submitJob path. 116 files / 1758 tests passing, tsc clean. All three required mutations produced expected failures and were reverted.
+last_updated: "2026-07-27T20:02:04.584Z"
 last_activity: 2026-07-27
 progress:
   total_phases: 11
   completed_phases: 1
   total_plans: 6
-  completed_plans: 3
-  percent: 50
+  completed_plans: 4
+  percent: 67
 ---
 
 # Project State
@@ -200,6 +200,7 @@ carrying only SDP. Remaining: real AutoTLS, which needs a publicly reachable hos
 | Phase 11 P01 | 13min | 3 tasks | 13 files |
 | Phase 12 P01 | 25min | 2 tasks | 17 files |
 | Phase 12 P02 | 20min | 2 tasks | 4 files |
+| Phase 12 P04 | 100min | 2 tasks | 8 files |
 
 ## Accumulated Context
 
@@ -430,6 +431,8 @@ Recent decisions affecting current work:
 - [Phase 12]: submitJob's placement now runs entirely through sovereignty.ts's planPlacement/eligibleNodes, correlating Executor to NodeDescriptor by nodeId; no other code path in submit.ts selects a node
 - [Phase 12]: guardSovereignty is a pure Executor adapter (no Executor/AgentOptions port change), mirroring GovernedExecutor's shape
 - [Phase 12]: Added a DATA-09 replica-holder test beyond the plan's four (Rule 2): a canExecuteSovereign:false node whose data genuinely exists in the shared blockstore is still excluded from execution, proving the refusal is about clearance, not missing data
+- [Phase 12]: parseRequest refuses an exec request with no label; Task.label stays optional in-process, only the wire boundary enforces it — Correction 2: an absent label reaching guardSovereignty is a no-op, trusting whoever dispatched the task not to omit the field the refusal depends on
+- [Phase 12]: guardSovereignty wired into both fabric-node.ts and browser-node.ts production constructors, defaulting to cleared-for-nobody — Correction 1: guardSovereignty had zero production callers before this plan, the exact built-not-wired shape the v1.0 audit exists to catch
 
 ### Pending Todos
 
@@ -479,8 +482,8 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-07-27T19:19:24.189Z
-Stopped at: Phase 12 Plan 02 complete — guardSovereignty (DATA-09 serving-side gate) built and mutation-tested; submitJob load-pressure discrimination, DATA-09 replica-holder, degraded, and rejection semantics proven at the submitJob level. 116 files / 1749 tests passing, tsc clean. Wave 2 remainder (12-03/12-04) not yet executed.
+Last session: 2026-07-27T20:02:04.571Z
+Stopped at: Phase 12 Plan 04 complete — Task.label/ownerId now survive the wire and are required at parseRequest's trust boundary; guardSovereignty wired into both production node constructors (fabric-node.ts, browser-node.ts) with a safe cleared-for-nobody default. Criteria 3 and 4 proven over real RPC. All four ROADMAP criteria for Phase 12 demonstrated on the live submitJob path. 116 files / 1758 tests passing, tsc clean. All three required mutations produced expected failures and were reverted.
 browser and e2e; `tsc --noEmit` clean; 64/72 requirements. See
 `phases/phase-9-public-demo/SUMMARY.md` and `09-VERIFICATION.md`.
 Next unit: **Phase 10 — elfconv AOT native→WASM pipeline**, the parallel track.

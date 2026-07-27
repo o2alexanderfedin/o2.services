@@ -107,7 +107,7 @@ itself. The work is real and the table says so; the box tracks delivery.
       boundary
 - [ ] **DATA-06**: Every job emits an egress manifest recording exactly what left
       each owner's node
-- [ ] **DATA-07**: Filters, projections, and partial aggregation push down to the
+- [x] **DATA-07**: Filters, projections, and partial aggregation push down to the
       owner's node so the least data leaves
 - [ ] **DATA-08**: Artifact `key → CID` mappings are signed by a trusted build
       authority and never resolved by CID alone
@@ -381,9 +381,9 @@ criteria.
 | DATA-04 | Phase 12 — Sovereignty-Pinned Placement | **Built, not wired** — no owner label exists in JobSpec or Task; eligibleNodes is reachable only through runResilient, which has no caller |
 | DATA-05 | Phase 13 — Egress Manifest Completeness | **Built, not wired** — EgressGuard decorates no production transport — both nodes pass the raw Libp2pTransport |
 | DATA-06 | Phase 13 — Egress Manifest Completeness | **Built, not wired** — EgressGuard decorates no production transport — both nodes pass the raw Libp2pTransport |
-| DATA-07 | Phase 12 — Sovereignty-Pinned Placement | **Built, not wired** — pushdown lives in the reduce tree; executeReduce has no caller |
+| DATA-07 | Phase 12 — Sovereignty-Pinned Placement | Done — a sovereign shard submitted through `submitJob` emits a partial smaller than its raw input; `EgressGuard` (reused as a test instrument) shows zero violations for the run (12-04, criterion 3) |
 | DATA-08 | Phase 14 — Signed Artifact Resolution | **Built, not wired** — signName / SignedNameResolver have no caller; every module resolves by bare CID |
-| DATA-09 | Phase 12 — Sovereignty-Pinned Placement | **Built, not wired** — no owner label exists in JobSpec or Task; eligibleNodes is reachable only through runResilient, which has no caller |
+| DATA-09 | Phase 12 — Sovereignty-Pinned Placement | Done — `guardSovereignty` wired into both production node constructors (`fabric-node.ts`, `browser-node.ts`), safe default; a genuine replica holder refuses a direct sovereign dispatch over real RPC while still answering block requests (12-02, 12-04 criterion 4) |
 | AUTH-01 | Phase 17 — Node Identity & Enrollment | **Built, not wired** — requestEnrollment / EnrollmentAuthority have no production caller; a node identity is the raw libp2p peerId |
 | AUTH-02 | Phase 17 — Node Identity & Enrollment | **Built, not wired** — verifyCertificate is reachable only through discoverExecutors, which has no caller |
 | AUTH-03 | Phase 15 — Capability-Chained Dispatch | **Built, not wired** — RemoteExecutor sends no capability field and no node installs an authorizer — both ends missing |
