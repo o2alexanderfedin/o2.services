@@ -44,7 +44,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 6: Discovery, Placement & Enrollment** - The static peer list disappears; nodes find each other and choose placement under identity and diversity constraints
 - [x] **Phase 7: Churn, Stragglers & Coordinator Survival** - A job finishes correctly when the machines running it — including the submitter — vanish mid-flight
 - [x] **Phase 8: Benchmark Harness** - The scaling claim becomes a reproducible published number with its costs included rather than excluded
-- [ ] **Phase 9: Public Demo, Consent UX & Disclosure Gate** - A visitor consents, contributes to a job someone cares about, and nothing publishes without a deliberate human action
+- [x] **Phase 9: Public Demo, Consent UX & Disclosure Gate** - A visitor consents, contributes to a job someone cares about, and nothing publishes without a deliberate human action
 - [ ] **Phase 10: elfconv AOT Native→WASM Pipeline** - A statically-linked native binary becomes a fabric-executable artifact under the same admission checks and verification
 
 ## Phase Details
@@ -222,18 +222,21 @@ Parallel tracks (config `parallelization: true`):
 - Phase 9 (benchmark) runs alongside Phases 7-8 against the dispatch API frozen in Phase 6
 - Phase 11 (elfconv AOT) runs alongside everything from Phase 4 onward; it only needs Phase 5's signing infrastructure to land before its own exit
 
+<!-- "Plans Complete" is a dash throughout: this project executes phases directly
+     and records each in `phases/<name>/SUMMARY.md` rather than as numbered plans. -->
+
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Portable Kernel & Loopback Map Slice | 0/TBD | Not started | - |
-| 2. Real Network, Node ↔ Node | 0/TBD | Not started | - |
-| 3. Browser Tier & Backbone Relay | 0/TBD | Not started | - |
-| 4. Sovereignty, Authorization & Artifact Signing | 0/TBD | Not started | - |
-| 5. Decomposable Tree-Reduce | 0/TBD | Not started | - |
-| 6. Discovery, Placement & Enrollment | 0/TBD | Not started | - |
-| 7. Churn, Stragglers & Coordinator Survival | 0/TBD | Not started | - |
-| 8. Benchmark Harness | 0/TBD | Not started | - |
-| 9. Public Demo, Consent UX & Disclosure Gate | 0/TBD | Not started | - |
-| 10. elfconv AOT Native→WASM Pipeline | 0/TBD | Not started | - |
+| 1. Portable Kernel & Loopback Map Slice | — | Complete | 2026-07-24 |
+| 2. Real Network, Node ↔ Node | — | Complete | 2026-07-24 |
+| 3. Browser Tier & Backbone Relay | — | 5 of 6 criteria — real AutoTLS needs a publicly reachable host | 2026-07-26 |
+| 4. Sovereignty, Authorization & Artifact Signing | — | Complete | 2026-07-25 |
+| 5. Decomposable Tree-Reduce | — | Complete | 2026-07-25 |
+| 6. Discovery, Placement & Enrollment | — | Complete | 2026-07-26 |
+| 7. Churn, Stragglers & Coordinator Survival | — | Complete — adversarially reviewed, 5 defects fixed | 2026-07-26 |
+| 8. Benchmark Harness | — | 4 of 5 criteria — BENCH-06 distinct machines needs a second machine | 2026-07-26 |
+| 9. Public Demo, Consent UX & Disclosure Gate | — | Complete — the two-device run was done by the owner and found two defects | 2026-07-26 |
+| 10. elfconv AOT Native→WASM Pipeline | — | Not started | - |
 
 ## Requirement Coverage
 

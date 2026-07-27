@@ -9,6 +9,8 @@
     "node": ">=22"
   },
   "scripts": {
+    "aot:lift": "node --experimental-strip-types tools/aot/cli.ts",
+    "build:demo": "vite build --config packages/browser/vite.config.ts",
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit"
@@ -20,7 +22,8 @@
     "playwright": "^1.62.0",
     "typescript": "7.0.2",
     "vite": "8.1.5",
-    "vitest": "4.1.10"
+    "vitest": "4.1.10",
+    "wabt": "^1.0.39"
   },
   "overrides": {
     "multiformats": "14.0.5",

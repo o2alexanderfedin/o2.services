@@ -10,12 +10,16 @@ import { multiaddr } from '@multiformats/multiaddr'
 import { createLibp2p } from 'libp2p'
 import type { Libp2p } from '@libp2p/interface'
 import { afterEach, describe, expect, it } from 'vitest'
+import { submitJob } from '@o2/core'
+import { RemoteExecutor } from '@o2/net'
+// Test-only relative import — see the note in packages/net/src/distributed.test.ts.
+import { MODULE_WRITES_PARTITION } from '../../core/src/executor/fixtures.ts'
 import {
   RELAY_DATA_LIMIT_BYTES,
   RELAY_DURATION_LIMIT_MS,
   RELAY_MAX_RESERVATIONS,
 } from '@o2/libp2p'
-import { RelayNode } from './relay-node.ts'
+import { FabricNode } from './fabric-node.ts'
 import {
   RESERVATION_FAILURE_PREFIX,
   ReservationWatcher,
@@ -24,10 +28,33 @@ import {
 } from './reservation-watch.ts'
 
 /**
- * NET-03 / NET-05 — the backbone relay, and exhaustion reported by name.
+ * NET-03 / NET-05 — relaying as a capability, and exhaustion reported by name.
+ *
+ * The subject is a *node that also relays*, not "a relay". There is no relay class
+ * to test: `FabricNode` turns the circuit-relay service on when it has bound an
+ * address others can reach, and every one of those nodes executes tasks too. The
+ * first two tests in the last block are what hold that — remove `serveAgent` from
+ * the construction path, or the relay service from it, and one of them fails.
  */
 
 const started: { stop(): void | Promise<void> }[] = []
+
+/**
+ * A node that can relay, which here means only: one that bound a real address.
+ *
+ * No flag is passed and none exists. `FabricNode` reads the listen list — that is
+ * the whole of the mechanism, and asserting against a node built this way is how
+ * these tests stay honest about it. WebSockets because that is what a browser can
+ * dial, and because the previous `RelayNode.start()` defaulted to it silently.
+ */
+async function relayingNode(
+  options: { maxReservations?: number } = {},
+): Promise<FabricNode> {
+  return FabricNode.start({
+    listen: ['/ip4/127.0.0.1/tcp/0/ws'],
+    ...options,
+  })
+}
 
 /**
  * A peer that wants a relay reservation.
@@ -69,9 +96,9 @@ afterEach(async () => {
   }))
 })
 
-describe('NET-03 — the relay presents a browser-dialable address', () => {
+describe('NET-03 — a listening node presents a browser-dialable address', () => {
   it('listens on WebSockets, which is one of the three things a browser can dial', async () => {
-    const relay = await RelayNode.start()
+    const relay = await relayingNode()
     started.push(relay)
 
     expect(relay.multiaddrs.length).toBeGreaterThan(0)
@@ -87,22 +114,22 @@ describe('NET-03 — the relay presents a browser-dialable address', () => {
     // Criterion 2's testable half. A hardcoded certhash expires with the
     // certificate, so a demo recorded today stops joining a fortnight later.
     // Addresses must be produced at runtime, as they are here.
-    const relay = await RelayNode.start()
+    const relay = await relayingNode()
     started.push(relay)
     for (const address of relay.multiaddrs) {
       expect(address).not.toContain('/certhash/')
     }
 
-    const source = readFileSync(new URL('./relay-node.ts', import.meta.url), 'utf8')
+    const source = readFileSync(new URL('./fabric-node.ts', import.meta.url), 'utf8')
     // Mentioned in prose is fine; a literal multiaddr fragment is not.
     expect(source).not.toMatch(/['"`][^'"`]*\/certhash\/[^'"`]*['"`]/)
   }, 30_000)
 
   it('defaults to libp2p’s own documented limits', async () => {
-    const relay = await RelayNode.start()
+    const relay = await relayingNode()
     started.push(relay)
     expect(relay.capacity.limit).toBe(RELAY_MAX_RESERVATIONS)
-    // Sanity: the constants module and the relay agree on what is being tuned.
+    // Sanity: the constants module and the node agree on what is being tuned.
     expect(RELAY_DURATION_LIMIT_MS).toBe(120_000)
     expect(RELAY_DATA_LIMIT_BYTES).toBe(131_072n)
   }, 30_000)
@@ -162,7 +189,7 @@ describe('NET-05 — exhaustion is reported by name', () => {
   })
 
   it('grants up to the limit and reports itself at capacity', async () => {
-    const relay = await RelayNode.start({ maxReservations: 1 })
+    const relay = await relayingNode({ maxReservations: 1 })
     started.push(relay)
     const address = relay.browserDialableAddrs[0]!
 
@@ -182,7 +209,7 @@ describe('NET-05 — exhaustion is reported by name', () => {
   }, 60_000)
 
   it('tells the joining node it is full, distinguishably from being unreachable', async () => {
-    const relay = await RelayNode.start({ maxReservations: 1 })
+    const relay = await relayingNode({ maxReservations: 1 })
     started.push(relay)
     const address = relay.browserDialableAddrs[0]!
 
@@ -213,14 +240,14 @@ describe('NET-05 — exhaustion is reported by name', () => {
     // Raising maxReservations without raising these leaves the extra capacity
     // unreachable: a burst of joins is rejected mid-handshake, and the dialer sees
     // an EncryptionFailedError that reads like a network fault.
-    const relay = await RelayNode.start({ maxReservations: 40 })
+    const relay = await relayingNode({ maxReservations: 40 })
     started.push(relay)
     expect(relay.maxIncomingPendingConnections).toBe(40)
     expect(relay.inboundConnectionThreshold).toBe(40)
   }, 30_000)
 
   it('never lowers an inbound limit below libp2p’s own default', async () => {
-    const relay = await RelayNode.start({ maxReservations: 2 })
+    const relay = await relayingNode({ maxReservations: 2 })
     started.push(relay)
     expect(relay.maxIncomingPendingConnections).toBe(10)
     expect(relay.inboundConnectionThreshold).toBe(5)
@@ -229,10 +256,115 @@ describe('NET-05 — exhaustion is reported by name', () => {
   it('reports capacity for a raised limit, the tuning the browser tier needs', async () => {
     // 16+ simultaneous browser peers is criterion 3's target, which the default 15
     // cannot serve. Confirms the limit is actually applied rather than ignored.
-    const relay = await RelayNode.start({ maxReservations: 64 })
+    const relay = await relayingNode({ maxReservations: 64 })
     started.push(relay)
     expect(relay.capacity.limit).toBe(64)
     expect(relay.capacity.remaining).toBe(64)
     expect(relay.capacity.atCapacity).toBe(false)
   }, 30_000)
+})
+
+/**
+ * The standing rule, pinned in one place.
+ *
+ * All nodes have equal functionality. There is no tier, no class, no lesser node.
+ * The only difference is discovery: a browser binds no listening socket, so it
+ * cannot be a seed a newcomer dials cold and must be found through a peer that can.
+ * Once connected, peers are indistinguishable.
+ *
+ * These two tests are the mechanism that keeps that true rather than asserted. The
+ * class this file used to test — `RelayNode` — constructed no blockstore, no
+ * executor and no `RpcEndpoint`, and never called `serveAgent`, so it could not run
+ * a task at all. Every test in it passed. The gap showed up only in a running demo
+ * reporting "2 compute peers of 3 connections", with nothing able to say why.
+ */
+describe('the rule: relaying and executing are the same node', () => {
+  it('runs a task dispatched to it while holding somebody’s reservation', async () => {
+    const both = await relayingNode({ maxReservations: 4 })
+    started.push(both)
+    const address = both.browserDialableAddrs[0]!
+
+    // A peer in the browser's position: no address of its own, reachable only
+    // through `both`.
+    const guest = await FabricNode.start({
+      listen: [],
+      relayAddrs: [address],
+      rpcTimeoutMs: 30_000,
+    })
+    started.push(guest)
+    await until(() => both.capacity.granted === 1, 30_000, 'the reservation')
+
+    // Only the guest holds the module; the relaying node must pull it over the same
+    // connection it is carrying a circuit on.
+    const moduleCid = await guest.store.put(MODULE_WRITES_PARTITION)
+    const result = await submitJob(
+      {
+        moduleCid,
+        shards: [{ a: 0 }, { a: 1 }],
+        executors: [new RemoteExecutor(both.peerId, guest.rpc)],
+        redundancy: 1,
+      },
+      guest.store,
+    )
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.job.complete).toBe(true)
+    // Named, so this cannot pass by the guest quietly executing its own shards.
+    for (const shard of result.job.shards) {
+      expect(shard.verification.status).toBe('agreed')
+      if (shard.verification.status !== 'agreed') continue
+      expect(shard.verification.agreeing).toEqual([both.peerId])
+    }
+
+    // And it was relaying throughout — not "relayed once, then became a worker".
+    expect(both.relays).toBe(true)
+    expect(both.capacity.granted).toBe(1)
+    expect(both.reservedPeerIds).toContain(guest.peerId)
+  }, 90_000)
+
+  it('offers no relay service when it has no address of its own, and still computes', async () => {
+    const host = await relayingNode({ maxReservations: 4 })
+    started.push(host)
+
+    const guest = await FabricNode.start({
+      listen: [],
+      relayAddrs: [host.browserDialableAddrs[0]!],
+      rpcTimeoutMs: 30_000,
+    })
+    started.push(guest)
+    await until(() => guest.circuitAddrs.length > 0, 30_000, 'a circuit address')
+
+    // The mirror of the rule. A node reachable only through somebody else cannot
+    // carry a stranger's handshake, so it does not advertise that it can — and this
+    // is derived from the listen list, never declared, which is why there is no
+    // option here to have set wrongly.
+    expect(guest.relays).toBe(false)
+    expect(guest.libp2p.services['relay']).toBeUndefined()
+    expect(guest.capacity).toEqual({ granted: 0, limit: 0, remaining: 0, atCapacity: true })
+    expect(guest.reservedPeerIds).toEqual([])
+
+    // Not a lesser node. It executes exactly what the listening one executes,
+    // dispatched over the connection it opened.
+    await until(() => host.transport.peers.includes(guest.peerId), 30_000, 'the peer to appear')
+    const moduleCid = await host.store.put(MODULE_WRITES_PARTITION)
+    const result = await submitJob(
+      {
+        moduleCid,
+        shards: [{ a: 0 }, { a: 1 }],
+        executors: [new RemoteExecutor(guest.peerId, host.rpc)],
+        redundancy: 1,
+      },
+      host.store,
+    )
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.job.complete).toBe(true)
+    for (const shard of result.job.shards) {
+      expect(shard.verification.status).toBe('agreed')
+      if (shard.verification.status !== 'agreed') continue
+      expect(shard.verification.agreeing).toEqual([guest.peerId])
+    }
+  }, 90_000)
 })

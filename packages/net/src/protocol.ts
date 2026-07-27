@@ -1,10 +1,24 @@
 /**
- * The agent wire protocol — five request kinds, nothing more.
+ * The agent wire protocol — seven request kinds, nothing more.
  *
  * `exec` dispatches one task; `block` fetches one content-addressed block. That
  * is the entire vocabulary needed to run a distributed map: a task is addressed
  * purely by CID, so a node that has never seen a module or an input can obtain
  * both by asking, and needs no payload pushed to it.
+ *
+ * Phase 9 adds `reservations`, which is the rendezvous a browser tier cannot do
+ * without. A browser binds no listening socket — the only difference between nodes
+ * here — so no tab can be dialled cold and none of them will ever announce itself.
+ * Somebody has to say who is present, and the node holding their reservations
+ * already knows as a consequence of doing its job. Asking over the fabric's own
+ * protocol rather than over an HTTP endpoint is what makes this work on a static
+ * host, where there is no origin to ask and no server-side process permitted.
+ *
+ * Phase 9 also adds `report`, which both publishes a start outcome and returns what
+ * the answering node has been told (BROW-02). One round trip does both because a node
+ * that can reach a peer to publish can read in the same breath, and a node that
+ * cannot do the first cannot do the second either — the failure is shared, which is
+ * the blind spot the report itself has to state.
  *
  * Phase 6 adds the three that remove the static peer list. `providers` and
  * `records` are the two halves of a lookup — who holds a block, and what a node is
@@ -22,6 +36,7 @@
  */
 
 import { CID } from 'multiformats/cid'
+import { START_FAILURES } from '@o2/core'
 import type {
   CanonicalValue,
   CapabilityRecord,
@@ -30,7 +45,10 @@ import type {
   ExecutionOutcome,
   NodeCertificate,
   NodeRecords,
+  OutcomeCount,
   PublicKeyHex,
+  StartFailure,
+  StartOutcome,
   Task,
 } from '@o2/core'
 
@@ -48,6 +66,22 @@ export type AgentRequest =
   | { readonly kind: 'records'; readonly nodeKey: PublicKeyHex }
   /** SCHED-03: will you take this shard? */
   | { readonly kind: 'offer'; readonly shardId: string }
+  /** NET-03: who else is reserved on you? The rendezvous a browser cannot do itself. */
+  | { readonly kind: 'reservations' }
+  /**
+   * BROW-02: here is how starting went for me; what have you been told?
+   *
+   * `outcome: null` asks without telling — the shape a page uses to display an
+   * aggregate for a visitor who declined to be counted. Declining to report is
+   * therefore not declining to *see*, which is the difference between an optional
+   * measurement and a paywalled one.
+   */
+  | {
+      readonly kind: 'report'
+      readonly outcome: StartOutcome | null
+      /** Visitors this node knows declined to be counted. */
+      readonly declined?: number
+    }
 
 export type AgentResponse =
   | { readonly kind: 'exec'; readonly outcome: ExecutionOutcome }
@@ -57,6 +91,24 @@ export type AgentResponse =
   /** `records: null` means "I hold none for that key", which is not an error. */
   | { readonly kind: 'records'; readonly records: NodeRecords | null }
   | { readonly kind: 'offer'; readonly accepted: boolean; readonly reason: string }
+  /**
+   * Peer ids currently holding a reservation on the answering node.
+   *
+   * Empty from a node that relays for nobody, which is a truthful answer and not an
+   * error — and is indistinguishable, deliberately, from a node that does not relay
+   * at all. There is no capability flag to read here, because a flag would be a
+   * kind to branch on.
+   */
+  | { readonly kind: 'reservations'; readonly peerIds: readonly string[] }
+  /**
+   * The counts, never a rendered report.
+   *
+   * Rates, reliability flags and blind spots are all derived by the reader from
+   * these primitives. A peer therefore has no field in which to send a report with
+   * its blind spots stripped out — the honest part is not transmissible, so it
+   * cannot be lost in transmission.
+   */
+  | { readonly kind: 'report'; readonly counts: readonly OutcomeCount[]; readonly declined: number }
   | { readonly kind: 'error'; readonly reason: string }
 
 /** Copy any byte view into a plainly-owned ArrayBuffer-backed one. */
@@ -167,6 +219,39 @@ function parseCapabilities(value: CanonicalValue | undefined): CapabilityRecord 
   return { nodeKey, features, sovereignFor, issuedAt, expiresAt, signature }
 }
 
+/** A start result off the wire, or `null` if it is not one this build knows. */
+function asStartResult(value: CanonicalValue | undefined): 'started' | StartFailure | null {
+  if (typeof value !== 'string') return null
+  if (value === 'started') return 'started'
+  const known = START_FAILURES.find((failure) => failure === value)
+  return known ?? null
+}
+
+/**
+ * Parse the compact counts.
+ *
+ * An unrecognised result string drops that entry rather than the whole frame: a
+ * newer peer naming a cause this build has never heard of is a peer worth talking
+ * to, and refusing the frame would make the metric go dark exactly when the fabric
+ * is most heterogeneous. Malformed *counts* are a different matter and are dropped
+ * too — a negative one would let a peer erase another's evidence.
+ */
+function parseCounts(value: CanonicalValue | undefined): readonly OutcomeCount[] | null {
+  if (!Array.isArray(value)) return null
+  const counts: OutcomeCount[] = []
+  for (const entry of value) {
+    const record = asRecord(entry)
+    if (record === null) return null
+    const browser = record['browser']
+    const result = asStartResult(record['result'])
+    const count = asIndex(record['count'])
+    if (typeof browser !== 'string' || count === null || count === 0) continue
+    if (result === null) continue
+    counts.push({ browser, result, count })
+  }
+  return counts
+}
+
 export function encodeRequest(request: AgentRequest): CanonicalValue {
   if (request.kind === 'block') {
     return { kind: 'block', cid: request.cid }
@@ -179,6 +264,20 @@ export function encodeRequest(request: AgentRequest): CanonicalValue {
   }
   if (request.kind === 'offer') {
     return { kind: 'offer', shardId: request.shardId }
+  }
+  if (request.kind === 'reservations') {
+    return { kind: 'reservations' }
+  }
+  if (request.kind === 'report') {
+    const declined = request.declined ?? 0
+    if (request.outcome === null) return { kind: 'report', declined }
+    return {
+      kind: 'report',
+      declined,
+      browser: request.outcome.browser,
+      result:
+        request.outcome.result.kind === 'started' ? 'started' : request.outcome.result.cause,
+    }
   }
   const { task } = request
   const base: { readonly [k: string]: CanonicalValue } = {
@@ -250,6 +349,29 @@ export function parseRequest(body: CanonicalValue): AgentRequest | null {
     return { kind: 'offer', shardId }
   }
 
+  if (record['kind'] === 'reservations') {
+    return { kind: 'reservations' }
+  }
+
+  if (record['kind'] === 'report') {
+    const declined = asIndex(record['declined']) ?? 0
+    const browser = record['browser']
+    const result = asStartResult(record['result'])
+    // Both halves or neither. A browser with no result, or a result with no
+    // browser, is a report that could only be filed under a guess.
+    if (typeof browser !== 'string' || result === null) {
+      return { kind: 'report', outcome: null, declined }
+    }
+    return {
+      kind: 'report',
+      outcome: {
+        browser,
+        result: result === 'started' ? { kind: 'started' } : { kind: 'failed', cause: result },
+      },
+      declined,
+    }
+  }
+
   if (record['kind'] !== 'exec') return null
   const moduleCid = CID.asCID(record['moduleCid'] ?? null)
   const inputCid = CID.asCID(record['inputCid'] ?? null)
@@ -297,6 +419,18 @@ export function encodeResponse(response: AgentResponse): CanonicalValue {
           }
     case 'offer':
       return { kind: 'offer', accepted: response.accepted, reason: response.reason }
+    case 'reservations':
+      return { kind: 'reservations', peerIds: [...response.peerIds] }
+    case 'report':
+      return {
+        kind: 'report',
+        declined: response.declined,
+        counts: response.counts.map((entry) => ({
+          browser: entry.browser,
+          result: entry.result,
+          count: entry.count,
+        })),
+      }
     case 'exec':
       return response.outcome.ok
         ? {
@@ -343,6 +477,16 @@ export function parseResponse(body: CanonicalValue): AgentResponse | null {
       const reason = record['reason']
       if (typeof accepted !== 'boolean') return null
       return { kind: 'offer', accepted, reason: typeof reason === 'string' ? reason : '' }
+    }
+    case 'reservations': {
+      const peerIds = asKeyList(record['peerIds'])
+      if (peerIds === null) return null
+      return { kind: 'reservations', peerIds }
+    }
+    case 'report': {
+      const counts = parseCounts(record['counts'])
+      if (counts === null) return null
+      return { kind: 'report', counts, declined: asIndex(record['declined']) ?? 0 }
     }
     case 'exec': {
       if (record['ok'] === true) {

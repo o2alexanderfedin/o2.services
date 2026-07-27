@@ -6,7 +6,7 @@ import type { ViteDevServer } from 'vite'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 // Test-only relative import — see the note in packages/net/src/distributed.test.ts.
 import { MODULE_WRITES_PARTITION } from '../../core/src/executor/fixtures.ts'
-import { RelayNode } from './relay-node.ts'
+import { FabricNode } from './fabric-node.ts'
 
 /**
  * BROW-03 / BROW-05 — criterion 6.
@@ -39,7 +39,7 @@ import { RelayNode } from './relay-node.ts'
 const ROOT = fileURLToPath(new URL('../../..', import.meta.url))
 const PAGE = 'packages/browser/demo/index.html'
 
-let relay: RelayNode
+let relay: FabricNode
 let relayAddr: string
 let server: ViteDevServer
 let browser: Browser
@@ -55,14 +55,19 @@ async function openPage(name: string): Promise<Page> {
   await page.goto(`${baseUrl}${PAGE}`)
   await page.waitForFunction(() => typeof window.o2 !== 'undefined', null, { timeout: 30_000 })
   await page.evaluate(
-    async ([address, store]) => window.o2.start({ relayAddrs: [address!], blockstoreName: store! }),
+    async ([address, store]) => {
+      // BROW-01 has no test-only bypass: a harness consents for the same reason a
+      // visitor clicks the button.
+      window.o2.grantConsent()
+      return window.o2.start({ relayAddrs: [address!], blockstoreName: store! })
+    },
     [relayAddr, `o2-bg-${name}`],
   )
   return page
 }
 
 beforeAll(async () => {
-  relay = await RelayNode.start({ maxReservations: 16, listen: ['/ip4/127.0.0.1/tcp/0/ws'] })
+  relay = await FabricNode.start({ maxReservations: 16, listen: ['/ip4/127.0.0.1/tcp/0/ws'] })
   const address = relay.browserDialableAddrs[0]
   if (address === undefined) throw new Error('relay produced no browser-dialable address')
   relayAddr = address
@@ -100,7 +105,12 @@ describe('BROW-05 — runs on a page with no COOP/COEP', () => {
 
     await page.waitForFunction(() => typeof window.o2 !== 'undefined', null, { timeout: 30_000 })
     await page.evaluate(
-      async ([address, store]) => window.o2.start({ relayAddrs: [address!], blockstoreName: store! }),
+      async ([address, store]) => {
+      // BROW-01 has no test-only bypass: a harness consents for the same reason a
+      // visitor clicks the button.
+      window.o2.grantConsent()
+      return window.o2.start({ relayAddrs: [address!], blockstoreName: store! })
+    },
       [relayAddr, 'o2-bg-iso2'],
     )
 

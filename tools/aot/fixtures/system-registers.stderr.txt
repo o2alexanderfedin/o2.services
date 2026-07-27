@@ -1,0 +1,39 @@
+Setting up EMSDK environment (suppress these messages with EMSDK_QUIET=1)
+Adding directories to PATH:
+PATH += /root/emsdk
+PATH += /root/emsdk/upstream/emscripten
+PATH += /root/emsdk/node/20.18.0_64bit/bin
+
+Setting environment variables:
+PATH = /root/emsdk:/root/emsdk/upstream/emscripten:/root/emsdk/node/20.18.0_64bit/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+EMSDK = /root/emsdk
+EMSDK_NODE = /root/emsdk/node/20.18.0_64bit/bin/node
+E20260727 06:40:33.654630 281472948068384 Arch.cpp:4196] Unrecognized system register c080 with op0=3, op1=0, crn=1, crm=0, op2=0, bits.name=0xc080
+E20260727 06:40:33.655077 281472948068384 Arch.cpp:4196] Unrecognized system register c030 with op0=3, op1=0, crn=0, crm=6, op2=0, bits.name=0xc030
+E20260727 06:40:33.655107 281472948068384 Arch.cpp:4196] Unrecognized system register c684 with op0=3, op1=0, crn=d, crm=0, op2=4, bits.name=0xc684
+clang++: warning: argument unused during compilation: '-I /root/elfconv/backend/remill/include' [-Wunused-command-line-argument]
+clang++: warning: argument unused during compilation: '-I /root/elfconv' [-Wunused-command-line-argument]
+warning: overriding the module target triple with wasm32-unknown-wasi [-Woverride-module]
+1 warning generated.
+In file included from /root/elfconv/runtime/Entry.cpp:10:
+/root/elfconv/backend/remill/include/remill/Arch/Runtime/Intrinsics.h:270:39: warning: 'const' attribute on function returning 'void'; attribute ignored [-Wignored-attributes]
+  270 | [[gnu::used, gnu::const]] extern void __remill_write_io_port_8(RuntimeManager *, addr_t, uint8_t);
+      |                                       ^
+/root/elfconv/backend/remill/include/remill/Arch/Runtime/Intrinsics.h:272:39: warning: 'const' attribute on function returning 'void'; attribute ignored [-Wignored-attributes]
+  272 | [[gnu::used, gnu::const]] extern void __remill_write_io_port_16(RuntimeManager *, addr_t, uint16_t);
+      |                                       ^
+/root/elfconv/backend/remill/include/remill/Arch/Runtime/Intrinsics.h:274:39: warning: 'const' attribute on function returning 'void'; attribute ignored [-Wignored-attributes]
+  274 | [[gnu::used, gnu::const]] extern void __remill_write_io_port_32(RuntimeManager *, addr_t, uint32_t);
+      |                                       ^
+3 warnings generated.
+In file included from /root/elfconv/runtime/VmIntrinsics.cpp:20:
+/root/elfconv/backend/remill/include/remill/Arch/Runtime/Intrinsics.h:270:39: warning: 'const' attribute on function returning 'void'; attribute ignored [-Wignored-attributes]
+  270 | [[gnu::used, gnu::const]] extern void __remill_write_io_port_8(RuntimeManager *, addr_t, uint8_t);
+      |                                       ^
+/root/elfconv/backend/remill/include/remill/Arch/Runtime/Intrinsics.h:272:39: warning: 'const' attribute on function returning 'void'; attribute ignored [-Wignored-attributes]
+  272 | [[gnu::used, gnu::const]] extern void __remill_write_io_port_16(RuntimeManager *, addr_t, uint16_t);
+      |                                       ^
+/root/elfconv/backend/remill/include/remill/Arch/Runtime/Intrinsics.h:274:39: warning: 'const' attribute on function returning 'void'; attribute ignored [-Wignored-attributes]
+  274 | [[gnu::used, gnu::const]] extern void __remill_write_io_port_32(RuntimeManager *, addr_t, uint32_t);
+      |                                       ^
+3 warnings generated.
