@@ -2,15 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Wire What Was Built
-status: planning
-last_updated: "2026-07-27T13:19:57.761Z"
+status: verifying
+stopped_at: Phase 11 complete — serveAgent's six hooks required, both proof guards mutation-tested, 115 test files / 1690 tests passing, tsc clean.
+last_updated: "2026-07-27T17:27:17.942Z"
 last_activity: 2026-07-27
 progress:
   total_phases: 12
-  completed_phases: 0
-  total_plans: 0
-  completed_plans: 0
-  percent: 0
+  completed_phases: 1
+  total_plans: 1
+  completed_plans: 1
+  percent: 8
 ---
 
 # Project State
@@ -20,15 +21,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-07-27)
 
 **Core value:** Usable capacity grows super-linearly with the user base, without any raw data leaving its owner's device.
-**Current focus:** v1.1 — wire what v1.0 built. Four phases of tested mechanism that no
-runnable entry point reaches.
+**Current focus:** Phase 11 — Explicit serveAgent Hook Contract
 
 ## Current Position
 
-Phase: Not started (defining requirements)
-Plan: —
-Status: Defining requirements
-Last activity: 2026-07-27 — Milestone v1.1 started
+Phase: 11 (Explicit serveAgent Hook Contract) — COMPLETE
+Plan: 1 of 1
+Status: Phase complete — ready for verification
+Last activity: 2026-07-27
 
 ### v1.0 carried forward, unarchived
 
@@ -197,6 +197,7 @@ carrying only SDP. Remaining: real AutoTLS, which needs a publicly reachable hos
 - Trend: —
 
 *Updated after each plan completion*
+| Phase 11 P01 | 13min | 3 tasks | 13 files |
 
 ## Accumulated Context
 
@@ -422,6 +423,8 @@ Recent decisions affecting current work:
   setting `display` outranks the browser's own `[hidden]`, so `getAttribute` was
   right while the element was visible. `isVisible`, always.
 
+- [Phase 11]: A hook's absence is a value the call site writes (named sentinel literal), never an omission the type system tolerates — same shape as Phase 9's GrantedConsent. — AgentOptions's six hooks moved from optional to required unions with sentinel literals, closing the hole where an omitted hook silently defaulted to allow/empty/accept and made no fact recordable.
+
 ### Pending Todos
 
 None yet.
@@ -470,8 +473,8 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-07-26
-Stopped at: **Phase 9 complete — 4 of 5 criteria.** 1114 tests green across node,
+Last session: 2026-07-27T17:27:17.931Z
+Stopped at: Phase 11 complete — serveAgent's six hooks required, both proof guards mutation-tested, 115 test files / 1690 tests passing, tsc clean.
 browser and e2e; `tsc --noEmit` clean; 64/72 requirements. See
 `phases/phase-9-public-demo/SUMMARY.md` and `09-VERIFICATION.md`.
 Next unit: **Phase 10 — elfconv AOT native→WASM pipeline**, the parallel track.
@@ -487,7 +490,7 @@ literally always visible (an id `display` rule outranks `[hidden]`, and the test
 asserted the attribute rather than the screen), and a peer filter that matched the
 relay's own id inside every circuit address, so two devices on one relay skipped
 every candidate and never heard of each other. Both fixed and now tested.
-Resume file: `.planning/.continue-here.md` — leads with three blocking constraints
+Resume file: None
 (no static determinism analysis, no cross-implementation verification, no host-import
 allow-list). Still current; they apply to every later phase.
 

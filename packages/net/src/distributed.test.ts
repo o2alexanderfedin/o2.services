@@ -50,6 +50,12 @@ async function twoNodeFabric(options: { readonly workers: number } = { workers: 
     rpc: originRpc,
     executor: new WasmExecutor({ nodeId: 'origin', blockstore: originStore }),
     blockstore: originStore,
+    authorize: 'serves-unauthenticated',
+    index: 'serves-no-records',
+    capacity: 'accepts-every-offer',
+    ledger: 'keeps-no-ledger',
+    reservations: 'relays-for-nobody',
+    onDispatch: 'reports-no-dispatch',
   })
 
   const workers: { id: string; rpc: RpcEndpoint; store: FetchingBlockstore }[] = []
@@ -62,7 +68,17 @@ async function twoNodeFabric(options: { readonly workers: number } = { workers: 
       new MemoryBlockstore(),
       new RpcBlockSource(rpc, () => ['origin']),
     )
-    serveAgent({ rpc, executor: new WasmExecutor({ nodeId: id, blockstore: store }), blockstore: store })
+    serveAgent({
+      rpc,
+      executor: new WasmExecutor({ nodeId: id, blockstore: store }),
+      blockstore: store,
+      authorize: 'serves-unauthenticated',
+      index: 'serves-no-records',
+      capacity: 'accepts-every-offer',
+      ledger: 'keeps-no-ledger',
+      reservations: 'relays-for-nobody',
+      onDispatch: 'reports-no-dispatch',
+    })
     workers.push({ id, rpc, store })
   }
 
@@ -421,6 +437,11 @@ describe('AUTH-03 — a task is refused before the module is instantiated', () =
       blockstore: store,
       authorize: ({ capability }) =>
         capability.length === 0 ? 'no capability chain supplied' : null,
+      index: 'serves-no-records',
+      capacity: 'accepts-every-offer',
+      ledger: 'keeps-no-ledger',
+      reservations: 'relays-for-nobody',
+      onDispatch: 'reports-no-dispatch',
     })
 
     const callerRpc = new RpcEndpoint(network.connect('caller'), { timeoutMs: 5_000 })
@@ -456,6 +477,11 @@ describe('AUTH-03 — a task is refused before the module is instantiated', () =
       executor: new WasmExecutor({ nodeId: 'w0', blockstore: store }),
       blockstore: store,
       authorize: () => null,
+      index: 'serves-no-records',
+      capacity: 'accepts-every-offer',
+      ledger: 'keeps-no-ledger',
+      reservations: 'relays-for-nobody',
+      onDispatch: 'reports-no-dispatch',
     })
 
     const callerRpc = new RpcEndpoint(network.connect('caller'), { timeoutMs: 5_000 })

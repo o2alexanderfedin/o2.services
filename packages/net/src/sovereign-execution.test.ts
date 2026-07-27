@@ -103,7 +103,12 @@ async function ownerFabric(options: { module: Uint8Array<ArrayBuffer>; ownerNode
     rpc: seedRpc,
     executor: new WasmExecutor({ nodeId: SEED, blockstore: seedStore }),
     blockstore: seedStore,
+    authorize: 'serves-unauthenticated',
     index,
+    capacity: 'accepts-every-offer',
+    ledger: 'keeps-no-ledger',
+    reservations: 'relays-for-nobody',
+    onDispatch: 'reports-no-dispatch',
   })
 
   const certificates: NodeCertificate[] = []
@@ -140,7 +145,17 @@ async function ownerFabric(options: { module: Uint8Array<ArrayBuffer>; ownerNode
     await local.put(sovereignBytes())
     const rpc = new RpcEndpoint(guard, { timeoutMs: 5_000 })
     const store = new FetchingBlockstore(local, new RpcBlockSource(rpc, () => [SEED]))
-    serveAgent({ rpc, executor: new WasmExecutor({ nodeId, blockstore: store }), blockstore: store })
+    serveAgent({
+      rpc,
+      executor: new WasmExecutor({ nodeId, blockstore: store }),
+      blockstore: store,
+      authorize: 'serves-unauthenticated',
+      index: 'serves-no-records',
+      capacity: 'accepts-every-offer',
+      ledger: 'keeps-no-ledger',
+      reservations: 'relays-for-nobody',
+      onDispatch: 'reports-no-dispatch',
+    })
 
     index.provide(inputCid, nodeId)
     index.publish(records)
@@ -159,6 +174,12 @@ async function ownerFabric(options: { module: Uint8Array<ArrayBuffer>; ownerNode
     rpc: bobRpc,
     executor: new WasmExecutor({ nodeId: foreignKey, blockstore: bobStore }),
     blockstore: bobStore,
+    authorize: 'serves-unauthenticated',
+    index: 'serves-no-records',
+    capacity: 'accepts-every-offer',
+    ledger: 'keeps-no-ledger',
+    reservations: 'relays-for-nobody',
+    onDispatch: 'reports-no-dispatch',
   })
   index.provide(inputCid, foreignKey)
   index.publish({

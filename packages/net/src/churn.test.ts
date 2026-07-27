@@ -64,6 +64,12 @@ async function fabricOf(nodeCount: number, module = MODULE_WRITES_PARTITION): Pr
     rpc: originRpc,
     executor: new WasmExecutor({ nodeId: 'origin', blockstore: originStore }),
     blockstore: originStore,
+    authorize: 'serves-unauthenticated',
+    index: 'serves-no-records',
+    capacity: 'accepts-every-offer',
+    ledger: 'keeps-no-ledger',
+    reservations: 'relays-for-nobody',
+    onDispatch: 'reports-no-dispatch',
   })
 
   const endpoints = new Map<string, RpcEndpoint>()
@@ -75,7 +81,17 @@ async function fabricOf(nodeCount: number, module = MODULE_WRITES_PARTITION): Pr
       new MemoryBlockstore(),
       new RpcBlockSource(rpc, () => ['origin']),
     )
-    serveAgent({ rpc, executor: new WasmExecutor({ nodeId, blockstore: store }), blockstore: store })
+    serveAgent({
+      rpc,
+      executor: new WasmExecutor({ nodeId, blockstore: store }),
+      blockstore: store,
+      authorize: 'serves-unauthenticated',
+      index: 'serves-no-records',
+      capacity: 'accepts-every-offer',
+      ledger: 'keeps-no-ledger',
+      reservations: 'relays-for-nobody',
+      onDispatch: 'reports-no-dispatch',
+    })
     endpoints.set(nodeId, rpc)
     nodes.push({ nodeId, ownerId: 'alice', canExecuteSovereign: true, load: 0 })
   }
