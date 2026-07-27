@@ -5,23 +5,52 @@
 See: .planning/PROJECT.md (updated 2026-07-24)
 
 **Core value:** Usable capacity grows super-linearly with the user base, without any raw data leaving its owner's device.
-**Current focus:** All ten phases executed. Two criteria remain, and both need
-hardware or hosting rather than code.
+**Current focus:** All ten phases executed — and the milestone audit found that four
+of them are wired to nothing. Next milestone is v1.1: wire what was built.
 
 ## Current Position
 
-Phase: 10 of 10 (elfconv AOT Native→WASM Pipeline) — **3 of 4 criteria**. Phases 1,
-2, 4, 5, 6, 7, 8, 9 complete; Phase 3 is 5/6 (real AutoTLS needs a public host).
+Phase: 10 of 10 (elfconv AOT Native→WASM Pipeline) — **3 of 4 criteria**. Phase 3 is
+5/6. Milestone audit status: **gaps_found**. Not archived.
 
 ```
-Test Files  111
-     Tests  1669
+Test Files  112
+     Tests  1673
 tsc --noEmit  clean
-Requirements  68 / 72
+Requirements  32 / 72 wired · 36 built-not-wired · 4 blocked on hardware or measured
 ```
 
-Progress: [██████████] 100% executed (9 of 10 phases fully met; Phase 3 at 5/6 and
-Phase 10 at 3/4, both blocked on hardware, hosting, or a measured negative)
+Progress: [██████████] 100% executed · [████░░░░░░] 44% wired
+
+**The ledger dropped from 68 to 32, and not because work was undone.** The v1.0
+milestone audit traced every requirement from the five runnable entry points —
+`bin/agent.ts`, `bin/seed.ts`, `bin/bench.ts`, `tools/aot/cli.ts`, the demo page — to
+the mechanism meant to satisfy it. For **36 requirements the trace does not arrive.**
+Sovereignty labelling, tree-reduce, discovery, enrollment, quorum composition,
+capability chains and the whole churn coordinator are implemented, exported and
+covered by their own specs, and nothing a person can run calls any of them.
+
+Verified symbol by symbol before recording: `runResilient`, `EgressGuard`,
+`translationCid`, `composeQuorum`, `discoverExecutors`, `executeReduce`,
+`requestEnrollment`, `signName` and `verifyChain` each appear only as their own
+definition, a barrel re-export, or a prose comment.
+
+**The structural cause is one shape.** `serveAgent` declares six optional hooks with
+silent defaults — `authorize` defaults to allow, `index` and `reservations` to empty,
+`capacity` to accept — and production supplies almost none. `ledger` is supplied
+nowhere at all, in production or in one test. A hook that defaults to "allow" turns an
+unwired capability into a working system that quietly does nothing, which is exactly
+why no test failed.
+
+**One of them was a live bug, and it is fixed.** Static-host peer rendezvous answered
+`[]` forever: `FabricNode.reservedPeerIds` held the right data and `serveAgent` was
+never given it. The failure signature was `{asked: true, dialed: [], failed: []}` —
+nothing attempted, nothing failed, no error — the same shape as the two-device defect
+found on hardware last session, one tier down. The LAN demo hid it because
+`SeedServer` reads that property in-process and never asks over the wire.
+`rendezvous-wire.node.test.ts` now starts three real nodes and requires two of them to
+find each other with nothing supplied by the harness; reverting the one-line fix fails
+it.
 
 Last activity: 2026-07-27 — Phase 10 closed. A statically-linked AArch64 binary is
 now a fabric artifact, lifted by a driver that **refuses to believe its toolchain**:
