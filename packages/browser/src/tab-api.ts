@@ -216,6 +216,19 @@ export interface TabApi {
    * available — which is the normal state on a static host with no relay configured.
    */
   discoverRelays(): Promise<{ source: 'query' | 'origin' | 'none'; relayAddrs: string[] }>
+  /**
+   * Dial every peer the origin says is here, that this tab is not already on.
+   *
+   * A browser binds no listening socket, so two tabs on one relay stay invisible to
+   * each other however long they wait — somebody has to say who is present, and the
+   * only node that can be dialled cold is the one serving this page. Idempotent, and
+   * safe to call on a timer: peers already connected are skipped.
+   *
+   * Returns nothing dialled on a static host, where there is no origin to ask. That
+   * is a real limitation of the static tier rather than a failure, and the caller
+   * can tell the difference from `asked`.
+   */
+  connectDiscoveredPeers(): Promise<{ asked: boolean; dialed: string[]; failed: string[] }>
   addresses(): TabAddresses
   /** Resolves once a relay reservation has produced a dialable `/webrtc` address. */
   waitForWebrtcAddr(timeoutMs: number): Promise<string[]>

@@ -53,6 +53,19 @@ export interface BootstrapInfo {
   readonly relayPeerId: string
   /** The seed's own compute node, so a lone phone still has a peer to work with. */
   readonly seedPeerId: string
+  /**
+   * Every browser currently reserved on the relay, as an address it can be dialled at.
+   *
+   * A browser cannot announce itself — it binds no listening socket, which is the
+   * only difference between nodes in this fabric. So the one node that *can* be
+   * dialled cold publishes who else is here, and each page dials the rest. The list
+   * is derived from the relay's live reservation store; the seed keeps no registry
+   * and grants no authority by holding it.
+   *
+   * Excludes nobody: a page filters its own address out, because only the page knows
+   * which one it is.
+   */
+  readonly peerAddrs: readonly string[]
 }
 
 export interface SeedServerOptions {
@@ -186,10 +199,16 @@ export class SeedServer {
                 // Derived from the Host header, so the client is told to dial the
                 // same name it already reached us by.
                 const host = request.headers.host ?? `127.0.0.1:${options.httpPort ?? 0}`
+                const relayAddr = relayAddrForHost(host, boundRelayPort, relayPeerId)
                 const info: BootstrapInfo = {
-                  relayAddrs: [relayAddrForHost(host, boundRelayPort, relayPeerId)],
+                  relayAddrs: [relayAddr],
                   relayPeerId,
                   seedPeerId,
+                  // Expressed through the same host the client reached us by, so a
+                  // phone on `laptop.local` is never handed a `127.0.0.1` circuit.
+                  peerAddrs: relay.reservedPeerIds.map(
+                    (peerId) => `${relayAddr}/p2p-circuit/webrtc/p2p/${peerId}`,
+                  ),
                 }
                 response.setHeader('content-type', 'application/json')
                 // A joining phone must never be handed a stale relay address.

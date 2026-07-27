@@ -197,3 +197,70 @@ describe('a second device joins knowing only the URL', () => {
     240_000,
   )
 })
+
+describe('two devices on one seed find each other with nobody dialling for them', () => {
+  it('publishes reserved peers and each page dials the rest', async () => {
+    // The gap this closes was found by running the demo on a phone and a laptop at
+    // once: both joined, both were addressable, and neither ever heard of the
+    // other. A browser binds no listening socket — the *only* difference between
+    // nodes in this fabric — so no tab can announce itself and none of them will
+    // ever be dialled cold. Somebody has to say who is present, and the one node
+    // that can be reached cold is the one serving the page.
+    //
+    // Deliberately no `window.o2.dial(...)` anywhere below. Every other multi-tab
+    // test in this repository dials from the harness, which is exactly why none of
+    // them caught this.
+    const first = await context.newPage()
+    const second = await context.newPage()
+    for (const [name, page] of [
+      ['peer-a', first],
+      ['peer-b', second],
+    ] as const) {
+      page.on('pageerror', (error) => {
+        process.stderr.write(`[${name}] page error: ${error.message}\n`)
+      })
+    }
+
+    const url = `http://127.0.0.1:${seed.httpPort}/packages/browser/demo/index.html`
+    const ids: string[] = []
+    for (const [i, page] of [first, second].entries()) {
+      await page.goto(url)
+      await page.waitForFunction(() => typeof window.o2 !== 'undefined', null, { timeout: 60_000 })
+      const joined = await page.evaluate(async (store) => {
+        window.o2.grantConsent()
+        return window.o2.autoStart({ blockstoreName: store })
+      }, `rendezvous-${i}`)
+      await page.evaluate(async () => window.o2.waitForWebrtcAddr(60_000))
+      ids.push(joined.peerId)
+    }
+    const [idA, idB] = ids as [string, string]
+    expect(idA).not.toBe(idB)
+    expect(seed.relay.reservedPeerIds).toEqual(expect.arrayContaining([idA, idB]))
+
+    // Each page asks the origin who is here and dials them. No harness involvement.
+    for (const page of [first, second]) {
+      const found = await page.evaluate(async () => window.o2.connectDiscoveredPeers())
+      expect(found.asked).toBe(true)
+      // Something was attempted. An empty `dialed` *and* an empty `failed` is the
+      // signature of the bug this test was written for: every candidate skipped by
+      // a filter, nothing tried, and no error anywhere to notice.
+      expect(found.dialed.length + found.failed.length).toBeGreaterThan(0)
+    }
+
+    const peersOfA = await first.evaluate(() => window.o2.peers())
+    const peersOfB = await second.evaluate(() => window.o2.peers())
+    expect(peersOfA.concat(peersOfB)).toContain(idB)
+
+    // And a page filters its own published address out rather than dialling itself.
+    expect(peersOfA).not.toContain(idA)
+    expect(peersOfB).not.toContain(idB)
+
+    // Calling again is a no-op: peers already connected are skipped, so a timer can
+    // drive this without accumulating duplicate connections.
+    const again = await first.evaluate(async () => window.o2.connectDiscoveredPeers())
+    expect(again.dialed).toEqual([])
+
+    await first.close()
+    await second.close()
+  }, 300_000)
+})

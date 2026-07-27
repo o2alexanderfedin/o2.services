@@ -91,7 +91,10 @@ export interface RelayCapacity {
 }
 
 interface RelayService {
-  readonly reservations: { readonly size: number }
+  readonly reservations: {
+    readonly size: number
+    keys(): IterableIterator<{ toString(): string }>
+  }
 }
 
 function hasReservations(value: unknown): value is RelayService {
@@ -100,7 +103,8 @@ function hasReservations(value: unknown): value is RelayService {
   return (
     candidate !== null &&
     typeof candidate === 'object' &&
-    typeof (candidate as { size?: unknown }).size === 'number'
+    typeof (candidate as { size?: unknown }).size === 'number' &&
+    typeof (candidate as { keys?: unknown }).keys === 'function'
   )
 }
 
@@ -203,6 +207,24 @@ export class RelayNode {
       remaining: Math.max(0, this.#limit - granted),
       atCapacity: granted >= this.#limit,
     }
+  }
+
+  /**
+   * Peer ids currently holding a reservation here.
+   *
+   * This is the whole of the rendezvous a LAN demo needs. Two browsers on the same
+   * relay are mutually dialable the moment each knows the other exists, and neither
+   * can announce itself — a browser binds no listening socket, which is the *only*
+   * difference between nodes in this fabric. The relay already holds the list as a
+   * consequence of doing its job; publishing it adds no state and no authority.
+   *
+   * Read from the live store on demand, for the same reason `capacity` is: libp2p
+   * declares a `relay:reservation` event and never dispatches it.
+   */
+  get reservedPeerIds(): readonly string[] {
+    const service: unknown = this.libp2p.services['relay']
+    if (!hasReservations(service)) return []
+    return [...service.reservations.keys()].map((peer) => peer.toString())
   }
 
   async stop(): Promise<void> {

@@ -113,6 +113,7 @@
       <dl id="facts"></dl>
 
       <p class="note" id="explain"></p>
+      <p class="note" id="peers"></p>
 
       <h2>The job</h2>
       <p class="note">
@@ -377,6 +378,25 @@
           : `REFUTED. ${verdict.violation} is all one colour.`
       })
 
+      const findPeers = async () => {
+        try {
+          const found = await window.o2.connectDiscoveredPeers()
+          if (!found.asked) {
+            $('peers').textContent =
+              'no peer directory on this host — open the page from a seed node to find others'
+            return
+          }
+          const peers = window.o2.peers().length
+          $('peers').textContent =
+            peers === 0
+              ? 'no other node here yet — open this URL on another device'
+              : `${peers} peer(s) connected` +
+                (found.dialed.length > 0 ? ` (just dialled ${found.dialed.length})` : '')
+        } catch (error) {
+          $('peers').textContent = error instanceof Error ? error.message : String(error)
+        }
+      }
+
       const refreshReport = async () => {
         const report = await window.o2.startReport()
         showReportOnly(
@@ -431,6 +451,10 @@
             explainEl.textContent =
               'Open this same URL in another tab or on another device and the two find ' +
               'each other over WebRTC. The relay only carries the handshake.'
+            await findPeers()
+            // Devices join at their own pace, so keep looking. A browser cannot be
+            // dialled cold, so nobody will announce themselves to this tab.
+            setInterval(findPeers, 4_000)
             await refreshReport()
           } catch (error) {
             setState(
