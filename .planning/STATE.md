@@ -5,26 +5,63 @@
 See: .planning/PROJECT.md (updated 2026-07-24)
 
 **Core value:** Usable capacity grows super-linearly with the user base, without any raw data leaving its owner's device.
-**Current focus:** Phase 9 — Public Demo, Consent UX & Disclosure Gate (not started)
+**Current focus:** Phase 10 — elfconv AOT Native→WASM Pipeline (not started)
 
 ## Current Position
 
-Phase: 8 of 10 (Benchmark Harness) — **complete, 4 of 5 criteria**; BENCH-06's
-distinct-machine half needs a second machine. Phases 1, 2, 4, 5, 6, 7, 8 complete;
-Phase 3 is 5/6 (real AutoTLS needs a public host). Next unit is Phase 9.
+Phase: 9 of 10 (Public Demo, Consent UX & Disclosure Gate) — **complete, 4 of 5
+criteria**; DEMO-01's multi-machine half was not run. Phases 1, 2, 4, 5, 6, 7, 8, 9
+complete; Phase 3 is 5/6 (real AutoTLS needs a public host). Next unit is Phase 10.
 
 ```
-Test Files  71 passed
-     Tests  801 passed
+Test Files  92 passed      node 574 · browser 513 · e2e 27
+     Tests  1114 passed
 tsc --noEmit  clean
-Requirements  58 / 72
+Requirements  64 / 72
 ```
 
-Progress: [███████░░░] 75% (7 of 10 complete; Phase 3 at 5/6, blocked only on hosting)
+Progress: [████████░░] 80% (8 of 10 complete; Phase 3 at 5/6, Phase 9 at 4/5, both
+blocked only on hardware or hosting)
 
-Last activity: 2026-07-26 — Phase 8 closed. The methodology was pre-registered in a
-commit containing no harness and no number; the numbers then came out as predicted,
-including the disappointing parts.
+Last activity: 2026-07-26 — Phase 9 closed. A visitor now consents before anything
+runs *or dials*, watches an unhideable bar naming whose work is on their machine,
+ends it with one click that kills the thread, and checks the fabric's answer in
+their own tab against a² + b² = c².
+
+### Where Phase 9 landed
+
+**Consent is a value, not a check.** `GrantedConsent` is minted only by
+`grantConsent`, and `start` takes one as a parameter — a caller without one does not
+fail a check, it fails to compile. No test-only bypass: the e2e harnesses consent
+for the same reason a visitor clicks the button.
+
+**Nothing touches the network before consent either.** Criterion 3 names CPU; the
+owner's decision went further, because "we spent no cycles" is not an answer to "you
+told a third party I was here". Proved by watching every request the tab makes.
+
+**Stopping had to become real before it could be claimed.** `WasmExecutor` ran on
+the main thread, where a synchronous `run()` cannot be interrupted — so "one click
+drops CPU to zero" meant "zero once the current task finishes". Tasks now run in a
+Worker; Stop calls `terminate()`. The probe that proves it is a bare `loop br 0`.
+
+**A guard caught the exact trap it was written for.** Replacing `terminate()` with
+a cooperative flag left every test green *except one* — the one that messages the
+thread directly, past the executor, and requires silence. Rejecting the pending
+promises makes a stop look instant while the thread keeps burning; resolving the
+caller and killing the worker are two different acts.
+
+**Ordering is what makes cubes worth having.** The colouring search first walled at
+n = 205 and no parallelism moved it: assigning values in increasing order means a
+cube fixes the *least* constrained numbers — 1 and 2 appear in no triple at all — so
+cubing split the work without splitting the difficulty. Ordering by constraint
+degree moves the wall with cube count: 1 cube → 300, 8 → 500, 256 → 600.
+
+**Chromium throttles timers hard in a tab that is not in front** — measured, a
+400 ms poll produced one tick per second. Anything the always-visible surface
+depends on is pushed, never polled. This bit twice in one phase.
+
+Numbers: 6 mutations planted, 6 caught. `verifyColouring` re-derives 484 triples at
+n = 600 and accepts in under a millisecond, trusting no node.
 
 ### Where Phase 8 landed
 
@@ -241,6 +278,32 @@ Recent decisions affecting current work:
 - **Wire framing is uniform across transports (Phase 2).** One stream per message, completion signalled by the sender closing its write end — so no length prefix and no framing state machine. Chunked at 16 KiB with `runOnLimitedConnection: true` even on TCP, so the same path survives relaying in Phase 3.
 - Part I (elfconv AOT) sequenced last and run as a parallel track; it must not block the capacity-scaling thesis.
 
+- **Consent is a value, not a check (Phase 9).** `GrantedConsent` is minted only by
+  `grantConsent` and `start` takes one, so "check consent before starting" is not a
+  rule anyone has to remember. The obvious `if (hasConsent())` is exactly the shape
+  that has failed twice here — a documented bound nothing enforced.
+- **A stop that resolves the caller is not a stop (Phase 9).** Rejecting pending
+  promises makes termination look instant while the thread keeps burning. Only a
+  test that messages the thread directly, past the executor, can tell them apart.
+- **Cooperative stopping cannot exist for WASM (Phase 9).** A synchronous `run()`
+  admits no flag, no duty cycle and no governor. Off-main-thread execution is not an
+  optimisation here, it is the requirement.
+- **A metric must publish its own blind spot (Phase 9).** A node that cannot reach a
+  peer cannot report that it cannot reach a peer, so the reported population is never
+  the visited one — and that gap *is* the cliff being measured.
+- **Overlapping views are merged by maximum, never by sum (Phase 9).** Asking eight
+  peers for the same population and adding would multiply every sample size by eight
+  while leaving the percentages unchanged: a correct-looking rate over a fictional n.
+- **Chromium throttles timers in a background tab (Phase 9).** Measured: 400 ms poll,
+  one tick per second. Anything a visible surface depends on must be pushed.
+- **A cube must fix the *constrained* variables (Phase 9).** Splitting on the first k
+  values split the work without splitting the difficulty, because the lowest values
+  are the least constrained. Ordering by constraint degree is what makes more nodes
+  reach further rather than merely reach faster.
+- **`exhausted` and `budget` must stay different answers (Phase 9).** One is a proof,
+  the other is a shortage of compute. Conflating them turns a limit into a false
+  mathematical claim.
+
 ### Pending Todos
 
 None yet.
@@ -253,6 +316,11 @@ None yet.
   of that date are forfeit.** Do not plan around recovering them. A US provisional
   remains possible for 12 months from first disclosure under §102(b)(1), and that
   window is now running — it is the only patent option left, and it is time-limited.
+- **GitHub Pages is serving the pre-Phase-9 bundle.** It was deployed by hand on
+  2026-07-26 and has *not* been redeployed since; the consent gate, the running bar,
+  the colouring job and the policy page are in the repository but not on that URL.
+  Redeploying is a human action by design (DEMO-04) — run `npm run build:demo` and
+  publish `packages/browser/dist/` deliberately.
 - **GitHub Pages is live** at <https://o2alexanderfedin.github.io/o2.services/>, served
   from the `gh-pages` branch, deployed **by hand** on 2026-07-26. Verified against the
   real URL: loads with zero page errors, correctly reports that no relay is reachable
@@ -260,9 +328,11 @@ None yet.
   the kernel computes a CID byte-identical to local. It cannot join a peer until a
   public `wss://` relay exists — an HTTPS page cannot dial `ws://`, and Pages runs no
   server process.
-- **DEMO-04 still holds.** No deploy workflow file may exist in the repository at all —
-  absent, not disabled. Making the repo public was authorised; automating deployment
-  was not. Deployment stays a separately-triggered human action.
+- **DEMO-04 still holds, and is now enforced.** No deploy workflow file may exist in
+  the repository at all — absent, not disabled — and no `package.json` script may
+  publish. `disclosure-gate.node.test.ts` asserts both, checks for workflow files by
+  *content* so relocation does not evade it, and is mutation-proved by planting one
+  in two places. `build:demo` builds and publishes nothing.
 - **Version traps (C5): resolved in Phase 2.** js-libp2p 3.x installed with exact pins; none of the four trap packages are present. Two duplicate resolutions were found and fixed with npm `overrides` — `multiformats` had both 14.0.5 and 13.4.2 (a v13/v14 `CID instanceof` boundary), and an invalid `uint8arrays@5.1.1` was hoisted above the 6.1.1 libp2p v3 needs. **`npm install` alone kept the stale tree; a clean re-resolution was required.** `constants.node.test.ts` now asserts one copy of each plus every relay/transport limit.
 - **Doc correction:** the relay constants are named `DEFAULT_DURATION_LIMIT`, `DEFAULT_DATA_LIMIT`, `DEFAULT_MAX_RESERVATION_STORE_SIZE` — `DEFAULT_`-prefixed, unlike what PROJECT.md and STACK.md record. Values are as documented (2 min / 128 KiB / 15 / 2 h).
 - **Node 23.11.0 is the host runtime and is not LTS.** Outside vitest's declared range (`^20 || ^22 || >=24`), so every install prints `EBADENGINE`, and `packages/node/src/bin/agent.ts` depends on Node's experimental native type stripping. Everything passes today. `STACK.md` specifies Node 24 LTS — switching the toolchain is a human action, deliberately not taken autonomously.
@@ -278,13 +348,19 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-07-26 (resumed 2026-07-26, context restored — no work advanced yet)
-Stopped at: **Phase 8 complete — 4 of 5 criteria.** 801 tests green, `tsc --noEmit`
-clean, 58/72 requirements. Methodology pre-registered before any number existed; the
-numbers came out as predicted. See `phases/phase-8-benchmark/SUMMARY.md`.
-Next unit: **Phase 9 — public demo, consent UX and disclosure gate.** Note DEMO-04 is a
-standing owner constraint: no deploy workflow file may exist in the repository at all,
-absent rather than disabled. Deployment stays a separately-triggered human action.
+Last session: 2026-07-26
+Stopped at: **Phase 9 complete — 4 of 5 criteria.** 1114 tests green across node,
+browser and e2e; `tsc --noEmit` clean; 64/72 requirements. See
+`phases/phase-9-public-demo/SUMMARY.md` and `09-VERIFICATION.md`.
+Next unit: **Phase 10 — elfconv AOT native→WASM pipeline**, the parallel track.
+DEMO-04 still holds and is now enforced by `disclosure-gate.node.test.ts`: no deploy
+workflow file may exist in the repository at all, absent rather than disabled, and no
+`package.json` script may publish. `build:demo` builds; nothing deploys.
+
+**Phase 9's open half needs a person, not code.** DEMO-01's multi-machine claim needs
+a second device opening the page — `node packages/node/src/bin/seed.ts` prints a
+`.local` URL and a QR code, and Phase 3 already proved the transport across machines.
+Nothing in the job depends on the transport, but it was not run.
 Resume file: `.planning/.continue-here.md` — leads with three blocking constraints
 (no static determinism analysis, no cross-implementation verification, no host-import
 allow-list). Still current; they apply to every later phase.
