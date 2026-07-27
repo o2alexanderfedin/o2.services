@@ -534,6 +534,119 @@ describe('output the fabric cannot use is reported as such', () => {
   })
 })
 
+// ---- the diagnostic survives the failure it describes -------------------------
+
+describe('a failing guest is quoted, and what was not quoted is counted', () => {
+  /**
+   * A trap or a non-zero exit is the only moment stderr is ever read, so a cap that
+   * loses it loses it exactly when it is needed.
+   *
+   * `MAX_STDERR_BYTES` used to be enforced by the *stdout* sink, which refuses a write
+   * that would exceed the cap and keeps none of it. On stdout that is right and
+   * deliberate — a short result that still decodes is a plausible wrong answer. On
+   * stderr it produced two defects at once. A guest whose message arrived in one
+   * `fprintf` larger than 4 KiB had the whole diagnostic discarded, so a trap after a
+   * large message reported nothing at all; and the `ERRNO_NOSPC` it got back was this
+   * node's storage policy arriving in the guest's control flow, where a node with a
+   * different cap would make the same program exit differently.
+   *
+   * `wasi-noisy.wasm` writes 100 lines of 48 bytes — 4800 against a 4096-byte cap — and
+   * exits 71 if any stderr write reports an error, or 72 if one is acknowledged short.
+   * So a regression in either defect is a *wrong exit code*, not a subtly shorter
+   * string that nobody reads.
+   */
+  const LINE = 'o2-task guest diagnostic: something went wrong.\n'
+  const LINES = 100
+  /** Hardcoded, not `LINE.length`: this is the fixture's contract, not a measurement. */
+  const LINE_BYTES = 48
+  const WROTE = 4800
+  const KEPT = 4096
+  const DROPPED = 704
+
+  /** `1` traps, anything else exits 9 — see the fixture's own comment. */
+  const TRAPS = 1
+  const EXITS = 0
+
+  it('states the arithmetic the fixture and the cap are built on', () => {
+    // Every number above, tied to the constant it is a claim about. Without this the
+    // rest of the block is self-consistent and could be wrong together.
+    expect(LINE.length).toBe(LINE_BYTES)
+    expect(LINES * LINE_BYTES).toBe(WROTE)
+    expect(MAX_STDERR_BYTES).toBe(KEPT)
+    expect(KEPT + DROPPED).toBe(WROTE)
+    // And 4096 is deliberately not a multiple of 48, so one write straddles the cap.
+    expect(KEPT % LINE_BYTES).toBe(16)
+  })
+
+  it('keeps the first cap-full of stderr and reports what it dropped', async () => {
+    const failure = failureOf(await run(wasiNoisy, EXITS))
+    expect(failure.kind).toBe('nonzero-exit')
+    if (failure.kind !== 'nonzero-exit') return
+    // 9, not 71 or 72: every diagnostic write was accepted and acknowledged in full,
+    // even the ones past the cap. The cap never reached the guest.
+    expect(failure.code).toBe(9)
+    expect(failure.stderr.length).toBe(KEPT)
+    expect(failure.stderrDropped).toBe(DROPPED)
+  })
+
+  it('keeps the head, because the first message is the diagnosis', async () => {
+    // A ring buffer would keep the last 4096 bytes, which for a program failing in a
+    // loop is the cascade rather than the cause.
+    const failure = failureOf(await run(wasiNoisy, EXITS))
+    if (failure.kind !== 'nonzero-exit') throw new Error('expected a non-zero exit')
+    expect(failure.stderr.startsWith(LINE + LINE)).toBe(true)
+    // …and the write that straddles the cap is split rather than dropped whole: the
+    // last 16 characters are the beginning of line 86, not the end of line 85.
+    expect(failure.stderr.endsWith(LINE.slice(0, 16))).toBe(true)
+  })
+
+  it('says in the description that output was truncated, not only in a field', async () => {
+    // Nothing downstream reads `stderrDropped`; the description is what a human sees.
+    // A count that only a debugger can reach is the same as no count.
+    const failure = failureOf(await run(wasiNoisy, EXITS))
+    const described = describeWasiFailure(failure)
+    expect(described).toContain('status 9')
+    expect(described).toContain(LINE.trim())
+    expect(described).toContain(`+${DROPPED} bytes dropped`)
+    expect(described).toContain(`${MAX_STDERR_BYTES}-byte cap`)
+  })
+
+  it('carries the same diagnostic out of a trap, where there is no exit code to read', async () => {
+    // The case the reviewer named. A trap has no status and no output — the guest's own
+    // words are the entire evidence, and this is the path on which they used to vanish.
+    const failure = failureOf(await run(wasiNoisy, TRAPS))
+    expect(failure.kind).toBe('trap')
+    if (failure.kind !== 'trap') return
+    expect(failure.stderr.length).toBe(KEPT)
+    expect(failure.stderrDropped).toBe(DROPPED)
+    const described = describeWasiFailure(failure)
+    expect(described).toContain('trap during execution')
+    expect(described).toContain(LINE.trim())
+    expect(described).toContain(`+${DROPPED} bytes dropped`)
+  })
+
+  it('does not invent a truncation notice for a guest that said little or nothing', async () => {
+    // The other half of the contract: a description that always mentioned stderr would
+    // be as useless as one that never did. `wasi-fail` exits 7 in silence.
+    const failure = failureOf(await run(wasiFail))
+    expect(failure.kind).toBe('nonzero-exit')
+    if (failure.kind !== 'nonzero-exit') return
+    expect(failure.stderrDropped).toBe(0)
+    expect(failure.stderr).toBe('')
+    expect(describeWasiFailure(failure)).not.toContain('stderr')
+  })
+
+  it('surfaces the diagnostic through the Executor port, where only a string fits', async () => {
+    const { blockstore, moduleCid, inputCid } = await store(wasiNoisy, EXITS)
+    const executor = new WasiExecutor({ nodeId: 'n1', blockstore })
+    const outcome = await executor.execute(task(moduleCid, inputCid))
+    expect(outcome.ok).toBe(false)
+    // The port carries one string, so if the truncation notice is not in it, no caller
+    // downstream can ever learn that the diagnostic is partial.
+    if (!outcome.ok) expect(outcome.reason).toContain(`+${DROPPED} bytes dropped`)
+  })
+})
+
 // ---- not a command module ----------------------------------------------------
 
 describe('an artifact that is not a WASI command module is named as such', () => {
