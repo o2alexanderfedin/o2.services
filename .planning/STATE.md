@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Wire What Was Built
 status: verifying
-stopped_at: Phase 12 Plan 04 complete — Task.label/ownerId now survive the wire and are required at parseRequest's trust boundary; guardSovereignty wired into both production node constructors (fabric-node.ts, browser-node.ts) with a safe cleared-for-nobody default. Criteria 3 and 4 proven over real RPC. All four ROADMAP criteria for Phase 12 demonstrated on the live submitJob path. 116 files / 1758 tests passing, tsc clean. All three required mutations produced expected failures and were reverted.
-last_updated: "2026-07-27T20:02:04.584Z"
+stopped_at: Phase 12 Plan 03 complete (catch-up execution) — sovereignty-pinned placement proven across three real bin/agent.ts operating-system processes, closing the gap the Phase 12 verification pass found (3/4 -> 4/4). bin/agent.ts gained --owner-id/--can-execute-sovereign CLI flags. 117 files / 1759 tests passing, tsc clean. Required widen-under-pressure mutation planted, watched fail (insufficient, not agreed), reverted.
+last_updated: "2026-07-27T20:47:40.612Z"
 last_activity: 2026-07-27
 progress:
   total_phases: 11
-  completed_phases: 1
+  completed_phases: 2
   total_plans: 6
-  completed_plans: 4
-  percent: 67
+  completed_plans: 5
+  percent: 83
 ---
 
 # Project State
@@ -21,13 +21,13 @@ progress:
 See: .planning/PROJECT.md (updated 2026-07-27)
 
 **Core value:** Usable capacity grows super-linearly with the user base, without any raw data leaving its owner's device.
-**Current focus:** Phase 11 — Explicit serveAgent Hook Contract
+**Current focus:** Phase 12 — Sovereignty-Pinned Placement (re-verification pending; the prior pass found 3/4 criteria met, and Plan 12-03 — dispatched in neither Wave 2 nor Wave 3 by the orchestrator — closes the fourth)
 
 ## Current Position
 
-Phase: 11 (Explicit serveAgent Hook Contract) — COMPLETE
-Plan: 1 of 1
-Status: Phase complete — ready for verification
+Phase: 12 (Sovereignty-Pinned Placement) — COMPLETE, 4/4 plans
+Plan: 4 of 4
+Status: Phase complete — ready for re-verification (12-VERIFICATION.md's one gap, Plan 12-03, is now closed)
 Last activity: 2026-07-27
 
 ### v1.0 carried forward, unarchived
@@ -201,6 +201,7 @@ carrying only SDP. Remaining: real AutoTLS, which needs a publicly reachable hos
 | Phase 12 P01 | 25min | 2 tasks | 17 files |
 | Phase 12 P02 | 20min | 2 tasks | 4 files |
 | Phase 12 P04 | 100min | 2 tasks | 8 files |
+| Phase 12 P03 | 45min | 1 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -433,6 +434,7 @@ Recent decisions affecting current work:
 - [Phase 12]: Added a DATA-09 replica-holder test beyond the plan's four (Rule 2): a canExecuteSovereign:false node whose data genuinely exists in the shared blockstore is still excluded from execution, proving the refusal is about clearance, not missing data
 - [Phase 12]: parseRequest refuses an exec request with no label; Task.label stays optional in-process, only the wire boundary enforces it — Correction 2: an absent label reaching guardSovereignty is a no-op, trusting whoever dispatched the task not to omit the field the refusal depends on
 - [Phase 12]: guardSovereignty wired into both fabric-node.ts and browser-node.ts production constructors, defaulting to cleared-for-nobody — Correction 1: guardSovereignty had zero production callers before this plan, the exact built-not-wired shape the v1.0 audit exists to catch
+- [Phase 12]: Plan 12-03 (skipped by the orchestrator in Wave 2/3) closes the exact gap the Phase 12 verification pass found: submitJob's sovereignty-pinned placement is now proven across three real bin/agent.ts operating-system processes, not only in-process. bin/agent.ts gained --owner-id/--can-execute-sovereign CLI flags (a pass-through of the existing FabricNodeOptions.sovereignty option) so a spawned process can be cleared for its own owner; the required widen-under-pressure mutation failed as expected (insufficient, not agreed) and revealed a second, independent defense already holding: the mutated process's own guardSovereignty wrap refused the wrongly-widened dispatch.
 
 ### Pending Todos
 
@@ -482,8 +484,8 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-07-27T20:02:04.571Z
-Stopped at: Phase 12 Plan 04 complete — Task.label/ownerId now survive the wire and are required at parseRequest's trust boundary; guardSovereignty wired into both production node constructors (fabric-node.ts, browser-node.ts) with a safe cleared-for-nobody default. Criteria 3 and 4 proven over real RPC. All four ROADMAP criteria for Phase 12 demonstrated on the live submitJob path. 116 files / 1758 tests passing, tsc clean. All three required mutations produced expected failures and were reverted.
+Last session: 2026-07-27T20:47:40.605Z
+Stopped at: Phase 12 Plan 03 complete (catch-up execution) — sovereignty-pinned placement proven across three real bin/agent.ts operating-system processes, closing the gap the Phase 12 verification pass found (3/4 -> 4/4). bin/agent.ts gained --owner-id/--can-execute-sovereign CLI flags. 117 files / 1759 tests passing, tsc clean. Required widen-under-pressure mutation planted, watched fail (insufficient, not agreed), reverted.
 browser and e2e; `tsc --noEmit` clean; 64/72 requirements. See
 `phases/phase-9-public-demo/SUMMARY.md` and `09-VERIFICATION.md`.
 Next unit: **Phase 10 — elfconv AOT native→WASM pipeline**, the parallel track.

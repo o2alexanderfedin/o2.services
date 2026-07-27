@@ -377,8 +377,8 @@ criteria.
 | VER-10 | Phase 19 — Quorum Composition & Owner-Domain Attestation | **Built, not wired** — attestationReceipt is called only by itself and its spec; no node emits a receipt |
 | DATA-01 | Phase 1 — Portable Kernel & Loopback Map Slice | Done |
 | DATA-02 | Phase 3 — Browser Tier & Backbone Relay | Done |
-| DATA-03 | Phase 12 — Sovereignty-Pinned Placement | **Built, not wired** — no owner label exists in JobSpec or Task; eligibleNodes is reachable only through runResilient, which has no caller |
-| DATA-04 | Phase 12 — Sovereignty-Pinned Placement | **Built, not wired** — no owner label exists in JobSpec or Task; eligibleNodes is reachable only through runResilient, which has no caller |
+| DATA-03 | Phase 12 — Sovereignty-Pinned Placement | Done — `ShardSpec`/`Task.label`/`ownerId` carry the label through `submitJob`'s one placement path (`planPlacement`/`eligibleNodes`); proven under load pressure both in-process (12-02) and across three real `bin/agent.ts` operating-system processes (12-03) |
+| DATA-04 | Phase 12 — Sovereignty-Pinned Placement | Done — a sovereign shard's map task never leaves the owner's node set even when the owner's node is saturated and foreign nodes are idle; proven under load pressure both in-process (12-02) and across three real `bin/agent.ts` operating-system processes (12-03) |
 | DATA-05 | Phase 13 — Egress Manifest Completeness | **Built, not wired** — EgressGuard decorates no production transport — both nodes pass the raw Libp2pTransport |
 | DATA-06 | Phase 13 — Egress Manifest Completeness | **Built, not wired** — EgressGuard decorates no production transport — both nodes pass the raw Libp2pTransport |
 | DATA-07 | Phase 12 — Sovereignty-Pinned Placement | Done — a sovereign shard submitted through `submitJob` emits a partial smaller than its raw input; `EgressGuard` (reused as a test instrument) shows zero violations for the run (12-04, criterion 3) |
