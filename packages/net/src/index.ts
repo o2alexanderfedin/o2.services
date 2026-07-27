@@ -43,3 +43,7 @@ export type { EgressEntry, EgressManifest } from './egress.ts'
 // Start-outcome publication and read-back — BROW-02.
 export { DEFAULT_MAX_PEERS, publishStartOutcome } from './start-report.ts'
 export type { PublishOptions, PublishResult } from './start-report.ts'
+
+// Finding browsers that cannot announce themselves — NET-03.
+export { findReservedPeers } from './rendezvous.ts'
+export type { Rendezvous, RendezvousOptions } from './rendezvous.ts'

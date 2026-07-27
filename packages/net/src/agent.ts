@@ -98,6 +98,16 @@ export interface AgentOptions {
    * truthful answer from a node that has been told nothing, and is distinguishable
    * from an unreachable node only by the requestor getting an answer at all.
    */
+  /**
+   * NET-03. Peer ids currently holding a reservation on this node.
+   *
+   * A thunk, so the answer is the live set rather than a snapshot taken at
+   * construction. Omitting it answers with an empty list — which is what a node
+   * relaying for nobody would say anyway, so a caller cannot tell "does not relay"
+   * from "relays for nobody", and there is deliberately nothing here to tell them
+   * apart with.
+   */
+  readonly reservations?: () => readonly string[]
   readonly ledger?: StartOutcomeLedger
   /**
    * BROW-04. Called when a peer dispatches a task here, before it runs.
@@ -129,6 +139,8 @@ export function serveAgent(options: AgentOptions): void {
       response = { kind: 'providers', nodeKeys: (await options.index?.providers(request.cid)) ?? [] }
     } else if (request.kind === 'records') {
       response = { kind: 'records', records: (await options.index?.recordsFor(request.nodeKey)) ?? null }
+    } else if (request.kind === 'reservations') {
+      response = { kind: 'reservations', peerIds: options.reservations?.() ?? [] }
     } else if (request.kind === 'report') {
       const ledger = options.ledger
       if (request.outcome !== null) ledger?.record(request.outcome)

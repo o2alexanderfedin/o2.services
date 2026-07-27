@@ -22,7 +22,13 @@
 
 import { submitJob } from '@o2/core'
 import type { CanonicalValue, StartFailure, StartOutcome } from '@o2/core'
-import { RemoteExecutor, encodeRequest, parseResponse, publishStartOutcome } from '@o2/net'
+import {
+  RemoteExecutor,
+  encodeRequest,
+  findReservedPeers,
+  parseResponse,
+  publishStartOutcome,
+} from '@o2/net'
 import {
   DEFAULT_BUDGET,
   answerOf,
@@ -357,19 +363,35 @@ const api: TabApi = {
 
   async connectDiscoveredPeers() {
     const n = required()
-    let peerAddrs: string[] = []
+    const candidates: string[] = []
+    let asked = false
+
+    // 1. The origin, when a seed node served this page. It is the better answer on a
+    //    LAN because it also carries the seed's own direct address, which needs no
+    //    relay circuit at all — so a lone visitor has a peer immediately.
     try {
       const response = await fetch('/bootstrap.json', { cache: 'no-store' })
-      if (!response.ok) return { asked: false, dialed: [], failed: [] }
-      const info = (await response.json()) as { peerAddrs?: unknown }
-      peerAddrs = Array.isArray(info.peerAddrs)
-        ? info.peerAddrs.filter((a): a is string => typeof a === 'string')
-        : []
+      if (response.ok) {
+        const info = (await response.json()) as { peerAddrs?: unknown }
+        if (Array.isArray(info.peerAddrs)) {
+          candidates.push(...info.peerAddrs.filter((a): a is string => typeof a === 'string'))
+          asked = true
+        }
+      }
     } catch {
-      // A static host has no origin to ask. Not a failure — there is simply no
-      // rendezvous on that tier, and `asked: false` says which case this is.
-      return { asked: false, dialed: [], failed: [] }
+      // A static host has no origin to ask. Not a failure — see below.
     }
+
+    // 2. The fabric itself. **This is the only route on a static host**, where there
+    //    is no origin and DEMO-03 forbids adding a server-side process. Asking the
+    //    nodes we are already connected to needs nothing the fabric does not have.
+    const reserved = await findReservedPeers({
+      rpc: n.rpc,
+      peers: () => n.transport.peers,
+      self: n.peerId,
+    })
+    if (reserved.answered > 0) asked = true
+    candidates.push(...reserved.addrs)
 
     // The *last* `/p2p/` component, not a substring search. A circuit address is
     // `<relayAddr>/p2p-circuit/webrtc/p2p/<target>`, and `relayAddr` ends in the
@@ -386,22 +408,25 @@ const api: TabApi = {
     const already = new Set(n.transport.peers)
     const dialed: string[] = []
     const failed: string[] = []
-    for (const address of peerAddrs) {
+    const tried = new Set<string>()
+    for (const address of candidates) {
       const target = targetOf(address)
-      // Only the page knows which entry is its own; the seed publishes all of them
-      // because it has no way to tell who is asking.
+      // Only the page knows which entry is its own; a directory publishes all of
+      // them because it has no way to tell who is asking.
       if (target === '' || target === self) continue
-      if (already.has(target)) continue
+      if (already.has(target) || tried.has(target)) continue
+      tried.add(target)
       try {
         dialed.push(await n.dial(address))
+        already.add(target)
       } catch {
         // A peer whose reservation has lapsed, or that closed its tab between the
-        // relay's list and this dial. Expected, and not worth failing the round.
+        // directory's answer and this dial. Expected, and not worth failing the round.
         failed.push(address)
       }
     }
     if (dialed.length > 0) notify()
-    return { asked: true, dialed, failed }
+    return { asked, dialed, failed }
   },
 
   async computePeers() {

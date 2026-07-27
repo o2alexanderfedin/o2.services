@@ -1,13 +1,21 @@
 /**
- * The agent wire protocol — six request kinds, nothing more.
+ * The agent wire protocol — seven request kinds, nothing more.
  *
  * `exec` dispatches one task; `block` fetches one content-addressed block. That
  * is the entire vocabulary needed to run a distributed map: a task is addressed
  * purely by CID, so a node that has never seen a module or an input can obtain
  * both by asking, and needs no payload pushed to it.
  *
- * Phase 9 adds `report`, which both publishes a start outcome and returns what the
- * answering node has been told (BROW-02). One round trip does both because a node
+ * Phase 9 adds `reservations`, which is the rendezvous a browser tier cannot do
+ * without. A browser binds no listening socket — the only difference between nodes
+ * here — so no tab can be dialled cold and none of them will ever announce itself.
+ * Somebody has to say who is present, and the node holding their reservations
+ * already knows as a consequence of doing its job. Asking over the fabric's own
+ * protocol rather than over an HTTP endpoint is what makes this work on a static
+ * host, where there is no origin to ask and no server-side process permitted.
+ *
+ * Phase 9 also adds `report`, which both publishes a start outcome and returns what
+ * the answering node has been told (BROW-02). One round trip does both because a node
  * that can reach a peer to publish can read in the same breath, and a node that
  * cannot do the first cannot do the second either — the failure is shared, which is
  * the blind spot the report itself has to state.
@@ -58,6 +66,8 @@ export type AgentRequest =
   | { readonly kind: 'records'; readonly nodeKey: PublicKeyHex }
   /** SCHED-03: will you take this shard? */
   | { readonly kind: 'offer'; readonly shardId: string }
+  /** NET-03: who else is reserved on you? The rendezvous a browser cannot do itself. */
+  | { readonly kind: 'reservations' }
   /**
    * BROW-02: here is how starting went for me; what have you been told?
    *
@@ -81,6 +91,15 @@ export type AgentResponse =
   /** `records: null` means "I hold none for that key", which is not an error. */
   | { readonly kind: 'records'; readonly records: NodeRecords | null }
   | { readonly kind: 'offer'; readonly accepted: boolean; readonly reason: string }
+  /**
+   * Peer ids currently holding a reservation on the answering node.
+   *
+   * Empty from a node that relays for nobody, which is a truthful answer and not an
+   * error — and is indistinguishable, deliberately, from a node that does not relay
+   * at all. There is no capability flag to read here, because a flag would be a
+   * kind to branch on.
+   */
+  | { readonly kind: 'reservations'; readonly peerIds: readonly string[] }
   /**
    * The counts, never a rendered report.
    *
@@ -246,6 +265,9 @@ export function encodeRequest(request: AgentRequest): CanonicalValue {
   if (request.kind === 'offer') {
     return { kind: 'offer', shardId: request.shardId }
   }
+  if (request.kind === 'reservations') {
+    return { kind: 'reservations' }
+  }
   if (request.kind === 'report') {
     const declined = request.declined ?? 0
     if (request.outcome === null) return { kind: 'report', declined }
@@ -327,6 +349,10 @@ export function parseRequest(body: CanonicalValue): AgentRequest | null {
     return { kind: 'offer', shardId }
   }
 
+  if (record['kind'] === 'reservations') {
+    return { kind: 'reservations' }
+  }
+
   if (record['kind'] === 'report') {
     const declined = asIndex(record['declined']) ?? 0
     const browser = record['browser']
@@ -393,6 +419,8 @@ export function encodeResponse(response: AgentResponse): CanonicalValue {
           }
     case 'offer':
       return { kind: 'offer', accepted: response.accepted, reason: response.reason }
+    case 'reservations':
+      return { kind: 'reservations', peerIds: [...response.peerIds] }
     case 'report':
       return {
         kind: 'report',
@@ -449,6 +477,11 @@ export function parseResponse(body: CanonicalValue): AgentResponse | null {
       const reason = record['reason']
       if (typeof accepted !== 'boolean') return null
       return { kind: 'offer', accepted, reason: typeof reason === 'string' ? reason : '' }
+    }
+    case 'reservations': {
+      const peerIds = asKeyList(record['peerIds'])
+      if (peerIds === null) return null
+      return { kind: 'reservations', peerIds }
     }
     case 'report': {
       const counts = parseCounts(record['counts'])
