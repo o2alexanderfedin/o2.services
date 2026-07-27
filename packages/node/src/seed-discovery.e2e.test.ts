@@ -198,6 +198,40 @@ describe('a second device joins knowing only the URL', () => {
   )
 })
 
+describe('a lone visitor has a peer, which was a comment before it was true', () => {
+  it('dials the seed\'s own compute node over WebSockets', async () => {
+    // `BootstrapInfo.seedPeerId` has carried the comment "the seed's own compute
+    // node, so a lone phone still has a peer to work with" since it was written.
+    // It was false: that node listened on plain TCP, which no browser can dial, and
+    // no address for it was published anywhere. A documented guarantee with no
+    // mechanism behind it — the exact shape this project keeps being bitten by, and
+    // the reason the rule is to grep for the mechanism whenever a comment states a
+    // guarantee.
+    const page = await context.newPage()
+    page.on('pageerror', (error) => {
+      process.stderr.write(`[lone] page error: ${error.message}\n`)
+    })
+    await page.goto(`http://127.0.0.1:${seed.httpPort}/packages/browser/demo/index.html`)
+    await page.waitForFunction(() => typeof window.o2 !== 'undefined', null, { timeout: 60_000 })
+    await page.evaluate(async () => {
+      window.o2.grantConsent()
+      return window.o2.autoStart({ blockstoreName: 'lone-visitor' })
+    })
+
+    const found = await page.evaluate(async () => window.o2.connectDiscoveredPeers())
+    expect(found.asked).toBe(true)
+    expect(found.dialed).toContain(seed.node.peerId)
+
+    // And it is a *compute* peer, established by asking rather than by assuming —
+    // which is the difference between this and the relay sitting in the same list.
+    const computing = await page.evaluate(async () => window.o2.computePeers())
+    expect(computing).toContain(seed.node.peerId)
+    expect(computing).not.toContain(seed.relay.peerId)
+
+    await page.close()
+  }, 240_000)
+})
+
 describe('two devices on one seed find each other with nobody dialling for them', () => {
   it('publishes reserved peers and each page dials the rest', async () => {
     // The gap this closes was found by running the demo on a phone and a laptop at

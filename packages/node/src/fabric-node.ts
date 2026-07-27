@@ -92,9 +92,12 @@ export class FabricNode {
           ...(viaRelay ? ['/p2p-circuit'] : []),
         ],
       },
+      // WebSockets in both branches, not only the relay one. A browser cannot dial
+      // plain TCP, so a node without this transport is unreachable from the tier
+      // this project exists for — however good its address looks in a log.
       transports: viaRelay
         ? [tcp(), webSockets(), circuitRelayTransport()]
-        : [tcp()],
+        : [tcp(), webSockets()],
       connectionEncrypters: [noise()],
       streamMuxers: [yamux()],
       services: {

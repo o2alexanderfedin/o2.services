@@ -167,10 +167,18 @@ export class SeedServer {
 
     // The seed contributes compute too, so a single phone still has a peer to run a
     // 2x-redundant job against.
+    //
+    // It listens on **WebSockets as well as TCP**, and that is the whole of the
+    // claim above. It previously listened on plain TCP only, which no browser can
+    // dial — so the comment promising a lone phone a peer had been false since it
+    // was written, and nothing checked it. A seed-served page now finds this node
+    // in `peerAddrs` and dials it directly; the relay is not involved.
     const node = await FabricNode.start({
       blockstoreDir: options.blockstoreDir,
-      listen: ['/ip4/0.0.0.0/tcp/0'],
+      listen: ['/ip4/0.0.0.0/tcp/0', '/ip4/0.0.0.0/tcp/0/ws'],
     })
+    const nodeWsPort = readWsPort(node.multiaddrs)
+    if (nodeWsPort === null) throw new Error('seed node bound no WebSocket port')
 
     const relayPeerId = relay.peerId
     const seedPeerId = node.peerId
@@ -206,9 +214,17 @@ export class SeedServer {
                   seedPeerId,
                   // Expressed through the same host the client reached us by, so a
                   // phone on `laptop.local` is never handed a `127.0.0.1` circuit.
-                  peerAddrs: relay.reservedPeerIds.map(
-                    (peerId) => `${relayAddr}/p2p-circuit/webrtc/p2p/${peerId}`,
-                  ),
+                  peerAddrs: [
+                    // The seed's own compute node first, dialled directly over
+                    // WebSockets. A lone visitor has a peer from the moment they
+                    // join, without waiting for a second device to appear.
+                    relayAddrForHost(host, nodeWsPort, seedPeerId),
+                    // Then every browser holding a reservation, reached through the
+                    // relay that will carry its WebRTC handshake.
+                    ...relay.reservedPeerIds.map(
+                      (peerId) => `${relayAddr}/p2p-circuit/webrtc/p2p/${peerId}`,
+                    ),
+                  ],
                 }
                 response.setHeader('content-type', 'application/json')
                 // A joining phone must never be handed a stale relay address.
@@ -255,6 +271,21 @@ export class SeedServer {
 }
 
 /** First TCP port in a set of multiaddrs. */
+/**
+ * The port of a **WebSocket** listener specifically.
+ *
+ * `readPort` takes the first `/tcp/<n>` it sees, which on a node listening on both
+ * transports is the plain TCP one — an address no browser can dial, handed out as
+ * though it could be.
+ */
+function readWsPort(multiaddrs: readonly string[]): number | null {
+  for (const address of multiaddrs) {
+    const match = /\/tcp\/(\d+)\/ws/.exec(address)
+    if (match?.[1] !== undefined) return Number(match[1])
+  }
+  return null
+}
+
 function readPort(multiaddrs: readonly string[]): number | null {
   for (const address of multiaddrs) {
     const match = /\/tcp\/(\d+)/.exec(address)
