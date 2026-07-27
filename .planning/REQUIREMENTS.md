@@ -5,6 +5,7 @@
 **Scope decision:** full design in v1, with Part I (elfconv AOT) sequenced last
 **Defined:** 2026-07-24
 **Ledger corrected:** 2026-07-27 — see below
+**Milestone v1.1 scoped:** 2026-07-27 — see [v1.1 Requirements](#v11-requirements--wire-what-was-built)
 
 ---
 
@@ -257,6 +258,68 @@ itself. The work is real and the table says so; the box tracks delivery.
       happen.** No WASM code-cache entry at 4.8 MB over three visits, while the
       same profile caches 2 MB of JavaScript. Published as a measured negative
       with two controls, not deferred
+
+---
+
+## v1.1 Requirements — Wire What Was Built
+
+**Defined:** 2026-07-27, directly from `v1.0-MILESTONE-AUDIT.md`.
+
+**v1.1 mints almost no new requirement IDs, and that is deliberate.** The 36 entries
+marked *Built, not wired* above are not missing requirements — they are the same
+requirements, unsatisfied. "The placer cannot relocate a sovereign task" is DATA-03
+whether or not a job runs through that placer; wiring it is what makes DATA-03 true.
+Minting `WIRE-05: wire the sovereignty gate` alongside it would count one obligation
+twice and let the ledger reach 100% while saying less than it does now.
+
+So the milestone's scope is **the existing IDs**, and the four new ones below cover only
+what has no v1 equivalent: the structural cause, the guard that would have caught it,
+and the two end-to-end paths nothing exercises.
+
+### In scope — existing IDs to be wired (40)
+
+| Origin phase | Requirements | The wire that connects them |
+|---|---|---|
+| 4 — Sovereignty | DET-03, DATA-03…DATA-09, AUTH-03 | an owner label in `JobSpec`/`Task`; the real job path through the sovereignty gate; `EgressGuard` on both transports; `signName` resolution; a capability chain on both ends of dispatch |
+| 5 — Tree-reduce | MR-02 … MR-07 | `executeReduce` on the aggregation path, replacing the demo's linear scan |
+| 6 — Discovery & enrollment | AUTH-01, AUTH-02, AUTH-04, AUTH-05, SCHED-01, SCHED-02, SCHED-03, SCHED-05, NET-06, VER-03, VER-04, VER-08, VER-09, VER-10 | `serveAgent`'s `index` and `capacity` hooks supplied; `discoverExecutors` replacing the static list; `requestEnrollment` issuing a real node identity; `composeQuorum` and `attestationReceipt` on the verification path |
+| 7 — Churn | CHURN-01 … CHURN-06 | one job entry point that leases, speculates and accounts for coverage |
+| 10 — AOT | AOT-02 | `translationCid` called by the lift pipeline; the CLI emitting the CID |
+| Partials | NET-05, SCHED-04, BROW-02, AOT-04 | `ReservationWatcher` installed; the governor on both tiers and runtime-adjustable; a ledger that is actually supplied; a production node able to construct a `WasiExecutor` |
+
+Each row's evidence — the symbol with no caller, at `file:line` — is in the traceability
+table below and in the audit.
+
+### Wiring Integrity (new IDs)
+
+- [ ] **WIRE-01**: Every `serveAgent` call site states a value for all six hooks. A node
+      that serves without an authorizer, an index, a capacity source, a ledger, a
+      reservation thunk or a dispatch callback does so because someone recorded that
+      decision — not because an argument was left off. **Omitting one is a compile
+      error, not a default.** This is the structural cause of the other 35 and is
+      sequenced first, so the rest surface as build failures rather than as an audit
+      finding a year later
+- [ ] **WIRE-02**: A guard test fails when a capability exported from a package barrel
+      has no call path from any runnable entry point, so v1.0's finding cannot recur
+      silently. Same role `purity.node.test.ts` plays for layering: the audit found this
+      class of defect and **no test could have**
+- [ ] **WIRE-03**: Two browser tabs served a static bundle — no seed process, no
+      `/bootstrap.json`, nothing dialled by the harness — discover each other and
+      complete a job. The browser-tier equivalent of the rendezvous defect already fixed
+      one tier down, and the one route with no end-to-end coverage
+- [ ] **WIRE-04**: The fabric has exactly one job entry point. Submitting a job gets
+      lease renewal, speculation and coverage accounting without the caller choosing
+      between two functions — today `runResilient` is a second job implementation that
+      nothing calls
+
+### Explicitly not in v1.1
+
+| Requirement | Why it stays open |
+|---|---|
+| **NET-03** — real AutoTLS | Needs a publicly reachable host. Outward-facing and a hosting decision, not a code one |
+| **BENCH-06** — distinct-machine benchmarks | Needs a second machine |
+| **AOT-03** — cross-machine reproducible CID | **The same** second machine. BENCH-06 and AOT-03 are one blocker wearing two numbers |
+| **AOT-05** — V8 code-cache hit | Not blocked on anything. It was measured with two controls and the answer is no. Re-running it against an `https` origin and a non-automated Chromium is worth doing, but it stays a negative until that says otherwise |
 
 ---
 
