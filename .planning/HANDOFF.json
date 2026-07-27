@@ -1,20 +1,21 @@
 {
   "version": "1.0",
-  "timestamp": "2026-07-26T11:05:00.000Z",
-  "phase": "7",
-  "phase_name": "Churn, Stragglers & Coordinator Survival",
+  "timestamp": "2026-07-27T02:30:00.000Z",
+  "phase": "9",
+  "phase_name": "Public Demo, Consent UX & Disclosure Gate",
   "phase_dir": null,
   "plan": null,
   "task": null,
-  "total_tasks": null,
-  "status": "phase_6_complete_phase_7_not_started",
+  "total_tasks": 5,
+  "status": "phase_8_complete_phase_9_not_started",
   "verification": {
-    "tests_passing": 571,
-    "test_files": 55,
+    "tests_passing": 801,
+    "test_files": 71,
     "typecheck": "clean",
-    "requirements_done": 47,
+    "requirements_done": 58,
     "requirements_total": 72,
-    "head": "84f91e4",
+    "head_main": "659e0ed",
+    "head_develop": "10cb7ca",
     "refs_in_sync": true,
     "working_tree": "clean",
     "repository_visibility": "public"
@@ -27,14 +28,14 @@
     },
     {
       "id": 2,
-      "name": "Phase 2 \u2014 Real network, node <-> node (NET-01, NET-07)",
+      "name": "Phase 2 \u2014 Real network, node <-> node",
       "status": "done"
     },
     {
       "id": 3,
       "name": "Phase 3 \u2014 Browser tier & backbone relay",
       "status": "partial",
-      "detail": "5 of 6 criteria; real AutoTLS needs a public host"
+      "detail": "5 of 6 criteria; real AutoTLS needs a publicly reachable host"
     },
     {
       "id": 4,
@@ -43,32 +44,33 @@
     },
     {
       "id": 5,
-      "name": "Phase 5 \u2014 Decomposable tree-reduce (MR-02..MR-07)",
+      "name": "Phase 5 \u2014 Decomposable tree-reduce",
       "status": "done"
     },
     {
       "id": 6,
-      "name": "Phase 6 \u2014 Discovery, placement & enrollment, all 7 criteria",
-      "status": "done",
-      "detail": "SCHED-01/02/03/05 and NET-06 closed; the static peer list is gone"
-    }
-  ],
-  "remaining_tasks": [
+      "name": "Phase 6 \u2014 Discovery, placement & enrollment",
+      "status": "done"
+    },
     {
       "id": 7,
       "name": "Phase 7 \u2014 Churn, stragglers & coordinator survival",
-      "status": "not_started",
-      "detail": "Consume the rendezvous fallback order rather than build recovery beside it; repair is recompute from CIDs, not state transfer; closing threat model 19 needs completion-time reputation"
+      "status": "done",
+      "detail": "adversarially reviewed afterwards; five confirmed defects fixed and mutation-tested"
     },
     {
       "id": 8,
       "name": "Phase 8 \u2014 Benchmark harness",
-      "status": "not_started"
-    },
+      "status": "partial",
+      "detail": "4 of 5 criteria; BENCH-06 distinct-machine half needs a second machine"
+    }
+  ],
+  "remaining_tasks": [
     {
       "id": 9,
       "name": "Phase 9 \u2014 Public demo, consent UX & disclosure gate",
-      "status": "not_started"
+      "status": "not_started",
+      "detail": "Consent gate first \u2014 criterion 3 forbids spending any CPU before it exists. Vocabulary discipline is a hard constraint: no mining/hashrate/earn/credits/tokens anywhere in UI or repo. DEMO-04 forbids any deploy workflow file at all."
     },
     {
       "id": 10,
@@ -80,6 +82,12 @@
       "name": "Phase 3 criterion 2 \u2014 real AutoTLS",
       "status": "blocked_on_human",
       "detail": "Needs a publicly reachable host; purely a hosting decision now"
+    },
+    {
+      "id": 12,
+      "name": "BENCH-06 \u2014 distinct-machine benchmark runs",
+      "status": "blocked_on_hardware",
+      "detail": "Needs a second machine. Cheaper interim step: run benchmark nodes as separate OS processes on one host, which would already show real parallelism \u2014 today every node shares one event loop so no speedup is measurable."
     }
   ],
   "blockers": [],
@@ -92,88 +100,73 @@
     },
     {
       "action": "Decide on a hosted relay with AutoTLS",
-      "context": "Closes Phase 3's last criterion. Now purely a hosting decision \u2014 no disclosure consequence remains since the repository is already public. Also what a GitHub Pages deployment needs to function, since an HTTPS page cannot dial ws:// and Pages runs no server process.",
+      "context": "Closes Phase 3's last criterion and is what a GitHub Pages deployment needs to function at all \u2014 an HTTPS page cannot dial ws:// and Pages runs no server process. Purely a hosting decision now; no disclosure consequence remains.",
+      "blocking": false
+    },
+    {
+      "action": "Provide a second machine, or accept separate-process benchmarking",
+      "context": "Turns off Phase 8's same-machine label and makes parallel speedup measurable for the first time. Interim step needing no hardware: run the benchmark nodes as separate OS processes on one host.",
       "blocking": false
     },
     {
       "action": "Legal review of LICENSE and LICENSE-COMMERCIAL.md",
-      "context": "Both are unreviewed drafts and now publicly visible. The commercial one is the instrument that would be signed.",
+      "context": "Both are unreviewed drafts and publicly visible. The commercial one is the instrument that would be signed.",
       "blocking": false
     }
   ],
   "decisions": [
     {
-      "decision": "Discovery is an intersection of three independently-sourced facts.",
-      "rationale": "Who holds the block (content routing), who the node is (provider-signed certificate), what it can run (node-signed capability record). None is worth anything alone, and that is stated as a passing test: an attacker mints a perfectly valid capability record for an uncertified key and gains nothing. Splitting identity from capability lets a node re-sign locally when its engine changes rather than returning to the provider.",
-      "phase": "6"
+      "decision": "Pre-registration is an ordering, not a document.",
+      "rationale": "BENCHMARK-METHODOLOGY.md was committed in a commit containing no harness code and no number, so git log proves the analysis was not chosen after seeing the data. Three predictions held: flat node axis, no COST crossover, fixture bias dominant. Predicting the disappointing results in advance is what stops them being spun later.",
+      "phase": "8"
     },
     {
-      "decision": "Every exclusion is named and returned, never silently filtered.",
-      "rationale": "Silent filtering leaves a requestor staring at an empty candidate list unable to distinguish a dead network from a wrong clock from a module nobody can run.",
-      "phase": "6"
+      "decision": "A fast failure is not a fast run.",
+      "rationale": "Incomplete runs are excluded from makespan statistics and counted separately. This immediately surfaced a real bug: the first full run reported 19/19 incomplete at every memory rung because those workers could not fetch shard inputs. A harness that averaged failures in would have published a beautiful fictional curve.",
+      "phase": "8"
     },
     {
-      "decision": "The power-of-d sample is derived by rendezvous ranking, not drawn at random.",
-      "rationale": "Same load-balancing result, but two requestors racing on one shard converge instead of doubling up, re-placement after a crash re-derives the same candidates, the ranking tail is already the re-pick list, and a placement decision can be replayed from the shard id and node set.",
-      "phase": "6"
+      "decision": "A unit living in a field name is a claim.",
+      "rationale": "JobResult.grossNodeSeconds held bytes moved across the guest ABI, not seconds. The ratio was always sound, which is why verificationMultiplier needed no change, but the absolute would have been published wrong by an unguessable factor. Renamed to grossFuel/usefulFuel rather than documented \u2014 a comment does not travel with the number into a report.",
+      "phase": "8"
     },
     {
-      "decision": "Load is a hint; the offer is the authority.",
-      "rationale": "A requestor load figure may be seconds stale, and treating it as truth is what makes several requestors stampede one node. LocalCapacity takes no ports and makes no calls, so \"local information only\" is a property of the type rather than a promise in a comment. A refusal is not an error path \u2014 it is how a stale guess becomes a correct decision.",
-      "phase": "6"
+      "decision": "Publish excluded configurations with the reason, never drop them.",
+      "rationale": "Real transport at 8 and 16 nodes dies on INBOUND_CONNECTION_THRESHOLD = 5 per host. Both rungs appear in an \"excluded, and why\" table because a rung that vanishes between the plan and the results is indistinguishable, to a reader, from one removed because its number was inconvenient.",
+      "phase": "8"
     },
     {
-      "decision": "One eligibility gate, exported so there is exactly one of it.",
-      "rationale": "eligibleNodes is shared by planPlacement and placeWithOffers. A second placer re-deriving eligibility would drift from the sovereignty rule. Falsified by planting the widening branch a refusal invites \u2014 \"nobody allowed will take it, so ask someone else\" \u2014 which probed 10 nodes instead of 2 and leaked a sovereign shard id into another owner fabric.",
-      "phase": "6"
+      "decision": "No parallel speedup is measurable in the current benchmark, and the report says so first.",
+      "rationale": "Every node in both curves runs in one OS process on one JavaScript event loop, so the flat makespan across the ladder is the expected consequence rather than a finding about scaling. The scaling claim is therefore unmeasured \u2014 neither disproved nor supported. Stating this prominently is the difference between a benchmark and a brochure.",
+      "phase": "8"
     },
     {
-      "decision": "A probe needs its own deadline, far below the RPC timeout.",
-      "rationale": "An unreachable node cost a full RPC timeout before the re-pick, destroying the saving power-of-d exists to buy. Offers now carry a 2s deadline and silence is a stated refusal, so a dead peer appears in the rejection list beside a busy one. Only integration could show this \u2014 a unit test admission callback returns immediately.",
-      "phase": "6"
+      "decision": "Mutation-test every new guard.",
+      "rationale": "Phase 7 shipped a disagreement test whose assertions sat inside a condition that could never be true \u2014 the exact anti-pattern already listed in the handoff table. Deleting disagreement reporting entirely left all 374 node tests green. Knowing the rule did not prevent breaking it; only running the mutation caught it.",
+      "phase": "7"
+    },
+    {
+      "decision": "Liveness changes who computes a task and when, never what the answer is.",
+      "rationale": "True because a result is a pure function of (module, input, partition) and content-addressed, so every recovery action is at worst wasted work. Re-check this first if any churn code changes.",
+      "phase": "7"
+    },
+    {
+      "decision": "A lease is a deadline, not a lock.",
+      "rationale": "Nobody releases it and no keeper notices the coordinator left, so \"never orphaned leases\" needs no cleanup code, and resume is the same code path as start. A lock would have required the holder-liveness protocol the deadline replaces.",
+      "phase": "7"
     },
     {
       "decision": "All nodes have equal functionality; the only difference is discovery.",
-      "rationale": "No tier, no class, no lesser node. A browser cannot bind a listening socket, so it cannot be a seed a newcomer dials cold and must be found via a relay \u2014 but once connected, peers are indistinguishable, and a browser executes, stores, serves and takes quorum slots identically. Proven cross-device in Phase 3. Any decision keying on node kind is wrong; the only legitimate use is shared-dependency analysis over the discovery graph. Stated by the owner three times because the first two applications changed the vocabulary while leaving the mechanism discriminating.",
-      "phase": "6"
-    },
-    {
-      "decision": "A seed contributes no discovery dependency, whatever relays it advertises through.",
-      "rationale": "Only a node whose sole discovery path is a relay depends on it. Two certificates with identical relayIds therefore get opposite quorum verdicts. Found by the owner questioning a summary table; the original rule read relayIds without consulting discoverability and refused independent quorums.",
-      "phase": "6"
-    },
-    {
-      "decision": "Attestation strength is derived from certificates, never declared by a caller.",
-      "rationale": "owner-attested / owner-domain / independent. Owner-domain and independent both show two replicas, so the count alone cannot distinguish them and the label must travel with the result. A caller able to assert 'independently verified' would eventually assert one that was not.",
+      "rationale": "Stated by the owner three times because the first two applications changed the vocabulary while leaving the mechanism discriminating. Any decision keying on node kind is wrong; the only legitimate use is shared-dependency analysis over the discovery graph.",
       "phase": "6"
     },
     {
       "decision": "Disagreement is reported, never voted on.",
-      "rationale": "In execution, reduce, and quorum composition alike. At R=2 there is no majority anyway, and voting silently converts 'something is wrong' into 'the majority was right' \u2014 the event verification exists to surface.",
+      "rationale": "In execution, reduce, quorum composition and now speculation alike. At R=2 there is no majority anyway, and voting silently converts \"something is wrong\" into \"the majority was right\".",
       "phase": "1"
-    },
-    {
-      "decision": "Sovereignty is structural, not a preference.",
-      "rationale": "planPlacement narrows to the owner's nodes before load is consulted; no branch widens it. A sovereign shard with nowhere to run stalls. Verified by adding the forbidden relax-under-pressure branch and watching four tests fail.",
-      "phase": "4"
-    },
-    {
-      "decision": "Derive topology, never agree on it.",
-      "rationale": "The reduce tree is a pure function of sorted partial CIDs \u2014 zero messages, no leader, no consensus. HRW ranking is itself the fallback list. Repair is recompute from content-addressed inputs, not state transfer; a late duplicate dedupes into nothing.",
-      "phase": "5"
-    },
-    {
-      "decision": "The kernel must never require crypto.subtle.",
-      "rationale": "A LAN origin is not a secure context. multiformats/hashes/sha2 uses WebCrypto and silently broke every CID on any non-localhost page, while the node still started \u2014 so it failed at the first block rather than at join. Now @noble/hashes, pure JS, with a browser test that deletes crypto.subtle.",
-      "phase": "3"
-    },
-    {
-      "decision": "Relay browser capacity is capped by inbound limits, not reservations.",
-      "rationale": "INBOUND_CONNECTION_THRESHOLD is 5 per HOST and MAX_INCOMING_PENDING_CONNECTIONS is 10, both below the 15 reservation default. Per-host binds in production too: every volunteer behind one NAT shares the budget. Exceeding either kills the noise handshake and reads like a network fault.",
-      "phase": "3"
     }
   ],
   "uncommitted_files": [],
-  "next_action": "Phase 7 \u2014 churn, stragglers and coordinator survival. Build on what Phase 6 left: rendezvous ranking already returns the full fallback order with no lookup, and repair is recompute from content-addressed inputs rather than state transfer. The debt to pay is threat model 19 \u2014 a node that accepts work in order to stall it has no consequence today, and closing that needs completion-time reputation, which is Phase 7 natural output rather than a separate feature.",
-  "context_notes": "571 tests green across node, browser (real Chromium) and e2e projects; tsc clean; 47/72 requirements; repository public; Pages deployed by hand with no workflow file (DEMO-04 holds). Phase 6 closed all 7 criteria: the static peer list every earlier phase leaned on is gone, and a requestor knowing one bootstrap peer plus a data CID discovers executors, places work with power-of-d, and dispatches it. Two lessons worth carrying: assert the property rather than the mechanism (a placement test named the HRW top-ranked node as the one that would be offered, when the placer offers the least-loaded of the sample), and any timing claim needs a test with a real endpoint in it. The owner node-equality rule held throughout \u2014 nothing in discovery or placement keys on what kind of node something is; the fallback chain keys on availability at this moment, and a test asserts a server and a browser fall back identically."
+  "next_action": "Phase 9 \u2014 public demo, consent UX and disclosure gate. Build the consent gate first, because criterion 3 forbids spending any CPU before it exists; the duty-cycle and visibility governors already exist, so what is missing is the gate and the always-visible surface. Criterion 2 is the one most likely to be quietly downgraded: the demo must run a job a person cares about the answer to, and a visitor must be able to check that answer. Two hard constraints bind this phase: DEMO-04 (no deploy workflow file may exist in the repository at all, absent rather than disabled) and vocabulary discipline (no mining/hashrate/earn/credits/tokens anywhere in the UI or the repository).",
+  "context_notes": "801 tests green across node, browser (real Chromium) and e2e projects; tsc clean; 58/72 requirements; repository public; Pages deployed by hand with no workflow file. Phase 8 published the first numbers behind a methodology committed before any harness existed. The honest headline is what the numbers cannot show: every node in both curves runs in one process on one event loop, so no parallel speedup is measurable and the scaling claim remains unmeasured. Connectivity tax 8-10x; no COST crossover, ~570x, and the decomposition attributes most of that to the guest ABI on a trivial fixture rather than to the fabric. The dominant lesson across Phases 7 and 8: a guard is worth nothing until a mutation proves it can fail, and a claim in a comment or a field name is worth nothing until the mechanism is grepped for. Both were learned by writing the anti-pattern that was already documented in the handoff file."
 }
