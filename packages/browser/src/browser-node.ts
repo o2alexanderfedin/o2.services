@@ -31,7 +31,8 @@ import { identify, identifyPush } from '@libp2p/identify'
 import { webRTC } from '@libp2p/webrtc'
 import { webSockets } from '@libp2p/websockets'
 import { multiaddr } from '@multiformats/multiaddr'
-import { WasmExecutor } from '@o2/core'
+import { WasmExecutor, guardSovereignty } from '@o2/core'
+import type { NodeSovereignty } from '@o2/core'
 import { Libp2pTransport } from '@o2/libp2p'
 import { FetchingBlockstore, GovernedExecutor, RpcBlockSource, RpcEndpoint, serveAgent } from '@o2/net'
 import { createLibp2p } from 'libp2p'
@@ -44,6 +45,20 @@ import type { WorkerFactory } from './worker-executor.ts'
 export interface BrowserNodeOptions {
   /** Relays to reserve on. At least one is required to be addressable at all. */
   readonly relayAddrs: readonly string[]
+  /**
+   * This node's clearance to execute sovereign data — DATA-09's serving-side
+   * gate (`guardSovereignty`, `@o2/core`), applied unconditionally inside the
+   * `Executor` this factory composes below, same as `fabric-node.ts`.
+   *
+   * Optional, and the default is the safe one: cleared for nobody
+   * (`canExecuteSovereign: false`). A tab started with no `sovereignty` option
+   * therefore refuses every sovereign-labelled task regardless of whose owner
+   * id it names. Per-node clearance, not a node class — every `BrowserNode` has
+   * the identical executor, transport, and relay-reservation behaviour
+   * regardless of this setting, mirroring `fabric-node.ts`'s "why there is no
+   * second class".
+   */
+  readonly sovereignty?: NodeSovereignty
   /** IndexedDB database name. Distinct names give one origin several independent nodes. */
   readonly blockstoreName?: string
   readonly rpcTimeoutMs?: number
@@ -201,8 +216,20 @@ export class BrowserNode {
       options.createWorker === undefined
         ? null
         : new WorkerExecutor({ nodeId, blockstore, createWorker: options.createWorker })
+    // DATA-09: guarded unconditionally, with no opt-in required to get the
+    // refusal — `options.sovereignty` defaults to cleared-for-nobody (see
+    // `BrowserNodeOptions.sovereignty`'s doc). Wrapped *inside* the governor
+    // rather than around it, so `this.executor` stays exactly a
+    // `GovernedExecutor` (BROW-04's `.executed`/`.dutyCycle` surface,
+    // unaffected by what runs underneath) while every path that reaches
+    // `.execute` — a remote dispatch via `serveAgent` below, and a page's own
+    // local self-dispatch (`includeSelf`, `demo/main.ts`) alike — passes
+    // through the identical guard.
     const executor = new GovernedExecutor(
-      worker ?? new WasmExecutor({ nodeId, blockstore }),
+      guardSovereignty(
+        worker ?? new WasmExecutor({ nodeId, blockstore }),
+        options.sovereignty ?? { ownerId: '', canExecuteSovereign: false },
+      ),
       governor,
     )
     const node = new BrowserNode({ libp2p, transport, rpc, blockstore, store, executor, governor, worker })

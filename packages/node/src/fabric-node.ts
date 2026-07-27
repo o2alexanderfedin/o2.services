@@ -76,8 +76,8 @@ import { ping } from '@libp2p/ping'
 import { tcp } from '@libp2p/tcp'
 import { webSockets } from '@libp2p/websockets'
 import { multiaddr } from '@multiformats/multiaddr'
-import { MemoryBlockstore, WasmExecutor } from '@o2/core'
-import type { Blockstore, Executor } from '@o2/core'
+import { MemoryBlockstore, WasmExecutor, guardSovereignty } from '@o2/core'
+import type { Blockstore, Executor, NodeSovereignty } from '@o2/core'
 import { FetchingBlockstore, RpcBlockSource, RpcEndpoint, serveAgent } from '@o2/net'
 import { createLibp2p } from 'libp2p'
 import type { Libp2p } from '@libp2p/interface'
@@ -105,6 +105,21 @@ export interface FabricNodeOptions {
    * different class.
    */
   readonly blockstoreDir?: string
+  /**
+   * This node's clearance to execute sovereign data — DATA-09's serving-side
+   * gate (`guardSovereignty`, `@o2/core`), applied unconditionally to the
+   * `Executor` this factory hands to `serveAgent` below.
+   *
+   * Optional, and the default is the safe one: cleared for nobody
+   * (`canExecuteSovereign: false`). A node started with no `sovereignty` option
+   * therefore refuses every sovereign-labelled task regardless of whose owner
+   * id it names — `ownerId` only matters once `canExecuteSovereign` is `true`,
+   * so the default's placeholder value is never consulted. This is a per-node
+   * clearance, not a node class: every `FabricNode` has the identical executor,
+   * transport, and relay capability regardless of this setting — see the
+   * module comment's "why there is no second class".
+   */
+  readonly sovereignty?: NodeSovereignty
   /**
    * Multiaddrs to listen on. Port 0 asks the OS for a free port.
    *
@@ -320,7 +335,17 @@ export class FabricNode {
 
     // The node's own peer id is its executor id, so a disagreement names the
     // machine that produced the dissenting result.
-    const executor = new WasmExecutor({ nodeId: libp2p.peerId.toString(), blockstore })
+    //
+    // DATA-09: guarded unconditionally, with no opt-in required to get the
+    // refusal — `options.sovereignty` defaults to cleared-for-nobody (see
+    // `FabricNodeOptions.sovereignty`'s doc). Wrapped once, here, rather than
+    // only at the `serveAgent` call below, so a caller that dispatches through
+    // `node.executor` directly — bypassing RPC entirely — gets the identical
+    // refusal a remote dispatch would.
+    const executor = guardSovereignty(
+      new WasmExecutor({ nodeId: libp2p.peerId.toString(), blockstore }),
+      options.sovereignty ?? { ownerId: '', canExecuteSovereign: false },
+    )
 
     const node = new FabricNode({
       libp2p,
