@@ -202,16 +202,27 @@
 
 ### Native → WASM AOT (Part I)
 
-- [ ] **AOT-01**: A statically-linked AArch64 binary translates to a `.wasm`
-      artifact via the elfconv pipeline
-- [ ] **AOT-02**: Translated artifacts are content-addressed with a cache key
-      covering input digest, toolchain versions, target, and WASM feature set
+- [x] **AOT-01**: A statically-linked AArch64 binary translates to a `.wasm`
+      artifact via the elfconv pipeline — and the driver refuses to trust the
+      toolchain's exit code, which is `0` on a binary leaving 174 addresses
+      untranslated. Verdict `reservations`, exit 2
+- [x] **AOT-02**: Translated artifacts are content-addressed with a cache key
+      covering input digest, toolchain versions, target, and WASM feature set;
+      pinned to a hardcoded conformance CID, and the image is keyed by digest so a
+      re-tagged local image is refused rather than hashed under a borrowed name
 - [ ] **AOT-03**: Translation is reproducible — identical inputs yield an identical
-      CID
-- [ ] **AOT-04**: A translated artifact executes on the fabric under the same
-      admission checks and verification as a source-compiled one
+      CID. **Same-host only.** Two lifts here are byte-identical; cross-machine is
+      unmeasured and carried as a structural blind spot, because elfconv's
+      register promotion iterates pointer-keyed containers. Needs a second machine
+- [x] **AOT-04**: A translated artifact executes on the fabric under the same
+      admission checks and verification as a source-compiled one — proved through
+      the `@o2/aot` barrel, and the ABI verified against a real elfconv artifact
+      rather than against fixtures written to match the assumption
 - [ ] **AOT-05**: Browser artifact loading uses `compileStreaming` against a stable
-      gateway URL so V8 code caching applies
+      gateway URL so V8 code caching applies. **Loading done; caching does not
+      happen.** No WASM code-cache entry at 4.8 MB over three visits, while the
+      same profile caches 2 MB of JavaScript. Published as a measured negative
+      with two controls, not deferred
 
 ---
 
@@ -320,10 +331,10 @@ All 72 v1 requirements are mapped, each to exactly one phase. See
 | DEMO-02 | Phase 9 — Public Demo, Consent UX & Disclosure Gate | Done |
 | DEMO-03 | Phase 9 — Public Demo, Consent UX & Disclosure Gate | Done |
 | DEMO-04 | Phase 9 — Public Demo, Consent UX & Disclosure Gate | Done |
-| AOT-01 | Phase 10 — elfconv AOT Native→WASM Pipeline | Pending |
-| AOT-02 | Phase 10 — elfconv AOT Native→WASM Pipeline | Pending |
-| AOT-03 | Phase 10 — elfconv AOT Native→WASM Pipeline | Pending |
-| AOT-04 | Phase 10 — elfconv AOT Native→WASM Pipeline | Pending |
-| AOT-05 | Phase 10 — elfconv AOT Native→WASM Pipeline | Pending |
+| AOT-01 | Phase 10 — elfconv AOT Native→WASM Pipeline | Done |
+| AOT-02 | Phase 10 — elfconv AOT Native→WASM Pipeline | Done |
+| AOT-03 | Phase 10 — elfconv AOT Native→WASM Pipeline | Partial — same-host only; cross-machine needs a second machine |
+| AOT-04 | Phase 10 — elfconv AOT Native→WASM Pipeline | Done |
+| AOT-05 | Phase 10 — elfconv AOT Native→WASM Pipeline | Partial — loading done; code-cache hit measured and NOT observed |
 
 **Coverage: 70/70 mapped. No orphans, no duplicates.**

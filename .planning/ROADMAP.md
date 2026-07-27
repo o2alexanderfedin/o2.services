@@ -45,7 +45,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 7: Churn, Stragglers & Coordinator Survival** - A job finishes correctly when the machines running it — including the submitter — vanish mid-flight
 - [x] **Phase 8: Benchmark Harness** - The scaling claim becomes a reproducible published number with its costs included rather than excluded
 - [x] **Phase 9: Public Demo, Consent UX & Disclosure Gate** - A visitor consents, contributes to a job someone cares about, and nothing publishes without a deliberate human action
-- [ ] **Phase 10: elfconv AOT Native→WASM Pipeline** - A statically-linked native binary becomes a fabric-executable artifact under the same admission checks and verification
+- [x] **Phase 10: elfconv AOT Native→WASM Pipeline** - A statically-linked native binary becomes a fabric-executable artifact under the same admission checks and verification — **3 of 4 criteria**; cross-machine reproducibility needs a second machine, and the V8 code-cache hit was measured and does not happen
 
 ## Phase Details
 
@@ -89,7 +89,10 @@ Decimal phases appear between their surrounding integers in numeric order.
   4. A relay at reservation capacity reports exhaustion by name to the joining node and to its own metrics, instead of failing in a way indistinguishable from a network outage
   5. Blocks written from a browser persist to IndexedDB and from Node to the filesystem behind one unchanged blockstore interface, with the same CIDs on both sides
   6. The node runs embedded in a third-party page served without COOP/COEP headers, throttles within a second of the tab being backgrounded, and resumes on return without losing its job
-**Plans**: in progress — 3 of 6 criteria met, see `phases/phase-3-browser-tier/SUMMARY.md`
+**Plans**: **5 of 6 criteria met**, see `phases/phase-3-browser-tier/SUMMARY.md`. Criterion 1
+was closed on genuinely different machines — iPhone Safari ↔ laptop Chromium over direct
+WebRTC. Only criterion 2's *real* AutoTLS remains, and it needs a publicly reachable host;
+the source/runtime half (no `/certhash/` literal, addresses resolved at runtime) is verified.
 
 ### Phase 4: Sovereignty, Authorization & Artifact Signing
 **Goal**: Owner-pinned data becomes a hard scheduling constraint the placer has no code path to relax, and every artifact the fabric executes is resolved through a signed name rather than a bare CID
@@ -206,12 +209,20 @@ appeal paths, ship with the demo.
   2. Translating the same input twice on different machines yields an identical CID, and the cache key demonstrably covers input digest, toolchain versions, target, and WASM feature set — changing any one of them changes the CID
   3. A translated artifact carries the same signed `key → CID` mapping and is verified by the same redundant-execution path as a source-compiled module — the native path cannot ship unsigned because the infrastructure to ship it unsigned does not exist
   4. A browser loads a translated artifact via `compileStreaming` against a stable gateway URL, and a second visit measurably hits the V8 code cache
-**Plans**: TBD
+**Plans**: complete — see `phases/phase-10-elfconv-aot/SUMMARY.md` and `10-VERIFICATION.md`
+**Outcome**: 3 of 4. Criterion 1 MET against a real 93.6s lift — and the driver refuses
+elfconv's exit code, which is `0` on a binary leaving 174 addresses untranslated.
+Criterion 2's cache key MET with a pinned conformance CID; its cross-machine half is
+**unmeasured**, carried as a structural blind spot. Criterion 3 MET through the
+`@o2/aot` barrel and verified against a real artifact rather than fixtures. Criterion 4
+**NOT MET**: no WASM code-cache entry at 4.8 MB over three visits, while the same
+profile caches 2 MB of JavaScript — a measured negative with two controls.
 
 Notes: Constraints recorded before any artifact is compiled, because retrofitting them
 is a recompile of everything — `TARGET=aarch64-wasi32` (not the Emscripten bundle,
 which emits JS glue and splits the ABI); no `-pthread` in any edge artifact; AArch64
-static unstripped input only.
+static input. **Correction: "unstripped" was wrong.** A stripped binary lifts fine if
+`.eh_frame` survives, because the loader recovers function entries through libdwarf.
 
 ## Progress
 

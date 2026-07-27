@@ -5,28 +5,61 @@
 See: .planning/PROJECT.md (updated 2026-07-24)
 
 **Core value:** Usable capacity grows super-linearly with the user base, without any raw data leaving its owner's device.
-**Current focus:** Phase 10 — elfconv AOT Native→WASM Pipeline (not started)
+**Current focus:** All ten phases executed. Two criteria remain, and both need
+hardware or hosting rather than code.
 
 ## Current Position
 
-Phase: 9 of 10 (Public Demo, Consent UX & Disclosure Gate) — **complete, 5 of 5
-criteria**. Phases 1, 2, 4, 5, 6, 7, 8, 9 complete; Phase 3 is 5/6 (real AutoTLS
-needs a public host). Next unit is Phase 10.
+Phase: 10 of 10 (elfconv AOT Native→WASM Pipeline) — **3 of 4 criteria**. Phases 1,
+2, 4, 5, 6, 7, 8, 9 complete; Phase 3 is 5/6 (real AutoTLS needs a public host).
 
 ```
-Test Files  92 passed      node 574 · browser 513 · e2e 27
-     Tests  1114 passed
+Test Files  111
+     Tests  1669
 tsc --noEmit  clean
-Requirements  65 / 72
+Requirements  68 / 72
 ```
 
-Progress: [████████░░] 80% (8 of 10 complete; Phase 3 at 5/6, Phase 9 at 4/5, both
-blocked only on hardware or hosting)
+Progress: [██████████] 100% executed (9 of 10 phases fully met; Phase 3 at 5/6 and
+Phase 10 at 3/4, both blocked on hardware, hosting, or a measured negative)
 
-Last activity: 2026-07-26 — Phase 9 closed. A visitor now consents before anything
-runs *or dials*, watches an unhideable bar naming whose work is on their machine,
-ends it with one click that kills the thread, and checks the fabric's answer in
-their own tab against a² + b² = c².
+Last activity: 2026-07-27 — Phase 10 closed. A statically-linked AArch64 binary is
+now a fabric artifact, lifted by a driver that **refuses to believe its toolchain**:
+elfconv exits `0` on a hello-world it left 174 addresses of glibc SVE untranslated
+in, so the driver measures the produced module and reports `RESERVATIONS` at exit 2.
+
+### Where Phase 10 landed
+
+**The finding is the exit code.** A pipeline trusting elfconv's `0` would cache an
+artifact that aborts at runtime under a name asserting it is clean. Two greps —
+abort call sites and recovered addresses — must agree before the count is called
+evidence, because a single grep that stopped matching would report zero and look
+like good news.
+
+**A real artifact was pointed at the executor for the first time**, and every
+execution-side test before it used hand-written fixtures written from the same
+understanding as the executor. The ABI held exactly: 23 WASI imports, `_start` and
+`memory`, every import answered. And it turned up something fixtures could not — a
+`printf("hello\n")` imports **`clock_time_get` and `poll_oneoff`**, because glibc's
+stdio pulls them in whether the program asks or not. Pinning the clock is
+load-bearing on the very first task anyone runs.
+
+**The V8 code cache does not happen.** At 4.8 MB, `application/wasm`, query-free CID
+URL, `compileStreaming`, hot enough to tier up: no WASM code-cache entry across three
+visits, while the same profile grows a 2 MB *JavaScript* cache and a
+`--v8-cache-options=none` calibration reads the identical 72B. Reported unmet rather
+than reworded — a criterion that can only be reported as met is not a measurement.
+
+**A recorded project assumption was wrong.** `CLAUDE.md` said elfconv needs
+unstripped binaries. It does not: `.eh_frame` is enough, via libdwarf. Corrected in
+`CLAUDE.md` and the roadmap.
+
+**Two reviewer findings outlived the phase and were real.** A file carrying raw NUL
+bytes had silently left the vocabulary guard's jurisdiction — an exemption with no
+entry, which the guard's own planted violations could not detect because they scan
+synthetic content rather than the tree. And `PINNED_WASI_FUNCTIONS` was checked only
+for *identity*, which a replacement returning the wrong value satisfies exactly.
+Both fixed; 8 mutations planted, 8 caught.
 
 ### Where Phase 9 landed
 
