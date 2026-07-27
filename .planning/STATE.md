@@ -278,7 +278,7 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-07-26
+Last session: 2026-07-26 (resumed 2026-07-26, context restored — no work advanced yet)
 Stopped at: **Phase 8 complete — 4 of 5 criteria.** 801 tests green, `tsc --noEmit`
 clean, 58/72 requirements. Methodology pre-registered before any number existed; the
 numbers came out as predicted. See `phases/phase-8-benchmark/SUMMARY.md`.
