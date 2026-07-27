@@ -107,3 +107,41 @@ completed: 2026-07-27
 ## Self-Check: PASSED
 
 `packages/node/src/egress-manifest.node.test.ts` and task commit `deef8d5` both verified present. `git status --short` at self-check time showed only this SUMMARY as untracked (`fabric-node.ts` clean — both mutations fully reverted).
+
+---
+
+## Criterion 2 closure
+
+**Follow-up work, same phase, closing the gap "Next Phase Readiness" above flagged.** All three call sites named there now call `submitJobWithEgress` instead of bare `submitJob`, so ROADMAP Phase 13's criterion 2 is true of the running system, not only of the mechanism.
+
+### Sites wired
+
+| Site | Guard supplied | Manifest surfaced as |
+|---|---|---|
+| `packages/node/src/bin/bench.ts:226` (`runnerFor`'s `run`) | `Fabric.guard` — `requestor.egress` for `realFabric` (already existed, `FabricNode.egress` from 13-02); a new `EgressGuard`-wrapped requestor transport for `memoryFabric` (this rig has no `FabricNode` to inherit one from, so it is built the same way `FabricNode.start` builds its own) | Accumulated entries/bytes logged to stdout after each transport's node-count sweep — not plumbed into `Observation`/`SweepResult` (`@o2/bench`'s report schema), which stays untouched to avoid widening the change into a second package |
+| `packages/browser/demo/main.ts:307` (`runColouring`) | `node.egress` (`BrowserNode.egress`, wired by 13-02) | New `egress: EgressManifest` field on `TabColouringRun` (`@o2/browser/src/tab-api.ts`) |
+| `packages/browser/demo/main.ts:541` (`runJob`) | `n.egress` (`BrowserNode.egress`) | New `egress: EgressManifest` field on `TabJobReport` (same file) |
+
+`packages/node/src/bin/agent.ts` was re-checked and still never calls `submitJob` at all (serving-only) — confirming the original defect report's three sites, not four, were the actual gap; the ROADMAP wording naming `bin/agent.ts` refers to the serving side of the same running node, not a fourth submission call site.
+
+### Sites deliberately left unwired
+
+None. All three call sites identified as production callers of `submitJob` are now wired. No caller was found lacking a guard where constructing one would have been artificial — `EgressGuard` wraps any `Transport`, and every context here already had (or could cheaply build, mirroring an existing pattern) a real one over its own outbound connection.
+
+### Proof
+
+`packages/node/src/colouring-demo.e2e.test.ts` and `packages/node/src/two-tabs.e2e.test.ts` — real Chromium tabs driving `window.o2.runColouring`/`runJob`, the demo's actual entry points, with no test-side `EgressGuard` — now assert `entries.length > 0` alongside `violations == []`, per this plan's own decision 3 (an empty manifest must never look like a clean one).
+
+**Mutation, real output, reverted:** `packages/browser/demo/main.ts`'s `runJob` call site was temporarily reverted to bare `submitJob` (keeping the now-unreachable `result.manifests[0]` read below it). Running `two-tabs.e2e.test.ts` produced:
+
+```
+× completes a 2x-redundant map job over a direct WebRTC connection
+  → page.evaluate: TypeError: Cannot read properties of undefined (reading '0')
+    at Object.runJob (http://localhost:5174/packages/browser/demo/main.ts:514:36)
+```
+
+The other two tests in the file (relay reservation, IndexedDB) still passed — only the test exercising the mutated call site failed, and it failed hard (a thrown error inside `page.evaluate`, not a soft assertion mismatch), which is the stronger of the two possible outcomes: there is no path through the mutated code that produces a defined-but-empty manifest to quietly satisfy a weaker assertion. Reverted immediately after capture; `git diff` confirmed byte-identical to the pre-mutation file, `tsc --noEmit` and the full suite re-ran clean afterward.
+
+### Final counts
+
+`tsc --noEmit`: exit 0 (root config, and separately against a temporary config that also includes `packages/browser/demo/**/*.ts`, which the root `tsconfig.json`'s `include` does not cover — confirmed before relying on `npx tsc --noEmit` alone to catch a type error in `demo/main.ts`). Full suite: **122 test files / 1775 tests, all passing** — unchanged from the 13-03 baseline, since this work extended four existing tests' assertions rather than adding new `it()` blocks. `vocabulary.node.test.ts` and `purity.node.test.ts`: 38/38 passing. `node --experimental-strip-types packages/node/src/bin/bench.ts --quick` run manually: both transports logged non-zero manifests (`memory transport egress manifest: 287 frames, 46438 bytes`; `real transport egress manifest: 171 frames, 27593 bytes`) on the run used for verification.
