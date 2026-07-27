@@ -5,6 +5,7 @@ import type { CID } from 'multiformats/cid'
 import { describe, expect, it, vi } from 'vitest'
 import {
   wasiEcho,
+  wasiEnv,
   wasiFail,
   wasiFdstat,
   wasiNoMemory,
@@ -26,7 +27,12 @@ import {
   WASI_NAMESPACE,
   WasiExecutor,
 } from './wasi-executor.ts'
-import type { WasiFailure, WasiRunOutcome } from './wasi-executor.ts'
+import type {
+  RandomStream,
+  WasiFailure,
+  WasiHostFunctions,
+  WasiRunOutcome,
+} from './wasi-executor.ts'
 
 /**
  * A translated artifact running on the fabric — AOT-04.
@@ -99,6 +105,19 @@ function bytesOf(outcome: WasiRunOutcome): Uint8Array {
 }
 
 const text = (bytes: Uint8Array): string => new TextDecoder().decode(bytes)
+
+/**
+ * The argv block a C `main` sees: every argument NUL-terminated, concatenated.
+ *
+ * Spelled `\u0000` rather than typed. An earlier version of the two assertions below
+ * carried *raw* NUL bytes in the source, and the cost was not cosmetic: the
+ * repository-wide vocabulary guard skips any file containing a NUL — the cheap test
+ * for "this is a binary" — so committing them would have made this file permanently,
+ * silently exempt from a rule the project treats as absolute. An unregistered
+ * exemption is worse than a registered one, because nobody can audit what they cannot
+ * see. `denied-by-invisibility` is now itself a test; see `vocabulary.node.test.ts`.
+ */
+const argv = (...args: readonly string[]): string => args.map((arg) => `${arg}\u0000`).join('')
 
 /** `WebAssembly.ExportValue` narrows to `Function`, which is not callable. */
 function isNiladic(value: WebAssembly.ExportValue | undefined): value is () => unknown {
@@ -218,8 +237,8 @@ describe('the shard reaches the guest as argv, with no bespoke ABI', () => {
       seen.add(text(bytesOf(await run(wasiShard, {}, index, 4))))
     }
     expect(seen.size).toBe(4)
-    expect(seen).toContain(`${WASI_ARGV0} 0 4 `)
-    expect(seen).toContain(`${WASI_ARGV0} 3 4 `)
+    expect(seen).toContain(argv(WASI_ARGV0, '0', '4'))
+    expect(seen).toContain(argv(WASI_ARGV0, '3', '4'))
   })
 
   it('keeps argv ASCII, because the shim sizes it in UTF-16 and fills it in UTF-8', () => {
@@ -603,6 +622,141 @@ describe('every nondeterministic host function is replaced', () => {
     expect(escaped).toEqual(['clock_time_get'])
   })
 
+  /**
+   * Identity is not behaviour.
+   *
+   * Every check above is satisfied by a replacement that is merely *a different
+   * function* — including one that returns `undefined`, or `ERRNO_SUCCESS` for a
+   * socket call, or reads the wall clock and then rounds it. The errnos below are
+   * spelled as literals rather than read from `wasiDefs`, because a test that imports
+   * the same constant as the implementation cannot notice the two disagreeing with the
+   * ABI together. These are the preview1 numbers: 0 success, 58 notsup, 21 fault,
+   * 28 inval.
+   */
+  const ERRNO_SUCCESS = 0
+  const ERRNO_NOTSUP = 58
+  const ERRNO_FAULT = 21
+  const ERRNO_INVAL = 28
+
+  /** A pinned surface over a real page of guest memory, so writes can be read back. */
+  function overMemory(random: RandomStream = () => undefined): {
+    readonly fns: WasiHostFunctions
+    readonly memory: WebAssembly.Memory
+    readonly view: DataView
+  } {
+    const memory = new WebAssembly.Memory({ initial: 1, maximum: 1 })
+    const shimImports = new WASI([], [], [], { debug: false }).wasiImport
+    return {
+      fns: pinnedWasiImports(shimImports, { memory }, random),
+      memory,
+      view: new DataView(memory.buffer),
+    }
+  }
+
+  /**
+   * Call one pinned host function, and require it to have answered with an errno.
+   *
+   * The single type assertion in this block, concentrated here on purpose. WASI
+   * signatures are per-function, and `WasiHostFunctions` is a record of
+   * `(...args: never[]) => unknown` — which is what makes the object assignable to
+   * `WebAssembly.Imports` at all, and uncallable by construction. The engine supplies
+   * the real signature at instantiation; a test standing where the engine stands has
+   * to state it. So the widening happens once, guarded by a `typeof` check before and
+   * a `typeof` check after, and every call below goes through it.
+   */
+  function invoke(
+    fns: WasiHostFunctions,
+    name: string,
+    ...args: readonly (number | bigint)[]
+  ): number {
+    const fn = fns[name]
+    if (typeof fn !== 'function') throw new Error(`${name} is not a host function`)
+    const callable = fn as (...a: readonly (number | bigint)[]) => unknown
+    const result = callable(...args)
+    if (typeof result !== 'number') {
+      throw new Error(`${name} answered ${String(result)}, which is not an errno`)
+    }
+    return result
+  }
+
+  it.each(['proc_raise', 'sock_accept', 'sock_recv', 'sock_send', 'sock_shutdown'])(
+    '%s answers ERRNO_NOTSUP, so a guest is told rather than left guessing',
+    (name) => {
+      // A refusal that returned `undefined` coerces to `0` at the boundary — which is
+      // ERRNO_SUCCESS, i.e. "your signal was raised" or "your socket is connected".
+      // That is worse than not implementing it.
+      expect(invoke(overMemory().fns, name, 0, 0, 0, 0)).toBe(ERRNO_NOTSUP)
+    },
+  )
+
+  it('sched_yield answers ERRNO_SUCCESS, deliberately and not by coercion', () => {
+    // The shim returns `undefined` here, which happens to coerce to 0. Right by
+    // accident is indistinguishable from right on purpose at the ABI — and
+    // distinguishable here, because `invoke` refuses a non-number.
+    expect(invoke(overMemory().fns, 'sched_yield')).toBe(ERRNO_SUCCESS)
+  })
+
+  it('poll_oneoff refuses *and* leaves nevents defined', () => {
+    // The defect this exists for: the shim declares three parameters where the ABI
+    // passes four, so it never receives `nevents_ptr` and never writes it. A guest
+    // that checks the errno, ignores it, and reads `nevents` — which real libc code
+    // does — reads whatever was in that word. On one node that is zero; on another it
+    // is the tail of a previous write. Divergence with no traceable cause.
+    const { fns, view } = overMemory()
+    const nevents = 128
+    view.setUint32(nevents, 0xdeadbeef, true)
+    expect(invoke(fns, 'poll_oneoff', 0, 64, 1, nevents)).toBe(ERRNO_NOTSUP)
+    expect(view.getUint32(nevents, true)).toBe(0)
+  })
+
+  it('answers a pointer it cannot write with ERRNO_FAULT rather than trapping', () => {
+    // One 64 KiB page. A host function that let a `RangeError` escape would unwind the
+    // guest as an opaque trap, and "your pointer was out of range" is something the
+    // guest can be told in its own vocabulary.
+    const { fns } = overMemory()
+    const past = 65_536
+    expect(invoke(fns, 'clock_time_get', 0, 0n, past)).toBe(ERRNO_FAULT)
+    expect(invoke(fns, 'clock_res_get', 0, past)).toBe(ERRNO_FAULT)
+    expect(invoke(fns, 'random_get', past, 8)).toBe(ERRNO_FAULT)
+    expect(invoke(fns, 'poll_oneoff', 0, 0, 1, past)).toBe(ERRNO_FAULT)
+  })
+
+  it('answers ERRNO_INVAL when the guest has no memory yet', () => {
+    // `memoryRef.memory` is null between instantiation and start. Reachable, because
+    // the import object is built before the instance exists.
+    const fns = pinnedWasiImports(
+      new WASI([], [], [], { debug: false }).wasiImport,
+      { memory: null },
+      () => undefined,
+    )
+    for (const name of ['clock_time_get', 'clock_res_get', 'random_get', 'poll_oneoff']) {
+      expect(invoke(fns, name, 0, 0n, 0, 0)).toBe(ERRNO_INVAL)
+    }
+  })
+
+  it('writes the pinned clock and the seeded entropy, not merely a different value', () => {
+    // The two functions whose *value* is the determinism claim, checked at the host
+    // boundary rather than only through a fixture — so a fixture that stopped calling
+    // them could not take this coverage with it.
+    const drawn: number[] = []
+    let block = 1
+    const { fns, memory, view } = overMemory((out) => {
+      out.fill(block++)
+      drawn.push(out.length)
+    })
+
+    expect(invoke(fns, 'clock_time_get', 0, 0n, 0)).toBe(ERRNO_SUCCESS)
+    expect(view.getBigUint64(0, true)).toBe(FIXED_REALTIME_NANOS)
+    expect(invoke(fns, 'clock_time_get', 1, 0n, 8)).toBe(ERRNO_SUCCESS)
+    expect(view.getBigUint64(8, true)).toBe(FIXED_MONOTONIC_NANOS)
+
+    expect(invoke(fns, 'random_get', 16, 4)).toBe(ERRNO_SUCCESS)
+    // The stream was asked for exactly the bytes requested, and wrote exactly them —
+    // the byte after the range is still zero, so the write did not run long.
+    expect(drawn).toEqual([4])
+    expect([...new Uint8Array(memory.buffer, 16, 5)]).toEqual([1, 1, 1, 1, 0])
+  })
+
   it('leaves the object it was given untouched, so the two can be compared at all', () => {
     // `pinnedWasiImports` returns a new object rather than mutating `wasiImport` in
     // place. If it mutated, every identity check in this block would compare a
@@ -680,6 +834,95 @@ describe('the guest gets a fixed environment and no filesystem', () => {
     // Hardcoded: the point of this list is that it does not vary with the host, so a
     // test that read it from the implementation would check nothing.
     expect([...WASI_ENV]).toEqual(['LANG=C', 'LC_ALL=C', 'TZ=UTC'])
+  })
+
+  /**
+   * …and the assertion above, alone, proves only that the constant says what it says.
+   *
+   * That was the whole of this claim's coverage until now: `WASI_ENV` is documented as
+   * "the guest's entire environment", and nothing had ever asked a guest. An executor
+   * that built its `WASI` with `[]` for `env` would have satisfied every test in this
+   * file — and would have handed a translated binary an empty environment, where
+   * `LC_ALL` decides collation and `TZ` decides how `FIXED_REALTIME_NANOS` renders as
+   * a local date. Two nodes disagreeing by hours, from a constant both of them export
+   * correctly.
+   *
+   * `wasi-env.wasm` asks through `environ_sizes_get`/`environ_get`, which is the only
+   * route a libc uses, and publishes the pointer array as well as the string buffer:
+   * `getenv` walks the array and reads *through* it, so a correct buffer behind a
+   * wrong array would satisfy any test that looked only at the strings.
+   */
+  const ENVIRON = {
+    /** `environ_sizes_get` → count. */
+    count: 3,
+    /** `environ_sizes_get` → buffer size: 'LANG=C\0'(7) + 'LC_ALL=C\0'(9) + 'TZ=UTC\0'(7). */
+    bufferBytes: 23,
+    /** `environ_get` → the three pointers, as offsets from the buffer base. */
+    offsets: [0, 7, 16],
+  } as const
+
+  const u32 = (bytes: Uint8Array, at: number): number =>
+    new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength).getUint32(at, true)
+
+  it('hands a real guest exactly those three variables, through environ_get', async () => {
+    const seen = bytesOf(await run(wasiEnv, { a: 1 }))
+    expect(seen.length).toBe(64)
+
+    expect(u32(seen, 0)).toBe(ENVIRON.count)
+    expect(u32(seen, 4)).toBe(ENVIRON.bufferBytes)
+    // The pointer array, not the buffer: this is what `getenv` dereferences.
+    expect([u32(seen, 8), u32(seen, 12), u32(seen, 16)]).toEqual([...ENVIRON.offsets])
+
+    // The buffer itself, byte for byte, NUL terminators included.
+    expect(text(seen.subarray(20, 20 + ENVIRON.bufferBytes))).toBe(
+      argv('LANG=C', 'LC_ALL=C', 'TZ=UTC'),
+    )
+    // Memory starts zeroed and the fixture copies 44 bytes, so a fourth variable
+    // arriving from the host would appear here rather than nowhere.
+    expect([...seen.subarray(20 + ENVIRON.bufferBytes)]).toEqual(
+      new Array(64 - 20 - ENVIRON.bufferBytes).fill(0),
+    )
+  })
+
+  it('gives the same environment to two nodes running the same task', async () => {
+    // The reason the claim matters at all: an environment that varied by host would be
+    // a divergence source that no result comparison could attribute to its cause.
+    const a = bytesOf(await run(wasiEnv, { a: 1 }))
+    const b = bytesOf(await run(wasiEnv, { a: 1 }))
+    expect([...a]).toEqual([...b])
+  })
+
+  it('is not the shim doing this — an unpinned environment reaches the guest too', async () => {
+    // The planted violation. Instantiate the same fixture with a *different* env and
+    // require a different answer, so the vector above is evidence about this executor
+    // rather than about a fixture that would print those bytes regardless.
+    const collected: Uint8Array[] = []
+    class Collect extends Fd {
+      override fd_write(data: Uint8Array): { ret: number; nwritten: number } {
+        collected.push(data)
+        return { ret: 0, nwritten: data.length }
+      }
+    }
+    const wasi = new WASI([WASI_ARGV0], ['TZ=Europe/Berlin'], [new Collect(), new Collect()], {
+      debug: false,
+    })
+    const instance = await WebAssembly.instantiate(await WebAssembly.compile(wasiEnv), {
+      [WASI_NAMESPACE]: { ...wasi.wasiImport },
+    })
+    const memory = instance.exports['memory']
+    const start = instance.exports['_start']
+    if (!(memory instanceof WebAssembly.Memory) || !isNiladic(start)) {
+      throw new Error('env fixture is not a command module')
+    }
+    try {
+      wasi.start({ exports: { memory, _start: start } })
+    } catch {
+      // `proc_exit(0)` unwinds as a throw in the shim; the output is already collected.
+    }
+
+    const raw = Uint8Array.from(collected.flatMap((chunk) => [...chunk]))
+    // Skip the 2-byte CBOR header the fixture writes.
+    expect(u32(raw.subarray(2), 0)).not.toBe(ENVIRON.count)
   })
 
   it('never writes to the console, however talkative the shim wants to be', async () => {

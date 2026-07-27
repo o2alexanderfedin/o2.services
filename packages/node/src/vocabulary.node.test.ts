@@ -187,6 +187,55 @@ const EXEMPT_LINES: readonly LineExemption[] = [
   },
 ]
 
+/**
+ * Extensions whose files are expected to contain NUL bytes.
+ *
+ * The scan below skips any file with a NUL in it, because matching English words
+ * inside a PNG is noise. That heuristic is right about binaries and catastrophic
+ * about everything else: a `.ts` file with one stray NUL — two argv assertions
+ * carrying literal terminators, in this repository's own `wasi-executor.test.ts` —
+ * is skipped whole, and becomes an exemption **nobody registered and nobody can see**.
+ * A reviewer auditing `EXEMPT_PATHS` would find nothing to audit.
+ *
+ * So the skip is now a declaration rather than an inference. A NUL inside one of
+ * these extensions is a binary; a NUL anywhere else is a violation in its own right,
+ * reported under {@link RepoScan.invisible}. The list is deliberately extensions rather than
+ * paths: `.wasm` fixtures come and go, but a `.ts` file is never legitimately binary,
+ * and that is the whole distinction worth encoding.
+ */
+const BINARY_EXTENSIONS: readonly string[] = [
+  '.wasm',
+  '.png',
+  '.jpg',
+  '.jpeg',
+  '.gif',
+  '.webp',
+  '.ico',
+  '.pdf',
+  '.woff',
+  '.woff2',
+  '.zip',
+  '.gz',
+  '.car',
+]
+
+function isDeclaredBinary(file: string): boolean {
+  return BINARY_EXTENSIONS.some((ext) => file.endsWith(ext))
+}
+
+/**
+ * What the NUL check decided about one file, as a value rather than a `continue`.
+ *
+ * Pulled out so the mutation tests can ask it directly. Inline, the invisible case
+ * was unreachable from a test without writing a NUL into the working tree.
+ */
+type NulVerdict = 'text' | 'declared-binary' | 'invisible'
+
+function nulVerdict(file: string, bytes: Buffer): NulVerdict {
+  if (!bytes.includes(0)) return 'text'
+  return isDeclaredBinary(file) ? 'declared-binary' : 'invisible'
+}
+
 interface Violation {
   /** Repo-relative path. */
   readonly file: string
@@ -287,6 +336,10 @@ interface RepoScan {
   readonly violations: readonly Violation[]
   readonly scanned: readonly string[]
   readonly used: ReadonlySet<string>
+  /** Tracked files skipped as binary that no declared binary extension covers. */
+  readonly invisible: readonly string[]
+  /** Tracked files skipped as binary, legitimately. */
+  readonly binary: readonly string[]
 }
 
 /**
@@ -301,6 +354,8 @@ function scanRepository(): RepoScan {
   const used = new Set<string>()
   const violations: Violation[] = []
   const scanned: string[] = []
+  const invisible: string[] = []
+  const binary: string[] = []
 
   const tracked = execFileSync('git', ['ls-files', '-z'], { cwd: ROOT, encoding: 'utf8' })
     .split('\0')
@@ -318,14 +373,23 @@ function scanRepository(): RepoScan {
       continue // staged deletion, or a file this checkout does not have
     }
     // Binary files: a NUL byte anywhere is the cheap, reliable signal, and matching
-    // English words inside a PNG would only produce noise.
-    if (bytes.includes(0)) continue
+    // English words inside a PNG would only produce noise. But the skip has to be
+    // *declared* — see BINARY_EXTENSIONS — or it is an exemption with no entry.
+    const verdict = nulVerdict(file, bytes)
+    if (verdict === 'declared-binary') {
+      binary.push(file)
+      continue
+    }
+    if (verdict === 'invisible') {
+      invisible.push(file)
+      continue
+    }
 
     scanned.push(file)
     violations.push(...scan(file, bytes.toString('utf8'), used))
   }
 
-  return { violations, scanned, used }
+  return { violations, scanned, used, invisible, binary }
 }
 
 const REPO: RepoScan = scanRepository()
@@ -351,6 +415,72 @@ describe('the repository scan is looking at the repository', () => {
     // Five paths are exempt; if that ever covers a large share of the repository,
     // the rule has stopped meaning anything.
     expect(exempt.length).toBeLessThan(REPO.scanned.length / 4)
+  })
+
+  /**
+   * The exemption nobody could have audited.
+   *
+   * `wasi-executor.test.ts` was committed carrying two raw NUL bytes — literal argv
+   * terminators inside a template string — and the binary skip above swallowed the
+   * whole file. Nothing failed. No entry appeared in `EXEMPT_PATHS`. The
+   * planted-violation tests below kept passing, because they scan synthetic content
+   * rather than the tree, so the guard reported itself healthy while one file had
+   * quietly left its jurisdiction.
+   *
+   * The failure message names the file, because "some file is invisible" is not
+   * actionable and this is exactly the check somebody will hit at an inconvenient
+   * moment.
+   */
+  it('has no file that escaped the scan by looking like a binary', () => {
+    expect(
+      REPO.invisible.map(
+        (file) =>
+          `${file} contains a NUL byte and is not a declared binary — it is being skipped ` +
+          'entirely, which is an exemption with no entry and no reason. Spell the NUL ' +
+          `\\u0000 in source, or add its extension to BINARY_EXTENSIONS.`,
+      ),
+    ).toEqual([])
+  })
+
+  it('still skips the binaries it is meant to skip', () => {
+    // The complement of the check above. If `invisible` were empty because nothing is
+    // ever skipped, the guard would be scanning WASM bytes for English and the empty
+    // result would prove nothing.
+    expect(REPO.binary.length).toBeGreaterThan(0)
+    expect(REPO.binary.every(isDeclaredBinary)).toBe(true)
+  })
+})
+
+describe('a NUL byte cannot buy a file its way out of the scan', () => {
+  const NUL = String.fromCharCode(0)
+
+  it('calls a NUL in a source file invisible, not binary', () => {
+    // The mutation that matters: this is the exact shape the real defect had.
+    expect(nulVerdict('packages/aot/src/wasi-executor.test.ts', Buffer.from(`x${NUL}y`))).toBe(
+      'invisible',
+    )
+    expect(nulVerdict('docs/p2p-native-cloud-design.md', Buffer.from(NUL))).toBe('invisible')
+    expect(nulVerdict('packages/browser/demo/index.html', Buffer.from(NUL))).toBe('invisible')
+  })
+
+  it('calls a NUL in a declared binary a binary', () => {
+    expect(nulVerdict('packages/demo/src/kernel.wasm', Buffer.from(NUL))).toBe('declared-binary')
+    expect(nulVerdict('docs/diagram.png', Buffer.from(NUL))).toBe('declared-binary')
+  })
+
+  it('leaves ordinary text alone whatever its extension', () => {
+    expect(nulVerdict('packages/aot/src/elf.ts', Buffer.from('no terminators here'))).toBe('text')
+    expect(nulVerdict('packages/demo/src/kernel.wasm', Buffer.from('not really wasm'))).toBe('text')
+  })
+
+  it('would have caught the real thing: banned words hidden behind a NUL', () => {
+    // Before this check existed, a file could carry both a NUL and every banned word
+    // and the scan would report zero violations for it. Prove the two halves connect:
+    // the content *is* a violation, and the verdict is what decides whether anyone
+    // ever looks at it.
+    const content = `start mining today${NUL}`
+    expect(scan('packages/browser/demo/index.html', content).map((v) => v.term)).toContain('mining')
+    expect(nulVerdict('packages/browser/demo/index.html', Buffer.from(content))).toBe('invisible')
   })
 })
 

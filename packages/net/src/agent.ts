@@ -91,14 +91,6 @@ export interface AgentOptions {
    */
   readonly capacity?: LocalCapacity
   /**
-   * BROW-02. What this node has been told about how starting went elsewhere.
-   *
-   * Any node may hold one, on the same terms as any other — the only difference
-   * between nodes is discovery. Omitting it answers with nothing, which is a
-   * truthful answer from a node that has been told nothing, and is distinguishable
-   * from an unreachable node only by the requestor getting an answer at all.
-   */
-  /**
    * NET-03. Peer ids currently holding a reservation on this node.
    *
    * A thunk, so the answer is the live set rather than a snapshot taken at
@@ -106,8 +98,22 @@ export interface AgentOptions {
    * relaying for nobody would say anyway, so a caller cannot tell "does not relay"
    * from "relays for nobody", and there is deliberately nothing here to tell them
    * apart with.
+   *
+   * That indistinguishability is deliberate and it has a cost worth stating: a
+   * caller cannot tell an omitted thunk from an empty one either. `FabricNode`
+   * omitted this for the whole of Phase 9, so every static-host rendezvous got a
+   * real answer naming nobody, and the caller could not tell that from a relay with
+   * no guests. Supply it wherever the data exists.
    */
   readonly reservations?: () => readonly string[]
+  /**
+   * BROW-02. What this node has been told about how starting went elsewhere.
+   *
+   * Any node may hold one, on the same terms as any other — the only difference
+   * between nodes is discovery. Omitting it answers with nothing, which is a
+   * truthful answer from a node that has been told nothing, and is distinguishable
+   * from an unreachable node only by the requestor getting an answer at all.
+   */
   readonly ledger?: StartOutcomeLedger
   /**
    * BROW-04. Called when a peer dispatches a task here, before it runs.

@@ -54,9 +54,14 @@ manifest and coverage report, not by a quorum.
   patent grace period, so publishing forfeits those rights permanently. Deployment
   must be a separately-triggered gate, not an automatic consequence of a phase
   completing
-- **Platform**: `elfconv` requires AArch64, statically-linked, unstripped binaries
-  and is a C++/LLVM/Remill toolchain — a build-time dependency producing `.wasm`,
-  not a TypeScript component
+- **Platform**: `elfconv` requires AArch64, statically-linked binaries and is a
+  C++/LLVM/Remill toolchain — a build-time dependency producing `.wasm`, not a
+  TypeScript component. **"Unstripped" was wrong** — corrected in Phase 10 against a
+  real binary: one with no `.symtab` at all lifts fine, because the loader recovers
+  function entries from `.eh_frame` through libdwarf. The refusal is the *conjunction*
+  of stripped **and** no unwind tables. **And it exits `0` on binaries it could not
+  fully translate** — 174 addresses on a hello-world — so the exit code is never
+  trusted; the driver measures the produced module
 - **Contributions**: None accepted; sole authorship preserves the commercial
   license track
 <!-- GSD:project-end -->

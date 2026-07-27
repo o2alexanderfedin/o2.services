@@ -39,13 +39,13 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 1: Portable Kernel & Loopback Map Slice** - A complete redundant, verified job runs end to end in one process, on node/browser/webworker, with no network involved
 - [x] **Phase 2: Real Network, Node ↔ Node** - The same job runs across two OS processes over a real transport, proving the port boundary held
 - [ ] **Phase 3: Browser Tier & Backbone Relay** - Two browser tabs on different machines run a distributed redundant job against a self-hosted backbone needing no certificate operations
-- [x] **Phase 4: Sovereignty, Authorization & Artifact Signing** - Owner-pinned data becomes a constraint the placer cannot relax, and every artifact resolves through a signed name
-- [x] **Phase 5: Decomposable Tree-Reduce** - Cross-owner aggregation merges up a derived tree with no shuffle, no consensus, and no state to migrate
-- [x] **Phase 6: Discovery, Placement & Enrollment** - The static peer list disappears; nodes find each other and choose placement under identity and diversity constraints
-- [x] **Phase 7: Churn, Stragglers & Coordinator Survival** - A job finishes correctly when the machines running it — including the submitter — vanish mid-flight
+- [x] **Phase 4: Sovereignty, Authorization & Artifact Signing** - Owner-pinned data becomes a constraint the placer cannot relax, and every artifact resolves through a signed name — **built and unit-verified, not wired**: the placer it constrains is one no job runs through (v1.0 audit)
+- [x] **Phase 5: Decomposable Tree-Reduce** - Cross-owner aggregation merges up a derived tree with no shuffle, no consensus, and no state to migrate — **built and unit-verified, not wired**: `executeReduce` has no caller; the demo merges with a linear scan
+- [x] **Phase 6: Discovery, Placement & Enrollment** - The static peer list disappears; nodes find each other and choose placement under identity and diversity constraints — **built and unit-verified, not wired**: `discoverExecutors` and `requestEnrollment` have no callers
+- [x] **Phase 7: Churn, Stragglers & Coordinator Survival** - A job finishes correctly when the machines running it — including the submitter — vanish mid-flight — **built and unit-verified, not wired**: `runResilient` has no caller, and `submitJob` neither speculates nor re-dispatches
 - [x] **Phase 8: Benchmark Harness** - The scaling claim becomes a reproducible published number with its costs included rather than excluded
 - [x] **Phase 9: Public Demo, Consent UX & Disclosure Gate** - A visitor consents, contributes to a job someone cares about, and nothing publishes without a deliberate human action
-- [ ] **Phase 10: elfconv AOT Native→WASM Pipeline** - A statically-linked native binary becomes a fabric-executable artifact under the same admission checks and verification
+- [x] **Phase 10: elfconv AOT Native→WASM Pipeline** - A statically-linked native binary becomes a fabric-executable artifact under the same admission checks and verification — **3 of 4 criteria**; cross-machine reproducibility needs a second machine, and the V8 code-cache hit was measured and does not happen
 
 ## Phase Details
 
@@ -89,7 +89,10 @@ Decimal phases appear between their surrounding integers in numeric order.
   4. A relay at reservation capacity reports exhaustion by name to the joining node and to its own metrics, instead of failing in a way indistinguishable from a network outage
   5. Blocks written from a browser persist to IndexedDB and from Node to the filesystem behind one unchanged blockstore interface, with the same CIDs on both sides
   6. The node runs embedded in a third-party page served without COOP/COEP headers, throttles within a second of the tab being backgrounded, and resumes on return without losing its job
-**Plans**: in progress — 3 of 6 criteria met, see `phases/phase-3-browser-tier/SUMMARY.md`
+**Plans**: **5 of 6 criteria met**, see `phases/phase-3-browser-tier/SUMMARY.md`. Criterion 1
+was closed on genuinely different machines — iPhone Safari ↔ laptop Chromium over direct
+WebRTC. Only criterion 2's *real* AutoTLS remains, and it needs a publicly reachable host;
+the source/runtime half (no `/certhash/` literal, addresses resolved at runtime) is verified.
 
 ### Phase 4: Sovereignty, Authorization & Artifact Signing
 **Goal**: Owner-pinned data becomes a hard scheduling constraint the placer has no code path to relax, and every artifact the fabric executes is resolved through a signed name rather than a bare CID
@@ -206,12 +209,20 @@ appeal paths, ship with the demo.
   2. Translating the same input twice on different machines yields an identical CID, and the cache key demonstrably covers input digest, toolchain versions, target, and WASM feature set — changing any one of them changes the CID
   3. A translated artifact carries the same signed `key → CID` mapping and is verified by the same redundant-execution path as a source-compiled module — the native path cannot ship unsigned because the infrastructure to ship it unsigned does not exist
   4. A browser loads a translated artifact via `compileStreaming` against a stable gateway URL, and a second visit measurably hits the V8 code cache
-**Plans**: TBD
+**Plans**: complete — see `phases/phase-10-elfconv-aot/SUMMARY.md` and `10-VERIFICATION.md`
+**Outcome**: 3 of 4. Criterion 1 MET against a real 93.6s lift — and the driver refuses
+elfconv's exit code, which is `0` on a binary leaving 174 addresses untranslated.
+Criterion 2's cache key MET with a pinned conformance CID; its cross-machine half is
+**unmeasured**, carried as a structural blind spot. Criterion 3 MET through the
+`@o2/aot` barrel and verified against a real artifact rather than fixtures. Criterion 4
+**NOT MET**: no WASM code-cache entry at 4.8 MB over three visits, while the same
+profile caches 2 MB of JavaScript — a measured negative with two controls.
 
 Notes: Constraints recorded before any artifact is compiled, because retrofitting them
 is a recompile of everything — `TARGET=aarch64-wasi32` (not the Emscripten bundle,
 which emits JS glue and splits the ABI); no `-pthread` in any edge artifact; AArch64
-static unstripped input only.
+static input. **Correction: "unstripped" was wrong.** A stripped binary lifts fine if
+`.eh_frame` survives, because the loader recovers function entries through libdwarf.
 
 ## Progress
 
@@ -230,13 +241,13 @@ Parallel tracks (config `parallelization: true`):
 | 1. Portable Kernel & Loopback Map Slice | — | Complete | 2026-07-24 |
 | 2. Real Network, Node ↔ Node | — | Complete | 2026-07-24 |
 | 3. Browser Tier & Backbone Relay | — | 5 of 6 criteria — real AutoTLS needs a publicly reachable host | 2026-07-26 |
-| 4. Sovereignty, Authorization & Artifact Signing | — | Complete | 2026-07-25 |
-| 5. Decomposable Tree-Reduce | — | Complete | 2026-07-25 |
-| 6. Discovery, Placement & Enrollment | — | Complete | 2026-07-26 |
-| 7. Churn, Stragglers & Coordinator Survival | — | Complete — adversarially reviewed, 5 defects fixed | 2026-07-26 |
+| 4. Sovereignty, Authorization & Artifact Signing | — | Built and unit-verified; **not wired** — no production path reaches it (v1.0 audit) | 2026-07-25 |
+| 5. Decomposable Tree-Reduce | — | Built and unit-verified; **not wired** — `executeReduce` has no caller; the demo merges with a linear scan | 2026-07-25 |
+| 6. Discovery, Placement & Enrollment | — | Built and unit-verified; **not wired** — `discoverExecutors` and `requestEnrollment` have no callers | 2026-07-26 |
+| 7. Churn, Stragglers & Coordinator Survival | — | Built and unit-verified; **not wired** — `runResilient` has no caller, and `submitJob` is the only job path | 2026-07-26 |
 | 8. Benchmark Harness | — | 4 of 5 criteria — BENCH-06 distinct machines needs a second machine | 2026-07-26 |
 | 9. Public Demo, Consent UX & Disclosure Gate | — | Complete — the two-device run was done by the owner and found two defects | 2026-07-26 |
-| 10. elfconv AOT Native→WASM Pipeline | — | Not started | - |
+| 10. elfconv AOT Native→WASM Pipeline | — | 3 of 4 criteria — code cache measured and does not happen; cross-machine CID needs a second machine | 2026-07-27 |
 
 ## Requirement Coverage
 
@@ -255,3 +266,47 @@ Parallel tracks (config `parallelization: true`):
 | 9 | DEMO-01, DEMO-02, DEMO-03, DEMO-04, BROW-01, BROW-02, BROW-04 | 7 |
 | 10 | AOT-01, AOT-02, AOT-03, AOT-04, AOT-05 | 5 |
 | **Total** | | **72** |
+
+---
+
+## Next milestone — v1.1: Wire What Was Built
+
+**Added 2026-07-27, as the direct output of the v1.0 milestone audit.**
+
+v1.0 built four phases' worth of mechanism that no runnable entry point reaches:
+sovereignty labelling, tree-reduce, discovery, enrollment, quorum composition,
+capability chains, and the entire churn coordinator. 36 requirements are *Built, not
+wired*. The code is real and tested; the wire is missing.
+
+The structural cause is one shape, repeated: `serveAgent` declares six optional hooks
+with silent defaults, and production supplies almost none of them. A hook that defaults
+to "allow", "empty", or "accept" turns an unwired capability into a *working system
+that quietly does nothing* — which is why none of this failed a test.
+
+**Goal**: every requirement marked *Built, not wired* becomes reachable from a runnable
+entry point, or is deliberately descoped with the reason recorded.
+
+**Candidate criteria** (to be firmed up in `/gsd-plan-phase`):
+
+1. `serveAgent`'s optional hooks stop defaulting silently. A node that supplies no
+   `authorize` should be a decision someone made, not a default nobody noticed — the
+   audit found `ledger` supplied *nowhere*, in production or in a single test.
+2. A dispatched task carries a capability chain and the serving node verifies it before
+   `WebAssembly.instantiate` — both ends, since today neither exists.
+3. `JobSpec`/`Task` carry an owner label, and the real job path consults the
+   sovereignty gate. Today `executorsFor` is unconditional round-robin.
+4. Both nodes wrap their transport in `EgressGuard`, so the manifest is complete by
+   construction as designed rather than only in a test.
+5. One job path, not two. Either `submitJob` grows lease/speculation/coverage, or
+   `runResilient` becomes the entry point — the present arrangement is a second job
+   implementation nothing calls.
+6. `translationCid` is called by the lift pipeline, and the CLI emits the CID.
+7. A production node can construct a `WasiExecutor`, so a translated artifact
+   dispatched to a running node does not fail at instantiate.
+8. **A test that would have caught this class.** The audit found the defect; no test
+   could have. Something that asserts reachability from an entry point — the same role
+   `purity.node.test.ts` plays for layering.
+
+**Not in v1.1**: NET-03, BENCH-06 and AOT-03 stay open until there is a public host and
+a second machine. AOT-05 stays a measured negative unless a re-run on an `https` origin
+with a non-automated Chromium says otherwise.

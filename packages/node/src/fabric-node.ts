@@ -321,12 +321,8 @@ export class FabricNode {
     // The node's own peer id is its executor id, so a disagreement names the
     // machine that produced the dissenting result.
     const executor = new WasmExecutor({ nodeId: libp2p.peerId.toString(), blockstore })
-    // Unconditional, and that is the point: there is no construction path through
-    // this factory that yields a node which will not compute. A node that relays
-    // reaches this line by the same route as one that does not.
-    serveAgent({ rpc, executor, blockstore })
 
-    return new FabricNode({
+    const node = new FabricNode({
       libp2p,
       transport,
       rpc,
@@ -337,6 +333,27 @@ export class FabricNode {
       pending,
       inboundPerSecond,
     })
+
+    // Unconditional, and that is the point: there is no construction path through
+    // this factory that yields a node which will not compute. A node that relays
+    // reaches this line by the same route as one that does not.
+    //
+    // `reservations` is a thunk over the node, which is why the node is constructed
+    // first — the same ordering `BrowserNode.start` uses for `onDispatch`, and for
+    // the same reason: the handler has to close over an object that does not exist
+    // until the constructor returns.
+    //
+    // Without it this answered `[]` forever. `reservedPeerIds` held exactly the
+    // right data and nothing asked it, so `findReservedPeers` — documented in the
+    // demo as *the only route on a static host* — got a real answer containing
+    // nobody. That produces `{asked: true, dialed: [], failed: []}`: nothing
+    // attempted, nothing failed, no error to notice. The same signature as the
+    // two-device defect found on hardware, one tier down. The LAN demo hid it,
+    // because `SeedServer` reads `reservedPeerIds` in-process and never asks over
+    // the wire.
+    serveAgent({ rpc, executor, blockstore, reservations: () => node.reservedPeerIds })
+
+    return node
   }
 
   get peerId(): string {
