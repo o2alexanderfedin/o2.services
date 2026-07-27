@@ -210,6 +210,11 @@ export class BrowserNode {
       rpc,
       executor,
       blockstore,
+      authorize: 'serves-unauthenticated',
+      index: 'serves-no-records',
+      capacity: 'accepts-every-offer',
+      ledger: 'keeps-no-ledger',
+      reservations: 'relays-for-nobody',
       onDispatch: (from) => {
         node.servedFor.set(from, (node.servedFor.get(from) ?? 0) + 1)
         node.#announce()

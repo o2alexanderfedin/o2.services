@@ -351,7 +351,17 @@ export class FabricNode {
     // two-device defect found on hardware, one tier down. The LAN demo hid it,
     // because `SeedServer` reads `reservedPeerIds` in-process and never asks over
     // the wire.
-    serveAgent({ rpc, executor, blockstore, reservations: () => node.reservedPeerIds })
+    serveAgent({
+      rpc,
+      executor,
+      blockstore,
+      authorize: 'serves-unauthenticated',
+      index: 'serves-no-records',
+      capacity: 'accepts-every-offer',
+      reservations: () => node.reservedPeerIds,
+      ledger: 'keeps-no-ledger',
+      onDispatch: 'reports-no-dispatch',
+    })
 
     return node
   }

@@ -124,6 +124,12 @@ async function memoryFabric(nodes: number): Promise<Fabric> {
     rpc: callerRpc,
     executor: new WasmExecutor({ nodeId: 'requestor', blockstore: originStore }),
     blockstore: originStore,
+    authorize: 'serves-unauthenticated',
+    index: 'serves-no-records',
+    capacity: 'accepts-every-offer',
+    ledger: 'keeps-no-ledger',
+    reservations: 'relays-for-nobody',
+    onDispatch: 'reports-no-dispatch',
   })
 
   const endpoints: RpcEndpoint[] = []
@@ -136,7 +142,17 @@ async function memoryFabric(nodes: number): Promise<Fabric> {
       new MemoryBlockstore(),
       new RpcBlockSource(rpc, () => ['requestor']),
     )
-    serveAgent({ rpc, executor: new WasmExecutor({ nodeId: id, blockstore: store }), blockstore: store })
+    serveAgent({
+      rpc,
+      executor: new WasmExecutor({ nodeId: id, blockstore: store }),
+      blockstore: store,
+      authorize: 'serves-unauthenticated',
+      index: 'serves-no-records',
+      capacity: 'accepts-every-offer',
+      ledger: 'keeps-no-ledger',
+      reservations: 'relays-for-nobody',
+      onDispatch: 'reports-no-dispatch',
+    })
     endpoints.push(rpc)
   }
 
