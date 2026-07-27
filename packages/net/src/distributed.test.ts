@@ -1,4 +1,4 @@
-import { MemoryBlockstore, MemoryNetwork, WasmExecutor, delegate, submitJob } from '@o2/core'
+import { MemoryBlockstore, MemoryNetwork, WasmExecutor, delegate, publicNodes, submitJob } from '@o2/core'
 import type { CanonicalValue, Executor, Task } from '@o2/core'
 import { CID } from 'multiformats/cid'
 import { describe, expect, it } from 'vitest'
@@ -309,8 +309,9 @@ describe('a whole job across nodes', () => {
       const result = await submitJob(
         {
           moduleCid: fabric.moduleCid,
-          shards: [{ a: 0 }, { a: 1 }, { a: 2 }, { a: 3 }],
+          shards: [{ a: 0 }, { a: 1 }, { a: 2 }, { a: 3 }].map((value) => ({ value, label: 'public' as const })),
           executors,
+          nodes: publicNodes(executors),
           redundancy: 2,
         },
         fabric.originStore,
@@ -352,8 +353,15 @@ describe('a whole job across nodes', () => {
         },
       }
 
+      const executors = [honest, liar]
       const result = await submitJob(
-        { moduleCid: fabric.moduleCid, shards: [{ a: 0 }], executors: [honest, liar], redundancy: 2 },
+        {
+          moduleCid: fabric.moduleCid,
+          shards: [{ value: { a: 0 }, label: 'public' }],
+          executors,
+          nodes: publicNodes(executors),
+          redundancy: 2,
+        },
         fabric.originStore,
       )
 

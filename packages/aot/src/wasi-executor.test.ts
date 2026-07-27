@@ -1,5 +1,5 @@
 import { Fd, WASI } from '@bjorn3/browser_wasi_shim'
-import { encodeCanonical, MemoryBlockstore, submitJob } from '@o2/core'
+import { encodeCanonical, MemoryBlockstore, publicNodes, submitJob } from '@o2/core'
 import type { CanonicalValue, Task } from '@o2/core'
 import type { CID } from 'multiformats/cid'
 import { describe, expect, it, vi } from 'vitest'
@@ -8,6 +8,8 @@ import {
   wasiEnv,
   wasiFail,
   wasiFdstat,
+  wasiHostcall,
+  wasiNoisy,
   wasiNoMemory,
   wasiNoStart,
   wasiProbe,
@@ -15,8 +17,10 @@ import {
   wasiThreadSpawn,
 } from './fixtures/wasi-fixtures.ts'
 import {
+  describeWasiFailure,
   FIXED_MONOTONIC_NANOS,
   FIXED_REALTIME_NANOS,
+  MAX_STDERR_BYTES,
   PINNED_WASI_FUNCTIONS,
   pinnedWasiImports,
   seededStream,
@@ -133,6 +137,9 @@ describe('the fixtures really are WASI command modules', () => {
     ['wasi-probe', wasiProbe],
     ['wasi-fail', wasiFail],
     ['wasi-fdstat', wasiFdstat],
+    ['wasi-env', wasiEnv],
+    ['wasi-hostcall', wasiHostcall],
+    ['wasi-noisy', wasiNoisy],
     ['wasi-no-start', wasiNoStart],
     ['wasi-no-memory', wasiNoMemory],
     ['wasi-thread-spawn', wasiThreadSpawn],
@@ -154,7 +161,16 @@ describe('the fixtures really are WASI command modules', () => {
   })
 
   it('the working fixtures export exactly memory and _start, as elfconv output does', async () => {
-    for (const bytes of [wasiEcho, wasiShard, wasiProbe, wasiFail, wasiFdstat]) {
+    for (const bytes of [
+      wasiEcho,
+      wasiShard,
+      wasiProbe,
+      wasiFail,
+      wasiFdstat,
+      wasiEnv,
+      wasiHostcall,
+      wasiNoisy,
+    ]) {
       const names = WebAssembly.Module.exports(await WebAssembly.compile(bytes))
         .map((entry) => entry.name)
         .sort()
@@ -772,6 +788,140 @@ describe('every nondeterministic host function is replaced', () => {
   })
 })
 
+describe('a guest observes the pinned host functions behaving, not merely existing', () => {
+  /**
+   * The same claims as the block above, asked from the other side of the boundary.
+   *
+   * A direct call proves the function does the right thing when *this test* calls it.
+   * It does not prove the function is the one the engine wired into a running module,
+   * that the arguments arrive in the order WASI specifies, or that what the host wrote
+   * landed where the guest was looking. `wasi-hostcall.wasm` asks through a real
+   * instantiation and publishes the memory it got back, which is the only vantage
+   * point that can tell those apart.
+   *
+   * Every out-parameter is prefilled with `0xa5a5a5a5` inside the fixture, so "wrote
+   * zero" and "wrote nothing" are two different observations. That distinction is the
+   * entire `poll_oneoff` defect.
+   */
+  const SENTINEL = [0xa5, 0xa5, 0xa5, 0xa5]
+  const ERRNO_SUCCESS_LE = [0, 0, 0, 0]
+  const ERRNO_NOTSUP_LE = [58, 0, 0, 0]
+  const ERRNO_BADF_LE = [8, 0, 0, 0]
+  const ONE_NANOSECOND_LE = [1, 0, 0, 0, 0, 0, 0, 0]
+
+  /**
+   * The whole 64-byte answer, as a literal.
+   *
+   * Hardcoded rather than assembled from the named constants below, for the reason
+   * every conformance vector in this file is: a vector computed from the same pieces
+   * the implementation uses agrees with the implementation by construction, whatever
+   * either of them says. This is what a guest sees, written down.
+   */
+  const HOSTCALL_VECTOR = [
+    58, 0, 0, 0, //                 poll_oneoff → ERRNO_NOTSUP
+    0, 0, 0, 0, //                  …and nevents written, not left as the sentinel
+    8, 0, 0, 0, //                  fd_read(3) → ERRNO_BADF
+    0xa5, 0xa5, 0xa5, 0xa5, //      …nread untouched, deterministically
+    8, 0, 0, 0, //                  fd_write(3) → ERRNO_BADF
+    0xa5, 0xa5, 0xa5, 0xa5, //      …nwritten untouched, deterministically
+    0, 0, 0, 0, //                  clock_res_get(CLOCKID_REALTIME) → ERRNO_SUCCESS
+    1, 0, 0, 0, 0, 0, 0, 0, //      …1 ns
+    0, 0, 0, 0, //                  clock_res_get(CLOCKID_MONOTONIC) → ERRNO_SUCCESS
+    1, 0, 0, 0, 0, 0, 0, 0, //      …1 ns
+    0, 0, 0, 0, //                  clock_res_get(99) → ERRNO_SUCCESS, where the shim says NOSYS
+    1, 0, 0, 0, 0, 0, 0, 0, //      …1 ns, so no clock id is a fingerprint
+    0, 0, 0, 0, //                  sched_yield → ERRNO_SUCCESS
+  ]
+
+  it('sees exactly this from the pinned surface, byte for byte', async () => {
+    const seen = bytesOf(await run(wasiHostcall, { a: 1 }))
+    expect(seen.length).toBe(64)
+    expect([...seen]).toEqual(HOSTCALL_VECTOR)
+  })
+
+  it('is told poll_oneoff is refused, and finds nevents written rather than stale', async () => {
+    // The defect, from the guest's chair. The shim declares three parameters where the
+    // ABI passes four, so it never receives `nevents_ptr`; a guest that reads the count
+    // after an error — and real libc code does — reads whatever was in that word. The
+    // sentinel is what proves the difference between a host that wrote `0` and a host
+    // that wrote nothing, and before the fix the sentinel came back intact.
+    const seen = bytesOf(await run(wasiHostcall, { a: 1 }))
+    expect([...seen.slice(0, 4)]).toEqual(ERRNO_NOTSUP_LE)
+    expect([...seen.slice(4, 8)]).toEqual(ERRNO_SUCCESS_LE)
+    expect([...seen.slice(4, 8)]).not.toEqual(SENTINEL)
+  })
+
+  it('is told a descriptor it never opened is ERRNO_BADF, on read and on write', async () => {
+    // `fds` is exactly `[stdin, stdout, stderr]` and there are no preopens, so fd 3 is
+    // the first thing a translated binary hits the moment it assumes a filesystem.
+    // Answering `BADF` is what lets it fail the way it would on a real machine; the
+    // untouched counts are the other half — unwritten, but unwritten *identically* on
+    // every node, which is the property that matters here.
+    const seen = bytesOf(await run(wasiHostcall, { a: 1 }))
+    expect([...seen.slice(8, 12)]).toEqual(ERRNO_BADF_LE)
+    expect([...seen.slice(12, 16)]).toEqual(SENTINEL)
+    expect([...seen.slice(16, 20)]).toEqual(ERRNO_BADF_LE)
+    expect([...seen.slice(20, 24)]).toEqual(SENTINEL)
+  })
+
+  it('gets a resolution for every clock id, including ones the shim refuses', async () => {
+    // Not a fidelity claim — a consistency one. The shim answers `ERRNO_NOSYS` for any
+    // id outside the two it knows, so a guest could ask about clock 99 and learn which
+    // host it was on. Every id gets 1 ns here, including the two that also return a
+    // time, so there is no pair for a guest to branch on.
+    const seen = bytesOf(await run(wasiHostcall, { a: 1 }))
+    for (const at of [24, 36, 48]) {
+      expect([...seen.slice(at, at + 4)]).toEqual(ERRNO_SUCCESS_LE)
+      expect([...seen.slice(at + 4, at + 12)]).toEqual(ONE_NANOSECOND_LE)
+    }
+  })
+
+  it('gets the same answers on a second execution, which is the point of all of it', async () => {
+    const first = bytesOf(await run(wasiHostcall, { a: 1 }))
+    const second = bytesOf(await run(wasiHostcall, { a: 1 }))
+    expect([...first]).toEqual([...second])
+  })
+
+  it('is not the shim doing this — the unpinned shim answers differently', async () => {
+    /**
+     * The planted violation. Run the same fixture against the shim's own surface and
+     * require the vector to differ, so the literal above is evidence about this
+     * executor rather than about a shim that would have answered the same anyway.
+     *
+     * Note the fixture asks `poll_oneoff` for a *zero* timeout precisely so this run
+     * terminates: the shim busy-waits on `performance.now()` until the deadline passes,
+     * and a fixture that asked for a real one would spend that time here.
+     */
+    const collected: Uint8Array[] = []
+    class Collect extends Fd {
+      override fd_write(data: Uint8Array): { ret: number; nwritten: number } {
+        collected.push(data)
+        return { ret: 0, nwritten: data.length }
+      }
+    }
+    const wasi = new WASI([WASI_ARGV0], [], [new Collect(), new Collect()], { debug: false })
+    const instance = await WebAssembly.instantiate(await WebAssembly.compile(wasiHostcall), {
+      [WASI_NAMESPACE]: { ...wasi.wasiImport },
+    })
+    const memory = instance.exports['memory']
+    const start = instance.exports['_start']
+    if (!(memory instanceof WebAssembly.Memory) || !isNiladic(start)) {
+      throw new Error('hostcall fixture is not a command module')
+    }
+    try {
+      wasi.start({ exports: { memory, _start: start } })
+    } catch {
+      // `proc_exit` unwinds as a throw in the shim; the output is already collected.
+    }
+
+    // Skip the 2-byte CBOR header the fixture writes.
+    const raw = Uint8Array.from(collected.flatMap((chunk) => [...chunk])).subarray(2)
+    expect([...raw.subarray(0, 64)]).not.toEqual(HOSTCALL_VECTOR)
+    // Specifically: the shim leaves `nevents` exactly as the fixture left it.
+    expect([...raw.subarray(4, 8)]).toEqual(SENTINEL)
+  })
+})
+
 describe('the guest gets descriptors that say the same thing on every node', () => {
   /**
    * These two claims are only observable through `fd_fdstat_get`/`fd_filestat_get`,
@@ -950,16 +1100,18 @@ describe('a WASI artifact travels the fabric’s ordinary verified path — AOT-
     const blockstore = new MemoryBlockstore()
     const moduleCid = await blockstore.put(wasiEcho)
     const shards: CanonicalValue[] = [{ a: 1 }, { a: 2 }, { a: 3 }, { a: 4 }]
+    const executors = [
+      new WasiExecutor({ nodeId: 'n1', blockstore }),
+      new WasiExecutor({ nodeId: 'n2', blockstore }),
+      new WasiExecutor({ nodeId: 'n3', blockstore }),
+    ]
 
     const result = await submitJob(
       {
         moduleCid,
-        shards,
-        executors: [
-          new WasiExecutor({ nodeId: 'n1', blockstore }),
-          new WasiExecutor({ nodeId: 'n2', blockstore }),
-          new WasiExecutor({ nodeId: 'n3', blockstore }),
-        ],
+        shards: shards.map((value) => ({ value, label: 'public' as const })),
+        executors,
+        nodes: publicNodes(executors),
         redundancy: 2,
       },
       blockstore,

@@ -12,6 +12,7 @@
 
 import { MemoryBlockstore } from '../blockstore/memory.ts'
 import { submitJob } from '../job/submit.ts'
+import { publicNodes } from '../sovereignty.ts'
 import { WasmExecutor } from './wasm.ts'
 
 export interface WorkerRequest {
@@ -42,8 +43,12 @@ export async function runJobInWorker(request: WorkerRequest): Promise<WorkerResp
     const result = await submitJob(
       {
         moduleCid,
-        shards: Array.from({ length: request.shardCount }, (_, i) => ({ a: i })),
+        shards: Array.from({ length: request.shardCount }, (_, i) => ({
+          value: { a: i },
+          label: 'public' as const,
+        })),
         executors,
+        nodes: publicNodes(executors),
         redundancy: request.redundancy,
       },
       store,

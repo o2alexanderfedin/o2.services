@@ -4,6 +4,7 @@ import { MemoryBlockstore } from '../blockstore/memory.ts'
 import { canonicalCid } from '../canonical/encode.ts'
 import type { CanonicalValue } from '../canonical/encode.ts'
 import type { Executor, ExecutionOutcome, Task } from '../ports.ts'
+import { publicNodes } from '../sovereignty.ts'
 import { submitJob } from './submit.ts'
 import { commitmentDigest, executeVerified } from './verify.ts'
 
@@ -170,11 +171,13 @@ describe('commitmentDigest — covers (task, output) only (VER-05)', () => {
 describe('submitJob — sharding and content addressing (MR-01, DATA-01)', () => {
   it('runs 4 shards at R=2 and returns a result CID per shard', async () => {
     const store = new MemoryBlockstore()
+    const executors = [honest('a'), honest('b'), honest('c')]
     const r = await submitJob(
       {
         moduleCid: MODULE_CID,
-        shards: [{ n: 1 }, { n: 2 }, { n: 3 }, { n: 4 }],
-        executors: [honest('a'), honest('b'), honest('c')],
+        shards: [{ n: 1 }, { n: 2 }, { n: 3 }, { n: 4 }].map((value) => ({ value, label: 'public' as const })),
+        executors,
+        nodes: publicNodes(executors),
         redundancy: 2,
       },
       store,
@@ -195,11 +198,13 @@ describe('submitJob — sharding and content addressing (MR-01, DATA-01)', () =>
 
   it('reports the verification multiplier as a measured cost (VER-06)', async () => {
     const store = new MemoryBlockstore()
+    const executors = [honest('a'), honest('b')]
     const r = await submitJob(
       {
         moduleCid: MODULE_CID,
-        shards: [{ n: 1 }, { n: 2 }],
-        executors: [honest('a'), honest('b')],
+        shards: [{ n: 1 }, { n: 2 }].map((value) => ({ value, label: 'public' as const })),
+        executors,
+        nodes: publicNodes(executors),
         redundancy: 2,
       },
       store,
@@ -214,11 +219,13 @@ describe('submitJob — sharding and content addressing (MR-01, DATA-01)', () =>
 
   it('reports a multiplier of 1 at R=1 — verification off costs nothing', async () => {
     const store = new MemoryBlockstore()
+    const executors = [honest('a')]
     const r = await submitJob(
       {
         moduleCid: MODULE_CID,
-        shards: [{ n: 1 }],
-        executors: [honest('a')],
+        shards: [{ n: 1 }].map((value) => ({ value, label: 'public' as const })),
+        executors,
+        nodes: publicNodes(executors),
         redundancy: 1,
       },
       store,
@@ -229,11 +236,13 @@ describe('submitJob — sharding and content addressing (MR-01, DATA-01)', () =>
 
   it('gives each shard its partition index and count', async () => {
     const store = new MemoryBlockstore()
+    const executors = [honest('a'), honest('b')]
     const r = await submitJob(
       {
         moduleCid: MODULE_CID,
-        shards: [{ n: 1 }, { n: 2 }, { n: 3 }],
-        executors: [honest('a'), honest('b')],
+        shards: [{ n: 1 }, { n: 2 }, { n: 3 }].map((value) => ({ value, label: 'public' as const })),
+        executors,
+        nodes: publicNodes(executors),
         redundancy: 2,
       },
       store,
@@ -252,11 +261,13 @@ describe('submitJob — sharding and content addressing (MR-01, DATA-01)', () =>
     const store = new MemoryBlockstore()
     // 'c' lies; with redundancy 2 and offset selection, at least one shard pairs
     // an honest node with the liar.
+    const executors = [honest('a'), liar('c')]
     const r = await submitJob(
       {
         moduleCid: MODULE_CID,
-        shards: [{ n: 1 }, { n: 2 }],
-        executors: [honest('a'), liar('c')],
+        shards: [{ n: 1 }, { n: 2 }].map((value) => ({ value, label: 'public' as const })),
+        executors,
+        nodes: publicNodes(executors),
         redundancy: 2,
       },
       store,
@@ -270,11 +281,13 @@ describe('submitJob — sharding and content addressing (MR-01, DATA-01)', () =>
 
   it('gives identical input CIDs for identical shard values — dedup is free', async () => {
     const store = new MemoryBlockstore()
+    const executors = [honest('a'), honest('b')]
     const r = await submitJob(
       {
         moduleCid: MODULE_CID,
-        shards: [{ n: 7 }, { n: 7 }],
-        executors: [honest('a'), honest('b')],
+        shards: [{ n: 7 }, { n: 7 }].map((value) => ({ value, label: 'public' as const })),
+        executors,
+        nodes: publicNodes(executors),
         redundancy: 2,
       },
       store,
@@ -289,8 +302,9 @@ describe('submitJob — sharding and content addressing (MR-01, DATA-01)', () =>
 
 describe('submitJob — input validation', () => {
   it('refuses a job with no shards', async () => {
+    const executors = [honest('a')]
     const r = await submitJob(
-      { moduleCid: MODULE_CID, shards: [], executors: [honest('a')], redundancy: 1 },
+      { moduleCid: MODULE_CID, shards: [], executors, nodes: publicNodes(executors), redundancy: 1 },
       new MemoryBlockstore(),
     )
     expect(r.ok).toBe(false)
@@ -298,32 +312,54 @@ describe('submitJob — input validation', () => {
   })
 
   it('refuses redundancy below 1', async () => {
+    const executors = [honest('a')]
     const r = await submitJob(
-      { moduleCid: MODULE_CID, shards: [{ n: 1 }], executors: [honest('a')], redundancy: 0 },
+      {
+        moduleCid: MODULE_CID,
+        shards: [{ value: { n: 1 }, label: 'public' }],
+        executors,
+        nodes: publicNodes(executors),
+        redundancy: 0,
+      },
       new MemoryBlockstore(),
     )
     expect(r.ok).toBe(false)
     if (!r.ok) expect(r.error.kind).toBe('bad-redundancy')
   })
 
-  it('refuses to silently downgrade when executors are fewer than redundancy', async () => {
+  it('degrades rather than refuses when executors are fewer than redundancy', async () => {
+    const executors = [honest('a')]
     const r = await submitJob(
-      { moduleCid: MODULE_CID, shards: [{ n: 1 }], executors: [honest('a')], redundancy: 3 },
+      {
+        moduleCid: MODULE_CID,
+        shards: [{ value: { n: 1 }, label: 'public' }],
+        executors,
+        nodes: publicNodes(executors),
+        redundancy: 3,
+      },
       new MemoryBlockstore(),
     )
-    expect(r.ok).toBe(false)
-    if (!r.ok && r.error.kind === 'not-enough-executors') {
-      expect(r.error.have).toBe(1)
-      expect(r.error.need).toBe(3)
+    expect(r.ok).toBe(true)
+    if (r.ok) {
+      expect(r.job.complete).toBe(false)
+      const [shard] = r.job.shards
+      expect(shard?.verification.status).toBe('agreed')
+      if (shard?.verification.status === 'agreed') expect(shard.verification.replicas).toBe(1)
+      expect(shard?.degraded).toBe(true)
     }
   })
 
   it('refuses a shard input containing NaN', async () => {
+    const executors = [honest('a')]
     const r = await submitJob(
       {
         moduleCid: MODULE_CID,
-        shards: [{ n: 1 }, { bad: Number.NaN } as CanonicalValue],
-        executors: [honest('a')],
+        shards: [
+          { value: { n: 1 }, label: 'public' },
+          { value: { bad: Number.NaN } as CanonicalValue, label: 'public' },
+        ],
+        executors,
+        nodes: publicNodes(executors),
         redundancy: 1,
       },
       new MemoryBlockstore(),

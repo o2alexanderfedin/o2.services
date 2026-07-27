@@ -1,7 +1,7 @@
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { submitJob } from '@o2/core'
+import { publicNodes, submitJob } from '@o2/core'
 import type { CanonicalValue } from '@o2/core'
 import { RemoteExecutor, blockCid } from '@o2/net'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -92,14 +92,16 @@ describe('NET-01 — a redundant job with every execution remote', () => {
     expect(await w1.store.has(moduleCid)).toBe(false)
     expect(await w2.store.has(moduleCid)).toBe(false)
 
+    const executors = [
+      new RemoteExecutor(w1.peerId, submitter.rpc),
+      new RemoteExecutor(w2.peerId, submitter.rpc),
+    ]
     const result = await submitJob(
       {
         moduleCid,
-        shards: [{ a: 0 }, { a: 1 }, { a: 2 }, { a: 3 }],
-        executors: [
-          new RemoteExecutor(w1.peerId, submitter.rpc),
-          new RemoteExecutor(w2.peerId, submitter.rpc),
-        ],
+        shards: [{ a: 0 }, { a: 1 }, { a: 2 }, { a: 3 }].map((value) => ({ value, label: 'public' as const })),
+        executors,
+        nodes: publicNodes(executors),
         redundancy: 2,
       },
       submitter.store,
@@ -143,14 +145,16 @@ describe('NET-01 — a redundant job with every execution remote', () => {
     // never a thrown job, and never a claim of verification it did not achieve.
     await w2.stop()
 
+    const executors = [
+      new RemoteExecutor(w1.peerId, submitter.rpc),
+      new RemoteExecutor(w2.peerId, submitter.rpc),
+    ]
     const result = await submitJob(
       {
         moduleCid,
-        shards: [{ a: 0 }],
-        executors: [
-          new RemoteExecutor(w1.peerId, submitter.rpc),
-          new RemoteExecutor(w2.peerId, submitter.rpc),
-        ],
+        shards: [{ value: { a: 0 }, label: 'public' }],
+        executors,
+        nodes: publicNodes(executors),
         redundancy: 2,
       },
       submitter.store,
@@ -172,11 +176,13 @@ describe('NET-01 — persistence across a restart', () => {
     await submitter.dial(worker.multiaddrs[0]!)
 
     const moduleCid = await submitter.store.put(MODULE_WRITES_PARTITION)
+    const executors = [new RemoteExecutor(worker.peerId, submitter.rpc)]
     const result = await submitJob(
       {
         moduleCid,
-        shards: [{ a: 0 }, { a: 1 }],
-        executors: [new RemoteExecutor(worker.peerId, submitter.rpc)],
+        shards: [{ a: 0 }, { a: 1 }].map((value) => ({ value, label: 'public' as const })),
+        executors,
+        nodes: publicNodes(executors),
         redundancy: 1,
       },
       submitter.store,
