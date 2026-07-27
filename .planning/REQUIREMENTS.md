@@ -111,7 +111,7 @@ itself. The work is real and the table says so; the box tracks delivery.
       owner's node so the least data leaves
 - [ ] **DATA-08**: Artifact `key → CID` mappings are signed by a trusted build
       authority and never resolved by CID alone
-- [ ] **DATA-09**: Backbone encrypted replicas serve availability only and are
+- [x] **DATA-09**: Backbone encrypted replicas serve availability only and are
       never execution-eligible for sovereign tasks — executing requires
       decryption, which would expose plaintext to a non-owner node
 

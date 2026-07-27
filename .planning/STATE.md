@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Wire What Was Built
 status: verifying
-stopped_at: Phase 12 Plan 01 complete — submitJob places every shard through sovereignty.ts's gate; 115 files / 1690 tests passing, tsc clean. Wave 2 (12-02/03/04) not yet executed.
-last_updated: "2026-07-27T18:48:34.216Z"
+stopped_at: Phase 12 Plan 02 complete — guardSovereignty (DATA-09 serving-side gate) built and mutation-tested; submitJob load-pressure discrimination, DATA-09 replica-holder, degraded, and rejection semantics proven at the submitJob level. 116 files / 1749 tests passing, tsc clean. Wave 2 remainder (12-03/12-04) not yet executed.
+last_updated: "2026-07-27T19:19:24.195Z"
 last_activity: 2026-07-27
 progress:
   total_phases: 11
   completed_phases: 1
   total_plans: 6
-  completed_plans: 2
-  percent: 33
+  completed_plans: 3
+  percent: 50
 ---
 
 # Project State
@@ -199,6 +199,7 @@ carrying only SDP. Remaining: real AutoTLS, which needs a publicly reachable hos
 *Updated after each plan completion*
 | Phase 11 P01 | 13min | 3 tasks | 13 files |
 | Phase 12 P01 | 25min | 2 tasks | 17 files |
+| Phase 12 P02 | 20min | 2 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -427,6 +428,8 @@ Recent decisions affecting current work:
 - [Phase 11]: A hook's absence is a value the call site writes (named sentinel literal), never an omission the type system tolerates — same shape as Phase 9's GrantedConsent. — AgentOptions's six hooks moved from optional to required unions with sentinel literals, closing the hole where an omitted hook silently defaulted to allow/empty/accept and made no fact recordable.
 - [Phase 12]: not-enough-executors retired; a shard below requested redundancy is placed at what is available and marked degraded on ShardResult/JobResult instead of failing the whole job
 - [Phase 12]: submitJob's placement now runs entirely through sovereignty.ts's planPlacement/eligibleNodes, correlating Executor to NodeDescriptor by nodeId; no other code path in submit.ts selects a node
+- [Phase 12]: guardSovereignty is a pure Executor adapter (no Executor/AgentOptions port change), mirroring GovernedExecutor's shape
+- [Phase 12]: Added a DATA-09 replica-holder test beyond the plan's four (Rule 2): a canExecuteSovereign:false node whose data genuinely exists in the shared blockstore is still excluded from execution, proving the refusal is about clearance, not missing data
 
 ### Pending Todos
 
@@ -476,8 +479,8 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-07-27T18:48:34.211Z
-Stopped at: Phase 12 Plan 01 complete — submitJob places every shard through sovereignty.ts's gate; 115 files / 1690 tests passing, tsc clean. Wave 2 (12-02/03/04) not yet executed.
+Last session: 2026-07-27T19:19:24.189Z
+Stopped at: Phase 12 Plan 02 complete — guardSovereignty (DATA-09 serving-side gate) built and mutation-tested; submitJob load-pressure discrimination, DATA-09 replica-holder, degraded, and rejection semantics proven at the submitJob level. 116 files / 1749 tests passing, tsc clean. Wave 2 remainder (12-03/12-04) not yet executed.
 browser and e2e; `tsc --noEmit` clean; 64/72 requirements. See
 `phases/phase-9-public-demo/SUMMARY.md` and `09-VERIFICATION.md`.
 Next unit: **Phase 10 — elfconv AOT native→WASM pipeline**, the parallel track.
