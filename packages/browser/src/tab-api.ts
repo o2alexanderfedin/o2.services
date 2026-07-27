@@ -7,6 +7,8 @@
  * error surfaces as a timeout.
  */
 
+import type { EgressManifest } from '@o2/net'
+
 /** What a completed job looks like from outside the tab. */
 export interface TabJobReport {
   readonly complete: boolean
@@ -18,6 +20,12 @@ export interface TabJobReport {
   /** Blocks this tab pulled over the wire. */
   readonly fetched: number
   readonly rejected: number
+  /**
+   * DATA-05/DATA-06 — exactly what left this tab's node while running this job,
+   * sliced from `BrowserNode.egress`. Job-scoped metadata, not a `JobResult` field
+   * (`EgressManifest` lives in `@o2/net`, which `@o2/core` may not depend on).
+   */
+  readonly egress: EgressManifest
 }
 
 /** How this tab is actually connected to a peer, right now. */
@@ -111,6 +119,12 @@ export interface TabColouringRun {
   readonly agreeing: readonly string[][]
   readonly verificationMultiplier: number
   readonly elapsedMs: number
+  /**
+   * DATA-05/DATA-06 — exactly what left this tab's node while running this job,
+   * sliced from `BrowserNode.egress`. Job-scoped metadata, not a `JobResult` field
+   * (`EgressManifest` lives in `@o2/net`, which `@o2/core` may not depend on).
+   */
+  readonly egress: EgressManifest
 }
 
 /**
