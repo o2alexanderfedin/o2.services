@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Wire What Was Built
-status: executing
-stopped_at: "Phase 13 Plan 02 complete — FabricNode and BrowserNode both wire RpcEndpoint over a new egress: EgressGuard field and auto-register sovereign inputs via registerSovereignInputs. 121 files / 1771 tests passing, tsc clean, vocabulary/purity guards green. Plan 13-03 (production-wiring proof, separate agent) remains."
-last_updated: "2026-07-27T21:54:19.288Z"
+status: verifying
+stopped_at: Completed 13-03-PLAN.md
+last_updated: "2026-07-27T22:21:42.700Z"
 last_activity: 2026-07-27
 progress:
   total_phases: 13
-  completed_phases: 2
+  completed_phases: 3
   total_plans: 9
-  completed_plans: 7
-  percent: 78
+  completed_plans: 8
+  percent: 89
 ---
 
 # Project State
@@ -27,7 +27,7 @@ See: .planning/PROJECT.md (updated 2026-07-27)
 
 Phase: 13 (Egress Manifest Completeness)
 Plan: 3 of 3
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-07-27
 
 ### v1.0 carried forward, unarchived
@@ -204,6 +204,7 @@ carrying only SDP. Remaining: real AutoTLS, which needs a publicly reachable hos
 | Phase 12 P03 | 45min | 1 tasks | 2 files |
 | Phase 13 P01 | 12min | 2 tasks | 5 files |
 | Phase 13 P02 | 7min | 2 tasks | 2 files |
+| Phase 13 P03 | 25min | 2 tasks | 1 files |
 
 ## Accumulated Context
 
@@ -441,6 +442,8 @@ Recent decisions affecting current work:
 - [Phase 13]: submitJobWithEgress delta-slices EgressGuard.manifest.entries before/after submitJob rather than calling reset(), so job-scoped manifests compose with concurrent reads instead of discarding shared history
 - [Phase 13]: egress is a new field on FabricNode/BrowserNode, not a type change to transport — EgressGuard lacks .stop()/.peers that existing callers (including packages/browser/demo/main.ts) depend on
 - [Phase 13]: Both node factories now compose registerSovereignInputs(guardSovereignty(inner, sovereignty), {blockstore: store, guard: egress}) identically — the sovereignty default is resolved exactly once per start() call, feeding both the guard's ownerId and the clearance check
+- [Phase 13]: Sovereign test fixtures must be pre-seeded onto the executing node's local-only store before dispatch, not just onto the requestor's store -- registerSovereignInputs reads only the local tier and silently skips registration otherwise, which would make a falsification test pass vacuously
+- [Phase 13]: Mutation 2 (removing the EgressGuard transport wrap) breaks all four production-wiring tests, not only the one the plan named -- reported as observed rather than narrowed to fit the plan's prediction
 
 ### Pending Todos
 
@@ -490,8 +493,8 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-07-27T21:54:19.282Z
-Stopped at: Phase 13 Plan 02 complete — FabricNode and BrowserNode both wire RpcEndpoint over a new egress: EgressGuard field and auto-register sovereign inputs via registerSovereignInputs. 121 files / 1771 tests passing, tsc clean, vocabulary/purity guards green. Plan 13-03 (production-wiring proof, separate agent) remains.
+Last session: 2026-07-27T22:21:42.692Z
+Stopped at: Completed 13-03-PLAN.md
 browser and e2e; `tsc --noEmit` clean; 64/72 requirements. See
 `phases/phase-9-public-demo/SUMMARY.md` and `09-VERIFICATION.md`.
 Next unit: **Phase 10 — elfconv AOT native→WASM pipeline**, the parallel track.
