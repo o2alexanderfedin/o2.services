@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Wire What Was Built
 status: executing
-stopped_at: Phase 13 Plan 01 complete — registerSovereignInputs (production caller for EgressGuard.guard()) and submitJobWithEgress (per-job delta-sliced manifest) built in @o2/net. 6 new tests, none calling guard.guard() directly. tsc clean. Ready for Plan 13-02 to wire into FabricNode/BrowserNode.
-last_updated: "2026-07-27T21:46:30.428Z"
+stopped_at: "Phase 13 Plan 02 complete — FabricNode and BrowserNode both wire RpcEndpoint over a new egress: EgressGuard field and auto-register sovereign inputs via registerSovereignInputs. 121 files / 1771 tests passing, tsc clean, vocabulary/purity guards green. Plan 13-03 (production-wiring proof, separate agent) remains."
+last_updated: "2026-07-27T21:54:19.288Z"
 last_activity: 2026-07-27
 progress:
   total_phases: 13
   completed_phases: 2
   total_plans: 9
-  completed_plans: 6
-  percent: 67
+  completed_plans: 7
+  percent: 78
 ---
 
 # Project State
@@ -26,7 +26,7 @@ See: .planning/PROJECT.md (updated 2026-07-27)
 ## Current Position
 
 Phase: 13 (Egress Manifest Completeness)
-Plan: 2 of 3
+Plan: 3 of 3
 Status: Ready to execute
 Last activity: 2026-07-27
 
@@ -203,6 +203,7 @@ carrying only SDP. Remaining: real AutoTLS, which needs a publicly reachable hos
 | Phase 12 P04 | 100min | 2 tasks | 8 files |
 | Phase 12 P03 | 45min | 1 tasks | 2 files |
 | Phase 13 P01 | 12min | 2 tasks | 5 files |
+| Phase 13 P02 | 7min | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -438,6 +439,8 @@ Recent decisions affecting current work:
 - [Phase 12]: Plan 12-03 (skipped by the orchestrator in Wave 2/3) closes the exact gap the Phase 12 verification pass found: submitJob's sovereignty-pinned placement is now proven across three real bin/agent.ts operating-system processes, not only in-process. bin/agent.ts gained --owner-id/--can-execute-sovereign CLI flags (a pass-through of the existing FabricNodeOptions.sovereignty option) so a spawned process can be cleared for its own owner; the required widen-under-pressure mutation failed as expected (insufficient, not agreed) and revealed a second, independent defense already holding: the mutated process's own guardSovereignty wrap refused the wrongly-widened dispatch.
 - [Phase 13]: registerSovereignInputs composed outside guardSovereignty, not inside — registering a task guardSovereignty is about to refuse is harmless, keeps composition order identical at both Plan 13-02 call sites
 - [Phase 13]: submitJobWithEgress delta-slices EgressGuard.manifest.entries before/after submitJob rather than calling reset(), so job-scoped manifests compose with concurrent reads instead of discarding shared history
+- [Phase 13]: egress is a new field on FabricNode/BrowserNode, not a type change to transport — EgressGuard lacks .stop()/.peers that existing callers (including packages/browser/demo/main.ts) depend on
+- [Phase 13]: Both node factories now compose registerSovereignInputs(guardSovereignty(inner, sovereignty), {blockstore: store, guard: egress}) identically — the sovereignty default is resolved exactly once per start() call, feeding both the guard's ownerId and the clearance check
 
 ### Pending Todos
 
@@ -487,8 +490,8 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-07-27T21:46:30.420Z
-Stopped at: Phase 13 Plan 01 complete — registerSovereignInputs (production caller for EgressGuard.guard()) and submitJobWithEgress (per-job delta-sliced manifest) built in @o2/net. 6 new tests, none calling guard.guard() directly. tsc clean. Ready for Plan 13-02 to wire into FabricNode/BrowserNode.
+Last session: 2026-07-27T21:54:19.282Z
+Stopped at: Phase 13 Plan 02 complete — FabricNode and BrowserNode both wire RpcEndpoint over a new egress: EgressGuard field and auto-register sovereign inputs via registerSovereignInputs. 121 files / 1771 tests passing, tsc clean, vocabulary/purity guards green. Plan 13-03 (production-wiring proof, separate agent) remains.
 browser and e2e; `tsc --noEmit` clean; 64/72 requirements. See
 `phases/phase-9-public-demo/SUMMARY.md` and `09-VERIFICATION.md`.
 Next unit: **Phase 10 — elfconv AOT native→WASM pipeline**, the parallel track.
