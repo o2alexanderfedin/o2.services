@@ -260,6 +260,18 @@ describe('two devices on one seed find each other with nobody dialling for them'
     const again = await first.evaluate(async () => window.o2.connectDiscoveredPeers())
     expect(again.dialed).toEqual([])
 
+    // The relay is a connection, not a compute peer. Holding a reservation *is* a
+    // libp2p connection, so `peers()` always contains the relay — and counting it
+    // put it in the executor list, where every shard dispatched to it failed and
+    // the job ran alone while reporting that it had not. Established by asking:
+    // the relay does not serve the agent protocol, so it does not answer an offer.
+    const connected = await first.evaluate(() => window.o2.peers())
+    const computing = await first.evaluate(async () => window.o2.computePeers())
+    expect(connected).toContain(seed.relay.peerId)
+    expect(computing).not.toContain(seed.relay.peerId)
+    expect(computing).toContain(idB)
+    expect(computing.length).toBeLessThan(connected.length)
+
     await first.close()
     await second.close()
   }, 300_000)

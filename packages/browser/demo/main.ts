@@ -22,7 +22,7 @@
 
 import { submitJob } from '@o2/core'
 import type { CanonicalValue, StartFailure, StartOutcome } from '@o2/core'
-import { RemoteExecutor, publishStartOutcome } from '@o2/net'
+import { RemoteExecutor, encodeRequest, parseResponse, publishStartOutcome } from '@o2/net'
 import {
   DEFAULT_BUDGET,
   answerOf,
@@ -402,6 +402,26 @@ const api: TabApi = {
     }
     if (dialed.length > 0) notify()
     return { asked: true, dialed, failed }
+  },
+
+  async computePeers() {
+    const n = required()
+    const connected = [...n.transport.peers]
+    // Asked, not classified. An offer is the cheapest request that proves a peer
+    // speaks the agent protocol at all, and its refusal is as good an answer as its
+    // acceptance — either way somebody replied. A peer that does not handle the
+    // protocol fails protocol negotiation immediately, so this costs no timeout.
+    const answers = await Promise.all(
+      connected.map(async (peer) => {
+        try {
+          const body = await n.rpc.request(peer, encodeRequest({ kind: 'offer', shardId: 'probe' }))
+          return parseResponse(body)?.kind === 'offer' ? peer : null
+        } catch {
+          return null
+        }
+      }),
+    )
+    return answers.filter((peer): peer is string => peer !== null)
   },
 
   addresses() {

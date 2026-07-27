@@ -304,7 +304,11 @@
 
       $('run').addEventListener('click', async () => {
         $('run').disabled = true
-        const peerIds = window.o2.peers()
+        // Refreshed rather than reused: a device may have joined since the last
+        // discovery tick, and a stale list would either waste its capacity or
+        // dispatch to a peer that has gone.
+        await findPeers()
+        const peerIds = computePeers
         // More peers, more cubes. This is the whole arc: a cube fixes the most
         // constrained numbers, so cubes are not merely parallelism — they are how
         // far the search reaches.
@@ -378,20 +382,31 @@
           : `REFUTED. ${verdict.violation} is all one colour.`
       })
 
+      // Peers that will actually run a task, kept here so the job and the display
+      // agree. Not `window.o2.peers()`: that is every libp2p connection and always
+      // includes the relay, which signals and does not compute. Counting it made
+      // the page claim a peer when there was none, and put it in the executor list
+      // where every shard sent to it failed — so the job ran alone while reporting
+      // that it had not.
+      let computePeers = []
+
       const findPeers = async () => {
         try {
           const found = await window.o2.connectDiscoveredPeers()
+          computePeers = await window.o2.computePeers()
+          const connected = window.o2.peers().length
           if (!found.asked) {
             $('peers').textContent =
-              'no peer directory on this host — open the page from a seed node to find others'
+              `${connected} connection(s), ${computePeers.length} able to compute — ` +
+              'no peer directory on this host, so open the page from a seed node to find others'
             return
           }
-          const peers = window.o2.peers().length
           $('peers').textContent =
-            peers === 0
-              ? 'no other node here yet — open this URL on another device'
-              : `${peers} peer(s) connected` +
-                (found.dialed.length > 0 ? ` (just dialled ${found.dialed.length})` : '')
+            computePeers.length === 0
+              ? `${connected} connection(s), none of them a compute node yet — ` +
+                'open this URL on another device'
+              : `${computePeers.length} compute peer(s) of ${connected} connection(s)` +
+                (found.dialed.length > 0 ? ` · just dialled ${found.dialed.length}` : '')
         } catch (error) {
           $('peers').textContent = error instanceof Error ? error.message : String(error)
         }

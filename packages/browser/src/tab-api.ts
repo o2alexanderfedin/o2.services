@@ -229,6 +229,21 @@ export interface TabApi {
    * can tell the difference from `asked`.
    */
   connectDiscoveredPeers(): Promise<{ asked: boolean; dialed: string[]; failed: string[] }>
+  /**
+   * The connected peers that will actually execute a task.
+   *
+   * Not the same as {@link peers}, which is every libp2p connection — and that set
+   * always includes the relay, because holding a reservation *is* a connection. A
+   * relay carries signalling and does not serve the agent protocol, so counting it
+   * as a peer inflates the display and, worse, puts it in the executor list, where
+   * every shard dispatched to it fails and the job silently runs alone.
+   *
+   * Established by **asking**, never by classifying. A peer that answers an offer
+   * serves the protocol; one that does not, does not. Nothing here branches on what
+   * kind of node something is — that rule has been broken twice in this project and
+   * this is the shape that cannot break it, because there is no field to branch on.
+   */
+  computePeers(): Promise<string[]>
   addresses(): TabAddresses
   /** Resolves once a relay reservation has produced a dialable `/webrtc` address. */
   waitForWebrtcAddr(timeoutMs: number): Promise<string[]>
