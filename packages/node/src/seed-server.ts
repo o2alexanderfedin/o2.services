@@ -41,25 +41,56 @@ import { fileURLToPath } from 'node:url'
 import { createServer } from 'vite'
 import type { ViteDevServer } from 'vite'
 import { FabricNode } from './fabric-node.ts'
-import { RelayNode } from './relay-node.ts'
 
 const ROOT = fileURLToPath(new URL('../../..', import.meta.url))
 const PAGE_PATH = '/packages/browser/demo/index.html'
 
-/** What a joining browser is told, derived from how it reached us. */
+/**
+ * What a joining browser is told, derived from how it reached us.
+ *
+ * One peer id, because there is one node. This carried `relayPeerId` and
+ * `seedPeerId` as separate fields for two phases, and they named two processes in
+ * one command: a relay that could not compute and a compute node that could not
+ * relay. A page that dialled both got two connections and one usable peer, and the
+ * demo reported "2 compute peers of 3 connections" without anything being able to
+ * explain the missing one. Collapsing the fields is the visible half of collapsing
+ * the classes.
+ */
 export interface BootstrapInfo {
-  /** Relay multiaddrs to dial, expressed in terms of the host the client used. */
+  /**
+   * Multiaddrs of the seed node, expressed in terms of the host the client used.
+   *
+   * Named for what a joining page *does* with it — reserve a circuit on it — and not
+   * for a kind of node. The same node serves the page, holds the reservation, and
+   * runs shards.
+   */
   readonly relayAddrs: readonly string[]
-  readonly relayPeerId: string
-  /** The seed's own compute node, so a lone phone still has a peer to work with. */
+  /** The seed node's peer id. It relays, it serves blocks, and it computes. */
   readonly seedPeerId: string
+  /**
+   * Everyone currently reachable here, as an address they can be dialled at.
+   *
+   * A browser cannot announce itself — it binds no listening socket, which is the
+   * only difference between nodes in this fabric. So the one node that *can* be
+   * dialled cold publishes who else is here, and each page dials the rest. The list
+   * is derived from the live reservation store; the seed keeps no registry and
+   * grants no authority by holding it.
+   *
+   * The first entry is the seed itself, over WebSockets. It repeats `relayAddrs[0]`
+   * exactly, and that repetition is the point: a page's relay and a page's peer are
+   * one node, so anything that treated the two lists as disjoint was wrong.
+   *
+   * Excludes nobody: a page filters its own address out, because only the page knows
+   * which one it is.
+   */
+  readonly peerAddrs: readonly string[]
 }
 
 export interface SeedServerOptions {
   /** HTTP port for the page and `/bootstrap.json`. 0 picks a free one. */
   readonly httpPort?: number
-  /** TCP port the relay listens on for WebSockets. 0 picks a free one. */
-  readonly relayPort?: number
+  /** TCP port the node listens on for WebSockets. 0 picks a free one. */
+  readonly wsPort?: number
   readonly blockstoreDir: string
   readonly maxReservations?: number
   /**
@@ -87,14 +118,14 @@ function hostWithoutPort(host: string): string {
   return colon === -1 ? host : host.slice(0, colon)
 }
 
-/** Build a browser-dialable relay multiaddr for the host the client actually used. */
-export function relayAddrForHost(host: string, relayPort: number, relayPeerId: string): string {
+/** Build a browser-dialable multiaddr for the host the client actually used. */
+export function relayAddrForHost(host: string, wsPort: number, peerId: string): string {
   const bare = hostWithoutPort(host)
   // A literal IPv4 needs /ip4; anything else is a name and needs /dns4. Getting this
   // wrong produces a multiaddr that parses and never dials.
   const isIpv4 = /^\d{1,3}(\.\d{1,3}){3}$/.test(bare)
   const prefix = isIpv4 ? `/ip4/${bare}` : `/dns4/${bare}`
-  return `${prefix}/tcp/${relayPort}/ws/p2p/${relayPeerId}`
+  return `${prefix}/tcp/${wsPort}/ws/p2p/${peerId}`
 }
 
 /** LAN IPv4 addresses of this machine, for printing a fallback URL. */
@@ -120,46 +151,52 @@ export function localHostname(): string {
 }
 
 export class SeedServer {
-  readonly relay: RelayNode
+  /**
+   * The node. Singular.
+   *
+   * This was two — a relay and a compute node, two peer ids in one process, one of
+   * them deliberately unable to run a task. Nothing about binding a socket for
+   * someone else's handshake stops a process from also executing shards, so the
+   * split bought nothing and cost a peer.
+   */
   readonly node: FabricNode
   readonly #http: ViteDevServer
   readonly #httpPort: number
-  readonly #relayPort: number
+  readonly #wsPort: number
 
   private constructor(parts: {
-    relay: RelayNode
     node: FabricNode
     http: ViteDevServer
     httpPort: number
-    relayPort: number
+    wsPort: number
   }) {
-    this.relay = parts.relay
     this.node = parts.node
     this.#http = parts.http
     this.#httpPort = parts.httpPort
-    this.#relayPort = parts.relayPort
+    this.#wsPort = parts.wsPort
   }
 
   static async start(options: SeedServerOptions): Promise<SeedServer> {
-    const relayPort = options.relayPort ?? 0
+    const wsPort = options.wsPort ?? 0
 
     // 0.0.0.0, not loopback: the point is to be reachable from another device.
-    const relay = await RelayNode.start({
-      listen: [`/ip4/0.0.0.0/tcp/${relayPort}/ws`],
+    //
+    // WebSockets **and** plain TCP. `/ws` is the only one of these a browser can
+    // dial, and TCP is what another Node peer prefers; a node that bound only the
+    // second was unreachable from the tier this seed exists to serve, while its
+    // comment claimed otherwise. Binding a real address here is also what makes this
+    // node able to relay — `FabricNode` derives the circuit-relay service from the
+    // listen list rather than from an option, so there is nothing further to switch
+    // on.
+    const node = await FabricNode.start({
+      blockstoreDir: options.blockstoreDir,
+      listen: [`/ip4/0.0.0.0/tcp/${wsPort}/ws`, '/ip4/0.0.0.0/tcp/0'],
       maxReservations: options.maxReservations ?? 64,
     })
 
-    const boundRelayPort = readPort(relay.multiaddrs)
-    if (boundRelayPort === null) throw new Error('relay bound no TCP port')
+    const boundWsPort = readWsPort(node.multiaddrs)
+    if (boundWsPort === null) throw new Error('seed node bound no WebSocket port')
 
-    // The seed contributes compute too, so a single phone still has a peer to run a
-    // 2x-redundant job against.
-    const node = await FabricNode.start({
-      blockstoreDir: options.blockstoreDir,
-      listen: ['/ip4/0.0.0.0/tcp/0'],
-    })
-
-    const relayPeerId = relay.peerId
     const seedPeerId = node.peerId
 
     const http = await createServer({
@@ -186,10 +223,24 @@ export class SeedServer {
                 // Derived from the Host header, so the client is told to dial the
                 // same name it already reached us by.
                 const host = request.headers.host ?? `127.0.0.1:${options.httpPort ?? 0}`
+                const seedAddr = relayAddrForHost(host, boundWsPort, seedPeerId)
                 const info: BootstrapInfo = {
-                  relayAddrs: [relayAddrForHost(host, boundRelayPort, relayPeerId)],
-                  relayPeerId,
+                  relayAddrs: [seedAddr],
                   seedPeerId,
+                  // Expressed through the same host the client reached us by, so a
+                  // phone on `laptop.local` is never handed a `127.0.0.1` circuit.
+                  peerAddrs: [
+                    // This node first, dialled directly over WebSockets. A lone
+                    // visitor has a peer from the moment they join, without waiting
+                    // for a second device to appear — and it is the same address
+                    // they reserved on, because it is the same node.
+                    seedAddr,
+                    // Then everyone holding a reservation, reached through the
+                    // circuit that will carry their WebRTC handshake.
+                    ...node.reservedPeerIds.map(
+                      (peerId) => `${seedAddr}/p2p-circuit/webrtc/p2p/${peerId}`,
+                    ),
+                  ],
                 }
                 response.setHeader('content-type', 'application/json')
                 // A joining phone must never be handed a stale relay address.
@@ -207,15 +258,16 @@ export class SeedServer {
     const resolved = http.resolvedUrls?.local[0]
     const actualHttpPort = resolved === undefined ? httpPort : readUrlPort(resolved) ?? httpPort
 
-    return new SeedServer({ relay, node, http, httpPort: actualHttpPort, relayPort: boundRelayPort })
+    return new SeedServer({ node, http, httpPort: actualHttpPort, wsPort: boundWsPort })
   }
 
   get httpPort(): number {
     return this.#httpPort
   }
 
-  get relayPort(): number {
-    return this.#relayPort
+  /** The port a browser dials — for a reservation and for a peer, being one node. */
+  get wsPort(): number {
+    return this.#wsPort
   }
 
   /** The URL to hand a phone. Prefers the Bonjour name, which survives DHCP churn. */
@@ -231,14 +283,19 @@ export class SeedServer {
   async stop(): Promise<void> {
     await this.#http.close()
     await this.node.stop()
-    await this.relay.stop()
   }
 }
 
-/** First TCP port in a set of multiaddrs. */
-function readPort(multiaddrs: readonly string[]): number | null {
+/**
+ * The port of a **WebSocket** listener specifically.
+ *
+ * Not "the first `/tcp/<n>`". This node listens on both transports, and the first
+ * match is the plain TCP one — an address no browser can dial, handed out as though
+ * it could be. That bug shipped once already.
+ */
+function readWsPort(multiaddrs: readonly string[]): number | null {
   for (const address of multiaddrs) {
-    const match = /\/tcp\/(\d+)/.exec(address)
+    const match = /\/tcp\/(\d+)\/ws/.exec(address)
     if (match?.[1] !== undefined) return Number(match[1])
   }
   return null

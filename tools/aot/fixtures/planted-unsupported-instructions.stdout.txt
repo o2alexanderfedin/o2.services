@@ -1,0 +1,22 @@
+[[32mINFO[0m] ELF -> LLVM bitcode...
+[WARNING] Unsupported instruction at address: 0x00417914 (TryDecode), instForm: LD1B_Z_P_BI_U8
+[WARNING] Unsupported instruction at address: 0x00417918 (TryExtract) size: 4
+[[32mINFO[0m] detected funcs num: 899
+[Bug] Unsupported instruction at address: 0x0041a2c4 (SemanticsFunction), instForm: CASPAL_CP64_LDSTEXCL
+[Bug] Unsupported instruction at address: 0x0041a2c8 (SemanticsFunction), instForm: FRINT32Z_S_FLOATDP1
+[Bug] Unsupported instruction at address: 0x0041a2cc (SemanticsFunction), instForm: SM3SS1_VVV4_CRYPTO4
+[Bug] Unsupported instruction at address: 0x00000000004a1b30 (SemanticsFunction), instForm: FRINT64X_D_FLOATDP1
+[[32mINFO[0m] built subject.elf.bc
+[[32mINFO[0m] built subject.elf.wasi.o
+[[32mINFO[0m] Compiling to Wasm (for WASI)... 
+[[32mINFO[0m] built subject.elf.wasm
+[2026-07-27 06:48:59.381] [info] compile start
+[2026-07-27 06:48:59.618] [info] verify start
+[2026-07-27 06:48:59.873] [info] optimize start
+[2026-07-27 06:49:19.796] [info] optimize done
+[2026-07-27 06:49:19.796] [info] codegen start
+[2026-07-27 06:49:34.135] [info] output start
+[2026-07-27 06:49:34.154] [info] codegen done
+[2026-07-27 06:49:34.166] [info] output start
+[2026-07-27 06:49:34.181] [info] output done
+[[32mINFO[0m] built subject.elf_o3.wasm

@@ -1,0 +1,155 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>o2.services — what this page does</title>
+    <style>
+      :root { color-scheme: light dark; }
+      body {
+        font: 15px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace;
+        margin-inline: auto; max-width: 44rem; padding: 2rem 1.25rem 4rem;
+      }
+      h1 { font-size: 1.15rem; margin: 0 0 .3rem; }
+      h2 { font-size: 1rem; margin: 2rem 0 .6rem; }
+      .sub { opacity: .65; margin: 0 0 2rem; font-size: .85rem; }
+      ul { padding-left: 1.2rem; }
+      li { margin: .35rem 0; }
+      code {
+        background: color-mix(in srgb, currentColor 12%, transparent);
+        padding: .1em .35em; border-radius: 3px;
+      }
+      .box { border: 1px solid currentColor; border-radius: 6px; padding: .9rem 1.1rem; margin: 1.2rem 0; }
+    </style>
+  </head>
+  <body>
+    <!--
+      Written for one specific reader: a person assessing this page for a browser
+      or extension blocklist. Plain language, no marketing, and the answers to the
+      questions such a reader actually asks — in the order they ask them.
+    -->
+    <h1>What this page does</h1>
+    <p class="sub">
+      A plain-language description, written for someone deciding whether this page
+      belongs on a blocklist.
+    </p>
+
+    <div class="box">
+      <strong>Summary.</strong> This page asks a visitor for permission to use one
+      background thread to search for a mathematical object. It asks before it uses
+      any processor time and before it contacts anything. It shows what it is doing
+      in a bar that cannot be dismissed while it runs, and a single control ends the
+      thread. It handles no currency of any kind.
+    </div>
+
+    <h2>What it computes</h2>
+    <p>
+      A colouring of the whole numbers 1 to N in two colours, such that no three
+      numbers with a² + b² = c² are all the same colour. This is a known problem in
+      combinatorics; the largest N for which such a colouring exists is 7824, proved
+      in 2016. The work is integer arithmetic in a small WebAssembly module whose
+      source is in the repository.
+    </p>
+    <p>
+      A visitor can check any answer the page produces without trusting this site or
+      any other participant: the check is a loop over the definition, and it runs in
+      their own browser.
+    </p>
+
+    <h2>Consent</h2>
+    <ul>
+      <li>Nothing runs until the visitor presses a clearly labelled button.</li>
+      <li>
+        No processor time and <em>no network request</em> is made before that — not
+        even to discover a relay. The visitor's address is not disclosed to any third
+        party until they agree.
+      </li>
+      <li>There is no pre-ticked box and no consent implied by scrolling or waiting.</li>
+      <li>
+        The agreement records which version of the disclosure it answered. If what
+        the page does changes, the agreement stops applying and the visitor is asked
+        again.
+      </li>
+      <li>A "no" is a control on the page, not the absence of one.</li>
+    </ul>
+
+    <h2>While it is running</h2>
+    <ul>
+      <li>
+        A bar is fixed to the bottom of the window for as long as a node exists. It
+        cannot be collapsed or dismissed. It shows what is running, how much of one
+        thread is in use, how many tasks have completed, and how many peers are
+        connected.
+      </li>
+      <li>
+        Work happens in a Web Worker, not on the page's main thread, so the page
+        stays responsive and the thread can be ended outright.
+      </li>
+      <li>
+        When the tab is not in front, the duty cycle drops to a tenth. The figure in
+        the bar changes as this happens, so the throttle is visible rather than
+        asserted.
+      </li>
+      <li>
+        <strong>Stop</strong> calls <code>Worker.terminate()</code> and closes the
+        network connections. Processor use reaches zero because the thread has ended,
+        not because a loop agreed to exit. Work in flight is abandoned; the fabric
+        re-runs it elsewhere and no data is lost, because every result is a pure
+        function of its inputs.
+      </li>
+    </ul>
+
+    <h2>What leaves the device</h2>
+    <ul>
+      <li>The results the visitor's machine computes, which are small integers and bit arrays.</li>
+      <li>
+        A peer key generated in the tab. It is not derived from anything about the
+        device and does not persist across origins.
+      </li>
+      <li>
+        Optionally, and only if the visitor ticks the box: one line recording the
+        browser family and major version, and whether the node started or was
+        blocked. This exists so that blocking is visible as a number rather than as
+        an unexplained absence of participants. It is not a fingerprint — a family
+        and an integer cannot distinguish visitors from one another.
+      </li>
+      <li>Nothing else. No files, no browsing history, no cookies, no advertising identifiers.</li>
+    </ul>
+
+    <h2>What this page is not</h2>
+    <ul>
+      <li>
+        It does not handle, produce, transfer, or account for currency of any kind,
+        and it never has. There is no payment, no settlement, no balance, and no
+        wallet.
+      </li>
+      <li>It sets no cookies and uses no third-party analytics.</li>
+      <li>
+        It runs no server-side process. It is a static file. The only infrastructure
+        it uses is a relay peer, which carries the connection handshake between
+        browsers and then drops out of the data path.
+      </li>
+      <li>It does not run in a hidden frame, a background tab it opened, or a service worker.</li>
+      <li>It is not obfuscated or minified beyond ordinary bundling, and its source is public.</li>
+    </ul>
+
+    <h2>If you believe this page should be blocked</h2>
+    <p>
+      Please open an issue on the project's public repository describing what you
+      observed, or contact the address listed there. The intention is to meet the
+      standard a reviewer would set, so a specific objection is more useful than a
+      block, and will be acted on.
+    </p>
+    <p>
+      If this page has already been blocked, the same channels are the appeal path.
+      Please state which list, which rule, and which behaviour triggered it —
+      "cryptojacking" heuristics sometimes fire on any page that uses a Worker and a
+      WebRTC connection, and if that is what happened it is worth both parties
+      knowing.
+    </p>
+
+    <p class="sub" style="margin-top:2.5rem">
+      <a href="./index.html">Back to the node page</a>
+    </p>
+  </body>
+</html>

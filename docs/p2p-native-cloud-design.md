@@ -299,7 +299,7 @@ So discovery is effectively **one-phase**; a lightweight probe remains an option
 
 **Solutions (ordered):**
 1. **Permissioning + staking for the backbone** — sybil resistance where it matters (coordination, verification quorums). Recommended baseline.
-2. **Credit/metering + payments for the edge** — meter contributed compute, settle in credits/tokens (Golem/Filecoin pattern); enterprises pay for guaranteed backbone capacity.
+2. **Metering + payments for the edge** *(not built)* — meter contributed compute, settle it through an external payment rail (Golem/Filecoin pattern); enterprises pay for guaranteed backbone capacity.
 3. **Reputation** — weight scheduling and verification votes by a node's verified track record; slashes sybil influence on the open edge.
 
 ### 3.9 Node identity & enrollment — the provider-signed client

@@ -7,8 +7,12 @@
  * property `@o2/core` and `@o2/net` exist to preserve.
  */
 
+// The one node class. It executes tasks, holds blocks, and — when it has bound an
+// address others can reach — relays for peers that have not. NET-03's server side is
+// a capability of this class, not a class of its own; see its module comment for
+// what went wrong while it was.
 export { FabricNode } from './fabric-node.ts'
-export type { FabricNodeOptions } from './fabric-node.ts'
+export type { FabricNodeOptions, RelayCapacity } from './fabric-node.ts'
 
 export { FsBlockstore } from './fs-blockstore.ts'
 
@@ -29,10 +33,6 @@ export {
   WIRE_CHUNK_BYTES,
 } from '@o2/libp2p'
 export type { Libp2pTransportOptions } from '@o2/libp2p'
-
-// NET-03 — the backbone relay.
-export { RelayNode } from './relay-node.ts'
-export type { RelayCapacity, RelayNodeOptions } from './relay-node.ts'
 
 // NET-05 — relay exhaustion reported by name.
 export {

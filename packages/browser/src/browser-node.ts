@@ -32,13 +32,14 @@ import { webRTC } from '@libp2p/webrtc'
 import { webSockets } from '@libp2p/websockets'
 import { multiaddr } from '@multiformats/multiaddr'
 import { WasmExecutor } from '@o2/core'
-import type { Executor } from '@o2/core'
 import { Libp2pTransport } from '@o2/libp2p'
 import { FetchingBlockstore, GovernedExecutor, RpcBlockSource, RpcEndpoint, serveAgent } from '@o2/net'
 import { createLibp2p } from 'libp2p'
 import type { Libp2p } from '@libp2p/interface'
 import { IdbBlockstore } from './idb-blockstore.ts'
 import { VisibilityGovernor } from './visibility-governor.ts'
+import { WorkerExecutor } from './worker-executor.ts'
+import type { WorkerFactory } from './worker-executor.ts'
 
 export interface BrowserNodeOptions {
   /** Relays to reserve on. At least one is required to be addressable at all. */
@@ -60,6 +61,16 @@ export interface BrowserNodeOptions {
    * internet and wrong for a relay on `127.0.0.1`. Only enable for local testing.
    */
   readonly allowPrivateAddrs?: boolean
+  /**
+   * Builds the Worker that tasks execute on — BROW-04.
+   *
+   * Supplied rather than defaulted, because the `?worker` import that builds one
+   * is Vite syntax and this class is also constructed by tests that have no
+   * bundler. Omitting it is not a hidden downgrade: execution falls back to the
+   * main thread and {@link BrowserNode.offMainThread} says so, so a page that
+   * needs a stoppable node can assert the property rather than assume it.
+   */
+  readonly createWorker?: WorkerFactory
 }
 
 export class BrowserNode {
@@ -69,9 +80,52 @@ export class BrowserNode {
   /** IndexedDB plus network fallback — what the executor reads from. */
   readonly blockstore: FetchingBlockstore
   readonly store: IdbBlockstore
-  /** Governed: throttles with tab visibility. */
-  readonly executor: Executor
+  /**
+   * Governed: throttles with tab visibility.
+   *
+   * Typed as the concrete `GovernedExecutor` rather than the `Executor` port so the
+   * always-visible surface (BROW-04) can read `executed` and `dutyCycle`. It still
+   * satisfies the port everywhere one is wanted.
+   */
+  readonly executor: GovernedExecutor
   readonly governor: VisibilityGovernor
+  /**
+   * The thread tasks run on, when there is one.
+   *
+   * Null means execution is on the main thread, which is a materially different
+   * node: a task in flight cannot then be interrupted, so `stop()` means "stop
+   * taking work" rather than "stop working". Exposed so the difference is
+   * checkable instead of assumed — see `offMainThread`.
+   */
+  readonly worker: WorkerExecutor | null
+  /**
+   * Peers whose work this node has run, and how much of it — BROW-04.
+   *
+   * The surface must say what is running *and for whom*. A `Task` is addressed
+   * entirely by CID and names no requestor, so this is recorded where the answer
+   * exists: at the point a peer dispatches.
+   */
+  readonly servedFor: Map<string, number> = new Map<string, number>()
+  readonly #activityListeners = new Set<() => void>()
+
+  /**
+   * Subscribe to "this node is now doing something different".
+   *
+   * Pushed rather than polled for the reason measured in this phase: Chromium
+   * throttles timers hard in a tab that is not in front, so a background tab
+   * serving a peer's work would show a stale surface — or none — for as long as
+   * nobody was looking at it, which is the case BROW-04 exists for.
+   */
+  onActivity(listener: () => void): () => void {
+    this.#activityListeners.add(listener)
+    return () => {
+      this.#activityListeners.delete(listener)
+    }
+  }
+
+  #announce(): void {
+    for (const listener of this.#activityListeners) listener()
+  }
 
   private constructor(parts: {
     libp2p: Libp2p
@@ -79,8 +133,9 @@ export class BrowserNode {
     rpc: RpcEndpoint
     blockstore: FetchingBlockstore
     store: IdbBlockstore
-    executor: Executor
+    executor: GovernedExecutor
     governor: VisibilityGovernor
+    worker: WorkerExecutor | null
   }) {
     this.libp2p = parts.libp2p
     this.transport = parts.transport
@@ -89,6 +144,17 @@ export class BrowserNode {
     this.store = parts.store
     this.executor = parts.executor
     this.governor = parts.governor
+    this.worker = parts.worker
+  }
+
+  /**
+   * Whether compute happens off the main thread — BROW-04.
+   *
+   * Only then does stopping drop CPU to zero at the moment of the click rather
+   * than at the end of whatever was already running.
+   */
+  get offMainThread(): boolean {
+    return this.worker !== null
   }
 
   static async start(options: BrowserNodeOptions): Promise<BrowserNode> {
@@ -127,13 +193,29 @@ export class BrowserNode {
         ? {}
         : { backgroundDutyCycle: options.backgroundDutyCycle },
     )
+    const nodeId = libp2p.peerId.toString()
+    // BROW-04: when a Worker factory is available, tasks run on a thread that can
+    // be killed. Without one the kernel executor runs inline, which is correct for
+    // tests and is reported honestly rather than silently.
+    const worker =
+      options.createWorker === undefined
+        ? null
+        : new WorkerExecutor({ nodeId, blockstore, createWorker: options.createWorker })
     const executor = new GovernedExecutor(
-      new WasmExecutor({ nodeId: libp2p.peerId.toString(), blockstore }),
+      worker ?? new WasmExecutor({ nodeId, blockstore }),
       governor,
     )
-    serveAgent({ rpc, executor, blockstore })
-
-    return new BrowserNode({ libp2p, transport, rpc, blockstore, store, executor, governor })
+    const node = new BrowserNode({ libp2p, transport, rpc, blockstore, store, executor, governor, worker })
+    serveAgent({
+      rpc,
+      executor,
+      blockstore,
+      onDispatch: (from) => {
+        node.servedFor.set(from, (node.servedFor.get(from) ?? 0) + 1)
+        node.#announce()
+      },
+    })
+    return node
   }
 
   get peerId(): string {
@@ -163,7 +245,15 @@ export class BrowserNode {
     return connection.remotePeer.toString()
   }
 
+  /**
+   * Stop everything — BROW-04's "one click provably drops CPU to zero".
+   *
+   * The thread dies first. Closing the connections before killing it would leave
+   * a window in which the node is unreachable but still burning cycles, which is
+   * the worst of both and exactly what a visitor pressing Stop does not want.
+   */
   async stop(): Promise<void> {
+    this.worker?.terminate()
     this.rpc.close()
     await this.transport.stop()
     await this.libp2p.stop()

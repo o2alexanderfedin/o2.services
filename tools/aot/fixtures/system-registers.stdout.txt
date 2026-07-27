@@ -1,0 +1,17 @@
+[[32mINFO[0m] ELF -> LLVM bitcode...
+[[32mINFO[0m] detected funcs num: 900
+[[32mINFO[0m] built exotic.bc
+[[32mINFO[0m] built exotic.wasi.o
+[[32mINFO[0m] Compiling to Wasm (for WASI)... 
+[[32mINFO[0m] built exotic.wasm
+[2026-07-27 06:41:32.098] [info] compile start
+[2026-07-27 06:41:32.326] [info] verify start
+[2026-07-27 06:41:32.574] [info] optimize start
+[2026-07-27 06:41:52.463] [info] optimize done
+[2026-07-27 06:41:52.464] [info] codegen start
+[2026-07-27 06:42:06.674] [info] output start
+[2026-07-27 06:42:06.691] [info] codegen done
+[2026-07-27 06:42:06.703] [info] output start
+[2026-07-27 06:42:06.718] [info] output done
+[[32mINFO[0m] built exotic_o3.wasm
+ECV_EXIT=0

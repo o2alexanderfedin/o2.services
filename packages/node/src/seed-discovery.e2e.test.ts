@@ -116,7 +116,7 @@ describe('the printed .local URL is actually served', () => {
 
     const info = JSON.parse(body) as { relayAddrs: string[] }
     // /dns4, not /ip4 — a name behind /ip4 parses and never dials.
-    expect(info.relayAddrs[0]).toBe(`/dns4/${name}/tcp/${seed.relayPort}/ws/p2p/${seed.relay.peerId}`)
+    expect(info.relayAddrs[0]).toBe(`/dns4/${name}/tcp/${seed.wsPort}/ws/p2p/${seed.node.peerId}`)
   }, 60_000)
 
   it('still refuses a host it was never told about', async () => {
@@ -134,11 +134,21 @@ describe('bootstrap is derived from the host the client used', () => {
     // Never cached: a joining device must not be handed a stale relay address.
     expect(byName.headers.get('cache-control')).toContain('no-store')
 
-    const info = (await byName.json()) as { relayAddrs: string[]; relayPeerId: string }
+    const info = (await byName.json()) as {
+      relayAddrs: string[]
+      seedPeerId: string
+      peerAddrs: string[]
+    }
     expect(info.relayAddrs[0]).toBe(
-      `/ip4/127.0.0.1/tcp/${seed.relayPort}/ws/p2p/${seed.relay.peerId}`,
+      `/ip4/127.0.0.1/tcp/${seed.wsPort}/ws/p2p/${seed.node.peerId}`,
     )
-    expect(info.relayPeerId).toBe(seed.relay.peerId)
+    // One peer id, and no second field to disagree with it. `relayPeerId` and
+    // `seedPeerId` were two names for two processes; there is one process now.
+    expect(info.seedPeerId).toBe(seed.node.peerId)
+    expect(info).not.toHaveProperty('relayPeerId')
+    // The address a page reserves on and the address of its first peer are the same
+    // string, because they are the same node.
+    expect(info.peerAddrs[0]).toBe(info.relayAddrs[0])
 
     // Reached by a different host, it answers with that host instead — no interface
     // enumeration, no guessing, no hardcoded address.
@@ -146,7 +156,7 @@ describe('bootstrap is derived from the host the client used', () => {
       const byIp = await fetch(`http://${lanIp}:${seed.httpPort}/bootstrap.json`)
       const other = (await byIp.json()) as { relayAddrs: string[] }
       expect(other.relayAddrs[0]).toBe(
-        `/ip4/${lanIp}/tcp/${seed.relayPort}/ws/p2p/${seed.relay.peerId}`,
+        `/ip4/${lanIp}/tcp/${seed.wsPort}/ws/p2p/${seed.node.peerId}`,
       )
     }
   }, 60_000)
@@ -174,15 +184,18 @@ describe('a second device joins knowing only the URL', () => {
       expect(context_.subtle).toBe(false)
 
       // No relay address is passed in. The page asks its own origin.
-      const joined = await page.evaluate(async () => window.o2.autoStart({ blockstoreName: 'lan-join' }))
-      expect(joined.relayAddrs[0]).toContain(`/ip4/${lanIp!}/tcp/${seed.relayPort}/ws`)
-      expect(joined.relayAddrs[0]).toContain(seed.relay.peerId)
+      const joined = await page.evaluate(async () => {
+        window.o2.grantConsent()
+        return window.o2.autoStart({ blockstoreName: 'lan-join' })
+      })
+      expect(joined.relayAddrs[0]).toContain(`/ip4/${lanIp!}/tcp/${seed.wsPort}/ws`)
+      expect(joined.relayAddrs[0]).toContain(seed.node.peerId)
 
       // It reserved and became addressable — a real join, not just a fetch.
       const addrs = await page.evaluate(async () => window.o2.waitForWebrtcAddr(60_000))
       expect(addrs.length).toBeGreaterThan(0)
-      expect(addrs[0]).toContain(seed.relay.peerId)
-      expect(seed.relay.capacity.granted).toBeGreaterThanOrEqual(1)
+      expect(addrs[0]).toContain(seed.node.peerId)
+      expect(seed.node.capacity.granted).toBeGreaterThanOrEqual(1)
 
       // And content addressing works despite the missing WebCrypto — the thing that
       // silently broke before the pure-JS hasher.
@@ -193,4 +206,126 @@ describe('a second device joins knowing only the URL', () => {
     },
     240_000,
   )
+})
+
+describe('a lone visitor has a peer, which was a comment before it was true', () => {
+  it('finds the node serving the page willing to run its shards', async () => {
+    // `BootstrapInfo.seedPeerId` has carried the comment "the seed's own compute
+    // node, so a lone phone still has a peer to work with" since it was written.
+    // It was false twice over. First that node listened on plain TCP, which no
+    // browser can dial, and no address for it was published anywhere. Then, once it
+    // was reachable, it was still the *second* of two processes the seed ran — and
+    // the first, the relay, could not compute at all, so a page holding two
+    // connections had one peer. There is one process now, and the peer a lone
+    // visitor gets is the same node it reserved its circuit on.
+    const page = await context.newPage()
+    page.on('pageerror', (error) => {
+      process.stderr.write(`[lone] page error: ${error.message}\n`)
+    })
+    await page.goto(`http://127.0.0.1:${seed.httpPort}/packages/browser/demo/index.html`)
+    await page.waitForFunction(() => typeof window.o2 !== 'undefined', null, { timeout: 60_000 })
+    await page.evaluate(async () => {
+      window.o2.grantConsent()
+      return window.o2.autoStart({ blockstoreName: 'lone-visitor' })
+    })
+
+    const found = await page.evaluate(async () => window.o2.connectDiscoveredPeers())
+    expect(found.asked).toBe(true)
+    // No dial is needed for the seed itself: reserving the circuit already opened
+    // that connection and the published address is its far end. Deliberately not
+    // asserted through `dialed`/`failed` — those also carry stale circuit addresses
+    // for tabs earlier tests in this file closed, and pinning them would make this
+    // claim depend on reservation expiry rather than on the topology.
+    expect(await page.evaluate(() => window.o2.peers())).toContain(seed.node.peerId)
+
+    // And it is a *compute* peer, established by asking rather than by assuming. The
+    // node carrying this page's circuit answers the agent protocol, because relaying
+    // and computing are the same node.
+    const computing = await page.evaluate(async () => window.o2.computePeers())
+    expect(computing).toContain(seed.node.peerId)
+
+    await page.close()
+  }, 240_000)
+})
+
+describe('two devices on one seed find each other with nobody dialling for them', () => {
+  it('publishes reserved peers and each page dials the rest', async () => {
+    // The gap this closes was found by running the demo on a phone and a laptop at
+    // once: both joined, both were addressable, and neither ever heard of the
+    // other. A browser binds no listening socket — the *only* difference between
+    // nodes in this fabric — so no tab can announce itself and none of them will
+    // ever be dialled cold. Somebody has to say who is present, and the one node
+    // that can be reached cold is the one serving the page.
+    //
+    // Deliberately no `window.o2.dial(...)` anywhere below. Every other multi-tab
+    // test in this repository dials from the harness, which is exactly why none of
+    // them caught this.
+    const first = await context.newPage()
+    const second = await context.newPage()
+    for (const [name, page] of [
+      ['peer-a', first],
+      ['peer-b', second],
+    ] as const) {
+      page.on('pageerror', (error) => {
+        process.stderr.write(`[${name}] page error: ${error.message}\n`)
+      })
+    }
+
+    const url = `http://127.0.0.1:${seed.httpPort}/packages/browser/demo/index.html`
+    const ids: string[] = []
+    for (const [i, page] of [first, second].entries()) {
+      await page.goto(url)
+      await page.waitForFunction(() => typeof window.o2 !== 'undefined', null, { timeout: 60_000 })
+      const joined = await page.evaluate(async (store) => {
+        window.o2.grantConsent()
+        return window.o2.autoStart({ blockstoreName: store })
+      }, `rendezvous-${i}`)
+      await page.evaluate(async () => window.o2.waitForWebrtcAddr(60_000))
+      ids.push(joined.peerId)
+    }
+    const [idA, idB] = ids as [string, string]
+    expect(idA).not.toBe(idB)
+    expect(seed.node.reservedPeerIds).toEqual(expect.arrayContaining([idA, idB]))
+
+    // Each page asks the origin who is here and dials them. No harness involvement.
+    for (const page of [first, second]) {
+      const found = await page.evaluate(async () => window.o2.connectDiscoveredPeers())
+      expect(found.asked).toBe(true)
+      // Something was attempted. An empty `dialed` *and* an empty `failed` is the
+      // signature of the bug this test was written for: every candidate skipped by
+      // a filter, nothing tried, and no error anywhere to notice.
+      expect(found.dialed.length + found.failed.length).toBeGreaterThan(0)
+    }
+
+    const peersOfA = await first.evaluate(() => window.o2.peers())
+    const peersOfB = await second.evaluate(() => window.o2.peers())
+    expect(peersOfA.concat(peersOfB)).toContain(idB)
+
+    // And a page filters its own published address out rather than dialling itself.
+    expect(peersOfA).not.toContain(idA)
+    expect(peersOfB).not.toContain(idB)
+
+    // Calling again is a no-op: peers already connected are skipped, so a timer can
+    // drive this without accumulating duplicate connections.
+    const again = await first.evaluate(async () => window.o2.connectDiscoveredPeers())
+    expect(again.dialed).toEqual([])
+
+    // Every connection is a compute peer, and that is the fix rather than the
+    // caveat. Holding a reservation *is* a libp2p connection, so `peers()` has
+    // always contained the node carrying the circuit; what changed is that the node
+    // now answers an offer, because relaying and computing are one class. The demo
+    // used to report "2 compute peers of 3 connections" and had no way to name the
+    // missing one. Established by asking, not by classifying — `computePeers` sends
+    // an offer and counts who replies, so this would still be correct if some peer
+    // genuinely did not serve the protocol.
+    const connected = await first.evaluate(() => window.o2.peers())
+    const computing = await first.evaluate(async () => window.o2.computePeers())
+    expect(connected).toContain(seed.node.peerId)
+    expect(computing).toContain(seed.node.peerId)
+    expect(computing).toContain(idB)
+    expect([...computing].sort()).toEqual([...connected].sort())
+
+    await first.close()
+    await second.close()
+  }, 300_000)
 })

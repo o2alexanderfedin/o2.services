@@ -190,7 +190,11 @@ describe('NET-01 — persistence across a restart', () => {
     )
     expect(resultCids.every((c) => c !== null)).toBe(true)
 
-    const workerDir = worker.store.directory
+    // The directory this test handed to `startNode`, not one read back off the node.
+    // `FabricNode.store` is typed as the `Blockstore` port, so there is no
+    // `.directory` to ask for — which is the point: nothing outside the factory gets
+    // to know, or branch on, which adapter is behind it.
+    const workerDir = join(workdir, 'w')
     const sizeBeforeRestart = worker.store.size
     expect(sizeBeforeRestart).toBeGreaterThan(0)
 

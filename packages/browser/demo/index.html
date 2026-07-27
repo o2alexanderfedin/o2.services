@@ -6,11 +6,24 @@
     <title>o2.services — node</title>
     <style>
       :root { color-scheme: light dark; }
+      /*
+        The browser's own `[hidden] { display: none }` is an attribute selector, so
+        *any* id or class rule that sets `display` silently outranks it. `#bar` set
+        `display: flex` and the always-visible bar became the always-visible bar in
+        the literal sense — shown, reading "idle", offering to Stop a node that did
+        not exist. Reported from an iPhone; not caught here, because the tests
+        asserted the `hidden` *attribute* rather than whether anything was on screen.
+        One rule closes the whole class.
+      */
+      [hidden] { display: none !important; }
       body {
         font: 15px/1.55 ui-monospace, SFMono-Regular, Menlo, monospace;
-        margin-inline: auto; max-width: 46rem; padding: 2rem 1.25rem;
+        margin-inline: auto; max-width: 46rem;
+        /* Bottom padding clears the fixed bar, so nothing it covers is unreachable. */
+        padding: 2rem 1.25rem 7rem;
       }
       h1 { font-size: 1.1rem; margin: 0 0 .25rem; letter-spacing: .02em; }
+      h2 { font-size: 1rem; margin: 0 0 1rem; font-weight: 600; }
       .sub { opacity: .65; margin: 0 0 1.75rem; font-size: .85rem; }
       .state {
         border: 1px solid currentColor; border-radius: 6px;
@@ -34,34 +47,132 @@
         background: color-mix(in srgb, currentColor 12%, transparent);
         padding: .1em .35em; border-radius: 3px;
       }
+      pre { font: inherit; white-space: pre-wrap; opacity: .8; margin: 0; }
+
+      /* The consent gate. Nothing behind it runs, and nothing behind it is dialled. */
+      #gate {
+        border: 1px solid currentColor; border-radius: 6px;
+        padding: 1.25rem 1.25rem .35rem;
+      }
+      #gate dl { grid-template-columns: 1fr; gap: .15rem; }
+      #gate dt { opacity: 1; font-weight: 600; }
+      #gate dd { margin: 0 0 .9rem; opacity: .8; }
+      #gate label { display: block; margin: 0 0 .35rem; cursor: pointer; }
+      .controls { display: flex; gap: .6rem; align-items: center; margin: 1.1rem 0 .6rem; }
+
+      /*
+        BROW-04. Fixed, and with no control that hides it: the requirement says a
+        persistent, always-visible surface, so a collapse affordance would be the
+        first thing to remove it.
+      */
+      #bar {
+        position: fixed; inset: auto 0 0 0;
+        display: flex; flex-wrap: wrap; gap: .5rem 1.1rem; align-items: center;
+        padding: .7rem 1.1rem;
+        border-top: 1px solid currentColor;
+        background: Canvas; color: CanvasText;
+        font-size: .85rem;
+      }
+      #bar strong { font-weight: 600; }
+      #bar .spacer { flex: 1 1 auto; }
+      #bar-stats { opacity: .75; }
+      #stop { border-color: #cb4b16; color: #cb4b16; }
     </style>
   </head>
   <body>
     <h1>o2.services — peer-to-peer compute node</h1>
     <p class="sub">
       This page can become a compute node in a peer-to-peer fabric.
-      Nothing runs until you start it.
+      Nothing runs, and nothing is contacted, until you allow it.
     </p>
 
     <!--
-      Deliberately inert on load. No node starts by itself: a visitor's CPU is not
-      taken without an explicit action, and the two-tab tests need to control exactly
-      when each tab joins.
+      BROW-01. The gate is the first thing rendered and the only thing that starts
+      anything. Relay discovery is behind it too: reading `/bootstrap.json` is a
+      network request, and the decision here was that no third party learns a
+      visitor is present before the visitor agrees. Everything below `#main` stays
+      hidden — and, more to the point, uncalled — until consent exists.
     -->
-    <div class="state" id="state" data-tone="idle">checking for a relay…</div>
+    <section id="gate" hidden>
+      <h2 id="gate-headline"></h2>
+      <dl id="gate-terms"></dl>
+      <label><input type="checkbox" id="reporting" /> <span id="reporting-question"></span></label>
+      <p class="note" id="reporting-answer"></p>
+      <p class="controls">
+        <button id="allow"></button>
+        <button id="decline"></button>
+      </p>
+      <p class="note" id="gate-version"></p>
+    </section>
 
-    <p><button id="join" disabled>Start node</button></p>
+    <section id="main" hidden>
+      <div class="state" id="state" data-tone="idle">checking for a relay…</div>
 
-    <dl id="facts"></dl>
+      <p><button id="join" disabled>Start node</button></p>
 
-    <p class="note" id="explain"></p>
+      <dl id="facts"></dl>
+
+      <p class="note" id="explain"></p>
+      <p class="note" id="peers"></p>
+
+      <h2>The job</h2>
+      <p class="note">
+        Colour every whole number from 1 to N red or blue so that no three numbers
+        with a² + b² = c² end up the same colour. The search is split into
+        independent cubes and spread across this tab and every peer it can reach;
+        each cube is run twice, on different nodes, and the two must agree.
+      </p>
+      <p class="note">
+        N climbs until the fabric cannot settle a rung. Each cube fixes the colours
+        of the most constrained numbers and searches the rest, so more cubes reach
+        further — with more peers connected, more cubes run, and the answer gets
+        better. N = 7824 is the largest that admits a colouring at all; 7825 does
+        not, which took a cluster and a 200-terabyte proof to establish. This will
+        not get near either.
+      </p>
+      <p class="controls">
+        <button id="run" disabled>Run the search</button>
+        <span class="note" id="run-status">start a node first</span>
+      </p>
+      <pre id="run-report"></pre>
+
+      <p class="note">
+        Nothing above needs to be believed. The check below re-derives every
+        Pythagorean triple from the definition and tests the answer against it, here,
+        in this tab — no node's word, no published table, no trust in this site.
+      </p>
+      <p class="controls"><button id="verify" disabled>Check this answer myself</button></p>
+      <pre id="verify-report"></pre>
+
+      <h2>How often does this fail to start?</h2>
+      <p class="note">
+        A browser that blocks this page does not announce it — it looks like fewer
+        volunteers. These are the reports this node has heard, including what they
+        cannot see.
+      </p>
+      <pre id="report">not asked yet</pre>
+      <p class="controls"><button id="refresh-report">Refresh</button></p>
+    </section>
+
+    <!-- BROW-04. Rendered only while a node exists; never dismissible while it does. -->
+    <div id="bar" hidden>
+      <strong id="bar-what">idle</strong>
+      <span id="bar-stats"></span>
+      <span class="spacer"></span>
+      <button id="stop">Stop</button>
+    </div>
 
     <script type="module" src="./main.ts"></script>
     <script type="module">
-      const stateEl = document.getElementById('state')
-      const factsEl = document.getElementById('facts')
-      const joinEl = document.getElementById('join')
-      const explainEl = document.getElementById('explain')
+      const $ = (id) => document.getElementById(id)
+      const gateEl = $('gate')
+      const mainEl = $('main')
+      const barEl = $('bar')
+      const stateEl = $('state')
+      const factsEl = $('facts')
+      const joinEl = $('join')
+      const explainEl = $('explain')
+      const reportEl = $('report')
 
       const setState = (tone, text) => {
         stateEl.dataset.tone = tone
@@ -82,55 +193,351 @@
       // Wait for the module script to install window.o2.
       while (typeof window.o2 === 'undefined') await new Promise((r) => setTimeout(r, 30))
 
-      const { source, relayAddrs } = await window.o2.discoverRelays()
+      // ---- the gate ------------------------------------------------------------
 
-      if (source === 'none') {
-        // Saying so plainly beats a page that merely looks broken. A static host has
-        // no seed node to ask, so the relay address has to come from the link.
-        setState('blocked', 'no relay reachable from this page')
-        setFacts([
-          ['relay source', 'none'],
-          ['secure context', String(window.isSecureContext)],
-        ])
-        explainEl.innerHTML =
-          'A browser cannot accept incoming connections, so two tabs need a publicly ' +
-          'reachable <strong>Circuit Relay v2</strong> peer to exchange WebRTC ' +
-          'signalling. This page was served by a static host, which cannot run one. ' +
-          'Either point it at a relay with <code>?relay=&lt;multiaddr&gt;</code>, or ' +
-          'run <code>o2 seed</code> on your own machine and open the URL it prints — ' +
-          'that page serves its own relay address and needs no configuration.'
-      } else {
-        setState('idle', `relay found via ${source} — ready to start`)
-        setFacts([
-          ['relay', relayAddrs[0]],
-          ['relay source', source],
-        ])
-        joinEl.disabled = false
+      const disclosure = window.o2.disclosure()
+      $('gate-headline').textContent = disclosure.headline
+      $('gate-terms').replaceChildren(
+        ...disclosure.lines.flatMap((line) => {
+          const dt = document.createElement('dt')
+          dt.textContent = line.question
+          const dd = document.createElement('dd')
+          dd.textContent = line.answer
+          return [dt, dd]
+        }),
+      )
+      $('reporting-question').textContent = disclosure.reporting.question
+      $('reporting-answer').textContent = disclosure.reporting.answer
+      $('allow').textContent = disclosure.affirm
+      $('decline').textContent = disclosure.decline
+
+      const showReportOnly = (text) => {
+        reportEl.textContent = text
       }
 
-      joinEl.addEventListener('click', async () => {
-        joinEl.disabled = true
-        setState('working', 'starting node and reserving on the relay…')
-        try {
-          const { peerId } = await window.o2.autoStart({})
-          const addrs = await window.o2.waitForWebrtcAddr(60_000)
-          setState('live', 'node running — reachable by other tabs')
-          setFacts([
-            ['peer id', peerId],
-            ['relay', relayAddrs[0]],
-            ['address', addrs[0] ?? '(none yet)'],
-          ])
-          explainEl.textContent =
-            'Open this same URL in another tab or on another device and the two find ' +
-            'each other over WebRTC. The relay only carries the handshake.'
-        } catch (error) {
-          setState(
-            'blocked',
-            `could not join: ${error instanceof Error ? error.message : String(error)}`,
+      // ---- reconciling the page with the node ----------------------------------
+      //
+      // One loop, reading state and rendering it, rather than each control
+      // remembering to update whatever it affected. That matters here beyond
+      // tidiness: the bar has to appear because a node *exists*, not because a
+      // particular button was pressed. An earlier version started the bar inside
+      // the Start handler, so a node created any other way — by an embedding page,
+      // by a test harness, by a second tab sharing this origin's consent — ran with
+      // no visible surface at all, which is the exact failure BROW-04 names.
+      //
+      // It runs on a change notification, not only on a timer. **Chromium throttles
+      // timers in a tab that is not in front**, so a poll fast enough to feel live
+      // in the foreground fires roughly never in the background — measured: a
+      // 400ms interval produced one tick in a second. A node started in a
+      // background tab would then have had no visible surface at all. The interval
+      // that remains only refreshes counters, where being late is harmless.
+      //
+      // It reads properties. It spends no CPU on the fabric's behalf and makes no
+      // request, so it is not something the consent gate needs to cover.
+
+      let revealed = false
+      /** The visitor said no. Distinct from "not asked yet", so the gate stays shut. */
+      let declined = false
+
+      const renderBar = (activity) => {
+        if (activity === null) {
+          barEl.hidden = true
+          return
+        }
+        barEl.hidden = false
+        // "and for whom" is the half of the criterion a peer count does not answer.
+        const short = (id) => `${id.slice(0, 6)}…${id.slice(-4)}`
+        $('bar-what').textContent =
+          activity.servedFor.length === 0
+            ? `running — waiting for work · ${activity.peers} peer(s) connected`
+            : `running work for ${activity.servedFor
+                .slice(0, 2)
+                .map((s) => `${short(s.peerId)} (${s.tasks})`)
+                .join(', ')}${activity.servedFor.length > 2 ? ` +${activity.servedFor.length - 2} more` : ''}`
+        $('bar-stats').textContent =
+          `${Math.round(activity.dutyCycle * 100)}% of one thread` +
+          (activity.hidden ? ' (tab in background)' : '') +
+          ` · ${activity.tasksExecuted} task(s) done` +
+          ` · ${activity.fetched} block(s) in` +
+          (activity.offMainThread ? '' : ' · ON MAIN THREAD')
+      }
+
+      const reconcile = () => {
+        const consent = window.o2.consentState()
+        // Consent is per-origin, so another tab granting or revoking it changes
+        // what this tab may do. Reading it every tick is what makes a revocation
+        // elsewhere close this gate too.
+        if (consent.granted && !revealed) void reveal()
+        if (!consent.granted && revealed && !declined) {
+          revealed = false
+          mainEl.hidden = true
+          gateEl.hidden = false
+        }
+
+        const activity = window.o2.activity()
+        renderBar(activity)
+        $('run').disabled = activity === null
+        if (activity !== null && $('run-status').textContent === 'start a node first') {
+          $('run-status').textContent = 'ready'
+        }
+        // Enabled because an answer exists, not because this page produced it.
+        $('verify').disabled = !window.o2.verifyAnswer().checked
+      }
+
+      $('stop').addEventListener('click', async () => {
+        $('stop').disabled = true
+        await window.o2.stop()
+        $('run-status').textContent = 'start a node first'
+        setState('idle', 'stopped — the thread was ended and the connections closed')
+        setFacts([])
+        joinEl.disabled = false
+        $('stop').disabled = false
+      })
+
+      // ---- discovery and joining, all of it behind consent ---------------------
+
+      // ---- the job, and checking it -------------------------------------------
+
+      // Measured rungs. The wall is real and moves with cube count, so the ladder
+      // stops where the fabric stops rather than where a number would look good.
+      const LADDER = [300, 400, 500, 600]
+
+      $('run').addEventListener('click', async () => {
+        $('run').disabled = true
+        // Refreshed rather than reused: a device may have joined since the last
+        // discovery tick, and a stale list would either waste its capacity or
+        // dispatch to a peer that has gone.
+        await findPeers()
+        const peerIds = computePeers
+        // More peers, more cubes. This is the whole arc: a cube fixes the most
+        // constrained numbers, so cubes are not merely parallelism — they are how
+        // far the search reaches.
+        const cubes = 8 * (1 + peerIds.length)
+        const lines = [`${peerIds.length} peer(s) · ${cubes} cubes per rung`, '']
+        let best = null
+
+        for (const n of LADDER) {
+          $('run-status').textContent = `n = ${n}…`
+          try {
+            const run = await window.o2.runColouring({
+              n,
+              cubes,
+              redundancy: Math.min(2, 1 + peerIds.length),
+              peerIds,
+            })
+            const found = run.statuses.filter((s) => s === 'found').length
+            const exhausted = run.statuses.filter((s) => s === 'exhausted').length
+            const unknown = run.statuses.filter((s) => s === 'budget').length
+            lines.push(
+              `n = ${String(n).padStart(4)}  ${run.found ? 'FOUND   ' : 'no answer'}  ` +
+                `${found} found · ${exhausted} proved empty · ${unknown} out of budget  ` +
+                `${Math.round(run.elapsedMs)}ms`,
+            )
+            if (!run.found) {
+              // 'budget' means "I ran out of steps", not "there is none". Saying so
+              // is the difference between a limit and a claim.
+              lines.push('', `Stopped here. ${unknown} cube(s) ran out of steps — that is a`)
+              lines.push('shortage of search, not a proof that no colouring exists.')
+              break
+            }
+            best = run
+          } catch (error) {
+            lines.push(`n = ${n}: ${error instanceof Error ? error.message : String(error)}`)
+            break
+          }
+        }
+
+        if (best !== null) {
+          lines.push('')
+          lines.push(`Best settled: n = ${best.n}, every cube agreed: ${best.complete}`)
+          lines.push(
+            `Verification cost ${best.verificationMultiplier.toFixed(2)}× — each cube ran twice, ` +
+              'on different nodes, and the two had to agree.',
           )
+          lines.push('')
+          lines.push('Where the last rung ran:')
+          lines.push(
+            ...best.agreeing
+              .slice(0, 8)
+              .map((who, i) => `  cube ${i}: ${who.length === 0 ? 'no agreement' : who.join(' + ')}`),
+          )
+          if (best.agreeing.length > 8) lines.push(`  … and ${best.agreeing.length - 8} more`)
+          lines.push('', 'This answer has not been checked. The button below checks it.')
+        }
+
+        $('run-status').textContent = best === null ? 'nothing settled' : `settled n = ${best.n}`
+        $('run-report').textContent = lines.join('\n')
+        $('run').disabled = false
+      })
+
+      $('verify').addEventListener('click', () => {
+        const verdict = window.o2.verifyAnswer()
+        if (!verdict.checked) {
+          $('verify-report').textContent = 'nothing to check yet'
+          return
+        }
+        $('verify-report').textContent = verdict.ok
+          ? `Correct. ${verdict.triplesChecked} Pythagorean triples up to ${verdict.n} were ` +
+            're-derived here and every one has two colours among its three numbers.'
+          : `REFUTED. ${verdict.violation} is all one colour.`
+      })
+
+      // Peers that will actually run a task, kept here so the job and the display
+      // agree. Not `window.o2.peers()`: that is every libp2p connection and always
+      // includes the relay, which signals and does not compute. Counting it made
+      // the page claim a peer when there was none, and put it in the executor list
+      // where every shard sent to it failed — so the job ran alone while reporting
+      // that it had not.
+      let computePeers = []
+
+      const findPeers = async () => {
+        try {
+          const found = await window.o2.connectDiscoveredPeers()
+          computePeers = await window.o2.computePeers()
+          const connected = window.o2.peers().length
+          // Counted *including this tab*, because this tab is a node and runs the
+          // work too — a peer count silently excludes the reader from the fabric
+          // they are looking at, and this project's whole rule is that there is no
+          // kind of node they could be instead.
+          const computing = computePeers.length + 1
+          const spare = connected - computePeers.length
+          const detail =
+            (spare > 0 ? ` · ${spare} further connection(s) that do not compute` : '') +
+            (found.dialed.length > 0 ? ` · just dialled ${found.dialed.length}` : '')
+
+          if (!found.asked) {
+            $('peers').textContent =
+              `${computing} node(s) computing — this tab and ${computePeers.length} peer(s)${detail}` +
+              ' · no peer directory on this host, so open the page from a seed node to find others'
+            return
+          }
+          $('peers').textContent =
+            computePeers.length === 0
+              ? `1 node computing — just this tab${detail}. Open this URL on another device.`
+              : `${computing} node(s) computing — this tab and ${computePeers.length} peer(s)${detail}`
+        } catch (error) {
+          $('peers').textContent = error instanceof Error ? error.message : String(error)
+        }
+      }
+
+      const refreshReport = async () => {
+        const report = await window.o2.startReport()
+        showReportOnly(
+          `${report.text}\n  peers answering: ${report.reached} of ${report.asked} asked`,
+        )
+      }
+      $('refresh-report').addEventListener('click', refreshReport)
+
+      const reveal = async () => {
+        if (revealed) return
+        revealed = true
+        gateEl.hidden = true
+        mainEl.hidden = false
+
+        const { source, relayAddrs } = await window.o2.discoverRelays()
+        if (source === 'none') {
+          // Saying so plainly beats a page that merely looks broken. A static host has
+          // no seed node to ask, so the relay address has to come from the link.
+          setState('blocked', 'no relay reachable from this page')
+          setFacts([
+            ['relay source', 'none'],
+            ['secure context', String(window.isSecureContext)],
+          ])
+          explainEl.innerHTML =
+            'A browser cannot accept incoming connections, so two tabs need a publicly ' +
+            'reachable <strong>Circuit Relay v2</strong> peer to exchange WebRTC ' +
+            'signalling. This page was served by a static host, which cannot run one. ' +
+            'Either point it at a relay with <code>?relay=&lt;multiaddr&gt;</code>, or ' +
+            'run <code>o2 seed</code> on your own machine and open the URL it prints — ' +
+            'that page serves its own relay address and needs no configuration.'
+        } else {
+          setState('idle', `relay found via ${source} — ready to start`)
+          setFacts([
+            ['relay', relayAddrs[0]],
+            ['relay source', source],
+          ])
           joinEl.disabled = false
         }
+
+        joinEl.addEventListener('click', async () => {
+          joinEl.disabled = true
+          setState('working', 'starting node and reserving on the relay…')
+          try {
+            const { peerId } = await window.o2.autoStart({})
+            const addrs = await window.o2.waitForWebrtcAddr(60_000)
+            setState('live', 'node running — reachable by other tabs')
+            setFacts([
+              ['peer id', peerId],
+              ['relay', relayAddrs[0]],
+              ['address', addrs[0] ?? '(none yet)'],
+            ])
+            explainEl.textContent =
+              'Open this same URL in another tab or on another device and the two find ' +
+              'each other over WebRTC. The relay only carries the handshake.'
+            await findPeers()
+            // Devices join at their own pace, so keep looking. A browser cannot be
+            // dialled cold, so nobody will announce themselves to this tab.
+            setInterval(findPeers, 4_000)
+            await refreshReport()
+          } catch (error) {
+            setState(
+              'blocked',
+              `could not join: ${error instanceof Error ? error.message : String(error)}`,
+            )
+            joinEl.disabled = false
+            // The failure is exactly what BROW-02 wants counted, so ask now.
+            await refreshReport()
+          }
+        })
+      }
+
+      $('allow').addEventListener('click', async () => {
+        window.o2.grantConsent({ reporting: $('reporting').checked })
+        await reveal()
       })
+
+      $('decline').addEventListener('click', () => {
+        // Revealing the page without consenting: the visitor sees what they turned
+        // down and can change their mind, but the flags are set so the reconciler
+        // does not immediately put the gate back — "said no" and "not asked yet"
+        // are different states and only the second should re-open it.
+        revealed = true
+        declined = true
+        gateEl.hidden = true
+        mainEl.hidden = false
+        setState('idle', 'nothing is running — you did not allow it')
+        explainEl.textContent =
+          'Reload this page if you change your mind. Nothing was started and no ' +
+          'connection was made.'
+        joinEl.disabled = true
+      })
+
+      // ---- initial render ------------------------------------------------------
+
+      const consent = window.o2.consentState()
+      $('gate-version').textContent =
+        `Disclosure version ${consent.version}. ` +
+        (consent.gap === 'terms-changed'
+          ? 'What this page does has changed since you last agreed, so it is asking again. '
+          : '') +
+        'This page runs no server-side process and sets no cookies.'
+      const policy = document.createElement('a')
+      policy.href = './policy.html'
+      policy.textContent = ' What this page does, in full.'
+      $('gate-version').append(policy)
+
+      if (consent.granted) {
+        // An existing consent for *this* disclosure version. It does not start the
+        // node — starting is still an action.
+        await reveal()
+      } else {
+        gateEl.hidden = false
+      }
+
+      // Pushed on every state change, and polled slowly for the counters.
+      window.o2.onChange(reconcile)
+      reconcile()
+      setInterval(reconcile, 1_000)
     </script>
   </body>
 </html>

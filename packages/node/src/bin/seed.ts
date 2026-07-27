@@ -19,7 +19,7 @@ const { values } = parseArgs({
   options: {
     dir: { type: 'string', default: '.o2-seed' },
     port: { type: 'string', default: '5173' },
-    'relay-port': { type: 'string', default: '0' },
+    'ws-port': { type: 'string', default: '0' },
     reservations: { type: 'string', default: '64' },
   },
 })
@@ -27,7 +27,7 @@ const { values } = parseArgs({
 const seed = await SeedServer.start({
   blockstoreDir: values.dir ?? '.o2-seed',
   httpPort: Number(values.port),
-  relayPort: Number(values['relay-port']),
+  wsPort: Number(values['ws-port']),
   maxReservations: Number(values.reservations),
 })
 
@@ -35,12 +35,15 @@ const line = (text = ''): void => {
   process.stdout.write(`${text}\n`)
 }
 
+// One line, because there is one node. Two lines here — "relay" and "seed node" —
+// were the visible symptom of two peer ids in one process, only one of which would
+// run a task.
 line()
 line('  o2 seed node')
 line('  ───────────────────────────────────────────────')
-line(`  relay      ${seed.relay.peerId}`)
-line(`  seed node  ${seed.node.peerId}`)
-line(`  capacity   ${seed.relay.capacity.limit} reservations`)
+line(`  peer id    ${seed.node.peerId}`)
+line(`  it does    executes tasks, serves blocks, relays for peers that cannot listen`)
+line(`  capacity   ${seed.node.capacity.limit} reservations`)
 line()
 line('  Open on another device:')
 line(`    ${seed.joinUrl}`)

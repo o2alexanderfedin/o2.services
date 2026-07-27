@@ -161,13 +161,13 @@
 
 ### Browser Node Experience
 
-- [ ] **BROW-01**: A visitor gives explicit informed consent before any compute
+- [x] **BROW-01**: A visitor gives explicit informed consent before any compute
       begins
-- [ ] **BROW-02**: The node reports the percentage of visitors where it failed to
+- [x] **BROW-02**: The node reports the percentage of visitors where it failed to
       start, segmented by browser, so blocking is visible rather than silent
 - [x] **BROW-03**: Compute pauses or throttles when the tab is backgrounded, and
       resumes on return
-- [ ] **BROW-04**: A visitor can see what the node is doing and stop it at any time
+- [x] **BROW-04**: A visitor can see what the node is doing and stop it at any time
 - [x] **BROW-05**: The node runs embedded in a third-party page without requiring
       COOP/COEP headers
 
@@ -187,13 +187,17 @@
 
 ### Demo & Disclosure
 
-- [ ] **DEMO-01**: A static client distributes a real job across browser tabs and
+- [x] **DEMO-01**: A static client distributes a real job across browser tabs and
       machines, showing live placement and results
-- [ ] **DEMO-02**: The demo runs a task a person cares about, not a synthetic
+      *(tabs: e2e. Machines: run by the owner on 2026-07-26 — an iPhone and a laptop
+      on one LAN seed, one peer connected, the search distributed, and the answer
+      verified in the page. Owner-observed, not captured by a test; two defects it
+      exposed are fixed and now are.)*
+- [x] **DEMO-02**: The demo runs a task a person cares about, not a synthetic
       protocol exercise
-- [ ] **DEMO-03**: The demo is deployable to static hosting with no server-side
+- [x] **DEMO-03**: The demo is deployable to static hosting with no server-side
       process beyond the backbone relay
-- [ ] **DEMO-04**: Public deployment is an explicitly triggered action, never an
+- [x] **DEMO-04**: Public deployment is an explicitly triggered action, never an
       automatic consequence of a phase completing
 
 ### Native → WASM AOT (Part I)
@@ -301,10 +305,10 @@ All 72 v1 requirements are mapped, each to exactly one phase. See
 | CHURN-04 | Phase 7 — Churn, Stragglers & Coordinator Survival | Done |
 | CHURN-05 | Phase 7 — Churn, Stragglers & Coordinator Survival | Done |
 | CHURN-06 | Phase 7 — Churn, Stragglers & Coordinator Survival | Done |
-| BROW-01 | Phase 9 — Public Demo, Consent UX & Disclosure Gate | Pending |
-| BROW-02 | Phase 9 — Public Demo, Consent UX & Disclosure Gate | Pending |
+| BROW-01 | Phase 9 — Public Demo, Consent UX & Disclosure Gate | Done |
+| BROW-02 | Phase 9 — Public Demo, Consent UX & Disclosure Gate | Done |
 | BROW-03 | Phase 3 — Browser Tier & Backbone Relay | Done |
-| BROW-04 | Phase 9 — Public Demo, Consent UX & Disclosure Gate | Pending |
+| BROW-04 | Phase 9 — Public Demo, Consent UX & Disclosure Gate | Done |
 | BROW-05 | Phase 3 — Browser Tier & Backbone Relay | Done |
 | BENCH-01 | Phase 8 — Benchmark Harness | Done |
 | BENCH-02 | Phase 8 — Benchmark Harness | Done |
@@ -312,10 +316,10 @@ All 72 v1 requirements are mapped, each to exactly one phase. See
 | BENCH-04 | Phase 8 — Benchmark Harness | Done |
 | BENCH-05 | Phase 8 — Benchmark Harness | Done |
 | BENCH-06 | Phase 8 — Benchmark Harness | Partial — same-machine labelling enforced and derived; distinct-machine runs need a second machine |
-| DEMO-01 | Phase 9 — Public Demo, Consent UX & Disclosure Gate | Pending |
-| DEMO-02 | Phase 9 — Public Demo, Consent UX & Disclosure Gate | Pending |
-| DEMO-03 | Phase 9 — Public Demo, Consent UX & Disclosure Gate | Pending |
-| DEMO-04 | Phase 9 — Public Demo, Consent UX & Disclosure Gate | Pending |
+| DEMO-01 | Phase 9 — Public Demo, Consent UX & Disclosure Gate | Done |
+| DEMO-02 | Phase 9 — Public Demo, Consent UX & Disclosure Gate | Done |
+| DEMO-03 | Phase 9 — Public Demo, Consent UX & Disclosure Gate | Done |
+| DEMO-04 | Phase 9 — Public Demo, Consent UX & Disclosure Gate | Done |
 | AOT-01 | Phase 10 — elfconv AOT Native→WASM Pipeline | Pending |
 | AOT-02 | Phase 10 — elfconv AOT Native→WASM Pipeline | Pending |
 | AOT-03 | Phase 10 — elfconv AOT Native→WASM Pipeline | Pending |

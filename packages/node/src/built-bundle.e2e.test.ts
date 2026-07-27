@@ -9,7 +9,7 @@ import { fileURLToPath } from 'node:url'
 import { chromium } from 'playwright'
 import type { Browser } from 'playwright'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import { RelayNode } from './relay-node.ts'
+import { FabricNode } from './fabric-node.ts'
 
 /**
  * The *built* bundle, served by a dumb static file server.
@@ -40,7 +40,7 @@ const MIME: Record<string, string> = {
 let server: Server
 let baseUrl: string
 let browser: Browser
-let relay: RelayNode
+let relay: FabricNode
 let workdir: string
 
 beforeAll(async () => {
@@ -77,7 +77,7 @@ beforeAll(async () => {
   if (address === null || typeof address === 'string') throw new Error('no server port')
   baseUrl = `http://127.0.0.1:${address.port}`
 
-  relay = await RelayNode.start({ maxReservations: 8 })
+  relay = await FabricNode.start({ maxReservations: 8, listen: ['/ip4/127.0.0.1/tcp/0/ws'] })
   browser = await chromium.launch()
 }, 300_000)
 
@@ -87,6 +87,110 @@ afterAll(async () => {
   await new Promise<void>((resolve) => server?.close(() => resolve()))
   await rm(workdir, { recursive: true, force: true })
 }, 120_000)
+
+/**
+ * The gate, observed from outside the page.
+ *
+ * `page.on('request')` sees every network request the tab makes, including ones the
+ * page swallows. That is the only way to check the claim that actually matters:
+ * not "we did not compute" but "we did not tell anybody you were here".
+ */
+async function consent(page: import('playwright').Page): Promise<void> {
+  await page.waitForFunction(() => document.getElementById('gate')?.hasAttribute('hidden') === false, null, {
+    timeout: 30_000,
+  })
+  await page.click('#allow')
+  await page.waitForFunction(() => document.getElementById('main')?.hasAttribute('hidden') === false, null, {
+    timeout: 30_000,
+  })
+}
+
+describe('BROW-01 — nothing runs, and nothing is contacted, before consent', () => {
+  it('makes no request of its own beyond loading itself', async () => {
+    const page = await browser.newPage()
+    const requested: string[] = []
+    page.on('request', (request) => requested.push(request.url()))
+
+    await page.goto(baseUrl)
+    await page.waitForFunction(() => typeof window.o2 !== 'undefined', null, { timeout: 60_000 })
+    // Long enough that a discovery fetch on load would have happened by now.
+    await page.waitForTimeout(1_500)
+
+    // The page's own assets are fetched by the browser to render it at all. What
+    // must be absent is anything the *node* would do: asking the origin for a
+    // relay, or dialling one.
+    expect(requested.filter((url) => url.includes('bootstrap.json'))).toEqual([])
+    expect(requested.filter((url) => url.startsWith('ws'))).toEqual([])
+
+    // And the gate is what is on screen, with the rest of the page not merely
+    // hidden but never having run.
+    // Visibility, not the attribute. An id rule that sets `display` outranks the
+    // browser's own `[hidden]`, so the attribute can be correct while the element
+    // is on screen — which is how an "always-visible" bar came to be visible while
+    // idle, reported from a phone rather than caught here.
+    expect(await page.isVisible('#gate')).toBe(true)
+    expect(await page.isVisible('#main')).toBe(false)
+    expect(await page.isVisible('#bar')).toBe(false)
+
+    await page.close()
+  }, 180_000)
+
+  it('refuses to discover or start until consent is granted', async () => {
+    const page = await browser.newPage()
+    await page.goto(baseUrl)
+    await page.waitForFunction(() => typeof window.o2 !== 'undefined', null, { timeout: 60_000 })
+
+    // There is no test-only bypass: the API refuses for the same reason the button
+    // is not there yet.
+    const refusal = await page.evaluate(async () =>
+      window.o2.discoverRelays().then(
+        () => 'discovered',
+        (error: unknown) => (error instanceof Error ? error.message : String(error)),
+      ),
+    )
+    expect(refusal).toContain('no consent')
+    expect(await page.evaluate(() => window.o2.consentState().granted)).toBe(false)
+    expect(await page.evaluate(() => window.o2.activity())).toBeNull()
+
+    await page.close()
+  }, 180_000)
+
+  it('shows the disclosed terms, with the report unticked', async () => {
+    const page = await browser.newPage()
+    await page.goto(baseUrl)
+    await page.waitForFunction(() => typeof window.o2 !== 'undefined', null, { timeout: 60_000 })
+    await page.waitForFunction(() => document.getElementById('gate-headline')?.textContent !== '', null, {
+      timeout: 30_000,
+    })
+
+    const terms = (await page.textContent('#gate-terms')) ?? ''
+    expect(terms.toLowerCase()).toContain('what would run')
+    expect(terms.toLowerCase()).toContain('how do i stop it')
+    // A pre-ticked box is the dark pattern this phase exists to avoid.
+    expect(await page.isChecked('#reporting')).toBe(false)
+    // Declining is a control, not an absence.
+    expect(await page.isVisible('#decline')).toBe(true)
+
+    await page.close()
+  }, 180_000)
+
+  it('starts nothing when the visitor declines', async () => {
+    const page = await browser.newPage()
+    const requested: string[] = []
+    page.on('request', (request) => requested.push(request.url()))
+
+    await page.goto(baseUrl)
+    await page.waitForFunction(() => typeof window.o2 !== 'undefined', null, { timeout: 60_000 })
+    await page.click('#decline')
+    await page.waitForTimeout(1_000)
+
+    expect(requested.filter((url) => url.includes('bootstrap.json'))).toEqual([])
+    expect(await page.isDisabled('#join')).toBe(true)
+    expect(await page.evaluate(() => window.o2.activity())).toBeNull()
+
+    await page.close()
+  }, 180_000)
+})
 
 describe('the built bundle on a static host', () => {
   it('loads and runs with no module server behind it', async () => {
@@ -107,6 +211,7 @@ describe('the built bundle on a static host', () => {
     const page = await browser.newPage()
     await page.goto(baseUrl)
     await page.waitForFunction(() => typeof window.o2 !== 'undefined', null, { timeout: 60_000 })
+    await consent(page)
 
     // /bootstrap.json 404s, as it will on any static host.
     const discovery = await page.evaluate(async () => window.o2.discoverRelays())
@@ -132,6 +237,7 @@ describe('the built bundle on a static host', () => {
     const page = await browser.newPage()
     await page.goto(`${baseUrl}/?relay=${encodeURIComponent(relayAddr)}`)
     await page.waitForFunction(() => typeof window.o2 !== 'undefined', null, { timeout: 60_000 })
+    await consent(page)
 
     const discovery = await page.evaluate(async () => window.o2.discoverRelays())
     expect(discovery.source).toBe('query')
@@ -150,6 +256,18 @@ describe('the built bundle on a static host', () => {
 
     expect(await page.textContent('#state')).toContain('node running')
     expect(relay.capacity.granted).toBeGreaterThanOrEqual(1)
+
+    // BROW-04: the always-visible bar appears with the node and says what it is
+    // doing, including that execution is off the main thread — without which
+    // "stop drops CPU to zero" would be a claim rather than a fact.
+    await page.waitForSelector('#bar', { state: 'visible', timeout: 30_000 })
+    expect(await page.textContent('#bar-stats')).not.toContain('ON MAIN THREAD')
+    expect(await page.evaluate(() => window.o2.activity()?.offMainThread)).toBe(true)
+
+    // And Stop empties it: the thread ends and the connections close.
+    await page.click('#stop')
+    await page.waitForSelector('#bar', { state: 'hidden', timeout: 30_000 })
+    expect(await page.evaluate(() => window.o2.activity())).toBeNull()
 
     await page.close()
   }, 240_000)
