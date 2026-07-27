@@ -20,8 +20,9 @@ node_modules/
 dist/
 *.tsbuildinfo
 
-# Vitest browser-mode failure screenshots
+# Vitest browser-mode failure artefacts — regenerated on demand, never committed
 __screenshots__/
+.vitest-attachments/
 
 # Vite dependency pre-bundling cache
 .vite/

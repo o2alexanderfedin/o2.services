@@ -174,7 +174,10 @@ describe('a second device joins knowing only the URL', () => {
       expect(context_.subtle).toBe(false)
 
       // No relay address is passed in. The page asks its own origin.
-      const joined = await page.evaluate(async () => window.o2.autoStart({ blockstoreName: 'lan-join' }))
+      const joined = await page.evaluate(async () => {
+        window.o2.grantConsent()
+        return window.o2.autoStart({ blockstoreName: 'lan-join' })
+      })
       expect(joined.relayAddrs[0]).toContain(`/ip4/${lanIp!}/tcp/${seed.relayPort}/ws`)
       expect(joined.relayAddrs[0]).toContain(seed.relay.peerId)
 

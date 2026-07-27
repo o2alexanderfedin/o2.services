@@ -48,6 +48,80 @@ export interface TabIsolation {
   readonly inIframe: boolean
 }
 
+import type { Disclosure } from './disclosure.ts'
+
+/** BROW-01 — what the gate knows before anything has run. */
+export interface TabConsentState {
+  readonly granted: boolean
+  /**
+   * Why there is no usable consent: `never-asked`, `terms-changed`, `unreadable`.
+   * Absent when one exists. Named rather than collapsed, because "you never asked
+   * me" and "the terms changed" deserve different sentences.
+   */
+  readonly gap?: string
+  /** The disclosure version currently in force. */
+  readonly version: string
+  /** Whether the visitor also allowed the start-outcome report. */
+  readonly reportingAllowed: boolean
+}
+
+/** BROW-04 — what the always-visible surface displays. */
+export interface TabActivity {
+  readonly running: boolean
+  /** False means a task in flight cannot be interrupted. See `WorkerExecutor`. */
+  readonly offMainThread: boolean
+  readonly tasksExecuted: number
+  readonly dutyCycle: number
+  readonly hidden: boolean
+  readonly peers: number
+  /** Blocks this tab has pulled from peers, and refused for a CID mismatch. */
+  readonly fetched: number
+  readonly rejected: number
+}
+
+/** BROW-02 — the start-outcome report as the page shows it. */
+export interface TabStartReport {
+  /** Peers that answered, and peers asked. `asked > 0 && reached === 0` is the cliff. */
+  readonly reached: number
+  readonly asked: number
+  /** Rendered text, blind spots included — see `describeStartReport`. */
+  readonly text: string
+  readonly reported: number
+  readonly failed: number
+}
+
+/** DEMO-01/DEMO-02 — one run of the colouring search across the fabric. */
+export interface TabColouringRun {
+  readonly n: number
+  readonly cubes: number
+  /** Every cube reached agreement between its replicas. */
+  readonly complete: boolean
+  /** A colouring was found by at least one cube. */
+  readonly found: boolean
+  /** Per cube: `found`, `exhausted` (provably none here), or `budget` (unknown). */
+  readonly statuses: readonly string[]
+  /** Which nodes agreed on each cube, so placement is visible rather than implied. */
+  readonly agreeing: readonly string[][]
+  readonly verificationMultiplier: number
+  readonly elapsedMs: number
+}
+
+/**
+ * The check, run in the visitor's own tab — DEMO-02.
+ *
+ * Deliberately a separate act from the run. The fabric makes a claim; this is the
+ * visitor testing it against the definition, with no node's word taken for anything.
+ */
+export interface TabVerification {
+  readonly checked: boolean
+  readonly ok: boolean
+  readonly n: number
+  /** Triples re-derived here, from a² + b² = c². Not supplied by anyone. */
+  readonly triplesChecked: number
+  /** The triple that refutes the claim, when there is one. */
+  readonly violation: string | null
+}
+
 export interface TabAddresses {
   readonly peerId: string
   readonly webrtc: readonly string[]
@@ -55,6 +129,57 @@ export interface TabAddresses {
 }
 
 export interface TabApi {
+  /**
+   * The disclosed terms — BROW-01.
+   *
+   * The page renders this rather than holding its own copy, so the text a visitor
+   * reads, the version a stored consent answered, and the text on the policy page
+   * cannot drift apart.
+   */
+  disclosure(): Disclosure
+  /**
+   * BROW-01. What the gate is currently allowed to do.
+   *
+   * Safe to call before consent — it reads storage and nothing else.
+   */
+  consentState(): TabConsentState
+  /**
+   * Record that the visitor consented, and mint the proof `start` requires.
+   *
+   * This is the only thing that opens the gate. A test harness calls it for the
+   * same reason a visitor clicks the button, and there is deliberately no bypass:
+   * a test path that could start without consenting would be a path.
+   */
+  grantConsent(options?: { reporting?: boolean }): TabConsentState
+  /** Forget the consent. The gate reappears, and any running node is stopped. */
+  revokeConsent(): Promise<TabConsentState>
+  /** BROW-04. Null when no node is running. */
+  activity(): TabActivity | null
+  /**
+   * BROW-02. Publish this tab's start outcome and read back what peers know.
+   *
+   * Publishes only when the visitor allowed it; otherwise it asks without telling.
+   */
+  startReport(): Promise<TabStartReport>
+  /**
+   * DEMO-01/DEMO-02. Run the colouring search across this tab and its peers.
+   *
+   * Every cube is the same input block; a shard differs only by `partition()`, so
+   * the fabric distributes work without distributing data.
+   */
+  runColouring(options: {
+    n: number
+    cubes: number
+    redundancy: number
+    peerIds: string[]
+  }): Promise<TabColouringRun>
+  /**
+   * DEMO-02. Check the last answer here, from the definition.
+   *
+   * Needs no node, no peer and no network — it works with the fabric disconnected,
+   * which is the point.
+   */
+  verifyAnswer(): TabVerification
   start(options: { relayAddrs: string[]; blockstoreName: string }): Promise<string>
   /**
    * Join using whatever the page's own origin says to dial.

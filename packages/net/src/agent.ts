@@ -17,6 +17,7 @@ import type {
   Executor,
   LocalCapacity,
   RecordIndex,
+  StartOutcomeLedger,
   Task,
 } from '@o2/core'
 import type { BlockSource } from './block.ts'
@@ -89,6 +90,15 @@ export interface AgentOptions {
    * which is right for a node that never refuses.
    */
   readonly capacity?: LocalCapacity
+  /**
+   * BROW-02. What this node has been told about how starting went elsewhere.
+   *
+   * Any node may hold one, on the same terms as any other — the only difference
+   * between nodes is discovery. Omitting it answers with nothing, which is a
+   * truthful answer from a node that has been told nothing, and is distinguishable
+   * from an unreachable node only by the requestor getting an answer at all.
+   */
+  readonly ledger?: StartOutcomeLedger
 }
 
 /** Install the request handler that makes this endpoint a serving node. */
@@ -111,6 +121,11 @@ export function serveAgent(options: AgentOptions): void {
       response = { kind: 'providers', nodeKeys: (await options.index?.providers(request.cid)) ?? [] }
     } else if (request.kind === 'records') {
       response = { kind: 'records', records: (await options.index?.recordsFor(request.nodeKey)) ?? null }
+    } else if (request.kind === 'report') {
+      const ledger = options.ledger
+      if (request.outcome !== null) ledger?.record(request.outcome)
+      ledger?.decline(request.declined ?? 0)
+      response = { kind: 'report', counts: ledger?.counts() ?? [], declined: ledger?.declined ?? 0 }
     } else if (request.kind === 'offer') {
       const decision = options.capacity?.offer({ shardId: request.shardId, nodeId: executor.nodeId })
       response =

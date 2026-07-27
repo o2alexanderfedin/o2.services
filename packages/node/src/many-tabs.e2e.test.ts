@@ -83,7 +83,10 @@ describe('criterion 3 — simultaneous browser reservations', () => {
     const peerIds = await Promise.all(
       pages.map(async (page, i) =>
         page.evaluate(
-          async ([address, store]) => window.o2.start({ relayAddrs: [address!], blockstoreName: store! }),
+          async ([address, store]) => {
+            window.o2.grantConsent()
+            return window.o2.start({ relayAddrs: [address!], blockstoreName: store! })
+          },
           [relayAddr, `o2-many-${i}`],
         ),
       ),

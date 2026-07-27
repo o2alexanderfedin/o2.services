@@ -55,7 +55,12 @@ async function openPage(name: string): Promise<Page> {
   await page.goto(`${baseUrl}${PAGE}`)
   await page.waitForFunction(() => typeof window.o2 !== 'undefined', null, { timeout: 30_000 })
   await page.evaluate(
-    async ([address, store]) => window.o2.start({ relayAddrs: [address!], blockstoreName: store! }),
+    async ([address, store]) => {
+      // BROW-01 has no test-only bypass: a harness consents for the same reason a
+      // visitor clicks the button.
+      window.o2.grantConsent()
+      return window.o2.start({ relayAddrs: [address!], blockstoreName: store! })
+    },
     [relayAddr, `o2-bg-${name}`],
   )
   return page
@@ -100,7 +105,12 @@ describe('BROW-05 — runs on a page with no COOP/COEP', () => {
 
     await page.waitForFunction(() => typeof window.o2 !== 'undefined', null, { timeout: 30_000 })
     await page.evaluate(
-      async ([address, store]) => window.o2.start({ relayAddrs: [address!], blockstoreName: store! }),
+      async ([address, store]) => {
+      // BROW-01 has no test-only bypass: a harness consents for the same reason a
+      // visitor clicks the button.
+      window.o2.grantConsent()
+      return window.o2.start({ relayAddrs: [address!], blockstoreName: store! })
+    },
       [relayAddr, 'o2-bg-iso2'],
     )
 

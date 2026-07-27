@@ -25,7 +25,7 @@ const ROOT = fileURLToPath(new URL('../../..', import.meta.url))
  * reference libp2p either, because they also have to work over the in-process
  * transport.
  */
-const PORTABLE = ['core', 'net', 'bench']
+const PORTABLE = ['core', 'net', 'bench', 'demo']
 
 /**
  * Packages that may use libp2p but still must not touch a platform.
@@ -57,10 +57,27 @@ const NO_PLATFORM: readonly { readonly pattern: RegExp; readonly why: string }[]
   { pattern: /^@o2\/node$/, why: 'a dual-target package must not depend on the Node adapters' },
 ]
 
+/**
+ * `*.node.test.ts` is exempt, and only that suffix.
+ *
+ * The suffix is not a comment, it is the gate: `vitest.config.ts` excludes
+ * `**​/*.node.test.ts` from the browser project, so such a file never runs anywhere
+ * but Node and never reaches a bundle. `@o2/demo` commits a `.wasm` next to the
+ * `.wat` it was compiled from, and the test that proves the two match has to read
+ * both off disk. Refusing that would not make the package more portable — it would
+ * only mean the committed binary went unchecked, which is a worse trade than the one
+ * this rule exists to prevent.
+ *
+ * Shipping code is unaffected: every non-test file, and every test that runs in the
+ * browser, is still scanned.
+ */
+const NODE_ONLY_SPEC = /\.node\.test\.ts$/
+
 async function sourceFiles(dir: string): Promise<string[]> {
   const found: string[] = []
   for (const entry of await readdir(dir, { withFileTypes: true, recursive: true })) {
     if (!entry.isFile() || !entry.name.endsWith('.ts')) continue
+    if (NODE_ONLY_SPEC.test(entry.name)) continue
     found.push(join(entry.parentPath, entry.name))
   }
   return found

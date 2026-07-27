@@ -8,9 +8,12 @@
       :root { color-scheme: light dark; }
       body {
         font: 15px/1.55 ui-monospace, SFMono-Regular, Menlo, monospace;
-        margin-inline: auto; max-width: 46rem; padding: 2rem 1.25rem;
+        margin-inline: auto; max-width: 46rem;
+        /* Bottom padding clears the fixed bar, so nothing it covers is unreachable. */
+        padding: 2rem 1.25rem 7rem;
       }
       h1 { font-size: 1.1rem; margin: 0 0 .25rem; letter-spacing: .02em; }
+      h2 { font-size: 1rem; margin: 0 0 1rem; font-weight: 600; }
       .sub { opacity: .65; margin: 0 0 1.75rem; font-size: .85rem; }
       .state {
         border: 1px solid currentColor; border-radius: 6px;
@@ -34,34 +37,123 @@
         background: color-mix(in srgb, currentColor 12%, transparent);
         padding: .1em .35em; border-radius: 3px;
       }
+      pre { font: inherit; white-space: pre-wrap; opacity: .8; margin: 0; }
+
+      /* The consent gate. Nothing behind it runs, and nothing behind it is dialled. */
+      #gate {
+        border: 1px solid currentColor; border-radius: 6px;
+        padding: 1.25rem 1.25rem .35rem;
+      }
+      #gate dl { grid-template-columns: 1fr; gap: .15rem; }
+      #gate dt { opacity: 1; font-weight: 600; }
+      #gate dd { margin: 0 0 .9rem; opacity: .8; }
+      #gate label { display: block; margin: 0 0 .35rem; cursor: pointer; }
+      .controls { display: flex; gap: .6rem; align-items: center; margin: 1.1rem 0 .6rem; }
+
+      /*
+        BROW-04. Fixed, and with no control that hides it: the requirement says a
+        persistent, always-visible surface, so a collapse affordance would be the
+        first thing to remove it.
+      */
+      #bar {
+        position: fixed; inset: auto 0 0 0;
+        display: flex; flex-wrap: wrap; gap: .5rem 1.1rem; align-items: center;
+        padding: .7rem 1.1rem;
+        border-top: 1px solid currentColor;
+        background: Canvas; color: CanvasText;
+        font-size: .85rem;
+      }
+      #bar strong { font-weight: 600; }
+      #bar .spacer { flex: 1 1 auto; }
+      #bar-stats { opacity: .75; }
+      #stop { border-color: #cb4b16; color: #cb4b16; }
     </style>
   </head>
   <body>
     <h1>o2.services — peer-to-peer compute node</h1>
     <p class="sub">
       This page can become a compute node in a peer-to-peer fabric.
-      Nothing runs until you start it.
+      Nothing runs, and nothing is contacted, until you allow it.
     </p>
 
     <!--
-      Deliberately inert on load. No node starts by itself: a visitor's CPU is not
-      taken without an explicit action, and the two-tab tests need to control exactly
-      when each tab joins.
+      BROW-01. The gate is the first thing rendered and the only thing that starts
+      anything. Relay discovery is behind it too: reading `/bootstrap.json` is a
+      network request, and the decision here was that no third party learns a
+      visitor is present before the visitor agrees. Everything below `#main` stays
+      hidden — and, more to the point, uncalled — until consent exists.
     -->
-    <div class="state" id="state" data-tone="idle">checking for a relay…</div>
+    <section id="gate" hidden>
+      <h2 id="gate-headline"></h2>
+      <dl id="gate-terms"></dl>
+      <label><input type="checkbox" id="reporting" /> <span id="reporting-question"></span></label>
+      <p class="note" id="reporting-answer"></p>
+      <p class="controls">
+        <button id="allow"></button>
+        <button id="decline"></button>
+      </p>
+      <p class="note" id="gate-version"></p>
+    </section>
 
-    <p><button id="join" disabled>Start node</button></p>
+    <section id="main" hidden>
+      <div class="state" id="state" data-tone="idle">checking for a relay…</div>
 
-    <dl id="facts"></dl>
+      <p><button id="join" disabled>Start node</button></p>
 
-    <p class="note" id="explain"></p>
+      <dl id="facts"></dl>
+
+      <p class="note" id="explain"></p>
+
+      <h2>The job</h2>
+      <p class="note">
+        Colour every whole number from 1 to N red or blue so that no three numbers
+        with a² + b² = c² end up the same colour. The search is split into
+        independent cubes and spread across this tab and every peer it can reach;
+        each cube is run twice, on different nodes, and the two must agree.
+      </p>
+      <p class="controls">
+        <button id="run" disabled>Run the search</button>
+        <span class="note" id="run-status">start a node first</span>
+      </p>
+      <pre id="run-report"></pre>
+
+      <p class="note">
+        Nothing above needs to be believed. The check below re-derives every
+        Pythagorean triple from the definition and tests the answer against it, here,
+        in this tab — no node's word, no published table, no trust in this site.
+      </p>
+      <p class="controls"><button id="verify" disabled>Check this answer myself</button></p>
+      <pre id="verify-report"></pre>
+
+      <h2>How often does this fail to start?</h2>
+      <p class="note">
+        A browser that blocks this page does not announce it — it looks like fewer
+        volunteers. These are the reports this node has heard, including what they
+        cannot see.
+      </p>
+      <pre id="report">not asked yet</pre>
+      <p class="controls"><button id="refresh-report">Refresh</button></p>
+    </section>
+
+    <!-- BROW-04. Rendered only while a node exists; never dismissible while it does. -->
+    <div id="bar" hidden>
+      <strong id="bar-what">idle</strong>
+      <span id="bar-stats"></span>
+      <span class="spacer"></span>
+      <button id="stop">Stop</button>
+    </div>
 
     <script type="module" src="./main.ts"></script>
     <script type="module">
-      const stateEl = document.getElementById('state')
-      const factsEl = document.getElementById('facts')
-      const joinEl = document.getElementById('join')
-      const explainEl = document.getElementById('explain')
+      const $ = (id) => document.getElementById(id)
+      const gateEl = $('gate')
+      const mainEl = $('main')
+      const barEl = $('bar')
+      const stateEl = $('state')
+      const factsEl = $('facts')
+      const joinEl = $('join')
+      const explainEl = $('explain')
+      const reportEl = $('report')
 
       const setState = (tone, text) => {
         stateEl.dataset.tone = tone
@@ -82,55 +174,226 @@
       // Wait for the module script to install window.o2.
       while (typeof window.o2 === 'undefined') await new Promise((r) => setTimeout(r, 30))
 
-      const { source, relayAddrs } = await window.o2.discoverRelays()
+      // ---- the gate ------------------------------------------------------------
 
-      if (source === 'none') {
-        // Saying so plainly beats a page that merely looks broken. A static host has
-        // no seed node to ask, so the relay address has to come from the link.
-        setState('blocked', 'no relay reachable from this page')
-        setFacts([
-          ['relay source', 'none'],
-          ['secure context', String(window.isSecureContext)],
-        ])
-        explainEl.innerHTML =
-          'A browser cannot accept incoming connections, so two tabs need a publicly ' +
-          'reachable <strong>Circuit Relay v2</strong> peer to exchange WebRTC ' +
-          'signalling. This page was served by a static host, which cannot run one. ' +
-          'Either point it at a relay with <code>?relay=&lt;multiaddr&gt;</code>, or ' +
-          'run <code>o2 seed</code> on your own machine and open the URL it prints — ' +
-          'that page serves its own relay address and needs no configuration.'
-      } else {
-        setState('idle', `relay found via ${source} — ready to start`)
-        setFacts([
-          ['relay', relayAddrs[0]],
-          ['relay source', source],
-        ])
-        joinEl.disabled = false
+      const disclosure = window.o2.disclosure()
+      $('gate-headline').textContent = disclosure.headline
+      $('gate-terms').replaceChildren(
+        ...disclosure.lines.flatMap((line) => {
+          const dt = document.createElement('dt')
+          dt.textContent = line.question
+          const dd = document.createElement('dd')
+          dd.textContent = line.answer
+          return [dt, dd]
+        }),
+      )
+      $('reporting-question').textContent = disclosure.reporting.question
+      $('reporting-answer').textContent = disclosure.reporting.answer
+      $('allow').textContent = disclosure.affirm
+      $('decline').textContent = disclosure.decline
+
+      const showReportOnly = (text) => {
+        reportEl.textContent = text
       }
 
-      joinEl.addEventListener('click', async () => {
-        joinEl.disabled = true
-        setState('working', 'starting node and reserving on the relay…')
+      // ---- the always-visible bar ----------------------------------------------
+
+      let ticker = null
+      const renderBar = () => {
+        const activity = window.o2.activity()
+        if (activity === null) {
+          barEl.hidden = true
+          return
+        }
+        barEl.hidden = false
+        $('bar-what').textContent =
+          activity.tasksExecuted === 0
+            ? `running — waiting for work from ${activity.peers} peer(s)`
+            : `running work for ${activity.peers} peer(s)`
+        $('bar-stats').textContent =
+          `${Math.round(activity.dutyCycle * 100)}% of one thread` +
+          (activity.hidden ? ' (tab in background)' : '') +
+          ` · ${activity.tasksExecuted} task(s) done` +
+          ` · ${activity.fetched} block(s) in` +
+          (activity.offMainThread ? '' : ' · ON MAIN THREAD')
+      }
+      const watch = () => {
+        if (ticker !== null) return
+        ticker = setInterval(renderBar, 500)
+        renderBar()
+      }
+      const unwatch = () => {
+        if (ticker !== null) clearInterval(ticker)
+        ticker = null
+        barEl.hidden = true
+      }
+
+      $('stop').addEventListener('click', async () => {
+        $('stop').disabled = true
+        await window.o2.stop()
+        unwatch()
+        $('run').disabled = true
+        $('run-status').textContent = 'start a node first'
+        setState('idle', 'stopped — the thread was ended and the connections closed')
+        setFacts([])
+        joinEl.disabled = false
+        $('stop').disabled = false
+      })
+
+      // ---- discovery and joining, all of it behind consent ---------------------
+
+      // ---- the job, and checking it -------------------------------------------
+
+      const DEMO_N = 204
+      const DEMO_CUBES = 8
+
+      $('run').addEventListener('click', async () => {
+        $('run').disabled = true
+        $('run-status').textContent = 'running…'
         try {
-          const { peerId } = await window.o2.autoStart({})
-          const addrs = await window.o2.waitForWebrtcAddr(60_000)
-          setState('live', 'node running — reachable by other tabs')
-          setFacts([
-            ['peer id', peerId],
-            ['relay', relayAddrs[0]],
-            ['address', addrs[0] ?? '(none yet)'],
-          ])
-          explainEl.textContent =
-            'Open this same URL in another tab or on another device and the two find ' +
-            'each other over WebRTC. The relay only carries the handshake.'
+          const run = await window.o2.runColouring({
+            n: DEMO_N,
+            cubes: DEMO_CUBES,
+            redundancy: Math.min(2, 1 + window.o2.peers().length),
+            peerIds: window.o2.peers(),
+          })
+          $('run-status').textContent = `${Math.round(run.elapsedMs)}ms`
+          $('run-report').textContent =
+            `n = ${run.n} over ${run.cubes} cubes\n` +
+            `every cube agreed: ${run.complete}\n` +
+            `verification cost: ${run.verificationMultiplier.toFixed(2)}× (each cube run twice)\n` +
+            run.statuses
+              .map((status, i) => {
+                const who = run.agreeing[i] ?? []
+                const where = who.length === 0 ? 'no agreement' : who.join(' + ')
+                return `  cube ${i}: ${status.padEnd(9)} ${where}`
+              })
+              .join('\n') +
+            (run.found ? '\n\nA colouring was found. It has not been checked yet.' : '')
+          $('verify').disabled = !run.found
         } catch (error) {
-          setState(
-            'blocked',
-            `could not join: ${error instanceof Error ? error.message : String(error)}`,
-          )
+          $('run-status').textContent =
+            error instanceof Error ? error.message : String(error)
+        }
+        $('run').disabled = false
+      })
+
+      $('verify').addEventListener('click', () => {
+        const verdict = window.o2.verifyAnswer()
+        if (!verdict.checked) {
+          $('verify-report').textContent = 'nothing to check yet'
+          return
+        }
+        $('verify-report').textContent = verdict.ok
+          ? `Correct. ${verdict.triplesChecked} Pythagorean triples up to ${verdict.n} were ` +
+            're-derived here and every one has two colours among its three numbers.'
+          : `REFUTED. ${verdict.violation} is all one colour.`
+      })
+
+      const refreshReport = async () => {
+        const report = await window.o2.startReport()
+        showReportOnly(
+          `${report.text}\n  peers answering: ${report.reached} of ${report.asked} asked`,
+        )
+      }
+      $('refresh-report').addEventListener('click', refreshReport)
+
+      const afterConsent = async () => {
+        gateEl.hidden = true
+        mainEl.hidden = false
+
+        const { source, relayAddrs } = await window.o2.discoverRelays()
+        if (source === 'none') {
+          // Saying so plainly beats a page that merely looks broken. A static host has
+          // no seed node to ask, so the relay address has to come from the link.
+          setState('blocked', 'no relay reachable from this page')
+          setFacts([
+            ['relay source', 'none'],
+            ['secure context', String(window.isSecureContext)],
+          ])
+          explainEl.innerHTML =
+            'A browser cannot accept incoming connections, so two tabs need a publicly ' +
+            'reachable <strong>Circuit Relay v2</strong> peer to exchange WebRTC ' +
+            'signalling. This page was served by a static host, which cannot run one. ' +
+            'Either point it at a relay with <code>?relay=&lt;multiaddr&gt;</code>, or ' +
+            'run <code>o2 seed</code> on your own machine and open the URL it prints — ' +
+            'that page serves its own relay address and needs no configuration.'
+        } else {
+          setState('idle', `relay found via ${source} — ready to start`)
+          setFacts([
+            ['relay', relayAddrs[0]],
+            ['relay source', source],
+          ])
           joinEl.disabled = false
         }
+
+        joinEl.addEventListener('click', async () => {
+          joinEl.disabled = true
+          setState('working', 'starting node and reserving on the relay…')
+          try {
+            const { peerId } = await window.o2.autoStart({})
+            const addrs = await window.o2.waitForWebrtcAddr(60_000)
+            setState('live', 'node running — reachable by other tabs')
+            setFacts([
+              ['peer id', peerId],
+              ['relay', relayAddrs[0]],
+              ['address', addrs[0] ?? '(none yet)'],
+            ])
+            explainEl.textContent =
+              'Open this same URL in another tab or on another device and the two find ' +
+              'each other over WebRTC. The relay only carries the handshake.'
+            watch()
+            $('run').disabled = false
+            $('run-status').textContent = 'ready'
+            await refreshReport()
+          } catch (error) {
+            setState(
+              'blocked',
+              `could not join: ${error instanceof Error ? error.message : String(error)}`,
+            )
+            joinEl.disabled = false
+            // The failure is exactly what BROW-02 wants counted, so ask now.
+            await refreshReport()
+          }
+        })
+      }
+
+      $('allow').addEventListener('click', async () => {
+        window.o2.grantConsent({ reporting: $('reporting').checked })
+        await afterConsent()
       })
+
+      $('decline').addEventListener('click', () => {
+        gateEl.hidden = true
+        mainEl.hidden = false
+        setState('idle', 'nothing is running — you did not allow it')
+        explainEl.textContent =
+          'Reload this page if you change your mind. Nothing was started and no ' +
+          'connection was made.'
+        joinEl.disabled = true
+      })
+
+      // ---- initial render ------------------------------------------------------
+
+      const consent = window.o2.consentState()
+      $('gate-version').textContent =
+        `Disclosure version ${consent.version}. ` +
+        (consent.gap === 'terms-changed'
+          ? 'What this page does has changed since you last agreed, so it is asking again. '
+          : '') +
+        'This page runs no server-side process and sets no cookies.'
+      const policy = document.createElement('a')
+      policy.href = './policy.html'
+      policy.textContent = ' What this page does, in full.'
+      $('gate-version').append(policy)
+
+      if (consent.granted) {
+        // An existing consent for *this* disclosure version. It does not start the
+        // node — starting is still an action.
+        await afterConsent()
+      } else {
+        gateEl.hidden = false
+      }
     </script>
   </body>
 </html>

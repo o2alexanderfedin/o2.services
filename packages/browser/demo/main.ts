@@ -1,26 +1,90 @@
 /**
- * The tab-side driver for the two-tab test.
+ * The tab-side driver.
  *
- * Exposes a small imperative surface on `window.o2` so the harness can start a
- * node, exchange addresses, dial, and submit a job from outside the page. Keeping
- * the orchestration in the harness rather than in the page means both tabs run
- * identical code and the *test* decides who submits — which is what makes the
- * result meaningful rather than choreographed.
+ * Exposes a small imperative surface on `window.o2` so a page — or a test harness —
+ * can consent, start a node, exchange addresses, dial, submit a job, and stop.
+ * Keeping the orchestration outside the page means both tabs run identical code and
+ * the *test* decides who submits, which is what makes a two-tab result meaningful
+ * rather than choreographed.
+ *
+ * ## Consent is the gate, and it has no bypass
+ *
+ * `start` takes a `GrantedConsent`, which only `grantConsent` mints. There is no
+ * test-only path around it: a path that could start without consenting would be a
+ * path, and BROW-01 is not a property you can have on weekdays. A harness calls
+ * `window.o2.grantConsent()` for the same reason a visitor clicks the button.
+ *
+ * Nothing here touches the network before that call either — not even relay
+ * discovery, which fetches `/bootstrap.json`. The requirement names CPU; the owner's
+ * decision went further, because "we spent no cycles" is not an answer to "you told
+ * a third party I was here".
  */
 
 import { submitJob } from '@o2/core'
-import type { CanonicalValue } from '@o2/core'
-import { RemoteExecutor } from '@o2/net'
-import { BrowserNode } from '@o2/browser'
-import type { TabApi } from '@o2/browser'
+import type { CanonicalValue, StartFailure, StartOutcome } from '@o2/core'
+import { RemoteExecutor, publishStartOutcome } from '@o2/net'
+import {
+  DEFAULT_BUDGET,
+  answerOf,
+  buildInput,
+  kernelBytes,
+  readPartial,
+  verifyColouring,
+} from '@o2/demo'
+import {
+  BrowserNode,
+  DISCLOSURE,
+  DISCLOSURE_VERSION,
+  classifyStartError,
+  currentBrowserLabel,
+  firstGap,
+  grantConsent,
+  localConsentStore,
+  probeEnvironment,
+  readConsent,
+  revokeConsent,
+} from '@o2/browser'
+import type { GrantedConsent, TabApi, TabConsentState } from '@o2/browser'
+import { createTaskWorker } from '../src/worker-factory.ts'
 import * as pid from '@libp2p/peer-id'
 
 let node: BrowserNode | null = null
-let moduleCidString = ''
+let consent: GrantedConsent | null = null
+let lastOutcome: StartOutcome | null = null
+/** The last colouring the fabric claimed, kept so the visitor can check it. */
+let lastAnswer: { readonly n: number; readonly bits: Uint8Array } | null = null
+/** Counted here and never transmitted — see `startReport` below. */
+let declinedLocally = 0
+
+const store = localConsentStore()
 
 function required(): BrowserNode {
   if (node === null) throw new Error('node not started')
   return node
+}
+
+/**
+ * The proof `start` needs, or a refusal naming why there is none.
+ *
+ * Re-read from storage each time rather than cached: another tab on this origin may
+ * have revoked in the meantime, and a stale in-memory grant would let this tab keep
+ * running on a permission the visitor has withdrawn.
+ */
+function requireConsent(): GrantedConsent {
+  const found = readConsent(store)
+  if (found.ok) {
+    consent = found.consent
+    return found.consent
+  }
+  consent = null
+  throw new Error(`no consent: ${found.gap.kind}`)
+}
+
+function stateOf(): TabConsentState {
+  const found = readConsent(store)
+  return found.ok
+    ? { granted: true, version: DISCLOSURE_VERSION, reportingAllowed: found.consent.reportingAllowed }
+    : { granted: false, gap: found.gap.kind, version: DISCLOSURE_VERSION, reportingAllowed: false }
 }
 
 function partitionOf(output: CanonicalValue): number {
@@ -29,23 +93,75 @@ function partitionOf(output: CanonicalValue): number {
   return new DataView(p.buffer, p.byteOffset, 4).getUint32(0, true)
 }
 
+/** Record how starting went, for BROW-02. Kept whether or not it will be sent. */
+function noteOutcome(cause: StartFailure | null): void {
+  lastOutcome = {
+    browser: currentBrowserLabel(),
+    result: cause === null ? { kind: 'started' } : { kind: 'failed', cause },
+  }
+}
+
 const api: TabApi = {
+  disclosure() {
+    return DISCLOSURE
+  },
+
+  consentState() {
+    return stateOf()
+  },
+
+  grantConsent(options = {}) {
+    const reporting = options.reporting === true
+    consent = grantConsent(store, { reportingAllowed: reporting })
+    if (!reporting) declinedLocally += 1
+    return stateOf()
+  },
+
+  async revokeConsent() {
+    // Revoking stops the node. A permission withdrawn while work continues would
+    // be a permission in name only.
+    await api.stop()
+    revokeConsent(store)
+    consent = null
+    return stateOf()
+  },
+
   async start(options) {
-    node = await BrowserNode.start({
-      relayAddrs: options.relayAddrs,
-      blockstoreName: options.blockstoreName,
-      rpcTimeoutMs: 60_000,
-      // Aggressive so the throttle is unmistakable in a test rather than marginal.
-      backgroundDutyCycle: 0.05,
-      // Loopback relay: refused by libp2p's browser defaults, correct to allow here.
-      allowPrivateAddrs: true,
-    })
-    const status = document.getElementById('status')
-    if (status !== null) status.textContent = `running ${node.peerId}`
+    requireConsent()
+    // Probe before attempting, so a missing capability is a fact about this browser
+    // rather than an inference from an error message.
+    const environment = probeEnvironment()
+    const gap = firstGap(environment)
+    if (gap !== null) {
+      noteOutcome(gap)
+      throw new Error(`cannot start: ${gap}`)
+    }
+
+    try {
+      node = await BrowserNode.start({
+        relayAddrs: options.relayAddrs,
+        blockstoreName: options.blockstoreName,
+        rpcTimeoutMs: 60_000,
+        // Aggressive so the throttle is unmistakable in a test rather than marginal.
+        backgroundDutyCycle: 0.05,
+        // Loopback relay: refused by libp2p's browser defaults, correct to allow here.
+        allowPrivateAddrs: true,
+        // BROW-04: tasks run on a thread that Stop can kill outright.
+        createWorker: createTaskWorker,
+      })
+    } catch (error) {
+      noteOutcome(classifyStartError(error, environment))
+      throw error
+    }
+    noteOutcome(null)
     return node.peerId
   },
 
   async discoverRelays() {
+    // Gated: reading `/bootstrap.json` is a network request, and nothing reaches
+    // the network before consent.
+    requireConsent()
+
     // 1. An explicit `?relay=` wins. This is what makes one bundle work on a static
     //    host: the page has no server to ask, so the address comes from the link.
     const fromQuery = new URLSearchParams(location.search).getAll('relay').filter((a) => a !== '')
@@ -75,6 +191,7 @@ const api: TabApi = {
   async autoStart(options = {}) {
     const { source, relayAddrs } = await api.discoverRelays()
     if (source === 'none') {
+      noteOutcome('no-relay-reachable')
       throw new Error(
         'no relay available: this page was not served by a seed node, and no ?relay= was given',
       )
@@ -84,6 +201,124 @@ const api: TabApi = {
       blockstoreName: options.blockstoreName ?? 'o2-blocks',
     })
     return { peerId, relayAddrs }
+  },
+
+  activity() {
+    if (node === null) return null
+    return {
+      running: true,
+      offMainThread: node.offMainThread,
+      tasksExecuted: node.executor.executed,
+      dutyCycle: node.executor.dutyCycle,
+      hidden: node.governor.hidden,
+      peers: node.transport.peers.length,
+      fetched: node.blockstore.fetched,
+      rejected: node.blockstore.rejected,
+    }
+  },
+
+  async startReport() {
+    const outcome = lastOutcome
+    const allowed = consent?.reportingAllowed === true
+    const running = node
+    if (running === null) {
+      // Nothing to ask through. The local outcome is still the whole of what this
+      // visitor can contribute, and saying so is the honest answer.
+      const { StartOutcomeLedger, describeStartReport } = await import('@o2/core')
+      const ledger = new StartOutcomeLedger()
+      if (outcome !== null) ledger.record(outcome)
+      ledger.decline(declinedLocally)
+      const report = ledger.report()
+      return {
+        reached: 0,
+        asked: 0,
+        text: describeStartReport(report),
+        reported: report.reported,
+        failed: report.failed,
+      }
+    }
+
+    const { describeStartReport } = await import('@o2/core')
+    const result = await publishStartOutcome({
+      rpc: running.rpc,
+      peers: () => running.transport.peers,
+      // Declining to report is not declining to see: a visitor who opted out still
+      // asks, they simply tell nothing. Their own decline is counted here and never
+      // transmitted, which is the only way an opt-out can mean what it says.
+      outcome: allowed ? outcome : null,
+      declined: 0,
+    })
+    return {
+      reached: result.reached,
+      asked: result.asked,
+      text: describeStartReport(result.report),
+      reported: result.report.reported,
+      failed: result.report.failed,
+    }
+  },
+
+  async runColouring(options) {
+    const node = required()
+    const started = performance.now()
+    // One input block, shared by every cube. A shard is distinguished by
+    // `partition()` alone, so the fabric moves work without moving data — and
+    // every replica of a cube reads byte-identical input by construction.
+    const input = buildInput(options.n, DEFAULT_BUDGET)
+    const moduleCid = await node.store.put(kernelBytes)
+
+    const result = await submitJob(
+      {
+        moduleCid,
+        shards: Array.from({ length: options.cubes }, () => input),
+        executors: [
+          node.executor,
+          ...options.peerIds.map((id) => new RemoteExecutor(id, node.rpc)),
+        ],
+        redundancy: options.redundancy,
+      },
+      node.store,
+    )
+    if (!result.ok) throw new Error(`submit failed: ${JSON.stringify(result.error)}`)
+
+    const statuses = result.job.shards.map((shard) =>
+      shard.verification.status === 'agreed' ? readPartial(shard.verification.output).status : 'unagreed',
+    )
+    const bits = answerOf(result.job.shards)
+    // Stored, not checked. The fabric's claim and the visitor's check are two
+    // separate acts, and collapsing them would hide which one is being trusted.
+    lastAnswer = bits === null ? null : { n: options.n, bits }
+
+    return {
+      n: options.n,
+      cubes: options.cubes,
+      complete: result.job.complete,
+      found: bits !== null,
+      statuses,
+      agreeing: result.job.shards.map((shard) =>
+        shard.verification.status === 'agreed' ? [...shard.verification.agreeing] : [],
+      ),
+      verificationMultiplier: result.job.verificationMultiplier,
+      elapsedMs: performance.now() - started,
+    }
+  },
+
+  verifyAnswer() {
+    const answer = lastAnswer
+    if (answer === null) {
+      return { checked: false, ok: false, n: 0, triplesChecked: 0, violation: null }
+    }
+    // `verifyColouring` enumerates its own triples from a² + b² = c². It is handed
+    // the claim and nothing else — no triple list, no node's assurance.
+    const verdict = verifyColouring(answer.n, answer.bits)
+    return verdict.ok
+      ? { checked: true, ok: true, n: verdict.n, triplesChecked: verdict.triplesChecked, violation: null }
+      : {
+          checked: true,
+          ok: false,
+          n: verdict.n,
+          triplesChecked: 0,
+          violation: `${verdict.violation.a}² + ${verdict.violation.b}² = ${verdict.violation.c}²`,
+        }
   },
 
   addresses() {
@@ -160,8 +395,7 @@ const api: TabApi = {
 
   async putModule(bytes) {
     const cid = await required().store.put(new Uint8Array(bytes))
-    moduleCidString = cid.toString()
-    return moduleCidString
+    return cid.toString()
   },
 
   async runJob(options) {

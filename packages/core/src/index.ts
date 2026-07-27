@@ -128,6 +128,28 @@ export type {
   RecoveredCheckpoint,
 } from './checkpoint.ts'
 
+// Start outcomes and the blocking metric — BROW-02.
+export {
+  MIN_REPORTS_FOR_RATE,
+  START_FAILURES,
+  STRUCTURAL_BLIND_SPOT,
+  StartOutcomeLedger,
+  describeStartReport,
+  expandCounts,
+  startReport,
+} from './start-outcome.ts'
+export type {
+  BlindSpot,
+  BrowserTally,
+  CauseCount,
+  OutcomeCount,
+  StartFailure,
+  StartOutcome,
+  StartReport,
+  StartReportOptions,
+  StartResult,
+} from './start-outcome.ts'
+
 // Coverage over owners — CHURN-05.
 export { coverageOf, describeCoverage, withCoverage } from './coverage.ts'
 export type { CoverageReport, CoveredAggregate } from './coverage.ts'
