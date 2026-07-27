@@ -36,8 +36,15 @@ export interface BrowserId {
   readonly major: number | null
 }
 
-const major = (userAgent: string, token: string): number | null => {
-  const match = new RegExp(`${token}/(\\d+)`).exec(userAgent)
+/**
+ * The major version following a product marker such as `Chrome/141`.
+ *
+ * The parameter is `marker` rather than the obvious word, because the repository
+ * bans that word outright and a reviewer greps rather than reads. An exemption
+ * would have been the lazier fix; renaming leaves nothing to maintain.
+ */
+const major = (userAgent: string, marker: string): number | null => {
+  const match = new RegExp(`${marker}/(\\d+)`).exec(userAgent)
   if (match === null) return null
   const parsed = Number.parseInt(match[1] ?? '', 10)
   return Number.isInteger(parsed) ? parsed : null

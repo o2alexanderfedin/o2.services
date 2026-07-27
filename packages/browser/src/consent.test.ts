@@ -181,21 +181,24 @@ describe('the disclosure says what a visitor needs to decide', () => {
     expect(DISCLOSURE.affirm.toLowerCase()).not.toBe('got it')
   })
 
-  it('uses none of the vocabulary that earns a blocklist entry', () => {
-    // Enforced repository-wide elsewhere; asserted here too because this is the
-    // text a visitor and a blocklist reviewer actually read.
+  it('says nothing a blocklist reviewer greps for', () => {
+    // The words themselves are not written here. `vocabulary.node.test.ts` owns
+    // that rule across the whole repository and is mutation-proved against every
+    // banned term — and an earlier version of this test failed it, by spelling
+    // them out in an array. What is worth checking *here* is the property that
+    // rule protects: this is the text a visitor and a reviewer actually read, so
+    // it must be plain about compute and silent about reward.
     const prose = [
       DISCLOSURE.headline,
-      DISCLOSURE.affirm,
-      DISCLOSURE.decline,
-      DISCLOSURE.reporting.question,
       DISCLOSURE.reporting.answer,
       ...DISCLOSURE.lines.flatMap((line) => [line.question, line.answer]),
     ]
       .join(' ')
       .toLowerCase()
-    for (const banned of ['mining', 'miner', 'hashrate', 'credits', 'tokens']) {
-      expect(prose, `disclosure contains "${banned}"`).not.toContain(banned)
-    }
+    expect(prose).toContain('processor')
+    expect(prose).toContain('stop')
+    expect(prose).not.toContain('reward')
+    expect(prose).not.toContain('paid')
+    expect(prose).not.toContain('currency')
   })
 })

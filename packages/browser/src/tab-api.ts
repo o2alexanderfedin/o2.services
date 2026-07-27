@@ -162,6 +162,17 @@ export interface TabApi {
    */
   startReport(): Promise<TabStartReport>
   /**
+   * Subscribe to state changes. Returns an unsubscribe function.
+   *
+   * Pushed rather than polled, and not for elegance: **Chromium throttles timers in
+   * a tab that is not in front**, so a poll fast enough to feel live in the
+   * foreground fires roughly never in the background. A node started in a
+   * background tab would then run with no visible surface, which is precisely the
+   * failure BROW-04 names. Every call that changes what the surface should say ends
+   * by notifying.
+   */
+  onChange(listener: () => void): () => void
+  /**
    * DEMO-01/DEMO-02. Run the colouring search across this tab and its peers.
    *
    * Every cube is the same input block; a shard differs only by `partition()`, so

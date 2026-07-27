@@ -58,6 +58,18 @@ let declinedLocally = 0
 
 const store = localConsentStore()
 
+/**
+ * Observers of "something the visible surface depends on has changed".
+ *
+ * The page cannot poll for this: Chromium throttles timers hard in a tab that is
+ * not in front, so a background tab would show a stale surface — or none at all —
+ * for exactly as long as nobody was looking at it.
+ */
+const listeners = new Set<() => void>()
+function notify(): void {
+  for (const listener of listeners) listener()
+}
+
 function required(): BrowserNode {
   if (node === null) throw new Error('node not started')
   return node
@@ -102,6 +114,13 @@ function noteOutcome(cause: StartFailure | null): void {
 }
 
 const api: TabApi = {
+  onChange(listener) {
+    listeners.add(listener)
+    return () => {
+      listeners.delete(listener)
+    }
+  },
+
   disclosure() {
     return DISCLOSURE
   },
@@ -114,6 +133,7 @@ const api: TabApi = {
     const reporting = options.reporting === true
     consent = grantConsent(store, { reportingAllowed: reporting })
     if (!reporting) declinedLocally += 1
+    notify()
     return stateOf()
   },
 
@@ -123,6 +143,7 @@ const api: TabApi = {
     await api.stop()
     revokeConsent(store)
     consent = null
+    notify()
     return stateOf()
   },
 
@@ -154,6 +175,7 @@ const api: TabApi = {
       throw error
     }
     noteOutcome(null)
+    notify()
     return node.peerId
   },
 
@@ -287,6 +309,7 @@ const api: TabApi = {
     // Stored, not checked. The fabric's claim and the visitor's check are two
     // separate acts, and collapsing them would hide which one is being trusted.
     lastAnswer = bits === null ? null : { n: options.n, bits }
+    notify()
 
     return {
       n: options.n,
@@ -438,6 +461,7 @@ const api: TabApi = {
   async stop() {
     if (node !== null) await node.stop()
     node = null
+    notify()
   },
 }
 
