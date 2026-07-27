@@ -60,6 +60,10 @@ export type {
   Sovereignty,
 } from './sovereignty.ts'
 
+// Serving-side sovereignty gate — DATA-09.
+export { guardSovereignty } from './executor/sovereignty-guard.ts'
+export type { NodeSovereignty } from './executor/sovereignty-guard.ts'
+
 // Power-of-d placement with rejection and re-pick — SCHED-02, SCHED-03, SCHED-05.
 export {
   DEFAULT_D,
