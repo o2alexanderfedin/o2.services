@@ -308,7 +308,12 @@ const api: TabApi = {
     const bits = answerOf(result.job.shards)
     // Stored, not checked. The fabric's claim and the visitor's check are two
     // separate acts, and collapsing them would hide which one is being trusted.
-    lastAnswer = bits === null ? null : { n: options.n, bits }
+    //
+    // Kept when a run finds nothing, rather than cleared. The demo climbs a ladder
+    // and stops at the first rung it cannot settle, so the *last* run is normally
+    // the failed one — clearing here would throw away the best answer the fabric
+    // reached at exactly the moment it finished reaching it.
+    if (bits !== null) lastAnswer = { n: options.n, bits }
     notify()
 
     return {

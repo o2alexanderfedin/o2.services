@@ -111,6 +111,14 @@
         independent cubes and spread across this tab and every peer it can reach;
         each cube is run twice, on different nodes, and the two must agree.
       </p>
+      <p class="note">
+        N climbs until the fabric cannot settle a rung. Each cube fixes the colours
+        of the most constrained numbers and searches the rest, so more cubes reach
+        further — with more peers connected, more cubes run, and the answer gets
+        better. N = 7824 is the largest that admits a colouring at all; 7825 does
+        not, which took a cluster and a 200-terabyte proof to establish. This will
+        not get near either.
+      </p>
       <p class="controls">
         <button id="run" disabled>Run the search</button>
         <span class="note" id="run-status">start a node first</span>
@@ -274,37 +282,71 @@
 
       // ---- the job, and checking it -------------------------------------------
 
-      const DEMO_N = 204
-      const DEMO_CUBES = 8
+      // Measured rungs. The wall is real and moves with cube count, so the ladder
+      // stops where the fabric stops rather than where a number would look good.
+      const LADDER = [300, 400, 500, 600]
 
       $('run').addEventListener('click', async () => {
         $('run').disabled = true
-        $('run-status').textContent = 'running…'
-        try {
-          const run = await window.o2.runColouring({
-            n: DEMO_N,
-            cubes: DEMO_CUBES,
-            redundancy: Math.min(2, 1 + window.o2.peers().length),
-            peerIds: window.o2.peers(),
-          })
-          $('run-status').textContent = `${Math.round(run.elapsedMs)}ms`
-          $('run-report').textContent =
-            `n = ${run.n} over ${run.cubes} cubes\n` +
-            `every cube agreed: ${run.complete}\n` +
-            `verification cost: ${run.verificationMultiplier.toFixed(2)}× (each cube run twice)\n` +
-            run.statuses
-              .map((status, i) => {
-                const who = run.agreeing[i] ?? []
-                const where = who.length === 0 ? 'no agreement' : who.join(' + ')
-                return `  cube ${i}: ${status.padEnd(9)} ${where}`
-              })
-              .join('\n') +
-            (run.found ? '\n\nA colouring was found. It has not been checked yet.' : '')
-          $('verify').disabled = !run.found
-        } catch (error) {
-          $('run-status').textContent =
-            error instanceof Error ? error.message : String(error)
+        const peerIds = window.o2.peers()
+        // More peers, more cubes. This is the whole arc: a cube fixes the most
+        // constrained numbers, so cubes are not merely parallelism — they are how
+        // far the search reaches.
+        const cubes = 8 * (1 + peerIds.length)
+        const lines = [`${peerIds.length} peer(s) · ${cubes} cubes per rung`, '']
+        let best = null
+
+        for (const n of LADDER) {
+          $('run-status').textContent = `n = ${n}…`
+          try {
+            const run = await window.o2.runColouring({
+              n,
+              cubes,
+              redundancy: Math.min(2, 1 + peerIds.length),
+              peerIds,
+            })
+            const found = run.statuses.filter((s) => s === 'found').length
+            const exhausted = run.statuses.filter((s) => s === 'exhausted').length
+            const unknown = run.statuses.filter((s) => s === 'budget').length
+            lines.push(
+              `n = ${String(n).padStart(4)}  ${run.found ? 'FOUND   ' : 'no answer'}  ` +
+                `${found} found · ${exhausted} proved empty · ${unknown} out of budget  ` +
+                `${Math.round(run.elapsedMs)}ms`,
+            )
+            if (!run.found) {
+              // 'budget' means "I ran out of steps", not "there is none". Saying so
+              // is the difference between a limit and a claim.
+              lines.push('', `Stopped here. ${unknown} cube(s) ran out of steps — that is a`)
+              lines.push('shortage of search, not a proof that no colouring exists.')
+              break
+            }
+            best = run
+          } catch (error) {
+            lines.push(`n = ${n}: ${error instanceof Error ? error.message : String(error)}`)
+            break
+          }
         }
+
+        if (best !== null) {
+          lines.push('')
+          lines.push(`Best settled: n = ${best.n}, every cube agreed: ${best.complete}`)
+          lines.push(
+            `Verification cost ${best.verificationMultiplier.toFixed(2)}× — each cube ran twice, ` +
+              'on different nodes, and the two had to agree.',
+          )
+          lines.push('')
+          lines.push('Where the last rung ran:')
+          lines.push(
+            ...best.agreeing
+              .slice(0, 8)
+              .map((who, i) => `  cube ${i}: ${who.length === 0 ? 'no agreement' : who.join(' + ')}`),
+          )
+          if (best.agreeing.length > 8) lines.push(`  … and ${best.agreeing.length - 8} more`)
+          lines.push('', 'This answer has not been checked. The button below checks it.')
+        }
+
+        $('run-status').textContent = best === null ? 'nothing settled' : `settled n = ${best.n}`
+        $('run-report').textContent = lines.join('\n')
         $('run').disabled = false
       })
 

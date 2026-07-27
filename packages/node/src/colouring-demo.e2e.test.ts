@@ -169,6 +169,41 @@ describe('DEMO-01 — a real job, distributed across tabs, with placement visibl
   }, 120_000)
 })
 
+describe('the page runs the ladder itself, not only the API', () => {
+  it('climbs until the fabric stops, and says which rung it settled', async () => {
+    // Everything above drives `window.o2` directly, which is the right way to make
+    // assertions about the fabric — and would pass just as well if the page's own
+    // controls were wired to nothing.
+    const [a] = tabs as [Tab]
+
+    await a.page.waitForFunction(
+      () => document.getElementById('run')?.hasAttribute('disabled') === false,
+      null,
+      { timeout: 30_000 },
+    )
+    await a.page.click('#run')
+    await a.page.waitForFunction(
+      () => (document.getElementById('run-status')?.textContent ?? '').startsWith('settled'),
+      null,
+      { timeout: 180_000 },
+    )
+
+    const report = (await a.page.textContent('#run-report')) ?? ''
+    // The arc the reordering bought: cubes are not merely parallelism, they are how
+    // far the search reaches, so the report leads with how many there were.
+    expect(report).toContain('cubes per rung')
+    expect(report).toContain('Best settled: n =')
+    // A rung that stops must say *why* — 'budget' is a shortage of search, never a
+    // proof that no colouring exists, and conflating the two would turn a limit
+    // into a false mathematical claim.
+    if (report.includes('Stopped here')) {
+      expect(report).toContain('not a proof')
+    }
+    // And the check becomes available because an answer now exists.
+    expect(await a.page.isDisabled('#verify')).toBe(false)
+  }, 240_000)
+})
+
 describe('DEMO-02 — the visitor checks the answer, trusting nobody', () => {
   it('accepts the colouring the fabric produced', async () => {
     const [a] = tabs as [Tab]
@@ -176,7 +211,11 @@ describe('DEMO-02 — the visitor checks the answer, trusting nobody', () => {
 
     expect(verdict.checked).toBe(true)
     expect(verdict.ok).toBe(true)
-    expect(verdict.n).toBe(N)
+    // At least the run above, and more if the ladder climbed past it. Pinning the
+    // exact value would make this a test of how far the search got rather than of
+    // whether the check works, and those are different questions — the second one
+    // must keep passing when the answer to the first changes.
+    expect(verdict.n).toBeGreaterThanOrEqual(N)
     // The triples were re-derived in the page from a² + b² = c². They were not
     // supplied by a node, and they are not the list the guest was handed.
     expect(verdict.triplesChecked).toBeGreaterThan(0)
