@@ -146,6 +146,15 @@ describe('DEMO-01 — a real job, distributed across tabs, with placement visibl
       expect(['found', 'exhausted']).toContain(status)
     }
     expect(run.found).toBe(true)
+
+    // Criterion 2 — the manifest reaches the demo's real entry point
+    // (`runColouring`, called through `window.o2` exactly as a visitor's page
+    // does), not only a test-side harness that builds its own `EgressGuard`. Both
+    // `entries.length` and `violations` are checked, per 13-CONTEXT.md decision 3:
+    // an empty manifest reports zero violations trivially, and the two must never
+    // be allowed to look alike.
+    expect(run.egress.entries.length).toBeGreaterThan(0)
+    expect(run.egress.violations).toEqual([])
   }, 240_000)
 
   it('shows the work in the always-visible bar', async () => {
