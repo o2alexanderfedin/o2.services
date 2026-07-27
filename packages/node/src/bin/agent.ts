@@ -23,17 +23,35 @@ const { values } = parseArgs({
   options: {
     dir: { type: 'string' },
     port: { type: 'string', default: '0' },
+    // DATA-09's serving-side clearance (`FabricNodeOptions.sovereignty`), exposed
+    // here so a test can spawn a real agent process already cleared for a given
+    // owner rather than reaching in and mutating a running node. Omitting
+    // `--owner-id` entirely keeps the safe default (cleared for nobody) — this
+    // is a per-node clearance flag, not a node kind: every agent process built by
+    // this binary has identical capability regardless of whether it is passed.
+    'owner-id': { type: 'string' },
+    'can-execute-sovereign': { type: 'boolean', default: false },
   },
 })
 
 if (values.dir === undefined) {
-  process.stderr.write('usage: agent.ts --dir <blockstore-dir> [--port <n>]\n')
+  process.stderr.write(
+    'usage: agent.ts --dir <blockstore-dir> [--port <n>] [--owner-id <id> [--can-execute-sovereign]]\n',
+  )
   process.exit(2)
 }
 
 const node = await FabricNode.start({
   blockstoreDir: values.dir,
   listen: [`/ip4/127.0.0.1/tcp/${values.port}`],
+  ...(values['owner-id'] === undefined
+    ? {}
+    : {
+        sovereignty: {
+          ownerId: values['owner-id'],
+          canExecuteSovereign: values['can-execute-sovereign'],
+        },
+      }),
 })
 
 // The parent waits for exactly this line before dialling.
