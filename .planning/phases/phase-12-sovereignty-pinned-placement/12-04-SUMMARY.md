@@ -221,7 +221,25 @@ Confirmed: a genuine production call site in each node (`fabric-node.ts:345`, `b
 
 ## Next Phase Readiness
 
-- All four ROADMAP criteria for Phase 12 are now demonstrated on the live `submitJob` path, per the plan's `<success_criteria>`: placement discrimination (12-02/12-03), non-optional labelling (12-02), pushdown without the Phase 13 manifest (this plan, criterion 3), and backbone execution-ineligibility at a genuine replica holder over real RPC (this plan, criterion 4).
+- **Corrected 2026-07-27 after verification.** This section originally read "All four
+  ROADMAP criteria for Phase 12 are now demonstrated… placement discrimination
+  (12-02/12-03)". **Plan 12-03 was never executed** — it has no SUMMARY, and no file it
+  was to create exists in git history. Citing it as joint evidence made this record
+  claim proof that does not exist, which is the exact defect the v1.0 audit found 36
+  times and this milestone exists to remove. The orchestrator dropped 12-03 when
+  switching to sequential dispatch; the error is recorded here rather than quietly
+  fixed by running it.
+- Three of four criteria are demonstrated on the live `submitJob` path: non-optional
+  labelling (12-02), pushdown without the Phase 13 manifest (this plan, criterion 3),
+  and backbone execution-ineligibility at a genuine replica holder over real RPC (this
+  plan, criterion 4).
+- **Criterion 1's mechanism is sound but its roadmap-named evidence is not built.** The
+  widen-under-pressure mutation reproduces the predicted 4-test failure signature, so
+  the placer genuinely has no branch that can relocate a sovereign shard. What is
+  missing is the *form* the criterion names: the existing load-pressure test runs in one
+  Vitest process against an in-memory `Executor` fixture, never a `RemoteExecutor` and
+  never across the `bin/agent.ts` process boundary. That is 12-03's job and it is
+  outstanding.
 - `guardSovereignty` now has real production callers in both node types — the "built, not wired" gap the v1.0 audit found is closed for this specific symbol. `browser-node.ts`'s wiring lacks a dedicated real-transport proof (see Known Gap); recommend either a `fake-indexeddb`-based unit test or a `window.o2` API extension + new e2e scenario as a small, well-scoped follow-up if that gap needs closing before the next milestone's verification pass.
 - Phase 13's egress-manifest work has a clean point to build from: `fabric-node.ts:311` (comment marker preserved) and `browser-node.ts:181`-equivalent are still the named integration points; this plan explicitly did not wire `EgressGuard` into either production node, only reused it as this file's own test instrument, matching the plan's own "Position on Risk 1" text.
 - No blockers.
