@@ -284,7 +284,7 @@ Plans:
 **Plans**: 3 plans
 
 Plans:
-- [ ] 13-01-PLAN.md — Build registerSovereignInputs (a production caller for EgressGuard.guard()) and submitJobWithEgress (per-job manifest attachment), both in @o2/net, proven against a real RpcEndpoint/serveAgent fabric
+- [x] 13-01-PLAN.md — Build registerSovereignInputs (a production caller for EgressGuard.guard()) and submitJobWithEgress (per-job manifest attachment), both in @o2/net, proven against a real RpcEndpoint/serveAgent fabric
 - [ ] 13-02-PLAN.md — Wire both FabricNode and BrowserNode to construct RpcEndpoint over a new EgressGuard field and auto-register every sovereign task's input before executing it
 - [ ] 13-03-PLAN.md — Prove all three criteria against real FabricNode instances over real RPC, and plant/watch-fail/revert both required mutations (registration removed, transport wrap removed)
 
@@ -429,7 +429,7 @@ Parallel tracks (config `parallelization: true`):
 | 10. elfconv AOT Native→WASM Pipeline | — | 3 of 4 criteria — code cache measured and does not happen; cross-machine CID needs a second machine | 2026-07-27 |
 | 11. Explicit serveAgent Hook Contract | 1/1 | Complete   | 2026-07-27 |
 | 12. Sovereignty-Pinned Placement | 4/4 | Complete   | 2026-07-27 |
-| 13. Egress Manifest Completeness | 0/TBD | Not started | - |
+| 13. Egress Manifest Completeness | 1/3 | In Progress|  |
 | 14. Signed Artifact Resolution | 0/TBD | Not started | - |
 | 15. Capability-Chained Dispatch | 0/TBD | Not started | - |
 | 16. Decomposable Tree-Reduce Wiring | 0/TBD | Not started | - |
