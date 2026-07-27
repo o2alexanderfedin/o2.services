@@ -46,6 +46,45 @@ decryption, so a backbone node running a sovereign task would see plaintext —
 reintroducing exactly the exposure sovereignty prevents. Without a TEE (v2),
 execution-eligible replicas are the owner's own devices only.
 
+## Current Milestone: v1.1 Wire What Was Built
+
+**Goal:** Every requirement the v1.0 audit reclassified as *Built, not wired* becomes
+reachable from a runnable entry point — or is descoped with the reason recorded.
+
+**Why this milestone exists.** v1.0 executed all ten phases and the audit found that
+**36 of 68 requirements marked Done have no production call path.** Phases 4, 5, 6 and
+7 — sovereignty, tree-reduce, discovery/enrollment, churn — are genuinely implemented,
+genuinely tested, and reached by nothing a person can run. `runResilient`,
+`EgressGuard`, `composeQuorum`, `discoverExecutors`, `executeReduce`,
+`requestEnrollment`, `signName`, `verifyChain` and `translationCid` each appear only as
+their own definition, a barrel re-export, or a prose comment.
+
+**The structural cause is one shape.** `serveAgent` declares six optional hooks with
+silent defaults — `authorize`→allow, `index`/`reservations`→empty, `capacity`→accept.
+A default indistinguishable from the feature working is not a default, it is a hole,
+and it is why no test failed. `ledger` is supplied nowhere at all, in production or in
+a single test.
+
+**Target features:**
+- `serveAgent`'s hooks stop defaulting silently — an omission becomes a recorded decision
+- A dispatched task carries a capability chain, and the serving node verifies it before
+  `WebAssembly.instantiate` — today neither end exists
+- `JobSpec`/`Task` carry an owner label and the real job path consults the sovereignty
+  gate, replacing unconditional round-robin
+- Both nodes wrap their transport in `EgressGuard`, so the egress manifest is complete
+  by construction rather than only in a test
+- One job path, not two — `runResilient`'s lease/speculation/coverage machinery either
+  becomes the entry point or merges into `submitJob`
+- Discovery, enrollment and quorum composition run on the real dispatch path
+- `translationCid` is called by the lift pipeline and the CLI emits the CID; a
+  production node can construct a `WasiExecutor`
+- **A reachability guard** — a test that fails when an exported capability has no path
+  from an entry point. The audit found this class; no test could have
+
+**Explicitly not in v1.1:** NET-03 (needs a publicly reachable host), BENCH-06 and
+AOT-03 (one second machine wearing two numbers), AOT-05 (a measured negative with two
+controls — reported unmet rather than reworded).
+
 ## Requirements
 
 ### Validated
@@ -178,6 +217,9 @@ a signed commercial agreement. Both licenses are unreviewed drafts.
 | **Determinism is detected, not predicted** (supersedes the deleted P0 spike) | Verification is a byte comparison of two runs of the same module. Predicting statically that a module cannot diverge is a far harder problem and the comparison is the mechanism regardless. An admission gate was built and deleted: every check was either enforced by the runtime already (imports), impossible in one thread (atomics), or self-reporting as a disagreement. Cost of a nondeterministic module is one wasted redundant execution | ✓ Good |
 | **Cross-implementation verification is out of scope** | Verification compares the same module on two nodes, never two independent implementations of the same computation. Nothing in the system dispatches differing code for comparison | ✓ Good |
 | Enrollment (§3.9) in scope; incentives (§3.8) out | Enrollment enables quorum anti-affinity and audit sampling — load-bearing for integrity. Incentives are a market layer, and browser compute demonstrably cannot be paid | — Pending |
+| **A capability with no consumer is not delivered** (v1.0 audit, 2026-07-27) | 36 requirements were marked Done on the strength of a unit-tested mechanism that no runnable entry point reaches. The ledger was corrected rather than the work undone: `[ ]` + *Built, not wired*. Tracing must start **at the entry point**, not at the module — a barrel export is not a wire, and a passing spec proves only that the pieces compose when someone composes them | ✓ Good |
+| **An optional hook with a silent default is a hole** (v1.0 audit) | `serveAgent`'s six hooks default to allow/empty/accept, so four phases of unwired mechanism produced a *working system that quietly did nothing*. One of them was a live bug — static-host rendezvous answered `[]` forever with the signature `{asked: true, dialed: [], failed: []}`. Make the omission a decision someone records | ✓ Good |
+| **v1.0 not archived** (owner decision, 2026-07-27) | The audit returned `gaps_found`. Archiving would file 36 unwired requirements under a completed milestone. The live bug was fixed, the ledger corrected to an honest 32/72, and full integration scoped as v1.1 instead | — Done |
 
 ## Evolution
 
@@ -197,4 +239,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-07-24 after initialization*
+*Last updated: 2026-07-27 — milestone v1.1 "Wire What Was Built" opened from the v1.0 audit*
