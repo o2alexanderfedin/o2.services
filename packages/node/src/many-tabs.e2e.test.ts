@@ -5,7 +5,7 @@ import { createServer } from 'vite'
 import type { ViteDevServer } from 'vite'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { RELAY_MAX_RESERVATIONS } from '@o2/libp2p'
-import { RelayNode } from './relay-node.ts'
+import { FabricNode } from './fabric-node.ts'
 
 /**
  * Criterion 3 — sixteen browser peers reserving against one tuned relay.
@@ -31,7 +31,7 @@ const ROOT = fileURLToPath(new URL('../../..', import.meta.url))
 const PAGE = 'packages/browser/demo/index.html'
 const PEERS = 16
 
-let relay: RelayNode
+let relay: FabricNode
 let relayAddr: string
 let server: ViteDevServer
 let browser: Browser
@@ -40,7 +40,7 @@ let baseUrl: string
 
 beforeAll(async () => {
   // Above sixteen so a refusal means a real failure rather than a configured limit.
-  relay = await RelayNode.start({ maxReservations: 32, listen: ['/ip4/127.0.0.1/tcp/0/ws'] })
+  relay = await FabricNode.start({ maxReservations: 32, listen: ['/ip4/127.0.0.1/tcp/0/ws'] })
   const address = relay.browserDialableAddrs[0]
   if (address === undefined) throw new Error('relay produced no browser-dialable address')
   relayAddr = address

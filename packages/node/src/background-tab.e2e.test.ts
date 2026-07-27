@@ -6,7 +6,7 @@ import type { ViteDevServer } from 'vite'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 // Test-only relative import — see the note in packages/net/src/distributed.test.ts.
 import { MODULE_WRITES_PARTITION } from '../../core/src/executor/fixtures.ts'
-import { RelayNode } from './relay-node.ts'
+import { FabricNode } from './fabric-node.ts'
 
 /**
  * BROW-03 / BROW-05 — criterion 6.
@@ -39,7 +39,7 @@ import { RelayNode } from './relay-node.ts'
 const ROOT = fileURLToPath(new URL('../../..', import.meta.url))
 const PAGE = 'packages/browser/demo/index.html'
 
-let relay: RelayNode
+let relay: FabricNode
 let relayAddr: string
 let server: ViteDevServer
 let browser: Browser
@@ -67,7 +67,7 @@ async function openPage(name: string): Promise<Page> {
 }
 
 beforeAll(async () => {
-  relay = await RelayNode.start({ maxReservations: 16, listen: ['/ip4/127.0.0.1/tcp/0/ws'] })
+  relay = await FabricNode.start({ maxReservations: 16, listen: ['/ip4/127.0.0.1/tcp/0/ws'] })
   const address = relay.browserDialableAddrs[0]
   if (address === undefined) throw new Error('relay produced no browser-dialable address')
   relayAddr = address

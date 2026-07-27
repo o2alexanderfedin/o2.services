@@ -1,0 +1,26 @@
+clang++: warning: argument unused during compilation: '-I /root/elfconv/backend/remill/include' [-Wunused-command-line-argument]
+clang++: warning: argument unused during compilation: '-I /root/elfconv' [-Wunused-command-line-argument]
+warning: overriding the module target triple with wasm32-unknown-wasi [-Woverride-module]
+1 warning generated.
+In file included from /root/elfconv/runtime/Entry.cpp:10:
+/root/elfconv/backend/remill/include/remill/Arch/Runtime/Intrinsics.h:270:39: warning: 'const' attribute on function returning 'void'; attribute ignored [-Wignored-attributes]
+  270 | [[gnu::used, gnu::const]] extern void __remill_write_io_port_8(RuntimeManager *, addr_t, uint8_t);
+      |                                       ^
+/root/elfconv/backend/remill/include/remill/Arch/Runtime/Intrinsics.h:272:39: warning: 'const' attribute on function returning 'void'; attribute ignored [-Wignored-attributes]
+  272 | [[gnu::used, gnu::const]] extern void __remill_write_io_port_16(RuntimeManager *, addr_t, uint16_t);
+      |                                       ^
+/root/elfconv/backend/remill/include/remill/Arch/Runtime/Intrinsics.h:274:39: warning: 'const' attribute on function returning 'void'; attribute ignored [-Wignored-attributes]
+  274 | [[gnu::used, gnu::const]] extern void __remill_write_io_port_32(RuntimeManager *, addr_t, uint32_t);
+      |                                       ^
+3 warnings generated.
+In file included from /root/elfconv/runtime/VmIntrinsics.cpp:20:
+/root/elfconv/backend/remill/include/remill/Arch/Runtime/Intrinsics.h:270:39: warning: 'const' attribute on function returning 'void'; attribute ignored [-Wignored-attributes]
+  270 | [[gnu::used, gnu::const]] extern void __remill_write_io_port_8(RuntimeManager *, addr_t, uint8_t);
+      |                                       ^
+/root/elfconv/backend/remill/include/remill/Arch/Runtime/Intrinsics.h:272:39: warning: 'const' attribute on function returning 'void'; attribute ignored [-Wignored-attributes]
+  272 | [[gnu::used, gnu::const]] extern void __remill_write_io_port_16(RuntimeManager *, addr_t, uint16_t);
+      |                                       ^
+/root/elfconv/backend/remill/include/remill/Arch/Runtime/Intrinsics.h:274:39: warning: 'const' attribute on function returning 'void'; attribute ignored [-Wignored-attributes]
+  274 | [[gnu::used, gnu::const]] extern void __remill_write_io_port_32(RuntimeManager *, addr_t, uint32_t);
+      |                                       ^
+3 warnings generated.

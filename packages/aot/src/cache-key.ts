@@ -30,6 +30,7 @@
  */
 
 import { canonicalCid } from '@o2/core'
+import type { EncodeError } from '@o2/core'
 import type { CID } from 'multiformats/cid'
 
 /**
@@ -53,9 +54,20 @@ export interface TranslationKey {
 }
 
 export type KeyFailure =
+  /** `field` is a field *name* — `inputDigest` or `target`. Nothing else belongs in it. */
   | { readonly kind: 'empty-field'; readonly field: string }
   | { readonly kind: 'empty-toolchain' }
   | { readonly kind: 'blank-version'; readonly tool: string }
+  /**
+   * A field held something DAG-CBOR has no representation for, so there is no name.
+   *
+   * Its own discriminant rather than a message folded into `empty-field`, because
+   * these mean opposite things to whoever reads them: `empty-field` says a caller
+   * left a box blank and can fill it in, this says the key cannot be encoded at all.
+   * The underlying {@link EncodeError} travels intact rather than stringified, so the
+   * codec's own path and detail survive to the build log.
+   */
+  | { readonly kind: 'unencodable'; readonly error: EncodeError }
 
 export type KeyResult =
   | { readonly ok: true; readonly cid: CID; readonly key: TranslationKey }
@@ -66,6 +78,28 @@ export function normaliseFeatures(features: readonly string[]): readonly string[
   return [...new Set(features)].sort()
 }
 
+/**
+ * The codec's own complaint, in one clause.
+ *
+ * Switched rather than stringified, so a third {@link EncodeError} kind is a compile
+ * error here rather than an `[object Object]` in somebody's build log.
+ */
+function describeEncodeError(error: EncodeError): string {
+  switch (error.kind) {
+    case 'non-finite-float':
+      return `${error.path === '' ? 'the key itself' : error.path} is ${error.value}`
+    case 'codec-rejected':
+      return error.detail
+  }
+}
+
+/**
+ * One sentence naming what was wrong and why it disqualifies the key.
+ *
+ * No `default` arm, deliberately: the switch is exhaustive over {@link KeyFailure},
+ * so adding a member without a sentence for it fails to compile. A default arm here
+ * would turn the next addition into a silent "unknown failure" in a build log.
+ */
 export function describeKeyFailure(failure: KeyFailure): string {
   switch (failure.kind) {
     case 'empty-field':
@@ -74,6 +108,10 @@ export function describeKeyFailure(failure: KeyFailure): string {
       return 'no toolchain versions were supplied — the key would not change when the compiler did'
     case 'blank-version':
       return `${failure.tool} has a blank version — an unknown version is not a version`
+    case 'unencodable':
+      return `the key cannot be encoded as DAG-CBOR (${describeEncodeError(
+        failure.error,
+      )}) — every field is declared a string, so something is not what its type says it is`
   }
 }
 
@@ -111,12 +149,15 @@ export async function translationCid(key: TranslationKey): Promise<KeyResult> {
     toolchain: { ...normalised.toolchain },
     features: [...normalised.features],
   })
-  // `canonicalCid` only fails on values DAG-CBOR cannot encode, and every field
-  // here is a string. Surfaced rather than swallowed so a future field type that
-  // breaks that assumption is loud.
-  if (!hashed.ok) {
-    return { ok: false, failure: { kind: 'empty-field', field: JSON.stringify(hashed.error) } }
-  }
+  // `canonicalCid` only fails on values DAG-CBOR cannot encode, and every field here
+  // is declared a string. Surfaced rather than swallowed so a future field type that
+  // breaks that assumption is loud — and loud in its own discriminant, because the
+  // first version reported it as `{ kind: 'empty-field', field: JSON.stringify(...) }`,
+  // stuffing a JSON blob into a slot whose only reader treats it as a field *name*.
+  // A caller branching on that would have gone hunting for a field called
+  // `{"kind":"codec-rejected",...}`, and the failure meaning "this translation has no
+  // name" would have been reported as the one meaning "you left a box blank".
+  if (!hashed.ok) return { ok: false, failure: { kind: 'unencodable', error: hashed.error } }
   return { ok: true, cid: hashed.cid, key: normalised }
 }
 

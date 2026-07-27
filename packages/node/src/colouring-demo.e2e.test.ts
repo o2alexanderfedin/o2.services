@@ -7,7 +7,7 @@ import type { Browser, BrowserContext, Page } from 'playwright'
 import { createServer } from 'vite'
 import type { ViteDevServer } from 'vite'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import { RelayNode } from './relay-node.ts'
+import { FabricNode } from './fabric-node.ts'
 
 /**
  * DEMO-01 and DEMO-02 — the demo, end to end, in two real browser tabs.
@@ -44,7 +44,7 @@ interface Tab {
   readonly peerId: string
 }
 
-let relay: RelayNode
+let relay: FabricNode
 let relayAddr: string
 let server: ViteDevServer
 let browser: Browser
@@ -82,7 +82,7 @@ async function openTab(name: string): Promise<Tab> {
 
 beforeAll(async () => {
   workdir = await mkdtemp(join(tmpdir(), 'o2-colouring-'))
-  relay = await RelayNode.start({ maxReservations: 16, listen: ['/ip4/127.0.0.1/tcp/0/ws'] })
+  relay = await FabricNode.start({ maxReservations: 16, listen: ['/ip4/127.0.0.1/tcp/0/ws'] })
   const address = relay.browserDialableAddrs[0]
   if (address === undefined) throw new Error('relay produced no browser-dialable address')
   relayAddr = address

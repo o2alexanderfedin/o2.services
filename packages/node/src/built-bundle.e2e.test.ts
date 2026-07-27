@@ -9,7 +9,7 @@ import { fileURLToPath } from 'node:url'
 import { chromium } from 'playwright'
 import type { Browser } from 'playwright'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import { RelayNode } from './relay-node.ts'
+import { FabricNode } from './fabric-node.ts'
 
 /**
  * The *built* bundle, served by a dumb static file server.
@@ -40,7 +40,7 @@ const MIME: Record<string, string> = {
 let server: Server
 let baseUrl: string
 let browser: Browser
-let relay: RelayNode
+let relay: FabricNode
 let workdir: string
 
 beforeAll(async () => {
@@ -77,7 +77,7 @@ beforeAll(async () => {
   if (address === null || typeof address === 'string') throw new Error('no server port')
   baseUrl = `http://127.0.0.1:${address.port}`
 
-  relay = await RelayNode.start({ maxReservations: 8 })
+  relay = await FabricNode.start({ maxReservations: 8, listen: ['/ip4/127.0.0.1/tcp/0/ws'] })
   browser = await chromium.launch()
 }, 300_000)
 

@@ -26,7 +26,11 @@ export default defineConfig({
         test: {
           name: 'node',
           environment: 'node',
-          include: ['packages/*/src/**/*.test.ts'],
+          // `tools/` holds the build-time drivers — they shell out to containers and
+          // could not run in a browser even in principle, so only this project sees
+          // them. Their suffix still has to say `.node.test.ts`, so the rule stays
+          // one rule.
+          include: ['packages/*/src/**/*.test.ts', 'tools/**/*.node.test.ts'],
           // `?worker` is a browser bundling concern; that target runs in the
           // browser project only. `*.e2e.test.ts` has its own project.
           exclude: ['**/*.browser.test.ts', '**/*.e2e.test.ts'],

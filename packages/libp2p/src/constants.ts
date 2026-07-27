@@ -38,7 +38,7 @@ export const RELAY_MAX_RESERVATIONS = 15
  *
  * Discovered by sixteen browser peers failing to join a relay whose reservation limit
  * was 32. Raising reservations alone is not enough: the two have to move together,
- * which is why `RelayNode` derives one from the other.
+ * which is why `FabricNode` derives one from the other.
  */
 export const LIBP2P_MAX_INCOMING_PENDING_CONNECTIONS = 10
 

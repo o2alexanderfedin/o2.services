@@ -4,7 +4,6 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { FabricNode } from './fabric-node.ts'
-import { RelayNode } from './relay-node.ts'
 import { ReservationWatcher } from './reservation-watch.ts'
 
 /**
@@ -69,7 +68,10 @@ describe('NET-04 — protocols negotiate over p2p-circuit', () => {
   })
 
   it('reserves a circuit address for a node that cannot listen', async () => {
-    const relay = await RelayNode.start({ maxReservations: 8 })
+    const relay = await FabricNode.start({
+      maxReservations: 8,
+      listen: ['/ip4/127.0.0.1/tcp/0/ws'],
+    })
     running.push(relay)
 
     const watcher = new ReservationWatcher()

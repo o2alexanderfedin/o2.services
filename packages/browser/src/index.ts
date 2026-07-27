@@ -8,6 +8,15 @@
  * `worker-factory.ts` is deliberately absent from this barrel — it uses Vite's
  * `?worker` suffix, so importing it outside a bundler fails at resolution. Pages
  * import that file directly.
+ *
+ * Everything else is here on purpose, including the artifact loader. `@o2/aot`'s
+ * barrel gives the reasoning at length and it applies unchanged: a loader reachable
+ * only from its own spec cannot be shown to sit on the path a page actually takes,
+ * so "the artifact a visitor runs was verified against its CID before it was
+ * compiled" would be a statement about a file rather than about the fabric. The
+ * failure and verdict types travel with `loadArtifact` for the same reason its
+ * caveats travel inside its results — a caller that cannot name `cid-mismatch`
+ * cannot distinguish a hostile gateway from a broken one.
  */
 
 export { IdbBlockstore } from './idb-blockstore.ts'
@@ -49,3 +58,34 @@ export { BROWSER_FAMILIES, browserLabel, currentBrowserLabel, identifyBrowser } 
 export type { BrowserFamily, BrowserId } from './browser-id.ts'
 export { classifyStartError, firstGap, probeEnvironment } from './start-probe.ts'
 export type { ProbeGlobals, StartEnvironment } from './start-probe.ts'
+
+// Fetching and verifying a translated artifact, in the one shape V8 can cache — AOT-05.
+export {
+  CACHE_CONFOUNDS,
+  cacheVerdict,
+  CID_DEFECTS,
+  cidDefect,
+  CODE_CACHE_MIN_BYTES,
+  DAG_CBOR_CODE,
+  describeCacheVerdict,
+  describeLoadFailure,
+  gatewayUrl,
+  loadArtifact,
+  measureRepeatLoad,
+  RAW_CODE,
+  URL_DEFECTS,
+  WASM_CONTENT_TYPE,
+} from './streaming-load.ts'
+export type {
+  CacheVerdict,
+  CidDefect,
+  CompilePair,
+  FetchLike,
+  LoadedArtifact,
+  LoadFailure,
+  LoadOptions,
+  LoadResult,
+  RepeatMeasurement,
+  UrlDefect,
+  UrlResult,
+} from './streaming-load.ts'

@@ -9,7 +9,7 @@ import type { ViteDevServer } from 'vite'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 // Test-only relative import — see the note in packages/net/src/distributed.test.ts.
 import { MODULE_WRITES_PARTITION } from '../../core/src/executor/fixtures.ts'
-import { RelayNode } from './relay-node.ts'
+import { FabricNode } from './fabric-node.ts'
 
 /**
  * NET-02 — two browser tabs, one machine, a real WebRTC data path.
@@ -39,7 +39,7 @@ interface Tab {
   readonly peerId: string
 }
 
-let relay: RelayNode
+let relay: FabricNode
 let relayAddr: string
 let server: ViteDevServer
 let browser: Browser
@@ -82,7 +82,7 @@ async function openTab(name: string): Promise<Tab> {
 beforeAll(async () => {
   workdir = await mkdtemp(join(tmpdir(), 'o2-tabs-'))
 
-  relay = await RelayNode.start({
+  relay = await FabricNode.start({
     // Comfortably above the two tabs, so a refusal cannot be mistaken for a bug.
     maxReservations: 16,
     listen: ['/ip4/127.0.0.1/tcp/0/ws'],

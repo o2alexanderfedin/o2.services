@@ -1,0 +1,16 @@
+[[32mINFO[0m] ELF -> LLVM bitcode...
+[[32mINFO[0m] detected funcs num: 899
+[[32mINFO[0m] built subject.elf.bc
+[[32mINFO[0m] built subject.elf.wasi.o
+[[32mINFO[0m] Compiling to Wasm (for WASI)... 
+[[32mINFO[0m] built subject.elf.wasm
+[2026-07-27 06:48:59.381] [info] compile start
+[2026-07-27 06:48:59.618] [info] verify start
+[2026-07-27 06:48:59.873] [info] optimize start
+[2026-07-27 06:49:19.796] [info] optimize done
+[2026-07-27 06:49:19.796] [info] codegen start
+[2026-07-27 06:49:34.135] [info] output start
+[2026-07-27 06:49:34.154] [info] codegen done
+[2026-07-27 06:49:34.166] [info] output start
+[2026-07-27 06:49:34.181] [info] output done
+[[32mINFO[0m] built subject.elf_o3.wasm
