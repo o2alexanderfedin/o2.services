@@ -2,12 +2,13 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { publicNodes, submitJob } from '@o2/core'
-import type { CanonicalValue } from '@o2/core'
+import type { CanonicalValue, Task } from '@o2/core'
 import { RemoteExecutor, blockCid } from '@o2/net'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 // Test-only relative import — see the note in packages/net/src/distributed.test.ts.
 import { MODULE_WRITES_PARTITION } from '../../core/src/executor/fixtures.ts'
 import { FabricNode } from './fabric-node.ts'
+import type { FabricNodeOptions } from './fabric-node.ts'
 import { FsBlockstore } from './fs-blockstore.ts'
 
 /**
@@ -22,12 +23,13 @@ import { FsBlockstore } from './fs-blockstore.ts'
 let workdir: string
 const running: FabricNode[] = []
 
-async function startNode(name: string): Promise<FabricNode> {
+async function startNode(name: string, extra: Partial<FabricNodeOptions> = {}): Promise<FabricNode> {
   const node = await FabricNode.start({
     blockstoreDir: join(workdir, name),
     // Port 0: the OS picks a free port, so concurrent test runs cannot collide.
     listen: ['/ip4/127.0.0.1/tcp/0'],
     rpcTimeoutMs: 20_000,
+    ...extra,
   })
   running.push(node)
   return node
@@ -220,5 +222,44 @@ describe('NET-01 — persistence across a restart', () => {
       if (cid === null) continue
       expect(await submitter.store.has(cid)).toBe(true)
     }
+  }, 60_000)
+})
+
+describe('DATA-09 — the production serving executor is guarded without opting in', () => {
+  it('a node started with no sovereignty option refuses; one started cleared for the owner accepts', async () => {
+    // `startNode` is the same factory call `bin/agent.ts` makes — no test-only
+    // bypass, no hand-built fabric. The point of this test is that a node built
+    // this way is guarded *before anyone opts in*, and that opting in (the
+    // `sovereignty` option) actually changes the outcome over real RPC.
+    const [submitter, defaultNode, clearedNode] = await Promise.all([
+      startNode('s3'),
+      startNode('default'),
+      startNode('cleared', { sovereignty: { ownerId: 'alice', canExecuteSovereign: true } }),
+    ])
+    await Promise.all([
+      submitter.dial(defaultNode.multiaddrs[0]!),
+      submitter.dial(clearedNode.multiaddrs[0]!),
+    ])
+
+    const moduleCid = await submitter.store.put(MODULE_WRITES_PARTITION)
+    const inputCid = await submitter.store.put(new Uint8Array([0x80]))
+
+    const sovereignTask: Task = {
+      moduleCid,
+      inputCid,
+      partitionIndex: 0,
+      partitionCount: 1,
+      label: 'sovereign',
+      ownerId: 'alice',
+    }
+
+    const refused = await new RemoteExecutor(defaultNode.peerId, submitter.rpc).execute(sovereignTask)
+    expect(refused.ok).toBe(false)
+    if (refused.ok) return
+    expect(refused.reason).toContain(defaultNode.peerId)
+    expect(refused.reason).toContain('sovereignty')
+
+    const accepted = await new RemoteExecutor(clearedNode.peerId, submitter.rpc).execute(sovereignTask)
+    expect(accepted.ok).toBe(true)
   }, 60_000)
 })
