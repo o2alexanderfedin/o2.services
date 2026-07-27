@@ -356,65 +356,66 @@ table below and in the audit.
 
 ## Traceability
 
-All 72 v1 requirements are mapped, each to exactly one phase. See
-`.planning/ROADMAP.md` for phase goals and success criteria.
+All 72 v1 requirements are mapped, each to exactly one phase, plus the 4 v1.1-only
+WIRE requirements below. See `.planning/ROADMAP.md` for phase goals and success
+criteria.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| DET-03 | Phase 4 — Sovereignty, Authorization & Artifact Signing | **Built, not wired** — signName / SignedNameResolver have no caller; every module resolves by bare CID |
+| DET-03 | Phase 14 — Signed Artifact Resolution | **Built, not wired** — signName / SignedNameResolver have no caller; every module resolves by bare CID |
 | DET-05 | Phase 1 — Portable Kernel & Loopback Map Slice | Done |
 | DET-06 | Phase 1 — Portable Kernel & Loopback Map Slice | Done |
 | DET-07 | Phase 1 — Portable Kernel & Loopback Map Slice | Done |
 | VER-01 | Phase 1 — Portable Kernel & Loopback Map Slice | Done |
 | VER-02 | Phase 1 — Portable Kernel & Loopback Map Slice | Done |
-| VER-03 | Phase 6 — Discovery, Placement & Enrollment | **Built, not wired** — composeQuorum has no caller outside its own spec |
-| VER-04 | Phase 6 — Discovery, Placement & Enrollment | **Built, not wired** — composeQuorum has no caller outside its own spec |
+| VER-03 | Phase 19 — Quorum Composition & Owner-Domain Attestation | **Built, not wired** — composeQuorum has no caller outside its own spec |
+| VER-04 | Phase 19 — Quorum Composition & Owner-Domain Attestation | **Built, not wired** — composeQuorum has no caller outside its own spec |
 | VER-05 | Phase 1 — Portable Kernel & Loopback Map Slice | Done |
 | VER-06 | Phase 1 — Portable Kernel & Loopback Map Slice | Done |
-| VER-08 | Phase 6 — Discovery, Placement & Enrollment | **Built, not wired** — attestationReceipt is called only by itself and its spec; no node emits a receipt |
-| VER-09 | Phase 6 — Discovery, Placement & Enrollment | **Built, not wired** — attestationReceipt is called only by itself and its spec; no node emits a receipt |
-| VER-10 | Phase 6 — Discovery, Placement & Enrollment | **Built, not wired** — attestationReceipt is called only by itself and its spec; no node emits a receipt |
+| VER-08 | Phase 19 — Quorum Composition & Owner-Domain Attestation | **Built, not wired** — attestationReceipt is called only by itself and its spec; no node emits a receipt |
+| VER-09 | Phase 19 — Quorum Composition & Owner-Domain Attestation | **Built, not wired** — attestationReceipt is called only by itself and its spec; no node emits a receipt |
+| VER-10 | Phase 19 — Quorum Composition & Owner-Domain Attestation | **Built, not wired** — attestationReceipt is called only by itself and its spec; no node emits a receipt |
 | DATA-01 | Phase 1 — Portable Kernel & Loopback Map Slice | Done |
 | DATA-02 | Phase 3 — Browser Tier & Backbone Relay | Done |
-| DATA-03 | Phase 4 — Sovereignty, Authorization & Artifact Signing | **Built, not wired** — no owner label exists in JobSpec or Task; eligibleNodes is reachable only through runResilient, which has no caller |
-| DATA-04 | Phase 4 — Sovereignty, Authorization & Artifact Signing | **Built, not wired** — no owner label exists in JobSpec or Task; eligibleNodes is reachable only through runResilient, which has no caller |
-| DATA-05 | Phase 4 — Sovereignty, Authorization & Artifact Signing | **Built, not wired** — EgressGuard decorates no production transport — both nodes pass the raw Libp2pTransport |
-| DATA-06 | Phase 4 — Sovereignty, Authorization & Artifact Signing | **Built, not wired** — EgressGuard decorates no production transport — both nodes pass the raw Libp2pTransport |
-| DATA-07 | Phase 4 — Sovereignty, Authorization & Artifact Signing | **Built, not wired** — pushdown lives in the reduce tree; executeReduce has no caller |
-| DATA-08 | Phase 4 — Sovereignty, Authorization & Artifact Signing | **Built, not wired** — signName / SignedNameResolver have no caller; every module resolves by bare CID |
-| DATA-09 | Phase 4 — Sovereignty, Authorization & Artifact Signing | **Built, not wired** — no owner label exists in JobSpec or Task; eligibleNodes is reachable only through runResilient, which has no caller |
-| AUTH-01 | Phase 6 — Discovery, Placement & Enrollment | **Built, not wired** — requestEnrollment / EnrollmentAuthority have no production caller; a node identity is the raw libp2p peerId |
-| AUTH-02 | Phase 6 — Discovery, Placement & Enrollment | **Built, not wired** — verifyCertificate is reachable only through discoverExecutors, which has no caller |
-| AUTH-03 | Phase 4 — Sovereignty, Authorization & Artifact Signing | **Built, not wired** — RemoteExecutor sends no capability field and no node installs an authorizer — both ends missing |
-| AUTH-04 | Phase 6 — Discovery, Placement & Enrollment | **Built, not wired** — requestEnrollment / EnrollmentAuthority have no production caller |
-| AUTH-05 | Phase 6 — Discovery, Placement & Enrollment | **Built, not wired** — resolveReplicaSets has no production caller |
+| DATA-03 | Phase 12 — Sovereignty-Pinned Placement | **Built, not wired** — no owner label exists in JobSpec or Task; eligibleNodes is reachable only through runResilient, which has no caller |
+| DATA-04 | Phase 12 — Sovereignty-Pinned Placement | **Built, not wired** — no owner label exists in JobSpec or Task; eligibleNodes is reachable only through runResilient, which has no caller |
+| DATA-05 | Phase 13 — Egress Manifest Completeness | **Built, not wired** — EgressGuard decorates no production transport — both nodes pass the raw Libp2pTransport |
+| DATA-06 | Phase 13 — Egress Manifest Completeness | **Built, not wired** — EgressGuard decorates no production transport — both nodes pass the raw Libp2pTransport |
+| DATA-07 | Phase 12 — Sovereignty-Pinned Placement | **Built, not wired** — pushdown lives in the reduce tree; executeReduce has no caller |
+| DATA-08 | Phase 14 — Signed Artifact Resolution | **Built, not wired** — signName / SignedNameResolver have no caller; every module resolves by bare CID |
+| DATA-09 | Phase 12 — Sovereignty-Pinned Placement | **Built, not wired** — no owner label exists in JobSpec or Task; eligibleNodes is reachable only through runResilient, which has no caller |
+| AUTH-01 | Phase 17 — Node Identity & Enrollment | **Built, not wired** — requestEnrollment / EnrollmentAuthority have no production caller; a node identity is the raw libp2p peerId |
+| AUTH-02 | Phase 17 — Node Identity & Enrollment | **Built, not wired** — verifyCertificate is reachable only through discoverExecutors, which has no caller |
+| AUTH-03 | Phase 15 — Capability-Chained Dispatch | **Built, not wired** — RemoteExecutor sends no capability field and no node installs an authorizer — both ends missing |
+| AUTH-04 | Phase 17 — Node Identity & Enrollment | **Built, not wired** — requestEnrollment / EnrollmentAuthority have no production caller |
+| AUTH-05 | Phase 19 — Quorum Composition & Owner-Domain Attestation | **Built, not wired** — resolveReplicaSets has no production caller |
 | NET-01 | Phase 2 — Real Network, Node ↔ Node | Done |
 | NET-02 | Phase 3 — Browser Tier & Backbone Relay | Done |
 | NET-03 | Phase 3 — Browser Tier & Backbone Relay | Partial — relay is browser-dialable; AutoTLS needs a public host |
 | NET-04 | Phase 3 — Browser Tier & Backbone Relay | Done |
-| NET-05 | Phase 3 — Browser Tier & Backbone Relay | **Partial** — the reading half is wired (capacity is derived from the live store and printed by the seed); ReservationWatcher is installed by no process, so a refused joiner gets no named error |
-| NET-06 | Phase 6 — Discovery, Placement & Enrollment | **Built, not wired** — no node supplies serveAgent’s `index` hook, so none serves a record |
+| NET-05 | Phase 18 — Discovery, Capacity & Placement | **Partial** — the reading half is wired (capacity is derived from the live store and printed by the seed); ReservationWatcher is installed by no process, so a refused joiner gets no named error |
+| NET-06 | Phase 19 — Quorum Composition & Owner-Domain Attestation | **Built, not wired** — no node supplies serveAgent’s `index` hook, so none serves a record |
 | NET-07 | Phase 2 — Real Network, Node ↔ Node | Done |
-| SCHED-01 | Phase 6 — Discovery, Placement & Enrollment | **Built, not wired** — discoverExecutors has no caller outside tests |
-| SCHED-02 | Phase 6 — Discovery, Placement & Enrollment | **Built, not wired** — placeWithOffers is reachable only through runResilient, which has no caller |
-| SCHED-03 | Phase 6 — Discovery, Placement & Enrollment | **Built, not wired** — no node supplies serveAgent’s `capacity` hook, so every offer is accepted |
-| SCHED-04 | Phase 1 — Portable Kernel & Loopback Map Slice | **Partial** — GovernedExecutor is wired on the browser tier only — FabricNode builds a bare WasmExecutor — and the duty cycle is readonly on both, so "user-adjustable" is unmet |
-| SCHED-05 | Phase 6 — Discovery, Placement & Enrollment | **Built, not wired** — the sovereignty gate runs inside placeWithOffers, reachable only through runResilient |
+| SCHED-01 | Phase 18 — Discovery, Capacity & Placement | **Built, not wired** — discoverExecutors has no caller outside tests |
+| SCHED-02 | Phase 18 — Discovery, Capacity & Placement | **Built, not wired** — placeWithOffers is reachable only through runResilient, which has no caller |
+| SCHED-03 | Phase 18 — Discovery, Capacity & Placement | **Built, not wired** — no node supplies serveAgent’s `capacity` hook, so every offer is accepted |
+| SCHED-04 | Phase 18 — Discovery, Capacity & Placement | **Partial** — GovernedExecutor is wired on the browser tier only — FabricNode builds a bare WasmExecutor — and the duty cycle is readonly on both, so "user-adjustable" is unmet |
+| SCHED-05 | Phase 18 — Discovery, Capacity & Placement | **Built, not wired** — the sovereignty gate runs inside placeWithOffers, reachable only through runResilient |
 | MR-01 | Phase 1 — Portable Kernel & Loopback Map Slice | Done |
-| MR-02 | Phase 5 — Decomposable Tree-Reduce | **Built, not wired** — executeReduce / deriveReduceTree have no caller; the demo merges with a linear scan |
-| MR-03 | Phase 5 — Decomposable Tree-Reduce | **Built, not wired** — executeReduce / deriveReduceTree have no caller; the demo merges with a linear scan |
-| MR-04 | Phase 5 — Decomposable Tree-Reduce | **Built, not wired** — executeReduce / deriveReduceTree have no caller; the demo merges with a linear scan |
-| MR-05 | Phase 5 — Decomposable Tree-Reduce | **Built, not wired** — executeReduce / deriveReduceTree have no caller; the demo merges with a linear scan |
-| MR-06 | Phase 5 — Decomposable Tree-Reduce | **Built, not wired** — executeReduce / deriveReduceTree have no caller; the demo merges with a linear scan |
-| MR-07 | Phase 5 — Decomposable Tree-Reduce | **Built, not wired** — executeReduce / deriveReduceTree have no caller; the demo merges with a linear scan |
-| CHURN-01 | Phase 7 — Churn, Stragglers & Coordinator Survival | **Built, not wired** — runResilient has no caller; submitJob is the only job path and does not speculate or re-dispatch |
-| CHURN-02 | Phase 7 — Churn, Stragglers & Coordinator Survival | **Built, not wired** — runResilient has no caller; submitJob is the only job path and does not speculate or re-dispatch |
-| CHURN-03 | Phase 7 — Churn, Stragglers & Coordinator Survival | **Built, not wired** — checkpoint.ts is not even imported by coordinator.ts, and runResilient itself has no caller |
-| CHURN-04 | Phase 7 — Churn, Stragglers & Coordinator Survival | **Built, not wired** — runResilient has no caller; submitJob is the only job path and does not speculate or re-dispatch |
-| CHURN-05 | Phase 7 — Churn, Stragglers & Coordinator Survival | **Built, not wired** — runResilient has no caller; submitJob is the only job path and does not speculate or re-dispatch |
-| CHURN-06 | Phase 7 — Churn, Stragglers & Coordinator Survival | **Built, not wired** — runResilient has no caller; submitJob is the only job path and does not speculate or re-dispatch |
+| MR-02 | Phase 16 — Decomposable Tree-Reduce Wiring | **Built, not wired** — executeReduce / deriveReduceTree have no caller; the demo merges with a linear scan |
+| MR-03 | Phase 16 — Decomposable Tree-Reduce Wiring | **Built, not wired** — executeReduce / deriveReduceTree have no caller; the demo merges with a linear scan |
+| MR-04 | Phase 16 — Decomposable Tree-Reduce Wiring | **Built, not wired** — executeReduce / deriveReduceTree have no caller; the demo merges with a linear scan |
+| MR-05 | Phase 16 — Decomposable Tree-Reduce Wiring | **Built, not wired** — executeReduce / deriveReduceTree have no caller; the demo merges with a linear scan |
+| MR-06 | Phase 16 — Decomposable Tree-Reduce Wiring | **Built, not wired** — executeReduce / deriveReduceTree have no caller; the demo merges with a linear scan |
+| MR-07 | Phase 16 — Decomposable Tree-Reduce Wiring | **Built, not wired** — executeReduce / deriveReduceTree have no caller; the demo merges with a linear scan |
+| CHURN-01 | Phase 20 — Single Job Path, Ledger & Churn Resilience | **Built, not wired** — runResilient has no caller; submitJob is the only job path and does not speculate or re-dispatch |
+| CHURN-02 | Phase 20 — Single Job Path, Ledger & Churn Resilience | **Built, not wired** — runResilient has no caller; submitJob is the only job path and does not speculate or re-dispatch |
+| CHURN-03 | Phase 20 — Single Job Path, Ledger & Churn Resilience | **Built, not wired** — checkpoint.ts is not even imported by coordinator.ts, and runResilient itself has no caller |
+| CHURN-04 | Phase 20 — Single Job Path, Ledger & Churn Resilience | **Built, not wired** — runResilient has no caller; submitJob is the only job path and does not speculate or re-dispatch |
+| CHURN-05 | Phase 20 — Single Job Path, Ledger & Churn Resilience | **Built, not wired** — runResilient has no caller; submitJob is the only job path and does not speculate or re-dispatch |
+| CHURN-06 | Phase 20 — Single Job Path, Ledger & Churn Resilience | **Built, not wired** — runResilient has no caller; submitJob is the only job path and does not speculate or re-dispatch |
 | BROW-01 | Phase 9 — Public Demo, Consent UX & Disclosure Gate | Done |
-| BROW-02 | Phase 9 — Public Demo, Consent UX & Disclosure Gate | **Partial** — the local ledger renders; the cross-node merge is a no-op because no node supplies serveAgent’s `ledger` hook, so every peer answers with empty counts |
+| BROW-02 | Phase 20 — Single Job Path, Ledger & Churn Resilience | **Partial** — the local ledger renders; the cross-node merge is a no-op because no node supplies serveAgent’s `ledger` hook, so every peer answers with empty counts |
 | BROW-03 | Phase 3 — Browser Tier & Backbone Relay | Done |
 | BROW-04 | Phase 9 — Public Demo, Consent UX & Disclosure Gate | Done |
 | BROW-05 | Phase 3 — Browser Tier & Backbone Relay | Done |
@@ -429,9 +430,17 @@ All 72 v1 requirements are mapped, each to exactly one phase. See
 | DEMO-03 | Phase 9 — Public Demo, Consent UX & Disclosure Gate | Done |
 | DEMO-04 | Phase 9 — Public Demo, Consent UX & Disclosure Gate | Done |
 | AOT-01 | Phase 10 — elfconv AOT Native→WASM Pipeline | Done |
-| AOT-02 | Phase 10 — elfconv AOT Native→WASM Pipeline | **Built, not wired** — translationCid is never called by the lift pipeline; the CLI emits no CID and builds no TranslationRecord |
+| AOT-02 | Phase 21 — AOT Translation Signing & Runtime | **Built, not wired** — translationCid is never called by the lift pipeline; the CLI emits no CID and builds no TranslationRecord |
 | AOT-03 | Phase 10 — elfconv AOT Native→WASM Pipeline | Partial — same-host only; cross-machine needs a second machine |
-| AOT-04 | Phase 10 — elfconv AOT Native→WASM Pipeline | **Partial** — port conformance is proved through the @o2/aot barrel; no production node constructs a WasiExecutor, so a translated artifact dispatched to a running node fails at instantiate |
+| AOT-04 | Phase 21 — AOT Translation Signing & Runtime | **Partial** — port conformance is proved through the @o2/aot barrel; no production node constructs a WasiExecutor, so a translated artifact dispatched to a running node fails at instantiate |
 | AOT-05 | Phase 10 — elfconv AOT Native→WASM Pipeline | **Partial** — loadArtifact is exported and e2e-measured, but the demo loads its kernel from bundled base64 — the loader is not on the page’s own module path |
+| WIRE-01 | Phase 11 — Explicit serveAgent Hook Contract | Not started — new requirement, minted 2026-07-27 from the v1.0 audit's structural-cause finding |
+| WIRE-02 | Phase 22 — Reachability Guard | Not started — new requirement, minted 2026-07-27 |
+| WIRE-03 | Phase 19 — Quorum Composition & Owner-Domain Attestation | Not started — new requirement, minted 2026-07-27 |
+| WIRE-04 | Phase 20 — Single Job Path, Ledger & Churn Resilience | Not started — new requirement, minted 2026-07-27 |
 
-**Coverage: 70/70 mapped. No orphans, no duplicates.**
+**Coverage: 76/76 mapped. No orphans, no duplicates.** (72 v1 + 4 v1.1-only WIRE
+requirements. Of the 72, 40 are in v1.1 scope for wiring — see
+`.planning/ROADMAP.md`'s "v1.1 — Wire What Was Built" coverage table; the remaining 32
+are `Done`, and NET-03/BENCH-06/AOT-03/AOT-05 stay open, blocked on hardware/hosting or
+a measured negative, explicitly excluded from v1.1.)

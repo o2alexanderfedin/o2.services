@@ -46,6 +46,18 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 8: Benchmark Harness** - The scaling claim becomes a reproducible published number with its costs included rather than excluded
 - [x] **Phase 9: Public Demo, Consent UX & Disclosure Gate** - A visitor consents, contributes to a job someone cares about, and nothing publishes without a deliberate human action
 - [x] **Phase 10: elfconv AOT Native→WASM Pipeline** - A statically-linked native binary becomes a fabric-executable artifact under the same admission checks and verification — **3 of 4 criteria**; cross-machine reproducibility needs a second machine, and the V8 code-cache hit was measured and does not happen
+- [ ] **Phase 11: Explicit serveAgent Hook Contract** - `serveAgent`'s six hooks stop defaulting silently — an omission becomes a compile error, not a decision nobody made
+- [ ] **Phase 12: Sovereignty-Pinned Placement** - A sovereignty label becomes a constraint the live `submitJob` path cannot relax, with pushdown and backbone execution-ineligibility enforced on a real job
+- [ ] **Phase 13: Egress Manifest Completeness** - Both nodes wrap their transport in `EgressGuard`, so the egress manifest is complete by construction on a real job, not only in a test
+- [ ] **Phase 14: Signed Artifact Resolution** - Artifacts resolve only through a signed `key → CID` mapping on the live dispatch path, never a bare CID
+- [ ] **Phase 15: Capability-Chained Dispatch** - A dispatched task carries a capability chain the serving node verifies before `WebAssembly.instantiate`, both ends wired for the first time
+- [ ] **Phase 16: Decomposable Tree-Reduce Wiring** - A live multi-node job merges partials up `executeReduce`'s derived tree, replacing the demo's linear scan
+- [ ] **Phase 17: Node Identity & Enrollment** - A node generates its identity on-device and enrolls through a rate-limited, provider-signed flow that a peer verifies offline
+- [ ] **Phase 18: Discovery, Capacity & Placement** - Nodes discover candidates, sample and select by load, and refuse over-committed work — no static peer list, on a real job
+- [ ] **Phase 19: Quorum Composition & Owner-Domain Attestation** - Verification quorums compose under anti-affinity and backbone anchoring, and owner-domain agreement is labelled distinctly from independent-operator agreement, on a real job
+- [ ] **Phase 20: Single Job Path, Ledger & Churn Resilience** - `submitJob` becomes the one job path — lease, speculate, account for coverage — and the peer ledger records real outcomes instead of discarding them
+- [ ] **Phase 21: AOT Translation Signing & Runtime** - `translationCid` is called by the lift pipeline and a production node constructs a real `WasiExecutor`
+- [ ] **Phase 22: Reachability Guard** - A guard test fails when an exported capability has no path from a runnable entry point — the class of defect this milestone exists to fix
 
 ## Phase Details
 
@@ -224,14 +236,166 @@ which emits JS glue and splits the ABI); no `-pthread` in any edge artifact; AAr
 static input. **Correction: "unstripped" was wrong.** A stripped binary lifts fine if
 `.eh_frame` survives, because the loader recovers function entries through libdwarf.
 
+### Phase 11: Explicit serveAgent Hook Contract
+**Goal**: Every `serveAgent` call site states an explicit value for all six hooks — `authorize`, `index`, `capacity`, `ledger`, `reservations`, `onDispatch` — so an omission is a compile error a developer sees at the call site, not a default nobody noticed
+**Mode:** mvp
+**Depends on**: Nothing new — builds directly on the v1.0 codebase. Sequenced first within v1.1, ahead of every other phase in this milestone, because it is the structural cause the other 35 unwired requirements share: making the hooks non-optional turns each remaining capability into a build failure at its call site rather than a fact someone has to go looking for
+**Requirements**: WIRE-01
+**Research**: None — this is a signature change to an existing, fully-understood function (`packages/net/src/agent.ts:65-120`) plus updating its five known call sites; no new algorithm or library
+**Success Criteria** (what must be TRUE):
+  1. Removing any single hook argument from a `serveAgent(...)` call in `packages/node/src/bin/agent.ts`, `bin/seed.ts`, or the browser node bootstrap fails `tsc --noEmit`, naming the missing hook — omission is a compile error, not a silent default
+  2. Every production call site that starts a node — `bin/agent.ts`, `bin/seed.ts`, `bin/bench.ts`, and the browser demo — passes all six hooks explicitly; grepping production source for `serveAgent(` shows no call with fewer than six named hook arguments
+  3. Starting two nodes via `bin/agent.ts` and dispatching a job between them still completes successfully after the refactor, and the already-fixed `reservations` hook continues to answer real peer IDs rather than regressing to `[]`
+**Plans**: TBD
+
+### Phase 12: Sovereignty-Pinned Placement
+**Goal**: A sovereignty label travels with its data and pins its map task to the owner's node on the one live job path, with pushdown and backbone execution-ineligibility enforced — not only in a test that builds its own fabric by hand
+**Mode:** mvp
+**Depends on**: Phase 11
+**Requirements**: DATA-03, DATA-04, DATA-07, DATA-09
+**Research**: None — `submitJob` gains an owner label field and a placement filter; the sovereignty-gate logic (`planPlacement`'s owner-narrowing) already exists and is unit-verified in Phase 4. The work is wiring it onto the path a job actually runs through
+**Success Criteria** (what must be TRUE):
+  1. A job submitted through `bin/agent.ts` whose input carries an owner's sovereignty label places its map task only on nodes in that owner's node set; a test that applies artificial load pressure specifically to force relocation onto a non-owner node fails to move it, because the live placement path has no branch that can
+  2. `JobSpec` and `Task` objects constructed by `submitJob` — the one production job path, not `runResilient` — carry a non-optional owner label; submitting a job without one is rejected rather than silently treated as unowned
+  3. Running that job with a filter/projection/partial-aggregation step shows the owner's node performing the reduction locally — the bytes crossing the network are the reduced output, observable by comparing egress size to the raw input size, not the raw input itself
+  4. Dispatching a sovereign task at a backbone node holding only an encrypted replica of the data is refused before instantiation and names the sovereignty violation, even though that same node answers availability queries for the data
+**Plans**: TBD
+
+### Phase 13: Egress Manifest Completeness
+**Goal**: Both `FabricNode` and the browser node construct their `RpcEndpoint` over an `EgressGuard`-wrapped transport instead of the raw `Libp2pTransport`, so the egress manifest is complete by construction on a real job
+**Mode:** mvp
+**Depends on**: Phase 11
+**Requirements**: DATA-05, DATA-06
+**Research**: None — `EgressGuard` exists and is unit-verified in Phase 4; the change is two call sites (`fabric-node.ts:311`, `browser-node.ts:181`) that currently pass the unwrapped transport
+**Success Criteria** (what must be TRUE):
+  1. A stream tap installed on the wire between two nodes started via `bin/agent.ts` fails a running cross-owner job if a single raw sovereign byte crosses it
+  2. Every job run through `bin/agent.ts` or the browser demo emits an egress manifest recording exactly what left each owner's node, with byte counts, retrievable from the job's own result metadata after completion — not only inside a test harness
+  3. The manifest for a job with zero sovereign data crossing the network reports zero sovereign bytes, and the manifest for a job that legitimately moves an aggregate reports only the aggregate's size, never the raw input's
+**Plans**: TBD
+
+### Phase 14: Signed Artifact Resolution
+**Goal**: A production node resolves a task's module through a `key → CID` mapping signed by a trusted build authority — never a bare CID — on the live dispatch path
+**Mode:** mvp
+**Depends on**: Phase 11
+**Requirements**: DET-03, DATA-08
+**Research**: None — `signName`/`SignedNameResolver` exist and are unit-verified in Phase 4; the work is routing production module resolution through them instead of resolving bare CIDs directly
+**Success Criteria** (what must be TRUE):
+  1. A production node resolving a task's module CID does so through a signed `key → CID` mapping; resolving a bare, unsigned CID directly is refused, with the refusal naming the missing signature
+  2. A mapping signed by a key outside the node's pinned trust anchors is refused at resolution time, before `WebAssembly.instantiate` runs, rather than being accepted because the CID itself is well-formed
+  3. Running `bin/agent.ts` against a real signed artifact resolves and executes it end to end, proving `signName`/`SignedNameResolver` sit on the production dispatch path rather than only in their own spec
+**Plans**: TBD
+
+### Phase 15: Capability-Chained Dispatch
+**Goal**: A task dispatched between two live nodes carries a capability chain rooted at the data owner's key, and the receiving node's `authorize` hook verifies it before `WebAssembly.instantiate` — both ends wired for the first time
+**Mode:** mvp
+**Depends on**: Phase 11
+**Requirements**: AUTH-03
+**Research**: None — `verifyChain` and the capability-chain format already exist and are unit-verified in Phase 4; the gap is `RemoteExecutor` never attaching a chain and no node ever supplying a real `authorize` hook (Phase 11 makes the hook explicit; this phase makes it real)
+**Success Criteria** (what must be TRUE):
+  1. A task dispatched through `bin/agent.ts` between two live nodes carries a capability chain attached by `RemoteExecutor`, and the receiving node's `authorize` hook verifies it before calling `WebAssembly.instantiate`
+  2. A task arriving with no capability chain, or one that has expired, is refused before instantiation, and the refusal names the missing or expired link, observable in the node's response
+  3. A validly delegated sub-chain (owner → intermediate → executor) is accepted, and a chain with a broken delegation link is refused, proving delegation depth is checked and not merely the chain's presence
+**Plans**: TBD
+
+### Phase 16: Decomposable Tree-Reduce Wiring
+**Goal**: A live multi-node job merges its shard partials by walking `executeReduce`'s derived tree, replacing the demo's linear scan
+**Mode:** mvp
+**Depends on**: Phase 12
+**Requirements**: MR-02, MR-03, MR-04, MR-05, MR-06, MR-07
+**Research**: None — `executeReduce`/`deriveReduceTree` exist and are unit-verified in Phase 5; the gap is that nothing calls them on a real job
+**Success Criteria** (what must be TRUE):
+  1. A job run through `bin/agent.ts` across 8 or more live nodes merges its shard partials by walking the derived reduce tree — not a linear scan — and the aggregate matches a single-node reference computation bit-for-bit
+  2. Killing a combine node mid-job during a run through `bin/agent.ts` causes its combine to be recomputed elsewhere from content-addressed inputs with no state transfer, and the job still completes with the correct aggregate
+  3. A duplicate combine result arriving late from a recovered node is discarded harmlessly because it carries the same CID — observable as the job completing without double-counting or erroring
+  4. `bin/bench.ts` reports the reduce-tree combine step (rendezvous-assigned executors, tree depth) as part of its measured job path, rather than bypassing `executeReduce` the way the demo currently does
+**Plans**: TBD
+
+### Phase 17: Node Identity & Enrollment
+**Goal**: A node generates its identity key on-device and completes a rate-limited, provider-signed enrollment before it is treated as a peer, and a peer verifies that certificate offline
+**Mode:** mvp
+**Depends on**: Phase 11
+**Requirements**: AUTH-01, AUTH-02, AUTH-04
+**Research**: None — `requestEnrollment`, `EnrollmentAuthority`, and `verifyCertificate` exist and are unit-verified in Phase 6; the gap is that nothing on the production startup path calls them, so a running node's identity is still the raw libp2p peer ID
+**Success Criteria** (what must be TRUE):
+  1. Starting a node via `bin/agent.ts` for the first time generates an identity key on-device and completes a rate-limited enrollment flow against a provider, receiving a provider-signed certificate — observable as the node's advertised identity being a certificate rather than a bare libp2p peer ID
+  2. A second node started via `bin/agent.ts` verifies the first node's certificate offline, with no live call to any certificate authority, before treating it as a legitimate peer, and rejects a self-signed or forged certificate with a named reason
+  3. Attempting to enroll many node identities in a burst through the same entry point is rate-limited — refused beyond a stated threshold rather than accepted unbounded — making mass fake-node creation measurably costly
+**Plans**: TBD
+
+### Phase 18: Discovery, Capacity & Placement
+**Goal**: A requestor with no static peer list finds candidates by querying real content-CID providers, samples and selects by load, and an over-committed node refuses work with a stated reason — on a real job, not a hand-built fabric
+**Mode:** mvp
+**Depends on**: Phase 17 (node identity feeds capability records), Phase 12 (owner label needed for the sovereignty-vs-cost ordering)
+**Requirements**: SCHED-01, SCHED-02, SCHED-03, SCHED-04, SCHED-05, NET-05
+**Research**: None — `discoverExecutors`, `placeWithOffers`, and `DutyCycleGovernor` exist and are unit-verified in Phases 1 and 6; the gap is that `discoverExecutors` and the `capacity` hook (made explicit in Phase 11) have no production caller, and the governor is wired on the browser tier only
+**Success Criteria** (what must be TRUE):
+  1. A job submitted through `bin/agent.ts` with no static peer list configured finds candidate executors by querying real content-CID providers intersected with capability records — not a hardcoded list — and dispatches successfully
+  2. Placement observed during that run samples multiple candidates and selects the least-loaded; a node made to report itself over capacity refuses the offer with a stated reason, visible in the requestor's re-pick, and the job still completes
+  3. A user-set CPU duty-cycle cap set at runtime on a running node — Node tier and browser tier alike — is honoured immediately, and the node's advertised capacity to `discoverExecutors` drops accordingly, observable in what the requestor is offered next
+  4. A relay run via `bin/seed.ts` at reservation capacity reports the exhaustion by name to a joining node attempting to reserve, rather than the joiner failing indistinguishably from a network outage
+  5. Under artificial load pressure applied during a live run, a sovereignty-pinned task still lands on its owner even though a lower-cost non-owner node is available, proving the cost heuristic is filtered after the sovereignty constraint rather than scored against it
+**Plans**: TBD
+
+### Phase 19: Quorum Composition & Owner-Domain Attestation
+**Goal**: Verification quorums compose under anti-affinity with a backbone-anchored replica, owner-domain agreement is labelled distinctly from independent-operator agreement, and two browser tabs on a static bundle find each other with nothing dialed by a harness
+**Mode:** mvp
+**Depends on**: Phase 18, Phase 17
+**Requirements**: AUTH-05, NET-06, VER-03, VER-04, VER-08, VER-09, VER-10, WIRE-03
+**Research**: None — `composeQuorum`, `attestationReceipt`, and `resolveReplicaSets` exist and are unit-verified in Phase 6; the gap is that nothing on the production dispatch path calls them, and no test has ever put two tabs on a static bundle without a harness dialing for them
+**Success Criteria** (what must be TRUE):
+  1. A verification quorum assembled during a job run through `bin/agent.ts` contains at least one backbone-anchored replica and no two replicas from the same operator — a run engineered to try to fill a quorum from one operator's nodes is refused rather than silently accepted
+  2. Several node certificates chaining to one owner's user key resolve, through `bin/agent.ts`, as a single discoverable replica set; a sovereignty-pinned task with two or more of that owner's nodes live executes on two of them, the outputs are compared, and the receipt reports the agreement as owner-domain, not independent-operator
+  3. The same task with only one of that owner's nodes live executes once, and the resulting receipt reads owner-attested rather than verified, wherever it is displayed — CLI output, demo UI, or job result
+  4. Two browser tabs opened against the static demo bundle — no seed process running, no `/bootstrap.json`, nothing dialed by a test harness — discover each other via the wired `index`/`reservations` hooks and complete a job together, proving browser peers participate in routing as full peers rather than only through backbone-served fallback
+**Plans**: TBD
+
+### Phase 20: Single Job Path, Ledger & Churn Resilience
+**Goal**: `submitJob` becomes the one job path — lease renewal, speculation, and coverage accounting live inside it, not in a second uncalled implementation — and the peer ledger records real cross-node outcomes instead of discarding them
+**Mode:** mvp
+**Depends on**: Phase 18, Phase 19
+**Requirements**: WIRE-04, CHURN-01, CHURN-02, CHURN-03, CHURN-04, CHURN-05, CHURN-06, BROW-02
+**Research**: None — `runResilient`'s lease/speculation/coverage machinery exists and is unit-verified in Phase 7; the gap is that nothing calls it, so `submitJob` is the only reachable job path and it does neither. `ledger` (made explicit in Phase 11) is supplied by no node in production
+**Success Criteria** (what must be TRUE):
+  1. `submitJob` is the only function a caller uses to run a job through `bin/agent.ts` — it performs lease renewal, speculation, and coverage accounting internally; `runResilient` no longer exists as a separate, uncalled entry point, either merged in or removed
+  2. Killing 30% of participating node processes mid-job, run through `bin/agent.ts`, still produces the correct final result, with re-dispatches visible in the job's history output
+  3. A straggler task is duplicated speculatively during a live run, the first correct result wins, and the job's reported cost accounting includes the speculation multiplier
+  4. A cross-owner job run with some owners' nodes offline returns a coverage report (`covered: X/Y`) alongside its result, rather than presenting a silently partial aggregate as complete
+  5. The browser demo's peer activity ledger, viewed across two or more connected tabs, shows merged counts contributed by every connected peer — not zero — because every node now supplies `serveAgent`'s `ledger` hook and reported outcomes are recorded rather than discarded
+**Plans**: TBD
+
+### Phase 21: AOT Translation Signing & Runtime
+**Goal**: `translationCid` is called by the lift pipeline itself and the CLI emits the CID it produces; a production node constructs a real `WasiExecutor` so a translated artifact dispatched to a running node executes instead of failing at instantiate
+**Mode:** mvp
+**Depends on**: Phase 11. Otherwise independent of Phases 12-20 and runs in parallel with them, mirroring how Phase 10 ran parallel to Phases 4-9 in v1.0
+**Requirements**: AOT-02, AOT-04
+**Research**: None — `translationCid`, the `TranslationRecord` cache-key shape, and port conformance against a real elfconv artifact all exist and are verified in Phase 10; the gap is that the lift pipeline never calls `translationCid` and no production node builds a `WasiExecutor`
+**Success Criteria** (what must be TRUE):
+  1. Running `tools/aot/cli.ts` against a real AArch64 binary produces a `TranslationRecord` whose CID covers input digest, toolchain versions, target, and WASM feature set, and the CLI prints that CID to the operator
+  2. Re-tagging a local translated image under a different name and pointing the CLI at it is refused rather than hashed under the borrowed name, and changing any one covered input changes the emitted CID
+  3. A translated artifact produced by `tools/aot/cli.ts`, dispatched to a live node started via `bin/agent.ts`, executes successfully — the node constructs a real `WasiExecutor` in production, completing the same admission and verification path as a source-compiled module
+**Plans**: TBD
+
+### Phase 22: Reachability Guard
+**Goal**: A guard test fails when a capability exported from a package barrel has no traced call path from any of the five runnable entry points — the class of defect this milestone exists to fix, made permanent
+**Mode:** mvp
+**Depends on**: Phases 11-21 — runs last because it verifies what all eleven other phases claim to have wired
+**Requirements**: WIRE-02
+**Research**: None — the pattern to follow is `purity.node.test.ts`, which already enforces a structural property (no forbidden imports in a portable package) against real files rather than a mock. This guard does the same for call-graph reachability instead of import origin
+**Success Criteria** (what must be TRUE):
+  1. Running the reachability guard after Phases 11-21 land passes clean — every capability exported from a package barrel has a traced call path from one of the five runnable entry points (`bin/agent.ts`, `bin/seed.ts`, `bin/bench.ts`, `tools/aot/cli.ts`, the browser demo)
+  2. Reintroducing the original defect — commenting out a wired call site, or adding a new exported-but-uncalled function — fails the guard, naming the unreachable symbol and the barrel it came from, the same way `purity.node.test.ts` names a layering violation
+  3. The guard runs as part of the same CI gate as the rest of the suite, so a future change that builds a mechanism without wiring it to an entry point fails CI rather than merging silently, the way the original 36 did
+**Plans**: TBD
+
 ## Progress
 
 **Execution Order:**
-Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 → 9 → 10
+Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 → 9 → 10 → 11 → 12 → 13 → 14 → 15 → 16 → 17 → 18 → 19 → 20 → 21 → 22
 
 Parallel tracks (config `parallelization: true`):
 - Phase 9 (benchmark) runs alongside Phases 7-8 against the dispatch API frozen in Phase 6
-- Phase 11 (elfconv AOT) runs alongside everything from Phase 4 onward; it only needs Phase 5's signing infrastructure to land before its own exit
+- Phase 10 (elfconv AOT) runs alongside everything from Phase 4 onward; it only needs Phase 5's signing infrastructure to land before its own exit
+- Phase 21 (AOT translation signing & runtime) needs only Phase 11's hook contract and can run parallel to Phases 12-20, mirroring how Phase 10 ran parallel to Phases 4-9 in v1.0
 
 <!-- "Plans Complete" is a dash throughout: this project executes phases directly
      and records each in `phases/<name>/SUMMARY.md` rather than as numbered plans. -->
@@ -248,8 +412,22 @@ Parallel tracks (config `parallelization: true`):
 | 8. Benchmark Harness | — | 4 of 5 criteria — BENCH-06 distinct machines needs a second machine | 2026-07-26 |
 | 9. Public Demo, Consent UX & Disclosure Gate | — | Complete — the two-device run was done by the owner and found two defects | 2026-07-26 |
 | 10. elfconv AOT Native→WASM Pipeline | — | 3 of 4 criteria — code cache measured and does not happen; cross-machine CID needs a second machine | 2026-07-27 |
+| 11. Explicit serveAgent Hook Contract | 0/TBD | Not started | - |
+| 12. Sovereignty-Pinned Placement | 0/TBD | Not started | - |
+| 13. Egress Manifest Completeness | 0/TBD | Not started | - |
+| 14. Signed Artifact Resolution | 0/TBD | Not started | - |
+| 15. Capability-Chained Dispatch | 0/TBD | Not started | - |
+| 16. Decomposable Tree-Reduce Wiring | 0/TBD | Not started | - |
+| 17. Node Identity & Enrollment | 0/TBD | Not started | - |
+| 18. Discovery, Capacity & Placement | 0/TBD | Not started | - |
+| 19. Quorum Composition & Owner-Domain Attestation | 0/TBD | Not started | - |
+| 20. Single Job Path, Ledger & Churn Resilience | 0/TBD | Not started | - |
+| 21. AOT Translation Signing & Runtime | 0/TBD | Not started | - |
+| 22. Reachability Guard | 0/TBD | Not started | - |
 
 ## Requirement Coverage
+
+### v1.0 (Phases 1-10)
 
 72 of 72 v1 requirements mapped, each to exactly one phase.
 
@@ -267,46 +445,71 @@ Parallel tracks (config `parallelization: true`):
 | 10 | AOT-01, AOT-02, AOT-03, AOT-04, AOT-05 | 5 |
 | **Total** | | **72** |
 
+Note: the "Phase" column above records where each requirement's *mechanism* was built.
+36 of these 72 were reclassified `[ ]` **Built, not wired** by the v1.0 audit — the
+mechanism exists at the phase listed, but no runnable entry point reaches it. See the
+v1.1 table below for where each is being wired.
+
+### v1.1 — Wire What Was Built (Phases 11-22)
+
+44 of 44 v1.1-scoped requirements mapped, each to exactly one phase — 40 existing IDs
+reclassified *Built, not wired* by the v1.0 audit, plus 4 new IDs (WIRE-01…04) that have
+no v1 equivalent.
+
+| Phase | Requirements | Count |
+|-------|--------------|-------|
+| 11 | WIRE-01 | 1 |
+| 12 | DATA-03, DATA-04, DATA-07, DATA-09 | 4 |
+| 13 | DATA-05, DATA-06 | 2 |
+| 14 | DET-03, DATA-08 | 2 |
+| 15 | AUTH-03 | 1 |
+| 16 | MR-02, MR-03, MR-04, MR-05, MR-06, MR-07 | 6 |
+| 17 | AUTH-01, AUTH-02, AUTH-04 | 3 |
+| 18 | SCHED-01, SCHED-02, SCHED-03, SCHED-04, SCHED-05, NET-05 | 6 |
+| 19 | AUTH-05, NET-06, VER-03, VER-04, VER-08, VER-09, VER-10, WIRE-03 | 8 |
+| 20 | WIRE-04, CHURN-01, CHURN-02, CHURN-03, CHURN-04, CHURN-05, CHURN-06, BROW-02 | 8 |
+| 21 | AOT-02, AOT-04 | 2 |
+| 22 | WIRE-02 | 1 |
+| **Total** | | **44** |
+
+Explicitly out of scope for v1.1 — not mapped to any v1.1 phase, stay open against their
+v1.0 phase: **NET-03** (Phase 3 — needs a publicly reachable host), **BENCH-06** (Phase 8 —
+needs a second machine), **AOT-03** (Phase 10 — the same second machine), **AOT-05**
+(Phase 10 — a measured negative, reported unmet rather than reworded).
+
 ---
 
-## Next milestone — v1.1: Wire What Was Built
+## Milestone v1.1 — Wire What Was Built (Phases 11-22)
 
-**Added 2026-07-27, as the direct output of the v1.0 milestone audit.**
+**Added 2026-07-27, as the direct output of the v1.0 milestone audit.** Phases 11-22
+above are the real phase breakdown; this section replaces the earlier scoping
+placeholder.
 
 v1.0 built four phases' worth of mechanism that no runnable entry point reaches:
 sovereignty labelling, tree-reduce, discovery, enrollment, quorum composition,
-capability chains, and the entire churn coordinator. 36 requirements are *Built, not
-wired*. The code is real and tested; the wire is missing.
+capability chains, and the entire churn coordinator. 36 requirements were *Built, not
+wired*. The code is real and tested; the wire was missing.
 
-The structural cause is one shape, repeated: `serveAgent` declares six optional hooks
-with silent defaults, and production supplies almost none of them. A hook that defaults
-to "allow", "empty", or "accept" turns an unwired capability into a *working system
-that quietly does nothing* — which is why none of this failed a test.
+**The sequencing is deliberate, not alphabetical.** Phase 11 fixes the structural
+cause — `serveAgent`'s six silently-defaulting hooks become an explicit, compile-checked
+contract — before anything else, because that is what turns the remaining 35
+requirements into build failures at their call sites rather than something a person has
+to go looking for a year later. Phases 12-15 wire sovereignty, egress, signing, and
+capability dispatch (the mechanism built in v1.0 Phase 4); Phase 16 wires tree-reduce
+(v1.0 Phase 5); Phases 17-19 wire identity, discovery, placement, and quorum composition
+(v1.0 Phase 6, split three ways at fine granularity — enrollment and certificates first,
+since discovery and quorum composition consume them); Phase 20 collapses `runResilient`
+and `submitJob` into the one job path and wires churn resilience plus the peer ledger
+(v1.0 Phase 7, plus two partials); Phase 21 finishes the AOT pipeline's two open wiring
+gaps (v1.0 Phase 10); Phase 22 is the reachability guard that would have caught this
+milestone happening in the first place — it runs last because it verifies the other
+eleven phases actually did what they claim.
 
-**Goal**: every requirement marked *Built, not wired* becomes reachable from a runnable
-entry point, or is deliberately descoped with the reason recorded.
+Almost no code here is algorithmically novel — the mechanisms already exist, unit-tested,
+in the v1.0 phase directories. Each v1.1 phase's job is to make a runnable entry point
+(`bin/agent.ts`, `bin/seed.ts`, `bin/bench.ts`, `tools/aot/cli.ts`, or the browser demo)
+actually call it.
 
-**Candidate criteria** (to be firmed up in `/gsd-plan-phase`):
-
-1. `serveAgent`'s optional hooks stop defaulting silently. A node that supplies no
-   `authorize` should be a decision someone made, not a default nobody noticed — the
-   audit found `ledger` supplied *nowhere*, in production or in a single test.
-2. A dispatched task carries a capability chain and the serving node verifies it before
-   `WebAssembly.instantiate` — both ends, since today neither exists.
-3. `JobSpec`/`Task` carry an owner label, and the real job path consults the
-   sovereignty gate. Today `executorsFor` is unconditional round-robin.
-4. Both nodes wrap their transport in `EgressGuard`, so the manifest is complete by
-   construction as designed rather than only in a test.
-5. One job path, not two. Either `submitJob` grows lease/speculation/coverage, or
-   `runResilient` becomes the entry point — the present arrangement is a second job
-   implementation nothing calls.
-6. `translationCid` is called by the lift pipeline, and the CLI emits the CID.
-7. A production node can construct a `WasiExecutor`, so a translated artifact
-   dispatched to a running node does not fail at instantiate.
-8. **A test that would have caught this class.** The audit found the defect; no test
-   could have. Something that asserts reachability from an entry point — the same role
-   `purity.node.test.ts` plays for layering.
-
-**Not in v1.1**: NET-03, BENCH-06 and AOT-03 stay open until there is a public host and
-a second machine. AOT-05 stays a measured negative unless a re-run on an `https` origin
-with a non-automated Chromium says otherwise.
+**Not in v1.1** (per PROJECT.md): NET-03 (needs a publicly reachable host), BENCH-06 and
+AOT-03 (one second machine wearing two numbers), AOT-05 (a measured negative — reported
+unmet rather than reworded until re-run against an `https` origin says otherwise).
