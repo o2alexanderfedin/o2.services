@@ -292,7 +292,7 @@ table below and in the audit.
 
 ### Wiring Integrity (new IDs)
 
-- [ ] **WIRE-01**: Every `serveAgent` call site states a value for all six hooks. A node
+- [x] **WIRE-01**: Every `serveAgent` call site states a value for all six hooks. A node
       that serves without an authorizer, an index, a capacity source, a ledger, a
       reservation thunk or a dispatch callback does so because someone recorded that
       decision — not because an argument was left off. **Omitting one is a compile
