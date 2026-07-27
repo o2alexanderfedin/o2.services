@@ -116,8 +116,8 @@ export type VerificationResult =
       agreeing: readonly string[]
       /** Redundancy actually achieved. */
       replicas: number
-      grossNodeSeconds: number
-      usefulNodeSeconds: number
+      grossFuel: number
+      usefulFuel: number
     }
   | {
       status: 'disagreed'
@@ -180,7 +180,7 @@ export async function executeVerified(
     else groups.set(key, [rev.nodeId])
   }
 
-  const grossNodeSeconds = verified.reduce((sum, r) => sum + r.fuelUsed, 0)
+  const grossFuel = verified.reduce((sum, r) => sum + r.fuelUsed, 0)
 
   if (groups.size > 1) {
     return {
@@ -197,7 +197,7 @@ export async function executeVerified(
     output: winner.output,
     agreeing: verified.map((r) => r.nodeId),
     replicas: verified.length,
-    grossNodeSeconds,
-    usefulNodeSeconds: winner.fuelUsed,
+    grossFuel,
+    usefulFuel: winner.fuelUsed,
   }
 }

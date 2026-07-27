@@ -43,7 +43,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 5: Decomposable Tree-Reduce** - Cross-owner aggregation merges up a derived tree with no shuffle, no consensus, and no state to migrate
 - [x] **Phase 6: Discovery, Placement & Enrollment** - The static peer list disappears; nodes find each other and choose placement under identity and diversity constraints
 - [x] **Phase 7: Churn, Stragglers & Coordinator Survival** - A job finishes correctly when the machines running it — including the submitter — vanish mid-flight
-- [ ] **Phase 8: Benchmark Harness** - The scaling claim becomes a reproducible published number with its costs included rather than excluded
+- [x] **Phase 8: Benchmark Harness** - The scaling claim becomes a reproducible published number with its costs included rather than excluded
 - [ ] **Phase 9: Public Demo, Consent UX & Disclosure Gate** - A visitor consents, contributes to a job someone cares about, and nothing publishes without a deliberate human action
 - [ ] **Phase 10: elfconv AOT Native→WASM Pipeline** - A statically-linked native binary becomes a fabric-executable artifact under the same admission checks and verification
 
@@ -164,6 +164,7 @@ that demotes an entire tier.
 **Goal**: The scaling claim becomes a reproducible published number with its costs included rather than excluded — a separate and harder claim than "it works"
 **Mode:** mvp
 **Depends on**: Phase 5 (dispatch API frozen). Runs in parallel with Phases 6-7
+**Status**: COMPLETE — 4 of 5 criteria; BENCH-06's distinct-machine half needs a second machine. See `phases/phase-8-benchmark/SUMMARY.md`
 **Requirements**: BENCH-01, BENCH-02, BENCH-03, BENCH-04, BENCH-05, BENCH-06
 **Research**: Standard patterns — `@libp2p/perf` is a specified cross-implementation protocol so numbers compare to published go/rust-libp2p figures, and the methodology is pre-registered here, before any number exists
 **Success Criteria** (what must be TRUE):

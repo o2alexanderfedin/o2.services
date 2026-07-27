@@ -71,8 +71,8 @@ describe('executeVerified — agreement', () => {
       expect(r.replicas).toBe(2)
       expect([...r.agreeing].sort()).toEqual(['a', 'b'])
       // Gross counts both replicas; useful counts the one that produced the answer.
-      expect(r.grossNodeSeconds).toBe(200)
-      expect(r.usefulNodeSeconds).toBe(100)
+      expect(r.grossFuel).toBe(200)
+      expect(r.usefulFuel).toBe(100)
     }
   })
 
@@ -207,8 +207,8 @@ describe('submitJob — sharding and content addressing (MR-01, DATA-01)', () =>
     expect(r.ok).toBe(true)
     if (r.ok) {
       expect(r.job.verificationMultiplier).toBe(2)
-      expect(r.job.grossNodeSeconds).toBe(400)
-      expect(r.job.usefulNodeSeconds).toBe(200)
+      expect(r.job.grossFuel).toBe(400)
+      expect(r.job.usefulFuel).toBe(200)
     }
   })
 

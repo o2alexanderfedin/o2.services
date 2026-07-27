@@ -44,9 +44,23 @@ export interface JobResult {
   /** True only if every shard reached `agreed`. */
   readonly complete: boolean
   /** Node-seconds spent including redundant work. */
-  readonly grossNodeSeconds: number
+  /**
+   * Fuel spent including redundant work — **not seconds**.
+   *
+   * Fuel is bytes moved across the guest ABI (see `WasmExecutor`), chosen because it
+   * is deterministic where wall time is not. These fields were once called
+   * `grossNodeSeconds`/`usefulNodeSeconds`, which named a unit they never carried; a
+   * benchmark publishing them as seconds would have been wrong by a factor nobody
+   * could have guessed. Renamed rather than documented, because a comment does not
+   * travel with the number into a report.
+   *
+   * The *ratio* is meaningful whatever the unit, which is why
+   * `verificationMultiplier` was correct all along.
+   */
+  readonly grossFuel: number
   /** Node-seconds that contributed to the answer. */
-  readonly usefulNodeSeconds: number
+  /** Fuel that contributed to the answer. Same unit as `grossFuel`. */
+  readonly usefulFuel: number
   /**
    * Measured verification tax: gross / useful. Reported on every job so the cost
    * of verification is always visible rather than discovered later (VER-06).
@@ -148,8 +162,8 @@ export async function submitJob(
   let useful = 0
   for (const s of shards) {
     if (s.verification.status === 'agreed') {
-      gross += s.verification.grossNodeSeconds
-      useful += s.verification.usefulNodeSeconds
+      gross += s.verification.grossFuel
+      useful += s.verification.usefulFuel
     }
   }
 
@@ -159,8 +173,8 @@ export async function submitJob(
       moduleCid: spec.moduleCid,
       shards,
       complete: shards.every((s) => s.verification.status === 'agreed'),
-      grossNodeSeconds: gross,
-      usefulNodeSeconds: useful,
+      grossFuel: gross,
+      usefulFuel: useful,
       verificationMultiplier: useful === 0 ? 0 : gross / useful,
     },
   }
