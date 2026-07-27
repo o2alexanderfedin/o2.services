@@ -395,18 +395,26 @@
           const found = await window.o2.connectDiscoveredPeers()
           computePeers = await window.o2.computePeers()
           const connected = window.o2.peers().length
+          // Counted *including this tab*, because this tab is a node and runs the
+          // work too — a peer count silently excludes the reader from the fabric
+          // they are looking at, and this project's whole rule is that there is no
+          // kind of node they could be instead.
+          const computing = computePeers.length + 1
+          const spare = connected - computePeers.length
+          const detail =
+            (spare > 0 ? ` · ${spare} further connection(s) that do not compute` : '') +
+            (found.dialed.length > 0 ? ` · just dialled ${found.dialed.length}` : '')
+
           if (!found.asked) {
             $('peers').textContent =
-              `${connected} connection(s), ${computePeers.length} able to compute — ` +
-              'no peer directory on this host, so open the page from a seed node to find others'
+              `${computing} node(s) computing — this tab and ${computePeers.length} peer(s)${detail}` +
+              ' · no peer directory on this host, so open the page from a seed node to find others'
             return
           }
           $('peers').textContent =
             computePeers.length === 0
-              ? `${connected} connection(s), none of them a compute node yet — ` +
-                'open this URL on another device'
-              : `${computePeers.length} compute peer(s) of ${connected} connection(s)` +
-                (found.dialed.length > 0 ? ` · just dialled ${found.dialed.length}` : '')
+              ? `1 node computing — just this tab${detail}. Open this URL on another device.`
+              : `${computing} node(s) computing — this tab and ${computePeers.length} peer(s)${detail}`
         } catch (error) {
           $('peers').textContent = error instanceof Error ? error.message : String(error)
         }
