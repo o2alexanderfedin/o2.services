@@ -5,99 +5,72 @@
 See: .planning/PROJECT.md (updated 2026-07-24)
 
 **Core value:** Usable capacity grows super-linearly with the user base, without any raw data leaving its owner's device.
-**Current focus:** Phase 8 — Benchmark Harness (not started)
+**Current focus:** Phase 9 — Public Demo, Consent UX & Disclosure Gate (not started)
 
 ## Current Position
 
-Phase: 7 of 10 (Churn, Stragglers & Coordinator Survival) — **complete, 6 of 6 criteria**.
-Phase 3 is 5/6 (real AutoTLS needs a publicly reachable host); Phases 1, 2, 4, 5, 6, 7
-are complete. Next unit is Phase 8.
+Phase: 8 of 10 (Benchmark Harness) — **complete, 4 of 5 criteria**; BENCH-06's
+distinct-machine half needs a second machine. Phases 1, 2, 4, 5, 6, 7, 8 complete;
+Phase 3 is 5/6 (real AutoTLS needs a public host). Next unit is Phase 9.
 
 ```
-Test Files  67 passed
-     Tests  745 passed
+Test Files  71 passed
+     Tests  801 passed
 tsc --noEmit  clean
-Requirements  53 / 72
+Requirements  58 / 72
 ```
 
-Progress: [██████░░░░] 65% (6 of 10 complete; Phase 3 at 5/6, blocked only on hosting)
+Progress: [███████░░░] 75% (7 of 10 complete; Phase 3 at 5/6, blocked only on hosting)
 
-Last activity: 2026-07-26 — Phase 7 closed. A job now finishes correctly when the
-machines running it, including the submitter, vanish mid-flight.
+Last activity: 2026-07-26 — Phase 8 closed. The methodology was pre-registered in a
+commit containing no harness and no number; the numbers then came out as predicted,
+including the disappointing parts.
+
+### Where Phase 8 landed
+
+**The ordering was the requirement.** `BENCHMARK-METHODOLOGY.md` went in before any
+harness existed — checkable in `git log`. Three pre-registered predictions all held: the
+node axis would be sub-linear (it was flat), the COST crossover would be embarrassing
+(none, ~570×), and the fixture bias would dominate (it did).
+
+**The headline caveat is what the numbers cannot show.** Every node in both curves runs
+in one OS process on one event loop, so no parallel speedup is measurable at all. The
+flat makespan is the consequence of that, not a finding about scaling. The scaling claim
+is therefore **unmeasured** — which is neither disproved nor supported.
+
+**The incomplete-run rule paid for itself immediately.** The first full run reported
+19/19 incomplete at every memory rung rather than a suspiciously fast success: the memory
+workers could not fetch shard inputs. A harness that averaged failures in would have
+published a beautiful fictional curve.
+
+**A misnamed field, caught before publication.** `JobResult.grossNodeSeconds` named a
+quantity that was *bytes across the guest ABI*, not seconds — deterministic, which is
+right for a cost metric, and off by a factor nobody could guess if published as time.
+Renamed to `grossFuel`/`usefulFuel`; the driver measures real node-seconds itself.
+
+**Two ladder rungs published as excluded, not dropped.** Real transport at 8 and 16 nodes
+dies on `INBOUND_CONNECTION_THRESHOLD = 5` per host — the limit Phase 3 already found.
+A rung that vanishes between plan and results is indistinguishable from one removed for
+being inconvenient.
+
+Numbers: connectivity tax **8–10×**; no COST crossover; decomposition native 0.002ms →
+WASM in-process 0.61ms → distributed 1.3ms, so most of the gap is the ABI on a trivial
+fixture rather than the fabric.
 
 ### Where Phase 7 landed
 
-**The invariant everything rests on:** *liveness changes who computes a task and when,
-never what the answer is.* True because a result is a pure function of
-`(module, input, partition)` and content-addressed, so every recovery action is at worst
-wasted work. That is what lets the loop be aggressive — and it is the first thing to
-re-check if any of this changes.
-
-**A lease is a deadline, not a lock.** Criterion 4's "never orphaned leases" needs no
-cleanup code: nobody releases a deadline and no keeper notices the coordinator left. A
-lock would have needed the holder-liveness protocol the deadline replaces. The same idea
-makes resume trivial — a checkpoint holds CIDs, never values, so "starting" and
-"resuming" are the same code path.
-
-**Speculation's loser is harmless because both copies produce the same CID**, not because
-anything cancels it — cancellation is what fails when a node vanishes mid-cancel.
-
-**Three real defects, each found by a test:**
-
-1. *Re-dispatch picked the same dead node every generation.* Placement is deterministic
-   by design, so a retry re-derived the identical choice. Tried nodes are now excluded
-   before placement; narrowing the input keeps the sovereignty gate intact.
-2. *One `null` collapsed "node is gone" and "task is broken".* Three unlucky dead picks
-   retired a good shard, making the 30% criterion unachievable rather than merely slow.
-   They now carry a kind and get opposite retry policies.
-3. *The straggler watchdog was an OOM crash waiting for real I/O.* It re-wrapped every
-   pending promise per iteration and kept racing a timer that could no longer act. No
-   kernel test could show it — with a fake dispatch the loop never spins. The first test
-   using real RPC found it in 36 seconds and 4 GB.
-
-**A claim corrected rather than left standing:** the deadline half of the
-stale-completion check is a *contract* rule, not a correctness one. The holder check is
-what stops a re-granted task being overwritten. The strict version is kept — a lease
-whose expiry is negotiable is not a deadline — but the comment now says what each half
-actually buys.
-
-**Then an adversarial review found five more defects, none refuted.** The worst was the
-phase's own central claim failing: breaking out of the speculation race on the first
-arrival meant a losing copy's answer was never compared, so timing alone could pick
-between two *different* CIDs and the run reported clean — majority-vote-by-race, through
-the mechanism built for latency. The test guarding it was vacuous, with every assertion
-inside an `if` that could never be true; deleting disagreement reporting outright left
-all 374 node tests green. Also: the lease deadline was documented but never enforced, so
-a silent peer hung the whole job on *default* settings; coverage counted an owner as
-covered on any single shard; and a lapsed completion leaked its lease. All fixed, all
-mutation-tested.
-
-### Where Phase 6 landed
-
-**Discovery is an intersection of three independently-sourced facts** — who holds the
-block, who the node is (provider-signed certificate), and what it can run (node-signed
-capability record). None is worth anything alone, stated as a passing test: an attacker
-mints a valid capability record and gains nothing without a certificate from a pinned
-provider for the same key.
-
-**The power-of-d sample is derived, not drawn.** Rendezvous ranking on the shard id, so
-requestors converge instead of doubling up and a decision can be replayed. **Load is a
-hint; the offer is the authority** — `LocalCapacity` takes no ports, so "local
-information only" is a property of the type.
+A job survives its machines — and its submitter — vanishing mid-flight. A lease is a
+deadline, not a lock, so "never orphaned leases" needs no cleanup code and resume is the
+same path as start. Then an adversarial review found five defects and refuted none, the
+worst being that speculation could change the answer: breaking on the first arrival meant
+a losing copy was never compared, so timing alone could pick between two different CIDs.
+The test guarding it was vacuous. All fixed and mutation-tested.
 
 ### Where Phase 3 stands
 
 Two browser tabs, and separately an iPhone running Safari and a laptop running Chromium,
 complete a 4-shard 2×-redundant job over a **direct WebRTC** connection with the relay
-carrying only SDP. The relay's exit from the data path is asserted, not assumed.
-
-Remaining in Phase 3: real AutoTLS, which needs a publicly reachable host. Two items are
-out of scope for a test suite — a >1 hour hold under churn, and per-peer relayed byte
-counters, which js-libp2p does not expose.
-
-**Settled on real iOS hardware:** iOS resolves `.local` with no setup; Safari runs the
-node on a **non-secure** origin, including the WebRTC listen path; and the pure-JS
-hashing change was load-bearing.
+carrying only SDP. Remaining: real AutoTLS, which needs a publicly reachable host.
 
 ## Performance Metrics
 
@@ -160,6 +133,20 @@ Recent decisions affecting current work:
 - **Re-dispatch must exclude tried nodes before placement (Phase 7).** Placement is
   deterministic by design, so a retry otherwise re-derives the identical dead choice.
   Narrowing the input is safe — the sovereignty gate still runs inside `placeWithOffers`.
+- **Pre-registration is an ordering, not a document (Phase 8).** The methodology commit
+  contains no harness and no number, so `git log` proves the analysis was not chosen
+  after seeing the data. Predicting the disappointing results in advance is what stops
+  a flat curve being spun as a surprise.
+- **A fast failure is not a fast run (Phase 8).** Excluding incomplete runs from
+  makespan statistics is what turned a silent 19/19 failure into a visible bug instead
+  of a beautiful fictional curve.
+- **A unit in a field name is a claim (Phase 8).** `grossNodeSeconds` held bytes. The
+  ratio was fine, the absolute number would have been published wrong by a factor
+  nobody could guess. Rename rather than document — a comment does not travel with the
+  number into a report.
+- **Publish excluded configurations with the reason (Phase 8).** A rung that vanishes
+  between the plan and the results is indistinguishable, to a reader, from one removed
+  because its number was inconvenient.
 - **A fake that is faster than the real thing cannot see a timing bug (Phase 7).** The
   worst two churn defects — a hang, and a losing copy never compared — were both
   invisible to a suite whose dispatch resolved on a microtask. The integration test with
@@ -292,14 +279,12 @@ Items acknowledged and carried forward from previous milestone close:
 ## Session Continuity
 
 Last session: 2026-07-26
-Stopped at: **Phase 7 complete — 6 of 6 criteria, then adversarially reviewed and five
-defects fixed.** 745 tests green, `tsc --noEmit`
-clean, 53/72 requirements. A job survives its machines — and its submitter — vanishing
-mid-flight. See `phases/phase-7-churn/SUMMARY.md`.
-Next unit: **Phase 8 — benchmark harness.** The scaling claim becomes a reproducible
-published number with its costs included rather than excluded. Phase 7 supplies two of
-those costs already in the shape the harness needs: `speculationMultiplier` and
-`redispatches`, both reported on every run beside `verificationMultiplier`.
+Stopped at: **Phase 8 complete — 4 of 5 criteria.** 801 tests green, `tsc --noEmit`
+clean, 58/72 requirements. Methodology pre-registered before any number existed; the
+numbers came out as predicted. See `phases/phase-8-benchmark/SUMMARY.md`.
+Next unit: **Phase 9 — public demo, consent UX and disclosure gate.** Note DEMO-04 is a
+standing owner constraint: no deploy workflow file may exist in the repository at all,
+absent rather than disabled. Deployment stays a separately-triggered human action.
 Resume file: `.planning/.continue-here.md` — leads with three blocking constraints
 (no static determinism analysis, no cross-implementation verification, no host-import
 allow-list). Still current; they apply to every later phase.

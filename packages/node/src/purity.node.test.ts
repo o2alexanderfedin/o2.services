@@ -25,7 +25,7 @@ const ROOT = fileURLToPath(new URL('../../..', import.meta.url))
  * reference libp2p either, because they also have to work over the in-process
  * transport.
  */
-const PORTABLE = ['core', 'net']
+const PORTABLE = ['core', 'net', 'bench']
 
 /**
  * Packages that may use libp2p but still must not touch a platform.

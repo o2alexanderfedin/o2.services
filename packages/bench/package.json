@@ -1,0 +1,14 @@
+{
+  "name": "@o2/bench",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@o2/core": "*",
+    "@o2/net": "*",
+    "multiformats": "14.0.5"
+  }
+}
