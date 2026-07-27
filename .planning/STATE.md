@@ -9,15 +9,15 @@ See: .planning/PROJECT.md (updated 2026-07-24)
 
 ## Current Position
 
-Phase: 9 of 10 (Public Demo, Consent UX & Disclosure Gate) — **complete, 4 of 5
-criteria**; DEMO-01's multi-machine half was not run. Phases 1, 2, 4, 5, 6, 7, 8, 9
-complete; Phase 3 is 5/6 (real AutoTLS needs a public host). Next unit is Phase 10.
+Phase: 9 of 10 (Public Demo, Consent UX & Disclosure Gate) — **complete, 5 of 5
+criteria**. Phases 1, 2, 4, 5, 6, 7, 8, 9 complete; Phase 3 is 5/6 (real AutoTLS
+needs a public host). Next unit is Phase 10.
 
 ```
 Test Files  92 passed      node 574 · browser 513 · e2e 27
      Tests  1114 passed
 tsc --noEmit  clean
-Requirements  64 / 72
+Requirements  65 / 72
 ```
 
 Progress: [████████░░] 80% (8 of 10 complete; Phase 3 at 5/6, Phase 9 at 4/5, both
@@ -304,6 +304,14 @@ Recent decisions affecting current work:
   the other is a shortage of compute. Conflating them turns a limit into a false
   mathematical claim.
 
+- **"Was not run" is not "works" (Phase 9).** DEMO-01's multi-machine half was about
+  to be closed by reasoning from Phase 3's transport proof. Running it found two
+  real defects instead — one of which every multi-tab test had structurally been
+  unable to catch, because they all dial from the harness.
+- **Assert what is on screen, not what the attribute says (Phase 9).** An id rule
+  setting `display` outranks the browser's own `[hidden]`, so `getAttribute` was
+  right while the element was visible. `isVisible`, always.
+
 ### Pending Todos
 
 None yet.
@@ -357,10 +365,14 @@ DEMO-04 still holds and is now enforced by `disclosure-gate.node.test.ts`: no de
 workflow file may exist in the repository at all, absent rather than disabled, and no
 `package.json` script may publish. `build:demo` builds; nothing deploys.
 
-**Phase 9's open half needs a person, not code.** DEMO-01's multi-machine claim needs
-a second device opening the page — `node packages/node/src/bin/seed.ts` prints a
-`.local` URL and a QR code, and Phase 3 already proved the transport across machines.
-Nothing in the job depends on the transport, but it was not run.
+**The two-device run happened, and was worth it.** The owner ran the demo on an
+iPhone and a laptop against one LAN seed on 2026-07-26: both joined, one peer
+connected, the search distributed, the answer verified in the page. It found two
+defects the whole e2e suite had passed over — an always-visible bar that was
+literally always visible (an id `display` rule outranks `[hidden]`, and the tests
+asserted the attribute rather than the screen), and a peer filter that matched the
+relay's own id inside every circuit address, so two devices on one relay skipped
+every candidate and never heard of each other. Both fixed and now tested.
 Resume file: `.planning/.continue-here.md` — leads with three blocking constraints
 (no static determinism analysis, no cross-implementation verification, no host-import
 allow-list). Still current; they apply to every later phase.

@@ -1,7 +1,7 @@
 # Phase 9 — Public Demo, Consent UX & Disclosure Gate
 
-**Completed:** 2026-07-26 · **4 of 5 criteria** · DEMO-02, DEMO-03, DEMO-04,
-BROW-01, BROW-02, BROW-04 done; DEMO-01's multi-machine half unrun.
+**Completed:** 2026-07-26 · **5 of 5 criteria** · DEMO-01 through DEMO-04,
+BROW-01, BROW-02, BROW-04.
 
 ```
 Test Files  92 passed        node 574 · browser 513 · e2e 27
@@ -122,16 +122,27 @@ executor, and requires silence.
   renamed rather than exempted, because an exemption is a thing to maintain and a
   rename is not.
 
-## What is not true
+## The two-device run, and what it cost to skip it
 
-**The multi-machine half of DEMO-01 was not run.** Two tabs on one machine
-distribute the colouring job over a direct WebRTC connection with placement shown;
-two *machines* running this job were not tested. Phase 3 proved an iPhone and a
-laptop completing a 4-shard 2×-redundant job over the same transport, and nothing
-about this job depends on the transport — but "was not run" is not "works", and
-this project does not close that gap by reasoning. It needs a second device and a
-human to open a page on it, the same blocker family as Phase 3 criterion 1 and
-BENCH-06.
+DEMO-01's multi-machine half was going to be closed by reasoning — Phase 3 had
+proved the transport across an iPhone and a laptop, and nothing about this job
+depends on the transport. The owner ran it instead, and it found two defects the
+entire e2e suite had passed over:
+
+- **The always-visible bar was always visible.** An id rule setting `display`
+  outranks the browser's own `[hidden]`, so the bar showed "idle" and offered to
+  Stop a node that did not exist. Every test asserted the *attribute*, which was
+  always correct — an assertion that could not fail for the reason it was written.
+- **The two devices could never have found each other.** Nothing published who was
+  present, and the filter meant to skip already-connected peers matched the relay's
+  own id inside every circuit address, so every candidate was skipped and nothing
+  was attempted. `dialed: []`, `failed: []` — no error anywhere to notice. Every
+  other multi-tab test dials from the harness; that is exactly why none of them
+  caught it.
+
+Both are fixed and now tested. The lesson is the cheap one to state and the
+expensive one to learn: *"was not run" is not "works"*, and the gap between them
+was two real defects wide.
 
 **The search is plain chronological backtracking with a better variable order.** No
 unit propagation, no conflict analysis, no solver. n = 600 out of 7824 is not close,

@@ -1,8 +1,8 @@
 ---
-status: human_needed
+status: passed
 phase: 9
 verified: 2026-07-26
-criteria_met: 4
+criteria_met: 5
 criteria_total: 5
 ---
 
@@ -13,7 +13,7 @@ criterion, checked against a test rather than against an intention.
 
 ## 1. A static client distributes a real job across multiple browser tabs on multiple machines, showing live placement and results arriving
 
-**PARTIAL — tabs yes, machines unrun.**
+**MET** — tabs by test, machines by the owner running it.
 
 `packages/node/src/colouring-demo.e2e.test.ts` opens two isolated
 `BrowserContext`s, dials one from the other over a direct WebRTC connection, and
@@ -24,11 +24,29 @@ agreed on it — placement shown, not merely happening. The second tab's
 would fail. `built-bundle.e2e.test.ts` proves the same client works as static
 files on a server that 404s everything it does not have.
 
-**What is missing:** two *machines* running this job. Phase 3 established the
-transport across machines (an iPhone and a laptop completing a 4-shard
-2×-redundant job over direct WebRTC), and nothing about this job depends on the
-transport — but it was not run, and this project does not close that gap by
-reasoning. Needs a second device and a human to open a page on it.
+**The multi-machine half, closed on 2026-07-26.** The owner ran the demo on an
+iPhone and a laptop against one LAN seed: both joined, one peer connected, the
+search distributed, and the answer verified in the page. Owner-observed rather
+than captured by a test — which is what this criterion needed, since no CI here
+has two devices.
+
+It was worth doing rather than reasoning about, because it found two defects that
+the whole e2e suite had missed:
+
+- **The always-visible bar was always visible.** `#bar { display: flex }` is an id
+  selector and the browser's own `[hidden] { display: none }` is an attribute
+  selector, so the id rule won and the attribute did nothing. The bar showed
+  "idle" and offered to Stop a node that did not exist. Every test asserted the
+  `hidden` *attribute*, which was always correct — an assertion that could not
+  fail for the reason it was written. They assert visibility now, and removing the
+  fix reproduces the phone's screen and fails two of them.
+- **The two devices could never have found each other.** Nothing published who was
+  present, and the filter meant to skip already-connected peers used
+  `address.includes(peer)` against `<relayAddr>/p2p-circuit/webrtc/p2p/<target>` —
+  where `relayAddr` ends in the relay's own id, which every tab is connected to. So
+  every candidate was skipped: `dialed: []`, `failed: []`, nothing attempted and no
+  error to notice. Every other multi-tab test dials from the harness, which is
+  exactly why none of them caught it; the new one dials nothing.
 
 ## 2. The demo runs a task a person cares about the answer to, and a visitor can check that the answer is right
 
@@ -103,12 +121,9 @@ expressible, reasoned exemptions, and is mutation-proved with one planted case p
 banned term plus a case proving an exempt phrase does not shelter the rest of its
 line.
 
-## Human verification needed
+## Human verification
 
-1. **Open the demo on a second device** (a phone on the same LAN via
-   `node packages/node/src/bin/seed.ts`, which prints a `.local` URL and a QR
-   code) and run the search from one of them. This closes criterion 1 and needs
-   no code change — Phase 3 proved the transport across machines already.
+1. **Two devices — done, 2026-07-26.** See criterion 1 above.
 2. **Read the policy page** (`packages/browser/demo/policy.html`) as the owner,
    since it speaks for the project to a blocklist reviewer and names an appeal
    path that must actually be monitored.

@@ -235,7 +235,7 @@ Parallel tracks (config `parallelization: true`):
 | 6. Discovery, Placement & Enrollment | — | Complete | 2026-07-26 |
 | 7. Churn, Stragglers & Coordinator Survival | — | Complete — adversarially reviewed, 5 defects fixed | 2026-07-26 |
 | 8. Benchmark Harness | — | 4 of 5 criteria — BENCH-06 distinct machines needs a second machine | 2026-07-26 |
-| 9. Public Demo, Consent UX & Disclosure Gate | — | 4 of 5 criteria — DEMO-01's multi-machine half was not run | 2026-07-26 |
+| 9. Public Demo, Consent UX & Disclosure Gate | — | Complete — the two-device run was done by the owner and found two defects | 2026-07-26 |
 | 10. elfconv AOT Native→WASM Pipeline | — | Not started | - |
 
 ## Requirement Coverage

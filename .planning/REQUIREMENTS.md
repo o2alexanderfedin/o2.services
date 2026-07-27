@@ -187,10 +187,12 @@
 
 ### Demo & Disclosure
 
-- [ ] **DEMO-01**: A static client distributes a real job across browser tabs and
+- [x] **DEMO-01**: A static client distributes a real job across browser tabs and
       machines, showing live placement and results
-      *(tabs done and tested; the multi-machine half was not run — needs a second
-      device, the same blocker as Phase 3 criterion 1 and BENCH-06)*
+      *(tabs: e2e. Machines: run by the owner on 2026-07-26 — an iPhone and a laptop
+      on one LAN seed, one peer connected, the search distributed, and the answer
+      verified in the page. Owner-observed, not captured by a test; two defects it
+      exposed are fixed and now are.)*
 - [x] **DEMO-02**: The demo runs a task a person cares about, not a synthetic
       protocol exercise
 - [x] **DEMO-03**: The demo is deployable to static hosting with no server-side
@@ -314,7 +316,7 @@ All 72 v1 requirements are mapped, each to exactly one phase. See
 | BENCH-04 | Phase 8 — Benchmark Harness | Done |
 | BENCH-05 | Phase 8 — Benchmark Harness | Done |
 | BENCH-06 | Phase 8 — Benchmark Harness | Partial — same-machine labelling enforced and derived; distinct-machine runs need a second machine |
-| DEMO-01 | Phase 9 — Public Demo, Consent UX & Disclosure Gate | Pending |
+| DEMO-01 | Phase 9 — Public Demo, Consent UX & Disclosure Gate | Done |
 | DEMO-02 | Phase 9 — Public Demo, Consent UX & Disclosure Gate | Done |
 | DEMO-03 | Phase 9 — Public Demo, Consent UX & Disclosure Gate | Done |
 | DEMO-04 | Phase 9 — Public Demo, Consent UX & Disclosure Gate | Done |
