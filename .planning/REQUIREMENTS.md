@@ -173,14 +173,14 @@
 
 ### Benchmark & Proof
 
-- [ ] **BENCH-01**: A benchmark harness measures job makespan against participating
+- [x] **BENCH-01**: A benchmark harness measures job makespan against participating
       node count, reproducibly
-- [ ] **BENCH-02**: Benchmark methodology is pre-registered and committed before
+- [x] **BENCH-02**: Benchmark methodology is pre-registered and committed before
       the first published number
-- [ ] **BENCH-03**: Published results report p99 makespan, not mean
-- [ ] **BENCH-04**: The verification tax is included in reported cost, never
+- [x] **BENCH-03**: Published results report p99 makespan, not mean
+- [x] **BENCH-04**: The verification tax is included in reported cost, never
       excluded
-- [ ] **BENCH-05**: A COST crossover is published — the node count at which the
+- [x] **BENCH-05**: A COST crossover is published — the node count at which the
       system beats a competent single-threaded implementation
 - [ ] **BENCH-06**: Benchmarks run across distinct machines, and any same-machine
       measurement is labelled as such
@@ -306,12 +306,12 @@ All 72 v1 requirements are mapped, each to exactly one phase. See
 | BROW-03 | Phase 3 — Browser Tier & Backbone Relay | Done |
 | BROW-04 | Phase 9 — Public Demo, Consent UX & Disclosure Gate | Pending |
 | BROW-05 | Phase 3 — Browser Tier & Backbone Relay | Done |
-| BENCH-01 | Phase 8 — Benchmark Harness | Pending |
-| BENCH-02 | Phase 8 — Benchmark Harness | Pending |
-| BENCH-03 | Phase 8 — Benchmark Harness | Pending |
-| BENCH-04 | Phase 8 — Benchmark Harness | Pending |
-| BENCH-05 | Phase 8 — Benchmark Harness | Pending |
-| BENCH-06 | Phase 8 — Benchmark Harness | Pending |
+| BENCH-01 | Phase 8 — Benchmark Harness | Done |
+| BENCH-02 | Phase 8 — Benchmark Harness | Done |
+| BENCH-03 | Phase 8 — Benchmark Harness | Done |
+| BENCH-04 | Phase 8 — Benchmark Harness | Done |
+| BENCH-05 | Phase 8 — Benchmark Harness | Done |
+| BENCH-06 | Phase 8 — Benchmark Harness | Partial — same-machine labelling enforced and derived; distinct-machine runs need a second machine |
 | DEMO-01 | Phase 9 — Public Demo, Consent UX & Disclosure Gate | Pending |
 | DEMO-02 | Phase 9 — Public Demo, Consent UX & Disclosure Gate | Pending |
 | DEMO-03 | Phase 9 — Public Demo, Consent UX & Disclosure Gate | Pending |
