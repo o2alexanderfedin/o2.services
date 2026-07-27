@@ -265,7 +265,7 @@ Plans:
 **Plans**: 4 plans
 
 Plans:
-- [ ] 12-01-PLAN.md — Redesign sovereignty-aware job contracts (ShardSpec, JobSpec.nodes, Task.label/ownerId) and rewrite submitJob's placement engine; sweep all thirteen existing call sites
+- [x] 12-01-PLAN.md — Redesign sovereignty-aware job contracts (ShardSpec, JobSpec.nodes, Task.label/ownerId) and rewrite submitJob's placement engine; sweep all thirteen existing call sites
 - [ ] 12-02-PLAN.md — Build the DATA-09 sovereignty guard (Executor adapter) and prove submitJob's placement discrimination, degradation, and rejection semantics
 - [ ] 12-03-PLAN.md — Prove sovereignty-pinned placement across real bin/agent.ts operating-system processes (criterion 1, literally)
 - [ ] 12-04-PLAN.md — Carry the sovereignty label over the wire (protocol.ts) and prove pushdown (criterion 3) and backbone execution-ineligibility (criterion 4) over real RPC
@@ -423,7 +423,7 @@ Parallel tracks (config `parallelization: true`):
 | 9. Public Demo, Consent UX & Disclosure Gate | — | Complete — the two-device run was done by the owner and found two defects | 2026-07-26 |
 | 10. elfconv AOT Native→WASM Pipeline | — | 3 of 4 criteria — code cache measured and does not happen; cross-machine CID needs a second machine | 2026-07-27 |
 | 11. Explicit serveAgent Hook Contract | 1/1 | Complete   | 2026-07-27 |
-| 12. Sovereignty-Pinned Placement | 0/TBD | Not started | - |
+| 12. Sovereignty-Pinned Placement | 1/4 | In Progress|  |
 | 13. Egress Manifest Completeness | 0/TBD | Not started | - |
 | 14. Signed Artifact Resolution | 0/TBD | Not started | - |
 | 15. Capability-Chained Dispatch | 0/TBD | Not started | - |

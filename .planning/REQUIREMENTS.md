@@ -99,9 +99,9 @@ itself. The work is real and the table says so; the box tracks delivery.
       and retrievable by CID
 - [x] **DATA-02**: A blockstore adapter works against IndexedDB in the browser and
       the filesystem in Node behind one interface
-- [ ] **DATA-03**: Data carries a sovereignty label that travels with it and acts
+- [x] **DATA-03**: Data carries a sovereignty label that travels with it and acts
       as a hard scheduling constraint
-- [ ] **DATA-04**: A sovereignty-pinned task executes only within the owner's own
+- [x] **DATA-04**: A sovereignty-pinned task executes only within the owner's own
       node set — the scheduler cannot relocate it outside that set to balance load
 - [ ] **DATA-05**: A stream-tap test fails if raw sovereign bytes cross the network
       boundary
