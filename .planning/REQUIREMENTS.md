@@ -434,7 +434,7 @@ criteria.
 | AOT-03 | Phase 10 — elfconv AOT Native→WASM Pipeline | Partial — same-host only; cross-machine needs a second machine |
 | AOT-04 | Phase 21 — AOT Translation Signing & Runtime | **Partial** — port conformance is proved through the @o2/aot barrel; no production node constructs a WasiExecutor, so a translated artifact dispatched to a running node fails at instantiate |
 | AOT-05 | Phase 10 — elfconv AOT Native→WASM Pipeline | **Partial** — loadArtifact is exported and e2e-measured, but the demo loads its kernel from bundled base64 — the loader is not on the page’s own module path |
-| WIRE-01 | Phase 11 — Explicit serveAgent Hook Contract | Not started — new requirement, minted 2026-07-27 from the v1.0 audit's structural-cause finding |
+| WIRE-01 | Phase 11 — Explicit serveAgent Hook Contract | **Done** — all six hooks required as `T \| '<named-absence>'`; omitting one is a compile error naming the property. Verified 3/3 independently: the mutation produced `Unused '@ts-expect-error' directive`, and swapping `fabric-node`'s real `reservations` thunk for the sentinel broke both the count guard and `rendezvous-wire.node.test.ts` |
 | WIRE-02 | Phase 22 — Reachability Guard | Not started — new requirement, minted 2026-07-27 |
 | WIRE-03 | Phase 19 — Quorum Composition & Owner-Domain Attestation | Not started — new requirement, minted 2026-07-27 |
 | WIRE-04 | Phase 20 — Single Job Path, Ledger & Churn Resilience | Not started — new requirement, minted 2026-07-27 |
