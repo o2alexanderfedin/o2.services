@@ -33,10 +33,17 @@ import {
   WasmExecutor,
   canonicalCid,
   publicNodes,
-  submitJob,
 } from '@o2/core'
 import type { CanonicalValue, Executor, Task } from '@o2/core'
-import { FetchingBlockstore, RemoteExecutor, RpcBlockSource, RpcEndpoint, serveAgent } from '@o2/net'
+import {
+  EgressGuard,
+  FetchingBlockstore,
+  RemoteExecutor,
+  RpcBlockSource,
+  RpcEndpoint,
+  serveAgent,
+  submitJobWithEgress,
+} from '@o2/net'
 import {
   NODE_LADDER,
   connectivityTax,
@@ -107,6 +114,13 @@ interface Fabric {
   readonly executors: readonly Executor[]
   readonly blockstore: MemoryBlockstore
   readonly moduleCid: Awaited<ReturnType<MemoryBlockstore['put']>>
+  /**
+   * Wraps the requestor's outbound transport — DATA-05/DATA-06's production wiring,
+   * reused here rather than bypassed. The requestor is the only node whose RPC
+   * connection dispatches shards in this rig (every `RemoteExecutor` above is built
+   * over its endpoint), so this is the one guard whose manifest is interesting.
+   */
+  readonly guard: EgressGuard
   close(): Promise<void>
 }
 
@@ -120,7 +134,13 @@ async function memoryFabric(nodes: number): Promise<Fabric> {
   // Without this the workers have the module but no shard *inputs*, and every run
   // fails — which the first full run duly reported as 19/19 incomplete rather than
   // as a fast success. That is the incomplete-run rule earning its place.
-  const callerRpc = new RpcEndpoint(network.connect('requestor'), { timeoutMs: 30_000 })
+  //
+  // Wrapped in `EgressGuard`, mirroring exactly what `FabricNode.start` does to its
+  // own transport (`fabric-node.ts`) — this rig has no `FabricNode` to inherit the
+  // guard from, so it is built here, over the identical `Transport` port, rather than
+  // left unrecorded.
+  const requestorGuard = new EgressGuard(network.connect('requestor'), 'requestor')
+  const callerRpc = new RpcEndpoint(requestorGuard, { timeoutMs: 30_000 })
   serveAgent({
     rpc: callerRpc,
     executor: new WasmExecutor({ nodeId: 'requestor', blockstore: originStore }),
@@ -163,6 +183,7 @@ async function memoryFabric(nodes: number): Promise<Fabric> {
     executors: remote,
     blockstore: originStore,
     moduleCid,
+    guard: requestorGuard,
     async close() {
       callerRpc.close()
       for (const rpc of endpoints) rpc.close()
@@ -197,6 +218,10 @@ async function realFabric(nodes: number): Promise<Fabric> {
     executors,
     blockstore: requestor.store as unknown as MemoryBlockstore,
     moduleCid,
+    // `FabricNode.start` already wraps its transport in an `EgressGuard` (`egress`)
+    // and builds `rpc` over that wrapper (13-02) — nothing to construct here, only
+    // to surface, exactly the same field `bin/agent.ts`'s own `FabricNode` exposes.
+    guard: requestor.egress,
     async close() {
       for (const node of [...started, requestor]) await node.stop()
       await rm(root, { recursive: true, force: true })
@@ -207,9 +232,18 @@ async function realFabric(nodes: number): Promise<Fabric> {
 /** Build a runner that reuses one fabric per node count across all iterations. */
 function runnerFor(build: (nodes: number) => Promise<Fabric>): {
   run: JobRunner
+  /**
+   * Egress recorded across every run this instance has driven so far, read off
+   * `Fabric.guard` via `submitJobWithEgress` rather than the bare `submitJob` this
+   * driver used to call — DATA-05/DATA-06's manifest, reachable from the entry
+   * point itself, not only from a test harness that constructs its own guard.
+   */
+  egressTotals: () => { entries: number; bytes: number }
   dispose: () => Promise<void>
 } {
   const fabrics = new Map<number, Fabric>()
+  let egressEntries = 0
+  let egressBytes = 0
 
   const run: JobRunner = async (config, codeCache) => {
     let fabric = fabrics.get(config.nodes)
@@ -223,7 +257,7 @@ function runnerFor(build: (nodes: number) => Promise<Fabric>): {
     const shards = await shardInputs(config.skew)
 
     const started = performance.now()
-    const result = await submitJob(
+    const result = await submitJobWithEgress(
       {
         moduleCid: fabric.moduleCid,
         shards: shards.map((value) => ({ value, label: 'public' as const })),
@@ -232,8 +266,19 @@ function runnerFor(build: (nodes: number) => Promise<Fabric>): {
         redundancy: config.redundancy,
       },
       fabric.blockstore,
+      [fabric.guard],
     )
     const makespanMs = performance.now() - started
+
+    if (result.ok) {
+      // Exactly one guard was supplied above, so exactly one manifest comes back —
+      // still read defensively rather than asserted, per `noUncheckedIndexedAccess`.
+      const manifest = result.manifests[0]
+      if (manifest !== undefined) {
+        egressEntries += manifest.entries.length
+        egressBytes += manifest.totalBytes
+      }
+    }
 
     const complete = result.ok && result.job.complete
     // Useful node-seconds = gross ÷ redundancy, because every replica of a shard
@@ -258,6 +303,7 @@ function runnerFor(build: (nodes: number) => Promise<Fabric>): {
 
   return {
     run,
+    egressTotals: () => ({ entries: egressEntries, bytes: egressBytes }),
     dispose: async () => {
       for (const fabric of fabrics.values()) await fabric.close()
       fabrics.clear()
@@ -341,6 +387,10 @@ async function main(): Promise<void> {
       ),
     )
   }
+  const memoryEgress = memory.egressTotals()
+  process.stdout.write(
+    `  memory transport egress manifest: ${memoryEgress.entries} frames, ${memoryEgress.bytes} bytes\n`,
+  )
   await memory.dispose()
 
   const real = runnerFor(realFabric)
@@ -373,6 +423,10 @@ async function main(): Promise<void> {
       })
     }
   }
+  const realEgress = real.egressTotals()
+  process.stdout.write(
+    `  real transport egress manifest: ${realEgress.entries} frames, ${realEgress.bytes} bytes\n`,
+  )
   await real.dispose()
 
   process.stdout.write('  skewed configuration, memory transport…\n')
