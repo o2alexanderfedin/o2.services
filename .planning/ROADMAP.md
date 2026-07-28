@@ -278,10 +278,44 @@ Plans:
 **Requirements**: DATA-05, DATA-06
 **Research**: None — `EgressGuard` exists and is unit-verified in Phase 4; the change is two call sites (`fabric-node.ts:311`, `browser-node.ts:181`) that currently pass the unwrapped transport
 **Success Criteria** (what must be TRUE):
-  1. A stream tap installed on the wire between two nodes started via `bin/agent.ts` fails a running cross-owner job if a single raw sovereign byte crosses it
-  2. Every job run through `bin/agent.ts` or the browser demo emits an egress manifest recording exactly what left each owner's node, with byte counts, retrievable from the job's own result metadata after completion — not only inside a test harness
-  3. The manifest for a job with zero sovereign data crossing the network reports zero sovereign bytes, and the manifest for a job that legitimately moves an aggregate reports only the aggregate's size, never the raw input's
-**Plans**: 3 plans
+  1. A stream tap installed on the wire between two nodes started via `bin/agent.ts` **refuses the send** when a registered sovereign block would cross it, so the bytes never leave the node, and the running cross-owner job fails rather than completing as `agreed`
+  2. Every job run through the browser demo emits an egress manifest recording exactly what left the **submitting** node, with byte counts, retrievable from the job's own result metadata after completion — not only inside a test harness
+  3. A job with zero sovereign data crossing the network records no violation over a non-empty manifest, and a job that legitimately moves an aggregate carries its raw input nowhere on the wire — with the pushdown size claim evidenced by `encodeCanonical(output)` against `encodeCanonical(rawInput)`, not by `manifest.totalBytes`
+**Plans**: 3 plans + gap closure
+
+<!--
+Criteria amended 2026-07-28, after 13-VERIFICATION.md scored the originals 0/3 and the
+owner ruled on the three questions it raised. What changed and why:
+
+1. "fails a running job if a single raw sovereign byte crosses" -> "refuses the send ...
+   so the bytes never leave". Owner's call. `EgressGuard.send()` already computes the
+   violation before calling `#inner.send()`, so refusing costs one branch. Failing a job
+   after the bytes crossed cannot un-send them, and an observer that reports after the
+   fact is not what "data stays on the owner's device" promises. The job-fails clause is
+   KEPT, and becomes true as a consequence of the refusal rather than needing a reader
+   for `manifest.violations`.
+   "a single raw sovereign byte" -> "a registered sovereign block": detection matches the
+   whole registered payload, contiguous and byte-identical. Measured, not assumed — a
+   probe sending the raw characters alone crossed with no violation. Phase 4 drew the
+   same line: a detector, not a prover.
+
+2. "each owner's node" -> "the submitting node". Owner's call. Retrieving a remote
+   node's manifest needs a wire message kind that does not exist; 13-CONTEXT.md deferred
+   it as "not needed" and the criterion kept promising it anyway. Cross-process
+   retrieval is now a named future item, not an implied promise. `bin/agent.ts` drops
+   out of this criterion because it is serving-only and never submits a job.
+
+3. "reports only the aggregate's size" removed as a manifest claim. Measured false:
+   `manifest.totalBytes` read 130 where the raw input was 95 canonical bytes and the
+   aggregate 8, because totalBytes sums every frame including unrelated block fetches.
+   Under criterion 1's refusal the stronger property holds instead — the raw input
+   cannot cross at all — and the size comparison stays where Phase 12 already proved it.
+
+A criterion that can only be reported as met is not a measurement. These were amended
+down to what is true and up where the refusal makes a stronger claim available; none was
+weakened merely so it could be ticked.
+-->
+
 
 Plans:
 - [x] 13-01-PLAN.md — Build registerSovereignInputs (a production caller for EgressGuard.guard()) and submitJobWithEgress (per-job manifest attachment), both in @o2/net, proven against a real RpcEndpoint/serveAgent fabric
