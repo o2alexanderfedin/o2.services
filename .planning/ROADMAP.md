@@ -49,6 +49,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 11: Explicit serveAgent Hook Contract** - `serveAgent`'s six hooks stop defaulting silently — an omission becomes a compile error, not a decision nobody made (completed 2026-07-27)
 - [x] **Phase 12: Sovereignty-Pinned Placement** - A sovereignty label becomes a constraint the live `submitJob` path cannot relax, with pushdown and backbone execution-ineligibility enforced on a real job (completed 2026-07-27)
 - [ ] **Phase 13: Egress Manifest Completeness** - Both nodes wrap their transport in `EgressGuard`, so the egress manifest is complete by construction on a real job, not only in a test — **un-checked 2026-07-28: the first independent pass scored it 0/3 fully verified, all three criteria met in strictly weaker forms than written (see `13-VERIFICATION.md`). The wiring is real and mutation-proved; the criteria's wording is what is not satisfied.**
+- [ ] **Phase 13.1: Node-Side Admission & Transport Bounds** (INSERTED) - A node refuses work it cannot run with a stated reason, and neither side of the wire can be driven past a bound by a peer — three defects measured against the real stack
 - [ ] **Phase 14: Signed Artifact Resolution** - Artifacts resolve only through a signed `key → CID` mapping on the live dispatch path, never a bare CID
 - [ ] **Phase 15: Capability-Chained Dispatch** - A dispatched task carries a capability chain the serving node verifies before `WebAssembly.instantiate`, both ends wired for the first time
 - [ ] **Phase 16: Decomposable Tree-Reduce Wiring** - A live multi-node job merges partials up `executeReduce`'s derived tree, replacing the demo's linear scan
@@ -58,6 +59,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [ ] **Phase 20: Single Job Path, Ledger & Churn Resilience** - `submitJob` becomes the one job path — lease, speculate, account for coverage — and the peer ledger records real outcomes instead of discarding them
 - [ ] **Phase 21: AOT Translation Signing & Runtime** - `translationCid` is called by the lift pipeline and a production node constructs a real `WasiExecutor`
 - [ ] **Phase 22: Reachability Guard** - A guard test fails when an exported capability has no path from a runnable entry point — the class of defect this milestone exists to fix
+- [ ] **Phase 23: Multi-Process Benchmark Driver** - The harness spawns N real operating-system processes instead of N nodes on one event loop, so a parallel speedup is measurable at all
 
 ## Phase Details
 
@@ -326,6 +328,44 @@ Plans:
 - [ ] 13-06-PLAN.md — Restate the DATA-05/DATA-06 ledger rows against the amended criteria, and guard bin/bench.ts's egress leg with a test rather than the type-checker alone
 - [ ] 13-07-PLAN.md — Release a sovereign registration from the serve path once its reply frame has settled, so scan cost is bounded by in-flight tasks rather than node uptime
 
+### Phase 13.1: Node-Side Admission & Transport Bounds (INSERTED)
+**Goal**: A node refuses work it cannot run, with a stated reason, and neither side of the wire can be driven past a bound by a peer — closing three defects measured against the real stack rather than inferred
+**Mode:** mvp
+**Depends on**: Phase 13
+**Requirements**: SCHED-06 (new), NET-07 (new), NET-08 (new)
+**Research**: None — all three are measured, with reproductions recorded below
+
+**Success Criteria** (what must be TRUE):
+  1. A node at its execution slot limit refuses an `exec` request with a **stated reason** naming the limit, and the requestor re-picks — verified by concurrency against the real stack, not by a single-request unit test. Today: 4 peers × 200 concurrent `exec` requests produced 800 simultaneous `executor.execute()` calls and **0 refusals**
+  2. `LocalCapacity` is either constructed by both production node factories, or deleted. It may not remain built-and-unwired: today it appears only in two test files while `fabric-node.ts` and `browser-node.ts` both pass the opt-out sentinel
+  3. A peer cannot make a node allocate an unbounded buffer: `readMessage` enforces a declared maximum message size and calls `stream.abort()` past it. Today a single **64 MiB** frame was sent over the real transport and accepted
+  4. Dispatching N shards immediately after dial succeeds for N well above 12, or fails with a **stated, sender-attributed** reason. Today N=8 completes and N=12 fails entirely with `MaxEarlyStreamsError: Too many early streams - 11/10`, which calls `muxer.abort()` and tears down the whole connection — including in-limit requests and identify's stream
+  5. A connection torn down by the **sender** exceeding a stream limit is not classified by the coordinator as a **node** failure of the receiver
+
+**Why this phase exists, and why it is inserted rather than appended.**
+
+Three defects, each measured against tcp + noise + yamux with real `FabricNode`s, not reasoned about:
+
+| Defect | Measurement |
+|---|---|
+| `serveAgent`'s `exec` branch has no admission control of any kind | 800 concurrent `execute()` calls, 0 refused |
+| `readMessage` accumulates peer-controlled chunks with no cap | one 64 MiB frame accepted |
+| Per-peer send opens one stream per message with no bound | cliff between 8 and 12 shards, whole connection torn down |
+
+`agent.ts` consults `options.capacity` **only** in the `offer` branch. The `exec` branch authorizes and then calls `await executor.execute(task)` with nothing counting what is in flight, and `rpc.ts` subscribes with a discarded promise per inbound frame, so there is no upstream throttle either. In production each of those slots is a `WebAssembly.compile` plus `instantiate` plus a linear memory.
+
+The apparent ceiling of 256 with one peer is the **sender's** `maxOutboundStreams`, not a receiver decision — which is why adding peers multiplies it linearly. The receiver makes no decision at all.
+
+**The urgency is `bin/bench.ts`.** It ships `const SHARDS = 8`, one below a measured cliff at 12. The approved multi-process benchmark phase would otherwise publish a scaling curve measured against an unfixed connection-killing limit, and the failure it produces blames the wrong node — so a straggler analysis would be reading sender overrun as receiver death.
+
+**This is not a queueing phase.** Criterion 1 wants a semaphore and a refusal, not a buffer: silently queueing an `exec` converts a refusal into unbounded latency and hides the load signal the placer needs. `ARCHITECTURE.md` §7.2 says the same thing — *"an over-committed node just says no, and the requestor resamples"* — and records that only half of it shipped. Criterion 3 wants a declared limit and an abort; a queue cannot bound a single frame. Only the per-peer send path in criterion 4 is a genuine bounded-queue site.
+
+**Amendment required to Phase 18.** Its Success Criterion 2 reads *"a node made to report itself over capacity refuses the **offer** with a stated reason."* That exercises the `offer` branch, so Phase 18 can pass in full while criterion 1 above stays open. Phase 18 gains: *a node at its execution slot limit refuses an `exec` request with a stated reason, and the requestor re-picks.*
+
+**Recorded, not fixed here:** `EgressGuard.#entries` grows one object per outbound frame for the node's lifetime and is peer-driven — the 800-request probe added 800 entries. Bounding it was considered during Phase 13 and deliberately not done: `submit-with-egress.ts` delta-slices `entries` so job-scoped manifests compose with concurrent readers, and a ring buffer would silently drop history a reader may be mid-slice on. It is a resource bound, not a correctness bug. If it is fixed later, follow `wasi-executor.ts`'s house style and **count what was dropped**, surfacing it in the manifest — a guard that silently stops guarding is the shape this project keeps removing.
+
+**How these were found.** A subagent was told to refute the claim that the fabric had no backpressure gap, and did, at a named site with a reproduction. Two of the claim's three legs broke. The leg that broke worst was the assertion that `over-committed: N of M slots in use` proved the project had chosen refusal deliberately — that string cannot be produced by any running node, because the only thing that emits it is constructed nowhere outside tests. A well-built mechanism was read and its wiring assumed. That is the defect this milestone exists to remove, reproduced in the course of arguing about it.
+
 ### Phase 14: Signed Artifact Resolution
 **Goal**: A production node resolves a task's module through a `key → CID` mapping signed by a trusted build authority — never a bare CID — on the live dispatch path
 **Mode:** mvp
@@ -480,6 +520,24 @@ Parallel tracks (config `parallelization: true`):
 | 20. Single Job Path, Ledger & Churn Resilience | 0/TBD | Not started | - |
 | 21. AOT Translation Signing & Runtime | 0/TBD | Not started | - |
 | 22. Reachability Guard | 0/TBD | Not started | - |
+
+### Phase 23: Multi-Process Benchmark Driver
+**Goal**: The benchmark harness spawns N real operating-system processes instead of N `FabricNode`s on one event loop, so a parallel speedup is measurable at all — and the project's central scaling claim stops being unmeasured
+**Mode:** mvp
+**Depends on**: Phase 8 (the existing harness), Phase 12 (the spawn pattern)
+**Requirements**: BENCH-07 (new)
+**Research**: None — `sovereignty-placement.node.test.ts` and `two-process.node.test.ts` already spawn real `bin/agent.ts` processes via `spawn(process.execPath, [AGENT, '--dir', dir, ...])`. The work is moving `bin/bench.ts`'s node construction onto that pattern
+**Success Criteria** (what must be TRUE):
+  1. A benchmark run at N nodes spawns N operating-system processes, verified by reading the child PIDs, and the published run records them — a run that silently falls back to in-process nodes fails the harness rather than reporting a curve
+  2. Makespan at N=1 and N=8 differ on a fixture with enough work to saturate a core, and the ratio is published; a flat curve is a finding, but it must be a finding about the fabric rather than about the harness
+  3. The two real-transport rungs Phase 8 published as excluded (8 and 16 nodes, dying on `INBOUND_CONNECTION_THRESHOLD = 5` per host) either run, or are re-excluded with a measurement showing the per-host inbound cap is still the cause under separate processes
+  4. `BENCHMARK-RESULTS.md` states, for every published figure, whether it came from the single-process or the multi-process driver — no figure is silently replaced
+
+**Why this phase exists.** Phase 8's own SUMMARY says it plainly: *"Every node in both curves runs inside one OS process on one JavaScript event loop ... no parallel speedup is measurable here at all ... the scaling claim remains unmeasured."* That has been read ever since as part of the BENCH-06 "needs a second machine" blocker. It is not. Phase 8 named the cheaper remedy itself — separate OS processes on one host — and Phase 12 has since built exactly that spawn harness for an unrelated reason. The blocker moved and nobody noticed.
+
+**What this phase is not.** It does not close BENCH-06, which asks for distinct machines and still needs a second machine. It does not touch AOT-03, the same hardware blocker wearing another number. A one-host multi-process curve is not a distributed curve and must not be labelled as one — Phase 8's rule that a same-machine run is labelled as such carries forward unchanged.
+
+**Trap to avoid.** The COST crossover published at ~570× measures the guest ABI on a trivial fixture, not the fabric. Criterion 2 requires a fixture that does non-trivial work, or the new curve reproduces the old one's real problem with more processes.
 
 ## Requirement Coverage
 

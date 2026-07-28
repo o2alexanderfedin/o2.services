@@ -372,6 +372,41 @@ table below and in the audit.
       between two functions — today `runResilient` is a second job implementation that
       nothing calls
 
+### Node-side admission & transport bounds (new IDs, minted 2026-07-28)
+
+Added mid-milestone after a subagent tasked with refuting the claim "the fabric has no
+backpressure gap" refuted it, at named sites, with reproductions against the real stack
+(tcp + noise + yamux, real `FabricNode`s). Each of the three is a measurement, not an
+inference.
+
+- [ ] **SCHED-06**: A node at its execution slot limit refuses an `exec` request with a
+      stated reason naming the limit, and the requestor re-picks. Today `serveAgent`
+      consults `capacity` only in the `offer` branch — measured, 4 peers × 200 concurrent
+      `exec` requests produced 800 simultaneous `execute()` calls and **zero** refusals.
+      `LocalCapacity`, the only thing that can emit the refusal, is constructed nowhere
+      outside two test files while both production factories pass the opt-out sentinel.
+      It gets wired or deleted; it does not stay built-and-unreachable
+- [ ] **NET-07**: A peer cannot make a node allocate an unbounded buffer. `readMessage`
+      enforces a declared maximum message size and aborts the stream past it — today a
+      single **64 MiB** frame was sent over the real transport and accepted, because
+      `WIRE_CHUNK_BYTES` is send-side framing only and yamux's window paces delivery
+      without capping the total
+- [ ] **NET-08**: Dispatching N shards immediately after dial either succeeds well above
+      12 or fails with a stated, **sender-attributed** reason. Today N=8 completes and
+      N=12 fails entirely on `MaxEarlyStreamsError: Too many early streams - 11/10`, a
+      hardcoded libp2p default that aborts the whole connection — so in-limit requests die
+      too, and the requestor blames the *receiving* node for a limit the sender blew
+      through. `bin/bench.ts` ships `SHARDS = 8`, one below the cliff
+
+### Benchmark parallelism (new ID, minted 2026-07-28)
+
+- [ ] **BENCH-07**: The benchmark harness spawns N operating-system processes rather than
+      N nodes on one event loop, and a makespan difference between N=1 and N=8 is
+      measurable on a fixture that saturates a core. Distinct from BENCH-06, which needs a
+      second machine and stays open — this one needs only separate processes on one host,
+      which Phase 8's own summary named as the cheaper remedy and Phase 12 has since built
+      the spawn pattern for
+
 ### Explicitly not in v1.1
 
 | Requirement | Why it stays open |

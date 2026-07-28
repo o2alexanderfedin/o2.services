@@ -3,24 +3,32 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Wire What Was Built
 status: verifying
-stopped_at: Completed 13-03-PLAN.md
-last_updated: "2026-07-27T22:21:42.700Z"
-last_activity: 2026-07-27
+stopped_at: Completed 13-06-PLAN.md — Phase 13 gap closure executed, awaiting re-verification
+last_updated: "2026-07-28T14:10:00.000Z"
+last_activity: 2026-07-28
 progress:
-  total_phases: 12
-  completed_phases: 3
-  total_plans: 8
-  completed_plans: 8
-  percent: 25
+  total_phases: 14
+  completed_phases: 2
+  total_plans: 12
+  completed_plans: 12
+  percent: 14
 ---
 
 <!--
-progress counts the v1.1 milestone only: phases 11-22, of which 11, 12 and 13 are
-done. `total_plans` counts plans that exist; phases 14-22 are unplanned, so it grows
+progress counts the v1.1 milestone only: phases 11, 12, 13, 13.1, 14-23. Fourteen of
+them; 11 and 12 are verified done. **Phase 13 counts as incomplete** — its four
+gap-closure plans all executed, but its first independent pass scored the original
+criteria 0/3, the criteria were amended, and no pass has run against the amended text
+yet. A phase is done when a verifier says so, not when its plans are.
+
+`total_plans` counts plans that exist. Phases 13.1 and 14-23 are unplanned, so it grows
 as they are planned and must never be read as a milestone denominator.
 
-Do not take these from `gsd-sdk query progress.bar`. It counts plan files across the
-nine unarchived v1.0 phase directories and currently reports "17/9 plans (100%)".
+Do not take these from `gsd-sdk query progress.bar` — it counts plan files across the
+nine unarchived v1.0 phase directories and reports "17/9 plans (100%)". Also do not run
+`gsd-sdk query state.begin-phase` here: it overwrites this block from that same bad
+count (observed 2026-07-28, it rewrote 25% to 62%) and mangles the Current focus
+paragraph. Maintain this frontmatter by hand.
 -->
 
 
@@ -31,18 +39,26 @@ nine unarchived v1.0 phase directories and currently reports "17/9 plans (100%)"
 See: .planning/PROJECT.md (updated 2026-07-27)
 
 **Core value:** Usable capacity grows super-linearly with the user base, without any raw data leaving its owner's device.
-**Current focus:** Phase 13 — Egress Manifest Completeness is marked done and **has no
-`13-VERIFICATION.md`**. All three plans executed and their wiring is confirmed by call-site
-check, but no independent pass has re-run its criteria. Verify it or un-check it before
-planning Phase 14.
+**Current focus:** Phase 13 — gap closure executed (13-04/05/07/06). `EgressGuard` now
+**refuses** a frame carrying a registered sovereign block rather than recording it after the
+fact, registrations are released once the reply frame has left, and a leaking cross-owner job
+fails from the submitter across two spawned `bin/agent.ts` processes. Awaiting a second
+independent verification pass against the **amended** criteria.
 
 ## Current Position
 
 Phase: 13 (Egress Manifest Completeness)
-Plan: 3 of 3
-Status: Plans complete — **verification outstanding**, the phase's only open item
-Next: Phase 14 (Signed Artifact Resolution) — `14-CONTEXT.md` written, ready to plan
-Last activity: 2026-07-27
+Plan: 4 of 4 gap-closure plans executed
+Status: **Awaiting re-verification.** The first pass scored the original criteria 0/3; the
+criteria were then amended on three owner rulings and the gaps closed. Nothing has verified
+the amended text.
+Next: Phase 13.1 (Node-Side Admission & Transport Bounds) — three defects measured against
+the real stack, inserted ahead of Phase 14
+Last activity: 2026-07-28
+
+```
+Test Files  124 · Tests 1798 · tsc --noEmit clean   (independently re-run, not reported)
+```
 
 ### v1.0 carried forward, unarchived
 
