@@ -138,20 +138,39 @@ export class EgressRefusal extends Error {
  * entry by Plan 13-06; this comment states the rule and points there rather than
  * restating a consequence for a phase nobody has planned yet.
  *
- * **The registered set is unbounded until Plan 13-07.** `#guarded` is never released
- * today, so every sovereign payload a node has ever been handed stays on the path
- * that decides whether a frame may leave. Plan 13-07 releases each registration from
- * the serve path once its reply frame has settled, which bounds the scan set by
- * in-flight sovereign tasks rather than by node uptime. Until that lands, this plan
- * knowingly moves an unbounded set onto the correctness path; saying so here is what
- * keeps it a scheduled fix rather than an undiscovered one.
+ * **A registration has a lifetime, and the bound that follows from it.** Per-frame
+ * scan cost is proportional to the sovereign tasks this node has **in flight**, not
+ * to how long the node has been running. That is a bound rather than a hope only
+ * because every registration is released again from the serve path: `serveAgent`'s
+ * exec branch attaches an `afterSent` callback to its reply, and `rpc.ts` invokes it
+ * in a `finally` around the response send. `serveAgent` decides *what* to release
+ * because it is the only layer that parsed the task and knows the label; `rpc.ts`
+ * decides *when* because it is the only layer that knows the reply frame has settled.
+ * Neither can do the other's half.
+ *
+ * **The trap, named so nobody has to rediscover it.** Releasing where the guard and
+ * the label are both already in scope — inside `registerSovereignInputs`, the moment
+ * `inner.execute` resolves — is a full frame too early. The frame the registration
+ * exists to catch is the reply, and at that moment the reply has not been sent yet:
+ * it would be scanned against an empty set and forwarded, which is precisely the leak
+ * this whole phase closes. Somebody will propose that refactor because it is tidier.
+ * Plan 13-07 built it, watched it let the leak through in three files, and reverted
+ * it; the capture is in `13-07-SUMMARY.md`, so this paragraph is evidence and not an
+ * opinion.
  */
 export class EgressGuard implements Transport {
   readonly #inner: Transport
   readonly #ownerId: string
   readonly #entries: EgressEntry[] = []
-  /** Sovereign payloads that must never appear in an outbound frame, by label. */
-  readonly #guarded = new Map<string, Uint8Array>()
+  /**
+   * Sovereign payloads that must never appear in an outbound frame, by label.
+   *
+   * `holds` counts registrations, not registrants: two concurrent dispatches of one
+   * input register the same label twice, and the payload stays guarded until both
+   * have released. A plain `delete` would let whichever dispatch finished first
+   * unguard the one still running.
+   */
+  readonly #guarded = new Map<string, { readonly payload: Uint8Array; holds: number }>()
 
   constructor(inner: Transport, ownerId: string) {
     this.#inner = inner
@@ -162,9 +181,58 @@ export class EgressGuard implements Transport {
     return this.#inner.localId
   }
 
-  /** Mark a payload as sovereign. Any outbound frame containing it is a violation. */
+  /**
+   * Mark a payload as sovereign. Any outbound frame containing it is a violation.
+   *
+   * Registering a label already held takes a second hold on it rather than replacing
+   * the first, so the payload survives until every holder has called
+   * {@link EgressGuard.release}.
+   */
   guard(label: string, payload: Uint8Array): void {
-    this.#guarded.set(label, payload)
+    const held = this.#guarded.get(label)
+    if (held === undefined) {
+      this.#guarded.set(label, { payload, holds: 1 })
+      return
+    }
+    this.#guarded.set(label, { payload, holds: held.holds + 1 })
+  }
+
+  /**
+   * Give back one hold on `label`, dropping the payload when the last one goes.
+   *
+   * A label this guard does not hold is a no-op, deliberately: the serve path
+   * releases unconditionally on the task's input label rather than re-testing
+   * whether registration happened, because a release that cannot be wrong is
+   * cheaper than a condition that has to be kept in step with
+   * `registerSovereignInputs`' own.
+   *
+   * There is deliberately **no** eviction, cap, or least-recently-used policy here,
+   * and there must not be one. A guard that silently stops guarding is the shape
+   * this project keeps removing — the same reasoning `.planning/PROJECT.md` records
+   * for `serveAgent`'s hooks under "An optional hook with a silent default is a
+   * hole" applies unchanged: an implicit limit is a silent default, and the failure
+   * it produces is a frame that left. The set is bounded by releasing it, which is
+   * a bound somebody can be shown, not by dropping entries nobody asked to drop.
+   */
+  release(label: string): void {
+    const held = this.#guarded.get(label)
+    if (held === undefined) return
+    if (held.holds <= 1) {
+      this.#guarded.delete(label)
+      return
+    }
+    this.#guarded.set(label, { payload: held.payload, holds: held.holds - 1 })
+  }
+
+  /**
+   * The labels currently held.
+   *
+   * Named rather than counted on purpose: an assertion that this is empty after a
+   * job fails with the label that leaked, which is actionable, where a number is
+   * not.
+   */
+  get registrations(): readonly string[] {
+    return [...this.#guarded.keys()]
   }
 
   async send(to: string, message: Uint8Array<ArrayBuffer>): Promise<void> {
@@ -214,16 +282,23 @@ export class EgressGuard implements Transport {
     }
   }
 
-  /** Discard the record, e.g. between jobs. */
+  /**
+   * Discard the record, e.g. between jobs.
+   *
+   * Clears `#entries` only, and leaves the registrations alone. The two are about
+   * different things — reset is about the record, {@link EgressGuard.release} is
+   * about the watch list — and conflating them would make a between-jobs reset
+   * silently stop the tap.
+   */
   reset(): void {
     this.#entries.length = 0
   }
 
   /** The label of the first guarded payload contained in `frame`, or `null`. */
   #scan(frame: Uint8Array): string | null {
-    for (const [label, payload] of this.#guarded) {
-      if (payload.byteLength === 0 || payload.byteLength > frame.byteLength) continue
-      if (contains(frame, payload)) return label
+    for (const [label, held] of this.#guarded) {
+      if (held.payload.byteLength === 0 || held.payload.byteLength > frame.byteLength) continue
+      if (contains(frame, held.payload)) return label
     }
     return null
   }
