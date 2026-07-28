@@ -8,10 +8,10 @@ last_updated: "2026-07-28T14:10:00.000Z"
 last_activity: 2026-07-28
 progress:
   total_phases: 14
-  completed_phases: 2
+  completed_phases: 3
   total_plans: 12
   completed_plans: 12
-  percent: 14
+  percent: 21
 ---
 
 <!--
@@ -39,21 +39,19 @@ paragraph. Maintain this frontmatter by hand.
 See: .planning/PROJECT.md (updated 2026-07-27)
 
 **Core value:** Usable capacity grows super-linearly with the user base, without any raw data leaving its owner's device.
-**Current focus:** Phase 13 — gap closure executed (13-04/05/07/06). `EgressGuard` now
-**refuses** a frame carrying a registered sovereign block rather than recording it after the
-fact, registrations are released once the reply frame has left, and a leaking cross-owner job
-fails from the submitter across two spawned `bin/agent.ts` processes. Awaiting a second
-independent verification pass against the **amended** criteria.
+**Current focus:** Phase 13 closed at **3/3 on the amended criteria** — a second independent
+pass planted 8 mutations of its own, including the one proving the release point: moving it
+one frame earlier lets the leak reach `'agreed'` **across a real process boundary**. Next is
+Phase 13.1, which carries three defects measured against the real stack plus two follow-ons
+the verifier found rather than assumed.
 
 ## Current Position
 
-Phase: 13 (Egress Manifest Completeness)
-Plan: 4 of 4 gap-closure plans executed
-Status: **Awaiting re-verification.** The first pass scored the original criteria 0/3; the
-criteria were then amended on three owner rulings and the gaps closed. Nothing has verified
-the amended text.
-Next: Phase 13.1 (Node-Side Admission & Transport Bounds) — three defects measured against
-the real stack, inserted ahead of Phase 14
+Phase: 13 (Egress Manifest Completeness) — **done, 3/3 amended criteria**
+Status: Closed. Scored 0/3 on the original wording, criteria amended on three owner rulings,
+gaps closed across four plans, re-verified independently.
+Next: Phase 13.1 (Node-Side Admission & Transport Bounds) — five requirements, all measured:
+SCHED-06, NET-07, NET-08, NET-09, DATA-10
 Last activity: 2026-07-28
 
 ```
