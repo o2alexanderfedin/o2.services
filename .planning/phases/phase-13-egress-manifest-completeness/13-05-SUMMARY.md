@@ -252,3 +252,15 @@ Two small things worth recording as choices rather than deviations, since a read
 ---
 *Phase: phase-13-egress-manifest-completeness*
 *Completed: 2026-07-28*
+
+## Self-Check: PASSED
+
+Both test files verified present on disk. All three commit hashes (`1937d72`, `b4d5e99`,
+`a45c866`) verified present in `git log`. `packages/net/src/egress.ts` and
+`packages/node/src/fabric-node.ts` verified clean after their mutation reverts, and
+`git status --short` was empty over the whole tree at that point and again after this
+summary was committed. `vocabulary.node.test.ts` and `purity.node.test.ts` re-run with
+this summary committed and therefore inside the scan's own jurisdiction: 38/38 passing.
+
+`.planning/STATE.md`, `.planning/ROADMAP.md` and `.planning/REQUIREMENTS.md` were not
+touched by this plan.
