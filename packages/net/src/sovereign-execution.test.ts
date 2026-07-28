@@ -114,6 +114,8 @@ async function ownerFabric(options: { module: Uint8Array<ArrayBuffer>; ownerNode
     rpc: seedRpc,
     executor: new WasmExecutor({ nodeId: SEED, blockstore: seedStore }),
     blockstore: seedStore,
+    // The seed's transport is un-decorated, so its sends carry no registrations.
+    egress: 'holds-no-registrations',
     authorize: 'serves-unauthenticated',
     index,
     capacity: 'accepts-every-offer',
@@ -168,6 +170,10 @@ async function ownerFabric(options: { module: Uint8Array<ArrayBuffer>; ownerNode
         canExecuteSovereign: true,
       }),
       blockstore: store,
+      // This owner node's own tap. These tests register `'alice-row'` directly
+      // rather than through a task, so nothing here releases it — which is the
+      // point: the label under watch is not the label a reply would release.
+      egress: guard,
       authorize: 'serves-unauthenticated',
       index: 'serves-no-records',
       capacity: 'accepts-every-offer',
@@ -199,6 +205,10 @@ async function ownerFabric(options: { module: Uint8Array<ArrayBuffer>; ownerNode
       canExecuteSovereign: false,
     }),
     blockstore: bobStore,
+    // This endpoint is built over a raw transport with no tap on it, so its sends
+    // carry no registrations to release — a statement about this endpoint, not a
+    // difference in what kind of node it is.
+    egress: 'holds-no-registrations',
     authorize: 'serves-unauthenticated',
     index: 'serves-no-records',
     capacity: 'accepts-every-offer',

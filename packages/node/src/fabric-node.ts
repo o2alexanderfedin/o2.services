@@ -412,6 +412,10 @@ export class FabricNode {
       rpc,
       executor,
       blockstore,
+      // DATA-05: the same guard `rpc` is built over, so a sovereign task's
+      // registration is released once its reply frame has settled rather than
+      // held for the life of the process.
+      egress,
       authorize: 'serves-unauthenticated',
       index: 'serves-no-records',
       capacity: 'accepts-every-offer',

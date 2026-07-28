@@ -81,6 +81,9 @@ function servingNode(options: {
     rpc,
     executor,
     blockstore: options.executionStore,
+    // This node's own tap, the one `rpc` is built over — so the registration
+    // `registerSovereignInputs` takes is released once the reply frame has settled.
+    egress: guard,
     authorize: 'serves-unauthenticated',
     index: 'serves-no-records',
     capacity: 'accepts-every-offer',

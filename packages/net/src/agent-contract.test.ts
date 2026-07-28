@@ -19,7 +19,7 @@ import { RpcEndpoint } from './rpc.ts'
  * agreeing with whatever the type happens to allow.
  */
 
-/** A fully-specified `AgentOptions` — real rpc/executor/blockstore, all six sentinels. */
+/** A fully-specified `AgentOptions` — real rpc/executor/blockstore, all seven sentinels. */
 function buildFull(): AgentOptions {
   const network = new MemoryNetwork()
   const rpc = new RpcEndpoint(network.connect('agent-contract'), { timeoutMs: 500 })
@@ -29,6 +29,7 @@ function buildFull(): AgentOptions {
     rpc,
     executor,
     blockstore,
+    egress: 'holds-no-registrations',
     authorize: 'serves-unauthenticated',
     index: 'serves-no-records',
     capacity: 'accepts-every-offer',
@@ -38,13 +39,13 @@ function buildFull(): AgentOptions {
   }
 }
 
-describe('AgentOptions requires all six hooks — the compile-time proof', () => {
+describe('AgentOptions requires all seven hooks — the compile-time proof', () => {
   it('accepts a fully-specified AgentOptions and does not throw', () => {
     const full = buildFull()
     expect(() => serveAgent(full)).not.toThrow()
   })
 
-  // None of the seven `serveAgent` calls below is ever sent a request, so nothing
+  // None of the eight `serveAgent` calls below is ever sent a request, so nothing
   // throws at runtime regardless of which hook a given case omits — the whole
   // proof lives in whether `tsc` accepts the line without the suppression.
 
@@ -87,6 +88,17 @@ describe('AgentOptions requires all six hooks — the compile-time proof', () =>
     const full = buildFull()
     const { onDispatch: _unused, ...rest } = full
     // @ts-expect-error WIRE-01 — onDispatch is required; omitting it must fail `tsc --noEmit`, naming 'onDispatch'.
+    expect(() => serveAgent(rest)).not.toThrow()
+  })
+
+  it('fails to compile with egress omitted', () => {
+    // DATA-05. The omission this one rules out is the quietest of the eight: a node
+    // that left `egress` out would register a sovereign input on every dispatch and
+    // release none, and would grow slower for the rest of its life with nothing
+    // failing. The type checker is the only thing that catches it at the call site.
+    const full = buildFull()
+    const { egress: _unused, ...rest } = full
+    // @ts-expect-error WIRE-01 — egress is required; omitting it must fail `tsc --noEmit`, naming 'egress'.
     expect(() => serveAgent(rest)).not.toThrow()
   })
 })

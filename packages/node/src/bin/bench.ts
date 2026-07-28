@@ -145,6 +145,10 @@ async function memoryFabric(nodes: number): Promise<Fabric> {
     rpc: callerRpc,
     executor: new WasmExecutor({ nodeId: 'requestor', blockstore: originStore }),
     blockstore: originStore,
+    // This endpoint serves blocks to the workers; the manifest this rig reads is
+    // the submitting side's, and no task dispatched here is labelled sovereign, so
+    // there is nothing registered against these sends to release.
+    egress: 'holds-no-registrations',
     authorize: 'serves-unauthenticated',
     index: 'serves-no-records',
     capacity: 'accepts-every-offer',
@@ -167,6 +171,9 @@ async function memoryFabric(nodes: number): Promise<Fabric> {
       rpc,
       executor: new WasmExecutor({ nodeId: id, blockstore: store }),
       blockstore: store,
+      // A worker endpoint in this rig, dispatched only public tasks. Its sends are
+      // untapped: the guard this benchmark reads is the submitting endpoint's.
+      egress: 'holds-no-registrations',
       authorize: 'serves-unauthenticated',
       index: 'serves-no-records',
       capacity: 'accepts-every-offer',
