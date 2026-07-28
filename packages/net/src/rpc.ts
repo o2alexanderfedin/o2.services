@@ -51,9 +51,60 @@ function describe(e: RpcError): string {
   }
 }
 
-/** Serves an inbound request body and produces the reply body. */
+/**
+ * A reply body plus work that must not happen until the frame has settled.
+ *
+ * The one caller that needs this is `serveAgent`'s exec branch, which holds a
+ * sovereign task's registration on the node's egress tap. That registration exists
+ * to be scanned against the reply frame, so releasing it anywhere inside the handler
+ * — where the guard and the label are both already in scope — would release it a
+ * full frame too early and the reply would go out unscanned. `serveAgent` is the
+ * only layer that knows *what* to release; this one is the only layer that knows
+ * *when*. Hence the split.
+ *
+ * **The discriminator is safe by construction.** `CanonicalValue` is the
+ * canonically-encodable set — records, arrays, strings, numbers, booleans, null,
+ * `Uint8Array`, `CID` — and none of those can be a function. So
+ * `typeof value.afterSent === 'function'` cannot collide with a legitimate reply
+ * body, whatever a handler returns.
+ *
+ * **`afterSent` must not throw.** It runs inside the transport's delivery path, and
+ * this module deliberately does not wrap it in a swallow: a swallow here would hide
+ * a real fault in a callback that is supposed to be a `Map` delete behind a check.
+ */
+export interface RpcReply {
+  readonly body: CanonicalValue
+  /**
+   * Invoked at most once, after the response frame has settled — sent, refused, or
+   * abandoned because the endpoint closed. See {@link RpcReply}.
+   */
+  readonly afterSent: () => void
+}
+
+/**
+ * Serves an inbound request body and produces the reply body.
+ *
+ * Returning a plain `CanonicalValue` is the ordinary case and needs nothing extra.
+ * Returning an {@link RpcReply} additionally schedules a callback for after the
+ * frame has left.
+ */
 export interface RpcHandler {
-  (from: string, body: CanonicalValue): Promise<CanonicalValue>
+  (from: string, body: CanonicalValue): Promise<CanonicalValue | RpcReply>
+}
+
+/** Split a handler's result into the body to send and the callback to run after. */
+function unwrapReply(value: CanonicalValue | RpcReply): {
+  readonly body: CanonicalValue
+  readonly afterSent: (() => void) | null
+} {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+    return { body: value as CanonicalValue, afterSent: null }
+  }
+  const candidate = value as { readonly afterSent?: unknown; readonly body?: unknown }
+  if (typeof candidate.afterSent !== 'function') {
+    return { body: value as CanonicalValue, afterSent: null }
+  }
+  return { body: (value as RpcReply).body, afterSent: (value as RpcReply).afterSent }
 }
 
 interface Pending {
@@ -179,18 +230,32 @@ export class RpcEndpoint {
     const handler = this.#handler
     if (handler === null) return
 
-    let reply: CanonicalValue
+    let result: CanonicalValue | RpcReply
     try {
-      reply = await handler(from, body)
+      result = await handler(from, body)
     } catch (cause) {
-      reply = { error: cause instanceof Error ? cause.message : String(cause) }
+      result = { error: cause instanceof Error ? cause.message : String(cause) }
     }
-    if (this.#closed) return
+    const { body: reply, afterSent } = unwrapReply(result)
+    // The `finally` exists for three exits, and all three are exits the frame has
+    // settled on: the send succeeded, the send was refused by this node's own
+    // egress tap, and the endpoint closed between the handler returning and the
+    // frame going out. The `#closed` check therefore lives *inside* the `try`
+    // rather than as a bare return above it — a registration that leaked whenever
+    // an endpoint closed mid-reply would be the same unbounded growth with a rarer
+    // trigger.
+    //
+    // This module deliberately does not know what `afterSent` does. The layer that
+    // knows the label is `serveAgent`; the layer that knows the frame has settled
+    // is this one. Neither can do the other's half.
     try {
+      if (this.#closed) return
       await this.#transport.send(from, this.#encode({ k: 'res', id, body: reply }))
     } catch {
       // The requester will time out. Nothing useful to do here — and throwing
       // would surface inside the transport's delivery path.
+    } finally {
+      afterSent?.()
     }
   }
 }

@@ -37,6 +37,7 @@ function node(
     rpc,
     executor: new WasmExecutor({ nodeId: id, blockstore }),
     blockstore,
+    egress: 'holds-no-registrations',
     authorize: 'serves-unauthenticated',
     index: 'serves-no-records',
     capacity: 'accepts-every-offer',

@@ -19,6 +19,13 @@
  * inspect the first job's manifest after the second has started — slicing composes
  * with concurrent reads, reset does not.
  *
+ * **The two `totalBytes` computations must agree.** This module recomputes the
+ * figure over its slice while `EgressGuard.manifest` computes it over the whole
+ * record, so the same rule has to hold in both places: a frame carrying a
+ * `violation` was refused and contributes zero. If the two ever diverged, the same
+ * frames would be readable two ways — a per-job manifest reporting bytes the
+ * per-node manifest excludes — and neither figure would mean anything.
+ *
  * **Scoped limitation, not solved here (13-CONTEXT.md Risk 2):** attribution assumes
  * one job in flight per guard at a time. If two `submitJob` calls run concurrently
  * against the same guard, their entries windows can overlap, and a byte counted as
@@ -42,6 +49,9 @@ export type SubmitWithEgressResult =
  *
  * `totalBytes` and `violations` are recomputed from the sliced subset alone — the
  * full manifest's totals cover entries outside the slice and must not be reused.
+ * The recomputation follows `EgressGuard.manifest`'s own rule exactly: a refused
+ * frame (one carrying a `violation`) contributes zero bytes, because it did not
+ * leave.
  */
 export function sliceManifest(guard: EgressGuard, from: number): EgressManifest {
   const full = guard.manifest
@@ -50,7 +60,10 @@ export function sliceManifest(guard: EgressGuard, from: number): EgressManifest 
     nodeId: full.nodeId,
     ownerId: full.ownerId,
     entries,
-    totalBytes: entries.reduce((sum, entry) => sum + entry.bytes, 0),
+    totalBytes: entries.reduce(
+      (sum, entry) => (entry.violation === undefined ? sum + entry.bytes : sum),
+      0,
+    ),
     violations: entries
       .map((entry) => entry.violation)
       .filter((label): label is string => label !== undefined),

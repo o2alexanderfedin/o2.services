@@ -49,6 +49,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 11: Explicit serveAgent Hook Contract** - `serveAgent`'s six hooks stop defaulting silently — an omission becomes a compile error, not a decision nobody made (completed 2026-07-27)
 - [x] **Phase 12: Sovereignty-Pinned Placement** - A sovereignty label becomes a constraint the live `submitJob` path cannot relax, with pushdown and backbone execution-ineligibility enforced on a real job (completed 2026-07-27)
 - [ ] **Phase 13: Egress Manifest Completeness** - Both nodes wrap their transport in `EgressGuard`, so the egress manifest is complete by construction on a real job, not only in a test — **un-checked 2026-07-28: the first independent pass scored it 0/3 fully verified, all three criteria met in strictly weaker forms than written (see `13-VERIFICATION.md`). The wiring is real and mutation-proved; the criteria's wording is what is not satisfied.**
+- [ ] **Phase 13.1: Node-Side Admission & Transport Bounds** (INSERTED) - A node refuses work it cannot run with a stated reason, and neither side of the wire can be driven past a bound by a peer — three defects measured against the real stack
 - [ ] **Phase 14: Signed Artifact Resolution** - Artifacts resolve only through a signed `key → CID` mapping on the live dispatch path, never a bare CID
 - [ ] **Phase 15: Capability-Chained Dispatch** - A dispatched task carries a capability chain the serving node verifies before `WebAssembly.instantiate`, both ends wired for the first time
 - [ ] **Phase 16: Decomposable Tree-Reduce Wiring** - A live multi-node job merges partials up `executeReduce`'s derived tree, replacing the demo's linear scan
@@ -58,6 +59,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [ ] **Phase 20: Single Job Path, Ledger & Churn Resilience** - `submitJob` becomes the one job path — lease, speculate, account for coverage — and the peer ledger records real outcomes instead of discarding them
 - [ ] **Phase 21: AOT Translation Signing & Runtime** - `translationCid` is called by the lift pipeline and a production node constructs a real `WasiExecutor`
 - [ ] **Phase 22: Reachability Guard** - A guard test fails when an exported capability has no path from a runnable entry point — the class of defect this milestone exists to fix
+- [ ] **Phase 23: Multi-Process Benchmark Driver** - The harness spawns N real operating-system processes instead of N nodes on one event loop, so a parallel speedup is measurable at all
 
 ## Phase Details
 
@@ -278,15 +280,91 @@ Plans:
 **Requirements**: DATA-05, DATA-06
 **Research**: None — `EgressGuard` exists and is unit-verified in Phase 4; the change is two call sites (`fabric-node.ts:311`, `browser-node.ts:181`) that currently pass the unwrapped transport
 **Success Criteria** (what must be TRUE):
-  1. A stream tap installed on the wire between two nodes started via `bin/agent.ts` fails a running cross-owner job if a single raw sovereign byte crosses it
-  2. Every job run through `bin/agent.ts` or the browser demo emits an egress manifest recording exactly what left each owner's node, with byte counts, retrievable from the job's own result metadata after completion — not only inside a test harness
-  3. The manifest for a job with zero sovereign data crossing the network reports zero sovereign bytes, and the manifest for a job that legitimately moves an aggregate reports only the aggregate's size, never the raw input's
-**Plans**: 3 plans
+  1. A stream tap installed on the wire between two nodes started via `bin/agent.ts` **refuses the send** when a registered sovereign block would cross it, so the bytes never leave the node, and the running cross-owner job fails rather than completing as `agreed`
+  2. Every job run through the browser demo emits an egress manifest recording exactly what left the **submitting** node, with byte counts, retrievable from the job's own result metadata after completion — not only inside a test harness
+  3. A job with zero sovereign data crossing the network records no violation over a non-empty manifest, and a job that legitimately moves an aggregate carries its raw input nowhere on the wire — with the pushdown size claim evidenced by `encodeCanonical(output)` against `encodeCanonical(rawInput)`, not by `manifest.totalBytes`
+**Plans**: 7 plans (3 original + 4 gap closure)
+
+<!--
+Criteria amended 2026-07-28, after 13-VERIFICATION.md scored the originals 0/3 and the
+owner ruled on the three questions it raised. What changed and why:
+
+1. "fails a running job if a single raw sovereign byte crosses" -> "refuses the send ...
+   so the bytes never leave". Owner's call. `EgressGuard.send()` already computes the
+   violation before calling `#inner.send()`, so refusing costs one branch. Failing a job
+   after the bytes crossed cannot un-send them, and an observer that reports after the
+   fact is not what "data stays on the owner's device" promises. The job-fails clause is
+   KEPT, and becomes true as a consequence of the refusal rather than needing a reader
+   for `manifest.violations`.
+   "a single raw sovereign byte" -> "a registered sovereign block": detection matches the
+   whole registered payload, contiguous and byte-identical. Measured, not assumed — a
+   probe sending the raw characters alone crossed with no violation. Phase 4 drew the
+   same line: a detector, not a prover.
+
+2. "each owner's node" -> "the submitting node". Owner's call. Retrieving a remote
+   node's manifest needs a wire message kind that does not exist; 13-CONTEXT.md deferred
+   it as "not needed" and the criterion kept promising it anyway. Cross-process
+   retrieval is now a named future item, not an implied promise. `bin/agent.ts` drops
+   out of this criterion because it is serving-only and never submits a job.
+
+3. "reports only the aggregate's size" removed as a manifest claim. Measured false:
+   `manifest.totalBytes` read 130 where the raw input was 95 canonical bytes and the
+   aggregate 8, because totalBytes sums every frame including unrelated block fetches.
+   Under criterion 1's refusal the stronger property holds instead — the raw input
+   cannot cross at all — and the size comparison stays where Phase 12 already proved it.
+
+A criterion that can only be reported as met is not a measurement. These were amended
+down to what is true and up where the refusal makes a stronger claim available; none was
+weakened merely so it could be ticked.
+-->
+
 
 Plans:
 - [x] 13-01-PLAN.md — Build registerSovereignInputs (a production caller for EgressGuard.guard()) and submitJobWithEgress (per-job manifest attachment), both in @o2/net, proven against a real RpcEndpoint/serveAgent fabric
 - [x] 13-02-PLAN.md — Wire both FabricNode and BrowserNode to construct RpcEndpoint over a new EgressGuard field and auto-register every sovereign task's input before executing it
 - [x] 13-03-PLAN.md — Prove all three criteria against real FabricNode instances over real RPC, and plant/watch-fail/revert both required mutations (registration removed, transport wrap removed)
+- [ ] 13-04-PLAN.md — Make EgressGuard.send refuse a frame carrying a registered sovereign payload instead of forwarding it, and invert every @o2/net assertion that encoded the forward-anyway behavior
+- [ ] 13-05-PLAN.md — Prove the refused job fails and its shard stalls rather than relocating, in process against real FabricNodes and across two spawned bin/agent.ts processes
+- [ ] 13-06-PLAN.md — Restate the DATA-05/DATA-06 ledger rows against the amended criteria, and guard bin/bench.ts's egress leg with a test rather than the type-checker alone
+- [ ] 13-07-PLAN.md — Release a sovereign registration from the serve path once its reply frame has settled, so scan cost is bounded by in-flight tasks rather than node uptime
+
+### Phase 13.1: Node-Side Admission & Transport Bounds (INSERTED)
+**Goal**: A node refuses work it cannot run, with a stated reason, and neither side of the wire can be driven past a bound by a peer — closing three defects measured against the real stack rather than inferred
+**Mode:** mvp
+**Depends on**: Phase 13
+**Requirements**: SCHED-06 (new), NET-07 (new), NET-08 (new)
+**Research**: None — all three are measured, with reproductions recorded below
+
+**Success Criteria** (what must be TRUE):
+  1. A node at its execution slot limit refuses an `exec` request with a **stated reason** naming the limit, and the requestor re-picks — verified by concurrency against the real stack, not by a single-request unit test. Today: 4 peers × 200 concurrent `exec` requests produced 800 simultaneous `executor.execute()` calls and **0 refusals**
+  2. `LocalCapacity` is either constructed by both production node factories, or deleted. It may not remain built-and-unwired: today it appears only in two test files while `fabric-node.ts` and `browser-node.ts` both pass the opt-out sentinel
+  3. A peer cannot make a node allocate an unbounded buffer: `readMessage` enforces a declared maximum message size and calls `stream.abort()` past it. Today a single **64 MiB** frame was sent over the real transport and accepted
+  4. Dispatching N shards immediately after dial succeeds for N well above 12, or fails with a **stated, sender-attributed** reason. Today N=8 completes and N=12 fails entirely with `MaxEarlyStreamsError: Too many early streams - 11/10`, which calls `muxer.abort()` and tears down the whole connection — including in-limit requests and identify's stream
+  5. A connection torn down by the **sender** exceeding a stream limit is not classified by the coordinator as a **node** failure of the receiver
+
+**Why this phase exists, and why it is inserted rather than appended.**
+
+Three defects, each measured against tcp + noise + yamux with real `FabricNode`s, not reasoned about:
+
+| Defect | Measurement |
+|---|---|
+| `serveAgent`'s `exec` branch has no admission control of any kind | 800 concurrent `execute()` calls, 0 refused |
+| `readMessage` accumulates peer-controlled chunks with no cap | one 64 MiB frame accepted |
+| Per-peer send opens one stream per message with no bound | cliff between 8 and 12 shards, whole connection torn down |
+
+`agent.ts` consults `options.capacity` **only** in the `offer` branch. The `exec` branch authorizes and then calls `await executor.execute(task)` with nothing counting what is in flight, and `rpc.ts` subscribes with a discarded promise per inbound frame, so there is no upstream throttle either. In production each of those slots is a `WebAssembly.compile` plus `instantiate` plus a linear memory.
+
+The apparent ceiling of 256 with one peer is the **sender's** `maxOutboundStreams`, not a receiver decision — which is why adding peers multiplies it linearly. The receiver makes no decision at all.
+
+**The urgency is `bin/bench.ts`.** It ships `const SHARDS = 8`, one below a measured cliff at 12. The approved multi-process benchmark phase would otherwise publish a scaling curve measured against an unfixed connection-killing limit, and the failure it produces blames the wrong node — so a straggler analysis would be reading sender overrun as receiver death.
+
+**This is not a queueing phase.** Criterion 1 wants a semaphore and a refusal, not a buffer: silently queueing an `exec` converts a refusal into unbounded latency and hides the load signal the placer needs. `ARCHITECTURE.md` §7.2 says the same thing — *"an over-committed node just says no, and the requestor resamples"* — and records that only half of it shipped. Criterion 3 wants a declared limit and an abort; a queue cannot bound a single frame. Only the per-peer send path in criterion 4 is a genuine bounded-queue site.
+
+**Amendment required to Phase 18.** Its Success Criterion 2 reads *"a node made to report itself over capacity refuses the **offer** with a stated reason."* That exercises the `offer` branch, so Phase 18 can pass in full while criterion 1 above stays open. Phase 18 gains: *a node at its execution slot limit refuses an `exec` request with a stated reason, and the requestor re-picks.*
+
+**Recorded, not fixed here:** `EgressGuard.#entries` grows one object per outbound frame for the node's lifetime and is peer-driven — the 800-request probe added 800 entries. Bounding it was considered during Phase 13 and deliberately not done: `submit-with-egress.ts` delta-slices `entries` so job-scoped manifests compose with concurrent readers, and a ring buffer would silently drop history a reader may be mid-slice on. It is a resource bound, not a correctness bug. If it is fixed later, follow `wasi-executor.ts`'s house style and **count what was dropped**, surfacing it in the manifest — a guard that silently stops guarding is the shape this project keeps removing.
+
+**How these were found.** A subagent was told to refute the claim that the fabric had no backpressure gap, and did, at a named site with a reproduction. Two of the claim's three legs broke. The leg that broke worst was the assertion that `over-committed: N of M slots in use` proved the project had chosen refusal deliberately — that string cannot be produced by any running node, because the only thing that emits it is constructed nowhere outside tests. A well-built mechanism was read and its wiring assumed. That is the defect this milestone exists to remove, reproduced in the course of arguing about it.
 
 ### Phase 14: Signed Artifact Resolution
 **Goal**: A production node resolves a task's module through a `key → CID` mapping signed by a trusted build authority — never a bare CID — on the live dispatch path
@@ -357,6 +435,9 @@ Plans:
 **Depends on**: Phase 18, Phase 17
 **Requirements**: AUTH-05, NET-06, VER-03, VER-04, VER-08, VER-09, VER-10, WIRE-03
 **Research**: None — `composeQuorum`, `attestationReceipt`, and `resolveReplicaSets` exist and are unit-verified in Phase 6; the gap is that nothing on the production dispatch path calls them, and no test has ever put two tabs on a static bundle without a harness dialing for them
+**Constraints** (recorded 2026-07-28 by Phase 13, before criterion 2's plan is written):
+  - Raw sovereign data does not move between nodes, including two nodes the same owner controls — `EgressGuard.send` refuses any frame carrying a registered sovereign payload rather than forwarding it (Plan 13-04). Criterion 2 below is therefore reachable only if the owner has already placed the input on both of their live nodes; the fabric will not fetch it onto the second one. See the **Raw sovereign data does not move between nodes** row in `.planning/PROJECT.md`'s Key Decisions
+  - That refusal path has no runtime coverage in a real tab anywhere. `BrowserNode` composes the identical `EgressGuard` and `registerSovereignInputs` wiring `FabricNode` does, but no sovereign job has ever run in a browser, so the refusal branch is compiled and never executed. This is the same structural gap `12-VERIFICATION.md` recorded and `13-03-PLAN.md` already routed to WIRE-03; naming it here so the WIRE-03 planner knows there is now a *behavior* to exercise and not only a composition to inspect
 **Success Criteria** (what must be TRUE):
   1. A verification quorum assembled during a job run through `bin/agent.ts` contains at least one backbone-anchored replica and no two replicas from the same operator — a run engineered to try to fill a quorum from one operator's nodes is refused rather than silently accepted
   2. Several node certificates chaining to one owner's user key resolve, through `bin/agent.ts`, as a single discoverable replica set; a sovereignty-pinned task with two or more of that owner's nodes live executes on two of them, the outputs are compared, and the receipt reports the agreement as owner-domain, not independent-operator
@@ -439,6 +520,24 @@ Parallel tracks (config `parallelization: true`):
 | 20. Single Job Path, Ledger & Churn Resilience | 0/TBD | Not started | - |
 | 21. AOT Translation Signing & Runtime | 0/TBD | Not started | - |
 | 22. Reachability Guard | 0/TBD | Not started | - |
+
+### Phase 23: Multi-Process Benchmark Driver
+**Goal**: The benchmark harness spawns N real operating-system processes instead of N `FabricNode`s on one event loop, so a parallel speedup is measurable at all — and the project's central scaling claim stops being unmeasured
+**Mode:** mvp
+**Depends on**: Phase 8 (the existing harness), Phase 12 (the spawn pattern)
+**Requirements**: BENCH-07 (new)
+**Research**: None — `sovereignty-placement.node.test.ts` and `two-process.node.test.ts` already spawn real `bin/agent.ts` processes via `spawn(process.execPath, [AGENT, '--dir', dir, ...])`. The work is moving `bin/bench.ts`'s node construction onto that pattern
+**Success Criteria** (what must be TRUE):
+  1. A benchmark run at N nodes spawns N operating-system processes, verified by reading the child PIDs, and the published run records them — a run that silently falls back to in-process nodes fails the harness rather than reporting a curve
+  2. Makespan at N=1 and N=8 differ on a fixture with enough work to saturate a core, and the ratio is published; a flat curve is a finding, but it must be a finding about the fabric rather than about the harness
+  3. The two real-transport rungs Phase 8 published as excluded (8 and 16 nodes, dying on `INBOUND_CONNECTION_THRESHOLD = 5` per host) either run, or are re-excluded with a measurement showing the per-host inbound cap is still the cause under separate processes
+  4. `BENCHMARK-RESULTS.md` states, for every published figure, whether it came from the single-process or the multi-process driver — no figure is silently replaced
+
+**Why this phase exists.** Phase 8's own SUMMARY says it plainly: *"Every node in both curves runs inside one OS process on one JavaScript event loop ... no parallel speedup is measurable here at all ... the scaling claim remains unmeasured."* That has been read ever since as part of the BENCH-06 "needs a second machine" blocker. It is not. Phase 8 named the cheaper remedy itself — separate OS processes on one host — and Phase 12 has since built exactly that spawn harness for an unrelated reason. The blocker moved and nobody noticed.
+
+**What this phase is not.** It does not close BENCH-06, which asks for distinct machines and still needs a second machine. It does not touch AOT-03, the same hardware blocker wearing another number. A one-host multi-process curve is not a distributed curve and must not be labelled as one — Phase 8's rule that a same-machine run is labelled as such carries forward unchanged.
+
+**Trap to avoid.** The COST crossover published at ~570× measures the guest ABI on a trivial fixture, not the fabric. Criterion 2 requires a fixture that does non-trivial work, or the new curve reproduces the old one's real problem with more processes.
 
 ## Requirement Coverage
 

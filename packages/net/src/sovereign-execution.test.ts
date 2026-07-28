@@ -41,10 +41,11 @@ import {
  * compared, its receipt labelled `owner-domain` rather than `independent`, and an
  * egress manifest showing that what left those nodes was derived and not raw.
  *
- * The manifest is only worth reading if the tap can fail, so the last test replaces
+ * The manifest is only worth reading if the tap can fire, so the last test replaces
  * the aggregating module with one that echoes its input and requires the tap to
- * catch it *in this exact wiring*. A tap that has never caught anything is a tap
- * nobody has tested.
+ * refuse the reply *in this exact wiring* — the raw row stays on the owner's node
+ * and the dispatch fails. A tap that has never stopped anything is a tap nobody has
+ * tested.
  */
 
 const NOW = 1_800_000_000_000
@@ -113,6 +114,8 @@ async function ownerFabric(options: { module: Uint8Array<ArrayBuffer>; ownerNode
     rpc: seedRpc,
     executor: new WasmExecutor({ nodeId: SEED, blockstore: seedStore }),
     blockstore: seedStore,
+    // The seed's transport is un-decorated, so its sends carry no registrations.
+    egress: 'holds-no-registrations',
     authorize: 'serves-unauthenticated',
     index,
     capacity: 'accepts-every-offer',
@@ -167,6 +170,10 @@ async function ownerFabric(options: { module: Uint8Array<ArrayBuffer>; ownerNode
         canExecuteSovereign: true,
       }),
       blockstore: store,
+      // This owner node's own tap. These tests register `'alice-row'` directly
+      // rather than through a task, so nothing here releases it — which is the
+      // point: the label under watch is not the label a reply would release.
+      egress: guard,
       authorize: 'serves-unauthenticated',
       index: 'serves-no-records',
       capacity: 'accepts-every-offer',
@@ -198,6 +205,10 @@ async function ownerFabric(options: { module: Uint8Array<ArrayBuffer>; ownerNode
       canExecuteSovereign: false,
     }),
     blockstore: bobStore,
+    // This endpoint is built over a raw transport with no tap on it, so its sends
+    // carry no registrations to release — a statement about this endpoint, not a
+    // difference in what kind of node it is.
+    egress: 'holds-no-registrations',
     authorize: 'serves-unauthenticated',
     index: 'serves-no-records',
     capacity: 'accepts-every-offer',
@@ -345,10 +356,17 @@ describe('criterion 6 — an owner’s own nodes verify each other', () => {
     }
   })
 
-  it('catches a map step that forgot to aggregate and shipped its input', async () => {
+  it('stops a map step that forgot to aggregate and tried to ship its input', async () => {
     // The falsification. Same wiring, same tap, a module that echoes its input —
-    // which is precisely the failure the egress requirement exists to catch, and
-    // the only evidence that the clean manifest above means anything.
+    // which is precisely the failure the egress requirement exists to stop, and the
+    // only evidence that the clean manifest above means anything. The tap does not
+    // merely notice the echo: the reply frame carrying the raw row is refused, so
+    // the row never leaves this node and the dispatch fails instead.
+    //
+    // The requestor learns only that the dispatch failed, after its own 5s timeout,
+    // because the refusal is on the responding leg — `rpc.ts` swallows it by
+    // documented design, a cost `egress.ts` states outright. Hence the extended
+    // test timeout below.
     const fabric = await ownerFabric({ module: MODULE_ECHOES_INPUT, ownerNodes: 1 })
     try {
       const node = fabric.owned[0] as OwnerNode
@@ -360,14 +378,21 @@ describe('criterion 6 — an owner’s own nodes verify each other', () => {
         label: 'sovereign',
         ownerId: fabric.aliceUserKey,
       })
-      expect(outcome.ok).toBe(true)
+      expect(outcome.ok).toBe(false)
+      if (outcome.ok) return
+      expect(outcome.reason).toContain(node.nodeId)
 
+      // The refusal is still visible on the owner's own tap. Paired with a
+      // non-empty entries reading, so a manifest that recorded nothing at all
+      // cannot pass as one that recorded a refusal.
       const manifest = node.guard.manifest
       expect(manifest.violations).toContain('alice-row')
+      expect(manifest.entries.length).toBeGreaterThan(0)
+      expect(manifest.entries.some((entry) => entry.violation === 'alice-row')).toBe(true)
     } finally {
       fabric.close()
     }
-  })
+  }, 20_000)
 })
 
 describe('criterion 7 — one live node is owner-attested, and says so', () => {

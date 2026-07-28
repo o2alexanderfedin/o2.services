@@ -53,6 +53,9 @@ function buildFabric(nodeId: string): Fabric {
     rpc: seedRpc,
     executor: new WasmExecutor({ nodeId: SEED, blockstore: seedStore }),
     blockstore: seedStore,
+    // The seed's sends go out over the raw transport, so nothing is registered
+    // against them. The owner node below is where the tap lives.
+    egress: 'holds-no-registrations',
     authorize: 'serves-unauthenticated',
     index: 'serves-no-records',
     capacity: 'accepts-every-offer',
@@ -76,6 +79,8 @@ function buildFabric(nodeId: string): Fabric {
     rpc,
     executor,
     blockstore: store,
+    // The owner node's own tap — the guard `rpc` is built over.
+    egress: guard,
     authorize: 'serves-unauthenticated',
     index: 'serves-no-records',
     capacity: 'accepts-every-offer',

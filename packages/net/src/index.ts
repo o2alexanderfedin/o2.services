@@ -37,7 +37,7 @@ export type { BlockVector, ConformanceReport } from './conformance.ts'
 export { GovernedExecutor } from './governed-executor.ts'
 
 // Egress control — DATA-04, DATA-05.
-export { EgressGuard } from './egress.ts'
+export { EgressGuard, EgressRefusal } from './egress.ts'
 export type { EgressEntry, EgressManifest } from './egress.ts'
 export { registerSovereignInputs } from './sovereign-egress.ts'
 export type { SovereignEgressOptions } from './sovereign-egress.ts'

@@ -21,9 +21,10 @@ import type {
   Task,
 } from '@o2/core'
 import type { BlockSource } from './block.ts'
+import type { EgressGuard } from './egress.ts'
 import { encodeRequest, encodeResponse, parseRequest, parseResponse } from './protocol.ts'
 import type { AgentResponse } from './protocol.ts'
-import type { RpcEndpoint } from './rpc.ts'
+import type { RpcEndpoint, RpcReply } from './rpc.ts'
 
 /**
  * Pulls blocks from peers over RPC, trying each in turn.
@@ -130,13 +131,32 @@ export interface AgentOptions {
    * `'reports-no-dispatch'` for a node with nothing watching its dispatches.
    */
   readonly onDispatch: ((from: string) => void) | 'reports-no-dispatch'
+  /**
+   * DATA-05. The tap this endpoint's sends go out through, so a sovereign task's
+   * registration can be released once its reply frame has settled.
+   *
+   * Any node may hold registrations, on the same terms as any other — the only
+   * difference between nodes is discovery. Pass `'holds-no-registrations'` to state
+   * that this endpoint's sends are not tapped, which is a truthful statement about
+   * this endpoint and not a lesser kind of node.
+   *
+   * Required rather than optional, and the reason is recorded rather than stylistic:
+   * `.planning/PROJECT.md`'s Key Decision **"An optional hook with a silent default
+   * is a hole"** (v1.0 audit). Here the hole has a specific shape. A node that
+   * omitted this would keep registering sovereign inputs and never release one, so
+   * every frame it ever sends would be scanned against every sovereign payload it
+   * has ever been handed — it would grow slower for the rest of its life with
+   * nothing failing and nobody measuring. Making the omission something a call site
+   * has to write down is what turns that into a decision.
+   */
+  readonly egress: EgressGuard | 'holds-no-registrations'
 }
 
 /** Install the request handler that makes this endpoint a serving node. */
 export function serveAgent(options: AgentOptions): void {
   const { rpc, executor, blockstore } = options
 
-  rpc.serve(async (from, body): Promise<CanonicalValue> => {
+  rpc.serve(async (from, body): Promise<CanonicalValue | RpcReply> => {
     const request = parseRequest(body)
     if (request === null) {
       return encodeResponse({ kind: 'error', reason: 'malformed request' })
@@ -180,19 +200,55 @@ export function serveAgent(options: AgentOptions): void {
           : { kind: 'offer', accepted: false, reason: decision.reason }
     } else {
       if (options.onDispatch !== 'reports-no-dispatch') options.onDispatch(from)
-      // Authorisation first. The ordering is the requirement: refusing after
-      // execution would already have run the module against the owner's data.
-      const refusal =
-        options.authorize === 'serves-unauthenticated'
-          ? null
-          : options.authorize({
-              task: request.task,
-              capability: request.capability ?? [],
-            })
-      response =
-        refusal === null
-          ? { kind: 'exec', outcome: await executor.execute(request.task) }
-          : { kind: 'exec', outcome: { ok: false, reason: `unauthorized: ${refusal}` } }
+      // Everything that can throw is inside this try, and the catch turns it into a
+      // named outcome. That is needed here for the release path — an exit that
+      // propagates out of this handler never reaches `afterSent` below — and it
+      // fixes something on its own account, which a reader should see was intended
+      // rather than accidental: a throwing executor used to reach `rpc.ts`'s
+      // handler catch, which replies `{error: …}`. `parseResponse` does not
+      // recognise that shape, so the requestor reported the response *malformed*
+      // and the actual reason was lost on the way home.
+      let outcome
+      try {
+        // Authorisation first. The ordering is the requirement: refusing after
+        // execution would already have run the module against the owner's data.
+        const refusal =
+          options.authorize === 'serves-unauthenticated'
+            ? null
+            : options.authorize({
+                task: request.task,
+                capability: request.capability ?? [],
+              })
+        outcome =
+          refusal === null
+            ? await executor.execute(request.task)
+            : { ok: false as const, reason: `unauthorized: ${refusal}` }
+      } catch (cause) {
+        outcome = {
+          ok: false as const,
+          reason: `execution failed on ${executor.nodeId}: ${cause instanceof Error ? cause.message : String(cause)}`,
+        }
+      }
+      const egress = options.egress
+      if (egress === 'holds-no-registrations') return encodeResponse({ kind: 'exec', outcome })
+      const label = request.task.inputCid.toString()
+      return {
+        body: encodeResponse({ kind: 'exec', outcome }),
+        // Released here rather than where the guard and the label are both already
+        // in scope — inside `registerSovereignInputs` — because the frame the
+        // registration exists to be scanned against is *this reply*, which has not
+        // been sent yet at the moment `execute` resolves. `rpc.ts` invokes this in
+        // a `finally` around the response send, which is the first moment the frame
+        // has settled.
+        //
+        // Unconditional on the label rather than re-testing whether the task was
+        // sovereign: `release` for a label it does not hold is a no-op, so the
+        // unconditional form cannot leak if registration's own condition ever
+        // changes, while a conditional form would have to be kept in step with it.
+        afterSent: () => {
+          egress.release(label)
+        },
+      }
     }
     return encodeResponse(response)
   })

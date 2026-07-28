@@ -1,7 +1,7 @@
 import { MemoryBlockstore, MemoryNetwork, encodeCanonical } from '@o2/core'
 import { describe, expect, it } from 'vitest'
-import { EgressGuard } from './egress.ts'
-import { RpcEndpoint } from './rpc.ts'
+import { EgressGuard, EgressRefusal } from './egress.ts'
+import { RpcEndpoint, RpcFailure } from './rpc.ts'
 
 /**
  * DATA-04 / DATA-05 — nothing raw leaves, and the manifest proves it.
@@ -9,6 +9,12 @@ import { RpcEndpoint } from './rpc.ts'
  * The tap is on the owner node's only exit, so "complete by construction" is literal:
  * a frame that was not recorded was not sent, because recording happens inside
  * `send`. There is no second path to forget to instrument.
+ *
+ * A frame that matches a registered payload is refused, not annotated, so "nothing
+ * raw leaves" is a property of the exit rather than a report written after the bytes
+ * are gone. "Nothing arrived" is only worth asserting from an instrument shown able
+ * to read something, so the delivery counter below is read twice in this file: 0 for
+ * a refused frame, 1 for a legitimate one, on the same counter.
  */
 
 /** A recognisable stand-in for a row of someone's private data. */
@@ -20,11 +26,27 @@ function ownerNode(network: MemoryNetwork, id: string): EgressGuard {
   return guard
 }
 
+/**
+ * The destination peer, plus a count of what actually arrived at it.
+ *
+ * These tests used to connect the coordinator and discard the handle. The handle is
+ * the whole instrument: a refusal assertion that only reads the sender's own manifest
+ * proves the sender's bookkeeping, not that the bytes stayed home.
+ */
+function coordinator(network: MemoryNetwork): { readonly delivered: () => number } {
+  const transport = network.connect('coordinator')
+  let count = 0
+  transport.onMessage(() => {
+    count += 1
+  })
+  return { delivered: () => count }
+}
+
 describe('DATA-05 — the manifest records everything that leaves', () => {
   it('counts every frame and its bytes', async () => {
     const network = new MemoryNetwork()
     const owner = ownerNode(network, 'alice-1')
-    network.connect('coordinator')
+    coordinator(network)
 
     await owner.send('coordinator', new Uint8Array([1, 2, 3]))
     await owner.send('coordinator', new Uint8Array([4, 5, 6, 7]))
@@ -54,7 +76,7 @@ describe('DATA-05 — the manifest records everything that leaves', () => {
     // that can send is already recorded. Nothing else exposes the inner transport.
     const network = new MemoryNetwork()
     const owner = ownerNode(network, 'alice-1')
-    network.connect('coordinator')
+    coordinator(network)
 
     const rpc = new RpcEndpoint(owner, { timeoutMs: 100 })
     try {
@@ -68,28 +90,47 @@ describe('DATA-05 — the manifest records everything that leaves', () => {
   })
 })
 
-describe('DATA-04 — a raw sovereign byte crossing the wire fails the test', () => {
-  it('flags a frame that carries the raw row', async () => {
+describe('DATA-04 — a raw sovereign byte does not reach the wire at all', () => {
+  it('refuses a frame that carries the raw row, and the peer never sees it', async () => {
     const network = new MemoryNetwork()
     const owner = ownerNode(network, 'alice-1')
-    network.connect('coordinator')
+    const peer = coordinator(network)
 
     // The failure this exists to catch: a map step that forgot to aggregate and
     // shipped its input.
     const leaked = encodeCanonical({ rows: [SOVEREIGN_ROW] })
     expect(leaked.ok).toBe(true)
     if (!leaked.ok) return
-    await owner.send('coordinator', leaked.bytes)
+    const refusal = await owner.send('coordinator', leaked.bytes).then(
+      () => null,
+      (cause: unknown) => cause,
+    )
+
+    // Typed, so a caller branches on the value rather than on a message string.
+    expect(refusal).toBeInstanceOf(EgressRefusal)
+    expect((refusal as EgressRefusal).violation).toBe('alice-row')
+    expect((refusal as EgressRefusal).to).toBe('coordinator')
+    expect((refusal as EgressRefusal).bytes).toBe(leaked.bytes.byteLength)
+
+    // Read off the instrument that reads 1 for the aggregate below. Without that
+    // second reading this 0 would be indistinguishable from a counter nobody
+    // connected.
+    expect(peer.delivered()).toBe(0)
 
     const manifest = owner.manifest
     expect(manifest.violations).toEqual(['alice-row'])
+    expect(manifest.entries).toHaveLength(1)
     expect(manifest.entries[0]?.violation).toBe('alice-row')
+    // Nothing left, and something was nonetheless observed. A manifest whose only
+    // frame was refused must never read like the manifest of a node that sent
+    // nothing at all.
+    expect(manifest.totalBytes).toBe(0)
   })
 
   it('passes an aggregate derived from the same data', async () => {
     const network = new MemoryNetwork()
     const owner = ownerNode(network, 'alice-1')
-    network.connect('coordinator')
+    const peer = coordinator(network)
 
     // Pushed-down aggregation: a count and a sum, no rows. This is what a
     // cross-owner job is supposed to emit.
@@ -98,20 +139,25 @@ describe('DATA-04 — a raw sovereign byte crossing the wire fails the test', ()
     if (!aggregate.ok) return
     await owner.send('coordinator', aggregate.bytes)
 
+    // The positive control for the 0 above, on the same counter, in the same file:
+    // the refusal is specific to the registered pattern, not a general failure of
+    // the guard to forward anything.
+    expect(peer.delivered()).toBe(1)
     expect(owner.manifest.violations).toEqual([])
     expect(owner.manifest.totalBytes).toBeGreaterThan(0)
   })
 
-  it('catches the row embedded in a larger frame', async () => {
+  it('refuses the row embedded in a larger frame', async () => {
     // A leak wrapped in an otherwise-legitimate message must not slip through.
     const network = new MemoryNetwork()
     const owner = ownerNode(network, 'alice-1')
-    network.connect('coordinator')
+    const peer = coordinator(network)
 
     const framed = new Uint8Array(SOVEREIGN_ROW.byteLength + 64)
     framed.set(SOVEREIGN_ROW, 40)
-    await owner.send('coordinator', framed)
+    await expect(owner.send('coordinator', framed)).rejects.toBeInstanceOf(EgressRefusal)
 
+    expect(peer.delivered()).toBe(0)
     expect(owner.manifest.violations).toEqual(['alice-row'])
   })
 
@@ -119,7 +165,7 @@ describe('DATA-04 — a raw sovereign byte crossing the wire fails the test', ()
     // A near-miss must stay clean, or the tap becomes noise and gets ignored.
     const network = new MemoryNetwork()
     const owner = ownerNode(network, 'alice-1')
-    network.connect('coordinator')
+    coordinator(network)
 
     const nearMiss = new Uint8Array(SOVEREIGN_ROW)
     nearMiss[nearMiss.length - 1] = (nearMiss[nearMiss.length - 1]! ^ 0x01) & 0xff
@@ -128,15 +174,115 @@ describe('DATA-04 — a raw sovereign byte crossing the wire fails the test', ()
     expect(owner.manifest.violations).toEqual([])
   })
 
-  it('watches several guarded values at once and names which one leaked', async () => {
+  it('watches several guarded values at once and names which one it refused', async () => {
     const network = new MemoryNetwork()
     const owner = ownerNode(network, 'alice-1')
     const second = new TextEncoder().encode('dob=1970-01-01')
     owner.guard('alice-dob', second)
-    network.connect('coordinator')
+    coordinator(network)
 
-    await owner.send('coordinator', second as Uint8Array<ArrayBuffer>)
+    await expect(
+      owner.send('coordinator', second as Uint8Array<ArrayBuffer>),
+    ).rejects.toBeInstanceOf(EgressRefusal)
     expect(owner.manifest.violations).toEqual(['alice-dob'])
+  })
+
+  it('surfaces a refusal on the requesting leg as a named send failure, not a timeout', async () => {
+    // The asymmetry `egress.ts` documents, exercised on the leg where it is
+    // legible. `rpc.ts` turns a rejected `Transport.send` on an outbound request
+    // into `RpcFailure{kind:'send-failed'}` immediately, so this caller learns the
+    // violated label at once. On the responding leg `rpc.ts` swallows the failure
+    // by documented design and the requester waits out its own timeout instead —
+    // that leg is not legible, and nothing here claims it is.
+    const network = new MemoryNetwork()
+    const owner = ownerNode(network, 'alice-1')
+    coordinator(network)
+
+    // Ten seconds, so an elapsed reading under one second cannot be a timeout.
+    const rpc = new RpcEndpoint(owner, { timeoutMs: 10_000 })
+    const started = Date.now()
+    try {
+      const failure = await rpc.request('coordinator', { row: SOVEREIGN_ROW }).then(
+        () => null,
+        (cause: unknown) => cause,
+      )
+      expect(failure).toBeInstanceOf(RpcFailure)
+      const detail = (failure as RpcFailure).detail
+      expect(detail.kind).toBe('send-failed')
+      if (detail.kind !== 'send-failed') return
+      expect(detail.detail).toContain('alice-row')
+      expect(Date.now() - started).toBeLessThan(1_000)
+    } finally {
+      rpc.close()
+    }
+  })
+})
+
+describe('a registration has a lifetime, and the set can be read', () => {
+  it('forgets a released payload, and the set reads empty afterwards', async () => {
+    const network = new MemoryNetwork()
+    const owner = ownerNode(network, 'alice-1')
+    const peer = coordinator(network)
+
+    expect(owner.registrations).toEqual(['alice-row'])
+    owner.release('alice-row')
+    expect(owner.registrations).toEqual([])
+
+    // Forwarded, and read off the same counter that reads 0 for a refused frame.
+    await owner.send('coordinator', SOVEREIGN_ROW as Uint8Array<ArrayBuffer>)
+    expect(peer.delivered()).toBe(1)
+    expect(owner.manifest.violations).toEqual([])
+  })
+
+  it('holds one label twice, so one dispatch finishing cannot unguard the other', async () => {
+    // Two concurrent dispatches of the same input are two holds. This is the whole
+    // reason release counts rather than deletes: the first to finish must leave the
+    // second one's payload guarded, or a node serving two shards of one owner's row
+    // unguards itself halfway through.
+    const network = new MemoryNetwork()
+    const owner = ownerNode(network, 'alice-1')
+    const peer = coordinator(network)
+    owner.guard('alice-row', SOVEREIGN_ROW)
+
+    owner.release('alice-row')
+    await expect(
+      owner.send('coordinator', SOVEREIGN_ROW as Uint8Array<ArrayBuffer>),
+    ).rejects.toBeInstanceOf(EgressRefusal)
+    expect(peer.delivered()).toBe(0)
+    expect(owner.registrations).toEqual(['alice-row'])
+
+    owner.release('alice-row')
+    expect(owner.registrations).toEqual([])
+    await owner.send('coordinator', SOVEREIGN_ROW as Uint8Array<ArrayBuffer>)
+    expect(peer.delivered()).toBe(1)
+  })
+
+  it('ignores a release for a label it does not hold', () => {
+    // The serve path releases unconditionally, so a change to registration's own
+    // conditions must not be able to turn a release into a throw inside a `finally`.
+    const network = new MemoryNetwork()
+    const owner = ownerNode(network, 'alice-1')
+
+    expect(() => {
+      owner.release('never-registered')
+    }).not.toThrow()
+    expect(owner.registrations).toEqual(['alice-row'])
+
+    owner.release('alice-row')
+    expect(() => {
+      owner.release('alice-row')
+    }).not.toThrow()
+    expect(owner.registrations).toEqual([])
+  })
+
+  it('names what is still held, so a leak is reportable and not a bare number', () => {
+    const network = new MemoryNetwork()
+    const owner = ownerNode(network, 'alice-1')
+    owner.guard('alice-dob', new TextEncoder().encode('dob=1970-01-01'))
+
+    expect([...owner.registrations].sort()).toEqual(['alice-dob', 'alice-row'])
+    owner.release('alice-row')
+    expect(owner.registrations).toEqual(['alice-dob'])
   })
 })
 
@@ -144,7 +290,7 @@ describe('the manifest is per job', () => {
   it('resets without losing the guarded set', async () => {
     const network = new MemoryNetwork()
     const owner = ownerNode(network, 'alice-1')
-    network.connect('coordinator')
+    coordinator(network)
 
     await owner.send('coordinator', new Uint8Array([1]))
     expect(owner.manifest.entries).toHaveLength(1)
@@ -154,7 +300,9 @@ describe('the manifest is per job', () => {
     expect(owner.manifest.totalBytes).toBe(0)
 
     // Guarding survives, or the next job would run untapped.
-    await owner.send('coordinator', SOVEREIGN_ROW as Uint8Array<ArrayBuffer>)
+    await expect(
+      owner.send('coordinator', SOVEREIGN_ROW as Uint8Array<ArrayBuffer>),
+    ).rejects.toBeInstanceOf(EgressRefusal)
     expect(owner.manifest.violations).toEqual(['alice-row'])
   })
 
