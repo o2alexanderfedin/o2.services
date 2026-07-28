@@ -20,7 +20,7 @@
  * a third party I was here".
  */
 
-import { publicNodes, submitJob } from '@o2/core'
+import { publicNodes } from '@o2/core'
 import type { CanonicalValue, StartFailure, StartOutcome } from '@o2/core'
 import {
   RemoteExecutor,
@@ -28,6 +28,7 @@ import {
   findReservedPeers,
   parseResponse,
   publishStartOutcome,
+  submitJobWithEgress,
 } from '@o2/net'
 import {
   DEFAULT_BUDGET,
@@ -304,7 +305,11 @@ const api: TabApi = {
       node.executor,
       ...options.peerIds.map((id) => new RemoteExecutor(id, node.rpc)),
     ]
-    const result = await submitJob(
+    // `submitJobWithEgress`, not bare `submitJob` — DATA-05/DATA-06's manifest,
+    // sliced off `node.egress` (the guard `BrowserNode.start` already wraps this
+    // tab's transport in), reachable from this call's own result rather than only
+    // from a test harness that builds its own guard.
+    const result = await submitJobWithEgress(
       {
         moduleCid,
         shards: Array.from({ length: options.cubes }, () => ({ value: input, label: 'public' as const })),
@@ -313,8 +318,12 @@ const api: TabApi = {
         redundancy: options.redundancy,
       },
       node.store,
+      [node.egress],
     )
     if (!result.ok) throw new Error(`submit failed: ${JSON.stringify(result.error)}`)
+    // Exactly one guard was supplied above, so exactly one manifest comes back.
+    const manifest = result.manifests[0]
+    if (manifest === undefined) throw new Error('unreachable: no manifest for the sole guard')
 
     const statuses = result.job.shards.map((shard) =>
       shard.verification.status === 'agreed' ? readPartial(shard.verification.output).status : 'unagreed',
@@ -341,6 +350,7 @@ const api: TabApi = {
       ),
       verificationMultiplier: result.job.verificationMultiplier,
       elapsedMs: performance.now() - started,
+      egress: manifest,
     }
   },
 
@@ -538,7 +548,8 @@ const api: TabApi = {
       ...(options.includeSelf === true ? [n.executor] : []),
       ...options.peerIds.map((id) => new RemoteExecutor(id, n.rpc)),
     ]
-    const result = await submitJob(
+    // `submitJobWithEgress`, not bare `submitJob` — see `runColouring` above for why.
+    const result = await submitJobWithEgress(
       {
         moduleCid: CID.parse(options.moduleCid),
         shards: Array.from({ length: options.shards }, (_unused, i) => ({
@@ -550,8 +561,12 @@ const api: TabApi = {
         redundancy: options.redundancy,
       },
       n.store,
+      [n.egress],
     )
     if (!result.ok) throw new Error(`submit failed: ${JSON.stringify(result.error)}`)
+    // Exactly one guard was supplied above, so exactly one manifest comes back.
+    const manifest = result.manifests[0]
+    if (manifest === undefined) throw new Error('unreachable: no manifest for the sole guard')
 
     return {
       complete: result.job.complete,
@@ -567,6 +582,7 @@ const api: TabApi = {
       verificationMultiplier: result.job.verificationMultiplier,
       fetched: n.blockstore.fetched,
       rejected: n.blockstore.rejected,
+      egress: manifest,
     }
   },
 

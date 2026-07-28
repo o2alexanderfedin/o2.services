@@ -78,7 +78,14 @@ import { webSockets } from '@libp2p/websockets'
 import { multiaddr } from '@multiformats/multiaddr'
 import { MemoryBlockstore, WasmExecutor, guardSovereignty } from '@o2/core'
 import type { Blockstore, Executor, NodeSovereignty } from '@o2/core'
-import { FetchingBlockstore, RpcBlockSource, RpcEndpoint, serveAgent } from '@o2/net'
+import {
+  EgressGuard,
+  FetchingBlockstore,
+  registerSovereignInputs,
+  RpcBlockSource,
+  RpcEndpoint,
+  serveAgent,
+} from '@o2/net'
 import { createLibp2p } from 'libp2p'
 import type { Libp2p } from '@libp2p/interface'
 import { FsBlockstore } from './fs-blockstore.ts'
@@ -212,6 +219,15 @@ export class FabricNode {
   readonly libp2p: Libp2p
   readonly transport: Libp2pTransport
   readonly rpc: RpcEndpoint
+  /**
+   * Wraps `transport` so every outbound RPC frame is recorded — DATA-05/DATA-06.
+   *
+   * A new field, not a type change to `transport`: `EgressGuard` has no `.stop()`
+   * and delegates `.peers` to the wrapped transport, but `transport` itself stays
+   * the concrete `Libp2pTransport` every existing caller of `.stop()`/`.peers`
+   * relies on. `rpc` is constructed over this field, not over `transport`.
+   */
+  readonly egress: EgressGuard
   /** Local blocks plus network fallback. This is what the executor reads from. */
   readonly blockstore: FetchingBlockstore
   /**
@@ -231,6 +247,7 @@ export class FabricNode {
     libp2p: Libp2p
     transport: Libp2pTransport
     rpc: RpcEndpoint
+    egress: EgressGuard
     blockstore: FetchingBlockstore
     store: Blockstore
     executor: Executor
@@ -241,6 +258,7 @@ export class FabricNode {
     this.libp2p = parts.libp2p
     this.transport = parts.transport
     this.rpc = parts.rpc
+    this.egress = parts.egress
     this.blockstore = parts.blockstore
     this.store = parts.store
     this.executor = parts.executor
@@ -324,8 +342,15 @@ export class FabricNode {
     }
 
     const transport = await Libp2pTransport.start(libp2p)
+    // Resolved once, here, so the identical value feeds both `egress`'s ownerId
+    // and `guardSovereignty`'s clearance check below — not two independently
+    // defaulted copies that could drift (13-CONTEXT.md decision 2).
+    const sovereignty = options.sovereignty ?? { ownerId: '', canExecuteSovereign: false }
+    // DATA-05/DATA-06: every outbound RPC frame is recorded by construction —
+    // `rpc` is built over this guard, not over the raw `transport`, below.
+    const egress = new EgressGuard(transport, sovereignty.ownerId)
     const rpc = new RpcEndpoint(
-      transport,
+      egress,
       options.rpcTimeoutMs === undefined ? {} : { timeoutMs: options.rpcTimeoutMs },
     )
 
@@ -341,16 +366,23 @@ export class FabricNode {
     // `FabricNodeOptions.sovereignty`'s doc). Wrapped once, here, rather than
     // only at the `serveAgent` call below, so a caller that dispatches through
     // `node.executor` directly — bypassing RPC entirely — gets the identical
-    // refusal a remote dispatch would.
-    const executor = guardSovereignty(
-      new WasmExecutor({ nodeId: libp2p.peerId.toString(), blockstore }),
-      options.sovereignty ?? { ownerId: '', canExecuteSovereign: false },
+    // refusal a remote dispatch would. Registration is equally unconditional and
+    // composed *outside* the sovereignty gate — DATA-05/DATA-06: a sovereign
+    // task's input is declared to this node's own tap before it runs, whether or
+    // not `guardSovereignty` goes on to refuse it. `store` (the local-only tier)
+    // is the registration blockstore, not `blockstore` (network fallback) —
+    // sovereign data must already be resident locally, never fetched over the
+    // network merely to be declared sovereign.
+    const executor = registerSovereignInputs(
+      guardSovereignty(new WasmExecutor({ nodeId: libp2p.peerId.toString(), blockstore }), sovereignty),
+      { blockstore: store, guard: egress },
     )
 
     const node = new FabricNode({
       libp2p,
       transport,
       rpc,
+      egress,
       blockstore,
       store,
       executor,

@@ -39,6 +39,10 @@ export { GovernedExecutor } from './governed-executor.ts'
 // Egress control — DATA-04, DATA-05.
 export { EgressGuard } from './egress.ts'
 export type { EgressEntry, EgressManifest } from './egress.ts'
+export { registerSovereignInputs } from './sovereign-egress.ts'
+export type { SovereignEgressOptions } from './sovereign-egress.ts'
+export { sliceManifest, submitJobWithEgress } from './submit-with-egress.ts'
+export type { SubmitWithEgressResult } from './submit-with-egress.ts'
 
 // Start-outcome publication and read-back — BROW-02.
 export { DEFAULT_MAX_PEERS, publishStartOutcome } from './start-report.ts'

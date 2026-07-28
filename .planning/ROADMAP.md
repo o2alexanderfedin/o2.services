@@ -48,7 +48,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 10: elfconv AOT Native→WASM Pipeline** - A statically-linked native binary becomes a fabric-executable artifact under the same admission checks and verification — **3 of 4 criteria**; cross-machine reproducibility needs a second machine, and the V8 code-cache hit was measured and does not happen
 - [x] **Phase 11: Explicit serveAgent Hook Contract** - `serveAgent`'s six hooks stop defaulting silently — an omission becomes a compile error, not a decision nobody made (completed 2026-07-27)
 - [x] **Phase 12: Sovereignty-Pinned Placement** - A sovereignty label becomes a constraint the live `submitJob` path cannot relax, with pushdown and backbone execution-ineligibility enforced on a real job (completed 2026-07-27)
-- [ ] **Phase 13: Egress Manifest Completeness** - Both nodes wrap their transport in `EgressGuard`, so the egress manifest is complete by construction on a real job, not only in a test
+- [x] **Phase 13: Egress Manifest Completeness** - Both nodes wrap their transport in `EgressGuard`, so the egress manifest is complete by construction on a real job, not only in a test (completed 2026-07-27)
 - [ ] **Phase 14: Signed Artifact Resolution** - Artifacts resolve only through a signed `key → CID` mapping on the live dispatch path, never a bare CID
 - [ ] **Phase 15: Capability-Chained Dispatch** - A dispatched task carries a capability chain the serving node verifies before `WebAssembly.instantiate`, both ends wired for the first time
 - [ ] **Phase 16: Decomposable Tree-Reduce Wiring** - A live multi-node job merges partials up `executeReduce`'s derived tree, replacing the demo's linear scan
@@ -284,9 +284,9 @@ Plans:
 **Plans**: 3 plans
 
 Plans:
-- [ ] 13-01-PLAN.md — Build registerSovereignInputs (a production caller for EgressGuard.guard()) and submitJobWithEgress (per-job manifest attachment), both in @o2/net, proven against a real RpcEndpoint/serveAgent fabric
-- [ ] 13-02-PLAN.md — Wire both FabricNode and BrowserNode to construct RpcEndpoint over a new EgressGuard field and auto-register every sovereign task's input before executing it
-- [ ] 13-03-PLAN.md — Prove all three criteria against real FabricNode instances over real RPC, and plant/watch-fail/revert both required mutations (registration removed, transport wrap removed)
+- [x] 13-01-PLAN.md — Build registerSovereignInputs (a production caller for EgressGuard.guard()) and submitJobWithEgress (per-job manifest attachment), both in @o2/net, proven against a real RpcEndpoint/serveAgent fabric
+- [x] 13-02-PLAN.md — Wire both FabricNode and BrowserNode to construct RpcEndpoint over a new EgressGuard field and auto-register every sovereign task's input before executing it
+- [x] 13-03-PLAN.md — Prove all three criteria against real FabricNode instances over real RPC, and plant/watch-fail/revert both required mutations (registration removed, transport wrap removed)
 
 ### Phase 14: Signed Artifact Resolution
 **Goal**: A production node resolves a task's module through a `key → CID` mapping signed by a trusted build authority — never a bare CID — on the live dispatch path
@@ -429,7 +429,7 @@ Parallel tracks (config `parallelization: true`):
 | 10. elfconv AOT Native→WASM Pipeline | — | 3 of 4 criteria — code cache measured and does not happen; cross-machine CID needs a second machine | 2026-07-27 |
 | 11. Explicit serveAgent Hook Contract | 1/1 | Complete   | 2026-07-27 |
 | 12. Sovereignty-Pinned Placement | 4/4 | Complete   | 2026-07-27 |
-| 13. Egress Manifest Completeness | 0/TBD | Not started | - |
+| 13. Egress Manifest Completeness | 3/3 | Complete   | 2026-07-27 |
 | 14. Signed Artifact Resolution | 0/TBD | Not started | - |
 | 15. Capability-Chained Dispatch | 0/TBD | Not started | - |
 | 16. Decomposable Tree-Reduce Wiring | 0/TBD | Not started | - |

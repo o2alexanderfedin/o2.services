@@ -103,9 +103,9 @@ itself. The work is real and the table says so; the box tracks delivery.
       as a hard scheduling constraint
 - [x] **DATA-04**: A sovereignty-pinned task executes only within the owner's own
       node set — the scheduler cannot relocate it outside that set to balance load
-- [ ] **DATA-05**: A stream-tap test fails if raw sovereign bytes cross the network
+- [x] **DATA-05**: A stream-tap test fails if raw sovereign bytes cross the network
       boundary
-- [ ] **DATA-06**: Every job emits an egress manifest recording exactly what left
+- [x] **DATA-06**: Every job emits an egress manifest recording exactly what left
       each owner's node
 - [x] **DATA-07**: Filters, projections, and partial aggregation push down to the
       owner's node so the least data leaves
