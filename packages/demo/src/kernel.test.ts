@@ -1,4 +1,4 @@
-import { MemoryBlockstore, WasmExecutor, decodeCanonical, encodeCanonical, submitJob } from '@o2/core'
+import { MemoryBlockstore, WasmExecutor, decodeCanonical, encodeCanonical, publicNodes, submitJob } from '@o2/core'
 import type { CanonicalValue, Executor } from '@o2/core'
 import type { CID } from 'multiformats/cid'
 import { describe, expect, it } from 'vitest'
@@ -393,8 +393,9 @@ describe('the whole job, across cubes, at redundancy 2', () => {
       {
         moduleCid,
         // Every cube gets the identical input block; only `partition()` differs.
-        shards: Array.from({ length: 8 }, () => input),
+        shards: Array.from({ length: 8 }, () => ({ value: input, label: 'public' as const })),
         executors,
+        nodes: publicNodes(executors),
         redundancy: 2,
       },
       store,
@@ -435,11 +436,13 @@ describe('the whole job, across cubes, at redundancy 2', () => {
     const moduleCid = await store.put(kernelBytes)
     // Past the wall, with a budget small enough that every cube gives up quickly.
     const input: CanonicalValue = buildInput(CUBE_N, 20_000)
+    const executors = [new WasmExecutor({ nodeId: 'n1', blockstore: store })]
     const submitted = await submitJob(
       {
         moduleCid,
-        shards: Array.from({ length: 4 }, () => input),
-        executors: [new WasmExecutor({ nodeId: 'n1', blockstore: store })],
+        shards: Array.from({ length: 4 }, () => ({ value: input, label: 'public' as const })),
+        executors,
+        nodes: publicNodes(executors),
         redundancy: 1,
       },
       store,

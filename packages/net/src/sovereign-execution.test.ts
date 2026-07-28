@@ -9,10 +9,12 @@ import {
   discoverExecutors,
   encodeCanonical,
   executeVerified,
+  guardSovereignty,
   planWithOffers,
   publishCapabilities,
   requestEnrollment,
   resolveReplicaSets,
+  submitJob,
   toHex,
 } from '@o2/core'
 import type { NodeCertificate, NodeDescriptor, NodeRecords, Task } from '@o2/core'
@@ -74,6 +76,14 @@ interface Fabric {
   readonly moduleCid: Awaited<ReturnType<MemoryBlockstore['put']>>
   readonly certificates: readonly NodeCertificate[]
   readonly trustedIssuers: ReadonlySet<string>
+  /**
+   * SEED's own store — what every owned node's `RpcBlockSource` actually fetches
+   * from (`() => [SEED]`, below). Exposed so `submitJob` (criterion 3) can
+   * `put` a new shard's input somewhere the dispatched node can reach it, the
+   * same way a real requestor's blockstore is reachable by whoever it dispatches
+   * to.
+   */
+  readonly seedStore: MemoryBlockstore
   close(): void
 }
 
@@ -103,7 +113,12 @@ async function ownerFabric(options: { module: Uint8Array<ArrayBuffer>; ownerNode
     rpc: seedRpc,
     executor: new WasmExecutor({ nodeId: SEED, blockstore: seedStore }),
     blockstore: seedStore,
+    authorize: 'serves-unauthenticated',
     index,
+    capacity: 'accepts-every-offer',
+    ledger: 'keeps-no-ledger',
+    reservations: 'relays-for-nobody',
+    onDispatch: 'reports-no-dispatch',
   })
 
   const certificates: NodeCertificate[] = []
@@ -140,7 +155,25 @@ async function ownerFabric(options: { module: Uint8Array<ArrayBuffer>; ownerNode
     await local.put(sovereignBytes())
     const rpc = new RpcEndpoint(guard, { timeoutMs: 5_000 })
     const store = new FetchingBlockstore(local, new RpcBlockSource(rpc, () => [SEED]))
-    serveAgent({ rpc, executor: new WasmExecutor({ nodeId, blockstore: store }), blockstore: store })
+    // DATA-09: the serving-side gate, wrapped exactly the way `fabric-node.ts`/
+    // `browser-node.ts` now wrap it in production (Phase 12 Plan 04). A no-op
+    // for every pre-existing test in this file — none of them label a `Task` —
+    // and it is what makes criterion 4's refusal test below meaningful: Bob's
+    // node below gets the same wrap with `canExecuteSovereign: false`.
+    serveAgent({
+      rpc,
+      executor: guardSovereignty(new WasmExecutor({ nodeId, blockstore: store }), {
+        ownerId: aliceUserKey,
+        canExecuteSovereign: true,
+      }),
+      blockstore: store,
+      authorize: 'serves-unauthenticated',
+      index: 'serves-no-records',
+      capacity: 'accepts-every-offer',
+      ledger: 'keeps-no-ledger',
+      reservations: 'relays-for-nobody',
+      onDispatch: 'reports-no-dispatch',
+    })
 
     index.provide(inputCid, nodeId)
     index.publish(records)
@@ -157,8 +190,20 @@ async function ownerFabric(options: { module: Uint8Array<ArrayBuffer>; ownerNode
   await bobStore.put(sovereignBytes())
   serveAgent({
     rpc: bobRpc,
-    executor: new WasmExecutor({ nodeId: foreignKey, blockstore: bobStore }),
+    // DATA-09: Bob genuinely holds the block (see `bobStore.put` above) and is
+    // still not cleared to execute it — the guard, not absence of data, is what
+    // must refuse criterion 4's direct dispatch.
+    executor: guardSovereignty(new WasmExecutor({ nodeId: foreignKey, blockstore: bobStore }), {
+      ownerId: foreignKey,
+      canExecuteSovereign: false,
+    }),
     blockstore: bobStore,
+    authorize: 'serves-unauthenticated',
+    index: 'serves-no-records',
+    capacity: 'accepts-every-offer',
+    ledger: 'keeps-no-ledger',
+    reservations: 'relays-for-nobody',
+    onDispatch: 'reports-no-dispatch',
   })
   index.provide(inputCid, foreignKey)
   index.publish({
@@ -183,6 +228,7 @@ async function ownerFabric(options: { module: Uint8Array<ArrayBuffer>; ownerNode
     moduleCid,
     certificates,
     trustedIssuers,
+    seedStore,
     close() {
       seedRpc.close()
       bobRpc.close()
@@ -239,11 +285,16 @@ describe('criterion 6 — an owner’s own nodes verify each other', () => {
       expect(placement.degraded).toBe(false)
       expect(placement.nodeIds).not.toContain(fabric.foreignKey)
 
+      // Now carries the label the wire actually enforces (Phase 12 Plan 04):
+      // both `guardSovereignty` on these nodes (`ownerId: aliceUserKey`,
+      // cleared) and `parseRequest`'s now-mandatory label depend on it.
       const task: Task = {
         moduleCid: fabric.moduleCid,
         inputCid: fabric.inputCid,
         partitionIndex: 0,
         partitionCount: 1,
+        label: 'sovereign',
+        ownerId: fabric.aliceUserKey,
       }
       const verification = await executeVerified(
         task,
@@ -271,6 +322,8 @@ describe('criterion 6 — an owner’s own nodes verify each other', () => {
         inputCid: fabric.inputCid,
         partitionIndex: 0,
         partitionCount: 1,
+        label: 'sovereign',
+        ownerId: fabric.aliceUserKey,
       }
       const verification = await executeVerified(
         task,
@@ -304,6 +357,8 @@ describe('criterion 6 — an owner’s own nodes verify each other', () => {
         inputCid: fabric.inputCid,
         partitionIndex: 0,
         partitionCount: 1,
+        label: 'sovereign',
+        ownerId: fabric.aliceUserKey,
       })
       expect(outcome.ok).toBe(true)
 
@@ -348,12 +403,104 @@ describe('criterion 7 — one live node is owner-attested, and says so', () => {
         inputCid: fabric.inputCid,
         partitionIndex: 0,
         partitionCount: 1,
+        label: 'sovereign',
+        ownerId: fabric.aliceUserKey,
       })
       expect(outcome.ok).toBe(true)
 
       const receipt = attestationReceipt([fabric.owned[0]?.certificate as NodeCertificate])
       expect(receipt.strength).toBe('owner-attested')
       expect(receipt.description).toContain('not independently verified')
+    } finally {
+      fabric.close()
+    }
+  })
+})
+
+/**
+ * Phase 12 Plan 04 — the two remaining ROADMAP criteria that only make sense at
+ * the network layer, now that `label`/`ownerId` survive the wire
+ * (`protocol.ts`) and `ownerFabric`'s nodes are wrapped with `guardSovereignty`
+ * (above). Distinct from Phase 6's "criterion 6"/"criterion 7" numbering above —
+ * these are this plan's own criteria 3 and 4.
+ */
+describe('Phase 12 — sovereignty wired onto submitJob', () => {
+  it('criterion 4 — a genuine replica holder refuses a direct sovereign dispatch, over real RPC', async () => {
+    const fabric = await ownerFabric({ module: MODULE_WRITES_PARTITION, ownerNodes: 1 })
+    try {
+      const task: Task = {
+        moduleCid: fabric.moduleCid,
+        inputCid: fabric.inputCid,
+        partitionIndex: 0,
+        partitionCount: 1,
+        label: 'sovereign',
+        ownerId: fabric.aliceUserKey,
+      }
+      // Bypasses placement entirely, the same way distributed.test.ts's AUTH-03
+      // test bypasses placement to prove its own server-side gate directly —
+      // placement would never route a sovereign task to Bob, and the refusal
+      // has to hold regardless of what dispatched it.
+      const outcome = await new RemoteExecutor(fabric.foreignKey, fabric.requestorRpc).execute(task)
+      expect(outcome.ok).toBe(false)
+      if (outcome.ok) return
+      expect(outcome.reason).toContain(fabric.foreignKey)
+      expect(outcome.reason).toContain('sovereignty')
+
+      // The refusal is specific to *execution*, not to the node being
+      // unreachable or empty: Bob genuinely holds the block and still answers
+      // for it, exactly as the quality gate requires.
+      const blockReply = await fabric.requestorRpc.request(fabric.foreignKey, {
+        kind: 'block',
+        cid: fabric.inputCid,
+      })
+      expect(blockReply).toEqual({ kind: 'block', found: true, bytes: sovereignBytes() })
+    } finally {
+      fabric.close()
+    }
+  })
+
+  it('criterion 3 — pushdown through submitJob, no Phase 13 manifest needed', async () => {
+    const fabric = await ownerFabric({ module: MODULE_WRITES_PARTITION, ownerNodes: 1 })
+    try {
+      const owned = fabric.owned[0] as OwnerNode
+      const executors = [new RemoteExecutor(owned.nodeId, fabric.requestorRpc)]
+      const result = await submitJob(
+        {
+          moduleCid: fabric.moduleCid,
+          // Reuses SOVEREIGN_ROW/sovereignBytes() itself rather than only its
+          // shape — that keeps this dispatch checked against the same guarded
+          // pattern the falsification test above proves the tap can catch.
+          shards: [{ value: SOVEREIGN_ROW, label: 'sovereign', ownerId: fabric.aliceUserKey }],
+          executors,
+          nodes: [{ nodeId: owned.nodeId, ownerId: fabric.aliceUserKey, canExecuteSovereign: true, load: 0 }],
+          redundancy: 1,
+        },
+        // SEED's own store — the node's `RpcBlockSource` fetches from `[SEED]`,
+        // so this is where a real requestor's local blockstore corresponds to.
+        fabric.seedStore,
+      )
+
+      expect(result.ok).toBe(true)
+      if (!result.ok) return
+      const shard = result.job.shards[0]
+      expect(shard?.verification.status).toBe('agreed')
+      if (shard?.verification.status !== 'agreed') return
+
+      const rawEncoded = encodeCanonical(SOVEREIGN_ROW)
+      if (!rawEncoded.ok) throw new Error('fixture not encodable')
+      const outputEncoded = encodeCanonical(shard.verification.output)
+      if (!outputEncoded.ok) throw new Error('output not encodable')
+      // DATA-07: what left the node is a partial smaller than the raw sovereign
+      // input it was computed from — the pushdown claim, observable without the
+      // Phase 13 egress manifest.
+      expect(outputEncoded.bytes.length).toBeLessThan(rawEncoded.bytes.length)
+
+      // The existing tap, reused as a test instrument — not newly wired into
+      // production here, that is Phase 13's job (fabric-node.ts:311,
+      // browser-node.ts:181) — now pointed at submitJob (the live job path)
+      // instead of hand-called executeVerified.
+      expect(owned.guard.manifest.violations).toEqual([])
+      expect(owned.guard.manifest.entries.length).toBeGreaterThan(0)
     } finally {
       fabric.close()
     }

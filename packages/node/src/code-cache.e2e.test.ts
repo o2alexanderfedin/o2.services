@@ -81,8 +81,16 @@ import { syntheticArtifact } from '../../browser/src/synthetic-artifact.ts'
  * query-free same-origin URL, `compileStreaming`, and the module executed millions
  * of times first so that `wasm.TopTierCompilation` appears in the trace — because
  * blink serialises top-tier code, and a module that is never called never tiers up.
- * In the same profile and the same runs, the JavaScript code cache grew to 464 KB
- * and was consumed on later visits.
+ * In the same profile and the same runs, the JavaScript code cache grew past half a
+ * megabyte — **2,078,297 bytes** on the 4.8 MB run recorded in
+ * `.planning/phases/phase-10-elfconv-aot/10-VERIFICATION.md`, against 8,545 bytes
+ * after the first visit — and was consumed on later visits.
+ *
+ * The assertion below floors that at 500,000 rather than pinning 2,078,297, because
+ * the figure is dominated by whatever modules Vite happens to serve and would drift
+ * with an unrelated dependency change. The floor is what the finding needs: the JS
+ * side is three orders of magnitude above the 72 bytes the WASM side returns, and no
+ * plausible drift closes that gap.
  *
  * So: the four preconditions this project builds around are **necessary**. That they
  * are **sufficient** is not established, and on this platform, this Chromium, and

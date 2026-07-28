@@ -10,7 +10,7 @@ import { multiaddr } from '@multiformats/multiaddr'
 import { createLibp2p } from 'libp2p'
 import type { Libp2p } from '@libp2p/interface'
 import { afterEach, describe, expect, it } from 'vitest'
-import { submitJob } from '@o2/core'
+import { publicNodes, submitJob } from '@o2/core'
 import { RemoteExecutor } from '@o2/net'
 // Test-only relative import — see the note in packages/net/src/distributed.test.ts.
 import { MODULE_WRITES_PARTITION } from '../../core/src/executor/fixtures.ts'
@@ -297,11 +297,13 @@ describe('the rule: relaying and executing are the same node', () => {
     // Only the guest holds the module; the relaying node must pull it over the same
     // connection it is carrying a circuit on.
     const moduleCid = await guest.store.put(MODULE_WRITES_PARTITION)
+    const executors = [new RemoteExecutor(both.peerId, guest.rpc)]
     const result = await submitJob(
       {
         moduleCid,
-        shards: [{ a: 0 }, { a: 1 }],
-        executors: [new RemoteExecutor(both.peerId, guest.rpc)],
+        shards: [{ a: 0 }, { a: 1 }].map((value) => ({ value, label: 'public' as const })),
+        executors,
+        nodes: publicNodes(executors),
         redundancy: 1,
       },
       guest.store,
@@ -348,11 +350,13 @@ describe('the rule: relaying and executing are the same node', () => {
     // dispatched over the connection it opened.
     await until(() => host.transport.peers.includes(guest.peerId), 30_000, 'the peer to appear')
     const moduleCid = await host.store.put(MODULE_WRITES_PARTITION)
+    const executors = [new RemoteExecutor(guest.peerId, host.rpc)]
     const result = await submitJob(
       {
         moduleCid,
-        shards: [{ a: 0 }, { a: 1 }],
-        executors: [new RemoteExecutor(guest.peerId, host.rpc)],
+        shards: [{ a: 0 }, { a: 1 }].map((value) => ({ value, label: 'public' as const })),
+        executors,
+        nodes: publicNodes(executors),
         redundancy: 1,
       },
       host.store,

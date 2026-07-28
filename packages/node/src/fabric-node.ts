@@ -76,9 +76,16 @@ import { ping } from '@libp2p/ping'
 import { tcp } from '@libp2p/tcp'
 import { webSockets } from '@libp2p/websockets'
 import { multiaddr } from '@multiformats/multiaddr'
-import { MemoryBlockstore, WasmExecutor } from '@o2/core'
-import type { Blockstore, Executor } from '@o2/core'
-import { FetchingBlockstore, RpcBlockSource, RpcEndpoint, serveAgent } from '@o2/net'
+import { MemoryBlockstore, WasmExecutor, guardSovereignty } from '@o2/core'
+import type { Blockstore, Executor, NodeSovereignty } from '@o2/core'
+import {
+  EgressGuard,
+  FetchingBlockstore,
+  registerSovereignInputs,
+  RpcBlockSource,
+  RpcEndpoint,
+  serveAgent,
+} from '@o2/net'
 import { createLibp2p } from 'libp2p'
 import type { Libp2p } from '@libp2p/interface'
 import { FsBlockstore } from './fs-blockstore.ts'
@@ -105,6 +112,21 @@ export interface FabricNodeOptions {
    * different class.
    */
   readonly blockstoreDir?: string
+  /**
+   * This node's clearance to execute sovereign data — DATA-09's serving-side
+   * gate (`guardSovereignty`, `@o2/core`), applied unconditionally to the
+   * `Executor` this factory hands to `serveAgent` below.
+   *
+   * Optional, and the default is the safe one: cleared for nobody
+   * (`canExecuteSovereign: false`). A node started with no `sovereignty` option
+   * therefore refuses every sovereign-labelled task regardless of whose owner
+   * id it names — `ownerId` only matters once `canExecuteSovereign` is `true`,
+   * so the default's placeholder value is never consulted. This is a per-node
+   * clearance, not a node class: every `FabricNode` has the identical executor,
+   * transport, and relay capability regardless of this setting — see the
+   * module comment's "why there is no second class".
+   */
+  readonly sovereignty?: NodeSovereignty
   /**
    * Multiaddrs to listen on. Port 0 asks the OS for a free port.
    *
@@ -197,6 +219,15 @@ export class FabricNode {
   readonly libp2p: Libp2p
   readonly transport: Libp2pTransport
   readonly rpc: RpcEndpoint
+  /**
+   * Wraps `transport` so every outbound RPC frame is recorded — DATA-05/DATA-06.
+   *
+   * A new field, not a type change to `transport`: `EgressGuard` has no `.stop()`
+   * and delegates `.peers` to the wrapped transport, but `transport` itself stays
+   * the concrete `Libp2pTransport` every existing caller of `.stop()`/`.peers`
+   * relies on. `rpc` is constructed over this field, not over `transport`.
+   */
+  readonly egress: EgressGuard
   /** Local blocks plus network fallback. This is what the executor reads from. */
   readonly blockstore: FetchingBlockstore
   /**
@@ -216,6 +247,7 @@ export class FabricNode {
     libp2p: Libp2p
     transport: Libp2pTransport
     rpc: RpcEndpoint
+    egress: EgressGuard
     blockstore: FetchingBlockstore
     store: Blockstore
     executor: Executor
@@ -226,6 +258,7 @@ export class FabricNode {
     this.libp2p = parts.libp2p
     this.transport = parts.transport
     this.rpc = parts.rpc
+    this.egress = parts.egress
     this.blockstore = parts.blockstore
     this.store = parts.store
     this.executor = parts.executor
@@ -309,8 +342,15 @@ export class FabricNode {
     }
 
     const transport = await Libp2pTransport.start(libp2p)
+    // Resolved once, here, so the identical value feeds both `egress`'s ownerId
+    // and `guardSovereignty`'s clearance check below — not two independently
+    // defaulted copies that could drift (13-CONTEXT.md decision 2).
+    const sovereignty = options.sovereignty ?? { ownerId: '', canExecuteSovereign: false }
+    // DATA-05/DATA-06: every outbound RPC frame is recorded by construction —
+    // `rpc` is built over this guard, not over the raw `transport`, below.
+    const egress = new EgressGuard(transport, sovereignty.ownerId)
     const rpc = new RpcEndpoint(
-      transport,
+      egress,
       options.rpcTimeoutMs === undefined ? {} : { timeoutMs: options.rpcTimeoutMs },
     )
 
@@ -320,12 +360,29 @@ export class FabricNode {
 
     // The node's own peer id is its executor id, so a disagreement names the
     // machine that produced the dissenting result.
-    const executor = new WasmExecutor({ nodeId: libp2p.peerId.toString(), blockstore })
+    //
+    // DATA-09: guarded unconditionally, with no opt-in required to get the
+    // refusal — `options.sovereignty` defaults to cleared-for-nobody (see
+    // `FabricNodeOptions.sovereignty`'s doc). Wrapped once, here, rather than
+    // only at the `serveAgent` call below, so a caller that dispatches through
+    // `node.executor` directly — bypassing RPC entirely — gets the identical
+    // refusal a remote dispatch would. Registration is equally unconditional and
+    // composed *outside* the sovereignty gate — DATA-05/DATA-06: a sovereign
+    // task's input is declared to this node's own tap before it runs, whether or
+    // not `guardSovereignty` goes on to refuse it. `store` (the local-only tier)
+    // is the registration blockstore, not `blockstore` (network fallback) —
+    // sovereign data must already be resident locally, never fetched over the
+    // network merely to be declared sovereign.
+    const executor = registerSovereignInputs(
+      guardSovereignty(new WasmExecutor({ nodeId: libp2p.peerId.toString(), blockstore }), sovereignty),
+      { blockstore: store, guard: egress },
+    )
 
     const node = new FabricNode({
       libp2p,
       transport,
       rpc,
+      egress,
       blockstore,
       store,
       executor,
@@ -351,7 +408,17 @@ export class FabricNode {
     // two-device defect found on hardware, one tier down. The LAN demo hid it,
     // because `SeedServer` reads `reservedPeerIds` in-process and never asks over
     // the wire.
-    serveAgent({ rpc, executor, blockstore, reservations: () => node.reservedPeerIds })
+    serveAgent({
+      rpc,
+      executor,
+      blockstore,
+      authorize: 'serves-unauthenticated',
+      index: 'serves-no-records',
+      capacity: 'accepts-every-offer',
+      reservations: () => node.reservedPeerIds,
+      ledger: 'keeps-no-ledger',
+      onDispatch: 'reports-no-dispatch',
+    })
 
     return node
   }

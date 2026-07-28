@@ -1,4 +1,4 @@
-import { MemoryBlockstore, MemoryNetwork, WasmExecutor, delegate, submitJob } from '@o2/core'
+import { MemoryBlockstore, MemoryNetwork, WasmExecutor, delegate, publicNodes, submitJob } from '@o2/core'
 import type { CanonicalValue, Executor, Task } from '@o2/core'
 import { CID } from 'multiformats/cid'
 import { describe, expect, it } from 'vitest'
@@ -50,6 +50,12 @@ async function twoNodeFabric(options: { readonly workers: number } = { workers: 
     rpc: originRpc,
     executor: new WasmExecutor({ nodeId: 'origin', blockstore: originStore }),
     blockstore: originStore,
+    authorize: 'serves-unauthenticated',
+    index: 'serves-no-records',
+    capacity: 'accepts-every-offer',
+    ledger: 'keeps-no-ledger',
+    reservations: 'relays-for-nobody',
+    onDispatch: 'reports-no-dispatch',
   })
 
   const workers: { id: string; rpc: RpcEndpoint; store: FetchingBlockstore }[] = []
@@ -62,7 +68,17 @@ async function twoNodeFabric(options: { readonly workers: number } = { workers: 
       new MemoryBlockstore(),
       new RpcBlockSource(rpc, () => ['origin']),
     )
-    serveAgent({ rpc, executor: new WasmExecutor({ nodeId: id, blockstore: store }), blockstore: store })
+    serveAgent({
+      rpc,
+      executor: new WasmExecutor({ nodeId: id, blockstore: store }),
+      blockstore: store,
+      authorize: 'serves-unauthenticated',
+      index: 'serves-no-records',
+      capacity: 'accepts-every-offer',
+      ledger: 'keeps-no-ledger',
+      reservations: 'relays-for-nobody',
+      onDispatch: 'reports-no-dispatch',
+    })
     workers.push({ id, rpc, store })
   }
 
@@ -239,7 +255,15 @@ describe('RemoteExecutor', () => {
     try {
       const worker = fabric.workers[0]!
       const inputCid = await fabric.originStore.put(new Uint8Array([0x80])) // dag-cbor []
-      const task: Task = { moduleCid: fabric.moduleCid, inputCid, partitionIndex: 2, partitionCount: 4 }
+      // Correction 2 (Phase 12 Plan 04): parseRequest now refuses an exec
+      // request with no label at the wire boundary.
+      const task: Task = {
+        moduleCid: fabric.moduleCid,
+        inputCid,
+        partitionIndex: 2,
+        partitionCount: 4,
+        label: 'public',
+      }
 
       const remote = new RemoteExecutor(worker.id, fabric.originRpc)
       const outcome = await remote.execute(task)
@@ -293,8 +317,9 @@ describe('a whole job across nodes', () => {
       const result = await submitJob(
         {
           moduleCid: fabric.moduleCid,
-          shards: [{ a: 0 }, { a: 1 }, { a: 2 }, { a: 3 }],
+          shards: [{ a: 0 }, { a: 1 }, { a: 2 }, { a: 3 }].map((value) => ({ value, label: 'public' as const })),
           executors,
+          nodes: publicNodes(executors),
           redundancy: 2,
         },
         fabric.originStore,
@@ -336,8 +361,15 @@ describe('a whole job across nodes', () => {
         },
       }
 
+      const executors = [honest, liar]
       const result = await submitJob(
-        { moduleCid: fabric.moduleCid, shards: [{ a: 0 }], executors: [honest, liar], redundancy: 2 },
+        {
+          moduleCid: fabric.moduleCid,
+          shards: [{ value: { a: 0 }, label: 'public' }],
+          executors,
+          nodes: publicNodes(executors),
+          redundancy: 2,
+        },
         fabric.originStore,
       )
 
@@ -388,6 +420,82 @@ describe('protocol validation', () => {
     }
   })
 
+  it('round-trips label and ownerId when present, in both directions', async () => {
+    // Correction 2 (Phase 12 Plan 04): a well-formed exec request with a label
+    // round-trips intact — the direction that must keep working.
+    const publicEncoded = encodeRequest({
+      kind: 'exec',
+      task: { moduleCid: FIXED_CID, inputCid: FIXED_CID, partitionIndex: 0, partitionCount: 1, label: 'public' },
+    })
+    const publicParsed = parseRequest(publicEncoded)
+    expect(publicParsed).not.toBeNull()
+    if (publicParsed === null || publicParsed.kind !== 'exec') return
+    expect(publicParsed.task.label).toBe('public')
+    expect(publicParsed.task.ownerId).toBeUndefined()
+
+    const sovereignEncoded = encodeRequest({
+      kind: 'exec',
+      task: {
+        moduleCid: FIXED_CID,
+        inputCid: FIXED_CID,
+        partitionIndex: 0,
+        partitionCount: 1,
+        label: 'sovereign',
+        ownerId: 'alice',
+      },
+    })
+    const sovereignParsed = parseRequest(sovereignEncoded)
+    expect(sovereignParsed).not.toBeNull()
+    if (sovereignParsed === null || sovereignParsed.kind !== 'exec') return
+    expect(sovereignParsed.task.label).toBe('sovereign')
+    expect(sovereignParsed.task.ownerId).toBe('alice')
+  })
+
+  it('refuses an exec request with the label omitted, before it reaches the executor', async () => {
+    // Correction 2's other direction: an exec request with no label at all is
+    // refused as malformed, over real RPC, and never dispatched to the
+    // executor — the wire-level twin of AUTH-03's "never calls the executor"
+    // proof below, for the label rather than the capability chain.
+    const network = new MemoryNetwork()
+    const store = new MemoryBlockstore()
+    const moduleCid = await store.put(MODULE_WRITES_PARTITION)
+    const inputCid = await store.put(new Uint8Array([0x80]))
+
+    let executed = 0
+    const watched: Executor = {
+      nodeId: 'w0',
+      async execute() {
+        executed += 1
+        return { ok: true, output: null, fuelUsed: 1 }
+      },
+    }
+
+    const workerRpc = new RpcEndpoint(network.connect('w0'), { timeoutMs: 5_000 })
+    serveAgent({
+      rpc: workerRpc,
+      executor: watched,
+      blockstore: store,
+      authorize: 'serves-unauthenticated',
+      index: 'serves-no-records',
+      capacity: 'accepts-every-offer',
+      ledger: 'keeps-no-ledger',
+      reservations: 'relays-for-nobody',
+      onDispatch: 'reports-no-dispatch',
+    })
+
+    const callerRpc = new RpcEndpoint(network.connect('caller'), { timeoutMs: 5_000 })
+    try {
+      // A bare four-field exec record — no `label` key at all, exactly what a
+      // pre-Phase-12 caller would send.
+      const reply = await callerRpc.request('w0', { kind: 'exec', moduleCid, inputCid, partitionIndex: 0, partitionCount: 1 })
+      expect(reply).toEqual({ kind: 'error', reason: 'malformed request' })
+      expect(executed).toBe(0)
+    } finally {
+      callerRpc.close()
+      workerRpc.close()
+    }
+  })
+
   it('round-trips a CID through the wire encoding', async () => {
     const cid = await blockCid(new Uint8Array([1, 2, 3]))
     const parsed = CID.parse(cid.toString())
@@ -421,6 +529,11 @@ describe('AUTH-03 — a task is refused before the module is instantiated', () =
       blockstore: store,
       authorize: ({ capability }) =>
         capability.length === 0 ? 'no capability chain supplied' : null,
+      index: 'serves-no-records',
+      capacity: 'accepts-every-offer',
+      ledger: 'keeps-no-ledger',
+      reservations: 'relays-for-nobody',
+      onDispatch: 'reports-no-dispatch',
     })
 
     const callerRpc = new RpcEndpoint(network.connect('caller'), { timeoutMs: 5_000 })
@@ -430,6 +543,10 @@ describe('AUTH-03 — a task is refused before the module is instantiated', () =
         inputCid,
         partitionIndex: 0,
         partitionCount: 1,
+        // Correction 2 (Phase 12 Plan 04): parseRequest now refuses an exec
+        // request with no label — must be present so this test still reaches
+        // `authorize` and proves *that* refusal, not the wire's.
+        label: 'public',
       })
 
       expect(outcome.ok).toBe(false)
@@ -456,6 +573,11 @@ describe('AUTH-03 — a task is refused before the module is instantiated', () =
       executor: new WasmExecutor({ nodeId: 'w0', blockstore: store }),
       blockstore: store,
       authorize: () => null,
+      index: 'serves-no-records',
+      capacity: 'accepts-every-offer',
+      ledger: 'keeps-no-ledger',
+      reservations: 'relays-for-nobody',
+      onDispatch: 'reports-no-dispatch',
     })
 
     const callerRpc = new RpcEndpoint(network.connect('caller'), { timeoutMs: 5_000 })
@@ -465,6 +587,7 @@ describe('AUTH-03 — a task is refused before the module is instantiated', () =
         inputCid,
         partitionIndex: 3,
         partitionCount: 4,
+        label: 'public',
       })
       expect(outcome.ok).toBe(true)
       if (!outcome.ok) return
@@ -490,7 +613,13 @@ describe('AUTH-03 — a task is refused before the module is instantiated', () =
     // reordered or a number widened in transit invalidates the chain.
     const encoded = encodeRequest({
       kind: 'exec',
-      task: { moduleCid: FIXED_CID, inputCid: FIXED_CID, partitionIndex: 0, partitionCount: 1 },
+      task: {
+        moduleCid: FIXED_CID,
+        inputCid: FIXED_CID,
+        partitionIndex: 0,
+        partitionCount: 1,
+        label: 'public',
+      },
       capability: chain,
     })
     const parsed = parseRequest(encoded)
@@ -502,13 +631,17 @@ describe('AUTH-03 — a task is refused before the module is instantiated', () =
 
   it('refuses a request whose chain is malformed, rather than truncating it', async () => {
     // Dropping the unparseable links and proceeding with the rest would let an
-    // attacker prune a chain down to a prefix that happens to verify.
+    // attacker prune a chain down to a prefix that happens to verify. `label`
+    // is included so this test isolates capability malformity — without it,
+    // `parseRequest` would return `null` for the missing label alone, which
+    // would still pass this assertion but for the wrong reason.
     const parsed = parseRequest({
       kind: 'exec',
       moduleCid: FIXED_CID,
       inputCid: FIXED_CID,
       partitionIndex: 0,
       partitionCount: 1,
+      label: 'public',
       capability: [{ issuer: 'a', audience: 'b', ownerId: 'alice', abilities: ['nope'], expiresAt: 1, signature: 'x' }],
     })
     expect(parsed).toBeNull()

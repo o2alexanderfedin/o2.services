@@ -17,7 +17,7 @@ import { findReservedPeers } from './rendezvous.ts'
 function node(
   network: MemoryNetwork,
   id: string,
-  reservations?: () => readonly string[],
+  reservations: (() => readonly string[]) | 'relays-for-nobody' = 'relays-for-nobody',
 ): RpcEndpoint {
   const rpc = new RpcEndpoint(network.connect(id), { timeoutMs: 500 })
   const blockstore = new MemoryBlockstore()
@@ -25,7 +25,12 @@ function node(
     rpc,
     executor: new WasmExecutor({ nodeId: id, blockstore }),
     blockstore,
-    ...(reservations === undefined ? {} : { reservations }),
+    authorize: 'serves-unauthenticated',
+    index: 'serves-no-records',
+    capacity: 'accepts-every-offer',
+    ledger: 'keeps-no-ledger',
+    reservations,
+    onDispatch: 'reports-no-dispatch',
   })
   return rpc
 }

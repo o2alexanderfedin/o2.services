@@ -31,9 +31,18 @@ import { identify, identifyPush } from '@libp2p/identify'
 import { webRTC } from '@libp2p/webrtc'
 import { webSockets } from '@libp2p/websockets'
 import { multiaddr } from '@multiformats/multiaddr'
-import { WasmExecutor } from '@o2/core'
+import { WasmExecutor, guardSovereignty } from '@o2/core'
+import type { NodeSovereignty } from '@o2/core'
 import { Libp2pTransport } from '@o2/libp2p'
-import { FetchingBlockstore, GovernedExecutor, RpcBlockSource, RpcEndpoint, serveAgent } from '@o2/net'
+import {
+  EgressGuard,
+  FetchingBlockstore,
+  GovernedExecutor,
+  registerSovereignInputs,
+  RpcBlockSource,
+  RpcEndpoint,
+  serveAgent,
+} from '@o2/net'
 import { createLibp2p } from 'libp2p'
 import type { Libp2p } from '@libp2p/interface'
 import { IdbBlockstore } from './idb-blockstore.ts'
@@ -44,6 +53,20 @@ import type { WorkerFactory } from './worker-executor.ts'
 export interface BrowserNodeOptions {
   /** Relays to reserve on. At least one is required to be addressable at all. */
   readonly relayAddrs: readonly string[]
+  /**
+   * This node's clearance to execute sovereign data — DATA-09's serving-side
+   * gate (`guardSovereignty`, `@o2/core`), applied unconditionally inside the
+   * `Executor` this factory composes below, same as `fabric-node.ts`.
+   *
+   * Optional, and the default is the safe one: cleared for nobody
+   * (`canExecuteSovereign: false`). A tab started with no `sovereignty` option
+   * therefore refuses every sovereign-labelled task regardless of whose owner
+   * id it names. Per-node clearance, not a node class — every `BrowserNode` has
+   * the identical executor, transport, and relay-reservation behaviour
+   * regardless of this setting, mirroring `fabric-node.ts`'s "why there is no
+   * second class".
+   */
+  readonly sovereignty?: NodeSovereignty
   /** IndexedDB database name. Distinct names give one origin several independent nodes. */
   readonly blockstoreName?: string
   readonly rpcTimeoutMs?: number
@@ -77,6 +100,13 @@ export class BrowserNode {
   readonly libp2p: Libp2p
   readonly transport: Libp2pTransport
   readonly rpc: RpcEndpoint
+  /**
+   * Wraps `transport` so every outbound RPC frame is recorded — DATA-05/DATA-06.
+   *
+   * A new field, not a type change to `transport` — mirrors `fabric-node.ts`.
+   * `rpc` is constructed over this field, not over `transport`.
+   */
+  readonly egress: EgressGuard
   /** IndexedDB plus network fallback — what the executor reads from. */
   readonly blockstore: FetchingBlockstore
   readonly store: IdbBlockstore
@@ -131,6 +161,7 @@ export class BrowserNode {
     libp2p: Libp2p
     transport: Libp2pTransport
     rpc: RpcEndpoint
+    egress: EgressGuard
     blockstore: FetchingBlockstore
     store: IdbBlockstore
     executor: GovernedExecutor
@@ -140,6 +171,7 @@ export class BrowserNode {
     this.libp2p = parts.libp2p
     this.transport = parts.transport
     this.rpc = parts.rpc
+    this.egress = parts.egress
     this.blockstore = parts.blockstore
     this.store = parts.store
     this.executor = parts.executor
@@ -179,8 +211,14 @@ export class BrowserNode {
     }
 
     const transport = await Libp2pTransport.start(libp2p)
+    // Resolved once, here, so the identical value feeds both `egress`'s ownerId
+    // and `guardSovereignty`'s clearance check below — mirrors `fabric-node.ts`.
+    const sovereignty = options.sovereignty ?? { ownerId: '', canExecuteSovereign: false }
+    // DATA-05/DATA-06: every outbound RPC frame is recorded by construction —
+    // `rpc` is built over this guard, not over the raw `transport`, below.
+    const egress = new EgressGuard(transport, sovereignty.ownerId)
     const rpc = new RpcEndpoint(
-      transport,
+      egress,
       options.rpcTimeoutMs === undefined ? {} : { timeoutMs: options.rpcTimeoutMs },
     )
     const blockstore = new FetchingBlockstore(store, new RpcBlockSource(rpc, () => transport.peers))
@@ -201,15 +239,37 @@ export class BrowserNode {
       options.createWorker === undefined
         ? null
         : new WorkerExecutor({ nodeId, blockstore, createWorker: options.createWorker })
+    // DATA-09: guarded unconditionally, with no opt-in required to get the
+    // refusal — `options.sovereignty` defaults to cleared-for-nobody (see
+    // `BrowserNodeOptions.sovereignty`'s doc). Wrapped *inside* the governor
+    // rather than around it, so `this.executor` stays exactly a
+    // `GovernedExecutor` (BROW-04's `.executed`/`.dutyCycle` surface,
+    // unaffected by what runs underneath) while every path that reaches
+    // `.execute` — a remote dispatch via `serveAgent` below, and a page's own
+    // local self-dispatch (`includeSelf`, `demo/main.ts`) alike — passes
+    // through the identical guard. Registration is equally unconditional,
+    // composed outside guardSovereignty and inside GovernedExecutor — DATA-05/
+    // DATA-06: a sovereign task's input is declared to this node's own tap
+    // before it runs. `store` (the local-only `IdbBlockstore`) is the
+    // registration blockstore, not `blockstore` (network fallback), mirroring
+    // `fabric-node.ts`.
     const executor = new GovernedExecutor(
-      worker ?? new WasmExecutor({ nodeId, blockstore }),
+      registerSovereignInputs(
+        guardSovereignty(worker ?? new WasmExecutor({ nodeId, blockstore }), sovereignty),
+        { blockstore: store, guard: egress },
+      ),
       governor,
     )
-    const node = new BrowserNode({ libp2p, transport, rpc, blockstore, store, executor, governor, worker })
+    const node = new BrowserNode({ libp2p, transport, rpc, egress, blockstore, store, executor, governor, worker })
     serveAgent({
       rpc,
       executor,
       blockstore,
+      authorize: 'serves-unauthenticated',
+      index: 'serves-no-records',
+      capacity: 'accepts-every-offer',
+      ledger: 'keeps-no-ledger',
+      reservations: 'relays-for-nobody',
       onDispatch: (from) => {
         node.servedFor.set(from, (node.servedFor.get(from) ?? 0) + 1)
         node.#announce()

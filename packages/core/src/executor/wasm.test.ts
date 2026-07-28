@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { MemoryBlockstore } from '../blockstore/memory.ts'
 import { encodeCanonical } from '../canonical/encode.ts'
 import { submitJob } from '../job/submit.ts'
+import { publicNodes } from '../sovereignty.ts'
 import {
   MODULE_ECHOES_INPUT,
   MODULE_IMPORTS_CLOCK,
@@ -140,15 +141,17 @@ describe('end to end — a real WASM job at R=2', () => {
     const store = new MemoryBlockstore()
     const moduleCid = await store.put(MODULE_WRITES_PARTITION)
 
+    const executors = [
+      new WasmExecutor({ nodeId: 'n1', blockstore: store }),
+      new WasmExecutor({ nodeId: 'n2', blockstore: store }),
+      new WasmExecutor({ nodeId: 'n3', blockstore: store }),
+    ]
     const r = await submitJob(
       {
         moduleCid,
-        shards: [{ a: 1 }, { a: 2 }, { a: 3 }, { a: 4 }],
-        executors: [
-          new WasmExecutor({ nodeId: 'n1', blockstore: store }),
-          new WasmExecutor({ nodeId: 'n2', blockstore: store }),
-          new WasmExecutor({ nodeId: 'n3', blockstore: store }),
-        ],
+        shards: [{ a: 1 }, { a: 2 }, { a: 3 }, { a: 4 }].map((value) => ({ value, label: 'public' as const })),
+        executors,
+        nodes: publicNodes(executors),
         redundancy: 2,
       },
       store,
