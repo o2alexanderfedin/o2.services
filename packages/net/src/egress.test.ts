@@ -218,6 +218,74 @@ describe('DATA-04 — a raw sovereign byte does not reach the wire at all', () =
   })
 })
 
+describe('a registration has a lifetime, and the set can be read', () => {
+  it('forgets a released payload, and the set reads empty afterwards', async () => {
+    const network = new MemoryNetwork()
+    const owner = ownerNode(network, 'alice-1')
+    const peer = coordinator(network)
+
+    expect(owner.registrations).toEqual(['alice-row'])
+    owner.release('alice-row')
+    expect(owner.registrations).toEqual([])
+
+    // Forwarded, and read off the same counter that reads 0 for a refused frame.
+    await owner.send('coordinator', SOVEREIGN_ROW as Uint8Array<ArrayBuffer>)
+    expect(peer.delivered()).toBe(1)
+    expect(owner.manifest.violations).toEqual([])
+  })
+
+  it('holds one label twice, so one dispatch finishing cannot unguard the other', async () => {
+    // Two concurrent dispatches of the same input are two holds. This is the whole
+    // reason release counts rather than deletes: the first to finish must leave the
+    // second one's payload guarded, or a node serving two shards of one owner's row
+    // unguards itself halfway through.
+    const network = new MemoryNetwork()
+    const owner = ownerNode(network, 'alice-1')
+    const peer = coordinator(network)
+    owner.guard('alice-row', SOVEREIGN_ROW)
+
+    owner.release('alice-row')
+    await expect(
+      owner.send('coordinator', SOVEREIGN_ROW as Uint8Array<ArrayBuffer>),
+    ).rejects.toBeInstanceOf(EgressRefusal)
+    expect(peer.delivered()).toBe(0)
+    expect(owner.registrations).toEqual(['alice-row'])
+
+    owner.release('alice-row')
+    expect(owner.registrations).toEqual([])
+    await owner.send('coordinator', SOVEREIGN_ROW as Uint8Array<ArrayBuffer>)
+    expect(peer.delivered()).toBe(1)
+  })
+
+  it('ignores a release for a label it does not hold', () => {
+    // The serve path releases unconditionally, so a change to registration's own
+    // conditions must not be able to turn a release into a throw inside a `finally`.
+    const network = new MemoryNetwork()
+    const owner = ownerNode(network, 'alice-1')
+
+    expect(() => {
+      owner.release('never-registered')
+    }).not.toThrow()
+    expect(owner.registrations).toEqual(['alice-row'])
+
+    owner.release('alice-row')
+    expect(() => {
+      owner.release('alice-row')
+    }).not.toThrow()
+    expect(owner.registrations).toEqual([])
+  })
+
+  it('names what is still held, so a leak is reportable and not a bare number', () => {
+    const network = new MemoryNetwork()
+    const owner = ownerNode(network, 'alice-1')
+    owner.guard('alice-dob', new TextEncoder().encode('dob=1970-01-01'))
+
+    expect([...owner.registrations].sort()).toEqual(['alice-dob', 'alice-row'])
+    owner.release('alice-row')
+    expect(owner.registrations).toEqual(['alice-dob'])
+  })
+})
+
 describe('the manifest is per job', () => {
   it('resets without losing the guarded set', async () => {
     const network = new MemoryNetwork()
