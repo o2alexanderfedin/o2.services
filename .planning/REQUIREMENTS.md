@@ -103,21 +103,65 @@ itself. The work is real and the table says so; the box tracks delivery.
       as a hard scheduling constraint
 - [x] **DATA-04**: A sovereignty-pinned task executes only within the owner's own
       node set — the scheduler cannot relocate it outside that set to balance load
-- [x] **DATA-05**: A stream-tap test fails if raw sovereign bytes cross the network
-      boundary
-      <!-- Met as written, and mutation-proved by 13-VERIFICATION. Note the two limits
-      the ROADMAP criterion overstates: the *test* fails, the running job does not
-      (it completes as 'agreed' — nothing in production reads manifest.violations),
-      and detection needs the whole registered block contiguous and byte-identical,
-      not "a single raw sovereign byte". Phase 4 recorded the same line: a detector,
-      not a prover. -->
-- [ ] **DATA-06**: Every job emits an egress manifest recording exactly what left
-      each owner's node
-      <!-- Un-checked 2026-07-28 by 13-VERIFICATION. "Each owner's node" is not met at
-      any production entry point: every one supplies the *submitting* node's guard,
-      never the executing owner's. The only place an owner's own guard is read is
-      egress-manifest.node.test.ts — inside a test harness, which the criterion
-      explicitly excludes. -->
+- [x] **DATA-05**: The stream tap refuses to send a frame carrying registered
+      sovereign data, so the bytes never leave the node, and the running job fails
+      as a consequence
+      <!-- Restated 2026-07-28 against the amended ROADMAP criterion 1, and true of
+      the code as of Plans 13-04, 13-05 and 13-07.
+
+      The refusal. `EgressGuard.send` computes the match, pushes the entry carrying
+      its violation label, and then rejects with `EgressRefusal` instead of calling
+      the inner transport — the frame is never handed to the wire. Push-before-throw
+      means stopping a leak never costs the record that it was stopped, and
+      `manifest.totalBytes` sums only entries with no violation, so a manifest
+      holding one refused frame reads `entries.length === 1` with `totalBytes === 0`.
+      A node that refused and a node that sent nothing are not confusable (13-04).
+
+      The granularity, in the form it was measured rather than the form it was
+      wished for. A match is the *whole registered payload, contiguous and
+      byte-identical*. A re-encoded, compressed or partial copy is not matched, and a
+      probe sending the raw field characters alone — eleven bytes — crossed with no
+      violation. Phase 4 drew the same line: a detector, not a prover.
+
+      What the caller observes, and the asymmetry, which is an accepted cost rather
+      than an open defect. On a node's own outbound request the refusal arrives
+      immediately as a named send failure carrying the violated label. On a reply the
+      failure is swallowed by `rpc.ts`'s documented response-leg behavior, so the
+      dispatcher waits out its own timeout and learns that the dispatch failed but
+      not why. Closing that would change every peer's response-leg failure semantics
+      to fix legibility rather than correctness, and the evidence for the cause lives
+      in the owner's own manifest — where sovereignty says it belongs.
+
+      A registration lives only until its reply frame has settled (13-07), so the
+      scan the refusal depends on is bounded by a node's in-flight sovereign tasks
+      rather than by its uptime.
+
+      Proven in-process against real `FabricNode`s and across two spawned
+      `bin/agent.ts` processes (13-05). -->
+- [x] **DATA-06**: Every job emits an egress manifest recording exactly what left
+      the submitting node, with byte counts, retrievable from the job's own result
+      <!-- Re-checked 2026-07-28 against the amended ROADMAP criterion 2, which
+      narrowed the promise from "each owner's node" to the *submitting* node's own
+      tap. That is what `submitJobWithEgress` delivers: the manifest comes back on
+      the job's own result value, sliced per job so two jobs against one guard do not
+      double-count (13-01). The browser demo's two real Chromium e2e tests read it
+      back from the `window.o2` API's own return value rather than from a guard a
+      harness built, and 13-VERIFICATION.md mutation-verified that leg
+      independently. `bin/bench.ts`'s two fabrics do the same from a runnable entry
+      point, and 13-06 puts a test behind those call sites rather than leaving the
+      type-checker as their only guard.
+
+      What the amendment gave up, stated so nobody re-derives it. Reading a *remote*
+      node's manifest needs a wire message kind that does not exist — `protocol.ts`
+      carries exec, block, providers, records, offer, reservations, report and error
+      and nothing else — `13-CONTEXT.md` deferred building one, and the criterion
+      went on promising it anyway. Cross-process retrieval is now a named future item
+      rather than an implied promise, and the "each owner's node" clause is gone
+      rather than quietly reinterpreted.
+
+      `bin/agent.ts` is outside this requirement's scope: it is serving-only, 71
+      lines, and never calls `submitJob`, so it has no job of its own to emit a
+      manifest against. -->
 
 <!-- Both rows above were marked done on their executors' reports. The first
 independent pass scored the phase 0/3 fully verified. Re-check the ledger against the
@@ -395,8 +439,8 @@ criteria.
 | DATA-02 | Phase 3 — Browser Tier & Backbone Relay | Done |
 | DATA-03 | Phase 12 — Sovereignty-Pinned Placement | Done — `ShardSpec`/`Task.label`/`ownerId` carry the label through `submitJob`'s one placement path (`planPlacement`/`eligibleNodes`); proven under load pressure both in-process (12-02) and across three real `bin/agent.ts` operating-system processes (12-03) |
 | DATA-04 | Phase 12 — Sovereignty-Pinned Placement | Done — a sovereign shard's map task never leaves the owner's node set even when the owner's node is saturated and foreign nodes are idle; proven under load pressure both in-process (12-02) and across three real `bin/agent.ts` operating-system processes (12-03) |
-| DATA-05 | Phase 13 — Egress Manifest Completeness | Done, with its granularity stated — both node constructors wrap the transport in an `EgressGuard` before building the `RpcEndpoint` (`fabric-node.ts`, `browser-node.ts`), so the tap sits on the sole code path out rather than on remembered call sites, and `registerSovereignInputs` gives `EgressGuard.guard()` its first production caller. A stream-tap **test** fails when a registered sovereign block crosses; both guards were planted-failing and reverted by an independent pass. Two limits, corrected 2026-07-28: the running job is **not** failed (it completes as `agreed`; `manifest.violations` has zero production readers), and detection requires the **whole registered block, contiguous and byte-identical** — not "a single raw sovereign byte". A re-encoded or compressed copy is not caught. Phase 4 drew the same line: a detector, not a prover. See `13-VERIFICATION.md` |
-| DATA-06 | Phase 13 — Egress Manifest Completeness | **Partial** — the manifest is complete by construction for the *submitting* node, and all three job-submitting entry points call `submitJobWithEgress` rather than bare `submitJob`, so it is retrievable from the job's own result (13-01, 13-02, 13-03; the browser-demo leg is independently mutation-verified). **"Each owner's node" is not met at any production entry point** — every one supplies the submitter's own guard, never the executing owner's, and `bin/bench.ts`'s memory fabric gives its worker endpoints no tap at all. The only place an owner's own manifest is read is `egress-manifest.node.test.ts`, i.e. inside a test harness — the clause this requirement writes out in full. Needs either a cross-process retrieval path (no such wire message kind exists) or an amendment saying the submitter's tap is what is promised |
+| DATA-05 | Phase 13 — Egress Manifest Completeness | Done against the amended criterion, with its granularity stated — both node constructors wrap the transport in an `EgressGuard` before building the `RpcEndpoint` (`fabric-node.ts`, `browser-node.ts`), so the tap sits on the sole code path out rather than on remembered call sites, and `registerSovereignInputs` gives `EgressGuard.guard()` its first production caller. `EgressGuard.send` **refuses**: it records the entry with its violation label and rejects rather than forwarding, so the frame never reaches the wire and the cross-owner job fails as a consequence — `insufficient`, never `agreed` (13-04). Proven in-process against real `FabricNode`s and across two spawned `bin/agent.ts` processes, each paired with a control job on the same live nodes so a refusal cannot be confused with an unreachable or dead peer (13-05). Detection matches the **whole registered payload, contiguous and byte-identical**; a re-encoded or partial copy is not matched, and a probe sending the raw field characters alone crossed unremarked — a detector, not a prover, the same line Phase 4 drew. On a reply leg the requestor observes a timeout rather than the reason, an accepted cost recorded in `egress.ts`. A registration is released once its reply frame has settled, bounding scan cost by in-flight sovereign tasks rather than by uptime (13-07). See `13-VERIFICATION.md` for the pass that found the earlier wording overstated |
+| DATA-06 | Phase 13 — Egress Manifest Completeness | Done against the amended criterion — the manifest records what left the **submitting** node and is retrievable from the job's own result, because all three job-submitting entry points call `submitJobWithEgress` rather than bare `submitJob`, sliced per job so sequential jobs on one guard do not double-count (13-01, 13-02, 13-03). The browser-demo leg is independently mutation-verified by `13-VERIFICATION.md` against two real Chromium e2e tests reading the `window.o2` API's own return value; `bin/bench.ts`'s two fabrics are held by a call-site test rather than by the type-checker alone (13-06). The original "each owner's node" clause was **removed, not met** — reading a remote node's manifest needs a wire message kind `protocol.ts` does not define, `13-CONTEXT.md` deferred building one, and cross-process retrieval is now a named future item. `bin/agent.ts` is out of scope here: serving-only, it never submits a job |
 | DATA-07 | Phase 12 — Sovereignty-Pinned Placement | Done — a sovereign shard submitted through `submitJob` emits a partial smaller than its raw input; `EgressGuard` (reused as a test instrument) shows zero violations for the run (12-04, criterion 3) |
 | DATA-08 | Phase 14 — Signed Artifact Resolution | **Built, not wired** — signName / SignedNameResolver have no caller; every module resolves by bare CID |
 | DATA-09 | Phase 12 — Sovereignty-Pinned Placement | Done — `guardSovereignty` wired into both production node constructors (`fabric-node.ts`, `browser-node.ts`), safe default; a genuine replica holder refuses a direct sovereign dispatch over real RPC while still answering block requests (12-02, 12-04 criterion 4) |
