@@ -7,12 +7,22 @@ stopped_at: Completed 13-03-PLAN.md
 last_updated: "2026-07-27T22:21:42.700Z"
 last_activity: 2026-07-27
 progress:
-  total_phases: 13
+  total_phases: 12
   completed_phases: 3
-  total_plans: 9
+  total_plans: 8
   completed_plans: 8
-  percent: 89
+  percent: 25
 ---
+
+<!--
+progress counts the v1.1 milestone only: phases 11-22, of which 11, 12 and 13 are
+done. `total_plans` counts plans that exist; phases 14-22 are unplanned, so it grows
+as they are planned and must never be read as a milestone denominator.
+
+Do not take these from `gsd-sdk query progress.bar`. It counts plan files across the
+nine unarchived v1.0 phase directories and currently reports "17/9 plans (100%)".
+-->
+
 
 # Project State
 
@@ -21,20 +31,25 @@ progress:
 See: .planning/PROJECT.md (updated 2026-07-27)
 
 **Core value:** Usable capacity grows super-linearly with the user base, without any raw data leaving its owner's device.
-**Current focus:** Phase 12 — Sovereignty-Pinned Placement (re-verification pending; the prior pass found 3/4 criteria met, and Plan 12-03 — dispatched in neither Wave 2 nor Wave 3 by the orchestrator — closes the fourth)
+**Current focus:** Phase 13 — Egress Manifest Completeness is marked done and **has no
+`13-VERIFICATION.md`**. All three plans executed and their wiring is confirmed by call-site
+check, but no independent pass has re-run its criteria. Verify it or un-check it before
+planning Phase 14.
 
 ## Current Position
 
 Phase: 13 (Egress Manifest Completeness)
 Plan: 3 of 3
-Status: Phase complete — ready for verification
+Status: Plans complete — **verification outstanding**, the phase's only open item
+Next: Phase 14 (Signed Artifact Resolution) — `14-CONTEXT.md` written, ready to plan
 Last activity: 2026-07-27
 
 ### v1.0 carried forward, unarchived
 
 ```
-Test Files  112 · Tests 1673 · tsc --noEmit clean
+Test Files  122 · Tests 1775 · tsc --noEmit clean   (v1.0 closed at 112 / 1673)
 Ledger      32 / 72 wired · 36 built-not-wired · 4 blocked on hardware or measured
+v1.1        7 of 44 requirements closed
 ```
 
 **Read `.planning/v1.0-MILESTONE-AUDIT.md` before planning.** It carries `file:line` for
@@ -495,9 +510,11 @@ Items acknowledged and carried forward from previous milestone close:
 
 Last session: 2026-07-27T22:21:42.692Z
 Stopped at: Completed 13-03-PLAN.md
-browser and e2e; `tsc --noEmit` clean; 64/72 requirements. See
-`phases/phase-9-public-demo/SUMMARY.md` and `09-VERIFICATION.md`.
-Next unit: **Phase 10 — elfconv AOT native→WASM pipeline**, the parallel track.
+Next unit: **verify Phase 13**, then plan Phase 14 — Signed Artifact Resolution.
+
+The three paragraphs below this line are older sessions' notes that were appended here
+rather than replaced; they describe Phases 9 and 3 and are kept because they are still
+accurate about those phases. They are not a description of the current position.
 DEMO-04 still holds and is now enforced by `disclosure-gate.node.test.ts`: no deploy
 workflow file may exist in the repository at all, absent rather than disabled, and no
 `package.json` script may publish. `build:demo` builds; nothing deploys.
@@ -510,7 +527,8 @@ literally always visible (an id `display` rule outranks `[hidden]`, and the test
 asserted the attribute rather than the screen), and a peer filter that matched the
 relay's own id inside every circuit address, so two devices on one relay skipped
 every candidate and never heard of each other. Both fixed and now tested.
-Resume file: None
+Resume file: `.planning/.continue-here.md` (written 2026-07-27, leads with the Phase 13
+verification gap)
 (no static determinism analysis, no cross-implementation verification, no host-import
 allow-list). Still current; they apply to every later phase.
 
