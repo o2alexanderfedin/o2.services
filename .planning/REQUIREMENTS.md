@@ -397,6 +397,21 @@ inference.
       hardcoded libp2p default that aborts the whole connection — so in-limit requests die
       too, and the requestor blames the *receiving* node for a limit the sender blew
       through. `bin/bench.ts` ships `SHARDS = 8`, one below the cliff
+- [ ] **NET-09**: A refusal reaches the requestor as a **named outcome**, not as a
+      timeout. Today `rpc.ts`'s responding leg swallows the error — its comment says "The
+      requester will time out" — so a sovereignty refusal is measured arriving as
+      `rpc … timed out after 4000ms` with no label and no attribution. A requestor cannot
+      distinguish "your data may not leave that node" from "that node is gone", in the one
+      place the fabric's central promise is enforced. `DEFAULT_RPC_TIMEOUT_MS` is 30,000 ms
+      and every test touching this path shortens its budget because the wait dominates,
+      which is the cost showing up as wall-clock. Closes the standing principle *every
+      exclusion is named* against the refusal path
+- [ ] **DATA-10**: A node does not serve a raw sovereign block to a peer, whether or not
+      it has executed a task over that block. Today only the **executing** node registers
+      its input with the guard (`registerSovereignInputs`), so a submitting node that never
+      ran the task holds no registration and will serve the raw bytes on request —
+      measured at 95 raw bytes inside a 138-byte block-response frame. Sovereignty is a
+      property of the data, not of whether this particular node happened to compute over it
 
 ### Benchmark parallelism (new ID, minted 2026-07-28)
 
