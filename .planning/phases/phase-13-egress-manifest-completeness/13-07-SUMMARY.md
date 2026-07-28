@@ -444,5 +444,3 @@ therefore inside the scan's own jurisdiction: **38/38 passing**.
 `.planning/STATE.md` and `.planning/ROADMAP.md` were not touched by this plan. `ROADMAP.md`
 belongs to Plan 13-06 and is load-bearing for a test; its last commit is still `0379ec5`, from
 planning.
-</content>
-</invoke>
