@@ -431,5 +431,18 @@ happens when it is not. No single assertion observes the set mid-flight, and non
 ---
 *Phase: phase-13-egress-manifest-completeness*
 *Completed: 2026-07-28*
+
+## Self-Check: PASSED
+
+All 17 modified files verified present on disk. All five task commit hashes (`b13163f`,
+`defc1d4`, `895fa8e`, `2978d5d`, `019e562`) plus this summary's own (`8f2aa4e`) verified present
+in `git log`. `packages/net/src/sovereign-egress.ts` and `packages/net/src/rpc.ts` verified clean
+after their mutation reverts, and `git status --short` was empty over the whole tree at that
+point. `vocabulary.node.test.ts` and `purity.node.test.ts` re-run with this summary committed and
+therefore inside the scan's own jurisdiction: **38/38 passing**.
+
+`.planning/STATE.md` and `.planning/ROADMAP.md` were not touched by this plan. `ROADMAP.md`
+belongs to Plan 13-06 and is load-bearing for a test; its last commit is still `0379ec5`, from
+planning.
 </content>
 </invoke>
