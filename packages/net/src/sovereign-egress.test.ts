@@ -148,6 +148,13 @@ describe('registerSovereignInputs — a production caller for EgressGuard.guard(
       const manifest = node.guard.manifest
       expect(manifest.violations).toContain(inputCid.toString())
       expect(manifest.entries.some((entry) => entry.violation === inputCid.toString())).toBe(true)
+
+      // Released even though the reply was refused. This is the case a naive
+      // implementation leaks, and the leak is not cosmetic: a registration never
+      // given back is scanned against every frame this node sends for the rest of
+      // its life. The assertion names the label, so growth fails loudly here
+      // rather than showing up as a node that slowly got slower.
+      expect(node.guard.registrations).toEqual([])
     } finally {
       node.close()
       rpc.close()
@@ -181,6 +188,11 @@ describe('registerSovereignInputs — a production caller for EgressGuard.guard(
       // in the RPC response — a real send happened, just not a registration.
       expect(node.guard.manifest.entries.length).toBeGreaterThan(0)
       expect(node.guard.manifest.violations).toEqual([])
+
+      // Nothing was registered, so nothing is released and nothing is held. A
+      // public task must not be able to add to the scan set the serve path pays
+      // for on every frame.
+      expect(node.guard.registrations).toEqual([])
     } finally {
       node.close()
       rpc.close()
@@ -217,6 +229,11 @@ describe('registerSovereignInputs — a production caller for EgressGuard.guard(
       const outcome = await executor.execute(task)
       expect(outcome.ok).toBe(true)
       expect(node.guard.manifest.violations).toEqual([])
+
+      // Empty because nothing was ever registered — the skip case. The serve path
+      // still releases this label unconditionally, and that release finding
+      // nothing to give back is exactly why it is written unconditionally.
+      expect(node.guard.registrations).toEqual([])
     } finally {
       node.close()
       rpc.close()

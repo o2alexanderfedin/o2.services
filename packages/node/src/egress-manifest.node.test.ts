@@ -187,6 +187,15 @@ describe('DATA-05 — the tap refuses the leaking frame, so the shard fails wher
     expect(manifest?.entries.some((entry) => entry.violation === inputCid.cid.toString())).toBe(true)
     expect(manifest?.entries.length).toBeGreaterThan(0)
 
+    // The refused path is an exit like any other, and it is the one a naive
+    // implementation leaks: a release that only ran when the send succeeded would
+    // leave this label held forever. Growth here is a real ceiling on how long a
+    // node can serve — every registration it never gives back is scanned against
+    // every frame it ever sends afterwards — and this assertion is the only thing
+    // that makes that a failure rather than a slow leak nobody measures. It names
+    // the label, so a failure says what leaked.
+    expect(alice.egress.registrations).toEqual([])
+
     // The control, and it runs *after* the refusal on purpose: one that ran
     // first would leave "alice died during the refused dispatch" standing as an
     // explanation. Same two running nodes, same sovereign row and owner, same
@@ -217,6 +226,12 @@ describe('DATA-05 — the tap refuses the leaking frame, so the shard fails wher
     // Never asserted alone: an unwired tap reads zero violations exactly as
     // readily as a genuinely clean job does.
     expect(controlManifest?.entries.length).toBeGreaterThan(0)
+
+    // And on the path where the reply *did* leave. Two jobs have now run against
+    // this one guard, so this reading also rules out the arithmetic failure the
+    // refused job above cannot see on its own: a release that ran once too few
+    // would show up here as the second job's label still held.
+    expect(alice.egress.registrations).toEqual([])
   }, 60_000)
 })
 
