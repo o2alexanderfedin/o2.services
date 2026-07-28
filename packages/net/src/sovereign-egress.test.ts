@@ -20,6 +20,11 @@ import { registerSovereignInputs } from './sovereign-egress.ts'
  * `EgressGuard.guard()`, over a genuine `RpcEndpoint`/`serveAgent`/`EgressGuard`
  * fabric. None of these tests calls `guard.guard()` directly: every violation, or
  * lack of one, is a consequence of the wrapper's own decision.
+ *
+ * A registration is what lets the tap refuse. The first behaviour below is the
+ * whole point of registering at all: the serving node's reply would have carried
+ * the raw row, so it never leaves, and the dispatch fails instead of succeeding
+ * with the row already gone.
  */
 
 const OWNER_ID = 'alice'
@@ -88,7 +93,7 @@ function requestor(nodeId: string): { readonly rpc: RpcEndpoint; readonly execut
 }
 
 describe('registerSovereignInputs — a production caller for EgressGuard.guard()', () => {
-  it('registers a sovereign task’s input before it runs, and the tap catches a leak', async () => {
+  it('registers a sovereign task’s input before it runs, and the tap refuses the leaking reply', async () => {
     const store = new MemoryBlockstore()
     const moduleCid = await store.put(MODULE_ECHOES_INPUT)
     const encoded = encodeCanonical(SOVEREIGN_ROW)
@@ -112,12 +117,24 @@ describe('registerSovereignInputs — a production caller for EgressGuard.guard(
         ownerId: OWNER_ID,
       }
       const outcome = await executor.execute(task)
-      expect(outcome.ok).toBe(true)
+      // The module echoed its input straight back, so the reply frame would have
+      // carried the raw row. The tap refused it: the row stayed on the owner's
+      // node, and the requestor's dispatch failed as a consequence.
+      //
+      // The requestor waits out this endpoint's 2s timeout rather than being told
+      // why, because the refusal happens on the *responding* leg, which `rpc.ts`
+      // swallows by documented design — see `egress.ts`'s own statement of that
+      // cost. The added seconds here are an understood consequence, not a slow
+      // test nobody has looked at.
+      expect(outcome.ok).toBe(false)
+      if (outcome.ok) return
+      expect(outcome.reason).toContain(node.nodeId)
 
-      // Registration happened without this test ever calling guard.guard(): the
-      // module echoed its input straight back, and the tap caught the exact CID
-      // registerSovereignInputs registered for it.
-      expect(node.guard.manifest.violations).toContain(inputCid.toString())
+      // Refused *and* recorded — the two halves of the ordering guarantee, both
+      // reached without this test ever calling guard.guard().
+      const manifest = node.guard.manifest
+      expect(manifest.violations).toContain(inputCid.toString())
+      expect(manifest.entries.some((entry) => entry.violation === inputCid.toString())).toBe(true)
     } finally {
       node.close()
       rpc.close()
