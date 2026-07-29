@@ -138,10 +138,14 @@ describe('SCHED-06 — the exec branch admits, and gives the slot back', () => {
       // The load-bearing reading. This counter can read any number at all — under
       // a mutation that removes the acquisition it reads the dispatched request
       // count, which is the roadmap's measured defect reproduced here.
-      expect(node.counter.peakInFlight).toBeLessThanOrEqual(2)
-
+      //
+      // `soft` on these two so a mutation run reports **both** readings rather
+      // than only whichever assertion happens to come first: the pair is the
+      // measurement, and a peak alone passes trivially if nothing was dispatched
+      // while refusals alone pass if the bound held by luck.
       const refusals = replies.filter((r) => r?.kind === 'error')
-      expect(refusals.length).toBeGreaterThan(0)
+      expect.soft(node.counter.peakInFlight).toBeLessThanOrEqual(2)
+      expect.soft(refusals.length).toBeGreaterThan(0)
       for (const refusal of refusals) {
         if (refusal?.kind !== 'error') continue
         expect(refusal.reason.startsWith('over-committed: ')).toBe(true)
