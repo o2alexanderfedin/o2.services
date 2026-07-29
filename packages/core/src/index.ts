@@ -17,6 +17,8 @@ export type {
   Task,
   Transport,
 } from './ports.ts'
+// NET-09 — the marker a Transport raises when *this* node declined to send.
+export { SendRefused } from './ports.ts'
 
 // Hashing — pure JS, so it works outside a secure context. See hash.ts.
 export { SHA256_CODE, sha256 } from './hash.ts'

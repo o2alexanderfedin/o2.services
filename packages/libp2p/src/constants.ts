@@ -116,3 +116,57 @@ export const WIRE_CHUNK_BYTES: number = WEBRTC_MAX_MESSAGE_BYTES
  * not only the override.
  */
 export const MAX_INBOUND_MESSAGE_BYTES = 8_388_608
+
+/**
+ * NET-09 — outbound streams this node will hold open toward **one** peer at once.
+ * **8.**
+ *
+ * A **configuration choice**, chosen to sit below the operative `maxEarlyStreams`
+ * default of 10 that `@libp2p/utils`'s `AbstractStreamMuxer` hardcodes as a
+ * `init.maxEarlyStreams ?? 10` (`dist/src/abstract-stream-muxer.js:24`) — *not*
+ * `@chainsafe/libp2p-yamux`'s `defaultConfig.maxEarlyStreams`, which `YamuxMuxer`
+ * declares and never reads (`dist/src/muxer.js:64-75` reads four other fields off
+ * it). Past that ceiling the muxer calls `abort()` on the **whole connection**.
+ *
+ * The evidence is measurement, not arithmetic: the roadmap measured N=8 completing
+ * and N=12 aborting, and `transport-bounds.node.test.ts` reproduces the abort and
+ * reads the `10` back out of the error the reproduction throws.
+ *
+ * **What this bounds, and what it does not.** `earlyStreams` is *cumulative* within
+ * the pre-listener window, not a concurrency count: `onRemoteStream` pushes every
+ * inbound stream while the muxer has no `'stream'` listener
+ * (`abstract-stream-muxer.js:114-124`), `cleanUpStream` splices `this.streams` only
+ * and never touches `earlyStreams` (`:128-148`), and the array is emptied in exactly
+ * one place — when a `'stream'` listener is finally added (`:154-164`). So a cap on
+ * *concurrent* outbound streams does not cap how many are opened in total inside
+ * that window. This constant lowers the burst rate and bounds the damage. It does
+ * **not** make the ceiling unreachable, and nothing in this repository may claim it
+ * does. What would measure that is an instrument on the receiver's muxer counting
+ * inbound streams accepted before its `'stream'` listener attached; `earlyStreams`
+ * is a private field of a class libp2p never hands out, so that instrument is not
+ * reachable through any public API today.
+ *
+ * **Why the fix is not `yamux({maxEarlyStreams: N})`, and why it is not shipped even
+ * as a belt.** Raising it moves the cliff rather than removing it, and leaves
+ * connection tear-down as the failure mode. A peer running default yamux still
+ * aborts at 10 whatever this node sets. And its effect is not readable from outside
+ * libp2p's public API, so shipping it would add a mechanism this phase could only
+ * report, not measure. If a later phase ships it, it gets pinned the way every other
+ * libp2p default in this repository is — against a runtime value, not a `.d.ts`.
+ */
+export const MAX_CONCURRENT_STREAMS_PER_PEER = 8
+
+/**
+ * NET-09 — sends this node will hold waiting behind the per-peer gate. **256.**
+ *
+ * A **configuration choice**, set to match the number this transport already
+ * declares as `maxOutboundStreams` on its protocol registration, so one figure
+ * governs both rather than two drifting apart.
+ *
+ * No claim is attached about what this depth does to any workload's admissibility.
+ * What matters about the queue is that overflowing it refuses *immediately* rather
+ * than waiting, and that is asserted behaviourally in
+ * `transport-bounds.node.test.ts` — on elapsed time as well as on the message —
+ * rather than argued from this number.
+ */
+export const MAX_QUEUED_SENDS_PER_PEER = 256

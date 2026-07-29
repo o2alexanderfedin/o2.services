@@ -6,6 +6,7 @@ import { describe, expect, it } from 'vitest'
 import {
   LIBP2P_INBOUND_CONNECTION_THRESHOLD,
   LIBP2P_MAX_INCOMING_PENDING_CONNECTIONS,
+  MAX_CONCURRENT_STREAMS_PER_PEER,
   RELAY_DATA_LIMIT_BYTES,
   RELAY_DURATION_LIMIT_MS,
   RELAY_MAX_RESERVATIONS,
@@ -119,6 +120,36 @@ describe('NET-07 — WebRTC message limits', () => {
     expect(typeof overhead).toBe('number')
     expect(overhead as number).toBeGreaterThan(0)
     expect(overhead as number).toBeLessThan(WEBRTC_MAX_MESSAGE_BYTES)
+  })
+})
+
+describe('NET-09 — the muxer default MAX_CONCURRENT_STREAMS_PER_PEER sits below', () => {
+  it('detects drift in yamux’s declared — but unread — maxEarlyStreams', async () => {
+    // Imported through the package's own `./config` export rather than through
+    // `importInternal`: `@chainsafe/libp2p-yamux` publishes no CJS entry, so
+    // `require.resolve` on it throws `No "exports" main defined` and the helper
+    // this file uses elsewhere cannot reach it. The export map exposes the module
+    // directly, which is a better read anyway — no path assumption.
+    const { defaultConfig } = await import('@chainsafe/libp2p-yamux/config')
+
+    // **This is a drift detector on the library's declared intent. It is NOT the
+    // operative value.** `YamuxMuxer`'s constructor
+    // (`@chainsafe/libp2p-yamux/dist/src/muxer.js:64-75`) spreads `init` into
+    // `AbstractStreamMuxer` and reads `enableKeepAlive`, `keepAliveInterval`,
+    // `maxInboundStreams` and `maxOutboundStreams` off `defaultConfig` — and not
+    // this field, which is therefore declared and never read.
+    //
+    // The value that actually decides is `AbstractStreamMuxer`'s hardcoded
+    // `init.maxEarlyStreams ?? 10`
+    // (`@libp2p/utils/dist/src/abstract-stream-muxer.js:24`), which is not exported
+    // and has no importable form. Its only runtime read in this repository is the
+    // denominator of the `MaxEarlyStreamsError` that
+    // `packages/node/src/transport-bounds.node.test.ts` reproduces, asserted inside
+    // that reproduction. Separate vitest files share no runtime state, so it could
+    // not be pinned from here without falling back to a `.d.ts` comment — which
+    // would read as though a runtime value had been checked.
+    expect(defaultConfig.maxEarlyStreams).toBe(10)
+    expect(MAX_CONCURRENT_STREAMS_PER_PEER).toBeLessThan(10)
   })
 })
 
