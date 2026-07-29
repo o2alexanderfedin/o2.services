@@ -128,12 +128,16 @@ nothing would fail. Prove the omission is a compile error the same way Phase 11 
 omitted argument, which also fails loudly if the argument is ever widened back to
 optional.
 
-**Size the diff honestly: 44 `new RemoteExecutor(...)` sites.** Four are production
+**Size the diff honestly: 44 `new RemoteExecutor(...)` sites** — measured, not estimated, by
+`grep -rn "new RemoteExecutor(" packages --include="*.ts" | wc -l`, and re-measured with the
+same command on 2026-07-29, still 44. Four are production
 (`packages/browser/demo/main.ts:306` and `:549`, `packages/node/src/bin/bench.ts:187` and
-`:222`); forty are tests, concentrated in `distributed.test.ts` (7),
+`:222`); the rest are tests, concentrated in `distributed.test.ts` (7),
 `fabric-node.node.test.ts` (7), `sovereign-execution.test.ts` (6),
 `egress-manifest.node.test.ts` (5), `two-process.node.test.ts` (5),
-`sovereignty-placement.node.test.ts` (3). All forty take the sentinel.
+`sovereignty-placement.node.test.ts` (3). Every test site takes the sentinel. Plan 15-02's
+`<interfaces>` block carries the site-by-site enumeration and is the one home for that list;
+re-grep rather than trusting either copy's line numbers.
 
 ### 4. The owner's public key is configuration on the existing `NodeSovereignty` record, not a second option
 
@@ -372,12 +376,13 @@ honest proxies:
   `packages/aot/src/wasi-executor.ts:827` is a second caller in the repository, off this
   path. The qualifier is what makes the claim true, and the plans carry it.
 - Across two spawned processes, where no stub can be installed: count the submitter's
-  outbound frames to that child over the dispatch, using `sliceManifest`. A refused
-  dispatch should produce exactly the `exec` request; an authorized one additionally
-  produces the block replies the child needs to compile, because only the submitter holds
-  the module (the property `two-process.node.test.ts:17-27` establishes). **Record the
-  measured counts, do not predict them** — the roadmap's own Phase 13 amendment note
-  (`ROADMAP.md:332-340`) exists because a byte figure was asserted rather than read.
+  outbound frames to that child over the dispatch, using `sliceManifest`. Only the
+  submitter holds the module (the property `two-process.node.test.ts:17-27` establishes),
+  so a child that never came back for it never compiled anything. **Assert the two counts
+  as a relation between readings, never against a literal, and record what was read.** No
+  arithmetic deriving either figure belongs anywhere — not in a plan, not in a summary, not
+  in a source comment. The roadmap's own Phase 13 amendment note (`ROADMAP.md:332-340`)
+  exists because a byte figure was asserted rather than read.
 
 If the planner wants a literal instantiate counter across a process boundary, say plainly
 that it is unmeasured and would need a new hook; do not report the proxy as the thing.
@@ -401,22 +406,39 @@ instantiation" is measured as in criterion 1(b).
 delegation link is refused, proving delegation depth is checked and not merely the chain's
 presence."**
 
-Two dispatches to the same live child, differing in one ability string (decision 8).
-Accepted → `outcome.ok === true` and the output equals the single-node reference.
-Refused → `outcome.reason` contains `was re-delegated, but its issuer was never granted`
-(`capability.ts:118`). **The discriminating assertion is that both chains have length 2
-and both parse** — assert that explicitly, or the test proves only that a two-link chain
-sometimes fails.
+**Three** dispatches to the same live child — decision 8 **as amended**; the paragraph here
+said two until 2026-07-29 and was the last place in the phase still saying it. One accepted
+and two refused for two differently-named reasons, each differing from the accepted chain in
+exactly one thing:
+- accepted, `delegatedChainFor` → `outcome.ok === true` and the output equals the
+  single-node reference;
+- refused for depth, `undelegableChainFor`, which differs in exactly one ability string →
+  `outcome.reason` contains `was re-delegated, but its issuer was never granted`
+  (`capability.ts:118`);
+- refused for a broken link, `brokenLinkChainFor`, whose link 1 is issued by a third party →
+  `outcome.reason` contains `is issued by`, `delegated to` and `link 1`
+  (`capability.ts:107-108`) — the failure kind ROADMAP criterion 3 names in its own words.
 
-**Mutation, per this project's standing pattern.** Two mutations, each planted, watched
-fail, and reverted:
+**The discriminating assertion is that all three chains have length 2 and all three parse**
+— assert that explicitly, or the test proves only that a two-link chain sometimes fails.
+
+**Mutation, per this project's standing pattern.** **Three** mutations, each planted,
+watched fail, and reverted:
 1. Drop the `capability` key in `RemoteExecutor.execute` — criterion 1 and 2's accepted
    cases must fail.
 2. Replace the authorizer with `() => null` in `fabric-node.ts` — criterion 2 and 3's
    refusal cases must fail.
+3. Replace the authorizer with `() => null` in `browser-node.ts` — **added 2026-07-29, and
+   planted precisely because its result is expected to be thin.** No test in the repository
+   constructs a `BrowserNode` and no sovereign task is dispatched to one anywhere in this
+   phase, so whatever turns red *is* the measurement of how thin that tier's guard is. It is
+   recorded as that measurement, not reported as a mutation caught, and nothing is added
+   after the fact to make the capture look better.
+
 Report which tests break, as observed, not as predicted — 13-05 recorded that a mutation
 broke four tests where the plan named one, and reporting the observation is the house
-rule.
+rule. That rule governs the three expectations above too: they say what is expected, and
+the summary says what happened.
 
 **Vocabulary.** `packages/node/src/vocabulary.node.test.ts` scans every git-tracked file,
 and this phase's subject matter sits one synonym away from a listed term. Read that file's
@@ -426,12 +448,21 @@ do not extend here.
 
 **Amended 2026-07-28 — "git-tracked" is load-bearing and was being read as "every file".**
 `scanRepository()` enumerates with `execFileSync('git', ['ls-files', '-z'])`
-(`vocabulary.node.test.ts:360`), which lists tracked files only. Verified:
-`git status --short -- .planning/phases/phase-15-capability-chained-dispatch/` reports
-`??` for the whole directory, so **this phase's own plans and summaries are invisible to
-the guard until they are committed**, and running the test against them proves nothing.
-`.planning/ROADMAP.md` is tracked and *is* covered. Plan 15-04 Task 3 carries the manual
-check for the untracked half, and reports it as a manual reading distinct from the test's.
+(`vocabulary.node.test.ts:360`), which lists tracked files only. A file is therefore covered
+once it is committed and **not before**, so running the test against an uncommitted file
+proves nothing whatever about it. `.planning/ROADMAP.md` is tracked and *is* covered. Plan
+15-04 Task 3 carries the manual check for whatever is not yet committed, and reports it as a
+manual reading distinct from the test's, since the two cover different file sets.
+
+**Amended 2026-07-29 — the uncovered half is now smaller than that amendment says, and the
+amendment was stating a stale reading as a present fact.** Re-measured today:
+`git status --short -- .planning/phases/phase-15-capability-chained-dispatch/` no longer
+reports `??` for anything, and `git ls-files` on the same directory lists all five files. So
+this CONTEXT and all four plans **are** tracked and **are** covered by the guard. What
+remains invisible to it is every `15-0N-SUMMARY.md` this phase has yet to write, until they
+are committed. The manual check in Plan 15-04 Task 3 stands unchanged — its subject is the
+summaries, not the plans — and that task's own `??` reading, correct when it was taken, is
+the one thing in this phase to re-run rather than quote.
 </specifics>
 
 <deferred>
@@ -509,8 +540,14 @@ lines decision 4 here modifies. They are independent in logic and adjacent in te
 Whichever lands second should re-grep rather than trust the line numbers in either context
 document.
 
-**5. `agent-contract.test.ts` covers `serveAgent`'s eight arguments and nothing covers
-`RemoteExecutor`'s.** Decision 3 makes the dispatching side symmetric with the serving
+**5. `agent-contract.test.ts` covers `serveAgent`'s seven hooks and nothing covers
+`RemoteExecutor`'s argument.** (Corrected 2026-07-29: this said *eight arguments*. The file
+declares its own scope — `describe('AgentOptions requires all seven hooks — the compile-time
+proof')` at `agent-contract.test.ts:42` — and carries exactly seven omission cases at
+`:52-103`: `authorize`, `index`, `capacity`, `reservations`, `ledger`, `onDispatch`, `egress`.
+`AgentOptions`' other three fields — `rpc`, `executor`, `blockstore` — are plain dependencies
+with no sentinel and no omission case. Plan 15-02 carried the same wrong figure and is
+corrected to match.) Decision 3 makes the dispatching side symmetric with the serving
 side, but the compile-time proof only exists for one of them today. If the planner
 downgrades decision 3 to an optional argument, say so explicitly and record that a
 `RemoteExecutor` with no chain is a hole nothing will report — do not let it become the

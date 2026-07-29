@@ -7,6 +7,10 @@ Phase 11 hook contract, and the Phase 12/13 spawn-and-wire precedents. Three gre
 are resolved here with reasoning; two gaps that the phase's own criteria cannot close are
 flagged in "Risks" rather than folded into a decision.
 
+> **Numbers in this document are configuration choices or measurements, not derived claims.
+> Any quantity describing runtime behaviour must be measured before it is written down
+> anywhere, including in a source comment.**
+
 <domain>
 ## Phase Boundary
 
@@ -43,7 +47,10 @@ SCHED-01; this phase makes a node *publish* its own records, it does not make a 
 *caller* may ask, a certificate says the *node* is enrolled; they compose and neither
 substitutes). Browser-tier identity persistence (`BrowserNode.start()` has no runtime test
 anywhere and is blocked on the multi-browser standard recorded against Phase 19 in
-`.planning/ROADMAP.md:465`; see "Deferred"). Making enrollment genuinely *expensive*
+`.planning/ROADMAP.md`, section `### Phase 19: Quorum Composition & Owner-Domain
+Attestation`, the **Browser-tier testing standard, one host and several browsers**
+constraint — an owner ruling recorded 2026-07-28, cited by section because the roadmap's
+line numbers move as phases are inserted; see "Deferred"). Making enrollment genuinely *expensive*
 rather than *rate-limited* (`enrollment.ts:22-30` states this gap itself; see "Risks").
 </domain>
 
@@ -122,7 +129,11 @@ counted as a block**. An `identity.key` sitting in that directory is a block as 
 `sizeBeforeRestart = worker.store.size` — the in-memory counter, which only ever counted
 real `put()`s because the directory was empty when `open()` ran — and `:214` asserts
 `expect(reopened.size).toBe(sizeBeforeRestart)` after a second `FsBlockstore.open(workerDir)`,
-which now counts the identity file too. That is N+1 against N, and it fails.
+which now counts the identity file too — so the two readings are of two different
+populations and the assertion no longer holds. **Do not write down what that count becomes
+once a non-block file is present — measure it.** Plan 17-01 Task 2's
+`fs-blockstore.node.test.ts` reads the count with and without the extra files and the
+summary records both figures.
 
 So: name the three files `.identity.key`, `.provider.key` and `.certificate.json`, and
 widen the filter in `FsBlockstore.open` from `!name.startsWith('.tmp-')` to
@@ -215,7 +226,7 @@ to re-derive it.
 | `packages/net/src/agent-contract.test.ts:22-40` | `buildFull()` gains the member; the describe title *"requires all seven hooks"* and its per-hook `@ts-expect-error` case list must gain an eighth |
 | `packages/node/src/serve-agent-hooks.node.test.ts:28-52` | the sentinel-occurrence counts gain a row per file |
 
-Every other `serveAgent` call site is a test (`packages/net/src/{discovery,distributed,start-report,rendezvous,sovereign-egress,submit-with-egress,churn,sovereign-execution}.test.ts`, 14 calls) and each needs the sentinel added or `tsc --noEmit` fails — which is the contract working as designed, not a defect.
+Every other `serveAgent` call site is a test (`packages/net/src/{discovery,distributed,start-report,rendezvous,sovereign-egress,submit-with-egress,churn,sovereign-execution}.test.ts`, 17 calls, counted from the repository and broken down per file in 17-02-PLAN.md's interfaces table) and each needs the sentinel added or `tsc --noEmit` fails — which is the contract working as designed, not a defect.
 
 ### 6. The provider key is generated on-device too; no key material on argv
 
@@ -436,9 +447,13 @@ Behavioural details the planner needs:
 - The window is per **`userKey`** (`enrollment.ts:213`, `#history` keyed at `:173`), not
   per node key and not per connection. This is the whole of criterion 3's measurement
   surface and its whole limitation; see "Specifics".
-- Defaults: `maxPerWindow = 5`, `windowMs = 3_600_000`, `certificateLifetimeMs = 30 days`
-  (`enrollment.ts:178-180`). At the default a burst test needs ≥6 requests under one user
-  key to observe a refusal.
+- Issuance defaults, read from source rather than derived: `maxPerWindow = 5`,
+  `windowMs = 3_600_000`, `certificateLifetimeMs = 30 days` (`enrollment.ts:178-180`).
+  These are `@o2/core`'s configuration choices and this phase leaves them alone. Their one
+  home is `enrollment.ts:178-180`; 17-02-PLAN.md's interfaces block is the only plan that
+  quotes them and the other plans cite. **How a burst of a given size divides between
+  accepted and refused is not derived anywhere — it is measured, and the refusal states
+  the threshold it applied.**
 - The clock is a parameter everywhere (`enrol(request, now)`, `verifyCertificate(…, now)`)
   — *"so the limiter's behaviour is deterministic in tests and the module stays free of
   platform time"* (`enrollment.ts:162-165`). Production must pass `Date.now()` at the
@@ -638,10 +653,12 @@ beyond a stated threshold.*
 Measured by sending N=20 `enrol` requests, all naming one `userKey` with 20 distinct node
 keys, from a `FabricNode` in the test process to a spawned `--issues-certificates` agent,
 over the same `rpc.request(peer, encodeRequest({kind:'enrol', …}))` path production uses.
-Assert exactly `maxPerWindow` succeed and the remaining `20 - maxPerWindow` return
-`{ kind: 'rate-limited', limit, windowMs, retryAfterMs }` with `retryAfterMs > 0`. Then
-assert the *stated threshold* is discoverable from the refusal itself (`limit`), not only
-from the source.
+**Do not write the split down — assert it against the threshold the refusal itself
+states**: the accepted count equals the `limit` the first refusal carries, accepted plus
+refused is the 20 that were sent, every refusal carries the same `limit`, and every
+refusal carries `windowMs` and `retryAfterMs > 0`. That makes the *stated threshold*
+discoverable from the refusal itself and not only from the source, and it leaves the split
+as something the summary records having measured rather than something a plan predicted.
 
 **This criterion cannot be measured as written, and the phase should say so in those
 words.** "Making mass fake-node creation measurably costly" is not what the mechanism
@@ -681,7 +698,10 @@ the identifier used in `enrollment.ts`. Nothing new needs coining.
 - **Browser-tier identity persistence.** `BrowserNode` would need the same seed in
   IndexedDB (the `idb-blockstore.ts` pattern) and `createLibp2p({ privateKey })` at
   `browser-node.ts:195`. Blocked on the same root cause recorded against Phase 19 in
-  `.planning/ROADMAP.md:465`: `BrowserNode.start()` runs in neither vitest project and has
+  `.planning/ROADMAP.md`, section `### Phase 19: Quorum Composition & Owner-Domain
+  Attestation`, under the **Browser-tier testing standard, one host and several browsers**
+  constraint (owner ruling, 2026-07-28; cited by section because the roadmap's line numbers
+  move as phases are inserted): `BrowserNode.start()` runs in neither vitest project and has
   no runtime test anywhere in the repository. Adding the wiring without a way to execute it
   would repeat the exact defect this milestone exists to fix. Phase 19's multi-browser
   standard is what unblocks it.
@@ -698,7 +718,8 @@ the identifier used in `enrollment.ts`. Nothing new needs coining.
 - **`resolveReplicaSets` / owner-domain attestation** — AUTH-05, Phase 19. This phase makes
   the certificates exist and be fetchable; it does not group them.
 - **Unifying `OwnerId` with `userKey`** — see decision 10. A Phase 19 decision.
-- **Certificate renewal before expiry.** Lifetime defaults to 30 days
+- **Certificate renewal before expiry.** The certificate lifetime default is the
+  `certificateLifetimeMs` entry in the "Existing Code Insights" list above
   (`enrollment.ts:180`); a long-running node will eventually hold an expired certificate and
   drop out of every peer's `verifiedPeers`. Decision 11 re-enrols on a certificate that
   fails the unexpired check *at start*, which is sufficient for a phase whose longest test

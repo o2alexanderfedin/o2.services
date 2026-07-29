@@ -49,7 +49,9 @@ admission and verification path as a source-compiled one.
 cache that consults the key before spending time in a container (the key is *emitted*
 here, not *consulted*); `signName`/`SignedNameResolver` (Phase 14 — that phase's context
 already records that `translationCid` and `signName` "are not the same concept and do
-not merge", `.planning/phases/phase-14-signed-artifact-resolution/14-CONTEXT.md:204-218`);
+not merge" —
+`.planning/phases/phase-14-signed-artifact-resolution/14-CONTEXT.md:258-274`, the section
+"AOT — a different concept, composing in one direction", with that sentence at `:270`);
 capability chains on dispatch (Phase 15); AOT-03's cross-machine half (descoped
 2026-07-28, unmeasured, and `CROSS_MACHINE_BLIND_SPOT` stays attached — `lift.ts:147`);
 AOT-05's code-cache negative (Phase 10, measured, stays a negative).
@@ -60,10 +62,11 @@ AOT-05's code-cache negative (Phase 10, measured, stays a negative).
 
 ### 1. "Signing" in the phase title means naming, not a signature
 
-The roadmap's three criteria (`.planning/ROADMAP.md:494-497`) never mention a key, a
-signature or a trust anchor. AOT-02's own text (`REQUIREMENTS.md:317-320`) asks for a
-*cache key*, an image keyed by digest, and a refusal — all content addressing.
-`14-CONTEXT.md:251-254` states the division explicitly: "`translationCid` stays
+The roadmap's three criteria (`.planning/ROADMAP.md:502-504`, under the Phase 21 heading
+at `:495`) never mention a key, a signature or a trust anchor. AOT-02's own text
+(`REQUIREMENTS.md:317-320`) asks for a *cache key*, an image keyed by digest, and a
+refusal — all content addressing.
+`14-CONTEXT.md:307-309` states the division explicitly: "`translationCid` stays
 unsigned; only its *output* CID ever enters this phase's mapping". So this phase adds
 **no crypto**. It produces an `artifactCid` that Phase 14's `signName` path can later
 name, and it must not invent a second, competing notion of a trusted artifact.
@@ -71,7 +74,8 @@ name, and it must not invent a second, competing notion of a trusted artifact.
 ### 2. `liftElf` calls `translationCid`; a lift that cannot be named is a failure, not a partial success
 
 The roadmap wants the pipeline itself to call it — "`translationCid` is called by the
-lift pipeline itself and the CLI emits the CID it produces" (`ROADMAP.md:488`). The call
+lift pipeline itself and the CLI emits the CID it produces" (`ROADMAP.md:496`, the Phase
+21 **Goal** line). The call
 belongs at `lift.ts:757`, immediately after `toolchain` is assembled and before the
 `ok: true` return, because every input is already in hand there: `digest` (`:747`),
 `toolchain` (`:748-756`), `LIFT_TARGET` (`:102`) and `features.features.required`
@@ -264,18 +268,26 @@ demonstrated is unchanged — only its provenance is.
 
 Build it the way `lift.node.test.ts:1046-1076` already builds its subject: `docker run`
 the image with `clang-16 -O0 -static` over four lines of C written into `/tmp`, so the
-input is reproducible from source rather than checked in as an opaque 659 KB blob. Use
+input is reproducible from source rather than checked in as an opaque binary. Use
 `read(2)`/`write(2)` and **not** stdio: `wasi-real.node.test.ts:123-126` records that
 `printf` alone drags in `clock_time_get` and `poll_oneoff` through glibc's stdio, and the
-174 untranslated addresses Phase 10 measured were inside glibc's `__memcpy_a64fx`
-(`lift.ts:14-18`). Fewer glibc paths, fewer chances of reaching one of them.
+untranslated addresses **Phase 10 measured** — 174 of them, against its own static
+`int main(void){ return 42; }` subject, recorded at `lift.ts:14-18` — were inside glibc's
+`__memcpy_a64fx`. Fewer glibc paths, fewer chances of reaching one of them. How many this
+phase's guest leaves untranslated is unmeasured until that guest is lifted; 174 is Phase
+10's measurement of Phase 10's subject and is not carried over.
 
 ### 10. The artifact is staged into each agent's blockstore directory; wire transfer of it is measured, not depended on
 
-A lifted artifact is ~5.66 MB (`lift.node.test.ts:1091` requires `> 1_000_000`). Phase
-12's harness deliberately makes the module travel over the wire
-(`sovereignty-placement.node.test.ts:148-149`), and that is a fine default for a 200-byte
-fixture. Here it puts a 5.66 MB block through `RpcBlockSource.fetch`
+A lifted artifact is large: the repository's own lift spec requires a real one to exceed
+1,000,000 bytes (`lift.node.test.ts:1093`), and that floor is a threshold the spec chose,
+not a size anything measured. **The size of this phase's artifact is unmeasured until it
+is lifted** — Plan 21-05 measures it and writes the measured figure into its summary.
+Phase 12's harness deliberately makes the module travel over the wire
+(`sovereignty-placement.node.test.ts:148-149`), and that is a fine default for the fixture
+it moves — `MODULE_WRITES_PARTITION`, **measured at 178 bytes** on 2026-07-29 by reading
+`.length` off the value exported at `packages/core/src/executor/fixtures.ts:113`. Here it
+would put the whole artifact block through `RpcBlockSource.fetch`
 (`packages/net/agent.ts:44-56`) and `readMessage` (`libp2p-transport.ts:57-66`) — and
 Phase 13.1 criterion 3 is about to give `readMessage` "a declared maximum message size"
 (`ROADMAP.md:363`), against a measured baseline where a 64 MiB frame is accepted today.
@@ -283,13 +295,14 @@ Phase 13.1 criterion 3 is about to give `readMessage` "a declared maximum messag
 So: **pre-stage.** `bin/agent.ts` takes `--dir` (`agent.ts:24`, `:45`), and
 `FsBlockstore.open(dir).put(bytes)` (`fs-blockstore.ts:36`, `:55`) writes a block the
 child reads locally, before the child is spawned. The dispatch then carries only CIDs,
-which is what a real deployment does anyway — nobody ships 5.66 MB down a dispatch path.
+which is what a real deployment does anyway — nobody ships an artifact of that size down
+a dispatch path.
 
 Whether that block *can* cross the wire is a separate question and should be answered as
 a **number, not an assumption**: one test that puts the artifact only in the submitter's
-store and reports whether `FetchingBlockstore` pulls it, with the byte count and the
-elapsed time. If it fails, that is a finding for Phase 13.1's bound — record the size the
-bound must admit — not a Phase 21 failure.
+store and reports whether `FetchingBlockstore` pulls it, with the measured byte count and
+the measured elapsed time. If it fails, that is a finding for Phase 13.1's bound — record
+the measured size the bound must admit — not a Phase 21 failure.
 
 ### 11. Criterion 3 runs at redundancy 2 across two spawned agents
 
@@ -467,11 +480,23 @@ naming `wasi_snapshot_preview1`), plus a mutation: delete the WASI arm of the ro
 require criterion 3's test to fail with `instantiation failed` naming that namespace.
 Plant it and record that it was caught, per this project's standing practice.
 
-**Mutations worth planting for the verifier** (Phase 13's verifier planted eight):
-drop `requiredFeatures` from `translationKeyOf`; make `translationCid`'s failure a
-silent `'unknown'` instead of a `LiftFailure`; restore `resolveImage`'s `digests[0]`
-fallback; invert the router predicate; use `raw` instead of `dagCbor.code` for
-`artifactCid`; have the CLI print the *artifact* CID where the *key* CID belongs.
+**Mutations worth planting for the verifier** — **six**, and this is the whole list
+(Phase 13's verifier planted five: `13-VERIFICATION.md:14`
+`mutations_planted_by_verifier: 5`, and `:525` "All five mutations were planted by this
+pass"):
+1. drop `requiredFeatures` from `translationKeyOf` (Plan 21-01);
+2. make `translationCid`'s failure a silent `'unknown'` instead of a `LiftFailure` (Plan 21-01);
+3. use `raw` instead of `dagCbor.code` for `artifactCid` (Plan 21-01);
+4. restore `resolveImage`'s `digests[0]` fallback (Plan 21-02);
+5. have the CLI print the *artifact* CID where the *key* CID belongs (Plan 21-02, and
+   Plan 21-04 fires on it again against a real artifact);
+6. invert the router predicate (Plan 21-05, Mutation B).
+
+**Deleting the WASI arm of the router is a seventh mutation and is deliberately not on
+that list** — it is the falsification named in the paragraph directly above, the one that
+measures "the node constructs a real `WasiExecutor` in production", and Plan 21-05 plants
+it as Mutation A. Counted separately because it falsifies a criterion clause rather than
+guarding an implementation detail.
 </specifics>
 
 <deferred>
@@ -487,8 +512,8 @@ fallback; invert the router predicate; use `raw` instead of `dagCbor.code` for
 - **A browser-tier runtime proof of the translated path.** The composition lands here
   (decision 8); running it in a real tab needs the multi-browser standard recorded under
   WIRE-03 (`ROADMAP.md:465`) and belongs with that work.
-- **Committing a lifted artifact as a fixture.** 5.66 MB of opaque binary; the repository
-  already refuses this trade for the 659 KB lift subject (`lift.node.test.ts:1051-1056`).
+- **Committing a lifted artifact as a fixture.** Opaque binary; the repository already
+  refuses this trade for the 659 KB lift subject (`lift.node.test.ts:1051-1056`).
   Reproduce from four lines of C instead.
 - **Emitting the artifact CID into a machine-readable file** (`artifact.json` beside the
   `.wasm`). Useful for a build pipeline, asked for by no criterion.
@@ -504,7 +529,7 @@ job on this fabric.* The only one ever produced ends `not-dag-cbor` by construct
 (`wasi-real.node.test.ts:29-37`), and that file states in its own words that closing this
 "is a larger piece of work". Decision 9 proposes the cheapest closure — a stdio-free echo
 in four lines of C — but it is new work with an unbounded failure mode: if the lifted
-glibc startup path reaches one of the 174 untranslated addresses
+glibc startup path reaches one of the addresses elfconv left untranslated
 (`lift.ts:14-18`), `elfconv_runtime_error` aborts and criterion 3 fails for a reason no
 amount of fabric work fixes. The evidence that it will not is real but indirect: the
 hello-world lift instantiated, ran `_start` to completion and wrote bytes
@@ -515,7 +540,10 @@ input program; and if none works, report criterion 3 as *measured and not met*, 
 aborting address, rather than substituting a hand-written `.wat` fixture and calling it a
 translated artifact.
 
-**2. Criterion 1's emission half and all of criterion 3 need the 6.08 GB elfconv image.**
+**2. Criterion 1's emission half and all of criterion 3 need the elfconv image.** That
+image is 6.08 GB — a size **measured** in Phase 10 against the same digest-pinned image
+this phase uses, and recorded at `tools/aot/lift.ts:264` and
+`.planning/phases/phase-10-elfconv-aot/10-VERIFICATION.md:15`.
 Every real-toolchain test in the repository is `it.skipIf(!HAVE_IMAGE)`
 (`lift.node.test.ts:1012`), and `lift.ts:265-268` records that the driver deliberately
 does not pull it. On a host without the image these criteria are **unmeasured, and
@@ -527,10 +555,11 @@ and emitted CID written down so the run is auditable afterwards.
 
 **3. Phase 13.1 is about to bound `readMessage`, and this phase introduces the largest
 block the fabric has ever moved.** Decision 10 routes around it by pre-staging, which is
-correct for the criterion but leaves an unanswered question — whether a 5.66 MB module
-can be fetched from a peer at all — that the fabric will meet the first time anyone
-dispatches a translated artifact they did not stage by hand. Measure it and hand the
-number to Phase 13.1; do not let "the criterion passed" stand in for "the path works".
+correct for the criterion but leaves an unanswered question — whether a module the size
+of a lifted artifact can be fetched from a peer at all — that the fabric will meet the
+first time anyone dispatches a translated artifact they did not stage by hand. Measure
+both the size and the outcome, and hand the measured numbers to Phase 13.1; do not let
+"the criterion passed" stand in for "the path works".
 
 **4. Adding a router changes the executor every existing node composes.** Every module in
 the repository today imports `o2.*` (`wasm.ts:4-9`, `demo/kernel.test.ts:116`), so the
