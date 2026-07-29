@@ -235,20 +235,69 @@ export class EgressGuard implements Transport {
     return [...this.#guarded.keys()]
   }
 
+  /**
+   * The label of the first registered payload contained in `frame`, or `null`.
+   *
+   * A pure query: it records nothing, so it may be asked as often as a caller
+   * likes. Two callers exist — {@link EgressGuard.send}, which asks about a frame
+   * it is about to forward, and `serveAgent`'s pre-scan, which asks about a
+   * *candidate* reply it can still replace with a smaller one.
+   *
+   * **Why asking about a reply body is no less sensitive than asking about the
+   * whole frame.** `send` sees the encoded `{k:'res', id, body}` envelope, while
+   * `serveAgent` asks about the encoded body alone. {@link contains} is a
+   * contiguous-run search, and dag-cbor encodes a byte string as a header followed
+   * by the raw bytes — so a payload present in the body is present as the *same*
+   * contiguous run once that body is nested inside the frame. The pre-scan is
+   * therefore not a weaker check than the send-time one; it is the same check,
+   * earlier.
+   */
+  violationIn(frame: Uint8Array): string | null {
+    for (const [label, held] of this.#guarded) {
+      if (held.payload.byteLength === 0 || held.payload.byteLength > frame.byteLength) continue
+      if (contains(frame, held.payload)) return label
+    }
+    return null
+  }
+
+  /**
+   * Scan `frame` and, on a hit, record the refusal without sending anything.
+   *
+   * **What this is for.** A caller holding a *candidate* frame that it can still
+   * replace with a smaller one — `serveAgent`, on the two branches whose replies
+   * can carry a registered payload. Refusing here turns what would otherwise be
+   * the requestor's timeout into a named outcome, because the substitute reply can
+   * carry the violated label out while the payload stays home (NET-10).
+   *
+   * **What this is not.** It is not a way to suppress the send-time check.
+   * {@link EgressGuard.send} keeps its own scan and refuses on its own; a caller
+   * that pre-scans is taking a fast path, not taking over the guarantee. Remove
+   * every pre-scan in the repository and the bytes must still not leave.
+   *
+   * Records **only** on a hit, which is the one asymmetry with `send`: `send` is
+   * this node's sole exit and has to account for every frame that crossed it,
+   * whereas `refuse` is asked about a frame that has not been offered to the exit
+   * yet and may never be. Recording clean answers here would count every reply
+   * twice.
+   */
+  refuse(to: string, frame: Uint8Array): string | null {
+    const violation = this.violationIn(frame)
+    if (violation === null) return null
+    this.#record(to, frame.byteLength, violation)
+    return violation
+  }
+
   async send(to: string, message: Uint8Array<ArrayBuffer>): Promise<void> {
     // Scan before sending. Recording after a successful send would miss exactly the
     // frames that failed mid-flight, which are still frames that left.
-    const violation = this.#scan(message)
-    // The push happens before the refusal below, and that order is load-bearing: a
-    // refused send is still a fact the manifest carries. An implementation that
-    // returned early before pushing would stop the leak and leave the node with no
-    // record that it had — a manifest silent about the exact event it exists to
-    // record.
-    this.#entries.push(
-      violation === null
-        ? { to, bytes: message.byteLength }
-        : { to, bytes: message.byteLength, violation },
-    )
+    const violation = this.violationIn(message)
+    // The record happens before the refusal below, and that order is load-bearing:
+    // a refused send is still a fact the manifest carries. An implementation that
+    // returned early before recording would stop the leak and leave the node with
+    // no record that it had — a manifest silent about the exact event it exists to
+    // record. The same holds on the other producer: {@link EgressGuard.refuse}
+    // records its hit before its caller can substitute a different frame.
+    this.#record(to, message.byteLength, violation)
     if (violation !== null) {
       throw new EgressRefusal({ to, violation, bytes: message.byteLength })
     }
@@ -294,13 +343,15 @@ export class EgressGuard implements Transport {
     this.#entries.length = 0
   }
 
-  /** The label of the first guarded payload contained in `frame`, or `null`. */
-  #scan(frame: Uint8Array): string | null {
-    for (const [label, held] of this.#guarded) {
-      if (held.payload.byteLength === 0 || held.payload.byteLength > frame.byteLength) continue
-      if (contains(frame, held.payload)) return label
-    }
-    return null
+  /**
+   * The single place an {@link EgressEntry} is constructed.
+   *
+   * Two producers reach it — `send` for every frame it is handed, `refuse` for a
+   * candidate frame that matched — and there is deliberately only one constructor
+   * so the two can never disagree about what a refusal looks like on the manifest.
+   */
+  #record(to: string, bytes: number, violation: string | null): void {
+    this.#entries.push(violation === null ? { to, bytes } : { to, bytes, violation })
   }
 }
 
