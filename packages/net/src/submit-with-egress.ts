@@ -33,11 +33,65 @@
  * Nothing in the current job model prevents this, and this module does not attempt
  * to detect or fix it.
  *
+ * ---
+ *
+ * **DATA-10 — five further arguments, for the sovereign registration below.**
+ *
+ * **Why the submitter registers at all.** `registerSovereignInputs`
+ * (`sovereign-egress.ts`) fires on the *serving* side, for a task about to execute,
+ * when the local store already holds the input. A submitter satisfies none of those
+ * three, so a node that assembled a job containing another owner's row and never ran
+ * a task over it holds no registration and serves the raw bytes on request.
+ * Sovereignty is a property of the data, not of whether this node happened to compute
+ * over it. And the submitter really does hold the row: `submitJob` content-addresses
+ * every shard input and `put`s it into the store it was handed, sovereign ones
+ * included.
+ *
+ * **Why the label is the input CID string.** It matches `registerSovereignInputs`'
+ * `task.inputCid.toString()` exactly, so the two registration paths cannot produce
+ * two different labels for one payload — and because `guard`/`release` count *holds*
+ * rather than registrants, a node that both submits and serves the same row registers
+ * the same label twice and stays guarded until both have released. The cost, stated
+ * rather than hidden: `submitJob` canonicalises every shard input again a few lines
+ * later, so a sovereign shard is encoded twice per job. A shared helper between the
+ * two would remove that and is not attempted here.
+ *
+ * **What this changes, stated as a consequence and not hidden.** In the *unseeded*
+ * configuration — the owner does not already hold the row — the submitter used to ship
+ * the raw bytes when the owner's `RpcBlockSource` asked for the input block; now that
+ * response is refused and the job fails. That is correct: `sovereign-egress.ts` states
+ * the premise that a sovereign input is owner-pinned and already resident, and a
+ * submitter holding another owner's raw row has broken that premise before the fabric
+ * is involved. The *seeded* path is unaffected, because an `exec` request frame
+ * carries CIDs and not bytes.
+ *
+ * **Why the lifetime is job-scoped and not process-scoped.** Holding forever would
+ * refuse the block after the job too, which is closer to what ROADMAP criterion 7's
+ * wording asks for, but it reintroduces exactly the unbounded scan cost Plan 13-07 was
+ * written to remove — on a set the node's own submissions grow. Job-scoped matches the
+ * serve path's hold/release discipline. What that leaves open: **a peer asking for the
+ * same block after the job has finished still receives the raw bytes, and that is
+ * unmeasured.** It needs a persistent per-node set of sovereign CIDs that survives the
+ * job and the process. See `13.1-04-PLAN.md`'s `## Out of scope`.
+ *
+ * **Why this is a property of this function and not of the node, and what that costs.**
+ * Criterion 7 is worded about a *node*. This registration fires only when a caller
+ * reaches the fabric through *this* function. Bare `submitJob` puts every shard input
+ * — sovereign included — into the submitter's own blockstore and registers nothing, so
+ * **a submitter that used it holds the row, is unguarded, and that is unmeasured.**
+ * `packages/node/src/sovereignty-placement.node.test.ts` is the standing example: it
+ * drives a real spawned-agent sovereign scenario through bare `submitJob` and keeps
+ * passing for exactly that reason. `sovereign-block-refusal.node.test.ts` carries a
+ * source scan that fails if a *new* production submit path appears — a fourth file
+ * entering a scanned set that today holds exactly three. The fix a later phase would
+ * make: register at a boundary the node owns — the blockstore-put of a shard labelled
+ * sovereign, or a helper both `submitJob` callers share.
+ *
  * Pure module.
  */
 
 import type { Blockstore, JobResult, JobSpec, SubmitError } from '@o2/core'
-import { submitJob } from '@o2/core'
+import { canonicalCid, submitJob } from '@o2/core'
 import type { EgressGuard, EgressManifest } from './egress.ts'
 
 export type SubmitWithEgressResult =
@@ -72,21 +126,56 @@ export function sliceManifest(guard: EgressGuard, from: number): EgressManifest 
 
 /**
  * `submitJob`, unmodified, plus one delta-sliced `EgressManifest` per supplied
- * `guard`. On failure — `submitJob` itself returned `ok: false` — the result passes
- * through exactly, with no `manifests` field: a validation failure happens before any
- * shard dispatches, so there is nothing job-scoped to slice.
+ * `guard` — and, for the duration of the job, every sovereign shard's canonical bytes
+ * registered on every supplied guard (DATA-10; see this module's comment).
+ *
+ * On failure — `submitJob` itself returned `ok: false` — the result passes through
+ * exactly, with no `manifests` field: a validation failure happens before any shard
+ * dispatches, so there is nothing job-scoped to slice. The registrations are given
+ * back on that exit and on a throwing one alike.
  */
 export async function submitJobWithEgress(
   spec: JobSpec,
   blockstore: Blockstore,
   guards: readonly EgressGuard[],
 ): Promise<SubmitWithEgressResult> {
-  const before = guards.map((guard) => guard.manifest.entries.length)
-  const result = await submitJob(spec, blockstore)
-  if (!result.ok) return result
-  return {
-    ok: true,
-    job: result.job,
-    manifests: guards.map((guard, i) => sliceManifest(guard, before[i] as number)),
+  // One entry per sovereign *shard*, not per distinct label: `guard`/`release` count
+  // holds, so a value appearing in two shards takes two holds and has to give two
+  // back. Deduplicating here would release one hold too few and leave the row
+  // registered for the rest of the process's life.
+  const registered: string[] = []
+  for (const shard of spec.shards) {
+    if (shard.label !== 'sovereign') continue
+    const encoded = await canonicalCid(shard.value)
+    // A shard whose value will not canonicalise registers nothing and is left to
+    // `submitJob`, which names it `input-not-encodable`. This module must not invent a
+    // second failure mode for a condition that already has one.
+    if (!encoded.ok) continue
+    const label = encoded.cid.toString()
+    for (const guard of guards) guard.guard(label, encoded.bytes)
+    registered.push(label)
+  }
+  try {
+    // The `before` capture sits *after* the registration, and that is not a claim
+    // about behaviour: `guard()` appends no `EgressEntry`, and every frame this job
+    // sends is sent below this line either way, so the two orders produce identical
+    // manifests today. It is placed this way because the delta window means "what left
+    // during this job", and a registration is not something that left.
+    const before = guards.map((guard) => guard.manifest.entries.length)
+    const result = await submitJob(spec, blockstore)
+    if (!result.ok) return result
+    return {
+      ok: true,
+      job: result.job,
+      manifests: guards.map((guard, i) => sliceManifest(guard, before[i] as number)),
+    }
+  } finally {
+    // Every exit gives the holds back — the success path, the `ok:false` return above,
+    // and a `submitJob` that throws. A submitter whose guard grew by one label per job
+    // would scan every frame it ever sends afterwards against every row it has ever
+    // submitted, which is the unbounded cost the job-scoped lifetime exists to avoid.
+    for (const label of registered) {
+      for (const guard of guards) guard.release(label)
+    }
   }
 }
