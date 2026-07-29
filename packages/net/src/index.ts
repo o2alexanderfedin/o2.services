@@ -36,6 +36,9 @@ export type { BlockVector, ConformanceReport } from './conformance.ts'
 // SCHED-04 / BROW-03 — the governor applied to the execution path.
 export { GovernedExecutor } from './governed-executor.ts'
 
+// SCHED-06 — the instrument a node's execution concurrency is read off.
+export { CountingExecutor } from './counting-executor.ts'
+
 // Egress control — DATA-04, DATA-05.
 export { EgressGuard, EgressRefusal } from './egress.ts'
 export type { EgressEntry, EgressManifest } from './egress.ts'
