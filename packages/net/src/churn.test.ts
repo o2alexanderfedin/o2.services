@@ -64,6 +64,13 @@ async function fabricOf(nodeCount: number, module = MODULE_WRITES_PARTITION): Pr
     rpc: originRpc,
     executor: new WasmExecutor({ nodeId: 'origin', blockstore: originStore }),
     blockstore: originStore,
+    egress: 'holds-no-registrations',
+    authorize: 'serves-unauthenticated',
+    index: 'serves-no-records',
+    capacity: 'accepts-every-offer',
+    ledger: 'keeps-no-ledger',
+    reservations: 'relays-for-nobody',
+    onDispatch: 'reports-no-dispatch',
   })
 
   const endpoints = new Map<string, RpcEndpoint>()
@@ -75,7 +82,18 @@ async function fabricOf(nodeCount: number, module = MODULE_WRITES_PARTITION): Pr
       new MemoryBlockstore(),
       new RpcBlockSource(rpc, () => ['origin']),
     )
-    serveAgent({ rpc, executor: new WasmExecutor({ nodeId, blockstore: store }), blockstore: store })
+    serveAgent({
+      rpc,
+      executor: new WasmExecutor({ nodeId, blockstore: store }),
+      blockstore: store,
+      egress: 'holds-no-registrations',
+      authorize: 'serves-unauthenticated',
+      index: 'serves-no-records',
+      capacity: 'accepts-every-offer',
+      ledger: 'keeps-no-ledger',
+      reservations: 'relays-for-nobody',
+      onDispatch: 'reports-no-dispatch',
+    })
     endpoints.set(nodeId, rpc)
     nodes.push({ nodeId, ownerId: 'alice', canExecuteSovereign: true, load: 0 })
   }
@@ -106,11 +124,17 @@ const work: ShardWork[] = Array.from({ length: SHARD_COUNT }, (_, i) => ({
 
 const partitionOf = (shardId: string): number => Number(shardId.slice(1))
 
+// Correction 2 (Phase 12 Plan 04): `parseRequest` now refuses an exec request
+// with no label at the wire boundary — carrying `shard.label` through here is
+// no longer optional. Every shard in this file is `'public'`, so `ownerId` is
+// never set; mirrors `submit.ts`'s `requestFor`/`coordinator.ts`'s `requestFor`
+// conditional-omission style rather than writing an explicit `undefined`.
 const taskFor = (fabric: Fabric) => (shard: ShardWork): Task => ({
   moduleCid: fabric.moduleCid,
   inputCid: fabric.inputCid,
   partitionIndex: partitionOf(shard.shardId),
   partitionCount: SHARD_COUNT,
+  label: shard.label,
 })
 
 describe('CHURN-01 — nodes that actually go away, mid-run', () => {

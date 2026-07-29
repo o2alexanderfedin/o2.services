@@ -89,15 +89,71 @@ function isYaml(path: string): boolean {
  * bare list of tool names invites someone to add a ninth entry without asking
  * whether the list is the point.
  */
-const PUBLISHING: readonly { readonly pattern: RegExp; readonly why: string }[] = [
-  { pattern: /\bgh-pages\b/, why: 'gh-pages pushes a build to a branch GitHub serves publicly' },
-  { pattern: /\bnpm\s+publish\b/, why: 'npm publish puts the source on a public registry' },
-  { pattern: /\bnetlify\s+deploy\b/, why: 'netlify deploy publishes to a public URL' },
-  { pattern: /\bvercel\b/, why: 'the vercel CLI deploys by default, with no subcommand' },
-  { pattern: /\bwrangler\s+(?:publish|deploy)\b/, why: 'wrangler publishes to Cloudflare' },
-  { pattern: /\bfirebase\s+deploy\b/, why: 'firebase deploy publishes to a public URL' },
-  { pattern: /\baws\s+s3\s+sync\b/, why: 'an s3 sync is how a static site reaches a public bucket' },
-  { pattern: /\bsurge\b/, why: 'surge publishes a static directory to a public URL' },
+const PUBLISHING: readonly {
+  readonly pattern: RegExp
+  readonly why: string
+  /** Commands this pattern must match. Asserted below — see the instrument check. */
+  readonly catches: readonly string[]
+  /** Commands it must leave alone, so the gate does not block ordinary local work. */
+  readonly ignores: readonly string[]
+}[] = [
+  {
+    pattern: /\bgh-pages\b/,
+    why: 'gh-pages pushes a build to a branch GitHub serves publicly',
+    catches: ['gh-pages -d dist', 'npx gh-pages -d packages/browser/dist'],
+    ignores: ['vite build'],
+  },
+  {
+    pattern: /\bnpm\s+publish\b/,
+    why: 'npm publish puts the source on a public registry',
+    catches: ['npm publish', 'npm publish --access public'],
+    ignores: ['npm install', 'npm run build'],
+  },
+  {
+    pattern: /\bnetlify\s+deploy\b/,
+    why: 'netlify deploy publishes to a public URL',
+    catches: ['netlify deploy --prod'],
+    ignores: ['netlify dev'],
+  },
+  {
+    pattern: /\bvercel\b/,
+    why: 'the vercel CLI deploys by default, with no subcommand',
+    catches: ['vercel', 'vercel --prod'],
+    ignores: [],
+  },
+  {
+    // The verb does not follow the tool name directly. `wrangler pages deploy` is
+    // the command a person types to publish a static bundle to Cloudflare Pages,
+    // and requiring publish|deploy immediately after `wrangler` missed it.
+    pattern: /\bwrangler\s+(?:[a-z-]+\s+)*(?:publish|deploy|upload)\b/,
+    why: 'wrangler publishes to Cloudflare, with or without a subcommand',
+    catches: [
+      'wrangler deploy',
+      'wrangler publish',
+      'wrangler pages deploy dist',
+      'wrangler pages publish dist',
+      'wrangler versions upload',
+    ],
+    ignores: ['wrangler dev', 'wrangler tail'],
+  },
+  {
+    pattern: /\bfirebase\s+deploy\b/,
+    why: 'firebase deploy publishes to a public URL',
+    catches: ['firebase deploy --only hosting'],
+    ignores: ['firebase emulators:start'],
+  },
+  {
+    pattern: /\baws\s+s3\s+sync\b/,
+    why: 'an s3 sync is how a static site reaches a public bucket',
+    catches: ['aws s3 sync dist s3://bucket'],
+    ignores: ['aws s3 ls'],
+  },
+  {
+    pattern: /\bsurge\b/,
+    why: 'surge publishes a static directory to a public URL',
+    catches: ['surge dist'],
+    ignores: [],
+  },
 ]
 
 /**
@@ -224,6 +280,50 @@ describe('no package script publishes anything', () => {
       }
     }
     expect(violations).toEqual([])
+  })
+})
+
+describe('the publishing patterns are live instruments, not decoration', () => {
+  /**
+   * Every other check in this file asserts an ABSENCE — no manifest matches, no
+   * workflow file exists. A pattern that matches nothing at all satisfies all of
+   * them and reads exactly like a clean repository.
+   *
+   * That is not hypothetical. `wrangler pages deploy` — the command a person
+   * actually types to put a static bundle on Cloudflare Pages — was invisible to
+   * this list, because the pattern required the verb to follow the tool name
+   * directly. Every test here passed the whole time. An empty result was standing
+   * in for a clean one.
+   *
+   * So each entry now carries the commands it must catch and the commands it must
+   * not, and both are asserted. This is the instrument check the absence
+   * assertions cannot perform on themselves.
+   */
+  it('every pattern declares at least one command it catches', () => {
+    // Anti-vacuity: an empty `catches` list would satisfy the next check silently.
+    for (const { pattern, catches } of PUBLISHING) {
+      expect(catches.length, `${String(pattern)} declares no example`).toBeGreaterThan(0)
+    }
+  })
+
+  it('each pattern matches every command it claims to catch', () => {
+    const blind: string[] = []
+    for (const { pattern, catches, why } of PUBLISHING) {
+      for (const command of catches) {
+        if (!pattern.test(command)) blind.push(`${String(pattern)} misses "${command}" — ${why}`)
+      }
+    }
+    expect(blind).toEqual([])
+  })
+
+  it('each pattern leaves alone the commands that publish nothing', () => {
+    const overreach: string[] = []
+    for (const { pattern, ignores } of PUBLISHING) {
+      for (const command of ignores) {
+        if (pattern.test(command)) overreach.push(`${String(pattern)} wrongly catches "${command}"`)
+      }
+    }
+    expect(overreach).toEqual([])
   })
 })
 

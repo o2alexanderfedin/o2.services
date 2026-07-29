@@ -1,5 +1,5 @@
 import { WasiExecutor } from '@o2/aot'
-import { MemoryBlockstore, submitJob, WasmExecutor } from '@o2/core'
+import { MemoryBlockstore, publicNodes, submitJob, WasmExecutor } from '@o2/core'
 import type {
   CanonicalValue,
   ExecutionOutcome,
@@ -208,12 +208,25 @@ describe('a translated artifact reaches the fabric through the public entry poin
     expect(wasiNodes.every((node) => 'run' in node)).toBe(true)
     expect(nativeNodes.some((node) => 'run' in node)).toBe(false)
 
+    const shardSpecs = shards.map((value) => ({ value, label: 'public' as const }))
     const fromSource = await submitJob(
-      { moduleCid: sourceCompiled, shards, executors: nativeNodes, redundancy: 2 },
+      {
+        moduleCid: sourceCompiled,
+        shards: shardSpecs,
+        executors: nativeNodes,
+        nodes: publicNodes(nativeNodes),
+        redundancy: 2,
+      },
       blockstore,
     )
     const fromTranslation = await submitJob(
-      { moduleCid: translated, shards, executors: wasiNodes, redundancy: 2 },
+      {
+        moduleCid: translated,
+        shards: shardSpecs,
+        executors: wasiNodes,
+        nodes: publicNodes(wasiNodes),
+        redundancy: 2,
+      },
       blockstore,
     )
 
@@ -249,11 +262,14 @@ describe('a translated artifact reaches the fabric through the public entry poin
     expect(translatedLedger).toEqual(ledger(nativeLog))
 
     // Stated separately because the equality above would also hold if the kernel
-    // handed *both* kinds a fifth, kind-dependent field. The executor's whole view
-    // of a job is the four fields of `Task`.
+    // handed *both* kinds a kind-dependent field. `Task` now also carries the
+    // sovereignty label (DATA-03) `submitJob` set for this job — `label` is
+    // expected on every dispatch here precisely because both pools got the same
+    // one, not because it varies by executor kind.
     for (const dispatch of translatedLedger) {
       expect(dispatch.fields).toEqual([
         'inputCid',
+        'label',
         'moduleCid',
         'partitionCount',
         'partitionIndex',

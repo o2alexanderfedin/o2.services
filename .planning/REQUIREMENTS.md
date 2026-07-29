@@ -5,6 +5,7 @@
 **Scope decision:** full design in v1, with Part I (elfconv AOT) sequenced last
 **Defined:** 2026-07-24
 **Ledger corrected:** 2026-07-27 — see below
+**Milestone v1.1 scoped:** 2026-07-27 — see [v1.1 Requirements](#v11-requirements--wire-what-was-built)
 
 ---
 
@@ -98,19 +99,79 @@ itself. The work is real and the table says so; the box tracks delivery.
       and retrievable by CID
 - [x] **DATA-02**: A blockstore adapter works against IndexedDB in the browser and
       the filesystem in Node behind one interface
-- [ ] **DATA-03**: Data carries a sovereignty label that travels with it and acts
+- [x] **DATA-03**: Data carries a sovereignty label that travels with it and acts
       as a hard scheduling constraint
-- [ ] **DATA-04**: A sovereignty-pinned task executes only within the owner's own
+- [x] **DATA-04**: A sovereignty-pinned task executes only within the owner's own
       node set — the scheduler cannot relocate it outside that set to balance load
-- [ ] **DATA-05**: A stream-tap test fails if raw sovereign bytes cross the network
-      boundary
-- [ ] **DATA-06**: Every job emits an egress manifest recording exactly what left
-      each owner's node
-- [ ] **DATA-07**: Filters, projections, and partial aggregation push down to the
+- [x] **DATA-05**: The stream tap refuses to send a frame carrying registered
+      sovereign data, so the bytes never leave the node, and the running job fails
+      as a consequence
+      <!-- Restated 2026-07-28 against the amended ROADMAP criterion 1, and true of
+      the code as of Plans 13-04, 13-05 and 13-07.
+
+      The refusal. `EgressGuard.send` computes the match, pushes the entry carrying
+      its violation label, and then rejects with `EgressRefusal` instead of calling
+      the inner transport — the frame is never handed to the wire. Push-before-throw
+      means stopping a leak never costs the record that it was stopped, and
+      `manifest.totalBytes` sums only entries with no violation, so a manifest
+      holding one refused frame reads `entries.length === 1` with `totalBytes === 0`.
+      A node that refused and a node that sent nothing are not confusable (13-04).
+
+      The granularity, in the form it was measured rather than the form it was
+      wished for. A match is the *whole registered payload, contiguous and
+      byte-identical*. A re-encoded, compressed or partial copy is not matched, and a
+      probe sending the raw field characters alone — eleven bytes — crossed with no
+      violation. Phase 4 drew the same line: a detector, not a prover.
+
+      What the caller observes, and the asymmetry, which is an accepted cost rather
+      than an open defect. On a node's own outbound request the refusal arrives
+      immediately as a named send failure carrying the violated label. On a reply the
+      failure is swallowed by `rpc.ts`'s documented response-leg behavior, so the
+      dispatcher waits out its own timeout and learns that the dispatch failed but
+      not why. Closing that would change every peer's response-leg failure semantics
+      to fix legibility rather than correctness, and the evidence for the cause lives
+      in the owner's own manifest — where sovereignty says it belongs.
+
+      A registration lives only until its reply frame has settled (13-07), so the
+      scan the refusal depends on is bounded by a node's in-flight sovereign tasks
+      rather than by its uptime.
+
+      Proven in-process against real `FabricNode`s and across two spawned
+      `bin/agent.ts` processes (13-05). -->
+- [x] **DATA-06**: Every job emits an egress manifest recording exactly what left
+      the submitting node, with byte counts, retrievable from the job's own result
+      <!-- Re-checked 2026-07-28 against the amended ROADMAP criterion 2, which
+      narrowed the promise from "each owner's node" to the *submitting* node's own
+      tap. That is what `submitJobWithEgress` delivers: the manifest comes back on
+      the job's own result value, sliced per job so two jobs against one guard do not
+      double-count (13-01). The browser demo's two real Chromium e2e tests read it
+      back from the `window.o2` API's own return value rather than from a guard a
+      harness built, and 13-VERIFICATION.md mutation-verified that leg
+      independently. `bin/bench.ts`'s two fabrics do the same from a runnable entry
+      point, and 13-06 puts a test behind those call sites rather than leaving the
+      type-checker as their only guard.
+
+      What the amendment gave up, stated so nobody re-derives it. Reading a *remote*
+      node's manifest needs a wire message kind that does not exist — `protocol.ts`
+      carries exec, block, providers, records, offer, reservations, report and error
+      and nothing else — `13-CONTEXT.md` deferred building one, and the criterion
+      went on promising it anyway. Cross-process retrieval is now a named future item
+      rather than an implied promise, and the "each owner's node" clause is gone
+      rather than quietly reinterpreted.
+
+      `bin/agent.ts` is outside this requirement's scope: it is serving-only, 71
+      lines, and never calls `submitJob`, so it has no job of its own to emit a
+      manifest against. -->
+
+<!-- Both rows above were marked done on their executors' reports. The first
+independent pass scored the phase 0/3 fully verified. Re-check the ledger against the
+code, not the reports. -->
+
+- [x] **DATA-07**: Filters, projections, and partial aggregation push down to the
       owner's node so the least data leaves
 - [ ] **DATA-08**: Artifact `key → CID` mappings are signed by a trusted build
       authority and never resolved by CID alone
-- [ ] **DATA-09**: Backbone encrypted replicas serve availability only and are
+- [x] **DATA-09**: Backbone encrypted replicas serve availability only and are
       never execution-eligible for sovereign tasks — executing requires
       decryption, which would expose plaintext to a non-owner node
 
@@ -216,8 +277,21 @@ itself. The work is real and the table says so; the box tracks delivery.
       excluded
 - [x] **BENCH-05**: A COST crossover is published — the node count at which the
       system beats a competent single-threaded implementation
-- [ ] **BENCH-06**: Benchmarks run across distinct machines, and any same-machine
-      measurement is labelled as such
+- [ ] **BENCH-06**: Benchmarks run across N independent operating-system processes on one
+      host; every published run records its machine inventory; and the same-machine label
+      stays **required and derived from that inventory**, never declared — sixteen nodes on
+      one laptop are reported as sixteen processes on one machine, not as sixteen nodes.
+      **The distinct-machine claim is descoped, not satisfied.** It is unmeasured, and
+      unmeasured is not met. A same-host run **cannot** detect divergence between machines,
+      because it has one CPU, one V8 and one libc: every process shares an instruction set,
+      an engine build and a system library, so the very variables a cross-machine benchmark
+      exists to expose are held constant by construction. The original cross-machine risk
+      stands exactly where Phase 8 left it, unmeasured and now unscheduled. What this
+      rewrite *does* buy is real and is tracked separately as **BENCH-07** (Phase 23, the
+      multi-process benchmark driver): moving off one event loop makes a parallel speedup
+      measurable at all, which the single-process harness could not do at any N. That is the
+      honest one-machine win. It is not a distributed measurement and must never be
+      published as one
 
 ### Demo & Disclosure
 
@@ -244,10 +318,24 @@ itself. The work is real and the table says so; the box tracks delivery.
       covering input digest, toolchain versions, target, and WASM feature set;
       pinned to a hardcoded conformance CID, and the image is keyed by digest so a
       re-tagged local image is refused rather than hashed under a borrowed name
-- [ ] **AOT-03**: Translation is reproducible — identical inputs yield an identical
-      CID. **Same-host only.** Two lifts here are byte-identical; cross-machine is
-      unmeasured and carried as a structural blind spot, because elfconv's
-      register promotion iterates pointer-keyed containers. Needs a second machine
+- [ ] **AOT-03**: Translation is reproducible on one host — repeated lifts of identical
+      input bytes, each running the toolchain in its own freshly spawned container process
+      on this machine, produce byte-identical artifacts and therefore an identical CID.
+      Measured: two lifts minutes apart, `sha256 490eeed5…`, same `inputDigest`, same
+      toolchain versions, same feature set.
+      **The cross-machine claim is descoped, not satisfied.** It is unmeasured, and
+      unmeasured is not met — two lifts on two hosts have still never been compared.
+      **`CROSS_MACHINE_BLIND_SPOT` stays attached to every artifact and stays printed by
+      the CLI.** Phase 10 established that the blind spot is **structural, not
+      configurational**: elfconv's virtual-register promotion iterates a pointer-keyed
+      `std::unordered_map` and a `std::set<BBBag*>`, whose iteration order is an
+      address-space property, so no flag, no version pin and no image digest removes it.
+      Descoping this requirement removes neither the marker nor the risk it names, and the
+      `never claims cross-machine reproducibility` guard in `tools/aot/lift.node.test.ts`
+      stays in force.
+      *(Status: the one-host half is established. The box stays unchecked because the
+      descoped cross-machine half is carried as unmeasured rather than as met — an
+      unchecked box here understates on purpose, which is the safe direction.)*
 - [x] **AOT-04**: A translated artifact executes on the fabric under the same
       admission checks and verification as a source-compiled one — proved through
       the `@o2/aot` barrel, and the ABI verified against a real elfconv artifact
@@ -257,6 +345,157 @@ itself. The work is real and the table says so; the box tracks delivery.
       happen.** No WASM code-cache entry at 4.8 MB over three visits, while the
       same profile caches 2 MB of JavaScript. Published as a measured negative
       with two controls, not deferred
+
+---
+
+## v1.1 Requirements — Wire What Was Built
+
+**Defined:** 2026-07-27, directly from `v1.0-MILESTONE-AUDIT.md`.
+
+**v1.1 mints almost no new requirement IDs, and that is deliberate.** The 36 entries
+marked *Built, not wired* above are not missing requirements — they are the same
+requirements, unsatisfied. "The placer cannot relocate a sovereign task" is DATA-03
+whether or not a job runs through that placer; wiring it is what makes DATA-03 true.
+Minting `WIRE-05: wire the sovereignty gate` alongside it would count one obligation
+twice and let the ledger reach 100% while saying less than it does now.
+
+So the milestone's scope is **the existing IDs**, and the four new ones below cover only
+what has no v1 equivalent: the structural cause, the guard that would have caught it,
+and the two end-to-end paths nothing exercises.
+
+### In scope — existing IDs to be wired (40)
+
+| Origin phase | Requirements | The wire that connects them |
+|---|---|---|
+| 4 — Sovereignty | DET-03, DATA-03…DATA-09, AUTH-03 | an owner label in `JobSpec`/`Task`; the real job path through the sovereignty gate; `EgressGuard` on both transports; `signName` resolution; a capability chain on both ends of dispatch |
+| 5 — Tree-reduce | MR-02 … MR-07 | `executeReduce` on the aggregation path, replacing the demo's linear scan |
+| 6 — Discovery & enrollment | AUTH-01, AUTH-02, AUTH-04, AUTH-05, SCHED-01, SCHED-02, SCHED-03, SCHED-05, NET-06, VER-03, VER-04, VER-08, VER-09, VER-10 | `serveAgent`'s `index` and `capacity` hooks supplied; `discoverExecutors` replacing the static list; `requestEnrollment` issuing a real node identity; `composeQuorum` and `attestationReceipt` on the verification path |
+| 7 — Churn | CHURN-01 … CHURN-06 | one job entry point that leases, speculates and accounts for coverage |
+| 10 — AOT | AOT-02 | `translationCid` called by the lift pipeline; the CLI emitting the CID |
+| Partials | NET-05, SCHED-04, BROW-02, AOT-04 | `ReservationWatcher` installed; the governor on both tiers and runtime-adjustable; a ledger that is actually supplied; a production node able to construct a `WasiExecutor` |
+
+Each row's evidence — the symbol with no caller, at `file:line` — is in the traceability
+table below and in the audit.
+
+### Wiring Integrity (new IDs)
+
+- [x] **WIRE-01**: Every `serveAgent` call site states a value for all six hooks. A node
+      that serves without an authorizer, an index, a capacity source, a ledger, a
+      reservation thunk or a dispatch callback does so because someone recorded that
+      decision — not because an argument was left off. **Omitting one is a compile
+      error, not a default.** This is the structural cause of the other 35 and is
+      sequenced first, so the rest surface as build failures rather than as an audit
+      finding a year later
+- [ ] **WIRE-02**: A guard test fails when a capability exported from a package barrel
+      has no call path from any runnable entry point, so v1.0's finding cannot recur
+      silently. Same role `purity.node.test.ts` plays for layering: the audit found this
+      class of defect and **no test could have**
+- [ ] **WIRE-03**: Two browser peers served a static bundle — no seed process, no
+      `/bootstrap.json`, nothing dialled by the harness — discover each other and
+      complete a job. The browser-tier equivalent of the rendezvous defect already fixed
+      one tier down, and the one route with no end-to-end coverage.
+
+      **The standard for browser-tier coverage is one host, several browsers** (owner
+      ruling, 2026-07-28). Playwright multi-browser on this machine —
+      `instances: [{browser:'chromium'},{browser:'firefox'},{browser:'webkit'}]` — with
+      each peer in its own **isolated browser context**, so each gets its own origin
+      storage and its own IndexedDB, plus a **locally-started Circuit Relay v2 peer for
+      them to dial**. Three engines on one host are three independent JavaScript/WASM
+      implementations and three independent storage backends. They are **not** three
+      machines: one CPU, one OS, one loopback. Nothing measured this way may be labelled a
+      cross-machine or distributed-hardware result.
+
+      **This unblocks four items that were each deferred for want of a multi-browser
+      environment.** They are named here so they stop being invisible:
+      1. **`BrowserNode.start()` has no dedicated runtime test anywhere in the repository**
+         — found in Phase 11 (`11-VERIFICATION.md`, "An honest limit"). Its only caller in
+         the whole tree besides its own file is the demo entry point; the call site's
+         correctness rests on `tsc` and a source-text guard, not on a dispatch through a
+         running node
+      2. **`BrowserNode`'s `guardSovereignty` wiring has zero runtime proof** — Phase 12
+         (`12-VERIFICATION.md`, `12-04-SUMMARY.md`). Call-site *existence* was verified by
+         grep; composition-correctness was not, and was reported as such rather than
+         declared proven
+      3. **`BrowserNode.egress` is unproven at runtime** — Phase 13, threat T-13-08 in
+         `13-03-PLAN.md`, accepted and routed here rather than silently absorbed
+      4. **The `EgressGuard` refusal added in Phase 13 inherits into the browser tier
+         untested** — `13-VERIFICATION-2.md` deferred item: `BrowserNode` composes the
+         identical guard wiring `FabricNode` does, but no sovereign job has ever run in a
+         browser, so the refusal branch is compiled and has never executed in a real tab.
+         There is now a *behaviour* to exercise, not only a composition to inspect
+
+      **The recorded root cause of all four is one sentence**, and it is the same sentence
+      in every one of those documents: `BrowserNode.start()` needs a real `indexedDB` and a
+      relay to dial, so it runs in **neither** vitest project — the `node` project has no
+      `indexedDB`, and the `browser` project has no Node-side relay to dial against. The
+      standard above removes exactly that obstacle, which is why these four are listed
+      against this requirement and not against four separate ones
+- [ ] **WIRE-04**: The fabric has exactly one job entry point. Submitting a job gets
+      lease renewal, speculation and coverage accounting without the caller choosing
+      between two functions — today `runResilient` is a second job implementation that
+      nothing calls
+
+### Node-side admission & transport bounds (new IDs, minted 2026-07-28)
+
+Added mid-milestone after a subagent tasked with refuting the claim "the fabric has no
+backpressure gap" refuted it, at named sites, with reproductions against the real stack
+(tcp + noise + yamux, real `FabricNode`s). Each of the three is a measurement, not an
+inference.
+
+- [ ] **SCHED-06**: A node at its execution slot limit refuses an `exec` request with a
+      stated reason naming the limit, and the requestor re-picks. Today `serveAgent`
+      consults `capacity` only in the `offer` branch — measured, 4 peers × 200 concurrent
+      `exec` requests produced 800 simultaneous `execute()` calls and **zero** refusals.
+      `LocalCapacity`, the only thing that can emit the refusal, is constructed nowhere
+      outside two test files while both production factories pass the opt-out sentinel.
+      It gets wired or deleted; it does not stay built-and-unreachable
+- [ ] **NET-08**: A peer cannot make a node allocate an unbounded buffer. `readMessage`
+      enforces a declared maximum message size and aborts the stream past it — today a
+      single **64 MiB** frame was sent over the real transport and accepted, because
+      `WIRE_CHUNK_BYTES` is send-side framing only and yamux's window paces delivery
+      without capping the total
+- [ ] **NET-09**: Dispatching N shards immediately after dial either succeeds well above
+      12 or fails with a stated, **sender-attributed** reason. Today N=8 completes and
+      N=12 fails entirely on `MaxEarlyStreamsError: Too many early streams - 11/10`, a
+      hardcoded libp2p default that aborts the whole connection — so in-limit requests die
+      too, and the requestor blames the *receiving* node for a limit the sender blew
+      through. `bin/bench.ts` ships `SHARDS = 8`, one below the cliff
+- [ ] **NET-10**: A refusal reaches the requestor as a **named outcome**, not as a
+      timeout. Today `rpc.ts`'s responding leg swallows the error — its comment says "The
+      requester will time out" — so a sovereignty refusal is measured arriving as
+      `rpc … timed out after 4000ms` with no label and no attribution. A requestor cannot
+      distinguish "your data may not leave that node" from "that node is gone", in the one
+      place the fabric's central promise is enforced. `DEFAULT_RPC_TIMEOUT_MS` is 30,000 ms
+      and every test touching this path shortens its budget because the wait dominates,
+      which is the cost showing up as wall-clock. Closes the standing principle *every
+      exclusion is named* against the refusal path
+- [ ] **DATA-10**: A node does not serve a raw sovereign block to a peer, whether or not
+      it has executed a task over that block. Today only the **executing** node registers
+      its input with the guard (`registerSovereignInputs`), so a submitting node that never
+      ran the task holds no registration and will serve the raw bytes on request —
+      measured at 95 raw bytes inside a 138-byte block-response frame. Sovereignty is a
+      property of the data, not of whether this particular node happened to compute over it
+
+### Benchmark parallelism (new ID, minted 2026-07-28)
+
+- [ ] **BENCH-07**: The benchmark harness spawns N operating-system processes rather than
+      N nodes on one event loop, and a makespan difference between N=1 and N=8 is
+      measurable on a fixture that saturates a core. Needs only separate processes on one
+      host, which Phase 8's own summary named as the cheaper remedy and Phase 12 has since
+      built the spawn pattern for. **This is the driver work; BENCH-06 is the reporting
+      discipline it runs under** — machine inventory recorded, same-machine label derived
+      and retained — **and BENCH-06's distinct-machine half is descoped and unmeasured, not
+      met.** Spawning N processes on one host does not close it and must not be published
+      as though it had: one host has one CPU, one V8 and one libc
+
+### Explicitly not in v1.1
+
+| Requirement | Why it stays open |
+|---|---|
+| **NET-03** — real AutoTLS | Needs a publicly reachable host. Outward-facing and a hosting decision, not a code one |
+| **BENCH-06** — one-host multi-process benchmarks | Rewritten 2026-07-28 to what one host establishes: N independent OS processes, machine inventory recorded, same-machine label retained and derived. The distinct-machine half is **descoped and unmeasured — not met**. The process work itself is not in this milestone either; it lands in Phase 23 as **BENCH-07** |
+| **AOT-03** — one-host reproducible CID | Rewritten 2026-07-28 the same way: byte-identical artifacts across repeated lifts in separate spawned toolchain processes on this machine. The cross-machine half is **descoped and unmeasured — not met**, and `CROSS_MACHINE_BLIND_SPOT` stays on every artifact because Phase 10 showed it is structural rather than configurational |
+| **AOT-05** — V8 code-cache hit | Not blocked on anything. It was measured with two controls and the answer is no. Re-running it against an `https` origin and a non-automated Chromium is worth doing, but it stays a negative until that says otherwise |
 
 ---
 
@@ -293,65 +532,66 @@ itself. The work is real and the table says so; the box tracks delivery.
 
 ## Traceability
 
-All 72 v1 requirements are mapped, each to exactly one phase. See
-`.planning/ROADMAP.md` for phase goals and success criteria.
+All 72 v1 requirements are mapped, each to exactly one phase, plus the 4 v1.1-only
+WIRE requirements below. See `.planning/ROADMAP.md` for phase goals and success
+criteria.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| DET-03 | Phase 4 — Sovereignty, Authorization & Artifact Signing | **Built, not wired** — signName / SignedNameResolver have no caller; every module resolves by bare CID |
+| DET-03 | Phase 14 — Signed Artifact Resolution | **Built, not wired** — signName / SignedNameResolver have no caller; every module resolves by bare CID |
 | DET-05 | Phase 1 — Portable Kernel & Loopback Map Slice | Done |
 | DET-06 | Phase 1 — Portable Kernel & Loopback Map Slice | Done |
 | DET-07 | Phase 1 — Portable Kernel & Loopback Map Slice | Done |
 | VER-01 | Phase 1 — Portable Kernel & Loopback Map Slice | Done |
 | VER-02 | Phase 1 — Portable Kernel & Loopback Map Slice | Done |
-| VER-03 | Phase 6 — Discovery, Placement & Enrollment | **Built, not wired** — composeQuorum has no caller outside its own spec |
-| VER-04 | Phase 6 — Discovery, Placement & Enrollment | **Built, not wired** — composeQuorum has no caller outside its own spec |
+| VER-03 | Phase 19 — Quorum Composition & Owner-Domain Attestation | **Built, not wired** — composeQuorum has no caller outside its own spec |
+| VER-04 | Phase 19 — Quorum Composition & Owner-Domain Attestation | **Built, not wired** — composeQuorum has no caller outside its own spec |
 | VER-05 | Phase 1 — Portable Kernel & Loopback Map Slice | Done |
 | VER-06 | Phase 1 — Portable Kernel & Loopback Map Slice | Done |
-| VER-08 | Phase 6 — Discovery, Placement & Enrollment | **Built, not wired** — attestationReceipt is called only by itself and its spec; no node emits a receipt |
-| VER-09 | Phase 6 — Discovery, Placement & Enrollment | **Built, not wired** — attestationReceipt is called only by itself and its spec; no node emits a receipt |
-| VER-10 | Phase 6 — Discovery, Placement & Enrollment | **Built, not wired** — attestationReceipt is called only by itself and its spec; no node emits a receipt |
+| VER-08 | Phase 19 — Quorum Composition & Owner-Domain Attestation | **Built, not wired** — attestationReceipt is called only by itself and its spec; no node emits a receipt |
+| VER-09 | Phase 19 — Quorum Composition & Owner-Domain Attestation | **Built, not wired** — attestationReceipt is called only by itself and its spec; no node emits a receipt |
+| VER-10 | Phase 19 — Quorum Composition & Owner-Domain Attestation | **Built, not wired** — attestationReceipt is called only by itself and its spec; no node emits a receipt |
 | DATA-01 | Phase 1 — Portable Kernel & Loopback Map Slice | Done |
 | DATA-02 | Phase 3 — Browser Tier & Backbone Relay | Done |
-| DATA-03 | Phase 4 — Sovereignty, Authorization & Artifact Signing | **Built, not wired** — no owner label exists in JobSpec or Task; eligibleNodes is reachable only through runResilient, which has no caller |
-| DATA-04 | Phase 4 — Sovereignty, Authorization & Artifact Signing | **Built, not wired** — no owner label exists in JobSpec or Task; eligibleNodes is reachable only through runResilient, which has no caller |
-| DATA-05 | Phase 4 — Sovereignty, Authorization & Artifact Signing | **Built, not wired** — EgressGuard decorates no production transport — both nodes pass the raw Libp2pTransport |
-| DATA-06 | Phase 4 — Sovereignty, Authorization & Artifact Signing | **Built, not wired** — EgressGuard decorates no production transport — both nodes pass the raw Libp2pTransport |
-| DATA-07 | Phase 4 — Sovereignty, Authorization & Artifact Signing | **Built, not wired** — pushdown lives in the reduce tree; executeReduce has no caller |
-| DATA-08 | Phase 4 — Sovereignty, Authorization & Artifact Signing | **Built, not wired** — signName / SignedNameResolver have no caller; every module resolves by bare CID |
-| DATA-09 | Phase 4 — Sovereignty, Authorization & Artifact Signing | **Built, not wired** — no owner label exists in JobSpec or Task; eligibleNodes is reachable only through runResilient, which has no caller |
-| AUTH-01 | Phase 6 — Discovery, Placement & Enrollment | **Built, not wired** — requestEnrollment / EnrollmentAuthority have no production caller; a node identity is the raw libp2p peerId |
-| AUTH-02 | Phase 6 — Discovery, Placement & Enrollment | **Built, not wired** — verifyCertificate is reachable only through discoverExecutors, which has no caller |
-| AUTH-03 | Phase 4 — Sovereignty, Authorization & Artifact Signing | **Built, not wired** — RemoteExecutor sends no capability field and no node installs an authorizer — both ends missing |
-| AUTH-04 | Phase 6 — Discovery, Placement & Enrollment | **Built, not wired** — requestEnrollment / EnrollmentAuthority have no production caller |
-| AUTH-05 | Phase 6 — Discovery, Placement & Enrollment | **Built, not wired** — resolveReplicaSets has no production caller |
+| DATA-03 | Phase 12 — Sovereignty-Pinned Placement | Done — `ShardSpec`/`Task.label`/`ownerId` carry the label through `submitJob`'s one placement path (`planPlacement`/`eligibleNodes`); proven under load pressure both in-process (12-02) and across three real `bin/agent.ts` operating-system processes (12-03) |
+| DATA-04 | Phase 12 — Sovereignty-Pinned Placement | Done — a sovereign shard's map task never leaves the owner's node set even when the owner's node is saturated and foreign nodes are idle; proven under load pressure both in-process (12-02) and across three real `bin/agent.ts` operating-system processes (12-03) |
+| DATA-05 | Phase 13 — Egress Manifest Completeness | Done against the amended criterion, with its granularity stated — both node constructors wrap the transport in an `EgressGuard` before building the `RpcEndpoint` (`fabric-node.ts`, `browser-node.ts`), so the tap sits on the sole code path out rather than on remembered call sites, and `registerSovereignInputs` gives `EgressGuard.guard()` its first production caller. `EgressGuard.send` **refuses**: it records the entry with its violation label and rejects rather than forwarding, so the frame never reaches the wire and the cross-owner job fails as a consequence — `insufficient`, never `agreed` (13-04). Proven in-process against real `FabricNode`s and across two spawned `bin/agent.ts` processes, each paired with a control job on the same live nodes so a refusal cannot be confused with an unreachable or dead peer (13-05). Detection matches the **whole registered payload, contiguous and byte-identical**; a re-encoded or partial copy is not matched, and a probe sending the raw field characters alone crossed unremarked — a detector, not a prover, the same line Phase 4 drew. On a reply leg the requestor observes a timeout rather than the reason, an accepted cost recorded in `egress.ts`. A registration is released once its reply frame has settled, bounding scan cost by in-flight sovereign tasks rather than by uptime (13-07). See `13-VERIFICATION.md` for the pass that found the earlier wording overstated |
+| DATA-06 | Phase 13 — Egress Manifest Completeness | Done against the amended criterion — the manifest records what left the **submitting** node and is retrievable from the job's own result, because all three job-submitting entry points call `submitJobWithEgress` rather than bare `submitJob`, sliced per job so sequential jobs on one guard do not double-count (13-01, 13-02, 13-03). The browser-demo leg is independently mutation-verified by `13-VERIFICATION.md` against two real Chromium e2e tests reading the `window.o2` API's own return value; `bin/bench.ts`'s two fabrics are held by a call-site test rather than by the type-checker alone (13-06). The original "each owner's node" clause was **removed, not met** — reading a remote node's manifest needs a wire message kind `protocol.ts` does not define, `13-CONTEXT.md` deferred building one, and cross-process retrieval is now a named future item. `bin/agent.ts` is out of scope here: serving-only, it never submits a job |
+| DATA-07 | Phase 12 — Sovereignty-Pinned Placement | Done — a sovereign shard submitted through `submitJob` emits a partial smaller than its raw input; `EgressGuard` (reused as a test instrument) shows zero violations for the run (12-04, criterion 3) |
+| DATA-08 | Phase 14 — Signed Artifact Resolution | **Built, not wired** — signName / SignedNameResolver have no caller; every module resolves by bare CID |
+| DATA-09 | Phase 12 — Sovereignty-Pinned Placement | Done — `guardSovereignty` wired into both production node constructors (`fabric-node.ts`, `browser-node.ts`), safe default; a genuine replica holder refuses a direct sovereign dispatch over real RPC while still answering block requests (12-02, 12-04 criterion 4) |
+| AUTH-01 | Phase 17 — Node Identity & Enrollment | **Built, not wired** — requestEnrollment / EnrollmentAuthority have no production caller; a node identity is the raw libp2p peerId |
+| AUTH-02 | Phase 17 — Node Identity & Enrollment | **Built, not wired** — verifyCertificate is reachable only through discoverExecutors, which has no caller |
+| AUTH-03 | Phase 15 — Capability-Chained Dispatch | **Built, not wired** — RemoteExecutor sends no capability field and no node installs an authorizer — both ends missing |
+| AUTH-04 | Phase 17 — Node Identity & Enrollment | **Built, not wired** — requestEnrollment / EnrollmentAuthority have no production caller |
+| AUTH-05 | Phase 19 — Quorum Composition & Owner-Domain Attestation | **Built, not wired** — resolveReplicaSets has no production caller |
 | NET-01 | Phase 2 — Real Network, Node ↔ Node | Done |
 | NET-02 | Phase 3 — Browser Tier & Backbone Relay | Done |
 | NET-03 | Phase 3 — Browser Tier & Backbone Relay | Partial — relay is browser-dialable; AutoTLS needs a public host |
 | NET-04 | Phase 3 — Browser Tier & Backbone Relay | Done |
-| NET-05 | Phase 3 — Browser Tier & Backbone Relay | **Partial** — the reading half is wired (capacity is derived from the live store and printed by the seed); ReservationWatcher is installed by no process, so a refused joiner gets no named error |
-| NET-06 | Phase 6 — Discovery, Placement & Enrollment | **Built, not wired** — no node supplies serveAgent’s `index` hook, so none serves a record |
+| NET-05 | Phase 18 — Discovery, Capacity & Placement | **Partial** — the reading half is wired (capacity is derived from the live store and printed by the seed); ReservationWatcher is installed by no process, so a refused joiner gets no named error |
+| NET-06 | Phase 19 — Quorum Composition & Owner-Domain Attestation | **Built, not wired** — no node supplies serveAgent’s `index` hook, so none serves a record |
 | NET-07 | Phase 2 — Real Network, Node ↔ Node | Done |
-| SCHED-01 | Phase 6 — Discovery, Placement & Enrollment | **Built, not wired** — discoverExecutors has no caller outside tests |
-| SCHED-02 | Phase 6 — Discovery, Placement & Enrollment | **Built, not wired** — placeWithOffers is reachable only through runResilient, which has no caller |
-| SCHED-03 | Phase 6 — Discovery, Placement & Enrollment | **Built, not wired** — no node supplies serveAgent’s `capacity` hook, so every offer is accepted |
-| SCHED-04 | Phase 1 — Portable Kernel & Loopback Map Slice | **Partial** — GovernedExecutor is wired on the browser tier only — FabricNode builds a bare WasmExecutor — and the duty cycle is readonly on both, so "user-adjustable" is unmet |
-| SCHED-05 | Phase 6 — Discovery, Placement & Enrollment | **Built, not wired** — the sovereignty gate runs inside placeWithOffers, reachable only through runResilient |
+| SCHED-01 | Phase 18 — Discovery, Capacity & Placement | **Built, not wired** — discoverExecutors has no caller outside tests |
+| SCHED-02 | Phase 18 — Discovery, Capacity & Placement | **Built, not wired** — placeWithOffers is reachable only through runResilient, which has no caller |
+| SCHED-03 | Phase 18 — Discovery, Capacity & Placement | **Built, not wired** — no node supplies serveAgent’s `capacity` hook, so every offer is accepted |
+| SCHED-04 | Phase 18 — Discovery, Capacity & Placement | **Partial** — GovernedExecutor is wired on the browser tier only — FabricNode builds a bare WasmExecutor — and the duty cycle is readonly on both, so "user-adjustable" is unmet |
+| SCHED-05 | Phase 18 — Discovery, Capacity & Placement | **Built, not wired** — the sovereignty gate runs inside placeWithOffers, reachable only through runResilient |
 | MR-01 | Phase 1 — Portable Kernel & Loopback Map Slice | Done |
-| MR-02 | Phase 5 — Decomposable Tree-Reduce | **Built, not wired** — executeReduce / deriveReduceTree have no caller; the demo merges with a linear scan |
-| MR-03 | Phase 5 — Decomposable Tree-Reduce | **Built, not wired** — executeReduce / deriveReduceTree have no caller; the demo merges with a linear scan |
-| MR-04 | Phase 5 — Decomposable Tree-Reduce | **Built, not wired** — executeReduce / deriveReduceTree have no caller; the demo merges with a linear scan |
-| MR-05 | Phase 5 — Decomposable Tree-Reduce | **Built, not wired** — executeReduce / deriveReduceTree have no caller; the demo merges with a linear scan |
-| MR-06 | Phase 5 — Decomposable Tree-Reduce | **Built, not wired** — executeReduce / deriveReduceTree have no caller; the demo merges with a linear scan |
-| MR-07 | Phase 5 — Decomposable Tree-Reduce | **Built, not wired** — executeReduce / deriveReduceTree have no caller; the demo merges with a linear scan |
-| CHURN-01 | Phase 7 — Churn, Stragglers & Coordinator Survival | **Built, not wired** — runResilient has no caller; submitJob is the only job path and does not speculate or re-dispatch |
-| CHURN-02 | Phase 7 — Churn, Stragglers & Coordinator Survival | **Built, not wired** — runResilient has no caller; submitJob is the only job path and does not speculate or re-dispatch |
-| CHURN-03 | Phase 7 — Churn, Stragglers & Coordinator Survival | **Built, not wired** — checkpoint.ts is not even imported by coordinator.ts, and runResilient itself has no caller |
-| CHURN-04 | Phase 7 — Churn, Stragglers & Coordinator Survival | **Built, not wired** — runResilient has no caller; submitJob is the only job path and does not speculate or re-dispatch |
-| CHURN-05 | Phase 7 — Churn, Stragglers & Coordinator Survival | **Built, not wired** — runResilient has no caller; submitJob is the only job path and does not speculate or re-dispatch |
-| CHURN-06 | Phase 7 — Churn, Stragglers & Coordinator Survival | **Built, not wired** — runResilient has no caller; submitJob is the only job path and does not speculate or re-dispatch |
+| MR-02 | Phase 16 — Decomposable Tree-Reduce Wiring | **Built, not wired** — executeReduce / deriveReduceTree have no caller; the demo merges with a linear scan |
+| MR-03 | Phase 16 — Decomposable Tree-Reduce Wiring | **Built, not wired** — executeReduce / deriveReduceTree have no caller; the demo merges with a linear scan |
+| MR-04 | Phase 16 — Decomposable Tree-Reduce Wiring | **Built, not wired** — executeReduce / deriveReduceTree have no caller; the demo merges with a linear scan |
+| MR-05 | Phase 16 — Decomposable Tree-Reduce Wiring | **Built, not wired** — executeReduce / deriveReduceTree have no caller; the demo merges with a linear scan |
+| MR-06 | Phase 16 — Decomposable Tree-Reduce Wiring | **Built, not wired** — executeReduce / deriveReduceTree have no caller; the demo merges with a linear scan |
+| MR-07 | Phase 16 — Decomposable Tree-Reduce Wiring | **Built, not wired** — executeReduce / deriveReduceTree have no caller; the demo merges with a linear scan |
+| CHURN-01 | Phase 20 — Single Job Path, Ledger & Churn Resilience | **Built, not wired** — runResilient has no caller; submitJob is the only job path and does not speculate or re-dispatch |
+| CHURN-02 | Phase 20 — Single Job Path, Ledger & Churn Resilience | **Built, not wired** — runResilient has no caller; submitJob is the only job path and does not speculate or re-dispatch |
+| CHURN-03 | Phase 20 — Single Job Path, Ledger & Churn Resilience | **Built, not wired** — checkpoint.ts is not even imported by coordinator.ts, and runResilient itself has no caller |
+| CHURN-04 | Phase 20 — Single Job Path, Ledger & Churn Resilience | **Built, not wired** — runResilient has no caller; submitJob is the only job path and does not speculate or re-dispatch |
+| CHURN-05 | Phase 20 — Single Job Path, Ledger & Churn Resilience | **Built, not wired** — runResilient has no caller; submitJob is the only job path and does not speculate or re-dispatch |
+| CHURN-06 | Phase 20 — Single Job Path, Ledger & Churn Resilience | **Built, not wired** — runResilient has no caller; submitJob is the only job path and does not speculate or re-dispatch |
 | BROW-01 | Phase 9 — Public Demo, Consent UX & Disclosure Gate | Done |
-| BROW-02 | Phase 9 — Public Demo, Consent UX & Disclosure Gate | **Partial** — the local ledger renders; the cross-node merge is a no-op because no node supplies serveAgent’s `ledger` hook, so every peer answers with empty counts |
+| BROW-02 | Phase 20 — Single Job Path, Ledger & Churn Resilience | **Partial** — the local ledger renders; the cross-node merge is a no-op because no node supplies serveAgent’s `ledger` hook, so every peer answers with empty counts |
 | BROW-03 | Phase 3 — Browser Tier & Backbone Relay | Done |
 | BROW-04 | Phase 9 — Public Demo, Consent UX & Disclosure Gate | Done |
 | BROW-05 | Phase 3 — Browser Tier & Backbone Relay | Done |
@@ -360,15 +600,25 @@ All 72 v1 requirements are mapped, each to exactly one phase. See
 | BENCH-03 | Phase 8 — Benchmark Harness | Done |
 | BENCH-04 | Phase 8 — Benchmark Harness | Done |
 | BENCH-05 | Phase 8 — Benchmark Harness | Done |
-| BENCH-06 | Phase 8 — Benchmark Harness | Partial — same-machine labelling enforced and derived; distinct-machine runs need a second machine |
+| BENCH-06 | Phase 8 — Benchmark Harness | Partial — machine inventory is a required field and the same-machine label is derived from it, not declared; the N-independent-processes half lands in Phase 23 via BENCH-07. Distinct-machine benchmarking **descoped 2026-07-28 and unmeasured — not met** |
 | DEMO-01 | Phase 9 — Public Demo, Consent UX & Disclosure Gate | Done |
 | DEMO-02 | Phase 9 — Public Demo, Consent UX & Disclosure Gate | Done |
 | DEMO-03 | Phase 9 — Public Demo, Consent UX & Disclosure Gate | Done |
 | DEMO-04 | Phase 9 — Public Demo, Consent UX & Disclosure Gate | Done |
 | AOT-01 | Phase 10 — elfconv AOT Native→WASM Pipeline | Done |
-| AOT-02 | Phase 10 — elfconv AOT Native→WASM Pipeline | **Built, not wired** — translationCid is never called by the lift pipeline; the CLI emits no CID and builds no TranslationRecord |
-| AOT-03 | Phase 10 — elfconv AOT Native→WASM Pipeline | Partial — same-host only; cross-machine needs a second machine |
-| AOT-04 | Phase 10 — elfconv AOT Native→WASM Pipeline | **Partial** — port conformance is proved through the @o2/aot barrel; no production node constructs a WasiExecutor, so a translated artifact dispatched to a running node fails at instantiate |
+| AOT-02 | Phase 21 — AOT Translation Signing & Runtime | **Built, not wired** — translationCid is never called by the lift pipeline; the CLI emits no CID and builds no TranslationRecord |
+| AOT-03 | Phase 10 — elfconv AOT Native→WASM Pipeline | Partial — the one-host half is established: repeated lifts in separate spawned toolchain processes are byte-identical. Cross-machine **descoped 2026-07-28 and unmeasured — not met**; `CROSS_MACHINE_BLIND_SPOT` stays on every artifact |
+| AOT-04 | Phase 21 — AOT Translation Signing & Runtime | **Partial** — port conformance is proved through the @o2/aot barrel; no production node constructs a WasiExecutor, so a translated artifact dispatched to a running node fails at instantiate |
 | AOT-05 | Phase 10 — elfconv AOT Native→WASM Pipeline | **Partial** — loadArtifact is exported and e2e-measured, but the demo loads its kernel from bundled base64 — the loader is not on the page’s own module path |
+| WIRE-01 | Phase 11 — Explicit serveAgent Hook Contract | **Done** — all six hooks required as `T \| '<named-absence>'`; omitting one is a compile error naming the property. Verified 3/3 independently: the mutation produced `Unused '@ts-expect-error' directive`, and swapping `fabric-node`'s real `reservations` thunk for the sentinel broke both the count guard and `rendezvous-wire.node.test.ts` |
+| WIRE-02 | Phase 22 — Reachability Guard | Not started — new requirement, minted 2026-07-27 |
+| WIRE-03 | Phase 19 — Quorum Composition & Owner-Domain Attestation | Not started — new requirement, minted 2026-07-27 |
+| WIRE-04 | Phase 20 — Single Job Path, Ledger & Churn Resilience | Not started — new requirement, minted 2026-07-27 |
 
-**Coverage: 70/70 mapped. No orphans, no duplicates.**
+**Coverage: 76/76 mapped. No orphans, no duplicates.** (72 v1 + 4 v1.1-only WIRE
+requirements. Of the 72, 40 are in v1.1 scope for wiring — see
+`.planning/ROADMAP.md`'s "v1.1 — Wire What Was Built" coverage table; the remaining 32
+are `Done`, and NET-03/BENCH-06/AOT-03/AOT-05 stay open and are explicitly excluded from
+v1.1 — NET-03 on a hosting decision, AOT-05 as a measured negative, and BENCH-06/AOT-03
+with their cross-machine halves descoped to one host on 2026-07-28 and recorded as
+unmeasured rather than as met.)

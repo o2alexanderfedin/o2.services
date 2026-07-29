@@ -54,6 +54,33 @@ export interface NodeDescriptor {
   readonly load: number
 }
 
+/**
+ * Build a candidate pool for an all-public job from whatever already carries a
+ * `nodeId` — typically the same `Executor[]` the caller is about to pass to
+ * `submitJob`.
+ *
+ * `ownerId` and `canExecuteSovereign` are placeholders here: `eligibleNodes`
+ * never consults either field for a `'public'` request (it returns every node
+ * unconditionally), so the values are harmless. This is a convenience for
+ * expressing a public job's candidate pool cheaply — every node genuinely has
+ * equal functionality (see `fabric-node.ts`'s module comment); this function
+ * does not introduce a node class, only a default descriptor shape for the
+ * common case where the caller has not modelled per-owner nodes at all.
+ *
+ * Takes the minimal structural shape rather than `Executor` from `ports.ts` so
+ * this file's zero-import, pure-module property is undisturbed.
+ */
+export function publicNodes(
+  executors: readonly { readonly nodeId: string }[],
+): readonly NodeDescriptor[] {
+  return executors.map((executor) => ({
+    nodeId: executor.nodeId,
+    ownerId: 'public',
+    canExecuteSovereign: true,
+    load: 0,
+  }))
+}
+
 /** One unit of work to place, carrying its own sovereignty label. */
 export interface PlacementRequest {
   readonly shardId: string

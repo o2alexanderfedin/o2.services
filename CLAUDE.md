@@ -93,7 +93,7 @@ manifest and coverage report, not by a quorum.
 | `@libp2p/tls` | `3.1.6` | **NO** | YES | Optional second connection encrypter on the backbone (cheaper handshake than Noise on TCP). Node only. |
 | `@libp2p/identify` | `4.1.10` | YES | YES | **Required in practice.** AutoNAT, DCUtR, AutoTLS, and relay discovery all depend on it. Export both `identify()` and `identifyPush()`. |
 | `@libp2p/ping` | `3.1.9` | YES | YES | Liveness probing — the "confirm liveness on connect" step in design §3.4, and the load-probe leg of power-of-d-choices. |
-| `@libp2p/kad-dht` | `16.4.0` | **client mode only** | **server mode** | See [DHT reality check](#dht-reality-check). Browser must run `clientMode: true`. Default is `clientMode: false` with automatic server-mode promotion when a public dialable address is detected — a browser never gets one, so it stays a client, but set it explicitly. |
+| `@libp2p/kad-dht` | `16.4.0` | **see below** | server mode | **NOT INSTALLED — no DHT exists in this repository today.** See [DHT reality check](#dht-reality-check). The claim that a browser "never gets a dialable address, so it stays a client" is **false**: `browser-node.ts:197` listens on `['/p2p-circuit', '/webrtc']`. Whether kad-dht's server-mode promotion accepts a relayed address is unverified. Set `clientMode` explicitly rather than relying on promotion. |
 | `@libp2p/dcutr` | `3.0.24` | **effectively no** | YES | DCUtR is implemented in JS and works. But hole-punching needs a transport that can *listen* on a punched port — browsers can't. **Browser NAT traversal is WebRTC's own ICE, not DCUtR.** DCUtR is for Node↔Node behind NAT. |
 | `@libp2p/autonat` / `@libp2p/autonat-v2` | `3.0.24` / `2.1.0` | pointless | YES | Reachability detection. Meaningless in a browser (never reachable). Use v2 on new backbone nodes; keep v1 for interop with older go-libp2p. |
 | `@libp2p/tcp` | `11.0.24` | **NO** | YES | Backbone only. |
@@ -174,7 +174,39 @@ manifest and coverage report, not by a quorum.
 - **WebRTC-Direct is underrated here.** A backbone node listening on `/ip4/0.0.0.0/udp/PORT/webrtc-direct` is browser-dialable with no certificate, no DNS record, and no Let's Encrypt rate limits. Run it *alongside* AutoTLS WSS as a redundant entry point. Pair it with `@libp2p/keychain` so the certhash survives restarts.
 ### Relay strategy — evidence contradicts PROJECT.md
 ## DHT reality check
-- **A browser node cannot serve DHT records.** Every provider record, capability record, and load record a browser publishes must be accepted and stored by *server-mode* nodes — i.e. your backbone. The DHT's storage tier is permissioned by physics, not by policy.
+
+> **Corrected 2026-07-28.** This section previously opened with *"a browser node cannot serve
+> DHT records… permissioned by physics, not by policy."* **That was wrong**, and it was wrong in
+> the way this project most often gets things wrong: a constraint that is real about the *public
+> Amino* DHT was restated as a constraint about *capability*, and then quoted as if it settled
+> the fabric's own design. Two facts falsify it.
+>
+> 1. **There is no DHT in this repository.** `@libp2p/kad-dht` is not installed — the whole
+>    `@libp2p/*` set is circuit-relay-v2, crypto, identify, interface, interface-internal,
+>    keychain, logger, multistream-select, peer-collections, peer-id, peer-record, peer-store,
+>    ping, tcp, utils, webrtc, websockets — and `kadDHT` appears nowhere in `packages/`.
+>    Discovery today runs over the relay's reservation store (`net/src/rendezvous.ts`), not a
+>    DHT. So this section describes a component that was never built.
+> 2. **A browser node is dialable.** `browser-node.ts:197` listens on
+>    `['/p2p-circuit', '/webrtc']`. A browser holding a relay reservation *can be dialed by
+>    other peers*, which is the entire prerequisite for serving records.
+
+- **Within the fabric's own keyspace, a browser node can serve records.** Every fabric peer is
+  reachable over relay + WebRTC, so browsers can answer each other's queries. The cost is per-hop,
+  not categorical: each hop to a *new* browser peer needs a WebRTC handshake (~1.04 s measured as
+  a loopback floor with no STUN), so an O(log N) lookup is seconds when cold. Connection reuse is
+  what makes this viable, and it is a design constraint, not a prohibition.
+- **What is genuinely constrained is interop with the public Amino DHT.** Amino peers advertise
+  TCP/QUIC, which a browser cannot dial, and they cannot reach a browser because they do not know
+  its relay. That is a statement about Amino, not about browsers.
+- **Two real weaknesses of browser-held records, neither of which is "cannot".** IndexedDB is
+  evicted silently under storage pressure, so durability is soft; and tab churn is high, while
+  Kademlia routing tables assume moderate stability. A hosted, always-reachable slice of the
+  keyspace complements browser-held records rather than replacing them.
+- **Unverified, and it matters:** js-libp2p promotes kad-dht to server mode when it detects a
+  public dialable address. Whether a relayed `/p2p-circuit` address satisfies that check is
+  **unmeasured** — the package is not installed, so it could not be read. Set `clientMode`
+  explicitly rather than relying on promotion either way.
 - **Querying the Amino DHT from a browser is impractical.** Amino peers advertise TCP/QUIC. Use **delegated routing over HTTP** (`https://delegated-ipfs.dev`, or self-hosted [someguy](https://github.com/ipfs/someguy)) with `filterAddrs` restricted to browser-dialable protocols. Helia's browser defaults do exactly this and additionally keep `kadDHT({clientMode:true})` as a secondary router.
 - **Run a private DHT for the fabric's own keyspace.** Set a distinct `protocol` (e.g. `/o2/kad/1.0.0`) so your scheduling records don't pollute — and aren't polluted by — Amino. `@libp2p/kad-dht` supports multiple named DHT instances side by side, as its own docs demonstrate for LAN + Amino.
 - **S/Kademlia (design §3.4's fix for eclipse attacks) is not implemented in js-libp2p.** The docs say the implementation is "largely based on the Kademlia white paper, augmented with notions from S/Kademlia, Coral and mainlineDHT" — that is not the same as disjoint-path lookups. Treat sybil/eclipse resistance as **build**, not **configure**, and lean on `@libp2p/keychain` + provider-signed enrollment (§3.9) instead.

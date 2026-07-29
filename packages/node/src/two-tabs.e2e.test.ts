@@ -202,6 +202,15 @@ describe('NET-02 — two tabs on one machine', () => {
     }
     expect(report.verificationMultiplier).toBeCloseTo(2, 6)
     expect(report.rejected).toBe(0)
+
+    // Criterion 2 — the manifest reaches the demo's real entry point (`runJob`,
+    // called through `window.o2` exactly as a visitor's page does), not only a
+    // test-side harness that builds its own `EgressGuard`. Both `entries.length`
+    // and `violations` are checked, per 13-CONTEXT.md decision 3: a manifest with
+    // zero entries reports zero violations trivially, and the two must never be
+    // allowed to look alike.
+    expect(report.egress.entries.length).toBeGreaterThan(0)
+    expect(report.egress.violations).toEqual([])
   }, 240_000)
 
   it('leaves the pulled blocks in the second tab’s IndexedDB', async () => {

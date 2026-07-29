@@ -5,7 +5,7 @@
 The journey runs from a working job to a published number. It opens with a complete
 job — shard, execute redundantly, verify, return a result CID — running inside a single
 process on all three targets, then the same job across two OS processes, then the same
-job across two browser tabs on different machines. Only once that chain is proven does
+job across two browsers on one machine. Only once that chain is proven does
 the project add its differentiators, in the order that keeps each one honest: sovereignty
 as a hard constraint *before* the scheduler learns to optimise, tree-reduce *before*
 placement so a placement decision has something real to decide about, decentralized
@@ -38,14 +38,28 @@ Decimal phases appear between their surrounding integers in numeric order.
 
 - [x] **Phase 1: Portable Kernel & Loopback Map Slice** - A complete redundant, verified job runs end to end in one process, on node/browser/webworker, with no network involved
 - [x] **Phase 2: Real Network, Node ↔ Node** - The same job runs across two OS processes over a real transport, proving the port boundary held
-- [ ] **Phase 3: Browser Tier & Backbone Relay** - Two browser tabs on different machines run a distributed redundant job against a self-hosted backbone needing no certificate operations
+- [ ] **Phase 3: Browser Tier & Backbone Relay** - Two browsers, or two isolated browser contexts, on one machine run a distributed redundant job against a self-hosted backbone needing no certificate operations
 - [x] **Phase 4: Sovereignty, Authorization & Artifact Signing** - Owner-pinned data becomes a constraint the placer cannot relax, and every artifact resolves through a signed name — **built and unit-verified, not wired**: the placer it constrains is one no job runs through (v1.0 audit)
 - [x] **Phase 5: Decomposable Tree-Reduce** - Cross-owner aggregation merges up a derived tree with no shuffle, no consensus, and no state to migrate — **built and unit-verified, not wired**: `executeReduce` has no caller; the demo merges with a linear scan
 - [x] **Phase 6: Discovery, Placement & Enrollment** - The static peer list disappears; nodes find each other and choose placement under identity and diversity constraints — **built and unit-verified, not wired**: `discoverExecutors` and `requestEnrollment` have no callers
 - [x] **Phase 7: Churn, Stragglers & Coordinator Survival** - A job finishes correctly when the machines running it — including the submitter — vanish mid-flight — **built and unit-verified, not wired**: `runResilient` has no caller, and `submitJob` neither speculates nor re-dispatches
 - [x] **Phase 8: Benchmark Harness** - The scaling claim becomes a reproducible published number with its costs included rather than excluded
 - [x] **Phase 9: Public Demo, Consent UX & Disclosure Gate** - A visitor consents, contributes to a job someone cares about, and nothing publishes without a deliberate human action
-- [x] **Phase 10: elfconv AOT Native→WASM Pipeline** - A statically-linked native binary becomes a fabric-executable artifact under the same admission checks and verification — **3 of 4 criteria**; cross-machine reproducibility needs a second machine, and the V8 code-cache hit was measured and does not happen
+- [x] **Phase 10: elfconv AOT Native→WASM Pipeline** - A statically-linked native binary becomes a fabric-executable artifact under the same admission checks and verification — **3 of 4 criteria**; cross-machine reproducibility is descoped to one host (2026-07-28) and stays unmeasured, not met, and the V8 code-cache hit was measured and does not happen
+- [x] **Phase 11: Explicit serveAgent Hook Contract** - `serveAgent`'s six hooks stop defaulting silently — an omission becomes a compile error, not a decision nobody made (completed 2026-07-27)
+- [x] **Phase 12: Sovereignty-Pinned Placement** - A sovereignty label becomes a constraint the live `submitJob` path cannot relax, with pushdown and backbone execution-ineligibility enforced on a real job (completed 2026-07-27)
+- [x] **Phase 13: Egress Manifest Completeness** - `EgressGuard` **refuses** a frame carrying a registered sovereign block rather than recording it afterwards, and a leaking cross-owner job fails from the submitter across two spawned `bin/agent.ts` processes — **3/3 on the amended criteria (`13-VERIFICATION-2.md`, 8 mutations planted by the verifier). Scored 0/3 on the original wording first (`13-VERIFICATION.md`); the criteria were then amended on three owner rulings and the gaps closed. Two follow-ons scheduled to Phase 13.1, not left implicit: NET-10 (the refusal arrives as a timeout, not a named outcome) and DATA-10 (only the executing node registers, so a submitter still serves raw sovereign bytes).**
+- [ ] **Phase 13.1: Node-Side Admission & Transport Bounds** (INSERTED) - A node refuses work it cannot run with a stated reason, and neither side of the wire can be driven past a bound by a peer — three defects measured against the real stack
+- [ ] **Phase 14: Signed Artifact Resolution** - Artifacts resolve only through a signed `key → CID` mapping on the live dispatch path, never a bare CID
+- [ ] **Phase 15: Capability-Chained Dispatch** - A dispatched task carries a capability chain the serving node verifies before `WebAssembly.instantiate`, both ends wired for the first time
+- [ ] **Phase 16: Decomposable Tree-Reduce Wiring** - A live multi-node job merges partials up `executeReduce`'s derived tree, replacing the demo's linear scan
+- [ ] **Phase 17: Node Identity & Enrollment** - A node generates its identity on-device and enrolls through a rate-limited, provider-signed flow that a peer verifies offline
+- [ ] **Phase 18: Discovery, Capacity & Placement** - Nodes discover candidates, sample and select by load, and refuse over-committed work — no static peer list, on a real job
+- [ ] **Phase 19: Quorum Composition & Owner-Domain Attestation** - Verification quorums compose under anti-affinity and backbone anchoring, and owner-domain agreement is labelled distinctly from independent-operator agreement, on a real job
+- [ ] **Phase 20: Single Job Path, Ledger & Churn Resilience** - `submitJob` becomes the one job path — lease, speculate, account for coverage — and the peer ledger records real outcomes instead of discarding them
+- [ ] **Phase 21: AOT Translation Signing & Runtime** - `translationCid` is called by the lift pipeline and a production node constructs a real `WasiExecutor`
+- [ ] **Phase 22: Reachability Guard** - A guard test fails when an exported capability has no path from a runnable entry point — the class of defect this milestone exists to fix
+- [ ] **Phase 23: Multi-Process Benchmark Driver** - The harness spawns N real operating-system processes instead of N nodes on one event loop, so a parallel speedup is measurable at all
 
 ## Phase Details
 
@@ -77,22 +91,36 @@ Decimal phases appear between their surrounding integers in numeric order.
 **Plans**: complete — see `phases/phase-2-real-network/SUMMARY.md`
 
 ### Phase 3: Browser Tier & Backbone Relay
-**Goal**: Two browser tabs on different machines run a distributed, redundant job against a self-hosted backbone that requires no manual certificate operations — the project's core bet, demonstrated
+**Goal**: Two browsers — or two isolated browser contexts — on one machine run a distributed, redundant job against a self-hosted backbone that requires no manual certificate operations — the project's core bet, demonstrated
 **Mode:** mvp
 **Depends on**: Phase 2
 **Requirements**: NET-02, NET-03, NET-04, NET-05, DATA-02, BROW-03, BROW-05
 **Research**: Needed — Safari + WebRTC-Direct support is unverified from any authoritative source (fallback branch: Safari = WSS-only); no credible published throughput figures exist for js-libp2p WebRTC at N>50 browser peers; real relay capacity under partial-result traffic is unmeasured. Playwright `webkit` in CI from day one is the mitigation
 **Success Criteria** (what must be TRUE):
-  1. Two browser tabs on different machines connect over WebRTC using a self-hosted Circuit Relay v2 peer for SDP signaling, complete a 2×-redundant map job, and agree on the result
+  1. Two browsers — or two isolated browser contexts — on one machine connect to each other over WebRTC, using the self-hosted Circuit Relay v2 peer for SDP signaling only, complete a 2×-redundant map job, and agree on the result
   2. The backbone relay auto-acquires its TLS certificate and presents a browser-dialable address with zero certificate operations; no `/certhash/` literal appears anywhere in source and bootstrap addresses resolve at runtime, so a demo recorded today still joins fourteen days later
   3. Sixteen or more browser peers reserve simultaneously against the tuned relay and hold for over an hour under churn; every registered protocol negotiates over `p2p-circuit` because it is registered with `runOnLimitedConnection` on both handle and dial; and relayed byte counters stay in single-digit KiB per peer, proving the relay carries signaling only
   4. A relay at reservation capacity reports exhaustion by name to the joining node and to its own metrics, instead of failing in a way indistinguishable from a network outage
   5. Blocks written from a browser persist to IndexedDB and from Node to the filesystem behind one unchanged blockstore interface, with the same CIDs on both sides
   6. The node runs embedded in a third-party page served without COOP/COEP headers, throttles within a second of the tab being backgrounded, and resumes on return without losing its job
-**Plans**: **5 of 6 criteria met**, see `phases/phase-3-browser-tier/SUMMARY.md`. Criterion 1
-was closed on genuinely different machines — iPhone Safari ↔ laptop Chromium over direct
-WebRTC. Only criterion 2's *real* AutoTLS remains, and it needs a publicly reachable host;
-the source/runtime half (no `/certhash/` literal, addresses resolved at runtime) is verified.
+**Plans**: **5 of 6 criteria met**, see `phases/phase-3-browser-tier/SUMMARY.md`. Only
+criterion 2's *real* AutoTLS remains, and it needs a publicly reachable host; the
+source/runtime half (no `/certhash/` literal, addresses resolved at runtime) is verified.
+
+**Criterion 1 was restated on 2026-07-28, and it was already closed in a stronger form
+than the restatement asks for.** The owner ruled that same machine — different browsers
+and/or different browser contexts, and different OS processes — is the project's testing
+standard everywhere, so the goal and criterion 1 above now name one host. What was
+actually done on 2026-07-26 was more than that: an **iPhone running Safari and a laptop
+running Chromium, on genuinely different machines**, completed a 4-shard 2×-redundant job
+over a **direct** WebRTC connection with the relay carrying SDP only. **That stronger
+result stands in the record and is not withdrawn.** The restatement lowers what future
+work has to re-demonstrate; it does not lower what was demonstrated. The two-device run
+also found two defects the whole e2e suite had passed over, which is the argument for
+keeping it on the record rather than replacing it.
+
+**The checkbox stays unchecked, and criterion 1 is not why.** Criterion 2's *real*
+AutoTLS needs a publicly reachable host — a hosting decision this ruling does not touch.
 
 ### Phase 4: Sovereignty, Authorization & Artifact Signing
 **Goal**: Owner-pinned data becomes a hard scheduling constraint the placer has no code path to relax, and every artifact the fabric executes is resolved through a signed name rather than a bare CID
@@ -167,7 +195,7 @@ that demotes an entire tier.
 **Goal**: The scaling claim becomes a reproducible published number with its costs included rather than excluded — a separate and harder claim than "it works"
 **Mode:** mvp
 **Depends on**: Phase 5 (dispatch API frozen). Runs in parallel with Phases 6-7
-**Status**: COMPLETE — 4 of 5 criteria; BENCH-06's distinct-machine half needs a second machine. See `phases/phase-8-benchmark/SUMMARY.md`
+**Status**: COMPLETE — 4 of 5 criteria; BENCH-06's distinct-machine half was descoped to one host on 2026-07-28 and stays **unmeasured, not met**. See `phases/phase-8-benchmark/SUMMARY.md`
 **Requirements**: BENCH-01, BENCH-02, BENCH-03, BENCH-04, BENCH-05, BENCH-06
 **Research**: Standard patterns — `@libp2p/perf` is a specified cross-implementation protocol so numbers compare to published go/rust-libp2p figures, and the methodology is pre-registered here, before any number exists
 **Success Criteria** (what must be TRUE):
@@ -218,20 +246,285 @@ Criterion 2's cache key MET with a pinned conformance CID; its cross-machine hal
 **NOT MET**: no WASM code-cache entry at 4.8 MB over three visits, while the same
 profile caches 2 MB of JavaScript — a measured negative with two controls.
 
+**Criterion 2 above is left at its original wording deliberately, and the score is
+unchanged at 3 of 4** (2026-07-28). The *requirement* AOT-03 was rewritten to what one
+host establishes under the same-machine testing-standard ruling, but rewording a completed
+phase's criterion to match would convert an unmet half into a met one by editing rather
+than by measuring. The criterion stands as it was scored; the cross-machine half is
+**descoped and still unmeasured, not met**; and `CROSS_MACHINE_BLIND_SPOT` remains attached
+to every artifact because Phase 10 established it is structural rather than configurational.
+
 Notes: Constraints recorded before any artifact is compiled, because retrofitting them
 is a recompile of everything — `TARGET=aarch64-wasi32` (not the Emscripten bundle,
 which emits JS glue and splits the ABI); no `-pthread` in any edge artifact; AArch64
 static input. **Correction: "unstripped" was wrong.** A stripped binary lifts fine if
 `.eh_frame` survives, because the loader recovers function entries through libdwarf.
 
+### Phase 11: Explicit serveAgent Hook Contract
+**Goal**: Every `serveAgent` call site states an explicit value for all six hooks — `authorize`, `index`, `capacity`, `ledger`, `reservations`, `onDispatch` — so an omission is a compile error a developer sees at the call site, not a default nobody noticed
+**Mode:** mvp
+**Depends on**: Nothing new — builds directly on the v1.0 codebase. Sequenced first within v1.1, ahead of every other phase in this milestone, because it is the structural cause the other 35 unwired requirements share: making the hooks non-optional turns each remaining capability into a build failure at its call site rather than a fact someone has to go looking for
+**Requirements**: WIRE-01
+**Research**: None — this is a signature change to an existing, fully-understood function (`packages/net/src/agent.ts:65-120`) plus updating its five known call sites; no new algorithm or library
+**Success Criteria** (what must be TRUE):
+  1. Removing any single hook argument from a `serveAgent(...)` call in `packages/node/src/bin/agent.ts`, `bin/seed.ts`, or the browser node bootstrap fails `tsc --noEmit`, naming the missing hook — omission is a compile error, not a silent default
+  2. Every production call site that starts a node — `bin/agent.ts`, `bin/seed.ts`, `bin/bench.ts`, and the browser demo — passes all six hooks explicitly; grepping production source for `serveAgent(` shows no call with fewer than six named hook arguments
+  3. Starting two nodes via `bin/agent.ts` and dispatching a job between them still completes successfully after the refactor, and the already-fixed `reservations` hook continues to answer real peer IDs rather than regressing to `[]`
+**Plans**: 1 plan
+
+Plans:
+- [x] 11-01-PLAN.md — Define the required six-hook AgentOptions contract, sweep all 4 production and 6 test call sites, and build the compile-failure + sentinel-count guards proving criteria 1 and 2
+
+### Phase 12: Sovereignty-Pinned Placement
+**Goal**: A sovereignty label travels with its data and pins its map task to the owner's node on the one live job path, with pushdown and backbone execution-ineligibility enforced — not only in a test that builds its own fabric by hand
+**Mode:** mvp
+**Depends on**: Phase 11
+**Requirements**: DATA-03, DATA-04, DATA-07, DATA-09
+**Research**: None — `submitJob` gains an owner label field and a placement filter; the sovereignty-gate logic (`planPlacement`'s owner-narrowing) already exists and is unit-verified in Phase 4. The work is wiring it onto the path a job actually runs through
+**Success Criteria** (what must be TRUE):
+  1. A job submitted through `bin/agent.ts` whose input carries an owner's sovereignty label places its map task only on nodes in that owner's node set; a test that applies artificial load pressure specifically to force relocation onto a non-owner node fails to move it, because the live placement path has no branch that can
+  2. `JobSpec` and `Task` objects constructed by `submitJob` — the one production job path, not `runResilient` — carry a non-optional owner label; submitting a job without one is rejected rather than silently treated as unowned
+  3. Running that job with a filter/projection/partial-aggregation step shows the owner's node performing the reduction locally — the bytes crossing the network are the reduced output, observable by comparing egress size to the raw input size, not the raw input itself
+  4. Dispatching a sovereign task at a backbone node holding only an encrypted replica of the data is refused before instantiation and names the sovereignty violation, even though that same node answers availability queries for the data
+**Plans**: 4 plans
+
+Plans:
+- [x] 12-01-PLAN.md — Redesign sovereignty-aware job contracts (ShardSpec, JobSpec.nodes, Task.label/ownerId) and rewrite submitJob's placement engine; sweep all thirteen existing call sites
+- [x] 12-02-PLAN.md — Build the DATA-09 sovereignty guard (Executor adapter) and prove submitJob's placement discrimination, degradation, and rejection semantics
+- [x] 12-03-PLAN.md — Prove sovereignty-pinned placement across real bin/agent.ts operating-system processes (criterion 1, literally)
+- [x] 12-04-PLAN.md — Carry the sovereignty label over the wire (protocol.ts) and prove pushdown (criterion 3) and backbone execution-ineligibility (criterion 4) over real RPC
+
+
+### Phase 13: Egress Manifest Completeness
+**Goal**: Both `FabricNode` and the browser node construct their `RpcEndpoint` over an `EgressGuard`-wrapped transport instead of the raw `Libp2pTransport`, so the egress manifest is complete by construction on a real job
+**Mode:** mvp
+**Depends on**: Phase 11
+**Requirements**: DATA-05, DATA-06
+**Research**: None — `EgressGuard` exists and is unit-verified in Phase 4; the change is two call sites (`fabric-node.ts:311`, `browser-node.ts:181`) that currently pass the unwrapped transport
+**Success Criteria** (what must be TRUE):
+  1. A stream tap installed on the wire between two nodes started via `bin/agent.ts` **refuses the send** when a registered sovereign block would cross it, so the bytes never leave the node, and the running cross-owner job fails rather than completing as `agreed`
+  2. Every job run through the browser demo emits an egress manifest recording exactly what left the **submitting** node, with byte counts, retrievable from the job's own result metadata after completion — not only inside a test harness
+  3. A job with zero sovereign data crossing the network records no violation over a non-empty manifest, and a job that legitimately moves an aggregate carries its raw input nowhere on the wire — with the pushdown size claim evidenced by `encodeCanonical(output)` against `encodeCanonical(rawInput)`, not by `manifest.totalBytes`
+**Plans**: 7 plans (3 original + 4 gap closure)
+
+<!--
+Criteria amended 2026-07-28, after 13-VERIFICATION.md scored the originals 0/3 and the
+owner ruled on the three questions it raised. What changed and why:
+
+1. "fails a running job if a single raw sovereign byte crosses" -> "refuses the send ...
+   so the bytes never leave". Owner's call. `EgressGuard.send()` already computes the
+   violation before calling `#inner.send()`, so refusing costs one branch. Failing a job
+   after the bytes crossed cannot un-send them, and an observer that reports after the
+   fact is not what "data stays on the owner's device" promises. The job-fails clause is
+   KEPT, and becomes true as a consequence of the refusal rather than needing a reader
+   for `manifest.violations`.
+   "a single raw sovereign byte" -> "a registered sovereign block": detection matches the
+   whole registered payload, contiguous and byte-identical. Measured, not assumed — a
+   probe sending the raw characters alone crossed with no violation. Phase 4 drew the
+   same line: a detector, not a prover.
+
+2. "each owner's node" -> "the submitting node". Owner's call. Retrieving a remote
+   node's manifest needs a wire message kind that does not exist; 13-CONTEXT.md deferred
+   it as "not needed" and the criterion kept promising it anyway. Cross-process
+   retrieval is now a named future item, not an implied promise. `bin/agent.ts` drops
+   out of this criterion because it is serving-only and never submits a job.
+
+3. "reports only the aggregate's size" removed as a manifest claim. Measured false:
+   `manifest.totalBytes` read 130 where the raw input was 95 canonical bytes and the
+   aggregate 8, because totalBytes sums every frame including unrelated block fetches.
+   Under criterion 1's refusal the stronger property holds instead — the raw input
+   cannot cross at all — and the size comparison stays where Phase 12 already proved it.
+
+A criterion that can only be reported as met is not a measurement. These were amended
+down to what is true and up where the refusal makes a stronger claim available; none was
+weakened merely so it could be ticked.
+-->
+
+
+Plans:
+- [x] 13-01-PLAN.md — Build registerSovereignInputs (a production caller for EgressGuard.guard()) and submitJobWithEgress (per-job manifest attachment), both in @o2/net, proven against a real RpcEndpoint/serveAgent fabric
+- [x] 13-02-PLAN.md — Wire both FabricNode and BrowserNode to construct RpcEndpoint over a new EgressGuard field and auto-register every sovereign task's input before executing it
+- [x] 13-03-PLAN.md — Prove all three criteria against real FabricNode instances over real RPC, and plant/watch-fail/revert both required mutations (registration removed, transport wrap removed)
+- [ ] 13-04-PLAN.md — Make EgressGuard.send refuse a frame carrying a registered sovereign payload instead of forwarding it, and invert every @o2/net assertion that encoded the forward-anyway behavior
+- [ ] 13-05-PLAN.md — Prove the refused job fails and its shard stalls rather than relocating, in process against real FabricNodes and across two spawned bin/agent.ts processes
+- [ ] 13-06-PLAN.md — Restate the DATA-05/DATA-06 ledger rows against the amended criteria, and guard bin/bench.ts's egress leg with a test rather than the type-checker alone
+- [ ] 13-07-PLAN.md — Release a sovereign registration from the serve path once its reply frame has settled, so scan cost is bounded by in-flight tasks rather than node uptime
+
+### Phase 13.1: Node-Side Admission & Transport Bounds (INSERTED)
+**Goal**: A node refuses work it cannot run, with a stated reason, and neither side of the wire can be driven past a bound by a peer — closing three defects measured against the real stack rather than inferred
+**Mode:** mvp
+**Depends on**: Phase 13
+**Requirements**: SCHED-06 (new), NET-08 (new), NET-09 (new), NET-10 (new), DATA-10 (new)
+**Research**: None — all three are measured, with reproductions recorded below
+
+**Success Criteria** (what must be TRUE):
+  1. A node at its execution slot limit refuses an `exec` request with a **stated reason** naming the limit, and the requestor re-picks — verified by concurrency against the real stack, not by a single-request unit test. Today: 4 peers × 200 concurrent `exec` requests produced 800 simultaneous `executor.execute()` calls and **0 refusals**
+  2. `LocalCapacity` is either constructed by both production node factories, or deleted. It may not remain built-and-unwired: today it appears only in two test files while `fabric-node.ts` and `browser-node.ts` both pass the opt-out sentinel
+  3. A peer cannot make a node allocate an unbounded buffer: `readMessage` enforces a declared maximum message size and calls `stream.abort()` past it. Today a single **64 MiB** frame was sent over the real transport and accepted
+  4. Dispatching N shards immediately after dial succeeds for N well above 12, or fails with a **stated, sender-attributed** reason. Today N=8 completes and N=12 fails entirely with `MaxEarlyStreamsError: Too many early streams - 11/10`, which calls `muxer.abort()` and tears down the whole connection — including in-limit requests and identify's stream
+  5. A connection torn down by the **sender** exceeding a stream limit is not classified by the coordinator as a **node** failure of the receiver
+  6. A sovereignty refusal reaches the requestor as a **named outcome** carrying its reason, not as an RPC timeout. Measured today: `rpc … timed out after 4000ms`, no label, no attribution, against a 30,000 ms default
+  7. A node asked for a raw sovereign block refuses, **whether or not it executed a task over that block**. Measured today: a submitting node that never ran the task holds no registration and serves the raw 95 bytes inside a 138-byte frame
+
+**Why this phase exists, and why it is inserted rather than appended.**
+
+Three defects, each measured against tcp + noise + yamux with real `FabricNode`s, not reasoned about:
+
+| Defect | Measurement |
+|---|---|
+| `serveAgent`'s `exec` branch has no admission control of any kind | 800 concurrent `execute()` calls, 0 refused |
+| `readMessage` accumulates peer-controlled chunks with no cap | one 64 MiB frame accepted |
+| Per-peer send opens one stream per message with no bound | cliff between 8 and 12 shards, whole connection torn down |
+
+`agent.ts` consults `options.capacity` **only** in the `offer` branch. The `exec` branch authorizes and then calls `await executor.execute(task)` with nothing counting what is in flight, and `rpc.ts` subscribes with a discarded promise per inbound frame, so there is no upstream throttle either. In production each of those slots is a `WebAssembly.compile` plus `instantiate` plus a linear memory.
+
+The apparent ceiling of 256 with one peer is the **sender's** `maxOutboundStreams`, not a receiver decision — which is why adding peers multiplies it linearly. The receiver makes no decision at all.
+
+**The urgency is `bin/bench.ts`.** It ships `const SHARDS = 8`, one below a measured cliff at 12. The approved multi-process benchmark phase would otherwise publish a scaling curve measured against an unfixed connection-killing limit, and the failure it produces blames the wrong node — so a straggler analysis would be reading sender overrun as receiver death.
+
+**This is not a queueing phase.** Criterion 1 wants a semaphore and a refusal, not a buffer: silently queueing an `exec` converts a refusal into unbounded latency and hides the load signal the placer needs. `ARCHITECTURE.md` §7.2 says the same thing — *"an over-committed node just says no, and the requestor resamples"* — and records that only half of it shipped. Criterion 3 wants a declared limit and an abort; a queue cannot bound a single frame. Only the per-peer send path in criterion 4 is a genuine bounded-queue site.
+
+**Amendment required to Phase 18.** Its Success Criterion 2 reads *"a node made to report itself over capacity refuses the **offer** with a stated reason."* That exercises the `offer` branch, so Phase 18 can pass in full while criterion 1 above stays open. Phase 18 gains: *a node at its execution slot limit refuses an `exec` request with a stated reason, and the requestor re-picks.*
+
+**Recorded, not fixed here:** `EgressGuard.#entries` grows one object per outbound frame for the node's lifetime and is peer-driven — the 800-request probe added 800 entries. Bounding it was considered during Phase 13 and deliberately not done: `submit-with-egress.ts` delta-slices `entries` so job-scoped manifests compose with concurrent readers, and a ring buffer would silently drop history a reader may be mid-slice on. It is a resource bound, not a correctness bug. If it is fixed later, follow `wasi-executor.ts`'s house style and **count what was dropped**, surfacing it in the manifest — a guard that silently stops guarding is the shape this project keeps removing.
+
+**How these were found.** A subagent was told to refute the claim that the fabric had no backpressure gap, and did, at a named site with a reproduction. Two of the claim's three legs broke. The leg that broke worst was the assertion that `over-committed: N of M slots in use` proved the project had chosen refusal deliberately — that string cannot be produced by any running node, because the only thing that emits it is constructed nowhere outside tests. A well-built mechanism was read and its wiring assumed. That is the defect this milestone exists to remove, reproduced in the course of arguing about it.
+
+### Phase 14: Signed Artifact Resolution
+**Goal**: A production node resolves a task's module through a `key → CID` mapping signed by a trusted build authority — never a bare CID — on the live dispatch path
+**Mode:** mvp
+**Depends on**: Phase 11
+**Requirements**: DET-03, DATA-08
+**Research**: None — `signName`/`SignedNameResolver` exist and are unit-verified in Phase 4; the work is routing production module resolution through them instead of resolving bare CIDs directly
+**Success Criteria** (what must be TRUE):
+  1. A production node resolving a task's module CID does so through a signed `key → CID` mapping; resolving a bare, unsigned CID directly is refused, with the refusal naming the missing signature
+  2. A mapping signed by a key outside the node's pinned trust anchors is refused at resolution time, before `WebAssembly.instantiate` runs, rather than being accepted because the CID itself is well-formed
+  3. Running `bin/agent.ts` against a real signed artifact resolves and executes it end to end, proving `signName`/`SignedNameResolver` sit on the production dispatch path rather than only in their own spec
+**Plans**: TBD
+
+### Phase 15: Capability-Chained Dispatch
+**Goal**: A task dispatched between two live nodes carries a capability chain rooted at the data owner's key, and the receiving node's `authorize` hook verifies it before `WebAssembly.instantiate` — both ends wired for the first time
+**Mode:** mvp
+**Depends on**: Phase 11
+**Requirements**: AUTH-03
+**Research**: None — `verifyChain` and the capability-chain format already exist and are unit-verified in Phase 4; the gap is `RemoteExecutor` never attaching a chain and no node ever supplying a real `authorize` hook (Phase 11 makes the hook explicit; this phase makes it real)
+**Success Criteria** (what must be TRUE):
+  1. A task dispatched through `bin/agent.ts` between two live nodes carries a capability chain attached by `RemoteExecutor`, and the receiving node's `authorize` hook verifies it before calling `WebAssembly.instantiate`
+  2. A task arriving with no capability chain, or one that has expired, is refused before instantiation, and the refusal names the missing or expired link, observable in the node's response
+  3. A validly delegated sub-chain (owner → intermediate → executor) is accepted, and a chain with a broken delegation link is refused, proving delegation depth is checked and not merely the chain's presence
+**Plans**: TBD
+
+### Phase 16: Decomposable Tree-Reduce Wiring
+**Goal**: A live multi-node job merges its shard partials by walking `executeReduce`'s derived tree, replacing the demo's linear scan
+**Mode:** mvp
+**Depends on**: Phase 12
+**Requirements**: MR-02, MR-03, MR-04, MR-05, MR-06, MR-07
+**Research**: None — `executeReduce`/`deriveReduceTree` exist and are unit-verified in Phase 5; the gap is that nothing calls them on a real job
+**Success Criteria** (what must be TRUE):
+  1. A job run through `bin/agent.ts` across 8 or more live nodes merges its shard partials by walking the derived reduce tree — not a linear scan — and the aggregate matches a single-node reference computation bit-for-bit
+  2. Killing a combine node mid-job during a run through `bin/agent.ts` causes its combine to be recomputed elsewhere from content-addressed inputs with no state transfer, and the job still completes with the correct aggregate
+  3. A duplicate combine result arriving late from a recovered node is discarded harmlessly because it carries the same CID — observable as the job completing without double-counting or erroring
+  4. `bin/bench.ts` reports the reduce-tree combine step (rendezvous-assigned executors, tree depth) as part of its measured job path, rather than bypassing `executeReduce` the way the demo currently does
+**Plans**: TBD
+
+### Phase 17: Node Identity & Enrollment
+**Goal**: A node generates its identity key on-device and completes a rate-limited, provider-signed enrollment before it is treated as a peer, and a peer verifies that certificate offline
+**Mode:** mvp
+**Depends on**: Phase 11
+**Requirements**: AUTH-01, AUTH-02, AUTH-04
+**Research**: None — `requestEnrollment`, `EnrollmentAuthority`, and `verifyCertificate` exist and are unit-verified in Phase 6; the gap is that nothing on the production startup path calls them, so a running node's identity is still the raw libp2p peer ID
+**Success Criteria** (what must be TRUE):
+  1. Starting a node via `bin/agent.ts` for the first time generates an identity key on-device and completes a rate-limited enrollment flow against a provider, receiving a provider-signed certificate — observable as the node's advertised identity being a certificate rather than a bare libp2p peer ID
+  2. A second node started via `bin/agent.ts` verifies the first node's certificate offline, with no live call to any certificate authority, before treating it as a legitimate peer, and rejects a self-signed or forged certificate with a named reason
+  3. Attempting to enroll many node identities in a burst through the same entry point is rate-limited — refused beyond a stated threshold rather than accepted unbounded — making mass fake-node creation measurably costly
+**Plans**: TBD
+
+### Phase 18: Discovery, Capacity & Placement
+**Goal**: A requestor with no static peer list finds candidates by querying real content-CID providers, samples and selects by load, and an over-committed node refuses work with a stated reason — on a real job, not a hand-built fabric
+**Mode:** mvp
+**Depends on**: Phase 17 (node identity feeds capability records), Phase 12 (owner label needed for the sovereignty-vs-cost ordering)
+**Requirements**: SCHED-01, SCHED-02, SCHED-03, SCHED-04, SCHED-05, NET-05
+**Research**: None — `discoverExecutors`, `placeWithOffers`, and `DutyCycleGovernor` exist and are unit-verified in Phases 1 and 6; the gap is that `discoverExecutors` and the `capacity` hook (made explicit in Phase 11) have no production caller, and the governor is wired on the browser tier only
+**Success Criteria** (what must be TRUE):
+  1. A job submitted through `bin/agent.ts` with no static peer list configured finds candidate executors by querying real content-CID providers intersected with capability records — not a hardcoded list — and dispatches successfully
+  2. Placement observed during that run samples multiple candidates and selects the least-loaded; a node made to report itself over capacity refuses the offer with a stated reason, visible in the requestor's re-pick, and the job still completes
+  2b. A node **at its execution slot limit refuses an `exec` request** with a stated reason naming the limit, and the requestor re-picks
+<!-- Criterion 2b added 2026-07-28. Criterion 2 exercises only the `offer` branch, and
+     `serveAgent` consults `capacity` *only* there — the `exec` branch authorizes and then calls
+     `await executor.execute(task)` with nothing counting what is in flight. Measured: 4 peers ×
+     200 concurrent `exec` requests produced 800 simultaneous `execute()` calls and zero
+     refusals. So Phase 18 could pass in full while that defect stayed wide open. Phase 13.1
+     closes it (SCHED-06); this criterion exists so Phase 18 cannot silently pass around it. -->
+
+  3. A user-set CPU duty-cycle cap set at runtime on a running node — Node tier and browser tier alike — is honoured immediately, and the node's advertised capacity to `discoverExecutors` drops accordingly, observable in what the requestor is offered next
+  4. A relay run via `bin/seed.ts` at reservation capacity reports the exhaustion by name to a joining node attempting to reserve, rather than the joiner failing indistinguishably from a network outage
+  5. Under artificial load pressure applied during a live run, a sovereignty-pinned task still lands on its owner even though a lower-cost non-owner node is available, proving the cost heuristic is filtered after the sovereignty constraint rather than scored against it
+**Plans**: TBD
+
+### Phase 19: Quorum Composition & Owner-Domain Attestation
+**Goal**: Verification quorums compose under anti-affinity with a backbone-anchored replica, owner-domain agreement is labelled distinctly from independent-operator agreement, and two browser tabs on a static bundle find each other with nothing dialed by a harness
+**Mode:** mvp
+**Depends on**: Phase 18, Phase 17
+**Requirements**: AUTH-05, NET-06, VER-03, VER-04, VER-08, VER-09, VER-10, WIRE-03
+**Research**: None — `composeQuorum`, `attestationReceipt`, and `resolveReplicaSets` exist and are unit-verified in Phase 6; the gap is that nothing on the production dispatch path calls them, and no test has ever put two tabs on a static bundle without a harness dialing for them
+**Constraints** (recorded 2026-07-28 by Phase 13, before criterion 2's plan is written):
+  - Raw sovereign data does not move between nodes, including two nodes the same owner controls — `EgressGuard.send` refuses any frame carrying a registered sovereign payload rather than forwarding it (Plan 13-04). Criterion 2 below is therefore reachable only if the owner has already placed the input on both of their live nodes; the fabric will not fetch it onto the second one. See the **Raw sovereign data does not move between nodes** row in `.planning/PROJECT.md`'s Key Decisions
+  - That refusal path has no runtime coverage in a real tab anywhere. `BrowserNode` composes the identical `EgressGuard` and `registerSovereignInputs` wiring `FabricNode` does, but no sovereign job has ever run in a browser, so the refusal branch is compiled and never executed. This is the same structural gap `12-VERIFICATION.md` recorded and `13-03-PLAN.md` already routed to WIRE-03; naming it here so the WIRE-03 planner knows there is now a *behavior* to exercise and not only a composition to inspect
+  - **Browser-tier testing standard, one host and several browsers** (owner ruling, 2026-07-28): Playwright multi-browser on this machine — `instances: [{browser:'chromium'},{browser:'firefox'},{browser:'webkit'}]` — each peer in its own **isolated browser context** so it gets its own origin storage and IndexedDB, plus a **locally-started Circuit Relay v2 peer to dial**. Three engines on one host are three independent implementations and three independent storage backends; they are **not** three machines, and no result obtained this way may be labelled cross-machine or distributed-hardware. This standard is what makes criterion 4 runnable at all, and it **unblocks four items deferred for want of a multi-browser environment**: `BrowserNode.start()` has no dedicated runtime test anywhere in the repository (Phase 11, `11-VERIFICATION.md`); `BrowserNode`'s `guardSovereignty` wiring has zero runtime proof (Phase 12, `12-VERIFICATION.md`); `BrowserNode.egress` is unproven at runtime (Phase 13, threat T-13-08 in `13-03-PLAN.md`); and the Phase 13 `EgressGuard` refusal inherits into the browser tier untested (`13-VERIFICATION-2.md`). The recorded root cause is one sentence shared by all four — `BrowserNode.start()` needs a real `indexedDB` and a relay to dial, so it runs in **neither** vitest project. Full statement in REQUIREMENTS.md under WIRE-03
+**Success Criteria** (what must be TRUE):
+  1. A verification quorum assembled during a job run through `bin/agent.ts` contains at least one backbone-anchored replica and no two replicas from the same operator — a run engineered to try to fill a quorum from one operator's nodes is refused rather than silently accepted
+  2. Several node certificates chaining to one owner's user key resolve, through `bin/agent.ts`, as a single discoverable replica set; a sovereignty-pinned task with two or more of that owner's nodes live executes on two of them, the outputs are compared, and the receipt reports the agreement as owner-domain, not independent-operator
+  3. The same task with only one of that owner's nodes live executes once, and the resulting receipt reads owner-attested rather than verified, wherever it is displayed — CLI output, demo UI, or job result
+  4. Two browser peers opened against the static demo bundle — no seed process running, no `/bootstrap.json`, nothing dialed by a test harness — discover each other via the wired `index`/`reservations` hooks and complete a job together, proving browser peers participate in routing as full peers rather than only through backbone-served fallback. Run on **one host** under Playwright multi-browser (`chromium`, `firefox`, `webkit`), each peer in its own isolated context, against a locally-started relay — see the browser-tier testing standard in Constraints above; the result is a one-host result and is labelled as one
+**Plans**: TBD
+
+### Phase 20: Single Job Path, Ledger & Churn Resilience
+**Goal**: `submitJob` becomes the one job path — lease renewal, speculation, and coverage accounting live inside it, not in a second uncalled implementation — and the peer ledger records real cross-node outcomes instead of discarding them
+**Mode:** mvp
+**Depends on**: Phase 18, Phase 19
+**Requirements**: WIRE-04, CHURN-01, CHURN-02, CHURN-03, CHURN-04, CHURN-05, CHURN-06, BROW-02
+**Research**: None — `runResilient`'s lease/speculation/coverage machinery exists and is unit-verified in Phase 7; the gap is that nothing calls it, so `submitJob` is the only reachable job path and it does neither. `ledger` (made explicit in Phase 11) is supplied by no node in production
+**Success Criteria** (what must be TRUE):
+  1. `submitJob` is the only function a caller uses to run a job through `bin/agent.ts` — it performs lease renewal, speculation, and coverage accounting internally; `runResilient` no longer exists as a separate, uncalled entry point, either merged in or removed
+  2. Killing 30% of participating node processes mid-job, run through `bin/agent.ts`, still produces the correct final result, with re-dispatches visible in the job's history output
+  3. A straggler task is duplicated speculatively during a live run, the first correct result wins, and the job's reported cost accounting includes the speculation multiplier
+  4. A cross-owner job run with some owners' nodes offline returns a coverage report (`covered: X/Y`) alongside its result, rather than presenting a silently partial aggregate as complete
+  5. The browser demo's peer activity ledger, viewed across two or more connected tabs, shows merged counts contributed by every connected peer — not zero — because every node now supplies `serveAgent`'s `ledger` hook and reported outcomes are recorded rather than discarded
+**Plans**: TBD
+
+### Phase 21: AOT Translation Signing & Runtime
+**Goal**: `translationCid` is called by the lift pipeline itself and the CLI emits the CID it produces; a production node constructs a real `WasiExecutor` so a translated artifact dispatched to a running node executes instead of failing at instantiate
+**Mode:** mvp
+**Depends on**: Phase 11. Otherwise independent of Phases 12-20 and runs in parallel with them, mirroring how Phase 10 ran parallel to Phases 4-9 in v1.0
+**Requirements**: AOT-02, AOT-04
+**Research**: None — `translationCid`, the `TranslationRecord` cache-key shape, and port conformance against a real elfconv artifact all exist and are verified in Phase 10; the gap is that the lift pipeline never calls `translationCid` and no production node builds a `WasiExecutor`
+**Success Criteria** (what must be TRUE):
+  1. Running `tools/aot/cli.ts` against a real AArch64 binary produces a `TranslationRecord` whose CID covers input digest, toolchain versions, target, and WASM feature set, and the CLI prints that CID to the operator
+  2. Re-tagging a local translated image under a different name and pointing the CLI at it is refused rather than hashed under the borrowed name, and changing any one covered input changes the emitted CID
+  3. A translated artifact produced by `tools/aot/cli.ts`, dispatched to a live node started via `bin/agent.ts`, executes successfully — the node constructs a real `WasiExecutor` in production, completing the same admission and verification path as a source-compiled module
+**Plans**: TBD
+
+### Phase 22: Reachability Guard
+**Goal**: A guard test fails when a capability exported from a package barrel has no traced call path from any of the five runnable entry points — the class of defect this milestone exists to fix, made permanent
+**Mode:** mvp
+**Depends on**: Phases 11-21 — runs last because it verifies what all eleven other phases claim to have wired
+**Requirements**: WIRE-02
+**Research**: None — the pattern to follow is `purity.node.test.ts`, which already enforces a structural property (no forbidden imports in a portable package) against real files rather than a mock. This guard does the same for call-graph reachability instead of import origin
+**Success Criteria** (what must be TRUE):
+  1. Running the reachability guard after Phases 11-21 land passes clean — every capability exported from a package barrel has a traced call path from one of the five runnable entry points (`bin/agent.ts`, `bin/seed.ts`, `bin/bench.ts`, `tools/aot/cli.ts`, the browser demo)
+  2. Reintroducing the original defect — commenting out a wired call site, or adding a new exported-but-uncalled function — fails the guard, naming the unreachable symbol and the barrel it came from, the same way `purity.node.test.ts` names a layering violation
+  3. The guard runs as part of the same CI gate as the rest of the suite, so a future change that builds a mechanism without wiring it to an entry point fails CI rather than merging silently, the way the original 36 did
+**Plans**: TBD
+
 ## Progress
 
 **Execution Order:**
-Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 → 9 → 10
+Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 → 9 → 10 → 11 → 12 → 13 → 14 → 15 → 16 → 17 → 18 → 19 → 20 → 21 → 22
 
 Parallel tracks (config `parallelization: true`):
 - Phase 9 (benchmark) runs alongside Phases 7-8 against the dispatch API frozen in Phase 6
-- Phase 11 (elfconv AOT) runs alongside everything from Phase 4 onward; it only needs Phase 5's signing infrastructure to land before its own exit
+- Phase 10 (elfconv AOT) runs alongside everything from Phase 4 onward; it only needs Phase 5's signing infrastructure to land before its own exit
+- Phase 21 (AOT translation signing & runtime) needs only Phase 11's hook contract and can run parallel to Phases 12-20, mirroring how Phase 10 ran parallel to Phases 4-9 in v1.0
 
 <!-- "Plans Complete" is a dash throughout: this project executes phases directly
      and records each in `phases/<name>/SUMMARY.md` rather than as numbered plans. -->
@@ -245,11 +538,43 @@ Parallel tracks (config `parallelization: true`):
 | 5. Decomposable Tree-Reduce | — | Built and unit-verified; **not wired** — `executeReduce` has no caller; the demo merges with a linear scan | 2026-07-25 |
 | 6. Discovery, Placement & Enrollment | — | Built and unit-verified; **not wired** — `discoverExecutors` and `requestEnrollment` have no callers | 2026-07-26 |
 | 7. Churn, Stragglers & Coordinator Survival | — | Built and unit-verified; **not wired** — `runResilient` has no caller, and `submitJob` is the only job path | 2026-07-26 |
-| 8. Benchmark Harness | — | 4 of 5 criteria — BENCH-06 distinct machines needs a second machine | 2026-07-26 |
+| 8. Benchmark Harness | — | 4 of 5 criteria — BENCH-06's distinct-machine half descoped to one host 2026-07-28; unmeasured, not met | 2026-07-26 |
 | 9. Public Demo, Consent UX & Disclosure Gate | — | Complete — the two-device run was done by the owner and found two defects | 2026-07-26 |
-| 10. elfconv AOT Native→WASM Pipeline | — | 3 of 4 criteria — code cache measured and does not happen; cross-machine CID needs a second machine | 2026-07-27 |
+| 10. elfconv AOT Native→WASM Pipeline | — | 3 of 4 criteria — code cache measured and does not happen; cross-machine CID descoped to one host 2026-07-28, unmeasured, not met | 2026-07-27 |
+| 11. Explicit serveAgent Hook Contract | 1/1 | Complete   | 2026-07-27 |
+| 12. Sovereignty-Pinned Placement | 4/4 | Complete   | 2026-07-27 |
+| 13. Egress Manifest Completeness | 3/3 | Complete   | 2026-07-27 |
+| 14. Signed Artifact Resolution | 0/TBD | Not started | - |
+| 15. Capability-Chained Dispatch | 0/TBD | Not started | - |
+| 16. Decomposable Tree-Reduce Wiring | 0/TBD | Not started | - |
+| 17. Node Identity & Enrollment | 0/TBD | Not started | - |
+| 18. Discovery, Capacity & Placement | 0/TBD | Not started | - |
+| 19. Quorum Composition & Owner-Domain Attestation | 0/TBD | Not started | - |
+| 20. Single Job Path, Ledger & Churn Resilience | 0/TBD | Not started | - |
+| 21. AOT Translation Signing & Runtime | 0/TBD | Not started | - |
+| 22. Reachability Guard | 0/TBD | Not started | - |
+
+### Phase 23: Multi-Process Benchmark Driver
+**Goal**: The benchmark harness spawns N real operating-system processes instead of N `FabricNode`s on one event loop, so a parallel speedup is measurable at all — and the project's central scaling claim stops being unmeasured
+**Mode:** mvp
+**Depends on**: Phase 8 (the existing harness), Phase 12 (the spawn pattern)
+**Requirements**: BENCH-07 (new)
+**Research**: None — `sovereignty-placement.node.test.ts` and `two-process.node.test.ts` already spawn real `bin/agent.ts` processes via `spawn(process.execPath, [AGENT, '--dir', dir, ...])`. The work is moving `bin/bench.ts`'s node construction onto that pattern
+**Success Criteria** (what must be TRUE):
+  1. A benchmark run at N nodes spawns N operating-system processes, verified by reading the child PIDs, and the published run records them — a run that silently falls back to in-process nodes fails the harness rather than reporting a curve
+  2. Makespan at N=1 and N=8 differ on a fixture with enough work to saturate a core, and the ratio is published; a flat curve is a finding, but it must be a finding about the fabric rather than about the harness
+  3. The two real-transport rungs Phase 8 published as excluded (8 and 16 nodes, dying on `INBOUND_CONNECTION_THRESHOLD = 5` per host) either run, or are re-excluded with a measurement showing the per-host inbound cap is still the cause under separate processes
+  4. `BENCHMARK-RESULTS.md` states, for every published figure, whether it came from the single-process or the multi-process driver — no figure is silently replaced
+
+**Why this phase exists.** Phase 8's own SUMMARY says it plainly: *"Every node in both curves runs inside one OS process on one JavaScript event loop ... no parallel speedup is measurable here at all ... the scaling claim remains unmeasured."* That has been read ever since as part of the BENCH-06 "needs a second machine" blocker. It is not. Phase 8 named the cheaper remedy itself — separate OS processes on one host — and Phase 12 has since built exactly that spawn harness for an unrelated reason. The blocker moved and nobody noticed.
+
+**What this phase is not.** It does not make a one-host curve a distributed one. BENCH-06 was rewritten on 2026-07-28 to what one host establishes; the distinct-machine claim it used to carry is **descoped and unmeasured — not met, and not transferred to this phase**. A same-host run has one CPU, one V8 and one libc, so it cannot detect divergence between machines whatever the process count. Phase 8's rule that a same-machine run is labelled as such carries forward unchanged, and AOT-03's `CROSS_MACHINE_BLIND_SPOT` is untouched by any of this.
+
+**Trap to avoid.** The COST crossover published at ~570× measures the guest ABI on a trivial fixture, not the fabric. Criterion 2 requires a fixture that does non-trivial work, or the new curve reproduces the old one's real problem with more processes.
 
 ## Requirement Coverage
+
+### v1.0 (Phases 1-10)
 
 72 of 72 v1 requirements mapped, each to exactly one phase.
 
@@ -267,46 +592,74 @@ Parallel tracks (config `parallelization: true`):
 | 10 | AOT-01, AOT-02, AOT-03, AOT-04, AOT-05 | 5 |
 | **Total** | | **72** |
 
+Note: the "Phase" column above records where each requirement's *mechanism* was built.
+36 of these 72 were reclassified `[ ]` **Built, not wired** by the v1.0 audit — the
+mechanism exists at the phase listed, but no runnable entry point reaches it. See the
+v1.1 table below for where each is being wired.
+
+### v1.1 — Wire What Was Built (Phases 11-22)
+
+44 of 44 v1.1-scoped requirements mapped, each to exactly one phase — 40 existing IDs
+reclassified *Built, not wired* by the v1.0 audit, plus 4 new IDs (WIRE-01…04) that have
+no v1 equivalent.
+
+| Phase | Requirements | Count |
+|-------|--------------|-------|
+| 11 | WIRE-01 | 1 |
+| 12 | DATA-03, DATA-04, DATA-07, DATA-09 | 4 |
+| 13 | DATA-05, DATA-06 | 2 |
+| 14 | DET-03, DATA-08 | 2 |
+| 15 | AUTH-03 | 1 |
+| 16 | MR-02, MR-03, MR-04, MR-05, MR-06, MR-07 | 6 |
+| 17 | AUTH-01, AUTH-02, AUTH-04 | 3 |
+| 18 | SCHED-01, SCHED-02, SCHED-03, SCHED-04, SCHED-05, NET-05 | 6 |
+| 19 | AUTH-05, NET-06, VER-03, VER-04, VER-08, VER-09, VER-10, WIRE-03 | 8 |
+| 20 | WIRE-04, CHURN-01, CHURN-02, CHURN-03, CHURN-04, CHURN-05, CHURN-06, BROW-02 | 8 |
+| 21 | AOT-02, AOT-04 | 2 |
+| 22 | WIRE-02 | 1 |
+| **Total** | | **44** |
+
+Explicitly out of scope for v1.1 — not mapped to any v1.1 phase, stay open against their
+v1.0 phase: **NET-03** (Phase 3 — needs a publicly reachable host), **BENCH-06** (Phase 8)
+and **AOT-03** (Phase 10) — both rewritten 2026-07-28 to what one host establishes, with
+their cross-machine halves **descoped and unmeasured, not met** — and **AOT-05** (Phase 10
+— a measured negative, reported unmet rather than reworded).
+
 ---
 
-## Next milestone — v1.1: Wire What Was Built
+## Milestone v1.1 — Wire What Was Built (Phases 11-22)
 
-**Added 2026-07-27, as the direct output of the v1.0 milestone audit.**
+**Added 2026-07-27, as the direct output of the v1.0 milestone audit.** Phases 11-22
+above are the real phase breakdown; this section replaces the earlier scoping
+placeholder.
 
 v1.0 built four phases' worth of mechanism that no runnable entry point reaches:
 sovereignty labelling, tree-reduce, discovery, enrollment, quorum composition,
-capability chains, and the entire churn coordinator. 36 requirements are *Built, not
-wired*. The code is real and tested; the wire is missing.
+capability chains, and the entire churn coordinator. 36 requirements were *Built, not
+wired*. The code is real and tested; the wire was missing.
 
-The structural cause is one shape, repeated: `serveAgent` declares six optional hooks
-with silent defaults, and production supplies almost none of them. A hook that defaults
-to "allow", "empty", or "accept" turns an unwired capability into a *working system
-that quietly does nothing* — which is why none of this failed a test.
+**The sequencing is deliberate, not alphabetical.** Phase 11 fixes the structural
+cause — `serveAgent`'s six silently-defaulting hooks become an explicit, compile-checked
+contract — before anything else, because that is what turns the remaining 35
+requirements into build failures at their call sites rather than something a person has
+to go looking for a year later. Phases 12-15 wire sovereignty, egress, signing, and
+capability dispatch (the mechanism built in v1.0 Phase 4); Phase 16 wires tree-reduce
+(v1.0 Phase 5); Phases 17-19 wire identity, discovery, placement, and quorum composition
+(v1.0 Phase 6, split three ways at fine granularity — enrollment and certificates first,
+since discovery and quorum composition consume them); Phase 20 collapses `runResilient`
+and `submitJob` into the one job path and wires churn resilience plus the peer ledger
+(v1.0 Phase 7, plus two partials); Phase 21 finishes the AOT pipeline's two open wiring
+gaps (v1.0 Phase 10); Phase 22 is the reachability guard that would have caught this
+milestone happening in the first place — it runs last because it verifies the other
+eleven phases actually did what they claim.
 
-**Goal**: every requirement marked *Built, not wired* becomes reachable from a runnable
-entry point, or is deliberately descoped with the reason recorded.
+Almost no code here is algorithmically novel — the mechanisms already exist, unit-tested,
+in the v1.0 phase directories. Each v1.1 phase's job is to make a runnable entry point
+(`bin/agent.ts`, `bin/seed.ts`, `bin/bench.ts`, `tools/aot/cli.ts`, or the browser demo)
+actually call it.
 
-**Candidate criteria** (to be firmed up in `/gsd-plan-phase`):
-
-1. `serveAgent`'s optional hooks stop defaulting silently. A node that supplies no
-   `authorize` should be a decision someone made, not a default nobody noticed — the
-   audit found `ledger` supplied *nowhere*, in production or in a single test.
-2. A dispatched task carries a capability chain and the serving node verifies it before
-   `WebAssembly.instantiate` — both ends, since today neither exists.
-3. `JobSpec`/`Task` carry an owner label, and the real job path consults the
-   sovereignty gate. Today `executorsFor` is unconditional round-robin.
-4. Both nodes wrap their transport in `EgressGuard`, so the manifest is complete by
-   construction as designed rather than only in a test.
-5. One job path, not two. Either `submitJob` grows lease/speculation/coverage, or
-   `runResilient` becomes the entry point — the present arrangement is a second job
-   implementation nothing calls.
-6. `translationCid` is called by the lift pipeline, and the CLI emits the CID.
-7. A production node can construct a `WasiExecutor`, so a translated artifact
-   dispatched to a running node does not fail at instantiate.
-8. **A test that would have caught this class.** The audit found the defect; no test
-   could have. Something that asserts reachability from an entry point — the same role
-   `purity.node.test.ts` plays for layering.
-
-**Not in v1.1**: NET-03, BENCH-06 and AOT-03 stay open until there is a public host and
-a second machine. AOT-05 stays a measured negative unless a re-run on an `https` origin
-with a non-automated Chromium says otherwise.
+**Not in v1.1** (per PROJECT.md): NET-03 (needs a publicly reachable host), BENCH-06 and
+AOT-03 (rewritten 2026-07-28 to what one host establishes; their cross-machine halves are
+descoped and unmeasured, not met — see PROJECT.md's residual entry), AOT-05 (a measured
+negative — reported unmet rather than reworded until re-run against an `https` origin says
+otherwise).

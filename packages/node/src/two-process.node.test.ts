@@ -5,7 +5,7 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { submitJob } from '@o2/core'
+import { publicNodes, submitJob } from '@o2/core'
 import type { CanonicalValue } from '@o2/core'
 import { RemoteExecutor } from '@o2/net'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -135,14 +135,16 @@ describe('NET-01 — a job across OS processes', () => {
     // empty directory, so it cannot possibly have it except by asking.
     const moduleCid = await submitter.store.put(MODULE_WRITES_PARTITION)
 
+    const executors = [
+      new RemoteExecutor(w1.peerId, submitter.rpc),
+      new RemoteExecutor(w2.peerId, submitter.rpc),
+    ]
     const result = await submitJob(
       {
         moduleCid,
-        shards: [{ a: 0 }, { a: 1 }, { a: 2 }, { a: 3 }],
-        executors: [
-          new RemoteExecutor(w1.peerId, submitter.rpc),
-          new RemoteExecutor(w2.peerId, submitter.rpc),
-        ],
+        shards: [{ a: 0 }, { a: 1 }, { a: 2 }, { a: 3 }].map((value) => ({ value, label: 'public' as const })),
+        executors,
+        nodes: publicNodes(executors),
         redundancy: 2,
       },
       submitter.store,
@@ -171,11 +173,13 @@ describe('NET-01 — a job across OS processes', () => {
     await submitter.dial(worker.multiaddrs[0]!)
 
     const moduleCid = await submitter.store.put(MODULE_WRITES_PARTITION)
+    const executors = [new RemoteExecutor(worker.peerId, submitter.rpc)]
     const result = await submitJob(
       {
         moduleCid,
-        shards: [{ a: 0 }, { a: 1 }],
-        executors: [new RemoteExecutor(worker.peerId, submitter.rpc)],
+        shards: [{ a: 0 }, { a: 1 }].map((value) => ({ value, label: 'public' as const })),
+        executors,
+        nodes: publicNodes(executors),
         redundancy: 1,
       },
       submitter.store,
@@ -208,14 +212,16 @@ describe('NET-01 — a job across OS processes', () => {
     // A volunteer node vanishing is the normal case in this fabric, not an error.
     await stopAgent(w2)
 
+    const executors = [
+      new RemoteExecutor(w1.peerId, submitter.rpc),
+      new RemoteExecutor(w2.peerId, submitter.rpc),
+    ]
     const result = await submitJob(
       {
         moduleCid,
-        shards: [{ a: 0 }],
-        executors: [
-          new RemoteExecutor(w1.peerId, submitter.rpc),
-          new RemoteExecutor(w2.peerId, submitter.rpc),
-        ],
+        shards: [{ value: { a: 0 }, label: 'public' }],
+        executors,
+        nodes: publicNodes(executors),
         redundancy: 2,
       },
       submitter.store,

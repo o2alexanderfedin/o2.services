@@ -90,7 +90,13 @@ async function fabricOf(options: { workers: number; maxConcurrent?: number }): P
     rpc: seedRpc,
     executor: new WasmExecutor({ nodeId: SEED, blockstore: seedStore }),
     blockstore: seedStore,
+    egress: 'holds-no-registrations',
+    authorize: 'serves-unauthenticated',
     index,
+    capacity: 'accepts-every-offer',
+    ledger: 'keeps-no-ledger',
+    reservations: 'relays-for-nobody',
+    onDispatch: 'reports-no-dispatch',
   })
 
   // One dataset block, held by every worker. This is the CID the requestor queries.
@@ -134,7 +140,13 @@ async function fabricOf(options: { workers: number; maxConcurrent?: number }): P
       rpc,
       executor: new WasmExecutor({ nodeId: nodeKey, blockstore: store }),
       blockstore: store,
+      egress: 'holds-no-registrations',
+      authorize: 'serves-unauthenticated',
+      index: 'serves-no-records',
       capacity,
+      ledger: 'keeps-no-ledger',
+      reservations: 'relays-for-nobody',
+      onDispatch: 'reports-no-dispatch',
     })
 
     index.provide(inputCid, nodeKey)
@@ -207,6 +219,9 @@ describe('criterion 1 — a requestor with no peer list runs a job', () => {
             inputCid: fabric.inputCid,
             partitionIndex,
             partitionCount: 4,
+            // Correction 2: parseRequest now refuses an exec request with no
+            // label at the wire boundary.
+            label: 'public',
           })
         }),
       )

@@ -38,9 +38,9 @@ export type { WasmExecutorOptions } from './executor/wasm.ts'
 export { commitmentDigest, executeVerified } from './job/verify.ts'
 export type { Commitment, Receipt, Reveal, VerificationResult } from './job/verify.ts'
 
-// Job submission — MR-01, DATA-01.
+// Job submission — MR-01, DATA-01, DATA-03, DATA-04.
 export { submitJob } from './job/submit.ts'
-export type { JobResult, JobSpec, ShardResult, SubmitError, SubmitResult } from './job/submit.ts'
+export type { JobResult, JobSpec, ShardResult, ShardSpec, SubmitError, SubmitResult } from './job/submit.ts'
 
 // Adapters.
 export { MemoryBlockstore } from './blockstore/memory.ts'
@@ -50,7 +50,7 @@ export { DutyCycleGovernor } from './governor.ts'
 export type { DutyCycleOptions, Sleep } from './governor.ts'
 
 // Sovereignty and placement — DATA-03, DATA-06, DATA-09.
-export { eligibleNodes, planPlacement } from './sovereignty.ts'
+export { eligibleNodes, planPlacement, publicNodes } from './sovereignty.ts'
 export type {
   NodeDescriptor,
   OwnerId,
@@ -59,6 +59,10 @@ export type {
   PlacementRequest,
   Sovereignty,
 } from './sovereignty.ts'
+
+// Serving-side sovereignty gate — DATA-09.
+export { guardSovereignty } from './executor/sovereignty-guard.ts'
+export type { NodeSovereignty } from './executor/sovereignty-guard.ts'
 
 // Power-of-d placement with rejection and re-pick — SCHED-02, SCHED-03, SCHED-05.
 export {
