@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   DEFAULT_D,
+  DEFAULT_MAX_CONCURRENT_TASKS,
   LocalCapacity,
   placeWithOffers,
   planWithOffers,
@@ -324,6 +325,75 @@ describe('LocalCapacity — a node decides from its own counters', () => {
     expect(() => new LocalCapacity({ nodeId: 'n', maxConcurrent: 0 })).toThrow(RangeError)
     expect(() => new LocalCapacity({ nodeId: 'n', maxConcurrent: 1, dutyCycle: 0 })).toThrow(RangeError)
     expect(() => new LocalCapacity({ nodeId: 'n', maxConcurrent: 1, dutyCycle: 1.5 })).toThrow(RangeError)
+  })
+
+  it('answers `would` without consuming the thing being asked about', () => {
+    const capacity = new LocalCapacity({ nodeId: 'n0', maxConcurrent: 1 })
+    for (let i = 0; i < 10; i++) {
+      expect(capacity.would({ shardId: 'probe', nodeId: 'n0' })).toEqual({ accepted: true })
+    }
+    expect(capacity.inFlight).toBe(0)
+    // An offer is a question; asking it ten times must leave the node as free as it
+    // was. This is the demo's liveness prober (`browser/demo/main.ts`), which sends
+    // `{kind:'offer', shardId:'probe'}` to every connected peer.
+    expect(capacity.peakInFlight).toBe(0)
+  })
+
+  it('refuses through `would` with the identical string `offer` produces', () => {
+    const capacity = new LocalCapacity({ nodeId: 'n0', maxConcurrent: 8, dutyCycle: 0.25 })
+    expect(capacity.slots).toBe(2)
+    expect(capacity.offer({ shardId: 's0', nodeId: 'n0' }).accepted).toBe(true)
+    expect(capacity.offer({ shardId: 's1', nodeId: 'n0' }).accepted).toBe(true)
+
+    const asked = capacity.would({ shardId: 's2', nodeId: 'n0' })
+    const taken = capacity.offer({ shardId: 's2', nodeId: 'n0' })
+    expect(asked.accepted).toBe(false)
+    expect(taken.accepted).toBe(false)
+    if (asked.accepted || taken.accepted) return
+    // Equality between the two, not two literals: a literal repeated here would
+    // drift with the code it exists to pin. The literal is asserted once, above,
+    // by 'accepts up to its slot count and then refuses with the numbers'.
+    expect(asked.reason).toBe(taken.reason)
+    expect(asked.reason).toBe('over-committed: 2 of 2 slots in use at duty cycle 0.25')
+  })
+
+  it('reports an in-flight shard through `would` without taking a second slot', () => {
+    const capacity = new LocalCapacity({ nodeId: 'n0', maxConcurrent: 4 })
+    capacity.offer({ shardId: 's0', nodeId: 'n0' })
+    const again = capacity.would({ shardId: 's0', nodeId: 'n0' })
+    expect(again.accepted).toBe(false)
+    if (again.accepted) return
+    expect(again.reason).toContain('already in flight')
+    expect(capacity.inFlight).toBe(1)
+  })
+
+  it('remembers the high-water mark of reservations after every one is released', () => {
+    const capacity = new LocalCapacity({ nodeId: 'n0', maxConcurrent: 4 })
+    for (const shardId of ['s0', 's1', 's2']) capacity.offer({ shardId, nodeId: 'n0' })
+    expect(capacity.peakInFlight).toBe(3)
+    for (const shardId of ['s0', 's1', 's2']) capacity.release(shardId)
+    expect(capacity.inFlight).toBe(0)
+    // A high-water mark that could fall would answer "was this node ever
+    // saturated?" with whatever happened to be true when somebody read it.
+    expect(capacity.peakInFlight).toBe(3)
+  })
+
+  it('counts only accepted reservations in the high-water mark', () => {
+    const capacity = new LocalCapacity({ nodeId: 'n0', maxConcurrent: 1 })
+    expect(capacity.offer({ shardId: 's0', nodeId: 'n0' }).accepted).toBe(true)
+    for (let i = 1; i <= 5; i++) {
+      expect(capacity.offer({ shardId: `s${i}`, nodeId: 'n0' }).accepted).toBe(false)
+    }
+    expect(capacity.peakInFlight).toBe(1)
+  })
+
+  it('ships an admission default between a usable floor and the measured defect', () => {
+    expect(Number.isInteger(DEFAULT_MAX_CONCURRENT_TASKS)).toBe(true)
+    // The floor is the shipped configuration choice; the ceiling is the roadmap
+    // probe's measured reading of 800 simultaneous `execute()` calls with zero
+    // refusals. Neither endpoint is derived from a model of any workload.
+    expect(DEFAULT_MAX_CONCURRENT_TASKS).toBeGreaterThanOrEqual(64)
+    expect(DEFAULT_MAX_CONCURRENT_TASKS).toBeLessThan(800)
   })
 })
 

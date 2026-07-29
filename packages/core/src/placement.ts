@@ -220,9 +220,21 @@ export async function planWithOffers(
   options: OfferOptions = {},
 ): Promise<readonly OfferedPlacement[]> {
   const placements: OfferedPlacement[] = []
-  // Sequential on purpose: admission reserves capacity, so two shards placed
-  // concurrently against the same node would both see the pre-offer count and
-  // over-commit it — the same concurrency hole the duty-cycle governor had.
+  // Sequential on purpose, and the reason now holds for only one of the two ways
+  // this is called. An in-process `admit` that calls `LocalCapacity.offer`
+  // directly — the form `placement.test.ts` uses — reserves capacity, so two
+  // shards placed concurrently against the same node would both see the
+  // pre-offer count and over-commit it, the same concurrency hole the duty-cycle
+  // governor had. Sequential placement still closes that, and that is what the
+  // existing spec pins.
+  //
+  // Over the wire it no longer holds: `rpcAdmission` reaches `serveAgent`'s
+  // `offer` branch, which since Phase 13.1 answers through
+  // `LocalCapacity.would` and reserves nothing. The reservation moved to the
+  // `exec` branch, where the CPU is actually consumed (`net/src/agent.ts`).
+  // Wire-side multi-shard over-commit protection is therefore gone and is Phase
+  // 18's to rebuild; `net/src/discovery.test.ts` pins the consequence so it is
+  // visible rather than silent.
   for (const request of requests) {
     placements.push(await placeWithOffers(request, nodes, options))
   }
@@ -258,6 +270,7 @@ export class LocalCapacity {
   readonly #slots: number
   readonly #dutyCycle: number
   readonly #inFlight = new Set<string>()
+  #peak = 0
 
   constructor(options: CapacityOptions) {
     if (!Number.isInteger(options.maxConcurrent) || options.maxConcurrent < 1) {
@@ -290,8 +303,82 @@ export class LocalCapacity {
     return this.#inFlight.size / this.#slots
   }
 
-  /** Decide on an offer, reserving a slot when accepted. */
+  /**
+   * The high-water mark of concurrent reservations, which never decreases.
+   *
+   * What it is for: SCHED-06's criterion 1 is read off an instrument *inside* the
+   * node under test, because a `FabricNode`'s internal executor is not reachable
+   * from outside the factory by design. The count of slots concurrently held
+   * around `executor.execute` is the honest reading available to a test that
+   * started a real node.
+   *
+   * What it is **not**: it measures slots held, not `execute` invocations. The two
+   * coincide only because `serveAgent`'s exec branch acquires immediately before
+   * the call and releases in a `finally` immediately after — a property of
+   * `net/src/agent.ts`, not of this class. It also cannot exceed `slots`, because
+   * `#decide` returns the refusal before `#inFlight.add` is ever reached, so
+   * `peakInFlight <= slots` is arithmetic and can never fail. Reading it as
+   * evidence that a bound held is therefore wrong; what it can say is that the
+   * limit was actually *reached* rather than never approached. A count that can
+   * exceed the bound — and so falsify it — has to come from around the executor
+   * itself (`@o2/net`'s `CountingExecutor`).
+   *
+   * It never decreases on release. A high-water mark that could fall would answer
+   * "was this node ever saturated?" with whatever happened to be true at the
+   * moment somebody read it.
+   */
+  get peakInFlight(): number {
+    return this.#peak
+  }
+
+  /**
+   * Decide on an offer **without** reserving anything — the non-reserving twin of
+   * `offer`.
+   *
+   * Caller: `serveAgent`'s `offer` branch (`net/src/agent.ts`). An offer is a
+   * *question*, and answering a question must not consume the thing being asked
+   * about.
+   *
+   * Why this exists rather than the offer branch comparing `slots` and `inFlight`
+   * inline: the refusal string `over-committed: N of M slots in use` is
+   * wire-visible and SCHED-06 requires it by name. A second construction of it in
+   * `@o2/net` would drift from this one with nothing failing.
+   *
+   * The trap it closes, recorded because it is this phase's largest risk and will
+   * otherwise be reintroduced: reserving on `offer` **leaks**. An `exec` request
+   * carries no shard id (`net/src/protocol.ts` encodes `moduleCid`, `inputCid`,
+   * `partitionIndex`, `partitionCount`, `label`, `ownerId`, `capability` — no
+   * shard id), so no serving node can correlate an offer reservation with the
+   * exec that would redeem it. And there is a live prober: `browser/demo/main.ts`
+   * sends `{kind:'offer', shardId:'probe'}` to every connected peer on every
+   * `computePeers()` call. A reserving offer branch would let one demo tab
+   * permanently occupy a slot named `probe` on every peer it can see, after which
+   * every later tab's probe is refused with `probe is already in flight here` —
+   * a node that fills its own slot table from liveness probes and then refuses
+   * all work.
+   */
+  would(offer: Offer): Admission {
+    return this.#decide(offer)
+  }
+
+  /**
+   * Decide on an offer, reserving a slot when accepted.
+   *
+   * The only production caller of the reserving form is `serveAgent`'s `exec`
+   * branch (`net/src/agent.ts`), which releases in a `finally` around the
+   * executor call. Everything that reserves must release, or the node admits
+   * correctly for exactly `slots` tasks and then refuses everything forever.
+   */
   offer(offer: Offer): Admission {
+    const decision = this.#decide(offer)
+    if (!decision.accepted) return decision
+    this.#inFlight.add(offer.shardId)
+    this.#peak = Math.max(this.#peak, this.#inFlight.size)
+    return decision
+  }
+
+  /** The decision half, shared by `offer` and `would`. Mutates nothing. */
+  #decide(offer: Offer): Admission {
     if (this.#inFlight.has(offer.shardId)) {
       return { accepted: false, reason: `${offer.shardId} is already in flight here` }
     }
@@ -302,7 +389,6 @@ export class LocalCapacity {
         reason: `over-committed: ${this.#inFlight.size} of ${this.#slots} slots in use${throttled}`,
       }
     }
-    this.#inFlight.add(offer.shardId)
     return { accepted: true }
   }
 
@@ -311,3 +397,74 @@ export class LocalCapacity {
     this.#inFlight.delete(shardId)
   }
 }
+
+/**
+ * The admission limit a node ships with when its factory is given no override.
+ *
+ * **This is a configuration choice, not a derived quantity.** No arithmetic over
+ * shard counts, replica counts or peer counts produced it, and none may be
+ * written into this doc, into any other comment, or into a summary. Three
+ * separate attempts to derive a per-node concurrent-`exec` figure from real code
+ * produced three different wrong answers; the most recent was wrong because
+ * `planPlacement` takes `ordered.slice(0, redundancy)` over *distinct* nodes
+ * (`sovereignty.ts`), so no node ever holds two replicas of one shard.
+ *
+ * What may be stated is the shipped value — 64 — and the measured defect it sits
+ * below: the roadmap's probe fired 4 peers × 200 concurrent `exec` requests at
+ * one node and an instrument inside that node read **800 simultaneous
+ * `execute()` calls and zero refusals**. 800 is that probe's reading, not a model
+ * of anything. If a workload's peak is ever stated at all, it must be a figure
+ * that was *measured*, carrying the date it was measured on.
+ *
+ * **Why an admission bound is needed at all**, as a structural fact read from
+ * source and carrying no arithmetic: a job's whole dispatch set is genuinely
+ * concurrent. `submitJob` runs every shard through one `Promise.all`
+ * (`job/submit.ts`) and `executeVerified` runs every replica of a shard through
+ * another (`job/verify.ts`), so nothing staggers them. That says the set arrives
+ * together; it says **nothing** about how large the set is, and no size may be
+ * computed from it. It is also why a spec that dispatches 32 or 64 requests at
+ * once is a realistic shape rather than a synthetic stress — that is how a job
+ * already arrives.
+ *
+ * **Where the bound applies**, also structural: a tab's own local executor takes
+ * **no** admission slot. Admission lives on `serveAgent`'s exec branch, and a
+ * local call never reaches it (`browser/demo/main.ts` puts `node.executor` in the
+ * executor list directly). A slot count is therefore a statement about work
+ * *peers sent this node*, and a reading taken from a node that is also executing
+ * locally is a reading of two different things unless the local path is excluded.
+ *
+ * **What it is not derived from.** It is **not** derived from the per-peer send
+ * gate Phase 13.1 adds to `Libp2pTransport`, and nothing may say that gate bounds
+ * how many `exec` requests reach a node. The gate bounds concurrent *streams*
+ * toward one peer. Request and execution are decoupled all the way down:
+ * `Transport.send` is a one-way datagram that resolves when `stream.close()`
+ * completes, the registered handler awaits `readMessage` and dispatches
+ * synchronously, and `RpcEndpoint` subscribes with `void this.#receive(...)`. A
+ * stream is released as soon as the request bytes have landed, long before the
+ * task it carries has run. How many `exec` requests are consequently in flight at
+ * a node under any given workload is a **measured** quantity, and it is not
+ * predicted here.
+ *
+ * **The consequence, stated rather than left to be discovered: refusal without a
+ * re-pick turns a previously slow job into a failed job on the production submit
+ * path.** `submitJob` calls `executeVerified(task, selectedExecutors)` exactly
+ * once with no retry; `net/src/remote-executor.ts` flattens the `{kind:'error'}`
+ * refusal into `{ok:false, reason}`; `job/verify.ts` records it against
+ * `executor.nodeId` and the shard is not `agreed`, so `job.complete` is false.
+ * Before this phase a saturated node queued the work and eventually answered.
+ *
+ * **This default is not claimed to put that refusal out of reach.** Whether the
+ * refusal is reached under any workload this project runs is **unmeasured**:
+ * nothing in this repository reads a node's concurrent `exec` count under a demo
+ * or benchmark workload, and no arithmetic substitutes for reading it. What would
+ * measure it is `@o2/net`'s `CountingExecutor` reading exposed on the node, taken
+ * from a multi-tab demo run — which needs the browser e2e harness (WIRE-03,
+ * Phase 19). What would *remove* it rather than measure it is a re-pick on the
+ * production submit path (WIRE-04, Phase 20).
+ *
+ * It is a **default**: both node factories accept an override, and `bin/bench.ts`
+ * declares its own value explicitly rather than inheriting this one — a published
+ * scaling curve shaped by an undeclared admission limit is exactly the failure
+ * this milestone exists to remove.
+ */
+export const DEFAULT_MAX_CONCURRENT_TASKS = 64

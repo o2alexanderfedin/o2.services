@@ -67,6 +67,7 @@ export type { NodeSovereignty } from './executor/sovereignty-guard.ts'
 // Power-of-d placement with rejection and re-pick — SCHED-02, SCHED-03, SCHED-05.
 export {
   DEFAULT_D,
+  DEFAULT_MAX_CONCURRENT_TASKS,
   LocalCapacity,
   MAX_D,
   MIN_D,
