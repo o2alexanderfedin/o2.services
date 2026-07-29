@@ -277,8 +277,21 @@ code, not the reports. -->
       excluded
 - [x] **BENCH-05**: A COST crossover is published — the node count at which the
       system beats a competent single-threaded implementation
-- [ ] **BENCH-06**: Benchmarks run across distinct machines, and any same-machine
-      measurement is labelled as such
+- [ ] **BENCH-06**: Benchmarks run across N independent operating-system processes on one
+      host; every published run records its machine inventory; and the same-machine label
+      stays **required and derived from that inventory**, never declared — sixteen nodes on
+      one laptop are reported as sixteen processes on one machine, not as sixteen nodes.
+      **The distinct-machine claim is descoped, not satisfied.** It is unmeasured, and
+      unmeasured is not met. A same-host run **cannot** detect divergence between machines,
+      because it has one CPU, one V8 and one libc: every process shares an instruction set,
+      an engine build and a system library, so the very variables a cross-machine benchmark
+      exists to expose are held constant by construction. The original cross-machine risk
+      stands exactly where Phase 8 left it, unmeasured and now unscheduled. What this
+      rewrite *does* buy is real and is tracked separately as **BENCH-07** (Phase 23, the
+      multi-process benchmark driver): moving off one event loop makes a parallel speedup
+      measurable at all, which the single-process harness could not do at any N. That is the
+      honest one-machine win. It is not a distributed measurement and must never be
+      published as one
 
 ### Demo & Disclosure
 
@@ -305,10 +318,24 @@ code, not the reports. -->
       covering input digest, toolchain versions, target, and WASM feature set;
       pinned to a hardcoded conformance CID, and the image is keyed by digest so a
       re-tagged local image is refused rather than hashed under a borrowed name
-- [ ] **AOT-03**: Translation is reproducible — identical inputs yield an identical
-      CID. **Same-host only.** Two lifts here are byte-identical; cross-machine is
-      unmeasured and carried as a structural blind spot, because elfconv's
-      register promotion iterates pointer-keyed containers. Needs a second machine
+- [ ] **AOT-03**: Translation is reproducible on one host — repeated lifts of identical
+      input bytes, each running the toolchain in its own freshly spawned container process
+      on this machine, produce byte-identical artifacts and therefore an identical CID.
+      Measured: two lifts minutes apart, `sha256 490eeed5…`, same `inputDigest`, same
+      toolchain versions, same feature set.
+      **The cross-machine claim is descoped, not satisfied.** It is unmeasured, and
+      unmeasured is not met — two lifts on two hosts have still never been compared.
+      **`CROSS_MACHINE_BLIND_SPOT` stays attached to every artifact and stays printed by
+      the CLI.** Phase 10 established that the blind spot is **structural, not
+      configurational**: elfconv's virtual-register promotion iterates a pointer-keyed
+      `std::unordered_map` and a `std::set<BBBag*>`, whose iteration order is an
+      address-space property, so no flag, no version pin and no image digest removes it.
+      Descoping this requirement removes neither the marker nor the risk it names, and the
+      `never claims cross-machine reproducibility` guard in `tools/aot/lift.node.test.ts`
+      stays in force.
+      *(Status: the one-host half is established. The box stays unchecked because the
+      descoped cross-machine half is carried as unmeasured rather than as met — an
+      unchecked box here understates on purpose, which is the safe direction.)*
 - [x] **AOT-04**: A translated artifact executes on the fabric under the same
       admission checks and verification as a source-compiled one — proved through
       the `@o2/aot` barrel, and the ABI verified against a real elfconv artifact
@@ -363,10 +390,46 @@ table below and in the audit.
       has no call path from any runnable entry point, so v1.0's finding cannot recur
       silently. Same role `purity.node.test.ts` plays for layering: the audit found this
       class of defect and **no test could have**
-- [ ] **WIRE-03**: Two browser tabs served a static bundle — no seed process, no
+- [ ] **WIRE-03**: Two browser peers served a static bundle — no seed process, no
       `/bootstrap.json`, nothing dialled by the harness — discover each other and
       complete a job. The browser-tier equivalent of the rendezvous defect already fixed
-      one tier down, and the one route with no end-to-end coverage
+      one tier down, and the one route with no end-to-end coverage.
+
+      **The standard for browser-tier coverage is one host, several browsers** (owner
+      ruling, 2026-07-28). Playwright multi-browser on this machine —
+      `instances: [{browser:'chromium'},{browser:'firefox'},{browser:'webkit'}]` — with
+      each peer in its own **isolated browser context**, so each gets its own origin
+      storage and its own IndexedDB, plus a **locally-started Circuit Relay v2 peer for
+      them to dial**. Three engines on one host are three independent JavaScript/WASM
+      implementations and three independent storage backends. They are **not** three
+      machines: one CPU, one OS, one loopback. Nothing measured this way may be labelled a
+      cross-machine or distributed-hardware result.
+
+      **This unblocks four items that were each deferred for want of a multi-browser
+      environment.** They are named here so they stop being invisible:
+      1. **`BrowserNode.start()` has no dedicated runtime test anywhere in the repository**
+         — found in Phase 11 (`11-VERIFICATION.md`, "An honest limit"). Its only caller in
+         the whole tree besides its own file is the demo entry point; the call site's
+         correctness rests on `tsc` and a source-text guard, not on a dispatch through a
+         running node
+      2. **`BrowserNode`'s `guardSovereignty` wiring has zero runtime proof** — Phase 12
+         (`12-VERIFICATION.md`, `12-04-SUMMARY.md`). Call-site *existence* was verified by
+         grep; composition-correctness was not, and was reported as such rather than
+         declared proven
+      3. **`BrowserNode.egress` is unproven at runtime** — Phase 13, threat T-13-08 in
+         `13-03-PLAN.md`, accepted and routed here rather than silently absorbed
+      4. **The `EgressGuard` refusal added in Phase 13 inherits into the browser tier
+         untested** — `13-VERIFICATION-2.md` deferred item: `BrowserNode` composes the
+         identical guard wiring `FabricNode` does, but no sovereign job has ever run in a
+         browser, so the refusal branch is compiled and has never executed in a real tab.
+         There is now a *behaviour* to exercise, not only a composition to inspect
+
+      **The recorded root cause of all four is one sentence**, and it is the same sentence
+      in every one of those documents: `BrowserNode.start()` needs a real `indexedDB` and a
+      relay to dial, so it runs in **neither** vitest project — the `node` project has no
+      `indexedDB`, and the `browser` project has no Node-side relay to dial against. The
+      standard above removes exactly that obstacle, which is why these four are listed
+      against this requirement and not against four separate ones
 - [ ] **WIRE-04**: The fabric has exactly one job entry point. Submitting a job gets
       lease renewal, speculation and coverage accounting without the caller choosing
       between two functions — today `runResilient` is a second job implementation that
@@ -417,18 +480,21 @@ inference.
 
 - [ ] **BENCH-07**: The benchmark harness spawns N operating-system processes rather than
       N nodes on one event loop, and a makespan difference between N=1 and N=8 is
-      measurable on a fixture that saturates a core. Distinct from BENCH-06, which needs a
-      second machine and stays open — this one needs only separate processes on one host,
-      which Phase 8's own summary named as the cheaper remedy and Phase 12 has since built
-      the spawn pattern for
+      measurable on a fixture that saturates a core. Needs only separate processes on one
+      host, which Phase 8's own summary named as the cheaper remedy and Phase 12 has since
+      built the spawn pattern for. **This is the driver work; BENCH-06 is the reporting
+      discipline it runs under** — machine inventory recorded, same-machine label derived
+      and retained — **and BENCH-06's distinct-machine half is descoped and unmeasured, not
+      met.** Spawning N processes on one host does not close it and must not be published
+      as though it had: one host has one CPU, one V8 and one libc
 
 ### Explicitly not in v1.1
 
 | Requirement | Why it stays open |
 |---|---|
 | **NET-03** — real AutoTLS | Needs a publicly reachable host. Outward-facing and a hosting decision, not a code one |
-| **BENCH-06** — distinct-machine benchmarks | Needs a second machine |
-| **AOT-03** — cross-machine reproducible CID | **The same** second machine. BENCH-06 and AOT-03 are one blocker wearing two numbers |
+| **BENCH-06** — one-host multi-process benchmarks | Rewritten 2026-07-28 to what one host establishes: N independent OS processes, machine inventory recorded, same-machine label retained and derived. The distinct-machine half is **descoped and unmeasured — not met**. The process work itself is not in this milestone either; it lands in Phase 23 as **BENCH-07** |
+| **AOT-03** — one-host reproducible CID | Rewritten 2026-07-28 the same way: byte-identical artifacts across repeated lifts in separate spawned toolchain processes on this machine. The cross-machine half is **descoped and unmeasured — not met**, and `CROSS_MACHINE_BLIND_SPOT` stays on every artifact because Phase 10 showed it is structural rather than configurational |
 | **AOT-05** — V8 code-cache hit | Not blocked on anything. It was measured with two controls and the answer is no. Re-running it against an `https` origin and a non-automated Chromium is worth doing, but it stays a negative until that says otherwise |
 
 ---
@@ -534,14 +600,14 @@ criteria.
 | BENCH-03 | Phase 8 — Benchmark Harness | Done |
 | BENCH-04 | Phase 8 — Benchmark Harness | Done |
 | BENCH-05 | Phase 8 — Benchmark Harness | Done |
-| BENCH-06 | Phase 8 — Benchmark Harness | Partial — same-machine labelling enforced and derived; distinct-machine runs need a second machine |
+| BENCH-06 | Phase 8 — Benchmark Harness | Partial — machine inventory is a required field and the same-machine label is derived from it, not declared; the N-independent-processes half lands in Phase 23 via BENCH-07. Distinct-machine benchmarking **descoped 2026-07-28 and unmeasured — not met** |
 | DEMO-01 | Phase 9 — Public Demo, Consent UX & Disclosure Gate | Done |
 | DEMO-02 | Phase 9 — Public Demo, Consent UX & Disclosure Gate | Done |
 | DEMO-03 | Phase 9 — Public Demo, Consent UX & Disclosure Gate | Done |
 | DEMO-04 | Phase 9 — Public Demo, Consent UX & Disclosure Gate | Done |
 | AOT-01 | Phase 10 — elfconv AOT Native→WASM Pipeline | Done |
 | AOT-02 | Phase 21 — AOT Translation Signing & Runtime | **Built, not wired** — translationCid is never called by the lift pipeline; the CLI emits no CID and builds no TranslationRecord |
-| AOT-03 | Phase 10 — elfconv AOT Native→WASM Pipeline | Partial — same-host only; cross-machine needs a second machine |
+| AOT-03 | Phase 10 — elfconv AOT Native→WASM Pipeline | Partial — the one-host half is established: repeated lifts in separate spawned toolchain processes are byte-identical. Cross-machine **descoped 2026-07-28 and unmeasured — not met**; `CROSS_MACHINE_BLIND_SPOT` stays on every artifact |
 | AOT-04 | Phase 21 — AOT Translation Signing & Runtime | **Partial** — port conformance is proved through the @o2/aot barrel; no production node constructs a WasiExecutor, so a translated artifact dispatched to a running node fails at instantiate |
 | AOT-05 | Phase 10 — elfconv AOT Native→WASM Pipeline | **Partial** — loadArtifact is exported and e2e-measured, but the demo loads its kernel from bundled base64 — the loader is not on the page’s own module path |
 | WIRE-01 | Phase 11 — Explicit serveAgent Hook Contract | **Done** — all six hooks required as `T \| '<named-absence>'`; omitting one is a compile error naming the property. Verified 3/3 independently: the mutation produced `Unused '@ts-expect-error' directive`, and swapping `fabric-node`'s real `reservations` thunk for the sentinel broke both the count guard and `rendezvous-wire.node.test.ts` |
@@ -552,5 +618,7 @@ criteria.
 **Coverage: 76/76 mapped. No orphans, no duplicates.** (72 v1 + 4 v1.1-only WIRE
 requirements. Of the 72, 40 are in v1.1 scope for wiring — see
 `.planning/ROADMAP.md`'s "v1.1 — Wire What Was Built" coverage table; the remaining 32
-are `Done`, and NET-03/BENCH-06/AOT-03/AOT-05 stay open, blocked on hardware/hosting or
-a measured negative, explicitly excluded from v1.1.)
+are `Done`, and NET-03/BENCH-06/AOT-03/AOT-05 stay open and are explicitly excluded from
+v1.1 — NET-03 on a hosting decision, AOT-05 as a measured negative, and BENCH-06/AOT-03
+with their cross-machine halves descoped to one host on 2026-07-28 and recorded as
+unmeasured rather than as met.)

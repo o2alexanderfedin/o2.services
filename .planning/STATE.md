@@ -62,7 +62,9 @@ Test Files  124 · Tests 1798 · tsc --noEmit clean   (independently re-run, not
 
 ```
 Test Files  122 · Tests 1775 · tsc --noEmit clean   (v1.0 closed at 112 / 1673)
-Ledger      32 / 72 wired · 36 built-not-wired · 4 blocked on hardware or measured
+Ledger      32 / 72 wired · 36 built-not-wired · 4 open: hosting, a measured
+            negative, and two whose cross-machine halves are descoped to one host
+            (2026-07-28) and recorded as unmeasured, not met
 v1.1        7 of 44 requirements closed
 ```
 
@@ -480,6 +482,23 @@ None yet.
 
 ### Blockers/Concerns
 
+**Three items are owner-blocked and unaffected by the 2026-07-28 testing-standard ruling:**
+the US provisional patent deadline (below), a hosted relay with real AutoTLS (NET-03,
+Phase 3 criterion 2), and GitHub Pages serving the pre-Phase-9 bundle (below). *"A second
+machine"* used to be a fourth. It is not a blocker any more — it has been struck, and its
+residual is recorded immediately below rather than dropped.
+
+- **Residual of the same-machine testing standard (owner ruling, 2026-07-28) — recorded,
+  not blocking.** Same machine, different browsers and/or different browser contexts and
+  different OS processes, is the project's testing standard everywhere. So no criterion of
+  this project's own is waiting on a second machine. The residual is that
+  **cross-machine reproducibility (AOT-03) and distinct-machine benchmarking (BENCH-06)
+  are unverified by choice**, and closing either would need hardware the project does not
+  have. Both requirements were rewritten to what one host genuinely establishes; **neither
+  descoped half may be reported as demonstrated.** `CROSS_MACHINE_BLIND_SPOT` stays on
+  every lifted artifact — Phase 10 showed it is structural, not configurational — and the
+  same-machine benchmark label stays required and derived from the recorded inventory.
+
 - **Disclosure gate: CROSSED on 2026-07-26.** The repository was made public by explicit
   owner decision, after being told that EPO and China have no patent grace period and
   that the loss is permanent. **EPO and China patent rights for everything disclosed as
@@ -546,10 +565,12 @@ verification gap)
 (no static determinism analysis, no cross-implementation verification, no host-import
 allow-list). Still current; they apply to every later phase.
 
-**Phase 3 still needs a human decision for the "public host" halves.** Real AutoTLS
-(criterion 2) and "two tabs on *different machines*" (criterion 1) both require
-publicly reachable infrastructure — outward-facing and hard to reverse, and it
-collides with the disclosure gate below (now crossed — but a public relay is still a
-hosting decision, not a disclosure one). Deliberately not done autonomously. The
-WebRTC path itself is proven locally, so crossing machines should need no code change,
-only a different relay address.
+**Phase 3 still needs a human decision for the "public host" half.** Real AutoTLS
+(criterion 2) requires publicly reachable infrastructure — outward-facing and hard to
+reverse, and it collides with the disclosure gate above (now crossed — but a public relay
+is still a hosting decision, not a disclosure one). Deliberately not done autonomously.
+**Criterion 1 is no longer part of this.** It was restated on 2026-07-28 to two browsers
+or two isolated browser contexts on one machine, per the testing-standard ruling, and it
+had already been closed in a stronger form than the restatement asks — an iPhone running
+Safari and a laptop running Chromium, on genuinely different machines, over direct WebRTC
+with the relay carrying SDP only. That stronger result stands in the record.
