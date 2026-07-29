@@ -29,7 +29,7 @@
 import { peerIdFromString } from '@libp2p/peer-id'
 import type { Libp2p, Stream } from '@libp2p/interface'
 import type { Transport } from '@o2/core'
-import { WIRE_CHUNK_BYTES } from './constants.ts'
+import { MAX_INBOUND_MESSAGE_BYTES, WIRE_CHUNK_BYTES } from './constants.ts'
 
 /** The fabric's own protocol id, versioned so a later wire change is negotiable. */
 export const O2_RPC_PROTOCOL = '/o2/rpc/1.0.0'
@@ -51,10 +51,46 @@ export interface Libp2pTransportOptions {
    */
   readonly maxInboundStreams?: number
   readonly maxOutboundStreams?: number
+  /**
+   * NET-08 — largest single inbound message this transport will accumulate.
+   *
+   * Defaults to {@link MAX_INBOUND_MESSAGE_BYTES}. It exists as an option so a
+   * test can shrink it to a few KiB and reproduce the abort in milliseconds
+   * rather than shipping megabytes through a suite —
+   * `packages/node/src/transport-bounds.node.test.ts` does exactly that, and then
+   * proves separately that the shipped default is the enforced value and not only
+   * the override.
+   *
+   * Plan 13.1-05 threads it from both node factories. Today neither passes
+   * `Libp2pTransportOptions` at all (`fabric-node.ts` and `browser-node.ts` both
+   * call `Libp2pTransport.start(libp2p)` bare), so this is the first option that
+   * needs threading.
+   */
+  readonly maxMessageBytes?: number
 }
 
-/** Collect one whole message from a stream that ends when the sender closes write. */
-async function readMessage(stream: Stream): Promise<Uint8Array<ArrayBuffer>> {
+/**
+ * Collect one whole message from a stream that ends when the sender closes write.
+ *
+ * NET-08: `total` is bounded **during** accumulation. A cap applied after the loop
+ * has already paid for the allocation it exists to prevent — the peer chose how
+ * many chunks to send and how big the sum would be, and both `chunks` and the
+ * `new Uint8Array(total)` below are that choice made concrete. Checking after the
+ * fact would report the overrun having already suffered it, which is the whole
+ * content of the requirement.
+ */
+class InboundTooLarge extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'InboundTooLarge'
+  }
+}
+
+async function readMessage(
+  stream: Stream,
+  max: number,
+  from: string,
+): Promise<Uint8Array<ArrayBuffer>> {
   const chunks: Uint8Array[] = []
   let total = 0
   for await (const chunk of stream) {
@@ -63,6 +99,15 @@ async function readMessage(stream: Stream): Promise<Uint8Array<ArrayBuffer>> {
     const flat = chunk instanceof Uint8Array ? chunk : chunk.subarray()
     chunks.push(flat)
     total += flat.byteLength
+    if (total > max) {
+      // Named so an operator reads the refusal without a debugger: who sent it,
+      // what the declared bound was, and how far the accumulation had got.
+      const error = new InboundTooLarge(
+        `inbound message from ${from} exceeds ${max} bytes (reached ${total}) — stream aborted`,
+      )
+      stream.abort(error)
+      throw error
+    }
   }
   const message = new Uint8Array(total)
   let offset = 0
@@ -78,11 +123,14 @@ export class Libp2pTransport implements Transport {
   readonly #libp2p: Libp2p
   readonly #handlers = new Set<Handler>()
   readonly #sendTimeoutMs: number
+  readonly #maxMessageBytes: number
+  #refusedInbound = 0
   #stopped = false
 
-  private constructor(libp2p: Libp2p, sendTimeoutMs: number) {
+  private constructor(libp2p: Libp2p, sendTimeoutMs: number, maxMessageBytes: number) {
     this.#libp2p = libp2p
     this.#sendTimeoutMs = sendTimeoutMs
+    this.#maxMessageBytes = maxMessageBytes
     this.localId = libp2p.peerId.toString()
   }
 
@@ -91,14 +139,38 @@ export class Libp2pTransport implements Transport {
     libp2p: Libp2p,
     options: Libp2pTransportOptions = {},
   ): Promise<Libp2pTransport> {
-    const transport = new Libp2pTransport(libp2p, options.sendTimeoutMs ?? DEFAULT_SEND_TIMEOUT_MS)
+    const transport = new Libp2pTransport(
+      libp2p,
+      options.sendTimeoutMs ?? DEFAULT_SEND_TIMEOUT_MS,
+      options.maxMessageBytes ?? MAX_INBOUND_MESSAGE_BYTES,
+    )
 
     await libp2p.handle(
       O2_RPC_PROTOCOL,
       async (stream, connection) => {
         const from = connection.remotePeer.toString()
         try {
-          const message = await readMessage(stream)
+          let message: Uint8Array<ArrayBuffer>
+          try {
+            message = await readMessage(stream, transport.#maxMessageBytes, from)
+          } catch (cause) {
+            // NET-08: `readMessage` has already aborted the *stream*, and the
+            // connection is expected to survive. Measured 2026-07-29 in
+            // `transport-bounds.node.test.ts`: an in-limit message sent
+            // immediately after a refusal is still delivered.
+            //
+            // This `catch` is here to make the refusal countable and to keep a
+            // rejected handler promise out of libp2p's delivery path, **not**
+            // because letting it escape kills the connection — that was checked by
+            // replacing this body with a bare rethrow, and all three cases stayed
+            // green.
+            //
+            // Only the cap's own refusal is counted. A peer that dies mid-message
+            // also lands here, and counting that would make `refusedInbound` a
+            // reading nobody could interpret.
+            if (cause instanceof InboundTooLarge) transport.#refusedInbound += 1
+            return
+          }
           transport.#dispatch(from, message)
         } finally {
           // Best effort: the peer may already have gone away, and a failure to
@@ -150,6 +222,19 @@ export class Libp2pTransport implements Transport {
     return () => {
       this.#handlers.delete(handler)
     }
+  }
+
+  /**
+   * NET-08 — inbound messages this node refused for exceeding its declared cap.
+   *
+   * The house style this project keeps returning to: `FetchingBlockstore.rejected`
+   * is asserted in `fabric-node.node.test.ts` for the same reason. A guard that
+   * silently starts refusing *everything* is indistinguishable from a quiet
+   * network, and a counter is what makes the difference readable. It counts the
+   * cap's refusals only — a peer that dies mid-message is not a refusal.
+   */
+  get refusedInbound(): number {
+    return this.#refusedInbound
   }
 
   /** Currently connected peers. Reflects live connections, not a static list. */

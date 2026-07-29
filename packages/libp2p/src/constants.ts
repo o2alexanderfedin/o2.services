@@ -87,3 +87,32 @@ export const WEBRTC_MAX_BUFFERED_BYTES = 2_097_152
  * path. Uniform framing across transports is worth more than TCP throughput here.
  */
 export const WIRE_CHUNK_BYTES: number = WEBRTC_MAX_MESSAGE_BYTES
+
+/**
+ * NET-08 — the largest single inbound message this node will accumulate. **8 MiB.**
+ *
+ * Unlike everything above it, this is **not** a libp2p default. It is this
+ * project's own declared ceiling, and it is a **configuration choice** — no
+ * arithmetic produces it. It exists because nothing below this line was ever
+ * bounding the sum: `WIRE_CHUNK_BYTES` is send-side framing only, and yamux's
+ * receive window paces delivery without capping the total, so `readMessage` would
+ * accumulate whatever a peer chose to send. A single 64 MiB frame was sent over
+ * tcp + noise + yamux and accepted (ROADMAP.md, Phase 13.1 criterion 3).
+ *
+ * Sited against three figures somebody actually recorded, not against a workload
+ * anybody computed:
+ *
+ *   - **above** the 100 KiB block `fabric-node.node.test.ts` deliberately carries
+ *     to exercise the chunking and reassembly paths;
+ *   - **above** the largest artifact this project has produced — a 5.6 MB elfconv
+ *     output, ~4.8 MB after summarisation (`10-VERIFICATION.md:16,146`);
+ *   - **below** the 64 MiB frame the roadmap measured accepted.
+ *
+ * If some workload's frame size ever matters here, measure it and record the
+ * measured figure with its date. Do not compute one from demo or job source.
+ *
+ * `Libp2pTransportOptions.maxMessageBytes` overrides it per transport;
+ * `transport-bounds.node.test.ts` proves the shipped value is the enforced one and
+ * not only the override.
+ */
+export const MAX_INBOUND_MESSAGE_BYTES = 8_388_608
