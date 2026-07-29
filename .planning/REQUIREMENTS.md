@@ -386,18 +386,18 @@ inference.
       `LocalCapacity`, the only thing that can emit the refusal, is constructed nowhere
       outside two test files while both production factories pass the opt-out sentinel.
       It gets wired or deleted; it does not stay built-and-unreachable
-- [ ] **NET-07**: A peer cannot make a node allocate an unbounded buffer. `readMessage`
+- [ ] **NET-08**: A peer cannot make a node allocate an unbounded buffer. `readMessage`
       enforces a declared maximum message size and aborts the stream past it — today a
       single **64 MiB** frame was sent over the real transport and accepted, because
       `WIRE_CHUNK_BYTES` is send-side framing only and yamux's window paces delivery
       without capping the total
-- [ ] **NET-08**: Dispatching N shards immediately after dial either succeeds well above
+- [ ] **NET-09**: Dispatching N shards immediately after dial either succeeds well above
       12 or fails with a stated, **sender-attributed** reason. Today N=8 completes and
       N=12 fails entirely on `MaxEarlyStreamsError: Too many early streams - 11/10`, a
       hardcoded libp2p default that aborts the whole connection — so in-limit requests die
       too, and the requestor blames the *receiving* node for a limit the sender blew
       through. `bin/bench.ts` ships `SHARDS = 8`, one below the cliff
-- [ ] **NET-09**: A refusal reaches the requestor as a **named outcome**, not as a
+- [ ] **NET-10**: A refusal reaches the requestor as a **named outcome**, not as a
       timeout. Today `rpc.ts`'s responding leg swallows the error — its comment says "The
       requester will time out" — so a sovereignty refusal is measured arriving as
       `rpc … timed out after 4000ms` with no label and no attribution. A requestor cannot
