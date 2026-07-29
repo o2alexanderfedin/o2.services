@@ -76,9 +76,16 @@ import { ping } from '@libp2p/ping'
 import { tcp } from '@libp2p/tcp'
 import { webSockets } from '@libp2p/websockets'
 import { multiaddr } from '@multiformats/multiaddr'
-import { MemoryBlockstore, WasmExecutor, guardSovereignty } from '@o2/core'
+import {
+  DEFAULT_MAX_CONCURRENT_TASKS,
+  LocalCapacity,
+  MemoryBlockstore,
+  WasmExecutor,
+  guardSovereignty,
+} from '@o2/core'
 import type { Blockstore, Executor, NodeSovereignty } from '@o2/core'
 import {
+  CountingExecutor,
   EgressGuard,
   FetchingBlockstore,
   registerSovereignInputs,
@@ -127,6 +134,47 @@ export interface FabricNodeOptions {
    * module comment's "why there is no second class".
    */
   readonly sovereignty?: NodeSovereignty
+  /**
+   * Tasks this node will run at once before it refuses an `exec` request with its
+   * own words — SCHED-06.
+   *
+   * Defaults to `DEFAULT_MAX_CONCURRENT_TASKS` (`@o2/core`, which is the only place
+   * that carries the value). Like `sovereignty` above, this is a per-node capacity
+   * and **not** a node class: every `FabricNode` has the identical executor,
+   * transport and relay capability whatever this is set to, nothing anywhere
+   * branches on it, and a node with two slots serves exactly the same requests as
+   * one with sixty-four — it just holds fewer at a time. See the module comment's
+   * "why there is no second class".
+   *
+   * It is an option rather than only a constant for two reasons, both about being
+   * able to *see* the refusal rather than assume it. A test that wants to observe
+   * one has to be able to make one certain rather than hope for it. And
+   * `bin/bench.ts` declares its own value explicitly, so a published scaling curve
+   * states the admission limit it was measured under instead of inheriting whatever
+   * default happened to ship that week.
+   *
+   * Passed straight through, never clamped: `LocalCapacity`'s constructor refuses a
+   * value below 1 with a `RangeError` naming it, and sanitising here would turn a
+   * caller's mistake into a silently different node.
+   */
+  readonly maxConcurrentTasks?: number
+  /**
+   * Largest single inbound frame this node will accumulate before it aborts the
+   * stream — NET-08.
+   *
+   * Defaults to `MAX_INBOUND_MESSAGE_BYTES` (`@o2/libp2p`, which carries the value).
+   * This is the first `Libp2pTransportOptions` field this factory has ever passed:
+   * before it, both node factories called `Libp2pTransport.start(libp2p)` bare, so
+   * the whole option surface was unreachable from a node however well it was built.
+   *
+   * The send-side gate's own bounds — `maxConcurrentStreamsPerPeer` and
+   * `maxQueuedSendsPerPeer` — are deliberately **not** exposed here. They are
+   * protocol-safety values sited against libp2p's operative `maxEarlyStreams`
+   * default of 10, not deployment choices, and a knob would invite somebody to raise
+   * the concurrency past 10 and reintroduce the connection tear-down the gate exists
+   * to prevent.
+   */
+  readonly maxMessageBytes?: number
   /**
    * Multiaddrs to listen on. Port 0 asks the OS for a free port.
    *
@@ -239,6 +287,29 @@ export class FabricNode {
    */
   readonly store: Blockstore
   readonly executor: Executor
+  /**
+   * This node's execution admission control — SCHED-06.
+   *
+   * Named `admission` and not `capacity` because `capacity` on this class already
+   * means something else and has since NET-05: the relay *reservation* capacity
+   * below. Two unrelated meanings of one word on one object is how a reader ends up
+   * asserting the wrong number.
+   *
+   * `admission.slots` is the declared limit and `admission.peakInFlight` says
+   * whether the limit was ever **reached**. It does **not** say whether the limit
+   * **held**: `LocalCapacity.offer()` returns its refusal before the reservation is
+   * taken, so `peakInFlight <= slots` is an arithmetic property of that class and
+   * cannot fail, whatever `serveAgent` does. The reading that can falsify the bound
+   * is {@link executorPeakInFlight}, which counts calls that actually happened and
+   * can therefore read any number at all.
+   */
+  readonly admission: LocalCapacity
+  /**
+   * The instrument {@link executorPeakInFlight} reads. The same object as
+   * {@link executor} — `CountingExecutor` is composed outermost, so nothing can
+   * reach this node's executor without being counted.
+   */
+  readonly #counter: CountingExecutor
   readonly #limit: number
   readonly #pending: number
   readonly #inboundPerSecond: number
@@ -250,7 +321,8 @@ export class FabricNode {
     egress: EgressGuard
     blockstore: FetchingBlockstore
     store: Blockstore
-    executor: Executor
+    executor: CountingExecutor
+    admission: LocalCapacity
     limit: number
     pending: number
     inboundPerSecond: number
@@ -262,9 +334,36 @@ export class FabricNode {
     this.blockstore = parts.blockstore
     this.store = parts.store
     this.executor = parts.executor
+    this.#counter = parts.executor
+    this.admission = parts.admission
     this.#limit = parts.limit
     this.#pending = parts.pending
     this.#inboundPerSecond = parts.inboundPerSecond
+  }
+
+  /**
+   * The most `executor.execute()` calls ever running at once on this node.
+   *
+   * SCHED-06's criterion 1 is read off this. It counts calls that *happened*, so it
+   * can read any number — which is what makes an assertion about it falsifiable,
+   * and is the whole difference between it and `admission.peakInFlight`. Deleting
+   * the `capacity.offer(...)` acquisition in `@o2/net`'s `serveAgent` exec branch
+   * turns it red by making it read the dispatched request count.
+   *
+   * The one thing that will otherwise be misread: it sees **every** call on this
+   * node's executor, including a caller reaching `node.executor` directly. A local
+   * call takes no slot, because admission lives on `serveAgent`'s exec branch and a
+   * local call never reaches it. So `executorPeakInFlight <= admission.slots` is a
+   * claim about a run in which every dispatch arrived over RPC, and a test asserting
+   * it has to say so.
+   */
+  get executorPeakInFlight(): number {
+    return this.#counter.peakInFlight
+  }
+
+  /** Calls currently inside `executor.execute()` on this node. */
+  get executorInFlight(): number {
+    return this.#counter.inFlight
   }
 
   static async start(options: FabricNodeOptions = {}): Promise<FabricNode> {
@@ -306,6 +405,20 @@ export class FabricNode {
         ? [tcp(), webSockets(), circuitRelayTransport()]
         : [tcp(), webSockets()],
       connectionEncrypters: [noise()],
+      // Bare on purpose. `yamux({ maxEarlyStreams: N })` is available here and is
+      // the obvious next idea after NET-09's per-peer send gate; it is wrong twice.
+      //
+      // It is unmeasurable from outside. `YamuxMuxer` spreads its init into
+      // `AbstractStreamMuxer`, whose constructor uses a hardcoded
+      // `init.maxEarlyStreams ?? 10`, and `earlyStreams` is a private field libp2p
+      // never hands out — so nothing in this repository could read whether a raised
+      // value took effect. And it protects nothing: a peer running default yamux
+      // still aborts at 10 whatever this node sets, and the tear-down happens on the
+      // *receiver's* muxer. Shipping it would add a mechanism this project could
+      // only report, not measure, which is the failure this milestone exists to
+      // remove. The full argument, including the fact that
+      // `@chainsafe/libp2p-yamux`'s own `defaultConfig.maxEarlyStreams` is declared
+      // and never read, is in `@o2/libp2p`'s constants doc.
       streamMuxers: [yamux()],
       connectionManager: {
         maxIncomingPendingConnections: pending,
@@ -335,13 +448,50 @@ export class FabricNode {
         : { logger: options.reservationWatcher.logger }),
     })
 
+    // SCHED-06 — this node's own admission control, handed to `serveAgent` below.
+    //
+    // Constructed here, before the relay dials and before the transport, so a
+    // nonsense limit is refused while there is least to unwind. `LocalCapacity`'s
+    // constructor throws a `RangeError` naming the value for anything below 1, and
+    // this factory passes `options.maxConcurrentTasks` straight through so that
+    // guard is *reached* rather than bypassed by a clamp. The `catch` is not
+    // decoration: `createLibp2p` has already bound a socket by this line, and a
+    // rejected `start` that leaves one listening is a leak the caller has no handle
+    // to close.
+    //
+    // `libp2p.peerId.toString()` is the same value the executor's `nodeId` is
+    // resolved from below, so the capacity's node id and the executor's cannot
+    // drift — the pattern this factory already applies to `sovereignty`.
+    //
+    // No `dutyCycle` is passed. This node has no governor to feed one from;
+    // `browser-node.ts` has one and deliberately does not feed it either, for the
+    // reason written beside its own construction.
+    let admission: LocalCapacity
+    try {
+      admission = new LocalCapacity({
+        nodeId: libp2p.peerId.toString(),
+        maxConcurrent: options.maxConcurrentTasks ?? DEFAULT_MAX_CONCURRENT_TASKS,
+      })
+    } catch (cause) {
+      await libp2p.stop()
+      throw cause
+    }
+
     // Connecting is what triggers the reservation; the `/p2p-circuit` listen entry
     // above is what makes libp2p ask for one.
     for (const address of relayAddrs) {
       await libp2p.dial(multiaddr(address))
     }
 
-    const transport = await Libp2pTransport.start(libp2p)
+    // NET-08: the first `Libp2pTransportOptions` this factory has ever passed — the
+    // option surface existed and no node reached it. The key is omitted rather than
+    // set to an explicit `undefined`, because `exactOptionalPropertyTypes` makes
+    // those different types; the same idiom threads `rpcTimeoutMs` into
+    // `RpcEndpoint` a few lines below.
+    const transport = await Libp2pTransport.start(
+      libp2p,
+      options.maxMessageBytes === undefined ? {} : { maxMessageBytes: options.maxMessageBytes },
+    )
     // Resolved once, here, so the identical value feeds both `egress`'s ownerId
     // and `guardSovereignty`'s clearance check below — not two independently
     // defaulted copies that could drift (13-CONTEXT.md decision 2).
@@ -373,9 +523,19 @@ export class FabricNode {
     // is the registration blockstore, not `blockstore` (network fallback) —
     // sovereign data must already be resident locally, never fetched over the
     // network merely to be declared sovereign.
-    const executor = registerSovereignInputs(
-      guardSovereignty(new WasmExecutor({ nodeId: libp2p.peerId.toString(), blockstore }), sovereignty),
-      { blockstore: store, guard: egress },
+    //
+    // SCHED-06: `CountingExecutor` is composed **outermost**, outside the
+    // registration and the sovereignty gate, whose relative order is documented
+    // above and is unchanged. Outermost is what makes it the instrument criterion 1
+    // is read off: nothing can reach this node's executor without passing through
+    // it, so `executorPeakInFlight` is a count of calls that really happened rather
+    // than of slots the node believes it granted. See that getter for what the
+    // reading does and does not license.
+    const executor = new CountingExecutor(
+      registerSovereignInputs(
+        guardSovereignty(new WasmExecutor({ nodeId: libp2p.peerId.toString(), blockstore }), sovereignty),
+        { blockstore: store, guard: egress },
+      ),
     )
 
     const node = new FabricNode({
@@ -386,6 +546,7 @@ export class FabricNode {
       blockstore,
       store,
       executor,
+      admission,
       limit,
       pending,
       inboundPerSecond,
@@ -418,7 +579,20 @@ export class FabricNode {
       egress,
       authorize: 'serves-unauthenticated',
       index: 'serves-no-records',
-      capacity: 'accepts-every-offer',
+      // SCHED-06. This hook answered "accepts everything" for the whole of two
+      // milestones, so `serveAgent`'s `exec` branch ran `executor.execute` with
+      // nothing counting what was in flight. `LocalCapacity` existed that entire
+      // time and was constructed nowhere outside two test files, so the one thing
+      // able to emit `over-committed: N of M slots in use` could not be reached from
+      // a running node. `ARCHITECTURE.md` §7.2 said *an over-committed node just says
+      // no, and the requestor resamples*; only the half that resamples had shipped.
+      //
+      // Measured against this factory before this line changed, at 64 concurrent
+      // `exec` requests from two real peers over TCP: 64 simultaneous
+      // `executor.execute()` calls, zero refusals, and 32 of the 64 requestors' RPCs
+      // timed out waiting (`packages/node/src/admission.node.test.ts`, 2026-07-29).
+      // With this line, the same run refuses by name and holds the declared bound.
+      capacity: admission,
       reservations: () => node.reservedPeerIds,
       ledger: 'keeps-no-ledger',
       onDispatch: 'reports-no-dispatch',

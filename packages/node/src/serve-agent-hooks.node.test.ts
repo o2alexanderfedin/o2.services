@@ -24,24 +24,33 @@ function occurrences(text: string, needle: string): number {
 }
 
 describe('production serveAgent call sites state every hook explicitly', () => {
-  it('fabric-node.ts: real reservations, five sentinels', () => {
+  it('fabric-node.ts: real reservations, real admission, four sentinels', () => {
     expect(occurrences(FABRIC_NODE, "'serves-unauthenticated'")).toBe(1)
     expect(occurrences(FABRIC_NODE, "'serves-no-records'")).toBe(1)
-    expect(occurrences(FABRIC_NODE, "'accepts-every-offer'")).toBe(1)
     expect(occurrences(FABRIC_NODE, "'keeps-no-ledger'")).toBe(1)
     expect(occurrences(FABRIC_NODE, "'reports-no-dispatch'")).toBe(1)
     // The already-fixed wire — the real thunk is supplied, not the sentinel.
     expect(occurrences(FABRIC_NODE, "'relays-for-nobody'")).toBe(0)
+    // SCHED-06 burned this one down: the factory constructs a real `LocalCapacity`.
+    // Structural, and deliberately not the evidence that it works — the behaviour is
+    // measured in `admission.node.test.ts` against real nodes over TCP, because
+    // 13-VERIFICATION-2.md recorded what a composition an inspection can confirm is
+    // worth when the behaviour has never run.
+    expect(occurrences(FABRIC_NODE, "'accepts-every-offer'")).toBe(0)
   })
 
-  it('browser-node.ts: real onDispatch, five sentinels', () => {
+  it('browser-node.ts: real onDispatch, real admission, four sentinels', () => {
     expect(occurrences(BROWSER_NODE, "'serves-unauthenticated'")).toBe(1)
     expect(occurrences(BROWSER_NODE, "'serves-no-records'")).toBe(1)
-    expect(occurrences(BROWSER_NODE, "'accepts-every-offer'")).toBe(1)
     expect(occurrences(BROWSER_NODE, "'keeps-no-ledger'")).toBe(1)
     expect(occurrences(BROWSER_NODE, "'relays-for-nobody'")).toBe(1)
     // The real callback is supplied, not the sentinel.
     expect(occurrences(BROWSER_NODE, "'reports-no-dispatch'")).toBe(0)
+    // SCHED-06, same burn-down as `fabric-node.ts` above. This factory's wiring is
+    // **unmeasured, not met**: `BrowserNode.start` needs a real `indexedDB` and a
+    // relay to dial, so it runs in neither vitest project, and this count is not
+    // allowed to stand in for running it. WIRE-03, Phase 19 builds that harness.
+    expect(occurrences(BROWSER_NODE, "'accepts-every-offer'")).toBe(0)
   })
 
   it('bin/bench.ts: two call sites, every sentinel twice', () => {
