@@ -127,6 +127,23 @@ export class EgressRefusal extends Error {
  * correctness one — a larger change than this criterion needs. On both legs the
  * bytes stay on this node, which is the guarantee.
  *
+ * **The exception, with its scope — NET-10, 2026-07-29.** The responding leg's
+ * swallow is still real and still applies to every frame `serveAgent` does not
+ * pre-scan. It no longer applies to two of them. `serveAgent`'s `exec` and `block`
+ * branches now ask {@link EgressGuard.refuse} about their candidate reply *before*
+ * handing it to the exit, and on a hit send a small named refusal instead — a frame
+ * that by construction cannot carry the payload it refuses. So on those two
+ * branches the requestor is told, in a fraction of its budget, which label was
+ * violated and by which node. `rpc.ts` is unchanged; nothing about the swallow was
+ * fixed, it was routed around on the two paths that could carry a sovereign
+ * payload.
+ *
+ * **Belt and braces, and which one is the brace.** The pre-scan is the fast path.
+ * `send` remains the guarantee: it keeps its own scan, and with every pre-scan
+ * removed the bytes must still not leave. That is not asserted here — it was
+ * watched, by planting the removal and recording what happened. See
+ * `13.1-03-SUMMARY.md`.
+ *
  * **A node that has executed a sovereign task will thereafter refuse to serve that
  * block to any peer that asks for it.** That is the owner's ruling of 2026-07-28,
  * recorded here as a rule and not as a side effect: it is intended, and it is

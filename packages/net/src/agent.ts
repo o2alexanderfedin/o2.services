@@ -10,6 +10,7 @@
  */
 
 import type { CID } from 'multiformats/cid'
+import { encodeCanonical } from '@o2/core'
 import type {
   Blockstore,
   CanonicalValue,
@@ -166,6 +167,52 @@ export interface AgentOptions {
   readonly egress: EgressGuard | 'holds-no-registrations'
 }
 
+/**
+ * NET-10 — the reason to send *instead of* `body`, or `null` to send `body`.
+ *
+ * `EgressGuard.send` already refuses a frame carrying a registered sovereign
+ * payload, and on the requesting leg that refusal is named immediately. On the
+ * responding leg `rpc.ts` swallows it by documented design, so the requestor learns
+ * only that nothing came back and waits out its whole budget — it cannot tell
+ * *"your data may not leave that node"* from *"that node is gone"*. This asks the
+ * question early, while a smaller reply can still be substituted.
+ *
+ * Two guards keep it off the hot path, and both are deliberate:
+ *
+ * - a node whose sends are not tapped has nothing to ask;
+ * - a node whose tap holds no registrations has nothing to find, and without this
+ *   check every reply on every guarded node would pay a second `encodeCanonical`
+ *   to discover that. It reads the existing public `registrations` getter rather
+ *   than adding a second member; the array that allocates is dwarfed by the encode
+ *   it avoids.
+ *
+ * An encode failure returns `null` deliberately. A body that will not canonicalise
+ * is not a body `rpc.ts` can send either — it fails on its own path, loudly, rather
+ * than being converted into an egress refusal here and reported as a sovereignty
+ * violation that never happened.
+ *
+ * The returned string's shape is load-bearing in two directions. It **begins**
+ * `egress refused: `, the wire vocabulary 13.1-CONTEXT.md decision 4 fixes,
+ * asserted by test so it cannot drift — and deliberately distinct from the
+ * `over-committed: ` prefix, because the two want opposite retry policies: an
+ * egress refusal is a **task** condition sent as `exec ok:false`, a capacity
+ * refusal is a **node** condition sent as `error`. It **ends** by naming the
+ * serving node, because `RemoteExecutor` passes an `exec` outcome through verbatim
+ * and without it the attribution two existing specs assert would be lost.
+ */
+function refusedReason(
+  egress: EgressGuard | 'holds-no-registrations',
+  to: string,
+  body: CanonicalValue,
+  nodeId: string,
+): string | null {
+  if (egress === 'holds-no-registrations' || egress.registrations.length === 0) return null
+  const encoded = encodeCanonical(body)
+  if (!encoded.ok) return null
+  const violated = egress.refuse(to, encoded.bytes)
+  return violated === null ? null : `egress refused: ${violated} on ${nodeId}`
+}
+
 /** Install the request handler that makes this endpoint a serving node. */
 export function serveAgent(options: AgentOptions): void {
   const { rpc, executor, blockstore } = options
@@ -179,7 +226,22 @@ export function serveAgent(options: AgentOptions): void {
     let response: AgentResponse
     if (request.kind === 'block') {
       const bytes = await blockstore.get(request.cid)
-      response = { kind: 'block', bytes: bytes ?? null }
+      const found: AgentResponse = { kind: 'block', bytes: bytes ?? null }
+      // ROADMAP criterion 7. This branch gets the same treatment as `exec`
+      // because without it a node asked for registered bytes answers with a
+      // silence the requestor cannot tell from absence — the same defect NET-10
+      // exists to remove, one branch over.
+      //
+      // That a node refuses to serve a registered sovereign block at all is the
+      // owner ruling of 2026-07-28, recorded in `egress.ts` where it belongs;
+      // this branch does not re-derive it, it only makes the refusal legible.
+      // What that ruling knowingly accepts is that a peer cannot tell refusal
+      // from absence — and the consequence here is `RpcBlockSource.fetch` above,
+      // which treats any non-`block` reply as a miss and asks the next peer. So a
+      // multi-peer fetch degrades rather than loops, while a caller that asked
+      // this node directly gets a named reason. That shape is deliberate.
+      const violated = refusedReason(options.egress, from, encodeResponse(found), executor.nodeId)
+      response = violated === null ? found : { kind: 'error', reason: violated }
     } else if (request.kind === 'providers') {
       // An empty list from a node that holds no index is a truthful answer, not an
       // error: the requestor's fallback chain moves on to the next source.
@@ -344,8 +406,28 @@ export function serveAgent(options: AgentOptions): void {
       const egress = options.egress
       if (egress === 'holds-no-registrations') return encodeResponse({ kind: 'exec', outcome })
       const label = request.task.inputCid.toString()
+      // NET-10. The candidate reply is encoded once and asked about before it is
+      // handed to the exit; on a hit it is replaced by a frame that, by
+      // construction, cannot carry the payload it refuses. `rpc.ts` is untouched:
+      // its responding leg still swallows a send failure by design, and
+      // `EgressGuard.send` still refuses on its own — this is the fast path, not
+      // the guarantee.
+      const candidateBody = encodeResponse({ kind: 'exec', outcome })
+      const violated = refusedReason(egress, from, candidateBody, executor.nodeId)
+      if (violated !== null) {
+        return {
+          body: encodeResponse({ kind: 'exec', outcome: { ok: false, reason: violated } }),
+          // The same unconditional release as the clean path below, and the
+          // pre-scan does not move it: the registration exists to be scanned
+          // against the reply frame, and the reply frame has still not left when
+          // this handler returns.
+          afterSent: () => {
+            egress.release(label)
+          },
+        }
+      }
       return {
-        body: encodeResponse({ kind: 'exec', outcome }),
+        body: candidateBody,
         // Released here rather than where the guard and the label are both already
         // in scope — inside `registerSovereignInputs` — because the frame the
         // registration exists to be scanned against is *this reply*, which has not

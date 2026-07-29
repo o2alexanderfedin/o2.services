@@ -363,10 +363,15 @@ describe('criterion 6 — an owner’s own nodes verify each other', () => {
     // merely notice the echo: the reply frame carrying the raw row is refused, so
     // the row never leaves this node and the dispatch fails instead.
     //
-    // The requestor learns only that the dispatch failed, after its own 5s timeout,
-    // because the refusal is on the responding leg — `rpc.ts` swallows it by
-    // documented design, a cost `egress.ts` states outright. Hence the extended
-    // test timeout below.
+    // NET-10: the requestor is told *why*, rather than waiting out its 5s budget.
+    // `serveAgent` asks the tap about its candidate reply before handing it to the
+    // exit and, on a hit, substitutes a small `{kind:'exec', outcome:{ok:false}}`
+    // naming the violated label and this node. `rpc.ts`'s responding leg still
+    // swallows a send failure by documented design — that cost is unchanged for
+    // every frame `serveAgent` does not pre-scan; see the scoped exception in
+    // `egress.ts`'s class comment. The extended test timeout below is kept so a
+    // regression to the old behaviour reports as a failed assertion rather than an
+    // opaque runner timeout.
     const fabric = await ownerFabric({ module: MODULE_ECHOES_INPUT, ownerNodes: 1 })
     try {
       const node = fabric.owned[0] as OwnerNode
@@ -381,6 +386,10 @@ describe('criterion 6 — an owner’s own nodes verify each other', () => {
       expect(outcome.ok).toBe(false)
       if (outcome.ok) return
       expect(outcome.reason).toContain(node.nodeId)
+      // The wire vocabulary, asserted here too so the prefix cannot drift on the
+      // path that goes through a real `RemoteExecutor` rather than a direct RPC.
+      expect(outcome.reason.startsWith('egress refused: ')).toBe(true)
+      expect(outcome.reason).toContain('alice-row')
 
       // The refusal is still visible on the owner's own tap. Paired with a
       // non-empty entries reading, so a manifest that recorded nothing at all
