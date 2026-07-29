@@ -504,6 +504,37 @@ residual is recorded immediately below rather than dropped.
   every lifted artifact — Phase 10 showed it is structural, not configurational — and the
   same-machine benchmark label stays required and derived from the recorded inventory.
 
+- **Relay hosting investigated 2026-07-28 — Cloudflare cannot carry the relay, and the reason
+  is structural.** Confirmed verbatim from Cloudflare's docs: *"it is not possible to make an
+  inbound TCP connection to your Worker"*, and no Cloudflare compute product exposes UDP (which
+  independently rules out WebRTC-Direct). The codebase already refuses the deployment on its own
+  terms — `canRelay` (`fabric-node.ts:289`) is false without a non-circuit listen address, so
+  `circuitRelayServer()` is never added and the reservation limit is 0.
+  - **Correction to the first pass, which was wrong:** Cloudflare **Containers** are *not* ruled
+    out by transport. A container is a real Linux process on a real port and
+    `@libp2p/websockets`' Node listener runs unmodified; the `browser`-condition stub that kills
+    workerd does not apply. Containers fail on **lifecycle** instead — no minimum uptime
+    guarantee and irregular restarts against a 2-hour reservation TTL (`constants.ts:68`), and a
+    relay can never re-dial a browser to recover. Cost was also wrong in both directions: wall-
+    minutes are not vCPU-minutes (a `lite` instance is 1/16 vCPU), and the Durable Object figure
+    double-counted — 331,776 GB-s is *inside* the 400,000 included, so ~$0 marginal duration.
+  - **Recommendation:** a small always-on host with a public IP and arbitrary port binding.
+    **But the sizing must carry a full node, not a relay daemon** — `fabric-node.ts:394-396`
+    records that no construction path yields a node which will not compute, and `bin/seed.ts:45`
+    says the seed executes tasks, serves blocks *and* relays. A relay-only budget reintroduces
+    the class that was deleted, which the module comment notes already *"survived three rounds
+    of renaming."*
+  - **Two defects found incidentally, both fixed 2026-07-28.** The disclosure gate's wrangler
+    pattern missed `wrangler pages deploy` — the command someone would actually type — and
+    nothing noticed because every test asserted *absence*, so a pattern matching nothing read
+    green. Each pattern now carries the commands it must catch and must ignore, asserted
+    directly. Separately: `stun:stun.cloudflare.com:3478` is **already** in `@libp2p/webrtc`'s
+    `DEFAULT_ICE_SERVERS` and in use, so "add Cloudflare STUN" is a no-op — and pinning to it
+    alone would cut four independent STUN operators to one.
+  - **Unverified, worth chasing upstream:** `@libp2p/circuit-relay-v2` appears to write
+    `defaultDurationLimit` in milliseconds into a protobuf field the spec defines in seconds, so
+    a dialer computes 33.3 hours where the server enforces 120 s.
+
 - **Disclosure gate: CROSSED on 2026-07-26.** The repository was made public by explicit
   owner decision, after being told that EPO and China have no patent grace period and
   that the loss is permanent. **EPO and China patent rights for everything disclosed as

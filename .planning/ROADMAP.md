@@ -448,6 +448,14 @@ The apparent ceiling of 256 with one peer is the **sender's** `maxOutboundStream
 **Success Criteria** (what must be TRUE):
   1. A job submitted through `bin/agent.ts` with no static peer list configured finds candidate executors by querying real content-CID providers intersected with capability records — not a hardcoded list — and dispatches successfully
   2. Placement observed during that run samples multiple candidates and selects the least-loaded; a node made to report itself over capacity refuses the offer with a stated reason, visible in the requestor's re-pick, and the job still completes
+  2b. A node **at its execution slot limit refuses an `exec` request** with a stated reason naming the limit, and the requestor re-picks
+<!-- Criterion 2b added 2026-07-28. Criterion 2 exercises only the `offer` branch, and
+     `serveAgent` consults `capacity` *only* there — the `exec` branch authorizes and then calls
+     `await executor.execute(task)` with nothing counting what is in flight. Measured: 4 peers ×
+     200 concurrent `exec` requests produced 800 simultaneous `execute()` calls and zero
+     refusals. So Phase 18 could pass in full while that defect stayed wide open. Phase 13.1
+     closes it (SCHED-06); this criterion exists so Phase 18 cannot silently pass around it. -->
+
   3. A user-set CPU duty-cycle cap set at runtime on a running node — Node tier and browser tier alike — is honoured immediately, and the node's advertised capacity to `discoverExecutors` drops accordingly, observable in what the requestor is offered next
   4. A relay run via `bin/seed.ts` at reservation capacity reports the exhaustion by name to a joining node attempting to reserve, rather than the joiner failing indistinguishably from a network outage
   5. Under artificial load pressure applied during a live run, a sovereignty-pinned task still lands on its owner even though a lower-cost non-owner node is available, proving the cost heuristic is filtered after the sovereignty constraint rather than scored against it

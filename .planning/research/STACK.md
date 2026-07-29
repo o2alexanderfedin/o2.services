@@ -231,6 +231,20 @@ PROJECT.md Key Decisions says *"DHT-discovered public IPFS infra primary, own ba
 
 **HIGH confidence, this is the single most likely source of an architecture-invalidating surprise.**
 
+> **CORRECTED 2026-07-28 — the paragraph below and the first bullet after it are wrong.**
+> `@libp2p/kad-dht` is **not installed in this repository** and `kadDHT` appears nowhere in
+> `packages/`; discovery runs over the relay's reservation store (`net/src/rendezvous.ts`).
+> And a browser is **not** structurally undialable: `browser-node.ts:197` listens on
+> `['/p2p-circuit', '/webrtc']`, so a browser holding a relay reservation can be dialed, which
+> is the whole prerequisite for serving records. The real constraint is about **interop with
+> the public Amino DHT** — Amino peers advertise TCP/QUIC a browser cannot dial, and cannot
+> reach a browser because they do not know its relay. Within the fabric's own keyspace,
+> browsers can serve each other; the cost is a WebRTC handshake per new hop (~1.04 s loopback
+> floor), which makes connection reuse a design requirement rather than making the thing
+> impossible. Whether kad-dht's server-mode promotion accepts a relayed address is
+> **unverified** — the package is absent, so it could not be read. See `CLAUDE.md` §DHT
+> reality check for the corrected version.
+
 `@libp2p/kad-dht@16.4.0` runs in the browser (Helia ships it in its browser defaults), but only as `clientMode: true` — it issues queries and stores nothing, routes nothing, and answers nothing. Server mode requires a publicly dialable address, which a browser structurally cannot have.
 
 Consequences for design §3.4 ("one Kademlia keyspace, typed keys for everything"):
