@@ -61,7 +61,45 @@ const RUNS = QUICK ? 6 : 20
 const LADDER = QUICK ? [1, 2, 4] : NODE_LADDER
 /** Real libp2p nodes are expensive to stand up; the ladder is shorter and declared. */
 const REAL_LADDER = QUICK ? [1, 2] : NODE_LADDER
-const SHARDS = 8
+/**
+ * Shards per job.
+ *
+ * Raised from 8 to 16 by phase 13.1. 8 was one below a measured cliff: dispatching 12
+ * shards immediately after dial aborted the whole libp2p connection with
+ * `MaxEarlyStreamsError`, so the benchmark shipped just under a limit that would have
+ * killed it, and a published curve would have been measured against an unfixed
+ * connection-killing bound. NET-09's per-peer send gate removes the cliff, and running
+ * above it here is what demonstrates that on the production benchmark path rather than
+ * only in a test. 16 is comfortably past 12 and still a count a reader can hold in
+ * their head against the node ladder.
+ */
+const SHARDS = 16
+/**
+ * The admission limit every real node in this benchmark is started with — SCHED-06.
+ *
+ * **Declared here, not inherited.** `FabricNode` now refuses an `exec` request past
+ * its slot limit, and `submitJob` has no re-pick: a refusal becomes a failed shard,
+ * which the incomplete-run rule reports as a failed run. A published scaling curve
+ * shaped by a limit nobody wrote down is exactly the failure this milestone exists to
+ * remove, so the value is stated at both `FabricNode.start` sites from this one
+ * constant and printed in the report the reader sees.
+ *
+ * Equal to the shipped `DEFAULT_MAX_CONCURRENT_TASKS` at the time of writing, and that
+ * is a deliberate coincidence rather than inheritance: a later change to the default
+ * cannot silently move this curve.
+ *
+ * Why a declared limit is needed here at all is a structural fact about the job path,
+ * read from source: a job's whole dispatch set is genuinely concurrent. `submitJob`
+ * runs every shard through one `Promise.all` (`core/src/job/submit.ts:206`) and
+ * `executeVerified` runs every replica through another (`core/src/job/verify.ts:149`),
+ * so these shards do not trickle in — they arrive together and a node meets them all
+ * at once. That is the *shape* of the arrival and deliberately not a *count*: how many
+ * land on any one node is **unmeasured**, and multiplying it by `SHARDS`, by
+ * `redundancy` or by anything else is the step that produced three different wrong
+ * answers during planning. What would measure it is `FabricNode.executorPeakInFlight`
+ * read from a run of this driver; nothing here does that yet.
+ */
+const DECLARED_ADMISSION_LIMIT = 64
 
 function inventory(nodeCount: number): Inventory {
   const cores = cpus()
@@ -206,12 +244,27 @@ async function realFabric(nodes: number): Promise<Fabric> {
   for (let i = 0; i < nodes; i++) {
     const dir = join(root, `node-${i}`)
     await mkdir(dir, { recursive: true })
-    started.push(await FabricNode.start({ blockstoreDir: dir, rpcTimeoutMs: 30_000 }))
+    // `maxConcurrentTasks` is stated, never inherited — see
+    // `DECLARED_ADMISSION_LIMIT`. The requestor below declares the same value for the
+    // same reason: it is a `FabricNode` like any other and serves `exec` requests like
+    // any other, so leaving it on the default would put half the fabric on a limit
+    // this run does not record.
+    started.push(
+      await FabricNode.start({
+        blockstoreDir: dir,
+        rpcTimeoutMs: 30_000,
+        maxConcurrentTasks: DECLARED_ADMISSION_LIMIT,
+      }),
+    )
   }
 
   const requestorDir = join(root, 'requestor')
   await mkdir(requestorDir, { recursive: true })
-  const requestor = await FabricNode.start({ blockstoreDir: requestorDir, rpcTimeoutMs: 30_000 })
+  const requestor = await FabricNode.start({
+    blockstoreDir: requestorDir,
+    rpcTimeoutMs: 30_000,
+    maxConcurrentTasks: DECLARED_ADMISSION_LIMIT,
+  })
   const moduleCid = await requestor.store.put(MODULE_WRITES_PARTITION)
 
   // Everyone dials the requestor, so blocks are reachable from every worker.
@@ -494,6 +547,16 @@ async function main(): Promise<void> {
     '',
     'Not part of the pre-registered plan; included because it decomposes the crossover',
     'rather than flattering it.',
+    '',
+    // What the run was measured under, printed rather than left in the source. A
+    // curve shaped by an admission limit nobody wrote down is the failure this
+    // milestone exists to remove; `bench-egress.node.test.ts` pins this line's
+    // presence, because a reader of the published table cannot check the source.
+    `- Declared run configuration: **${SHARDS} shards** per job, and every real node` +
+      ` started with **maxConcurrentTasks: ${DECLARED_ADMISSION_LIMIT}** — both stated by` +
+      ' this driver rather than inherited from a default. Shards were raised from 8 by' +
+      ' phase 13.1, above the measured 12-shard cliff the per-peer send gate removed, so' +
+      ' the two shard counts are not measuring the same workload as an earlier run.',
     '',
     `- Single-threaded, native, no fabric: **${baselineSummary.p50.toFixed(3)}ms** p50`,
     `- Same work through WASM in-process, no fabric: **${wasmSummary.p50.toFixed(3)}ms** p50`,

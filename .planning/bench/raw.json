@@ -1,7 +1,7 @@
 {
   "report": {
     "title": "o2.services — benchmark run",
-    "at": "2026-07-27T02:09:08.103Z",
+    "at": "2026-07-29T23:28:11.179Z",
     "inventory": {
       "machines": [
         {
@@ -19,242 +19,102 @@
           "runtime": "node v23.11.0"
         }
       ],
-      "nodeCount": 16
+      "nodeCount": 4
     },
     "baseline": {
-      "n": 19,
-      "p50": 0.002207999999882304,
-      "p95": 0.022084000000177184,
-      "p99": 0.022084000000177184,
-      "min": 0.0018330000000332802,
-      "max": 0.022084000000177184,
-      "meanForCostArithmeticOnly": 0.0036644736841911878,
-      "reliable": true
+      "n": 5,
+      "p50": 0.004040999999915584,
+      "p95": 0.014834000000064407,
+      "p99": 0.014834000000064407,
+      "min": 0.003500000000030923,
+      "max": 0.014834000000064407,
+      "meanForCostArithmeticOnly": 0.006491600000026665,
+      "reliable": false
     },
     "memoryTransport": [
       {
         "config": {
           "nodes": 1,
-          "shards": 8,
+          "shards": 16,
           "redundancy": 1,
           "transport": "memory",
           "skew": "uniform"
         },
         "makespan": {
-          "n": 19,
-          "p50": 1.2655419999999822,
-          "p95": 3.7667920000000095,
-          "p99": 3.7667920000000095,
-          "min": 0.7620840000000157,
-          "max": 3.7667920000000095,
-          "meanForCostArithmeticOnly": 1.5294607368421052,
-          "reliable": true
+          "n": 5,
+          "p50": 4.028750000000002,
+          "p95": 7.1148339999999735,
+          "p99": 7.1148339999999735,
+          "min": 2.3482910000000174,
+          "max": 7.1148339999999735,
+          "meanForCostArithmeticOnly": 4.554333599999984,
+          "reliable": false
         },
-        "coldStartMs": 8.214292,
+        "coldStartMs": 12.254166999999995,
         "incomplete": 0,
         "cost": {
-          "grossNodeSeconds": 0.13282907600000032,
-          "usefulNodeSeconds": 0.13282907600000032,
+          "grossNodeSeconds": 0.21854242000000026,
+          "usefulNodeSeconds": 0.21854242000000026,
           "verificationTax": 1,
           "speculationTax": 1,
           "churnTax": 0
         },
         "observations": [
           {
-            "makespanMs": 8.214292,
+            "makespanMs": 12.254166999999995,
             "complete": true,
-            "grossNodeSeconds": 0.03012791500000003,
-            "usefulNodeSeconds": 0.03012791500000003,
+            "grossNodeSeconds": 0.09016353800000003,
+            "usefulNodeSeconds": 0.09016353800000003,
             "verificationMultiplier": 1,
             "speculationMultiplier": 1,
             "redispatches": 0,
             "codeCache": "cold"
           },
           {
-            "makespanMs": 2.092749999999967,
+            "makespanMs": 3.2328339999999685,
             "complete": true,
-            "grossNodeSeconds": 0.009249041000000034,
-            "usefulNodeSeconds": 0.009249041000000034,
+            "grossNodeSeconds": 0.025377873999999852,
+            "usefulNodeSeconds": 0.025377873999999852,
             "verificationMultiplier": 1,
             "speculationMultiplier": 1,
             "redispatches": 0,
             "codeCache": "warm"
           },
           {
-            "makespanMs": 1.620207999999991,
+            "makespanMs": 6.0469589999999585,
             "complete": true,
-            "grossNodeSeconds": 0.006699579999999968,
-            "usefulNodeSeconds": 0.006699579999999968,
+            "grossNodeSeconds": 0.05295062600000012,
+            "usefulNodeSeconds": 0.05295062600000012,
             "verificationMultiplier": 1,
             "speculationMultiplier": 1,
             "redispatches": 0,
             "codeCache": "warm"
           },
           {
-            "makespanMs": 1.2655419999999822,
+            "makespanMs": 7.1148339999999735,
             "complete": true,
-            "grossNodeSeconds": 0.004918666000000087,
-            "usefulNodeSeconds": 0.004918666000000087,
+            "grossNodeSeconds": 0.0870783330000001,
+            "usefulNodeSeconds": 0.0870783330000001,
             "verificationMultiplier": 1,
             "speculationMultiplier": 1,
             "redispatches": 0,
             "codeCache": "warm"
           },
           {
-            "makespanMs": 1.2368340000000444,
+            "makespanMs": 4.028750000000002,
             "complete": true,
-            "grossNodeSeconds": 0.004899875999999949,
-            "usefulNodeSeconds": 0.004899875999999949,
+            "grossNodeSeconds": 0.03634325300000012,
+            "usefulNodeSeconds": 0.03634325300000012,
             "verificationMultiplier": 1,
             "speculationMultiplier": 1,
             "redispatches": 0,
             "codeCache": "warm"
           },
           {
-            "makespanMs": 1.233000000000004,
+            "makespanMs": 2.3482910000000174,
             "complete": true,
-            "grossNodeSeconds": 0.0052292499999999215,
-            "usefulNodeSeconds": 0.0052292499999999215,
-            "verificationMultiplier": 1,
-            "speculationMultiplier": 1,
-            "redispatches": 0,
-            "codeCache": "warm"
-          },
-          {
-            "makespanMs": 1.4074169999999526,
-            "complete": true,
-            "grossNodeSeconds": 0.005489500000000078,
-            "usefulNodeSeconds": 0.005489500000000078,
-            "verificationMultiplier": 1,
-            "speculationMultiplier": 1,
-            "redispatches": 0,
-            "codeCache": "warm"
-          },
-          {
-            "makespanMs": 2.175625000000025,
-            "complete": true,
-            "grossNodeSeconds": 0.010609917000000052,
-            "usefulNodeSeconds": 0.010609917000000052,
-            "verificationMultiplier": 1,
-            "speculationMultiplier": 1,
-            "redispatches": 0,
-            "codeCache": "warm"
-          },
-          {
-            "makespanMs": 1.562250000000006,
-            "complete": true,
-            "grossNodeSeconds": 0.00662629099999998,
-            "usefulNodeSeconds": 0.00662629099999998,
-            "verificationMultiplier": 1,
-            "speculationMultiplier": 1,
-            "redispatches": 0,
-            "codeCache": "warm"
-          },
-          {
-            "makespanMs": 1.436125000000004,
-            "complete": true,
-            "grossNodeSeconds": 0.006078207999999848,
-            "usefulNodeSeconds": 0.006078207999999848,
-            "verificationMultiplier": 1,
-            "speculationMultiplier": 1,
-            "redispatches": 0,
-            "codeCache": "warm"
-          },
-          {
-            "makespanMs": 3.228416999999979,
-            "complete": true,
-            "grossNodeSeconds": 0.013473041999999965,
-            "usefulNodeSeconds": 0.013473041999999965,
-            "verificationMultiplier": 1,
-            "speculationMultiplier": 1,
-            "redispatches": 0,
-            "codeCache": "warm"
-          },
-          {
-            "makespanMs": 3.7667920000000095,
-            "complete": true,
-            "grossNodeSeconds": 0.02472499799999997,
-            "usefulNodeSeconds": 0.02472499799999997,
-            "verificationMultiplier": 1,
-            "speculationMultiplier": 1,
-            "redispatches": 0,
-            "codeCache": "warm"
-          },
-          {
-            "makespanMs": 1.2872500000000286,
-            "complete": true,
-            "grossNodeSeconds": 0.006083667000000048,
-            "usefulNodeSeconds": 0.006083667000000048,
-            "verificationMultiplier": 1,
-            "speculationMultiplier": 1,
-            "redispatches": 0,
-            "codeCache": "warm"
-          },
-          {
-            "makespanMs": 1.0660839999999894,
-            "complete": true,
-            "grossNodeSeconds": 0.004781374000000028,
-            "usefulNodeSeconds": 0.004781374000000028,
-            "verificationMultiplier": 1,
-            "speculationMultiplier": 1,
-            "redispatches": 0,
-            "codeCache": "warm"
-          },
-          {
-            "makespanMs": 1.0724589999999807,
-            "complete": true,
-            "grossNodeSeconds": 0.003962999999999966,
-            "usefulNodeSeconds": 0.003962999999999966,
-            "verificationMultiplier": 1,
-            "speculationMultiplier": 1,
-            "redispatches": 0,
-            "codeCache": "warm"
-          },
-          {
-            "makespanMs": 1.1873329999999669,
-            "complete": true,
-            "grossNodeSeconds": 0.00541420800000003,
-            "usefulNodeSeconds": 0.00541420800000003,
-            "verificationMultiplier": 1,
-            "speculationMultiplier": 1,
-            "redispatches": 0,
-            "codeCache": "warm"
-          },
-          {
-            "makespanMs": 0.9572080000000369,
-            "complete": true,
-            "grossNodeSeconds": 0.004170583000000079,
-            "usefulNodeSeconds": 0.004170583000000079,
-            "verificationMultiplier": 1,
-            "speculationMultiplier": 1,
-            "redispatches": 0,
-            "codeCache": "warm"
-          },
-          {
-            "makespanMs": 0.8663339999999948,
-            "complete": true,
-            "grossNodeSeconds": 0.0036583330000000275,
-            "usefulNodeSeconds": 0.0036583330000000275,
-            "verificationMultiplier": 1,
-            "speculationMultiplier": 1,
-            "redispatches": 0,
-            "codeCache": "warm"
-          },
-          {
-            "makespanMs": 0.7620840000000157,
-            "complete": true,
-            "grossNodeSeconds": 0.00315849900000012,
-            "usefulNodeSeconds": 0.00315849900000012,
-            "verificationMultiplier": 1,
-            "speculationMultiplier": 1,
-            "redispatches": 0,
-            "codeCache": "warm"
-          },
-          {
-            "makespanMs": 0.8360420000000204,
-            "complete": true,
-            "grossNodeSeconds": 0.0036010430000001747,
-            "usefulNodeSeconds": 0.0036010430000001747,
+            "grossNodeSeconds": 0.01679233400000004,
+            "usefulNodeSeconds": 0.01679233400000004,
             "verificationMultiplier": 1,
             "speculationMultiplier": 1,
             "redispatches": 0,
@@ -265,226 +125,86 @@
       {
         "config": {
           "nodes": 2,
-          "shards": 8,
+          "shards": 16,
           "redundancy": 2,
           "transport": "memory",
           "skew": "uniform"
         },
         "makespan": {
-          "n": 19,
-          "p50": 2.0579159999999774,
-          "p95": 4.97625000000005,
-          "p99": 4.97625000000005,
-          "min": 1.4322500000000105,
-          "max": 4.97625000000005,
-          "meanForCostArithmeticOnly": 2.2036336315789526,
-          "reliable": true
+          "n": 5,
+          "p50": 5.55012499999998,
+          "p95": 8.804499999999962,
+          "p99": 8.804499999999962,
+          "min": 4.819459000000052,
+          "max": 8.804499999999962,
+          "meanForCostArithmeticOnly": 6.326249999999982,
+          "reliable": false
         },
-        "coldStartMs": 2.426084000000003,
+        "coldStartMs": 14.459791999999993,
         "incomplete": 0,
         "cost": {
-          "grossNodeSeconds": 0.37561407700000066,
-          "usefulNodeSeconds": 0.18780703850000033,
+          "grossNodeSeconds": 0.6152452429999985,
+          "usefulNodeSeconds": 0.30762262149999925,
           "verificationTax": 2,
           "speculationTax": 1,
           "churnTax": 0
         },
         "observations": [
           {
-            "makespanMs": 2.426084000000003,
+            "makespanMs": 14.459791999999993,
             "complete": true,
-            "grossNodeSeconds": 0.02590233299999989,
-            "usefulNodeSeconds": 0.012951166499999944,
+            "grossNodeSeconds": 0.13299687199999996,
+            "usefulNodeSeconds": 0.06649843599999998,
             "verificationMultiplier": 2,
             "speculationMultiplier": 1,
             "redispatches": 0,
             "codeCache": "cold"
           },
           {
-            "makespanMs": 2.0579159999999774,
+            "makespanMs": 4.823040999999989,
             "complete": true,
-            "grossNodeSeconds": 0.01840245499999992,
-            "usefulNodeSeconds": 0.00920122749999996,
+            "grossNodeSeconds": 0.08123033199999981,
+            "usefulNodeSeconds": 0.040615165999999904,
             "verificationMultiplier": 2,
             "speculationMultiplier": 1,
             "redispatches": 0,
             "codeCache": "warm"
           },
           {
-            "makespanMs": 1.9040410000000065,
+            "makespanMs": 5.55012499999998,
             "complete": true,
-            "grossNodeSeconds": 0.01659725000000003,
-            "usefulNodeSeconds": 0.008298625000000014,
+            "grossNodeSeconds": 0.11258966599999985,
+            "usefulNodeSeconds": 0.056294832999999926,
             "verificationMultiplier": 2,
             "speculationMultiplier": 1,
             "redispatches": 0,
             "codeCache": "warm"
           },
           {
-            "makespanMs": 1.790791000000013,
+            "makespanMs": 8.804499999999962,
             "complete": true,
-            "grossNodeSeconds": 0.01430479300000002,
-            "usefulNodeSeconds": 0.00715239650000001,
+            "grossNodeSeconds": 0.1768230839999996,
+            "usefulNodeSeconds": 0.0884115419999998,
             "verificationMultiplier": 2,
             "speculationMultiplier": 1,
             "redispatches": 0,
             "codeCache": "warm"
           },
           {
-            "makespanMs": 2.4251670000000445,
+            "makespanMs": 7.634124999999926,
             "complete": true,
-            "grossNodeSeconds": 0.02567199800000003,
-            "usefulNodeSeconds": 0.012835999000000015,
+            "grossNodeSeconds": 0.16515320299999975,
+            "usefulNodeSeconds": 0.08257660149999987,
             "verificationMultiplier": 2,
             "speculationMultiplier": 1,
             "redispatches": 0,
             "codeCache": "warm"
           },
           {
-            "makespanMs": 2.0934589999999957,
+            "makespanMs": 4.819459000000052,
             "complete": true,
-            "grossNodeSeconds": 0.018501878999999916,
-            "usefulNodeSeconds": 0.009250939499999958,
-            "verificationMultiplier": 2,
-            "speculationMultiplier": 1,
-            "redispatches": 0,
-            "codeCache": "warm"
-          },
-          {
-            "makespanMs": 2.1633750000000305,
-            "complete": true,
-            "grossNodeSeconds": 0.015082042999999946,
-            "usefulNodeSeconds": 0.007541021499999973,
-            "verificationMultiplier": 2,
-            "speculationMultiplier": 1,
-            "redispatches": 0,
-            "codeCache": "warm"
-          },
-          {
-            "makespanMs": 2.047374999999988,
-            "complete": true,
-            "grossNodeSeconds": 0.018931084000000004,
-            "usefulNodeSeconds": 0.009465542000000002,
-            "verificationMultiplier": 2,
-            "speculationMultiplier": 1,
-            "redispatches": 0,
-            "codeCache": "warm"
-          },
-          {
-            "makespanMs": 2.1865000000000236,
-            "complete": true,
-            "grossNodeSeconds": 0.019448291000000152,
-            "usefulNodeSeconds": 0.009724145500000076,
-            "verificationMultiplier": 2,
-            "speculationMultiplier": 1,
-            "redispatches": 0,
-            "codeCache": "warm"
-          },
-          {
-            "makespanMs": 1.5388750000000186,
-            "complete": true,
-            "grossNodeSeconds": 0.013354540999999928,
-            "usefulNodeSeconds": 0.006677270499999964,
-            "verificationMultiplier": 2,
-            "speculationMultiplier": 1,
-            "redispatches": 0,
-            "codeCache": "warm"
-          },
-          {
-            "makespanMs": 1.4665830000000142,
-            "complete": true,
-            "grossNodeSeconds": 0.012437665000000153,
-            "usefulNodeSeconds": 0.006218832500000077,
-            "verificationMultiplier": 2,
-            "speculationMultiplier": 1,
-            "redispatches": 0,
-            "codeCache": "warm"
-          },
-          {
-            "makespanMs": 1.7223749999999995,
-            "complete": true,
-            "grossNodeSeconds": 0.01500499999999994,
-            "usefulNodeSeconds": 0.00750249999999997,
-            "verificationMultiplier": 2,
-            "speculationMultiplier": 1,
-            "redispatches": 0,
-            "codeCache": "warm"
-          },
-          {
-            "makespanMs": 2.321208000000013,
-            "complete": true,
-            "grossNodeSeconds": 0.02100224800000018,
-            "usefulNodeSeconds": 0.01050112400000009,
-            "verificationMultiplier": 2,
-            "speculationMultiplier": 1,
-            "redispatches": 0,
-            "codeCache": "warm"
-          },
-          {
-            "makespanMs": 2.0637499999999704,
-            "complete": true,
-            "grossNodeSeconds": 0.017874458000000006,
-            "usefulNodeSeconds": 0.008937229000000003,
-            "verificationMultiplier": 2,
-            "speculationMultiplier": 1,
-            "redispatches": 0,
-            "codeCache": "warm"
-          },
-          {
-            "makespanMs": 2.780708000000004,
-            "complete": true,
-            "grossNodeSeconds": 0.03251454099999995,
-            "usefulNodeSeconds": 0.016257270499999976,
-            "verificationMultiplier": 2,
-            "speculationMultiplier": 1,
-            "redispatches": 0,
-            "codeCache": "warm"
-          },
-          {
-            "makespanMs": 4.97625000000005,
-            "complete": true,
-            "grossNodeSeconds": 0.04918204199999997,
-            "usefulNodeSeconds": 0.024591020999999984,
-            "verificationMultiplier": 2,
-            "speculationMultiplier": 1,
-            "redispatches": 0,
-            "codeCache": "warm"
-          },
-          {
-            "makespanMs": 3.809082999999987,
-            "complete": true,
-            "grossNodeSeconds": 0.028469626000000005,
-            "usefulNodeSeconds": 0.014234813000000002,
-            "verificationMultiplier": 2,
-            "speculationMultiplier": 1,
-            "redispatches": 0,
-            "codeCache": "warm"
-          },
-          {
-            "makespanMs": 1.639332999999965,
-            "complete": true,
-            "grossNodeSeconds": 0.01411808300000024,
-            "usefulNodeSeconds": 0.00705904150000012,
-            "verificationMultiplier": 2,
-            "speculationMultiplier": 1,
-            "redispatches": 0,
-            "codeCache": "warm"
-          },
-          {
-            "makespanMs": 1.4499999999999886,
-            "complete": true,
-            "grossNodeSeconds": 0.0123015410000001,
-            "usefulNodeSeconds": 0.00615077050000005,
-            "verificationMultiplier": 2,
-            "speculationMultiplier": 1,
-            "redispatches": 0,
-            "codeCache": "warm"
-          },
-          {
-            "makespanMs": 1.4322500000000105,
-            "complete": true,
-            "grossNodeSeconds": 0.01241453900000016,
-            "usefulNodeSeconds": 0.00620726950000008,
+            "grossNodeSeconds": 0.07944895799999938,
+            "usefulNodeSeconds": 0.03972447899999969,
             "verificationMultiplier": 2,
             "speculationMultiplier": 1,
             "redispatches": 0,
@@ -495,686 +215,86 @@
       {
         "config": {
           "nodes": 4,
-          "shards": 8,
+          "shards": 16,
           "redundancy": 2,
           "transport": "memory",
           "skew": "uniform"
         },
         "makespan": {
-          "n": 19,
-          "p50": 1.6320420000000126,
-          "p95": 3.140083000000004,
-          "p99": 3.140083000000004,
-          "min": 1.4013330000000224,
-          "max": 3.140083000000004,
-          "meanForCostArithmeticOnly": 1.8165395789473713,
-          "reliable": true
+          "n": 5,
+          "p50": 4.006999999999948,
+          "p95": 4.923416999999972,
+          "p99": 4.923416999999972,
+          "min": 3.324707999999987,
+          "max": 4.923416999999972,
+          "meanForCostArithmeticOnly": 4.0436833999999635,
+          "reliable": false
         },
-        "coldStartMs": 2.639250000000004,
+        "coldStartMs": 7.852207999999905,
         "incomplete": 0,
         "cost": {
-          "grossNodeSeconds": 0.3135884679999994,
-          "usefulNodeSeconds": 0.1567942339999997,
+          "grossNodeSeconds": 0.34906958300000057,
+          "usefulNodeSeconds": 0.17453479150000029,
           "verificationTax": 2,
           "speculationTax": 1,
           "churnTax": 0
         },
         "observations": [
           {
-            "makespanMs": 2.639250000000004,
+            "makespanMs": 7.852207999999905,
             "complete": true,
-            "grossNodeSeconds": 0.028757123000000034,
-            "usefulNodeSeconds": 0.014378561500000017,
+            "grossNodeSeconds": 0.184820123,
+            "usefulNodeSeconds": 0.0924100615,
             "verificationMultiplier": 2,
             "speculationMultiplier": 1,
             "redispatches": 0,
             "codeCache": "cold"
           },
           {
-            "makespanMs": 1.5902080000000183,
+            "makespanMs": 4.923416999999972,
             "complete": true,
-            "grossNodeSeconds": 0.013259833000000014,
-            "usefulNodeSeconds": 0.006629916500000007,
+            "grossNodeSeconds": 0.07061729300000023,
+            "usefulNodeSeconds": 0.03530864650000012,
             "verificationMultiplier": 2,
             "speculationMultiplier": 1,
             "redispatches": 0,
             "codeCache": "warm"
           },
           {
-            "makespanMs": 2.614417000000003,
+            "makespanMs": 4.051082999999949,
             "complete": true,
-            "grossNodeSeconds": 0.019183873999999945,
-            "usefulNodeSeconds": 0.009591936999999972,
+            "grossNodeSeconds": 0.07402599699999984,
+            "usefulNodeSeconds": 0.03701299849999992,
             "verificationMultiplier": 2,
             "speculationMultiplier": 1,
             "redispatches": 0,
             "codeCache": "warm"
           },
           {
-            "makespanMs": 2.144374999999968,
+            "makespanMs": 4.006999999999948,
             "complete": true,
-            "grossNodeSeconds": 0.019732543999999963,
-            "usefulNodeSeconds": 0.009866271999999982,
+            "grossNodeSeconds": 0.07978579200000015,
+            "usefulNodeSeconds": 0.03989289600000007,
             "verificationMultiplier": 2,
             "speculationMultiplier": 1,
             "redispatches": 0,
             "codeCache": "warm"
           },
           {
-            "makespanMs": 3.140083000000004,
+            "makespanMs": 3.9122089999999616,
             "complete": true,
-            "grossNodeSeconds": 0.03583100300000007,
-            "usefulNodeSeconds": 0.017915501500000035,
+            "grossNodeSeconds": 0.07108500300000013,
+            "usefulNodeSeconds": 0.035542501500000066,
             "verificationMultiplier": 2,
             "speculationMultiplier": 1,
             "redispatches": 0,
             "codeCache": "warm"
           },
           {
-            "makespanMs": 1.6320420000000126,
+            "makespanMs": 3.324707999999987,
             "complete": true,
-            "grossNodeSeconds": 0.014715292000000147,
-            "usefulNodeSeconds": 0.0073576460000000735,
-            "verificationMultiplier": 2,
-            "speculationMultiplier": 1,
-            "redispatches": 0,
-            "codeCache": "warm"
-          },
-          {
-            "makespanMs": 1.4239580000000274,
-            "complete": true,
-            "grossNodeSeconds": 0.012363835000000106,
-            "usefulNodeSeconds": 0.006181917500000053,
-            "verificationMultiplier": 2,
-            "speculationMultiplier": 1,
-            "redispatches": 0,
-            "codeCache": "warm"
-          },
-          {
-            "makespanMs": 1.5135420000000295,
-            "complete": true,
-            "grossNodeSeconds": 0.01286954499999996,
-            "usefulNodeSeconds": 0.00643477249999998,
-            "verificationMultiplier": 2,
-            "speculationMultiplier": 1,
-            "redispatches": 0,
-            "codeCache": "warm"
-          },
-          {
-            "makespanMs": 1.8590839999999957,
-            "complete": true,
-            "grossNodeSeconds": 0.016898580999999864,
-            "usefulNodeSeconds": 0.008449290499999932,
-            "verificationMultiplier": 2,
-            "speculationMultiplier": 1,
-            "redispatches": 0,
-            "codeCache": "warm"
-          },
-          {
-            "makespanMs": 1.8792499999999563,
-            "complete": true,
-            "grossNodeSeconds": 0.01682616799999977,
-            "usefulNodeSeconds": 0.008413083999999885,
-            "verificationMultiplier": 2,
-            "speculationMultiplier": 1,
-            "redispatches": 0,
-            "codeCache": "warm"
-          },
-          {
-            "makespanMs": 1.857958999999994,
-            "complete": true,
-            "grossNodeSeconds": 0.01604383299999995,
-            "usefulNodeSeconds": 0.008021916499999974,
-            "verificationMultiplier": 2,
-            "speculationMultiplier": 1,
-            "redispatches": 0,
-            "codeCache": "warm"
-          },
-          {
-            "makespanMs": 1.4276669999999854,
-            "complete": true,
-            "grossNodeSeconds": 0.01266020700000007,
-            "usefulNodeSeconds": 0.006330103500000035,
-            "verificationMultiplier": 2,
-            "speculationMultiplier": 1,
-            "redispatches": 0,
-            "codeCache": "warm"
-          },
-          {
-            "makespanMs": 1.4684579999999983,
-            "complete": true,
-            "grossNodeSeconds": 0.011915791999999897,
-            "usefulNodeSeconds": 0.005957895999999949,
-            "verificationMultiplier": 2,
-            "speculationMultiplier": 1,
-            "redispatches": 0,
-            "codeCache": "warm"
-          },
-          {
-            "makespanMs": 1.4013330000000224,
-            "complete": true,
-            "grossNodeSeconds": 0.01205091800000008,
-            "usefulNodeSeconds": 0.00602545900000004,
-            "verificationMultiplier": 2,
-            "speculationMultiplier": 1,
-            "redispatches": 0,
-            "codeCache": "warm"
-          },
-          {
-            "makespanMs": 1.4375830000000178,
-            "complete": true,
-            "grossNodeSeconds": 0.012224166999999795,
-            "usefulNodeSeconds": 0.006112083499999897,
-            "verificationMultiplier": 2,
-            "speculationMultiplier": 1,
-            "redispatches": 0,
-            "codeCache": "warm"
-          },
-          {
-            "makespanMs": 2.171000000000049,
-            "complete": true,
-            "grossNodeSeconds": 0.02350508400000007,
-            "usefulNodeSeconds": 0.011752542000000034,
-            "verificationMultiplier": 2,
-            "speculationMultiplier": 1,
-            "redispatches": 0,
-            "codeCache": "warm"
-          },
-          {
-            "makespanMs": 1.5183329999999842,
-            "complete": true,
-            "grossNodeSeconds": 0.012955375000000116,
-            "usefulNodeSeconds": 0.006477687500000058,
-            "verificationMultiplier": 2,
-            "speculationMultiplier": 1,
-            "redispatches": 0,
-            "codeCache": "warm"
-          },
-          {
-            "makespanMs": 1.5224589999999694,
-            "complete": true,
-            "grossNodeSeconds": 0.01268104399999993,
-            "usefulNodeSeconds": 0.006340521999999965,
-            "verificationMultiplier": 2,
-            "speculationMultiplier": 1,
-            "redispatches": 0,
-            "codeCache": "warm"
-          },
-          {
-            "makespanMs": 1.753167000000019,
-            "complete": true,
-            "grossNodeSeconds": 0.01577337499999987,
-            "usefulNodeSeconds": 0.007886687499999935,
-            "verificationMultiplier": 2,
-            "speculationMultiplier": 1,
-            "redispatches": 0,
-            "codeCache": "warm"
-          },
-          {
-            "makespanMs": 2.159334000000001,
-            "complete": true,
-            "grossNodeSeconds": 0.022097997999999845,
-            "usefulNodeSeconds": 0.011048998999999922,
-            "verificationMultiplier": 2,
-            "speculationMultiplier": 1,
-            "redispatches": 0,
-            "codeCache": "warm"
-          }
-        ]
-      },
-      {
-        "config": {
-          "nodes": 8,
-          "shards": 8,
-          "redundancy": 2,
-          "transport": "memory",
-          "skew": "uniform"
-        },
-        "makespan": {
-          "n": 19,
-          "p50": 1.3783749999999486,
-          "p95": 4.304957999999999,
-          "p99": 4.304957999999999,
-          "min": 1.283457999999996,
-          "max": 4.304957999999999,
-          "meanForCostArithmeticOnly": 1.7619736842105245,
-          "reliable": true
-        },
-        "coldStartMs": 1.9150409999999738,
-        "incomplete": 0,
-        "cost": {
-          "grossNodeSeconds": 0.30471938300000084,
-          "usefulNodeSeconds": 0.15235969150000042,
-          "verificationTax": 2,
-          "speculationTax": 1,
-          "churnTax": 0
-        },
-        "observations": [
-          {
-            "makespanMs": 1.9150409999999738,
-            "complete": true,
-            "grossNodeSeconds": 0.020128416999999954,
-            "usefulNodeSeconds": 0.010064208499999977,
-            "verificationMultiplier": 2,
-            "speculationMultiplier": 1,
-            "redispatches": 0,
-            "codeCache": "cold"
-          },
-          {
-            "makespanMs": 1.7050419999999917,
-            "complete": true,
-            "grossNodeSeconds": 0.015319792000000006,
-            "usefulNodeSeconds": 0.007659896000000003,
-            "verificationMultiplier": 2,
-            "speculationMultiplier": 1,
-            "redispatches": 0,
-            "codeCache": "warm"
-          },
-          {
-            "makespanMs": 1.375082999999961,
-            "complete": true,
-            "grossNodeSeconds": 0.011379248999999958,
-            "usefulNodeSeconds": 0.005689624499999979,
-            "verificationMultiplier": 2,
-            "speculationMultiplier": 1,
-            "redispatches": 0,
-            "codeCache": "warm"
-          },
-          {
-            "makespanMs": 4.304957999999999,
-            "complete": true,
-            "grossNodeSeconds": 0.036773461000000104,
-            "usefulNodeSeconds": 0.018386730500000052,
-            "verificationMultiplier": 2,
-            "speculationMultiplier": 1,
-            "redispatches": 0,
-            "codeCache": "warm"
-          },
-          {
-            "makespanMs": 3.88491700000003,
-            "complete": true,
-            "grossNodeSeconds": 0.04597991900000016,
-            "usefulNodeSeconds": 0.02298995950000008,
-            "verificationMultiplier": 2,
-            "speculationMultiplier": 1,
-            "redispatches": 0,
-            "codeCache": "warm"
-          },
-          {
-            "makespanMs": 1.592708000000016,
-            "complete": true,
-            "grossNodeSeconds": 0.013611541000000043,
-            "usefulNodeSeconds": 0.0068057705000000215,
-            "verificationMultiplier": 2,
-            "speculationMultiplier": 1,
-            "redispatches": 0,
-            "codeCache": "warm"
-          },
-          {
-            "makespanMs": 1.373041999999998,
-            "complete": true,
-            "grossNodeSeconds": 0.01182699999999994,
-            "usefulNodeSeconds": 0.00591349999999997,
-            "verificationMultiplier": 2,
-            "speculationMultiplier": 1,
-            "redispatches": 0,
-            "codeCache": "warm"
-          },
-          {
-            "makespanMs": 1.5553750000000264,
-            "complete": true,
-            "grossNodeSeconds": 0.013678292000000224,
-            "usefulNodeSeconds": 0.006839146000000112,
-            "verificationMultiplier": 2,
-            "speculationMultiplier": 1,
-            "redispatches": 0,
-            "codeCache": "warm"
-          },
-          {
-            "makespanMs": 1.3783749999999486,
-            "complete": true,
-            "grossNodeSeconds": 0.011758915000000116,
-            "usefulNodeSeconds": 0.005879457500000058,
-            "verificationMultiplier": 2,
-            "speculationMultiplier": 1,
-            "redispatches": 0,
-            "codeCache": "warm"
-          },
-          {
-            "makespanMs": 1.3532089999999926,
-            "complete": true,
-            "grossNodeSeconds": 0.011345210000000066,
-            "usefulNodeSeconds": 0.005672605000000033,
-            "verificationMultiplier": 2,
-            "speculationMultiplier": 1,
-            "redispatches": 0,
-            "codeCache": "warm"
-          },
-          {
-            "makespanMs": 1.3652500000000032,
-            "complete": true,
-            "grossNodeSeconds": 0.011856127000000185,
-            "usefulNodeSeconds": 0.0059280635000000925,
-            "verificationMultiplier": 2,
-            "speculationMultiplier": 1,
-            "redispatches": 0,
-            "codeCache": "warm"
-          },
-          {
-            "makespanMs": 1.3887079999999514,
-            "complete": true,
-            "grossNodeSeconds": 0.012214291000000117,
-            "usefulNodeSeconds": 0.006107145500000058,
-            "verificationMultiplier": 2,
-            "speculationMultiplier": 1,
-            "redispatches": 0,
-            "codeCache": "warm"
-          },
-          {
-            "makespanMs": 1.359292000000039,
-            "complete": true,
-            "grossNodeSeconds": 0.011370708000000037,
-            "usefulNodeSeconds": 0.005685354000000018,
-            "verificationMultiplier": 2,
-            "speculationMultiplier": 1,
-            "redispatches": 0,
-            "codeCache": "warm"
-          },
-          {
-            "makespanMs": 1.3274170000000254,
-            "complete": true,
-            "grossNodeSeconds": 0.011470706000000065,
-            "usefulNodeSeconds": 0.005735353000000032,
-            "verificationMultiplier": 2,
-            "speculationMultiplier": 1,
-            "redispatches": 0,
-            "codeCache": "warm"
-          },
-          {
-            "makespanMs": 1.3514999999999873,
-            "complete": true,
-            "grossNodeSeconds": 0.01147770699999978,
-            "usefulNodeSeconds": 0.00573885349999989,
-            "verificationMultiplier": 2,
-            "speculationMultiplier": 1,
-            "redispatches": 0,
-            "codeCache": "warm"
-          },
-          {
-            "makespanMs": 1.283457999999996,
-            "complete": true,
-            "grossNodeSeconds": 0.011009376000000029,
-            "usefulNodeSeconds": 0.0055046880000000145,
-            "verificationMultiplier": 2,
-            "speculationMultiplier": 1,
-            "redispatches": 0,
-            "codeCache": "warm"
-          },
-          {
-            "makespanMs": 2.386833000000024,
-            "complete": true,
-            "grossNodeSeconds": 0.025269127000000082,
-            "usefulNodeSeconds": 0.012634563500000041,
-            "verificationMultiplier": 2,
-            "speculationMultiplier": 1,
-            "redispatches": 0,
-            "codeCache": "warm"
-          },
-          {
-            "makespanMs": 1.640957999999955,
-            "complete": true,
-            "grossNodeSeconds": 0.014066000000000032,
-            "usefulNodeSeconds": 0.007033000000000016,
-            "verificationMultiplier": 2,
-            "speculationMultiplier": 1,
-            "redispatches": 0,
-            "codeCache": "warm"
-          },
-          {
-            "makespanMs": 1.5055830000000014,
-            "complete": true,
-            "grossNodeSeconds": 0.012827419000000019,
-            "usefulNodeSeconds": 0.006413709500000009,
-            "verificationMultiplier": 2,
-            "speculationMultiplier": 1,
-            "redispatches": 0,
-            "codeCache": "warm"
-          },
-          {
-            "makespanMs": 1.3457920000000172,
-            "complete": true,
-            "grossNodeSeconds": 0.011484542999999917,
-            "usefulNodeSeconds": 0.005742271499999958,
-            "verificationMultiplier": 2,
-            "speculationMultiplier": 1,
-            "redispatches": 0,
-            "codeCache": "warm"
-          }
-        ]
-      },
-      {
-        "config": {
-          "nodes": 16,
-          "shards": 8,
-          "redundancy": 2,
-          "transport": "memory",
-          "skew": "uniform"
-        },
-        "makespan": {
-          "n": 19,
-          "p50": 1.6000000000000227,
-          "p95": 3.971333999999956,
-          "p99": 3.971333999999956,
-          "min": 1.2112919999999576,
-          "max": 3.971333999999956,
-          "meanForCostArithmeticOnly": 1.9338093684210393,
-          "reliable": true
-        },
-        "coldStartMs": 2.0294159999999692,
-        "incomplete": 0,
-        "cost": {
-          "grossNodeSeconds": 0.3537145809999996,
-          "usefulNodeSeconds": 0.1768572904999998,
-          "verificationTax": 2,
-          "speculationTax": 1,
-          "churnTax": 0
-        },
-        "observations": [
-          {
-            "makespanMs": 2.0294159999999692,
-            "complete": true,
-            "grossNodeSeconds": 0.02196954199999999,
-            "usefulNodeSeconds": 0.010984770999999996,
-            "verificationMultiplier": 2,
-            "speculationMultiplier": 1,
-            "redispatches": 0,
-            "codeCache": "cold"
-          },
-          {
-            "makespanMs": 3.971333999999956,
-            "complete": true,
-            "grossNodeSeconds": 0.035902417999999964,
-            "usefulNodeSeconds": 0.017951208999999982,
-            "verificationMultiplier": 2,
-            "speculationMultiplier": 1,
-            "redispatches": 0,
-            "codeCache": "warm"
-          },
-          {
-            "makespanMs": 3.6014170000000263,
-            "complete": true,
-            "grossNodeSeconds": 0.04228754199999986,
-            "usefulNodeSeconds": 0.02114377099999993,
-            "verificationMultiplier": 2,
-            "speculationMultiplier": 1,
-            "redispatches": 0,
-            "codeCache": "warm"
-          },
-          {
-            "makespanMs": 1.8844589999999926,
-            "complete": true,
-            "grossNodeSeconds": 0.017105957999999984,
-            "usefulNodeSeconds": 0.008552978999999992,
-            "verificationMultiplier": 2,
-            "speculationMultiplier": 1,
-            "redispatches": 0,
-            "codeCache": "warm"
-          },
-          {
-            "makespanMs": 1.7881249999999795,
-            "complete": true,
-            "grossNodeSeconds": 0.017615541999999946,
-            "usefulNodeSeconds": 0.008807770999999973,
-            "verificationMultiplier": 2,
-            "speculationMultiplier": 1,
-            "redispatches": 0,
-            "codeCache": "warm"
-          },
-          {
-            "makespanMs": 1.6863329999999905,
-            "complete": true,
-            "grossNodeSeconds": 0.013804164999999953,
-            "usefulNodeSeconds": 0.006902082499999977,
-            "verificationMultiplier": 2,
-            "speculationMultiplier": 1,
-            "redispatches": 0,
-            "codeCache": "warm"
-          },
-          {
-            "makespanMs": 2.406582999999955,
-            "complete": true,
-            "grossNodeSeconds": 0.024251416999999945,
-            "usefulNodeSeconds": 0.012125708499999973,
-            "verificationMultiplier": 2,
-            "speculationMultiplier": 1,
-            "redispatches": 0,
-            "codeCache": "warm"
-          },
-          {
-            "makespanMs": 1.494041999999979,
-            "complete": true,
-            "grossNodeSeconds": 0.012548164999999981,
-            "usefulNodeSeconds": 0.0062740824999999905,
-            "verificationMultiplier": 2,
-            "speculationMultiplier": 1,
-            "redispatches": 0,
-            "codeCache": "warm"
-          },
-          {
-            "makespanMs": 1.70799999999997,
-            "complete": true,
-            "grossNodeSeconds": 0.015201458000000114,
-            "usefulNodeSeconds": 0.007600729000000057,
-            "verificationMultiplier": 2,
-            "speculationMultiplier": 1,
-            "redispatches": 0,
-            "codeCache": "warm"
-          },
-          {
-            "makespanMs": 1.5814999999999486,
-            "complete": true,
-            "grossNodeSeconds": 0.014364585000000034,
-            "usefulNodeSeconds": 0.007182292500000017,
-            "verificationMultiplier": 2,
-            "speculationMultiplier": 1,
-            "redispatches": 0,
-            "codeCache": "warm"
-          },
-          {
-            "makespanMs": 1.46141700000004,
-            "complete": true,
-            "grossNodeSeconds": 0.01274337500000007,
-            "usefulNodeSeconds": 0.006371687500000035,
-            "verificationMultiplier": 2,
-            "speculationMultiplier": 1,
-            "redispatches": 0,
-            "codeCache": "warm"
-          },
-          {
-            "makespanMs": 1.541458999999918,
-            "complete": true,
-            "grossNodeSeconds": 0.013410915999999927,
-            "usefulNodeSeconds": 0.006705457999999964,
-            "verificationMultiplier": 2,
-            "speculationMultiplier": 1,
-            "redispatches": 0,
-            "codeCache": "warm"
-          },
-          {
-            "makespanMs": 1.479791999999975,
-            "complete": true,
-            "grossNodeSeconds": 0.013116498999999634,
-            "usefulNodeSeconds": 0.006558249499999817,
-            "verificationMultiplier": 2,
-            "speculationMultiplier": 1,
-            "redispatches": 0,
-            "codeCache": "warm"
-          },
-          {
-            "makespanMs": 1.6324999999999363,
-            "complete": true,
-            "grossNodeSeconds": 0.014504791000000069,
-            "usefulNodeSeconds": 0.0072523955000000345,
-            "verificationMultiplier": 2,
-            "speculationMultiplier": 1,
-            "redispatches": 0,
-            "codeCache": "warm"
-          },
-          {
-            "makespanMs": 3.6402080000000296,
-            "complete": true,
-            "grossNodeSeconds": 0.04840125100000022,
-            "usefulNodeSeconds": 0.02420062550000011,
-            "verificationMultiplier": 2,
-            "speculationMultiplier": 1,
-            "redispatches": 0,
-            "codeCache": "warm"
-          },
-          {
-            "makespanMs": 1.3116250000000491,
-            "complete": true,
-            "grossNodeSeconds": 0.011220000000000029,
-            "usefulNodeSeconds": 0.005610000000000014,
-            "verificationMultiplier": 2,
-            "speculationMultiplier": 1,
-            "redispatches": 0,
-            "codeCache": "warm"
-          },
-          {
-            "makespanMs": 1.6000000000000227,
-            "complete": true,
-            "grossNodeSeconds": 0.013594873000000006,
-            "usefulNodeSeconds": 0.006797436500000003,
-            "verificationMultiplier": 2,
-            "speculationMultiplier": 1,
-            "redispatches": 0,
-            "codeCache": "warm"
-          },
-          {
-            "makespanMs": 1.3082500000000437,
-            "complete": true,
-            "grossNodeSeconds": 0.011253293999999985,
-            "usefulNodeSeconds": 0.0056266469999999924,
-            "verificationMultiplier": 2,
-            "speculationMultiplier": 1,
-            "redispatches": 0,
-            "codeCache": "warm"
-          },
-          {
-            "makespanMs": 1.2112919999999576,
-            "complete": true,
-            "grossNodeSeconds": 0.010252793000000109,
-            "usefulNodeSeconds": 0.0051263965000000545,
-            "verificationMultiplier": 2,
-            "speculationMultiplier": 1,
-            "redispatches": 0,
-            "codeCache": "warm"
-          },
-          {
-            "makespanMs": 1.4340419999999767,
-            "complete": true,
-            "grossNodeSeconds": 0.012135538999999767,
-            "usefulNodeSeconds": 0.006067769499999883,
+            "grossNodeSeconds": 0.05355549800000017,
+            "usefulNodeSeconds": 0.026777749000000087,
             "verificationMultiplier": 2,
             "speculationMultiplier": 1,
             "redispatches": 0,
@@ -1187,226 +307,86 @@
       {
         "config": {
           "nodes": 1,
-          "shards": 8,
+          "shards": 16,
           "redundancy": 1,
           "transport": "real",
           "skew": "uniform"
         },
         "makespan": {
-          "n": 19,
-          "p50": 10.281791999999996,
-          "p95": 21.637207999999987,
-          "p99": 21.637207999999987,
-          "min": 8.025417000000061,
-          "max": 21.637207999999987,
-          "meanForCostArithmeticOnly": 11.356326789473691,
-          "reliable": true
+          "n": 5,
+          "p50": 27.511333000000036,
+          "p95": 33.985416999999984,
+          "p99": 33.985416999999984,
+          "min": 24.848457999999937,
+          "max": 33.985416999999984,
+          "meanForCostArithmeticOnly": 28.761799799999995,
+          "reliable": false
         },
-        "coldStartMs": 48.81129199999998,
+        "coldStartMs": 82.88479099999995,
         "incomplete": 0,
         "cost": {
-          "grossNodeSeconds": 1.3239714120000006,
-          "usefulNodeSeconds": 1.3239714120000006,
+          "grossNodeSeconds": 1.807483129,
+          "usefulNodeSeconds": 1.807483129,
           "verificationTax": 1,
           "speculationTax": 1,
           "churnTax": 0
         },
         "observations": [
           {
-            "makespanMs": 48.81129199999998,
+            "makespanMs": 82.88479099999995,
             "complete": true,
-            "grossNodeSeconds": 0.24957887399999995,
-            "usefulNodeSeconds": 0.24957887399999995,
+            "grossNodeSeconds": 0.922362293,
+            "usefulNodeSeconds": 0.922362293,
             "verificationMultiplier": 1,
             "speculationMultiplier": 1,
             "redispatches": 0,
             "codeCache": "cold"
           },
           {
-            "makespanMs": 11.920166999999992,
+            "makespanMs": 33.985416999999984,
             "complete": true,
-            "grossNodeSeconds": 0.08519866700000034,
-            "usefulNodeSeconds": 0.08519866700000034,
+            "grossNodeSeconds": 0.46061420900000005,
+            "usefulNodeSeconds": 0.46061420900000005,
             "verificationMultiplier": 1,
             "speculationMultiplier": 1,
             "redispatches": 0,
             "codeCache": "warm"
           },
           {
-            "makespanMs": 11.833750000000009,
+            "makespanMs": 27.153875000000085,
             "complete": true,
-            "grossNodeSeconds": 0.07411537699999997,
-            "usefulNodeSeconds": 0.07411537699999997,
+            "grossNodeSeconds": 0.3156332940000002,
+            "usefulNodeSeconds": 0.3156332940000002,
             "verificationMultiplier": 1,
             "speculationMultiplier": 1,
             "redispatches": 0,
             "codeCache": "warm"
           },
           {
-            "makespanMs": 11.49025000000006,
+            "makespanMs": 27.511333000000036,
             "complete": true,
-            "grossNodeSeconds": 0.07438808399999994,
-            "usefulNodeSeconds": 0.07438808399999994,
+            "grossNodeSeconds": 0.32607250000000004,
+            "usefulNodeSeconds": 0.32607250000000004,
             "verificationMultiplier": 1,
             "speculationMultiplier": 1,
             "redispatches": 0,
             "codeCache": "warm"
           },
           {
-            "makespanMs": 13.102917000000048,
+            "makespanMs": 24.848457999999937,
             "complete": true,
-            "grossNodeSeconds": 0.07853245800000001,
-            "usefulNodeSeconds": 0.07853245800000001,
+            "grossNodeSeconds": 0.33217162399999983,
+            "usefulNodeSeconds": 0.33217162399999983,
             "verificationMultiplier": 1,
             "speculationMultiplier": 1,
             "redispatches": 0,
             "codeCache": "warm"
           },
           {
-            "makespanMs": 10.45691700000009,
+            "makespanMs": 30.30991599999993,
             "complete": true,
-            "grossNodeSeconds": 0.06987962599999992,
-            "usefulNodeSeconds": 0.06987962599999992,
-            "verificationMultiplier": 1,
-            "speculationMultiplier": 1,
-            "redispatches": 0,
-            "codeCache": "warm"
-          },
-          {
-            "makespanMs": 11.623124999999959,
-            "complete": true,
-            "grossNodeSeconds": 0.07179812700000014,
-            "usefulNodeSeconds": 0.07179812700000014,
-            "verificationMultiplier": 1,
-            "speculationMultiplier": 1,
-            "redispatches": 0,
-            "codeCache": "warm"
-          },
-          {
-            "makespanMs": 9.287416000000007,
-            "complete": true,
-            "grossNodeSeconds": 0.06455445899999995,
-            "usefulNodeSeconds": 0.06455445899999995,
-            "verificationMultiplier": 1,
-            "speculationMultiplier": 1,
-            "redispatches": 0,
-            "codeCache": "warm"
-          },
-          {
-            "makespanMs": 9.231542000000104,
-            "complete": true,
-            "grossNodeSeconds": 0.059920874000000034,
-            "usefulNodeSeconds": 0.059920874000000034,
-            "verificationMultiplier": 1,
-            "speculationMultiplier": 1,
-            "redispatches": 0,
-            "codeCache": "warm"
-          },
-          {
-            "makespanMs": 10.281791999999996,
-            "complete": true,
-            "grossNodeSeconds": 0.060876082,
-            "usefulNodeSeconds": 0.060876082,
-            "verificationMultiplier": 1,
-            "speculationMultiplier": 1,
-            "redispatches": 0,
-            "codeCache": "warm"
-          },
-          {
-            "makespanMs": 21.637207999999987,
-            "complete": true,
-            "grossNodeSeconds": 0.149853751,
-            "usefulNodeSeconds": 0.149853751,
-            "verificationMultiplier": 1,
-            "speculationMultiplier": 1,
-            "redispatches": 0,
-            "codeCache": "warm"
-          },
-          {
-            "makespanMs": 21.48408399999994,
-            "complete": true,
-            "grossNodeSeconds": 0.06101966600000003,
-            "usefulNodeSeconds": 0.06101966600000003,
-            "verificationMultiplier": 1,
-            "speculationMultiplier": 1,
-            "redispatches": 0,
-            "codeCache": "warm"
-          },
-          {
-            "makespanMs": 8.98279100000002,
-            "complete": true,
-            "grossNodeSeconds": 0.0525239170000001,
-            "usefulNodeSeconds": 0.0525239170000001,
-            "verificationMultiplier": 1,
-            "speculationMultiplier": 1,
-            "redispatches": 0,
-            "codeCache": "warm"
-          },
-          {
-            "makespanMs": 9.217208000000028,
-            "complete": true,
-            "grossNodeSeconds": 0.05627291400000002,
-            "usefulNodeSeconds": 0.05627291400000002,
-            "verificationMultiplier": 1,
-            "speculationMultiplier": 1,
-            "redispatches": 0,
-            "codeCache": "warm"
-          },
-          {
-            "makespanMs": 11.781124999999975,
-            "complete": true,
-            "grossNodeSeconds": 0.08352575000000025,
-            "usefulNodeSeconds": 0.08352575000000025,
-            "verificationMultiplier": 1,
-            "speculationMultiplier": 1,
-            "redispatches": 0,
-            "codeCache": "warm"
-          },
-          {
-            "makespanMs": 8.908415999999988,
-            "complete": true,
-            "grossNodeSeconds": 0.04952937400000008,
-            "usefulNodeSeconds": 0.04952937400000008,
-            "verificationMultiplier": 1,
-            "speculationMultiplier": 1,
-            "redispatches": 0,
-            "codeCache": "warm"
-          },
-          {
-            "makespanMs": 9.531458999999927,
-            "complete": true,
-            "grossNodeSeconds": 0.060745164000000046,
-            "usefulNodeSeconds": 0.060745164000000046,
-            "verificationMultiplier": 1,
-            "speculationMultiplier": 1,
-            "redispatches": 0,
-            "codeCache": "warm"
-          },
-          {
-            "makespanMs": 8.800499999999943,
-            "complete": true,
-            "grossNodeSeconds": 0.06105299900000001,
-            "usefulNodeSeconds": 0.06105299900000001,
-            "verificationMultiplier": 1,
-            "speculationMultiplier": 1,
-            "redispatches": 0,
-            "codeCache": "warm"
-          },
-          {
-            "makespanMs": 8.174125000000004,
-            "complete": true,
-            "grossNodeSeconds": 0.05588141599999984,
-            "usefulNodeSeconds": 0.05588141599999984,
-            "verificationMultiplier": 1,
-            "speculationMultiplier": 1,
-            "redispatches": 0,
-            "codeCache": "warm"
-          },
-          {
-            "makespanMs": 8.025417000000061,
-            "complete": true,
-            "grossNodeSeconds": 0.05430270700000005,
-            "usefulNodeSeconds": 0.05430270700000005,
+            "grossNodeSeconds": 0.3729915019999999,
+            "usefulNodeSeconds": 0.3729915019999999,
             "verificationMultiplier": 1,
             "speculationMultiplier": 1,
             "redispatches": 0,
@@ -1417,456 +397,86 @@
       {
         "config": {
           "nodes": 2,
-          "shards": 8,
+          "shards": 16,
           "redundancy": 2,
           "transport": "real",
           "skew": "uniform"
         },
         "makespan": {
-          "n": 19,
-          "p50": 15.351916999999958,
-          "p95": 22.376500000000078,
-          "p99": 22.376500000000078,
-          "min": 13.760250000000042,
-          "max": 22.376500000000078,
-          "meanForCostArithmeticOnly": 15.701890263157912,
-          "reliable": true
+          "n": 5,
+          "p50": 40.74808399999995,
+          "p95": 53.45749999999998,
+          "p99": 53.45749999999998,
+          "min": 39.27904200000012,
+          "max": 53.45749999999998,
+          "meanForCostArithmeticOnly": 44.419225199999985,
+          "reliable": false
         },
-        "coldStartMs": 43.77987499999995,
+        "coldStartMs": 103.02116699999999,
         "incomplete": 0,
         "cost": {
-          "grossNodeSeconds": 4.027391903999999,
-          "usefulNodeSeconds": 2.0136959519999995,
+          "grossNodeSeconds": 6.0642727490000015,
+          "usefulNodeSeconds": 3.0321363745000007,
           "verificationTax": 2,
           "speculationTax": 1,
           "churnTax": 0
         },
         "observations": [
           {
-            "makespanMs": 43.77987499999995,
+            "makespanMs": 103.02116699999999,
             "complete": true,
-            "grossNodeSeconds": 0.5145295819999999,
-            "usefulNodeSeconds": 0.25726479099999994,
+            "grossNodeSeconds": 2.708860458,
+            "usefulNodeSeconds": 1.354430229,
             "verificationMultiplier": 2,
             "speculationMultiplier": 1,
             "redispatches": 0,
             "codeCache": "cold"
           },
           {
-            "makespanMs": 14.795875000000024,
+            "makespanMs": 39.79029200000002,
             "complete": true,
-            "grossNodeSeconds": 0.19171904200000003,
-            "usefulNodeSeconds": 0.09585952100000002,
+            "grossNodeSeconds": 1.0843495420000004,
+            "usefulNodeSeconds": 0.5421747710000002,
             "verificationMultiplier": 2,
             "speculationMultiplier": 1,
             "redispatches": 0,
             "codeCache": "warm"
           },
           {
-            "makespanMs": 16.157082999999943,
+            "makespanMs": 40.74808399999995,
             "complete": true,
-            "grossNodeSeconds": 0.22435849999999988,
-            "usefulNodeSeconds": 0.11217924999999994,
+            "grossNodeSeconds": 1.078513503,
+            "usefulNodeSeconds": 0.5392567515,
             "verificationMultiplier": 2,
             "speculationMultiplier": 1,
             "redispatches": 0,
             "codeCache": "warm"
           },
           {
-            "makespanMs": 15.758375000000001,
+            "makespanMs": 39.27904200000012,
             "complete": true,
-            "grossNodeSeconds": 0.21529887100000009,
-            "usefulNodeSeconds": 0.10764943550000004,
+            "grossNodeSeconds": 1.0571821269999995,
+            "usefulNodeSeconds": 0.5285910634999997,
             "verificationMultiplier": 2,
             "speculationMultiplier": 1,
             "redispatches": 0,
             "codeCache": "warm"
           },
           {
-            "makespanMs": 15.020917000000054,
+            "makespanMs": 48.82120799999984,
             "complete": true,
-            "grossNodeSeconds": 0.200287166,
-            "usefulNodeSeconds": 0.100143583,
+            "grossNodeSeconds": 1.3349964580000007,
+            "usefulNodeSeconds": 0.6674982290000003,
             "verificationMultiplier": 2,
             "speculationMultiplier": 1,
             "redispatches": 0,
             "codeCache": "warm"
           },
           {
-            "makespanMs": 14.45150000000001,
+            "makespanMs": 53.45749999999998,
             "complete": true,
-            "grossNodeSeconds": 0.19683508299999963,
-            "usefulNodeSeconds": 0.09841754149999982,
-            "verificationMultiplier": 2,
-            "speculationMultiplier": 1,
-            "redispatches": 0,
-            "codeCache": "warm"
-          },
-          {
-            "makespanMs": 15.351916999999958,
-            "complete": true,
-            "grossNodeSeconds": 0.21690362500000024,
-            "usefulNodeSeconds": 0.10845181250000012,
-            "verificationMultiplier": 2,
-            "speculationMultiplier": 1,
-            "redispatches": 0,
-            "codeCache": "warm"
-          },
-          {
-            "makespanMs": 15.707041000000004,
-            "complete": true,
-            "grossNodeSeconds": 0.19226925199999995,
-            "usefulNodeSeconds": 0.09613462599999997,
-            "verificationMultiplier": 2,
-            "speculationMultiplier": 1,
-            "redispatches": 0,
-            "codeCache": "warm"
-          },
-          {
-            "makespanMs": 15.36808300000007,
-            "complete": true,
-            "grossNodeSeconds": 0.18744454300000007,
-            "usefulNodeSeconds": 0.09372227150000004,
-            "verificationMultiplier": 2,
-            "speculationMultiplier": 1,
-            "redispatches": 0,
-            "codeCache": "warm"
-          },
-          {
-            "makespanMs": 16.419208000000026,
-            "complete": true,
-            "grossNodeSeconds": 0.22009116500000006,
-            "usefulNodeSeconds": 0.11004558250000003,
-            "verificationMultiplier": 2,
-            "speculationMultiplier": 1,
-            "redispatches": 0,
-            "codeCache": "warm"
-          },
-          {
-            "makespanMs": 22.376500000000078,
-            "complete": true,
-            "grossNodeSeconds": 0.32951250099999974,
-            "usefulNodeSeconds": 0.16475625049999987,
-            "verificationMultiplier": 2,
-            "speculationMultiplier": 1,
-            "redispatches": 0,
-            "codeCache": "warm"
-          },
-          {
-            "makespanMs": 15.309332999999924,
-            "complete": true,
-            "grossNodeSeconds": 0.1974696249999997,
-            "usefulNodeSeconds": 0.09873481249999985,
-            "verificationMultiplier": 2,
-            "speculationMultiplier": 1,
-            "redispatches": 0,
-            "codeCache": "warm"
-          },
-          {
-            "makespanMs": 16.166625000000067,
-            "complete": true,
-            "grossNodeSeconds": 0.21528191500000002,
-            "usefulNodeSeconds": 0.10764095750000001,
-            "verificationMultiplier": 2,
-            "speculationMultiplier": 1,
-            "redispatches": 0,
-            "codeCache": "warm"
-          },
-          {
-            "makespanMs": 14.918249999999944,
-            "complete": true,
-            "grossNodeSeconds": 0.20591200100000037,
-            "usefulNodeSeconds": 0.10295600050000019,
-            "verificationMultiplier": 2,
-            "speculationMultiplier": 1,
-            "redispatches": 0,
-            "codeCache": "warm"
-          },
-          {
-            "makespanMs": 15.539999999999964,
-            "complete": true,
-            "grossNodeSeconds": 0.2203977500000003,
-            "usefulNodeSeconds": 0.11019887500000015,
-            "verificationMultiplier": 2,
-            "speculationMultiplier": 1,
-            "redispatches": 0,
-            "codeCache": "warm"
-          },
-          {
-            "makespanMs": 14.557709000000159,
-            "complete": true,
-            "grossNodeSeconds": 0.20765983300000015,
-            "usefulNodeSeconds": 0.10382991650000008,
-            "verificationMultiplier": 2,
-            "speculationMultiplier": 1,
-            "redispatches": 0,
-            "codeCache": "warm"
-          },
-          {
-            "makespanMs": 16.326250000000073,
-            "complete": true,
-            "grossNodeSeconds": 0.221769624,
-            "usefulNodeSeconds": 0.110884812,
-            "verificationMultiplier": 2,
-            "speculationMultiplier": 1,
-            "redispatches": 0,
-            "codeCache": "warm"
-          },
-          {
-            "makespanMs": 15.307957999999871,
-            "complete": true,
-            "grossNodeSeconds": 0.19693803699999943,
-            "usefulNodeSeconds": 0.09846901849999971,
-            "verificationMultiplier": 2,
-            "speculationMultiplier": 1,
-            "redispatches": 0,
-            "codeCache": "warm"
-          },
-          {
-            "makespanMs": 13.760250000000042,
-            "complete": true,
-            "grossNodeSeconds": 0.18900924699999994,
-            "usefulNodeSeconds": 0.09450462349999997,
-            "verificationMultiplier": 2,
-            "speculationMultiplier": 1,
-            "redispatches": 0,
-            "codeCache": "warm"
-          },
-          {
-            "makespanMs": 15.04304100000013,
-            "complete": true,
-            "grossNodeSeconds": 0.19823412400000004,
-            "usefulNodeSeconds": 0.09911706200000002,
-            "verificationMultiplier": 2,
-            "speculationMultiplier": 1,
-            "redispatches": 0,
-            "codeCache": "warm"
-          }
-        ]
-      },
-      {
-        "config": {
-          "nodes": 4,
-          "shards": 8,
-          "redundancy": 2,
-          "transport": "real",
-          "skew": "uniform"
-        },
-        "makespan": {
-          "n": 19,
-          "p50": 15.778999999999996,
-          "p95": 19.428292000000056,
-          "p99": 19.428292000000056,
-          "min": 14.372375000000147,
-          "max": 19.428292000000056,
-          "meanForCostArithmeticOnly": 16.229651421052626,
-          "reliable": true
-        },
-        "coldStartMs": 42.48933299999999,
-        "incomplete": 0,
-        "cost": {
-          "grossNodeSeconds": 4.0196545399999986,
-          "usefulNodeSeconds": 2.0098272699999993,
-          "verificationTax": 2,
-          "speculationTax": 1,
-          "churnTax": 0
-        },
-        "observations": [
-          {
-            "makespanMs": 42.48933299999999,
-            "complete": true,
-            "grossNodeSeconds": 0.5489832930000003,
-            "usefulNodeSeconds": 0.27449164650000013,
-            "verificationMultiplier": 2,
-            "speculationMultiplier": 1,
-            "redispatches": 0,
-            "codeCache": "cold"
-          },
-          {
-            "makespanMs": 15.965249999999969,
-            "complete": true,
-            "grossNodeSeconds": 0.22049395800000007,
-            "usefulNodeSeconds": 0.11024697900000004,
-            "verificationMultiplier": 2,
-            "speculationMultiplier": 1,
-            "redispatches": 0,
-            "codeCache": "warm"
-          },
-          {
-            "makespanMs": 16.06316599999991,
-            "complete": true,
-            "grossNodeSeconds": 0.2117941270000008,
-            "usefulNodeSeconds": 0.1058970635000004,
-            "verificationMultiplier": 2,
-            "speculationMultiplier": 1,
-            "redispatches": 0,
-            "codeCache": "warm"
-          },
-          {
-            "makespanMs": 15.75366699999995,
-            "complete": true,
-            "grossNodeSeconds": 0.20096145999999931,
-            "usefulNodeSeconds": 0.10048072999999966,
-            "verificationMultiplier": 2,
-            "speculationMultiplier": 1,
-            "redispatches": 0,
-            "codeCache": "warm"
-          },
-          {
-            "makespanMs": 15.617416999999932,
-            "complete": true,
-            "grossNodeSeconds": 0.22260641700000017,
-            "usefulNodeSeconds": 0.11130320850000008,
-            "verificationMultiplier": 2,
-            "speculationMultiplier": 1,
-            "redispatches": 0,
-            "codeCache": "warm"
-          },
-          {
-            "makespanMs": 15.778999999999996,
-            "complete": true,
-            "grossNodeSeconds": 0.22061433300000025,
-            "usefulNodeSeconds": 0.11030716650000012,
-            "verificationMultiplier": 2,
-            "speculationMultiplier": 1,
-            "redispatches": 0,
-            "codeCache": "warm"
-          },
-          {
-            "makespanMs": 15.335166000000072,
-            "complete": true,
-            "grossNodeSeconds": 0.205102666,
-            "usefulNodeSeconds": 0.102551333,
-            "verificationMultiplier": 2,
-            "speculationMultiplier": 1,
-            "redispatches": 0,
-            "codeCache": "warm"
-          },
-          {
-            "makespanMs": 15.772125000000187,
-            "complete": true,
-            "grossNodeSeconds": 0.1979643770000005,
-            "usefulNodeSeconds": 0.09898218850000025,
-            "verificationMultiplier": 2,
-            "speculationMultiplier": 1,
-            "redispatches": 0,
-            "codeCache": "warm"
-          },
-          {
-            "makespanMs": 15.653667000000041,
-            "complete": true,
-            "grossNodeSeconds": 0.18951841600000036,
-            "usefulNodeSeconds": 0.09475920800000018,
-            "verificationMultiplier": 2,
-            "speculationMultiplier": 1,
-            "redispatches": 0,
-            "codeCache": "warm"
-          },
-          {
-            "makespanMs": 18.91012499999988,
-            "complete": true,
-            "grossNodeSeconds": 0.22571487599999998,
-            "usefulNodeSeconds": 0.11285743799999999,
-            "verificationMultiplier": 2,
-            "speculationMultiplier": 1,
-            "redispatches": 0,
-            "codeCache": "warm"
-          },
-          {
-            "makespanMs": 17.22745900000018,
-            "complete": true,
-            "grossNodeSeconds": 0.23284683199999978,
-            "usefulNodeSeconds": 0.11642341599999989,
-            "verificationMultiplier": 2,
-            "speculationMultiplier": 1,
-            "redispatches": 0,
-            "codeCache": "warm"
-          },
-          {
-            "makespanMs": 15.523999999999887,
-            "complete": true,
-            "grossNodeSeconds": 0.2124811629999999,
-            "usefulNodeSeconds": 0.10624058149999994,
-            "verificationMultiplier": 2,
-            "speculationMultiplier": 1,
-            "redispatches": 0,
-            "codeCache": "warm"
-          },
-          {
-            "makespanMs": 14.372375000000147,
-            "complete": true,
-            "grossNodeSeconds": 0.19045545899999977,
-            "usefulNodeSeconds": 0.09522772949999989,
-            "verificationMultiplier": 2,
-            "speculationMultiplier": 1,
-            "redispatches": 0,
-            "codeCache": "warm"
-          },
-          {
-            "makespanMs": 18.159124999999904,
-            "complete": true,
-            "grossNodeSeconds": 0.21406983299999977,
-            "usefulNodeSeconds": 0.10703491649999988,
-            "verificationMultiplier": 2,
-            "speculationMultiplier": 1,
-            "redispatches": 0,
-            "codeCache": "warm"
-          },
-          {
-            "makespanMs": 19.428292000000056,
-            "complete": true,
-            "grossNodeSeconds": 0.1935960409999998,
-            "usefulNodeSeconds": 0.0967980204999999,
-            "verificationMultiplier": 2,
-            "speculationMultiplier": 1,
-            "redispatches": 0,
-            "codeCache": "warm"
-          },
-          {
-            "makespanMs": 15.518166999999949,
-            "complete": true,
-            "grossNodeSeconds": 0.2192371669999998,
-            "usefulNodeSeconds": 0.1096185834999999,
-            "verificationMultiplier": 2,
-            "speculationMultiplier": 1,
-            "redispatches": 0,
-            "codeCache": "warm"
-          },
-          {
-            "makespanMs": 16.618375000000015,
-            "complete": true,
-            "grossNodeSeconds": 0.23354537600000003,
-            "usefulNodeSeconds": 0.11677268800000001,
-            "verificationMultiplier": 2,
-            "speculationMultiplier": 1,
-            "redispatches": 0,
-            "codeCache": "warm"
-          },
-          {
-            "makespanMs": 16.13666699999999,
-            "complete": true,
-            "grossNodeSeconds": 0.22678149999999914,
-            "usefulNodeSeconds": 0.11339074999999957,
-            "verificationMultiplier": 2,
-            "speculationMultiplier": 1,
-            "redispatches": 0,
-            "codeCache": "warm"
-          },
-          {
-            "makespanMs": 15.814875000000029,
-            "complete": true,
-            "grossNodeSeconds": 0.21059149800000002,
-            "usefulNodeSeconds": 0.10529574900000001,
-            "verificationMultiplier": 2,
-            "speculationMultiplier": 1,
-            "redispatches": 0,
-            "codeCache": "warm"
-          },
-          {
-            "makespanMs": 14.714458999999806,
-            "complete": true,
-            "grossNodeSeconds": 0.19127904099999957,
-            "usefulNodeSeconds": 0.09563952049999978,
+            "grossNodeSeconds": 1.5092311190000007,
+            "usefulNodeSeconds": 0.7546155595000004,
             "verificationMultiplier": 2,
             "speculationMultiplier": 1,
             "redispatches": 0,
@@ -1878,29 +488,23 @@
     "connectivity": [
       {
         "nodes": 1,
-        "memoryP50Ms": 1.2655419999999822,
-        "realP50Ms": 10.281791999999996,
-        "ratio": 8.124417838365018
+        "memoryP50Ms": 4.028750000000002,
+        "realP50Ms": 27.511333000000036,
+        "ratio": 6.82875159789017
       },
       {
         "nodes": 2,
-        "memoryP50Ms": 2.0579159999999774,
-        "realP50Ms": 15.351916999999958,
-        "ratio": 7.459933738792121
-      },
-      {
-        "nodes": 4,
-        "memoryP50Ms": 1.6320420000000126,
-        "realP50Ms": 15.778999999999996,
-        "ratio": 9.668256086546716
+        "memoryP50Ms": 5.55012499999998,
+        "realP50Ms": 40.74808399999995,
+        "ratio": 7.341831760545951
       }
     ],
     "crossover": {
       "found": false,
-      "reason": "no crossover within the measured range (1, 2, 4, 8, 16 nodes)",
-      "baselineP50Ms": 0.002207999999882304,
-      "bestP50Ms": 1.2655419999999822,
-      "bestAtNodes": 1
+      "reason": "no crossover within the measured range (1, 2, 4 nodes)",
+      "baselineP50Ms": 0.004040999999915584,
+      "bestP50Ms": 4.006999999999948,
+      "bestAtNodes": 4
     },
     "unmet": [
       "**No parallel speedup is measurable here, by construction.** Every node in both curves runs inside one OS process on one JavaScript event loop — the memory transport is in-process by definition, and the real transport creates its libp2p nodes in the same process and dials them over loopback. So these curves measure **coordination cost**, not parallelism, and the flat makespan across the node ladder is the expected consequence rather than a finding about scaling. Demonstrating speedup needs separate processes or machines and is not done here.",
@@ -1910,240 +514,91 @@
       "The 1-node rung necessarily runs at redundancy 1: verification needs two independent executors, and one node cannot supply them. Its verification tax of 1.0 is therefore a property of the system, not a cheaper configuration — the same reason a sovereign shard with one owner node is owner-attested.",
       "Speculation and churn taxes are 1.0 and 0 because `submitJob` neither speculates nor re-dispatches and no node was killed during these runs. They are identities, not measurements."
     ],
-    "excluded": [
-      {
-        "config": "real transport, 8 nodes",
-        "reason": "`read ECONNRESET` — libp2p caps inbound connections at `INBOUND_CONNECTION_THRESHOLD = 5` **per host**, and every node here shares one host, so beyond ~5 concurrent dials to the requestor the noise handshake is killed and the failure reads like a network fault. A same-machine artifact of a documented default, not a property of the fabric."
-      },
-      {
-        "config": "real transport, 16 nodes",
-        "reason": "`read ECONNRESET` — libp2p caps inbound connections at `INBOUND_CONNECTION_THRESHOLD = 5` **per host**, and every node here shares one host, so beyond ~5 concurrent dials to the requestor the noise handshake is killed and the failure reads like a network fault. A same-machine artifact of a documented default, not a property of the fabric."
-      }
-    ]
+    "excluded": []
   },
   "skewed": {
     "config": {
       "nodes": 4,
-      "shards": 8,
+      "shards": 16,
       "redundancy": 2,
       "transport": "memory",
       "skew": "skewed"
     },
     "makespan": {
-      "n": 19,
-      "p50": 1.6081249999999727,
-      "p95": 2.7666670000000977,
-      "p99": 2.7666670000000977,
-      "min": 1.392041000000063,
-      "max": 2.7666670000000977,
-      "meanForCostArithmeticOnly": 1.6939736842105528,
-      "reliable": true
+      "n": 5,
+      "p50": 7.545500000000175,
+      "p95": 17.182874999999967,
+      "p99": 17.182874999999967,
+      "min": 4.991749999999911,
+      "max": 17.182874999999967,
+      "meanForCostArithmeticOnly": 8.771658400000025,
+      "reliable": false
     },
-    "coldStartMs": 2.6167910000001484,
+    "coldStartMs": 5.795958000000155,
     "incomplete": 0,
     "cost": {
-      "grossNodeSeconds": 0.2807396239999975,
-      "usefulNodeSeconds": 0.14036981199999876,
+      "grossNodeSeconds": 0.756407416,
+      "usefulNodeSeconds": 0.378203708,
       "verificationTax": 2,
       "speculationTax": 1,
       "churnTax": 0
     },
     "observations": [
       {
-        "makespanMs": 2.6167910000001484,
+        "makespanMs": 5.795958000000155,
         "complete": true,
-        "grossNodeSeconds": 0.02706704200000036,
-        "usefulNodeSeconds": 0.01353352100000018,
+        "grossNodeSeconds": 0.12048683400000007,
+        "usefulNodeSeconds": 0.060243417000000035,
         "verificationMultiplier": 2,
         "speculationMultiplier": 1,
         "redispatches": 0,
         "codeCache": "cold"
       },
       {
-        "makespanMs": 2.7666670000000977,
+        "makespanMs": 7.545500000000175,
         "complete": true,
-        "grossNodeSeconds": 0.030787667000000053,
-        "usefulNodeSeconds": 0.015393833500000027,
+        "grossNodeSeconds": 0.11717295800000012,
+        "usefulNodeSeconds": 0.05858647900000006,
         "verificationMultiplier": 2,
         "speculationMultiplier": 1,
         "redispatches": 0,
         "codeCache": "warm"
       },
       {
-        "makespanMs": 1.7265420000001086,
+        "makespanMs": 4.991749999999911,
         "complete": true,
-        "grossNodeSeconds": 0.014348996999999602,
-        "usefulNodeSeconds": 0.007174498499999801,
+        "grossNodeSeconds": 0.08744762600000013,
+        "usefulNodeSeconds": 0.04372381300000006,
         "verificationMultiplier": 2,
         "speculationMultiplier": 1,
         "redispatches": 0,
         "codeCache": "warm"
       },
       {
-        "makespanMs": 1.6578749999998763,
+        "makespanMs": 5.530250000000024,
         "complete": true,
-        "grossNodeSeconds": 0.014209123999999292,
-        "usefulNodeSeconds": 0.007104561999999646,
+        "grossNodeSeconds": 0.12467391699999962,
+        "usefulNodeSeconds": 0.06233695849999981,
         "verificationMultiplier": 2,
         "speculationMultiplier": 1,
         "redispatches": 0,
         "codeCache": "warm"
       },
       {
-        "makespanMs": 1.6081249999999727,
+        "makespanMs": 17.182874999999967,
         "complete": true,
-        "grossNodeSeconds": 0.013426877000000559,
-        "usefulNodeSeconds": 0.006713438500000279,
+        "grossNodeSeconds": 0.2666388320000001,
+        "usefulNodeSeconds": 0.13331941600000005,
         "verificationMultiplier": 2,
         "speculationMultiplier": 1,
         "redispatches": 0,
         "codeCache": "warm"
       },
       {
-        "makespanMs": 1.647333000000117,
+        "makespanMs": 8.607917000000043,
         "complete": true,
-        "grossNodeSeconds": 0.014118917000000009,
-        "usefulNodeSeconds": 0.007059458500000004,
-        "verificationMultiplier": 2,
-        "speculationMultiplier": 1,
-        "redispatches": 0,
-        "codeCache": "warm"
-      },
-      {
-        "makespanMs": 1.6591660000001411,
-        "complete": true,
-        "grossNodeSeconds": 0.013819832999999334,
-        "usefulNodeSeconds": 0.006909916499999667,
-        "verificationMultiplier": 2,
-        "speculationMultiplier": 1,
-        "redispatches": 0,
-        "codeCache": "warm"
-      },
-      {
-        "makespanMs": 1.8701250000001437,
-        "complete": true,
-        "grossNodeSeconds": 0.016087250000000268,
-        "usefulNodeSeconds": 0.008043625000000134,
-        "verificationMultiplier": 2,
-        "speculationMultiplier": 1,
-        "redispatches": 0,
-        "codeCache": "warm"
-      },
-      {
-        "makespanMs": 1.4414589999998952,
-        "complete": true,
-        "grossNodeSeconds": 0.011550334999999905,
-        "usefulNodeSeconds": 0.005775167499999952,
-        "verificationMultiplier": 2,
-        "speculationMultiplier": 1,
-        "redispatches": 0,
-        "codeCache": "warm"
-      },
-      {
-        "makespanMs": 1.392041000000063,
-        "complete": true,
-        "grossNodeSeconds": 0.011570292999999763,
-        "usefulNodeSeconds": 0.0057851464999998815,
-        "verificationMultiplier": 2,
-        "speculationMultiplier": 1,
-        "redispatches": 0,
-        "codeCache": "warm"
-      },
-      {
-        "makespanMs": 1.446083999999928,
-        "complete": true,
-        "grossNodeSeconds": 0.012198624999999992,
-        "usefulNodeSeconds": 0.006099312499999996,
-        "verificationMultiplier": 2,
-        "speculationMultiplier": 1,
-        "redispatches": 0,
-        "codeCache": "warm"
-      },
-      {
-        "makespanMs": 1.4571250000001328,
-        "complete": true,
-        "grossNodeSeconds": 0.011999792999999957,
-        "usefulNodeSeconds": 0.005999896499999978,
-        "verificationMultiplier": 2,
-        "speculationMultiplier": 1,
-        "redispatches": 0,
-        "codeCache": "warm"
-      },
-      {
-        "makespanMs": 2.6803749999999127,
-        "complete": true,
-        "grossNodeSeconds": 0.02807525299999975,
-        "usefulNodeSeconds": 0.014037626499999876,
-        "verificationMultiplier": 2,
-        "speculationMultiplier": 1,
-        "redispatches": 0,
-        "codeCache": "warm"
-      },
-      {
-        "makespanMs": 1.4828339999999116,
-        "complete": true,
-        "grossNodeSeconds": 0.01235295599999995,
-        "usefulNodeSeconds": 0.006176477999999975,
-        "verificationMultiplier": 2,
-        "speculationMultiplier": 1,
-        "redispatches": 0,
-        "codeCache": "warm"
-      },
-      {
-        "makespanMs": 1.4234579999999823,
-        "complete": true,
-        "grossNodeSeconds": 0.011743375999999897,
-        "usefulNodeSeconds": 0.005871687999999949,
-        "verificationMultiplier": 2,
-        "speculationMultiplier": 1,
-        "redispatches": 0,
-        "codeCache": "warm"
-      },
-      {
-        "makespanMs": 1.7007919999998649,
-        "complete": true,
-        "grossNodeSeconds": 0.013366123999999676,
-        "usefulNodeSeconds": 0.006683061999999838,
-        "verificationMultiplier": 2,
-        "speculationMultiplier": 1,
-        "redispatches": 0,
-        "codeCache": "warm"
-      },
-      {
-        "makespanMs": 1.549458000000186,
-        "complete": true,
-        "grossNodeSeconds": 0.012912705000000189,
-        "usefulNodeSeconds": 0.0064563525000000946,
-        "verificationMultiplier": 2,
-        "speculationMultiplier": 1,
-        "redispatches": 0,
-        "codeCache": "warm"
-      },
-      {
-        "makespanMs": 1.4564580000001115,
-        "complete": true,
-        "grossNodeSeconds": 0.011531500000000049,
-        "usefulNodeSeconds": 0.005765750000000024,
-        "verificationMultiplier": 2,
-        "speculationMultiplier": 1,
-        "redispatches": 0,
-        "codeCache": "warm"
-      },
-      {
-        "makespanMs": 1.7334160000000338,
-        "complete": true,
-        "grossNodeSeconds": 0.014841625999999677,
-        "usefulNodeSeconds": 0.007420812999999839,
-        "verificationMultiplier": 2,
-        "speculationMultiplier": 1,
-        "redispatches": 0,
-        "codeCache": "warm"
-      },
-      {
-        "makespanMs": 1.486167000000023,
-        "complete": true,
-        "grossNodeSeconds": 0.011798372999999628,
-        "usefulNodeSeconds": 0.005899186499999814,
+        "grossNodeSeconds": 0.1604740830000001,
+        "usefulNodeSeconds": 0.08023704150000005,
         "verificationMultiplier": 2,
         "speculationMultiplier": 1,
         "redispatches": 0,
@@ -2152,13 +607,13 @@
     ]
   },
   "wasmSummary": {
-    "n": 19,
-    "p50": 0.6090409999999338,
-    "p95": 0.7857080000001133,
-    "p99": 0.7857080000001133,
-    "min": 0.5215420000001814,
-    "max": 0.7857080000001133,
-    "meanForCostArithmeticOnly": 0.608048157894748,
-    "reliable": true
+    "n": 5,
+    "p50": 1.44987500000002,
+    "p95": 7.057374999999865,
+    "p99": 7.057374999999865,
+    "min": 1.339584000000059,
+    "max": 7.057374999999865,
+    "meanForCostArithmeticOnly": 2.540658600000006,
+    "reliable": false
   }
 }

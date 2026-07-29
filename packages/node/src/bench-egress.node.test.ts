@@ -65,9 +65,10 @@ interface CallSiteRequirement {
   readonly name: string
   /**
    * Every pattern must match for the requirement to be satisfied. Plural because
-   * two of these are conjunctions in the source — a value constructed *and* passed,
-   * a manifest indexed *and* read — and a requirement met by half of itself is the
-   * shape mutation 4 already walked through once.
+   * several of these are conjunctions in the source — a value constructed *and*
+   * passed, a manifest indexed *and* read, a limit declared *and* passed *and*
+   * printed — and a requirement met by half of itself is the shape mutation 4
+   * already walked through once.
    */
   readonly patterns: readonly RegExp[]
   /** Why the shape carries a property, not merely that the shape is there. */
@@ -123,6 +124,30 @@ const REQUIREMENTS: readonly CallSiteRequirement[] = [
       '      egressEntries += manifest.entries.length\n' +
       '      egressBytes += manifest.totalBytes\n',
   },
+  {
+    name: 'the run declares its admission limit at both node starts and prints it in the report',
+    patterns: [
+      /const\s+DECLARED_ADMISSION_LIMIT\s*=\s*\d+/,
+      /maxConcurrentTasks\s*:\s*DECLARED_ADMISSION_LIMIT/,
+      /Declared run configuration/,
+      /\$\{SHARDS\}/,
+      /\$\{DECLARED_ADMISSION_LIMIT\}/,
+    ],
+    reason:
+      'SCHED-06 gave FabricNode an admission limit and submitJob has no re-pick, so a limit below ' +
+      'what this workload puts on one node turns refusals into failed runs — a published curve ' +
+      'silently shaped by a limit nobody wrote down. Three halves are required and each fails ' +
+      'differently: the constant declares the value, the two FabricNode.start sites are what make it ' +
+      'true of the run, and the report line is the only one of the three a reader of ' +
+      '.planning/BENCHMARK-RESULTS.md can see. Deleting the line leaves the source correct and the ' +
+      'published table silent about what it was measured under, which is the gap this requirement ' +
+      'exists to close.',
+    satisfying:
+      'const DECLARED_ADMISSION_LIMIT = 64\n' +
+      '        maxConcurrentTasks: DECLARED_ADMISSION_LIMIT,\n' +
+      '    `- Declared run configuration: **${SHARDS} shards** per job, and every real node' +
+      ' started with **maxConcurrentTasks: ${DECLARED_ADMISSION_LIMIT}**`,\n',
+  },
 ]
 
 /**
@@ -176,10 +201,10 @@ describe('the scan can report an unmet requirement — proved by planting, not a
     })
   }
 
-  it('reports all four when every identifier appears only inside a comment', () => {
-    // The defect this guard would otherwise have: bin/bench.ts names all four of
-    // these in its own doc comments, so a raw-text match could be satisfied by the
-    // prose describing a call site that had been deleted.
+  it('reports every requirement when every identifier appears only inside a comment', () => {
+    // The defect this guard would otherwise have: bin/bench.ts names all of these in
+    // its own doc comments, so a raw-text match could be satisfied by the prose
+    // describing a call site that had been deleted.
     const commentsOnly = [
       '// realFabric used to pass guard: requestor.egress in its returned object.',
       '/*',

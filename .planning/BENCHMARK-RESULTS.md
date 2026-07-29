@@ -1,8 +1,8 @@
 # o2.services — benchmark run
 
-**SAME-MACHINE: 16 processes on 1 host — not 16 nodes**
+**SAME-MACHINE: 4 processes on 1 host — not 4 nodes**
 
-Run at 2026-07-27T02:09:08.103Z. Methodology pre-registered in
+Run at 2026-07-29T23:28:11.179Z. Methodology pre-registered in
 [`BENCHMARK-METHODOLOGY.md`](./BENCHMARK-METHODOLOGY.md), committed before
 this harness existed.
 
@@ -21,55 +21,46 @@ this harness existed.
 |---|---|---|---|---|---|---|
 | Alexanders-MacBook-Pro.local | worker, requestor | Apple M1 Pro | 0/8 | 32.0 GiB | darwin 25.5.0 | node v23.11.0 |
 
-## Makespan — memory transport (SAME-MACHINE: 16 processes on 1 host — not 16 nodes)
+## Makespan — memory transport (SAME-MACHINE: 4 processes on 1 host — not 4 nodes)
 
 | nodes | p50 | p95 | p99 | n | incomplete | gross n·s | useful n·s | verif. tax | spec. tax | churn/task | cold start |
 |---|---|---|---|---|---|---|---|---|---|---|---|
-| 1 | 1.3ms | 3.8ms | 3.8ms | 19 | 0 | 0.133 | 0.133 | 1.00× | 1.00× | 0.00 | 8.2ms |
-| 2 | 2.1ms | 5.0ms | 5.0ms | 19 | 0 | 0.376 | 0.188 | 2.00× | 1.00× | 0.00 | 2.4ms |
-| 4 | 1.6ms | 3.1ms | 3.1ms | 19 | 0 | 0.314 | 0.157 | 2.00× | 1.00× | 0.00 | 2.6ms |
-| 8 | 1.4ms | 4.3ms | 4.3ms | 19 | 0 | 0.305 | 0.152 | 2.00× | 1.00× | 0.00 | 1.9ms |
-| 16 | 1.6ms | 4.0ms | 4.0ms | 19 | 0 | 0.354 | 0.177 | 2.00× | 1.00× | 0.00 | 2.0ms |
+| 1 | 4.0ms | 7.1ms | 7.1ms | 5 | 0 | 0.219 | 0.219 | 1.00× | 1.00× | 0.00 | 12.3ms |
+| 2 | 5.6ms | 8.8ms | 8.8ms | 5 | 0 | 0.615 | 0.308 | 2.00× | 1.00× | 0.00 | 14.5ms |
+| 4 | 4.0ms | 4.9ms | 4.9ms | 5 | 0 | 0.349 | 0.175 | 2.00× | 1.00× | 0.00 | 7.9ms |
 
-## Makespan — real transport (SAME-MACHINE: 16 processes on 1 host — not 16 nodes)
+## Makespan — real transport (SAME-MACHINE: 4 processes on 1 host — not 4 nodes)
 
 | nodes | p50 | p95 | p99 | n | incomplete | gross n·s | useful n·s | verif. tax | spec. tax | churn/task | cold start |
 |---|---|---|---|---|---|---|---|---|---|---|---|
-| 1 | 10.3ms | 21.6ms | 21.6ms | 19 | 0 | 1.324 | 1.324 | 1.00× | 1.00× | 0.00 | 48.8ms |
-| 2 | 15.4ms | 22.4ms | 22.4ms | 19 | 0 | 4.027 | 2.014 | 2.00× | 1.00× | 0.00 | 43.8ms |
-| 4 | 15.8ms | 19.4ms | 19.4ms | 19 | 0 | 4.020 | 2.010 | 2.00× | 1.00× | 0.00 | 42.5ms |
-
-## Configurations excluded, and why
-
-| configuration | reason |
-|---|---|
-| real transport, 8 nodes | `read ECONNRESET` — libp2p caps inbound connections at `INBOUND_CONNECTION_THRESHOLD = 5` **per host**, and every node here shares one host, so beyond ~5 concurrent dials to the requestor the noise handshake is killed and the failure reads like a network fault. A same-machine artifact of a documented default, not a property of the fabric. |
-| real transport, 16 nodes | `read ECONNRESET` — libp2p caps inbound connections at `INBOUND_CONNECTION_THRESHOLD = 5` **per host**, and every node here shares one host, so beyond ~5 concurrent dials to the requestor the noise handshake is killed and the failure reads like a network fault. A same-machine artifact of a documented default, not a property of the fabric. |
+| 1 | 27.5ms | 34.0ms | 34.0ms | 5 | 0 | 1.807 | 1.807 | 1.00× | 1.00× | 0.00 | 82.9ms |
+| 2 | 40.7ms | 53.5ms | 53.5ms | 5 | 0 | 6.064 | 3.032 | 2.00× | 1.00× | 0.00 | 103.0ms |
 
 ## Connectivity tax
 
 | nodes | memory p50 | real p50 | tax |
 |---|---|---|---|
-| 1 | 1.3ms | 10.3ms | 8.12× |
-| 2 | 2.1ms | 15.4ms | 7.46× |
-| 4 | 1.6ms | 15.8ms | 9.67× |
+| 1 | 4.0ms | 27.5ms | 6.83× |
+| 2 | 5.6ms | 40.7ms | 7.34× |
 
 ## COST crossover
 
-Single-threaded baseline: p50 0.0022ms · p95 0.022ms · p99 0.022ms (n=19)
+Single-threaded baseline: p50 0.0040ms · p95 0.015ms · p99 0.015ms (n=5) — n < 10, tail percentiles unreliable
 
-**No crossover.** no crossover within the measured range (1, 2, 4, 8, 16 nodes).
+**No crossover.** no crossover within the measured range (1, 2, 4 nodes).
 
-Best distributed p50 was 1.3ms at 1 node, against a baseline p50 of 0.0022ms — a factor of 573.16×.
+Best distributed p50 was 4.0ms at 4 nodes, against a baseline p50 of 0.0040ms — a factor of 991.59×.
 
 ## Supplementary — where the time goes
 
 Not part of the pre-registered plan; included because it decomposes the crossover
 rather than flattering it.
 
-- Single-threaded, native, no fabric: **0.002ms** p50
-- Same work through WASM in-process, no fabric: **0.609ms** p50
-- Skewed input, 4 nodes, memory transport: **1.6ms** p50 (uniform at 4 nodes: 1.6ms)
+- Declared run configuration: **16 shards** per job, and every real node started with **maxConcurrentTasks: 64** — both stated by this driver rather than inherited from a default. Shards were raised from 8 by phase 13.1, above the measured 12-shard cliff the per-peer send gate removed, so the two shard counts are not measuring the same workload as an earlier run.
+
+- Single-threaded, native, no fabric: **0.004ms** p50
+- Same work through WASM in-process, no fabric: **1.450ms** p50
+- Skewed input, 4 nodes, memory transport: **7.5ms** p50 (uniform at 4 nodes: 4.0ms)
 
 Reading the decomposition: the native baseline and the same work through WASM
 in-process differ by more than two orders of magnitude, and the distributed run
