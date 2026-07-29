@@ -12,9 +12,12 @@ folded into a decision; see "Risks".
 
 `signName`/`SignedNameResolver` (`packages/core/src/naming.ts`) are complete and
 unit-verified from Phase 4 and have no production caller. Every module today resolves
-by bare CID at `packages/core/src/executor/wasm.ts:62`
-(`this.#blockstore.get(task.moduleCid)`), inside `WasmExecutor.execute`. This phase
-routes production resolution through a signed `key → CID` mapping before that line runs.
+by bare CID — at `packages/core/src/executor/wasm.ts:62`
+(`this.#blockstore.get(task.moduleCid)`) inside `WasmExecutor.execute`, and at two further
+`blockstore.get(task.moduleCid)` calls in two other `Executor` implementations; see the
+corrected paragraph under "Existing Code Insights" for all three and for which
+construction site guards each. This phase routes production resolution through a signed
+`key → CID` mapping before any of those lines runs.
 
 **In scope:** DET-03, DATA-08 — a production node refuses to instantiate a module whose
 CID did not arrive with a valid signed record; the refusal names the missing/invalid
@@ -157,10 +160,30 @@ if (moduleBytes === undefined) {
   return { ok: false, reason: `module block missing: ${task.moduleCid.toString()}` }
 }
 ```
-This is the *only* place a CID becomes a module's bytes on the whole dispatch path — every
-other file that mentions `moduleCid` (`checkpoint.ts`, `verify.ts`, `task-worker.ts`,
-`wasi-executor.ts`, `worker-executor.ts`, `protocol.ts`) receives or forwards a `Task`,
-none of them independently resolve one.
+**Corrected during plan review — the paragraph that stood here was wrong and the plans no
+longer rest on it.** It said this was the *only* place a CID becomes a module's bytes, and
+named `wasi-executor.ts` and `worker-executor.ts` among files that merely forward a
+`Task`. Both of those resolve independently:
+`packages/browser/src/worker-executor.ts:123` is `await this.#blockstore.get(task.moduleCid)`
+on the main thread before it posts raw bytes to its Worker, and
+`packages/aot/src/wasi-executor.ts:794` is the same call in a second `Executor`
+implementation. `checkpoint.ts`, `verify.ts`, `task-worker.ts` and `protocol.ts` do only
+forward. So there are **three** resolution points, not one, and the structural guarantee
+is carried by composing the guard at each *construction* site rather than by there being a
+single choke point:
+
+- `packages/node/src/fabric-node.ts` — wrapped by Plan 14-03.
+- `packages/browser/src/browser-node.ts` — wrapped by Plan 14-04, around the whole
+  `worker ?? new WasmExecutor(...)` expression, so the `WorkerExecutor` arm (the one the
+  demo actually ships) is covered rather than only the fallback.
+- `packages/aot/src/wasi-executor.ts` — **no production caller exists**; `new WasiExecutor(`
+  occurs only in `packages/aot/src/*.test.ts`. Phase 21 is scheduled to give it one, which
+  is why Plan 14-03 Task 3 adds a census that fails when a fourth resolver appears or when
+  this one is constructed outside a test.
+
+(`packages/browser/src/task-executor.worker.ts:60` is not a fourth: it `put`s bytes it was
+handed into a fresh `MemoryBlockstore` and executes the CID that produces. It resolves
+nothing from the network.)
 
 ### The adapter pattern to copy
 `packages/core/src/executor/sovereignty-guard.ts` — `guardSovereignty(inner, node)`
