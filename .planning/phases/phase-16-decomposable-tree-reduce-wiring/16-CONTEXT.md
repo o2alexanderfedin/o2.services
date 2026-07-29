@@ -4,9 +4,14 @@
 **Status:** Ready for planning
 **Mode:** Autonomous — decisions below resolved from the existing `reduce.ts` API, the
 wire protocol's own extension precedent, and the `@o2/node` → `@o2/demo` dependency
-direction (which forecloses one obvious design). Three gaps are flagged rather than
-resolved; see `<risks>`. One of the four success criteria has a measurement problem that
-is stated in the criterion's own wording; see `<specifics>`, criterion 4.
+direction (which forecloses one obvious design). Five gaps are flagged rather than
+resolved; see `<risks>`, which carries one numbered entry per gap. One of the four success
+criteria has a measurement problem that is stated in the criterion's own wording; see
+`<specifics>`, criterion 4.
+
+> **Numbers in this document are configuration choices or measurements, not derived claims.
+> Any quantity describing runtime behaviour must be measured before it is written down
+> anywhere, including in a source comment.**
 
 <domain>
 ## Phase Boundary
@@ -92,9 +97,12 @@ elsewhere from its content-addressed inputs" delivered by machinery that already
 > lets one executor's block source see another executor's store —
 > `distributed.test.ts:70` pins each worker to `['origin']` over a plain `MemoryBlockstore`
 > (`:52`), `bin/bench.ts:168` pins each to `['requestor']`, and in the eight-process topology
-> the submitter dials outward so each agent's `transport.peers` is `[submitter]` alone. At 8
-> leaves and fanout 4 the tree is depth 2, so level 2's inputs are reachable from nobody and
-> the root lands in `failed`. Leaning on chained fetch through the requestor does not rescue
+> the submitter dials outward so each agent's `transport.peers` is `[submitter]` alone. The
+> tree at this shard count is deeper than one level — its shape is **measured** by running
+> `deriveReduceTree` over the leaves, which Plan 16-02 does and records in 16-02-SUMMARY.md,
+> and is not derived on paper here — so every level above the leaves takes combine *results*
+> as its inputs, those are reachable from nobody, and the root lands in `failed`. Leaning on
+> chained fetch through the requestor does not rescue
 > it: a non-holding peer answers a block miss by asking the requestor straight back, where
 > `#inFlight` (`block.ts:74-76`) returns the promise already blocked on that same peer — a
 > circular wait broken only by timeout. **Plan 16-02 Task 2 closes it** by having
@@ -218,7 +226,7 @@ Two facts constrain the shape, and both are already recorded in this repository:
   connection. Eight agents is then eight *outbound* dials, which nothing caps.
 - NET-10 (`REQUIREMENTS.md:463-472`) — a refusal reaches the requestor as a timeout, and
   `DEFAULT_RPC_TIMEOUT_MS` is 30 000 (`rpc.ts:23`). A killed combine node's fallthrough
-  would otherwise cost 30 s per rank step. The submitter in these tests is constructed
+  would otherwise cost a whole budget per rank step. The submitter in these tests is constructed
   with a short `rpcTimeoutMs` — the same move `two-process.node.test.ts:86` and
   `sovereignty-placement.node.test.ts:96` already make for the opposite reason — and the
   plan should say in the test's own docstring that the short budget is a NET-10 symptom,
@@ -270,13 +278,18 @@ is in `<deferred>`.
 - `deriveReduceTree(cids, fanout = 4)` (`:98`) sorts and **dedupes** (`:106`) before
   building, which is the whole basis of agreement-free topology. Throws `RangeError` on
   `fanout < 2` and on an empty set (`:99-102`) — decision 5's failure path.
-- A lone child at a layer boundary is *promoted*, not wrapped (`:116-120`), so a
-  9-partial tree at fanout 4 has a level-1 node with one leaf carried up. Any assertion
-  on `tree.nodes.length` must account for that; at 8 partials and fanout 4 it is exactly
-  3 nodes and `depth === 2`.
+- A lone child at a layer boundary is *promoted*, not wrapped (`:116-120`), rather than
+  every layer being a full fanout's worth of children. That is the one behaviour a reader
+  needs, and it is qualitative. Any assertion on `tree.nodes.length` or `tree.depth` must
+  account for it, and **the figures themselves must be read off a run of `deriveReduceTree`,
+  never derived on paper**: Plan 16-02 runs it over this phase's leaves and records both in
+  16-02-SUMMARY.md, which is the phase's single home for the shape. Plans 16-03 and 16-04
+  transcribe them from there.
 - `executeReduce` (`:219`) runs levels sequentially and combines within a level under
-  `Promise.all` (`:248`). At 8 shards the widest level is 2 concurrent requests — which
-  matters for NET-09, below.
+  `Promise.all` (`:248`), awaiting each level before starting the next. So concurrency is
+  bounded by a level's width rather than by the whole tree — which matters for NET-09,
+  below. How wide the widest level actually is follows from the measured shape and is not
+  derived here.
 - `recomputes` counts *failed attempts*, not combines re-run (`:303`) — so criterion 2's
   assertion is `recomputes > 0`, and the "recomputed elsewhere" claim is carried by
   `executedBy` naming a different peer, not by that counter alone.
@@ -384,10 +397,13 @@ it is **not** sufficient evidence for criterion 1, which names `bin/agent.ts`.
 measurements, all in one `*.node.test.ts` spawning eight `bin/agent.ts` processes:
 1. *Node count:* `agents.length >= 8` and `new Set(executors.map(e => e.nodeId)).size >= 8`,
    with every id a distinct child process's announced `peerId`.
-2. *It is a tree, not a scan:* `tree.nodes.length === 3` and `tree.depth === 2` for 8
-   leaves at fanout 4 (`reduce.ts:112-136`), `outcome.combines === tree.nodes.length`,
-   and `outcome.executedBy.size === tree.nodes.length`. A linear scan produces zero
-   combines and an empty `executedBy`, so the two are not confusable.
+2. *It is a tree, not a scan:* `tree.depth > 1`, `outcome.combines === tree.nodes.length`,
+   and `outcome.executedBy.size === tree.nodes.length` — three assertions that need no
+   shape figure at all. A linear scan produces zero combines and an empty `executedBy`, so
+   the two are not confusable. The exact `tree.nodes.length` and `tree.depth` are asserted
+   **against the figures Plan 16-02 measured** by running `deriveReduceTree` over these
+   leaves and recorded in 16-02-SUMMARY.md; transcribe them from that file, and derive
+   them nowhere.
 3. *Rendezvous assignment (MR-05):* for every `node` in `tree.nodes`,
    `outcome.executedBy.get(node.id) === rendezvousRank(node.id, executorIds)[0]` on the
    healthy run. This is the assignment rule checked against the production dispatch, not
@@ -423,8 +439,12 @@ about a gap:
 2. *The churn-shaped one:* after the criterion-2 run completes, restart the killed agent,
    dispatch the *same* `CombineTask` to it through the same `remoteCombineDispatch`, and
    assert the returned CID equals `outcome.executedBy`'s original result and that the
-   submitter's `store.size` is unchanged across the second dispatch —
-   `reduce.test.ts:290-298`'s assertion, live.
+   measuring store's `size` is unchanged across the second dispatch —
+   `reduce.test.ts:290-298`'s assertion, live. **Which store does the measuring is settled
+   in Plan 16-03, not here, and it is not `submitter.store`**: the reduce's own directed
+   fetch-back has already written every combine result there, so every delta taken against
+   it reads zero, including the ones that must read one. 16-03 uses an empty probe store
+   with two positive controls and states the reasoning at the assertion.
    **Stated plainly: `executeReduce` has no late-arrival channel.** It walks the ranking
    and stops at `wanted` replicas (`:271-279`); a result arriving after that is not
    something the production path can receive. So the duplicate in measurement 2 is
@@ -441,6 +461,11 @@ packages/node/src/bin/bench.ts --quick`, `.planning/BENCHMARK-RESULTS.md` contai
 reduce table whose `treeDepth >= 1`, `combines >= 1`, `combineExecutors >= 2` and
 `reduceMs > 0`, and a `*.node.test.ts` reads the rendered markdown and asserts exactly
 that — the same shape `serve-agent-hooks.node.test.ts` uses to assert against file text.
+**Plan 16-04 tightens the two shape bounds and this document does not restate them**: it
+asserts `treeDepth` and `combines` for equality against the figures Plan 16-02 measured by
+running `deriveReduceTree`, because a row reading anything else is a finding rather than a
+loose bound. Take those figures from 16-02-SUMMARY.md; the floors above are the sketch, not
+the guard.
 The second clause ("rather than bypassing … the way the demo currently does") is a
 statement about `packages/browser/demo/main.ts`, which decision 11 does not change; it can
 only be *reported*, not measured, from anything `bin/bench.ts` does. **What would actually
@@ -510,25 +535,35 @@ and should be planned last or not at all.
 ## Risks — flagged, not resolved
 
 **1. NET-09's early-stream cliff sits directly under criterion 1's node count.**
-`REQUIREMENTS.md:457-462` records the measurement: "N=8 completes and N=12 fails entirely
+`REQUIREMENTS.md:457-462` records the **measurement** — a shard dispatch run at N=8 and
+N=12 immediately after dial — and it is quoted verbatim from that requirement rather than
+restated: "N=8 completes and N=12 fails entirely
 on `MaxEarlyStreamsError: Too many early streams - 11/10`, a hardcoded libp2p default that
-aborts the whole connection", and notes `bin/bench.ts` ships `SHARDS = 8`, one below it.
-Criterion 1 needs ≥8 nodes *and* adds combine requests on top of the map dispatch. The
-cliff is per-connection, and decision 9's dial direction spreads eight shards over eight
-connections rather than concentrating them, and `executeReduce` runs at most two concurrent
-combines at this tree size — so the arithmetic says it fits. **It has not been run.** If
+aborts the whole connection", and it notes `bin/bench.ts` ships `SHARDS = 8`, one below the
+cliff. Those are the only numbers here that anything measured.
+Criterion 1 needs ≥8 nodes *and* adds combine requests on top of the map dispatch. Two
+things reduce the exposure, and both are qualitative: the cliff is per-connection and
+decision 9's dial direction spreads the shards over one connection per agent rather than
+concentrating them, and `executeReduce` runs a level's combines under one `Promise.all`
+and awaits it before starting the next, so concurrency is bounded by a level's width rather
+than by the tree. **The headroom argument was arithmetic and it has not been run** — that
+is its honest status, and it must not be read as a verified fit. If
 Phase 13.1 lands first the cliff is gone; if it does not, the plan must cap per-peer
 concurrency explicitly and say so, rather than discovering it as an intermittent
-`MaxEarlyStreamsError` that reads like a network fault.
+`MaxEarlyStreamsError` that reads like a network fault. If the error does fire, record the
+stream counts the failing run reported; do not predict them.
 
 **2. Eight spawned agent processes is nearly triple the existing maximum.** Every prior
 real-process test spawns two or three (`two-process.node.test.ts:126`,
 `sovereignty-placement.node.test.ts:135-139`, `egress-refusal.node.test.ts:179-180`), each
-with a 120 s test timeout and a 30 s handshake timeout. Eight `FabricNode.start()` calls,
+with a 120 s test timeout and a 30 s handshake timeout — configuration choices read off
+those files. Eight `FabricNode.start()` calls,
 each a full libp2p node, plus a submitter, in one test — memory, startup wall-clock, and
-teardown flake are all untested at that scale, and a full `npx vitest run` already takes
-~5 minutes. Size the timeout deliberately and start the agents with `Promise.all` as the
-existing tests do.
+teardown flake are all untested at that scale, and a full `npx vitest run` was **observed**
+at roughly five minutes when this document was written, which is a wall-clock reading of
+the whole suite and not a figure derived from anything. Size the timeout deliberately, and
+record the measured wall-clock of the new test after its first green run rather than
+predicting it. Start the agents with `Promise.all` as the existing tests do.
 
 **3. Criterion 4 changes what the published benchmark numbers mean, and the methodology is
 pre-registered.** Decision 10 keeps `makespanMs` intact by timing the reduce separately,

@@ -1,5 +1,9 @@
 # Phase 23: Multi-Process Benchmark Driver - Context
 
+> **Numbers in this document are configuration choices or measurements, not derived claims.
+> Any quantity describing runtime behaviour must be measured before it is written down
+> anywhere, including in a source comment.**
+
 **Gathered:** 2026-07-28
 **Status:** Ready for planning
 **Mode:** Autonomous — every grey area below is resolved here, with the reasoning. Four
@@ -18,7 +22,7 @@ driver's own process. `memoryFabric` (`:128-199`) is in-process by definition �
 `FabricNode.start(...)` in a loop (`:206-210`) and dials them over loopback, so N libp2p
 nodes share one V8 isolate and one event loop. `WasmExecutor.execute` is synchronous CPU
 work inside that loop, so N shards dispatched concurrently through `Promise.all`
-(`submit.ts:205`) are serialised by the runtime no matter what N is. That is why
+(`submit.ts:206`) are serialised by the runtime no matter what N is. That is why
 `BENCHMARK-RESULTS.md`'s makespan column is flat across `1, 2, 4, 8, 16` and why its own
 opening section says no parallel speedup is measurable there "by construction".
 
@@ -125,8 +129,9 @@ declared input — `packages/demo/src/kernel.wat` (346 lines), `kernelBytes`
 identical on every node (`job.ts:38-53`), which is what makes shard cost a *controlled*
 quantity rather than a property of the host.
 
-Parameters were measured on this machine rather than reasoned about (8 partitions,
-`DEFAULT_BUDGET = 5_000_000`, `WasmExecutor` in one process):
+Parameters were **measured** on this machine on 2026-07-28 rather than reasoned about — the
+instrument was `WasmExecutor` driven directly in one process, at 8 partitions and
+`DEFAULT_BUDGET = 5_000_000`:
 
 | n | per-shard statuses | per-shard ms | serial total | input payload |
 |---|---|---|---|---|
@@ -138,10 +143,13 @@ Parameters were measured on this machine rather than reasoned about (8 partition
 not uniform and the N=1↔N=8 ratio would be measuring the search, not the fabric.
 `n = 1000` exceeds `WIRE_CHUNK_BYTES = 16_384` (`libp2p/src/constants.ts:89`) and would
 split the input across two frames, changing the transport regime between fixtures for no
-gain. **`n = 700`**: every shard spends its whole budget, per-shard cost is 80–118 ms
-(spread 1.5×, max/mean ≈ 1.3), the serial job is 740 ms, and the input is one wire chunk.
-Against the published trivial-fixture real-transport p50 of 15.8 ms at 4 nodes, compute
-now dominates coordination by roughly 50×.
+gain. **`n = 700`**: every shard spends its whole budget, per-shard cost is 80–118 ms, the
+serial job is 740 ms, and the input is one wire chunk — all four measured, in the row above.
+The published trivial-fixture real-transport p50 at 4 nodes is 15.8 ms, also measured, and
+the two figures stand side by side: this fixture is the one where compute is the larger of
+them. What the ratio between them comes to through the fabric is not settled here — Risk 5
+records that these per-shard costs were taken in isolation, and the first process-driver run
+re-measures them end to end.
 
 Cost is linear in `budget` (`job.ts:41-45`, and the three rows above agree), so the knob
 exists if a longer run is wanted. **Keep `DEFAULT_BUDGET`** — it is the shipped
@@ -183,28 +191,37 @@ expose `.egress` for the manifest leg (`bench.ts:231`, guarded by
 (`net/src/remote-executor.ts:31`). Putting it in a child process would require an RPC to
 retrieve the manifest, which 13-CONTEXT.md already deferred as unneeded.
 
-This means N=8 runs **9** node processes on this 8-logical-core host, plus the driver's
-own work. Named in decision 9's confound list rather than hidden.
+This means every rung runs one node process per node **plus** the submitting node the driver
+holds, so the node-process count at a rung is not the rung's node count. How many that is at
+each rung is read off the process table the run publishes (criterion 1), not settled here.
+Named in decision 9's confound list rather than hidden.
 
 ### 4. The dial direction flips, and that flip is a controlled variable — not a free win
 
 `realFabric` today has every worker dial the submitting node:
 `await node.libp2p.dial(requestor.libp2p.getMultiaddrs())` in a loop (`bench.ts:218-220`).
-So one node receives N inbound connections, all from `127.0.0.1`, and
-`inboundConnectionThreshold` — a **per-host rate**, `libp2p/src/constants.ts:45-65` — is
-exactly the limit that binds.
+Under that direction the submitting node is the one being dialled, by peers all on
+`127.0.0.1` — which is the population `inboundConnectionThreshold` governs, it being a
+**per-host rate** (`libp2p/src/constants.ts:45-65`).
 
 The spawn pattern the three existing tests use dials the other way: the submitter dials
-each agent (`two-process.node.test.ts:131`), so each agent receives exactly **one**
-inbound connection and the per-host cap never binds at all. Adopting the spawn pattern
-therefore changes *two* things at once — the process split and the dial direction — and
-only one of them is what BENCH-07 is about.
+each agent (`two-process.node.test.ts:131`), so the agents are the dial targets and the
+submitting node is dialled by nobody — `Libp2pTransport.send` reaches a peer by peer id and
+reuses the connection the submitter itself opened (`libp2p-transport.ts:122-126`), which is
+why those three tests complete jobs without any worker ever dialling in. **How many inbound
+connections either side ends up with under either direction, and whether the per-host cap
+binds at all, is not derived here**: those are quantities Plan 23-04's factorial records from
+live nodes. What is settled here is only that adopting the spawn pattern changes *two* things
+at once — the process split and the dial direction — and that only one of them is what
+BENCH-07 is about.
 
 **Decision:** the process driver dials outward from the submitting node (matching the
 existing tests), **and** criterion 3's measurement holds the driver fixed while varying
-the direction, so the two effects are separated. Concretely, three configurations at the
-8- and 16-node rungs: (a) in-process, workers dial in — the Phase 8 arrangement; (b)
-in-process, submitter dials out; (c) multi-process, submitter dials out. If (b) already
+the direction, so the two effects are separated. Concretely, at minimum three configurations
+at the 8- and 16-node rungs: (a) in-process, workers dial in — the Phase 8 arrangement; (b)
+in-process, submitter dials out; (c) multi-process, submitter dials out. The criterion 3
+section of `<specifics>` expands these into five attempts, and Plan 23-04 Task 3 into the
+seven that actually run. If (b) already
 succeeds where (a) failed, the exclusion was about the dial direction and the process
 split gets no share of that finding. Publishing "processes fixed it" when the direction
 fixed it would be exactly the "finding about the harness" criterion 2 forbids, one
@@ -286,10 +303,13 @@ constant otherwise.
 
 Every existing rung uses `redundancy: Math.min(2, nodes)` (`bench.ts:392`, `:412`), so
 N=1 runs at R=1 and every other rung at R=2. A ratio taken between an R=1 rung and an R=2
-rung is not a parallelism measurement: at N=8/R=2, `planPlacement` gives each of 8 nodes
-exactly 2 of the 16 dispatches (least-loaded-first with the `dispatchCount` nudge,
-`sovereignty.ts:183-185` and `submit.ts:187-203`), so the ideal ratio against N=1/R=1 is
-4×, not 8×, before anything real happens.
+rung is therefore not a parallelism measurement: **two things vary at once along that
+ladder**, the node count and the redundancy, and the dispatch set grows with the second as
+well as the first. Placement is deterministic — `planPlacement` sorts eligible nodes
+least-loaded-first, tie-broken by id, with the `dispatchCount` nudge ahead of it
+(`sovereignty.ts:183-185`, `submit.ts:187-203`) — but determinism is not the issue; the
+second variable is. What redundancy does to the ratio is a quantity that would have to be
+measured, and holding it fixed removes the need to.
 
 **Decision:** a dedicated speedup sweep across the full ladder at **R = 1**, declared as
 its own configuration, and the published ratio is `p50(N=1) / p50(N=8)` from that sweep.
@@ -298,19 +318,26 @@ already is in the published report — BENCH-04 is satisfied by the figure appea
 it being greater than one. The existing memory and real ladders keep `min(2, nodes)` and
 their numbers, which is half of criterion 4's "no figure is silently replaced".
 
-Confounds to publish beside the ratio, all measured on this host: **8 logical cores**
-(`os.cpus().length`), Apple M1 Pro — a heterogeneous design whose efficiency cores are
-slower, so per-process throughput is not uniform and that non-uniformity is a property of
-the host; **9 node processes at the N=8 rung** (decision 3); and **N=16 is oversubscribed
-by construction** on an 8-core host, so a knee there is contention, not coordination.
+Confounds to publish beside the ratio, each one quoted from a measurement rather than worked
+out here: the host's **logical core count**, read by `os.cpus().length` into the machine
+inventory — **8** on this host, an Apple M1 Pro, a heterogeneous design whose efficiency
+cores are slower, so per-process throughput is not uniform and that non-uniformity is a
+property of the host; the **observed node-process count at each rung**, read off the process
+table rather than off the node count, because the submitting node is a node process too
+(decision 3); and, at any rung where that observed count exceeds the inventory's logical core
+count, the fact that the rung is **oversubscribed**, so a knee there is contention rather than
+coordination. Quote both counts from the tables the run produces; compute neither of them
+here.
 
 ### 10. Each rung's fabric is disposed before the next rung is built
 
 `runnerFor` caches one `Fabric` per node count in a `Map` and disposes them all at the
-end (`bench.ts:251`, `:314-317`). Under the process driver that leaves
-`1+2+4+8+16 = 31` agent processes resident by the last rung, all idle but all holding a
-libp2p node and a heap. Resident idle processes are a contention source that shows up in
-the curve being measured — precisely criterion 2's "finding about the harness".
+end (`bench.ts:251`, `:314-317`). Under the process driver that leaves **every earlier rung's
+agents resident while the last rung is being measured**, all idle but all holding a libp2p
+node and a heap. How many that is at the top of the ladder is a quantity to read off the
+process table the run publishes, not one to settle here. Resident idle processes are a
+contention source that shows up in the curve being measured — precisely criterion 2's
+"finding about the harness".
 
 **Decision:** the process driver's runner disposes the previous rung's fabric when
 `config.nodes` changes. `runnerFor` itself is left alone for the memory and real legs;
@@ -371,7 +398,7 @@ build or measurement scripts.
 
 Both read the file off disk and count literal text. Neither runs the benchmark.
 
-- **`bench-egress.node.test.ts`** (197 lines) requires four call-site shapes to survive
+- **`bench-egress.node.test.ts`** (196 lines) requires four call-site shapes to survive
   any rewrite: `guard: requestor.egress` (`:82`), `const requestorGuard = new EgressGuard(`
   **and** `guard: requestorGuard` (`:92`), `submitJobWithEgress(` **and**
   `[fabric.guard]` (`:106`), and `result.manifests[` + `.entries.length` + `.totalBytes`
@@ -440,9 +467,10 @@ inboundPerSecond = options.inboundConnectionThreshold   ?? max(LIBP2P_INBOUND_CO
 with `RELAY_MAX_RESERVATIONS = 15`, `LIBP2P_MAX_INCOMING_PENDING_CONNECTIONS = 10`,
 `LIBP2P_INBOUND_CONNECTION_THRESHOLD = 5` (`libp2p/src/constants.ts:28`, `:43`, `:65`).
 
-**Measured, not inferred.** Starting `FabricNode.start({})` on this machine and reading
-the getters (`fabric-node.ts:465-473`) returns
+**Measured, not inferred.** Starting `FabricNode.start({})` on this machine on 2026-07-28 and
+reading the getters (`fabric-node.ts:465-473`) returns
 `{inboundConnectionThreshold: 15, maxIncomingPendingConnections: 15, capacityLimit: 15}`.
+Those are the two figures Plan 23-04 Task 2 asserts a default agent announces.
 The effective per-host inbound rate for a default node today is **15, not 5** — the
 number the published exclusion names. `git log -S inboundConnectionThreshold --
 packages/node/src/fabric-node.ts` puts that coupling in `f879b9d` (2026-07-27), and the
@@ -476,11 +504,12 @@ existing connection whichever side opened it — so flipping the dial direction 
 delta-slices each guard's manifest around `submitJob` and returns
 `{ok, job, manifests}`. `submitJob` (`core/src/job/submit.ts:135-`) encodes and stores
 every shard input (`:163-179`), plans placement sequentially with a `dispatchCount` nudge
-(`:186-203`), then runs every shard concurrently through `Promise.all` (`:205`).
+(`:186-203`), then runs every shard concurrently through `Promise.all` (`:206`).
 `planPlacement` sorts eligible nodes least-loaded-first, tie-broken by id
-(`core/src/sovereignty.ts:183-185`), so 8 shards at R=1 over 8 nodes is exactly one each,
-deterministically. `publicNodes(executors)` (`sovereignty.ts:73-82`) builds the
-descriptors with `load: 0`.
+(`core/src/sovereignty.ts:183-185`), so placement is deterministic and reproducible: at R=1
+each shard gets one placement, and which node it lands on is fixed by that ordering rather
+than by timing. `publicNodes(executors)` (`sovereignty.ts:73-82`) builds the descriptors with
+`load: 0`.
 
 ### The report shape criterion 4 has to change
 
@@ -501,8 +530,9 @@ exposed portably so reported as `0` (`bench.ts:72-75`), 32 GiB, `darwin 25.5.0`.
 
 ### The vocabulary guard scans the file this phase writes
 
-`vocabulary.node.test.ts` scans every git-tracked file (`:353-393`) with only four path
-exemptions, none of which covers `.planning/BENCHMARK-RESULTS.md`, `.planning/bench/`,
+`vocabulary.node.test.ts` scans every git-tracked file (`:353-393`) with only five path
+exemptions (`EXEMPT_PATHS`, `:95-121`), none of which covers
+`.planning/BENCHMARK-RESULTS.md`, `.planning/bench/`,
 `.planning/BENCHMARK-METHODOLOGY.md`, or this phase directory. Generated report prose is
 in scope. Read the `BANNED` array (`vocabulary.node.test.ts:47-73`) before writing any
 new report string.
@@ -524,11 +554,13 @@ new report string.
    id is not among them.
 3. **CPU attribution — the falsifier that does not depend on the harness telling the
    truth about itself.** Record `process.cpuUsage()` in the driver across each measured
-   run. The saturating fixture costs ~740 ms of CPU per job (decision 1). If the work had
-   silently run in-process, the driver's own `user` time would rise by approximately that
-   amount; on a genuine multi-process run it stays a small fraction of it. Publish the
-   ratio `driverCpuMs / totalShardComputeMs` per rung. This is the check that catches a
-   fallback that fakes its pids, and it is the one worth having.
+   run and publish the ratio `driverCpuMs / totalShardComputeMs` per rung. The reading is a
+   measurement of where the CPU time went, taken independently of anything the harness says
+   about its own processes — which is why it catches a fallback that fakes its pids, and why
+   it is the check worth having. Do not write down here what the ratio would come to under
+   either arrangement: the share each rung reaches is measured, published beside the rung, and
+   judged against a threshold declared before any of this data exists (`MAX_DRIVER_CPU_SHARE`,
+   fixed in the methodology amendment).
 
 Failures of any of the three raise the `HarnessIntegrityError` of decision 6 and the run
 produces no report — which is criterion 1's "fails the harness rather than reporting a
@@ -550,10 +582,15 @@ rung.
 **The number:** `p50(N=1) / p50(N=8)` from the fixed-R speedup sweep (decision 9), with
 p95 and p99 alongside per the methodology's §3.1, and `n` per rung.
 
-**The bound:** the ideal ratio is `serialTotal / maxShard` = 740 / 118 ≈ **6.3×** on
-measured per-shard costs, not 8×, because shard cost varies 80–118 ms and makespan at
-N=8 is set by the slowest shard. Publish the ideal alongside the observed so the gap is
-visible rather than implied.
+**The ideal bound, and the expectation pre-registered ahead of it:** the ideal is
+`serialTotal / maxShard`, and it is **measured by the run** — the shards are dispatched one
+at a time to the N=1 fabric after that rung's measured runs, and the bound is taken over
+those per-shard measurements, because the measured job dispatches concurrently and its
+intervals overlap. The figure declared *before any data existed*, from the isolated per-shard
+measurements of decision 1 taken on this host on 2026-07-28, is **≈ 6.3×**; it is the
+pre-registered expectation, not the bound. Publish both alongside the observed ratio so the
+gap is visible rather than implied, and so a parameter change moves the bound while leaving
+the pre-registration checkable.
 
 **The control, which is what makes it a finding about the fabric.** Run the *identical*
 saturating fixture, at the identical R, across the identical ladder, under the
@@ -590,19 +627,28 @@ class and message, and the full configuration in force:
 | D | process-per-node | submitter → workers | derived default | none |
 | E | process-per-node | submitter → workers | explicit `5` | none |
 
-A reproduces the Phase 8 arrangement against today's code; **A is expected to succeed at
-8 nodes and to be marginal at 16**, because the effective threshold is now 15 rather than
-the 5 the published exclusion names (measured — see `<code_context>`). B pins the cap
-back to 5 and is the control that shows the cap *can* still cause the failure. C isolates
-the dial direction from the process split (decision 4). D is the phase's headline
-configuration. E is D's cap control.
+A reproduces the Phase 8 arrangement against today's code. **Whether it still fails is what
+the attempt measures, and is not predicted here**: the threshold a default node runs at today
+measures 15, not the 5 the published exclusion names (measured — see `<code_context>`), so
+"the cap is still the cause" is one possible answer rather than the expected one, and Risk 1
+says the same at greater length. B pins the cap back to 5 and is the control that shows the
+cap *can* still cause the failure. C isolates the dial direction from the process split
+(decision 4). D is the phase's headline configuration. E is D's cap control.
+
+**Superseded by Plan 23-04 Task 3.** That plan replaces this five-attempt table with a
+seven-attempt one and corrects E's label: under the outward dial direction the agents are the
+dial targets, so E is an agent-side cap pinned with its exercise not established, not a
+control — and attempts F and G are the process-per-node cells in which many peers on one host
+dial one node, which is the arrangement criterion 3 actually names. The table in 23-04 is the
+one that runs; this one stays because 23-04 cites it and corrects it by name.
 
 The published outcome is whichever of these is true, in these words: the rungs **run**
 (and the report says at which threshold, in which direction, under which driver), or they
 are **re-excluded with the observed error and the configuration that produced it**, and
-the stated cause is whatever B and E actually show — not a paragraph carried forward.
+the stated cause is whatever the cap controls actually show — B in this table, and B and G in
+23-04's superseding one — not a paragraph carried forward.
 
-Only the submitting node's options are needed for B and E under the in-process driver,
+Only the submitting node's options are needed for B under the in-process driver,
 since it is the node receiving the dials there. Under D/E the submitter dials outward, so
 each *agent* is the receiver; if a cap needs setting on the agent side, `bin/agent.ts`
 gains a flag in the same shape as its existing four (`agent.ts:22-35`). Whether that flag
@@ -698,8 +744,10 @@ not when a change breaks it. Worth stating in the phase's own notes rather than
 discovering later.
 
 **4. The `--quick` path will diverge from the full path.** `QUICK` currently shortens the
-runs and both ladders (`bench.ts:59-63`). A process driver at the full ladder spawns 31
-agents across 5 rungs; at `--quick` it would spawn 7 across 3. Criterion 2's ratio is
+runs and both ladders (`bench.ts:59-63`) — the quick ladder is `[1, 2, 4]` against
+`NODE_LADDER` for the full one — so a process driver climbs fewer rungs under `--quick` and
+spawns fewer agents doing it. How many either path spawns is a count to read off the process
+table the run publishes, not one to settle here. Criterion 2's ratio is
 defined at N=1 and N=8, and `--quick`'s ladder stops at 4 — so **the headline number
 cannot be produced by a quick run**, and a quick run must not write a report that looks
 like one. Either `--quick` writes to a distinct path, or the ratio section states which
@@ -708,8 +756,10 @@ ladder produced it. Planner's call; it needs to be an explicit one.
 **5. Fixture cost was measured in isolation, not through the fabric.** The 80–118 ms
 per-shard figures come from `WasmExecutor` driven directly in one process. Through the
 real transport each shard additionally pays block fetch, canonical encode/decode and RPC
-framing. Those costs are small relative to 90 ms on the published evidence (15.8 ms total
-makespan for the whole trivial job at 4 nodes) but they are not zero, and the first
+framing. **What those add is unmeasured.** The only figure in hand is the published
+trivial-fixture real-transport p50 of 15.8 ms for a whole job at 4 nodes, which is a
+measurement of a different fixture and not a per-shard overhead for this one, so nothing here
+establishes how much the end-to-end cost differs from the isolated one. The first
 process-driver run should re-measure per-shard cost end to end before the ratio is
 published. If a shard's observed status vector is anything other than eight `budget`
 results, the fixture parameters are wrong for this host and `n` moves up.
