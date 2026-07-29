@@ -1,5 +1,9 @@
 # Phase 15: Capability-Chained Dispatch - Context
 
+> **Numbers in this document are configuration choices or measurements, not derived claims.
+> Any quantity describing runtime behaviour must be measured before it is written down
+> anywhere, including in a source comment.**
+
 **Gathered:** 2026-07-28
 **Status:** Ready for planning
 **Mode:** Autonomous — every grey area below is resolved, with reasoning, from the

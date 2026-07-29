@@ -4,8 +4,21 @@
 **Status:** Ready for planning
 **Mode:** Autonomous — every grey area below is resolved and the reasoning recorded.
 Two things are flagged rather than resolved: the guest program criterion 3 needs does
-not exist yet, and criterion 3 cannot run on a host without the 6 GB elfconv image.
+not exist yet, and criterion 3 cannot run on a host without the elfconv image.
 See "Risks".
+
+> **Numbers in this document are configuration choices or measurements, not derived claims.
+> Any quantity describing runtime behaviour must be measured before it is written down
+> anywhere, including in a source comment.**
+
+Applied here on 2026-07-29: every quantity below is either a configuration choice, or a
+measurement carried with the subject it was measured against and the instrument that
+measured it. Phase 10's lift measurements — 659 KB in, 5.66 MB out, 174 untranslated
+addresses, 95 s wall (`tools/aot/lift.ts:2-19` and `:107`) — were taken against **one**
+subject binary, a static `int main(void){ return 42; }`. They are cited below as that
+measurement and are never carried over to this phase's guests, whose sizes, lift times
+and untranslated-address counts are unmeasured until those guests are lifted. The plans
+carry the same rule.
 
 <domain>
 ## Phase Boundary
@@ -109,7 +122,11 @@ export function translationKeyOf(artifact: Omit<LiftedArtifact, 'translation'>):
 Pure, no container, no filesystem — so `lift.node.test.ts` can flip one field of the
 already-existing `RENDERED_ARTIFACT` fixture (`lift.node.test.ts:507` uses it this way
 today) and require the CID to move, four times, with no Docker at all. Without this the
-only probe is a full 95-second lift per field, which nobody will run.
+only probe is a full lift per field, which nobody will run — the one lift ever timed was
+**measured** at 95 s wall for a 659 KB input on the host `tools/aot/lift.ts:107` was
+written on, and no lift time has been measured for this phase's own subjects. Plan 21-01
+Task 2 carries the same rule for `translationKeyOf`'s own doc comment: a timing figure
+goes in it only if it was measured on the host that ran the plan, with the date.
 
 ### 5. The CLI gains `--image` and `--docker`, forwarded to `liftElf`
 
@@ -174,8 +191,12 @@ reported as a broken native module. One honest reason beats one saved compile.
 **Also rejected:** scanning the raw bytes for the ASCII `wasi_snapshot_preview1`. Free,
 and a heuristic a data segment defeats; this project removes heuristics.
 
-**Cost, stated:** one extra `WebAssembly.compile` per dispatch, on a module that may be
-5.66 MB. Memoising `moduleCid → route` is deliberately **not** done in this phase — an
+**Cost, stated:** one extra `WebAssembly.compile` per dispatch. No module size and no
+duration belongs in that statement or in the router's own comment: the only lifted
+artifact whose size was ever measured is Phase 10's — 5.66 MB out of a 659 KB input
+(`tools/aot/lift.ts:2-19`) — and this phase's guests are different programs whose sizes
+and compile times are unmeasured until they are lifted. Plan 21-03 Task 1 carries the
+same rule. Memoising `moduleCid → route` is deliberately **not** done in this phase — an
 unbounded per-node map is precisely the resource bound the roadmap flagged for
 `EgressGuard.#entries` (`ROADMAP.md:389`), and adding a second one while that is open is
 not a trade this phase should make silently.
