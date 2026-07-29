@@ -2,9 +2,9 @@
 gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Wire What Was Built
-status: verifying
-stopped_at: Completed 13-06-PLAN.md — Phase 13 gap closure executed, awaiting re-verification
-last_updated: "2026-07-28T14:10:00.000Z"
+status: planning
+stopped_at: Phase 13 re-verified 3/3 against the amended criteria; Phase 13.1 is next and has no CONTEXT.md
+last_updated: "2026-07-29T04:29:14.000Z"
 last_activity: 2026-07-28
 progress:
   total_phases: 14
@@ -16,10 +16,12 @@ progress:
 
 <!--
 progress counts the v1.1 milestone only: phases 11, 12, 13, 13.1, 14-23. Fourteen of
-them; 11 and 12 are verified done. **Phase 13 counts as incomplete** — its four
-gap-closure plans all executed, but its first independent pass scored the original
-criteria 0/3, the criteria were amended, and no pass has run against the amended text
-yet. A phase is done when a verifier says so, not when its plans are.
+them; 11, 12 and 13 are verified done. Phase 13 was counted incomplete for most of
+2026-07-28 — its first independent pass scored the original criteria 0/3, the criteria
+were amended on three owner rulings, four more plans closed the gaps, and a second
+independent pass then scored 3/3 against the amended text. It counts now because a
+verifier said so, which is the rule: a phase is done when a verifier says so, not when
+its plans are.
 
 `total_plans` counts plans that exist. Phases 13.1 and 14-23 are unplanned, so it grows
 as they are planned and must never be read as a milestone denominator.
@@ -51,7 +53,10 @@ Phase: 13 (Egress Manifest Completeness) — **done, 3/3 amended criteria**
 Status: Closed. Scored 0/3 on the original wording, criteria amended on three owner rulings,
 gaps closed across four plans, re-verified independently.
 Next: Phase 13.1 (Node-Side Admission & Transport Bounds) — five requirements, all measured:
-SCHED-06, NET-07, NET-08, NET-09, DATA-10
+SCHED-06, NET-08, NET-09, NET-10, DATA-10. **Not NET-07** — that ID was already taken by a
+done Phase 2 requirement (REQUIREMENTS.md:212, the constants-regression test); this line
+carried the pre-renumbering list until 2026-07-29. ROADMAP.md's Phase 13.1 entry is the
+authoritative list.
 Last activity: 2026-07-28
 
 ```
@@ -541,9 +546,12 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-07-27T22:21:42.692Z
-Stopped at: Completed 13-03-PLAN.md
-Next unit: **verify Phase 13**, then plan Phase 14 — Signed Artifact Resolution.
+Last session: 2026-07-29T04:29:14.000Z
+Stopped at: Phase 13 verified 3/3 on the amended criteria; session paused and resumed.
+Next unit: **gather context for Phase 13.1** (Node-Side Admission & Transport Bounds) — it
+has no CONTEXT.md. Phase 14 is *not* next despite already having `14-CONTEXT.md` from
+2026-07-27: 13.1 was inserted ahead of it after the backpressure gap was measured. That
+stale-looking context file is fine and should be left alone.
 
 The three paragraphs below this line are older sessions' notes that were appended here
 rather than replaced; they describe Phases 9 and 3 and are kept because they are still
@@ -560,8 +568,8 @@ literally always visible (an id `display` rule outranks `[hidden]`, and the test
 asserted the attribute rather than the screen), and a peer filter that matched the
 relay's own id inside every circuit address, so two devices on one relay skipped
 every candidate and never heard of each other. Both fixed and now tested.
-Resume file: `.planning/.continue-here.md` (written 2026-07-27, leads with the Phase 13
-verification gap)
+Resume file: `.planning/.continue-here.md` (rewritten 2026-07-28, leads with Phase 13.1 and
+its five measured defects)
 (no static determinism analysis, no cross-implementation verification, no host-import
 allow-list). Still current; they apply to every later phase.
 
