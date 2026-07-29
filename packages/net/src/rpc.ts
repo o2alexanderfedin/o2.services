@@ -16,7 +16,7 @@
  * Node, a browser, and a Worker.
  */
 
-import { decodeCanonical, encodeCanonical } from '@o2/core'
+import { SendRefused, decodeCanonical, encodeCanonical } from '@o2/core'
 import type { CanonicalValue, Transport } from '@o2/core'
 
 /** Default time a request waits before giving up. */
@@ -25,6 +25,19 @@ export const DEFAULT_RPC_TIMEOUT_MS = 30_000
 export type RpcError =
   | { readonly kind: 'timeout'; readonly to: string; readonly afterMs: number }
   | { readonly kind: 'send-failed'; readonly to: string; readonly detail: string }
+  /**
+   * NET-09 — **this node** declined to send, by its own decision.
+   *
+   * Distinct from `send-failed`, which means the send was attempted and failed.
+   * `by` is the refusing node's own peer id, so a reader learns whose bound it
+   * was without inferring it from the destination.
+   */
+  | {
+      readonly kind: 'send-refused'
+      readonly to: string
+      readonly by: string
+      readonly detail: string
+    }
   | { readonly kind: 'closed' }
   | { readonly kind: 'undecodable'; readonly from: string; readonly detail: string }
 
@@ -44,6 +57,8 @@ function describe(e: RpcError): string {
       return `rpc to ${e.to} timed out after ${e.afterMs}ms`
     case 'send-failed':
       return `rpc send to ${e.to} failed: ${e.detail}`
+    case 'send-refused':
+      return `rpc send to ${e.to} refused by ${e.by}: ${e.detail}`
     case 'closed':
       return 'rpc endpoint closed'
     case 'undecodable':
@@ -167,12 +182,22 @@ export class RpcEndpoint {
         if (entry === undefined) return
         this.#pending.delete(id)
         clearTimeout(entry.timer)
+        const detail = cause instanceof Error ? cause.message : String(cause)
+        // The discrimination is on the **thrown type**, deliberately, and not on
+        // `send-failed`. This `.catch` is bare — it sees every rejection of
+        // `Transport.send` — and `Libp2pTransport.send` awaits `dialProtocol`,
+        // which rejects when the peer is unreachable, refuses the protocol, or the
+        // dial times out. So a genuinely dead *receiver* arrives here by exactly
+        // the same route as this node's own gate refusal. Branching `'sender'` on
+        // `send-failed` would file that peer's death under this node's fault — the
+        // misattribution NET-09's criterion 5 exists to remove, pointed the other
+        // way. Only a `SendRefused` means "this node decided not to send".
         reject(
-          new RpcFailure({
-            kind: 'send-failed',
-            to,
-            detail: cause instanceof Error ? cause.message : String(cause),
-          }),
+          new RpcFailure(
+            cause instanceof SendRefused
+              ? { kind: 'send-refused', to, by: cause.by, detail }
+              : { kind: 'send-failed', to, detail },
+          ),
         )
       })
     })

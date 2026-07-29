@@ -14,6 +14,7 @@ import {
 } from '@o2/libp2p'
 import type { Libp2pTransportOptions } from '@o2/libp2p'
 import { SendRefused } from '@o2/core'
+import { RpcEndpoint, RpcFailure } from '@o2/net'
 
 /**
  * NET-08 and NET-09 — the two transport bounds, measured against the real stack.
@@ -351,5 +352,66 @@ describe('NET-09 — a per-peer send gate, and the tear-down it exists to stop',
     expect(stopped.length).toBeGreaterThan(0)
     // A shutdown is not this node's admission bound refusing.
     expect(outcomes.some((o) => o instanceof SendRefused)).toBe(false)
+  }, 60_000)
+})
+
+/**
+ * NET-09 criterion 5, on the real stack — the refusal survives its trip through
+ * `RpcEndpoint`, and the contrast case survives with it.
+ *
+ * The unit-level cases live in `packages/net/src/rpc.test.ts` and
+ * `packages/net/src/churn.test.ts`, where the `RpcFailure` is constructed
+ * directly. These two are the same distinction produced by a real transport: one
+ * refusal from this node's own gate, one dial to a peer that was never dialled.
+ */
+describe('NET-09 — a gate refusal and a dead peer, told apart over the real transport', () => {
+  it('surfaces this node’s own gate refusal as RpcFailure{send-refused}, naming this node', async () => {
+    const [sender, receiver] = await Promise.all([peer({ maxQueuedSendsPerPeer: 1 }), peer()])
+    const to = await dial(sender, receiver)
+
+    // Short budget: the requests that *do* get sent have no handler to answer
+    // them, so they cost their own timeout. Only the refusals are the subject.
+    const rpc = new RpcEndpoint(sender.transport, { timeoutMs: 3_000 })
+    try {
+      const settled = await Promise.allSettled(
+        Array.from({ length: 24 }, () => rpc.request(to, { probe: true })),
+      )
+      const refusals = settled
+        .filter((r) => r.status === 'rejected')
+        .map((r) => (r as PromiseRejectedResult).reason)
+        .filter((e): e is RpcFailure => e instanceof RpcFailure)
+        .filter((e) => e.detail.kind === 'send-refused')
+
+      expect(refusals.length).toBeGreaterThan(0)
+      for (const refusal of refusals) {
+        const detail = refusal.detail
+        if (detail.kind !== 'send-refused') continue
+        expect(detail.by).toBe(sender.transport.localId)
+        expect(detail.to).toBe(to)
+      }
+    } finally {
+      rpc.close()
+    }
+  }, 60_000)
+
+  it('keeps a request to a never-dialled peer as RpcFailure{send-failed}', async () => {
+    const [sender, stranger] = await Promise.all([peer(), peer()])
+    // Deliberately not dialled: `send` will reject out of `dialProtocol`, which is
+    // the route a genuinely dead receiver takes. It must NOT be attributed to this
+    // node — that is the misattribution criterion 5 exists to remove, pointed the
+    // other way.
+    const to = stranger.libp2p.peerId.toString()
+
+    const rpc = new RpcEndpoint(sender.transport, { timeoutMs: 10_000 })
+    try {
+      const failure = await rpc.request(to, { probe: true }).then(
+        () => null,
+        (cause: unknown) => cause,
+      )
+      expect(failure).toBeInstanceOf(RpcFailure)
+      expect((failure as RpcFailure).detail.kind).toBe('send-failed')
+    } finally {
+      rpc.close()
+    }
   }, 60_000)
 })

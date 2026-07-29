@@ -637,3 +637,88 @@ describe('the lease is the coordinator’s own deadline, and it is enforced', ()
     expect(leases.outstanding).toEqual([])
   })
 })
+
+/**
+ * NET-09 criterion 5 — the third failure kind, argued in the same terms as the
+ * other two.
+ *
+ * `sender` means *this node did not send*. Not the receiver's fault, so blaming it
+ * would route a healthy peer out of the pool; not the task's fault, so counting it
+ * against `DEFAULT_MAX_TASK_FAILURES` would condemn a good shard. It is retried
+ * like `node` and *named* differently — which is the whole point, because `:450`
+ * attaches the attempted `nodeId` to every failure, so with only two kinds the
+ * record says the receiver failed no matter what the string says.
+ */
+describe('NET-09 — a sender-side refusal retries like a node failure, not like a task failure', () => {
+  const senderRefused = (nodeId: string): DispatchOutcome => ({
+    ok: false,
+    kind: 'sender',
+    reason: `dispatch to ${nodeId} refused by this node's own send bound`,
+  })
+
+  it('does not give up at the task-failure budget', async () => {
+    const time = fakeTime()
+    const nodes = Array.from({ length: 10 }, (_, i) => node(`n${i}`))
+
+    let dispatches = 0
+    const outcome = await runResilient({
+      work: [{ shardId: 's0', label: 'public' }],
+      nodes,
+      now: time.now,
+      dispatch: async (_shard, nodeId) => {
+        dispatches += 1
+        // Four refusals is already past DEFAULT_MAX_TASK_FAILURES (3). A `'task'`
+        // kind would have given up before this ever answered.
+        return dispatches <= 4 ? senderRefused(nodeId) : answered('s0')
+      },
+      speculation: { sleep: time.sleep },
+    })
+
+    expect(outcome.ok).toBe(true)
+    expect(dispatches).toBe(5)
+    expect(outcome.results.get('s0')).toBe(resultOf('s0'))
+  })
+
+  it('records the kind in the shard’s history, so a run says whose bound it was', async () => {
+    const time = fakeTime()
+    const nodes = [node('n0'), node('n1'), node('n2')]
+
+    const outcome = await runResilient({
+      work: [{ shardId: 's0', label: 'public' }],
+      nodes,
+      now: time.now,
+      dispatch: async (_shard, nodeId) => senderRefused(nodeId),
+      speculation: { sleep: time.sleep },
+    })
+
+    // Bounded by the pool rather than by the task budget — the `'node'` policy.
+    expect(outcome.ok).toBe(false)
+    expect(outcome.shards[0]?.attempted).toHaveLength(3)
+    const failures = outcome.shards[0]?.failures ?? []
+    expect(failures).toHaveLength(3)
+    expect(failures.every((f) => f.kind === 'sender')).toBe(true)
+    // `nodeId` still names the peer that was attempted; the *kind* is what carries
+    // the attribution, which is precisely why a third kind was needed rather than
+    // a better string.
+    expect(failures.map((f) => f.nodeId).sort()).toEqual(['n0', 'n1', 'n2'])
+  })
+
+  it('still gives up at the budget for a task failure, so the third kind changed nothing else', async () => {
+    const time = fakeTime()
+    const nodes = Array.from({ length: 10 }, (_, i) => node(`n${i}`))
+    let dispatches = 0
+    const outcome = await runResilient({
+      work: [{ shardId: 's0', label: 'public' }],
+      nodes,
+      now: time.now,
+      dispatch: async () => {
+        dispatches += 1
+        return taskBroke()
+      },
+      speculation: { sleep: time.sleep },
+    })
+
+    expect(outcome.ok).toBe(false)
+    expect(dispatches).toBe(3)
+  })
+})
