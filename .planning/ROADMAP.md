@@ -5,7 +5,7 @@
 The journey runs from a working job to a published number. It opens with a complete
 job — shard, execute redundantly, verify, return a result CID — running inside a single
 process on all three targets, then the same job across two OS processes, then the same
-job across two browser tabs on different machines. Only once that chain is proven does
+job across two browsers on one machine. Only once that chain is proven does
 the project add its differentiators, in the order that keeps each one honest: sovereignty
 as a hard constraint *before* the scheduler learns to optimise, tree-reduce *before*
 placement so a placement decision has something real to decide about, decentralized
@@ -38,14 +38,14 @@ Decimal phases appear between their surrounding integers in numeric order.
 
 - [x] **Phase 1: Portable Kernel & Loopback Map Slice** - A complete redundant, verified job runs end to end in one process, on node/browser/webworker, with no network involved
 - [x] **Phase 2: Real Network, Node ↔ Node** - The same job runs across two OS processes over a real transport, proving the port boundary held
-- [ ] **Phase 3: Browser Tier & Backbone Relay** - Two browser tabs on different machines run a distributed redundant job against a self-hosted backbone needing no certificate operations
+- [ ] **Phase 3: Browser Tier & Backbone Relay** - Two browsers, or two isolated browser contexts, on one machine run a distributed redundant job against a self-hosted backbone needing no certificate operations
 - [x] **Phase 4: Sovereignty, Authorization & Artifact Signing** - Owner-pinned data becomes a constraint the placer cannot relax, and every artifact resolves through a signed name — **built and unit-verified, not wired**: the placer it constrains is one no job runs through (v1.0 audit)
 - [x] **Phase 5: Decomposable Tree-Reduce** - Cross-owner aggregation merges up a derived tree with no shuffle, no consensus, and no state to migrate — **built and unit-verified, not wired**: `executeReduce` has no caller; the demo merges with a linear scan
 - [x] **Phase 6: Discovery, Placement & Enrollment** - The static peer list disappears; nodes find each other and choose placement under identity and diversity constraints — **built and unit-verified, not wired**: `discoverExecutors` and `requestEnrollment` have no callers
 - [x] **Phase 7: Churn, Stragglers & Coordinator Survival** - A job finishes correctly when the machines running it — including the submitter — vanish mid-flight — **built and unit-verified, not wired**: `runResilient` has no caller, and `submitJob` neither speculates nor re-dispatches
 - [x] **Phase 8: Benchmark Harness** - The scaling claim becomes a reproducible published number with its costs included rather than excluded
 - [x] **Phase 9: Public Demo, Consent UX & Disclosure Gate** - A visitor consents, contributes to a job someone cares about, and nothing publishes without a deliberate human action
-- [x] **Phase 10: elfconv AOT Native→WASM Pipeline** - A statically-linked native binary becomes a fabric-executable artifact under the same admission checks and verification — **3 of 4 criteria**; cross-machine reproducibility needs a second machine, and the V8 code-cache hit was measured and does not happen
+- [x] **Phase 10: elfconv AOT Native→WASM Pipeline** - A statically-linked native binary becomes a fabric-executable artifact under the same admission checks and verification — **3 of 4 criteria**; cross-machine reproducibility is descoped to one host (2026-07-28) and stays unmeasured, not met, and the V8 code-cache hit was measured and does not happen
 - [x] **Phase 11: Explicit serveAgent Hook Contract** - `serveAgent`'s six hooks stop defaulting silently — an omission becomes a compile error, not a decision nobody made (completed 2026-07-27)
 - [x] **Phase 12: Sovereignty-Pinned Placement** - A sovereignty label becomes a constraint the live `submitJob` path cannot relax, with pushdown and backbone execution-ineligibility enforced on a real job (completed 2026-07-27)
 - [x] **Phase 13: Egress Manifest Completeness** - `EgressGuard` **refuses** a frame carrying a registered sovereign block rather than recording it afterwards, and a leaking cross-owner job fails from the submitter across two spawned `bin/agent.ts` processes — **3/3 on the amended criteria (`13-VERIFICATION-2.md`, 8 mutations planted by the verifier). Scored 0/3 on the original wording first (`13-VERIFICATION.md`); the criteria were then amended on three owner rulings and the gaps closed. Two follow-ons scheduled to Phase 13.1, not left implicit: NET-10 (the refusal arrives as a timeout, not a named outcome) and DATA-10 (only the executing node registers, so a submitter still serves raw sovereign bytes).**
@@ -91,22 +91,36 @@ Decimal phases appear between their surrounding integers in numeric order.
 **Plans**: complete — see `phases/phase-2-real-network/SUMMARY.md`
 
 ### Phase 3: Browser Tier & Backbone Relay
-**Goal**: Two browser tabs on different machines run a distributed, redundant job against a self-hosted backbone that requires no manual certificate operations — the project's core bet, demonstrated
+**Goal**: Two browsers — or two isolated browser contexts — on one machine run a distributed, redundant job against a self-hosted backbone that requires no manual certificate operations — the project's core bet, demonstrated
 **Mode:** mvp
 **Depends on**: Phase 2
 **Requirements**: NET-02, NET-03, NET-04, NET-05, DATA-02, BROW-03, BROW-05
 **Research**: Needed — Safari + WebRTC-Direct support is unverified from any authoritative source (fallback branch: Safari = WSS-only); no credible published throughput figures exist for js-libp2p WebRTC at N>50 browser peers; real relay capacity under partial-result traffic is unmeasured. Playwright `webkit` in CI from day one is the mitigation
 **Success Criteria** (what must be TRUE):
-  1. Two browser tabs on different machines connect over WebRTC using a self-hosted Circuit Relay v2 peer for SDP signaling, complete a 2×-redundant map job, and agree on the result
+  1. Two browsers — or two isolated browser contexts — on one machine connect to each other over WebRTC, using the self-hosted Circuit Relay v2 peer for SDP signaling only, complete a 2×-redundant map job, and agree on the result
   2. The backbone relay auto-acquires its TLS certificate and presents a browser-dialable address with zero certificate operations; no `/certhash/` literal appears anywhere in source and bootstrap addresses resolve at runtime, so a demo recorded today still joins fourteen days later
   3. Sixteen or more browser peers reserve simultaneously against the tuned relay and hold for over an hour under churn; every registered protocol negotiates over `p2p-circuit` because it is registered with `runOnLimitedConnection` on both handle and dial; and relayed byte counters stay in single-digit KiB per peer, proving the relay carries signaling only
   4. A relay at reservation capacity reports exhaustion by name to the joining node and to its own metrics, instead of failing in a way indistinguishable from a network outage
   5. Blocks written from a browser persist to IndexedDB and from Node to the filesystem behind one unchanged blockstore interface, with the same CIDs on both sides
   6. The node runs embedded in a third-party page served without COOP/COEP headers, throttles within a second of the tab being backgrounded, and resumes on return without losing its job
-**Plans**: **5 of 6 criteria met**, see `phases/phase-3-browser-tier/SUMMARY.md`. Criterion 1
-was closed on genuinely different machines — iPhone Safari ↔ laptop Chromium over direct
-WebRTC. Only criterion 2's *real* AutoTLS remains, and it needs a publicly reachable host;
-the source/runtime half (no `/certhash/` literal, addresses resolved at runtime) is verified.
+**Plans**: **5 of 6 criteria met**, see `phases/phase-3-browser-tier/SUMMARY.md`. Only
+criterion 2's *real* AutoTLS remains, and it needs a publicly reachable host; the
+source/runtime half (no `/certhash/` literal, addresses resolved at runtime) is verified.
+
+**Criterion 1 was restated on 2026-07-28, and it was already closed in a stronger form
+than the restatement asks for.** The owner ruled that same machine — different browsers
+and/or different browser contexts, and different OS processes — is the project's testing
+standard everywhere, so the goal and criterion 1 above now name one host. What was
+actually done on 2026-07-26 was more than that: an **iPhone running Safari and a laptop
+running Chromium, on genuinely different machines**, completed a 4-shard 2×-redundant job
+over a **direct** WebRTC connection with the relay carrying SDP only. **That stronger
+result stands in the record and is not withdrawn.** The restatement lowers what future
+work has to re-demonstrate; it does not lower what was demonstrated. The two-device run
+also found two defects the whole e2e suite had passed over, which is the argument for
+keeping it on the record rather than replacing it.
+
+**The checkbox stays unchecked, and criterion 1 is not why.** Criterion 2's *real*
+AutoTLS needs a publicly reachable host — a hosting decision this ruling does not touch.
 
 ### Phase 4: Sovereignty, Authorization & Artifact Signing
 **Goal**: Owner-pinned data becomes a hard scheduling constraint the placer has no code path to relax, and every artifact the fabric executes is resolved through a signed name rather than a bare CID
@@ -181,7 +195,7 @@ that demotes an entire tier.
 **Goal**: The scaling claim becomes a reproducible published number with its costs included rather than excluded — a separate and harder claim than "it works"
 **Mode:** mvp
 **Depends on**: Phase 5 (dispatch API frozen). Runs in parallel with Phases 6-7
-**Status**: COMPLETE — 4 of 5 criteria; BENCH-06's distinct-machine half needs a second machine. See `phases/phase-8-benchmark/SUMMARY.md`
+**Status**: COMPLETE — 4 of 5 criteria; BENCH-06's distinct-machine half was descoped to one host on 2026-07-28 and stays **unmeasured, not met**. See `phases/phase-8-benchmark/SUMMARY.md`
 **Requirements**: BENCH-01, BENCH-02, BENCH-03, BENCH-04, BENCH-05, BENCH-06
 **Research**: Standard patterns — `@libp2p/perf` is a specified cross-implementation protocol so numbers compare to published go/rust-libp2p figures, and the methodology is pre-registered here, before any number exists
 **Success Criteria** (what must be TRUE):
@@ -231,6 +245,14 @@ Criterion 2's cache key MET with a pinned conformance CID; its cross-machine hal
 `@o2/aot` barrel and verified against a real artifact rather than fixtures. Criterion 4
 **NOT MET**: no WASM code-cache entry at 4.8 MB over three visits, while the same
 profile caches 2 MB of JavaScript — a measured negative with two controls.
+
+**Criterion 2 above is left at its original wording deliberately, and the score is
+unchanged at 3 of 4** (2026-07-28). The *requirement* AOT-03 was rewritten to what one
+host establishes under the same-machine testing-standard ruling, but rewording a completed
+phase's criterion to match would convert an unmet half into a met one by editing rather
+than by measuring. The criterion stands as it was scored; the cross-machine half is
+**descoped and still unmeasured, not met**; and `CROSS_MACHINE_BLIND_SPOT` remains attached
+to every artifact because Phase 10 established it is structural rather than configurational.
 
 Notes: Constraints recorded before any artifact is compiled, because retrofitting them
 is a recompile of everything — `TARGET=aarch64-wasi32` (not the Emscripten bundle,
@@ -440,11 +462,12 @@ The apparent ceiling of 256 with one peer is the **sender's** `maxOutboundStream
 **Constraints** (recorded 2026-07-28 by Phase 13, before criterion 2's plan is written):
   - Raw sovereign data does not move between nodes, including two nodes the same owner controls — `EgressGuard.send` refuses any frame carrying a registered sovereign payload rather than forwarding it (Plan 13-04). Criterion 2 below is therefore reachable only if the owner has already placed the input on both of their live nodes; the fabric will not fetch it onto the second one. See the **Raw sovereign data does not move between nodes** row in `.planning/PROJECT.md`'s Key Decisions
   - That refusal path has no runtime coverage in a real tab anywhere. `BrowserNode` composes the identical `EgressGuard` and `registerSovereignInputs` wiring `FabricNode` does, but no sovereign job has ever run in a browser, so the refusal branch is compiled and never executed. This is the same structural gap `12-VERIFICATION.md` recorded and `13-03-PLAN.md` already routed to WIRE-03; naming it here so the WIRE-03 planner knows there is now a *behavior* to exercise and not only a composition to inspect
+  - **Browser-tier testing standard, one host and several browsers** (owner ruling, 2026-07-28): Playwright multi-browser on this machine — `instances: [{browser:'chromium'},{browser:'firefox'},{browser:'webkit'}]` — each peer in its own **isolated browser context** so it gets its own origin storage and IndexedDB, plus a **locally-started Circuit Relay v2 peer to dial**. Three engines on one host are three independent implementations and three independent storage backends; they are **not** three machines, and no result obtained this way may be labelled cross-machine or distributed-hardware. This standard is what makes criterion 4 runnable at all, and it **unblocks four items deferred for want of a multi-browser environment**: `BrowserNode.start()` has no dedicated runtime test anywhere in the repository (Phase 11, `11-VERIFICATION.md`); `BrowserNode`'s `guardSovereignty` wiring has zero runtime proof (Phase 12, `12-VERIFICATION.md`); `BrowserNode.egress` is unproven at runtime (Phase 13, threat T-13-08 in `13-03-PLAN.md`); and the Phase 13 `EgressGuard` refusal inherits into the browser tier untested (`13-VERIFICATION-2.md`). The recorded root cause is one sentence shared by all four — `BrowserNode.start()` needs a real `indexedDB` and a relay to dial, so it runs in **neither** vitest project. Full statement in REQUIREMENTS.md under WIRE-03
 **Success Criteria** (what must be TRUE):
   1. A verification quorum assembled during a job run through `bin/agent.ts` contains at least one backbone-anchored replica and no two replicas from the same operator — a run engineered to try to fill a quorum from one operator's nodes is refused rather than silently accepted
   2. Several node certificates chaining to one owner's user key resolve, through `bin/agent.ts`, as a single discoverable replica set; a sovereignty-pinned task with two or more of that owner's nodes live executes on two of them, the outputs are compared, and the receipt reports the agreement as owner-domain, not independent-operator
   3. The same task with only one of that owner's nodes live executes once, and the resulting receipt reads owner-attested rather than verified, wherever it is displayed — CLI output, demo UI, or job result
-  4. Two browser tabs opened against the static demo bundle — no seed process running, no `/bootstrap.json`, nothing dialed by a test harness — discover each other via the wired `index`/`reservations` hooks and complete a job together, proving browser peers participate in routing as full peers rather than only through backbone-served fallback
+  4. Two browser peers opened against the static demo bundle — no seed process running, no `/bootstrap.json`, nothing dialed by a test harness — discover each other via the wired `index`/`reservations` hooks and complete a job together, proving browser peers participate in routing as full peers rather than only through backbone-served fallback. Run on **one host** under Playwright multi-browser (`chromium`, `firefox`, `webkit`), each peer in its own isolated context, against a locally-started relay — see the browser-tier testing standard in Constraints above; the result is a one-host result and is labelled as one
 **Plans**: TBD
 
 ### Phase 20: Single Job Path, Ledger & Churn Resilience
@@ -507,9 +530,9 @@ Parallel tracks (config `parallelization: true`):
 | 5. Decomposable Tree-Reduce | — | Built and unit-verified; **not wired** — `executeReduce` has no caller; the demo merges with a linear scan | 2026-07-25 |
 | 6. Discovery, Placement & Enrollment | — | Built and unit-verified; **not wired** — `discoverExecutors` and `requestEnrollment` have no callers | 2026-07-26 |
 | 7. Churn, Stragglers & Coordinator Survival | — | Built and unit-verified; **not wired** — `runResilient` has no caller, and `submitJob` is the only job path | 2026-07-26 |
-| 8. Benchmark Harness | — | 4 of 5 criteria — BENCH-06 distinct machines needs a second machine | 2026-07-26 |
+| 8. Benchmark Harness | — | 4 of 5 criteria — BENCH-06's distinct-machine half descoped to one host 2026-07-28; unmeasured, not met | 2026-07-26 |
 | 9. Public Demo, Consent UX & Disclosure Gate | — | Complete — the two-device run was done by the owner and found two defects | 2026-07-26 |
-| 10. elfconv AOT Native→WASM Pipeline | — | 3 of 4 criteria — code cache measured and does not happen; cross-machine CID needs a second machine | 2026-07-27 |
+| 10. elfconv AOT Native→WASM Pipeline | — | 3 of 4 criteria — code cache measured and does not happen; cross-machine CID descoped to one host 2026-07-28, unmeasured, not met | 2026-07-27 |
 | 11. Explicit serveAgent Hook Contract | 1/1 | Complete   | 2026-07-27 |
 | 12. Sovereignty-Pinned Placement | 4/4 | Complete   | 2026-07-27 |
 | 13. Egress Manifest Completeness | 3/3 | Complete   | 2026-07-27 |
@@ -537,7 +560,7 @@ Parallel tracks (config `parallelization: true`):
 
 **Why this phase exists.** Phase 8's own SUMMARY says it plainly: *"Every node in both curves runs inside one OS process on one JavaScript event loop ... no parallel speedup is measurable here at all ... the scaling claim remains unmeasured."* That has been read ever since as part of the BENCH-06 "needs a second machine" blocker. It is not. Phase 8 named the cheaper remedy itself — separate OS processes on one host — and Phase 12 has since built exactly that spawn harness for an unrelated reason. The blocker moved and nobody noticed.
 
-**What this phase is not.** It does not close BENCH-06, which asks for distinct machines and still needs a second machine. It does not touch AOT-03, the same hardware blocker wearing another number. A one-host multi-process curve is not a distributed curve and must not be labelled as one — Phase 8's rule that a same-machine run is labelled as such carries forward unchanged.
+**What this phase is not.** It does not make a one-host curve a distributed one. BENCH-06 was rewritten on 2026-07-28 to what one host establishes; the distinct-machine claim it used to carry is **descoped and unmeasured — not met, and not transferred to this phase**. A same-host run has one CPU, one V8 and one libc, so it cannot detect divergence between machines whatever the process count. Phase 8's rule that a same-machine run is labelled as such carries forward unchanged, and AOT-03's `CROSS_MACHINE_BLIND_SPOT` is untouched by any of this.
 
 **Trap to avoid.** The COST crossover published at ~570× measures the guest ABI on a trivial fixture, not the fabric. Criterion 2 requires a fixture that does non-trivial work, or the new curve reproduces the old one's real problem with more processes.
 
@@ -589,9 +612,10 @@ no v1 equivalent.
 | **Total** | | **44** |
 
 Explicitly out of scope for v1.1 — not mapped to any v1.1 phase, stay open against their
-v1.0 phase: **NET-03** (Phase 3 — needs a publicly reachable host), **BENCH-06** (Phase 8 —
-needs a second machine), **AOT-03** (Phase 10 — the same second machine), **AOT-05**
-(Phase 10 — a measured negative, reported unmet rather than reworded).
+v1.0 phase: **NET-03** (Phase 3 — needs a publicly reachable host), **BENCH-06** (Phase 8)
+and **AOT-03** (Phase 10) — both rewritten 2026-07-28 to what one host establishes, with
+their cross-machine halves **descoped and unmeasured, not met** — and **AOT-05** (Phase 10
+— a measured negative, reported unmet rather than reworded).
 
 ---
 
@@ -627,5 +651,7 @@ in the v1.0 phase directories. Each v1.1 phase's job is to make a runnable entry
 actually call it.
 
 **Not in v1.1** (per PROJECT.md): NET-03 (needs a publicly reachable host), BENCH-06 and
-AOT-03 (one second machine wearing two numbers), AOT-05 (a measured negative — reported
-unmet rather than reworded until re-run against an `https` origin says otherwise).
+AOT-03 (rewritten 2026-07-28 to what one host establishes; their cross-machine halves are
+descoped and unmeasured, not met — see PROJECT.md's residual entry), AOT-05 (a measured
+negative — reported unmet rather than reworded until re-run against an `https` origin says
+otherwise).

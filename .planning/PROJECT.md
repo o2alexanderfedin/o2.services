@@ -82,8 +82,21 @@ a single test.
   from an entry point. The audit found this class; no test could have
 
 **Explicitly not in v1.1:** NET-03 (needs a publicly reachable host), BENCH-06 and
-AOT-03 (one second machine wearing two numbers), AOT-05 (a measured negative with two
-controls — reported unmet rather than reworded).
+AOT-03 (both rewritten 2026-07-28 to what one host establishes — see the residual below),
+AOT-05 (a measured negative with two controls — reported unmet rather than reworded).
+
+**Residual, recorded rather than blocking (owner ruling, 2026-07-28).** Same machine —
+different browsers and/or different browser contexts, and different OS processes — is now
+the project's testing standard **everywhere**, so *"a second machine"* is no longer a
+blocker on any of the project's own criteria and has been struck from the blocker lists.
+What it was blocking does not disappear with it: **cross-machine reproducibility and
+distinct-machine benchmarking are unverified by choice, and closing either would need
+hardware this project does not have.** The ruling was made with the argument that one host
+cannot establish those two already on the table. Descoped is not satisfied — neither
+BENCH-06 nor AOT-03 may be reported as having demonstrated anything across machines, the
+same-machine benchmark label stays required and derived from the recorded inventory, and
+`CROSS_MACHINE_BLIND_SPOT` stays attached to every lifted artifact because Phase 10 showed
+it is structural rather than configurational.
 
 ## Requirements
 
