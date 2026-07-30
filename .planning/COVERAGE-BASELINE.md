@@ -1,5 +1,21 @@
 # Coverage baseline — first measurement
 
+> **Re-measured 2026-07-29, and the first figures were an artefact.** The original run reported
+> 75.62 % overall and 70.38 % for `packages/node/src`. A later run read 54.94 % for that package
+> on code where nothing covered had changed — the whole 15-point swing was
+> `mutation-guard.mutate.ts` reading 0 of 85 statements. It is the driver behind
+> `npm run test:mutations`, deliberately not a `*.test.ts` because it rewrites source while
+> vitest runs files in parallel, so no spec loads it and the v8 provider scored it zero.
+> `**/*.mutate.ts` is now excluded with that reason recorded in `vitest.config.ts`, and the
+> table above is the honest re-measurement. **The tool that measures the guards is not itself
+> one of the guards.**
+>
+> Also corrected: the two orphaned busy-wait loops named in `conditions` below were killed on
+> 2026-07-29. They were leftovers from a Claude Code session whose own
+> `kill %1 %2 %3 %4` could not work in a non-interactive `zsh -c`, and they had burned ~2 of 8
+> cores for 3 days 19 hours. Any timing recorded here or in the perf baseline predates that.
+
+
 **Date:** 2026-07-29
 **Tooling:** `@vitest/coverage-v8@4.1.10` (pinned to the installed `vitest@4.1.10`), provider `v8`
 **Command:**
@@ -21,10 +37,10 @@ finding, not a target.** Nothing in this file is a threshold, and
 
 | Metric | Covered / total | % |
 |---|---|---|
-| Statements | 3208 / 4242 | **75.62** |
-| Branches | 1802 / 2426 | **74.27** |
-| Functions | 625 / 814 | **76.78** |
-| Lines | 2855 / 3684 | **77.49** |
+| Statements | 3285 / 4270 | **76.93** |
+| Branches | 1849 / 2446 | **75.59** |
+| Functions | 636 / 816 | **77.94** |
+| Lines | 2925 / 3709 | **78.86** |
 
 **Read this with the scope caveat below.** The headline is the `node` project only.
 It is a floor on the repository's real coverage, not an estimate of it.
@@ -48,7 +64,7 @@ Directory rollups exactly as the v8 reporter emitted them.
 | `packages/demo/src` | 98.52 | 80.24 | 100 | 100 |
 | `packages/libp2p/src` | 91.72 | 75.47 | 90.90 | 92.62 |
 | `packages/net/src` | 87.79 | 79.76 | 95.37 | 95.57 |
-| `packages/node/src` | 70.38 | 61.76 | 71.83 | 70.38 |
+| `packages/node/src` | 72.97 | 66.02 | 72.60 | 73.36 |
 | `packages/node/src/bin` | 0 | 0 | 0 | 0 |
 | `tools/aot` | 86.68 | 74.58 | 93.10 | 88.69 |
 
@@ -164,7 +180,7 @@ deliberate act, taken against a number that now exists.
 When that act happens, three things follow from the measurement above:
 
 1. **A single global floor would encode the instrument's blind spot as a quality
-   target.** 75.62 % mixes "untested" with "tested by a project CDP cannot reach".
+   target.** 76.93 % mixes "untested" with "tested by a project CDP cannot reach".
    Ratchet the global number and the cheapest way to satisfy it is to delete a
    browser-only module's Node-side siblings, which makes the repository worse.
    Prefer per-package floors on the packages the `node` project genuinely covers:

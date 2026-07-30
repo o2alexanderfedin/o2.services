@@ -130,6 +130,14 @@ export default defineConfig({
         // dominate any line count it appeared in.
         '**/kernel-bytes.ts',
         '**/wasi-fixture-bytes.ts',
+        // The mutation-planting driver behind `npm run test:mutations`. It is
+        // deliberately NOT a `*.test.ts`, because it rewrites source files and vitest
+        // runs test files in parallel — a spec that edits `agent.ts` while another
+        // file imports it is chaos. Being a plain script, no spec loads it, so the v8
+        // provider read it as 0 of 85 statements and dragged `packages/node/src` from
+        // 70.38% to 54.94% on a run where no covered code had changed. The tool that
+        // measures the guards is not itself one of the guards.
+        '**/*.mutate.ts',
       ],
     },
     projects: [
