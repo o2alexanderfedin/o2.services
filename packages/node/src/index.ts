@@ -16,6 +16,9 @@ export type { FabricNodeOptions, RelayCapacity } from './fabric-node.ts'
 
 export { FsBlockstore } from './fs-blockstore.ts'
 
+// The Node tier's killable compute thread — SCHED-06, BROW-04's other half.
+export { workerThread } from './worker-thread.ts'
+
 // The libp2p transport and the NET-07 constants now live in @o2/libp2p, shared
 // with @o2/browser. Re-exported so existing importers of @o2/node are unaffected.
 export {

@@ -11,6 +11,7 @@
 
 import type { CID } from 'multiformats/cid'
 import type { CanonicalValue } from './canonical/encode.ts'
+import type { WorkerTaskRequest, WorkerTaskResponse } from './executor/task-run.ts'
 import type { OwnerId, Sovereignty } from './sovereignty.ts'
 
 /** Content-addressed block storage. */
@@ -63,6 +64,31 @@ export interface Executor {
   readonly nodeId: string
   execute(task: Task): Promise<ExecutionOutcome>
 }
+
+/**
+ * A thread that runs tasks and can be killed mid-instruction.
+ *
+ * The port exists because the two tiers spell the same four operations differently
+ * and nothing else about them differs: a DOM `Worker` has `addEventListener` and
+ * `terminate()`, a `node:worker_threads` `Worker` has `.on()` and `.terminate()`.
+ * With those behind one interface the executor that arms the wall-clock deadline is
+ * written once and both tiers get the identical bound — which is the standing rule
+ * that all nodes have equal functionality, applied to the one place where two
+ * independently-maintained deadline constants would quietly reintroduce a node class.
+ *
+ * `kill()` is what makes the bound real. A guest `run()` is a synchronous call and
+ * V8 has no fuel metering, so no timer on the thread executing it will ever fire.
+ * Ending the thread is the only mechanism available, on either tier.
+ */
+export interface ComputeThread {
+  post(request: WorkerTaskRequest): void
+  onResponse(handler: (response: WorkerTaskResponse) => void): void
+  onError(handler: (reason: string) => void): void
+  kill(): void
+}
+
+/** Builds a {@link ComputeThread}. Injected, so the tier is the caller's choice. */
+export type ComputeThreadFactory = () => ComputeThread
 
 /**
  * Moves messages between nodes. The loopback implementation has no network.

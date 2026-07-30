@@ -253,6 +253,23 @@ export const MUTATIONS: readonly Mutation[] = [
     signature: 'does ask, on the same instrument, once something is registered',
   },
   {
+    id: 'M12',
+    why:
+      'SCHED-06 / BROW-04. The one line that makes a wall-clock bound on untrusted guest code ' +
+      'exist at all. A guest `run()` is synchronous and V8 has no fuel metering, so nothing ' +
+      'on the executing thread can interrupt it and killing the thread is the only mechanism ' +
+      'available. Left inert, a 52-byte looping module wedges an unauthenticated node ' +
+      'outright — the admission slot’s `finally` sits around an await that never settles and ' +
+      'the RPC timeout’s own `setTimeout` never runs either. It is a substitution rather than ' +
+      'a deletion because deleting it leaves `timer` undefined, which fails as a ' +
+      'ReferenceError rather than as the hang the defect actually is.',
+    file: 'packages/core/src/executor/worker-executor.ts',
+    find: '      const timer = setTimeout(() => this.#expire(id), this.#deadlineMs)',
+    replace: '      const timer = setTimeout(() => {}, this.#deadlineMs)',
+    caughtBy: ['packages/core/src/executor/worker-executor.test.ts'],
+    signature: 'Error: Test timed out in 5000ms.',
+  },
+  {
     id: 'M10',
     why:
       'DATA-05, the taking half. `serveAgent` is the only production caller that declares a ' +

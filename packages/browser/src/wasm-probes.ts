@@ -14,6 +14,8 @@
  * Not a test file so it can be shared by the portable and browser-only suites.
  */
 
+import { MODULE_NEVER_RETURNS } from '../../core/src/executor/fixtures.ts'
+
 const uleb = (n: number): number[] => {
   const out: number[] = []
   let v = n
@@ -74,15 +76,12 @@ export const PROBE_EMITS_TEN: Uint8Array<ArrayBuffer> = new Uint8Array([
  *
  * `loop … br 0 … end` with no exit. Nothing on the thread running this can
  * interrupt it — which is exactly the point: only killing the thread stops it.
+ *
+ * The kernel's own fixture, not a second copy. Both tiers bound an untrusted guest
+ * with one deadline in one file, so both must be able to spin identical bytes —
+ * otherwise "the browser kills it" and "the server kills it" are claims about two
+ * different modules. Test-only relative import, the idiom
+ * `packages/net/src/distributed.test.ts` established; this module is imported by
+ * nothing but specs.
  */
-export const PROBE_NEVER_RETURNS: Uint8Array<ArrayBuffer> = new Uint8Array([
-  ...HEADER,
-  ...section(1, [0x01, ...T_VOID_VOID]),
-  ...section(3, [0x01, 0x00]),
-  ...section(7, [0x01, ...name('run'), 0x00, 0x00]),
-  ...code([
-    0x03, 0x40, // loop (void)
-    0x0c, 0x00, // br 0
-    0x0b, // end loop
-  ]),
-])
+export const PROBE_NEVER_RETURNS: Uint8Array<ArrayBuffer> = MODULE_NEVER_RETURNS

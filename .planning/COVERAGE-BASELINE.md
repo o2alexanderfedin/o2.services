@@ -35,6 +35,24 @@ finding, not a target.** Nothing in this file is a threshold, and
 
 ## Headline
 
+> **Re-measured 2026-07-30, after the wall-clock execution deadline landed** (B03/B06).
+> The `node` project now reads **77.96 %** statements / 76.00 % branches / 78.05 %
+> functions / 79.90 % lines over **79 test files, 1157 tests, all passing**, 227.26 s.
+>
+> It moved *up*, and the reason is worth recording because the prediction was that it
+> would move down: two new modules read **0 %** and both are correct at 0 %.
+> `packages/core/src/executor/task-run.ts` and
+> `packages/node/src/task-executor.worker-thread.ts` execute **inside a worker thread**,
+> which the v8 provider does not instrument — the same blindness `task-worker.ts` has
+> always had, and the same class of artefact this file already records for
+> `*.mutate.ts`. Their statements are genuinely exercised, by
+> `worker-executor.browser.test.ts` and `execution-deadline.node.test.ts`, in a place
+> the instrument cannot see. The rise comes from `fabric-node.ts` and
+> `worker-executor.ts` gaining covered lines that outweigh them.
+>
+> The 2026-07-29 table below is left exactly as measured. **A baseline that is edited
+> to match the present is not a baseline.**
+
 | Metric | Covered / total | % |
 |---|---|---|
 | Statements | 3285 / 4270 | **76.93** |

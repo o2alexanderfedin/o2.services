@@ -6,7 +6,7 @@
  *
  *   `Transport`  → libp2p over TCP and WebSockets, plus a circuit when it needs one
  *   `Blockstore` → the filesystem when given a directory, memory when not
- *   `Executor`   → the kernel's `WasmExecutor`
+ *   `Executor`   → the kernel's `WasmExecutor`, on a thread this process can kill
  *
  * A node is symmetric. It executes tasks, holds blocks, serves records, and relays
  * for peers that cannot be dialled — all of it, on every node. There is no
@@ -80,7 +80,7 @@ import {
   DEFAULT_MAX_CONCURRENT_TASKS,
   LocalCapacity,
   MemoryBlockstore,
-  WasmExecutor,
+  WorkerExecutor,
   guardSovereignty,
 } from '@o2/core'
 import type { Blockstore, Executor, NodeSovereignty } from '@o2/core'
@@ -105,6 +105,7 @@ import {
   RELAY_MAX_RESERVATION_TTL_MS,
 } from '@o2/libp2p'
 import type { ReservationWatcher } from './reservation-watch.ts'
+import { workerThread } from './worker-thread.ts'
 
 export interface FabricNodeOptions {
   /**
@@ -157,6 +158,20 @@ export interface FabricNodeOptions {
    * caller's mistake into a silently different node.
    */
   readonly maxConcurrentTasks?: number
+  /**
+   * How long one task may hold its thread before it is killed — SCHED-06.
+   *
+   * Defaults to `DEFAULT_TASK_DEADLINE_MS` (`@o2/core`, the only place the value
+   * lives, and the same default the browser tier takes). This node serves
+   * unauthenticated, so the bound is what stands between any peer that can dial
+   * `/o2/rpc/1.0.0` and a wedged process: a guest `run()` is synchronous and V8 has
+   * no fuel, so no timer on the executing thread will ever fire.
+   *
+   * An option rather than only a constant for the same reason `maxConcurrentTasks` is
+   * one: a test that wants to observe the bound has to be able to make it certain
+   * rather than hope for it. Per-node, and not a node class — nothing branches on it.
+   */
+  readonly taskDeadlineMs?: number
   /**
    * Largest single inbound frame this node will accumulate before it aborts the
    * stream — NET-08.
@@ -309,6 +324,8 @@ export class FabricNode {
    * reach this node's executor without being counted.
    */
   readonly #counter: CountingExecutor
+  /** The thread tasks run on. Held only so {@link FabricNode.stop} can end it. */
+  readonly #compute: WorkerExecutor
   readonly #limit: number
   readonly #pending: number
   readonly #inboundPerSecond: number
@@ -321,6 +338,7 @@ export class FabricNode {
     blockstore: FetchingBlockstore
     store: Blockstore
     executor: CountingExecutor
+    compute: WorkerExecutor
     admission: LocalCapacity
     limit: number
     pending: number
@@ -334,6 +352,7 @@ export class FabricNode {
     this.store = parts.store
     this.executor = parts.executor
     this.#counter = parts.executor
+    this.#compute = parts.compute
     this.admission = parts.admission
     this.#limit = parts.limit
     this.#pending = parts.pending
@@ -537,9 +556,13 @@ export class FabricNode {
     // `executorPeakInFlight` is a count of calls that really happened rather than of
     // slots the node believes it granted. See that getter for what the reading does
     // and does not license.
-    const executor = new CountingExecutor(
-      guardSovereignty(new WasmExecutor({ nodeId: libp2p.peerId.toString(), blockstore }), sovereignty),
-    )
+    const compute = new WorkerExecutor({
+      nodeId: libp2p.peerId.toString(),
+      blockstore,
+      createThread: workerThread,
+      ...(options.taskDeadlineMs === undefined ? {} : { deadlineMs: options.taskDeadlineMs }),
+    })
+    const executor = new CountingExecutor(guardSovereignty(compute, sovereignty))
 
     const node = new FabricNode({
       libp2p,
@@ -549,6 +572,7 @@ export class FabricNode {
       blockstore,
       store,
       executor,
+      compute,
       admission,
       limit,
       pending,
@@ -696,6 +720,11 @@ export class FabricNode {
 
   async stop(): Promise<void> {
     this.rpc.close()
+    // Before the transport, and not optional: a task in flight holds a live thread,
+    // and a thread nobody killed keeps the process alive after everything else has
+    // been shut down. `terminate()` is idempotent, and it resolves anything pending
+    // rather than leaving a caller awaiting a promise that will never settle.
+    this.#compute.terminate()
     await this.transport.stop()
     await this.libp2p.stop()
   }

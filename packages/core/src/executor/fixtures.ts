@@ -150,6 +150,24 @@ export const MODULE_NO_OUTPUT: Uint8Array<ArrayBuffer> = build([0x01]) // nop
 /** Traps immediately. */
 export const MODULE_TRAPS: Uint8Array<ArrayBuffer> = build([0x00]) // unreachable
 
+/**
+ * Spins forever — `loop … br 0 … end` with no exit.
+ *
+ * `run()` is a synchronous call, and V8 has no fuel metering, so nothing on the
+ * thread executing this can interrupt it: not a timer, not a flag, not a stop
+ * button. Only killing the thread ends it. That is what makes this the only honest
+ * probe for a wall-clock bound — a module that finishes on its own cannot tell a
+ * deadline that fired from a deadline that was never armed.
+ *
+ * Shared by both tiers deliberately, so the browser probe and the Node one spin
+ * identical bytes.
+ */
+export const MODULE_NEVER_RETURNS: Uint8Array<ArrayBuffer> = build([
+  0x03, 0x40, // loop (void)
+  0x0c, 0x00, // br 0
+  0x0b, // end loop
+])
+
 
 
 /**

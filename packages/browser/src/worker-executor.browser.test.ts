@@ -1,6 +1,6 @@
 import { MemoryBlockstore } from '@o2/core'
 import { describe, expect, it } from 'vitest'
-import { WorkerExecutor } from './worker-executor.ts'
+import { browserWorkerExecutor } from './worker-executor.ts'
 import { PROBE_EMITS_TEN, PROBE_NEVER_RETURNS } from './wasm-probes.ts'
 // Vite's `?worker` suffix bundles the module and its imports into a real Worker.
 // Browser project only — see vitest.config.ts.
@@ -38,7 +38,7 @@ describe('the probes are real WASM, not bytes we merely believe in', () => {
 describe('a task executes off the main thread', () => {
   it('returns the guest output decoded from canonical bytes', async () => {
     const { store, moduleCid, inputCid } = await seeded(PROBE_EMITS_TEN)
-    const executor = new WorkerExecutor({
+    const executor = browserWorkerExecutor({
       nodeId: 'tab',
       blockstore: store,
       createWorker: () => new TaskExecutorWorker(),
@@ -62,7 +62,7 @@ describe('a task executes off the main thread', () => {
 
   it('spawns no thread until it is actually asked to compute', async () => {
     const { store } = await seeded(PROBE_EMITS_TEN)
-    const executor = new WorkerExecutor({
+    const executor = browserWorkerExecutor({
       nodeId: 'tab',
       blockstore: store,
       createWorker: () => new TaskExecutorWorker(),
@@ -74,7 +74,7 @@ describe('a task executes off the main thread', () => {
   it('reports a missing block rather than starting a thread for work it cannot do', async () => {
     const { store, moduleCid } = await seeded(PROBE_EMITS_TEN)
     const absent = await new MemoryBlockstore().put(new Uint8Array([0xff]) as Uint8Array<ArrayBuffer>)
-    const executor = new WorkerExecutor({
+    const executor = browserWorkerExecutor({
       nodeId: 'tab',
       blockstore: store,
       createWorker: () => new TaskExecutorWorker(),
@@ -99,10 +99,13 @@ describe('stopping is termination, not a request to stop', () => {
     // no flag, no duty cycle and no governor can reach it, because the guest never
     // yields. If this resolves, the thread was killed.
     const { store, moduleCid, inputCid } = await seeded(PROBE_NEVER_RETURNS)
-    const executor = new WorkerExecutor({
+    const executor = browserWorkerExecutor({
       nodeId: 'tab',
       blockstore: store,
       createWorker: () => new TaskExecutorWorker(),
+      // Long, deliberately: this case is about Stop, and a deadline firing first
+      // would make it pass for the wrong reason. The deadline has its own case below.
+      deadlineMs: 60_000,
     })
 
     const running = executor.execute({ moduleCid, inputCid, partitionIndex: 0, partitionCount: 1 })
@@ -126,10 +129,13 @@ describe('stopping is termination, not a request to stop', () => {
     // the assertion below would never run. That it does run is the off-main-thread
     // claim, observed rather than asserted.
     const { store, moduleCid, inputCid } = await seeded(PROBE_NEVER_RETURNS)
-    const executor = new WorkerExecutor({
+    const executor = browserWorkerExecutor({
       nodeId: 'tab',
       blockstore: store,
       createWorker: () => new TaskExecutorWorker(),
+      // Same reason as above: the subject is the main thread staying responsive, not
+      // the deadline, so the deadline is put out of reach of this window.
+      deadlineMs: 60_000,
     })
     const running = executor.execute({ moduleCid, inputCid, partitionIndex: 0, partitionCount: 1 })
 
@@ -152,7 +158,7 @@ describe('stopping is termination, not a request to stop', () => {
     // requirement. So this asks the thread itself, directly, past the executor.
     const { store, moduleCid, inputCid } = await seeded(PROBE_EMITS_TEN)
     const workers: Worker[] = []
-    const executor = new WorkerExecutor({
+    const executor = browserWorkerExecutor({
       nodeId: 'tab',
       blockstore: store,
       createWorker: () => {
@@ -196,7 +202,7 @@ describe('stopping is termination, not a request to stop', () => {
 
   it('refuses further work once stopped, and stays stopped', async () => {
     const { store, moduleCid, inputCid } = await seeded(PROBE_EMITS_TEN)
-    const executor = new WorkerExecutor({
+    const executor = browserWorkerExecutor({
       nodeId: 'tab',
       blockstore: store,
       createWorker: () => new TaskExecutorWorker(),
@@ -216,4 +222,58 @@ describe('stopping is termination, not a request to stop', () => {
     expect(executor.threadAlive).toBe(false)
     expect(executor.started).toBe(0)
   }, 30_000)
+})
+
+describe('BROW-04 / SCHED-06 — a runaway guest is killed by the deadline, not only by Stop', () => {
+  it('fails a real spinning guest on time and computes again on the replacement thread', async () => {
+    // A fake thread cannot prove this. `PROBE_NEVER_RETURNS` is a bare `loop br 0`
+    // in a real Worker: no flag, no duty cycle, no governor and no timer inside that
+    // thread can reach it, because the guest never yields. If the first outcome
+    // arrives at all, the thread was killed — and if the second one succeeds, the
+    // executor built a new one rather than retiring itself.
+    const deadlineMs = 600
+    const spinning = await seeded(PROBE_NEVER_RETURNS)
+    const executor = browserWorkerExecutor({
+      nodeId: 'tab',
+      blockstore: spinning.store,
+      createWorker: () => new TaskExecutorWorker(),
+      deadlineMs,
+    })
+
+    try {
+      const started = performance.now()
+      const outcome = await executor.execute({
+        moduleCid: spinning.moduleCid,
+        inputCid: spinning.inputCid,
+        partitionIndex: 0,
+        partitionCount: 1,
+      })
+      const elapsed = performance.now() - started
+
+      expect(outcome.ok).toBe(false)
+      if (outcome.ok) return
+      expect(outcome.reason).toMatch(/exceeded \d+ms/)
+      expect(elapsed).toBeLessThan(deadlineMs * 8)
+      // Stop was never pressed, so the node is still willing to work.
+      expect(executor.terminated).toBe(false)
+
+      const ordinary = await seeded(PROBE_EMITS_TEN)
+      const next = await browserWorkerExecutor({
+        nodeId: 'tab',
+        blockstore: ordinary.store,
+        createWorker: () => new TaskExecutorWorker(),
+        deadlineMs: 30_000,
+      }).execute({
+        moduleCid: ordinary.moduleCid,
+        inputCid: ordinary.inputCid,
+        partitionIndex: 0,
+        partitionCount: 1,
+      })
+      expect(next.ok).toBe(true)
+      if (!next.ok) return
+      expect(next.output).toBe(10)
+    } finally {
+      executor.terminate()
+    }
+  }, 60_000)
 })

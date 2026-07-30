@@ -362,14 +362,6 @@ const EXEMPT: readonly Exemption[] = [
       'the requirement is split across four files, each covering one leg of it, and no single describe owns the whole claim — a title naming BROW-02 in any one of them would assert more than that file checks',
   },
   {
-    id: 'BROW-04',
-    waives: 'named-in-a-test-title',
-    evidence:
-      'worker-executor.browser.test.ts docblock, plus inline BROW-04 assertions in built-bundle.e2e.test.ts:260 and colouring-demo.e2e.test.ts:161',
-    reason:
-      'a visible-and-stoppable UI property, asserted inside e2e steps whose titles name the user action being performed; the id marks the specific assertions rather than the block',
-  },
-  {
     id: 'BENCH-01',
     waives: 'named-in-a-test-title',
     evidence:

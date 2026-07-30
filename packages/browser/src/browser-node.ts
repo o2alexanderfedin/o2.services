@@ -52,7 +52,8 @@ import { createLibp2p } from 'libp2p'
 import type { Libp2p } from '@libp2p/interface'
 import { IdbBlockstore } from './idb-blockstore.ts'
 import { VisibilityGovernor } from './visibility-governor.ts'
-import { WorkerExecutor } from './worker-executor.ts'
+import { browserWorkerExecutor } from './worker-executor.ts'
+import type { WorkerExecutor } from '@o2/core'
 import type { WorkerFactory } from './worker-executor.ts'
 
 export interface BrowserNodeOptions {
@@ -122,6 +123,16 @@ export interface BrowserNodeOptions {
    * needs a stoppable node can assert the property rather than assume it.
    */
   readonly createWorker?: WorkerFactory
+  /**
+   * How long one task may hold this tab's thread before it is killed — SCHED-06.
+   *
+   * Defaults to `DEFAULT_TASK_DEADLINE_MS` (`@o2/core`, the only place the value
+   * lives). An option rather than only a constant for the same reason
+   * `maxConcurrentTasks` is one: a test that wants to observe the bound has to be
+   * able to make it certain rather than hope for it. Per-node, and not a node class —
+   * nothing anywhere branches on it.
+   */
+  readonly taskDeadlineMs?: number
 }
 
 export class BrowserNode {
@@ -309,7 +320,12 @@ export class BrowserNode {
     const worker =
       options.createWorker === undefined
         ? null
-        : new WorkerExecutor({ nodeId, blockstore, createWorker: options.createWorker })
+        : browserWorkerExecutor({
+            nodeId,
+            blockstore,
+            createWorker: options.createWorker,
+            ...(options.taskDeadlineMs === undefined ? {} : { deadlineMs: options.taskDeadlineMs }),
+          })
     // DATA-09: guarded unconditionally, with no opt-in required to get the
     // refusal — `options.sovereignty` defaults to cleared-for-nobody (see
     // `BrowserNodeOptions.sovereignty`'s doc). Wrapped *inside* the governor
