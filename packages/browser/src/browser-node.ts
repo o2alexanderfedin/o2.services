@@ -267,7 +267,7 @@ export class BrowserNode {
   /**
    * Join the fabric, or leave the tab as it was found.
    *
-   * Same split as `FabricNode.start`, and this half is where it earns most:
+   * Same split as `FabricNode.start`, and this half is where it matters most:
    * `demo/main.ts` catches a rejected start, classifies it for the UI, and the user
    * can press the button again. Every failed retry used to strand a whole libp2p
    * node plus an open IndexedDB connection, so an unreachable — or hostile — relay

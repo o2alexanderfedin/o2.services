@@ -442,13 +442,12 @@ const FINDINGS: readonly Finding[] = [
     finding:
       'no tracked test file names DET-05. `encode.test.ts` asserts the strict DAG-CBOR rules the row claims — NaN, Infinity and -Infinity refused with the offending path named, one float width — but nothing ties those assertions to the id, and the row also claims "protobuf bytes are never hashed", which is a separate property no test in that file addresses',
   },
-  {
-    id: 'VER-02',
-    found: '2026-07-29',
-    substance: 'packages/core/src/job/submit.test.ts, packages/core/src/job/verify.ts',
-    finding:
-      'no tracked test file names VER-02. `verify.ts` implements commit-then-reveal and `submit.test.ts` exercises `executeVerified`, but its titles name VER-01 (disagreement surfaced) and VER-05 (the digest covers task and output only). The claim VER-02 actually makes — that a replica cannot plagiarize a peer\'s answer — is the one with no id anywhere near it',
-  },
+  // VER-02 sat here until 2026-07-30, on the strength of `verify.ts` implementing
+  // commit-then-reveal. It did not: the requestor minted both halves and compared
+  // them with each other, so the check was unconditionally true and both of its
+  // failure branches were unreachable. The row is now `[ ]` and the ceremony is
+  // deleted, which takes it out of this list's subject — these are `[x]` rows that
+  // no test names, and an unchecked row claims nothing to trace.
   {
     id: 'BENCH-02',
     found: '2026-07-29',
