@@ -218,6 +218,8 @@ export type {
   CombineDispatch,
   CombineTask,
   Combiner,
+  ReduceContribution,
+  ReduceLeaf,
   ReduceOutcome,
   ReduceRun,
   ReduceTree,
