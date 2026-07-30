@@ -93,12 +93,15 @@ describe('the ledger is a ledger, not an empty list that passes', () => {
   /**
    * Anti-vacuity. Every assertion in the block above is of the form "no problems",
    * and an empty `MUTATIONS` satisfies all of them perfectly while proving nothing.
-   * The floor is the count encoded on 2026-07-29 — ten from Phase 13.1's hand-planted
-   * exercise plus the two benchmark-driver reversions — so deleting an entry has to
-   * be a deliberate act that also edits this number.
+   * The floor was the count encoded on 2026-07-29 — ten from Phase 13.1's hand-planted
+   * exercise plus the two benchmark-driver reversions — and was raised to 23 on
+   * 2026-07-30 when seven bug fixes each added their own entry. Deleting an entry has
+   * to be a deliberate act that also edits this number; leaving the floor behind the
+   * count would let the newest entries go quietly, which is the failure this whole
+   * block exists to prevent.
    */
-  it('carries at least the twelve mutations it was built with', () => {
-    expect(MUTATIONS.length).toBeGreaterThanOrEqual(12)
+  it('carries at least the twenty-three mutations it was built with', () => {
+    expect(MUTATIONS.length).toBeGreaterThanOrEqual(23)
   })
 
   it('gives every mutation a distinct id', () => {
