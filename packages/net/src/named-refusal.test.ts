@@ -12,7 +12,7 @@ import { encodeRequest, parseResponse } from './protocol.ts'
  *
  * The exec branch's refusal is measured against a real dispatch in
  * `sovereign-egress.test.ts`, where the registration arrives through
- * `registerSovereignInputs` the way production takes it. This file measures the
+ * `takeSovereignHold` the way production takes it. This file measures the
  * other branch and the cost of the mechanism:
  *
  * - **The block branch** (ROADMAP criterion 7). A refusal, a hit and a miss must
@@ -30,7 +30,7 @@ import { encodeRequest, parseResponse } from './protocol.ts'
  * **These tests place a registration directly**, unlike `sovereign-egress.test.ts`.
  * That is deliberate and it is scoped: what is under test here is the block
  * branch's *answer* when a registration is held, not where the registration came
- * from. Production's own registration is job-scoped — `registerSovereignInputs`
+ * from. Production's own registration is job-scoped — the serve path
  * takes it before execution and `serveAgent`'s `afterSent` gives it back — so no
  * production path holds one at rest for a later block request to find.
  * 13.1-CONTEXT.md lists refusing a sovereign block at rest, indefinitely, under
@@ -104,7 +104,9 @@ function servingNode(nodeId: string): Node {
     rpc,
     executor: stubExecutor(nodeId),
     blockstore: store,
-    egress: guard,
+    // This file takes holds directly, so the store the serve path would declare
+    // from is deliberately empty: nothing here is meant to register through a task.
+    egress: { guard, sovereignInputs: new MemoryBlockstore() },
     authorize: 'serves-unauthenticated',
     index: 'serves-no-records',
     capacity: 'accepts-every-offer',

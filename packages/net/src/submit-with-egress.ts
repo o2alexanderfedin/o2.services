@@ -37,7 +37,7 @@
  *
  * **DATA-10 — five further arguments, for the sovereign registration below.**
  *
- * **Why the submitter registers at all.** `registerSovereignInputs`
+ * **Why the submitter registers at all.** `takeSovereignHold`
  * (`sovereign-egress.ts`) fires on the *serving* side, for a task about to execute,
  * when the local store already holds the input. A submitter satisfies none of those
  * three, so a node that assembled a job containing another owner's row and never ran
@@ -47,11 +47,11 @@
  * every shard input and `put`s it into the store it was handed, sovereign ones
  * included.
  *
- * **Why the label is the input CID string.** It matches `registerSovereignInputs`'
+ * **Why the label is the input CID string.** It matches `takeSovereignHold`'s
  * `task.inputCid.toString()` exactly, so the two registration paths cannot produce
- * two different labels for one payload — and because `guard`/`release` count *holds*
- * rather than registrants, a node that both submits and serves the same row registers
- * the same label twice and stays guarded until both have released. The cost, stated
+ * two different labels for one payload — and because a guard counts *holds* rather
+ * than registrants, a node that both submits and serves the same row takes two holds
+ * and stays guarded until both have been given back. The cost, stated
  * rather than hidden: `submitJob` canonicalises every shard input again a few lines
  * later, so a sovereign shard is encoded twice per job. A shared helper between the
  * two would remove that and is not attempted here.
@@ -92,7 +92,7 @@
 
 import type { Blockstore, JobResult, JobSpec, SubmitError } from '@o2/core'
 import { canonicalCid, submitJob } from '@o2/core'
-import type { EgressGuard, EgressManifest } from './egress.ts'
+import type { EgressGuard, EgressHold, EgressManifest } from './egress.ts'
 
 export type SubmitWithEgressResult =
   | { readonly ok: true; readonly job: JobResult; readonly manifests: readonly EgressManifest[] }
@@ -139,11 +139,11 @@ export async function submitJobWithEgress(
   blockstore: Blockstore,
   guards: readonly EgressGuard[],
 ): Promise<SubmitWithEgressResult> {
-  // One entry per sovereign *shard*, not per distinct label: `guard`/`release` count
-  // holds, so a value appearing in two shards takes two holds and has to give two
-  // back. Deduplicating here would release one hold too few and leave the row
-  // registered for the rest of the process's life.
-  const registered: string[] = []
+  // One hold per sovereign *shard* per guard, not per distinct label: a value
+  // appearing in two shards takes two holds and gives two back. Holding the values
+  // rather than the labels makes that structural — there is no count to keep in step
+  // and no way to give back a hold this job did not take.
+  const held: EgressHold[] = []
   for (const shard of spec.shards) {
     if (shard.label !== 'sovereign') continue
     const encoded = await canonicalCid(shard.value)
@@ -152,8 +152,7 @@ export async function submitJobWithEgress(
     // second failure mode for a condition that already has one.
     if (!encoded.ok) continue
     const label = encoded.cid.toString()
-    for (const guard of guards) guard.guard(label, encoded.bytes)
-    registered.push(label)
+    for (const guard of guards) held.push(guard.guard(label, encoded.bytes))
   }
   try {
     // The `before` capture sits *after* the registration, and that is not a claim
@@ -174,8 +173,6 @@ export async function submitJobWithEgress(
     // and a `submitJob` that throws. A submitter whose guard grew by one label per job
     // would scan every frame it ever sends afterwards against every row it has ever
     // submitted, which is the unbounded cost the job-scoped lifetime exists to avoid.
-    for (const label of registered) {
-      for (const guard of guards) guard.release(label)
-    }
+    for (const hold of held) hold.release()
   }
 }

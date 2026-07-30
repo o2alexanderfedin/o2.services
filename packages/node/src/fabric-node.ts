@@ -88,7 +88,6 @@ import {
   CountingExecutor,
   EgressGuard,
   FetchingBlockstore,
-  registerSovereignInputs,
   RpcBlockSource,
   RpcEndpoint,
   serveAgent,
@@ -516,26 +515,30 @@ export class FabricNode {
     // `FabricNodeOptions.sovereignty`'s doc). Wrapped once, here, rather than
     // only at the `serveAgent` call below, so a caller that dispatches through
     // `node.executor` directly — bypassing RPC entirely — gets the identical
-    // refusal a remote dispatch would. Registration is equally unconditional and
-    // composed *outside* the sovereignty gate — DATA-05/DATA-06: a sovereign
-    // task's input is declared to this node's own tap before it runs, whether or
-    // not `guardSovereignty` goes on to refuse it. `store` (the local-only tier)
-    // is the registration blockstore, not `blockstore` (network fallback) —
-    // sovereign data must already be resident locally, never fetched over the
-    // network merely to be declared sovereign.
+    // refusal a remote dispatch would.
     //
-    // SCHED-06: `CountingExecutor` is composed **outermost**, outside the
-    // registration and the sovereignty gate, whose relative order is documented
-    // above and is unchanged. Outermost is what makes it the instrument criterion 1
-    // is read off: nothing can reach this node's executor without passing through
-    // it, so `executorPeakInFlight` is a count of calls that really happened rather
-    // than of slots the node believes it granted. See that getter for what the
-    // reading does and does not license.
+    // DATA-05/DATA-06 no longer appear in this chain. A sovereign task's input is
+    // declared to this node's tap by `serveAgent`, which is the layer that also gives
+    // the hold back once the reply frame has settled; an executor decorator knew
+    // *whether* it had declared anything and had nowhere to say so, and the serve path
+    // released regardless. `store` (the local-only tier) is still the registration
+    // blockstore and is handed to `serveAgent` below, never `blockstore` (network
+    // fallback) — sovereign data must already be resident locally, never fetched over
+    // the network merely to be declared sovereign.
+    //
+    // The narrowing that follows, stated rather than left to be found: a dispatch that
+    // bypasses RPC entirely — `node.executor.execute()` — now declares nothing. It
+    // also no longer takes a hold nothing ever gave back, which is the unbounded
+    // growth that route used to carry.
+    //
+    // SCHED-06: `CountingExecutor` is composed **outermost**, outside the sovereignty
+    // gate. Outermost is what makes it the instrument criterion 1 is read off: nothing
+    // can reach this node's executor without passing through it, so
+    // `executorPeakInFlight` is a count of calls that really happened rather than of
+    // slots the node believes it granted. See that getter for what the reading does
+    // and does not license.
     const executor = new CountingExecutor(
-      registerSovereignInputs(
-        guardSovereignty(new WasmExecutor({ nodeId: libp2p.peerId.toString(), blockstore }), sovereignty),
-        { blockstore: store, guard: egress },
-      ),
+      guardSovereignty(new WasmExecutor({ nodeId: libp2p.peerId.toString(), blockstore }), sovereignty),
     )
 
     const node = new FabricNode({
@@ -573,10 +576,11 @@ export class FabricNode {
       rpc,
       executor,
       blockstore,
-      // DATA-05: the same guard `rpc` is built over, so a sovereign task's
-      // registration is released once its reply frame has settled rather than
-      // held for the life of the process.
-      egress,
+      // DATA-05: the same guard `rpc` is built over, plus the local-only tier that
+      // says which payloads are sovereign — so a sovereign task's input is guarded
+      // for exactly as long as its reply frame takes to settle, and a dispatch that
+      // declared nothing gives nothing back.
+      egress: { guard: egress, sovereignInputs: store },
       authorize: 'serves-unauthenticated',
       index: 'serves-no-records',
       // SCHED-06. This hook answered "accepts everything" for the whole of two

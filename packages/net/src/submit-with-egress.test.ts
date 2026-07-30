@@ -25,12 +25,12 @@ import { FetchingBlockstore } from './block.ts'
 import { EgressGuard } from './egress.ts'
 import { RemoteExecutor } from './remote-executor.ts'
 import { RpcEndpoint } from './rpc.ts'
-import { registerSovereignInputs } from './sovereign-egress.ts'
+import { takeSovereignHold } from './sovereign-egress.ts'
 import { submitJobWithEgress } from './submit-with-egress.ts'
 
 /**
  * `submitJobWithEgress` — a per-job, delta-sliced manifest reachable from the call
- * that ran the job, over the full production stack: `registerSovereignInputs`
+ * that ran the job, over the full production stack: `takeSovereignHold`
  * composed around `guardSovereignty`, served through an `EgressGuard`-wrapped
  * transport, dispatched via `submitJob` (unmodified). No test here hand-calls
  * `guard.guard()`.
@@ -50,7 +50,7 @@ import { submitJobWithEgress } from './submit-with-egress.ts'
  * The `guard.guard()` rule above holds for both groups. The submitter-side group's
  * registrations come from `submitJobWithEgress` itself, and the one place a serve-side
  * label is produced for comparison, it is produced by calling
- * `registerSovereignInputs` — the production path — not by hand.
+ * `takeSovereignHold` — the production path — not by hand.
  */
 
 const OWNER_ID = 'alice'
@@ -95,19 +95,17 @@ function buildFabric(nodeId: string): Fabric {
   const rpc = new RpcEndpoint(guard, { timeoutMs: 5_000 })
   const local = new MemoryBlockstore()
   const store = new FetchingBlockstore(local, new RpcBlockSource(rpc, () => [SEED]))
-  const executor = registerSovereignInputs(
-    guardSovereignty(new WasmExecutor({ nodeId, blockstore: store }), {
-      ownerId: OWNER_ID,
-      canExecuteSovereign: true,
-    }),
-    { blockstore: local, guard },
-  )
+  const executor = guardSovereignty(new WasmExecutor({ nodeId, blockstore: store }), {
+    ownerId: OWNER_ID,
+    canExecuteSovereign: true,
+  })
   serveAgent({
     rpc,
     executor,
     blockstore: store,
-    // The owner node's own tap — the guard `rpc` is built over.
-    egress: guard,
+    // The owner node's own tap — the guard `rpc` is built over — plus the local-only
+    // tier a sovereign input has to be resident in before the serve path declares it.
+    egress: { guard, sovereignInputs: local },
     authorize: 'serves-unauthenticated',
     index: 'serves-no-records',
     capacity: 'accepts-every-offer',
@@ -143,7 +141,7 @@ describe('submitJobWithEgress — a job’s manifest, reachable from the call th
       const shardValue = { ssn: '123-45-6789', salary: 87_000, dob: '1984-02-29' }
       const rawEncoded = encodeCanonical(shardValue)
       if (!rawEncoded.ok) throw new Error('fixture not encodable')
-      // The owner-pinned precondition registerSovereignInputs documents: the input
+      // The owner-pinned precondition takeSovereignHold documents: the input
       // must already be resident locally, not fetched over the network in order to
       // be declared sovereign. Pre-seeding `local` with the identical canonical
       // bytes submitJob will itself compute the CID for is what makes registration
@@ -342,7 +340,7 @@ describe('submitJobWithEgress — a submitter does not serve the row it submitte
 
   it('registers the same label the serve path would use for the same shard', async () => {
     // Two registration paths, one payload, and they must agree.
-    // `registerSovereignInputs` keys on `task.inputCid.toString()` read from the
+    // `takeSovereignHold` keys on `task.inputCid.toString()` read from the
     // node's local store; `submitJobWithEgress` keys on `canonicalCid(shard.value)`.
     // If either were ever renamed, one node that both submits and serves the same
     // row would hold it under two labels and the first release would unguard the
@@ -372,22 +370,22 @@ describe('submitJobWithEgress — a submitter does not serve the row it submitte
     expect(duringSubmit).toHaveLength(1)
 
     // The serve path, on the same bytes: the owner's local tier already holds the
-    // row, which is the precondition `registerSovereignInputs` documents.
+    // row, which is the precondition `takeSovereignHold` documents.
     const sovereign = await canonicalCid(SUBMITTED_ROW)
     if (!sovereign.ok) throw new Error('fixture not encodable')
     const local = new MemoryBlockstore()
     await local.put(sovereign.bytes)
-    await registerSovereignInputs(new WatchingExecutor('server', () => {}), {
-      blockstore: local,
-      guard: serverGuard,
-    }).execute({
-      moduleCid: sovereign.cid,
-      inputCid: sovereign.cid,
-      partitionIndex: 0,
-      partitionCount: 1,
-      label: 'sovereign',
-      ownerId: OWNER_ID,
-    })
+    await takeSovereignHold(
+      {
+        moduleCid: sovereign.cid,
+        inputCid: sovereign.cid,
+        partitionIndex: 0,
+        partitionCount: 1,
+        label: 'sovereign',
+        ownerId: OWNER_ID,
+      },
+      { blockstore: local, guard: serverGuard },
+    )
 
     // Non-empty first: two empty lists are equal, and that comparison would pass
     // with neither path having registered anything at all.

@@ -13,10 +13,9 @@ import { EgressGuard } from './egress.ts'
 import { RemoteExecutor } from './remote-executor.ts'
 import { RpcEndpoint } from './rpc.ts'
 import { serveAgent } from './agent.ts'
-import { registerSovereignInputs } from './sovereign-egress.ts'
 
 /**
- * `registerSovereignInputs` — proven as a real production caller of
+ * `takeSovereignHold` — proven as a real production caller of
  * `EgressGuard.guard()`, over a genuine `RpcEndpoint`/`serveAgent`/`EgressGuard`
  * fabric. None of these tests calls `guard.guard()` directly: every violation, or
  * lack of one, is a consequence of the wrapper's own decision.
@@ -44,13 +43,15 @@ interface Node {
 const network = new MemoryNetwork()
 
 /**
- * One serving node, wired exactly the way `fabric-node.ts`/`browser-node.ts` will
- * compose it in Plan 13-02: `registerSovereignInputs(guardSovereignty(...), ...)`
- * feeding `serveAgent`, over an `EgressGuard`-wrapped transport.
+ * One serving node, wired exactly the way `fabric-node.ts`/`browser-node.ts` compose
+ * it: `guardSovereignty(...)` feeding `serveAgent`, over an `EgressGuard`-wrapped
+ * transport, with the tap and the local-only tier handed to `serveAgent` as one
+ * option.
  *
  * `executionStore` is what the `WasmExecutor` itself reads module/input bytes from.
- * `registrationStore` is what `registerSovereignInputs` checks before calling
- * `guard.guard()` — separate parameters so behavior 3 below can make them diverge.
+ * `registrationStore` is the local-only tier `takeSovereignHold` checks before
+ * calling `guard.guard()` — separate parameters so behavior 3 below can make them
+ * diverge.
  */
 function servingNode(options: {
   nodeId: string
@@ -66,24 +67,21 @@ function servingNode(options: {
 }): Node {
   const guard = new EgressGuard(network.connect(options.nodeId), OWNER_ID)
   const rpc = new RpcEndpoint(guard, { timeoutMs: 2_000 })
-  const executor = registerSovereignInputs(
-    guardSovereignty(
-      options.inner ??
-        new WasmExecutor({ nodeId: options.nodeId, blockstore: options.executionStore }),
-      {
-        ownerId: OWNER_ID,
-        canExecuteSovereign: options.canExecuteSovereign,
-      },
-    ),
-    { blockstore: options.registrationStore, guard },
+  const executor = guardSovereignty(
+    options.inner ?? new WasmExecutor({ nodeId: options.nodeId, blockstore: options.executionStore }),
+    {
+      ownerId: OWNER_ID,
+      canExecuteSovereign: options.canExecuteSovereign,
+    },
   )
   serveAgent({
     rpc,
     executor,
     blockstore: options.executionStore,
-    // This node's own tap, the one `rpc` is built over — so the registration
-    // `registerSovereignInputs` takes is released once the reply frame has settled.
-    egress: guard,
+    // This node's own tap, the one `rpc` is built over, plus the local-only tier
+    // that says which payloads are sovereign — so the hold the serve path takes is
+    // given back once the reply frame has settled, and only that hold.
+    egress: { guard, sovereignInputs: options.registrationStore },
     authorize: 'serves-unauthenticated',
     index: 'serves-no-records',
     capacity: 'accepts-every-offer',
@@ -113,7 +111,7 @@ function requestor(
   return { rpc, executor: new RemoteExecutor(nodeId, rpc) }
 }
 
-describe('registerSovereignInputs — a production caller for EgressGuard.guard()', () => {
+describe('takeSovereignHold — a production caller for EgressGuard.guard()', () => {
   it('registers a sovereign task’s input before it runs, and the tap refuses the leaking reply', async () => {
     const store = new MemoryBlockstore()
     const moduleCid = await store.put(MODULE_ECHOES_INPUT)

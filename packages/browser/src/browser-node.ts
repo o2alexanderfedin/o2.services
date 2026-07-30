@@ -44,7 +44,6 @@ import {
   EgressGuard,
   FetchingBlockstore,
   GovernedExecutor,
-  registerSovereignInputs,
   RpcBlockSource,
   RpcEndpoint,
   serveAgent,
@@ -319,12 +318,16 @@ export class BrowserNode {
     // unaffected by what runs underneath) while every path that reaches
     // `.execute` — a remote dispatch via `serveAgent` below, and a page's own
     // local self-dispatch (`includeSelf`, `demo/main.ts`) alike — passes
-    // through the identical guard. Registration is equally unconditional,
-    // composed outside guardSovereignty and inside GovernedExecutor — DATA-05/
-    // DATA-06: a sovereign task's input is declared to this node's own tap
-    // before it runs. `store` (the local-only `IdbBlockstore`) is the
-    // registration blockstore, not `blockstore` (network fallback), mirroring
-    // `fabric-node.ts`.
+    // through the identical guard.
+    //
+    // DATA-05/DATA-06 no longer appear in this chain, mirroring `fabric-node.ts`: a
+    // sovereign task's input is declared by `serveAgent`, which is also the layer that
+    // gives the hold back once the reply frame has settled. `store` (the local-only
+    // `IdbBlockstore`) is still the registration blockstore and is handed to
+    // `serveAgent` below, never `blockstore` (network fallback). A page's own
+    // self-dispatch therefore declares nothing — and no longer takes a hold nothing
+    // gave back; the demo's self-dispatch goes through `submitJobWithEgress`, which
+    // holds for the job's lifetime.
     //
     // SCHED-06: `CountingExecutor` sits **inside** `GovernedExecutor`, not outside
     // it, and the deviation from `fabric-node.ts`'s outermost composition is
@@ -335,10 +338,7 @@ export class BrowserNode {
     // in flight, which is precisely not what "how many tasks is this tab running at
     // once" means. Inside, it counts tasks actually running.
     const counter = new CountingExecutor(
-      registerSovereignInputs(
-        guardSovereignty(worker ?? new WasmExecutor({ nodeId, blockstore }), sovereignty),
-        { blockstore: store, guard: egress },
-      ),
+      guardSovereignty(worker ?? new WasmExecutor({ nodeId, blockstore }), sovereignty),
     )
     const executor = new GovernedExecutor(counter, governor)
     // SCHED-06 — this tab's own admission control, handed to `serveAgent` below.
@@ -376,10 +376,11 @@ export class BrowserNode {
       rpc,
       executor,
       blockstore,
-      // DATA-05: the same guard `rpc` is built over, so a sovereign task's
-      // registration is released once its reply frame has settled rather than
-      // held for the life of the tab.
-      egress,
+      // DATA-05: the same guard `rpc` is built over, plus the local-only tier that
+      // says which payloads are sovereign — so a sovereign task's input is guarded
+      // for exactly as long as its reply frame takes to settle, and a dispatch that
+      // declared nothing gives nothing back.
+      egress: { guard: egress, sovereignInputs: store },
       authorize: 'serves-unauthenticated',
       index: 'serves-no-records',
       // SCHED-06. This hook answered "accepts everything" for the whole of two

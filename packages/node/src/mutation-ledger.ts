@@ -230,7 +230,7 @@ export const MUTATIONS: readonly Mutation[] = [
       'so the code still looks like it is guarding something — and the raw row crosses the ' +
       'wire inside a block reply.',
     file: 'packages/net/src/submit-with-egress.ts',
-    find: 'for (const guard of guards) guard.guard(label, encoded.bytes)',
+    find: 'for (const guard of guards) held.push(guard.guard(label, encoded.bytes))',
     replace: 'void label',
     caughtBy: ['packages/node/src/sovereign-block-refusal.node.test.ts'],
     signature: '63 raw bytes inside a 106-byte frame',
@@ -253,6 +253,37 @@ export const MUTATIONS: readonly Mutation[] = [
     signature: 'does ask, on the same instrument, once something is registered',
   },
   {
+    id: 'M10',
+    why:
+      'DATA-05, the taking half. `serveAgent` is the only production caller that declares a ' +
+      "sovereign task's input to this node's tap, and it is the caller precisely because it " +
+      'is also the layer that gives the hold back once the reply frame has settled. With this ' +
+      'line inert the tap holds nothing for a dispatched sovereign task, so the reply carrying ' +
+      'the raw row is scanned against an empty set and forwarded — the leak the whole of ' +
+      'DATA-05 exists to stop, with every surrounding mechanism still present and looking ' +
+      'correct.',
+    file: 'packages/net/src/agent.ts',
+    find: "        egress === 'holds-no-registrations'\n          ? null",
+    replace: "        egress === 'holds-no-registrations' || true\n          ? null",
+    caughtBy: ['packages/net/src/sovereign-egress.test.ts'],
+    signature: 'and the tap refuses the leaking reply',
+  },
+  {
+    id: 'M11',
+    why:
+      'DATA-05, the giving-back half. A hold is a value so that nobody can give back a hold ' +
+      'they did not take — the defect where one unauthenticated public exec stripped a ' +
+      "sovereign payload's guard. This flag is what stops the *same* holder doing it twice: " +
+      'without it, a caller that releases on two exits decrements the count twice and steals ' +
+      "a concurrent dispatch's hold, which is the identical failure reached by a different " +
+      'route. `serveAgent` releases inside a `finally`, so double release is a live path.',
+    file: 'packages/net/src/egress.ts',
+    find: '        if (given) return\n',
+    replace: '',
+    caughtBy: ['packages/net/src/egress.test.ts'],
+    signature: "expected [] to deeply equal [ 'alice-row' ]",
+  },
+  {
     id: 'M9',
     why:
       'A reply is matched against the peer its request went to, and this expression is the ' +
@@ -262,7 +293,7 @@ export const MUTATIONS: readonly Mutation[] = [
       'increment away and the first frame wins. That is enough to forge N-version agreement ' +
       'out of a single machine, which is the one claim redundant execution exists to make.',
     file: 'packages/net/src/rpc.ts',
-    find: 'return `${peer}\u0000${id}`',
+    find: 'return `${peer}\\u0000${id}`',
     replace: 'return String(id)',
     caughtBy: ['packages/net/src/rpc.test.ts'],
     signature: "expected 'FORGED-BY-C' to be 'ANSWERED-BY-B'",

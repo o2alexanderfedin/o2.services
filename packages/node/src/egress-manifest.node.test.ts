@@ -35,11 +35,11 @@ import type { FabricNodeOptions } from './fabric-node.ts'
  *
  * **No test in this file calls `guard.guard()` directly.** That is the entire
  * point of this plan. Every violation, or its documented absence, is a
- * consequence of `registerSovereignInputs` (wired into `FabricNode.start` by
+ * consequence of `takeSovereignHold` (wired into `FabricNode.start` by
  * Plan 13-02) running inside production dispatch — not of a test standing in for
  * an owner's declaration the way `sovereign-execution.test.ts` still does.
  *
- * `registerSovereignInputs` reads from a node's *local-only* blockstore tier
+ * `takeSovereignHold` reads from a node's *local-only* blockstore tier
  * (`store`), never the network-fallback tier — a sovereign input is owner-pinned
  * and must already be resident on the owner's own node before dispatch (see
  * `sovereign-egress.ts`'s doc comment on the silent-skip behavior). Every
@@ -118,7 +118,7 @@ describe('DATA-05 — the tap refuses the leaking frame, so the shard fails wher
     const moduleCid = await requestor.store.put(MODULE_ECHOES_INPUT)
 
     // Owner-pinned: the row must already be resident on alice's own local store
-    // before dispatch — registerSovereignInputs reads from that local tier only.
+    // before dispatch — takeSovereignHold reads from that local tier only.
     // Computed independently here (not read back off the result below), and the
     // same bytes are what get seeded, so the CID this test asserts against is
     // never trusted from the code under test.

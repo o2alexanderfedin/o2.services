@@ -28,6 +28,8 @@ import {
   RpcBlockSource,
   RpcEndpoint,
   RpcRecordIndex,
+  encodeRequest,
+  parseResponse,
   rpcAdmission,
   serveAgent,
 } from './index.ts'
@@ -170,10 +172,12 @@ async function ownerFabric(options: { module: Uint8Array<ArrayBuffer>; ownerNode
         canExecuteSovereign: true,
       }),
       blockstore: store,
-      // This owner node's own tap. These tests register `'alice-row'` directly
-      // rather than through a task, so nothing here releases it — which is the
-      // point: the label under watch is not the label a reply would release.
-      egress: guard,
+      // This owner node's own tap. These tests take a hold on `'alice-row'`
+      // directly rather than through a task, so nothing here gives it back — which
+      // is the point: the payload under watch is not one a reply would release.
+      // `local` is the node's local-only tier, which is what declares a sovereign
+      // input, mirroring both production factories.
+      egress: { guard, sovereignInputs: local },
       authorize: 'serves-unauthenticated',
       index: 'serves-no-records',
       capacity: 'accepts-every-offer',
@@ -537,6 +541,155 @@ describe('Phase 12 — sovereignty wired onto submitJob', () => {
       expect(owned.guard.manifest.entries.length).toBeGreaterThan(0)
     } finally {
       fabric.close()
+    }
+  })
+})
+
+/**
+ * A hold is given back by whoever took it — B02.
+ *
+ * `serveAgent`'s exec branch used to release on the *request's* input label, on every
+ * exec, whether or not that dispatch had registered anything. `EgressGuard` counts
+ * holds, so an unmatched release decrements somebody else's. The slot key is
+ * `inputCid:partitionIndex`, so a second request naming the same input with a
+ * different partition is admitted concurrently — which makes stripping a sovereign
+ * payload's guard a single unauthenticated request, on a factory that serves
+ * unauthenticated.
+ */
+describe('a hold survives an exec that never took one', () => {
+  const OWNER = 'alice-user-key'
+
+  /** One serving node, plus a client endpoint pointed at it. */
+  async function servingNode(options: { readonly sovereignInputsHoldsIt: boolean }) {
+    const network = new MemoryNetwork()
+    const nodeId = 'server'
+
+    // What the executor reads from — everything is resident here, so execution
+    // always succeeds and the test is never about a missing block.
+    const served = new MemoryBlockstore()
+    const moduleCid = await served.put(MODULE_ECHOES_INPUT)
+    const inputCid = await served.put(sovereignBytes())
+
+    // The node's LOCAL-ONLY tier, which is what declares a payload sovereign.
+    const sovereignInputs = new MemoryBlockstore()
+    if (options.sovereignInputsHoldsIt) await sovereignInputs.put(sovereignBytes())
+
+    const guard = new EgressGuard(network.connect(nodeId), OWNER)
+    const rpc = new RpcEndpoint(guard, { timeoutMs: 5_000 })
+    serveAgent({
+      rpc,
+      executor: guardSovereignty(new WasmExecutor({ nodeId, blockstore: served }), {
+        ownerId: OWNER,
+        canExecuteSovereign: true,
+      }),
+      blockstore: served,
+      egress: { guard, sovereignInputs },
+
+      authorize: 'serves-unauthenticated',
+      index: 'serves-no-records',
+      capacity: 'accepts-every-offer',
+      ledger: 'keeps-no-ledger',
+      reservations: 'relays-for-nobody',
+      onDispatch: 'reports-no-dispatch',
+    })
+
+    const clientRpc = new RpcEndpoint(network.connect('client'), { timeoutMs: 5_000 })
+    /**
+     * Dispatch, and wait for the *server's* frame to have settled.
+     *
+     * `afterSent` runs in a `finally` around the response send, which on an
+     * in-process transport is strictly after the requestor's own promise resolves.
+     * Asserting on `registrations` without this turn reads the guard one microtask
+     * before the release that is the whole subject here.
+     */
+    const exec = async (task: Task) => {
+      const reply = parseResponse(await clientRpc.request(nodeId, encodeRequest({ kind: 'exec', task })))
+      await new Promise((resolve) => setTimeout(resolve, 0))
+      return reply
+    }
+
+    return {
+      nodeId,
+      guard,
+      moduleCid,
+      inputCid,
+      exec,
+      close: () => {
+        rpc.close()
+        clientRpc.close()
+      },
+    }
+  }
+
+  it('is not released by an unrelated public exec naming the same input', async () => {
+    const node = await servingNode({ sovereignInputsHoldsIt: true })
+    try {
+      const label = node.inputCid.toString()
+      // A third party declares the payload sovereign for the life of a job, exactly
+      // as `submitJobWithEgress` does.
+      const jobHold = node.guard.guard(label, sovereignBytes())
+
+      const publicReply = await node.exec({
+        moduleCid: node.moduleCid,
+        inputCid: node.inputCid,
+        // A different partition, so the admission slot key does not collide and this
+        // is admitted alongside anything else in flight for the same input.
+        partitionIndex: 1,
+        partitionCount: 2,
+        label: 'public',
+      })
+      expect(publicReply?.kind).toBe('exec')
+
+      // The hold the public exec never took is still held.
+      expect(node.guard.registrations).toContain(label)
+
+      // …and the payload is therefore still guarded when the sovereign dispatch's
+      // reply tries to carry it out.
+      const sovereignReply = await node.exec({
+        moduleCid: node.moduleCid,
+        inputCid: node.inputCid,
+        partitionIndex: 0,
+        partitionCount: 2,
+        label: 'sovereign',
+        ownerId: OWNER,
+      })
+      expect(sovereignReply?.kind).toBe('exec')
+      if (sovereignReply?.kind !== 'exec') return
+      expect(sovereignReply.outcome.ok).toBe(false)
+      if (sovereignReply.outcome.ok) return
+      expect(sovereignReply.outcome.reason).toMatch(/^egress refused: /)
+      expect(sovereignReply.outcome.reason).toContain(label)
+      expect(sovereignReply.outcome.reason).toContain(node.nodeId)
+      expect(node.guard.manifest.violations).toContain(label)
+
+      jobHold.release()
+      expect(node.guard.registrations).not.toContain(label)
+    } finally {
+      node.close()
+    }
+  })
+
+  it('is not released by a sovereign exec whose input is not locally resident', async () => {
+    // The adversary-free trigger. Nothing hostile happens: the serving node simply
+    // does not hold the bytes in its local-only tier, so it registers nothing — and
+    // used to release all the same, stripping the submitter's job-lifetime hold.
+    const node = await servingNode({ sovereignInputsHoldsIt: false })
+    try {
+      const label = node.inputCid.toString()
+      node.guard.guard(label, sovereignBytes())
+
+      await node.exec({
+        moduleCid: node.moduleCid,
+        inputCid: node.inputCid,
+        partitionIndex: 0,
+        partitionCount: 1,
+        label: 'sovereign',
+        ownerId: OWNER,
+      })
+
+      expect(node.guard.registrations).toContain(label)
+    } finally {
+      node.close()
     }
   })
 })

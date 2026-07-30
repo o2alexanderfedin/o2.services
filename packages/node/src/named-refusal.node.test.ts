@@ -87,7 +87,7 @@ describe('criterion 6 — the refusal is named, and it arrives long before the b
     ])
     await submitter.dial(alice.multiaddrs[0]!)
 
-    // Owner-pinned, made literal: `registerSovereignInputs` reads the node's
+    // Owner-pinned, made literal: `takeSovereignHold` reads the node's
     // local-only tier and runs before execution, so an input that is not already
     // on alice's disk registers nothing and the tap has nothing to watch for —
     // which would make a "clean" run prove nothing. The CID is computed here from
@@ -200,7 +200,7 @@ describe('criterion 7 — a block request for registered bytes is answered, not 
     // **The registration is placed directly here, and the scope of that matters.**
     // What is under test is the block branch's *answer* when a registration is
     // held — not where the registration came from. Production's own registration
-    // is job-scoped: `registerSovereignInputs` takes it before execution and
+    // is job-scoped: the serve path takes it before execution and
     // `serveAgent`'s `afterSent` gives it back, so no production path holds one at
     // rest for a later block request to find. 13.1-CONTEXT.md lists refusing a
     // sovereign block at rest, indefinitely, under deferred ideas — it needs a

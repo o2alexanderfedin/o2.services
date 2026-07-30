@@ -1,6 +1,7 @@
 import { MemoryBlockstore, MemoryNetwork, encodeCanonical } from '@o2/core'
 import { describe, expect, it } from 'vitest'
 import { EgressGuard, EgressRefusal } from './egress.ts'
+import type { EgressHold } from './egress.ts'
 import { RpcEndpoint, RpcFailure } from './rpc.ts'
 
 /**
@@ -20,10 +21,19 @@ import { RpcEndpoint, RpcFailure } from './rpc.ts'
 /** A recognisable stand-in for a row of someone's private data. */
 const SOVEREIGN_ROW = new TextEncoder().encode('SSN=078-05-1120;salary=91000')
 
+/** The guard, plus the hold its own registration took — see {@link EgressHold}. */
+interface OwnerNode {
+  readonly guard: EgressGuard
+  readonly rowHold: EgressHold
+}
+
 function ownerNode(network: MemoryNetwork, id: string): EgressGuard {
+  return ownerNodeWithHold(network, id).guard
+}
+
+function ownerNodeWithHold(network: MemoryNetwork, id: string): OwnerNode {
   const guard = new EgressGuard(network.connect(id), 'alice')
-  guard.guard('alice-row', SOVEREIGN_ROW)
-  return guard
+  return { guard, rowHold: guard.guard('alice-row', SOVEREIGN_ROW) }
 }
 
 /**
@@ -337,11 +347,11 @@ describe('NET-10 — the pre-scan a caller holding a candidate frame can take', 
 describe('a registration has a lifetime, and the set can be read', () => {
   it('forgets a released payload, and the set reads empty afterwards', async () => {
     const network = new MemoryNetwork()
-    const owner = ownerNode(network, 'alice-1')
+    const { guard: owner, rowHold } = ownerNodeWithHold(network, 'alice-1')
     const peer = coordinator(network)
 
     expect(owner.registrations).toEqual(['alice-row'])
-    owner.release('alice-row')
+    rowHold.release()
     expect(owner.registrations).toEqual([])
 
     // Forwarded, and read off the same counter that reads 0 for a refused frame.
@@ -356,48 +366,55 @@ describe('a registration has a lifetime, and the set can be read', () => {
     // second one's payload guarded, or a node serving two shards of one owner's row
     // unguards itself halfway through.
     const network = new MemoryNetwork()
-    const owner = ownerNode(network, 'alice-1')
+    const { guard: owner, rowHold: first } = ownerNodeWithHold(network, 'alice-1')
     const peer = coordinator(network)
-    owner.guard('alice-row', SOVEREIGN_ROW)
+    const second = owner.guard('alice-row', SOVEREIGN_ROW)
 
-    owner.release('alice-row')
+    first.release()
     await expect(
       owner.send('coordinator', SOVEREIGN_ROW as Uint8Array<ArrayBuffer>),
     ).rejects.toBeInstanceOf(EgressRefusal)
     expect(peer.delivered()).toBe(0)
     expect(owner.registrations).toEqual(['alice-row'])
 
-    owner.release('alice-row')
+    second.release()
     expect(owner.registrations).toEqual([])
     await owner.send('coordinator', SOVEREIGN_ROW as Uint8Array<ArrayBuffer>)
     expect(peer.delivered()).toBe(1)
   })
 
-  it('ignores a release for a label it does not hold', () => {
-    // The serve path releases unconditionally, so a change to registration's own
-    // conditions must not be able to turn a release into a throw inside a `finally`.
+  it('gives back one hold however many times one holder asks', () => {
+    // What replaces "a release for a label it does not hold is a no-op". That was
+    // the licence one exec used to strip another holder's guard under; the property
+    // worth keeping is narrower and is about one holder, not one label: releasing
+    // twice must not reach into somebody else's hold. `serveAgent` releases in a
+    // `finally`, so it must also not throw.
     const network = new MemoryNetwork()
-    const owner = ownerNode(network, 'alice-1')
+    const { guard: owner, rowHold: first } = ownerNodeWithHold(network, 'alice-1')
+    const second = owner.guard('alice-row', SOVEREIGN_ROW)
 
+    first.release()
     expect(() => {
-      owner.release('never-registered')
+      first.release()
     }).not.toThrow()
+    // The second holder still has its hold — this is the assertion the old no-op
+    // case could not make, and the defect it could not see.
     expect(owner.registrations).toEqual(['alice-row'])
 
-    owner.release('alice-row')
-    expect(() => {
-      owner.release('alice-row')
-    }).not.toThrow()
+    second.release()
     expect(owner.registrations).toEqual([])
+    expect(() => {
+      second.release()
+    }).not.toThrow()
   })
 
   it('names what is still held, so a leak is reportable and not a bare number', () => {
     const network = new MemoryNetwork()
-    const owner = ownerNode(network, 'alice-1')
+    const { guard: owner, rowHold } = ownerNodeWithHold(network, 'alice-1')
     owner.guard('alice-dob', new TextEncoder().encode('dob=1970-01-01'))
 
     expect([...owner.registrations].sort()).toEqual(['alice-dob', 'alice-row'])
-    owner.release('alice-row')
+    rowHold.release()
     expect(owner.registrations).toEqual(['alice-dob'])
   })
 })
