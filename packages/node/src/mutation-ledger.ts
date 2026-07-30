@@ -111,11 +111,11 @@ export const MUTATIONS: readonly Mutation[] = [
     id: 'M2a',
     why:
       'SCHED-06. `FabricNode.start` hands `serveAgent` a real `LocalCapacity`. The sentinel ' +
-      'is what shipped for two milestones, and under it the exec branch runs ' +
-      '`executor.execute` with nothing counting what is in flight — measured at 64 ' +
-      'simultaneous executions and zero refusals. Reverting the line restores exactly that ' +
-      'state, so this is the regression a reader would least expect to be caught and most ' +
-      'expect to pass review.',
+      'is what shipped for two milestones, and `fabric-node.ts`’s own comment records what ' +
+      'that cost when it was finally measured: 64 simultaneous `executor.execute()` calls, ' +
+      'zero refusals, and half the requestors’ RPCs timed out waiting. Reverting this one ' +
+      'line puts that back — which makes it the regression a reader would least expect to ' +
+      'be caught and most expect to pass review.',
     file: 'packages/node/src/fabric-node.ts',
     find: '      capacity: admission,',
     replace: "      capacity: 'accepts-every-offer',",
@@ -144,11 +144,11 @@ export const MUTATIONS: readonly Mutation[] = [
     id: 'M3a',
     why:
       'NET-08 asks `readMessage` to enforce the cap **and** reset the stream past it. This ' +
-      'entry exists because the abort half was, for a while, proved by nothing: deleting ' +
-      'the line left 22 tests across three files green. `82220c2` added the two readings ' +
-      'that see it — the sender still holding a yamux window is told, and the receiver ' +
-      'logs the reason — so the entry is here to keep that closed rather than to record ' +
-      'that it once was.',
+      'entry exists because the abort half was, for a while, proved by nothing — `82220c2` ' +
+      'records that deleting the line left 22 tests across three files green — and that ' +
+      'commit added the two readings that see it: the sender still holding a yamux window ' +
+      'is told, and the receiver logs the reason. The entry is here to keep that closed, ' +
+      'not to commemorate that it once was not.',
     file: 'packages/libp2p/src/libp2p-transport.ts',
     find: '      stream.abort(error)\n',
     replace: '',
@@ -175,11 +175,14 @@ export const MUTATIONS: readonly Mutation[] = [
   {
     id: 'M4',
     why:
-      "NET-09's per-peer send gate. With the condition always true, every send takes a " +
-      'slot immediately: nothing queues, nothing is refused, and the receiving muxer hits ' +
-      "`MaxEarlyStreamsError` instead — a tear-down that surfaces as reset streams and " +
-      'reads like packet loss. The gate is the difference between a named refusal this ' +
-      'node made and a connection the peer killed.',
+      "NET-09's per-peer send gate. With the condition always true every send takes a slot " +
+      'immediately: nothing queues and nothing is refused. What the planted run actually ' +
+      'shows — quoted rather than predicted, because `libp2p-transport.ts` sites this bound ' +
+      "against libp2p's `maxEarlyStreams` and it would be easy to assume that is the error " +
+      'you get — is `StreamResetError: The stream has been reset`, raised from yamux’s ' +
+      '`onRemoteReset`, arriving where the test expected a `SendRefused` this node had ' +
+      'raised itself. That is the whole point of the gate: a tear-down the peer performed, ' +
+      'standing in for a refusal this node should have made and could have named.',
     file: 'packages/libp2p/src/libp2p-transport.ts',
     find: 'if (gate.active < this.#maxStreamsPerPeer) {',
     replace: 'if (true) {',
@@ -252,12 +255,12 @@ export const MUTATIONS: readonly Mutation[] = [
   {
     id: 'B1',
     why:
-      "SCHED-06 on the benchmark driver's requestor endpoint. This matters beyond tidiness: " +
-      'the memory-transport curve in `.planning/BENCHMARK-RESULTS.md` was measured with the ' +
-      'sentinel at both of this driver’s `serveAgent` calls while the real-transport ' +
-      'curve went through `FabricNode.start` and did admit, so the two published curves ' +
-      'were taken under different node behaviour. Re-adding the sentinel at *either* call ' +
-      'site puts that back.',
+      "SCHED-06 on the benchmark driver's requestor endpoint. Why it matters beyond " +
+      'tidiness is recorded in `serve-agent-hooks.node.test.ts` itself: the memory-transport ' +
+      'curve in `.planning/BENCHMARK-RESULTS.md` was measured with the sentinel at both of ' +
+      'this driver’s `serveAgent` calls while the real-transport curve went through ' +
+      '`FabricNode.start` and did admit, so the two published curves were taken under ' +
+      'different node behaviour. Re-adding the sentinel at *either* call site puts that back.',
     file: 'packages/node/src/bin/bench.ts',
     find: "capacity: new LocalCapacity({ nodeId: 'requestor', maxConcurrent: DECLARED_ADMISSION_LIMIT }),",
     replace: "capacity: 'accepts-every-offer',",
