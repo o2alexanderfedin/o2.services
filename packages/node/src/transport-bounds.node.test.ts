@@ -148,11 +148,17 @@ describe('NET-08 — a peer cannot make this node allocate an unbounded buffer',
       .send(to, frame(cap + 1))
       .then(() => 'resolved' as const, () => 'rejected' as const)
 
-    // Measured, and pinned rather than left unstated: **the sender is not told.**
-    // A frame exactly one byte over the cap only crosses it on its final chunk, so
-    // by the time the receiver decides to abort, the sender has written everything
-    // and closed its write end. The receive cap is a receiver-side guard, not a
-    // signal back down the wire — a requestor learns only by timing out.
+    // Measured, and pinned rather than left unstated: **at this size the sender is
+    // not told.** A frame exactly one byte over the cap only crosses it on its
+    // final chunk, so by the time the receiver decides to abort, the sender has
+    // written everything and closed its write end, and the reset arrives with
+    // nothing left to refuse.
+    //
+    // That is a reading about *this size*, not about the cap. Re-measured
+    // 2026-07-29 across six payload sizes against a 16 KiB cap, six runs each:
+    // 256 KiB resolves 6/6, and 512 KiB / 1 MiB / 2 MiB / 4 MiB / 8 MiB **reject**
+    // 6/6. `resets the stream …` below is that case, and it is the test the abort
+    // itself is load-bearing for.
     expect(outcome).toBe('resolved')
 
     // The oversize frame never reaches the layer above.
@@ -165,6 +171,129 @@ describe('NET-08 — a peer cannot make this node allocate an unbounded buffer',
     expect(await settles(() => receiver.received.length === 1, 5_000)).toBe(true)
     expect(receiver.received[0]).toEqual(small)
     expect(receiver.transport.refusedInbound).toBe(1)
+  }, 60_000)
+
+  /**
+   * The other half of criterion 3: `readMessage` does not merely *throw* past the
+   * cap, it calls `stream.abort(error)` — and this is what makes that call
+   * observable rather than decorative.
+   *
+   * Deleting the single line `stream.abort(error)`
+   * (`packages/libp2p/src/libp2p-transport.ts:167`) left 22 tests across three files
+   * green — this file's ten, plus `admission.node.test.ts` and
+   * `fabric-node.node.test.ts`. Re-run here with the line deleted: 12 green in those
+   * two files, 10 green of the 12 in this one, and only the two tests below red. The
+   * mutation had survived because nothing in the suite could see the abort at all.
+   *
+   * The mechanism, read out of `@libp2p/utils`: `AbstractMessageStream.abort` sends
+   * a yamux RST (`sendReset`), the sender's stream takes `onRemoteReset` which sets
+   * `writeStatus = 'closed'`, and its next `send()` then throws
+   * `StreamStateError`. Without the abort the receiving handler's `finally` closes
+   * the stream gracefully — write end only — and the sender's remaining writes
+   * complete against a peer that has stopped reading.
+   *
+   * A frame one byte over the cap cannot see any of that, because the sender has
+   * nothing left to write when the reset lands. This one has plenty: 1 MiB, over a
+   * 16 KiB cap, against yamux's `INITIAL_STREAM_WINDOW` of 256 KiB
+   * (`@chainsafe/libp2p-yamux/dist/src/constants.js:17`, reached through
+   * `muxer.js:231`'s `...this.streamOptions` and `stream.js:36` — unlike
+   * `maxEarlyStreams` in the NET-09 block below, which is declared and never read).
+   *
+   * 1 MiB rather than the smallest size that works, because the window is not
+   * static: yamux reopens it on *receipt* rather than on consumption
+   * (`stream.js:176`) and doubles it up to `maxStreamWindowSize` when four round
+   * trips fit inside the epoch (`stream.js:233`), so how much a sender gets to push
+   * before the RST lands is not a figure this test can derive. What it can say is
+   * what was measured: the reading does not reverse as the payload grows — 512 KiB,
+   * 1 MiB, 2 MiB, 4 MiB and 8 MiB all reject 6/6. 1 MiB is 2× the smallest
+   * rejecting size and stays clear of yamux's 4 MiB `maxReadBufferLength`, which is
+   * the other ceiling in reach and would abort the stream for its own reasons.
+   *
+   * Measured and **rejected** as an instrument, so nobody re-derives it: the muxer's
+   * stream count cannot see this mutation. Both nodes read `connection.streams` empty
+   * and `connection.status` `'open'` a second after the refusal, with the abort
+   * present *and* with it deleted. A half-open stream is not what is left behind.
+   */
+  it('resets the stream, so a sender still holding a window to write is told', async () => {
+    const cap = 16 * 1024
+    const [sender, receiver] = await Promise.all([
+      // 20 s budget so a rejection *inside* it cannot be the budget expiring.
+      peer({ sendTimeoutMs: 20_000 }),
+      peer({ maxMessageBytes: cap }),
+    ])
+    const to = await dial(sender, receiver)
+
+    const at = Date.now()
+    const outcome = await sender.transport
+      .send(to, frame(1024 * 1024))
+      .then(() => 'resolved' as const, (cause: unknown) => cause)
+    const elapsed = Date.now() - at
+
+    // The reading the abort produces, stated as the sender sees it.
+    expect(outcome).not.toBe('resolved')
+    expect(outcome).toBeInstanceOf(Error)
+    // Deliberately not asserted on the error's class. The observable this test owns
+    // is that the write path stops; which of libp2p's errors carries that is
+    // internal to the muxer and would be a pin on a private detail. Recorded
+    // instead: every one of the 30 measured rejections was
+    // `StreamStateError: Cannot write to a stream that is closed`.
+    //
+    // Timing is what separates "the reset came back" from "the send timed out".
+    // Measured 7–50 ms over 30 runs; the budget above is 20 s.
+    expect(elapsed).toBeLessThan(5_000)
+
+    // And the cap is what did it — not a dead peer, not a dial failure.
+    expect(await settles(() => receiver.transport.refusedInbound === 1, 10_000)).toBe(true)
+
+    // Nothing reached the layer above. Admissible because the paired positive
+    // follows on the same receiver: it delivers when the frame is in limit.
+    expect(receiver.received).toEqual([])
+    const small = frame(1_024)
+    await sender.transport.send(to, small)
+    expect(await settles(() => receiver.received.length === 1, 10_000)).toBe(true)
+    expect(receiver.received[0]).toEqual(small)
+    expect(receiver.transport.refusedInbound).toBe(1)
+  }, 60_000)
+
+  /**
+   * The receiver's own reading of the same call, independent of the wire.
+   *
+   * `AbstractMessageStream.abort` logs `this.log.error('abort with error - %e', err)`
+   * with the very `InboundTooLarge` `readMessage` constructed
+   * (`@libp2p/utils/dist/src/abstract-message-stream.js:133`). That log line is the
+   * only local trace the abort leaves, and `ErrorCapture` above already reaches it —
+   * the NET-09 block uses the same injection point for `MaxEarlyStreamsError`.
+   *
+   * Worth having alongside the sender-side test because it is a *different* kind of
+   * evidence: it holds at cap + 1, where the wire shows nothing at all, and it names
+   * the peer and the byte counts an operator would need.
+   */
+  it('records the abort reason in the receiving node’s own log, naming peer and counts', async () => {
+    const cap = 64 * 1024
+    const receiverErrors = new ErrorCapture()
+    const [sender, receiver] = await Promise.all([
+      peer(),
+      peer({ maxMessageBytes: cap }, receiverErrors),
+    ])
+    const to = await dial(sender, receiver)
+
+    // In-limit first. This capture reads nothing while nothing has been refused —
+    // an assertion worth making only because the same object reads the abort a few
+    // lines below, which is what proves it was live and looking at the right place.
+    await sender.transport.send(to, frame(1_024))
+    expect(await settles(() => receiver.received.length === 1, 10_000)).toBe(true)
+    expect(receiverErrors.errors.filter((e) => e.name === 'InboundTooLarge')).toEqual([])
+
+    await sender.transport.send(to, frame(cap + 1))
+    expect(await settles(() => receiver.transport.refusedInbound === 1, 10_000)).toBe(true)
+    expect(
+      await settles(() => receiverErrors.errors.some((e) => e.name === 'InboundTooLarge'), 5_000),
+    ).toBe(true)
+
+    const aborted = receiverErrors.errors.filter((e) => e.name === 'InboundTooLarge')
+    expect(aborted).toHaveLength(1)
+    expect(aborted[0]!.message).toContain(sender.transport.localId)
+    expect(aborted[0]!.message).toContain(`exceeds ${cap} bytes (reached ${cap + 1})`)
   }, 60_000)
 
   it('delivers a frame of exactly the bound, and counts no refusal', async () => {
