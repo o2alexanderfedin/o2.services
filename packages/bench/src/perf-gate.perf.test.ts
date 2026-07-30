@@ -27,9 +27,12 @@ import {
  *   perf gate becomes the reason people stop running the suite.
  *
  * `*.node.test.ts` would have given the first property and not the second, and it would
- * have been a lie besides: nothing here is Node-specific. So `perf` is its own project,
- * excluded from `node` and `browser` and from the default `test` script, and reached by
- * `npm run test:perf`.
+ * have been a lie besides: nothing here is Node-specific. So `*.perf.test.ts` is excluded
+ * from `node` and from `browser`, and the `perf` project that does run it is declared only
+ * under `O2_PERF=1` — so a bare `vitest run` never sees this file at all, and
+ * `npm run test:perf` is the only way to reach it. Both halves matter: without the
+ * exclusions it would run in the default projects anyway, and without the conditional the
+ * project itself would join the everything-run.
  *
  * ## What a green result here does and does not mean
  *
