@@ -21,10 +21,11 @@ import {
  * - **It must not run in the browser project.** Not because it cannot — the rig is
  *   portable and would work — but because a second, slower, contended run of the same
  *   measurement produces a second set of numbers with no baseline behind them.
- * - **It must not run in the default fast layer.** It stands up three fabrics and
- *   executes 303 jobs plus 303 reference passes; it costs seconds when the machine is
- *   idle and tens of seconds when it is not. Bolting that onto every `npm test` is how a
- *   perf gate becomes the reason people stop running the suite.
+ * - **It must not run in the default fast layer.** It stands up three fabrics and executes
+ *   303 jobs plus 303 reference passes: measured at about 1.8 s at ambient load and about
+ *   7 s under eight-way CPU saturation. Small in itself, and still the wrong thing to bolt
+ *   onto every `npm test` — a load-dependent assertion in the everything-run is how a perf
+ *   gate becomes the reason people stop running the suite.
  *
  * `*.node.test.ts` would have given the first property and not the second, and it would
  * have been a lie besides: nothing here is Node-specific. So `*.perf.test.ts` is excluded
