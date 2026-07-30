@@ -253,6 +253,21 @@ export const MUTATIONS: readonly Mutation[] = [
     signature: 'does ask, on the same instrument, once something is registered',
   },
   {
+    id: 'M9',
+    why:
+      'A reply is matched against the peer its request went to, and this expression is the ' +
+      'whole of that. Keying on the id alone restores the state where any peer that could ' +
+      'reach this node could answer a request it was never sent — ids are a per-endpoint ' +
+      'counter and every RemoteExecutor in a job shares one endpoint, so a sibling id is one ' +
+      'increment away and the first frame wins. That is enough to forge N-version agreement ' +
+      'out of a single machine, which is the one claim redundant execution exists to make.',
+    file: 'packages/net/src/rpc.ts',
+    find: 'return `${peer}\u0000${id}`',
+    replace: 'return String(id)',
+    caughtBy: ['packages/net/src/rpc.test.ts'],
+    signature: "expected 'FORGED-BY-C' to be 'ANSWERED-BY-B'",
+  },
+  {
     id: 'B1',
     why:
       "SCHED-06 on the benchmark driver's requestor endpoint. Why it matters beyond " +

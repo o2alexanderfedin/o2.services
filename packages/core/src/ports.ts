@@ -64,7 +64,16 @@ export interface Executor {
   execute(task: Task): Promise<ExecutionOutcome>
 }
 
-/** Moves messages between nodes. The loopback implementation has no network. */
+/**
+ * Moves messages between nodes. The loopback implementation has no network.
+ *
+ * **`from` and `to` are the same namespace, spelled identically.** The `from` handed
+ * to `onMessage` must be drawn from the namespace `send`'s `to` accepts, so that a
+ * peer dialled as `to` reports as that exact string when it answers. `rpc.ts`
+ * correlates a reply against the peer its request went to, and it does that by
+ * comparing these two strings — an implementation that dialled by one spelling and
+ * reported by another would turn every reply into a timeout.
+ */
 export interface Transport {
   readonly localId: string
   send(to: string, message: Uint8Array<ArrayBuffer>): Promise<void>
