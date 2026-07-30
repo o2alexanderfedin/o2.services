@@ -119,6 +119,7 @@ export {
 export type {
   Discarded,
   InFlight,
+  RaceLoser,
   RaceOutcome,
   SpeculativeAnswer,
   StragglerOptions,

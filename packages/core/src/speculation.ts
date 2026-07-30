@@ -123,12 +123,23 @@ export function stragglers(
     .sort((a, b) => a.startedAt - b.startedAt || a.taskId.localeCompare(b.taskId))
 }
 
-/** A duplicate that lost the race, kept so the cost is attributable. */
-export interface Discarded {
-  readonly taskId: string
+/** What a race can determine about a copy that lost. */
+export interface RaceLoser {
   readonly nodeId: string
   /** True when the loser's result differed from the winner's — see the module note. */
   readonly disagreed: boolean
+}
+
+/**
+ * A duplicate that lost the race, kept so the cost is attributable.
+ *
+ * Which task it lost is not something a race can know — {@link settleRace} is handed
+ * answers, and an answer names a node and a CID and no task. So the id is supplied by
+ * {@link SpeculationLedger.discard}, whose caller necessarily holds it, and that is
+ * the only path that can mint one of these.
+ */
+export interface Discarded extends RaceLoser {
+  readonly taskId: string
 }
 
 /**
@@ -248,7 +259,7 @@ export type RaceOutcome =
       readonly winner: string
       readonly resultCid: string
       /** Copies that arrived later, or arrived with a different answer. */
-      readonly losers: readonly Discarded[]
+      readonly losers: readonly RaceLoser[]
       /**
        * True when a loser produced a *different* CID.
        *
@@ -279,7 +290,6 @@ export function settleRace(answers: readonly SpeculativeAnswer[]): RaceOutcome {
   const ordered = [...arrived].sort((a, b) => a.at - b.at || a.nodeId.localeCompare(b.nodeId))
   const winner = ordered[0] as SpeculativeAnswer & { resultCid: string }
   const losers = ordered.slice(1).map((answer) => ({
-    taskId: '',
     nodeId: answer.nodeId,
     disagreed: answer.resultCid !== winner.resultCid,
   }))

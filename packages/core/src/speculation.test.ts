@@ -218,6 +218,22 @@ describe('CHURN-02 — first result wins, and disagreement still surfaces', () =
     expect(outcome.reason).toContain('no copy')
   })
 
+  it('returns a loser that cannot carry a task id, because a race is not told one', () => {
+    // Verified by `npm run typecheck`, not by running this file: `''` is a valid
+    // string, so no runtime assertion could ever see the hollow field this
+    // replaces. A planted `'PROBE-NOT-A-TASK-ID'` left all 44 cases green.
+    const outcome = settleRace([
+      { nodeId: 'fast', resultCid: 'bafyA', at: T0 + 100 },
+      { nodeId: 'slow', resultCid: 'bafyA', at: T0 + 900 },
+    ])
+    expect(outcome.settled).toBe(true)
+    if (!outcome.settled) return
+    // @ts-expect-error a race is handed answers, and an answer names a node and a
+    // CID and no task. Putting `taskId` back on this type makes this suppression
+    // unused and `tsc --noEmit` fails.
+    expect(outcome.losers[0]?.taskId).toBeUndefined()
+  })
+
   it('breaks a dead-heat on node id so the outcome is reproducible', () => {
     const answers = [
       { nodeId: 'b', resultCid: 'bafyA', at: T0 },
