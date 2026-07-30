@@ -47,6 +47,7 @@ import type { Transport } from '@o2/core'
 import {
   MAX_CONCURRENT_STREAMS_PER_PEER,
   MAX_INBOUND_MESSAGE_BYTES,
+  MAX_INBOUND_MESSAGES_IN_FLIGHT_PER_PEER,
   MAX_QUEUED_SENDS_PER_PEER,
   WIRE_CHUNK_BYTES,
 } from './constants.ts'
@@ -136,6 +137,32 @@ class InboundTooLarge extends Error {
 }
 
 /**
+ * The accumulation budget's own refusal. Same shape, same reason, different question.
+ *
+ * `InboundTooLarge` says one message was too big. This says one peer is holding too
+ * much at once while every message it sent was legal.
+ */
+class InboundOverBudget extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'InboundOverBudget'
+  }
+}
+
+/**
+ * One `readMessage` call's claim on its peer's accumulation budget.
+ *
+ * Minted per call so the amount to give back is held by the caller that took it —
+ * the same reasoning `EgressGuard`'s holds are values rather than a shared count.
+ */
+interface Budget {
+  /** Take `bytes` against the peer's running total, or refuse the whole read. */
+  charge(bytes: number): void
+  /** Give back everything this call took, whatever exit path it is leaving by. */
+  release(): void
+}
+
+/**
  * Collect one whole message from a stream that ends when the sender closes write.
  *
  * NET-08: `total` is bounded **during** accumulation. A cap applied after the loop
@@ -144,37 +171,55 @@ class InboundTooLarge extends Error {
  * `new Uint8Array(total)` below are that choice made concrete. Checking after the
  * fact would report the overrun having already suffered it, which is the whole
  * content of the requirement.
+ *
+ * `budget` is that same argument counted across every concurrent read from one peer.
+ * A peer that never closes write holds its accumulation for as long as it likes, and
+ * `max` alone bounds each of those and none of their sum.
  */
 async function readMessage(
   stream: Stream,
   max: number,
   from: string,
+  budget: Budget,
 ): Promise<Uint8Array<ArrayBuffer>> {
   const chunks: Uint8Array[] = []
   let total = 0
-  for await (const chunk of stream) {
-    // v3 yields `Uint8Array | Uint8ArrayList`; the list form is a rope over
-    // several buffers and `subarray()` flattens it.
-    const flat = chunk instanceof Uint8Array ? chunk : chunk.subarray()
-    chunks.push(flat)
-    total += flat.byteLength
-    if (total > max) {
-      // Named so an operator reads the refusal without a debugger: who sent it,
-      // what the declared bound was, and how far the accumulation had got.
-      const error = new InboundTooLarge(
-        `inbound message from ${from} exceeds ${max} bytes (reached ${total}) — stream aborted`,
-      )
-      stream.abort(error)
-      throw error
+  try {
+    for await (const chunk of stream) {
+      // v3 yields `Uint8Array | Uint8ArrayList`; the list form is a rope over
+      // several buffers and `subarray()` flattens it.
+      const flat = chunk instanceof Uint8Array ? chunk : chunk.subarray()
+      // Charged before the push, for the reason the docblock gives about `total`:
+      // these bytes are retained from the next line onward.
+      budget.charge(flat.byteLength)
+      chunks.push(flat)
+      total += flat.byteLength
+      if (total > max) {
+        // Named so an operator reads the refusal without a debugger: who sent it,
+        // what the declared bound was, and how far the accumulation had got.
+        const error = new InboundTooLarge(
+          `inbound message from ${from} exceeds ${max} bytes (reached ${total}) — stream aborted`,
+        )
+        stream.abort(error)
+        throw error
+      }
     }
+    const message = new Uint8Array(total)
+    let offset = 0
+    for (const chunk of chunks) {
+      message.set(chunk, offset)
+      offset += chunk.byteLength
+    }
+    return message
+  } catch (cause) {
+    // A peer told to stop is a peer that stops sending. Without this the refused
+    // stream's unread bytes pile up in the muxer's own read buffer instead, which
+    // moves the retention rather than bounding it.
+    if (cause instanceof InboundOverBudget) stream.abort(cause)
+    throw cause
+  } finally {
+    budget.release()
   }
-  const message = new Uint8Array(total)
-  let offset = 0
-  for (const chunk of chunks) {
-    message.set(chunk, offset)
-    offset += chunk.byteLength
-  }
-  return message
 }
 
 export class Libp2pTransport implements Transport {
@@ -183,13 +228,17 @@ export class Libp2pTransport implements Transport {
   readonly #handlers = new Set<Handler>()
   readonly #sendTimeoutMs: number
   readonly #maxMessageBytes: number
+  readonly #maxBacklogBytes: number
   readonly #maxStreamsPerPeer: number
   readonly #maxQueuedSends: number
   /** Live gates. An entry exists only while a destination has streams or waiters. */
   readonly #gates = new Map<string, Gate>()
   /** The instrument. Retained per destination — see {@link peakStreamsTo}. */
   readonly #peakStreams = new Map<string, number>()
+  /** Bytes each peer is holding across its unfinished reads. Zero entries are dropped. */
+  readonly #inboundBacklog = new Map<string, number>()
   #refusedInbound = 0
+  #refusedOverBudget = 0
   #stopped = false
 
   private constructor(
@@ -202,6 +251,9 @@ export class Libp2pTransport implements Transport {
     this.#libp2p = libp2p
     this.#sendTimeoutMs = sendTimeoutMs
     this.#maxMessageBytes = maxMessageBytes
+    // Derived rather than declared, so shrinking the per-message cap shrinks the
+    // budget with it and a budget below one legal message cannot be expressed.
+    this.#maxBacklogBytes = maxMessageBytes * MAX_INBOUND_MESSAGES_IN_FLIGHT_PER_PEER
     this.#maxStreamsPerPeer = maxStreamsPerPeer
     this.#maxQueuedSends = maxQueuedSends
     this.localId = libp2p.peerId.toString()
@@ -227,7 +279,13 @@ export class Libp2pTransport implements Transport {
         try {
           let message: Uint8Array<ArrayBuffer>
           try {
-            message = await readMessage(stream, transport.#maxMessageBytes, from)
+            // Minted here because this is the only place the remote peer is known.
+            message = await readMessage(
+              stream,
+              transport.#maxMessageBytes,
+              from,
+              transport.#budgetFor(from),
+            )
           } catch (cause) {
             // NET-08: `readMessage` has already aborted the *stream*, and the
             // connection is expected to survive. Measured 2026-07-29 in
@@ -244,6 +302,7 @@ export class Libp2pTransport implements Transport {
             // also lands here, and counting that would make `refusedInbound` a
             // reading nobody could interpret.
             if (cause instanceof InboundTooLarge) transport.#refusedInbound += 1
+            else if (cause instanceof InboundOverBudget) transport.#refusedOverBudget += 1
             return
           }
           transport.#dispatch(from, message)
@@ -338,6 +397,18 @@ export class Libp2pTransport implements Transport {
     return this.#refusedInbound
   }
 
+  /**
+   * NET-08 — reads this node refused because the peer was already holding too much.
+   *
+   * A **different question** from {@link refusedInbound}, kept as a second number
+   * because the two lead to different actions: that one says a peer sent one message
+   * that was too big, this one says a peer is holding too many legal messages
+   * unfinished at once. Summing them would produce a reading nobody could act on.
+   */
+  get refusedOverBudget(): number {
+    return this.#refusedOverBudget
+  }
+
   /** Currently connected peers. Reflects live connections, not a static list. */
   get peers(): readonly string[] {
     return this.#libp2p.getPeers().map((peer) => peer.toString())
@@ -356,7 +427,36 @@ export class Libp2pTransport implements Transport {
       for (const waiter of gate.queue.splice(0)) waiter.reject(new Error('transport stopped'))
     }
     this.#gates.clear()
+    // Unlike `#peakStreams`, which is keyed on destinations this node chose to dial
+    // and is deliberately retained as an instrument, this map is keyed on peer ids an
+    // attacker mints. Retaining it would be a second, quieter unbounded growth.
+    this.#inboundBacklog.clear()
     await this.#libp2p.unhandle(O2_RPC_PROTOCOL)
+  }
+
+  /** This peer's claim on the accumulation budget, for the lifetime of one read. */
+  #budgetFor(peer: string): Budget {
+    const backlog = this.#inboundBacklog
+    const ceiling = this.#maxBacklogBytes
+    let held = 0
+    return {
+      charge(bytes: number): void {
+        const running = (backlog.get(peer) ?? 0) + bytes
+        if (running > ceiling) {
+          throw new InboundOverBudget(
+            `inbound accumulation from ${peer} exceeds ${ceiling} bytes (reached ${running}) — stream aborted`,
+          )
+        }
+        backlog.set(peer, running)
+        held += bytes
+      },
+      release(): void {
+        const remaining = (backlog.get(peer) ?? 0) - held
+        if (remaining > 0) backlog.set(peer, remaining)
+        else backlog.delete(peer)
+        held = 0
+      },
+    }
   }
 
   #dispatch(from: string, message: Uint8Array<ArrayBuffer>): void {

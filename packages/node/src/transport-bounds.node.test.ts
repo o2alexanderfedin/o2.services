@@ -1,16 +1,22 @@
+import { setFlagsFromString } from 'node:v8'
+import { runInNewContext } from 'node:vm'
 import { noise } from '@chainsafe/libp2p-noise'
 import { yamux } from '@chainsafe/libp2p-yamux'
 import { identify } from '@libp2p/identify'
+import { peerIdFromString } from '@libp2p/peer-id'
 import { tcp } from '@libp2p/tcp'
 import { multiaddr } from '@multiformats/multiaddr'
 import { defaultLogger } from '@libp2p/logger'
 import { createLibp2p } from 'libp2p'
-import type { ComponentLogger, Libp2p, Logger } from '@libp2p/interface'
+import type { ComponentLogger, Libp2p, Logger, Stream } from '@libp2p/interface'
 import { afterEach, describe, expect, it } from 'vitest'
 import {
   Libp2pTransport,
   MAX_CONCURRENT_STREAMS_PER_PEER,
   MAX_INBOUND_MESSAGE_BYTES,
+  MAX_INBOUND_MESSAGES_IN_FLIGHT_PER_PEER,
+  O2_RPC_PROTOCOL,
+  WIRE_CHUNK_BYTES,
 } from '@o2/libp2p'
 import type { Libp2pTransportOptions } from '@o2/libp2p'
 import { SendRefused } from '@o2/core'
@@ -116,6 +122,45 @@ function frame(n: number): Uint8Array<ArrayBuffer> {
   return bytes
 }
 
+/** Streams a test left part-written, aborted in teardown so no send stays parked. */
+const holding: Stream[] = []
+
+/**
+ * Open a raw o2 stream, write `byteLength` bytes, and leave the write end **open**.
+ *
+ * `Transport.send` closes write, which is what ends a message — so nothing reachable
+ * through the public port can produce the state this bound exists for: many messages
+ * from one peer, each one legal, none of them finished. That state is reachable over
+ * the real protocol by any peer, so the test reaches it the same way.
+ *
+ * `byteLength` stays under yamux's 256 KiB initial stream window on purpose, so every
+ * `send` completes without waiting on a drain the refused streams will never grant.
+ */
+async function holdOpen(from: Peer, to: string, byteLength: number): Promise<Stream> {
+  const stream = await from.libp2p.dialProtocol(peerIdFromString(to), O2_RPC_PROTOCOL)
+  holding.push(stream)
+  const bytes = frame(byteLength)
+  for (let offset = 0; offset < bytes.byteLength; offset += WIRE_CHUNK_BYTES) {
+    const chunk = bytes.subarray(offset, Math.min(offset + WIRE_CHUNK_BYTES, bytes.byteLength))
+    if (!stream.send(chunk)) await stream.onDrain()
+  }
+  return stream
+}
+
+/**
+ * Force a full GC without a `--expose-gc` on the command line.
+ *
+ * The flag is not on `npm run test:node`, and adding it would put a V8 flag on every
+ * spec in the project to serve one assertion in this file. `v8.setFlagsFromString`
+ * plus a fresh context is the same collection, scoped to this module.
+ */
+const collect = ((): (() => void) => {
+  setFlagsFromString('--expose-gc')
+  const gc = runInNewContext('gc') as unknown
+  setFlagsFromString('--no-expose-gc')
+  return typeof gc === 'function' ? (gc as () => void) : (): void => {}
+})()
+
 /** Wait until `predicate` holds, or give up after `timeoutMs`. Returns whether it held. */
 async function settles(predicate: () => boolean, timeoutMs: number): Promise<boolean> {
   const deadline = Date.now() + timeoutMs
@@ -127,6 +172,13 @@ async function settles(predicate: () => boolean, timeoutMs: number): Promise<boo
 }
 
 afterEach(async () => {
+  for (const stream of holding.splice(0)) {
+    try {
+      stream.abort(new Error('test over'))
+    } catch {
+      // Already reset by the node under test — which is the point of several cases.
+    }
+  }
   await Promise.all(
     started.splice(0).map(async (n) => {
       try {
@@ -327,6 +379,116 @@ describe('NET-08 — a peer cannot make this node allocate an unbounded buffer',
     expect(await settles(() => receiver.received.length === 1, 10_000)).toBe(true)
     expect(receiver.received[0]).toEqual(block)
     expect(receiver.transport.refusedInbound).toBe(1)
+  }, 60_000)
+})
+
+/**
+ * NET-08's second half — the per-message cap bounds one message, not one peer.
+ *
+ * Every message below is comfortably inside `maxMessageBytes`, so `refusedInbound`
+ * has nothing to say about any of them. What the peer is doing is holding many of
+ * them part-written at once, and the sum of those accumulations is what the
+ * per-message cap cannot see.
+ */
+describe('NET-08 — one peer cannot hold an unbounded accumulation across many streams', () => {
+  const CAP = 256 * 1024
+  /** Under the cap, and under yamux's initial window. Both matter — see `holdOpen`. */
+  const PER_STREAM = 200 * 1024
+  const BUDGET = CAP * MAX_INBOUND_MESSAGES_IN_FLIGHT_PER_PEER
+
+  it('refuses accumulation past the budget while every single message stays in limit', async () => {
+    const [sender, receiver] = await Promise.all([peer(), peer({ maxMessageBytes: CAP })])
+    const to = await dial(sender, receiver)
+
+    // Enough streams that the sum clears the budget several times over, opened one
+    // at a time so no burst reaches libp2p's early-stream ceiling.
+    const streams = Math.ceil((BUDGET * 3) / PER_STREAM)
+    for (let i = 0; i < streams; i++) await holdOpen(sender, to, PER_STREAM)
+
+    expect(await settles(() => receiver.transport.refusedOverBudget > 0, 20_000)).toBe(true)
+
+    // The load-bearing pair. A per-message counter that moved here would mean the
+    // cap had refused these, and it has not: each message is 200 KiB against a
+    // 256 KiB cap. The two counters answer different questions and this is where
+    // the difference shows.
+    expect(receiver.transport.refusedInbound).toBe(0)
+    expect(receiver.transport.refusedOverBudget).toBeGreaterThan(0)
+  }, 60_000)
+
+  /**
+   * The corroborating reading, and deliberately the *secondary* one.
+   *
+   * `arrayBuffers` is noisy — libp2p's own muxer buffers land in it too — so it is
+   * not what stands between the tree and a regression; the counter above is. What it
+   * adds is that the counter is not merely incrementing while the bytes pile up
+   * anyway, which is the failure a counter alone cannot distinguish.
+   *
+   * It also reads high, and knowing why keeps the threshold honest: both peers live
+   * in this one process, so `arrayBuffers` counts the *sender's* yamux buffers as
+   * well as the receiver's accumulation. The reading is a difference between two
+   * populations, not a measurement of the budget.
+   *
+   * Instrument: `process.memoryUsage().arrayBuffers`, delta across the offers, with
+   * `collect()` forced either side. Measured 2026-07-30, three runs each, 32 streams
+   * × 1.5 MiB against a 2 MiB cap and an 8 MiB budget:
+   *
+   *   - with the guard:    13.7 MB / 23.9 MB / 28.3 MB
+   *   - with the single `budget.charge` line deleted:  65.4 MB / 64.9 MB / 71.7 MB
+   *
+   * The 40 MB threshold below is placed between those two populations. It is not
+   * arithmetic over the budget and must not be re-derived as any.
+   */
+  it('keeps retained bytes near its budget rather than near what the peer offered', async () => {
+    const cap = 2 * 1024 * 1024
+    const budget = cap * MAX_INBOUND_MESSAGES_IN_FLIGHT_PER_PEER
+    const perStream = 1_536 * 1024
+    const streams = 32
+    const THRESHOLD = 40 * 1024 * 1024
+
+    const [sender, receiver] = await Promise.all([peer(), peer({ maxMessageBytes: cap })])
+    const to = await dial(sender, receiver)
+
+    collect()
+    const before = process.memoryUsage().arrayBuffers
+
+    // One at a time, like the case above — a 32-stream burst reaches libp2p's
+    // early-stream ceiling and tears the connection down, which is the NET-09 block's
+    // subject and would silently substitute for this one's. Each offer is allowed to
+    // fail: once the budget is spent the receiver resets the stream, and a write
+    // racing that reset is expected to throw. What matters is that the bytes were
+    // offered.
+    for (let i = 0; i < streams; i++) await holdOpen(sender, to, perStream).catch(() => null)
+
+    collect()
+    const retained = process.memoryUsage().arrayBuffers - before
+
+    // Sited on the two measurements in the docblock rather than on arithmetic over
+    // the budget. Read before the counter is asserted on, so that with the guard
+    // removed this line is what goes red rather than the settle above it.
+    expect(retained).toBeLessThan(THRESHOLD)
+    // The peer really did offer the bytes that would have been retained — an absent
+    // sender satisfies the line above perfectly.
+    expect(streams * perStream).toBeGreaterThan(4 * budget)
+    expect(receiver.transport.refusedOverBudget).toBeGreaterThan(0)
+  }, 120_000)
+
+  it('still delivers an in-limit message from the same peer once the budget frees up', async () => {
+    const [sender, receiver] = await Promise.all([peer(), peer({ maxMessageBytes: CAP })])
+    const to = await dial(sender, receiver)
+
+    const streams = Math.ceil((BUDGET * 3) / PER_STREAM)
+    for (let i = 0; i < streams; i++) await holdOpen(sender, to, PER_STREAM)
+    expect(await settles(() => receiver.transport.refusedOverBudget > 0, 20_000)).toBe(true)
+
+    // Finish what is still open, so the charges those calls hold are given back.
+    for (const stream of holding.splice(0)) await stream.close().catch(() => {})
+
+    const small = frame(1_024)
+    await sender.transport.send(to, small)
+    expect(
+      await settles(() => receiver.received.some((m) => m.byteLength === small.byteLength), 20_000),
+    ).toBe(true)
+    expect(receiver.transport.refusedInbound).toBe(0)
   }, 60_000)
 })
 

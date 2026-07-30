@@ -148,9 +148,11 @@ export const MUTATIONS: readonly Mutation[] = [
       'records that deleting the line left 22 tests across three files green — and that ' +
       'commit added the two readings that see it: the sender still holding a yamux window ' +
       'is told, and the receiver logs the reason. The entry is here to keep that closed, ' +
-      'not to commemorate that it once was not.',
+      'not to commemorate that it once was not. Re-indented on 2026-07-30 when the ' +
+      "accumulation budget's `try`/`finally` wrapped the loop; same line, two spaces " +
+      'deeper, and the find text was moved with it rather than dropped.',
     file: 'packages/libp2p/src/libp2p-transport.ts',
-    find: '      stream.abort(error)\n',
+    find: '        stream.abort(error)\n',
     replace: '',
     caughtBy: ['packages/node/src/transport-bounds.node.test.ts'],
     signature: "expected 'resolved' not to be 'resolved'",
@@ -171,6 +173,21 @@ export const MUTATIONS: readonly Mutation[] = [
       'packages/node/src/admission.node.test.ts',
     ],
     signature: 'a node started with a small maxMessageBytes refuses a frame a default node accepts',
+  },
+  {
+    id: 'M13',
+    why:
+      'NET-08, the per-peer half. The cap above it bounds one message; this line is the ' +
+      'whole of what bounds one peer. Without it a peer opens streams it never finishes ' +
+      'and every message stays legal, so `refusedInbound` reads 0 while the accumulations ' +
+      'add up — measured on 2026-07-30 at 65 MB retained against an 8 MiB budget for 32 ' +
+      'streams, and the reproduction that opened this bug measured 263 MB at the shipped ' +
+      'cap. It is the one line, so deleting it is the honest mutation.',
+    file: 'packages/libp2p/src/libp2p-transport.ts',
+    find: '      budget.charge(flat.byteLength)\n',
+    replace: '',
+    caughtBy: ['packages/node/src/transport-bounds.node.test.ts'],
+    signature: 'refuses accumulation past the budget while every single message stays in limit',
   },
   {
     id: 'M4',

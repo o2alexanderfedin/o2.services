@@ -118,6 +118,45 @@ export const WIRE_CHUNK_BYTES: number = WEBRTC_MAX_MESSAGE_BYTES
 export const MAX_INBOUND_MESSAGE_BYTES = 8_388_608
 
 /**
+ * NET-08 — in-limit messages this node will accumulate from **one** peer at once.
+ * **4.**
+ *
+ * Like {@link MAX_INBOUND_MESSAGE_BYTES} above it, a **configuration choice** and not
+ * a libp2p default. It is a multiplier rather than a byte count so that the budget is
+ * `maxMessageBytes × this`: a transport whose per-message cap is shrunk gets a budget
+ * that shrinks with it, and "a budget smaller than one legal message" is not a state
+ * anybody can express.
+ *
+ * Deliberately **not** aliased to {@link MAX_CONCURRENT_STREAMS_PER_PEER}. That is a
+ * send-side bound sited against libp2p's `maxEarlyStreams`; this is an inbound memory
+ * bound. They would change for unrelated reasons and sharing one number would couple
+ * them.
+ *
+ * Sited against figures somebody recorded, not against a workload anybody computed:
+ *
+ *   - 4 × 8 MiB = 32 MiB is **above** the largest artifact this project has produced
+ *     — a 5.6 MB elfconv output, ~4.8 MB after summarisation
+ *     (`10-VERIFICATION.md:16,146`) — even at six-way concurrency;
+ *   - and far **below** the 263 MB the reproduction measured retained at 32
+ *     concurrent in-limit streams from one peer.
+ *
+ * If some workload's concurrency ever matters here, measure it and record the
+ * measured figure with its date. Do not compute one from demo or job source.
+ *
+ * **What this does not close.** A sybil holding N peer ids gets N budgets, bounded
+ * only loosely by {@link LIBP2P_INBOUND_CONNECTION_THRESHOLD} and libp2p's connection
+ * manager; nothing in this repository declares a fabric-wide inbound memory ceiling.
+ * 256 idle streams each sending one byte consume almost no budget while still holding
+ * 256 libp2p stream objects. And the flatten in `readMessage` transiently doubles
+ * retention, so measured peak is around twice the declared budget rather than equal
+ * to it.
+ *
+ * No node-factory option, for the reason {@link MAX_CONCURRENT_STREAMS_PER_PEER}
+ * gives: a knob invites raising it back past the point it protects.
+ */
+export const MAX_INBOUND_MESSAGES_IN_FLIGHT_PER_PEER = 4
+
+/**
  * NET-09 — outbound streams this node will hold open toward **one** peer at once.
  * **8.**
  *
