@@ -47,17 +47,16 @@ function node(
   auth: EnrollmentAuthority,
   seed: number,
   options: {
-    userKey?: string
+    userPrivateKey?: Uint8Array
     operatorId?: string
     features?: readonly string[]
     sovereignFor?: readonly string[]
   } = {},
 ): Enrolled {
   const key = keypair(seed)
-  const userKey = options.userKey ?? alice.pub
+  const userPrivateKey = options.userPrivateKey ?? alice.priv
   const enrolled = auth.enrol(
-    requestEnrollment(key.priv, {
-      userKey,
+    requestEnrollment(key.priv, userPrivateKey, {
       operatorId: options.operatorId ?? `op-${seed}`,
       discoverability: 'seed',
       relayIds: [],

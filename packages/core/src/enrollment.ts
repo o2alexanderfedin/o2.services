@@ -2,8 +2,33 @@
  * Enrollment and node identity — AUTH-01, AUTH-02, AUTH-04, AUTH-05.
  *
  * A fabric of volunteer nodes has to answer two questions about a stranger: *is this
- * a real node*, and *whose is it*. Both are answered by a certificate the node carries,
- * and neither costs a network call at verification time.
+ * a real node*, and *whose is it*. A certificate the node carries answers the first
+ * outright and the second only as far as the issuer is trusted — see below — and
+ * neither costs a network call at verification time.
+ *
+ * ## What `userKey` is evidence of, exactly
+ *
+ * Issuance requires the named user's own signature (`ownerProof`) over the same
+ * challenge the node signs, so a certificate **cannot be obtained** for a user who
+ * did not consent. That is the fix for a defect where anyone could obtain a
+ * provider-signed certificate naming any victim's user key, which additionally burned
+ * the victim's rate-limit window because the limiter keys on that field.
+ *
+ * But `verifyCertificate` cannot check that binding, because `ownerProof` is not
+ * *in* the certificate. A relying party therefore trusts `certificate.userKey`
+ * exactly as far as it trusts the issuer, and no further. Carrying the proof inside
+ * the certificate is the next step and is not folded in here: it changes `payloadOf`
+ * and therefore the signed shape of every certificate in this repository.
+ *
+ * ## The replay gap, stated rather than left to be found
+ *
+ * `possessionChallenge` encodes `{purpose, nodeKey, userKey}` and nothing else — no
+ * nonce, no validity window. A captured `(nodeKey, proofOfPossession, userKey,
+ * ownerProof)` tuple stays valid forever and can be resubmitted to consume the
+ * victim's window. That is the same denial as before, now requiring the attacker to
+ * first observe one real enrollment of that node. Closing it means a validity window
+ * inside the challenge checked against `enrol`'s `now`, or per-`nodeKey` idempotent
+ * issuance; both change the limiter's semantics and belong to their own requirement.
  *
  * **The private key never leaves the device.** `enrol` takes a public key and a
  * self-signed proof of possession; there is no code path here that accepts, transports,
@@ -129,20 +154,46 @@ export interface EnrollmentRequest {
   readonly relayIds: readonly string[]
   /** Signature over `possessionChallenge`, by the node's own private key. */
   readonly proofOfPossession: string
+  /**
+   * The same challenge bytes, signed by the **user's** private key.
+   *
+   * Deliberately the identical bytes the node signs. That challenge already states
+   * "this node belongs to this user" with its own purpose-based domain separation, so
+   * one function keeps producing what both halves sign and there is no second
+   * encoding to keep canonical.
+   */
+  readonly ownerProof: string
 }
 
-/** Build a request on the node, signing the challenge locally. */
+/**
+ * Build a request on the node, signing the challenge locally with both keys.
+ *
+ * `userKey` is **derived** from `userPrivateKey` rather than accepted as a field, so
+ * naming somebody else's user key is not a thing this function can be asked to do.
+ * An attacker who wants to try it has to hand-assemble a wire record, which is
+ * exactly what `enrol` now refuses.
+ */
 export function requestEnrollment(
   nodePrivateKey: Uint8Array,
-  fields: Omit<EnrollmentRequest, 'nodeKey' | 'proofOfPossession'>,
+  userPrivateKey: Uint8Array,
+  fields: Omit<EnrollmentRequest, 'nodeKey' | 'userKey' | 'proofOfPossession' | 'ownerProof'>,
 ): EnrollmentRequest {
   const nodeKey = toHex(ed25519.getPublicKey(nodePrivateKey))
-  const challenge = possessionChallenge(nodeKey, fields.userKey)
-  return { ...fields, nodeKey, proofOfPossession: toHex(ed25519.sign(challenge, nodePrivateKey)) }
+  const userKey = toHex(ed25519.getPublicKey(userPrivateKey))
+  const challenge = possessionChallenge(nodeKey, userKey)
+  return {
+    ...fields,
+    nodeKey,
+    userKey,
+    proofOfPossession: toHex(ed25519.sign(challenge, nodePrivateKey)),
+    ownerProof: toHex(ed25519.sign(challenge, userPrivateKey)),
+  }
 }
 
 export type EnrollmentRefusal =
   | { readonly kind: 'bad-proof-of-possession'; readonly nodeKey: PublicKeyHex }
+  /** The named user did not sign. A different event from the one above — see `enrol`. */
+  | { readonly kind: 'bad-owner-proof'; readonly userKey: PublicKeyHex }
   | { readonly kind: 'rate-limited'; readonly userKey: PublicKeyHex; readonly limit: number; readonly windowMs: number; readonly retryAfterMs: number }
 
 export type EnrollmentResult =
@@ -207,6 +258,29 @@ export class EnrollmentAuthority {
         ok: false,
         refusal: { kind: 'bad-proof-of-possession', nodeKey: request.nodeKey },
         reason: `node ${request.nodeKey} did not prove possession of its key`,
+      }
+    }
+
+    // Owner consent second, and **before the limiter is touched**. That ordering is
+    // half of what this check is worth: the limiter keys on `request.userKey`, so a
+    // cross-user attempt that reached it would consume the victim's window and lock
+    // them out of enrolling their own nodes. Verification is pure and cheap, so
+    // nothing is lost by doing it first.
+    let holdsOwner = false
+    try {
+      holdsOwner = ed25519.verify(
+        fromHex(request.ownerProof),
+        possessionChallenge(request.nodeKey, request.userKey),
+        fromHex(request.userKey),
+      )
+    } catch {
+      holdsOwner = false
+    }
+    if (!holdsOwner) {
+      return {
+        ok: false,
+        refusal: { kind: 'bad-owner-proof', userKey: request.userKey },
+        reason: `user ${request.userKey} did not consent to node ${request.nodeKey} claiming their key`,
       }
     }
 

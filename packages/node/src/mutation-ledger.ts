@@ -361,6 +361,21 @@ export const MUTATIONS: readonly Mutation[] = [
     signature: "expected [] to deeply equal [ 'alice-row' ]",
   },
   {
+    id: 'M17',
+    why:
+      'AUTH-04. The refusal that makes a certificate name a user who consented to it. ' +
+      'Left inert, anybody obtains a provider-signed certificate naming any victim’s user ' +
+      'key — reproduced before the fix, `verifyCertificate` accepted it — and the victim ' +
+      'is then locked out of enrolling their own nodes, because the per-owner limiter ' +
+      'keys on the very field the attacker chose. A guard made inert rather than deleted, ' +
+      'because that is the shape a "just let it through while I debug" edit leaves.',
+    file: 'packages/core/src/enrollment.ts',
+    find: '    if (!holdsOwner) {',
+    replace: '    if (false) {',
+    caughtBy: ['packages/core/src/enrollment.test.ts'],
+    signature: 'does not let a refused cross-user request consume the victim',
+  },
+  {
     id: 'M9',
     why:
       'A reply is matched against the peer its request went to, and this expression is the ' +

@@ -104,8 +104,10 @@ async function ownerFabric(options: { module: Uint8Array<ArrayBuffer>; ownerNode
     maxPerWindow: 100,
   })
   const trustedIssuers = new Set([authority.issuerKey])
-  const aliceUserKey = toHex(ed25519.getPublicKey(new Uint8Array(32).fill(81)))
-  const bobUserKey = toHex(ed25519.getPublicKey(new Uint8Array(32).fill(82)))
+  const aliceUserPriv = new Uint8Array(32).fill(81)
+  const bobUserPriv = new Uint8Array(32).fill(82)
+  const aliceUserKey = toHex(ed25519.getPublicKey(aliceUserPriv))
+  const bobUserKey = toHex(ed25519.getPublicKey(bobUserPriv))
 
   const seedStore = new MemoryBlockstore()
   const moduleCid = await seedStore.put(options.module)
@@ -128,9 +130,9 @@ async function ownerFabric(options: { module: Uint8Array<ArrayBuffer>; ownerNode
 
   const certificates: NodeCertificate[] = []
 
-  const enrol = (priv: Uint8Array, userKey: string, operatorId: string): NodeCertificate => {
+  const enrol = (priv: Uint8Array, userPriv: Uint8Array, operatorId: string): NodeCertificate => {
     const result = authority.enrol(
-      requestEnrollment(priv, { userKey, operatorId, discoverability: 'seed', relayIds: [] }),
+      requestEnrollment(priv, userPriv, { operatorId, discoverability: 'seed', relayIds: [] }),
       NOW,
     )
     if (!result.ok) throw new Error(`fixture enrolment failed: ${result.reason}`)
@@ -143,7 +145,7 @@ async function ownerFabric(options: { module: Uint8Array<ArrayBuffer>; ownerNode
     const nodeId = toHex(ed25519.getPublicKey(priv))
     // Same operator for both: one person's own machines are one operator, which is
     // exactly why their agreement is owner-domain and not independent.
-    const certificate = enrol(priv, aliceUserKey, 'alice-op')
+    const certificate = enrol(priv, aliceUserPriv, 'alice-op')
     const capabilities = publishCapabilities(priv, {
       features: ['bulk-memory'],
       sovereignFor: [aliceUserKey],
@@ -195,7 +197,7 @@ async function ownerFabric(options: { module: Uint8Array<ArrayBuffer>; ownerNode
   // Bob's node: provides the block, cleared for nobody.
   const bobPriv = new Uint8Array(32).fill(99)
   const foreignKey = toHex(ed25519.getPublicKey(bobPriv))
-  const bobCertificate = enrol(bobPriv, bobUserKey, 'bob-op')
+  const bobCertificate = enrol(bobPriv, bobUserPriv, 'bob-op')
   const bobRpc = new RpcEndpoint(network.connect(foreignKey), { timeoutMs: 5_000 })
   const bobStore = new MemoryBlockstore()
   await bobStore.put(sovereignBytes())

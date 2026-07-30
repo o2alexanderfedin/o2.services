@@ -78,7 +78,8 @@ async function fabricOf(options: { workers: number; maxConcurrent?: number }): P
   const providerKey = new Uint8Array(32).fill(60)
   const authority = new EnrollmentAuthority({ providerPrivateKey: providerKey, maxPerWindow: 100 })
   const trustedIssuers = new Set([authority.issuerKey])
-  const userKey = toHex(ed25519.getPublicKey(new Uint8Array(32).fill(61)))
+  const userPriv = new Uint8Array(32).fill(61)
+  const userKey = toHex(ed25519.getPublicKey(userPriv))
 
   // The seed holds the module and the record index. It executes nothing here, which
   // is a property of this fixture and not of the node — it serves like any other.
@@ -109,8 +110,7 @@ async function fabricOf(options: { workers: number; maxConcurrent?: number }): P
     const nodeKey = toHex(ed25519.getPublicKey(priv))
 
     const enrolled = authority.enrol(
-      requestEnrollment(priv, {
-        userKey,
+      requestEnrollment(priv, userPriv, {
         operatorId: `op-${i}`,
         discoverability: 'seed',
         relayIds: [],
