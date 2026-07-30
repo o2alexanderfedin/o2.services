@@ -45,7 +45,21 @@ export type Receipt =
 
 /** Run one executor and content-address what it produced. */
 async function runOne(executor: Executor, task: Task): Promise<Receipt> {
-  const outcome = await executor.execute(task)
+  let outcome
+  try {
+    outcome = await executor.execute(task)
+  } catch (cause) {
+    // The port says a failure is a value; an implementation is foreign code and can
+    // still throw. Converted here because this is the only place the node id is in
+    // scope — one replica's collapse must not discard its co-replicas' completed
+    // work, and a rejection carries no name. The same conversion `RemoteExecutor`,
+    // `coordinator`'s `attempt` and `serveAgent`'s exec branch already make.
+    return {
+      ok: false,
+      nodeId: executor.nodeId,
+      reason: `execute threw on ${executor.nodeId}: ${cause instanceof Error ? cause.message : String(cause)}`,
+    }
+  }
   if (!outcome.ok) {
     return { ok: false, nodeId: executor.nodeId, reason: outcome.reason }
   }

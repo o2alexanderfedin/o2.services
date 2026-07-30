@@ -49,6 +49,16 @@ function failing(nodeId: string, reason: string): Executor {
   }
 }
 
+/** An executor whose `execute` rejects — a foreign implementation breaking, not answering. */
+function throwing(nodeId: string, message: string): Executor {
+  return {
+    nodeId,
+    async execute(): Promise<ExecutionOutcome> {
+      throw new Error(message)
+    },
+  }
+}
+
 /** An executor whose output contains NaN — refused by the codec, not divergence. */
 function nanProducer(nodeId: string): Executor {
   return {
@@ -124,6 +134,15 @@ describe('executeVerified — disagreement is surfaced, never voted away (VER-01
     expect(r.status).toBe('insufficient')
     if (r.status === 'insufficient') {
       expect(r.failures.map((f) => f.nodeId).sort()).toEqual(['a', 'b'])
+    }
+  })
+
+  it('names a replica that threw, with what it threw, instead of rejecting', async () => {
+    const r = await executeVerified(task, [throwing('bad', 'blockstore ENOSPC')])
+    expect(r.status).toBe('insufficient')
+    if (r.status === 'insufficient') {
+      expect(r.failures.map((f) => f.nodeId)).toEqual(['bad'])
+      expect(r.failures[0]?.reason).toContain('ENOSPC')
     }
   })
 
@@ -294,6 +313,45 @@ describe('submitJob — sharding and content addressing (MR-01, DATA-01)', () =>
     if (r.ok) {
       expect(r.job.complete).toBe(false)
       expect(r.job.shards.some((s) => s.verification.status === 'disagreed')).toBe(true)
+    }
+  })
+
+  it('an executor that throws is one failed replica, not a rejected submitJob', async () => {
+    const store = new MemoryBlockstore()
+    const executors = [honest('good'), throwing('bad', 'blockstore ENOSPC')]
+    // `.resolves` rather than a bare await: a rejection then reads as a failed
+    // assertion here rather than as an unhandled rejection somewhere else.
+    await expect(
+      submitJob(
+        {
+          moduleCid: MODULE_CID,
+          shards: [{ value: { n: 1 }, label: 'public' as const }],
+          executors,
+          nodes: publicNodes(executors),
+          redundancy: 2,
+        },
+        store,
+      ),
+    ).resolves.toMatchObject({ ok: true })
+
+    const r = await submitJob(
+      {
+        moduleCid: MODULE_CID,
+        shards: [{ value: { n: 1 }, label: 'public' as const }],
+        executors,
+        nodes: publicNodes(executors),
+        redundancy: 2,
+      },
+      store,
+    )
+    expect(r.ok).toBe(true)
+    if (!r.ok) return
+    const [shard] = r.job.shards
+    // The co-replica's completed work survives its neighbour's collapse.
+    expect(shard?.verification.status).toBe('agreed')
+    if (shard?.verification.status === 'agreed') {
+      expect(shard.verification.agreeing).toEqual(['good'])
+      expect(shard.verification.replicas).toBe(1)
     }
   })
 
