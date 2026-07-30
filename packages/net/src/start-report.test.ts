@@ -232,6 +232,29 @@ describe('publishing tells peers and reads back what they know', () => {
   })
 })
 
+describe('a decline is counted where it was made and nowhere else', () => {
+  it('folds a local decline into this node’s own report without putting it on a peer’s ledger', async () => {
+    // Both halves are asserted together on purpose. A decline that reaches the peer
+    // is not an opt-out; a decline that reaches nothing at all loses the blind spot
+    // the report exists to publish. One argument could only ever get one of them.
+    const network = new MemoryNetwork()
+    const keeper = new StartOutcomeLedger()
+    node(network, 'keeper', keeper)
+    const visitor = node(network, 'visitor')
+
+    const result = await publishStartOutcome({
+      rpc: visitor,
+      peers: () => ['keeper'],
+      outcome: CHROMIUM_OK,
+      declinedLocally: 1,
+    })
+
+    const spot = result.report.blindSpots.find((entry) => entry.kind === 'declined')
+    expect(spot?.kind === 'declined' && spot.count).toBe(1)
+    expect(keeper.declined).toBe(0)
+  })
+})
+
 describe('the unreachable case is the one the metric exists for', () => {
   it('reports its own outcome and says nobody answered', async () => {
     // This is what a blocked visitor's node can produce: one report, no peers, and

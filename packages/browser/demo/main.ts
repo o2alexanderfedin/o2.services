@@ -364,7 +364,7 @@ const api: TabApi = {
       // asks, they simply tell nothing. Their own decline is counted here and never
       // transmitted, which is the only way an opt-out can mean what it says.
       outcome: allowed ? outcome : null,
-      declined: 0,
+      declinedLocally,
     })
     return {
       reached: result.reached,

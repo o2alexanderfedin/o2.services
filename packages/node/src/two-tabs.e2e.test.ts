@@ -273,5 +273,10 @@ describe('NET-02 — two tabs on one machine', () => {
     // `describeStartReport` returns exactly this. A non-zero branch would need a tab
     // opened with `grantConsent({ reporting: true })`, which is a different change.
     expect(panel).toContain('no start outcomes reported')
+
+    // That same bare `grantConsent()` is one visitor declining to be counted, and the
+    // running-node path is the only place that count could be dropped — no unit test
+    // can import the demo glue that passes it.
+    expect(panel).toContain('not counted: 1')
   }, 120_000)
 })
