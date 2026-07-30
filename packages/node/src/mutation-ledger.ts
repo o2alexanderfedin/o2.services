@@ -315,6 +315,21 @@ export const MUTATIONS: readonly Mutation[] = [
     signature: 'Error: Test timed out in 5000ms.',
   },
   {
+    id: 'M16',
+    why:
+      'DET-06. A refusal in `output_write` is absorbing, and this line is the whole of ' +
+      'that. Without it a module spends its refusal — an over-cap write the host will not ' +
+      'take — and then launders it with a small acceptable one, and the host returns the ' +
+      'small write as the module’s answer with `ok: true`. It is the case that separates ' +
+      'this fix from the obvious one, which clears the slot on refusal and leaves the ' +
+      'mirror wide open.',
+    file: 'packages/core/src/executor/wasm.ts',
+    find: "          if (sink.at.state === 'refused') return\n",
+    replace: '',
+    caughtBy: ['packages/core/src/executor/wasm.test.ts'],
+    signature: 'cannot have a refusal laundered by a smaller write that follows it',
+  },
+  {
     id: 'M10',
     why:
       'DATA-05, the taking half. `serveAgent` is the only production caller that declares a ' +
