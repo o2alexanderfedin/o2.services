@@ -1,10 +1,12 @@
 import { describe, expect, it } from 'vitest'
 import {
+  BROWSER_FAMILIES,
   MIN_REPORTS_FOR_RATE,
   START_FAILURES,
   STRUCTURAL_BLIND_SPOT,
   StartOutcomeLedger,
   describeStartReport,
+  isStartBrowserLabel,
   startReport,
 } from './start-outcome.ts'
 import type { StartFailure, StartOutcome } from './start-outcome.ts'
@@ -251,5 +253,28 @@ describe('a reported count costs what it says, not what it claims', () => {
     // flags and the rate arithmetic — rather than re-asserting each of them and
     // missing the one that drifted.
     expect(ledger.report()).toEqual(startReport(population))
+  })
+})
+
+describe('the coarseness the disclosure promise rests on is a check, not a convention', () => {
+  it('accepts a family, with or without a major version', () => {
+    for (const family of BROWSER_FAMILIES) {
+      expect(isStartBrowserLabel(family)).toBe(true)
+      expect(isStartBrowserLabel(`${family} 141`)).toBe(true)
+    }
+  })
+
+  it('refuses anything finer than a family and a major', () => {
+    // Each of these is a label a peer could send. The first is the whole reason
+    // this predicate exists; the rest are the near misses that would slip past a
+    // check written as "starts with a known family".
+    expect(isStartBrowserLabel('Mozilla/5.0 (X11; Linux x86_64) Chrome/141.0.0.0')).toBe(false)
+    expect(isStartBrowserLabel('chromium 141 (X11; Linux x86_64)')).toBe(false)
+    expect(isStartBrowserLabel('chromium 141.0.7390.65')).toBe(false)
+    expect(isStartBrowserLabel('chromium 12345')).toBe(false)
+    expect(isStartBrowserLabel('Chromium 141')).toBe(false)
+    expect(isStartBrowserLabel('')).toBe(false)
+    expect(isStartBrowserLabel('x'.repeat(200))).toBe(false)
+    expect(isStartBrowserLabel(141)).toBe(false)
   })
 })

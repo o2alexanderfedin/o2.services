@@ -36,7 +36,7 @@
  */
 
 import { CID } from 'multiformats/cid'
-import { START_FAILURES } from '@o2/core'
+import { START_FAILURES, isStartBrowserLabel } from '@o2/core'
 import type {
   CanonicalValue,
   CapabilityRecord,
@@ -234,7 +234,9 @@ function asStartResult(value: CanonicalValue | undefined): 'started' | StartFail
  * newer peer naming a cause this build has never heard of is a peer worth talking
  * to, and refusing the frame would make the metric go dark exactly when the fabric
  * is most heterogeneous. Malformed *counts* are a different matter and are dropped
- * too — a negative one would let a peer erase another's evidence.
+ * too — a negative one would let a peer erase another's evidence. A browser label
+ * outside the coarse range goes the same way, and for a further reason: the
+ * disclosure promise rests on the label being too blunt to name a visitor.
  */
 function parseCounts(value: CanonicalValue | undefined): readonly OutcomeCount[] | null {
   if (!Array.isArray(value)) return null
@@ -245,7 +247,7 @@ function parseCounts(value: CanonicalValue | undefined): readonly OutcomeCount[]
     const browser = record['browser']
     const result = asStartResult(record['result'])
     const count = asIndex(record['count'])
-    if (typeof browser !== 'string' || count === null || count === 0) continue
+    if (!isStartBrowserLabel(browser) || count === null || count === 0) continue
     if (result === null) continue
     counts.push({ browser, result, count })
   }
@@ -372,8 +374,9 @@ export function parseRequest(body: CanonicalValue): AgentRequest | null {
     const browser = record['browser']
     const result = asStartResult(record['result'])
     // Both halves or neither. A browser with no result, or a result with no
-    // browser, is a report that could only be filed under a guess.
-    if (typeof browser !== 'string' || result === null) {
+    // browser, is a report that could only be filed under a guess — and so is one
+    // whose label is outside the coarse range `StartOutcome.browser` declares.
+    if (!isStartBrowserLabel(browser) || result === null) {
       return { kind: 'report', outcome: null, declined }
     }
     return {

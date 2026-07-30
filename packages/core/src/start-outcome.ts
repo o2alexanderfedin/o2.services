@@ -53,8 +53,38 @@ export type StartResult =
   | { readonly kind: 'started' }
   | { readonly kind: 'failed'; readonly cause: StartFailure }
 
+/**
+ * The families a report may name.
+ *
+ * `other` is not a failure — it is an honest label, and a report where `other`
+ * grows is itself the finding that this list needs extending.
+ */
+export const BROWSER_FAMILIES = ['chromium', 'edge', 'firefox', 'safari', 'other'] as const
+
+export type BrowserFamily = (typeof BROWSER_FAMILIES)[number]
+
+/** Derived from the list, so adding a family is one edit rather than two. */
+const BROWSER_LABEL = new RegExp(`^(?:${BROWSER_FAMILIES.join('|')})(?: \\d{1,4})?$`)
+
+/**
+ * Whether a label is one this build can file.
+ *
+ * {@link StartOutcome.browser} has said "never a full UA string" since it was
+ * written, and nothing enforced it on a label that arrived from a peer. The
+ * disclosure promise rests on the coarseness, so the range is checked where the
+ * range is declared rather than at each place a label lands.
+ */
+export function isStartBrowserLabel(value: unknown): value is string {
+  return typeof value === 'string' && BROWSER_LABEL.test(value)
+}
+
 export interface StartOutcome {
-  /** Coarse family and major version, e.g. `chromium 141`. Never a full UA string. */
+  /**
+   * Coarse family and major version, e.g. `chromium 141`. Never a full UA string.
+   *
+   * {@link isStartBrowserLabel} is the predicate that says so, and every label
+   * arriving from a peer passes through it.
+   */
   readonly browser: string
   readonly result: StartResult
 }

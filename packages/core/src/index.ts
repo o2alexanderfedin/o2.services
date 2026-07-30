@@ -144,16 +144,19 @@ export type {
 
 // Start outcomes and the blocking metric — BROW-02.
 export {
+  BROWSER_FAMILIES,
   MIN_REPORTS_FOR_RATE,
   START_FAILURES,
   STRUCTURAL_BLIND_SPOT,
   StartOutcomeLedger,
   describeStartReport,
+  isStartBrowserLabel,
   startReport,
   startReportFromCounts,
 } from './start-outcome.ts'
 export type {
   BlindSpot,
+  BrowserFamily,
   BrowserTally,
   CauseCount,
   OutcomeCount,

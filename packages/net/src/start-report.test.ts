@@ -1,4 +1,5 @@
 import {
+  BROWSER_FAMILIES,
   MemoryBlockstore,
   MemoryNetwork,
   StartOutcomeLedger,
@@ -94,6 +95,74 @@ describe('the report kind survives the wire', () => {
     expect(parsed?.kind).toBe('report')
     if (parsed?.kind !== 'report') return
     expect(parsed.counts).toEqual([{ browser: 'chromium 141', result: 'started', count: 7 }])
+  })
+
+  it('files a report whose browser label is a full UA string as a query, not as a claim', () => {
+    // `StartOutcome.browser` has said "coarse family and major version, never a
+    // full UA string" since it was written, and nothing enforced it on a label
+    // that arrived from a peer. The disclosure promise rests on the coarseness,
+    // so a peer-chosen fingerprint must not become a row.
+    const ua =
+      'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36'
+    const parsed = parseRequest(
+      encodeRequest({
+        kind: 'report',
+        outcome: { browser: ua, result: { kind: 'started' } },
+        declined: 3,
+      }),
+    )
+    // The claim is dropped; the peer's own truthful count is not. Dropping the
+    // frame would take the metric dark for a whole population over one bad label.
+    expect(parsed).toEqual({ kind: 'report', outcome: null, declined: 3 })
+
+    const fileable = parseRequest(
+      encodeRequest({
+        kind: 'report',
+        outcome: { browser: 'chromium 141', result: { kind: 'started' } },
+        declined: 3,
+      }),
+    )
+    expect(fileable).toEqual({
+      kind: 'report',
+      outcome: { browser: 'chromium 141', result: { kind: 'started' } },
+      declined: 3,
+    })
+  })
+
+  it('drops a counts entry whose browser label is not one this build can file', () => {
+    const parsed = parseResponse({
+      kind: 'report',
+      declined: 0,
+      counts: [
+        { browser: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)', result: 'started', count: 3 },
+        { browser: 'firefox 130', result: 'started', count: 7 },
+      ],
+    })
+    expect(parsed?.kind).toBe('report')
+    if (parsed?.kind !== 'report') return
+    expect(parsed.counts).toEqual([{ browser: 'firefox 130', result: 'started', count: 7 }])
+  })
+
+  it('files every family this build publishes, bare and with a major', () => {
+    // Driven off the exported list rather than a copy of it: a family added to
+    // `BROWSER_FAMILIES` that the wire check would reject fails here, which is
+    // what keeps the producer and the wire check from drifting apart.
+    for (const family of BROWSER_FAMILIES) {
+      for (const label of [family, `${family} 141`]) {
+        const parsed = parseRequest(
+          encodeRequest({
+            kind: 'report',
+            outcome: { browser: label, result: { kind: 'started' } },
+            declined: 0,
+          }),
+        )
+        expect(parsed).toEqual({
+          kind: 'report',
+          outcome: { browser: label, result: { kind: 'started' } },
+          declined: 0,
+        })
+      }
+    }
   })
 
   it('files a half-formed report as a query rather than guessing', () => {
