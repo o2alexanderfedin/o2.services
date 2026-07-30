@@ -11,7 +11,7 @@
 
 ## How to read the checkboxes
 
-**32 of 72 are `[x]`.** That is down from 68, and the 36 that moved did **not** move
+**34 of 72 are `[x]`.** That is down from 68, and the 36 that moved did **not** move
 because the work was undone. Read this before drawing a conclusion from the count.
 
 The v1.0 milestone audit (`v1.0-MILESTONE-AUDIT.md`) traced every requirement from the
@@ -198,7 +198,7 @@ code, not the reports. -->
       browser reservations without manual certificate management
 - [x] **NET-04**: Relayed protocol handlers register with `runOnLimitedConnection`,
       and no hardcoded certhash multiaddr is required to join
-- [x] **NET-05**: Relay reservation exhaustion is detected and reported rather than
+- [ ] **NET-05**: Relay reservation exhaustion is detected and reported rather than
       failing silently
 - [ ] **NET-06**: Browser peers participate in routing as full peers. Backbone nodes
       may serve records on their behalf as an optimisation and as a fallback when a
@@ -219,7 +219,7 @@ code, not the reports. -->
 - [ ] **SCHED-02**: Placement samples d candidate nodes and selects the
       least-loaded, using local information only
 - [ ] **SCHED-03**: An over-committed node rejects work and the requestor re-picks
-- [x] **SCHED-04**: A resource governor caps node CPU by duty cycle, is
+- [ ] **SCHED-04**: A resource governor caps node CPU by duty cycle, is
       user-adjustable, and is honoured by the executor
 - [ ] **SCHED-05**: Sovereignty constraints override placement cost heuristics
 
@@ -258,7 +258,7 @@ code, not the reports. -->
 
 - [x] **BROW-01**: A visitor gives explicit informed consent before any compute
       begins
-- [x] **BROW-02**: The node reports the percentage of visitors where it failed to
+- [ ] **BROW-02**: The node reports the percentage of visitors where it failed to
       start, segmented by browser, so blocking is visible rather than silent
 - [x] **BROW-03**: Compute pauses or throttles when the tab is backgrounded, and
       resumes on return
@@ -336,7 +336,7 @@ code, not the reports. -->
       *(Status: the one-host half is established. The box stays unchecked because the
       descoped cross-machine half is carried as unmeasured rather than as met — an
       unchecked box here understates on purpose, which is the safe direction.)*
-- [x] **AOT-04**: A translated artifact executes on the fabric under the same
+- [ ] **AOT-04**: A translated artifact executes on the fabric under the same
       admission checks and verification as a source-compiled one — proved through
       the `@o2/aot` barrel, and the ABI verified against a real elfconv artifact
       rather than against fixtures written to match the assumption
