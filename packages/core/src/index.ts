@@ -142,8 +142,8 @@ export {
   STRUCTURAL_BLIND_SPOT,
   StartOutcomeLedger,
   describeStartReport,
-  expandCounts,
   startReport,
+  startReportFromCounts,
 } from './start-outcome.ts'
 export type {
   BlindSpot,

@@ -126,21 +126,40 @@ export interface StartReportOptions {
   readonly declined?: number
 }
 
-function tally(browser: string, outcomes: readonly StartOutcome[]): BrowserTally {
-  const failures = outcomes.filter(
-    (outcome): outcome is StartOutcome & { result: { kind: 'failed'; cause: StartFailure } } =>
-      outcome.result.kind === 'failed',
-  )
+/**
+ * One (browser, result) pair and how many times it was seen.
+ *
+ * The compact form that travels between nodes, and the form every report is computed
+ * from. Note what is *not* here: the failure rates, the reliability flags, and the
+ * blind spots. Those are derived by whoever renders the report, which means a peer
+ * cannot transmit a report with its blind spots removed — there is no field in which
+ * to omit them.
+ */
+export interface OutcomeCount {
+  readonly browser: string
+  readonly result: 'started' | StartFailure
+  readonly count: number
+}
+
+const resultOf = (outcome: StartOutcome): 'started' | StartFailure =>
+  outcome.result.kind === 'started' ? 'started' : outcome.result.cause
+
+function tally(browser: string, rows: readonly OutcomeCount[]): BrowserTally {
+  let attempts = 0
+  let failed = 0
   const counts = new Map<StartFailure, number>()
-  for (const failure of failures) {
-    counts.set(failure.result.cause, (counts.get(failure.result.cause) ?? 0) + 1)
+  for (const row of rows) {
+    attempts += row.count
+    if (row.result === 'started') continue
+    failed += row.count
+    counts.set(row.result, (counts.get(row.result) ?? 0) + row.count)
   }
   return {
     browser,
-    attempts: outcomes.length,
-    failed: failures.length,
-    failureRate: outcomes.length === 0 ? 0 : failures.length / outcomes.length,
-    reliable: outcomes.length >= MIN_REPORTS_FOR_RATE,
+    attempts,
+    failed,
+    failureRate: attempts === 0 ? 0 : failed / attempts,
+    reliable: attempts >= MIN_REPORTS_FOR_RATE,
     causes: [...counts]
       .map(([cause, count]) => ({ cause, count }))
       .sort((a, b) => b.count - a.count || a.cause.localeCompare(b.cause)),
@@ -148,21 +167,30 @@ function tally(browser: string, outcomes: readonly StartOutcome[]): BrowserTally
 }
 
 /**
- * Aggregate reported outcomes.
+ * Aggregate counted outcomes.
+ *
+ * This is the whole of reporting, and it is arithmetic over rows. A count is a
+ * *number*: nothing between the wire and the sum turns it into that many of
+ * anything, so a peer's magnitude costs this node one addition however large it is.
+ * Believing a lie is cheap; making one is what used to be expensive here.
  *
  * There is deliberately no way to obtain the tallies without the blind spots: they
  * are fields of the same value, so a caller cannot render one and forget the other
  * any more than `CoveredAggregate` lets a caller read a result without its coverage.
  */
-export function startReport(
-  outcomes: readonly StartOutcome[],
+export function startReportFromCounts(
+  counts: readonly OutcomeCount[],
   options: StartReportOptions = {},
 ): StartReport {
-  const byBrowser = new Map<string, StartOutcome[]>()
-  for (const outcome of outcomes) {
-    const bucket = byBrowser.get(outcome.browser)
-    if (bucket === undefined) byBrowser.set(outcome.browser, [outcome])
-    else bucket.push(outcome)
+  const byBrowser = new Map<string, OutcomeCount[]>()
+  let reported = 0
+  let failed = 0
+  for (const row of counts) {
+    reported += row.count
+    if (row.result !== 'started') failed += row.count
+    const bucket = byBrowser.get(row.browser)
+    if (bucket === undefined) byBrowser.set(row.browser, [row])
+    else bucket.push(row)
   }
 
   const declined = options.declined ?? 0
@@ -176,43 +204,41 @@ export function startReport(
   }
 
   return {
-    reported: outcomes.length,
-    failed: outcomes.filter((outcome) => outcome.result.kind === 'failed').length,
+    reported,
+    failed,
     byBrowser: [...byBrowser]
       // Most-attempted first, then alphabetical — deterministic regardless of the
       // order reports happened to arrive in.
-      .map(([browser, bucket]) => tally(browser, bucket))
+      .map(([browser, rows]) => tally(browser, rows))
       .sort((a, b) => b.attempts - a.attempts || a.browser.localeCompare(b.browser)),
     blindSpots,
   }
 }
 
 /**
- * One (browser, result) pair and how many times it was seen.
+ * Aggregate outcomes one visitor reported at a time.
  *
- * The compact form that travels between nodes. Note what is *not* here: the
- * failure rates, the reliability flags, and the blind spots. Those are derived by
- * whoever renders the report, which means a peer cannot transmit a report with its
- * blind spots removed — there is no field in which to omit them.
+ * Folds to counts and defers to {@link startReportFromCounts}. The fold only ever
+ * shrinks its input, so there is no direction in which a number becomes an
+ * allocation.
  */
-export interface OutcomeCount {
-  readonly browser: string
-  readonly result: 'started' | StartFailure
-  readonly count: number
-}
-
-const resultOf = (outcome: StartOutcome): 'started' | StartFailure =>
-  outcome.result.kind === 'started' ? 'started' : outcome.result.cause
-
-/** Expand compact counts back into outcomes, so one aggregation path serves both. */
-export function expandCounts(counts: readonly OutcomeCount[]): readonly StartOutcome[] {
-  const outcomes: StartOutcome[] = []
-  for (const entry of counts) {
-    const result: StartResult =
-      entry.result === 'started' ? { kind: 'started' } : { kind: 'failed', cause: entry.result }
-    for (let i = 0; i < entry.count; i++) outcomes.push({ browser: entry.browser, result })
+export function startReport(
+  outcomes: readonly StartOutcome[],
+  options: StartReportOptions = {},
+): StartReport {
+  const counts = new Map<string, OutcomeCount>()
+  for (const outcome of outcomes) {
+    const result = resultOf(outcome)
+    const key = `${outcome.browser}\u0000${result}`
+    const existing = counts.get(key)
+    counts.set(
+      key,
+      existing === undefined
+        ? { browser: outcome.browser, result, count: 1 }
+        : { browser: outcome.browser, result, count: existing.count + 1 },
+    )
   }
-  return outcomes
+  return startReportFromCounts([...counts.values()], options)
 }
 
 /**
@@ -225,6 +251,12 @@ export function expandCounts(counts: readonly OutcomeCount[]): readonly StartOut
  * Deliberately in-memory and unauthenticated. A peer can inflate its own counts,
  * which matters for a public metric and is stated here rather than implied: this
  * measures whether *browsers* block the node, and it is not evidence about peers.
+ *
+ * What that inflation costs is bounded by what a peer can **name**, not by what it
+ * can **claim**: this ledger holds one entry per (browser, result) it is told about,
+ * and a count is added to a number. A magnitude is therefore free to disbelieve and
+ * free to hold. The row *count* is a separate matter and is still unbounded — only a
+ * cap at the wire boundary closes that, and it is not here.
  */
 export class StartOutcomeLedger {
   /**
@@ -313,7 +345,7 @@ export class StartOutcomeLedger {
   }
 
   report(): StartReport {
-    return startReport(expandCounts(this.counts()), { declined: this.#declined })
+    return startReportFromCounts(this.counts(), { declined: this.#declined })
   }
 }
 

@@ -5,7 +5,6 @@ import {
   STRUCTURAL_BLIND_SPOT,
   StartOutcomeLedger,
   describeStartReport,
-  expandCounts,
   startReport,
 } from './start-outcome.ts'
 import type { StartFailure, StartOutcome } from './start-outcome.ts'
@@ -178,12 +177,79 @@ describe('a ledger merges two different kinds of thing, and knows which', () => 
     expect(declined?.kind === 'declined' && declined.count).toBe(3)
   })
 
-  it('round-trips counts through expansion without loss', () => {
+  it('round-trips counts through a merge without loss', () => {
     const ledger = new StartOutcomeLedger()
     ledger.record({ browser: 'safari 18', result: { kind: 'failed', cause: 'storage-denied' } })
     ledger.record({ browser: 'chromium 141', result: { kind: 'started' } })
     const rebuilt = new StartOutcomeLedger()
-    for (const outcome of expandCounts(ledger.counts())) rebuilt.record(outcome)
+    rebuilt.mergeDisjoint(ledger.counts())
     expect(rebuilt.counts()).toEqual(ledger.counts())
+  })
+})
+
+/**
+ * A count is believed. It is not *materialised*.
+ *
+ * `count` arrives over the wire and nothing bounds its magnitude — `mergeOverlapping`
+ * checks only that it is a positive integer, and takes the largest. Reporting used to
+ * expand each unit into its own object, so a 79-byte reply carrying `count: 1e9`
+ * became an allocation the reading tab could not survive. `MAX_INBOUND_MESSAGE_BYTES`
+ * cannot help: the amplification is entirely post-decode.
+ *
+ * The budgets below are the assertion that actually detects it. They are generous
+ * enough not to flake on a loaded machine and still three orders of magnitude under
+ * what materialising two million objects costs.
+ */
+describe('a reported count costs what it says, not what it claims', () => {
+  const BUDGET_MS = 50
+
+  it('sums a million-strong count without allocating a million anything', () => {
+    const ledger = new StartOutcomeLedger()
+    ledger.mergeDisjoint([
+      { browser: 'chromium 141', result: 'started', count: 1_000_000 },
+      { browser: 'safari 18', result: 'wasm-unavailable', count: 1_000_000 },
+    ])
+
+    const started = performance.now()
+    const report = ledger.report()
+    const elapsed = performance.now() - started
+
+    expect(report.reported).toBe(2_000_000)
+    expect(report.failed).toBe(1_000_000)
+    expect(elapsed).toBeLessThan(BUDGET_MS)
+  })
+
+  it('costs nothing to be told a hostile magnitude', () => {
+    const ledger = new StartOutcomeLedger()
+    ledger.mergeOverlapping([{ browser: 'chromium 141', result: 'started', count: 1e9 }])
+
+    const started = performance.now()
+    const report = ledger.report()
+    const elapsed = performance.now() - started
+
+    // The count is BELIEVED. Inflation is this module's stated, accepted property —
+    // a peer can lie about its own numbers and that is what the docstring says. What
+    // is fixed here is only that the lie is free to hold, not free to make.
+    expect(report.reported).toBe(1e9)
+    expect(elapsed).toBeLessThan(BUDGET_MS)
+  })
+
+  it('agrees with the outcome-by-outcome path, orderings and reliability included', () => {
+    const population: StartOutcome[] = [
+      ...started('chromium 141', 12),
+      ...failed('chromium 141', 'other', 3),
+      ...failed('chromium 141', 'storage-denied', 3),
+      ...failed('chromium 141', 'wasm-unavailable', 7),
+      ...started('safari 18', 4),
+      ...failed('safari 18', 'wasm-unavailable', 5),
+      ...started('firefox 145', 9),
+    ]
+    const ledger = new StartOutcomeLedger()
+    for (const outcome of population) ledger.record(outcome)
+
+    // Pins the fold whole — the browser and cause orderings, the MIN_REPORTS_FOR_RATE
+    // flags and the rate arithmetic — rather than re-asserting each of them and
+    // missing the one that drifted.
+    expect(ledger.report()).toEqual(startReport(population))
   })
 })
