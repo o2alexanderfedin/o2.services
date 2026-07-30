@@ -190,6 +190,44 @@ afterEach(async () => {
   )
 })
 
+describe('the port precondition rpc.ts’s reply correlation rests on', () => {
+  /**
+   * `Transport` (core/ports.ts) requires `from` and `to` to be one namespace spelled
+   * identically. `RpcEndpoint` files a pending request under the `to` it was handed
+   * and looks it up under the `from` the transport reported, so a transport that
+   * dialled by one spelling and reported by another would turn **every** reply into a
+   * timeout — an outage that presents as a broken network rather than as a spelling
+   * bug, which is why it is asserted here rather than believed.
+   *
+   * This is the only level that can catch it. A loopback satisfies the precondition
+   * by construction; `Libp2pTransport` derives `from` from `connection.remotePeer`
+   * and is dialled by a `PeerId` string, and nothing but a real pair proves those two
+   * derivations agree.
+   */
+  it('reports an answering peer under the exact string its request was addressed to', async () => {
+    const [sender, receiver] = await Promise.all([peer(), peer()])
+    const to = await dial(sender, receiver)
+
+    // The responder answers with only what it was handed, which is all `RpcEndpoint`
+    // has when it replies.
+    const answered: string[] = []
+    receiver.transport.onMessage((from) => {
+      answered.push(from)
+      void receiver.transport.send(from, frame(8)).catch(() => {})
+    })
+    const seen: string[] = []
+    sender.transport.onMessage((from) => seen.push(from))
+
+    await sender.transport.send(to, frame(8))
+
+    // Well inside vitest's own 5 s, so a divergence fails by this name rather than as
+    // an anonymous test timeout. The green round trip above is two localhost TCP hops.
+    expect(await settles(() => seen.length > 0, 2_000), 'the answer never arrived').toBe(true)
+    expect(seen).toEqual([to])
+    expect(answered).toEqual([sender.transport.localId])
+  })
+})
+
 describe('NET-08 — a peer cannot make this node allocate an unbounded buffer', () => {
   it('refuses a frame one byte over an overridden bound, and keeps serving', async () => {
     const cap = 64 * 1024

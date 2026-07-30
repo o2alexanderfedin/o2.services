@@ -400,6 +400,24 @@ export const MUTATIONS: readonly Mutation[] = [
     signature: "expected 'FORGED-BY-C' to be 'ANSWERED-BY-B'",
   },
   {
+    id: 'M20',
+    why:
+      'The same guarantee, pinned at the lookup instead of at the key, because the two ' +
+      'catch different edits. M9 catches a key that stops naming the peer, which breaks ' +
+      'both sides at once and is obviously wrong on sight. This catches the edit that ' +
+      'looks reasonable: a receive path made tolerant so a peer whose address is spelled ' +
+      'slightly differently still gets its reply matched. Correlation would then be by id ' +
+      'alone again, on the one side an attacker controls, while `request` went on filing ' +
+      'under the destination and every comment in the file went on being true. Pinned on ' +
+      'the call rather than on the key’s body so the entry survives the separator being ' +
+      'respelled — `27633c7` already respelled it once, from a raw byte to an escape.',
+    file: 'packages/net/src/rpc.ts',
+    find: 'const key = this.#pendingKey(from, id)',
+    replace: "const key = [...this.#pending.keys()].find((k) => k.endsWith(`\\u0000${id}`)) ?? ''",
+    caughtBy: ['packages/net/src/rpc.test.ts'],
+    signature: "expected 'FORGED-BY-C' to be 'ANSWERED-BY-B'",
+  },
+  {
     id: 'M18',
     why:
       'CHURN-01. `failures`’ contract is that a shard’s history explains itself. A ' +

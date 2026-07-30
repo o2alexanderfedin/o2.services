@@ -60,6 +60,36 @@ describe('MemoryNetwork — delivery', () => {
   })
 })
 
+describe('MemoryNetwork — a peer answers in the namespace it was dialled by', () => {
+  // The `Transport` port requires `from` and `to` to be one namespace spelled
+  // identically, because `RpcEndpoint` correlates a reply against the peer its
+  // request went to by comparing those two strings. The loopback satisfies it
+  // trivially, which is exactly why it is worth pinning: an adapter that satisfies a
+  // precondition by accident is one refactor away from not satisfying it, and the
+  // failure mode is a total outage that reads as a broken network rather than as a
+  // spelling bug.
+  it('hands the initiator a `from` byte-identical to the `to` it addressed', async () => {
+    const net = new MemoryNetwork()
+    const initiator = net.connect('12D3KooWInitiator')
+    const responder = net.connect('12D3KooWResponder')
+
+    // The responder answers using only what it was handed — all `RpcEndpoint` has.
+    const answered: string[] = []
+    responder.onMessage((from) => {
+      answered.push(from)
+      void responder.send(from, bytes(2)).catch(() => {})
+    })
+    const seen: string[] = []
+    initiator.onMessage((from) => seen.push(from))
+
+    const to = responder.localId
+    await initiator.send(to, bytes(1))
+
+    expect(answered).toEqual([initiator.localId])
+    expect(seen).toEqual([to])
+  })
+})
+
 describe('MemoryNetwork — the loopback must not be more permissive than a network', () => {
   it('hands the recipient a copy, not a view into the sender’s buffer', async () => {
     // A real transport serializes. If the loopback passed the sender's buffer
