@@ -13,6 +13,7 @@
     "build:demo": "vite build --config packages/browser/vite.config.ts",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:perf": "O2_PERF=1 vitest run --project perf",
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {
