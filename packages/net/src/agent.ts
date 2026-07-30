@@ -139,7 +139,9 @@ export interface AgentOptions {
    */
   readonly ledger: StartOutcomeLedger | 'keeps-no-ledger'
   /**
-   * BROW-04. Called when a peer dispatches a task here, before it runs.
+   * BROW-04. Called immediately before this node runs a peer's task — after
+   * admission and after authorisation. A request this node refused is not a
+   * dispatch it served.
    *
    * The always-visible surface has to say what is running *and for whom*, and the
    * executor cannot answer the second half — a `Task` is addressed entirely by CID
@@ -323,8 +325,6 @@ export function serveAgent(options: AgentOptions): void {
           ? { kind: 'offer', accepted: true, reason: '' }
           : { kind: 'offer', accepted: false, reason: decision.reason }
     } else {
-      if (options.onDispatch !== 'reports-no-dispatch') options.onDispatch(from)
-
       // SCHED-06 — admission, on the branch that actually costs a
       // `WebAssembly.compile` plus an `instantiate` plus a linear memory.
       //
@@ -406,10 +406,18 @@ export function serveAgent(options: AgentOptions): void {
                 task: request.task,
                 capability: request.capability ?? [],
               })
-        outcome =
-          refusal === null
-            ? await executor.execute(request.task)
-            : { ok: false as const, reason: `unauthorized: ${refusal}` }
+        if (refusal === null) {
+          // On the line above the call it reports. What the surface claims is work
+          // this node ran; a request refused for capacity or for capability is not
+          // that, and the adjacency is what stops a future gate slipping between
+          // the count and the run. Inside the `try` so a throwing listener becomes
+          // a named outcome with the slot released below, rather than escaping
+          // into `rpc.ts` and coming home to the requestor as a malformed reply.
+          if (options.onDispatch !== 'reports-no-dispatch') options.onDispatch(from)
+          outcome = await executor.execute(request.task)
+        } else {
+          outcome = { ok: false as const, reason: `unauthorized: ${refusal}` }
+        }
       } catch (cause) {
         outcome = {
           ok: false as const,

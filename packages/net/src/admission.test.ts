@@ -54,6 +54,8 @@ interface ServingNode {
   readonly capacity: LocalCapacity
   /** The instrument the concurrency reading is taken off. */
   readonly counter: CountingExecutor
+  /** Requestors this node reported running work for, one entry per report. */
+  readonly ranFor: readonly string[]
   /** A distinct task per `partitionIndex`, so the slot keys differ. */
   task(partitionIndex: number, partitionCount?: number): Task
   close(): void
@@ -69,6 +71,7 @@ async function servingNode(options: {
   maxConcurrent: number
   module?: Uint8Array<ArrayBuffer>
   authorize?: Authorizer
+  reportsDispatch?: boolean
 }): Promise<ServingNode> {
   const store = new MemoryBlockstore()
   const moduleCid = await store.put(options.module ?? MODULE_WRITES_PARTITION)
@@ -77,6 +80,7 @@ async function servingNode(options: {
   const capacity = new LocalCapacity({ nodeId: options.nodeId, maxConcurrent: options.maxConcurrent })
   const counter = new CountingExecutor(new WasmExecutor({ nodeId: options.nodeId, blockstore: store }))
   const rpc = new RpcEndpoint(network.connect(options.nodeId), { timeoutMs: 5_000 })
+  const ranFor: string[] = []
   serveAgent({
     rpc,
     executor: counter,
@@ -87,13 +91,14 @@ async function servingNode(options: {
     index: 'serves-no-records',
     ledger: 'keeps-no-ledger',
     reservations: 'relays-for-nobody',
-    onDispatch: 'reports-no-dispatch',
+    onDispatch: options.reportsDispatch === true ? (from) => ranFor.push(from) : 'reports-no-dispatch',
   })
 
   return {
     nodeId: options.nodeId,
     capacity,
     counter,
+    ranFor,
     task: (partitionIndex, partitionCount = 64) => ({
       moduleCid,
       inputCid,
@@ -245,6 +250,40 @@ describe('SCHED-06 — the exec branch admits, and gives the slot back', () => {
       expect(c?.kind).toBe('exec')
       if (c?.kind !== 'exec') return
       expect(c.outcome.ok).toBe(true)
+      expect(node.capacity.inFlight).toBe(0)
+    } finally {
+      node.close()
+      rpc.close()
+    }
+  })
+
+  it('does not report a refused request as work it ran for that peer', async () => {
+    // BROW-04's surface says "peers whose work this node has run, and how much of
+    // it". A request turned away for capacity is not that, and a tab reading four
+    // where one ran is reporting a contribution it never made.
+    const node = await servingNode({ nodeId: 'served-count', maxConcurrent: 1, reportsDispatch: true })
+    const rpc = requestorFor('served-count')
+    try {
+      const replies = await Promise.all(
+        Array.from({ length: 4 }, (_, i) => dispatch(rpc, node.nodeId, node.task(i, 4))),
+      )
+
+      // The instrument is live before anything is claimed about what it did not
+      // see: requests really were refused, and by name.
+      const refusals = replies.filter((r) => r?.kind === 'error')
+      expect(refusals.length).toBeGreaterThan(0)
+      for (const refusal of refusals) {
+        if (refusal?.kind !== 'error') continue
+        expect(refusal.reason.startsWith('over-committed: ')).toBe(true)
+      }
+
+      // The load-bearing reading. Every request gets exactly one reply and this
+      // node serves unauthenticated, so an `exec` reply means the executor ran.
+      const ran = replies.filter((r) => r?.kind === 'exec')
+      expect(node.ranFor).toHaveLength(ran.length)
+      expect(new Set(node.ranFor)).toEqual(new Set(['requestor-served-count']))
+
+      // And moving the report did not disturb slot release.
       expect(node.capacity.inFlight).toBe(0)
     } finally {
       node.close()

@@ -184,7 +184,12 @@ export class BrowserNode {
    *
    * The surface must say what is running *and for whom*. A `Task` is addressed
    * entirely by CID and names no requestor, so this is recorded where the answer
-   * exists: at the point a peer dispatches.
+   * exists: at the point this node begins running it, which is the only point at
+   * which both facts are known.
+   *
+   * Requests this node turned away are not here. They stay legible through
+   * {@link admission} — `slots`, `inFlight`, `peakInFlight` — which is what a
+   * refusal is a fact about.
    */
   readonly servedFor: Map<string, number> = new Map<string, number>()
   readonly #activityListeners = new Set<() => void>()
