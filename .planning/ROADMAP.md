@@ -361,10 +361,17 @@ Plans:
   1. A node at its execution slot limit refuses an `exec` request with a **stated reason** naming the limit, and the requestor re-picks — verified by concurrency against the real stack, not by a single-request unit test. Today: 4 peers × 200 concurrent `exec` requests produced 800 simultaneous `executor.execute()` calls and **0 refusals**
   2. `LocalCapacity` is either constructed by both production node factories, or deleted. It may not remain built-and-unwired: today it appears only in two test files while `fabric-node.ts` and `browser-node.ts` both pass the opt-out sentinel
   3. A peer cannot make a node allocate an unbounded buffer: `readMessage` enforces a declared maximum message size and calls `stream.abort()` past it. Today a single **64 MiB** frame was sent over the real transport and accepted
-  4. Dispatching N shards immediately after dial succeeds for N well above 12, or fails with a **stated, sender-attributed** reason. Today N=8 completes and N=12 fails entirely with `MaxEarlyStreamsError: Too many early streams - 11/10`, which calls `muxer.abort()` and tears down the whole connection — including in-limit requests and identify's stream
+  4. Dispatching N shards immediately after dial succeeds for N well above 12, or fails with a **stated, sender-attributed** reason. Today N=8 completes and N=12 fails entirely with `MaxEarlyStreamsError: Too many early streams were opened - 11/10` (quote corrected 2026-07-29 — the original was a paraphrase), which calls `muxer.abort()` and tears down the whole connection — including in-limit requests and identify's stream
   5. A connection torn down by the **sender** exceeding a stream limit is not classified by the coordinator as a **node** failure of the receiver
   6. A sovereignty refusal reaches the requestor as a **named outcome** carrying its reason, not as an RPC timeout. Measured today: `rpc … timed out after 4000ms`, no label, no attribution, against a 30,000 ms default
   7. A node asked for a raw sovereign block refuses, **whether or not it executed a task over that block**. Measured today: a submitting node that never ran the task holds no registration and serves the raw 95 bytes inside a 138-byte frame
+
+**Plans**: 5 plans, one per wave — three of them plant mutations into production source and verify while the mutation is live, so no two may run concurrently. Order 01 → 02 → 03 → 05 → 04.
+  - **01** — Admission on `serveAgent`'s `exec` branch (SCHED-06, criteria 1–2). `LocalCapacity` gains a non-reserving `would` twin and a high-water instrument; the `exec` branch takes a slot keyed on the task's own identity and releases it in a `finally` on every exit; the `offer` branch answers from the same counters and reserves nothing
+  - **02** — Transport bounds (NET-08, NET-09, criteria 3–5). `readMessage` is bounded *during* accumulation against a declared cap and the refusal is counted; a per-peer FIFO send gate with a bounded queue refuses past its depth with a named marker; a third failure kind names a sender's own refusal without misreading a dead receiver as one
+  - **03** — A sovereignty refusal arrives as a named outcome, not as a timeout (NET-10, criterion 6). A pre-send scan on the `exec` and `block` branches, measured against the production 30 s RPC budget left unshortened
+  - **05** — The two production node factories construct their own admission control and thread their transport options; criterion 1 measured against real nodes over TCP at the executor layer, and the benchmark declares the limit and shard count it was run under
+  - **04** — A submitter does not serve the row it submitted (DATA-10, criterion 7): sovereign shard inputs registered on the submitting node's own guard for the job's duration
 
 **Why this phase exists, and why it is inserted rather than appended.**
 
@@ -447,14 +454,29 @@ The apparent ceiling of 256 with one peer is the **sender's** `maxOutboundStream
 **Research**: None — `discoverExecutors`, `placeWithOffers`, and `DutyCycleGovernor` exist and are unit-verified in Phases 1 and 6; the gap is that `discoverExecutors` and the `capacity` hook (made explicit in Phase 11) have no production caller, and the governor is wired on the browser tier only
 **Success Criteria** (what must be TRUE):
   1. A job submitted through `bin/agent.ts` with no static peer list configured finds candidate executors by querying real content-CID providers intersected with capability records — not a hardcoded list — and dispatches successfully
-  2. Placement observed during that run samples multiple candidates and selects the least-loaded; a node made to report itself over capacity refuses the offer with a stated reason, visible in the requestor's re-pick, and the job still completes
+  2. Placement observed during that run samples multiple candidates and selects the least-loaded; a node made to report itself over capacity refuses the offer with a stated reason, visible in the requestor's re-pick, and the job still completes. **The offer refusal is advisory**: the node reports its load and reserves nothing, so this clause is met by an honest answer and does not by itself bound anything
   2b. A node **at its execution slot limit refuses an `exec` request** with a stated reason naming the limit, and the requestor re-picks
+  2c. Placing N shards through `planWithOffers` + `rpcAdmission` **does not over-commit a node past its declared limit**
 <!-- Criterion 2b added 2026-07-28. Criterion 2 exercises only the `offer` branch, and
      `serveAgent` consults `capacity` *only* there — the `exec` branch authorizes and then calls
      `await executor.execute(task)` with nothing counting what is in flight. Measured: 4 peers ×
      200 concurrent `exec` requests produced 800 simultaneous `execute()` calls and zero
      refusals. So Phase 18 could pass in full while that defect stayed wide open. Phase 13.1
-     closes it (SCHED-06); this criterion exists so Phase 18 cannot silently pass around it. -->
+     closes it (SCHED-06); this criterion exists so Phase 18 cannot silently pass around it.
+
+     Criterion 2 restated and criterion 2c added 2026-07-29 by Phase 13.1, plan 05. Phase 13.1
+     moved the offer branch from `LocalCapacity.offer` to `LocalCapacity.would`, which reserves
+     nothing — the reservation moved to the `exec` branch, where the slot is released after
+     execution, because an `offer` reservation had no release anywhere on the wire and a demo
+     liveness probe would have leaked one slot per peer per call. So the cross-shard bound the
+     old reserving offer branch incidentally provided is gone, and criterion 2 as originally
+     written could be met in full while a node was handed four shards against one slot. The two
+     candidate replacements, both protocol changes and therefore Phase 18's to choose between:
+     carry a shard id on the `exec` request so an offer reservation can be redeemed, or publish
+     the node's slot count in the `offer` response so a requestor can bound its own placement.
+     `packages/net/src/discovery.test.ts` pins the resulting over-commit as a recorded
+     consequence — four shards landing on one 1-slot node, zero refusals, zero slots taken — and
+     that case is expected to turn red when Phase 18 closes 2c. -->
 
   3. A user-set CPU duty-cycle cap set at runtime on a running node — Node tier and browser tier alike — is honoured immediately, and the node's advertised capacity to `discoverExecutors` drops accordingly, observable in what the requestor is offered next
   4. A relay run via `bin/seed.ts` at reservation capacity reports the exhaustion by name to a joining node attempting to reserve, rather than the joiner failing indistinguishably from a network outage

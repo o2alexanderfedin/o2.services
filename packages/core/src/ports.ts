@@ -73,6 +73,48 @@ export interface Transport {
 }
 
 /**
+ * The one thing a `Transport` raises to say **"this node did not send, by its own
+ * decision"** — NET-09.
+ *
+ * Every other rejection of `Transport.send` means the send was *attempted* and
+ * failed: an unreachable peer, a refused protocol, a dial timeout, a reset stream.
+ * Those are conditions of the peer or the network. This one is not: it is this
+ * node's own admission bound declining to open another stream, and nothing about
+ * the destination is implied by it.
+ *
+ * The distinction has to be carried by a type rather than by a message, because
+ * `rpc.ts` catches every `send` rejection in one bare `.catch` and flattens it to
+ * `RpcError{kind:'send-failed'}`. A dead receiver arrives there by exactly the same
+ * route as a gate refusal, so branching on `send-failed` would file a peer's death
+ * under this node's fault — the misattribution NET-09's criterion 5 exists to
+ * remove, pointed the other way.
+ *
+ * **Why it lives in `@o2/core` and not beside the gate that throws it.** `@o2/net`
+ * and `@o2/libp2p` do not depend on each other — each depends on this package and
+ * neither on the other (checked in their `package.json`s). `@o2/libp2p`'s
+ * `Libp2pTransport` raises it and `@o2/net`'s `RpcEndpoint` reads it, so the port's
+ * own package is the only place both can import from.
+ *
+ * The class is the one runtime declaration in this otherwise type-only file. It has
+ * no imports and no behaviour beyond carrying `to` and `by`, so the "free of
+ * anything but types" rule at the top is intact in the sense that matters: nothing
+ * platform-specific enters here.
+ */
+export class SendRefused extends Error {
+  /** The destination this node declined to send to. */
+  readonly to: string
+  /** The node that refused — its own peer id, not the destination's. */
+  readonly by: string
+
+  constructor(message: string, detail: { readonly to: string; readonly by: string }) {
+    super(message)
+    this.name = 'SendRefused'
+    this.to = detail.to
+    this.by = detail.by
+  }
+}
+
+/**
  * Caps how much CPU a node will spend, expressed as a duty cycle.
  *
  * BOINC's `% CPU` is a duty cycle rather than a scheduler priority — 75% means

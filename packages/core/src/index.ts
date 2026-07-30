@@ -17,6 +17,8 @@ export type {
   Task,
   Transport,
 } from './ports.ts'
+// NET-09 — the marker a Transport raises when *this* node declined to send.
+export { SendRefused } from './ports.ts'
 
 // Hashing — pure JS, so it works outside a secure context. See hash.ts.
 export { SHA256_CODE, sha256 } from './hash.ts'
@@ -67,6 +69,7 @@ export type { NodeSovereignty } from './executor/sovereignty-guard.ts'
 // Power-of-d placement with rejection and re-pick — SCHED-02, SCHED-03, SCHED-05.
 export {
   DEFAULT_D,
+  DEFAULT_MAX_CONCURRENT_TASKS,
   LocalCapacity,
   MAX_D,
   MIN_D,

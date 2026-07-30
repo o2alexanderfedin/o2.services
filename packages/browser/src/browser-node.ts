@@ -31,10 +31,16 @@ import { identify, identifyPush } from '@libp2p/identify'
 import { webRTC } from '@libp2p/webrtc'
 import { webSockets } from '@libp2p/websockets'
 import { multiaddr } from '@multiformats/multiaddr'
-import { WasmExecutor, guardSovereignty } from '@o2/core'
+import {
+  DEFAULT_MAX_CONCURRENT_TASKS,
+  LocalCapacity,
+  WasmExecutor,
+  guardSovereignty,
+} from '@o2/core'
 import type { NodeSovereignty } from '@o2/core'
 import { Libp2pTransport } from '@o2/libp2p'
 import {
+  CountingExecutor,
   EgressGuard,
   FetchingBlockstore,
   GovernedExecutor,
@@ -70,6 +76,29 @@ export interface BrowserNodeOptions {
   /** IndexedDB database name. Distinct names give one origin several independent nodes. */
   readonly blockstoreName?: string
   readonly rpcTimeoutMs?: number
+  /**
+   * Tasks this tab will run at once before it refuses an `exec` request with its
+   * own words — SCHED-06.
+   *
+   * Defaults to `DEFAULT_MAX_CONCURRENT_TASKS` (`@o2/core`, which is the only place
+   * that carries the value), mirroring `fabric-node.ts`. Per-node capacity, not a
+   * node class: every `BrowserNode` has the identical executor, transport and
+   * relay-reservation behaviour whatever this is set to.
+   *
+   * **This is not the duty cycle and must never be derived from it** — see the note
+   * beside the `LocalCapacity` construction in `start`.
+   */
+  readonly maxConcurrentTasks?: number
+  /**
+   * Largest single inbound frame this tab will accumulate before it aborts the
+   * stream — NET-08.
+   *
+   * Defaults to `MAX_INBOUND_MESSAGE_BYTES` (`@o2/libp2p`). The first
+   * `Libp2pTransportOptions` field this factory has ever passed, mirroring
+   * `fabric-node.ts`; the send-side gate's own bounds are deliberately not exposed
+   * here, for the reason given there.
+   */
+  readonly maxMessageBytes?: number
   /**
    * Duty cycle to fall back to while the tab is hidden.
    *
@@ -120,6 +149,18 @@ export class BrowserNode {
   readonly executor: GovernedExecutor
   readonly governor: VisibilityGovernor
   /**
+   * This tab's execution admission control — SCHED-06.
+   *
+   * `admission.slots` is the declared limit and `admission.peakInFlight` says
+   * whether it was ever **reached**. It does **not** say whether it *held*:
+   * `LocalCapacity.offer()` returns its refusal before the reservation is taken, so
+   * `peakInFlight <= slots` is arithmetic and cannot fail. The reading that can
+   * falsify the bound is {@link executorPeakInFlight}.
+   */
+  readonly admission: LocalCapacity
+  /** The instrument {@link executorPeakInFlight} reads. */
+  readonly #counter: CountingExecutor
+  /**
    * The thread tasks run on, when there is one.
    *
    * Null means execution is on the main thread, which is a materially different
@@ -167,6 +208,8 @@ export class BrowserNode {
     executor: GovernedExecutor
     governor: VisibilityGovernor
     worker: WorkerExecutor | null
+    admission: LocalCapacity
+    counter: CountingExecutor
   }) {
     this.libp2p = parts.libp2p
     this.transport = parts.transport
@@ -177,6 +220,28 @@ export class BrowserNode {
     this.executor = parts.executor
     this.governor = parts.governor
     this.worker = parts.worker
+    this.admission = parts.admission
+    this.#counter = parts.counter
+  }
+
+  /**
+   * The most `execute()` calls ever running at once inside this tab.
+   *
+   * SCHED-06's criterion 1 is read off this: it counts calls that *happened*, so it
+   * can read any number, where `admission.peakInFlight` cannot exceed `slots` by
+   * construction.
+   *
+   * Composed **inside** `GovernedExecutor` rather than outside it — see the note at
+   * the construction. It therefore counts tasks actually running, not tasks parked
+   * on the governor's serialization chain waiting for a slice.
+   */
+  get executorPeakInFlight(): number {
+    return this.#counter.peakInFlight
+  }
+
+  /** Calls currently inside the inner executor. */
+  get executorInFlight(): number {
+    return this.#counter.inFlight
   }
 
   /**
@@ -210,7 +275,14 @@ export class BrowserNode {
       await libp2p.dial(multiaddr(address))
     }
 
-    const transport = await Libp2pTransport.start(libp2p)
+    // NET-08: the first `Libp2pTransportOptions` this factory has ever passed — the
+    // option surface existed and no node reached it. Key omitted rather than set to
+    // an explicit `undefined`, because `exactOptionalPropertyTypes` makes those
+    // different types; the same idiom threads `rpcTimeoutMs` below.
+    const transport = await Libp2pTransport.start(
+      libp2p,
+      options.maxMessageBytes === undefined ? {} : { maxMessageBytes: options.maxMessageBytes },
+    )
     // Resolved once, here, so the identical value feeds both `egress`'s ownerId
     // and `guardSovereignty`'s clearance check below — mirrors `fabric-node.ts`.
     const sovereignty = options.sovereignty ?? { ownerId: '', canExecuteSovereign: false }
@@ -253,14 +325,53 @@ export class BrowserNode {
     // before it runs. `store` (the local-only `IdbBlockstore`) is the
     // registration blockstore, not `blockstore` (network fallback), mirroring
     // `fabric-node.ts`.
-    const executor = new GovernedExecutor(
+    //
+    // SCHED-06: `CountingExecutor` sits **inside** `GovernedExecutor`, not outside
+    // it, and the deviation from `fabric-node.ts`'s outermost composition is
+    // deliberate on two counts. `this.executor` must stay exactly a
+    // `GovernedExecutor` for BROW-04's `.executed`/`.dutyCycle` surface — the same
+    // constraint the sovereignty comment above is written around — and a counter
+    // outside the governor would count tasks *parked on its serialization chain* as
+    // in flight, which is precisely not what "how many tasks is this tab running at
+    // once" means. Inside, it counts tasks actually running.
+    const counter = new CountingExecutor(
       registerSovereignInputs(
         guardSovereignty(worker ?? new WasmExecutor({ nodeId, blockstore }), sovereignty),
         { blockstore: store, guard: egress },
       ),
-      governor,
     )
-    const node = new BrowserNode({ libp2p, transport, rpc, egress, blockstore, store, executor, governor, worker })
+    const executor = new GovernedExecutor(counter, governor)
+    // SCHED-06 — this tab's own admission control, handed to `serveAgent` below.
+    //
+    // **The visibility duty cycle is deliberately not passed as `dutyCycle`.** It is
+    // the obvious next line and it is wrong: this tab already paces every task
+    // through `GovernedExecutor`, and two independent throttles on one path produce
+    // a number nobody can predict — a backgrounded tab would both run tasks slower
+    // *and* refuse them earlier, from two mechanisms neither of which knows about
+    // the other. The slot count is what this tab will hold at once; the governor is
+    // how fast it runs them. They are different questions and only one of them is
+    // this object's.
+    //
+    // Constructed after `libp2p` because the node id comes from it, and thrown
+    // straight out of `start` when the option is nonsense: `LocalCapacity`'s own
+    // `RangeError` guard is reached rather than bypassed by a clamp.
+    const admission = new LocalCapacity({
+      nodeId,
+      maxConcurrent: options.maxConcurrentTasks ?? DEFAULT_MAX_CONCURRENT_TASKS,
+    })
+    const node = new BrowserNode({
+      libp2p,
+      transport,
+      rpc,
+      egress,
+      blockstore,
+      store,
+      executor,
+      governor,
+      worker,
+      admission,
+      counter,
+    })
     serveAgent({
       rpc,
       executor,
@@ -271,7 +382,22 @@ export class BrowserNode {
       egress,
       authorize: 'serves-unauthenticated',
       index: 'serves-no-records',
-      capacity: 'accepts-every-offer',
+      // SCHED-06. This hook answered "accepts everything" for the whole of two
+      // milestones, so `serveAgent`'s `exec` branch ran `executor.execute` with
+      // nothing counting what was in flight — a probe measured 800 simultaneous
+      // executions and zero refusals. `LocalCapacity` existed the entire time and
+      // was constructed nowhere outside two test files. `ARCHITECTURE.md` §7.2 said
+      // *an over-committed node just says no, and the requestor resamples*; only
+      // the half that resamples had shipped.
+      //
+      // **Unmeasured on this factory, and that is the honest report.**
+      // `BrowserNode.start` needs a real `indexedDB` and a relay to dial, so it runs
+      // in neither vitest project; the behaviour is proved on `FabricNode`
+      // (`packages/node/src/admission.node.test.ts`) and only *composed* here. A
+      // grep confirming this line does not stand in for running it — that is exactly
+      // the substitution 13-VERIFICATION-2.md recorded the cost of. WIRE-03,
+      // Phase 19 builds the harness that would measure it.
+      capacity: admission,
       ledger: 'keeps-no-ledger',
       reservations: 'relays-for-nobody',
       onDispatch: (from) => {

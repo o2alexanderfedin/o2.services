@@ -10,12 +10,27 @@ import {
   runResilient,
   writeCheckpoint,
 } from '@o2/core'
-import type { CompletedShard, NodeDescriptor, ShardWork, Task } from '@o2/core'
+import { SendRefused } from '@o2/core'
+import type {
+  CompletedShard,
+  DispatchOutcome,
+  NodeDescriptor,
+  ShardWork,
+  Task,
+  Transport,
+} from '@o2/core'
 import { CID } from 'multiformats/cid'
 import { describe, expect, it } from 'vitest'
 // Test-only relative import — see the note in distributed.test.ts.
 import { MODULE_TRAPS, MODULE_WRITES_PARTITION } from '../../core/src/executor/fixtures.ts'
-import { FetchingBlockstore, RpcBlockSource, RpcEndpoint, remoteDispatch, serveAgent } from './index.ts'
+import {
+  EgressRefusal,
+  FetchingBlockstore,
+  RpcBlockSource,
+  RpcEndpoint,
+  remoteDispatch,
+  serveAgent,
+} from './index.ts'
 
 /**
  * CHURN-01 and CHURN-03 against a real fabric.
@@ -364,5 +379,183 @@ describe('CHURN-03 — the requestor’s tab closes and the job survives', () =>
     } finally {
       fabric.close()
     }
+  })
+})
+
+/**
+ * NET-09 criterion 5 — a send *this node* refused is not the receiver's failure.
+ *
+ * Every case below drives `remoteDispatch` against an `RpcEndpoint` built over a
+ * transport that rejects, because the classification lives in `remoteDispatch`'s
+ * `catch` and that is the only way to reach it. The interesting half is the
+ * negative space: `send-refused` is the *only* thing that produces `'sender'`, and
+ * the cases that must keep producing `'node'` are asserted one by one, because a
+ * branch that swallowed the general case into `'sender'` would look identical on
+ * the happy path.
+ */
+describe('NET-09 — classifying a refusal this node made, against every other failure', () => {
+  const shard: ShardWork = { shardId: 's0', label: 'public' }
+
+  /** A transport whose `send` always rejects with `cause`. Nothing else is used. */
+  const rejecting = (cause: unknown): Transport => ({
+    localId: 'local-node',
+    send: async () => {
+      throw cause
+    },
+    onMessage: () => () => {},
+    peers: [],
+  })
+
+  const dispatchOver = async (cause: unknown): Promise<DispatchOutcome> => {
+    const rpc = new RpcEndpoint(rejecting(cause), { timeoutMs: 500 })
+    try {
+      return await remoteDispatch({
+        rpc,
+        blockstore: new MemoryBlockstore(),
+        taskFor: (): Task => ({
+          moduleCid: CID.parse('bafkqaaa'),
+          inputCid: CID.parse('bafkqaaa'),
+          partitionIndex: 0,
+          partitionCount: 1,
+          label: 'public',
+        }),
+      })(shard, 'n0', undefined as never)
+    } finally {
+      rpc.close()
+    }
+  }
+
+  it('classifies a gate refusal as sender, naming which node’s bound refused', async () => {
+    const outcome = await dispatchOver(
+      new SendRefused('local-node refused a send to n0: 8 of 8 streams in use', {
+        to: 'n0',
+        by: 'local-node',
+      }),
+    )
+
+    expect(outcome.ok).toBe(false)
+    if (outcome.ok) return
+    expect(outcome.kind).toBe('sender')
+    // The reader learns *whose* bound it was, even though the recorded nodeId
+    // still names the peer that was attempted.
+    expect(outcome.reason).toContain('local-node')
+    expect(outcome.reason).toContain('8 of 8 streams in use')
+  })
+
+  it('still classifies a dial to an unreachable peer as node', async () => {
+    // The case that makes `send-failed` the wrong discriminator. `rpc.ts`'s catch
+    // is bare and `Libp2pTransport.send` awaits `dialProtocol`, so a dead receiver
+    // arrives by the same route a gate refusal does.
+    const outcome = await dispatchOver(new Error('Can not dial n0: no valid addresses'))
+    expect(outcome.ok).toBe(false)
+    if (outcome.ok) return
+    expect(outcome.kind).toBe('node')
+  })
+
+  it('still classifies an ordinary send failure as node', async () => {
+    const outcome = await dispatchOver(new Error('the stream has been reset'))
+    expect(outcome.ok).toBe(false)
+    if (outcome.ok) return
+    expect(outcome.kind).toBe('node')
+  })
+
+  it('still classifies an EgressRefusal raised by this node’s own tap as node', async () => {
+    // Called out by name: this plan does **not** reclassify an egress refusal. It
+    // reaches `rpc.ts` as `send-failed` and therefore stays `'node'`. If a later
+    // phase decides it deserves `'sender'`, it makes `EgressRefusal` carry the
+    // `SendRefused` marker; it does not widen the `send-failed` branch.
+    const outcome = await dispatchOver(new EgressRefusal({ to: 'n0', violation: 'alice-row', bytes: 138 }))
+    expect(outcome.ok).toBe(false)
+    if (outcome.ok) return
+    expect(outcome.kind).toBe('node')
+  })
+
+  it('still classifies a closed endpoint as node', async () => {
+    const rpc = new RpcEndpoint(rejecting(new Error('unused')), { timeoutMs: 500 })
+    rpc.close()
+    const outcome = await remoteDispatch({
+      rpc,
+      blockstore: new MemoryBlockstore(),
+      taskFor: (): Task => ({
+        moduleCid: CID.parse('bafkqaaa'),
+        inputCid: CID.parse('bafkqaaa'),
+        partitionIndex: 0,
+        partitionCount: 1,
+        label: 'public',
+      }),
+    })(shard, 'n0', undefined as never)
+
+    expect(outcome.ok).toBe(false)
+    if (outcome.ok) return
+    expect(outcome.kind).toBe('node')
+  })
+
+  it('still classifies a timeout as node', async () => {
+    // A transport that accepts the send and never answers.
+    const silent: Transport = {
+      localId: 'local-node',
+      send: async () => {},
+      onMessage: () => () => {},
+      peers: [],
+    }
+    const rpc = new RpcEndpoint(silent, { timeoutMs: 100 })
+    try {
+      const outcome = await remoteDispatch({
+        rpc,
+        blockstore: new MemoryBlockstore(),
+        taskFor: (): Task => ({
+          moduleCid: CID.parse('bafkqaaa'),
+          inputCid: CID.parse('bafkqaaa'),
+          partitionIndex: 0,
+          partitionCount: 1,
+          label: 'public',
+        }),
+      })(shard, 'n0', undefined as never)
+      expect(outcome.ok).toBe(false)
+      if (outcome.ok) return
+      expect(outcome.kind).toBe('node')
+    } finally {
+      rpc.close()
+    }
+  })
+
+  it('retries a sender refusal like a node failure and never burns the task budget', async () => {
+    // Through `runResilient`, not by reading the field: what matters is the policy
+    // the kind selects, and `coordinator.ts` reads `kind` in exactly one place.
+    const nodes: NodeDescriptor[] = Array.from({ length: 5 }, (_, i) => ({
+      nodeId: `n${i}`,
+      ownerId: 'alice',
+      canExecuteSovereign: true,
+      load: 0,
+    }))
+    let attempts = 0
+    const outcome = await runResilient({
+      work: [shard],
+      nodes,
+      now: realTime().now,
+      dispatch: async (_shard, nodeId): Promise<DispatchOutcome> => {
+        attempts += 1
+        // The first four refuse from this node's own gate; the fifth answers.
+        if (attempts <= 4) {
+          return {
+            ok: false,
+            kind: 'sender',
+            reason: `dispatch to ${nodeId} refused by local-node's own send bound`,
+          }
+        }
+        return { ok: true, resultCid: 'bafy-s0' }
+      },
+    })
+
+    // Five attempts is more than DEFAULT_MAX_TASK_FAILURES (3). A `'task'` kind
+    // would have given up at three; `'sender'` retries like `'node'`.
+    expect(outcome.ok).toBe(true)
+    expect(attempts).toBe(5)
+    expect(outcome.results.get('s0')).toBe('bafy-s0')
+    // And the history says whose bound it was, even though nodeId names the peer.
+    const failures = outcome.shards[0]?.failures ?? []
+    expect(failures).toHaveLength(4)
+    expect(failures.every((f) => f.kind === 'sender')).toBe(true)
+    expect(failures.every((f) => nodes.some((n) => n.nodeId === f.nodeId))).toBe(true)
   })
 })

@@ -97,14 +97,24 @@ async function spawnAgent(name: string, extraArgs: readonly string[] = []): Prom
 /**
  * The submitter, with an RPC budget chosen for this file rather than inherited.
  *
- * Under the refusal the owner's reply frame never leaves her, and her responding leg
- * swallows the send failure by documented design (`packages/net/src/egress.ts`), so
- * the dispatch resolves only when this budget expires. 10 s is the value: the
- * control job at the end of the test runs a full cross-process dispatch — exec
- * request out, module block pulled back over the wire by a child that has never seen
- * it, WASM compiled and run in that child, reply returned — on this identical
- * budget, so it cannot fail for want of time; and one refused dispatch costs one of
- * these rather than the 30 s the two existing spawn tests allow themselves.
+ * **Amended 2026-07-29 by NET-10, because the paragraph that was here described
+ * behaviour that no longer happens.** It read: *"the dispatch resolves only when
+ * this budget expires"*, which was true while the owner's refusal reached the
+ * requestor as nothing at all. It does not now. `serveAgent` asks the tap about its
+ * candidate reply before handing it to the exit and substitutes a small named
+ * refusal, so the refused dispatch resolves immediately with a reason rather than at
+ * this budget's expiry. `rpc.ts`'s responding leg still swallows a send failure by
+ * documented design — that cost is unchanged for every frame `serveAgent` does not
+ * pre-scan; see the scoped exception in `packages/net/src/egress.ts`.
+ *
+ * 10 s stays, and its justification is now only the second half of the original
+ * one: the control job at the end of the test runs a full cross-process dispatch —
+ * exec request out, module block pulled back over the wire by a child that has never
+ * seen it, WASM compiled and run in that child, reply returned — on this identical
+ * budget, so it cannot fail for want of time. Nothing in this file measures
+ * wall-clock, and nothing here should be read as if it did; the wall-clock
+ * measurement, taken against the *unshortened* production default, is
+ * `named-refusal.node.test.ts`'s whole subject.
  */
 async function startSubmitter(): Promise<FabricNode> {
   const node = await FabricNode.start({

@@ -100,8 +100,16 @@ function servingNode(options: {
     },
   }
 }
-function requestor(nodeId: string): { readonly rpc: RpcEndpoint; readonly executor: RemoteExecutor } {
-  const rpc = new RpcEndpoint(network.connect(`requestor-${nodeId}`), { timeoutMs: 2_000 })
+/**
+ * `timeoutMs` is a per-behavior choice rather than a file-wide constant because the
+ * refusing behavior below measures elapsed wall-clock: its budget is deliberately
+ * long, so an elapsed reading well under it cannot be a timeout wearing a disguise.
+ */
+function requestor(
+  nodeId: string,
+  timeoutMs = 2_000,
+): { readonly rpc: RpcEndpoint; readonly executor: RemoteExecutor } {
+  const rpc = new RpcEndpoint(network.connect(`requestor-${nodeId}`), { timeoutMs })
   return { rpc, executor: new RemoteExecutor(nodeId, rpc) }
 }
 
@@ -119,7 +127,10 @@ describe('registerSovereignInputs — a production caller for EgressGuard.guard(
       registrationStore: store,
       canExecuteSovereign: true,
     })
-    const { rpc, executor } = requestor('alice-1')
+    // Ten seconds, five times this file's default, so an elapsed reading under one
+    // second cannot be a timeout that happened to fire early. The budget is the
+    // control for the measurement below, not a convenience.
+    const { rpc, executor } = requestor('alice-1', 10_000)
     try {
       const task: Task = {
         moduleCid,
@@ -129,19 +140,37 @@ describe('registerSovereignInputs — a production caller for EgressGuard.guard(
         label: 'sovereign',
         ownerId: OWNER_ID,
       }
+      const started = performance.now()
       const outcome = await executor.execute(task)
+      const elapsed = performance.now() - started
       // The module echoed its input straight back, so the reply frame would have
       // carried the raw row. The tap refused it: the row stayed on the owner's
       // node, and the requestor's dispatch failed as a consequence.
       //
-      // The requestor waits out this endpoint's 2s timeout rather than being told
-      // why, because the refusal happens on the *responding* leg, which `rpc.ts`
-      // swallows by documented design — see `egress.ts`'s own statement of that
-      // cost. The added seconds here are an understood consequence, not a slow
-      // test nobody has looked at.
+      // NET-10: the requestor is *told*, rather than left to time out. `serveAgent`
+      // asks the guard about its candidate reply before handing it to the exit and,
+      // on a hit, substitutes a small `{kind:'exec', outcome:{ok:false}}` that by
+      // construction cannot carry the payload it refuses. `rpc.ts`'s responding leg
+      // still swallows a send failure by documented design, and that cost is still
+      // real for every frame `serveAgent` does not pre-scan — see the scoped
+      // exception in `egress.ts`'s class comment. It no longer applies here.
       expect(outcome.ok).toBe(false)
       if (outcome.ok) return
       expect(outcome.reason).toContain(node.nodeId)
+      // Soft, all three, and for one reason: asserted hard, only the first to fail
+      // reaches the report, and the run that matters here is the *failing* one —
+      // where the reason string and the elapsed figure are two different readings
+      // of the same regression and both belong in the output. This is the idiom
+      // Plan 13.1-01 settled on for paired evidence.
+      //
+      // The wire vocabulary 13.1-CONTEXT.md decision 4 fixes, asserted so it cannot
+      // drift — and deliberately distinct from `over-committed: `, which travels as
+      // `{kind:'error'}` because it wants the opposite retry policy.
+      expect.soft(outcome.reason.startsWith('egress refused: ')).toBe(true)
+      expect.soft(outcome.reason).toContain(inputCid.toString())
+      // The measurement. Against a 10 s budget, a refusal that arrives in a small
+      // fraction of it cannot be the budget expiring.
+      expect.soft(elapsed).toBeLessThan(1_000)
 
       // Refused *and* recorded — the two halves of the ordering guarantee, both
       // reached without this test ever calling guard.guard().
@@ -159,7 +188,12 @@ describe('registerSovereignInputs — a production caller for EgressGuard.guard(
       node.close()
       rpc.close()
     }
-  })
+    // 30 s, well past the requestor's 10 s budget, and deliberately so: it exists
+    // for the *failing* run, not the passing one. A regression to the old
+    // timeout behaviour must report as the elapsed assertion above carrying its
+    // number, not as an opaque runner timeout that says nothing about what was
+    // measured. Vitest's own 5 s default would have swallowed exactly that.
+  }, 30_000)
 
   it('never registers or touches the guard for a public task', async () => {
     const store = new MemoryBlockstore()

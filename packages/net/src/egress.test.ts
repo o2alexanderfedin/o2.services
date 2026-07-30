@@ -218,6 +218,122 @@ describe('DATA-04 — a raw sovereign byte does not reach the wire at all', () =
   })
 })
 
+describe('NET-10 — the pre-scan a caller holding a candidate frame can take', () => {
+  it('violationIn names the label and records nothing, however often it is asked', async () => {
+    const network = new MemoryNetwork()
+    const owner = ownerNode(network, 'alice-1')
+    coordinator(network)
+
+    const leaked = encodeCanonical({ rows: [SOVEREIGN_ROW] })
+    expect(leaked.ok).toBe(true)
+    if (!leaked.ok) return
+
+    for (let i = 0; i < 10; i++) expect(owner.violationIn(leaked.bytes)).toBe('alice-row')
+    // A pure query. Ten asks and the tap's record is untouched — otherwise
+    // `serveAgent` asking about a candidate reply would inflate the manifest with
+    // an entry per question rather than per frame.
+    expect(owner.manifest.entries).toEqual([])
+    expect(owner.manifest.violations).toEqual([])
+
+    const aggregate = encodeCanonical({ count: 1, salaryTotal: 91000 })
+    expect(aggregate.ok).toBe(true)
+    if (!aggregate.ok) return
+    expect(owner.violationIn(aggregate.bytes)).toBeNull()
+  })
+
+  it('refuse records exactly one entry, indistinguishable from a send-time refusal', async () => {
+    // Two guards, same registration, same frame: one refuses in advance, the other
+    // is asked to send it. The entries must be the same object shape — same `to`,
+    // same `bytes`, same `violation` — because a reader of the manifest cannot be
+    // asked which code path produced a refusal.
+    const network = new MemoryNetwork()
+    const prescanned = ownerNode(network, 'alice-pre')
+    const sent = ownerNode(network, 'alice-send')
+    coordinator(network)
+
+    const leaked = encodeCanonical({ rows: [SOVEREIGN_ROW] })
+    expect(leaked.ok).toBe(true)
+    if (!leaked.ok) return
+
+    expect(prescanned.refuse('coordinator', leaked.bytes)).toBe('alice-row')
+    await expect(sent.send('coordinator', leaked.bytes)).rejects.toBeInstanceOf(EgressRefusal)
+
+    expect(prescanned.manifest.entries).toEqual(sent.manifest.entries)
+    expect(prescanned.manifest.entries).toHaveLength(1)
+    expect(prescanned.manifest.entries[0]?.violation).toBe('alice-row')
+    expect(prescanned.manifest.entries[0]?.bytes).toBe(leaked.bytes.byteLength)
+    // A refusal raises the count and contributes nothing to the volume — the same
+    // rule `EgressManifest.totalBytes` states, reached by the new producer.
+    expect(prescanned.manifest.totalBytes).toBe(0)
+    expect(prescanned.manifest.violations).toEqual(['alice-row'])
+  })
+
+  it('refuse records nothing at all for a clean frame', async () => {
+    // The half that would double-count. `send` records every frame because it is
+    // the exit and must account for everything that crossed it; `refuse` is asked
+    // about a frame that has not been offered to the exit yet and may never be, so
+    // a clean answer must leave no trace or every reply would be counted twice.
+    const network = new MemoryNetwork()
+    const owner = ownerNode(network, 'alice-1')
+    coordinator(network)
+
+    const aggregate = encodeCanonical({ count: 1, salaryTotal: 91000 })
+    expect(aggregate.ok).toBe(true)
+    if (!aggregate.ok) return
+
+    expect(owner.refuse('coordinator', aggregate.bytes)).toBeNull()
+    expect(owner.manifest.entries).toHaveLength(0)
+
+    await owner.send('coordinator', aggregate.bytes)
+    expect(owner.manifest.entries).toHaveLength(1)
+    expect(owner.manifest.totalBytes).toBe(aggregate.bytes.byteLength)
+  })
+
+  it('a refused candidate followed by a smaller clean frame reads as two entries', async () => {
+    // This is the shape `serveAgent` produces: the candidate reply carried the row
+    // and was refused, and a small named refusal went out in its place. Two
+    // entries, one at zero bytes and one at its own count, is the honest reading —
+    // a refusal happened *and* a frame then left.
+    const network = new MemoryNetwork()
+    const owner = ownerNode(network, 'alice-1')
+    const peer = coordinator(network)
+
+    const leaked = encodeCanonical({ rows: [SOVEREIGN_ROW] })
+    const substitute = encodeCanonical({ ok: false, reason: 'egress refused: alice-row' })
+    expect(leaked.ok && substitute.ok).toBe(true)
+    if (!leaked.ok || !substitute.ok) return
+
+    expect(owner.refuse('coordinator', leaked.bytes)).toBe('alice-row')
+    await owner.send('coordinator', substitute.bytes)
+
+    const manifest = owner.manifest
+    expect(manifest.entries).toHaveLength(2)
+    expect(manifest.violations).toEqual(['alice-row'])
+    expect(manifest.totalBytes).toBe(substitute.bytes.byteLength)
+    // The instrument that reads 0 for a refused frame elsewhere in this file reads
+    // 1 here: the substitute really left.
+    expect(peer.delivered()).toBe(1)
+  })
+
+  it('leaves send refusing on its own — the pre-scan is a fast path, not the guarantee', async () => {
+    // Belt and braces. A caller that pre-scanned and then, for whatever reason,
+    // handed the same frame to the exit anyway is still refused. Plan 13.1-03's
+    // mutation plants against exactly this property from the other side.
+    const network = new MemoryNetwork()
+    const owner = ownerNode(network, 'alice-1')
+    const peer = coordinator(network)
+
+    const leaked = encodeCanonical({ rows: [SOVEREIGN_ROW] })
+    expect(leaked.ok).toBe(true)
+    if (!leaked.ok) return
+
+    expect(owner.refuse('coordinator', leaked.bytes)).toBe('alice-row')
+    await expect(owner.send('coordinator', leaked.bytes)).rejects.toBeInstanceOf(EgressRefusal)
+    expect(peer.delivered()).toBe(0)
+    expect(owner.manifest.entries).toHaveLength(2)
+  })
+})
+
 describe('a registration has a lifetime, and the set can be read', () => {
   it('forgets a released payload, and the set reads empty afterwards', async () => {
     const network = new MemoryNetwork()

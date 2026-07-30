@@ -134,7 +134,10 @@ async function fabricOf(options: { workers: number; maxConcurrent?: number }): P
     const store = new FetchingBlockstore(local, new RpcBlockSource(rpc, () => [SEED]))
     const capacity = new LocalCapacity({
       nodeId: nodeKey,
-      maxConcurrent: options.maxConcurrent ?? 4,
+      // 8, not 4: at 4, four workers dispatched four concurrent shards sat
+      // exactly on the boundary, and a boundary that happens to hold is not a
+      // property anybody chose.
+      maxConcurrent: options.maxConcurrent ?? 8,
     })
     serveAgent({
       rpc,
@@ -255,8 +258,63 @@ describe('criterion 1 — a requestor with no peer list runs a job', () => {
   })
 })
 
+/**
+ * The wire-side offer is **advisory**. Since Phase 13.1 it reads the node's
+ * counters through `LocalCapacity.would` and reserves nothing; the reservation
+ * lives on `serveAgent`'s `exec` branch, where the work does. So a test that
+ * wants a node to be busy has to *make* it busy — filling its slots directly is
+ * not a fixture shortcut here, it is the only way a probe can see a full node.
+ *
+ * `d: 4` against four candidates makes the sample the whole pool on every
+ * iteration, so the probe order is `placeWithOffers`' documented load-then-id
+ * tie-break — ascending `nodeId`, every load being 0. That is what lets the case
+ * below occupy exactly the nodes that will be probed first and assert an exact
+ * rejection count instead of an inequality.
+ */
 describe('SCHED-03 over the wire — a node refuses for itself', () => {
-  it('re-picks when a node reports it is over-committed', async () => {
+  it('re-picks onto the one node that did not refuse', async () => {
+    const fabric = await fabricOf({ workers: 4, maxConcurrent: 1 })
+    try {
+      const index = new RpcRecordIndex(fabric.requestorRpc, () => [SEED])
+      const found = await discoverExecutors({ inputCid: fabric.inputCid }, index, {
+        trustedIssuers: fabric.trustedIssuers,
+        now: NOW,
+      })
+      expect(found.executors).toHaveLength(4)
+
+      // Occupy the three that will be probed first, leaving the last one free.
+      const order = [...found.executors.map((e) => e.nodeKey)].sort((a, b) => a.localeCompare(b))
+      const free = order[3] as string
+      for (const nodeKey of order.slice(0, 3)) {
+        const worker = fabric.workers.find((w) => w.nodeKey === nodeKey)
+        expect(worker?.capacity.offer({ shardId: `held-${nodeKey}`, nodeId: nodeKey }).accepted).toBe(
+          true,
+        )
+      }
+
+      const placements = await planWithOffers(
+        [{ shardId: 's0', label: 'public', redundancy: 1 }],
+        descriptorsOf(found.executors),
+        { d: 4, admit: rpcAdmission(fabric.requestorRpc) },
+      )
+
+      const placement = placements[0]
+      expect(placement?.status).toBe('placed')
+      if (placement?.status !== 'placed') return
+      expect(placement.nodeIds).toEqual([free])
+      expect(placement.probed).toBe(4)
+      expect(placement.rejections).toHaveLength(3)
+      // Every refusal came from the node itself, in its own words.
+      expect(placement.rejections.every((r) => r.reason.includes('over-committed'))).toBe(true)
+      expect(placement.rejections.map((r) => r.nodeId).sort((a, b) => a.localeCompare(b))).toEqual(
+        order.slice(0, 3),
+      )
+    } finally {
+      fabric.close()
+    }
+  })
+
+  it('reports the shard unplaceable when every node refuses', async () => {
     const fabric = await fabricOf({ workers: 4, maxConcurrent: 1 })
     try {
       const index = new RpcRecordIndex(fabric.requestorRpc, () => [SEED])
@@ -265,11 +323,49 @@ describe('SCHED-03 over the wire — a node refuses for itself', () => {
         now: NOW,
       })
 
-      // Fill one node's single slot before placing anything, so a refusal is
-      // certain rather than dependent on which node the sampler happens to draw.
-      const busy = found.executors[0]?.nodeKey as string
-      const filled = fabric.workers.find((w) => w.nodeKey === busy)
-      filled?.capacity.offer({ shardId: 'pre-existing', nodeId: busy })
+      for (const worker of fabric.workers) {
+        expect(
+          worker.capacity.offer({ shardId: `held-${worker.nodeKey}`, nodeId: worker.nodeKey })
+            .accepted,
+        ).toBe(true)
+      }
+
+      const placements = await planWithOffers(
+        [{ shardId: 's0', label: 'public', redundancy: 1 }],
+        descriptorsOf(found.executors),
+        { d: 4, admit: rpcAdmission(fabric.requestorRpc) },
+      )
+
+      const stalled = placements[0]
+      expect(stalled?.status).toBe('unplaceable')
+      if (stalled?.status !== 'unplaceable') return
+      expect(stalled.probed).toBe(4)
+      expect(stalled.rejections).toHaveLength(4)
+      expect(stalled.reason).toContain('refused')
+    } finally {
+      fabric.close()
+    }
+  })
+
+  it('no longer bounds anything across shards — four land on one 1-slot node', async () => {
+    // A **recorded consequence**, not a desired behaviour.
+    //
+    // `placeWithOffers` shrinks `pool` within one shard only, and `pool` is
+    // rebuilt per request, so the cross-shard bound was the reservation that the
+    // offer branch no longer takes. Wire-side multi-shard over-commit protection
+    // is removed and is **Phase 18's** to rebuild.
+    //
+    // This case is expected to turn **red** when Phase 18 rebuilds it. That is
+    // the point: an over-commit nothing in the suite noticed is how this one
+    // arrived.
+    const fabric = await fabricOf({ workers: 1, maxConcurrent: 1 })
+    try {
+      const index = new RpcRecordIndex(fabric.requestorRpc, () => [SEED])
+      const found = await discoverExecutors({ inputCid: fabric.inputCid }, index, {
+        trustedIssuers: fabric.trustedIssuers,
+        now: NOW,
+      })
+      const only = found.executors[0]?.nodeKey as string
 
       const shards = [0, 1, 2, 3].map((i) => ({
         shardId: `s${i}`,
@@ -281,23 +377,20 @@ describe('SCHED-03 over the wire — a node refuses for itself', () => {
         admit: rpcAdmission(fabric.requestorRpc),
       })
 
-      // Three free slots, four shards: three land, one finds nobody. The point is
-      // that the job reports it rather than throwing, and that every refusal came
-      // from the node itself with its own words.
-      const placed = placements.filter((p) => p.status === 'placed')
-      expect(placed).toHaveLength(3)
-      expect(new Set(placed.flatMap((p) => (p.status === 'placed' ? p.nodeIds : [])))).not.toContain(
-        busy,
-      )
-
-      const reasons = placements.flatMap((p) => p.rejections.map((r) => r.reason))
-      expect(reasons.length).toBeGreaterThan(0)
-      expect(reasons.every((reason) => reason.includes('over-committed'))).toBe(true)
-
-      const stalled = placements.find((p) => p.status === 'unplaceable')
-      expect(stalled?.status).toBe('unplaceable')
-      if (stalled?.status !== 'unplaceable') return
-      expect(stalled.reason).toContain('refused')
+      expect(placements).toHaveLength(4)
+      expect(placements.every((p) => p.status === 'placed')).toBe(true)
+      expect(placements.flatMap((p) => (p.status === 'placed' ? p.nodeIds : []))).toEqual([
+        only,
+        only,
+        only,
+        only,
+      ])
+      expect(placements.flatMap((p) => p.rejections)).toHaveLength(0)
+      // Eight probes answered, not one slot taken — the offer branch reserves
+      // nothing at all.
+      const worker = fabric.workers[0] as Worker
+      expect(worker.capacity.inFlight).toBe(0)
+      expect(worker.capacity.peakInFlight).toBe(0)
     } finally {
       fabric.close()
     }

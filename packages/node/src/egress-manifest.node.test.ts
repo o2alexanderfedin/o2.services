@@ -95,14 +95,16 @@ describe('DATA-05 — the tap refuses the leaking frame, so the shard fails wher
     // sovereignty option at all — the way any node starts, before anyone has
     // told it whose data it may touch.
     //
-    // The requestor gets a shortened RPC budget. Under the refusal alice's reply
-    // frame never leaves her and her responding leg swallows the failure by
-    // documented design (`egress.ts`), so the dispatch resolves only when the
-    // requestor's own timeout fires; this file's 20 s default would make that
-    // wait the bulk of the test. 5 s is the value, and the control job at the
-    // bottom is what shows it is ample rather than merely convenient — that job
-    // runs on this identical budget, through these identical nodes, and
-    // completes in well under a second.
+    // The requestor gets a shortened RPC budget. **Amended 2026-07-29 by NET-10:**
+    // this used to say the dispatch resolved only when the requestor's own timeout
+    // fired, which made the shortened budget load-bearing. It does not now —
+    // `serveAgent` substitutes a small named refusal for a reply that would carry
+    // the registered payload, so the refused dispatch resolves with a reason
+    // instead of at the budget's expiry. 5 s stays because the control job at the
+    // bottom runs on this identical budget through these identical nodes and must
+    // not fail for want of time. Nothing here measures wall-clock; the wall-clock
+    // measurement, against the unshortened production default, is
+    // `named-refusal.node.test.ts`'s subject.
     const [alice, other, requestor] = await Promise.all([
       startNode('alice', { sovereignty: { ownerId: 'alice', canExecuteSovereign: true } }),
       startNode('other'),

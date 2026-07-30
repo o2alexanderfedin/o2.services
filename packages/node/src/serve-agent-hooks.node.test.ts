@@ -24,30 +24,49 @@ function occurrences(text: string, needle: string): number {
 }
 
 describe('production serveAgent call sites state every hook explicitly', () => {
-  it('fabric-node.ts: real reservations, five sentinels', () => {
+  it('fabric-node.ts: real reservations, real admission, four sentinels', () => {
     expect(occurrences(FABRIC_NODE, "'serves-unauthenticated'")).toBe(1)
     expect(occurrences(FABRIC_NODE, "'serves-no-records'")).toBe(1)
-    expect(occurrences(FABRIC_NODE, "'accepts-every-offer'")).toBe(1)
     expect(occurrences(FABRIC_NODE, "'keeps-no-ledger'")).toBe(1)
     expect(occurrences(FABRIC_NODE, "'reports-no-dispatch'")).toBe(1)
     // The already-fixed wire — the real thunk is supplied, not the sentinel.
     expect(occurrences(FABRIC_NODE, "'relays-for-nobody'")).toBe(0)
+    // SCHED-06 burned this one down: the factory constructs a real `LocalCapacity`.
+    // Structural, and deliberately not the evidence that it works — the behaviour is
+    // measured in `admission.node.test.ts` against real nodes over TCP, because
+    // 13-VERIFICATION-2.md recorded what a composition an inspection can confirm is
+    // worth when the behaviour has never run.
+    expect(occurrences(FABRIC_NODE, "'accepts-every-offer'")).toBe(0)
   })
 
-  it('browser-node.ts: real onDispatch, five sentinels', () => {
+  it('browser-node.ts: real onDispatch, real admission, four sentinels', () => {
     expect(occurrences(BROWSER_NODE, "'serves-unauthenticated'")).toBe(1)
     expect(occurrences(BROWSER_NODE, "'serves-no-records'")).toBe(1)
-    expect(occurrences(BROWSER_NODE, "'accepts-every-offer'")).toBe(1)
     expect(occurrences(BROWSER_NODE, "'keeps-no-ledger'")).toBe(1)
     expect(occurrences(BROWSER_NODE, "'relays-for-nobody'")).toBe(1)
     // The real callback is supplied, not the sentinel.
     expect(occurrences(BROWSER_NODE, "'reports-no-dispatch'")).toBe(0)
+    // SCHED-06, same burn-down as `fabric-node.ts` above. This factory's wiring is
+    // **unmeasured, not met**: `BrowserNode.start` needs a real `indexedDB` and a
+    // relay to dial, so it runs in neither vitest project, and this count is not
+    // allowed to stand in for running it. WIRE-03, Phase 19 builds that harness.
+    expect(occurrences(BROWSER_NODE, "'accepts-every-offer'")).toBe(0)
   })
 
-  it('bin/bench.ts: two call sites, every sentinel twice', () => {
+  it('bin/bench.ts: two call sites, real admission at both, five sentinels twice', () => {
     expect(occurrences(BENCH, "'serves-unauthenticated'")).toBe(2)
     expect(occurrences(BENCH, "'serves-no-records'")).toBe(2)
-    expect(occurrences(BENCH, "'accepts-every-offer'")).toBe(2)
+    // SCHED-06 burn-down, and the reason it matters here is not tidiness. The
+    // memory-transport curve in `.planning/BENCHMARK-RESULTS.md` was measured with
+    // this sentinel at both of this driver's `serveAgent` calls while the
+    // real-transport curve went through `FabricNode.start` and did admit, so the two
+    // published curves were measured under different node behaviour. Zero, not one:
+    // re-adding the sentinel at *either* call site takes this count to 1 and fails.
+    expect(occurrences(BENCH, "'accepts-every-offer'")).toBe(0)
+    // The other half of the same fact, because a count of zero is also what deleting
+    // a call site produces. Two constructions, one per `serveAgent` call in this
+    // driver — the requestor endpoint and the worker loop.
+    expect(occurrences(BENCH, 'new LocalCapacity(')).toBe(2)
     expect(occurrences(BENCH, "'keeps-no-ledger'")).toBe(2)
     expect(occurrences(BENCH, "'relays-for-nobody'")).toBe(2)
     expect(occurrences(BENCH, "'reports-no-dispatch'")).toBe(2)
