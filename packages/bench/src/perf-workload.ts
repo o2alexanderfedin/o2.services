@@ -9,14 +9,17 @@
  * ## Why every iteration measures two things
  *
  * A gate on absolute milliseconds does not work on a developer machine, and that is a
- * measurement rather than an opinion. Thirty consecutive passes of this ladder were
- * taken while other work was running on the same host; the p95 makespan at 4 nodes
- * ranged from 5.3ms to 110.6ms — a factor of 13.7 between the quietest pass and the
- * most contended, with a median of 8.1ms. A threshold loose enough to survive that is
- * decoration; one tight enough to mean anything fires on load rather than on a code
- * change. Raising the sample size made it worse, not better: at 400 iterations per rung
- * the same statistic ranged over a factor of 3.7 even discarding the worst pass,
- * because a longer pass simply spans more of somebody else's build.
+ * measurement rather than an opinion. Under eight busy-wait loops on eight cores, this
+ * ladder's absolute p50 makespan moved by a factor of 4.03 and its p95 by 4.20, while the
+ * paired ratio's p50 moved by 0.56 — that is, downwards. Worse was seen before this
+ * module was routed through `submitJobWithEgress`: thirty consecutive passes of that
+ * variant, taken while other sessions drove the 1-minute load average from 9 to 37 on
+ * this 8-core host, put the 4-node absolute p95 between 5.3ms and 110.6ms — a factor of
+ * 13.7, with a median of 8.1ms. A threshold loose enough to survive that is decoration;
+ * one tight enough to mean anything fires on load rather than on a code change. Raising
+ * the sample size did not help: at 400 iterations per rung the same statistic still
+ * ranged over a factor of 3.7 with the worst pass discarded, because a longer pass simply
+ * spans more of somebody else's build.
  *
  * So each iteration measures the fabric job **and, immediately after it, the identical
  * work through one local `WasmExecutor` with no fabric at all** — the driver's
@@ -44,11 +47,21 @@
  *
  * So this rig reproduces the *shape* of the driver's memory rig — same fixture module,
  * same shard count, same declared admission limit, same redundancy rule, same
- * `measure()` — and omits the egress tap, which is a correctness property the driver
- * publishes and not something a timing gate should be measuring. What the gate protects
- * is the workload, not `bin/bench.ts`'s wiring. Read a green gate as "this workload has
- * not got slower relative to executing it locally", never as "the published driver is
- * unchanged".
+ * `measure()`, same `EgressGuard` over the submitting endpoint's transport and the same
+ * `submitJobWithEgress` call over it. What the gate protects is the workload, not
+ * `bin/bench.ts`'s wiring. Read a green gate as "this workload has not got slower
+ * relative to executing it locally", never as "the published driver is unchanged".
+ *
+ * The egress leg is here because the repository insisted, and that is worth recording
+ * rather than quietly obeying. This module first called bare `submitJob` — the tap is a
+ * correctness property, not a timing one, and a gate has no business measuring it. The
+ * full suite then failed `sovereign-block-refusal.node.test.ts`, which scans every
+ * tracked non-test source under `packages/` and asserts bare `submitJob` appears in
+ * exactly three files. Its message is the argument: a new production submit path is one
+ * `submitJobWithEgress`'s sovereign registration does not cover, and a submitter using it
+ * holds the raw row unguarded. Routing through the wrapper both satisfies that invariant
+ * and moves this rig closer to the driver, so the cost being gated is the cost the
+ * published path actually pays.
  *
  * Portable by the same rule as the rest of `@o2/bench`: no platform imports, no libp2p.
  * Everything here runs over `MemoryNetwork`, so the gate has no sockets to flake on —
@@ -65,10 +78,17 @@ import {
   WasmExecutor,
   canonicalCid,
   publicNodes,
-  submitJob,
 } from '@o2/core'
 import type { CanonicalValue, Executor, Task } from '@o2/core'
-import { FetchingBlockstore, RemoteExecutor, RpcBlockSource, RpcEndpoint, serveAgent } from '@o2/net'
+import {
+  EgressGuard,
+  FetchingBlockstore,
+  RemoteExecutor,
+  RpcBlockSource,
+  RpcEndpoint,
+  serveAgent,
+  submitJobWithEgress,
+} from '@o2/net'
 import type { CID } from 'multiformats/cid'
 import { MODULE_WRITES_PARTITION } from '../../core/src/executor/fixtures.ts'
 import { measure } from './harness.ts'
@@ -145,6 +165,11 @@ interface Rig {
   readonly executors: readonly Executor[]
   readonly blockstore: MemoryBlockstore
   readonly moduleCid: CID
+  /**
+   * The submitting endpoint's own tap, over the identical `Transport` port
+   * `FabricNode.start` wraps — see the egress note in the module comment.
+   */
+  readonly guard: EgressGuard
   close(): void
 }
 
@@ -157,7 +182,8 @@ async function memoryRig(nodes: number): Promise<Rig> {
   // The requestor serves blocks. Without it the workers hold the module but no shard
   // inputs and every run fails — which `measure()` reports as `incomplete`, not as a
   // fast success. The gate asserts on that field for exactly this reason.
-  const callerRpc = new RpcEndpoint(network.connect('requestor'), { timeoutMs: 30_000 })
+  const requestorGuard = new EgressGuard(network.connect('requestor'), 'requestor')
+  const callerRpc = new RpcEndpoint(requestorGuard, { timeoutMs: 30_000 })
   serveAgent({
     rpc: callerRpc,
     executor: new WasmExecutor({ nodeId: 'requestor', blockstore: originStore }),
@@ -204,6 +230,7 @@ async function memoryRig(nodes: number): Promise<Rig> {
     executors: remote,
     blockstore: originStore,
     moduleCid,
+    guard: requestorGuard,
     close() {
       callerRpc.close()
       for (const rpc of endpoints) rpc.close()
@@ -304,7 +331,7 @@ export async function measureGateLadder(
       const shards = shardInputs()
 
       const started = performance.now()
-      const result = await submitJob(
+      const result = await submitJobWithEgress(
         {
           moduleCid: rig.moduleCid,
           shards: shards.map((value) => ({ value, label: 'public' as const })),
@@ -313,6 +340,7 @@ export async function measureGateLadder(
           redundancy: config.redundancy,
         },
         rig.blockstore,
+        [rig.guard],
       )
       const makespanMs = performance.now() - started
 
