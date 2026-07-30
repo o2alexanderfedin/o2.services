@@ -384,7 +384,45 @@ export class FabricNode {
     return this.#counter.inFlight
   }
 
+  /**
+   * Compose a node, or leave the process as it was found.
+   *
+   * The composition itself is `#compose` below, which pushes a release onto `undo`
+   * on the line after each acquisition. Splitting the two is what keeps that
+   * adjacency: a `try` wrapped around the whole body would re-indent two hundred
+   * lines and put the release set a screen away from the thing it releases, which is
+   * how the leak this method exists to close got written in the first place.
+   *
+   * Releases run newest-first, and each one's own failure is swallowed on its own —
+   * a `libp2p.stop()` that rejects must not strand the releases below it, and must
+   * not replace the caller's error with a shutdown error. What the caller is told is
+   * always why the *start* failed.
+   *
+   * This is a discipline made cheap, not an invariant made structural. Nothing stops
+   * a future edit from acquiring without pushing. What has gone is the distance:
+   * omitting it is now a visible one-line gap rather than a missing branch a hundred
+   * lines below.
+   */
   static async start(options: FabricNodeOptions = {}): Promise<FabricNode> {
+    const undo: (() => Promise<void> | void)[] = []
+    try {
+      return await FabricNode.#compose(options, undo)
+    } catch (cause) {
+      for (const release of undo.reverse()) {
+        try {
+          await release()
+        } catch {
+          // Nothing to do about it, and reporting it would report the wrong failure.
+        }
+      }
+      throw cause
+    }
+  }
+
+  static async #compose(
+    options: FabricNodeOptions,
+    undo: (() => Promise<void> | void)[],
+  ): Promise<FabricNode> {
     const store: Blockstore =
       options.blockstoreDir === undefined
         ? new MemoryBlockstore()
@@ -465,6 +503,9 @@ export class FabricNode {
         ? {}
         : { logger: options.reservationWatcher.logger }),
     })
+    // `createLibp2p` has bound a socket by this line, and a rejected `start` that
+    // leaves one listening is a leak the caller has no handle to close.
+    undo.push(() => libp2p.stop())
 
     // SCHED-06 — this node's own admission control, handed to `serveAgent` below.
     //
@@ -472,10 +513,7 @@ export class FabricNode {
     // nonsense limit is refused while there is least to unwind. `LocalCapacity`'s
     // constructor throws a `RangeError` naming the value for anything below 1, and
     // this factory passes `options.maxConcurrentTasks` straight through so that
-    // guard is *reached* rather than bypassed by a clamp. The `catch` is not
-    // decoration: `createLibp2p` has already bound a socket by this line, and a
-    // rejected `start` that leaves one listening is a leak the caller has no handle
-    // to close.
+    // guard is *reached* rather than bypassed by a clamp.
     //
     // `libp2p.peerId.toString()` is the same value the executor's `nodeId` is
     // resolved from below, so the capacity's node id and the executor's cannot
@@ -484,16 +522,10 @@ export class FabricNode {
     // No `dutyCycle` is passed. This node has no governor to feed one from;
     // `browser-node.ts` has one and deliberately does not feed it either, for the
     // reason written beside its own construction.
-    let admission: LocalCapacity
-    try {
-      admission = new LocalCapacity({
-        nodeId: libp2p.peerId.toString(),
-        maxConcurrent: options.maxConcurrentTasks ?? DEFAULT_MAX_CONCURRENT_TASKS,
-      })
-    } catch (cause) {
-      await libp2p.stop()
-      throw cause
-    }
+    const admission = new LocalCapacity({
+      nodeId: libp2p.peerId.toString(),
+      maxConcurrent: options.maxConcurrentTasks ?? DEFAULT_MAX_CONCURRENT_TASKS,
+    })
 
     // Connecting is what triggers the reservation; the `/p2p-circuit` listen entry
     // above is what makes libp2p ask for one.

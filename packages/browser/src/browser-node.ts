@@ -264,8 +264,47 @@ export class BrowserNode {
     return this.worker !== null
   }
 
+  /**
+   * Join the fabric, or leave the tab as it was found.
+   *
+   * Same split as `FabricNode.start`, and this half is where it earns most:
+   * `demo/main.ts` catches a rejected start, classifies it for the UI, and the user
+   * can press the button again. Every failed retry used to strand a whole libp2p
+   * node plus an open IndexedDB connection, so an unreachable — or hostile — relay
+   * was a remotely triggered way to exhaust a visitor's tab.
+   *
+   * The blockstore is opened *before* `createLibp2p`, which is exactly why a
+   * hand-written catch after the node gets it wrong. Releases run newest-first, so
+   * acquisition order is the only order anybody has to think about.
+   *
+   * **Unmeasured on this factory, and that is the honest report.** `BrowserNode.start`
+   * needs a real `indexedDB` and a relay to dial, so it runs in neither vitest
+   * project; the pattern is proved on `FabricNode`
+   * (`packages/node/src/start-unwind.node.test.ts`) and only *composed* here. A grep
+   * confirming these lines exist does not stand in for running them.
+   */
   static async start(options: BrowserNodeOptions): Promise<BrowserNode> {
+    const undo: (() => Promise<void> | void)[] = []
+    try {
+      return await BrowserNode.#compose(options, undo)
+    } catch (cause) {
+      for (const release of undo.reverse()) {
+        try {
+          await release()
+        } catch {
+          // Nothing to do about it, and reporting it would report the wrong failure.
+        }
+      }
+      throw cause
+    }
+  }
+
+  static async #compose(
+    options: BrowserNodeOptions,
+    undo: (() => Promise<void> | void)[],
+  ): Promise<BrowserNode> {
     const store = await IdbBlockstore.open(options.blockstoreName ?? 'o2-blocks')
+    undo.push(() => store.close())
 
     const libp2p = await createLibp2p({
       // The only listen set a browser can offer.
@@ -278,6 +317,7 @@ export class BrowserNode {
         ? { connectionGater: { denyDialMultiaddr: async () => false } }
         : {}),
     })
+    undo.push(() => libp2p.stop())
 
     // Connecting to a relay is what triggers the reservation that makes this tab
     // addressable. Without at least one, nothing can ever reach it.

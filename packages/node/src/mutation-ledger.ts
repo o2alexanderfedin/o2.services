@@ -207,6 +207,34 @@ export const MUTATIONS: readonly Mutation[] = [
     signature: 'to be an instance of SendRefused',
   },
   {
+    id: 'M14',
+    why:
+      'The release for the one resource `FabricNode.start` acquires before anything that ' +
+      'can fail. `createLibp2p` has bound a listening socket by that line, and every step ' +
+      'after it — the relay dials most of all, which is this factory’s likeliest failure — ' +
+      'used to reject with the socket still bound and no handle anywhere to close it. The ' +
+      'second attempt then failed with EADDRINUSE, which names the wrong problem entirely.',
+    file: 'packages/node/src/fabric-node.ts',
+    find: '    undo.push(() => libp2p.stop())\n',
+    replace: '',
+    caughtBy: ['packages/node/src/start-unwind.node.test.ts'],
+    signature: 'gives the port back when a relay dial fails',
+  },
+  {
+    id: 'M15',
+    why:
+      'The same release one composition up, and its own entry because a seed strands more: ' +
+      'the node it started holds two bound listeners, the WebSocket port a browser dials ' +
+      'and the plain TCP one another node dials. The throw that reaches it is not exotic — ' +
+      'a Vite server that cannot bind, or the node binding no WebSocket port at all — and ' +
+      'both sit after `FabricNode.start` has returned.',
+    file: 'packages/node/src/seed-server.ts',
+    find: '    undo.push(() => node.stop())\n',
+    replace: '',
+    caughtBy: ['packages/node/src/start-unwind.node.test.ts'],
+    signature: 'stops the node it already started when the HTTP server cannot bind',
+  },
+  {
     id: 'M5',
     why:
       "NET-09's classification. A send this node's own bound refused is a `sender` " +
