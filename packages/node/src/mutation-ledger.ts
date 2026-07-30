@@ -418,6 +418,23 @@ export const MUTATIONS: readonly Mutation[] = [
     signature: "expected 'FORGED-BY-C' to be 'ANSWERED-BY-B'",
   },
   {
+    id: 'M21',
+    why:
+      'DATA-05, the exit with nothing to show for itself. A reply abandoned because the ' +
+      'endpoint closed sends no frame, so the only evidence the dispatch happened at all ' +
+      'is what the tap holds afterwards — which is why the `#closed` check sits inside ' +
+      'the try rather than as a bare return above it. Hoisting it is the tidy any reader ' +
+      'would think safe: the send is skipped either way, and every test in the file still ' +
+      'passes except the one that watches the tap. What it costs is a registration that ' +
+      'is never given back, scanned against every frame the node sends for the rest of ' +
+      'its life, produced by the ordinary act of shutting a node down mid-dispatch.',
+    file: 'packages/net/src/rpc.ts',
+    find: '    try {\n      if (this.#closed) return\n',
+    replace: '    if (this.#closed) return\n    try {\n',
+    caughtBy: ['packages/net/src/sovereign-egress.test.ts'],
+    signature: 'releases when the endpoint closes between the outcome and the frame',
+  },
+  {
     id: 'M18',
     why:
       'CHURN-01. `failures`’ contract is that a shard’s history explains itself. A ' +

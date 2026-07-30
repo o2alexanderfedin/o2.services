@@ -363,4 +363,61 @@ describe('the registration is released after the reply frame has settled', () =>
       rpc.close()
     }
   })
+
+  it('releases when the endpoint closes between the outcome and the frame', async () => {
+    const store = new MemoryBlockstore()
+    const moduleCid = await store.put(MODULE_WRITES_PARTITION)
+    const encoded = encodeCanonical(SOVEREIGN_ROW)
+    if (!encoded.ok) throw new Error('fixture not encodable')
+    const inputCid = await store.put(encoded.bytes)
+
+    // The third exit, and the one with no observable result to assert on: the reply
+    // is never sent, so the only evidence anything happened is what the tap holds
+    // afterwards. `rpc.ts` keeps its `#closed` check *inside* the try for exactly
+    // this reason, and until now that was a comment with nothing behind it — hoist
+    // the check above the try and every dispatch interrupted by a shutdown leaves a
+    // registration scanned against every frame the node sends for the rest of its
+    // life.
+    let server: Node | undefined
+    const heldWhileRunning: string[][] = []
+    const node = servingNode({
+      nodeId: 'alice-6',
+      executionStore: store,
+      registrationStore: store,
+      canExecuteSovereign: true,
+      inner: {
+        nodeId: 'alice-6',
+        async execute() {
+          // Read before closing: the hold is taken before the executor runs, so
+          // this is the only moment it can be observed. Without it "nothing is
+          // registered afterwards" is equally true of a node that registered
+          // nothing at all.
+          heldWhileRunning.push([...(server as Node).guard.registrations])
+          ;(server as Node).close()
+          return { ok: true, output: 0, fuelUsed: 0 }
+        },
+      },
+    })
+    server = node
+
+    // Short, because this requestor is deliberately never answered.
+    const { rpc, executor } = requestor('alice-6', 250)
+    try {
+      const outcome = await executor.execute({
+        moduleCid,
+        inputCid,
+        partitionIndex: 0,
+        partitionCount: 1,
+        label: 'sovereign',
+        ownerId: OWNER_ID,
+      })
+
+      expect(heldWhileRunning).toEqual([[inputCid.toString()]])
+      expect(outcome.ok).toBe(false)
+      expect(node.guard.registrations).toEqual([])
+    } finally {
+      node.close()
+      rpc.close()
+    }
+  })
 })
