@@ -577,7 +577,7 @@ criteria.
 | SCHED-01 | Phase 18 — Discovery, Capacity & Placement | **Built, not wired** — discoverExecutors has no caller outside tests |
 | SCHED-02 | Phase 18 — Discovery, Capacity & Placement | **Built, not wired** — placeWithOffers is reachable only through runResilient, which has no caller |
 | SCHED-03 | Phase 18 — Discovery, Capacity & Placement | **Built, not wired** — no node supplies serveAgent’s `capacity` hook, so every offer is accepted |
-| SCHED-04 | Phase 18 — Discovery, Capacity & Placement | **Partial** — GovernedExecutor is wired on the browser tier only — FabricNode builds a bare WasmExecutor — and the duty cycle is readonly on both, so "user-adjustable" is unmet |
+| SCHED-04 | Phase 18 — Discovery, Capacity & Placement | **Partial** — GovernedExecutor is wired on the browser tier only; FabricNode composes a WorkerExecutor and no governor, and the duty cycle is readonly on both tiers, so "user-adjustable" is unmet |
 | SCHED-05 | Phase 18 — Discovery, Capacity & Placement | **Built, not wired** — the sovereignty gate runs inside placeWithOffers, reachable only through runResilient |
 | MR-01 | Phase 1 — Portable Kernel & Loopback Map Slice | Done |
 | MR-02 | Phase 16 — Decomposable Tree-Reduce Wiring | **Built, not wired** — executeReduce / deriveReduceTree have no caller; the demo merges with a linear scan |
