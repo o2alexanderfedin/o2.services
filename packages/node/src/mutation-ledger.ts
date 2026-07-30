@@ -77,6 +77,15 @@ export interface Mutation {
    * guard does not count as the guard working.
    */
   readonly signature: string
+  /**
+   * The vitest project the `caughtBy` files belong to. Defaults to `node`.
+   *
+   * Present because one defect in this ledger lives in rendered text on a real page,
+   * and nothing below the `e2e` project can observe a template string. Without this
+   * the script would run `--project node` over an `*.e2e.test.ts`, match no files,
+   * and report a failure that has nothing to do with the mutation.
+   */
+  readonly project?: 'node' | 'e2e'
 }
 
 /**
@@ -408,6 +417,25 @@ export const MUTATIONS: readonly Mutation[] = [
     replace: '',
     caughtBy: ['packages/core/src/coordinator.test.ts'],
     signature: 'records a copy that fails after the winner is picked as a failure of that shard',
+  },
+  {
+    id: 'M19',
+    why:
+      'BROW-05. The demo panel may not present an aggregate that cannot exist. Restoring ' +
+      'this line puts a peer count back beside a report whose every production call site ' +
+      "opts out of the ledger that would fill it — the rendered panel read `no start " +
+      "outcomes reported` on one line and `peers answering: 2 of 2 asked` on the next, " +
+      'which is a tally of contributors that has none. It is a restoration rather than a ' +
+      'deletion because the defect was text that was there, not text that was missing.',
+    file: 'packages/browser/demo/index.html',
+    find: '        showReportOnly(report.text)\n',
+    replace:
+      '        showReportOnly(\n' +
+      '          `${report.text}\\n  peers answering: ${report.reached} of ${report.asked} asked`,\n' +
+      '        )\n',
+    caughtBy: ['packages/node/src/two-tabs.e2e.test.ts'],
+    project: 'e2e',
+    signature: 'renders no peer aggregate beside a report that can only hold this tab',
   },
   {
     id: 'B1',
