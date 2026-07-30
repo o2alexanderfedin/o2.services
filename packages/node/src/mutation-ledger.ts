@@ -391,6 +391,25 @@ export const MUTATIONS: readonly Mutation[] = [
     signature: "expected 'FORGED-BY-C' to be 'ANSWERED-BY-B'",
   },
   {
+    id: 'M18',
+    why:
+      'CHURN-01. `failures`’ contract is that a shard’s history explains itself. A ' +
+      'speculative copy that answered *with a failure* after the winner was taken fell ' +
+      'between every bucket — not `uncompared`, because it did answer; not in ' +
+      '`failures`, because those were sealed when the winner returned — while still ' +
+      'appearing in `attempted`. `attempted` and `failures` are the raw material any ' +
+      'later exclusion or scoring mechanism reads, so a peer that reliably fails just ' +
+      'after losing a race accrued no recorded failure at all.',
+    file: 'packages/core/src/coordinator.ts',
+    find:
+      "        record({\n          kind: 'failed',\n          nodeId: copy.nodeId,\n" +
+      "          failureKind: failure?.kind ?? 'node',\n" +
+      "          reason: failure?.reason ?? 'copy failed with no reason given',\n        })\n",
+    replace: '',
+    caughtBy: ['packages/core/src/coordinator.test.ts'],
+    signature: 'records a copy that fails after the winner is picked as a failure of that shard',
+  },
+  {
     id: 'B1',
     why:
       "SCHED-06 on the benchmark driver's requestor endpoint. Why it matters beyond " +
