@@ -52,5 +52,5 @@ export { DEFAULT_MAX_PEERS, publishStartOutcome } from './start-report.ts'
 export type { PublishOptions, PublishResult } from './start-report.ts'
 
 // Finding browsers that cannot announce themselves — NET-03.
-export { findReservedPeers } from './rendezvous.ts'
+export { findReservedPeers, MAX_RESERVED_PEERS_PER_ANSWER } from './rendezvous.ts'
 export type { Rendezvous, RendezvousOptions } from './rendezvous.ts'
