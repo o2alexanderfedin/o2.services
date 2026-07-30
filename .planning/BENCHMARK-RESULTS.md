@@ -14,6 +14,7 @@ this harness existed.
 - The WASM fixture does almost no work, so per-task overhead dominates and the COST crossover is worse than it would be for a realistic workload. Declared in the methodology before these runs, not discovered afterwards.
 - The 1-node rung necessarily runs at redundancy 1: verification needs two independent executors, and one node cannot supply them. Its verification tax of 1.0 is therefore a property of the system, not a cheaper configuration — the same reason a sovereign shard with one owner node is owner-attested.
 - Speculation and churn taxes are 1.0 and 0 because `submitJob` neither speculates nor re-dispatches and no node was killed during these runs. They are identities, not measurements.
+- **The two curves were NOT measured under the same node behaviour, so the connectivity tax below is a ratio taken across that difference as well as across the transport.** The real-transport rig went through `FabricNode.start` and admitted at `maxConcurrentTasks: 64`; every `serveAgent` call in the memory-transport rig was handed the `capacity` opt-out and ran with admission switched off entirely. Fixed in `packages/node/src/bin/bench.ts` on 2026-07-29 — both rigs now take the same declared limit from one constant, and a quick run under it reported `incomplete: 0` on every rung of both ladders — but **the numbers on this page predate that fix and were deliberately not regenerated**, so the caveat applies to every figure here. This bullet was added by hand after the run; the next full run rewrites this file and drops it, because the condition it describes will no longer hold.
 
 ## Machine inventory
 
@@ -56,7 +57,7 @@ Best distributed p50 was 4.0ms at 4 nodes, against a baseline p50 of 0.0040ms �
 Not part of the pre-registered plan; included because it decomposes the crossover
 rather than flattering it.
 
-- Declared run configuration: **16 shards** per job, and every real node started with **maxConcurrentTasks: 64** — both stated by this driver rather than inherited from a default. Shards were raised from 8 by phase 13.1, above the measured 12-shard cliff the per-peer send gate removed, so the two shard counts are not measuring the same workload as an earlier run.
+- Declared run configuration, **as this run actually ran**: **16 shards** per job; every node in the real-transport rig started with **maxConcurrentTasks: 64**; every node in the memory-transport rig ran with **admission switched off**. Both were stated by the driver rather than inherited from a default, and they are still two different node configurations — see the last bullet of "What these numbers do NOT establish". Shards were raised from 8 by phase 13.1, above the measured 12-shard cliff the per-peer send gate removed, so the two shard counts are not measuring the same workload as an earlier run.
 
 - Single-threaded, native, no fabric: **0.004ms** p50
 - Same work through WASM in-process, no fabric: **1.450ms** p50

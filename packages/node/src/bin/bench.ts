@@ -28,6 +28,7 @@ import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
+  LocalCapacity,
   MemoryBlockstore,
   MemoryNetwork,
   WasmExecutor,
@@ -75,14 +76,22 @@ const REAL_LADDER = QUICK ? [1, 2] : NODE_LADDER
  */
 const SHARDS = 16
 /**
- * The admission limit every real node in this benchmark is started with — SCHED-06.
+ * The admission limit every node in this benchmark runs with — SCHED-06.
  *
  * **Declared here, not inherited.** `FabricNode` now refuses an `exec` request past
  * its slot limit, and `submitJob` has no re-pick: a refusal becomes a failed shard,
  * which the incomplete-run rule reports as a failed run. A published scaling curve
  * shaped by a limit nobody wrote down is exactly the failure this milestone exists to
- * remove, so the value is stated at both `FabricNode.start` sites from this one
- * constant and printed in the report the reader sees.
+ * remove, so the value is stated at every node-construction site in this file from
+ * this one constant and printed in the report the reader sees.
+ *
+ * **Both rigs, from the same constant, and that is the point.** Until this constant
+ * reached `memoryFabric`, the two published curves were measured under different node
+ * behaviour: the real-transport rig went through `FabricNode.start` and admitted,
+ * while every `serveAgent` call in the memory rig was handed the named opt-out and so
+ * ran with admission switched off entirely. Nothing in the report said so. A
+ * connectivity tax computed across that pair is a ratio between two different nodes,
+ * and Phase 23's multi-process driver is built on this harness.
  *
  * Equal to the shipped `DEFAULT_MAX_CONCURRENT_TASKS` at the time of writing, and that
  * is a deliberate coincidence rather than inheritance: a later change to the default
@@ -189,7 +198,20 @@ async function memoryFabric(nodes: number): Promise<Fabric> {
     egress: 'holds-no-registrations',
     authorize: 'serves-unauthenticated',
     index: 'serves-no-records',
-    capacity: 'accepts-every-offer',
+    // SCHED-06 — the same declared limit `realFabric`'s nodes start with, so the
+    // memory curve and the real curve are measured against nodes that admit
+    // identically. See `DECLARED_ADMISSION_LIMIT`.
+    //
+    // This rig has no `FabricNode` to inherit admission from — the same reason its
+    // `EgressGuard` is constructed above rather than surfaced — so it is built here,
+    // over the identical `serveAgent` hook a `FabricNode` fills. It is supplied to
+    // *this* endpoint too and not only to the workers, on the same ground
+    // `realFabric` gives its requestor the limit: it is a serving endpoint like any
+    // other and nothing about it makes admission somebody else's concern. `nodeId`
+    // is the same string the executor above is constructed with, so the capacity's
+    // node id and the executor's cannot drift — the pattern `FabricNode.start`
+    // documents beside its own construction.
+    capacity: new LocalCapacity({ nodeId: 'requestor', maxConcurrent: DECLARED_ADMISSION_LIMIT }),
     ledger: 'keeps-no-ledger',
     reservations: 'relays-for-nobody',
     onDispatch: 'reports-no-dispatch',
@@ -214,7 +236,18 @@ async function memoryFabric(nodes: number): Promise<Fabric> {
       egress: 'holds-no-registrations',
       authorize: 'serves-unauthenticated',
       index: 'serves-no-records',
-      capacity: 'accepts-every-offer',
+      // SCHED-06 — one `LocalCapacity` per worker, at the declared limit.
+      //
+      // Per worker and never one shared instance, and the reason is a refusal read
+      // from source rather than a preference. `serveAgent`'s exec branch keys the
+      // slot on `inputCid:partitionIndex` (`net/src/agent.ts`), and `executeVerified`
+      // hands the *identical* `task` to every replica executor through one
+      // `Promise.all` (`core/src/job/verify.ts`) — so the two replicas of one shard
+      // carry the same key. `LocalCapacity.#decide` refuses a key already held with
+      // `… is already in flight here` (`core/src/placement.ts`), so a counter shared
+      // across these workers would refuse the second replica of every shard, and this
+      // rig would measure a fabric that cannot verify anything.
+      capacity: new LocalCapacity({ nodeId: id, maxConcurrent: DECLARED_ADMISSION_LIMIT }),
       ledger: 'keeps-no-ledger',
       reservations: 'relays-for-nobody',
       onDispatch: 'reports-no-dispatch',
@@ -552,11 +585,17 @@ async function main(): Promise<void> {
     // curve shaped by an admission limit nobody wrote down is the failure this
     // milestone exists to remove; `bench-egress.node.test.ts` pins this line's
     // presence, because a reader of the published table cannot check the source.
-    `- Declared run configuration: **${SHARDS} shards** per job, and every real node` +
-      ` started with **maxConcurrentTasks: ${DECLARED_ADMISSION_LIMIT}** — both stated by` +
-      ' this driver rather than inherited from a default. Shards were raised from 8 by' +
-      ' phase 13.1, above the measured 12-shard cliff the per-peer send gate removed, so' +
-      ' the two shard counts are not measuring the same workload as an earlier run.',
+    `- Declared run configuration: **${SHARDS} shards** per job, and **every node in both` +
+      ` rigs admits at ${DECLARED_ADMISSION_LIMIT} concurrent tasks** — the memory rig from` +
+      ' one `LocalCapacity` per `serveAgent` endpoint, the real rig from' +
+      ' `maxConcurrentTasks` on each `FabricNode.start`, both reading one declared constant' +
+      ' in this driver rather than inheriting a default. That is load-bearing for the' +
+      ' connectivity tax below: until phase 13.1 wired it, the memory rig ran with' +
+      ' admission switched off while the real rig admitted, so the two curves were measured' +
+      ' against nodes that behaved differently and nothing in the report said so. Shards' +
+      ' were raised from 8 by phase 13.1, above the measured 12-shard cliff the per-peer' +
+      ' send gate removed, so the two shard counts are not measuring the same workload as' +
+      ' an earlier run.',
     '',
     `- Single-threaded, native, no fabric: **${baselineSummary.p50.toFixed(3)}ms** p50`,
     `- Same work through WASM in-process, no fabric: **${wasmSummary.p50.toFixed(3)}ms** p50`,

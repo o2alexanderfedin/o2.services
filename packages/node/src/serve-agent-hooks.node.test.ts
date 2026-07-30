@@ -53,10 +53,20 @@ describe('production serveAgent call sites state every hook explicitly', () => {
     expect(occurrences(BROWSER_NODE, "'accepts-every-offer'")).toBe(0)
   })
 
-  it('bin/bench.ts: two call sites, every sentinel twice', () => {
+  it('bin/bench.ts: two call sites, real admission at both, five sentinels twice', () => {
     expect(occurrences(BENCH, "'serves-unauthenticated'")).toBe(2)
     expect(occurrences(BENCH, "'serves-no-records'")).toBe(2)
-    expect(occurrences(BENCH, "'accepts-every-offer'")).toBe(2)
+    // SCHED-06 burn-down, and the reason it matters here is not tidiness. The
+    // memory-transport curve in `.planning/BENCHMARK-RESULTS.md` was measured with
+    // this sentinel at both of this driver's `serveAgent` calls while the
+    // real-transport curve went through `FabricNode.start` and did admit, so the two
+    // published curves were measured under different node behaviour. Zero, not one:
+    // re-adding the sentinel at *either* call site takes this count to 1 and fails.
+    expect(occurrences(BENCH, "'accepts-every-offer'")).toBe(0)
+    // The other half of the same fact, because a count of zero is also what deleting
+    // a call site produces. Two constructions, one per `serveAgent` call in this
+    // driver — the requestor endpoint and the worker loop.
+    expect(occurrences(BENCH, 'new LocalCapacity(')).toBe(2)
     expect(occurrences(BENCH, "'keeps-no-ledger'")).toBe(2)
     expect(occurrences(BENCH, "'relays-for-nobody'")).toBe(2)
     expect(occurrences(BENCH, "'reports-no-dispatch'")).toBe(2)

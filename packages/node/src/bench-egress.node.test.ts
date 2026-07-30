@@ -125,10 +125,11 @@ const REQUIREMENTS: readonly CallSiteRequirement[] = [
       '      egressBytes += manifest.totalBytes\n',
   },
   {
-    name: 'the run declares its admission limit at both node starts and prints it in the report',
+    name: 'the run declares one admission limit to both rigs and prints it in the report',
     patterns: [
       /const\s+DECLARED_ADMISSION_LIMIT\s*=\s*\d+/,
       /maxConcurrentTasks\s*:\s*DECLARED_ADMISSION_LIMIT/,
+      /\bmaxConcurrent\s*:\s*DECLARED_ADMISSION_LIMIT/,
       /Declared run configuration/,
       /\$\{SHARDS\}/,
       /\$\{DECLARED_ADMISSION_LIMIT\}/,
@@ -136,17 +137,20 @@ const REQUIREMENTS: readonly CallSiteRequirement[] = [
     reason:
       'SCHED-06 gave FabricNode an admission limit and submitJob has no re-pick, so a limit below ' +
       'what this workload puts on one node turns refusals into failed runs — a published curve ' +
-      'silently shaped by a limit nobody wrote down. Three halves are required and each fails ' +
-      'differently: the constant declares the value, the two FabricNode.start sites are what make it ' +
-      'true of the run, and the report line is the only one of the three a reader of ' +
+      'silently shaped by a limit nobody wrote down. Four halves are required and each fails ' +
+      'differently: the constant declares the value, the FabricNode.start sites make it true of the ' +
+      'real-transport rig, the LocalCapacity constructions make it true of the memory-transport rig ' +
+      '— without which the two published curves are measured under different node behaviour, one ' +
+      'admitting and one not — and the report line is the only one of the four a reader of ' +
       '.planning/BENCHMARK-RESULTS.md can see. Deleting the line leaves the source correct and the ' +
       'published table silent about what it was measured under, which is the gap this requirement ' +
       'exists to close.',
     satisfying:
       'const DECLARED_ADMISSION_LIMIT = 64\n' +
       '        maxConcurrentTasks: DECLARED_ADMISSION_LIMIT,\n' +
-      '    `- Declared run configuration: **${SHARDS} shards** per job, and every real node' +
-      ' started with **maxConcurrentTasks: ${DECLARED_ADMISSION_LIMIT}**`,\n',
+      '      maxConcurrent: DECLARED_ADMISSION_LIMIT,\n' +
+      '    `- Declared run configuration: **${SHARDS} shards** per job, and every node in both rigs' +
+      ' admitting at **${DECLARED_ADMISSION_LIMIT}**`,\n',
   },
 ]
 
