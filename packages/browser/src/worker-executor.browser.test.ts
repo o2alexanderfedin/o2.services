@@ -42,6 +42,19 @@ describe('a task executes off the main thread', () => {
       nodeId: 'tab',
       blockstore: store,
       createWorker: () => new TaskExecutorWorker(),
+      // Explicit, and generous, because this test is not about the deadline.
+      //
+      // Left to the default it inherits `DEFAULT_TASK_DEADLINE_MS` (10 s), which
+      // turns "does the guest's output decode" into a measurement of how busy the
+      // machine is. Observed: with an unrelated LLVM build saturating the host —
+      // load average 31 on 8 cores — a guest that emits a single integer took over
+      // 10 s of wall clock, the bound fired exactly as designed, and this assertion
+      // read `expected false to be true` in Chromium and WebKit. The bound was
+      // right and the test was wrong to depend on it.
+      //
+      // The tests that ARE about the deadline set it deliberately short (600 ms,
+      // below) and must keep doing so. This one wants the opposite.
+      deadlineMs: 60_000,
     })
     try {
       const outcome = await executor.execute({
@@ -166,6 +179,11 @@ describe('stopping is termination, not a request to stop', () => {
         workers.push(worker)
         return worker
       },
+      // Generous for the same reason as the decode test above: this asks whether
+      // `terminate` really kills the thread, and a starved machine tripping the
+      // default 10 s bound first would replace the thread before the question is
+      // put.
+      deadlineMs: 60_000,
     })
 
     await executor.execute({ moduleCid, inputCid, partitionIndex: 0, partitionCount: 1 })

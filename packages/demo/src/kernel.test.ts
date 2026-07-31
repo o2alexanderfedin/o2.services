@@ -1,11 +1,31 @@
 import { MemoryBlockstore, WasmExecutor, decodeCanonical, encodeCanonical, publicNodes, submitJob } from '@o2/core'
 import type { CanonicalValue, Executor } from '@o2/core'
 import type { CID } from 'multiformats/cid'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { colourOf, verifyColouring } from './colouring.ts'
 import { COLOURING_BYTES, DEFAULT_BUDGET, MAX_N, answerOf, buildInput, readPartial } from './job.ts'
 import { kernelBytes } from './kernel.ts'
 import { assignmentOrder } from './triples.ts'
+
+/**
+ * Every case here runs a real depth-first search inside a real WASM guest, so what
+ * each one costs is a fact about the host, not about the assertion.
+ *
+ * Set once for the file rather than per case. `vitest.config.ts` listed this file
+ * among the slow specs and described it as carrying a "50 s testTimeout" — it
+ * carried none, and ran on the project default. The browser project's default is
+ * 15 s, and on 2026-07-31, with an unrelated LLVM build saturating the host (load
+ * average 31 on 8 cores), the n=300 cube case exceeded it in Firefox alone while
+ * passing in Chromium and WebKit. Nothing was wrong with the kernel; the machine
+ * was busy.
+ *
+ * A correctness suite that goes red because another process is compiling is not
+ * reporting on the code, and the previous session already spent an investigation
+ * discovering exactly that about this file. 60 s is far above the ~25 s the whole
+ * file takes across all three engines on an idle machine, so it bounds a genuine
+ * hang while leaving no room for load to decide the verdict.
+ */
+vi.setConfig({ testTimeout: 60_000 })
 
 /**
  * A bound a *single* cube settles within the shipped budget.
