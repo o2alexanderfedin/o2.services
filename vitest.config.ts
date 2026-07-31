@@ -32,8 +32,8 @@ const SLOW_NODE_SPECS: readonly string[] = [
   'packages/node/src/transport-bounds.node.test.ts', //       9.9 s — waits out real 3/10/20 s RPC timeouts
   'packages/node/src/admission.node.test.ts', //              7.6 s — CPU-bound WASM synthesis, 120 s testTimeout
   'packages/node/src/two-process.node.test.ts', //            3.0 s — 8 real `spawn` calls
-  'packages/demo/src/kernel.test.ts', //                      2.5 s — heavy WASM build, 60 s testTimeout
-  'packages/node/src/fabric-node.node.test.ts', //            1.9 s — real libp2p nodes, 60 s testTimeout
+  'packages/demo/src/kernel.test.ts', //                      2.5 s — heavy WASM build, 120 s testTimeout
+  'packages/node/src/fabric-node.node.test.ts', //            1.9 s — real libp2p nodes, 120 s testTimeout
   'packages/node/src/sovereignty-placement.node.test.ts', //  1.3 s — 6 real `spawn` calls
   'packages/node/src/egress-refusal.node.test.ts', //         1.1 s — 10 real `spawn` calls
   'packages/net/src/churn.test.ts', //                        1.1 s — 800k-iteration churn loop

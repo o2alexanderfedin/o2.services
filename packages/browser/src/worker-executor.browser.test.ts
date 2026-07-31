@@ -14,6 +14,23 @@ import TaskExecutorWorker from './task-executor.worker.ts?worker'
  * therefore faster than the thing it stands in for, which in this project has
  * already hidden a hang, an unexamined disagreement, and an allocation spin. The
  * spin probe here cannot be faked at all: nothing but killing the thread ends it.
+ *
+ * ## Two budgets per case, and their order is the rule
+ *
+ * Every case here arms two timers: the executor's own `deadlineMs`, and vitest's
+ * `testTimeout` (the trailing argument to `it`). **The framework's must be the larger
+ * one.** Inverted, the executor's timer can never be the one that fires, so a case
+ * that means to observe a deadline — or to be immune to one — instead dies with
+ * `Test timed out`, which names nothing and asserts nothing.
+ *
+ * That inversion was live here on 2026-07-31: four cases paired `deadlineMs: 60_000`
+ * with `}, 30_000)`. It surfaced only when an unrelated LLVM build pushed this host to
+ * a load average of 130 on 8 cores and the work stopped fitting inside 30 s. The pair
+ * at the foot of the file had it right all along — a 30 s deadline inside a 60 s
+ * framework budget — and the four now follow it at 60 s inside 120 s.
+ *
+ * `tools/aot/lift.node.test.ts` carries the same rule and the same scars; its header
+ * records the measurement behind its numbers.
  */
 
 const CANONICAL_INPUT = new Uint8Array([0x0a]) as Uint8Array<ArrayBuffer>
@@ -71,7 +88,7 @@ describe('a task executes off the main thread', () => {
     } finally {
       executor.terminate()
     }
-  }, 30_000)
+  }, 120_000)
 
   it('spawns no thread until it is actually asked to compute', async () => {
     const { store } = await seeded(PROBE_EMITS_TEN)
@@ -135,7 +152,7 @@ describe('stopping is termination, not a request to stop', () => {
     expect(outcome.reason).toBe('executor stopped')
     expect(executor.threadAlive).toBe(false)
     expect(executor.terminated).toBe(true)
-  }, 30_000)
+  }, 120_000)
 
   it('leaves the main thread responsive throughout', async () => {
     // If execution were on the main thread, the spin would block this timer and
@@ -162,7 +179,7 @@ describe('stopping is termination, not a request to stop', () => {
 
     executor.terminate()
     await running
-  }, 30_000)
+  }, 120_000)
 
   it('really ends the thread, not merely the promise waiting on it', async () => {
     // The trap this test exists to close: rejecting every pending promise makes a
@@ -216,7 +233,7 @@ describe('stopping is termination, not a request to stop', () => {
     // `postMessage` to a terminated worker is a no-op and no message event ever
     // fires again. A thread that is merely idle would still answer this.
     expect(await asksAndWaits(102)).toBe(false)
-  }, 30_000)
+  }, 120_000)
 
   it('refuses further work once stopped, and stays stopped', async () => {
     const { store, moduleCid, inputCid } = await seeded(PROBE_EMITS_TEN)

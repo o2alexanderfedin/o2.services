@@ -21,11 +21,19 @@ import { assignmentOrder } from './triples.ts'
  *
  * A correctness suite that goes red because another process is compiling is not
  * reporting on the code, and the previous session already spent an investigation
- * discovering exactly that about this file. 60 s is far above the ~25 s the whole
- * file takes across all three engines on an idle machine, so it bounds a genuine
- * hang while leaving no room for load to decide the verdict.
+ * discovering exactly that about this file.
+ *
+ * The figure was then set wrong once before landing, which is worth leaving on the
+ * record because it is the same error twice. 60 s was chosen against the ~25 s the
+ * whole file measures idle across all three engines — the typical case. Hours later
+ * the same LLVM build reached a load average of 130, and the n=300 cube exceeded
+ * 60 s in Firefox. Sizing a bound to the typical case is precisely the mistake the
+ * paragraph above describes.
+ *
+ * 120 s is ~5x the idle whole-file cost, and was verified against the host at that
+ * 16x oversubscription rather than against a quiet one.
  */
-vi.setConfig({ testTimeout: 60_000 })
+vi.setConfig({ testTimeout: 120_000 })
 
 /**
  * A bound a *single* cube settles within the shipped budget.
