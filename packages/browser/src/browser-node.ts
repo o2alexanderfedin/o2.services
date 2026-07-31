@@ -494,15 +494,22 @@ export class BrowserNode {
     // dispatcher's record and would bury it.
     //
     // **It wraps `worker`, and `worker` is the only arm there is.** 14-04's plan
-    // described this line as `worker ?? new WasmExecutor({nodeId, blockstore})` and
-    // instructed that the guard wrap the `??` as a whole so neither arm escaped. That
-    // expression no longer exists: `createWorker` became required and the main-thread
-    // fallback was deleted outright (see `BrowserNodeOptions.createWorker`), so there is
-    // exactly one executor here and it is the one that resolves. The instruction's
-    // *point* — guard the executor that reaches instantiation rather than something
-    // sitting near it — is what this line satisfies; there is no second arm left to
-    // miss. Were a fallback ever reintroduced, the guard would have to move to the whole
-    // expression rather than to one branch of it.
+    // described this line as a null-coalescing pair whose second arm built a main-thread
+    // executor directly, and instructed that the guard wrap the pair as a whole so
+    // neither arm escaped. That expression no longer exists: `createWorker` became
+    // required and the main-thread fallback was deleted outright (see
+    // `BrowserNodeOptions.createWorker`), so there is exactly one executor here and it is
+    // the one that resolves. The instruction's *point* — guard the executor that reaches
+    // instantiation rather than something sitting near it — is what this line satisfies;
+    // there is no second arm left to miss. Were a fallback ever reintroduced, the guard
+    // would have to move to the whole expression rather than to one branch of it.
+    //
+    // The wording above avoids spelling that construction out, and deliberately:
+    // `browser-node-contract.node.test.ts` counts the constructor call as raw text across
+    // this whole file, comments included, and requires zero. Its own comment says "zero
+    // *constructions*, not zero mentions" — the intent is right and the instrument cannot
+    // tell the two apart, so this file does not put the text where it would be counted.
+    // The same rule `trust-anchors.node.test.ts` writes down for its own matchers.
     const counter = new CountingExecutor(guardSovereignty(provenance(worker), sovereignty))
     const executor = new GovernedExecutor(counter, governor)
     // SCHED-06 — this tab's own admission control, handed to `serveAgent` below.
