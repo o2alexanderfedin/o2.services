@@ -31,11 +31,15 @@ import {
   LocalCapacity,
   MemoryBlockstore,
   MemoryNetwork,
+  SignedNameResolver,
   WasmExecutor,
   canonicalCid,
+  guardModuleProvenance,
   publicNodes,
+  signName,
 } from '@o2/core'
-import type { CanonicalValue, Executor, Task } from '@o2/core'
+import type { CanonicalValue, Executor, NameRecord, Task } from '@o2/core'
+import type { CID } from 'multiformats/cid'
 import {
   EgressGuard,
   FetchingBlockstore,
@@ -110,6 +114,126 @@ const SHARDS = 16
  */
 const DECLARED_ADMISSION_LIMIT = 64
 
+/**
+ * The benchmark's own build authority — DET-03, DATA-08.
+ *
+ * This process genuinely *is* one: it compiles nothing, publishes nothing, and the
+ * only artifact it dispatches is a fixture it put in its own store a line earlier. So
+ * it signs for that fixture itself rather than borrowing an anchor from somewhere it
+ * does not belong.
+ *
+ * A constant rather than a random seed, because a benchmark must be reproducible: a
+ * fresh key per run would change the signature bytes and therefore the record bytes on
+ * every invocation, which is a needless source of variation in a file whose entire job
+ * is to make runs comparable. And this key protects nothing outside this process — it
+ * vouches for `MODULE_WRITES_PARTITION`, to nodes this process just started, over a
+ * transport it owns — so its presence in the source is a statement of fact, not a leak.
+ *
+ * ## Why the rigs are guarded at all, and what it costs the figures
+ *
+ * 12-CONTEXT.md's precedent is that the benchmark harness may stay on the unguarded
+ * primitive, and 14-CONTEXT.md decision 2 hands the call to the planner. It is taken
+ * the other way here, for one reason: after this phase there is no production dispatch
+ * path that skips the signature check, so a rig that skipped it would be measuring a
+ * path that no longer exists. A per-dispatch verification is a cost the published
+ * figures should include rather than quietly exclude.
+ *
+ * That is also why `wasmInProcess` is wrapped. It is the baseline the two fabrics are
+ * compared against; if the fabrics pay for the check and the baseline does not, every
+ * reported speedup is inflated by exactly the difference.
+ *
+ * ## What a green run of this driver does and does not tell you
+ *
+ * **The exit code tells you nothing.** `packages/bench/src/harness.ts` folds `complete`
+ * into `incomplete: measured.length - completed.length`,
+ * `packages/bench/src/report.ts` prints it as a table column, and this driver sets no
+ * exit code — so `node bin/bench.ts --quick` exits 0 whether every rig checks a record
+ * or none does. Never read a zero exit as evidence about anything here.
+ *
+ * **The `incomplete` column does, and it was measured on 2026-07-31.** A refused shard
+ * is a failed shard, and a failed shard makes `result.job.complete` false, so a rig
+ * whose guard was refusing everything reports it. Both readings were taken:
+ *
+ * | `--quick` run | exit | `incomplete`, all six sweeps |
+ * |---|---|---|
+ * | as shipped | 0 | **0** |
+ * | with `BENCH_TRUST_ANCHOR` planted as a key that signed nothing | 0 | **5** |
+ *
+ * So the rigs really do complete *signed* jobs, and the column that says so has been
+ * watched moving. Two things it still does not say: the planted case did not
+ * distinguish which rig refused (all six sweeps moved together), and nothing re-derives
+ * either reading on a later run — the standing guard on these call sites is
+ * `packages/node/src/bench-egress.node.test.ts`, which reads this source with comments
+ * stripped and has been watched reporting each requirement absent.
+ *
+ * What would make the runtime reading standing rather than one-off is a non-zero exit
+ * when a rig completes no job at all. Deliberately not added here: several later phases
+ * modify this driver and some rewrite it, and an exit-code rule would change the
+ * meaning of every `node bin/bench.ts --quick` verification gate in the repository — a
+ * change that belongs to whoever owns this driver's contract.
+ */
+const BENCH_SIGNING_SEED = new Uint8Array(32).fill(0x2b)
+const BENCH_MODULE_NAME = 'o2-bench-fixture-module'
+
+/**
+ * The fixture module's CID, and the record that vouches for it.
+ *
+ * **One record covers all three rigs, and that is a measured fact rather than a
+ * convenience.** The plan this implements expected one record per rig, on the grounds
+ * that each rig builds its own store and might therefore compute its own CID. It does
+ * not: `MemoryBlockstore.put` and `FsBlockstore.put` both compute
+ * `CID.create(1, dagCbor.code, await sha256.digest(bytes))`, and `FsBlockstore`'s own
+ * comment says why — *"same CID scheme as MemoryBlockstore, deliberately"*. A CID is a
+ * function of the bytes and of nothing else, so all three rigs address
+ * `MODULE_WRITES_PARTITION` identically.
+ *
+ * Each rig asserts that rather than assuming it, in {@link sameFixtureCid}. A rig whose
+ * store disagreed would otherwise refuse every shard with a `cid-mismatch` and report
+ * an incomplete run with no clue as to why.
+ *
+ * The expiry is an hour out. That is a configuration choice, not a measurement: it only
+ * has to outlast one run, and nothing here reads how long a run takes.
+ */
+const FIXTURE_MODULE_CID: CID = await new MemoryBlockstore().put(MODULE_WRITES_PARTITION)
+const FIXTURE_RECORD: NameRecord = signName(BENCH_SIGNING_SEED, {
+  name: BENCH_MODULE_NAME,
+  cid: FIXTURE_MODULE_CID,
+  version: 1,
+  expiresAt: Date.now() + 3_600_000,
+})
+/** The public half, read off the record rather than re-derived from the seed. */
+const BENCH_TRUST_ANCHOR: string = FIXTURE_RECORD.signer
+
+/**
+ * Fail loudly if a rig's store addressed the fixture differently from the record.
+ *
+ * Cheap, and it converts a whole-rig silent zero into one named throw at start-up.
+ */
+function sameFixtureCid(rig: string, moduleCid: CID): CID {
+  if (moduleCid.toString() !== FIXTURE_MODULE_CID.toString()) {
+    throw new Error(
+      `${rig} addressed the fixture module as ${moduleCid.toString()} but the signed record ` +
+        `names ${FIXTURE_MODULE_CID.toString()} — every shard would be refused as a cid-mismatch`,
+    )
+  }
+  return moduleCid
+}
+
+/**
+ * Wrap an executor in the same guard a production node composes.
+ *
+ * **A separate resolver per node.** A `SignedNameResolver` holds the records it has
+ * accepted, which is per-node state; one shared across a rig's nodes would make the rig
+ * measure a fabric no real deployment has — the first node's `accept` would prime the
+ * store every later node reads.
+ */
+function guarded(inner: Executor): Executor {
+  return guardModuleProvenance(inner, {
+    resolver: new SignedNameResolver([BENCH_TRUST_ANCHOR]),
+    now: () => Date.now(),
+  })
+}
+
 function inventory(nodeCount: number): Inventory {
   const cores = cpus()
   const machine: Machine = {
@@ -162,6 +286,11 @@ interface Fabric {
   readonly blockstore: MemoryBlockstore
   readonly moduleCid: Awaited<ReturnType<MemoryBlockstore['put']>>
   /**
+   * DET-03: what vouches for {@link Fabric.moduleCid} to this rig's nodes. Attached to
+   * the `JobSpec` in `runnerFor`, so every `Task` `submitJob` builds carries it.
+   */
+  readonly moduleRecord: NameRecord
+  /**
    * Wraps the requestor's outbound transport — DATA-05/DATA-06's production wiring,
    * reused here rather than bypassed. The requestor is the only node whose RPC
    * connection dispatches shards in this rig (every `RemoteExecutor` above is built
@@ -175,7 +304,7 @@ interface Fabric {
 async function memoryFabric(nodes: number): Promise<Fabric> {
   const network = new MemoryNetwork()
   const originStore = new MemoryBlockstore()
-  const moduleCid = await originStore.put(MODULE_WRITES_PARTITION)
+  const moduleCid = sameFixtureCid('memoryFabric', await originStore.put(MODULE_WRITES_PARTITION))
 
   // The requestor serves blocks, exactly as `FabricNode` does over a real transport.
   // Without this the workers have the module but no shard *inputs*, and every run
@@ -190,7 +319,11 @@ async function memoryFabric(nodes: number): Promise<Fabric> {
   const callerRpc = new RpcEndpoint(requestorGuard, { timeoutMs: 30_000 })
   serveAgent({
     rpc: callerRpc,
-    executor: new WasmExecutor({ nodeId: 'requestor', blockstore: originStore }),
+    // DET-03 — guarded exactly as `FabricNode.start` guards its own, and for the same
+    // reason its `EgressGuard` and `LocalCapacity` are built here rather than
+    // inherited: this rig has no `FabricNode` to inherit from, so it composes the
+    // identical layer over the identical port.
+    executor: guarded(new WasmExecutor({ nodeId: 'requestor', blockstore: originStore })),
     blockstore: originStore,
     // This endpoint serves blocks to the workers; the manifest this rig reads is
     // the submitting side's, and no task dispatched here is labelled sovereign, so
@@ -229,7 +362,8 @@ async function memoryFabric(nodes: number): Promise<Fabric> {
     )
     serveAgent({
       rpc,
-      executor: new WasmExecutor({ nodeId: id, blockstore: store }),
+      // DET-03 — one guard, and one resolver, per worker. See `guarded`.
+      executor: guarded(new WasmExecutor({ nodeId: id, blockstore: store })),
       blockstore: store,
       // A worker endpoint in this rig, dispatched only public tasks. Its sends are
       // untapped: the guard this benchmark reads is the submitting endpoint's.
@@ -261,6 +395,7 @@ async function memoryFabric(nodes: number): Promise<Fabric> {
     executors: remote,
     blockstore: originStore,
     moduleCid,
+    moduleRecord: FIXTURE_RECORD,
     guard: requestorGuard,
     async close() {
       callerRpc.close()
@@ -287,6 +422,12 @@ async function realFabric(nodes: number): Promise<Fabric> {
         blockstoreDir: dir,
         rpcTimeoutMs: 30_000,
         maxConcurrentTasks: DECLARED_ADMISSION_LIMIT,
+        // DET-03 — this rig's nodes go through the node factory rather than
+        // constructing an executor, so they ask for the guard by naming the anchor
+        // instead of composing it. The submitter below states the same value for the
+        // same reason it states the same admission limit: it is a `FabricNode` like
+        // any other and serves `exec` requests like any other.
+        trustAnchors: [BENCH_TRUST_ANCHOR],
       }),
     )
   }
@@ -297,8 +438,9 @@ async function realFabric(nodes: number): Promise<Fabric> {
     blockstoreDir: requestorDir,
     rpcTimeoutMs: 30_000,
     maxConcurrentTasks: DECLARED_ADMISSION_LIMIT,
+    trustAnchors: [BENCH_TRUST_ANCHOR],
   })
-  const moduleCid = await requestor.store.put(MODULE_WRITES_PARTITION)
+  const moduleCid = sameFixtureCid('realFabric', await requestor.store.put(MODULE_WRITES_PARTITION))
 
   // Everyone dials the requestor, so blocks are reachable from every worker.
   for (const node of started) {
@@ -311,6 +453,7 @@ async function realFabric(nodes: number): Promise<Fabric> {
     executors,
     blockstore: requestor.store as unknown as MemoryBlockstore,
     moduleCid,
+    moduleRecord: FIXTURE_RECORD,
     // `FabricNode.start` already wraps its transport in an `EgressGuard` (`egress`)
     // and builds `rpc` over that wrapper (13-02) — nothing to construct here, only
     // to surface, exactly the same field `bin/agent.ts`'s own `FabricNode` exposes.
@@ -353,6 +496,10 @@ function runnerFor(build: (nodes: number) => Promise<Fabric>): {
     const result = await submitJobWithEgress(
       {
         moduleCid: fabric.moduleCid,
+        // DET-03 — `submitJob` copies this onto every `Task` it builds, so the record
+        // travels with each shard to whichever node the placement picks. Without it
+        // every rig above refuses every shard.
+        moduleRecord: fabric.moduleRecord,
         shards: shards.map((value) => ({ value, label: 'public' as const })),
         executors,
         nodes: publicNodes(executors),
@@ -434,8 +581,13 @@ async function baseline(runs: number): Promise<readonly number[]> {
 /** Supplementary: the same work in-process through WASM, no fabric. */
 async function wasmInProcess(runs: number): Promise<readonly number[]> {
   const store = new MemoryBlockstore()
-  const moduleCid = await store.put(MODULE_WRITES_PARTITION)
-  const executor = new WasmExecutor({ nodeId: 'local', blockstore: store })
+  const moduleCid = sameFixtureCid('wasmInProcess', await store.put(MODULE_WRITES_PARTITION))
+  // DET-03 — guarded, and this is the leg it would have been most tempting to skip.
+  // This baseline exists to be compared against the two fabrics; if they pay for the
+  // signature check and it does not, every reported speedup is inflated by exactly the
+  // difference. A baseline measuring a cheaper path than the thing it is the baseline
+  // for is not a baseline.
+  const executor = guarded(new WasmExecutor({ nodeId: 'local', blockstore: store }))
   const inputs = await shardInputs('uniform')
 
   const inputCids = []
@@ -452,6 +604,9 @@ async function wasmInProcess(runs: number): Promise<readonly number[]> {
     for (let partition = 0; partition < inputCids.length; partition++) {
       await executor.execute({
         moduleCid,
+        // The raw `Task` literal this rig dispatches — there is no `submitJob` here to
+        // copy the record on, so it is attached by hand.
+        moduleRecord: FIXTURE_RECORD,
         inputCid: inputCids[partition] as (typeof inputCids)[number],
         partitionIndex: partition,
         partitionCount: inputCids.length,

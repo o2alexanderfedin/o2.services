@@ -52,6 +52,15 @@ async function relayingNode(
 ): Promise<FabricNode> {
   return FabricNode.start({
     listen: ['/ip4/127.0.0.1/tcp/0/ws'],
+    // DET-03: this file's subject is that relaying is derived from the listen list and
+    // that a relayed node is not a lesser node — every dispatch here is in-process on
+    // the node being configured, and provenance is not what is being read. Stated
+    // rather than defaulted, which is the whole point of the field being required: a
+    // reader counting this literal learns which tests do not exercise the signed path.
+    // No job in this file carries a `moduleRecord` either — a node running with the
+    // opt-out has no guard to satisfy, and a record here would be decoration the next
+    // reader would mistake for a requirement.
+    trustAnchors: 'runs-unsigned-artifacts',
     ...options,
   })
 }
@@ -290,6 +299,8 @@ describe('the rule: relaying and executing are the same node', () => {
       listen: [],
       relayAddrs: [address],
       rpcTimeoutMs: 30_000,
+      // DET-03 — see `relayingNode` above.
+      trustAnchors: 'runs-unsigned-artifacts',
     })
     started.push(guest)
     await until(() => both.capacity.granted === 1, 30_000, 'the reservation')
@@ -333,6 +344,9 @@ describe('the rule: relaying and executing are the same node', () => {
       listen: [],
       relayAddrs: [host.browserDialableAddrs[0]!],
       rpcTimeoutMs: 30_000,
+      // DET-03 — see `relayingNode` above. This node does execute, and the job below
+      // carries no record for exactly the reason stated there.
+      trustAnchors: 'runs-unsigned-artifacts',
     })
     started.push(guest)
     await until(() => guest.circuitAddrs.length > 0, 30_000, 'a circuit address')

@@ -43,6 +43,11 @@ async function startNode(name: string, extra: Record<string, unknown> = {}): Pro
     blockstoreDir: join(workdir, name),
     // Port 0: the OS picks a free port, so concurrent runs cannot collide.
     listen: ['/ip4/127.0.0.1/tcp/0'],
+    // DET-03: this file's subject is the task deadline — a module that must actually
+    // run and then be killed. A provenance refusal would return before the module ran
+    // at all, so the opt-out is what keeps this file measuring its own subject. Stated
+    // rather than defaulted, which is the point of the field being required.
+    trustAnchors: 'runs-unsigned-artifacts',
     ...extra,
   })
   running.push(node)

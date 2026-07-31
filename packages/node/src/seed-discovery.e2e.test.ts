@@ -2,6 +2,7 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { request as httpRequest } from 'node:http'
+import { KERNEL_TRUST_ANCHOR } from '@o2/demo'
 import { chromium } from 'playwright'
 import type { Browser, BrowserContext } from 'playwright'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
@@ -30,7 +31,16 @@ const lanIp = lanAddresses()[0]
 
 beforeAll(async () => {
   workdir = await mkdtemp(join(tmpdir(), 'o2-seed-'))
-  seed = await SeedServer.start({ blockstoreDir: join(workdir, 'blocks'), maxReservations: 32 })
+  // DET-03: the demo's own anchor — exactly what `bin/seed.ts` pins with no flags, which
+  // is what this file is the closest thing in the repository to a picture of. Chosen for
+  // realism, not coverage: this file calls `computePeers` but never `runColouring` or
+  // `runJob`, and `computePeers` sends an `offer` probe and nothing else. Whether this
+  // set is ever consulted was **measured** — see this plan's summary for the run.
+  seed = await SeedServer.start({
+    blockstoreDir: join(workdir, 'blocks'),
+    maxReservations: 32,
+    trustAnchors: [KERNEL_TRUST_ANCHOR],
+  })
   browser = await chromium.launch()
   context = await browser.newContext()
 }, 240_000)

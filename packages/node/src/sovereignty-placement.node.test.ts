@@ -5,9 +5,11 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { submitJob } from '@o2/core'
-import type { NodeDescriptor } from '@o2/core'
+import { ed25519 } from '@noble/curves/ed25519.js'
+import { signName, submitJob, toHex } from '@o2/core'
+import type { NameRecord, NodeDescriptor } from '@o2/core'
 import { RemoteExecutor } from '@o2/net'
+import type { CID } from 'multiformats/cid'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 // Test-only relative import — see the note in packages/net/src/distributed.test.ts.
 import { MODULE_WRITES_PARTITION } from '../../core/src/executor/fixtures.ts'
@@ -39,6 +41,28 @@ import { FabricNode } from './fabric-node.ts'
 
 const AGENT = fileURLToPath(new URL('./bin/agent.ts', import.meta.url))
 
+/**
+ * DET-03 is not this file's subject — placement under sovereignty is. The record
+ * exists so that subject can still be reached: every executor below is a
+ * `RemoteExecutor` aimed at a spawned `bin/agent.ts`, which pins the demo's anchor by
+ * default, so an unsigned job would have every dispatch refused before placement could
+ * be observed at all.
+ */
+const publisher = (() => {
+  // Seed 52 — distinct from every other fixture key in the repository.
+  const priv = new Uint8Array(32).fill(52)
+  return { priv, pub: toHex(ed25519.getPublicKey(priv)) }
+})()
+
+function recordFor(moduleCid: CID): NameRecord {
+  return signName(publisher.priv, {
+    name: 'sovereignty-placement-fixture',
+    cid: moduleCid,
+    version: 1,
+    expiresAt: Date.now() + 3_600_000,
+  })
+}
+
 /** stdin is `ignore`d, so the child's type carries `null` for it. */
 type AgentProcess = ChildProcessByStdio<null, Readable, Readable>
 
@@ -56,9 +80,13 @@ const nodes: FabricNode[] = []
 /** Spawn an agent process and wait for its one-line address handshake. */
 async function spawnAgent(name: string, extraArgs: readonly string[] = []): Promise<Agent> {
   const dir = join(workdir, name)
-  const child: AgentProcess = spawn(process.execPath, [AGENT, '--dir', dir, ...extraArgs], {
-    stdio: ['ignore', 'pipe', 'pipe'],
-  })
+  const child: AgentProcess = spawn(
+    process.execPath,
+    [AGENT, '--dir', dir, '--trust-anchor', publisher.pub, ...extraArgs],
+    {
+      stdio: ['ignore', 'pipe', 'pipe'],
+    },
+  )
 
   const handshake = await new Promise<{ peerId: string; multiaddrs: string[] }>((resolve, reject) => {
     const timer = setTimeout(() => reject(new Error(`agent ${name} did not announce in time: ${stderr}`)), 30_000)
@@ -94,6 +122,10 @@ async function startSubmitter(): Promise<FabricNode> {
     blockstoreDir: join(workdir, 'submitter'),
     listen: ['/ip4/127.0.0.1/tcp/0'],
     rpcTimeoutMs: 30_000,
+    // The same value the spawned agents get, rather than the opt-out — a submitter
+    // declaring a different authority from the nodes it dispatches to would be a lie
+    // in a file nobody would re-read.
+    trustAnchors: [publisher.pub],
   })
   nodes.push(node)
   return node
@@ -169,6 +201,7 @@ describe('DATA-03/DATA-04 — sovereignty-pinned placement across real bin/agent
     const result = await submitJob(
       {
         moduleCid,
+        moduleRecord: recordFor(moduleCid),
         shards: [{ value: { a: 0 }, label: 'sovereign', ownerId: 'alice' }],
         executors,
         nodes: nodesDescriptor,

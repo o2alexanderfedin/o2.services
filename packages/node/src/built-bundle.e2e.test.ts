@@ -77,7 +77,14 @@ beforeAll(async () => {
   if (address === null || typeof address === 'string') throw new Error('no server port')
   baseUrl = `http://127.0.0.1:${address.port}`
 
-  relay = await FabricNode.start({ maxReservations: 8, listen: ['/ip4/127.0.0.1/tcp/0/ws'] })
+  // DET-03: this node relays and executes nothing — the built bundle is the subject,
+  // not provenance. See `background-tab.e2e.test.ts` for the full note on why stating
+  // the opt-out is the point of the field being required.
+  relay = await FabricNode.start({
+    maxReservations: 8,
+    listen: ['/ip4/127.0.0.1/tcp/0/ws'],
+    trustAnchors: 'runs-unsigned-artifacts',
+  })
   browser = await chromium.launch()
 }, 300_000)
 

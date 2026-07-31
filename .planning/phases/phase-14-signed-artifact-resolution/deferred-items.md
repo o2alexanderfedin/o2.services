@@ -31,3 +31,46 @@ a live node under a host running 4–7x oversubscribed, surfacing through the
 that is otherwise deterministic (`MemoryNetwork`, no sockets). Either raise it, or make
 the dispatch failure injected rather than timing-derived so the test stops depending on
 scheduler latency at all. Neither belongs in this phase.
+
+## `packages/node/src/acceptance-traceability.node.test.ts` — a spot-check that the ledger has moved past
+
+**Found during:** Plan 14-03, Task 2's `--project node` run.
+
+**Symptom.**
+
+```
+FAIL  |node| packages/node/src/acceptance-traceability.node.test.ts
+      > the ledger this suite parses is the real ledger
+      > found the ids that are certainly in the ledger, in the state the ledger gives them
+AssertionError: expected true to be false
+ ❯ packages/node/src/acceptance-traceability.node.test.ts:615:43
+    615|     expect(locate('SCHED-06')?.satisfied).toBe(false)
+```
+
+**Measured, not assumed.** Proved pre-existing by running it against the untouched base
+commit `6289882`, with this plan's work stashed:
+
+```
+$ git stash push --include-untracked
+$ npx vitest run --project node packages/node/src/acceptance-traceability.node.test.ts
+ Test Files  1 failed (1)
+      Tests  1 failed | 39 passed (40)     # the identical assertion
+$ git stash pop
+```
+
+**Why it is not this plan's.** The assertion reads exactly two files, and this plan
+modifies neither:
+
+| Input | State |
+|---|---|
+| `.planning/REQUIREMENTS.md:447` | `- [x] **SCHED-06**: …` — flipped to `[x]` by `03b91cf` (verify 13.1) |
+| `packages/node/src/acceptance-traceability.node.test.ts` | last touched by `855cdf5`, *before* that flip |
+| `git status --short .planning/` during this plan | empty |
+
+So the spot-check is simply stale: `03b91cf` marked SCHED-06 satisfied and did not
+update the hand-picked `[ ]` example that had been chosen to be an open row.
+
+**What would fix it.** One line — either change `expect(locate('SCHED-06')?.satisfied)`
+to `true`, or pick a different id that is genuinely still open, which is the better fix
+because the case's stated purpose is to spot-check *one of each state*. That belongs to
+whoever owns the ledger's verification pass, not to a wiring plan.

@@ -84,12 +84,23 @@ async function isFree(port: number, host = '127.0.0.1'): Promise<boolean> {
 const UNREACHABLE_RELAY =
   '/ip4/127.0.0.1/tcp/1/p2p/12D3KooWHPSVMPEezVCXvka2ahwT26JGL8EBr61LpGEU3ujHQM9Q'
 
+/**
+ * DET-03, stated once for all seven construction sites below.
+ *
+ * This file's subject is which listeners survive a rejected start. No node here ever
+ * executes a task — most of them never finish starting — so provenance decides nothing.
+ * Stated rather than defaulted, which is the whole point of `trustAnchors` being
+ * required: a reader counting this literal learns which tests do not exercise the
+ * signed path. Named once so seven sites cannot drift apart.
+ */
+const UNWIND_ANCHORS = 'runs-unsigned-artifacts' as const
+
 describe('the port probe reads both states, so an absence below means something', () => {
   it('says a started node holds its port and a stopped one has given it back', async () => {
     const port = await freePort()
     expect(await isFree(port)).toBe(true)
 
-    const node = await FabricNode.start({ listen: [`/ip4/127.0.0.1/tcp/${port}`] })
+    const node = await FabricNode.start({ listen: [`/ip4/127.0.0.1/tcp/${port}`], trustAnchors: UNWIND_ANCHORS })
     expect(await isFree(port)).toBe(false)
 
     await node.stop()
@@ -104,6 +115,7 @@ describe('a rejected start leaves nothing listening', () => {
     const failure = await FabricNode.start({
       listen: [`/ip4/127.0.0.1/tcp/${port}`, '/p2p-circuit'],
       relayAddrs: [UNREACHABLE_RELAY],
+      trustAnchors: UNWIND_ANCHORS,
     }).then(
       (node) => {
         started.push(node)
@@ -122,6 +134,7 @@ describe('a rejected start leaves nothing listening', () => {
       await FabricNode.start({
         listen: [`/ip4/127.0.0.1/tcp/${port}`, '/p2p-circuit'],
         relayAddrs: [UNREACHABLE_RELAY],
+      trustAnchors: UNWIND_ANCHORS,
       }).then(
         (node) => {
           started.push(node)
@@ -150,6 +163,7 @@ describe('a rejected start leaves nothing listening', () => {
     const failure = await FabricNode.start({
       listen: [`/ip4/127.0.0.1/tcp/${port}`],
       maxConcurrentTasks: 0,
+      trustAnchors: UNWIND_ANCHORS,
     }).then(
       (node) => {
         started.push(node)
@@ -168,6 +182,7 @@ describe('a rejected start leaves nothing listening', () => {
     const failure = await FabricNode.start({
       listen: [`/ip4/127.0.0.1/tcp/${port}`, '/p2p-circuit'],
       relayAddrs: [UNREACHABLE_RELAY],
+      trustAnchors: UNWIND_ANCHORS,
     }).then(
       (node) => {
         started.push(node)
@@ -196,6 +211,7 @@ describe('a rejected seed start leaves nothing listening either', () => {
     const seed = await SeedServer.start({
       blockstoreDir: mkdtempSync(join(tmpdir(), 'o2-seed-live-')),
       wsPort,
+      trustAnchors: UNWIND_ANCHORS,
     })
     expect(await isFree(wsPort, ANY)).toBe(false)
 
@@ -209,6 +225,7 @@ describe('a rejected seed start leaves nothing listening either', () => {
     const failure = await SeedServer.start({
       blockstoreDir: mkdtempSync(join(tmpdir(), 'o2-seed-unwind-')),
       wsPort,
+      trustAnchors: UNWIND_ANCHORS,
       // Past the 16-bit port space. Vite reports `No available ports found between
       // 70000 and 65535` — a failure arriving after `FabricNode.start` has bound both
       // of the seed's listeners.

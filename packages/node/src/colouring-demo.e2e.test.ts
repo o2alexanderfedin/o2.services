@@ -2,6 +2,7 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { fileURLToPath } from 'node:url'
 import { join } from 'node:path'
+import { KERNEL_TRUST_ANCHOR } from '@o2/demo'
 import { chromium } from 'playwright'
 import type { Browser, BrowserContext, Page } from 'playwright'
 import { createServer } from 'vite'
@@ -82,7 +83,25 @@ async function openTab(name: string): Promise<Tab> {
 
 beforeAll(async () => {
   workdir = await mkdtemp(join(tmpdir(), 'o2-colouring-'))
-  relay = await FabricNode.start({ maxReservations: 16, listen: ['/ip4/127.0.0.1/tcp/0/ws'] })
+  // DET-03: the demo's own anchor, matching exactly what `bin/seed.ts` pins when it is
+  // run with no flags. Chosen for **realism, not coverage** — this file and
+  // `seed-discovery.e2e.test.ts` are the closest thing in the repository to a picture of
+  // that deployment, so the value that belongs here is the value production uses.
+  //
+  // Whether this set is ever consulted was **measured, not reasoned**: see this plan's
+  // summary for the run. Do not work it out from `peerIds` and `redundancy` — which
+  // nodes a job's executor set actually contains is a quantity to be read, not derived.
+  //
+  // What would give this site real coverage is one dispatch that reaches it: adding
+  // `relay.peerId` to `runColouring`'s `peerIds` below, which this file already has in
+  // hand. Deliberately declined — it would change which nodes that job dispatches to and
+  // therefore change DEMO-01's own `agreeing` reading, i.e. edit the proof of another
+  // phase's criterion to decorate this one.
+  relay = await FabricNode.start({
+    maxReservations: 16,
+    listen: ['/ip4/127.0.0.1/tcp/0/ws'],
+    trustAnchors: [KERNEL_TRUST_ANCHOR],
+  })
   const address = relay.browserDialableAddrs[0]
   if (address === undefined) throw new Error('relay produced no browser-dialable address')
   relayAddr = address

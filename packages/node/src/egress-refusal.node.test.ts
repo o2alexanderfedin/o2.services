@@ -5,9 +5,11 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { canonicalCid, submitJob } from '@o2/core'
-import type { CanonicalValue, NodeDescriptor } from '@o2/core'
+import { ed25519 } from '@noble/curves/ed25519.js'
+import { canonicalCid, signName, submitJob, toHex } from '@o2/core'
+import type { CanonicalValue, NameRecord, NodeDescriptor } from '@o2/core'
 import { RemoteExecutor } from '@o2/net'
+import type { CID } from 'multiformats/cid'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 // Test-only relative import — see the note in packages/net/src/distributed.test.ts.
 import { MODULE_ECHOES_INPUT, MODULE_WRITES_PARTITION } from '../../core/src/executor/fixtures.ts'
@@ -44,6 +46,28 @@ import { FsBlockstore } from './fs-blockstore.ts'
 
 const AGENT = fileURLToPath(new URL('./bin/agent.ts', import.meta.url))
 
+/**
+ * DET-03 is not this file's subject — the egress refusal is. The record exists so that
+ * subject can still be reached: every executor below is a `RemoteExecutor` aimed at a
+ * spawned `bin/agent.ts`, which pins the demo's anchor by default, so an unsigned job
+ * would be refused for provenance before it could be refused for egress — and this
+ * file's whole point is which refusal arrives.
+ */
+const publisher = (() => {
+  // Seed 53 — distinct from every other fixture key in the repository.
+  const priv = new Uint8Array(32).fill(53)
+  return { priv, pub: toHex(ed25519.getPublicKey(priv)) }
+})()
+
+function recordFor(name: string, moduleCid: CID): NameRecord {
+  return signName(publisher.priv, {
+    name,
+    cid: moduleCid,
+    version: 1,
+    expiresAt: Date.now() + 3_600_000,
+  })
+}
+
 /** stdin is `ignore`d, so the child's type carries `null` for it. */
 type AgentProcess = ChildProcessByStdio<null, Readable, Readable>
 
@@ -61,9 +85,13 @@ const nodes: FabricNode[] = []
 /** Spawn an agent process and wait for its one-line address handshake. */
 async function spawnAgent(name: string, extraArgs: readonly string[] = []): Promise<Agent> {
   const dir = join(workdir, name)
-  const child: AgentProcess = spawn(process.execPath, [AGENT, '--dir', dir, ...extraArgs], {
-    stdio: ['ignore', 'pipe', 'pipe'],
-  })
+  const child: AgentProcess = spawn(
+    process.execPath,
+    [AGENT, '--dir', dir, '--trust-anchor', publisher.pub, ...extraArgs],
+    {
+      stdio: ['ignore', 'pipe', 'pipe'],
+    },
+  )
 
   const handshake = await new Promise<{ peerId: string; multiaddrs: string[] }>((resolve, reject) => {
     const timer = setTimeout(() => reject(new Error(`agent ${name} did not announce in time: ${stderr}`)), 30_000)
@@ -121,6 +149,10 @@ async function startSubmitter(): Promise<FabricNode> {
     blockstoreDir: join(workdir, 'submitter'),
     listen: ['/ip4/127.0.0.1/tcp/0'],
     rpcTimeoutMs: 10_000,
+    // The same value the spawned agents get, rather than the opt-out — a submitter
+    // declaring a different authority from the nodes it dispatches to would be a lie
+    // in a file nobody would re-read.
+    trustAnchors: [publisher.pub],
   })
   nodes.push(node)
   return node
@@ -223,6 +255,7 @@ describe('DATA-05 — the refusal across two real bin/agent.ts processes', () =>
     const leaking = await submitJob(
       {
         moduleCid: echoCid,
+        moduleRecord: recordFor('egress-refusal-echo', echoCid),
         shards: [{ value: OWNED_ROW, label: 'sovereign', ownerId: 'alice' }],
         executors,
         nodes: descriptors,
@@ -262,6 +295,7 @@ describe('DATA-05 — the refusal across two real bin/agent.ts processes', () =>
     const control = await submitJob(
       {
         moduleCid: aggregateCid,
+        moduleRecord: recordFor('egress-refusal-aggregate', aggregateCid),
         shards: [{ value: OWNED_ROW, label: 'sovereign', ownerId: 'alice' }],
         executors,
         nodes: descriptors,
