@@ -88,9 +88,13 @@ beforeAll(async () => {
   // `seed-discovery.e2e.test.ts` are the closest thing in the repository to a picture of
   // that deployment, so the value that belongs here is the value production uses.
   //
-  // Whether this set is ever consulted was **measured, not reasoned**: see this plan's
-  // summary for the run. Do not work it out from `peerIds` and `redundancy` — which
-  // nodes a job's executor set actually contains is a quantity to be read, not derived.
+  // Whether this set is ever consulted was **measured, not reasoned**, on 2026-07-31:
+  // this site's anchors were replaced with `[]` — a set that refuses every module — and
+  // the file was re-run. All 15 tests across this file and `seed-discovery.e2e.test.ts`
+  // still passed, so **this anchor set is never consulted** and this site exercises
+  // nothing of the signed path. Recorded as an observation, not a deduction: do not
+  // work it out from `peerIds` and `redundancy` instead, because which nodes a job's
+  // executor set actually contains is a quantity to be read.
   //
   // What would give this site real coverage is one dispatch that reaches it: adding
   // `relay.peerId` to `runColouring`'s `peerIds` below, which this file already has in

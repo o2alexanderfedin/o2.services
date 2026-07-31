@@ -34,8 +34,12 @@ beforeAll(async () => {
   // DET-03: the demo's own anchor — exactly what `bin/seed.ts` pins with no flags, which
   // is what this file is the closest thing in the repository to a picture of. Chosen for
   // realism, not coverage: this file calls `computePeers` but never `runColouring` or
-  // `runJob`, and `computePeers` sends an `offer` probe and nothing else. Whether this
-  // set is ever consulted was **measured** — see this plan's summary for the run.
+  // `runJob`, and `computePeers` sends an `offer` probe and nothing else.
+  //
+  // Whether this set is ever consulted was **measured, not reasoned**, on 2026-07-31:
+  // it was replaced with `[]` — a set that refuses every module — and this file re-run.
+  // Every assertion still passed, so **this anchor set is never consulted**. It is here
+  // because it is what production pins, not because it covers anything.
   seed = await SeedServer.start({
     blockstoreDir: join(workdir, 'blocks'),
     maxReservations: 32,

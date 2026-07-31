@@ -462,10 +462,31 @@ describe('the files that resolve a module CID are the census, and nothing else',
   it('can tell a fourth resolver from the three it knows about', () => {
     // The census is an enumeration, and an enumeration nobody can watch failing is a
     // sentence. Planted through the same matcher the walk uses.
-    const fourth = 'const bytes = await this.#blockstore.get(task.moduleCid)'
+    //
+    // **Assembled from fragments, and this one was learned the hard way.** Written
+    // whole, the resolution call is a plain string in this file's own source, so this
+    // file matches its own census query and reports itself as a fourth resolver. It did
+    // exactly that — but only after being committed, because the walk reads
+    // `git ls-files` and an untracked file is not in the population. A green run before
+    // the commit and a red one after is the whole hazard, and it is the same rule
+    // {@link OPT_OUT} and {@link RESOLVES_MODULE_CID} are already written for. Do not
+    // helpfully join it back up.
+    const fourth = `const bytes = await this.#blockstore.get(task.module${'Cid'})`
     expect(RESOLVES_MODULE_CID.test(stripComments(fourth))).toBe(true)
     expect(RESOLVES_MODULE_CID.test(stripComments(`// ${fourth}`))).toBe(false)
     expect(CENSUS.map((entry) => entry.file)).not.toContain('packages/somewhere/new-executor.ts')
+  })
+
+  it('does not name either census matcher in its own source, so it cannot report itself', () => {
+    // The regression the case above documents, turned into a standing assertion rather
+    // than a comment: this file is inside its own jurisdiction, and a future edit that
+    // spells either matched text out whole would make the census read four resolvers or
+    // an extra WasiExecutor construction — a failure that looks like a real finding and
+    // is not.
+    const self = stripped('packages/node/src/trust-anchors.node.test.ts')
+    expect(RESOLVES_MODULE_CID.test(self)).toBe(false)
+    expect(CONSTRUCTS_WASI_EXECUTOR.test(self)).toBe(false)
+    expect(self.includes(OPT_OUT)).toBe(false)
   })
 
   it('constructs no WasiExecutor outside a test or a declared build-time tool', () => {
