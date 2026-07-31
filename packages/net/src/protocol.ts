@@ -43,6 +43,7 @@ import type {
   Delegation,
   Discoverability,
   ExecutionOutcome,
+  NameRecord,
   NodeCertificate,
   NodeRecords,
   OutcomeCount,
@@ -333,14 +334,45 @@ export function encodeRequest(request: AgentRequest): CanonicalValue {
   // with no `ownerId` key at all, so `parseRequest`'s mirrored check refuses it
   // (the wire-side twin of `submitJob`'s `shard-missing-owner`) instead of the
   // parser guessing one.
+  //
+  // DET-03/DATA-08: `moduleRecord` travels for the same reason and under the same
+  // rule. It is the signed mapping `guardModuleProvenance` (module-provenance.ts)
+  // reads before the serving node fetches a single byte of the module, so a node
+  // that never receives one refuses the task rather than resolving a bare CID. A
+  // task with no record therefore encodes with no `moduleRecord` key at all —
+  // absent and malformed are different answers, and only the parser gets to tell
+  // them apart.
   const labelled: { readonly [k: string]: CanonicalValue } =
     task.label === undefined
       ? base
       : task.label === 'sovereign' && task.ownerId !== undefined
         ? { ...base, label: task.label, ownerId: task.ownerId }
         : { ...base, label: task.label }
-  if (request.capability === undefined) return labelled
-  return { ...labelled, capability: request.capability.map(delegationToValue) }
+  const vouched: { readonly [k: string]: CanonicalValue } =
+    task.moduleRecord === undefined
+      ? labelled
+      : { ...labelled, moduleRecord: nameRecordToValue(task.moduleRecord) }
+  if (request.capability === undefined) return vouched
+  return { ...vouched, capability: request.capability.map(delegationToValue) }
+}
+
+/**
+ * Name records are plain records, but must be listed explicitly to stay canonical.
+ *
+ * Same reason as `delegationToValue`, and it bites harder here: a spread would encode
+ * whatever the object happens to hold, in whatever order it holds it, and the
+ * signature covers the canonical encoding of five of these six fields. An extra key
+ * or a reordered one is a record that no longer verifies.
+ */
+function nameRecordToValue(record: NameRecord): CanonicalValue {
+  return {
+    name: record.name,
+    cid: record.cid,
+    version: record.version,
+    expiresAt: record.expiresAt,
+    signer: record.signer,
+    signature: record.signature,
+  }
 }
 
 /** Delegations are plain records, but must be listed explicitly to stay canonical. */
@@ -371,6 +403,28 @@ function parseDelegation(value: CanonicalValue): Delegation | null {
     parsed.push(ability)
   }
   return { issuer, audience, ownerId, abilities: parsed, expiresAt, signature }
+}
+
+/**
+ * Parse a signed name record off the wire. Every field validated — a security input.
+ *
+ * The same rule `parseDelegation` carries, for the same reason: a parser that accepted
+ * a partially-formed record would hand `SignedNameResolver` something to verify that is
+ * not what the build authority signed. `version` goes through `asIndex` rather than
+ * `asFiniteNumber` because a negative version is one no monotonic check can order — it
+ * would let a peer offer a record the resolver's rollback protection cannot rank.
+ */
+function parseNameRecord(value: CanonicalValue): NameRecord | null {
+  const record = asRecord(value)
+  if (record === null) return null
+  const { name, signer, signature } = record
+  if (typeof name !== 'string' || typeof signer !== 'string') return null
+  if (typeof signature !== 'string') return null
+  const cid = CID.asCID(record['cid'] ?? null)
+  const version = asIndex(record['version'])
+  const expiresAt = asFiniteNumber(record['expiresAt'])
+  if (cid === null || version === null || expiresAt === null) return null
+  return { name, cid, version, expiresAt, signer, signature }
 }
 
 export function parseRequest(body: CanonicalValue): AgentRequest | null {
@@ -452,15 +506,41 @@ export function parseRequest(body: CanonicalValue): AgentRequest | null {
   // absent; every exec request that survives parsing carries one.
   const labelValue = record['label']
   if (labelValue !== 'public' && labelValue !== 'sovereign') return null
+
+  // DET-03/DATA-08. Decoded *before* the task literal so neither branch below has to
+  // assign an explicit `undefined` under `exactOptionalPropertyTypes`.
+  //
+  // A record that is present but will not parse refuses the whole frame. The
+  // alternative — drop the malformed record, admit the task — is the dangerous one:
+  // it converts "this frame is corrupt" into "this task arrived unsigned", and
+  // `guardModuleProvenance` would then refuse it as `no-record`, naming a problem the
+  // dispatcher does not have and hiding the one it does. Absent and malformed are
+  // different answers, and only this line is in a position to tell them apart.
+  const recordValue = record['moduleRecord']
+  let provenance: { readonly moduleRecord?: NameRecord } = {}
+  if (recordValue !== undefined) {
+    const moduleRecord = parseNameRecord(recordValue)
+    if (moduleRecord === null) return null
+    provenance = { moduleRecord }
+  }
+
   let task: Task
   if (labelValue === 'sovereign') {
     const ownerId = record['ownerId']
     // The wire-side mirror of `submitJob`'s `shard-missing-owner`: a sovereign
     // label with no owner is not a wide-open task, it is a broken one.
     if (typeof ownerId !== 'string' || ownerId.length === 0) return null
-    task = { moduleCid, inputCid, partitionIndex, partitionCount, label: 'sovereign', ownerId }
+    task = {
+      moduleCid,
+      inputCid,
+      partitionIndex,
+      partitionCount,
+      label: 'sovereign',
+      ownerId,
+      ...provenance,
+    }
   } else {
-    task = { moduleCid, inputCid, partitionIndex, partitionCount, label: 'public' }
+    task = { moduleCid, inputCid, partitionIndex, partitionCount, label: 'public', ...provenance }
   }
 
   const capabilityValue = record['capability']
