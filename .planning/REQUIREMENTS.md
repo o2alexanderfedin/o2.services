@@ -11,7 +11,7 @@
 
 ## How to read the checkboxes
 
-**33 of 72 are `[x]`.** That is down from 68, and the 37 that moved did **not** move
+**35 of 72 are `[x]`.** That is down from 68, and the 37 that moved did **not** move
 because the work was undone — with one exception, VER-02, whose box was cleared on
 2026-07-30 because the mechanism behind it was found to check nothing and was deleted.
 Read this before drawing a conclusion from the count.
@@ -60,7 +60,7 @@ itself. The work is real and the table says so; the box tracks delivery.
 > module importing anything else fails at `WebAssembly.instantiate` with the
 > offending import named. The runtime enforces it.
 
-- [ ] **DET-03**: Artifacts resolve only through a `key → CID` mapping signed by a
+- [x] **DET-03**: Artifacts resolve only through a `key → CID` mapping signed by a
       trusted build authority, never by a bare CID — content addressing proves
       integrity, not provenance
 - [x] **DET-05**: Anything hashed or content-addressed is encoded with strict
@@ -171,7 +171,7 @@ code, not the reports. -->
 
 - [x] **DATA-07**: Filters, projections, and partial aggregation push down to the
       owner's node so the least data leaves
-- [ ] **DATA-08**: Artifact `key → CID` mappings are signed by a trusted build
+- [x] **DATA-08**: Artifact `key → CID` mappings are signed by a trusted build
       authority and never resolved by CID alone
 - [x] **DATA-09**: Backbone encrypted replicas serve availability only and are
       never execution-eligible for sovereign tasks — executing requires
@@ -540,7 +540,7 @@ criteria.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| DET-03 | Phase 14 — Signed Artifact Resolution | **Built, not wired** — signName / SignedNameResolver have no caller; every module resolves by bare CID |
+| DET-03 | Phase 14 — Signed Artifact Resolution | Done — `guardModuleProvenance` (`core/src/executor/module-provenance.ts`) is composed innermost in both production node factories (`fabric-node.ts:670`, `browser-node.ts:513`), and `trustAnchors` is a **required** option on both, so no node can be built without stating whose modules it will run. A task with no `NameRecord`, one signed by an unpinned key, or one vouching for a different CID is refused before `inner.execute`; the refusal names the missing record or the offending key. Verified across a real spawned `bin/agent.ts` process (`signed-artifact.node.test.ts`, 5/5) and two real browser contexts (`two-tabs.e2e.test.ts`, 6/6) by 14-VERIFICATION.md |
 | DET-05 | Phase 1 — Portable Kernel & Loopback Map Slice | Done |
 | DET-06 | Phase 1 — Portable Kernel & Loopback Map Slice | Done |
 | DET-07 | Phase 1 — Portable Kernel & Loopback Map Slice | Done |
@@ -560,7 +560,7 @@ criteria.
 | DATA-05 | Phase 13 — Egress Manifest Completeness | Done against the amended criterion, with its granularity stated — both node constructors wrap the transport in an `EgressGuard` before building the `RpcEndpoint` (`fabric-node.ts`, `browser-node.ts`), so the tap sits on the sole code path out rather than on remembered call sites, and `registerSovereignInputs` gives `EgressGuard.guard()` its first production caller. `EgressGuard.send` **refuses**: it records the entry with its violation label and rejects rather than forwarding, so the frame never reaches the wire and the cross-owner job fails as a consequence — `insufficient`, never `agreed` (13-04). Proven in-process against real `FabricNode`s and across two spawned `bin/agent.ts` processes, each paired with a control job on the same live nodes so a refusal cannot be confused with an unreachable or dead peer (13-05). Detection matches the **whole registered payload, contiguous and byte-identical**; a re-encoded or partial copy is not matched, and a probe sending the raw field characters alone crossed unremarked — a detector, not a prover, the same line Phase 4 drew. On a reply leg the requestor observes a timeout rather than the reason, an accepted cost recorded in `egress.ts`. A registration is released once its reply frame has settled, bounding scan cost by in-flight sovereign tasks rather than by uptime (13-07). See `13-VERIFICATION.md` for the pass that found the earlier wording overstated |
 | DATA-06 | Phase 13 — Egress Manifest Completeness | Done against the amended criterion — the manifest records what left the **submitting** node and is retrievable from the job's own result, because all three job-submitting entry points call `submitJobWithEgress` rather than bare `submitJob`, sliced per job so sequential jobs on one guard do not double-count (13-01, 13-02, 13-03). The browser-demo leg is independently mutation-verified by `13-VERIFICATION.md` against two real Chromium e2e tests reading the `window.o2` API's own return value; `bin/bench.ts`'s two fabrics are held by a call-site test rather than by the type-checker alone (13-06). The original "each owner's node" clause was **removed, not met** — reading a remote node's manifest needs a wire message kind `protocol.ts` does not define, `13-CONTEXT.md` deferred building one, and cross-process retrieval is now a named future item. `bin/agent.ts` is out of scope here: serving-only, it never submits a job |
 | DATA-07 | Phase 12 — Sovereignty-Pinned Placement | Done — a sovereign shard submitted through `submitJob` emits a partial smaller than its raw input; `EgressGuard` (reused as a test instrument) shows zero violations for the run (12-04, criterion 3) |
-| DATA-08 | Phase 14 — Signed Artifact Resolution | **Built, not wired** — signName / SignedNameResolver have no caller; every module resolves by bare CID |
+| DATA-08 | Phase 14 — Signed Artifact Resolution | Done — the `key → CID` mapping travels the wire as `Task.moduleRecord` (`net/src/protocol.ts`), is threaded by `submit.ts` into both task branches, and is checked against `task.moduleCid` at the executor boundary so a genuine record for another artifact cannot rubber-stamp a substituted CID. The demo ships a committed `KERNEL_RECORD` whose signing key's private half was discarded at generation (`demo/scripts/sign-kernel.ts`), and both binaries default to that anchor. Mutation-probed by 14-VERIFICATION.md: emptying the demo anchors turns `colouring-demo.e2e.test.ts` red |
 | DATA-09 | Phase 12 — Sovereignty-Pinned Placement | Done — `guardSovereignty` wired into both production node constructors (`fabric-node.ts`, `browser-node.ts`), safe default; a genuine replica holder refuses a direct sovereign dispatch over real RPC while still answering block requests (12-02, 12-04 criterion 4) |
 | AUTH-01 | Phase 17 — Node Identity & Enrollment | **Built, not wired** — requestEnrollment / EnrollmentAuthority have no production caller; a node identity is the raw libp2p peerId |
 | AUTH-02 | Phase 17 — Node Identity & Enrollment | **Built, not wired** — verifyCertificate is reachable only through discoverExecutors, which has no caller |
