@@ -15,6 +15,10 @@
 export { DEFAULT_SEND_TIMEOUT_MS, Libp2pTransport, O2_RPC_PROTOCOL } from './libp2p-transport.ts'
 export type { Libp2pTransportOptions } from './libp2p-transport.ts'
 
+// AUTH-03 — the capability chain audience, derived from an identity both ends hold.
+// No type is introduced: the return is `@o2/core`'s own `PublicKeyHex`.
+export { audienceKeyOf } from './audience-key.ts'
+
 // NET-07 — transport limits the architecture depends on.
 export {
   LIBP2P_INBOUND_CONNECTION_THRESHOLD,
