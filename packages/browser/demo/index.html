@@ -258,8 +258,7 @@
           `${Math.round(activity.dutyCycle * 100)}% of one thread` +
           (activity.hidden ? ' (tab in background)' : '') +
           ` · ${activity.tasksExecuted} task(s) done` +
-          ` · ${activity.fetched} block(s) in` +
-          (activity.offMainThread ? '' : ' · ON MAIN THREAD')
+          ` · ${activity.fetched} block(s) in`
       }
 
       const reconcile = () => {

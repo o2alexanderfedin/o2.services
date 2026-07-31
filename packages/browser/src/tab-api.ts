@@ -76,8 +76,6 @@ export interface TabConsentState {
 /** BROW-04 — what the always-visible surface displays. */
 export interface TabActivity {
   readonly running: boolean
-  /** False means a task in flight cannot be interrupted. See `WorkerExecutor`. */
-  readonly offMainThread: boolean
   readonly tasksExecuted: number
   readonly dutyCycle: number
   readonly hidden: boolean

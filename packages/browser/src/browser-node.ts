@@ -266,22 +266,6 @@ export class BrowserNode {
   }
 
   /**
-   * Whether compute happens off the main thread — BROW-04.
-   *
-   * **A constant since SCHED-06 made `createWorker` required, and therefore not a
-   * measurement.** It reads `true` because no construction can make it `false`, not
-   * because anything was checked: the property it used to report is now carried by the
-   * type, which is a stronger guarantee and a worse instrument. It survives only
-   * because `TabActivity.offMainThread` (`tab-api.ts`), the demo bar
-   * (`demo/index.html`) and two e2e assertions in `packages/node/src` still read it.
-   * Deleting all five together is the follow-up. Until then this comment is the honest
-   * report, and nothing may cite this getter as evidence.
-   */
-  get offMainThread(): boolean {
-    return true
-  }
-
-  /**
    * Join the fabric, or leave the tab as it was found.
    *
    * Same split as `FabricNode.start`, and this half is where it matters most:

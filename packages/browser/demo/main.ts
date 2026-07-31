@@ -322,7 +322,6 @@ const api: TabApi = {
     if (node === null) return null
     return {
       running: true,
-      offMainThread: node.offMainThread,
       tasksExecuted: node.executor.executed,
       dutyCycle: node.executor.dutyCycle,
       hidden: node.governor.hidden,
