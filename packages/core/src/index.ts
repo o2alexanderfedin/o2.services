@@ -73,6 +73,10 @@ export type {
 export { guardSovereignty } from './executor/sovereignty-guard.ts'
 export type { NodeSovereignty } from './executor/sovereignty-guard.ts'
 
+// Serving-side signed-artifact gate — DET-03, DATA-08.
+export { describeModuleRefusal, guardModuleProvenance } from './executor/module-provenance.ts'
+export type { ModuleProvenance, ModuleRefusal } from './executor/module-provenance.ts'
+
 // Power-of-d placement with rejection and re-pick — SCHED-02, SCHED-03, SCHED-05.
 export {
   DEFAULT_D,
