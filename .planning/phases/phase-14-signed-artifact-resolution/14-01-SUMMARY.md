@@ -344,6 +344,14 @@ None.
 - **The three resolution sites remain three.** Nothing in this plan changed that, and nothing here verifies it either; 14-03 Task 3's census is what turns the figure into a re-read rather than a quotation.
 - **Concern, unresolved and belonging to 14-04:** 14-CONTEXT.md Risk 1 stands untouched. `packages/demo/src/kernel.ts`'s bundle-embedded bytes have no signed record, and DET-03 has no public-path exemption for them to fall under. Whoever wires the browser tier has to produce that record or state explicitly why the demo is exempt.
 
+## Self-Check: PASSED
+
+All five files claimed above exist on disk; all four commit hashes resolve in `git log --all`;
+`packages/core/src/index.ts` carries both `module-provenance.ts` export lines and
+`packages/core/src/ports.ts` carries `moduleRecord`. `npx tsc --noEmit` exits 0 and the
+vocabulary guard passes with this summary tracked — it scans `git ls-files`, so it was re-run
+after the summary was committed rather than before, when it would not have been read at all.
+
 ---
 *Phase: phase-14-signed-artifact-resolution*
 *Completed: 2026-07-31*
