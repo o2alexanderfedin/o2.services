@@ -53,6 +53,7 @@ import {
 } from '@o2/browser'
 import type { GrantedConsent, TabApi, TabConsentState } from '@o2/browser'
 import { createTaskWorker } from '../src/worker-factory.ts'
+import { planDials } from '../src/dial-plan.ts'
 import * as pid from '@libp2p/peer-id'
 
 let node: BrowserNode | null = null
@@ -120,15 +121,6 @@ function noteOutcome(cause: StartFailure | null): void {
   }
 }
 
-/**
- * What one round will spend on dials.
- *
- * A failed dial costs a full timeout, so this bounds the round's wall clock rather
- * than its ambition: rounds repeat, the candidate set is stable, and a peer missed
- * this tick is dialled on the next.
- */
-const MAX_DIALS_PER_ROUND = 8
-
 /** The round in flight, so a second caller joins it instead of starting another. */
 let discoveryRound: Promise<{ asked: boolean; dialed: string[]; failed: string[] }> | null = null
 
@@ -164,40 +156,24 @@ async function runDiscoveryRound(): Promise<{ asked: boolean; dialed: string[]; 
   if (reserved.answered > 0) asked = true
   candidates.push(...reserved.addrs)
 
-  // The *last* `/p2p/` component, not a substring search. A circuit address is
-  // `<relayAddr>/p2p-circuit/webrtc/p2p/<target>`, and `relayAddr` ends in the
-  // relay's own peer id — so `address.includes(peer)` was true of every address
-  // for the relay this tab is already connected to, and every candidate was
-  // skipped. Nothing failed; nothing was attempted. Two devices sat on one relay
-  // and never heard of each other, which is exactly how this was found.
-  const targetOf = (address: string): string => {
-    const parts = address.split('/p2p/')
-    return parts[parts.length - 1] ?? ''
-  }
-
-  const self = n.peerId
-  const already = new Set(n.transport.peers)
+  // Every rule about *which* candidates are worth a dial — this tab's own entry, a
+  // peer already connected, one peer offered twice, and the budget that bounds the
+  // round's wall clock — lives in `planDials`, where a test can reach it without a
+  // relay and a real node. What is left here is the I/O.
   const dialed: string[] = []
   const failed: string[] = []
-  const tried = new Set<string>()
-  for (const address of candidates) {
-    const target = targetOf(address)
-    // Only the page knows which entry is its own; a directory publishes all of
-    // them because it has no way to tell who is asking.
-    if (target === '' || target === self) continue
-    if (already.has(target) || tried.has(target)) continue
-    tried.add(target)
+  for (const address of planDials({
+    candidates,
+    self: n.peerId,
+    connected: n.transport.peers,
+  })) {
     try {
       dialed.push(await n.dial(address))
-      already.add(target)
     } catch {
       // A peer whose reservation has lapsed, or that closed its tab between the
       // directory's answer and this dial. Expected, and not worth failing the round.
       failed.push(address)
     }
-    // Spent after the filters above, so the budget goes on dialable targets rather
-    // than on entries that were going to be skipped anyway.
-    if (dialed.length + failed.length >= MAX_DIALS_PER_ROUND) break
   }
   if (dialed.length > 0) notify()
   return { asked, dialed, failed }
