@@ -639,6 +639,7 @@ export const MUTATIONS: readonly Mutation[] = [
     find: 'provenance(worker)',
     replace: 'worker',
     caughtBy: ['packages/node/src/two-tabs.e2e.test.ts'],
+    project: 'e2e',
     signature: 'refuses a job whose record no tab pinned',
   },
   {
@@ -654,6 +655,7 @@ export const MUTATIONS: readonly Mutation[] = [
     find: 'options.trustAnchors ?? [KERNEL_TRUST_ANCHOR]',
     replace: '[]',
     caughtBy: ['packages/node/src/colouring-demo.e2e.test.ts'],
+    project: 'e2e',
     signature: 'runs every cube on two nodes and shows which two',
   },
 ]
