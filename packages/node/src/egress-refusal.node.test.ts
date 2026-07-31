@@ -191,11 +191,20 @@ beforeEach(async () => {
   workdir = await mkdtemp(join(tmpdir(), 'o2-refusal-'))
 })
 
+/**
+ * Inner 10 s, outer 20 s — and the order is the point.
+ *
+ * `stopAgent` gives a wedged process 10 s before SIGKILL. Vitest's default `hookTimeout`
+ * is also 10 s, so with no explicit budget the two clocks are armed for the same instant
+ * and the framework's fires first: the SIGKILL fallback can never run, and a wedged agent
+ * is reported as an anonymous hook timeout naming no step. A test arms two clocks and the
+ * framework's must be the larger.
+ */
 afterEach(async () => {
   await Promise.all(nodes.splice(0).map((n) => n.stop().catch(() => {})))
   await Promise.all(agents.splice(0).map((a) => stopAgent(a).catch(() => {})))
   await rm(workdir, { recursive: true, force: true })
-})
+}, 20_000)
 
 describe('DATA-05 — the refusal across two real bin/agent.ts processes', () => {
   it('fails a cross-owner job at the owner’s own process, leaves that process alive, and runs a control job through the same two processes afterwards', async () => {

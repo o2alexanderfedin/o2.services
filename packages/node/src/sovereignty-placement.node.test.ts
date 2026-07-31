@@ -151,11 +151,20 @@ beforeEach(async () => {
   workdir = await mkdtemp(join(tmpdir(), 'o2-sov-'))
 })
 
+/**
+ * Inner 10 s, outer 20 s — and the order is the point.
+ *
+ * `stopAgent` gives a wedged process 10 s before SIGKILL. Vitest's default `hookTimeout`
+ * is also 10 s, so with no explicit budget the two clocks are armed for the same instant
+ * and the framework's fires first: the SIGKILL fallback can never run, and a wedged agent
+ * is reported as an anonymous hook timeout naming no step. A test arms two clocks and the
+ * framework's must be the larger.
+ */
 afterEach(async () => {
   await Promise.all(nodes.splice(0).map((n) => n.stop().catch(() => {})))
   await Promise.all(agents.splice(0).map((a) => stopAgent(a).catch(() => {})))
   await rm(workdir, { recursive: true, force: true })
-})
+}, 20_000)
 
 describe('DATA-03/DATA-04 — sovereignty-pinned placement across real bin/agent.ts processes', () => {
   it('places a sovereign shard only on the owner’s process, never on an idle foreign process, under load pressure engineered to force relocation', async () => {
