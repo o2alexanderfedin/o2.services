@@ -40,7 +40,11 @@ const createWorker: WorkerFactory = () => {
 }
 
 function buildFull(): BrowserNodeOptions {
-  return { relayAddrs: [], createWorker }
+  // DET-03: this file's subject is `createWorker`'s requiredness, and it constructs no
+  // node at all — `buildFull` only has to type-check. Stated rather than defaulted for
+  // the reason `trustAnchors` is required at all: a reader counting this literal learns
+  // exactly which files do not exercise the signed path, and this is one of them.
+  return { relayAddrs: [], createWorker, trustAnchors: 'runs-unsigned-artifacts' }
 }
 
 const BROWSER_NODE = readFileSync(new URL('./browser-node.ts', import.meta.url), 'utf8')

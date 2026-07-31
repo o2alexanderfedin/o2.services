@@ -31,8 +31,14 @@ import { identify, identifyPush } from '@libp2p/identify'
 import { webRTC } from '@libp2p/webrtc'
 import { webSockets } from '@libp2p/websockets'
 import { multiaddr } from '@multiformats/multiaddr'
-import { DEFAULT_MAX_CONCURRENT_TASKS, LocalCapacity, guardSovereignty } from '@o2/core'
-import type { NodeSovereignty } from '@o2/core'
+import {
+  DEFAULT_MAX_CONCURRENT_TASKS,
+  LocalCapacity,
+  SignedNameResolver,
+  guardModuleProvenance,
+  guardSovereignty,
+} from '@o2/core'
+import type { Executor, NodeSovereignty, PublicKeyHex } from '@o2/core'
 import { Libp2pTransport } from '@o2/libp2p'
 import {
   CountingExecutor,
@@ -68,6 +74,55 @@ export interface BrowserNodeOptions {
    * second class".
    */
   readonly sovereignty?: NodeSovereignty
+  /**
+   * The build authorities this tab will run a module for — DET-03, DATA-08.
+   *
+   * **Mirrors `FabricNodeOptions.trustAnchors` exactly** (`packages/node/src/fabric-node.ts`),
+   * which carries the long form of this reasoning; the two docs are meant to be read
+   * together, the way the `sovereignty` docs on either side already are. Same type, same
+   * three admitted values, same requiredness — because a browser node is not a lesser
+   * node, and "the tab is only the demo" is precisely the reasoning that would put the
+   * hole here rather than in the Node tier.
+   *
+   * An anchor is the public half of a signing key, pinned in advance. A CID proves the
+   * bytes are the bytes that were hashed and says nothing about who meant them to run; a
+   * `NameRecord` signed by one of these keys says that, and `guardModuleProvenance`
+   * (`@o2/core`) refuses any task whose module did not arrive with one — before the
+   * module's bytes are fetched, let alone instantiated.
+   *
+   * **Required, with no `?` and no default.** `.planning/PROJECT.md`'s Key Decision —
+   * *an optional hook with a silent default is a hole* — and the same convention
+   * `createWorker` above adopted for the same reason. Whichever default were chosen here,
+   * a tab would get it without anyone deciding.
+   *
+   * Three values and what each admits:
+   *
+   * - **`[pub, …]`** — this tab runs a module exactly when a record signed by one of
+   *   these keys names its CID.
+   * - **`[]`** — this tab trusts nobody, and therefore refuses every module. That is the
+   *   safe reading of an empty set and it is deliberately **not** special-cased into
+   *   meaning something friendlier: a caller who wanted the escape hatch has a word for
+   *   it, and an empty array is not that word.
+   * - **`'runs-unsigned-artifacts'`** — no guard is composed at all and this tab reverts
+   *   to resolving bare CIDs, as every node did before this phase. Written down at the
+   *   call site rather than reached by omission precisely because it is the one value
+   *   that turns DET-03 off, and a value that turns a guarantee off must cost somebody a
+   *   decision.
+   *
+   * **The `TabApi` surface above this one is deliberately stricter and admits no
+   * opt-out at all** — `start` takes an optional anchor *list* that defaults to the
+   * demo's own committed authority, and `runJob` requires a record. There is no value a
+   * page or a harness can pass through `window.o2` that yields a tab resolving bare
+   * CIDs. The escape hatch belongs to whoever constructs a node in TypeScript and has
+   * written down that they want one; it is not part of the tab's contract. See
+   * `tab-api.ts`.
+   *
+   * Per-node **configuration**, not a node kind. Every `BrowserNode` has the identical
+   * executor, transport and relay-reservation behaviour whatever is passed here —
+   * exactly as `sovereignty` does — and nothing anywhere branches on what kind of node
+   * something is.
+   */
+  readonly trustAnchors: readonly PublicKeyHex[] | 'runs-unsigned-artifacts'
   /** IndexedDB database name. Distinct names give one origin several independent nodes. */
   readonly blockstoreName?: string
   readonly rpcTimeoutMs?: number
@@ -348,6 +403,22 @@ export class BrowserNode {
     // Resolved once, here, so the identical value feeds both `egress`'s ownerId
     // and `guardSovereignty`'s clearance check below — mirrors `fabric-node.ts`.
     const sovereignty = options.sovereignty ?? { ownerId: '', canExecuteSovereign: false }
+    // DET-03/DATA-08: resolved once, here, beside where `sovereignty` is resolved once
+    // and for the identical stated reason — two independently defaulted copies could
+    // drift. Mirrors `fabric-node.ts`, which builds the same wrapper from the same
+    // option; the placement argument is below, at the composition.
+    const anchors = options.trustAnchors
+    const provenance =
+      anchors === 'runs-unsigned-artifacts'
+        ? (inner: Executor): Executor => inner
+        : (inner: Executor): Executor =>
+            guardModuleProvenance(inner, {
+              resolver: new SignedNameResolver(anchors),
+              // A thunk, never a captured number — see `ModuleProvenance.now`. A tab that
+              // read the clock here would keep running an expired record for as long as
+              // it stayed open, which for a tab is potentially days.
+              now: () => Date.now(),
+            })
     // DATA-05/DATA-06: every outbound RPC frame is recorded by construction —
     // `rpc` is built over this guard, not over the raw `transport`, below.
     const egress = new EgressGuard(transport, sovereignty.ownerId)
@@ -410,7 +481,29 @@ export class BrowserNode {
     // outside the governor would count tasks *parked on its serialization chain* as
     // in flight, which is precisely not what "how many tasks is this tab running at
     // once" means. Inside, it counts tasks actually running.
-    const counter = new CountingExecutor(guardSovereignty(worker, sovereignty))
+    //
+    // DET-03/DATA-08: `provenance` is the **innermost** layer, with nothing between it
+    // and the executor that reaches `WebAssembly.instantiate`. That is what makes
+    // "refused before instantiation" true by construction rather than by inspecting
+    // whatever happens to be layered above it this month — the same argument
+    // `fabric-node.ts` gives at its own composition, and the same ordering.
+    //
+    // Sovereignty stays **outside** it, also mirroring `fabric-node.ts`: a tab that may
+    // not decrypt an owner's data should say *that*, whatever module was named. The
+    // clearance answer is about this node; the provenance answer is about the
+    // dispatcher's record and would bury it.
+    //
+    // **It wraps `worker`, and `worker` is the only arm there is.** 14-04's plan
+    // described this line as `worker ?? new WasmExecutor({nodeId, blockstore})` and
+    // instructed that the guard wrap the `??` as a whole so neither arm escaped. That
+    // expression no longer exists: `createWorker` became required and the main-thread
+    // fallback was deleted outright (see `BrowserNodeOptions.createWorker`), so there is
+    // exactly one executor here and it is the one that resolves. The instruction's
+    // *point* — guard the executor that reaches instantiation rather than something
+    // sitting near it — is what this line satisfies; there is no second arm left to
+    // miss. Were a fallback ever reintroduced, the guard would have to move to the whole
+    // expression rather than to one branch of it.
+    const counter = new CountingExecutor(guardSovereignty(provenance(worker), sovereignty))
     const executor = new GovernedExecutor(counter, governor)
     // SCHED-06 — this tab's own admission control, handed to `serveAgent` below.
     //

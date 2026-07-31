@@ -138,6 +138,18 @@ async function measuringLeaks<T>(body: () => Promise<T>): Promise<{ result: T; l
   }
 }
 
+/**
+ * DET-03, stated once for all five construction sites below.
+ *
+ * The exact twin of `start-unwind.node.test.ts`'s `UNWIND_ANCHORS`, and for the same
+ * reason: this file's subject is which listeners and connections survive a rejected
+ * start. No node here ever executes a task — most never finish starting — so provenance
+ * decides nothing. Stated rather than defaulted, which is the whole point of
+ * `trustAnchors` being required: a reader counting this literal learns which tests do
+ * not exercise the signed path. Named once so five sites cannot drift apart.
+ */
+const UNWIND_ANCHORS = 'runs-unsigned-artifacts' as const
+
 /** Start, and hand back whatever came out — the node or the reason there is none. */
 async function attempt(
   options: Omit<Parameters<typeof BrowserNode.start>[0], 'createWorker'>,
@@ -155,7 +167,7 @@ describe('the probes read both states, so an absence below means something', () 
   it('reads a running node as holding a connection, a heartbeat and a listener — and a stopped one as holding none', async () => {
     const name = `o2-unwind-live-${seq++}`
     const readings = await measuringLeaks(async () => {
-      const node = await BrowserNode.start({ relayAddrs: [], createWorker, blockstoreName: name })
+      const node = await BrowserNode.start({ relayAddrs: [], createWorker, blockstoreName: name, trustAnchors: UNWIND_ANCHORS })
       started.push(node)
       const whileUp = {
         blocked: await deleteIsBlocked(name),
@@ -180,7 +192,7 @@ describe('the probes read both states, so an absence below means something', () 
     // was taken" — the probe would agree with a `#compose` that never ran.
     const name = `o2-unwind-leaky-${seq++}`
     const { result: node, leaks } = await measuringLeaks(async () => {
-      const live = await BrowserNode.start({ relayAddrs: [], createWorker, blockstoreName: name })
+      const live = await BrowserNode.start({ relayAddrs: [], createWorker, blockstoreName: name, trustAnchors: UNWIND_ANCHORS })
       started.push(live)
       return live
     })
@@ -198,7 +210,7 @@ describe('a rejected start leaves nothing behind', () => {
     const name = `o2-unwind-dial-${seq++}`
     const { result: failure, leaks } = await measuringLeaks(
       async () =>
-        await attempt({ relayAddrs: [UNREACHABLE_RELAY], blockstoreName: name, allowPrivateAddrs: true }),
+        await attempt({ relayAddrs: [UNREACHABLE_RELAY], blockstoreName: name, allowPrivateAddrs: true, trustAnchors: UNWIND_ANCHORS }),
     )
 
     // Not `toBeInstanceOf(Error)`: measured in all three engines, a WebSocket dial to a
@@ -223,6 +235,7 @@ describe('a rejected start leaves nothing behind', () => {
           relayAddrs: [UNREACHABLE_RELAY],
           blockstoreName: name,
           allowPrivateAddrs: true,
+          trustAnchors: UNWIND_ANCHORS,
         })
         expect(outcome).not.toBeInstanceOf(BrowserNode)
       }
@@ -240,7 +253,7 @@ describe('a rejected start leaves nothing behind', () => {
     // the newest of the three and is therefore the first thing a broken unwind drops.
     const name = `o2-unwind-late-${seq++}`
     const { result: failure, leaks } = await measuringLeaks(
-      async () => await attempt({ relayAddrs: [], blockstoreName: name, maxConcurrentTasks: 0 }),
+      async () => await attempt({ relayAddrs: [], blockstoreName: name, maxConcurrentTasks: 0, trustAnchors: UNWIND_ANCHORS }),
     )
 
     // The caller is told what it asked about. An unwind that replaced this with its own
