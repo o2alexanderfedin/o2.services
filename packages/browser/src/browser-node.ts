@@ -6,7 +6,7 @@
  *
  *   `Transport`  → libp2p over WebRTC, signalled through a Circuit Relay v2 peer
  *   `Blockstore` → IndexedDB, wrapped in network fallback
- *   `Executor`   → the kernel's `WasmExecutor`, unchanged
+ *   `Executor`   → the kernel's `WasmExecutor`, on a thread this tab can kill
  *
  * ## Why the transport list looks like this
  *
@@ -31,12 +31,7 @@ import { identify, identifyPush } from '@libp2p/identify'
 import { webRTC } from '@libp2p/webrtc'
 import { webSockets } from '@libp2p/websockets'
 import { multiaddr } from '@multiformats/multiaddr'
-import {
-  DEFAULT_MAX_CONCURRENT_TASKS,
-  LocalCapacity,
-  WasmExecutor,
-  guardSovereignty,
-} from '@o2/core'
+import { DEFAULT_MAX_CONCURRENT_TASKS, LocalCapacity, guardSovereignty } from '@o2/core'
 import type { NodeSovereignty } from '@o2/core'
 import { Libp2pTransport } from '@o2/libp2p'
 import {
@@ -114,15 +109,25 @@ export interface BrowserNodeOptions {
    */
   readonly allowPrivateAddrs?: boolean
   /**
-   * Builds the Worker that tasks execute on — BROW-04.
+   * Builds the Worker that tasks execute on — BROW-04, SCHED-06.
    *
-   * Supplied rather than defaulted, because the `?worker` import that builds one
-   * is Vite syntax and this class is also constructed by tests that have no
-   * bundler. Omitting it is not a hidden downgrade: execution falls back to the
-   * main thread and {@link BrowserNode.offMainThread} says so, so a page that
-   * needs a stoppable node can assert the property rather than assume it.
+   * Required, and injected rather than defaulted. Those are two separate facts and
+   * only the second follows from the bundler: `?worker` is Vite syntax
+   * (`worker-factory.ts`), so the *spelling* of a thread belongs to whatever bundles
+   * the page. *Having* one is not the page's choice. A guest `run()` is a synchronous
+   * call, so on this tab's main thread the wall-clock deadline cannot fire — the timer
+   * is queued on the loop the guest is holding — and there is no thread to terminate.
+   * The bound is not weaker there, it is absent, and a 52-byte `loop br 0` from any
+   * peer wedged the tab permanently, `stop()` included.
+   *
+   * This was optional until SCHED-06, justified by "tests that have no bundler". No
+   * such test was ever written: `BrowserNode.start` needs a real `indexedDB` and a
+   * relay to dial, so `demo/main.ts` is the only construction site there has ever
+   * been — and it already passed a factory. The escape hatch was cut for a caller that
+   * does not exist, and it was the only thing between an untrusted peer's module and
+   * this tab's main thread.
    */
-  readonly createWorker?: WorkerFactory
+  readonly createWorker: WorkerFactory
   /**
    * How long one task may hold this tab's thread before it is killed — SCHED-06.
    *
@@ -171,14 +176,15 @@ export class BrowserNode {
   /** The instrument {@link executorPeakInFlight} reads. */
   readonly #counter: CountingExecutor
   /**
-   * The thread tasks run on, when there is one.
+   * The thread tasks run on.
    *
-   * Null means execution is on the main thread, which is a materially different
-   * node: a task in flight cannot then be interrupted, so `stop()` means "stop
-   * taking work" rather than "stop working". Exposed so the difference is
-   * checkable instead of assumed — see `offMainThread`.
+   * Never absent — {@link BrowserNodeOptions.createWorker} is required, so "a tab
+   * computing with nothing able to interrupt it" has no spelling. Same move
+   * `EgressHold` made against "release a hold you never took". `stop()` kills this,
+   * which is what makes "one click drops CPU to zero" a property of the platform
+   * rather than of this code behaving.
    */
-  readonly worker: WorkerExecutor | null
+  readonly worker: WorkerExecutor
   /**
    * Peers whose work this node has run, and how much of it — BROW-04.
    *
@@ -222,7 +228,7 @@ export class BrowserNode {
     store: IdbBlockstore
     executor: GovernedExecutor
     governor: VisibilityGovernor
-    worker: WorkerExecutor | null
+    worker: WorkerExecutor
     admission: LocalCapacity
     counter: CountingExecutor
   }) {
@@ -262,11 +268,17 @@ export class BrowserNode {
   /**
    * Whether compute happens off the main thread — BROW-04.
    *
-   * Only then does stopping drop CPU to zero at the moment of the click rather
-   * than at the end of whatever was already running.
+   * **A constant since SCHED-06 made `createWorker` required, and therefore not a
+   * measurement.** It reads `true` because no construction can make it `false`, not
+   * because anything was checked: the property it used to report is now carried by the
+   * type, which is a stronger guarantee and a worse instrument. It survives only
+   * because `TabActivity.offMainThread` (`tab-api.ts`), the demo bar
+   * (`demo/index.html`) and two e2e assertions in `packages/node/src` still read it.
+   * Deleting all five together is the follow-up. Until then this comment is the honest
+   * report, and nothing may cite this getter as evidence.
    */
   get offMainThread(): boolean {
-    return this.worker !== null
+    return true
   }
 
   /**
@@ -282,11 +294,22 @@ export class BrowserNode {
    * hand-written catch after the node gets it wrong. Releases run newest-first, so
    * acquisition order is the only order anybody has to think about.
    *
-   * **Unmeasured on this factory, and that is the honest report.** `BrowserNode.start`
-   * needs a real `indexedDB` and a relay to dial, so it runs in neither vitest
-   * project; the pattern is proved on `FabricNode`
-   * (`packages/node/src/start-unwind.node.test.ts`) and only *composed* here. A grep
-   * confirming these lines exist does not stand in for running them.
+   * **Measured on this factory, in Chromium, Firefox and WebKit** —
+   * `start-unwind.browser.test.ts`. It stood unmeasured for two milestones behind
+   * "needs a real `indexedDB` and a relay to dial", which was true of the Node project
+   * and never of the browser one: the `browser` project has a real `indexedDB`, and an
+   * undialable relay address is a failure that costs nothing to arrange. What the
+   * three cases read is the *effect* of the unwind rather than the rejection — an
+   * `indexedDB.deleteDatabase` that is not blocked (the store was closed) and no
+   * surviving `ConnectionMonitor` heartbeat (libp2p was stopped), both from outside,
+   * because a rejected `start` hands its caller no object to interrogate. Asserting
+   * only that `start` rejects would pass just as happily with this whole `catch`
+   * deleted.
+   *
+   * Running it against that deletion is how the numbers above stopped being a claim:
+   * three failed attempts left three live libp2p nodes and a blocked delete, in all
+   * three engines. The `visibilitychange` release below was found the same way, and
+   * did not exist until it was.
    */
   static async start(options: BrowserNodeOptions): Promise<BrowserNode> {
     const undo: (() => Promise<void> | void)[] = []
@@ -358,19 +381,24 @@ export class BrowserNode {
         ? {}
         : { backgroundDutyCycle: options.backgroundDutyCycle },
     )
+    // BROW-02: the third acquisition, and the one that survives its own node. The
+    // governor's constructor takes a `visibilitychange` listener on the *document* —
+    // a resource that outlives every object this factory built, because the page does.
+    // A `start` that failed after this line therefore left a listener nobody had a
+    // handle to remove, and `demo/main.ts` lets a visitor press Start again after a
+    // failure, so they accumulate one per attempt. Measured in Chromium, Firefox and
+    // WebKit before this line existed — `start-unwind.browser.test.ts`, which reads it
+    // from `document` rather than from the node.
+    undo.push(() => governor.stop())
     const nodeId = libp2p.peerId.toString()
-    // BROW-04: when a Worker factory is available, tasks run on a thread that can
-    // be killed. Without one the kernel executor runs inline, which is correct for
-    // tests and is reported honestly rather than silently.
-    const worker =
-      options.createWorker === undefined
-        ? null
-        : browserWorkerExecutor({
-            nodeId,
-            blockstore,
-            createWorker: options.createWorker,
-            ...(options.taskDeadlineMs === undefined ? {} : { deadlineMs: options.taskDeadlineMs }),
-          })
+    // BROW-04, SCHED-06: tasks run on a thread this tab can kill, unconditionally.
+    // There is no other arrangement — see `BrowserNodeOptions.createWorker`.
+    const worker = browserWorkerExecutor({
+      nodeId,
+      blockstore,
+      createWorker: options.createWorker,
+      ...(options.taskDeadlineMs === undefined ? {} : { deadlineMs: options.taskDeadlineMs }),
+    })
     // DATA-09: guarded unconditionally, with no opt-in required to get the
     // refusal — `options.sovereignty` defaults to cleared-for-nobody (see
     // `BrowserNodeOptions.sovereignty`'s doc). Wrapped *inside* the governor
@@ -398,9 +426,7 @@ export class BrowserNode {
     // outside the governor would count tasks *parked on its serialization chain* as
     // in flight, which is precisely not what "how many tasks is this tab running at
     // once" means. Inside, it counts tasks actually running.
-    const counter = new CountingExecutor(
-      guardSovereignty(worker ?? new WasmExecutor({ nodeId, blockstore }), sovereignty),
-    )
+    const counter = new CountingExecutor(guardSovereignty(worker, sovereignty))
     const executor = new GovernedExecutor(counter, governor)
     // SCHED-06 — this tab's own admission control, handed to `serveAgent` below.
     //
@@ -452,13 +478,17 @@ export class BrowserNode {
       // *an over-committed node just says no, and the requestor resamples*; only
       // the half that resamples had shipped.
       //
-      // **Unmeasured on this factory, and that is the honest report.**
-      // `BrowserNode.start` needs a real `indexedDB` and a relay to dial, so it runs
-      // in neither vitest project; the behaviour is proved on `FabricNode`
-      // (`packages/node/src/admission.node.test.ts`) and only *composed* here. A
-      // grep confirming this line does not stand in for running it — that is exactly
-      // the substitution 13-VERIFICATION-2.md recorded the cost of. WIRE-03,
-      // Phase 19 builds the harness that would measure it.
+      // **Unmeasured on this factory, and that is the honest report.** The reason is
+      // no longer the one that stood here — "needs a real `indexedDB` and a relay to
+      // dial, so it runs in neither vitest project" was retired by
+      // `start-unwind.browser.test.ts`, which starts this factory to success in three
+      // engines. What is missing now is narrower and is the whole of it: nothing
+      // drives a *refusal* through this hook, so the number this node would answer
+      // an over-committed requestor with has never been read. The behaviour is proved
+      // on `FabricNode` (`packages/node/src/admission.node.test.ts`) and only
+      // *composed* here. A grep confirming this line does not stand in for running it
+      // — that is exactly the substitution 13-VERIFICATION-2.md recorded the cost of.
+      // WIRE-03, Phase 19 builds the harness that would measure it.
       capacity: admission,
       ledger: 'keeps-no-ledger',
       reservations: 'relays-for-nobody',
@@ -505,7 +535,7 @@ export class BrowserNode {
    * the worst of both and exactly what a visitor pressing Stop does not want.
    */
   async stop(): Promise<void> {
-    this.worker?.terminate()
+    this.worker.terminate()
     this.rpc.close()
     await this.transport.stop()
     await this.libp2p.stop()
