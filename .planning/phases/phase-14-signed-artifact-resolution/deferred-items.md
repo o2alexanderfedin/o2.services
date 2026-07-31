@@ -74,3 +74,52 @@ update the hand-picked `[ ]` example that had been chosen to be an open row.
 to `true`, or pick a different id that is genuinely still open, which is the better fix
 because the case's stated purpose is to spot-check *one of each state*. That belongs to
 whoever owns the ledger's verification pass, not to a wiring plan.
+
+*Resolved before Plan 14-04 ran.* Base commit `04c2b22` contains `9e721e4 fix(test): a
+requirement's state is not a fixture`, and this file's 40 tests pass on it. Left here as
+the record of what the entry was for.
+
+## `packages/node/src/transport-bounds.node.test.ts` — a retained-bytes bound that reads the host, not only the code
+
+**Found during:** Plan 14-04, final `--project node` sweep.
+
+**Symptom.**
+
+```
+FAIL  |node| packages/node/src/transport-bounds.node.test.ts
+      > NET-08 — one peer cannot hold an unbounded accumulation across many streams
+      > keeps retained bytes near its budget rather than near what the peer offered
+AssertionError: expected 49837224 to be less than 41943040
+ ❯ packages/node/src/transport-bounds.node.test.ts:506:22
+```
+
+**Measured, not assumed.** Four runs of this file, with the load average taken at each:
+
+| Host load (8 cores) | Result |
+|---|---|
+| 8.72 → in the full sweep at 16:01:47, all of this plan's work already committed | **16 passed** |
+| 12.37 | 1 failed — 49 837 224 retained against a 41 943 040 bound |
+| ~12 (immediately after) | 1 failed |
+| 7.70 | **16 passed** |
+| 10.70 — the whole `--project node` sweep, 86 files | **1280 passed, 0 failed** |
+
+So it is intermittent rather than broken: the final full-project run, on the same tree,
+passed it. Recorded anyway, because a bound that reads the host is worth knowing about
+before it fails in someone else's phase and is mistaken for a regression.
+
+**Why it is not this plan's.** The file imports `@o2/libp2p`, `SendRefused` from
+`@o2/core`, and `RpcEndpoint`/`RpcFailure` from `@o2/net`. This plan modifies **no file in
+any of those three packages** — its nine changed files are six under `packages/browser/`
+and three `packages/node/src/*.test.ts`. There is no path from any of them to a libp2p
+stream's retention. The decisive reading is the first row: the identical committed tree
+passed this test 60 seconds before it failed, and the only commit in between
+(`4265600`) changes a comment.
+
+The case forces GC through `setFlagsFromString`/`runInNewContext` and then asserts an
+absolute byte bound. Under a host running a parallel executor with three browser engines,
+collection does not complete inside the window the assertion samples.
+
+**What would fix it, if anyone wants to.** Read the bound as a ratio against what the
+peer offered — the test already has that number, and the line below the failure asserts
+on it — rather than as an absolute byte count. That makes the reading independent of how
+much headroom the collector happened to get. Out of scope here.
