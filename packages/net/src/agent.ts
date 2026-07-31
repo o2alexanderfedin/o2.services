@@ -231,7 +231,7 @@ function refusedReason(
 export function serveAgent(options: AgentOptions): void {
   const { rpc, executor, blockstore } = options
 
-  rpc.serve(async (from, body): Promise<CanonicalValue | RpcReply> => {
+  const answer = async (from: string, body: CanonicalValue): Promise<CanonicalValue | RpcReply> => {
     const request = parseRequest(body)
     if (request === null) {
       return encodeResponse({ kind: 'error', reason: 'malformed request' })
@@ -458,5 +458,36 @@ export function serveAgent(options: AgentOptions): void {
       return hold === null ? body : { body, afterSent: () => hold.release() }
     }
     return encodeResponse(response)
+  }
+
+  // A serving fault is this node's condition, not a statement about the fabric.
+  // Uncaught it reaches `rpc.ts`'s handler catch, which replies `{error: …}` — a
+  // shape with no `kind`, so `parseResponse` returns null and a node that
+  // physically cannot read the block says the same thing as one that simply does
+  // not have it. Caught here rather than per branch because the bug is an
+  // omission: a branch added later inherits the treatment instead of having to
+  // remember it.
+  //
+  // Two things this deliberately does not do. It does not merge with the exec
+  // branch's own catch — that one produces a *task* condition with the slot
+  // released, this one a *node* condition, and the two want opposite retry
+  // policies. And it leaves `RpcBlockSource` treating any non-`block` reply as a
+  // miss, so one broken peer still cannot deny a multi-peer fetch.
+  //
+  // What stays open, so it is not rediscovered as new: a throw after
+  // `takeSovereignHold` succeeds still leaks the hold, exactly as it did before
+  // this catch existed, because the release lives only in the returned
+  // `afterSent`. And the catch is broad — a programming error in here now leaves
+  // by the wire, to an unauthenticated requestor, and this pure module has no
+  // logger to say so anywhere else.
+  rpc.serve(async (from, body) => {
+    try {
+      return await answer(from, body)
+    } catch (cause) {
+      return encodeResponse({
+        kind: 'error',
+        reason: `serving failed on ${executor.nodeId}: ${cause instanceof Error ? cause.message : String(cause)}`,
+      })
+    }
   })
 }
