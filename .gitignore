@@ -47,3 +47,10 @@ tools/aot/fixtures/lifted-*.wasm
 tools/aot/fixtures/subject-native
 tools/aot/fixtures/workload-native
 tools/aot/fixtures/workload-linux
+
+# Agent worktrees. `isolation="worktree"` checks a second copy of the whole repository
+# out under here, so an untracked `.claude/` shows up in every `git status` and one
+# `git add -A` would commit a duplicate tree. Only `worktrees/` is ignored — if project
+# skills or agent definitions are ever added under `.claude/`, they are meant to be
+# committed.
+.claude/worktrees/
