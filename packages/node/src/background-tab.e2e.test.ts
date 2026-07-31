@@ -67,7 +67,18 @@ async function openPage(name: string): Promise<Page> {
 }
 
 beforeAll(async () => {
-  relay = await FabricNode.start({ maxReservations: 16, listen: ['/ip4/127.0.0.1/tcp/0/ws'] })
+  // DET-03: this node's subject is relaying, not provenance, and nothing dispatches to
+  // it — it carries the tabs' handshake and executes nothing. Saying so out loud is the
+  // whole benefit of `trustAnchors` being required: a reader counting this literal
+  // learns exactly which tests do not exercise the signed path. No job here carries a
+  // `moduleRecord` either, because a node running with the opt-out has no guard to
+  // satisfy and a record would be decoration the next reader would mistake for a
+  // requirement.
+  relay = await FabricNode.start({
+    maxReservations: 16,
+    listen: ['/ip4/127.0.0.1/tcp/0/ws'],
+    trustAnchors: 'runs-unsigned-artifacts',
+  })
   const address = relay.browserDialableAddrs[0]
   if (address === undefined) throw new Error('relay produced no browser-dialable address')
   relayAddr = address

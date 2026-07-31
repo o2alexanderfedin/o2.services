@@ -5,14 +5,38 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { publicNodes, submitJob } from '@o2/core'
-import type { CanonicalValue } from '@o2/core'
+import { ed25519 } from '@noble/curves/ed25519.js'
+import { publicNodes, signName, submitJob, toHex } from '@o2/core'
+import type { CanonicalValue, NameRecord } from '@o2/core'
 import { RemoteExecutor } from '@o2/net'
+import type { CID } from 'multiformats/cid'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 // Test-only relative import — see the note in packages/net/src/distributed.test.ts.
 import { MODULE_WRITES_PARTITION } from '../../core/src/executor/fixtures.ts'
 import { FabricNode } from './fabric-node.ts'
 import { FsBlockstore } from './fs-blockstore.ts'
+
+/**
+ * DET-03 is not this file's subject — the transport and the process boundary are. The
+ * record exists so this file's real subject can still be reached: every executor below
+ * is a `RemoteExecutor` aimed at a spawned `bin/agent.ts`, and that binary pins the
+ * demo's anchor by default, so an unsigned job would have every dispatch here refused.
+ * The agents are spawned with this key instead and the jobs carry a matching record.
+ */
+const publisher = (() => {
+  // Seed 51 — distinct from every other fixture key in the repository.
+  const priv = new Uint8Array(32).fill(51)
+  return { priv, pub: toHex(ed25519.getPublicKey(priv)) }
+})()
+
+function recordFor(moduleCid: CID): NameRecord {
+  return signName(publisher.priv, {
+    name: 'two-process-fixture',
+    cid: moduleCid,
+    version: 1,
+    expiresAt: Date.now() + 3_600_000,
+  })
+}
 
 /**
  * NET-01 — the job crosses an operating-system process boundary.
@@ -44,11 +68,15 @@ const agents: Agent[] = []
 const nodes: FabricNode[] = []
 
 /** Spawn an agent process and wait for its one-line address handshake. */
-async function spawnAgent(name: string): Promise<Agent> {
+async function spawnAgent(name: string, extraArgs: readonly string[] = []): Promise<Agent> {
   const dir = join(workdir, name)
-  const child: AgentProcess = spawn(process.execPath, [AGENT, '--dir', dir], {
-    stdio: ['ignore', 'pipe', 'pipe'],
-  })
+  const child: AgentProcess = spawn(
+    process.execPath,
+    [AGENT, '--dir', dir, '--trust-anchor', publisher.pub, ...extraArgs],
+    {
+      stdio: ['ignore', 'pipe', 'pipe'],
+    },
+  )
 
   const handshake = await new Promise<{ peerId: string; multiaddrs: string[] }>((resolve, reject) => {
     const timer = setTimeout(() => reject(new Error(`agent ${name} did not announce in time: ${stderr}`)), 30_000)
@@ -84,6 +112,11 @@ async function startSubmitter(): Promise<FabricNode> {
     blockstoreDir: join(workdir, 'submitter'),
     listen: ['/ip4/127.0.0.1/tcp/0'],
     rpcTimeoutMs: 30_000,
+    // The same value the spawned agents get, rather than the opt-out: a submitter
+    // declaring a different authority from the nodes it dispatches to would be a lie
+    // in a file nobody would re-read. Nothing executes on this node — every executor
+    // here is remote — so this states an intent rather than gating anything.
+    trustAnchors: [publisher.pub],
   })
   nodes.push(node)
   return node
@@ -142,6 +175,7 @@ describe('NET-01 — a job across OS processes', () => {
     const result = await submitJob(
       {
         moduleCid,
+        moduleRecord: recordFor(moduleCid),
         shards: [{ a: 0 }, { a: 1 }, { a: 2 }, { a: 3 }].map((value) => ({ value, label: 'public' as const })),
         executors,
         nodes: publicNodes(executors),
@@ -177,6 +211,7 @@ describe('NET-01 — a job across OS processes', () => {
     const result = await submitJob(
       {
         moduleCid,
+        moduleRecord: recordFor(moduleCid),
         shards: [{ a: 0 }, { a: 1 }].map((value) => ({ value, label: 'public' as const })),
         executors,
         nodes: publicNodes(executors),
@@ -219,6 +254,7 @@ describe('NET-01 — a job across OS processes', () => {
     const result = await submitJob(
       {
         moduleCid,
+        moduleRecord: recordFor(moduleCid),
         shards: [{ value: { a: 0 }, label: 'public' }],
         executors,
         nodes: publicNodes(executors),

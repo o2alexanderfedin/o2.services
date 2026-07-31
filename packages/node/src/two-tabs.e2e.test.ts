@@ -86,6 +86,9 @@ beforeAll(async () => {
     // Comfortably above the two tabs, so a refusal cannot be mistaken for a bug.
     maxReservations: 16,
     listen: ['/ip4/127.0.0.1/tcp/0/ws'],
+    // DET-03: relays, executes nothing — the subject is two tabs reaching each other.
+    // See `background-tab.e2e.test.ts` for the full note.
+    trustAnchors: 'runs-unsigned-artifacts',
   })
   const address = relay.browserDialableAddrs[0]
   if (address === undefined) throw new Error('relay produced no browser-dialable address')

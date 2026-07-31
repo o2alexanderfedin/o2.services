@@ -19,6 +19,7 @@
     "@libp2p/websockets": "10.1.17",
     "@multiformats/multiaddr": "13.0.3",
     "@o2/core": "*",
+    "@o2/demo": "*",
     "@o2/libp2p": "*",
     "@o2/net": "*",
     "libp2p": "3.3.6",

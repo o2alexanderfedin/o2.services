@@ -152,6 +152,41 @@ const REQUIREMENTS: readonly CallSiteRequirement[] = [
       '    `- Declared run configuration: **${SHARDS} shards** per job, and every node in both rigs' +
       ' admitting at **${DECLARED_ADMISSION_LIMIT}**`,\n',
   },
+  {
+    name: 'the benchmark holds its own signing key and signs a record per rig',
+    patterns: [/const\s+BENCH_SIGNING_SEED\s*=\s*new\s+Uint8Array\(32\)\.fill\(/, /\bsignName\s*\(/],
+    reason:
+      'DET-03 put a signature check on every production dispatch, so a rig that dispatches without ' +
+      'a record measures the path this fabric had before the phase while claiming to measure the one ' +
+      'it has now — and the published figures would exclude a per-dispatch cost every real node pays. ' +
+      'Both halves are required: a key declared and never used signs nothing, and a signName call with ' +
+      'no constant seed makes the run irreproducible.',
+    satisfying:
+      'const BENCH_SIGNING_SEED = new Uint8Array(32).fill(0x2b)\n' +
+      '  const moduleRecord = signName(BENCH_SIGNING_SEED, { name: BENCH_MODULE_NAME, cid: moduleCid })\n',
+  },
+  {
+    name: 'every rig wraps its executor and every rig’s spec carries the record',
+    patterns: [
+      /\bguardModuleProvenance\s*\(/,
+      /new\s+SignedNameResolver\s*\(/,
+      /\bmoduleRecord\s*:/,
+      /\btrustAnchors\s*:\s*\[/,
+    ],
+    reason:
+      'A guard constructed and not passed, or a record signed and not attached, is the half-satisfied ' +
+      'shape mutation 4 in this file already walked through once — it type-checks, it runs, and it ' +
+      'measures the wrong thing silently. Four halves, one per leg: guardModuleProvenance and ' +
+      'SignedNameResolver are how memoryFabric and wasmInProcess wrap their raw WasmExecutors, ' +
+      'trustAnchors is how realFabric asks FabricNode.start for the same guard, and moduleRecord is ' +
+      'what makes the dispatched task satisfiable by any of them. Drop the last and every rig refuses ' +
+      'every shard; drop any of the first three and that rig alone is measuring the pre-phase path.',
+    satisfying:
+      '  const provenance = (inner: Executor, anchor: string): Executor =>\n' +
+      '    guardModuleProvenance(inner, { resolver: new SignedNameResolver([anchor]), now: () => Date.now() })\n' +
+      '        trustAnchors: [BENCH_TRUST_ANCHOR],\n' +
+      '        moduleRecord: fabric.moduleRecord,\n',
+  },
 ]
 
 /**
@@ -168,7 +203,7 @@ function unmetRequirements(source: string): string[] {
   )
 }
 
-/** Every fragment except `omit`, joined — a source satisfying three of the four. */
+/** Every fragment except `omit`, joined — a source satisfying five of the six. */
 function plantedSource(omit: string): string {
   return REQUIREMENTS.filter(({ name }) => name !== omit)
     .map(({ satisfying }) => satisfying)
@@ -198,9 +233,14 @@ describe('bin/bench.ts still routes its jobs through the submitting node’s tap
 describe('the scan can report an unmet requirement — proved by planting, not assumed', () => {
   for (const { name } of REQUIREMENTS) {
     it(`reports exactly "${name}" when only that call site is gone`, () => {
-      // `toEqual` rather than `toContain` on purpose: it asserts the other three are
+      // `toEqual` rather than `toContain` on purpose: it asserts the other five are
       // still satisfied by the same source, so one planted case doubles as the
       // control for the rest.
+      //
+      // Exactly one fragment is omitted per case, so what this buys is each entry
+      // shown reported unmet **on its own**. There is deliberately no source omitting
+      // two at once: the one-at-a-time reading is the stronger one, because `toEqual`
+      // makes every other entry the control for the omitted one.
       expect(unmetRequirements(plantedSource(name))).toEqual([name])
     })
   }
