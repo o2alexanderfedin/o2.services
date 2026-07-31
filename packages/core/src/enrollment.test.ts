@@ -156,14 +156,35 @@ describe('AUTH-04 — a certificate names the user who consented to it', () => {
   })
 
   it('cannot be handed a user key through its fields at all', () => {
+    const auth = authority()
     const node = keypair(82)
-    requestEnrollment(node.priv, alice.priv, {
+    const request = requestEnrollment(node.priv, alice.priv, {
       operatorId: 'alice-op',
       discoverability: 'seed',
       relayIds: [],
       // @ts-expect-error userKey is derived from the private key, never supplied
       userKey: rogue.pub,
     })
+
+    // Two layers, failing for different reasons and both worth having. The
+    // `@ts-expect-error` above is the compile-time half — it goes red if the field
+    // ever becomes assignable. Everything below is the runtime half: naming a
+    // stranger has to be *inert*, not merely unspellable, because a caller reaching
+    // this from untyped JS can spell anything.
+    expect(request.userKey).toBe(alice.pub)
+    expect(request.userKey).not.toBe(rogue.pub)
+
+    const result = auth.enrol(request, NOW)
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.certificate.userKey).toBe(alice.pub)
+    expect(result.certificate.userKey).not.toBe(rogue.pub)
+
+    // And the limiter keys on that same field, so a honoured `userKey` would not
+    // just mislabel the certificate — it would spend the named stranger's window.
+    // The count that moved is the signer's.
+    expect(auth.issuedWithin(alice.pub, NOW)).toBe(1)
+    expect(auth.issuedWithin(rogue.pub, NOW)).toBe(0)
   })
 })
 
@@ -171,6 +192,10 @@ describe('AUTH-02 — verification is offline', () => {
   it('verifies against a pinned provider key with no authority call', () => {
     const auth = authority()
     const { result } = enrol(auth, 4)
+    // Asserted rather than merely guarded, here and below. A bare `if (!result.ok)
+    // return` turns an issuer that stopped issuing into a green test that ran no
+    // assertion at all — the whole body is skipped and nothing says so.
+    expect(result.ok).toBe(true)
     if (!result.ok) return
 
     // The trust anchors are an argument. There is nothing here to reach out to.
@@ -181,6 +206,7 @@ describe('AUTH-02 — verification is offline', () => {
   it('refuses a certificate from an unpinned issuer', () => {
     const auth = authority()
     const { result } = enrol(auth, 5)
+    expect(result.ok).toBe(true)
     if (!result.ok) return
 
     const verdict = verifyCertificate(result.certificate, new Set([rogue.pub]), NOW)
@@ -192,6 +218,7 @@ describe('AUTH-02 — verification is offline', () => {
   it('refuses a certificate altered after signing', () => {
     const auth = authority()
     const { result } = enrol(auth, 6, { operatorId: 'honest-op' })
+    expect(result.ok).toBe(true)
     if (!result.ok) return
 
     // Changing the operator would defeat quorum diversity if it went unnoticed.
@@ -205,6 +232,7 @@ describe('AUTH-02 — verification is offline', () => {
   it('refuses an expired or not-yet-valid certificate', () => {
     const auth = new EnrollmentAuthority({ providerPrivateKey: provider.priv, certificateLifetimeMs: 1_000 })
     const { result } = enrol(auth, 7)
+    expect(result.ok).toBe(true)
     if (!result.ok) return
     const anchors = new Set([auth.issuerKey])
 
@@ -275,6 +303,7 @@ describe('AUTH-05 — certificates chain to a user key, forming a replica set', 
   it('reports a single-node owner as unable to verify within its domain', () => {
     const auth = authority()
     const { result } = enrol(auth, 70)
+    expect(result.ok).toBe(true)
     if (!result.ok) return
     const sets = resolveReplicaSets([result.certificate], new Set([auth.issuerKey]), NOW)
     expect(sets[0]!.canVerifyWithinOwnerDomain).toBe(false)
@@ -285,6 +314,7 @@ describe('AUTH-05 — certificates chain to a user key, forming a replica set', 
     // like an owner-domain verified one.
     const auth = authority()
     const { result } = enrol(auth, 80)
+    expect(result.ok).toBe(true)
     if (!result.ok) return
     const forged: NodeCertificate = { ...result.certificate, nodeKey: keypair(81).pub }
 
@@ -321,6 +351,7 @@ describe('all nodes have equal functionality', () => {
     // share.
     const auth = authority()
     const { result } = enrol(auth, 92, { relayIds: ['relay-1'] })
+    expect(result.ok).toBe(true)
     if (!result.ok) return
     const understated = { ...result.certificate, relayIds: [] }
     expect(verifyCertificate(understated, new Set([auth.issuerKey]), NOW).ok).toBe(false)
