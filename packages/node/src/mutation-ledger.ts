@@ -522,6 +522,93 @@ export const MUTATIONS: readonly Mutation[] = [
     signature:
       'browser-node.ts composes a killable thread and nothing else > constructs no main-thread executor, one worker-backed one, and branches on neither',
   },
+  {
+    id: 'M22',
+    why:
+      'VER-01. Reporting a disagreement is the one thing this module exists to do, and a ' +
+      'majority rule is the “obvious” improvement that silently removes it: two colluding ' +
+      'replicas out-vote an honest one, the fabric publishes their answer as verified, and ' +
+      'the honest result appears nowhere in the record. The line is load-bearing precisely ' +
+      'because the edit that breaks it reads like a fix — `groups.size > 1` must mean ' +
+      'disagreement however the sizes are distributed.',
+    file: 'packages/core/src/job/verify.ts',
+    find: 'if (groups.size > 1) {',
+    replace: 'if (groups.size > 1 && [...groups.values()].every((n) => n.length < 2)) {',
+    caughtBy: ['packages/core/src/job/verify.test.ts'],
+    signature: "expected 'agreed' to be 'disagreed'",
+  },
+  {
+    id: 'M23',
+    why:
+      'The dial budget. `runDiscoveryRound` dials sequentially and a failed dial costs a ' +
+      'full timeout, so this line is the whole of what bounds a discovery round’s wall ' +
+      'clock — without it one round sits out dozens of timeouts and the tab discovers ' +
+      'nothing until it returns. It lived inline in `demo/main.ts`, which does `fetch`, ' +
+      'real libp2p dials and DOM notification, so no vitest project could import it: ' +
+      'verification deleted the line and the whole suite stayed green. Extracting the ' +
+      'decision into `dial-plan.ts` is what made the line observable at all; this entry ' +
+      'is what keeps it observed.',
+    file: 'packages/browser/src/dial-plan.ts',
+    find: '    if (plan.length >= MAX_DIALS_PER_ROUND) break\n',
+    replace: '',
+    caughtBy: ['packages/browser/src/dial-plan.test.ts'],
+    signature: 'stops at the budget rather than sitting out a timeout per candidate',
+  },
+  {
+    id: 'M24',
+    why:
+      'AUTH-04, the caller-side half. `enrol` refuses a hand-assembled request naming a ' +
+      'user who did not sign, but `requestEnrollment` is the path every honest node takes, ' +
+      'and it closes the same hole by *derivation* rather than by refusal: the user key ' +
+      'comes from the private key it is handed, so naming a stranger is not something the ' +
+      'function can be asked to do. Make it honour a supplied field and a rogue enrols ' +
+      'under a victim’s identity through the front door — mislabelling the certificate ' +
+      'and, because the per-owner limiter keys on that same field, spending the victim’s ' +
+      'enrollment window too. Restored as a `??` fallback rather than a deletion, because ' +
+      '“accept it if the caller bothered to pass one” is the shape a convenience edit ' +
+      'leaves behind.',
+    file: 'packages/core/src/enrollment.ts',
+    find: '  const userKey = toHex(ed25519.getPublicKey(userPrivateKey))',
+    replace:
+      '  const userKey = (fields as { userKey?: PublicKeyHex }).userKey ?? toHex(ed25519.getPublicKey(userPrivateKey))',
+    caughtBy: ['packages/core/src/enrollment.test.ts'],
+    signature: 'cannot be handed a user key through its fields at all',
+  },
+  {
+    id: 'M25',
+    why:
+      'B19 as reported did not reproduce — `settleRace` stopped inventing a `taskId`, and ' +
+      '`RaceOutcome.losers` is a `RaceLoser[]`, so the hollow field has no spelling there. ' +
+      'What did not exist was a guard on the half that survived: ' +
+      '`SpeculationLedger.discard` is now the only path that mints a `Discarded`, and ' +
+      'stamping its records with `\'\'` — the exact value the split removed from ' +
+      '`settleRace`, relocated to the one place that can still hold it — left every case ' +
+      'in `speculation.test.ts` and `coordinator.test.ts` green. Attribution is the whole ' +
+      'reason the record is kept, and it was correct by inspection only. Stated honestly: ' +
+      '`discarded` has no reader in this repository yet, so this guards a record that is ' +
+      'written and not yet consumed.',
+    file: 'packages/core/src/speculation.ts',
+    find: 'this.#discarded.push({ taskId, nodeId, disagreed })',
+    replace: "this.#discarded.push({ taskId: '', nodeId, disagreed })",
+    caughtBy: ['packages/core/src/speculation.test.ts'],
+    signature: 'names the task each discarded copy was a copy of, over a job of several',
+  },
+  {
+    id: 'M26',
+    why:
+      'BROW-02. The negative count this parser already dropped and the enormous one it did ' +
+      'not are the same attack from opposite ends — one erases another peer’s evidence, ' +
+      'the other buries it — and the second is the more effective, because ' +
+      '`StartOutcomeLedger.mergeOverlapping` keeps the *largest* count it is shown ' +
+      '(`start-outcome.ts:364`). One entry claiming four billion therefore decided every ' +
+      'rate in a merged report by itself. Measured with the ceiling removed: an aggregate ' +
+      'that should read 100 read 4000000100.',
+    file: 'packages/net/src/protocol.ts',
+    find: ' || count > MAX_REPORTED_COUNT',
+    replace: '',
+    caughtBy: ['packages/net/src/start-report.test.ts'],
+    signature: 'lets no single peer decide the aggregate by claiming a number nobody can hold',
+  },
 ]
 
 /** Literal occurrences of `needle` in `text`. `needle` must be non-empty. */
