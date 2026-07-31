@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Wire What Was Built
-status: planning
-stopped_at: Phase 13 re-verified 3/3 against the amended criteria; Phase 13.1 is next and has no CONTEXT.md
-last_updated: "2026-07-29T04:29:14.000Z"
-last_activity: 2026-07-28
+status: verifying
+stopped_at: Phase 13.1 executed 5/5 plans with 5/5 summaries and has no VERIFICATION.md; independent verification is the next unit
+last_updated: "2026-07-31T19:42:00.000Z"
+last_activity: 2026-07-31
 progress:
   total_phases: 14
   completed_phases: 3
-  total_plans: 12
-  completed_plans: 12
+  total_plans: 45
+  completed_plans: 17
   percent: 21
 ---
 
@@ -23,8 +23,16 @@ independent pass then scored 3/3 against the amended text. It counts now because
 verifier said so, which is the rule: a phase is done when a verifier says so, not when
 its plans are.
 
-`total_plans` counts plans that exist. Phases 13.1 and 14-23 are unplanned, so it grows
-as they are planned and must never be read as a milestone denominator.
+**That rule is why `completed_phases` is 3 and not 4.** Phase 13.1's five plans all
+executed and all five summaries are filed, so `completed_plans` counts them — but the
+phase directory holds no VERIFICATION.md and its five requirements are all still `[ ]`
+in REQUIREMENTS.md. Executed is not verified. Do not tick 13.1 from its summaries.
+
+`total_plans` counts plans that exist, and it is not a milestone denominator — phases
+18, 19, 20 and 22 have no directory yet, so it will grow. Counted on disk 2026-07-31:
+11:1, 12:4, 13:7, 13.1:5, 14:5, 15:4, 16:4, 17:5, 21:5, 23:5 = 45, of which 17 have a
+summary. A `find` across `.planning/phases/` returns 46 — the extra is phase-9's plan,
+which is v1.0 and outside this count.
 
 Do not take these from `gsd-sdk query progress.bar` — it counts plan files across the
 nine unarchived v1.0 phase directories and reports "17/9 plans (100%)". Also do not run
@@ -41,37 +49,67 @@ paragraph. Maintain this frontmatter by hand.
 See: .planning/PROJECT.md (updated 2026-07-27)
 
 **Core value:** Usable capacity grows super-linearly with the user base, without any raw data leaving its owner's device.
-**Current focus:** Phase 13 closed at **3/3 on the amended criteria** — a second independent
-pass planted 8 mutations of its own, including the one proving the release point: moving it
-one frame earlier lets the leak reach `'agreed'` **across a real process boundary**. Next is
-Phase 13.1, which carries three defects measured against the real stack plus two follow-ons
-the verifier found rather than assumed.
+**Current focus:** Phase 13.1's code is in and nobody has checked it. All five plans executed
+on 2026-07-29 and all five summaries are filed, but no independent pass has scored it against
+its seven success criteria and no VERIFICATION.md exists. Its five requirements — SCHED-06,
+NET-08, NET-09, NET-10, DATA-10 — are all still `[ ]`. This is the milestone's only
+ambiguous phase, and Phase 18's criteria 2b and 2c were written *specifically* so that 18
+cannot silently pass around whatever 13.1 left open. Verify it before starting anything else.
 
 ## Current Position
 
-Phase: 13 (Egress Manifest Completeness) — **done, 3/3 amended criteria**
-Status: Closed. Scored 0/3 on the original wording, criteria amended on three owner rulings,
-gaps closed across four plans, re-verified independently.
-Next: Phase 13.1 (Node-Side Admission & Transport Bounds) — five requirements, all measured:
-SCHED-06, NET-08, NET-09, NET-10, DATA-10. **Not NET-07** — that ID was already taken by a
-done Phase 2 requirement (REQUIREMENTS.md:212, the constants-regression test); this line
-carried the pre-renumbering list until 2026-07-29. ROADMAP.md's Phase 13.1 entry is the
-authoritative list.
-Last activity: 2026-07-28
+Phase: 13.1 (Node-Side Admission & Transport Bounds) — **executed, unverified**
+Status: 5/5 plans, 5/5 summaries, 0 verification passes. A partial pass scored 4 of 7
+criteria; that reading is not a verdict and no VERIFICATION.md was written from it.
+The five requirements are all measured defects, not inferred ones: SCHED-06, NET-08,
+NET-09, NET-10, DATA-10. **Not NET-07** — that ID was already taken by a done Phase 2
+requirement (REQUIREMENTS.md:212, the constants-regression test); an earlier version of
+this line carried the pre-renumbering list until 2026-07-29. ROADMAP.md's Phase 13.1
+entry is the authoritative list.
+Next: `/gsd-verify-work` on Phase 13.1. Then Phase 14, 15, 16, 17, 21 and 23 — all six
+are fully planned and every one of their blockers is a phase already closed, so they are
+unblocked today and can run concurrently.
+Last activity: 2026-07-31
 
 ```
-Test Files  124 · Tests 1798 · tsc --noEmit clean   (independently re-run, not reported)
+Test Files  262 · Tests 4008 · exit 0 · tsc --noEmit clean   (2026-07-30, load 89-160)
 ```
+
+The 262 counts vitest *file-runs*, not files: 108 `*.test.ts` files on disk, with the
+browser project running its share three times over chromium/firefox/webkit. That reading
+was taken deliberately under contention — a green suite at load 160 is stronger evidence
+than a green suite on a quiet host, and every full-suite failure in the preceding two days
+traced to load rather than to logic. **Do not take a fresh reading without checking
+`uptime` first.** At 12:42 on 2026-07-31 the host was at load 213 and no timing-sensitive
+result taken then would mean anything.
 
 ### v1.0 carried forward, unarchived
 
 ```
-Test Files  122 · Tests 1775 · tsc --noEmit clean   (v1.0 closed at 112 / 1673)
-Ledger      32 / 72 wired · 36 built-not-wired · 4 open: hosting, a measured
-            negative, and two whose cross-machine halves are descoped to one host
-            (2026-07-28) and recorded as unmeasured, not met
-v1.1        7 of 44 requirements closed
+Ledger      33 / 72 wired · 30 built-not-wired · 5 partial · 4 open: hosting, a
+            measured negative, and two whose cross-machine halves are descoped to
+            one host (2026-07-28) and recorded as unmeasured, not met
+v1.1        7 of 50 requirements closed
+Historical  v1.0 closed at 112 test files / 1673 tests; 122 / 1775 on 2026-07-28
 ```
+
+The 30 reconciles with the audit's 36: six have been wired since — DATA-03, DATA-04,
+DATA-05, DATA-06, DATA-07 and DATA-09, all in Phase 12. Count them from the **traceability
+table** rows (`^| ID |` … `**Built, not wired**`), which is the only place that marker
+lives; a whole-file grep also catches the legend and one line of prose and returns 32.
+
+**Two denominators, and confusing them is the trap.** REQUIREMENTS.md's own header reads
+*"33 of 72 are `[x]`"* — that is the **v1 section alone** (33 ticked + 39 not = 72) and it
+is correct as written, not stale. v1.1 then minted 10 further IDs in its own sections
+(WIRE-01…04, SCHED-06, NET-08, NET-09, NET-10, DATA-10, BENCH-07), of which only WIRE-01
+is ticked. So the whole-file count is **34 of 82** and neither number contradicts the
+other. Recount with the section ranges, never with a whole-file grep.
+
+**v1.1's scope is 50, not 44.** Forty existing IDs to be wired, plus those 10 new ones.
+The line said 44 because it was written when only WIRE-01…04 existed; SCHED-06, NET-08,
+NET-09, NET-10 and DATA-10 were minted on 2026-07-28 with Phase 13.1 and BENCH-07 with
+Phase 23. The numerator is unchanged at 7 — DATA-03, DATA-04, DATA-05, DATA-06, DATA-07
+and DATA-09 from the existing forty, plus WIRE-01.
 
 **Read `.planning/v1.0-MILESTONE-AUDIT.md` before planning.** It carries `file:line` for
 every claim. v1.0 was deliberately **not archived** — its audit returned `gaps_found`,
@@ -215,24 +253,26 @@ carrying only SDP. Remaining: real AutoTLS, which needs a publicly reachable hos
 
 ## Performance Metrics
 
-**Velocity:**
+**This section is a partial record and must not be read as a velocity figure.** The
+per-plan rows below are appended by the executor, and only 8 of the 17 executed plans
+ever got one: Phase 13's plans 04-07 and all five of Phase 13.1's are missing. The
+template header that used to sit here read *"Total plans completed: 0"* directly above
+eight rows of real data, with the By-Phase table left as placeholder dashes — replaced
+2026-07-31 with what the rows actually say.
 
-- Total plans completed: 0
-- Average duration: —
-- Total execution time: 0.0 hours
+**Logged: 8 plans, 247 min, 4.1 hours, mean 31 min/plan.** The mean is not meaningful —
+the spread is 7 min to 100 min, and this project's own benchmark methodology records
+that straggler-dominated distributions have meaningless means.
 
-**By Phase:**
+| Phase | Plans logged | Total | Median | Range |
+|-------|--------------|-------|--------|-------|
+| 11 | 1 of 1 | 13min | 13min | — |
+| 12 | 4 of 4 | 190min | 35min | 20-100min |
+| 13 | 3 of 7 | 44min | 12min | 7-25min |
+| 13.1 | 0 of 5 | — | — | — |
 
-| Phase | Plans | Total | Avg/Plan |
-|-------|-------|-------|----------|
-| - | - | - | - |
+*Rows appended after each plan completion:*
 
-**Recent Trend:**
-
-- Last 5 plans: —
-- Trend: —
-
-*Updated after each plan completion*
 | Phase 11 P01 | 13min | 3 tasks | 13 files |
 | Phase 12 P01 | 25min | 2 tasks | 17 files |
 | Phase 12 P02 | 20min | 2 tasks | 4 files |
@@ -481,9 +521,63 @@ Recent decisions affecting current work:
 - [Phase 13]: Sovereign test fixtures must be pre-seeded onto the executing node's local-only store before dispatch, not just onto the requestor's store -- registerSovereignInputs reads only the local tier and silently skips registration otherwise, which would make a falsification test pass vacuously
 - [Phase 13]: Mutation 2 (removing the EgressGuard transport wrap) breaks all four production-wiring tests, not only the one the plan named -- reported as observed rather than narrowed to fit the plan's prediction
 
+- **[Phase 13.1] A reservation with no release is a leak, so the reservation moved to the
+  branch that has one.** `LocalCapacity.offer` reserved a slot that nothing on the wire ever
+  redeemed — a liveness probe would have leaked one slot per peer per call — so the `offer`
+  branch became `LocalCapacity.would`, which reserves nothing, and the slot is now taken in
+  the `exec` branch before the `try` and released in a `finally` that covers success, a
+  failed outcome, a throw, and the `authorize` refusal that never calls the executor at all.
+- **[Phase 13.1] That deliberately removed cross-shard over-commit protection, and it is
+  Phase 18's to rebuild.** `placeWithOffers` rebuilds `pool` per request, so the reserving
+  offer branch was the only thing bounding placement *across* shards. `planWithOffers` +
+  `rpcAdmission` will now put all N shards of a job on one node with `maxConcurrent: 1`.
+  `packages/net/src/discovery.test.ts` pins this as a recorded consequence — four shards on
+  one 1-slot node, zero refusals — and **that test is expected to turn red when Phase 18
+  closes criterion 2c.** Do not "fix" it before then. The two candidate mechanisms, both
+  protocol changes, are in `agent.ts`'s own comment.
+- **[Phase 13.1] A cap applied after the loop has already paid for the allocation it
+  exists to prevent.** `readMessage` accumulated every peer-sent chunk and then allocated
+  their sum, both peer-driven and neither bounded; the check now sits *inside* the
+  `for await`, immediately after the byte count grows, and calls `stream.abort()`. That
+  placement is the whole content of NET-08 — a 64 MiB frame was accepted over the real
+  transport before it.
+- **[Phase 13.1] `'sender'` is a third `DispatchOutcome.kind`, because a connection the
+  sender tore down is not a failure of the receiver.** Produced only from a
+  `SendRefused`; `coordinator.ts`'s single policy read is unchanged and its fall-through
+  carries a comment saying it is a decision rather than an omission.
+- **[Phase 13.1] A pre-scan is the same check, earlier — not a weaker one.** `EgressGuard`
+  gained `violationIn(frame)` (pure query, records nothing) and `refuse(to, frame)`
+  (records on a hit only). Scanning a reply *body* suffices because `contains` is a
+  contiguous-run search and dag-cbor encodes a byte string as a header plus raw bytes, so
+  the payload is the same contiguous run once nested. `refuse` records only on a hit
+  because it may be asked about a frame never offered to the exit; recording clean answers
+  would count every reply twice.
+- **[Phase 13.1] The pre-change capture was planted, watched, and restored by `cp` with
+  `cmp` exit 0 — no `git` write command.** The proof the restore was byte-exact is that
+  `git status --porcelain` afterwards listed only the new untracked test file. Worth
+  copying: on a shared working tree a `git checkout --` to "restore" is how another
+  session's work gets destroyed.
+- **[Phase 13.1] The hook is named `admission`, not `capacity`.** Recorded in 13.1-05.
+
 ### Pending Todos
 
-None yet.
+Two open owner decisions, both deferred with the measurement they were waiting for now in
+hand. Neither blocks Phase 13.1's verification.
+
+1. **The `lift.node.test.ts` integration timeout.** `INTEGRATION_TIMEOUT_MS` is 15 min and
+   wraps 45 min of internal budget (a 5 min compile plus 2 × 20 min `DEFAULT_TIMEOUT_MS`) —
+   the outer clock is the smaller one, so the inner budgets can never fire. A real lift is
+   now measured at **152.7-304.3 s**, a 2× swing with load, so any fixed budget must be
+   sized against the top of that range and not the middle. An earlier attempt to set it to
+   300 s turned six tests red and was reverted.
+2. **The benchmark's row-order confound.** Load drifted 29→49 during a run, so no
+   inter-row difference under ~20% is claimed. Fixing it needs interleaved rows rather
+   than blocks, or a quiet host.
+
+Four smaller follow-ups recorded during the 22-bug round, none load-bearing:
+`SpeculationLedger.discarded` has zero readers; `submit.test.ts:79-206` duplicates
+`verify.test.ts`; the `agreed` outcome carries no `failures` field; and
+`classifyStartFailure` can only ever return `other` for an unreachable relay.
 
 ### Blockers/Concerns
 
@@ -492,6 +586,22 @@ the US provisional patent deadline (below), a hosted relay with real AutoTLS (NE
 Phase 3 criterion 2), and GitHub Pages serving the pre-Phase-9 bundle (below). *"A second
 machine"* used to be a fourth. It is not a blocker any more — it has been struck, and its
 residual is recorded immediately below rather than dropped.
+
+- **What the lifted-vs-native benchmark costs Phase 21 (measured 2026-07-31).** Timing
+  `wasi.start()` alone, on a 32 MiB memory-and-ALU workload that all three routes agree on
+  (checksum `9584708361817009923`): native 58.78 ms, direct-compiled WASM 65.19 ms (1.11×),
+  elfconv-lifted WASM 122.81 ms (**2.09×** native, 1.88× direct). That is the emulation
+  tax, and it is the honest number to plan AOT-04 against.
+- **The ~43 ms startup floor cannot be cached away, and this was tested rather than
+  assumed.** On a trivial subject the lifted `_start` alone is 42.83 ms and
+  instantiate+start is 42.65 ms — indistinguishable, so the entire floor executes *inside*
+  the guest, in elfconv's emulated machine-state init, and is re-paid per task. Compile
+  (~4 ms, and V8 compiles lazily) and instantiate (~1.8 ms) are not where it lives. Direct
+  WASM's `_start` for the same program is 0.03 ms, ~1400× less. Content addressing fully
+  solves distributing the 5.40 MiB artifact — which is 5.40 MiB whether the program does
+  nothing or 128 MiB of traffic — but the floor stays, and under N-version execution it is
+  paid per replica, which puts a floor on useful shard size. AOT-05 independently recorded
+  V8's WASM code cache as NOT OBSERVED, so that route is closed twice over.
 
 - **Residual of the same-machine testing standard (owner ruling, 2026-07-28) — recorded,
   not blocking.** Same machine, different browsers and/or different browser contexts and
@@ -577,12 +687,43 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-07-29T04:29:14.000Z
-Stopped at: Phase 13 verified 3/3 on the amended criteria; session paused and resumed.
-Next unit: **gather context for Phase 13.1** (Node-Side Admission & Transport Bounds) — it
-has no CONTEXT.md. Phase 14 is *not* next despite already having `14-CONTEXT.md` from
-2026-07-27: 13.1 was inserted ahead of it after the backpressure gap was measured. That
-stale-looking context file is fine and should be left alone.
+Last session: 2026-07-31T19:42:00.000Z
+Stopped at: Phase 13.1 executed (5/5 plans, 5/5 summaries, `13.1-CONTEXT.md` written) and
+never verified. Two days of off-roadmap hardening then ran on top of it, all merged.
+Next unit: **`/gsd-verify-work` on Phase 13.1**, against the seven success criteria in
+ROADMAP.md:353. Phase 14 is not next, and its `14-CONTEXT.md` dated 2026-07-27 is fine and
+should be left alone — 13.1 was inserted ahead of it after the backpressure gap was measured.
+
+### Off-roadmap work, 2026-07-29 → 2026-07-31
+
+Not attributable to any phase, and recorded here so it is not mistaken for phase progress.
+65 commits, all merged to `develop` and pushed; `develop` and `main` both match origin and
+the tree is clean.
+
+- **A 22-bug round.** Seven verification gaps and four timing defects closed. The timing
+  class is the one worth remembering: **a test arms two clocks — its own internal budget
+  and the framework's `testTimeout` — and the framework's must be the larger.** Inverted,
+  the internal timer can never fire and the test cannot express the thing it was written
+  to express. Related, and learned the hard way three times in a row: **size a bound
+  against the worst case the file can construct, not the typical one**, and **never set a
+  timing bound from a number you did not measure yourself.** One such guess set
+  `timeoutMs` to 300 s against a lift that really takes 304.3 s and turned six tests red;
+  it was reverted.
+- **A security residual closed in `browser-node.ts`.** `createWorker` became required and
+  the `worker ?? new WasmExecutor(...)` fallback was deleted, so a browser node can no
+  longer silently execute on the main thread. The `offMainThread` getter went with it —
+  once it could only return one value, the four e2e assertions reading it were tautologies.
+- **31/31 mutations caught**, and the full suite passed at load 89-160.
+- **The elfconv lifted-vs-native benchmark** (`tools/aot/bench-lifted.ts`, `fixtures/workload.c`).
+  Findings in `.planning/BENCHMARK-RESULTS.md` and in commit `ce05cf2`; the two that bear
+  on Phase 21 are below under Blockers/Concerns.
+
+Two items were deferred to the owner and are still open: the benchmark's row-order confound
+(load drifted 29→49 mid-run, so no inter-row difference under ~20% is claimed — fixing it
+needs interleaved rows or a quiet host), and the `lift.node.test.ts` integration timeout,
+where `INTEGRATION_TIMEOUT_MS` of 15 min wraps 45 min of internal budget. The measurement
+that decision was waiting on now exists: a real lift takes **152.7-304.3 s** depending on
+load, a 2× swing, so any fixed budget has to be sized against that whole range.
 
 The three paragraphs below this line are older sessions' notes that were appended here
 rather than replaced; they describe Phases 9 and 3 and are kept because they are still
@@ -599,8 +740,9 @@ literally always visible (an id `display` rule outranks `[hidden]`, and the test
 asserted the attribute rather than the screen), and a peer filter that matched the
 relay's own id inside every circuit address, so two devices on one relay skipped
 every candidate and never heard of each other. Both fixed and now tested.
-Resume file: `.planning/.continue-here.md` (rewritten 2026-07-28, leads with Phase 13.1 and
-its five measured defects)
+Resume file: `.planning/.continue-here.md` (rewritten 2026-07-31, `status: merged_clean` —
+nothing in flight, and it leads with the two open owner decisions listed under Pending
+Todos above)
 (no static determinism analysis, no cross-implementation verification, no host-import
 allow-list). Still current; they apply to every later phase.
 
