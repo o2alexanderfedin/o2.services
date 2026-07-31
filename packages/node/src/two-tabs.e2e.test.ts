@@ -230,4 +230,53 @@ describe('NET-02 — two tabs on one machine', () => {
     const stored = await b.page.evaluate(async () => window.o2.storedBlocks())
     expect(stored).toBeGreaterThanOrEqual(1 + 4)
   }, 120_000)
+
+  /**
+   * The panel may not present an aggregate that cannot exist.
+   *
+   * `serveAgent`'s report branch is the only absorber of a peer's start outcome, and
+   * every production call site opts out of it with the `'keeps-no-ledger'` sentinel.
+   * So a merged report can only ever contain this tab's own outcome, however many
+   * peers were asked, and a peer count rendered beside it reads as a tally of
+   * contributors. The mechanism is correct; the render was the lie.
+   *
+   * **This assertion is about the claim, not the string.** An author who reintroduces
+   * an aggregate under different words will not be caught here. Saying so is more
+   * useful than pretending an absence assertion is stronger than it is.
+   *
+   * This file runs in the `e2e` project only, so nothing about it is visible to the
+   * `npm run test:unit` loop.
+   */
+  it('renders no peer aggregate beside a report that can only hold this tab', async () => {
+    const [a] = tabs as [Tab]
+
+    // `page.evaluate`, not a locator click: `#refresh-report` lives inside `#main`,
+    // which stays hidden until `reveal()` runs on a button press, and this harness
+    // drives `window.o2` directly rather than clicking Start. A locator click would
+    // fail actionability and the test would go red for the wrong reason.
+    await a.page.evaluate(() => {
+      document.getElementById('refresh-report')?.click()
+    })
+    await a.page.waitForFunction(
+      () => (document.getElementById('report')?.textContent ?? 'not asked yet') !== 'not asked yet',
+      null,
+      { timeout: 30_000 },
+    )
+    const panel = await a.page.evaluate(() => document.getElementById('report')?.textContent ?? '')
+
+    // The load-bearing assertion.
+    expect(panel).not.toContain('peers answering')
+
+    // And the paired positive, so an absent instrument cannot masquerade as a
+    // passing absence. `openTab` calls `grantConsent()` bare, so `reportingAllowed`
+    // is false, `startReport` sends `outcome: null`, nothing is recorded anywhere and
+    // `describeStartReport` returns exactly this. A non-zero branch would need a tab
+    // opened with `grantConsent({ reporting: true })`, which is a different change.
+    expect(panel).toContain('no start outcomes reported')
+
+    // That same bare `grantConsent()` is one visitor declining to be counted, and the
+    // running-node path is the only place that count could be dropped — no unit test
+    // can import the demo glue that passes it.
+    expect(panel).toContain('not counted: 1')
+  }, 120_000)
 })

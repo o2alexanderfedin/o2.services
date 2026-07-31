@@ -26,6 +26,7 @@ import type { EgressGuard } from './egress.ts'
 import { encodeRequest, encodeResponse, parseRequest, parseResponse } from './protocol.ts'
 import type { AgentResponse } from './protocol.ts'
 import type { RpcEndpoint, RpcReply } from './rpc.ts'
+import { takeSovereignHold } from './sovereign-egress.ts'
 
 /**
  * Pulls blocks from peers over RPC, trying each in turn.
@@ -138,7 +139,9 @@ export interface AgentOptions {
    */
   readonly ledger: StartOutcomeLedger | 'keeps-no-ledger'
   /**
-   * BROW-04. Called when a peer dispatches a task here, before it runs.
+   * BROW-04. Called immediately before this node runs a peer's task — after
+   * admission and after authorisation. A request this node refused is not a
+   * dispatch it served.
    *
    * The always-visible surface has to say what is running *and for whom*, and the
    * executor cannot answer the second half — a `Task` is addressed entirely by CID
@@ -147,8 +150,17 @@ export interface AgentOptions {
    */
   readonly onDispatch: ((from: string) => void) | 'reports-no-dispatch'
   /**
-   * DATA-05. The tap this endpoint's sends go out through, so a sovereign task's
-   * registration can be released once its reply frame has settled.
+   * DATA-05. The tap this endpoint's sends go out through, and the store that says
+   * which payloads are sovereign — so a sovereign task's input is guarded for exactly
+   * as long as its reply frame takes to settle.
+   *
+   * **One field, carrying both.** A tap with no store would guard nothing; a store
+   * with no tap would have nothing to tell. Neither is constructible.
+   *
+   * `sovereignInputs` must be the node's **local-only** tier and never one with
+   * network fallback. A sovereign input is owner-pinned and already resident, so
+   * declaring one must not itself become a network round trip — see
+   * `sovereign-egress.ts`, where that ruling is recorded.
    *
    * Any node may hold registrations, on the same terms as any other — the only
    * difference between nodes is discovery. Pass `'holds-no-registrations'` to state
@@ -164,7 +176,9 @@ export interface AgentOptions {
    * nothing failing and nobody measuring. Making the omission something a call site
    * has to write down is what turns that into a decision.
    */
-  readonly egress: EgressGuard | 'holds-no-registrations'
+  readonly egress:
+    | { readonly guard: EgressGuard; readonly sovereignInputs: Blockstore }
+    | 'holds-no-registrations'
 }
 
 /**
@@ -201,15 +215,15 @@ export interface AgentOptions {
  * and without it the attribution two existing specs assert would be lost.
  */
 function refusedReason(
-  egress: EgressGuard | 'holds-no-registrations',
+  egress: AgentOptions['egress'],
   to: string,
   body: CanonicalValue,
   nodeId: string,
 ): string | null {
-  if (egress === 'holds-no-registrations' || egress.registrations.length === 0) return null
+  if (egress === 'holds-no-registrations' || egress.guard.registrations.length === 0) return null
   const encoded = encodeCanonical(body)
   if (!encoded.ok) return null
-  const violated = egress.refuse(to, encoded.bytes)
+  const violated = egress.guard.refuse(to, encoded.bytes)
   return violated === null ? null : `egress refused: ${violated} on ${nodeId}`
 }
 
@@ -217,7 +231,7 @@ function refusedReason(
 export function serveAgent(options: AgentOptions): void {
   const { rpc, executor, blockstore } = options
 
-  rpc.serve(async (from, body): Promise<CanonicalValue | RpcReply> => {
+  const answer = async (from: string, body: CanonicalValue): Promise<CanonicalValue | RpcReply> => {
     const request = parseRequest(body)
     if (request === null) {
       return encodeResponse({ kind: 'error', reason: 'malformed request' })
@@ -311,8 +325,6 @@ export function serveAgent(options: AgentOptions): void {
           ? { kind: 'offer', accepted: true, reason: '' }
           : { kind: 'offer', accepted: false, reason: decision.reason }
     } else {
-      if (options.onDispatch !== 'reports-no-dispatch') options.onDispatch(from)
-
       // SCHED-06 — admission, on the branch that actually costs a
       // `WebAssembly.compile` plus an `instantiate` plus a linear memory.
       //
@@ -361,6 +373,20 @@ export function serveAgent(options: AgentOptions): void {
           return encodeResponse({ kind: 'error', reason: admission.reason })
         }
       }
+      // Taken before the executor runs, because `RpcBlockSource` may send frames over
+      // this same guarded transport while it runs, and given back only by the value
+      // returned here. A dispatch that declares nothing gets `null` and has nothing
+      // to give back — which is the state that used to be unrepresentable, and the
+      // reason one public exec could strip a sovereign payload's guard.
+      const egress = options.egress
+      const hold =
+        egress === 'holds-no-registrations'
+          ? null
+          : await takeSovereignHold(request.task, {
+              blockstore: egress.sovereignInputs,
+              guard: egress.guard,
+            })
+
       // Everything that can throw is inside this try, and the catch turns it into a
       // named outcome. That is needed here for the release path — an exit that
       // propagates out of this handler never reaches `afterSent` below — and it
@@ -380,10 +406,18 @@ export function serveAgent(options: AgentOptions): void {
                 task: request.task,
                 capability: request.capability ?? [],
               })
-        outcome =
-          refusal === null
-            ? await executor.execute(request.task)
-            : { ok: false as const, reason: `unauthorized: ${refusal}` }
+        if (refusal === null) {
+          // On the line above the call it reports. What the surface claims is work
+          // this node ran; a request refused for capacity or for capability is not
+          // that, and the adjacency is what stops a future gate slipping between
+          // the count and the run. Inside the `try` so a throwing listener becomes
+          // a named outcome with the slot released below, rather than escaping
+          // into `rpc.ts` and coming home to the requestor as a malformed reply.
+          if (options.onDispatch !== 'reports-no-dispatch') options.onDispatch(from)
+          outcome = await executor.execute(request.task)
+        } else {
+          outcome = { ok: false as const, reason: `unauthorized: ${refusal}` }
+        }
       } catch (cause) {
         outcome = {
           ok: false as const,
@@ -403,9 +437,7 @@ export function serveAgent(options: AgentOptions): void {
         // everything forever.
         capacity?.release(slotKey)
       }
-      const egress = options.egress
       if (egress === 'holds-no-registrations') return encodeResponse({ kind: 'exec', outcome })
-      const label = request.task.inputCid.toString()
       // NET-10. The candidate reply is encoded once and asked about before it is
       // handed to the exit; on a hit it is replaced by a frame that, by
       // construction, cannot carry the payload it refuses. `rpc.ts` is untouched:
@@ -414,36 +446,48 @@ export function serveAgent(options: AgentOptions): void {
       // the guarantee.
       const candidateBody = encodeResponse({ kind: 'exec', outcome })
       const violated = refusedReason(egress, from, candidateBody, executor.nodeId)
-      if (violated !== null) {
-        return {
-          body: encodeResponse({ kind: 'exec', outcome: { ok: false, reason: violated } }),
-          // The same unconditional release as the clean path below, and the
-          // pre-scan does not move it: the registration exists to be scanned
-          // against the reply frame, and the reply frame has still not left when
-          // this handler returns.
-          afterSent: () => {
-            egress.release(label)
-          },
-        }
-      }
-      return {
-        body: candidateBody,
-        // Released here rather than where the guard and the label are both already
-        // in scope — inside `registerSovereignInputs` — because the frame the
-        // registration exists to be scanned against is *this reply*, which has not
-        // been sent yet at the moment `execute` resolves. `rpc.ts` invokes this in
-        // a `finally` around the response send, which is the first moment the frame
-        // has settled.
-        //
-        // Unconditional on the label rather than re-testing whether the task was
-        // sovereign: `release` for a label it does not hold is a no-op, so the
-        // unconditional form cannot leak if registration's own condition ever
-        // changes, while a conditional form would have to be kept in step with it.
-        afterSent: () => {
-          egress.release(label)
-        },
-      }
+      const body =
+        violated === null
+          ? candidateBody
+          : encodeResponse({ kind: 'exec', outcome: { ok: false, reason: violated } })
+      // Given back here rather than where the hold was taken, because the frame it
+      // exists to be scanned against is *this reply*, which has not been sent yet at
+      // the moment `execute` resolves. `rpc.ts` invokes this in a `finally` around the
+      // response send, which is the first moment the frame has settled. The pre-scan
+      // does not move it: both exits still have a frame in flight.
+      return hold === null ? body : { body, afterSent: () => hold.release() }
     }
     return encodeResponse(response)
+  }
+
+  // A serving fault is this node's condition, not a statement about the fabric.
+  // Uncaught it reaches `rpc.ts`'s handler catch, which replies `{error: …}` — a
+  // shape with no `kind`, so `parseResponse` returns null and a node that
+  // physically cannot read the block says the same thing as one that simply does
+  // not have it. Caught here rather than per branch because the bug is an
+  // omission: a branch added later inherits the treatment instead of having to
+  // remember it.
+  //
+  // Two things this deliberately does not do. It does not merge with the exec
+  // branch's own catch — that one produces a *task* condition with the slot
+  // released, this one a *node* condition, and the two want opposite retry
+  // policies. And it leaves `RpcBlockSource` treating any non-`block` reply as a
+  // miss, so one broken peer still cannot deny a multi-peer fetch.
+  //
+  // What stays open, so it is not rediscovered as new: a throw after
+  // `takeSovereignHold` succeeds still leaks the hold, exactly as it did before
+  // this catch existed, because the release lives only in the returned
+  // `afterSent`. And the catch is broad — a programming error in here now leaves
+  // by the wire, to an unauthenticated requestor, and this pure module has no
+  // logger to say so anywhere else.
+  rpc.serve(async (from, body) => {
+    try {
+      return await answer(from, body)
+    } catch (cause) {
+      return encodeResponse({
+        kind: 'error',
+        reason: `serving failed on ${executor.nodeId}: ${cause instanceof Error ? cause.message : String(cause)}`,
+      })
+    }
   })
 }

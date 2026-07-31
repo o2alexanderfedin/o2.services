@@ -22,13 +22,14 @@
  * would just move a cliff onto the wrong row.
  */
 
-/**
- * The families reported. `other` is not a failure — it is an honest label, and a
- * report where `other` grows is itself the finding that this list needs extending.
- */
-export const BROWSER_FAMILIES = ['chromium', 'edge', 'firefox', 'safari', 'other'] as const
+import type { BrowserFamily } from '@o2/core'
 
-export type BrowserFamily = (typeof BROWSER_FAMILIES)[number]
+// The list lives with the type it constrains, beside the predicate that checks a
+// label arriving from a peer. Held here as well, it would be one of two sources
+// that had to be kept in agreement, and the one that drifted would be the one
+// nobody tested.
+export { BROWSER_FAMILIES } from '@o2/core'
+export type { BrowserFamily } from '@o2/core'
 
 export interface BrowserId {
   readonly family: BrowserFamily

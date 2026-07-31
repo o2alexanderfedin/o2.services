@@ -41,8 +41,8 @@ export { CountingExecutor } from './counting-executor.ts'
 
 // Egress control — DATA-04, DATA-05.
 export { EgressGuard, EgressRefusal } from './egress.ts'
-export type { EgressEntry, EgressManifest } from './egress.ts'
-export { registerSovereignInputs } from './sovereign-egress.ts'
+export type { EgressEntry, EgressHold, EgressManifest } from './egress.ts'
+export { takeSovereignHold } from './sovereign-egress.ts'
 export type { SovereignEgressOptions } from './sovereign-egress.ts'
 export { sliceManifest, submitJobWithEgress } from './submit-with-egress.ts'
 export type { SubmitWithEgressResult } from './submit-with-egress.ts'
@@ -52,5 +52,5 @@ export { DEFAULT_MAX_PEERS, publishStartOutcome } from './start-report.ts'
 export type { PublishOptions, PublishResult } from './start-report.ts'
 
 // Finding browsers that cannot announce themselves — NET-03.
-export { findReservedPeers } from './rendezvous.ts'
+export { findReservedPeers, MAX_RESERVED_PEERS_PER_ANSWER } from './rendezvous.ts'
 export type { Rendezvous, RendezvousOptions } from './rendezvous.ts'

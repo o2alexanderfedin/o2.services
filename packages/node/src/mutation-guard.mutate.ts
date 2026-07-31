@@ -132,7 +132,7 @@ function runOne(entry: Mutation): Verdict {
   try {
     OUTSTANDING.set(abs, originalBytes)
     writeFileSync(abs, parts.join(entry.replace))
-    const run = spawnSync('npx', ['vitest', 'run', '--project', 'node', ...entry.caughtBy], {
+    const run = spawnSync('npx', ['vitest', 'run', '--project', entry.project ?? 'node', ...entry.caughtBy], {
       cwd: ROOT,
       encoding: 'utf8',
       maxBuffer: 128 * 1024 * 1024,

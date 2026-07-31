@@ -571,6 +571,67 @@ describe('a disagreement fails the run rather than footnoting it', () => {
     expect(s0?.uncompared).toHaveLength(1)
     expect(outcome.disagreements).toEqual([])
   })
+
+  /**
+   * A late copy that *answered with a failure* fell between every bucket: not
+   * `uncompared`, because it did answer; not in `failures`, because the shard's
+   * failures were sealed when the winner returned. It still appeared in `attempted`,
+   * so the shard's history said a node was asked and never said what came of it —
+   * against `failures`' own contract that a shard's history explains itself.
+   *
+   * Why a low-severity attribution bug is worth a case: `attempted` and `failures`
+   * are the raw material any later exclusion or scoring mechanism reads. A peer that
+   * reliably fails just after losing a race accrued no recorded failure at all.
+   *
+   * The gate is what makes the ordering exact rather than likely — same reason the
+   * two cases above use one, and the same trap: an earlier version of this block
+   * raced a microtask-resolving `sleep` against a macrotask and asserted nothing.
+   */
+  it('records a copy that fails after the winner is picked as a failure of that shard', async () => {
+    const time = fakeTime()
+    const nodes = Array.from({ length: 6 }, (_, i) => node(`n${i}`))
+    const primary = gate()
+
+    let first = true
+    const outcome = await runResilient({
+      work: publicWork(6),
+      nodes,
+      now: time.now,
+      dispatch: async (shard) => {
+        if (shard.shardId !== 's0') return answered(shard.shardId)
+        if (first) {
+          // The straggler that provoked the duplicate. It answers — with a
+          // failure — only once the duplicate has won.
+          first = false
+          await primary.opened
+          // Deliberate, counted hops rather than a timer: enough for the race loop
+          // to take the winner and register this copy as outstanding, and still
+          // inside the compare grace.
+          //
+          // Swept 2026-07-30 over 1, 2, 3, 4, 5, 6 and 8 hops. Before the fix the
+          // defect reproduced at every one of them. After it, 1–5 record the failure
+          // and 6+ record `uncompared` instead — because by then the copy has missed
+          // the grace altogether, which is what `uncompared` means and is the gap
+          // this fix deliberately leaves open. 3 sits in the middle of that window,
+          // not on either edge.
+          for (let hop = 0; hop < 3; hop++) await Promise.resolve()
+          return nodeGone('ECONNRESET')
+        }
+        primary.open()
+        return answered('s0')
+      },
+      speculation: { fraction: 1, watchdogMs: 5, compareGraceMs: 50, sleep: time.sleep },
+    })
+
+    const s0 = outcome.shards.find((s) => s.shardId === 's0')
+    expect(s0?.speculated).toBe(true)
+    expect(s0?.resultCid).toBe(resultOf('s0'))
+    expect(s0?.attempted).toHaveLength(2)
+    // It answered, so it is not silence.
+    expect(s0?.uncompared).toEqual([])
+    expect(s0?.failures.map((f) => f.reason)).toEqual([expect.stringContaining('ECONNRESET')])
+    expect(s0?.failures[0]?.kind).toBe('node')
+  })
 })
 
 describe('the lease is the coordinator’s own deadline, and it is enforced', () => {

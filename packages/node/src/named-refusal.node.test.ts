@@ -70,6 +70,34 @@ const OWNED_ROW: CanonicalValue = {
 /** A block the owner holds and is free to serve — the positive control for the refusal. */
 const PUBLIC_ROW: CanonicalValue = { region: 'east-quay', quarter: 'Q2', headcount: 19 }
 
+/**
+ * The budget both timing assertions below exist to distinguish themselves from.
+ *
+ * Neither test passes `rpcTimeoutMs`, so the live bound is `DEFAULT_RPC_TIMEOUT_MS`.
+ * Restated here rather than imported because the point is that nothing configured it:
+ * an import would read as though the test had set it.
+ */
+const LIVE_RPC_BUDGET_MS = 30_000
+
+/**
+ * What "long before the budget does" is measured against.
+ *
+ * The property is not "the refusal is fast". It is **"the refusal is not that budget
+ * expiring"**, and the only thing that has to hold for it is a figure unambiguously
+ * below 30 s. This was `1_000` — a 30x proxy that says the same thing with more margin
+ * than the claim needs, and margin costs nothing until it does: on 2026-07-31, with an
+ * unrelated LLVM build holding this host at a load average of 130 on 8 cores, the run
+ * measured 2815 ms. Still 10x under the budget, so the property held perfectly well and
+ * the proxy failed anyway.
+ *
+ * A third of the budget keeps the discriminator unambiguous — an expiry cannot arrive
+ * three times early — while surviving a host three times slower than the one that
+ * broke the old figure. A regression that made the refusal genuinely slow would have to
+ * clear 10 s to hide here, and at that point it is the reason strings above, not this
+ * line, that say whether a refusal was named.
+ */
+const NOT_AN_EXPIRY_MS = LIVE_RPC_BUDGET_MS / 3
+
 beforeEach(async () => {
   workdir = await mkdtemp(join(tmpdir(), 'o2-named-refusal-'))
 })
@@ -87,7 +115,7 @@ describe('criterion 6 — the refusal is named, and it arrives long before the b
     ])
     await submitter.dial(alice.multiaddrs[0]!)
 
-    // Owner-pinned, made literal: `registerSovereignInputs` reads the node's
+    // Owner-pinned, made literal: `takeSovereignHold` reads the node's
     // local-only tier and runs before execution, so an input that is not already
     // on alice's disk registers nothing and the tap has nothing to watch for —
     // which would make a "clean" run prove nothing. The CID is computed here from
@@ -142,9 +170,9 @@ describe('criterion 6 — the refusal is named, and it arrives long before the b
     expect.soft(failure?.reason).toContain(input.cid.toString())
     expect.soft(failure?.reason).toContain(alice.peerId)
     // The measurement. `rpcTimeoutMs` was never passed, so the live budget is
-    // `DEFAULT_RPC_TIMEOUT_MS` = 30,000 ms; a whole job completing in under a
-    // second cannot be that budget expiring.
-    expect.soft(elapsed).toBeLessThan(1_000)
+    // `DEFAULT_RPC_TIMEOUT_MS` = 30,000 ms; a whole job completing well inside a
+    // third of that cannot be the budget expiring. See `NOT_AN_EXPIRY_MS`.
+    expect.soft(elapsed).toBeLessThan(NOT_AN_EXPIRY_MS)
 
     // Recorded on alice's own tap as well as reported to the requestor — read
     // in-process, which is the only vantage point from which a node's manifest
@@ -200,7 +228,7 @@ describe('criterion 7 — a block request for registered bytes is answered, not 
     // **The registration is placed directly here, and the scope of that matters.**
     // What is under test is the block branch's *answer* when a registration is
     // held — not where the registration came from. Production's own registration
-    // is job-scoped: `registerSovereignInputs` takes it before execution and
+    // is job-scoped: the serve path takes it before execution and
     // `serveAgent`'s `afterSent` gives it back, so no production path holds one at
     // rest for a later block request to find. 13.1-CONTEXT.md lists refusing a
     // sovereign block at rest, indefinitely, under deferred ideas — it needs a
@@ -220,8 +248,8 @@ describe('criterion 7 — a block request for registered bytes is answered, not 
     expect.soft(refused.reason).toContain(owned.cid.toString())
     expect.soft(refused.reason).toContain(alice.peerId)
     // Same measurement as criterion 6, on the other branch: against the untouched
-    // 30 s default, an answer inside a second is an answer, not an expiry.
-    expect.soft(refusalMs).toBeLessThan(1_000)
+    // 30 s default, an answer well inside a third of it is an answer, not an expiry.
+    expect.soft(refusalMs).toBeLessThan(NOT_AN_EXPIRY_MS)
 
     // The positive control, on the same node over the same connection. Without it
     // "the refusal fired" would be indistinguishable from alice having stopped

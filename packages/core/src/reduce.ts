@@ -6,10 +6,18 @@
  * ideas do all the work, and each removes a whole category of machinery:
  *
  * **Topology is derived, not agreed.** The tree is a pure function of the sorted
- * partial CIDs, so every participant computes the identical tree independently and
+ * contributions, so every participant computes the identical tree independently and
  * *zero* messages are spent reaching agreement. No leader election, no consensus
  * round, no coordinator to lose. Change one partial and the tree changes the same way
  * for everyone at once, because the input to the function changed.
+ *
+ * A contribution is **(contributor, partial)** and not the partial alone. Keying a
+ * leaf on the bytes cannot tell "one owner offered this twice" from "four owners each
+ * summarised their own rows and got the same answer" — the ordinary case for count,
+ * sum, exists and histogram — and it silently counted the second as the first. The
+ * price is stated rather than left to be discovered: the tree is no longer a pure
+ * function of content alone, so derivation now assumes participants agree on
+ * contributor ids, which is the assumption `executors` already carries.
  *
  * **Assignment is derived too.** Rendezvous (HRW) hashing ranks every candidate node
  * for every combine. The winner is the executor; the rest of the ranking *is* the
@@ -25,6 +33,10 @@
  * **Associativity is the load-bearing property**, and it is what the reference test
  * checks: merging up a tree must equal merging everything at once, or the aggregate
  * depends on a topology that was only ever an implementation detail.
+ *
+ * **Idempotence is explicitly not assumed.** A value appearing under two contributors
+ * is two contributions, and combining it with itself must double it. That is the
+ * whole reason a leaf carries who offered it.
  *
  * Commutativity is *not* strictly required here, and saying otherwise would be
  * imprecise. Sorted CIDs and deterministic grouping mean every executor — original or
@@ -62,6 +74,42 @@ export const DEFAULT_FANOUT = 4
  */
 export const MAX_PARTIAL_BYTES = 9216
 
+/**
+ * One partial, and whose data produced it.
+ *
+ * `contributorId` means **the owner whose data produced this partial**, never the
+ * machine that ran the map. Under redundancy and speculation two executors answer for
+ * the same shard with the same bytes, and an executor-keyed leaf would count that
+ * shard twice — the mirror of the defect this type exists to close.
+ *
+ * **Nothing authenticates this field.** One peer can invent N ids for one partial and
+ * inflate the aggregate N-fold, which is this fix's cost: a silent undercount becomes
+ * a forgeable overcount. Under the project's own split — a sovereign map is
+ * owner-attested and the aggregation over contributions is verified — the only honest
+ * source for this value is the Noise-authenticated peer the partial arrived from, and
+ * the collection path that would mint it does not exist yet. Do not populate it from
+ * anything a requestor chose.
+ */
+export interface ReduceContribution {
+  readonly contributorId: string
+  readonly cid: CID
+}
+
+/**
+ * A leaf: what identifies it, and where its value lives.
+ *
+ * The tree already keeps these apart one level up — an internal node's `id` is a hash
+ * of its children while its value resolves to a CID at execution time. Only the leaf
+ * layer conflated them, which is why two contributors offering the same bytes became
+ * one node.
+ */
+export interface ReduceLeaf {
+  /** Distinct per contribution. What combine layers and `executedBy` are keyed by. */
+  readonly id: string
+  /** The partial's address, as a string. What a combine actually reads. */
+  readonly cid: string
+}
+
 /** A node in the derived tree. Leaves are partial CIDs; internal nodes are combines. */
 export interface ReduceTreeNode {
   /** Deterministic id: the hash of this node's children. Stable before execution. */
@@ -73,8 +121,8 @@ export interface ReduceTreeNode {
 }
 
 export interface ReduceTree {
-  /** Partial CIDs as strings, sorted. The canonical ordering everything derives from. */
-  readonly leaves: readonly string[]
+  /** Contributions, sorted by id. The canonical ordering everything derives from. */
+  readonly leaves: readonly ReduceLeaf[]
   /** Internal nodes, bottom-up. Empty when there is a single partial. */
   readonly nodes: readonly ReduceTreeNode[]
   /** The id whose value is the job's aggregate — a leaf id if there was only one. */
@@ -89,24 +137,45 @@ function hashOf(input: string): string {
 }
 
 /**
- * Derive the reduce tree from a set of partial CIDs.
+ * A leaf's identity: who contributed, and what.
  *
- * Deterministic in the strongest sense: the same CIDs in any input order produce a
- * byte-identical tree, because the first thing it does is sort them. That is what lets
- * every participant derive the topology alone.
+ * NUL separator, so no contributor id can be spelled to make two distinct
+ * contributions collide on one leaf. Same idiom as `StartOutcomeLedger`'s key.
  */
-export function deriveReduceTree(partialCids: readonly CID[], fanout: number = DEFAULT_FANOUT): ReduceTree {
+function leafId(contributorId: string, cid: CID): string {
+  return `${contributorId}\u0000${cid.toString()}`
+}
+
+/**
+ * Derive the reduce tree from a set of contributions.
+ *
+ * Deterministic in the strongest sense: the same contributions in any input order
+ * produce a byte-identical tree, because the first thing it does is sort them. That is
+ * what lets every participant derive the topology alone.
+ */
+export function deriveReduceTree(
+  contributions: readonly ReduceContribution[],
+  fanout: number = DEFAULT_FANOUT,
+): ReduceTree {
   if (!Number.isInteger(fanout) || fanout < 2) {
     throw new RangeError(`fanout must be an integer >= 2, got ${fanout}`)
   }
-  if (partialCids.length === 0) throw new RangeError('a reduce needs at least one partial')
+  if (contributions.length === 0) throw new RangeError('a reduce needs at least one partial')
 
-  // Sorting is the whole basis of agreement. Deduped as well, so the same partial
-  // offered twice cannot change the shape of anyone's tree.
-  const leaves = [...new Set(partialCids.map((cid) => cid.toString()))].sort()
+  // Sorting is the whole basis of agreement. Deduped as well, so the *same
+  // contributor* offering the same partial twice cannot change the shape of anyone's
+  // tree — which is what makes a late result from a presumed-dead node harmless.
+  const byId = new Map<string, ReduceLeaf>()
+  for (const { contributorId, cid } of contributions) {
+    const leaf: ReduceLeaf = { id: leafId(contributorId, cid), cid: cid.toString() }
+    byId.set(leaf.id, leaf)
+  }
+  const leaves = [...byId.values()].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
 
   const nodes: ReduceTreeNode[] = []
-  let layer: string[] = leaves
+  // Combine layers are built over leaf *identities*, so every id within a layer is
+  // distinct and no two combines can hash to the same node id.
+  let layer: string[] = leaves.map((leaf) => leaf.id)
   let level = 1
 
   while (layer.length > 1) {
@@ -231,8 +300,9 @@ export async function executeReduce(run: ReduceRun): Promise<ReduceOutcome> {
     }
   }
 
-  // Tree-node id → the CID its value ended up at. Leaves already are CIDs.
-  const resolved = new Map<string, string>(tree.leaves.map((leaf) => [leaf, leaf]))
+  // Tree-node id → the CID its value ended up at. A leaf's value is already stored,
+  // so it starts resolved — at its address, which is not its identity.
+  const resolved = new Map<string, string>(tree.leaves.map((leaf) => [leaf.id, leaf.cid]))
   const executedBy = new Map<string, string>()
   const failed: string[] = []
   const disagreements: { nodeId: string; resultCids: readonly string[] }[] = []
@@ -327,6 +397,11 @@ export async function executeReduce(run: ReduceRun): Promise<ReduceOutcome> {
  *
  * **Must be associative** — see the note at the top of this file. Commutativity is
  * recommended but is not what the tree relies on.
+ *
+ * **Must not assume its inputs are distinct.** Two contributors reaching the same
+ * summary is the ordinary case, and a combiner is handed both — `{count:5}` twice is
+ * `{count:10}`. A combiner that deduplicates its inputs would put back the defect the
+ * leaf key removed, one layer up.
  */
 export interface Combiner {
   (inputs: readonly CanonicalValue[]): CanonicalValue

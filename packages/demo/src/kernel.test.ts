@@ -1,11 +1,39 @@
 import { MemoryBlockstore, WasmExecutor, decodeCanonical, encodeCanonical, publicNodes, submitJob } from '@o2/core'
 import type { CanonicalValue, Executor } from '@o2/core'
 import type { CID } from 'multiformats/cid'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { colourOf, verifyColouring } from './colouring.ts'
 import { COLOURING_BYTES, DEFAULT_BUDGET, MAX_N, answerOf, buildInput, readPartial } from './job.ts'
 import { kernelBytes } from './kernel.ts'
 import { assignmentOrder } from './triples.ts'
+
+/**
+ * Every case here runs a real depth-first search inside a real WASM guest, so what
+ * each one costs is a fact about the host, not about the assertion.
+ *
+ * Set once for the file rather than per case. `vitest.config.ts` listed this file
+ * among the slow specs and described it as carrying a "50 s testTimeout" — it
+ * carried none, and ran on the project default. The browser project's default is
+ * 15 s, and on 2026-07-31, with an unrelated LLVM build saturating the host (load
+ * average 31 on 8 cores), the n=300 cube case exceeded it in Firefox alone while
+ * passing in Chromium and WebKit. Nothing was wrong with the kernel; the machine
+ * was busy.
+ *
+ * A correctness suite that goes red because another process is compiling is not
+ * reporting on the code, and the previous session already spent an investigation
+ * discovering exactly that about this file.
+ *
+ * The figure was then set wrong once before landing, which is worth leaving on the
+ * record because it is the same error twice. 60 s was chosen against the ~25 s the
+ * whole file measures idle across all three engines — the typical case. Hours later
+ * the same LLVM build reached a load average of 130, and the n=300 cube exceeded
+ * 60 s in Firefox. Sizing a bound to the typical case is precisely the mistake the
+ * paragraph above describes.
+ *
+ * 120 s is ~5x the idle whole-file cost, and was verified against the host at that
+ * 16x oversubscription rather than against a quiet one.
+ */
+vi.setConfig({ testTimeout: 120_000 })
 
 /**
  * A bound a *single* cube settles within the shipped budget.

@@ -1,3 +1,4 @@
+import { CID } from 'multiformats/cid'
 import { describe, expect, it } from 'vitest'
 import { MemoryBlockstore } from './blockstore/memory.ts'
 import { canonicalCid, decodeCanonical, encodeCanonical } from './canonical/encode.ts'
@@ -10,7 +11,7 @@ import {
   localDispatch,
   rendezvousRank,
 } from './reduce.ts'
-import type { Combiner } from './reduce.ts'
+import type { Combiner, ReduceContribution } from './reduce.ts'
 
 /**
  * MR-02 … MR-07.
@@ -45,60 +46,73 @@ function partialFor(owner: number): CanonicalValue {
   return { counts, rows: owner + 1 }
 }
 
+/**
+ * `howMany` owners, each contributing their own distinct partial.
+ *
+ * Distinct by construction, which is exactly why these fixtures could not see the
+ * collapse — the case that can is written from the contribution side, below.
+ */
 async function storePartials(store: MemoryBlockstore, howMany: number) {
   const values: CanonicalValue[] = []
-  const cids = []
+  const contributions: ReduceContribution[] = []
   for (let owner = 0; owner < howMany; owner++) {
     const value = partialFor(owner)
     values.push(value)
     const hashed = await canonicalCid(value)
     if (!hashed.ok) throw new Error('partial not encodable')
     await store.put(hashed.bytes)
-    cids.push(hashed.cid)
+    contributions.push({ contributorId: `owner-${owner}`, cid: hashed.cid })
   }
-  return { values, cids }
+  return { values, contributions }
 }
 
 describe('MR-04 — the tree is derived, never agreed', () => {
   it('is identical whatever order the partials arrive in', async () => {
     const store = new MemoryBlockstore()
-    const { cids } = await storePartials(store, 8)
+    const { contributions } = await storePartials(store, 8)
 
     // Two participants seeing the same set in different orders must derive the same
     // topology, with no message between them. That is the whole mechanism.
-    const forward = deriveReduceTree(cids)
-    const shuffled = deriveReduceTree([...cids].reverse())
+    const forward = deriveReduceTree(contributions)
+    const shuffled = deriveReduceTree([...contributions].reverse())
     expect(shuffled).toEqual(forward)
 
-    const scrambled = deriveReduceTree([cids[3]!, cids[7]!, cids[0]!, cids[5]!, cids[1]!, cids[6]!, cids[2]!, cids[4]!])
+    const c = contributions
+    const scrambled = deriveReduceTree([c[3]!, c[7]!, c[0]!, c[5]!, c[1]!, c[6]!, c[2]!, c[4]!])
     expect(scrambled).toEqual(forward)
   })
 
   it('changes deterministically for everyone when one partial changes', async () => {
     const store = new MemoryBlockstore()
-    const { cids } = await storePartials(store, 8)
-    const before = deriveReduceTree(cids)
+    const { contributions } = await storePartials(store, 8)
+    const before = deriveReduceTree(contributions)
 
     const extra = await canonicalCid({ counts: { changed: 1 }, rows: 1 })
     if (!extra.ok) return
-    const afterA = deriveReduceTree([...cids.slice(0, 7), extra.cid])
-    const afterB = deriveReduceTree([extra.cid, ...cids.slice(0, 7)])
+    const late: ReduceContribution = { contributorId: 'owner-7', cid: extra.cid }
+    const afterA = deriveReduceTree([...contributions.slice(0, 7), late])
+    const afterB = deriveReduceTree([late, ...contributions.slice(0, 7)])
 
     expect(afterA).not.toEqual(before)
     // …and identically for every participant, not merely "differently".
     expect(afterB).toEqual(afterA)
   })
 
-  it('dedupes a partial offered twice, so shape cannot be perturbed', async () => {
+  it('dedupes the same contributor offering the same partial twice', async () => {
     const store = new MemoryBlockstore()
-    const { cids } = await storePartials(store, 4)
-    expect(deriveReduceTree([...cids, cids[0]!, cids[2]!])).toEqual(deriveReduceTree(cids))
+    const { contributions } = await storePartials(store, 4)
+    // The property that makes a late result from a presumed-dead node harmless. What
+    // it must NOT swallow is two *different* contributors with equal bytes — see the
+    // N-contributors case below.
+    const resubmitted = [...contributions, contributions[0]!, contributions[2]!]
+    expect(deriveReduceTree(resubmitted)).toEqual(deriveReduceTree(contributions))
+    expect(deriveReduceTree(resubmitted).leaves).toHaveLength(4)
   })
 
   it('gives internal nodes ids fixed before anything executes', async () => {
     const store = new MemoryBlockstore()
-    const { cids } = await storePartials(store, 8)
-    const tree = deriveReduceTree(cids)
+    const { contributions } = await storePartials(store, 8)
+    const tree = deriveReduceTree(contributions)
     // Assignment depends on these ids, so they must exist without running a combine.
     for (const node of tree.nodes) {
       expect(node.id).toMatch(/^[0-9a-f]{64}$/)
@@ -109,17 +123,93 @@ describe('MR-04 — the tree is derived, never agreed', () => {
 
   it('handles the degenerate single-partial case without a combine', async () => {
     const store = new MemoryBlockstore()
-    const { cids } = await storePartials(store, 1)
-    const tree = deriveReduceTree(cids)
+    const { contributions } = await storePartials(store, 1)
+    const tree = deriveReduceTree(contributions)
     expect(tree.nodes).toEqual([])
-    expect(tree.rootId).toBe(cids[0]!.toString())
+    // The root is a leaf *identity* now, and the address it resolves to is still the
+    // partial's CID — which is what a caller reads.
+    expect(tree.rootId).toBe(tree.leaves[0]!.id)
+    expect(tree.leaves[0]!.cid).toBe(contributions[0]!.cid.toString())
   })
 
   it('refuses an incoherent fanout instead of guessing', async () => {
     const store = new MemoryBlockstore()
-    const { cids } = await storePartials(store, 4)
-    expect(() => deriveReduceTree(cids, 1)).toThrow(RangeError)
+    const { contributions } = await storePartials(store, 4)
+    expect(() => deriveReduceTree(contributions, 1)).toThrow(RangeError)
     expect(() => deriveReduceTree([])).toThrow(RangeError)
+  })
+})
+
+describe('MR-04 — a leaf is a contribution, not a set of bytes', () => {
+  /** One partial, stored once, offered by four separate owners. */
+  async function sharedPartial(store: MemoryBlockstore) {
+    const value = { counts: { word0: 5 }, rows: 5 }
+    const hashed = await canonicalCid(value)
+    if (!hashed.ok) throw new Error('partial not encodable')
+    await store.put(hashed.bytes)
+    return hashed.cid
+  }
+
+  /** `howMany` distinct owners, all reporting the one partial. */
+  const offeredBy = (howMany: number, cid: CID): ReduceContribution[] =>
+    Array.from({ length: howMany }, (_unused, owner) => ({
+      contributorId: `owner-${owner}`,
+      cid,
+    }))
+
+  it('aggregates N contributors reporting byte-identical partials to N times the value', async () => {
+    const store = new MemoryBlockstore()
+    const cid = await sharedPartial(store)
+
+    // The ordinary case for count, sum, exists and histogram: four owners each
+    // summarise their own rows and four summaries come out the same. Nothing about
+    // the bytes alone can tell that from one owner answering four times.
+    const tree = deriveReduceTree(offeredBy(4, cid))
+    expect(tree.leaves).toHaveLength(4)
+    expect(tree.nodes).toHaveLength(1)
+
+    const live = new Set(['n1', 'n2'])
+    const outcome = await executeReduce({
+      tree,
+      executors: [...live],
+      dispatch: localDispatch({
+        blockstore: store,
+        combiner,
+        decode: decodeCanonical,
+        liveNodes: () => live,
+      }),
+    })
+
+    expect(outcome.ok).toBe(true)
+    const root = await store.get(CID.parse(outcome.rootCid as string))
+    expect(decodeCanonical(root as Uint8Array<ArrayBuffer>)).toEqual({
+      counts: { word0: 20 },
+      rows: 20,
+    })
+  })
+
+  it('gives eight identical contributions eight leaves and eight distinct node ids', async () => {
+    const store = new MemoryBlockstore()
+    const tree = deriveReduceTree(offeredBy(8, await sharedPartial(store)), 4)
+
+    // A combine's id hashes its children, so leaves that shared an identity would make
+    // two sibling combines the same node — and `resolved` and `executedBy`, both keyed
+    // by node id, would silently agree about a disagreement.
+    expect(tree.leaves).toHaveLength(8)
+    expect(new Set(tree.nodes.map((node) => node.id)).size).toBe(tree.nodes.length)
+
+    const live = new Set(['n1', 'n2'])
+    const outcome = await executeReduce({
+      tree,
+      executors: [...live],
+      dispatch: localDispatch({
+        blockstore: store,
+        combiner,
+        decode: decodeCanonical,
+        liveNodes: () => live,
+      }),
+    })
+    expect(outcome.executedBy.size).toBe(outcome.combines)
   })
 })
 
@@ -156,8 +246,8 @@ describe('MR-05 — assignment is rendezvous-hashed with a ranked fallback', () 
 describe('MR-02 / MR-03 — the aggregate is bit-identical to a single-node reference', () => {
   it('matches a one-shot reduction over the same eight partials', async () => {
     const store = new MemoryBlockstore()
-    const { values, cids } = await storePartials(store, 8)
-    const tree = deriveReduceTree(cids)
+    const { values, contributions } = await storePartials(store, 8)
+    const tree = deriveReduceTree(contributions)
     const live = new Set(['n1', 'n2', 'n3'])
 
     const outcome = await executeReduce({
@@ -185,7 +275,7 @@ describe('MR-02 / MR-03 — the aggregate is bit-identical to a single-node refe
 
   it('is unchanged by fanout, so the tree shape cannot alter the answer', async () => {
     const store = new MemoryBlockstore()
-    const { cids } = await storePartials(store, 9)
+    const { contributions } = await storePartials(store, 9)
     const live = new Set(['n1', 'n2'])
     const dispatch = localDispatch({
       blockstore: store,
@@ -197,7 +287,7 @@ describe('MR-02 / MR-03 — the aggregate is bit-identical to a single-node refe
     const roots = []
     for (const fanout of [2, 3, 4, 8]) {
       const outcome = await executeReduce({
-        tree: deriveReduceTree(cids, fanout),
+        tree: deriveReduceTree(contributions, fanout),
         executors: [...live],
         dispatch,
       })
@@ -209,12 +299,12 @@ describe('MR-02 / MR-03 — the aggregate is bit-identical to a single-node refe
 
   it('does not move map-side data — a combine reads only CIDs', async () => {
     const store = new MemoryBlockstore()
-    const { cids } = await storePartials(store, 8)
+    const { contributions } = await storePartials(store, 8)
     const seen: string[][] = []
     const live = new Set(['n1'])
 
     await executeReduce({
-      tree: deriveReduceTree(cids),
+      tree: deriveReduceTree(contributions),
       executors: ['n1'],
       dispatch: async (task, executorId) => {
         seen.push([...task.inputCids])
@@ -234,8 +324,8 @@ describe('MR-02 / MR-03 — the aggregate is bit-identical to a single-node refe
 describe('MR-06 / MR-07 — churn repair is recompute, not recovery', () => {
   it('recomputes elsewhere with no state transferred, reaching the same root', async () => {
     const store = new MemoryBlockstore()
-    const { cids } = await storePartials(store, 8)
-    const tree = deriveReduceTree(cids)
+    const { contributions } = await storePartials(store, 8)
+    const tree = deriveReduceTree(contributions)
     const executors = ['n1', 'n2', 'n3']
 
     const healthyRoot = (
@@ -276,8 +366,8 @@ describe('MR-06 / MR-07 — churn repair is recompute, not recovery', () => {
 
   it('discards a late duplicate harmlessly, because it carries the same CID', async () => {
     const store = new MemoryBlockstore()
-    const { cids } = await storePartials(store, 4)
-    const tree = deriveReduceTree(cids)
+    const { contributions } = await storePartials(store, 4)
+    const tree = deriveReduceTree(contributions)
     const live = new Set(['n1', 'n2'])
     const dispatch = localDispatch({
       blockstore: store,
@@ -300,9 +390,9 @@ describe('MR-06 / MR-07 — churn repair is recompute, not recovery', () => {
 
   it('reports failure rather than a wrong answer when no executor survives', async () => {
     const store = new MemoryBlockstore()
-    const { cids } = await storePartials(store, 8)
+    const { contributions } = await storePartials(store, 8)
     const outcome = await executeReduce({
-      tree: deriveReduceTree(cids),
+      tree: deriveReduceTree(contributions),
       executors: ['n1', 'n2'],
       dispatch: localDispatch({
         blockstore: store,
@@ -342,11 +432,11 @@ describe('MR-03 / criterion 5 — the aggregation is verified even when the maps
     // owner-attested. The aggregation *over* them is redundant, because a combine
     // reads only content-addressed partials and so is runnable anywhere.
     const store = new MemoryBlockstore()
-    const { values, cids } = await storePartials(store, 8)
+    const { values, contributions } = await storePartials(store, 8)
     const live = new Set(['n1', 'n2', 'n3', 'n4'])
 
     const outcome = await executeReduce({
-      tree: deriveReduceTree(cids),
+      tree: deriveReduceTree(contributions),
       executors: [...live],
       redundancy: 2,
       dispatch: localDispatch({
@@ -369,8 +459,8 @@ describe('MR-03 / criterion 5 — the aggregation is verified even when the maps
 
   it('reports a divergent combine instead of voting on it', async () => {
     const store = new MemoryBlockstore()
-    const { cids } = await storePartials(store, 4)
-    const tree = deriveReduceTree(cids)
+    const { contributions } = await storePartials(store, 4)
+    const tree = deriveReduceTree(contributions)
     const live = new Set(['n1', 'n2', 'n3'])
     const honest = localDispatch({
       blockstore: store,
@@ -405,10 +495,10 @@ describe('MR-03 / criterion 5 — the aggregation is verified even when the maps
     // Two live nodes cannot provide R=3. Reporting minReplicas matters for the same
     // reason it does in placement: a caller that cannot tell will over-claim.
     const store = new MemoryBlockstore()
-    const { cids } = await storePartials(store, 4)
+    const { contributions } = await storePartials(store, 4)
     const live = new Set(['n1', 'n2'])
     const outcome = await executeReduce({
-      tree: deriveReduceTree(cids),
+      tree: deriveReduceTree(contributions),
       executors: ['n1', 'n2', 'n3'],
       redundancy: 3,
       dispatch: localDispatch({
@@ -432,7 +522,7 @@ describe('associativity is the property the tree relies on', () => {
     // merging all at once. If the reference check did not catch this, the aggregate
     // would silently depend on the tree's shape.
     const store = new MemoryBlockstore()
-    const { values, cids } = await storePartials(store, 8)
+    const { values, contributions } = await storePartials(store, 8)
 
     const largestWins: Combiner = (inputs) =>
       inputs.reduce((best, next) => {
@@ -444,7 +534,7 @@ describe('associativity is the property the tree relies on', () => {
 
     const live = new Set(['n1', 'n2'])
     const treeOutcome = await executeReduce({
-      tree: deriveReduceTree(cids, 2),
+      tree: deriveReduceTree(contributions, 2),
       executors: [...live],
       dispatch: localDispatch({
         blockstore: store,
@@ -466,7 +556,7 @@ describe('associativity is the property the tree relies on', () => {
 
   it('a genuinely non-associative reducer diverges from the reference', async () => {
     const store = new MemoryBlockstore()
-    const { values, cids } = await storePartials(store, 8)
+    const { values, contributions } = await storePartials(store, 8)
 
     // Subtracting row counts is associative for neither grouping nor order.
     const subtract: Combiner = (inputs) => ({
@@ -478,7 +568,7 @@ describe('associativity is the property the tree relies on', () => {
 
     const live = new Set(['n1', 'n2'])
     const treeOutcome = await executeReduce({
-      tree: deriveReduceTree(cids, 2),
+      tree: deriveReduceTree(contributions, 2),
       executors: [...live],
       dispatch: localDispatch({
         blockstore: store,

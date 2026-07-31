@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import { toHex } from './capability.ts'
 import {
   EnrollmentAuthority,
+  possessionChallenge,
   requestEnrollment,
   resolveReplicaSets,
   verifyCertificate,
@@ -31,8 +32,7 @@ function authority(overrides: { maxPerWindow?: number; windowMs?: number } = {})
 
 function enrol(auth: EnrollmentAuthority, seed: number, opts: { operatorId?: string; relayIds?: string[]; at?: number } = {}) {
   const node = keypair(seed)
-  const request = requestEnrollment(node.priv, {
-    userKey: alice.pub,
+  const request = requestEnrollment(node.priv, alice.priv, {
     operatorId: opts.operatorId ?? 'alice-op',
     discoverability: (opts.relayIds ?? ['relay-1']).length > 0 ? 'via-relay' : 'seed',
     relayIds: opts.relayIds ?? ['relay-1'],
@@ -52,7 +52,7 @@ describe('AUTH-01 — the private key never leaves the device', () => {
 
     // Nothing in the request carries a secret. If a provider could issue without
     // proof, it could impersonate every node it ever enrolled.
-    const request = requestEnrollment(node.priv, { userKey: alice.pub, operatorId: 'o', discoverability: 'seed', relayIds: [] })
+    const request = requestEnrollment(node.priv, alice.priv, { operatorId: 'o', discoverability: 'seed', relayIds: [] })
     expect(Object.values(request).some((v) => v === toHex(node.priv))).toBe(false)
   })
 
@@ -62,7 +62,7 @@ describe('AUTH-01 — the private key never leaves the device', () => {
     const attacker = keypair(3)
 
     // The attacker claims the victim's public key but signs with their own.
-    const forged = requestEnrollment(attacker.priv, { userKey: alice.pub, operatorId: 'o', discoverability: 'seed', relayIds: [] })
+    const forged = requestEnrollment(attacker.priv, alice.priv, { operatorId: 'o', discoverability: 'seed', relayIds: [] })
     const result = auth.enrol({ ...forged, nodeKey: victim.pub }, NOW)
 
     expect(result.ok).toBe(false)
@@ -71,10 +71,131 @@ describe('AUTH-01 — the private key never leaves the device', () => {
   })
 })
 
+/**
+ * A certificate names a user key. Until this, nothing that user did put it there.
+ *
+ * The node proved it held its own key and the challenge carried the user key inside
+ * it, but the user key's private half never signed anything — so a provider would
+ * issue a certificate naming any victim's user key to anybody who asked. Reproduced
+ * against these classes before the fix: the attacker got a certificate,
+ * `verifyCertificate` accepted it, and the victim was then rate-limited out of
+ * enrolling their own node because the limiter keys on the attacker-supplied value.
+ */
+describe('AUTH-04 — a certificate names the user who consented to it', () => {
+  it('refuses a request naming another user’s key without that user’s signature', () => {
+    const auth = authority()
+    const attackerNode = keypair(60)
+
+    // Hand-assembled, because `requestEnrollment` can no longer express it: the user
+    // key is derived from the private key it is given, not accepted as a field.
+    const challenge = possessionChallenge(attackerNode.pub, alice.pub)
+    const forged = {
+      nodeKey: attackerNode.pub,
+      userKey: alice.pub,
+      operatorId: 'attacker-op',
+      discoverability: 'seed' as const,
+      relayIds: [],
+      proofOfPossession: toHex(ed25519.sign(challenge, attackerNode.priv)),
+      // Signed by the attacker's node key, which is not alice's.
+      ownerProof: toHex(ed25519.sign(challenge, attackerNode.priv)),
+    }
+
+    const result = auth.enrol(forged, NOW)
+    expect(result.ok).toBe(false)
+    if (result.ok) return
+    expect(result.refusal.kind).toBe('bad-owner-proof')
+    // Its own discriminant, because "this node lied about itself" and "this node
+    // claimed someone else's account" are different events and only the second is an
+    // attack on a third party.
+    expect(result.refusal.kind).not.toBe('bad-proof-of-possession')
+    expect(result.reason).toContain(alice.pub)
+  })
+
+  it('does not let a refused cross-user request consume the victim’s window', () => {
+    const auth = authority({ maxPerWindow: 3 })
+    const challengeFor = (node: { priv: Uint8Array; pub: string }) =>
+      possessionChallenge(node.pub, alice.pub)
+
+    for (let i = 0; i < 5; i++) {
+      const attackerNode = keypair(70 + i)
+      const challenge = challengeFor(attackerNode)
+      auth.enrol(
+        {
+          nodeKey: attackerNode.pub,
+          userKey: alice.pub,
+          operatorId: 'attacker-op',
+          discoverability: 'seed',
+          relayIds: [],
+          proofOfPossession: toHex(ed25519.sign(challenge, attackerNode.priv)),
+          ownerProof: toHex(ed25519.sign(challenge, attackerNode.priv)),
+        },
+        NOW,
+      )
+    }
+
+    // The ordering is the whole of this case: verification is pure and cheap, so it
+    // costs nothing to do it before the limiter is touched, and doing it after is
+    // what turned a forgeable field into a denial of service against its owner.
+    expect(auth.issuedWithin(alice.pub, NOW)).toBe(0)
+    expect(enrol(auth, 80).result.ok).toBe(true)
+  })
+
+  it('names the key it holds, because that is the only key it can name', () => {
+    const auth = authority()
+    const node = keypair(81)
+    const request = requestEnrollment(node.priv, alice.priv, {
+      operatorId: 'alice-op',
+      discoverability: 'seed',
+      relayIds: [],
+    })
+    const result = auth.enrol(request, NOW)
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.certificate.userKey).toBe(alice.pub)
+  })
+
+  it('cannot be handed a user key through its fields at all', () => {
+    const auth = authority()
+    const node = keypair(82)
+    const request = requestEnrollment(node.priv, alice.priv, {
+      operatorId: 'alice-op',
+      discoverability: 'seed',
+      relayIds: [],
+      // @ts-expect-error userKey is derived from the private key, never supplied
+      userKey: rogue.pub,
+    })
+
+    // Two layers, failing for different reasons and both worth having. The
+    // `@ts-expect-error` above is the compile-time half — it goes red if the field
+    // ever becomes assignable. Everything below is the runtime half: naming a
+    // stranger has to be *inert*, not merely unspellable, because a caller reaching
+    // this from untyped JS can spell anything.
+    expect(request.userKey).toBe(alice.pub)
+    expect(request.userKey).not.toBe(rogue.pub)
+
+    const result = auth.enrol(request, NOW)
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.certificate.userKey).toBe(alice.pub)
+    expect(result.certificate.userKey).not.toBe(rogue.pub)
+
+    // And the limiter keys on that same field, so a honoured `userKey` would not
+    // just mislabel the certificate — it would spend the named stranger's window.
+    // The count that moved is the signer's.
+    expect(auth.issuedWithin(alice.pub, NOW)).toBe(1)
+    expect(auth.issuedWithin(rogue.pub, NOW)).toBe(0)
+  })
+})
+
 describe('AUTH-02 — verification is offline', () => {
   it('verifies against a pinned provider key with no authority call', () => {
     const auth = authority()
     const { result } = enrol(auth, 4)
+    // Asserted rather than merely guarded, here and below. A bare `if (!result.ok)
+    // return` turns an issuer that stopped issuing into a green test that ran no
+    // assertion at all — the whole body is skipped and nothing says so.
+    expect(result.ok).toBe(true)
     if (!result.ok) return
 
     // The trust anchors are an argument. There is nothing here to reach out to.
@@ -85,6 +206,7 @@ describe('AUTH-02 — verification is offline', () => {
   it('refuses a certificate from an unpinned issuer', () => {
     const auth = authority()
     const { result } = enrol(auth, 5)
+    expect(result.ok).toBe(true)
     if (!result.ok) return
 
     const verdict = verifyCertificate(result.certificate, new Set([rogue.pub]), NOW)
@@ -96,6 +218,7 @@ describe('AUTH-02 — verification is offline', () => {
   it('refuses a certificate altered after signing', () => {
     const auth = authority()
     const { result } = enrol(auth, 6, { operatorId: 'honest-op' })
+    expect(result.ok).toBe(true)
     if (!result.ok) return
 
     // Changing the operator would defeat quorum diversity if it went unnoticed.
@@ -109,6 +232,7 @@ describe('AUTH-02 — verification is offline', () => {
   it('refuses an expired or not-yet-valid certificate', () => {
     const auth = new EnrollmentAuthority({ providerPrivateKey: provider.priv, certificateLifetimeMs: 1_000 })
     const { result } = enrol(auth, 7)
+    expect(result.ok).toBe(true)
     if (!result.ok) return
     const anchors = new Set([auth.issuerKey])
 
@@ -149,10 +273,10 @@ describe('AUTH-04 — enrollment is rate-limited per user key', () => {
     const auth = authority({ maxPerWindow: 1 })
     const bob = keypair(50)
 
-    const first = requestEnrollment(keypair(30).priv, { userKey: alice.pub, operatorId: 'a', discoverability: 'seed', relayIds: [] })
+    const first = requestEnrollment(keypair(30).priv, alice.priv, { operatorId: 'a', discoverability: 'seed', relayIds: [] })
     expect(auth.enrol(first, NOW).ok).toBe(true)
 
-    const second = requestEnrollment(keypair(31).priv, { userKey: bob.pub, operatorId: 'b', discoverability: 'seed', relayIds: [] })
+    const second = requestEnrollment(keypair(31).priv, bob.priv, { operatorId: 'b', discoverability: 'seed', relayIds: [] })
     expect(auth.enrol(second, NOW).ok).toBe(true)
 
     expect(auth.issuedWithin(alice.pub, NOW)).toBe(1)
@@ -179,6 +303,7 @@ describe('AUTH-05 — certificates chain to a user key, forming a replica set', 
   it('reports a single-node owner as unable to verify within its domain', () => {
     const auth = authority()
     const { result } = enrol(auth, 70)
+    expect(result.ok).toBe(true)
     if (!result.ok) return
     const sets = resolveReplicaSets([result.certificate], new Set([auth.issuerKey]), NOW)
     expect(sets[0]!.canVerifyWithinOwnerDomain).toBe(false)
@@ -189,6 +314,7 @@ describe('AUTH-05 — certificates chain to a user key, forming a replica set', 
     // like an owner-domain verified one.
     const auth = authority()
     const { result } = enrol(auth, 80)
+    expect(result.ok).toBe(true)
     if (!result.ok) return
     const forged: NodeCertificate = { ...result.certificate, nodeKey: keypair(81).pub }
 
@@ -225,6 +351,7 @@ describe('all nodes have equal functionality', () => {
     // share.
     const auth = authority()
     const { result } = enrol(auth, 92, { relayIds: ['relay-1'] })
+    expect(result.ok).toBe(true)
     if (!result.ok) return
     const understated = { ...result.certificate, relayIds: [] }
     expect(verifyCertificate(understated, new Set([auth.issuerKey]), NOW).ok).toBe(false)

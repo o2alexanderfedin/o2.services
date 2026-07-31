@@ -1,15 +1,23 @@
 /**
  * Redundant execution and result verification — VER-01, VER-02, VER-05, VER-06.
  *
- * Two properties this module exists to guarantee:
+ * ## What this module does, and what it does not
  *
- * 1. **Commit before reveal (VER-02).** A replica that can see a peer's answer
- *    before producing its own is not an independent execution — it can copy.
- *    Every executor first publishes `H(nonce ‖ resultCid)`, and only once all
- *    commitments are in does anyone reveal. A reveal that does not match its own
- *    commitment is discarded.
+ * 1. **There is no plagiarism resistance here (VER-02 is not implemented).** The
+ *    requestor holds every executor in one process, calls them itself, and mints the
+ *    whole record; agreement is therefore compared *post hoc* and nothing in this
+ *    function stops a replica copying a peer's answer. Resistance to that is a
+ *    two-round protocol *across* nodes — a wire message and a cross-node barrier —
+ *    and additionally needs a **hiding** commitment, which is why the ceremony this
+ *    module used to carry could never have supplied it: its nonce was derived from
+ *    `nodeId:moduleCid:partitionIndex`, all three public, and the requestor computed
+ *    both halves and compared them with each other. The comparison was
+ *    unconditionally true and both of its failure branches were unreachable —
+ *    measured 2026-07-30 by making the mismatch branch throw and running the whole
+ *    node project: 1171 tests, no reach. Its shape is not a seam a real ceremony
+ *    would plug into, so it is gone rather than kept.
  *
- * 2. **The compared digest covers `(task, output)` only (VER-05).** Timing, fuel,
+ * 2. **The compared value covers `(task, output)` only (VER-05).** Timing, fuel,
  *    and node identity sit outside it. Including them would make every honest
  *    redundant execution disagree, and the disagreement would be misdiagnosed as
  *    a determinism problem in the guest.
@@ -19,66 +27,39 @@
  * event this mechanism exists to detect.
  */
 
-import { sha256 } from '../hash.ts'
 import type { CID } from 'multiformats/cid'
 import { canonicalCid } from '../canonical/encode.ts'
 import type { CanonicalValue } from '../canonical/encode.ts'
 import type { Executor, Task } from '../ports.ts'
 
-const HEX = '0123456789abcdef'
-
-function toHex(bytes: Uint8Array): string {
-  let out = ''
-  for (const b of bytes) out += HEX[b >> 4]! + HEX[b & 0x0f]!
-  return out
-}
-
-/** A commitment to a result, published before the result itself. */
-export interface Commitment {
-  readonly nodeId: string
-  readonly digest: string
-}
-
-/** The revealed result, checkable against its own commitment. */
-export interface Reveal {
-  readonly nodeId: string
-  readonly nonce: Uint8Array
-  readonly resultCid: CID
-  readonly output: CanonicalValue
-  readonly fuelUsed: number
-}
-
+/** What one executor's run of a task came to. */
 export type Receipt =
-  | { ok: true; commitment: Commitment; reveal: Reveal }
+  | {
+      ok: true
+      nodeId: string
+      resultCid: CID
+      output: CanonicalValue
+      fuelUsed: number
+    }
   | { ok: false; nodeId: string; reason: string }
 
-/**
- * `H(nonce ‖ resultCid.bytes)`.
- *
- * Deliberately excludes fuel, timing, and nodeId — see VER-05 above.
- */
-export async function commitmentDigest(nonce: Uint8Array, resultCid: CID): Promise<string> {
-  const cidBytes = resultCid.bytes
-  const buf = new Uint8Array(nonce.length + cidBytes.length)
-  buf.set(nonce, 0)
-  buf.set(cidBytes, nonce.length)
-  const digest = await sha256.digest(buf)
-  return toHex(digest.digest)
-}
-
-/** Deterministic per-node nonce so tests are reproducible without a CSPRNG port. */
-function nonceFor(nodeId: string, task: Task): Uint8Array {
-  const seed = `${nodeId}:${task.moduleCid.toString()}:${task.partitionIndex}`
-  const bytes = new Uint8Array(16)
-  for (let i = 0; i < seed.length; i++) {
-    bytes[i % 16] = ((bytes[i % 16] as number) * 31 + seed.charCodeAt(i)) & 0xff
-  }
-  return bytes
-}
-
-/** Run one executor and produce its commitment + reveal. */
+/** Run one executor and content-address what it produced. */
 async function runOne(executor: Executor, task: Task): Promise<Receipt> {
-  const outcome = await executor.execute(task)
+  let outcome
+  try {
+    outcome = await executor.execute(task)
+  } catch (cause) {
+    // The port says a failure is a value; an implementation is foreign code and can
+    // still throw. Converted here because this is the only place the node id is in
+    // scope — one replica's collapse must not discard its co-replicas' completed
+    // work, and a rejection carries no name. The same conversion `RemoteExecutor`,
+    // `coordinator`'s `attempt` and `serveAgent`'s exec branch already make.
+    return {
+      ok: false,
+      nodeId: executor.nodeId,
+      reason: `execute threw on ${executor.nodeId}: ${cause instanceof Error ? cause.message : String(cause)}`,
+    }
+  }
   if (!outcome.ok) {
     return { ok: false, nodeId: executor.nodeId, reason: outcome.reason }
   }
@@ -92,18 +73,12 @@ async function runOne(executor: Executor, task: Task): Promise<Receipt> {
       reason: `output not encodable: ${JSON.stringify(hashed.error)}`,
     }
   }
-  const nonce = nonceFor(executor.nodeId, task)
-  const digest = await commitmentDigest(nonce, hashed.cid)
   return {
     ok: true,
-    commitment: { nodeId: executor.nodeId, digest },
-    reveal: {
-      nodeId: executor.nodeId,
-      nonce,
-      resultCid: hashed.cid,
-      output: outcome.output,
-      fuelUsed: outcome.fuelUsed,
-    },
+    nodeId: executor.nodeId,
+    resultCid: hashed.cid,
+    output: outcome.output,
+    fuelUsed: outcome.fuelUsed,
   }
 }
 
@@ -145,42 +120,27 @@ export async function executeVerified(
     return { status: 'insufficient', reason: 'no executors supplied', failures: [] }
   }
 
-  // Commit phase — every executor runs and commits before any reveal is read.
   const receipts = await Promise.all(executors.map((e) => runOne(e, task)))
 
   const failures = receipts
     .filter((r): r is Extract<Receipt, { ok: false }> => !r.ok)
     .map((r) => ({ nodeId: r.nodeId, reason: r.reason }))
 
-  const good = receipts.filter((r): r is Extract<Receipt, { ok: true }> => r.ok)
-  if (good.length === 0) {
+  const answered = receipts.filter((r): r is Extract<Receipt, { ok: true }> => r.ok)
+  if (answered.length === 0) {
     return { status: 'insufficient', reason: 'every executor failed', failures }
-  }
-
-  // Reveal phase — a reveal must match the commitment its node already published.
-  const verified: Reveal[] = []
-  for (const r of good) {
-    const expected = await commitmentDigest(r.reveal.nonce, r.reveal.resultCid)
-    if (expected === r.commitment.digest) {
-      verified.push(r.reveal)
-    } else {
-      failures.push({ nodeId: r.reveal.nodeId, reason: 'reveal does not match commitment' })
-    }
-  }
-  if (verified.length === 0) {
-    return { status: 'insufficient', reason: 'no reveal matched its commitment', failures }
   }
 
   // Group by result. More than one group is disagreement — reported, not voted on.
   const groups = new Map<string, string[]>()
-  for (const rev of verified) {
-    const key = rev.resultCid.toString()
+  for (const answer of answered) {
+    const key = answer.resultCid.toString()
     const nodes = groups.get(key)
-    if (nodes) nodes.push(rev.nodeId)
-    else groups.set(key, [rev.nodeId])
+    if (nodes) nodes.push(answer.nodeId)
+    else groups.set(key, [answer.nodeId])
   }
 
-  const grossFuel = verified.reduce((sum, r) => sum + r.fuelUsed, 0)
+  const grossFuel = answered.reduce((sum, r) => sum + r.fuelUsed, 0)
 
   if (groups.size > 1) {
     return {
@@ -190,13 +150,13 @@ export async function executeVerified(
     }
   }
 
-  const winner = verified[0] as Reveal
+  const winner = answered[0] as Extract<Receipt, { ok: true }>
   return {
     status: 'agreed',
     resultCid: winner.resultCid,
     output: winner.output,
-    agreeing: verified.map((r) => r.nodeId),
-    replicas: verified.length,
+    agreeing: answered.map((r) => r.nodeId),
+    replicas: answered.length,
     grossFuel,
     usefulFuel: winner.fuelUsed,
   }

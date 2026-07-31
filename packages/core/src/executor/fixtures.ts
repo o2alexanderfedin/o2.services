@@ -110,7 +110,7 @@ const LOCAL_GET_0 = [0x20, 0x00]
  *
  * Prefix: `a1` (map, 1 pair), `61 70` (text "p"), `44` (byte string, length 4).
  */
-export const MODULE_WRITES_PARTITION: Uint8Array<ArrayBuffer> = build([
+const LAY_PARTITION_MAP = [
   ...i32(0), ...i32(0xa1), ...STORE8,
   ...i32(1), ...i32(0x61), ...STORE8,
   ...i32(2), ...i32(0x70), ...STORE8,
@@ -120,9 +120,54 @@ export const MODULE_WRITES_PARTITION: Uint8Array<ArrayBuffer> = build([
   0x10, 0x03,
   ...i32(16), SHR_U,
   0x36, 0x00, 0x00, // i32.store align=0 offset=0
-  // output_write(0, 8)
-  ...i32(0), ...i32(8), 0x10, 0x02,
+]
+
+/** `output_write(ptr, len)` — the call, so a module can make several of them. */
+const WRITE = (ptr: number, len: number): number[] => [...i32(ptr), ...i32(len), 0x10, 0x02]
+
+export const MODULE_WRITES_PARTITION: Uint8Array<ArrayBuffer> = build([
+  ...LAY_PARTITION_MAP,
+  ...WRITE(0, 8),
 ])
+
+/**
+ * Writes once, over the cap, and nothing else.
+ *
+ * 64 bytes: comfortably inside the fixture's one 64 KiB page, so the host's
+ * bounds check is not what refuses it, and far above the 8-byte cap the tests
+ * that use it declare. A module that reaches the end having written nothing the
+ * host would take is not the same event as one that never called `output_write`,
+ * and this fixture is what tells the two apart.
+ */
+export const MODULE_OUTPUT_OVER_CAP: Uint8Array<ArrayBuffer> = build([...WRITE(0, 64)])
+
+/** A valid 8-byte output, then an over-cap write. The reported instance of B11. */
+export const MODULE_OUTPUT_THEN_OVER_CAP: Uint8Array<ArrayBuffer> = build([
+  ...LAY_PARTITION_MAP,
+  ...WRITE(0, 8),
+  ...WRITE(0, 64),
+])
+
+/**
+ * An over-cap write, then a valid 8-byte one — the mirror.
+ *
+ * The obvious fix for the case above (clear the slot on refusal) leaves this one
+ * returning `ok: true`, so a module can spend its refusal and then launder it.
+ */
+export const MODULE_OVER_CAP_THEN_OUTPUT: Uint8Array<ArrayBuffer> = build([
+  ...LAY_PARTITION_MAP,
+  ...WRITE(0, 64),
+  ...WRITE(0, 8),
+])
+
+/**
+ * Declares a negative length.
+ *
+ * `len` arrives as a wasm `i32`, so negative is representable at the ABI. It is a
+ * malformed call and not a policy bound, and an operator must be able to tell the
+ * two apart from the reason alone.
+ */
+export const MODULE_OUTPUT_NEGATIVE_LENGTH: Uint8Array<ArrayBuffer> = build([...WRITE(0, -1)])
 
 /**
  * Echoes its input straight back as the output.
@@ -149,6 +194,24 @@ export const MODULE_NO_OUTPUT: Uint8Array<ArrayBuffer> = build([0x01]) // nop
 
 /** Traps immediately. */
 export const MODULE_TRAPS: Uint8Array<ArrayBuffer> = build([0x00]) // unreachable
+
+/**
+ * Spins forever — `loop … br 0 … end` with no exit.
+ *
+ * `run()` is a synchronous call, and V8 has no fuel metering, so nothing on the
+ * thread executing this can interrupt it: not a timer, not a flag, not a stop
+ * button. Only killing the thread ends it. That is what makes this the only honest
+ * probe for a wall-clock bound — a module that finishes on its own cannot tell a
+ * deadline that fired from a deadline that was never armed.
+ *
+ * Shared by both tiers deliberately, so the browser probe and the Node one spin
+ * identical bytes.
+ */
+export const MODULE_NEVER_RETURNS: Uint8Array<ArrayBuffer> = build([
+  0x03, 0x40, // loop (void)
+  0x0c, 0x00, // br 0
+  0x0b, // end loop
+])
 
 
 

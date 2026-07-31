@@ -31,6 +31,19 @@ import type { CanonicalValue } from '@o2/core'
 import { encodeRequest, parseResponse } from './protocol.ts'
 import type { RpcEndpoint } from './rpc.ts'
 
+/**
+ * Holders one answering peer may name.
+ *
+ * Not a tuning knob and not a guess: no honest relay in this repository can hold
+ * more. libp2p's default reservation store is 15 (`RELAY_MAX_RESERVATIONS`),
+ * `FabricNode` takes that default, and `SeedServer` raises it to 64
+ * (`seed-server.ts:222`) — the largest store any node here is configured for. So
+ * this truncates no truthful answer and bounds a hostile one. A relay configured
+ * above 64 loses its tail from *this* peer's view; this constant is the line to
+ * change with it.
+ */
+export const MAX_RESERVED_PEERS_PER_ANSWER = 64
+
 export interface RendezvousOptions {
   readonly rpc: RpcEndpoint
   /** Peers to ask. A thunk so a peer that connected a moment ago is included. */
@@ -74,9 +87,13 @@ export async function findReservedPeers(options: RendezvousOptions): Promise<Ren
     const response = parseResponse(body)
     if (response === null || response.kind !== 'reservations') continue
     answered += 1
+    let taken = 0
     for (const holder of response.peerIds) {
       // Never our own reservation coming back to us through the node holding it.
+      // Before the count, so an echo of our own id costs no slot.
       if (holder === options.self) continue
+      if (taken >= MAX_RESERVED_PEERS_PER_ANSWER) break
+      taken += 1
       addrs.add(`/p2p/${peer}/p2p-circuit/webrtc/p2p/${holder}`)
     }
   }

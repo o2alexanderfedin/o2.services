@@ -3,7 +3,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'no
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import {
   CROSS_MACHINE_BLIND_SPOT,
   DEFAULT_TIMEOUT_MS,
@@ -56,6 +56,71 @@ import type { LiftFinding, LiftOutcome, LiftedArtifact, UndecodedProbe } from '.
  * container, and confirmed present verbatim in `strings /root/elfconv/bin/elflift`.
  * That is weaker evidence than a capture and is recorded as such.
  */
+
+/**
+ * A framework budget equal to the driver's own budget is the defect, not a generous
+ * budget.
+ *
+ * The `node` project's default `testTimeout` is 5 s and this file declared none, while
+ * six cases below handed `resolveImage` a budget of exactly `5_000`. Two timers armed
+ * for the same instant, and vitest's is armed first — so a stub that was slow to spawn
+ * killed the *test* rather than letting the driver's own timer fire, and the case
+ * reported `Error: Test timed out in 5000ms` at 5006 ms instead of asserting the
+ * classification it exists to check. Those six are about which `LiftFailure` comes
+ * back, not about how long anything took. Their budget is now
+ * {@link METADATA_BUDGET_MS}, which sits well inside this one.
+ *
+ * 60 s, chosen the way `packages/demo/src/kernel.test.ts` chose its own — but against
+ * the worst case this file can construct rather than the typical one, which is the
+ * mistake being corrected here. The slowest unskipped cases are the two deliberate
+ * timeouts in "a container that outlived its client". They spend
+ * {@link TIMEOUT_CASE_BUDGET_MS} by construction, and then the driver spends its own
+ * `CONTAINER_REMOVE_TIMEOUT_MS` — 30 s — trying to kill the container it just
+ * abandoned. The stub answers that `rm` immediately, so they measure about 5.4 s each;
+ * a stub that did not would make it 35 s, and 60 s has to cover that too. Wide enough
+ * that load cannot decide a verdict, tight enough to still catch a hang. The
+ * integration cases at the foot of the file pass their own explicit timeouts and are
+ * untouched by this line.
+ */
+vi.setConfig({ testTimeout: 60_000 })
+
+/**
+ * What the cases that are *about classification* hand `resolveImage`.
+ *
+ * Each of them stubs `docker` with a shell script that answers immediately, so this
+ * bound is only ever reached by a stub that has wedged — and when it is reached the
+ * answer has to be the driver's `docker-unavailable`, carrying the detail string that
+ * names the number, rather than a framework kill that names nothing.
+ *
+ * Measured on this host on 2026-07-31, with an unrelated LLVM build saturating it —
+ * load average 30 on 8 cores: 40 spawns of this same `#!/bin/sh` stub, written to
+ * `tmpdir()` and read back over a pipe, cost p50 200 ms, p90 279 ms, max 425 ms. 20 s
+ * is 47× that worst sample, so nothing but a genuine wedge reaches it, and it is a
+ * third of the framework budget above, so when something does reach it the driver's
+ * timer fires first with 40 s to spare.
+ */
+const METADATA_BUDGET_MS = 20_000
+
+/**
+ * What the two cases that are *about the timeout firing* hand `liftElf`.
+ *
+ * Bounded on both sides, and the 700 ms this replaces satisfied only one side.
+ * `liftElf` spends this budget twice: once on `docker image inspect`, where it is the
+ * whole of it because `IMAGE_RESOLVE_CAP_MS` is 60 s and the smaller wins, and again on
+ * `docker run` — which is the step these two cases are actually about. The inspect
+ * costs one process spawn, and against the distribution above 700 ms was 1.6× the worst
+ * sample. On the whole-file run of 2026-07-31 at load average 33 both cases spent it:
+ * the inspect was SIGKILLed at its own budget, `liftElf` came back
+ * `docker-unavailable`, and the `run` step never happened at all —
+ * `expected 'docker-unavailable' to be 'timed-out'`, at 708 ms and 711 ms.
+ *
+ * 5 s is 12× that worst measured spawn, so the inspect cannot eat the budget; and a
+ * sixth of the stub's `exec sleep 30`, so the `run` step is still ended by the driver's
+ * timer rather than by the sleep returning on its own — which would come back
+ * `no-artifact` and be a different test. It costs 5 s of wall clock twice, against a
+ * file that takes 280 s.
+ */
+const TIMEOUT_CASE_BUDGET_MS = 5_000
 
 const FIXTURES = fileURLToPath(new URL('./fixtures/', import.meta.url))
 
@@ -722,7 +787,7 @@ describe('an image whose digests name another repository is refused, never run',
    */
   it('names the mismatch instead of resolving to the first digest in the list', async () => {
     const docker = stubDocker(emitDigests(FOREIGN_DIGESTS))
-    const resolved = await resolveImage(ELFCONV_IMAGE_TAG, docker.path, 5_000)
+    const resolved = await resolveImage(ELFCONV_IMAGE_TAG, docker.path, METADATA_BUDGET_MS)
     expect(resolved.ok).toBe(false)
     if (resolved.ok) return
     expect(resolved.failure.kind).toBe('image-digest-foreign')
@@ -766,7 +831,7 @@ describe('an image whose digests name another repository is refused, never run',
     // in a list whose first entry is foreign, which is exactly the case the fallback
     // used to get right by accident and could now get wrong on purpose.
     const docker = stubDocker(emitDigests([...FOREIGN_DIGESTS, MATCHING_DIGEST]))
-    const resolved = await resolveImage(ELFCONV_IMAGE_TAG, docker.path, 5_000)
+    const resolved = await resolveImage(ELFCONV_IMAGE_TAG, docker.path, METADATA_BUDGET_MS)
     expect(resolved.ok).toBe(true)
     if (!resolved.ok) return
     expect(resolved.reference).toBe(MATCHING_DIGEST)
@@ -779,7 +844,7 @@ describe('an image whose digests name another repository is refused, never run',
     const image = 'localhost:5000/o2/elfconv:arm64'
     const digest = `localhost:5000/o2/elfconv@sha256:${'3'.repeat(64)}`
     const docker = stubDocker(emitDigests([digest]))
-    const resolved = await resolveImage(image, docker.path, 5_000)
+    const resolved = await resolveImage(image, docker.path, METADATA_BUDGET_MS)
     expect(resolved.ok).toBe(true)
     if (!resolved.ok) return
     expect(resolved.reference).toBe(digest)
@@ -789,7 +854,7 @@ describe('an image whose digests name another repository is refused, never run',
     // Different fixes — push the locally built image, versus re-pull by the name you
     // mean — so collapsing them would send half the readers to the wrong one.
     const docker = stubDocker(emitDigests([]))
-    const resolved = await resolveImage(ELFCONV_IMAGE_TAG, docker.path, 5_000)
+    const resolved = await resolveImage(ELFCONV_IMAGE_TAG, docker.path, METADATA_BUDGET_MS)
     expect(resolved.ok).toBe(false)
     if (resolved.ok) return
     expect(resolved.failure.kind).toBe('image-has-no-digest')
@@ -815,7 +880,10 @@ describe('a container that outlived its client is killed before its mount is del
         '  *) exit 0 ;;\n' +
         'esac',
     )
-    const outcome = await liftElf(stubElfPath, { docker: docker.path, timeoutMs: 700 })
+    const outcome = await liftElf(stubElfPath, {
+      docker: docker.path,
+      timeoutMs: TIMEOUT_CASE_BUDGET_MS,
+    })
     expect(outcome.ok).toBe(false)
     if (outcome.ok) return
     expect(outcome.failure.kind).toBe('timed-out')
@@ -849,7 +917,10 @@ describe('a container that outlived its client is killed before its mount is del
         '  *) exit 0 ;;\n' +
         'esac',
     )
-    const outcome = await liftElf(stubElfPath, { docker: docker.path, timeoutMs: 700 })
+    const outcome = await liftElf(stubElfPath, {
+      docker: docker.path,
+      timeoutMs: TIMEOUT_CASE_BUDGET_MS,
+    })
     expect(outcome.ok).toBe(false)
     if (outcome.ok) return
     expect(outcome.failure.kind).toBe('timed-out')
@@ -885,7 +956,7 @@ describe('the caller’s timeout bounds image resolution too', () => {
     // twenty minutes the cap is what bounds it, and the cap is what stops a wedged
     // daemon holding a build in silence for the whole budget.
     const docker = stubDocker(emitDigests([MATCHING_DIGEST]))
-    const resolved = await resolveImage(ELFCONV_IMAGE_TAG, docker.path, 5_000)
+    const resolved = await resolveImage(ELFCONV_IMAGE_TAG, docker.path, METADATA_BUDGET_MS)
     expect(resolved.ok).toBe(true)
     expect(IMAGE_RESOLVE_CAP_MS).toBeLessThan(DEFAULT_TIMEOUT_MS)
   })
@@ -920,7 +991,11 @@ describe('the driver fails by name, and fails early', () => {
   })
 
   it('names an unavailable Docker rather than reporting an empty lift', async () => {
-    const resolved = await resolveImage(ELFCONV_IMAGE_TAG, '/nonexistent/definitely-not-docker', 5_000)
+    const resolved = await resolveImage(
+      ELFCONV_IMAGE_TAG,
+      '/nonexistent/definitely-not-docker',
+      METADATA_BUDGET_MS,
+    )
     expect(resolved.ok).toBe(false)
     if (resolved.ok) return
     expect(resolved.failure.kind).toBe('docker-unavailable')

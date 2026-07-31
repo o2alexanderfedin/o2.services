@@ -35,6 +35,47 @@ finding, not a target.** Nothing in this file is a threshold, and
 
 ## Headline
 
+> **Re-measured 2026-07-30, after the second bug group landed** (B08–B14). The `node`
+> project reads **78.62 %** statements (3442 / 4378) / 76.86 % branches (1910 / 2485) /
+> 78.79 % functions (669 / 849) / 80.53 % lines (3065 / 3806) over **80 test files,
+> 1188 tests, all passing**, 206.48 s. Instrument and command unchanged.
+>
+> This one was re-measured rather than assumed for a specific reason: B08–B14 **deleted**
+> a block in `packages/core/src/job/verify.ts` whose lines the suite executed on every
+> run and never falsified — a commitment recomputed from the two values it was minted
+> from, so both of its failure branches were unreachable while every statement in them
+> counted as covered. Removing covered statements moves numerator and denominator
+> together, so it cannot raise a figure below 100 %; `verify.ts` now reads **33 / 33**
+> and `packages/core/src/job` **98.94 %**. The rise is elsewhere and is new tests, not
+> the deletion: `fabric-node.ts` 100 % (start-unwind), `libp2p-transport.ts` 94 %
+> (the per-peer accumulation budget), `coordinator.ts` 96.25 %, `enrollment.ts`
+> 92.64 %, `wasm.ts` 86.76 %.
+>
+> Two figures that did **not** move and are the same artefact this file already records:
+> `browser-node.ts` stays at **0 / 69** — its unwind is covered by construction review
+> only, because `BrowserNode.start` needs a real `indexedDB` and a relay to dial and runs
+> in neither instrumented project — and `seed-server.ts` at 54.28 % is bounded by the
+> same reach. Neither is evidence the code is untested; both are evidence of where the
+> instrument stops.
+>
+> **Re-measured 2026-07-30, after the wall-clock execution deadline landed** (B03/B06).
+> The `node` project now reads **77.96 %** statements / 76.00 % branches / 78.05 %
+> functions / 79.90 % lines over **79 test files, 1157 tests, all passing**, 227.26 s.
+>
+> It moved *up*, and the reason is worth recording because the prediction was that it
+> would move down: two new modules read **0 %** and both are correct at 0 %.
+> `packages/core/src/executor/task-run.ts` and
+> `packages/node/src/task-executor.worker-thread.ts` execute **inside a worker thread**,
+> which the v8 provider does not instrument — the same blindness `task-worker.ts` has
+> always had, and the same class of artefact this file already records for
+> `*.mutate.ts`. Their statements are genuinely exercised, by
+> `worker-executor.browser.test.ts` and `execution-deadline.node.test.ts`, in a place
+> the instrument cannot see. The rise comes from `fabric-node.ts` and
+> `worker-executor.ts` gaining covered lines that outweigh them.
+>
+> The 2026-07-29 table below is left exactly as measured. **A baseline that is edited
+> to match the present is not a baseline.**
+
 | Metric | Covered / total | % |
 |---|---|---|
 | Statements | 3285 / 4270 | **76.93** |

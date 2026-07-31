@@ -90,6 +90,94 @@ function parseLedger(markdown: string): Requirement[] {
 }
 
 // ---------------------------------------------------------------------------
+// Parsing the traceability table — the ledger's second representation
+// ---------------------------------------------------------------------------
+
+/**
+ * The same fact, written twice.
+ *
+ * A requirement's delivery state appears in two places in this file: the checkbox on
+ * its row, and the status word in the traceability table at the bottom. The rule
+ * relating them is written down at `.planning/REQUIREMENTS.md`'s legend — `[x]` means
+ * delivered, `[ ]` + **Partial** and `[ ]` + **Built, not wired** mean it is not — and
+ * until this parse nothing read both. Four rows disagreed.
+ *
+ * The audit above cannot see this class at all. It asks whether *some* tracked test
+ * names each `[x]` id, which a mechanism's own unit spec satisfies whether or not the
+ * mechanism is reachable from anything a person can run. That is the difference
+ * between "there is a test" and "the ledger agrees with itself".
+ */
+const TRACEABILITY_ROW = /^\|\s*([A-Z]+-\d+)\s*\|([^|]*)\|([^|]*)\|/gm
+
+interface TraceabilityRow {
+  readonly id: string
+  /** The leading verdict, `**` stripped and any trailing argument cut off. */
+  readonly status: string
+  readonly line: number
+}
+
+/**
+ * Read the status cell as a verdict plus an argument, and keep only the verdict.
+ *
+ * The em dash separates them by convention throughout the table, and the argument
+ * routinely contains words that read like verdicts — DATA-05, DATA-06 and DATA-07 all
+ * say "unmeasured" or "not met" *after* a `Done`. Searching the whole cell for
+ * "Partial" would report those three as offenders, which is why only the leading
+ * verdict gets classified.
+ */
+function parseTraceability(markdown: string): TraceabilityRow[] {
+  const found: TraceabilityRow[] = []
+  for (const match of markdown.matchAll(TRACEABILITY_ROW)) {
+    const id = match[1]
+    const cell = match[3]
+    if (id === undefined || cell === undefined || match.index === undefined) continue
+    const status = (cell.replaceAll('**', '').split('—')[0] ?? '').trim()
+    found.push({ id, status, line: markdown.slice(0, match.index).split('\n').length })
+  }
+  return found
+}
+
+/**
+ * Every status word the table uses, measured rather than assumed.
+ *
+ * A status outside this set **fails**, naming the row. That is the half that keeps
+ * the join alive: a later `Mostly done` would otherwise be classified as not-Done by
+ * a `startsWith('Done')` test and silently exempt its row from nothing at all, and the
+ * guard would read exactly like a healthy one. This repository has shipped a
+ * classifier that matched nothing once already.
+ */
+const RECOGNISED_STATUSES: readonly string[] = [
+  'Done',
+  'Done against the amended criterion',
+  'Done against the amended criterion, with its granularity stated',
+  'Built, not wired',
+  'Partial',
+  'Not started',
+]
+
+/** The legend's rule: `[x]` iff the traceability verdict begins `Done`. */
+const delivered = (status: string): boolean => status.startsWith('Done')
+
+/**
+ * Checkbox ids the traceability table has no row for, as measured on 2026-07-30.
+ *
+ * Recorded as a set rather than asserted away. Demanding a row for every checkbox
+ * fails today for six ids minted with v1.1, and the only way to go green would be to
+ * invent rows — a ledger edited to satisfy its own checker. Holding the set instead
+ * means deleting a row cannot silence the join: the set changes and this fails.
+ */
+const CHECKBOXES_WITHOUT_A_ROW: readonly string[] = [
+  'SCHED-06',
+  'NET-08',
+  'NET-09',
+  'NET-10',
+  'DATA-10',
+  'BENCH-07',
+]
+
+const TRACEABILITY_FLOOR = 60
+
+// ---------------------------------------------------------------------------
 // Reading the test corpus
 // ---------------------------------------------------------------------------
 
@@ -274,14 +362,6 @@ const EXEMPT: readonly Exemption[] = [
       'the requirement is split across four files, each covering one leg of it, and no single describe owns the whole claim — a title naming BROW-02 in any one of them would assert more than that file checks',
   },
   {
-    id: 'BROW-04',
-    waives: 'named-in-a-test-title',
-    evidence:
-      'worker-executor.browser.test.ts docblock, plus inline BROW-04 assertions in built-bundle.e2e.test.ts:260 and colouring-demo.e2e.test.ts:161',
-    reason:
-      'a visible-and-stoppable UI property, asserted inside e2e steps whose titles name the user action being performed; the id marks the specific assertions rather than the block',
-  },
-  {
     id: 'BENCH-01',
     waives: 'named-in-a-test-title',
     evidence:
@@ -362,13 +442,12 @@ const FINDINGS: readonly Finding[] = [
     finding:
       'no tracked test file names DET-05. `encode.test.ts` asserts the strict DAG-CBOR rules the row claims — NaN, Infinity and -Infinity refused with the offending path named, one float width — but nothing ties those assertions to the id, and the row also claims "protobuf bytes are never hashed", which is a separate property no test in that file addresses',
   },
-  {
-    id: 'VER-02',
-    found: '2026-07-29',
-    substance: 'packages/core/src/job/submit.test.ts, packages/core/src/job/verify.ts',
-    finding:
-      'no tracked test file names VER-02. `verify.ts` implements commit-then-reveal and `submit.test.ts` exercises `executeVerified`, but its titles name VER-01 (disagreement surfaced) and VER-05 (the digest covers task and output only). The claim VER-02 actually makes — that a replica cannot plagiarize a peer\'s answer — is the one with no id anywhere near it',
-  },
+  // VER-02 sat here until 2026-07-30, on the strength of `verify.ts` implementing
+  // commit-then-reveal. It did not: the requestor minted both halves and compared
+  // them with each other, so the check was unconditionally true and both of its
+  // failure branches were unreachable. The row is now `[ ]` and the ceremony is
+  // deleted, which takes it out of this list's subject — these are `[x]` rows that
+  // no test names, and an unchecked row claims nothing to trace.
   {
     id: 'BENCH-02',
     found: '2026-07-29',
@@ -487,6 +566,7 @@ function audit(
 
 const LEDGER_SOURCE = readFileSync(join(ROOT, LEDGER), 'utf8')
 const REQUIREMENTS = parseLedger(LEDGER_SOURCE)
+const TRACEABILITY = parseTraceability(LEDGER_SOURCE)
 const CORPUS = readCorpus()
 const LIVE = audit(REQUIREMENTS, CORPUS, EXEMPT)
 
@@ -607,6 +687,69 @@ describe('every requirement marked [x] resolves to a test that names it', () => 
     // entry and the file would still be green while asserting almost nothing.
     expect(LIVE.titled.length).toBeGreaterThan(TITLED_REQUIREMENT_FLOOR)
     expect(LIVE.titled.length).toBeGreaterThan(EXEMPT.length)
+  })
+})
+
+describe('the ledger agrees with itself about what is delivered', () => {
+  const statusOf = new Map(TRACEABILITY.map((row) => [row.id, row]))
+
+  it('uses only status words this join recognises', () => {
+    const unrecognised = TRACEABILITY.filter(
+      (row) => !RECOGNISED_STATUSES.includes(row.status),
+    ).map((row) => `${row.id} at ${LEDGER}:${row.line} reads ${JSON.stringify(row.status)}`)
+    expect(unrecognised).toEqual([])
+  })
+
+  it('marks no requirement [x] whose traceability status is not Done', () => {
+    const offenders = REQUIREMENTS.filter((requirement) => requirement.satisfied)
+      .map((requirement) => ({ requirement, row: statusOf.get(requirement.id) }))
+      .filter(({ row }) => row !== undefined && !delivered(row.status))
+      .map(
+        ({ requirement, row }) =>
+          `${requirement.id} — [x] at ${LEDGER}:${requirement.line} against ` +
+          `**${(row as TraceabilityRow).status}** at ${LEDGER}:${(row as TraceabilityRow).line}`,
+      )
+    expect(offenders).toEqual([])
+  })
+
+  it('marks no requirement [ ] whose traceability status is Done', () => {
+    const offenders = REQUIREMENTS.filter((requirement) => !requirement.satisfied)
+      .map((requirement) => ({ requirement, row: statusOf.get(requirement.id) }))
+      .filter(({ row }) => row !== undefined && delivered(row.status))
+      .map(
+        ({ requirement, row }) =>
+          `${requirement.id} — [ ] at ${LEDGER}:${requirement.line} against ` +
+          `**${(row as TraceabilityRow).status}** at ${LEDGER}:${(row as TraceabilityRow).line}`,
+      )
+    expect(offenders).toEqual([])
+  })
+
+  it('read enough traceability rows, in enough states, for the join to mean anything', () => {
+    // Every assertion above is "this list is empty", which a parse that stopped
+    // matching satisfies perfectly. These are what prove it ran.
+    expect(TRACEABILITY.length).toBeGreaterThan(TRACEABILITY_FLOOR)
+    expect(new Set(TRACEABILITY.map((row) => row.status)).size).toBeGreaterThan(1)
+    expect(TRACEABILITY.some((row) => delivered(row.status))).toBe(true)
+    expect(TRACEABILITY.some((row) => !delivered(row.status))).toBe(true)
+  })
+
+  it('leaves exactly the recorded checkboxes without a traceability row', () => {
+    const orphans = REQUIREMENTS.filter(({ id }) => !statusOf.has(id)).map(({ id }) => id)
+    expect(orphans).toEqual([...CHECKBOXES_WITHOUT_A_ROW])
+  })
+
+  it('states a headline count that matches the v1 section it counts', () => {
+    const start = LEDGER_SOURCE.indexOf('\n## v1 Requirements')
+    const end = LEDGER_SOURCE.indexOf('\n## v1.1 Requirements')
+    expect(start).toBeGreaterThan(0)
+    expect(end).toBeGreaterThan(start)
+    const section = LEDGER_SOURCE.slice(start, end)
+    const rows = parseLedger(section)
+    const stated = LEDGER_SOURCE.match(/\*\*(\d+) of (\d+) are `\[x\]`\.\*\*/)
+    expect(stated, 'the headline count is no longer written in the shape this reads').not.toBeNull()
+    const claim = stated as RegExpMatchArray
+    expect(Number(claim[2])).toBe(rows.length)
+    expect(Number(claim[1])).toBe(rows.filter(({ satisfied }) => satisfied).length)
   })
 })
 

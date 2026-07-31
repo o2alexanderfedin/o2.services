@@ -6,7 +6,7 @@
  *
  *   `Transport`  → libp2p over TCP and WebSockets, plus a circuit when it needs one
  *   `Blockstore` → the filesystem when given a directory, memory when not
- *   `Executor`   → the kernel's `WasmExecutor`
+ *   `Executor`   → the kernel's `WasmExecutor`, on a thread this process can kill
  *
  * A node is symmetric. It executes tasks, holds blocks, serves records, and relays
  * for peers that cannot be dialled — all of it, on every node. There is no
@@ -80,7 +80,7 @@ import {
   DEFAULT_MAX_CONCURRENT_TASKS,
   LocalCapacity,
   MemoryBlockstore,
-  WasmExecutor,
+  WorkerExecutor,
   guardSovereignty,
 } from '@o2/core'
 import type { Blockstore, Executor, NodeSovereignty } from '@o2/core'
@@ -88,7 +88,6 @@ import {
   CountingExecutor,
   EgressGuard,
   FetchingBlockstore,
-  registerSovereignInputs,
   RpcBlockSource,
   RpcEndpoint,
   serveAgent,
@@ -106,6 +105,7 @@ import {
   RELAY_MAX_RESERVATION_TTL_MS,
 } from '@o2/libp2p'
 import type { ReservationWatcher } from './reservation-watch.ts'
+import { workerThread } from './worker-thread.ts'
 
 export interface FabricNodeOptions {
   /**
@@ -158,6 +158,20 @@ export interface FabricNodeOptions {
    * caller's mistake into a silently different node.
    */
   readonly maxConcurrentTasks?: number
+  /**
+   * How long one task may hold its thread before it is killed — SCHED-06.
+   *
+   * Defaults to `DEFAULT_TASK_DEADLINE_MS` (`@o2/core`, the only place the value
+   * lives, and the same default the browser tier takes). This node serves
+   * unauthenticated, so the bound is what stands between any peer that can dial
+   * `/o2/rpc/1.0.0` and a wedged process: a guest `run()` is synchronous and V8 has
+   * no fuel, so no timer on the executing thread will ever fire.
+   *
+   * An option rather than only a constant for the same reason `maxConcurrentTasks` is
+   * one: a test that wants to observe the bound has to be able to make it certain
+   * rather than hope for it. Per-node, and not a node class — nothing branches on it.
+   */
+  readonly taskDeadlineMs?: number
   /**
    * Largest single inbound frame this node will accumulate before it aborts the
    * stream — NET-08.
@@ -310,6 +324,8 @@ export class FabricNode {
    * reach this node's executor without being counted.
    */
   readonly #counter: CountingExecutor
+  /** The thread tasks run on. Held only so {@link FabricNode.stop} can end it. */
+  readonly #compute: WorkerExecutor
   readonly #limit: number
   readonly #pending: number
   readonly #inboundPerSecond: number
@@ -322,6 +338,7 @@ export class FabricNode {
     blockstore: FetchingBlockstore
     store: Blockstore
     executor: CountingExecutor
+    compute: WorkerExecutor
     admission: LocalCapacity
     limit: number
     pending: number
@@ -335,6 +352,7 @@ export class FabricNode {
     this.store = parts.store
     this.executor = parts.executor
     this.#counter = parts.executor
+    this.#compute = parts.compute
     this.admission = parts.admission
     this.#limit = parts.limit
     this.#pending = parts.pending
@@ -366,7 +384,45 @@ export class FabricNode {
     return this.#counter.inFlight
   }
 
+  /**
+   * Compose a node, or leave the process as it was found.
+   *
+   * The composition itself is `#compose` below, which pushes a release onto `undo`
+   * on the line after each acquisition. Splitting the two is what keeps that
+   * adjacency: a `try` wrapped around the whole body would re-indent two hundred
+   * lines and put the release set a screen away from the thing it releases, which is
+   * how the leak this method exists to close got written in the first place.
+   *
+   * Releases run newest-first, and each one's own failure is swallowed on its own —
+   * a `libp2p.stop()` that rejects must not strand the releases below it, and must
+   * not replace the caller's error with a shutdown error. What the caller is told is
+   * always why the *start* failed.
+   *
+   * This is a discipline made cheap, not an invariant made structural. Nothing stops
+   * a future edit from acquiring without pushing. What has gone is the distance:
+   * omitting it is now a visible one-line gap rather than a missing branch a hundred
+   * lines below.
+   */
   static async start(options: FabricNodeOptions = {}): Promise<FabricNode> {
+    const undo: (() => Promise<void> | void)[] = []
+    try {
+      return await FabricNode.#compose(options, undo)
+    } catch (cause) {
+      for (const release of undo.reverse()) {
+        try {
+          await release()
+        } catch {
+          // Nothing to do about it, and reporting it would report the wrong failure.
+        }
+      }
+      throw cause
+    }
+  }
+
+  static async #compose(
+    options: FabricNodeOptions,
+    undo: (() => Promise<void> | void)[],
+  ): Promise<FabricNode> {
     const store: Blockstore =
       options.blockstoreDir === undefined
         ? new MemoryBlockstore()
@@ -447,6 +503,9 @@ export class FabricNode {
         ? {}
         : { logger: options.reservationWatcher.logger }),
     })
+    // `createLibp2p` has bound a socket by this line, and a rejected `start` that
+    // leaves one listening is a leak the caller has no handle to close.
+    undo.push(() => libp2p.stop())
 
     // SCHED-06 — this node's own admission control, handed to `serveAgent` below.
     //
@@ -454,10 +513,7 @@ export class FabricNode {
     // nonsense limit is refused while there is least to unwind. `LocalCapacity`'s
     // constructor throws a `RangeError` naming the value for anything below 1, and
     // this factory passes `options.maxConcurrentTasks` straight through so that
-    // guard is *reached* rather than bypassed by a clamp. The `catch` is not
-    // decoration: `createLibp2p` has already bound a socket by this line, and a
-    // rejected `start` that leaves one listening is a leak the caller has no handle
-    // to close.
+    // guard is *reached* rather than bypassed by a clamp.
     //
     // `libp2p.peerId.toString()` is the same value the executor's `nodeId` is
     // resolved from below, so the capacity's node id and the executor's cannot
@@ -466,16 +522,10 @@ export class FabricNode {
     // No `dutyCycle` is passed. This node has no governor to feed one from;
     // `browser-node.ts` has one and deliberately does not feed it either, for the
     // reason written beside its own construction.
-    let admission: LocalCapacity
-    try {
-      admission = new LocalCapacity({
-        nodeId: libp2p.peerId.toString(),
-        maxConcurrent: options.maxConcurrentTasks ?? DEFAULT_MAX_CONCURRENT_TASKS,
-      })
-    } catch (cause) {
-      await libp2p.stop()
-      throw cause
-    }
+    const admission = new LocalCapacity({
+      nodeId: libp2p.peerId.toString(),
+      maxConcurrent: options.maxConcurrentTasks ?? DEFAULT_MAX_CONCURRENT_TASKS,
+    })
 
     // Connecting is what triggers the reservation; the `/p2p-circuit` listen entry
     // above is what makes libp2p ask for one.
@@ -516,27 +566,35 @@ export class FabricNode {
     // `FabricNodeOptions.sovereignty`'s doc). Wrapped once, here, rather than
     // only at the `serveAgent` call below, so a caller that dispatches through
     // `node.executor` directly — bypassing RPC entirely — gets the identical
-    // refusal a remote dispatch would. Registration is equally unconditional and
-    // composed *outside* the sovereignty gate — DATA-05/DATA-06: a sovereign
-    // task's input is declared to this node's own tap before it runs, whether or
-    // not `guardSovereignty` goes on to refuse it. `store` (the local-only tier)
-    // is the registration blockstore, not `blockstore` (network fallback) —
-    // sovereign data must already be resident locally, never fetched over the
-    // network merely to be declared sovereign.
+    // refusal a remote dispatch would.
     //
-    // SCHED-06: `CountingExecutor` is composed **outermost**, outside the
-    // registration and the sovereignty gate, whose relative order is documented
-    // above and is unchanged. Outermost is what makes it the instrument criterion 1
-    // is read off: nothing can reach this node's executor without passing through
-    // it, so `executorPeakInFlight` is a count of calls that really happened rather
-    // than of slots the node believes it granted. See that getter for what the
-    // reading does and does not license.
-    const executor = new CountingExecutor(
-      registerSovereignInputs(
-        guardSovereignty(new WasmExecutor({ nodeId: libp2p.peerId.toString(), blockstore }), sovereignty),
-        { blockstore: store, guard: egress },
-      ),
-    )
+    // DATA-05/DATA-06 no longer appear in this chain. A sovereign task's input is
+    // declared to this node's tap by `serveAgent`, which is the layer that also gives
+    // the hold back once the reply frame has settled; an executor decorator knew
+    // *whether* it had declared anything and had nowhere to say so, and the serve path
+    // released regardless. `store` (the local-only tier) is still the registration
+    // blockstore and is handed to `serveAgent` below, never `blockstore` (network
+    // fallback) — sovereign data must already be resident locally, never fetched over
+    // the network merely to be declared sovereign.
+    //
+    // The narrowing that follows, stated rather than left to be found: a dispatch that
+    // bypasses RPC entirely — `node.executor.execute()` — now declares nothing. It
+    // also no longer takes a hold nothing ever gave back, which is the unbounded
+    // growth that route used to carry.
+    //
+    // SCHED-06: `CountingExecutor` is composed **outermost**, outside the sovereignty
+    // gate. Outermost is what makes it the instrument criterion 1 is read off: nothing
+    // can reach this node's executor without passing through it, so
+    // `executorPeakInFlight` is a count of calls that really happened rather than of
+    // slots the node believes it granted. See that getter for what the reading does
+    // and does not license.
+    const compute = new WorkerExecutor({
+      nodeId: libp2p.peerId.toString(),
+      blockstore,
+      createThread: workerThread,
+      ...(options.taskDeadlineMs === undefined ? {} : { deadlineMs: options.taskDeadlineMs }),
+    })
+    const executor = new CountingExecutor(guardSovereignty(compute, sovereignty))
 
     const node = new FabricNode({
       libp2p,
@@ -546,6 +604,7 @@ export class FabricNode {
       blockstore,
       store,
       executor,
+      compute,
       admission,
       limit,
       pending,
@@ -573,10 +632,11 @@ export class FabricNode {
       rpc,
       executor,
       blockstore,
-      // DATA-05: the same guard `rpc` is built over, so a sovereign task's
-      // registration is released once its reply frame has settled rather than
-      // held for the life of the process.
-      egress,
+      // DATA-05: the same guard `rpc` is built over, plus the local-only tier that
+      // says which payloads are sovereign — so a sovereign task's input is guarded
+      // for exactly as long as its reply frame takes to settle, and a dispatch that
+      // declared nothing gives nothing back.
+      egress: { guard: egress, sovereignInputs: store },
       authorize: 'serves-unauthenticated',
       index: 'serves-no-records',
       // SCHED-06. This hook answered "accepts everything" for the whole of two
@@ -692,6 +752,11 @@ export class FabricNode {
 
   async stop(): Promise<void> {
     this.rpc.close()
+    // Before the transport, and not optional: a task in flight holds a live thread,
+    // and a thread nobody killed keeps the process alive after everything else has
+    // been shut down. `terminate()` is idempotent, and it resolves anything pending
+    // rather than leaving a caller awaiting a promise that will never settle.
+    this.#compute.terminate()
     await this.transport.stop()
     await this.libp2p.stop()
   }

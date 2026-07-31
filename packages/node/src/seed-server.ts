@@ -176,7 +176,35 @@ export class SeedServer {
     this.#wsPort = parts.wsPort
   }
 
+  /**
+   * Stand a seed up, or leave the machine as it was found.
+   *
+   * Same split as `FabricNode.start`, and for the same reason: `#compose` pushes a
+   * release on the line after each acquisition, and this method is the only thing
+   * that knows what to do when one of the later steps says no. A seed that failed
+   * half-way used to strand a whole node holding two bound listeners — the WebSocket
+   * port a browser dials and the plain TCP one another node dials.
+   */
   static async start(options: SeedServerOptions): Promise<SeedServer> {
+    const undo: (() => Promise<void> | void)[] = []
+    try {
+      return await SeedServer.#compose(options, undo)
+    } catch (cause) {
+      for (const release of undo.reverse()) {
+        try {
+          await release()
+        } catch {
+          // Nothing to do about it, and reporting it would report the wrong failure.
+        }
+      }
+      throw cause
+    }
+  }
+
+  static async #compose(
+    options: SeedServerOptions,
+    undo: (() => Promise<void> | void)[],
+  ): Promise<SeedServer> {
     const wsPort = options.wsPort ?? 0
 
     // 0.0.0.0, not loopback: the point is to be reachable from another device.
@@ -193,6 +221,7 @@ export class SeedServer {
       listen: [`/ip4/0.0.0.0/tcp/${wsPort}/ws`, '/ip4/0.0.0.0/tcp/0'],
       maxReservations: options.maxReservations ?? 64,
     })
+    undo.push(() => node.stop())
 
     const boundWsPort = readWsPort(node.multiaddrs)
     if (boundWsPort === null) throw new Error('seed node bound no WebSocket port')
@@ -252,6 +281,7 @@ export class SeedServer {
         },
       ],
     })
+    undo.push(() => http.close())
     await http.listen()
 
     const httpPort = http.config.server.port ?? 0

@@ -36,7 +36,7 @@
  */
 
 import { CID } from 'multiformats/cid'
-import { START_FAILURES } from '@o2/core'
+import { START_FAILURES, isStartBrowserLabel } from '@o2/core'
 import type {
   CanonicalValue,
   CapabilityRecord,
@@ -228,13 +228,51 @@ function asStartResult(value: CanonicalValue | undefined): 'started' | StartFail
 }
 
 /**
+ * The largest count one wire entry may carry.
+ *
+ * The negative count already dropped here and the enormous one that was not are the
+ * same attack from opposite ends — one erases another peer's evidence, the other
+ * buries it — and the second is the more effective, because `mergeOverlapping` takes
+ * the largest count it is shown. One entry claiming four billion therefore decided
+ * every rate in a merged report on its own.
+ *
+ * Unlike `MAX_RESERVED_PEERS_PER_ANSWER` (rendezvous.ts), which truncates no truthful
+ * answer because no relay in this repository can hold more than it allows, **this
+ * ceiling can discard a true count**, and there is no honest bound that would not:
+ * a node's row grows by one for every visitor that ever reported to it, forever. So
+ * the line is drawn where the number stops describing a fabric this repository has
+ * ever run. The busiest node here is configured for 64 concurrent peers
+ * (`seed-server.ts`, quoted by `MAX_RESERVED_PEERS_PER_ANSWER`); this allows 1024
+ * complete turnovers of that population through one node before its evidence is
+ * refused. A deployment that genuinely exceeds it goes uncounted by its readers, and
+ * this constant is the line to change with it. Written out rather than imported from
+ * rendezvous.ts, which imports *this* module.
+ *
+ * Dropped rather than clamped, deliberately. Clamping would leave the row in the
+ * merge at the ceiling — and since the merge takes the maximum, the loudest peer
+ * would still own it, so the bound would cap the size of the lie without removing
+ * it. Dropping is also what every other malformed field in this parser gets.
+ */
+export const MAX_REPORTED_COUNT = 65_536
+
+/** A count off the wire: a positive integer no larger than what a peer could hold. */
+function asReportedCount(value: CanonicalValue | undefined): number | null {
+  const count = asIndex(value)
+  if (count === null || count === 0 || count > MAX_REPORTED_COUNT) return null
+  return count
+}
+
+/**
  * Parse the compact counts.
  *
  * An unrecognised result string drops that entry rather than the whole frame: a
  * newer peer naming a cause this build has never heard of is a peer worth talking
  * to, and refusing the frame would make the metric go dark exactly when the fabric
  * is most heterogeneous. Malformed *counts* are a different matter and are dropped
- * too — a negative one would let a peer erase another's evidence.
+ * too — a negative one would let a peer erase another's evidence, and one past
+ * {@link MAX_REPORTED_COUNT} would swamp it. A browser label outside the coarse
+ * range goes the same way, and for a further reason: the disclosure promise rests on
+ * the label being too blunt to name a visitor.
  */
 function parseCounts(value: CanonicalValue | undefined): readonly OutcomeCount[] | null {
   if (!Array.isArray(value)) return null
@@ -244,8 +282,8 @@ function parseCounts(value: CanonicalValue | undefined): readonly OutcomeCount[]
     if (record === null) return null
     const browser = record['browser']
     const result = asStartResult(record['result'])
-    const count = asIndex(record['count'])
-    if (typeof browser !== 'string' || count === null || count === 0) continue
+    const count = asReportedCount(record['count'])
+    if (!isStartBrowserLabel(browser) || count === null) continue
     if (result === null) continue
     counts.push({ browser, result, count })
   }
@@ -368,12 +406,18 @@ export function parseRequest(body: CanonicalValue): AgentRequest | null {
   }
 
   if (record['kind'] === 'report') {
-    const declined = asIndex(record['declined']) ?? 0
+    // The same ceiling as a count, and the cheaper attack of the two: a count grows
+    // by one per request, while one request carrying `declined: 4e9` is added to the
+    // answering node's ledger outright (`agent.ts`) and served to everyone who asks
+    // it afterwards. The blind-spot line is the report's most load-bearing sentence,
+    // so a peer does not get to write it.
+    const declined = asReportedCount(record['declined']) ?? 0
     const browser = record['browser']
     const result = asStartResult(record['result'])
     // Both halves or neither. A browser with no result, or a result with no
-    // browser, is a report that could only be filed under a guess.
-    if (typeof browser !== 'string' || result === null) {
+    // browser, is a report that could only be filed under a guess — and so is one
+    // whose label is outside the coarse range `StartOutcome.browser` declares.
+    if (!isStartBrowserLabel(browser) || result === null) {
       return { kind: 'report', outcome: null, declined }
     }
     return {
@@ -521,7 +565,7 @@ export function parseResponse(body: CanonicalValue): AgentResponse | null {
     case 'report': {
       const counts = parseCounts(record['counts'])
       if (counts === null) return null
-      return { kind: 'report', counts, declined: asIndex(record['declined']) ?? 0 }
+      return { kind: 'report', counts, declined: asReportedCount(record['declined']) ?? 0 }
     }
     case 'exec': {
       if (record['ok'] === true) {

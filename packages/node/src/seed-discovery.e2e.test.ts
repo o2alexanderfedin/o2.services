@@ -310,6 +310,24 @@ describe('two devices on one seed find each other with nobody dialling for them'
     const again = await first.evaluate(async () => window.o2.connectDiscoveredPeers())
     expect(again.dialed).toEqual([])
 
+    // Two callers arriving together get one round. The page polls on a 4s timer and
+    // a round can outlive a tick, so overlapping rounds dial the same candidates
+    // twice and the loser finishes into a surface that has already moved on.
+    // Compared inside the page: object identity does not survive serialization out.
+    const rounds = await first.evaluate(async () => {
+      const [a, b] = await Promise.all([
+        window.o2.connectDiscoveredPeers(),
+        window.o2.connectDiscoveredPeers(),
+      ])
+      // And the memo clears afterwards rather than latching — two rounds run in
+      // sequence must still be two rounds.
+      const third = await window.o2.connectDiscoveredPeers()
+      const fourth = await window.o2.connectDiscoveredPeers()
+      return { coalesced: a === b, latched: third === fourth }
+    })
+    expect(rounds.coalesced).toBe(true)
+    expect(rounds.latched).toBe(false)
+
     // Every connection is a compute peer, and that is the fix rather than the
     // caveat. Holding a reservation *is* a libp2p connection, so `peers()` has
     // always contained the node carrying the circuit; what changed is that the node

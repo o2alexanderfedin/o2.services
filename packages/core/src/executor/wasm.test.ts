@@ -7,6 +7,10 @@ import {
   MODULE_ECHOES_INPUT,
   MODULE_IMPORTS_CLOCK,
   MODULE_NO_OUTPUT,
+  MODULE_OUTPUT_NEGATIVE_LENGTH,
+  MODULE_OUTPUT_OVER_CAP,
+  MODULE_OUTPUT_THEN_OVER_CAP,
+  MODULE_OVER_CAP_THEN_OUTPUT,
   MODULE_TRAPS,
   MODULE_WRITES_PARTITION,
 } from './fixtures.ts'
@@ -86,6 +90,76 @@ describe('WasmExecutor — the import object is the sandbox', () => {
       // The runtime names the offending import for us.
       expect(out.reason).toContain('env')
     }
+  })
+})
+
+/**
+ * A refused write is an event the host must report, not one it may forget.
+ *
+ * The refusals all sat as bare `return`s leaving the output slot untouched, so a
+ * module that wrote nothing the host would take was reported as one that never
+ * wrote at all — and, worse, a module that wrote something acceptable and then
+ * something refused had the earlier value returned as its answer.
+ *
+ * The red-maker for this block is the single `if (sink.state === 'refused') return`
+ * guard in `output_write`: without it the mirror case below returns `ok: true` with
+ * the small write laundering the refusal. That substitutes for the brief's proposed
+ * `sink.bytes = null` red-maker, which no longer exists because the field it named
+ * is gone.
+ *
+ * `CAP` is 8 rather than the shipped 1 MiB so the fixtures stay inside their single
+ * 64 KiB page: past that the host's *bounds* check refuses first, which is a
+ * different branch and would make these cases prove the wrong thing.
+ */
+describe('WasmExecutor — a refused output is reported as refused', () => {
+  const CAP = 8
+
+  /** Run `bytes` against an executor whose output cap is `CAP`. */
+  async function runCapped(bytes: Uint8Array<ArrayBuffer>) {
+    const { store, moduleCid, inputCid } = await setup(bytes)
+    const exec = new WasmExecutor({ nodeId: 'n1', blockstore: store, maxOutputBytes: CAP })
+    return await exec.execute({ moduleCid, inputCid, partitionIndex: 0, partitionCount: 1 })
+  }
+
+  it('reports an over-cap-only write as over-cap, naming the cap and the length', async () => {
+    const out = await runCapped(MODULE_OUTPUT_OVER_CAP)
+    expect(out.ok).toBe(false)
+    if (!out.ok) {
+      expect(out.reason).toContain('64')
+      expect(out.reason).toContain(`${CAP}-byte cap`)
+      // The false report this replaces. The module wrote; the host refused.
+      expect(out.reason).not.toBe('module produced no output')
+    }
+  })
+
+  it('never returns a stale earlier write once a later one is refused', async () => {
+    const out = await runCapped(MODULE_OUTPUT_THEN_OVER_CAP)
+    expect(out.ok).toBe(false)
+    if (!out.ok) expect(out.reason).toContain(`${CAP}-byte cap`)
+  })
+
+  it('cannot have a refusal laundered by a smaller write that follows it', async () => {
+    const out = await runCapped(MODULE_OVER_CAP_THEN_OUTPUT)
+    expect(out.ok).toBe(false)
+    if (!out.ok) expect(out.reason).toContain('output-too-large')
+  })
+
+  it('tells a malformed negative length apart from the policy bound', async () => {
+    const out = await runCapped(MODULE_OUTPUT_NEGATIVE_LENGTH)
+    expect(out.ok).toBe(false)
+    if (!out.ok) {
+      expect(out.reason).toContain('-1')
+      expect(out.reason).not.toContain('output-too-large')
+    }
+  })
+
+  it('shares the sibling executor’s term, so one grep finds both', async () => {
+    // `packages/aot/src/wasi-executor.ts` reports `output-too-large` for the same
+    // condition. The term is shared deliberately; the code is not, because the two
+    // executors have different ABIs and different failure types.
+    const out = await runCapped(MODULE_OUTPUT_OVER_CAP)
+    expect(out.ok).toBe(false)
+    if (!out.ok) expect(out.reason).toContain('output-too-large')
   })
 })
 

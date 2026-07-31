@@ -168,7 +168,7 @@ afterEach(async () => {
 describe('DATA-05 — the refusal across two real bin/agent.ts processes', () => {
   it('fails a cross-owner job at the owner’s own process, leaves that process alive, and runs a control job through the same two processes afterwards', async () => {
     // The owner-pinned premise, made literal rather than assumed. Inside the
-    // spawned process `registerSovereignInputs` reads the *local* tier only and
+    // spawned process the serve path's `takeSovereignHold` reads the *local* tier only and
     // runs before execution, so an input that is not already on the owner's disk
     // registers nothing and the tap has nothing to watch for — which would make a
     // job that "cleanly" completed prove nothing at all. Writing the canonical

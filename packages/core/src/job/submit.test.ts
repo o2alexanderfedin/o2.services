@@ -8,7 +8,7 @@ import { publicNodes } from '../sovereignty.ts'
 import type { NodeDescriptor } from '../sovereignty.ts'
 import { submitJob } from './submit.ts'
 import type { ShardSpec } from './submit.ts'
-import { commitmentDigest, executeVerified } from './verify.ts'
+import { executeVerified } from './verify.ts'
 
 const MODULE_CID = CID.parse('bafyreidykglsfhoixmivffc5uwhcgshx4j465xwqntbmu43nb2dzqwfvae')
 
@@ -45,6 +45,16 @@ function failing(nodeId: string, reason: string): Executor {
     nodeId,
     async execute(): Promise<ExecutionOutcome> {
       return { ok: false, reason }
+    },
+  }
+}
+
+/** An executor whose `execute` rejects — a foreign implementation breaking, not answering. */
+function throwing(nodeId: string, message: string): Executor {
+  return {
+    nodeId,
+    async execute(): Promise<ExecutionOutcome> {
+      throw new Error(message)
     },
   }
 }
@@ -127,6 +137,15 @@ describe('executeVerified — disagreement is surfaced, never voted away (VER-01
     }
   })
 
+  it('names a replica that threw, with what it threw, instead of rejecting', async () => {
+    const r = await executeVerified(task, [throwing('bad', 'blockstore ENOSPC')])
+    expect(r.status).toBe('insufficient')
+    if (r.status === 'insufficient') {
+      expect(r.failures.map((f) => f.nodeId)).toEqual(['bad'])
+      expect(r.failures[0]?.reason).toContain('ENOSPC')
+    }
+  })
+
   it('treats an unencodable NaN output as that node failing, not as divergence', async () => {
     const r = await executeVerified(task, [honest('a'), nanProducer('b')])
     expect(r.status).toBe('agreed')
@@ -136,20 +155,36 @@ describe('executeVerified — disagreement is surfaced, never voted away (VER-01
   })
 })
 
-describe('commitmentDigest — covers (task, output) only (VER-05)', () => {
-  it('is stable for the same nonce and result', async () => {
-    const nonce = new Uint8Array([1, 2, 3, 4])
-    const a = await commitmentDigest(nonce, MODULE_CID)
-    const b = await commitmentDigest(nonce, MODULE_CID)
-    expect(a).toBe(b)
-  })
+/**
+ * VER-05, stated over the comparison `executeVerified` actually performs.
+ *
+ * What is compared is the content address of the output and nothing else. Every case
+ * here supplies executors that differ in something a naive implementation might have
+ * folded in — the node that ran it, the fuel it burned — and requires agreement
+ * anyway. Including any of those would make every honest redundant execution
+ * disagree, and the disagreement would be misdiagnosed as guest nondeterminism.
+ */
+describe('what is compared covers (task, output) only (VER-05)', () => {
+  it('ignores node identity — two differently-named nodes with identical output agree', async () => {
+    const first: Executor = {
+      nodeId: '12D3KooWHPSVMPEezVCXvka2ahwT26JGL8EBr61LpGEU3ujHQM9Q',
+      async execute(t) {
+        return { ok: true, output: { shard: t.partitionIndex, sum: 7 }, fuelUsed: 5 }
+      },
+    }
+    const second: Executor = {
+      nodeId: 'a-node-whose-id-shares-nothing-with-the-first',
+      async execute(t) {
+        return { ok: true, output: { shard: t.partitionIndex, sum: 7 }, fuelUsed: 5 }
+      },
+    }
 
-  it('changes when the result changes', async () => {
-    const nonce = new Uint8Array([1, 2, 3, 4])
-    const other = (await canonicalCid({ different: true })) as { ok: true; cid: CID }
-    const a = await commitmentDigest(nonce, MODULE_CID)
-    const b = await commitmentDigest(nonce, other.cid)
-    expect(a).not.toBe(b)
+    const r = await executeVerified(task, [first, second])
+    expect(r.status).toBe('agreed')
+    if (r.status === 'agreed') {
+      expect(r.replicas).toBe(2)
+      expect([...r.agreeing].sort()).toEqual([second.nodeId, first.nodeId].sort())
+    }
   })
 
   it('ignores fuel and timing — two nodes differing only in fuel still agree', async () => {
@@ -278,6 +313,45 @@ describe('submitJob — sharding and content addressing (MR-01, DATA-01)', () =>
     if (r.ok) {
       expect(r.job.complete).toBe(false)
       expect(r.job.shards.some((s) => s.verification.status === 'disagreed')).toBe(true)
+    }
+  })
+
+  it('an executor that throws is one failed replica, not a rejected submitJob', async () => {
+    const store = new MemoryBlockstore()
+    const executors = [honest('good'), throwing('bad', 'blockstore ENOSPC')]
+    // `.resolves` rather than a bare await: a rejection then reads as a failed
+    // assertion here rather than as an unhandled rejection somewhere else.
+    await expect(
+      submitJob(
+        {
+          moduleCid: MODULE_CID,
+          shards: [{ value: { n: 1 }, label: 'public' as const }],
+          executors,
+          nodes: publicNodes(executors),
+          redundancy: 2,
+        },
+        store,
+      ),
+    ).resolves.toMatchObject({ ok: true })
+
+    const r = await submitJob(
+      {
+        moduleCid: MODULE_CID,
+        shards: [{ value: { n: 1 }, label: 'public' as const }],
+        executors,
+        nodes: publicNodes(executors),
+        redundancy: 2,
+      },
+      store,
+    )
+    expect(r.ok).toBe(true)
+    if (!r.ok) return
+    const [shard] = r.job.shards
+    // The co-replica's completed work survives its neighbour's collapse.
+    expect(shard?.verification.status).toBe('agreed')
+    if (shard?.verification.status === 'agreed') {
+      expect(shard.verification.agreeing).toEqual(['good'])
+      expect(shard.verification.replicas).toBe(1)
     }
   })
 

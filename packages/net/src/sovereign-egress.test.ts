@@ -13,10 +13,9 @@ import { EgressGuard } from './egress.ts'
 import { RemoteExecutor } from './remote-executor.ts'
 import { RpcEndpoint } from './rpc.ts'
 import { serveAgent } from './agent.ts'
-import { registerSovereignInputs } from './sovereign-egress.ts'
 
 /**
- * `registerSovereignInputs` — proven as a real production caller of
+ * `takeSovereignHold` — proven as a real production caller of
  * `EgressGuard.guard()`, over a genuine `RpcEndpoint`/`serveAgent`/`EgressGuard`
  * fabric. None of these tests calls `guard.guard()` directly: every violation, or
  * lack of one, is a consequence of the wrapper's own decision.
@@ -44,13 +43,15 @@ interface Node {
 const network = new MemoryNetwork()
 
 /**
- * One serving node, wired exactly the way `fabric-node.ts`/`browser-node.ts` will
- * compose it in Plan 13-02: `registerSovereignInputs(guardSovereignty(...), ...)`
- * feeding `serveAgent`, over an `EgressGuard`-wrapped transport.
+ * One serving node, wired exactly the way `fabric-node.ts`/`browser-node.ts` compose
+ * it: `guardSovereignty(...)` feeding `serveAgent`, over an `EgressGuard`-wrapped
+ * transport, with the tap and the local-only tier handed to `serveAgent` as one
+ * option.
  *
  * `executionStore` is what the `WasmExecutor` itself reads module/input bytes from.
- * `registrationStore` is what `registerSovereignInputs` checks before calling
- * `guard.guard()` — separate parameters so behavior 3 below can make them diverge.
+ * `registrationStore` is the local-only tier `takeSovereignHold` checks before
+ * calling `guard.guard()` — separate parameters so behavior 3 below can make them
+ * diverge.
  */
 function servingNode(options: {
   nodeId: string
@@ -66,24 +67,21 @@ function servingNode(options: {
 }): Node {
   const guard = new EgressGuard(network.connect(options.nodeId), OWNER_ID)
   const rpc = new RpcEndpoint(guard, { timeoutMs: 2_000 })
-  const executor = registerSovereignInputs(
-    guardSovereignty(
-      options.inner ??
-        new WasmExecutor({ nodeId: options.nodeId, blockstore: options.executionStore }),
-      {
-        ownerId: OWNER_ID,
-        canExecuteSovereign: options.canExecuteSovereign,
-      },
-    ),
-    { blockstore: options.registrationStore, guard },
+  const executor = guardSovereignty(
+    options.inner ?? new WasmExecutor({ nodeId: options.nodeId, blockstore: options.executionStore }),
+    {
+      ownerId: OWNER_ID,
+      canExecuteSovereign: options.canExecuteSovereign,
+    },
   )
   serveAgent({
     rpc,
     executor,
     blockstore: options.executionStore,
-    // This node's own tap, the one `rpc` is built over — so the registration
-    // `registerSovereignInputs` takes is released once the reply frame has settled.
-    egress: guard,
+    // This node's own tap, the one `rpc` is built over, plus the local-only tier
+    // that says which payloads are sovereign — so the hold the serve path takes is
+    // given back once the reply frame has settled, and only that hold.
+    egress: { guard, sovereignInputs: options.registrationStore },
     authorize: 'serves-unauthenticated',
     index: 'serves-no-records',
     capacity: 'accepts-every-offer',
@@ -113,7 +111,7 @@ function requestor(
   return { rpc, executor: new RemoteExecutor(nodeId, rpc) }
 }
 
-describe('registerSovereignInputs — a production caller for EgressGuard.guard()', () => {
+describe('takeSovereignHold — a production caller for EgressGuard.guard()', () => {
   it('registers a sovereign task’s input before it runs, and the tap refuses the leaking reply', async () => {
     const store = new MemoryBlockstore()
     const moduleCid = await store.put(MODULE_ECHOES_INPUT)
@@ -359,6 +357,63 @@ describe('the registration is released after the reply frame has settled', () =>
 
       // The error exit is an exit. A node that forgot to forget on it would grow
       // its watch list every time a task failed.
+      expect(node.guard.registrations).toEqual([])
+    } finally {
+      node.close()
+      rpc.close()
+    }
+  })
+
+  it('releases when the endpoint closes between the outcome and the frame', async () => {
+    const store = new MemoryBlockstore()
+    const moduleCid = await store.put(MODULE_WRITES_PARTITION)
+    const encoded = encodeCanonical(SOVEREIGN_ROW)
+    if (!encoded.ok) throw new Error('fixture not encodable')
+    const inputCid = await store.put(encoded.bytes)
+
+    // The third exit, and the one with no observable result to assert on: the reply
+    // is never sent, so the only evidence anything happened is what the tap holds
+    // afterwards. `rpc.ts` keeps its `#closed` check *inside* the try for exactly
+    // this reason, and until now that was a comment with nothing behind it — hoist
+    // the check above the try and every dispatch interrupted by a shutdown leaves a
+    // registration scanned against every frame the node sends for the rest of its
+    // life.
+    let server: Node | undefined
+    const heldWhileRunning: string[][] = []
+    const node = servingNode({
+      nodeId: 'alice-6',
+      executionStore: store,
+      registrationStore: store,
+      canExecuteSovereign: true,
+      inner: {
+        nodeId: 'alice-6',
+        async execute() {
+          // Read before closing: the hold is taken before the executor runs, so
+          // this is the only moment it can be observed. Without it "nothing is
+          // registered afterwards" is equally true of a node that registered
+          // nothing at all.
+          heldWhileRunning.push([...(server as Node).guard.registrations])
+          ;(server as Node).close()
+          return { ok: true, output: 0, fuelUsed: 0 }
+        },
+      },
+    })
+    server = node
+
+    // Short, because this requestor is deliberately never answered.
+    const { rpc, executor } = requestor('alice-6', 250)
+    try {
+      const outcome = await executor.execute({
+        moduleCid,
+        inputCid,
+        partitionIndex: 0,
+        partitionCount: 1,
+        label: 'sovereign',
+        ownerId: OWNER_ID,
+      })
+
+      expect(heldWhileRunning).toEqual([[inputCid.toString()]])
+      expect(outcome.ok).toBe(false)
       expect(node.guard.registrations).toEqual([])
     } finally {
       node.close()

@@ -11,6 +11,8 @@
 // Ports — the kernel's entire contact surface with the outside world.
 export type {
   Blockstore,
+  ComputeThread,
+  ComputeThreadFactory,
   ExecutionOutcome,
   Executor,
   Governor,
@@ -35,10 +37,15 @@ export type {
 // Execution — DET-06.
 export { MAX_PARTITIONS, TASK_ENTRYPOINT, WasmExecutor } from './executor/wasm.ts'
 export type { WasmExecutorOptions } from './executor/wasm.ts'
+// The cross-thread ABI both tiers speak, and the executor that bounds it.
+export { runTask } from './executor/task-run.ts'
+export type { WorkerTaskRequest, WorkerTaskResponse } from './executor/task-run.ts'
+export { DEFAULT_TASK_DEADLINE_MS, WorkerExecutor } from './executor/worker-executor.ts'
+export type { WorkerExecutorOptions } from './executor/worker-executor.ts'
 
 // Redundant execution and verification — VER-01, VER-02, VER-05, VER-06.
-export { commitmentDigest, executeVerified } from './job/verify.ts'
-export type { Commitment, Receipt, Reveal, VerificationResult } from './job/verify.ts'
+export { executeVerified } from './job/verify.ts'
+export type { Receipt, VerificationResult } from './job/verify.ts'
 
 // Job submission — MR-01, DATA-01, DATA-03, DATA-04.
 export { submitJob } from './job/submit.ts'
@@ -112,6 +119,7 @@ export {
 export type {
   Discarded,
   InFlight,
+  RaceLoser,
   RaceOutcome,
   SpeculativeAnswer,
   StragglerOptions,
@@ -137,16 +145,19 @@ export type {
 
 // Start outcomes and the blocking metric — BROW-02.
 export {
+  BROWSER_FAMILIES,
   MIN_REPORTS_FOR_RATE,
   START_FAILURES,
   STRUCTURAL_BLIND_SPOT,
   StartOutcomeLedger,
   describeStartReport,
-  expandCounts,
+  isStartBrowserLabel,
   startReport,
+  startReportFromCounts,
 } from './start-outcome.ts'
 export type {
   BlindSpot,
+  BrowserFamily,
   BrowserTally,
   CauseCount,
   OutcomeCount,
@@ -218,6 +229,8 @@ export type {
   CombineDispatch,
   CombineTask,
   Combiner,
+  ReduceContribution,
+  ReduceLeaf,
   ReduceOutcome,
   ReduceRun,
   ReduceTree,

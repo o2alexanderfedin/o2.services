@@ -1,4 +1,5 @@
 import {
+  BROWSER_FAMILIES,
   MemoryBlockstore,
   MemoryNetwork,
   StartOutcomeLedger,
@@ -7,7 +8,13 @@ import {
 } from '@o2/core'
 import type { StartOutcome } from '@o2/core'
 import { describe, expect, it } from 'vitest'
-import { encodeRequest, encodeResponse, parseRequest, parseResponse } from './protocol.ts'
+import {
+  MAX_REPORTED_COUNT,
+  encodeRequest,
+  encodeResponse,
+  parseRequest,
+  parseResponse,
+} from './protocol.ts'
 import { RpcEndpoint } from './rpc.ts'
 import { serveAgent } from './agent.ts'
 import { publishStartOutcome } from './start-report.ts'
@@ -96,6 +103,74 @@ describe('the report kind survives the wire', () => {
     expect(parsed.counts).toEqual([{ browser: 'chromium 141', result: 'started', count: 7 }])
   })
 
+  it('files a report whose browser label is a full UA string as a query, not as a claim', () => {
+    // `StartOutcome.browser` has said "coarse family and major version, never a
+    // full UA string" since it was written, and nothing enforced it on a label
+    // that arrived from a peer. The disclosure promise rests on the coarseness,
+    // so a peer-chosen fingerprint must not become a row.
+    const ua =
+      'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36'
+    const parsed = parseRequest(
+      encodeRequest({
+        kind: 'report',
+        outcome: { browser: ua, result: { kind: 'started' } },
+        declined: 3,
+      }),
+    )
+    // The claim is dropped; the peer's own truthful count is not. Dropping the
+    // frame would take the metric dark for a whole population over one bad label.
+    expect(parsed).toEqual({ kind: 'report', outcome: null, declined: 3 })
+
+    const fileable = parseRequest(
+      encodeRequest({
+        kind: 'report',
+        outcome: { browser: 'chromium 141', result: { kind: 'started' } },
+        declined: 3,
+      }),
+    )
+    expect(fileable).toEqual({
+      kind: 'report',
+      outcome: { browser: 'chromium 141', result: { kind: 'started' } },
+      declined: 3,
+    })
+  })
+
+  it('drops a counts entry whose browser label is not one this build can file', () => {
+    const parsed = parseResponse({
+      kind: 'report',
+      declined: 0,
+      counts: [
+        { browser: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)', result: 'started', count: 3 },
+        { browser: 'firefox 130', result: 'started', count: 7 },
+      ],
+    })
+    expect(parsed?.kind).toBe('report')
+    if (parsed?.kind !== 'report') return
+    expect(parsed.counts).toEqual([{ browser: 'firefox 130', result: 'started', count: 7 }])
+  })
+
+  it('files every family this build publishes, bare and with a major', () => {
+    // Driven off the exported list rather than a copy of it: a family added to
+    // `BROWSER_FAMILIES` that the wire check would reject fails here, which is
+    // what keeps the producer and the wire check from drifting apart.
+    for (const family of BROWSER_FAMILIES) {
+      for (const label of [family, `${family} 141`]) {
+        const parsed = parseRequest(
+          encodeRequest({
+            kind: 'report',
+            outcome: { browser: label, result: { kind: 'started' } },
+            declined: 0,
+          }),
+        )
+        expect(parsed).toEqual({
+          kind: 'report',
+          outcome: { browser: label, result: { kind: 'started' } },
+          declined: 0,
+        })
+      }
+    }
+  })
+
   it('files a half-formed report as a query rather than guessing', () => {
     // A browser with no result, or a result with no browser, could only be filed
     // under a guess — and a guessed row in a blocking metric is worse than none.
@@ -163,6 +238,29 @@ describe('publishing tells peers and reads back what they know', () => {
   })
 })
 
+describe('a decline is counted where it was made and nowhere else', () => {
+  it('folds a local decline into this node’s own report without putting it on a peer’s ledger', async () => {
+    // Both halves are asserted together on purpose. A decline that reaches the peer
+    // is not an opt-out; a decline that reaches nothing at all loses the blind spot
+    // the report exists to publish. One argument could only ever get one of them.
+    const network = new MemoryNetwork()
+    const keeper = new StartOutcomeLedger()
+    node(network, 'keeper', keeper)
+    const visitor = node(network, 'visitor')
+
+    const result = await publishStartOutcome({
+      rpc: visitor,
+      peers: () => ['keeper'],
+      outcome: CHROMIUM_OK,
+      declinedLocally: 1,
+    })
+
+    const spot = result.report.blindSpots.find((entry) => entry.kind === 'declined')
+    expect(spot?.kind === 'declined' && spot.count).toBe(1)
+    expect(keeper.declined).toBe(0)
+  })
+})
+
 describe('the unreachable case is the one the metric exists for', () => {
   it('reports its own outcome and says nobody answered', async () => {
     // This is what a blocked visitor's node can produce: one report, no peers, and
@@ -221,6 +319,110 @@ describe('the unreachable case is the one the metric exists for', () => {
     })
     expect(result.asked).toBe(3)
     expect(result.reached).toBe(3)
+  })
+})
+
+/**
+ * A number a peer sends is a claim, and a claim has a size past which it stops
+ * being evidence.
+ *
+ * The negative count the parser already drops and the enormous one it did not are
+ * the same attack from opposite ends: one erases another peer's evidence, the other
+ * buries it. `mergeOverlapping` takes the largest count it is shown, so a single
+ * `count: 4e9` decided every rate in the merged report on its own.
+ */
+describe('a count past what this fabric could have observed is not evidence', () => {
+  it('files an entry at the ceiling and refuses the one above it', () => {
+    const parsed = parseResponse({
+      kind: 'report',
+      declined: 0,
+      counts: [
+        { browser: 'chromium 141', result: 'started', count: MAX_REPORTED_COUNT },
+        { browser: 'safari 18', result: 'wasm-unavailable', count: MAX_REPORTED_COUNT + 1 },
+      ],
+    })
+    expect(parsed?.kind).toBe('report')
+    if (parsed?.kind !== 'report') return
+    // The over-ceiling entry alone is dropped. Refusing the whole frame would let
+    // one bad row take a truthful peer's whole ledger dark — the same reason an
+    // unrecognised cause drops its entry and not the frame.
+    expect(parsed.counts).toEqual([
+      { browser: 'chromium 141', result: 'started', count: MAX_REPORTED_COUNT },
+    ])
+  })
+
+  it('still drops the negative and the zero it always dropped', () => {
+    // Pinned here because the ceiling is a second check on the same field: a
+    // rewrite that replaced the lower bound with an upper one would pass every
+    // other test in this file.
+    const parsed = parseResponse({
+      kind: 'report',
+      declined: 0,
+      counts: [
+        { browser: 'chromium 141', result: 'started', count: -5 },
+        { browser: 'firefox 134', result: 'started', count: 0 },
+        { browser: 'safari 18', result: 'started', count: 3 },
+      ],
+    })
+    expect(parsed?.kind).toBe('report')
+    if (parsed?.kind !== 'report') return
+    expect(parsed.counts).toEqual([{ browser: 'safari 18', result: 'started', count: 3 }])
+  })
+
+  it('lets no single peer decide the aggregate by claiming a number nobody can hold', async () => {
+    // The property that matters, over a real endpoint: seven peers report what they
+    // saw, one reports a magnitude no node in this fabric could have accumulated,
+    // and the merged report is the seven. Clamping instead of dropping would still
+    // have handed the hostile peer the row, because the merge takes the maximum —
+    // a bounded lie is still the largest number in the aggregate.
+    const network = new MemoryNetwork()
+    const peers: string[] = []
+    for (let i = 0; i < 7; i++) {
+      const honest = new StartOutcomeLedger()
+      honest.mergeDisjoint([{ browser: 'chromium 141', result: 'started', count: 100 }])
+      node(network, `peer-${i}`, honest)
+      peers.push(`peer-${i}`)
+    }
+    const hostile = new StartOutcomeLedger()
+    hostile.mergeDisjoint([
+      { browser: 'safari 18', result: 'wasm-unavailable', count: 4_000_000_000 },
+    ])
+    node(network, 'hostile', hostile)
+    peers.push('hostile')
+
+    const visitor = node(network, 'visitor')
+    const result = await publishStartOutcome({ rpc: visitor, peers: () => peers, outcome: null })
+
+    // It answered — it is not unreachable, and the report must not pretend otherwise.
+    expect(result.reached).toBe(8)
+    expect(result.report.reported).toBe(100)
+    expect(result.report.failed).toBe(0)
+    expect(result.report.byBrowser.find((b) => b.browser === 'safari 18')).toBeUndefined()
+  })
+
+  it('refuses a decline count that would bury the blind spot it belongs to', async () => {
+    // `declined` is the same unbounded number one field away, and the cheaper attack
+    // of the two: a count needs one request per unit to grow, while a single request
+    // carrying `declined: 4e9` is added to the serving node's ledger outright and
+    // then served to everyone who asks it. The blind spot is a line this project
+    // treats as load-bearing, so a peer must not get to write it.
+    const network = new MemoryNetwork()
+    const keeper = new StartOutcomeLedger()
+    node(network, 'keeper', keeper)
+    const visitor = node(network, 'visitor')
+
+    await visitor.request(
+      'keeper',
+      encodeRequest({ kind: 'report', outcome: null, declined: MAX_REPORTED_COUNT + 1 }),
+    )
+    expect(keeper.declined).toBe(0)
+
+    // At the ceiling it is still a real answer, and is counted.
+    await visitor.request(
+      'keeper',
+      encodeRequest({ kind: 'report', outcome: null, declined: MAX_REPORTED_COUNT }),
+    )
+    expect(keeper.declined).toBe(MAX_REPORTED_COUNT)
   })
 })
 

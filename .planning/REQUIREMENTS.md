@@ -11,8 +11,10 @@
 
 ## How to read the checkboxes
 
-**32 of 72 are `[x]`.** That is down from 68, and the 36 that moved did **not** move
-because the work was undone. Read this before drawing a conclusion from the count.
+**33 of 72 are `[x]`.** That is down from 68, and the 37 that moved did **not** move
+because the work was undone — with one exception, VER-02, whose box was cleared on
+2026-07-30 because the mechanism behind it was found to check nothing and was deleted.
+Read this before drawing a conclusion from the count.
 
 The v1.0 milestone audit (`v1.0-MILESTONE-AUDIT.md`) traced every requirement from the
 five runnable entry points — `bin/agent.ts`, `bin/seed.ts`, `bin/bench.ts`,
@@ -74,7 +76,7 @@ itself. The work is real and the table says so; the box tracks delivery.
 
 - [x] **VER-01**: A task can be dispatched to N independent executors and their
       outputs compared, with disagreement surfaced rather than silently resolved
-- [x] **VER-02**: Executors commit to a result hash before revealing the result,
+- [ ] **VER-02**: Executors commit to a result hash before revealing the result,
       so a replica cannot plagiarize a peer's answer
 - [ ] **VER-03**: At least one replica of every verification quorum is anchored on
       a backbone node, so eclipsing a quorum requires a backbone compromise
@@ -198,7 +200,7 @@ code, not the reports. -->
       browser reservations without manual certificate management
 - [x] **NET-04**: Relayed protocol handlers register with `runOnLimitedConnection`,
       and no hardcoded certhash multiaddr is required to join
-- [x] **NET-05**: Relay reservation exhaustion is detected and reported rather than
+- [ ] **NET-05**: Relay reservation exhaustion is detected and reported rather than
       failing silently
 - [ ] **NET-06**: Browser peers participate in routing as full peers. Backbone nodes
       may serve records on their behalf as an optimisation and as a fallback when a
@@ -219,7 +221,7 @@ code, not the reports. -->
 - [ ] **SCHED-02**: Placement samples d candidate nodes and selects the
       least-loaded, using local information only
 - [ ] **SCHED-03**: An over-committed node rejects work and the requestor re-picks
-- [x] **SCHED-04**: A resource governor caps node CPU by duty cycle, is
+- [ ] **SCHED-04**: A resource governor caps node CPU by duty cycle, is
       user-adjustable, and is honoured by the executor
 - [ ] **SCHED-05**: Sovereignty constraints override placement cost heuristics
 
@@ -258,7 +260,7 @@ code, not the reports. -->
 
 - [x] **BROW-01**: A visitor gives explicit informed consent before any compute
       begins
-- [x] **BROW-02**: The node reports the percentage of visitors where it failed to
+- [ ] **BROW-02**: The node reports the percentage of visitors where it failed to
       start, segmented by browser, so blocking is visible rather than silent
 - [x] **BROW-03**: Compute pauses or throttles when the tab is backgrounded, and
       resumes on return
@@ -336,7 +338,7 @@ code, not the reports. -->
       *(Status: the one-host half is established. The box stays unchecked because the
       descoped cross-machine half is carried as unmeasured rather than as met — an
       unchecked box here understates on purpose, which is the safe direction.)*
-- [x] **AOT-04**: A translated artifact executes on the fabric under the same
+- [ ] **AOT-04**: A translated artifact executes on the fabric under the same
       admission checks and verification as a source-compiled one — proved through
       the `@o2/aot` barrel, and the ABI verified against a real elfconv artifact
       rather than against fixtures written to match the assumption
@@ -543,7 +545,7 @@ criteria.
 | DET-06 | Phase 1 — Portable Kernel & Loopback Map Slice | Done |
 | DET-07 | Phase 1 — Portable Kernel & Loopback Map Slice | Done |
 | VER-01 | Phase 1 — Portable Kernel & Loopback Map Slice | Done |
-| VER-02 | Phase 1 — Portable Kernel & Loopback Map Slice | Done |
+| VER-02 | Phase 1 — Portable Kernel & Loopback Map Slice | **Not started** — the ceremony that shipped under this id was minted and compared by the requestor itself, so its check was unconditionally true and both failure branches unreachable; measured 2026-07-30 by making the mismatch branch throw and running the whole node project, 1171 tests, no reach. Removed rather than relabelled: its nonce derived from three public values, so it was not hiding and could not have become the two-round ceremony. That ceremony needs a wire and a cross-node barrier and belongs to the phase that ships them |
 | VER-03 | Phase 19 — Quorum Composition & Owner-Domain Attestation | **Built, not wired** — composeQuorum has no caller outside its own spec |
 | VER-04 | Phase 19 — Quorum Composition & Owner-Domain Attestation | **Built, not wired** — composeQuorum has no caller outside its own spec |
 | VER-05 | Phase 1 — Portable Kernel & Loopback Map Slice | Done |
@@ -575,7 +577,7 @@ criteria.
 | SCHED-01 | Phase 18 — Discovery, Capacity & Placement | **Built, not wired** — discoverExecutors has no caller outside tests |
 | SCHED-02 | Phase 18 — Discovery, Capacity & Placement | **Built, not wired** — placeWithOffers is reachable only through runResilient, which has no caller |
 | SCHED-03 | Phase 18 — Discovery, Capacity & Placement | **Built, not wired** — no node supplies serveAgent’s `capacity` hook, so every offer is accepted |
-| SCHED-04 | Phase 18 — Discovery, Capacity & Placement | **Partial** — GovernedExecutor is wired on the browser tier only — FabricNode builds a bare WasmExecutor — and the duty cycle is readonly on both, so "user-adjustable" is unmet |
+| SCHED-04 | Phase 18 — Discovery, Capacity & Placement | **Partial** — GovernedExecutor is wired on the browser tier only; FabricNode composes a WorkerExecutor and no governor, and the duty cycle is readonly on both tiers, so "user-adjustable" is unmet |
 | SCHED-05 | Phase 18 — Discovery, Capacity & Placement | **Built, not wired** — the sovereignty gate runs inside placeWithOffers, reachable only through runResilient |
 | MR-01 | Phase 1 — Portable Kernel & Loopback Map Slice | Done |
 | MR-02 | Phase 16 — Decomposable Tree-Reduce Wiring | **Built, not wired** — executeReduce / deriveReduceTree have no caller; the demo merges with a linear scan |

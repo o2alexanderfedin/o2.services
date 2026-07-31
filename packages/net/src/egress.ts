@@ -93,6 +93,22 @@ export class EgressRefusal extends Error {
 }
 
 /**
+ * One hold on one registered payload, given back by whoever took it.
+ *
+ * A hold used to be given back by naming its label, which meant anyone could give
+ * back anyone's — and `serveAgent` did, on every exec, for the label the *request*
+ * named. One unauthenticated public exec was enough to unguard a sovereign payload
+ * somebody else was still holding. There is now no expression that releases a label:
+ * only this value, and only the hold it represents.
+ *
+ * `release()` is idempotent. Calling it twice gives back one hold, once — so a
+ * caller that releases on two exits does not have to reason about which ran.
+ */
+export interface EgressHold {
+  release(): void
+}
+
+/**
  * Wraps a `Transport` so nothing can leave the node unrecorded — and so a frame
  * carrying a registered sovereign payload cannot leave at all.
  *
@@ -158,22 +174,26 @@ export class EgressRefusal extends Error {
  * **A registration has a lifetime, and the bound that follows from it.** Per-frame
  * scan cost is proportional to the sovereign tasks this node has **in flight**, not
  * to how long the node has been running. That is a bound rather than a hope only
- * because every registration is released again from the serve path: `serveAgent`'s
- * exec branch attaches an `afterSent` callback to its reply, and `rpc.ts` invokes it
- * in a `finally` around the response send. `serveAgent` decides *what* to release
- * because it is the only layer that parsed the task and knows the label; `rpc.ts`
- * decides *when* because it is the only layer that knows the reply frame has settled.
- * Neither can do the other's half.
+ * because every hold is given back from the serve path: `serveAgent`'s exec branch
+ * takes the hold before the executor runs and hands the {@link EgressHold} to an
+ * `afterSent` callback on its reply, which `rpc.ts` invokes in a `finally` around the
+ * response send. `serveAgent` decides *what* to give back because it is the only
+ * layer that took it; `rpc.ts` decides *when* because it is the only layer that knows
+ * the reply frame has settled. Neither can do the other's half.
  *
- * **The trap, named so nobody has to rediscover it.** Releasing where the guard and
- * the label are both already in scope — inside `registerSovereignInputs`, the moment
- * `inner.execute` resolves — is a full frame too early. The frame the registration
- * exists to catch is the reply, and at that moment the reply has not been sent yet:
- * it would be scanned against an empty set and forwarded, which is precisely the leak
- * this whole phase closes. Somebody will propose that refactor because it is tidier.
- * Plan 13-07 built it, watched it let the leak through in three files, and reverted
- * it; the capture is in `13-07-SUMMARY.md`, so this paragraph is evidence and not an
- * opinion.
+ * A dispatch that took no hold has nothing to give back and says so by carrying no
+ * `afterSent` at all — which is why the hold is a value rather than a label. There
+ * is no longer any way to spell "release someone else's".
+ *
+ * **The trap, named so nobody has to rediscover it.** Giving the hold back where it
+ * was taken — the moment `execute` resolves — is a full frame too early. The frame
+ * the registration exists to catch is the reply, and at that moment the reply has not
+ * been sent yet: it would be scanned against an empty set and forwarded, which is
+ * precisely the leak this design closes. Somebody will propose that refactor because
+ * it is tidier: taking and releasing in one place reads better than handing a value
+ * to a callback. Plan 13-07 built it, watched it let the leak through in three files,
+ * and reverted it; the capture is in `13-07-SUMMARY.md`, so this paragraph is
+ * evidence and not an opinion.
  */
 export class EgressGuard implements Transport {
   readonly #inner: Transport
@@ -184,8 +204,11 @@ export class EgressGuard implements Transport {
    *
    * `holds` counts registrations, not registrants: two concurrent dispatches of one
    * input register the same label twice, and the payload stays guarded until both
-   * have released. A plain `delete` would let whichever dispatch finished first
-   * unguard the one still running.
+   * have given their hold back. A plain `delete` would let whichever dispatch
+   * finished first unguard the one still running.
+   *
+   * Nothing outside {@link EgressGuard.guard} can decrement this, and what it hands
+   * back decrements exactly the one hold it took.
    */
   readonly #guarded = new Map<string, { readonly payload: Uint8Array; holds: number }>()
 
@@ -199,46 +222,38 @@ export class EgressGuard implements Transport {
   }
 
   /**
-   * Mark a payload as sovereign. Any outbound frame containing it is a violation.
+   * Mark a payload as sovereign, and take one hold on it.
    *
-   * Registering a label already held takes a second hold on it rather than replacing
-   * the first, so the payload survives until every holder has called
-   * {@link EgressGuard.release}.
-   */
-  guard(label: string, payload: Uint8Array): void {
-    const held = this.#guarded.get(label)
-    if (held === undefined) {
-      this.#guarded.set(label, { payload, holds: 1 })
-      return
-    }
-    this.#guarded.set(label, { payload, holds: held.holds + 1 })
-  }
-
-  /**
-   * Give back one hold on `label`, dropping the payload when the last one goes.
-   *
-   * A label this guard does not hold is a no-op, deliberately: the serve path
-   * releases unconditionally on the task's input label rather than re-testing
-   * whether registration happened, because a release that cannot be wrong is
-   * cheaper than a condition that has to be kept in step with
-   * `registerSovereignInputs`' own.
+   * Any outbound frame containing it is a violation until every hold is given back.
+   * Registering a label already held takes a second hold rather than replacing the
+   * first, and the returned {@link EgressHold} gives back that hold and no other.
    *
    * There is deliberately **no** eviction, cap, or least-recently-used policy here,
    * and there must not be one. A guard that silently stops guarding is the shape
    * this project keeps removing — the same reasoning `.planning/PROJECT.md` records
    * for `serveAgent`'s hooks under "An optional hook with a silent default is a
    * hole" applies unchanged: an implicit limit is a silent default, and the failure
-   * it produces is a frame that left. The set is bounded by releasing it, which is
-   * a bound somebody can be shown, not by dropping entries nobody asked to drop.
+   * it produces is a frame that left. The set is bounded by giving holds back, which
+   * is a bound somebody can be shown, not by dropping entries nobody asked to drop.
    */
-  release(label: string): void {
+  guard(label: string, payload: Uint8Array): EgressHold {
     const held = this.#guarded.get(label)
-    if (held === undefined) return
-    if (held.holds <= 1) {
-      this.#guarded.delete(label)
-      return
+    this.#guarded.set(label, { payload, holds: held === undefined ? 1 : held.holds + 1 })
+
+    let given = false
+    return {
+      release: (): void => {
+        if (given) return
+        given = true
+        const current = this.#guarded.get(label)
+        if (current === undefined) return
+        if (current.holds <= 1) {
+          this.#guarded.delete(label)
+          return
+        }
+        this.#guarded.set(label, { payload: current.payload, holds: current.holds - 1 })
+      },
     }
-    this.#guarded.set(label, { payload: held.payload, holds: held.holds - 1 })
   }
 
   /**
@@ -352,9 +367,9 @@ export class EgressGuard implements Transport {
    * Discard the record, e.g. between jobs.
    *
    * Clears `#entries` only, and leaves the registrations alone. The two are about
-   * different things — reset is about the record, {@link EgressGuard.release} is
-   * about the watch list — and conflating them would make a between-jobs reset
-   * silently stop the tap.
+   * different things — reset is about the record, an {@link EgressHold} is about the
+   * watch list — and conflating them would make a between-jobs reset silently stop
+   * the tap.
    */
   reset(): void {
     this.#entries.length = 0

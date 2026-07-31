@@ -8,9 +8,11 @@
  * stream, and (in a later phase) a relayed WebRTC channel without any of them
  * needing to know what a "reply" is.
  *
- * Correlation is by a locally-issued id. Two endpoints can both issue id 1
- * concurrently without conflict: a response is only ever matched against the
- * issuing endpoint's own pending table, so the id namespace is per-direction.
+ * Correlation is by a locally-issued id **within a destination**. A reply's identity
+ * is (who answered, which request), never the request number alone: a frame is matched
+ * only against the entry created for the peer it was requested from, so the id
+ * namespace is per-destination and a peer that was never asked cannot answer. Two
+ * endpoints can both issue id 1 concurrently without conflict for the same reason.
  *
  * Pure module — no platform imports beyond timers, which exist identically in
  * Node, a browser, and a Worker.
@@ -138,7 +140,7 @@ export interface RpcEndpointOptions {
  */
 export class RpcEndpoint {
   readonly #transport: Transport
-  readonly #pending = new Map<number, Pending>()
+  readonly #pending = new Map<string, Pending>()
   readonly #timeoutMs: number
   readonly #unsubscribe: () => void
   #handler: RpcHandler | null = null
@@ -162,25 +164,37 @@ export class RpcEndpoint {
     this.#handler = handler
   }
 
+  /**
+   * What a pending request is filed under.
+   *
+   * NUL separator, matching `StartOutcomeLedger`'s composite key in `@o2/core`: peer
+   * ids are base58 or base32, so neither half can contain one and the key is
+   * unambiguous.
+   */
+  #pendingKey(peer: string, id: number): string {
+    return `${peer}\u0000${id}`
+  }
+
   /** Send a request and await its reply. */
   async request(to: string, body: CanonicalValue): Promise<CanonicalValue> {
     if (this.#closed) throw new RpcFailure({ kind: 'closed' })
     const id = this.#nextId++
+    const key = this.#pendingKey(to, id)
     const frame = this.#encode({ k: 'req', id, body })
 
     return new Promise<CanonicalValue>((resolve, reject) => {
       const timer = setTimeout(() => {
-        this.#pending.delete(id)
+        this.#pending.delete(key)
         reject(new RpcFailure({ kind: 'timeout', to, afterMs: this.#timeoutMs }))
       }, this.#timeoutMs)
-      this.#pending.set(id, { resolve, reject, timer })
+      this.#pending.set(key, { resolve, reject, timer })
 
       // Register the pending entry *before* sending, so a synchronous in-process
       // transport that delivers the reply during `send` still finds it.
       this.#transport.send(to, frame).catch((cause: unknown) => {
-        const entry = this.#pending.get(id)
+        const entry = this.#pending.get(key)
         if (entry === undefined) return
-        this.#pending.delete(id)
+        this.#pending.delete(key)
         clearTimeout(entry.timer)
         const detail = cause instanceof Error ? cause.message : String(cause)
         // The discrimination is on the **thrown type**, deliberately, and not on
@@ -243,9 +257,13 @@ export class RpcEndpoint {
     if (body === undefined) return
 
     if (kind === 'res') {
-      const entry = this.#pending.get(id)
+      const key = this.#pendingKey(from, id)
+      const entry = this.#pending.get(key)
+      // A reply from a peer this id was never requested from misses here, and falls
+      // into the same line as a late or duplicate one — no new branch, and the real
+      // destination's answer is still expected.
       if (entry === undefined) return // late or duplicate reply
-      this.#pending.delete(id)
+      this.#pending.delete(key)
       clearTimeout(entry.timer)
       entry.resolve(body)
       return

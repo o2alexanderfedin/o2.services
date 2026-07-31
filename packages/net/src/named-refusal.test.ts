@@ -1,9 +1,9 @@
 import { MemoryBlockstore, MemoryNetwork, encodeCanonical } from '@o2/core'
-import type { ExecutionOutcome, Executor, Task } from '@o2/core'
+import type { Blockstore, ExecutionOutcome, Executor, RecordIndex, Task } from '@o2/core'
 import { describe, expect, it } from 'vitest'
 import { EgressGuard } from './egress.ts'
 import { RpcEndpoint } from './rpc.ts'
-import { serveAgent } from './agent.ts'
+import { RpcBlockSource, serveAgent } from './agent.ts'
 import { encodeRequest, parseResponse } from './protocol.ts'
 
 /**
@@ -12,7 +12,7 @@ import { encodeRequest, parseResponse } from './protocol.ts'
  *
  * The exec branch's refusal is measured against a real dispatch in
  * `sovereign-egress.test.ts`, where the registration arrives through
- * `registerSovereignInputs` the way production takes it. This file measures the
+ * `takeSovereignHold` the way production takes it. This file measures the
  * other branch and the cost of the mechanism:
  *
  * - **The block branch** (ROADMAP criterion 7). A refusal, a hit and a miss must
@@ -30,7 +30,7 @@ import { encodeRequest, parseResponse } from './protocol.ts'
  * **These tests place a registration directly**, unlike `sovereign-egress.test.ts`.
  * That is deliberate and it is scoped: what is under test here is the block
  * branch's *answer* when a registration is held, not where the registration came
- * from. Production's own registration is job-scoped — `registerSovereignInputs`
+ * from. Production's own registration is job-scoped — the serve path
  * takes it before execution and `serveAgent`'s `afterSent` gives it back — so no
  * production path holds one at rest for a later block request to find.
  * 13.1-CONTEXT.md lists refusing a sovereign block at rest, indefinitely, under
@@ -96,17 +96,25 @@ interface Node {
 // requestor pair, so nothing in one test can observe another's frames.
 const network = new MemoryNetwork()
 
-function servingNode(nodeId: string): Node {
+/** Parts substituted for ones that fail, so a serving fault has a real source. */
+interface Faulty {
+  readonly blockstore?: Blockstore
+  readonly index?: RecordIndex
+}
+
+function servingNode(nodeId: string, faulty: Faulty = {}): Node {
   const guard = new CountingGuard(network.connect(nodeId), OWNER_ID)
   const rpc = new RpcEndpoint(guard, { timeoutMs: 2_000 })
   const store = new MemoryBlockstore()
   serveAgent({
     rpc,
     executor: stubExecutor(nodeId),
-    blockstore: store,
-    egress: guard,
+    blockstore: faulty.blockstore ?? store,
+    // This file takes holds directly, so the store the serve path would declare
+    // from is deliberately empty: nothing here is meant to register through a task.
+    egress: { guard, sovereignInputs: new MemoryBlockstore() },
     authorize: 'serves-unauthenticated',
-    index: 'serves-no-records',
+    index: faulty.index ?? 'serves-no-records',
     capacity: 'accepts-every-offer',
     ledger: 'keeps-no-ledger',
     reservations: 'relays-for-nobody',
@@ -175,6 +183,80 @@ describe('criterion 7 — a refusal, a hit and a miss stay three distinguishable
       expect(manifest.totalBytes).toBeGreaterThan(0)
     } finally {
       node.close()
+      rpc.close()
+    }
+  })
+})
+
+describe('a serving fault is a fourth answer, not a fourth flavour of miss', () => {
+  /** Fails the way a disk does: on the read, with a path in the message. */
+  const unreadableStore: Blockstore = {
+    put: () => Promise.reject(new Error('EIO: disk write failed')),
+    get: () => Promise.reject(new Error('EIO: disk read failed on /var/o2/blocks/ab/cd')),
+    has: () => Promise.reject(new Error('EIO: disk read failed on /var/o2/blocks/ab/cd')),
+    size: 0,
+  }
+
+  it('names a blockstore read failure instead of reporting the block absent', async () => {
+    const node = servingNode('unreadable-node', { blockstore: unreadableStore })
+    const rpc = new RpcEndpoint(network.connect('requestor-unreadable'), { timeoutMs: 2_000 })
+    try {
+      const cid = await new MemoryBlockstore().put(encoded(PUBLIC_ROW))
+
+      const answer = parseResponse(
+        await rpc.request(node.nodeId, encodeRequest({ kind: 'block', cid })),
+      )
+      expect(answer?.kind).toBe('error')
+      if (answer?.kind !== 'error') return
+      // The prefix is wire vocabulary beside `egress refused: ` and
+      // `over-committed: `, pinned here so it cannot drift.
+      expect(answer.reason.startsWith('serving failed on ')).toBe(true)
+      expect(answer.reason).toContain('EIO')
+      expect(answer.reason).toContain(node.nodeId)
+    } finally {
+      node.close()
+      rpc.close()
+    }
+  })
+
+  it('is a property of the handler rather than of the block branch', async () => {
+    // A second branch, so the evidence is about the class. One branch covered would
+    // be exactly the weakness of catching per branch in the first place.
+    const failingIndex: RecordIndex = {
+      providers: () => Promise.reject(new Error('EIO: index read failed')),
+      recordsFor: () => Promise.reject(new Error('EIO: index read failed')),
+    }
+    const node = servingNode('unreadable-index', { index: failingIndex })
+    const rpc = new RpcEndpoint(network.connect('requestor-index'), { timeoutMs: 2_000 })
+    try {
+      const answer = parseResponse(
+        await rpc.request(node.nodeId, encodeRequest({ kind: 'records', nodeKey: 'ab12' })),
+      )
+      expect(answer?.kind).toBe('error')
+      if (answer?.kind !== 'error') return
+      expect(answer.reason.startsWith('serving failed on ')).toBe(true)
+      expect(answer.reason).toContain('EIO')
+      expect(answer.reason).toContain(node.nodeId)
+    } finally {
+      node.close()
+      rpc.close()
+    }
+  })
+
+  it('still lets a multi-peer fetch step over the broken node to the one that holds it', async () => {
+    // Load-bearing pair: naming the fault must not be bought by turning one bad peer
+    // into a fetch that fails for everybody. `RpcBlockSource` treating any non-block
+    // reply as a miss is the documented degrade, and this pins it.
+    const broken = servingNode('broken-holder', { blockstore: unreadableStore })
+    const holder = servingNode('good-holder')
+    const rpc = new RpcEndpoint(network.connect('requestor-fallback'), { timeoutMs: 2_000 })
+    try {
+      const cid = await holder.store.put(encoded(PUBLIC_ROW))
+      const source = new RpcBlockSource(rpc, () => [broken.nodeId, holder.nodeId])
+      expect(await source.fetch(cid)).toEqual(encoded(PUBLIC_ROW))
+    } finally {
+      broken.close()
+      holder.close()
       rpc.close()
     }
   })

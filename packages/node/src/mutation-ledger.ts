@@ -77,6 +77,15 @@ export interface Mutation {
    * guard does not count as the guard working.
    */
   readonly signature: string
+  /**
+   * The vitest project the `caughtBy` files belong to. Defaults to `node`.
+   *
+   * Present because one defect in this ledger lives in rendered text on a real page,
+   * and nothing below the `e2e` project can observe a template string. Without this
+   * the script would run `--project node` over an `*.e2e.test.ts`, match no files,
+   * and report a failure that has nothing to do with the mutation.
+   */
+  readonly project?: 'node' | 'e2e'
 }
 
 /**
@@ -148,9 +157,11 @@ export const MUTATIONS: readonly Mutation[] = [
       'records that deleting the line left 22 tests across three files green — and that ' +
       'commit added the two readings that see it: the sender still holding a yamux window ' +
       'is told, and the receiver logs the reason. The entry is here to keep that closed, ' +
-      'not to commemorate that it once was not.',
+      'not to commemorate that it once was not. Re-indented on 2026-07-30 when the ' +
+      "accumulation budget's `try`/`finally` wrapped the loop; same line, two spaces " +
+      'deeper, and the find text was moved with it rather than dropped.',
     file: 'packages/libp2p/src/libp2p-transport.ts',
-    find: '      stream.abort(error)\n',
+    find: '        stream.abort(error)\n',
     replace: '',
     caughtBy: ['packages/node/src/transport-bounds.node.test.ts'],
     signature: "expected 'resolved' not to be 'resolved'",
@@ -173,6 +184,21 @@ export const MUTATIONS: readonly Mutation[] = [
     signature: 'a node started with a small maxMessageBytes refuses a frame a default node accepts',
   },
   {
+    id: 'M13',
+    why:
+      'NET-08, the per-peer half. The cap above it bounds one message; this line is the ' +
+      'whole of what bounds one peer. Without it a peer opens streams it never finishes ' +
+      'and every message stays legal, so `refusedInbound` reads 0 while the accumulations ' +
+      'add up — measured on 2026-07-30 at 65 MB retained against an 8 MiB budget for 32 ' +
+      'streams, and the reproduction that opened this bug measured 263 MB at the shipped ' +
+      'cap. It is the one line, so deleting it is the honest mutation.',
+    file: 'packages/libp2p/src/libp2p-transport.ts',
+    find: '      budget.charge(flat.byteLength)\n',
+    replace: '',
+    caughtBy: ['packages/node/src/transport-bounds.node.test.ts'],
+    signature: 'refuses accumulation past the budget while every single message stays in limit',
+  },
+  {
     id: 'M4',
     why:
       "NET-09's per-peer send gate. With the condition always true every send takes a slot " +
@@ -188,6 +214,34 @@ export const MUTATIONS: readonly Mutation[] = [
     replace: 'if (true) {',
     caughtBy: ['packages/node/src/transport-bounds.node.test.ts'],
     signature: 'to be an instance of SendRefused',
+  },
+  {
+    id: 'M14',
+    why:
+      'The release for the one resource `FabricNode.start` acquires before anything that ' +
+      'can fail. `createLibp2p` has bound a listening socket by that line, and every step ' +
+      'after it — the relay dials most of all, which is this factory’s likeliest failure — ' +
+      'used to reject with the socket still bound and no handle anywhere to close it. The ' +
+      'second attempt then failed with EADDRINUSE, which names the wrong problem entirely.',
+    file: 'packages/node/src/fabric-node.ts',
+    find: '    undo.push(() => libp2p.stop())\n',
+    replace: '',
+    caughtBy: ['packages/node/src/start-unwind.node.test.ts'],
+    signature: 'gives the port back when a relay dial fails',
+  },
+  {
+    id: 'M15',
+    why:
+      'The same release one composition up, and its own entry because a seed strands more: ' +
+      'the node it started holds two bound listeners, the WebSocket port a browser dials ' +
+      'and the plain TCP one another node dials. The throw that reaches it is not exotic — ' +
+      'a Vite server that cannot bind, or the node binding no WebSocket port at all — and ' +
+      'both sit after `FabricNode.start` has returned.',
+    file: 'packages/node/src/seed-server.ts',
+    find: '    undo.push(() => node.stop())\n',
+    replace: '',
+    caughtBy: ['packages/node/src/start-unwind.node.test.ts'],
+    signature: 'stops the node it already started when the HTTP server cannot bind',
   },
   {
     id: 'M5',
@@ -230,7 +284,7 @@ export const MUTATIONS: readonly Mutation[] = [
       'so the code still looks like it is guarding something — and the raw row crosses the ' +
       'wire inside a block reply.',
     file: 'packages/net/src/submit-with-egress.ts',
-    find: 'for (const guard of guards) guard.guard(label, encoded.bytes)',
+    find: 'for (const guard of guards) held.push(guard.guard(label, encoded.bytes))',
     replace: 'void label',
     caughtBy: ['packages/node/src/sovereign-block-refusal.node.test.ts'],
     signature: '63 raw bytes inside a 106-byte frame',
@@ -251,6 +305,172 @@ export const MUTATIONS: readonly Mutation[] = [
       'packages/node/src/sovereign-block-refusal.node.test.ts',
     ],
     signature: 'does ask, on the same instrument, once something is registered',
+  },
+  {
+    id: 'M12',
+    why:
+      'SCHED-06 / BROW-04. The one line that makes a wall-clock bound on untrusted guest code ' +
+      'exist at all. A guest `run()` is synchronous and V8 has no fuel metering, so nothing ' +
+      'on the executing thread can interrupt it and killing the thread is the only mechanism ' +
+      'available. Left inert, a 52-byte looping module wedges an unauthenticated node ' +
+      'outright — the admission slot’s `finally` sits around an await that never settles and ' +
+      'the RPC timeout’s own `setTimeout` never runs either. It is a substitution rather than ' +
+      'a deletion because deleting it leaves `timer` undefined, which fails as a ' +
+      'ReferenceError rather than as the hang the defect actually is.',
+    file: 'packages/core/src/executor/worker-executor.ts',
+    find: '      const timer = setTimeout(() => this.#expire(id), this.#deadlineMs)',
+    replace: '      const timer = setTimeout(() => {}, this.#deadlineMs)',
+    caughtBy: ['packages/core/src/executor/worker-executor.test.ts'],
+    signature: 'Error: Test timed out in 5000ms.',
+  },
+  {
+    id: 'M16',
+    why:
+      'DET-06. A refusal in `output_write` is absorbing, and this line is the whole of ' +
+      'that. Without it a module spends its refusal — an over-cap write the host will not ' +
+      'take — and then launders it with a small acceptable one, and the host returns the ' +
+      'small write as the module’s answer with `ok: true`. It is the case that separates ' +
+      'this fix from the obvious one, which clears the slot on refusal and leaves the ' +
+      'mirror wide open.',
+    file: 'packages/core/src/executor/wasm.ts',
+    find: "          if (sink.at.state === 'refused') return\n",
+    replace: '',
+    caughtBy: ['packages/core/src/executor/wasm.test.ts'],
+    signature: 'cannot have a refusal laundered by a smaller write that follows it',
+  },
+  {
+    id: 'M10',
+    why:
+      'DATA-05, the taking half. `serveAgent` is the only production caller that declares a ' +
+      "sovereign task's input to this node's tap, and it is the caller precisely because it " +
+      'is also the layer that gives the hold back once the reply frame has settled. With this ' +
+      'line inert the tap holds nothing for a dispatched sovereign task, so the reply carrying ' +
+      'the raw row is scanned against an empty set and forwarded — the leak the whole of ' +
+      'DATA-05 exists to stop, with every surrounding mechanism still present and looking ' +
+      'correct.',
+    file: 'packages/net/src/agent.ts',
+    find: "        egress === 'holds-no-registrations'\n          ? null",
+    replace: "        egress === 'holds-no-registrations' || true\n          ? null",
+    caughtBy: ['packages/net/src/sovereign-egress.test.ts'],
+    signature: 'and the tap refuses the leaking reply',
+  },
+  {
+    id: 'M11',
+    why:
+      'DATA-05, the giving-back half. A hold is a value so that nobody can give back a hold ' +
+      'they did not take — the defect where one unauthenticated public exec stripped a ' +
+      "sovereign payload's guard. This flag is what stops the *same* holder doing it twice: " +
+      'without it, a caller that releases on two exits decrements the count twice and steals ' +
+      "a concurrent dispatch's hold, which is the identical failure reached by a different " +
+      'route. `serveAgent` releases inside a `finally`, so double release is a live path.',
+    file: 'packages/net/src/egress.ts',
+    find: '        if (given) return\n',
+    replace: '',
+    caughtBy: ['packages/net/src/egress.test.ts'],
+    signature: "expected [] to deeply equal [ 'alice-row' ]",
+  },
+  {
+    id: 'M17',
+    why:
+      'AUTH-04. The refusal that makes a certificate name a user who consented to it. ' +
+      'Left inert, anybody obtains a provider-signed certificate naming any victim’s user ' +
+      'key — reproduced before the fix, `verifyCertificate` accepted it — and the victim ' +
+      'is then locked out of enrolling their own nodes, because the per-owner limiter ' +
+      'keys on the very field the attacker chose. A guard made inert rather than deleted, ' +
+      'because that is the shape a "just let it through while I debug" edit leaves.',
+    file: 'packages/core/src/enrollment.ts',
+    find: '    if (!holdsOwner) {',
+    replace: '    if (false) {',
+    caughtBy: ['packages/core/src/enrollment.test.ts'],
+    signature: 'does not let a refused cross-user request consume the victim',
+  },
+  {
+    id: 'M9',
+    why:
+      'A reply is matched against the peer its request went to, and this expression is the ' +
+      'whole of that. Keying on the id alone restores the state where any peer that could ' +
+      'reach this node could answer a request it was never sent — ids are a per-endpoint ' +
+      'counter and every RemoteExecutor in a job shares one endpoint, so a sibling id is one ' +
+      'increment away and the first frame wins. That is enough to forge N-version agreement ' +
+      'out of a single machine, which is the one claim redundant execution exists to make.',
+    file: 'packages/net/src/rpc.ts',
+    find: 'return `${peer}\\u0000${id}`',
+    replace: 'return String(id)',
+    caughtBy: ['packages/net/src/rpc.test.ts'],
+    signature: "expected 'FORGED-BY-C' to be 'ANSWERED-BY-B'",
+  },
+  {
+    id: 'M20',
+    why:
+      'The same guarantee, pinned at the lookup instead of at the key, because the two ' +
+      'catch different edits. M9 catches a key that stops naming the peer, which breaks ' +
+      'both sides at once and is obviously wrong on sight. This catches the edit that ' +
+      'looks reasonable: a receive path made tolerant so a peer whose address is spelled ' +
+      'slightly differently still gets its reply matched. Correlation would then be by id ' +
+      'alone again, on the one side an attacker controls, while `request` went on filing ' +
+      'under the destination and every comment in the file went on being true. Pinned on ' +
+      'the call rather than on the key’s body so the entry survives the separator being ' +
+      'respelled — `27633c7` already respelled it once, from a raw byte to an escape.',
+    file: 'packages/net/src/rpc.ts',
+    find: 'const key = this.#pendingKey(from, id)',
+    replace: "const key = [...this.#pending.keys()].find((k) => k.endsWith(`\\u0000${id}`)) ?? ''",
+    caughtBy: ['packages/net/src/rpc.test.ts'],
+    signature: "expected 'FORGED-BY-C' to be 'ANSWERED-BY-B'",
+  },
+  {
+    id: 'M21',
+    why:
+      'DATA-05, the exit with nothing to show for itself. A reply abandoned because the ' +
+      'endpoint closed sends no frame, so the only evidence the dispatch happened at all ' +
+      'is what the tap holds afterwards — which is why the `#closed` check sits inside ' +
+      'the try rather than as a bare return above it. Hoisting it is the tidy any reader ' +
+      'would think safe: the send is skipped either way, and every test in the file still ' +
+      'passes except the one that watches the tap. What it costs is a registration that ' +
+      'is never given back, scanned against every frame the node sends for the rest of ' +
+      'its life, produced by the ordinary act of shutting a node down mid-dispatch.',
+    file: 'packages/net/src/rpc.ts',
+    find: '    try {\n      if (this.#closed) return\n',
+    replace: '    if (this.#closed) return\n    try {\n',
+    caughtBy: ['packages/net/src/sovereign-egress.test.ts'],
+    signature: 'releases when the endpoint closes between the outcome and the frame',
+  },
+  {
+    id: 'M18',
+    why:
+      'CHURN-01. `failures`’ contract is that a shard’s history explains itself. A ' +
+      'speculative copy that answered *with a failure* after the winner was taken fell ' +
+      'between every bucket — not `uncompared`, because it did answer; not in ' +
+      '`failures`, because those were sealed when the winner returned — while still ' +
+      'appearing in `attempted`. `attempted` and `failures` are the raw material any ' +
+      'later exclusion or scoring mechanism reads, so a peer that reliably fails just ' +
+      'after losing a race accrued no recorded failure at all.',
+    file: 'packages/core/src/coordinator.ts',
+    find:
+      "        record({\n          kind: 'failed',\n          nodeId: copy.nodeId,\n" +
+      "          failureKind: failure?.kind ?? 'node',\n" +
+      "          reason: failure?.reason ?? 'copy failed with no reason given',\n        })\n",
+    replace: '',
+    caughtBy: ['packages/core/src/coordinator.test.ts'],
+    signature: 'records a copy that fails after the winner is picked as a failure of that shard',
+  },
+  {
+    id: 'M19',
+    why:
+      'BROW-05. The demo panel may not present an aggregate that cannot exist. Restoring ' +
+      'this line puts a peer count back beside a report whose every production call site ' +
+      "opts out of the ledger that would fill it — the rendered panel read `no start " +
+      "outcomes reported` on one line and `peers answering: 2 of 2 asked` on the next, " +
+      'which is a tally of contributors that has none. It is a restoration rather than a ' +
+      'deletion because the defect was text that was there, not text that was missing.',
+    file: 'packages/browser/demo/index.html',
+    find: '        showReportOnly(report.text)\n',
+    replace:
+      '        showReportOnly(\n' +
+      '          `${report.text}\\n  peers answering: ${report.reached} of ${report.asked} asked`,\n' +
+      '        )\n',
+    caughtBy: ['packages/node/src/two-tabs.e2e.test.ts'],
+    project: 'e2e',
+    signature: 'renders no peer aggregate beside a report that can only hold this tab',
   },
   {
     id: 'B1',
@@ -279,6 +499,115 @@ export const MUTATIONS: readonly Mutation[] = [
     replace: "capacity: 'accepts-every-offer',",
     caughtBy: ['packages/node/src/serve-agent-hooks.node.test.ts'],
     signature: 'bin/bench.ts: two call sites, real admission at both, five sentinels twice',
+  },
+  {
+    id: 'M2c',
+    why:
+      'SCHED-06 in the browser tier. `BrowserNode` composed a bare `WasmExecutor` whenever ' +
+      '`createWorker` was omitted, so a tab ran an arbitrary peer’s WASM on its own main ' +
+      'thread — where a wall-clock deadline cannot fire, because a guest `run()` is a ' +
+      'synchronous call holding the very loop the timer would fire on, and where there is ' +
+      'no thread to terminate. A 52-byte `loop br 0` wedged the tab permanently, `stop()` ' +
+      'included. The Node tier had already been fixed by `WorkerExecutor({deadlineMs})`; ' +
+      'the browser tier kept a route around it, justified in its own comment by tests that ' +
+      'were never written. Restoring the branch on the option’s absence restores the ' +
+      'unbounded path. The guard is a structural count rather than a behavioural one, for ' +
+      'the same reason `M2b` is: the stronger half of this proof is a compile error, and ' +
+      '`Mutation.project` admits no entry that would run `tsc`.',
+    file: 'packages/browser/src/browser-node.ts',
+    find: '    const worker = browserWorkerExecutor({',
+    replace: '    const worker = options.createWorker === undefined ? null : browserWorkerExecutor({',
+    caughtBy: ['packages/browser/src/browser-node-contract.node.test.ts'],
+    project: 'node',
+    signature:
+      'browser-node.ts composes a killable thread and nothing else > constructs no main-thread executor, one worker-backed one, and branches on neither',
+  },
+  {
+    id: 'M22',
+    why:
+      'VER-01. Reporting a disagreement is the one thing this module exists to do, and a ' +
+      'majority rule is the “obvious” improvement that silently removes it: two colluding ' +
+      'replicas out-vote an honest one, the fabric publishes their answer as verified, and ' +
+      'the honest result appears nowhere in the record. The line is load-bearing precisely ' +
+      'because the edit that breaks it reads like a fix — `groups.size > 1` must mean ' +
+      'disagreement however the sizes are distributed.',
+    file: 'packages/core/src/job/verify.ts',
+    find: 'if (groups.size > 1) {',
+    replace: 'if (groups.size > 1 && [...groups.values()].every((n) => n.length < 2)) {',
+    caughtBy: ['packages/core/src/job/verify.test.ts'],
+    signature: "expected 'agreed' to be 'disagreed'",
+  },
+  {
+    id: 'M23',
+    why:
+      'The dial budget. `runDiscoveryRound` dials sequentially and a failed dial costs a ' +
+      'full timeout, so this line is the whole of what bounds a discovery round’s wall ' +
+      'clock — without it one round sits out dozens of timeouts and the tab discovers ' +
+      'nothing until it returns. It lived inline in `demo/main.ts`, which does `fetch`, ' +
+      'real libp2p dials and DOM notification, so no vitest project could import it: ' +
+      'verification deleted the line and the whole suite stayed green. Extracting the ' +
+      'decision into `dial-plan.ts` is what made the line observable at all; this entry ' +
+      'is what keeps it observed.',
+    file: 'packages/browser/src/dial-plan.ts',
+    find: '    if (plan.length >= MAX_DIALS_PER_ROUND) break\n',
+    replace: '',
+    caughtBy: ['packages/browser/src/dial-plan.test.ts'],
+    signature: 'stops at the budget rather than sitting out a timeout per candidate',
+  },
+  {
+    id: 'M24',
+    why:
+      'AUTH-04, the caller-side half. `enrol` refuses a hand-assembled request naming a ' +
+      'user who did not sign, but `requestEnrollment` is the path every honest node takes, ' +
+      'and it closes the same hole by *derivation* rather than by refusal: the user key ' +
+      'comes from the private key it is handed, so naming a stranger is not something the ' +
+      'function can be asked to do. Make it honour a supplied field and a rogue enrols ' +
+      'under a victim’s identity through the front door — mislabelling the certificate ' +
+      'and, because the per-owner limiter keys on that same field, spending the victim’s ' +
+      'enrollment window too. Restored as a `??` fallback rather than a deletion, because ' +
+      '“accept it if the caller bothered to pass one” is the shape a convenience edit ' +
+      'leaves behind.',
+    file: 'packages/core/src/enrollment.ts',
+    find: '  const userKey = toHex(ed25519.getPublicKey(userPrivateKey))',
+    replace:
+      '  const userKey = (fields as { userKey?: PublicKeyHex }).userKey ?? toHex(ed25519.getPublicKey(userPrivateKey))',
+    caughtBy: ['packages/core/src/enrollment.test.ts'],
+    signature: 'cannot be handed a user key through its fields at all',
+  },
+  {
+    id: 'M25',
+    why:
+      'B19 as reported did not reproduce — `settleRace` stopped inventing a `taskId`, and ' +
+      '`RaceOutcome.losers` is a `RaceLoser[]`, so the hollow field has no spelling there. ' +
+      'What did not exist was a guard on the half that survived: ' +
+      '`SpeculationLedger.discard` is now the only path that mints a `Discarded`, and ' +
+      'stamping its records with `\'\'` — the exact value the split removed from ' +
+      '`settleRace`, relocated to the one place that can still hold it — left every case ' +
+      'in `speculation.test.ts` and `coordinator.test.ts` green. Attribution is the whole ' +
+      'reason the record is kept, and it was correct by inspection only. Stated honestly: ' +
+      '`discarded` has no reader in this repository yet, so this guards a record that is ' +
+      'written and not yet consumed.',
+    file: 'packages/core/src/speculation.ts',
+    find: 'this.#discarded.push({ taskId, nodeId, disagreed })',
+    replace: "this.#discarded.push({ taskId: '', nodeId, disagreed })",
+    caughtBy: ['packages/core/src/speculation.test.ts'],
+    signature: 'names the task each discarded copy was a copy of, over a job of several',
+  },
+  {
+    id: 'M26',
+    why:
+      'BROW-02. The negative count this parser already dropped and the enormous one it did ' +
+      'not are the same attack from opposite ends — one erases another peer’s evidence, ' +
+      'the other buries it — and the second is the more effective, because ' +
+      '`StartOutcomeLedger.mergeOverlapping` keeps the *largest* count it is shown ' +
+      '(`start-outcome.ts:364`). One entry claiming four billion therefore decided every ' +
+      'rate in a merged report by itself. Measured with the ceiling removed: an aggregate ' +
+      'that should read 100 read 4000000100.',
+    file: 'packages/net/src/protocol.ts',
+    find: ' || count > MAX_REPORTED_COUNT',
+    replace: '',
+    caughtBy: ['packages/net/src/start-report.test.ts'],
+    signature: 'lets no single peer decide the aggregate by claiming a number nobody can hold',
   },
 ]
 

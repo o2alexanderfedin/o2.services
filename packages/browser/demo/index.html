@@ -258,8 +258,7 @@
           `${Math.round(activity.dutyCycle * 100)}% of one thread` +
           (activity.hidden ? ' (tab in background)' : '') +
           ` · ${activity.tasksExecuted} task(s) done` +
-          ` · ${activity.fetched} block(s) in` +
-          (activity.offMainThread ? '' : ' · ON MAIN THREAD')
+          ` · ${activity.fetched} block(s) in`
       }
 
       const reconcile = () => {
@@ -422,9 +421,23 @@
 
       const refreshReport = async () => {
         const report = await window.o2.startReport()
-        showReportOnly(
-          `${report.text}\n  peers answering: ${report.reached} of ${report.asked} asked`,
-        )
+        // Exactly and only what this tab knows. A peer count used to be appended
+        // here, and beside a report that can only ever hold this tab's own outcome it
+        // read as a tally of contributors: `no start outcomes reported` directly above
+        // `peers answering: 2 of 2 asked`.
+        //
+        // No node supplies `serveAgent`'s `ledger` hook — every production call site
+        // passes `'keeps-no-ledger'` — so the merged report has nothing else in it to
+        // present. The gap is disclosed at `.planning/REQUIREMENTS.md`. Wiring a
+        // serve-side ledger is deferred behind the magnitude bound and the label
+        // whitelist, because publishing per-peer start outcomes across the fabric
+        // before those land is the fingerprint the disclosure promise in
+        // `start-outcome.ts` exists to prevent.
+        //
+        // `reached` and `asked` stay on the returned object. They are a genuine
+        // liveness reading — `asked > 0 && reached === 0` is the blocklist cliff seen
+        // from the inside — and the lie was the juxtaposition, not the fields.
+        showReportOnly(report.text)
       }
       $('refresh-report').addEventListener('click', refreshReport)
 

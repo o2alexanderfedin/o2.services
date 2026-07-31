@@ -53,6 +53,7 @@ import {
 } from '@o2/browser'
 import type { GrantedConsent, TabApi, TabConsentState } from '@o2/browser'
 import { createTaskWorker } from '../src/worker-factory.ts'
+import { planDials } from '../src/dial-plan.ts'
 import * as pid from '@libp2p/peer-id'
 
 let node: BrowserNode | null = null
@@ -118,6 +119,64 @@ function noteOutcome(cause: StartFailure | null): void {
     browser: currentBrowserLabel(),
     result: cause === null ? { kind: 'started' } : { kind: 'failed', cause },
   }
+}
+
+/** The round in flight, so a second caller joins it instead of starting another. */
+let discoveryRound: Promise<{ asked: boolean; dialed: string[]; failed: string[] }> | null = null
+
+async function runDiscoveryRound(): Promise<{ asked: boolean; dialed: string[]; failed: string[] }> {
+  const n = required()
+  const candidates: string[] = []
+  let asked = false
+
+  // 1. The origin, when a seed node served this page. It is the better answer on a
+  //    LAN because it also carries the seed's own direct address, which needs no
+  //    relay circuit at all — so a lone visitor has a peer immediately.
+  try {
+    const response = await fetch('/bootstrap.json', { cache: 'no-store' })
+    if (response.ok) {
+      const info = (await response.json()) as { peerAddrs?: unknown }
+      if (Array.isArray(info.peerAddrs)) {
+        candidates.push(...info.peerAddrs.filter((a): a is string => typeof a === 'string'))
+        asked = true
+      }
+    }
+  } catch {
+    // A static host has no origin to ask. Not a failure — see below.
+  }
+
+  // 2. The fabric itself. **This is the only route on a static host**, where there
+  //    is no origin and DEMO-03 forbids adding a server-side process. Asking the
+  //    nodes we are already connected to needs nothing the fabric does not have.
+  const reserved = await findReservedPeers({
+    rpc: n.rpc,
+    peers: () => n.transport.peers,
+    self: n.peerId,
+  })
+  if (reserved.answered > 0) asked = true
+  candidates.push(...reserved.addrs)
+
+  // Every rule about *which* candidates are worth a dial — this tab's own entry, a
+  // peer already connected, one peer offered twice, and the budget that bounds the
+  // round's wall clock — lives in `planDials`, where a test can reach it without a
+  // relay and a real node. What is left here is the I/O.
+  const dialed: string[] = []
+  const failed: string[] = []
+  for (const address of planDials({
+    candidates,
+    self: n.peerId,
+    connected: n.transport.peers,
+  })) {
+    try {
+      dialed.push(await n.dial(address))
+    } catch {
+      // A peer whose reservation has lapsed, or that closed its tab between the
+      // directory's answer and this dial. Expected, and not worth failing the round.
+      failed.push(address)
+    }
+  }
+  if (dialed.length > 0) notify()
+  return { asked, dialed, failed }
 }
 
 const api: TabApi = {
@@ -239,7 +298,6 @@ const api: TabApi = {
     if (node === null) return null
     return {
       running: true,
-      offMainThread: node.offMainThread,
       tasksExecuted: node.executor.executed,
       dutyCycle: node.executor.dutyCycle,
       hidden: node.governor.hidden,
@@ -281,7 +339,7 @@ const api: TabApi = {
       // asks, they simply tell nothing. Their own decline is counted here and never
       // transmitted, which is the only way an opt-out can mean what it says.
       outcome: allowed ? outcome : null,
-      declined: 0,
+      declinedLocally,
     })
     return {
       reached: result.reached,
@@ -373,72 +431,15 @@ const api: TabApi = {
         }
   },
 
-  async connectDiscoveredPeers() {
-    const n = required()
-    const candidates: string[] = []
-    let asked = false
-
-    // 1. The origin, when a seed node served this page. It is the better answer on a
-    //    LAN because it also carries the seed's own direct address, which needs no
-    //    relay circuit at all — so a lone visitor has a peer immediately.
-    try {
-      const response = await fetch('/bootstrap.json', { cache: 'no-store' })
-      if (response.ok) {
-        const info = (await response.json()) as { peerAddrs?: unknown }
-        if (Array.isArray(info.peerAddrs)) {
-          candidates.push(...info.peerAddrs.filter((a): a is string => typeof a === 'string'))
-          asked = true
-        }
-      }
-    } catch {
-      // A static host has no origin to ask. Not a failure — see below.
-    }
-
-    // 2. The fabric itself. **This is the only route on a static host**, where there
-    //    is no origin and DEMO-03 forbids adding a server-side process. Asking the
-    //    nodes we are already connected to needs nothing the fabric does not have.
-    const reserved = await findReservedPeers({
-      rpc: n.rpc,
-      peers: () => n.transport.peers,
-      self: n.peerId,
+  connectDiscoveredPeers() {
+    // A round already running is the round this caller wants. The page polls on a
+    // timer, the e2e harness calls this directly, and an embedder will too — two
+    // rounds at once dial the same candidates twice, and the second finishes into a
+    // page that has already moved on.
+    discoveryRound ??= runDiscoveryRound().finally(() => {
+      discoveryRound = null
     })
-    if (reserved.answered > 0) asked = true
-    candidates.push(...reserved.addrs)
-
-    // The *last* `/p2p/` component, not a substring search. A circuit address is
-    // `<relayAddr>/p2p-circuit/webrtc/p2p/<target>`, and `relayAddr` ends in the
-    // relay's own peer id — so `address.includes(peer)` was true of every address
-    // for the relay this tab is already connected to, and every candidate was
-    // skipped. Nothing failed; nothing was attempted. Two devices sat on one relay
-    // and never heard of each other, which is exactly how this was found.
-    const targetOf = (address: string): string => {
-      const parts = address.split('/p2p/')
-      return parts[parts.length - 1] ?? ''
-    }
-
-    const self = n.peerId
-    const already = new Set(n.transport.peers)
-    const dialed: string[] = []
-    const failed: string[] = []
-    const tried = new Set<string>()
-    for (const address of candidates) {
-      const target = targetOf(address)
-      // Only the page knows which entry is its own; a directory publishes all of
-      // them because it has no way to tell who is asking.
-      if (target === '' || target === self) continue
-      if (already.has(target) || tried.has(target)) continue
-      tried.add(target)
-      try {
-        dialed.push(await n.dial(address))
-        already.add(target)
-      } catch {
-        // A peer whose reservation has lapsed, or that closed its tab between the
-        // directory's answer and this dial. Expected, and not worth failing the round.
-        failed.push(address)
-      }
-    }
-    if (dialed.length > 0) notify()
-    return { asked, dialed, failed }
+    return discoveryRound
   },
 
   async computePeers() {

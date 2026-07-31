@@ -274,6 +274,27 @@ async function attempt(
 type Raced = { readonly tick: true } | { readonly tick: false; readonly attempt: Attempt }
 
 /**
+ * What a speculative copy turned out to be, once the winner had already been taken.
+ *
+ * One list per shard rather than one map per outcome. Parallel maps were how the
+ * hole appeared: a copy that answered *with a failure* was neither silent nor
+ * disagreeing, and every reader had to remember to consult a third structure that
+ * did not exist. `'agreed'` is here purely so the merge's enumeration is exhaustive —
+ * it carries nothing — which turns a fifth outcome invented later into a compile
+ * error rather than a silent omission.
+ */
+type LateOutcome =
+  | { readonly kind: 'no-answer'; readonly nodeId: string }
+  | {
+      readonly kind: 'failed'
+      readonly nodeId: string
+      readonly failureKind: 'node' | 'task' | 'sender'
+      readonly reason: string
+    }
+  | { readonly kind: 'disagreed'; readonly nodeId: string }
+  | { readonly kind: 'agreed'; readonly nodeId: string }
+
+/**
  * Run every shard, recovering from failure and slowness, and report both.
  *
  * Shards run concurrently — they share no state by construction, which is the whole
@@ -542,41 +563,59 @@ export async function runResilient(options: CoordinatorOptions): Promise<Coordin
   // Every shard has finished. Now compare the speculative copies that lost, which
   // costs nothing extra: the job was already waiting for its slowest shard, and by
   // now the losers have had that whole time to answer.
-  const lateDisagreements = new Map<string, string[]>()
-  const lateUncompared = new Map<string, string[]>()
+  const lateOutcomes = new Map<string, LateOutcome[]>()
   await Promise.all(
     outstanding.map(async (copy) => {
       const settled = await Promise.race<Raced | null>([
         copy.copy,
         sleep(compareGraceMs).then(() => null),
       ])
-      const answer = settled === null || settled.tick ? null : settled.attempt.answer
-      const record = (into: Map<string, string[]>): void => {
-        const existing = into.get(copy.shardId)
-        if (existing) existing.push(copy.nodeId)
-        else into.set(copy.shardId, [copy.nodeId])
+      const record = (outcome: LateOutcome): void => {
+        const existing = lateOutcomes.get(copy.shardId)
+        if (existing) existing.push(outcome)
+        else lateOutcomes.set(copy.shardId, [outcome])
       }
 
-      if (answer === null || answer.resultCid === null) {
-        // Never answered, or failed. Not evidence of agreement either way — and
-        // recording it as agreement would assert something nobody checked.
-        if (answer === null) record(lateUncompared)
+      if (settled === null || settled.tick) {
+        // Silence. Not evidence of agreement — recording it as agreement would
+        // assert something nobody checked.
+        record({ kind: 'no-answer', nodeId: copy.nodeId })
         return
       }
+
+      const { answer, failure } = settled.attempt
+      if (answer.resultCid === null) {
+        // It answered, and what it said was that it failed. Neither silence nor
+        // agreement, and its own bucket for that reason.
+        ledger.discard(copy.shardId, copy.nodeId, false)
+        record({
+          kind: 'failed',
+          nodeId: copy.nodeId,
+          failureKind: failure?.kind ?? 'node',
+          reason: failure?.reason ?? 'copy failed with no reason given',
+        })
+        return
+      }
+
       const disagrees = answer.resultCid !== copy.winnerCid
       ledger.discard(copy.shardId, copy.nodeId, disagrees)
-      if (disagrees) record(lateDisagreements)
+      record({ kind: disagrees ? 'disagreed' : 'agreed', nodeId: copy.nodeId })
     }),
   )
 
   const shards: ShardOutcome[] = settledShards.map((shard) => {
-    const late = lateDisagreements.get(shard.shardId)
-    const unseen = lateUncompared.get(shard.shardId)
-    if (late === undefined && unseen === undefined) return shard
+    const late = lateOutcomes.get(shard.shardId)
+    if (late === undefined) return shard
     return {
       ...shard,
-      disagreed: shard.disagreed || late !== undefined,
-      uncompared: unseen ?? [],
+      disagreed: shard.disagreed || late.some((outcome) => outcome.kind === 'disagreed'),
+      uncompared: late.filter((o) => o.kind === 'no-answer').map((o) => o.nodeId),
+      failures: [
+        ...shard.failures,
+        ...late
+          .filter((o): o is Extract<LateOutcome, { kind: 'failed' }> => o.kind === 'failed')
+          .map(({ nodeId, failureKind, reason }) => ({ nodeId, kind: failureKind, reason })),
+      ],
     }
   })
 

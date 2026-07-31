@@ -174,7 +174,6 @@ describe('DEMO-01 — a real job, distributed across tabs, with placement visibl
     }
     const activity = await b.page.evaluate(() => window.o2.activity())
     expect(activity).not.toBeNull()
-    expect(activity?.offMainThread).toBe(true)
     // Tab B executed replicas for tab A's job. If this is zero, the job ran
     // entirely in one tab and the distribution claim above is hollow.
     expect(activity?.tasksExecuted ?? 0).toBeGreaterThan(0)
