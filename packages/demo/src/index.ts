@@ -53,6 +53,12 @@ export type { ColouringVerdict } from './colouring.ts'
 // The guest module.
 export { kernelBytes } from './kernel.ts'
 
+// DET-03/DATA-08 — who meant those bytes to run. `KERNEL_TRUST_ANCHOR` is the public
+// key a node pins so `guardModuleProvenance` can accept `KERNEL_RECORD` and refuse
+// everything else. Generated and committed by `scripts/sign-kernel.ts`; read that
+// file's header before regenerating, because both node binaries default to this anchor.
+export { KERNEL_NAME, KERNEL_RECORD, KERNEL_TRUST_ANCHOR } from './kernel-record.ts'
+
 // Host-side job construction and result reading.
 export {
   COLOURING_BYTES,

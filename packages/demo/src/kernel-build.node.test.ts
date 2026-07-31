@@ -1,7 +1,10 @@
+import { ed25519 } from '@noble/curves/ed25519.js'
+import { MemoryBlockstore, SignedNameResolver, toHex } from '@o2/core'
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import { compileKernel } from '../scripts/compile-kernel.mjs'
 import { KERNEL_WASM_BASE64 } from './kernel-bytes.ts'
+import { KERNEL_NAME, KERNEL_RECORD, KERNEL_TRUST_ANCHOR } from './kernel-record.ts'
 import { kernelBytes } from './kernel.ts'
 
 /**
@@ -50,5 +53,62 @@ describe('the source of truth is genuinely tracked', () => {
       expect(wat).toContain(`(import "o2" "${name}"`)
     }
     expect(wat).toContain('(memory (export "memory") 4 4)')
+  })
+})
+
+/**
+ * DET-03 / DATA-08 — the committed record is checked against the committed binary.
+ *
+ * The block above closes `.wat` → `.wasm` → `kernel-bytes.ts`. This one closes the
+ * last link: `.wasm` → the signed record that vouches for it. With both, the chain
+ * from source to signature is checked end to end and no link is taken on faith —
+ * which is what makes this the drift detector for the whole phase. A record naming a
+ * CID nobody recomputed is exactly as unverifiable as a binary nobody recompiled.
+ */
+describe('the committed record vouches for the committed kernel.wasm', () => {
+  it('names the CID a blockstore computes for the binary on disk', async () => {
+    // `MemoryBlockstore.put` rather than a hand-rolled sha256 + CID.create: that is
+    // the code path `runColouring` obtains its module CID from (`store.put(kernelBytes)`
+    // in `demo/main.ts`), and the record has to name what *that* produces. Computed
+    // over `committed` — the bytes read off disk above — so the assertion is against
+    // the artifact, not against another derived copy of it.
+    const cid = await new MemoryBlockstore().put(committed)
+    expect(KERNEL_RECORD.cid.toString()).toBe(cid.toString())
+    expect(KERNEL_RECORD.name).toBe(KERNEL_NAME)
+  })
+
+  it('verifies against the committed trust anchor', () => {
+    const resolver = new SignedNameResolver([KERNEL_TRUST_ANCHOR])
+    expect(resolver.accept(KERNEL_RECORD, Date.now()).ok).toBe(true)
+  })
+
+  it('is refused by a resolver pinned to any other key', () => {
+    // The negative control. Without it, the acceptance above would pass just as
+    // happily against a resolver that accepted everything it was handed.
+    const impostor = toHex(ed25519.getPublicKey(new Uint8Array(32).fill(9)))
+    const result = new SignedNameResolver([impostor]).accept(KERNEL_RECORD, Date.now())
+    expect(result.ok).toBe(false)
+    if (result.ok) return
+    expect(result.failure.kind).toBe('untrusted-signer')
+  })
+
+  it('was emitted with an anchor for the key that actually signed it', () => {
+    // A build that wrote one key into the record and another into the anchor would
+    // ship a demo that refuses its own kernel, everywhere, on first dispatch.
+    expect(KERNEL_TRUST_ANCHOR).toBe(KERNEL_RECORD.signer)
+  })
+
+  it('still has more than 60 days of life left', () => {
+    // An expiry that lapses quietly takes the demo down with a refusal. Sixty days is
+    // the margin in which this fails while there is still time to act — and the
+    // message has to say what to do, because a test that starts failing in two
+    // months' time is only useful if it names the command.
+    const remainingDays = (KERNEL_RECORD.expiresAt - Date.now()) / (24 * 3600 * 1000)
+    expect(
+      remainingDays,
+      `KERNEL_RECORD expires in ${remainingDays.toFixed(0)} days. Regenerate it with ` +
+        '`npm run sign:kernel --workspace @o2/demo` and commit kernel-record.ts. ' +
+        'Note that regenerating changes the anchor too — both node binaries default to it.',
+    ).toBeGreaterThan(60)
   })
 })
