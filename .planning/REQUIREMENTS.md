@@ -444,25 +444,25 @@ backpressure gap" refuted it, at named sites, with reproductions against the rea
 (tcp + noise + yamux, real `FabricNode`s). Each of the three is a measurement, not an
 inference.
 
-- [ ] **SCHED-06**: A node at its execution slot limit refuses an `exec` request with a
+- [x] **SCHED-06**: A node at its execution slot limit refuses an `exec` request with a
       stated reason naming the limit, and the requestor re-picks. Today `serveAgent`
       consults `capacity` only in the `offer` branch — measured, 4 peers × 200 concurrent
       `exec` requests produced 800 simultaneous `execute()` calls and **zero** refusals.
       `LocalCapacity`, the only thing that can emit the refusal, is constructed nowhere
       outside two test files while both production factories pass the opt-out sentinel.
       It gets wired or deleted; it does not stay built-and-unreachable
-- [ ] **NET-08**: A peer cannot make a node allocate an unbounded buffer. `readMessage`
+- [x] **NET-08**: A peer cannot make a node allocate an unbounded buffer. `readMessage`
       enforces a declared maximum message size and aborts the stream past it — today a
       single **64 MiB** frame was sent over the real transport and accepted, because
       `WIRE_CHUNK_BYTES` is send-side framing only and yamux's window paces delivery
       without capping the total
-- [ ] **NET-09**: Dispatching N shards immediately after dial either succeeds well above
+- [x] **NET-09**: Dispatching N shards immediately after dial either succeeds well above
       12 or fails with a stated, **sender-attributed** reason. Today N=8 completes and
       N=12 fails entirely on `MaxEarlyStreamsError: Too many early streams - 11/10`, a
       hardcoded libp2p default that aborts the whole connection — so in-limit requests die
       too, and the requestor blames the *receiving* node for a limit the sender blew
       through. `bin/bench.ts` ships `SHARDS = 8`, one below the cliff
-- [ ] **NET-10**: A refusal reaches the requestor as a **named outcome**, not as a
+- [x] **NET-10**: A refusal reaches the requestor as a **named outcome**, not as a
       timeout. Today `rpc.ts`'s responding leg swallows the error — its comment says "The
       requester will time out" — so a sovereignty refusal is measured arriving as
       `rpc … timed out after 4000ms` with no label and no attribution. A requestor cannot
