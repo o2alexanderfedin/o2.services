@@ -19,6 +19,7 @@
 import type { CID } from 'multiformats/cid'
 import { canonicalCid } from '../canonical/encode.ts'
 import type { CanonicalValue } from '../canonical/encode.ts'
+import type { NameRecord } from '../naming.ts'
 import type { Blockstore, Executor, Task } from '../ports.ts'
 import { planPlacement } from '../sovereignty.ts'
 import type { NodeDescriptor, OwnerId, Placement, PlacementRequest } from '../sovereignty.ts'
@@ -32,6 +33,28 @@ export type ShardSpec =
 
 export interface JobSpec {
   readonly moduleCid: CID
+  /**
+   * The signed mapping that vouches for `moduleCid` (DET-03, DATA-08). Copied onto
+   * every `Task` this job builds, sovereign and public alike.
+   *
+   * **Optional here, and deliberately unenforced here.** That is not convenience, and
+   * the reason is worth stating because the project's standing rule is that an
+   * optional field with a silent default is a hole. `submitJob` runs in the
+   * *requestor's own process*. A requestor that omits the record is not attacking
+   * anybody — it is about to have its job refused by every node it dispatches to.
+   * Enforcing at this line would put the check on the side of the wire the attacker
+   * sits on, which is precisely the mistake `guardSovereignty`'s docstring exists to
+   * name: "a refusal can be made there rather than trusted to whoever dispatched the
+   * task."
+   *
+   * The enforcement point is `guardModuleProvenance`
+   * (`executor/module-provenance.ts`), composed unconditionally by every production
+   * node. So omitting this is not harmless and it is not a silent downgrade: a job
+   * submitted without a record fails at *every* node it reaches, each refusal naming
+   * the missing signed record. Loud, and in the one place that can be trusted to say
+   * it.
+   */
+  readonly moduleRecord?: NameRecord
   /** One shard per element. Length is the partition count. */
   readonly shards: readonly ShardSpec[]
   /**
@@ -217,6 +240,11 @@ export async function submitJob(
 
       const shard = spec.shards[partitionIndex] as ShardSpec
       const selectedExecutors = placement.nodeIds.map((nodeId) => execByNodeId.get(nodeId) as Executor)
+      // Built once and spread into both branches. Never `moduleRecord: spec.moduleRecord`
+      // inline — see `requestFor` above for why an explicit `undefined` is a different
+      // thing here from an omitted field; downstream, `encodeRequest` would put the
+      // first on the wire as a present-but-empty key.
+      const provenance = spec.moduleRecord === undefined ? {} : { moduleRecord: spec.moduleRecord }
       const task: Task =
         shard.label === 'sovereign'
           ? {
@@ -226,6 +254,7 @@ export async function submitJob(
               partitionCount,
               label: shard.label,
               ownerId: shard.ownerId,
+              ...provenance,
             }
           : {
               moduleCid: spec.moduleCid,
@@ -233,6 +262,7 @@ export async function submitJob(
               partitionIndex,
               partitionCount,
               label: shard.label,
+              ...provenance,
             }
       const verification = await executeVerified(task, selectedExecutors)
       // Persist an agreed result so it is retrievable by CID like any other block.

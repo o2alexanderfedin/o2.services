@@ -3,6 +3,7 @@ import { CID } from 'multiformats/cid'
 import { MemoryBlockstore } from '../blockstore/memory.ts'
 import { canonicalCid } from '../canonical/encode.ts'
 import type { CanonicalValue } from '../canonical/encode.ts'
+import { signName } from '../naming.ts'
 import type { Executor, ExecutionOutcome, Task } from '../ports.ts'
 import { publicNodes } from '../sovereignty.ts'
 import type { NodeDescriptor } from '../sovereignty.ts'
@@ -590,5 +591,105 @@ describe('DATA-03/DATA-04 — sovereignty wired onto submitJob', () => {
     if (!r.ok && r.error.kind === 'missing-node-descriptor') {
       expect(r.error.nodeId).toBe('ghost')
     }
+  })
+})
+
+describe('DET-03/DATA-08 — the signed module record reaches every task submitJob builds', () => {
+  /**
+   * An executor that keeps the task it was handed.
+   *
+   * The assertion is made off what the executor *received*, never off `submitJob`'s
+   * internals, because the receiving executor is the only vantage point that matches
+   * where the check actually happens: `guardModuleProvenance` wraps an executor and
+   * reads `task.moduleRecord` before `inner.execute`.
+   */
+  function recording(nodeId: string): { executor: Executor; seen: () => Task | undefined } {
+    let captured: Task | undefined
+    return {
+      executor: {
+        nodeId,
+        async execute(task: Task): Promise<ExecutionOutcome> {
+          captured = task
+          return { ok: true, output: { shard: task.partitionIndex }, fuelUsed: 1 }
+        },
+      },
+      seen: () => captured,
+    }
+  }
+
+  // A real record rather than a literal: the fixture is then the same shape the
+  // production path carries, so a change to `NameRecord` fails here too.
+  const publisher = new Uint8Array(32).fill(31)
+  const moduleRecord = signName(publisher, {
+    name: 'colouring',
+    cid: MODULE_CID,
+    version: 1,
+    expiresAt: 2_000_000_000_000,
+  })
+
+  it('puts the record on a public shard’s task', async () => {
+    const rec = recording('a')
+    const executors = [rec.executor]
+    const r = await submitJob(
+      {
+        moduleCid: MODULE_CID,
+        moduleRecord,
+        shards: [{ value: { n: 1 }, label: 'public' }],
+        executors,
+        nodes: publicNodes(executors),
+        redundancy: 1,
+      },
+      new MemoryBlockstore(),
+    )
+
+    expect(r.ok).toBe(true)
+    expect(rec.seen()?.moduleRecord).toBe(moduleRecord)
+  })
+
+  it('puts the record on a sovereign shard’s task', async () => {
+    // Both branches of the `Task` literal are asserted, because a two-branch literal
+    // is the exact place a field gets added to one arm and forgotten on the other.
+    const rec = recording('alice-1')
+    const nodes: readonly NodeDescriptor[] = [
+      { nodeId: 'alice-1', ownerId: 'alice', canExecuteSovereign: true, load: 0 },
+    ]
+    const r = await submitJob(
+      {
+        moduleCid: MODULE_CID,
+        moduleRecord,
+        shards: [{ value: { n: 1 }, label: 'sovereign', ownerId: 'alice' }],
+        executors: [rec.executor],
+        nodes,
+        redundancy: 1,
+      },
+      new MemoryBlockstore(),
+    )
+
+    expect(r.ok).toBe(true)
+    expect(rec.seen()?.label).toBe('sovereign')
+    expect(rec.seen()?.moduleRecord).toBe(moduleRecord)
+  })
+
+  it('omits the key entirely when the spec carries no record', async () => {
+    const rec = recording('a')
+    const executors = [rec.executor]
+    const r = await submitJob(
+      {
+        moduleCid: MODULE_CID,
+        shards: [{ value: { n: 1 }, label: 'public' }],
+        executors,
+        nodes: publicNodes(executors),
+        redundancy: 1,
+      },
+      new MemoryBlockstore(),
+    )
+
+    expect(r.ok).toBe(true)
+    const task = rec.seen()
+    expect(task).toBeDefined()
+    if (task === undefined) return
+    // `Object.hasOwn`, not `toBeUndefined`: an explicit `undefined` key is a different
+    // shape from an absent one, and `encodeRequest` would put the first on the wire.
+    expect(Object.hasOwn(task, 'moduleRecord')).toBe(false)
   })
 })
