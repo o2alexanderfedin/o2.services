@@ -17,6 +17,7 @@
  */
 
 import { parseArgs } from 'node:util'
+import { KERNEL_TRUST_ANCHOR } from '@o2/demo'
 import { FabricNode } from '../fabric-node.ts'
 
 const { values } = parseArgs({
@@ -31,19 +32,42 @@ const { values } = parseArgs({
     // this binary has identical capability regardless of whether it is passed.
     'owner-id': { type: 'string' },
     'can-execute-sovereign': { type: 'boolean', default: false },
+    // DET-03/DATA-08's per-node build authority (`FabricNodeOptions.trustAnchors`),
+    // repeatable. Four things about it, all of which decide behaviour:
+    //
+    // Supplying it **replaces** the default rather than extending it, so an operator
+    // running an agent for another build authority is not still trusting the demo's.
+    //
+    // The default is the demo's committed anchor because that is the only artifact
+    // this repository ships, and its signing key's private half was discarded at
+    // generation time (`packages/demo/scripts/sign-kernel.ts`) — so the default can
+    // never authorise anything except the one record this repository committed. Out
+    // of the box this binary runs exactly that module and refuses every other.
+    //
+    // Per-node setting, not a node kind: every agent process built by this binary is
+    // identical whether or not it is passed, exactly as `--owner-id` is.
+    //
+    // And there is no flag that turns provenance off. The omission is deliberate — a
+    // shipped binary should not carry one.
+    'trust-anchor': { type: 'string', multiple: true },
   },
 })
 
 if (values.dir === undefined) {
   process.stderr.write(
-    'usage: agent.ts --dir <blockstore-dir> [--port <n>] [--owner-id <id> [--can-execute-sovereign]]\n',
+    'usage: agent.ts --dir <blockstore-dir> [--port <n>] [--owner-id <id> [--can-execute-sovereign]] [--trust-anchor <hex> ...]\n',
   )
   process.exit(2)
 }
 
+// Resolved once so the line printed below reports what was actually pinned rather
+// than re-deriving it and risking the two disagreeing.
+const trustAnchors = values['trust-anchor'] ?? [KERNEL_TRUST_ANCHOR]
+
 const node = await FabricNode.start({
   blockstoreDir: values.dir,
   listen: [`/ip4/127.0.0.1/tcp/${values.port}`],
+  trustAnchors,
   ...(values['owner-id'] === undefined
     ? {}
     : {
@@ -55,7 +79,16 @@ const node = await FabricNode.start({
 })
 
 // The parent waits for exactly this line before dialling.
-process.stdout.write(`${JSON.stringify({ peerId: node.peerId, multiaddrs: node.multiaddrs })}\n`)
+//
+// `trustAnchors` is the set handed to `FabricNode.start` above, not a restatement of
+// the source's intent — which is the point of printing it. An anchor is a public key,
+// so publishing it discloses nothing, and it turns "the default is what the source
+// says" into a reading a parent process can take across a real process boundary.
+// Adding a field is additive for the parents that parse this line; they read named
+// fields.
+process.stdout.write(
+  `${JSON.stringify({ peerId: node.peerId, multiaddrs: node.multiaddrs, trustAnchors })}\n`,
+)
 
 let stopping = false
 const shutdown = (): void => {

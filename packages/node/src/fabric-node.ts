@@ -80,10 +80,12 @@ import {
   DEFAULT_MAX_CONCURRENT_TASKS,
   LocalCapacity,
   MemoryBlockstore,
+  SignedNameResolver,
   WorkerExecutor,
+  guardModuleProvenance,
   guardSovereignty,
 } from '@o2/core'
-import type { Blockstore, Executor, NodeSovereignty } from '@o2/core'
+import type { Blockstore, Executor, NodeSovereignty, PublicKeyHex } from '@o2/core'
 import {
   CountingExecutor,
   EgressGuard,
@@ -134,6 +136,51 @@ export interface FabricNodeOptions {
    * module comment's "why there is no second class".
    */
   readonly sovereignty?: NodeSovereignty
+  /**
+   * The build authorities this node will run a module for — DET-03, DATA-08.
+   *
+   * An anchor is the public half of a signing key, pinned in advance. A CID proves
+   * the bytes are the bytes that were hashed and says nothing about who meant them to
+   * run; a `NameRecord` signed by one of these keys says that, and
+   * `guardModuleProvenance` (`@o2/core`) refuses any task whose module did not arrive
+   * with one — before the module's bytes are fetched, let alone instantiated.
+   *
+   * **Required, with no `?` and no default**, and that is the whole of the design.
+   * `.planning/PROJECT.md`'s Key Decision — *an optional hook with a silent default is
+   * a hole* — is what `AgentOptions.egress` names in its own doc and what
+   * `AgentOptions`'s six required fields each spell out with a literal-string escape.
+   * Whichever default were chosen here, a node would get it without anyone deciding,
+   * and the existing `FabricNode.start` / `SeedServer.start` call sites would not have
+   * to say which one they meant.
+   *
+   * Three values and what each admits:
+   *
+   * - **`[pub, …]`** — this node runs a module exactly when a record signed by one of
+   *   these keys names its CID.
+   * - **`[]`** — this node trusts nobody, and therefore refuses every module. That is
+   *   the safe reading of an empty set and it is deliberately **not** special-cased
+   *   into meaning something friendlier: a caller who wanted the escape hatch has a
+   *   word for it, and an empty array is not that word.
+   * - **`'runs-unsigned-artifacts'`** — no guard is composed at all and this node goes
+   *   back to resolving bare CIDs, as every node did before this phase. It is written
+   *   down at the call site rather than reached by omission precisely because it is
+   *   the one value that turns DET-03 off, and a value that turns a guarantee off must
+   *   cost somebody a decision.
+   *
+   * Per-node **configuration**, not a node kind. Every `FabricNode` has the identical
+   * executor, transport, relay behaviour and protocol surface whatever is passed here
+   * — exactly as `sovereignty` does, and nothing anywhere branches on what kind of
+   * node something is. The only branch is over a value an operator supplied, in the
+   * same sense `--owner-id` states a clearance without defining a class. See the
+   * module comment's "why there is no second class".
+   *
+   * **Any divergence between two running nodes lives in an argv default in a binary,
+   * never here.** As of this phase there is none: `bin/agent.ts` and `bin/seed.ts`
+   * write the same default expression, and
+   * `packages/node/src/trust-anchors.node.test.ts` compares the two textually and
+   * fails if they stop matching.
+   */
+  readonly trustAnchors: readonly PublicKeyHex[] | 'runs-unsigned-artifacts'
   /**
    * Tasks this node will run at once before it refuses an `exec` request with its
    * own words — SCHED-06.
@@ -403,7 +450,7 @@ export class FabricNode {
    * omitting it is now a visible one-line gap rather than a missing branch a hundred
    * lines below.
    */
-  static async start(options: FabricNodeOptions = {}): Promise<FabricNode> {
+  static async start(options: FabricNodeOptions): Promise<FabricNode> {
     const undo: (() => Promise<void> | void)[] = []
     try {
       return await FabricNode.#compose(options, undo)
@@ -588,13 +635,39 @@ export class FabricNode {
     // `executorPeakInFlight` is a count of calls that really happened rather than of
     // slots the node believes it granted. See that getter for what the reading does
     // and does not license.
+    // DET-03/DATA-08: resolved once, here, next to where `sovereignty` is resolved
+    // once and for the identical stated reason — two independently defaulted copies
+    // could drift.
+    //
+    // The wrapper sits **closest to the thing it guards**, with no layer between it
+    // and the executor that reaches `WebAssembly.instantiate`. That is what makes
+    // "refused before instantiation" true by construction rather than by inspecting
+    // whatever happens to be layered above it this month.
+    //
+    // And sovereignty is checked **first**, outside it, deliberately: a node that may
+    // not decrypt an owner's data should say *that*, whatever module was named. The
+    // clearance answer is about this node and is the more useful one to return; the
+    // provenance answer is about the dispatcher's record and would bury it.
+    const anchors = options.trustAnchors
+    const provenance =
+      anchors === 'runs-unsigned-artifacts'
+        ? (inner: Executor): Executor => inner
+        : (inner: Executor): Executor =>
+            guardModuleProvenance(inner, {
+              resolver: new SignedNameResolver(anchors),
+              // A thunk, never a captured number — see `ModuleProvenance.now`. A node
+              // that read the clock here would keep running an expired record for its
+              // whole uptime.
+              now: () => Date.now(),
+            })
+
     const compute = new WorkerExecutor({
       nodeId: libp2p.peerId.toString(),
       blockstore,
       createThread: workerThread,
       ...(options.taskDeadlineMs === undefined ? {} : { deadlineMs: options.taskDeadlineMs }),
     })
-    const executor = new CountingExecutor(guardSovereignty(compute, sovereignty))
+    const executor = new CountingExecutor(guardSovereignty(provenance(compute), sovereignty))
 
     const node = new FabricNode({
       libp2p,
