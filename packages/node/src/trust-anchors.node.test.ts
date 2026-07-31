@@ -128,20 +128,27 @@ interface PathExemption {
  * two files differ structurally, and the reason is a property of this file's source
  * rather than a preference.
  *
- * *Not `packages/browser/src/browser-node.ts` either — yet.* It does not acquire the
- * literal until Plan 14-04 Task 1, one wave later, so an entry here would match nothing
- * today and fail the stale-entry assertion. **14-04 Task 1 appends the entry in the same
- * task that adds the literal** — and only if that plan writes the union out longhand
- * rather than referencing `BrowserNodeOptions['trustAnchors']`'s source the way
- * `seed-server.ts` does, in which case no entry is needed at all. Together with the
- * `browser-node.ts` entry in {@link GUARDED_CONSTRUCTION_SITES}, that is the data this
- * file expects from 14-04. Do not helpfully complete the set ahead of it.
+ * *And `packages/browser/src/browser-node.ts`, added by Plan 14-04 Task 1.* It did not
+ * name the literal until then, which is why 14-03 deliberately left it out — an entry a
+ * wave early would have matched nothing and failed the stale-entry assertion. 14-03
+ * anticipated that no entry might be needed at all, if `BrowserNodeOptions` referenced
+ * `FabricNodeOptions['trustAnchors']` the way `seed-server.ts` does. It does not, and
+ * the reason is stated rather than assumed: `BrowserNodeOptions` is declared in
+ * `packages/browser`, which does not depend on `packages/node` and must not — an indexed
+ * access there would make the browser tier's option type require the Node tier's, in a
+ * package the purity rules keep free of `node:` and of the backbone. So the union is
+ * written out longhand in both places, and both places are exempt.
  */
 const EXEMPT_PATHS: readonly PathExemption[] = [
   {
     path: 'packages/node/src/fabric-node.ts',
     reason:
       'declares FabricNodeOptions.trustAnchors, the union this literal belongs to — this is the one file that cannot express the option without writing the value out, and it is also the file that decides, from that value, whether to compose the guard',
+  },
+  {
+    path: 'packages/browser/src/browser-node.ts',
+    reason:
+      'declares BrowserNodeOptions.trustAnchors, the same union again — and it must restate it rather than index into FabricNodeOptions, because packages/browser does not depend on packages/node and an indexed access would create that dependency; like fabric-node.ts it is also the file that decides, from that value, whether to compose the guard',
   },
 ]
 
@@ -311,11 +318,20 @@ describe('the checker can fail — proved by planting, not assumed', () => {
 /**
  * Files whose construction sites compose `guardModuleProvenance`.
  *
- * One entry today. Plan 14-04 Task 1 adds `packages/browser/src/browser-node.ts` as the
- * second, which is why this is an array rather than a hard-coded pair — a pair here
- * would fail until that plan landed, and this task runs a wave earlier.
+ * Two entries. `packages/browser/src/browser-node.ts` was added by Plan 14-04 Task 1,
+ * which is why this was written as an array rather than a hard-coded single — a pair
+ * would have failed until that plan landed, one wave later.
+ *
+ * The browser entry is the cheap half of that tier's proof. It fires in seconds and says
+ * only that the call site is present; the expensive half — that the guard is on the live
+ * path between two real browser contexts — is `two-tabs.e2e.test.ts`'s refusal case,
+ * which needs a relay, a Vite server and a browser. A present call site is not a working
+ * one, and neither assertion substitutes for the other.
  */
-const GUARDED_CONSTRUCTION_SITES: readonly string[] = ['packages/node/src/fabric-node.ts']
+const GUARDED_CONSTRUCTION_SITES: readonly string[] = [
+  'packages/node/src/fabric-node.ts',
+  'packages/browser/src/browser-node.ts',
+]
 
 describe('the production call site is still there', () => {
   for (const file of GUARDED_CONSTRUCTION_SITES) {

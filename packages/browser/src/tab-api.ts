@@ -9,6 +9,30 @@
 
 import type { EgressManifest } from '@o2/net'
 
+/**
+ * A `NameRecord` in the shape that survives `page.evaluate` — DET-03, DATA-08.
+ *
+ * Everything crossing the `page.evaluate` boundary is structured-cloned, and a `CID`
+ * instance does not survive that: it arrives on the far side as a plain object with the
+ * right fields and no prototype, so `CID.asCID` rejects it and every comparison against
+ * a real CID fails. So the boundary carries the CID as the string it already is on the
+ * wire, and the page reconstructs it with `CID.parse`. Exactly the reason
+ * {@link TabApi.putModule} takes `number[]` rather than a `Uint8Array`.
+ *
+ * Field-for-field identical to `NameRecord` (`@o2/core`) apart from `cid`. Deliberately
+ * not derived from it with a mapped type — the point of this interface is that it is the
+ * *transport* shape, and a reader tracing a refusal needs to see what actually crossed.
+ */
+export interface TabNameRecord {
+  readonly name: string
+  /** The CID as a string. `CID.parse` on the page side; see this interface's doc. */
+  readonly cid: string
+  readonly version: number
+  readonly expiresAt: number
+  readonly signer: string
+  readonly signature: string
+}
+
 /** What a completed job looks like from outside the tab. */
 export interface TabJobReport {
   readonly complete: boolean
@@ -26,6 +50,20 @@ export interface TabJobReport {
    * (`EgressManifest` lives in `@o2/net`, which `@o2/core` may not depend on).
    */
   readonly egress: EgressManifest
+  /**
+   * Why shards failed, flattened across every shard that did not agree.
+   *
+   * `complete: false` alone cannot tell a provenance refusal from a dropped relay
+   * connection, and a browser-tier test that asserted only the boolean would pass for
+   * the wrong reason on a flaky run. Filled from `VerificationResult`'s own `failures`,
+   * which `packages/core/src/job/verify.ts` already carries on both the `disagreed` and
+   * `insufficient` arms — nothing here is computed and nothing is inferred.
+   *
+   * **The one field this phase adds to a returned report shape, and the exception is
+   * named rather than left quiet:** {@link TabColouringRun} — the visitor-facing report
+   * — is untouched. This is the harness-facing one.
+   */
+  readonly failures: readonly { readonly nodeId: string; readonly reason: string }[]
 }
 
 /** How this tab is actually connected to a peer, right now. */
@@ -210,7 +248,31 @@ export interface TabApi {
    * which is the point.
    */
   verifyAnswer(): TabVerification
-  start(options: { relayAddrs: string[]; blockstoreName: string }): Promise<string>
+  /**
+   * Join the fabric.
+   *
+   * `trustAnchors` is the build authorities this tab will run a module for — DET-03,
+   * DATA-08. **A list, or nothing, and nothing means the demo's own build authority**
+   * (`KERNEL_TRUST_ANCHOR`, `@o2/demo`), supplied by `main.ts` rather than by this type
+   * so the page and its committed kernel cannot drift apart.
+   *
+   * A supplied list **replaces** the demo's default rather than joining it. That is
+   * deliberate: a harness pinning its own key is running its own build, and silently
+   * leaving the demo key pinned would make its test prove less than it appears to.
+   *
+   * **This surface is stricter than `BrowserNodeOptions.trustAnchors`, which it sits
+   * over, and the asymmetry is the point.** That option admits a named opt-out literal
+   * for a caller who constructs a node in TypeScript and has written down that they want
+   * one. This one admits no opt-out at all — there is no value passable through
+   * `window.o2` that starts a tab which resolves bare CIDs, and {@link runJob}'s record
+   * is required for the same reason. A harness wanting to run its own module signs it
+   * with its own key and pins that key here; it does not turn the check off.
+   */
+  start(options: {
+    relayAddrs: string[]
+    blockstoreName: string
+    trustAnchors?: string[]
+  }): Promise<string>
   /**
    * Join using whatever the page's own origin says to dial.
    *
@@ -280,8 +342,19 @@ export interface TabApi {
    */
   simulateHidden(hidden: boolean): void
   hasBlock(cid: string): Promise<boolean>
+  /**
+   * Dispatch a job carrying a signed record for its module — DET-03, DATA-08.
+   *
+   * `moduleRecord` is **required**, not optional, and that is the whole of the design:
+   * a tab started through {@link start} always pins some anchor set, so a dispatch with
+   * no record is a dispatch that will be refused by every executor it reaches. Making
+   * the field optional would let a caller write the refusal rather than the job and
+   * discover it as a timeout. Whoever hands this tab a module signs a record for it —
+   * see {@link TabNameRecord} for why the CID crosses as a string.
+   */
   runJob(options: {
     moduleCid: string
+    moduleRecord: TabNameRecord
     peerIds: string[]
     shards: number
     redundancy: number

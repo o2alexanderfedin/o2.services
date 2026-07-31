@@ -32,6 +32,8 @@ import {
 } from '@o2/net'
 import {
   DEFAULT_BUDGET,
+  KERNEL_RECORD,
+  KERNEL_TRUST_ANCHOR,
   answerOf,
   buildInput,
   kernelBytes,
@@ -228,6 +230,22 @@ const api: TabApi = {
       node = await BrowserNode.start({
         relayAddrs: options.relayAddrs,
         blockstoreName: options.blockstoreName,
+        // DET-03/DATA-08: the build authorities this tab will run a module for. With no
+        // `trustAnchors` supplied — which is every visitor, and `autoStart` — that is the
+        // demo's own committed key, the same one `bin/agent.ts` and `bin/seed.ts` pin
+        // when run with no flags, so a browser node and a Node one started by a visitor
+        // answer the same dispatch the same way.
+        //
+        // A supplied list **replaces** this rather than joining it, and the replacement
+        // is deliberate: a harness pinning its own key is running its own build, and
+        // silently leaving the demo key pinned would make its test prove less than it
+        // appears to. `two-tabs.e2e.test.ts` reads that property rather than restating
+        // it — it dispatches the demo's own genuine record at a harness-pinned tab and
+        // requires the refusal.
+        //
+        // There is no value passable through `window.o2` that turns the check off. The
+        // parameter is a list of keys or nothing; see `TabApi.start`.
+        trustAnchors: options.trustAnchors ?? [KERNEL_TRUST_ANCHOR],
         rpcTimeoutMs: 60_000,
         // Aggressive so the throttle is unmistakable in a test rather than marginal.
         backgroundDutyCycle: 0.05,
@@ -287,6 +305,11 @@ const api: TabApi = {
         'no relay available: this page was not served by a seed node, and no ?relay= was given',
       )
     }
+    // DET-03: **no `trustAnchors` key, deliberately, and this must not grow one.** By
+    // passing none, a page reached by discovery inherits `api.start`'s own default — the
+    // demo's committed build authority — and there is no parameter through which whatever
+    // found the page could hand it a different one. A page that was found rather than
+    // configured should not be configurable by whatever found it.
     const peerId = await api.start({
       relayAddrs,
       blockstoreName: options.blockstoreName ?? 'o2-blocks',
@@ -358,6 +381,26 @@ const api: TabApi = {
     // every replica of a cube reads byte-identical input by construction.
     const input = buildInput(options.n, DEFAULT_BUDGET)
     const moduleCid = await node.store.put(kernelBytes)
+    // DET-03/DATA-08. **This is not the drift detector, and saying so is the point.**
+    // `packages/demo/src/kernel-build.node.test.ts` already compares `KERNEL_RECORD.cid`
+    // against the CID of `kernel.wasm` read from disk, and against `kernelBytes` itself,
+    // so a kernel rebuilt without re-signing goes red there long before any demo runs.
+    //
+    // What this adds is legibility for whoever skipped that test. Without it the drift
+    // surfaces as every shard refused for a CID mismatch — which reads to a visitor as
+    // "the fabric is broken" and to a developer as a wall of identical refusals. One
+    // comparison turns that into one sentence naming the fix.
+    //
+    // **No test executes this branch.** Making the record and the bundled bytes disagree
+    // means editing a generated file, and the generated file has its own detector. Stated
+    // rather than left for a reader to discover.
+    if (moduleCid.toString() !== KERNEL_RECORD.cid.toString()) {
+      throw new Error(
+        `the bundled kernel hashes to ${moduleCid.toString()} but the committed record vouches ` +
+          `for ${KERNEL_RECORD.cid.toString()} — the kernel was rebuilt without re-signing; run ` +
+          '`npm run sign:kernel --workspace @o2/demo`',
+      )
+    }
 
     const executors = [
       node.executor,
@@ -370,6 +413,11 @@ const api: TabApi = {
     const result = await submitJobWithEgress(
       {
         moduleCid,
+        // DET-03/DATA-08: the visitor-facing job resolves its kernel through a signed
+        // mapping, not through a bare CID. Every executor this reaches — this tab's own
+        // and every peer's — checks it against its own pinned anchors before the bytes
+        // are fetched, so the demo makes exactly the claim the rest of the fabric does.
+        moduleRecord: KERNEL_RECORD,
         shards: Array.from({ length: options.cubes }, () => ({ value: input, label: 'public' as const })),
         executors,
         nodes: publicNodes(executors),
@@ -549,10 +597,25 @@ const api: TabApi = {
       ...(options.includeSelf === true ? [n.executor] : []),
       ...options.peerIds.map((id) => new RemoteExecutor(id, n.rpc)),
     ]
+    // DET-03/DATA-08. Rebuilt field by field rather than spread, and that is not style:
+    // this object arrived through structured cloning from whatever called
+    // `page.evaluate`, so its shape is whatever the harness sent and a spread would carry
+    // every extra property straight into a signed-payload comparison. Only `cid` changes
+    // form — it crossed as a string because a `CID` instance does not survive the clone;
+    // see `TabNameRecord`.
+    const moduleRecord = {
+      name: options.moduleRecord.name,
+      cid: CID.parse(options.moduleRecord.cid),
+      version: options.moduleRecord.version,
+      expiresAt: options.moduleRecord.expiresAt,
+      signer: options.moduleRecord.signer,
+      signature: options.moduleRecord.signature,
+    }
     // `submitJobWithEgress`, not bare `submitJob` — see `runColouring` above for why.
     const result = await submitJobWithEgress(
       {
         moduleCid: CID.parse(options.moduleCid),
+        moduleRecord,
         shards: Array.from({ length: options.shards }, (_unused, i) => ({
           value: { a: i },
           label: 'public' as const,
@@ -584,6 +647,17 @@ const api: TabApi = {
       fetched: n.blockstore.fetched,
       rejected: n.blockstore.rejected,
       egress: manifest,
+      // Why the shards that did not agree did not agree, flattened across all of them.
+      // Nothing is computed: `VerificationResult` already carries these entries on both
+      // its `disagreed` and `insufficient` arms.
+      //
+      // A harness reading only `complete` cannot tell a provenance refusal from a relay
+      // that dropped, and the browser tier's whole refusal proof rests on that
+      // distinction — `two-tabs.e2e.test.ts` reads the resolver's own wording out of
+      // here rather than inferring it from a boolean that a flaky run also produces.
+      failures: result.job.shards.flatMap((s) =>
+        s.verification.status === 'agreed' ? [] : [...s.verification.failures],
+      ),
     }
   },
 

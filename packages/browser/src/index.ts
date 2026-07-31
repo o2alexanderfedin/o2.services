@@ -30,6 +30,11 @@ export type {
   TabGovernorState,
   TabIsolation,
   TabJobReport,
+  // DET-03/DATA-08: exported because the shape has a caller outside this package. The
+  // e2e harnesses in `packages/node` sign a record and hand it across `page.evaluate`,
+  // and a hand-written object literal there would drift from `runJob`'s parameter
+  // silently — which is exactly what this file's own header says the type exists to stop.
+  TabNameRecord,
   TabStartReport,
 } from './tab-api.ts'
 export { VisibilityGovernor } from './visibility-governor.ts'
