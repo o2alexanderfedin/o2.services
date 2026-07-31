@@ -1,9 +1,13 @@
 import { fileURLToPath } from 'node:url'
+import { ed25519 } from '@noble/curves/ed25519.js'
+import { CID } from 'multiformats/cid'
 import { chromium } from 'playwright'
 import type { Browser, BrowserContext, Page } from 'playwright'
 import { createServer } from 'vite'
 import type { ViteDevServer } from 'vite'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { signName, toHex } from '@o2/core'
+import type { TabNameRecord } from '@o2/browser'
 // Test-only relative import — see the note in packages/net/src/distributed.test.ts.
 import { MODULE_WRITES_PARTITION } from '../../core/src/executor/fixtures.ts'
 import { FabricNode } from './fabric-node.ts'
@@ -46,6 +50,42 @@ let browser: Browser
 let baseUrl: string
 let context: BrowserContext
 
+/** The `keypair(seed)` fixture from `packages/core/src/naming.test.ts`. */
+function keypair(seed: number): { priv: Uint8Array; pub: string } {
+  const priv = new Uint8Array(32).fill(seed)
+  return { priv, pub: toHex(ed25519.getPublicKey(priv)) }
+}
+
+/**
+ * DET-03/DATA-08 — the build authority for the fixture module the job below runs.
+ *
+ * Every tab here pins `harness.pub` and nothing else, **replacing** the demo's default
+ * anchor rather than joining it (see `TabApi.start`). Correct here for the same reason
+ * as in `two-tabs.e2e.test.ts`: the module under test is a fixture this harness built,
+ * so the harness is its build authority and the demo's has no standing over it.
+ *
+ * Seed 53 is distinct from every other fixture key in the repository, including 51 and
+ * 52 in `two-tabs.e2e.test.ts`, so a mixed-up key produces a clear untrusted-signer
+ * refusal rather than an accidental pass. This file's subject is throttling, not
+ * provenance — the refusal proof lives in `two-tabs.e2e.test.ts` — and what a signed
+ * dispatch buys here is that BROW-03's reading is taken on the path the demo actually
+ * ships rather than on one the guard was switched off for.
+ */
+const harness = keypair(53)
+
+/** Sign `cid` for the fixture module, in the shape that survives `page.evaluate`. */
+function signFixture(cid: string): TabNameRecord {
+  // `TabNameRecord` carries the CID as a string because structured cloning does not
+  // preserve a `CID` instance; that reason is written down once, on the type itself.
+  const record = signName(harness.priv, {
+    name: 'o2-background-tab-partition-fixture',
+    cid: CID.parse(cid),
+    version: 1,
+    expiresAt: Date.now() + 300_000,
+  })
+  return { ...record, cid: record.cid.toString() }
+}
+
 /** Load the page in an existing context and start a node in it. */
 async function openPage(name: string): Promise<Page> {
   const page = await context.newPage()
@@ -55,19 +95,35 @@ async function openPage(name: string): Promise<Page> {
   await page.goto(`${baseUrl}${PAGE}`)
   await page.waitForFunction(() => typeof window.o2 !== 'undefined', null, { timeout: 30_000 })
   await page.evaluate(
-    async ([address, store]) => {
+    async ([address, store, anchor]) => {
       // BROW-01 has no test-only bypass: a harness consents for the same reason a
       // visitor clicks the button.
       window.o2.grantConsent()
-      return window.o2.start({ relayAddrs: [address!], blockstoreName: store! })
+      // DET-03: this tab runs a module exactly when `harness` signed for it — see above.
+      return window.o2.start({
+        relayAddrs: [address!],
+        blockstoreName: store!,
+        trustAnchors: [anchor!],
+      })
     },
-    [relayAddr, `o2-bg-${name}`],
+    [relayAddr, `o2-bg-${name}`, harness.pub],
   )
   return page
 }
 
 beforeAll(async () => {
-  relay = await FabricNode.start({ maxReservations: 16, listen: ['/ip4/127.0.0.1/tcp/0/ws'] })
+  // DET-03: this node's subject is relaying, not provenance, and nothing dispatches to
+  // it — it carries the tabs' handshake and executes nothing. Saying so out loud is the
+  // whole benefit of `trustAnchors` being required: a reader counting this literal
+  // learns exactly which tests do not exercise the signed path. No job here carries a
+  // `moduleRecord` either, because a node running with the opt-out has no guard to
+  // satisfy and a record would be decoration the next reader would mistake for a
+  // requirement.
+  relay = await FabricNode.start({
+    maxReservations: 16,
+    listen: ['/ip4/127.0.0.1/tcp/0/ws'],
+    trustAnchors: 'runs-unsigned-artifacts',
+  })
   const address = relay.browserDialableAddrs[0]
   if (address === undefined) throw new Error('relay produced no browser-dialable address')
   relayAddr = address
@@ -105,13 +161,19 @@ describe('BROW-05 — runs on a page with no COOP/COEP', () => {
 
     await page.waitForFunction(() => typeof window.o2 !== 'undefined', null, { timeout: 30_000 })
     await page.evaluate(
-      async ([address, store]) => {
+      async ([address, store, anchor]) => {
       // BROW-01 has no test-only bypass: a harness consents for the same reason a
       // visitor clicks the button.
       window.o2.grantConsent()
-      return window.o2.start({ relayAddrs: [address!], blockstoreName: store! })
+      // DET-03: the same anchor `openPage` pins, stated here too because this case
+      // starts its own node rather than going through it.
+      return window.o2.start({
+        relayAddrs: [address!],
+        blockstoreName: store!,
+        trustAnchors: [anchor!],
+      })
     },
-      [relayAddr, 'o2-bg-iso2'],
+      [relayAddr, 'o2-bg-iso2', harness.pub],
     )
 
     const isolation = await page.evaluate(() => window.o2.isolation())
@@ -179,12 +241,23 @@ describe('BROW-03 — backgrounding throttles, returning resumes', () => {
       [...MODULE_WRITES_PARTITION],
     )
 
+    // DET-03: both tabs pin `harness.pub`, so the fixture needs a record that key signed
+    // for this exact CID. The subject below is still throttling — this is what keeps that
+    // reading on the signed path rather than on one with the guard switched off.
+    const record = signFixture(moduleCid)
+
     // Start the job, then background the *worker* tab while its shards are in flight.
     // Its executor is governed, so it throttles — but must not drop the work.
     const jobPromise = submitter.evaluate(
-      async ([cid, peer]) =>
-        window.o2.runJob({ moduleCid: cid!, peerIds: [peer!], shards: 6, redundancy: 1 }),
-      [moduleCid, workerPeerId],
+      async ([cid, peer, signed]) =>
+        window.o2.runJob({
+          moduleCid: cid as string,
+          moduleRecord: signed as TabNameRecord,
+          peerIds: [peer as string],
+          shards: 6,
+          redundancy: 1,
+        }),
+      [moduleCid, workerPeerId, record] as const,
     )
 
     await worker.evaluate(() => window.o2.simulateHidden(true))

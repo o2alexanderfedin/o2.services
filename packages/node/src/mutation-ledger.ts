@@ -609,6 +609,55 @@ export const MUTATIONS: readonly Mutation[] = [
     caughtBy: ['packages/net/src/start-report.test.ts'],
     signature: 'lets no single peer decide the aggregate by claiming a number nobody can hold',
   },
+  {
+    id: 'M27',
+    why:
+      'DET-03/DATA-08, the Node tier. Phase 14 made `trustAnchors` a required option, but a ' +
+      'required option that is read and then not composed buys nothing — the whole milestone ' +
+      'exists because a well-built mechanism was read and its wiring assumed. Unwrapping the ' +
+      'guard here leaves every symbol in place and every anchor still declared, and the node ' +
+      'silently runs modules nobody vouched for. Measured with it unwrapped: four of the five ' +
+      'cross-process cases turn `insufficient` into `agreed`, and the accepted case stays ' +
+      'green — a wiring proof made only of successes would not have moved at all.',
+    file: 'packages/node/src/fabric-node.ts',
+    find: 'provenance(compute)',
+    replace: 'compute',
+    caughtBy: ['packages/node/src/signed-artifact.node.test.ts'],
+    signature: "expected 'agreed' to be 'insufficient'",
+  },
+  {
+    id: 'M28',
+    why:
+      'DET-03/DATA-08, the browser tier, and the reason it needs its own entry: ' +
+      '`trust-anchors.node.test.ts` stays green at 20/20 under this mutation, because ' +
+      '`guardModuleProvenance(` is still textually present in the file and merely applied to ' +
+      'nothing. A census that counts call sites cannot tell a composed guard from a decorative ' +
+      'one; only a job dispatched through a real tab can. All nodes have equal functionality, ' +
+      'so the browser tier needs the same proof as the Node tier rather than an argument by ' +
+      'analogy from it.',
+    file: 'packages/browser/src/browser-node.ts',
+    find: 'provenance(worker)',
+    replace: 'worker',
+    caughtBy: ['packages/node/src/two-tabs.e2e.test.ts'],
+    project: 'e2e',
+    signature: 'refuses a job whose record no tab pinned',
+  },
+  {
+    id: 'M29',
+    why:
+      'DET-03 at the demo tier, and the one entry here that records a *change* rather than a ' +
+      'guard. Before Phase 14, planting exactly this — both demo anchor sets emptied — changed ' +
+      'nothing across fifteen e2e tests, which is what "built, not wired" reads like from the ' +
+      'outside: a pinned authority nothing ever consults. It now takes the colouring job down. ' +
+      'The entry exists so that if the demo ever stops dispatching its record, the silence ' +
+      'comes back as a red test instead of as a passing suite.',
+    file: 'packages/browser/demo/main.ts',
+    find: 'options.trustAnchors ?? [KERNEL_TRUST_ANCHOR]',
+    replace: '[]',
+    caughtBy: ['packages/node/src/colouring-demo.e2e.test.ts'],
+    project: 'e2e',
+    signature: 'runs every cube on two nodes and shows which two',
+  },
 ]
 
 /** Literal occurrences of `needle` in `text`. `needle` must be non-empty. */

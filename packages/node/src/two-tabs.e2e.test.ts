@@ -2,11 +2,17 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { fileURLToPath } from 'node:url'
 import { join } from 'node:path'
+import { ed25519 } from '@noble/curves/ed25519.js'
+import { CID } from 'multiformats/cid'
 import { chromium } from 'playwright'
 import type { Browser, BrowserContext, Page } from 'playwright'
 import { createServer } from 'vite'
 import type { ViteDevServer } from 'vite'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { signName, toHex } from '@o2/core'
+import type { NameRecord } from '@o2/core'
+import type { TabNameRecord } from '@o2/browser'
+import { KERNEL_RECORD, kernelBytes } from '@o2/demo'
 // Test-only relative import — see the note in packages/net/src/distributed.test.ts.
 import { MODULE_WRITES_PARTITION } from '../../core/src/executor/fixtures.ts'
 import { FabricNode } from './fabric-node.ts'
@@ -39,6 +45,55 @@ interface Tab {
   readonly peerId: string
 }
 
+/** The `keypair(seed)` fixture from `packages/core/src/naming.test.ts`. */
+function keypair(seed: number): { priv: Uint8Array; pub: string } {
+  const priv = new Uint8Array(32).fill(seed)
+  return { priv, pub: toHex(ed25519.getPublicKey(priv)) }
+}
+
+/**
+ * DET-03/DATA-08 — the build authority for the fixture module these tabs run.
+ *
+ * Both tabs pin `harness.pub` and nothing else, which **replaces** the demo's own
+ * default anchor rather than joining it (see `TabApi.start`). That is correct here: the
+ * module under test is `MODULE_WRITES_PARTITION`, a fixture this harness built and signs
+ * for — the demo's kernel is not involved, so the demo's build authority has no standing
+ * over it.
+ *
+ * `unpinned` signs records that are genuine in every respect except that no tab asked
+ * for them. Seeds 51 and 52 are distinct from every other fixture key in the repository
+ * (1-3, 9, 11-12, 21-24, 30-31, 40-42, 50, 60, 70-82, 90-98), so a mixed-up key produces
+ * a clear untrusted-signer refusal rather than an accidental pass.
+ */
+const harness = keypair(51)
+const unpinned = keypair(52)
+
+/** The fixture module's published name. Arbitrary, and shared by both records below. */
+const FIXTURE_NAME = 'o2-two-tabs-partition-fixture'
+
+/**
+ * A `NameRecord` in the shape that survives `page.evaluate`.
+ *
+ * Structured cloning does not preserve a `CID` instance — see `TabNameRecord`'s own doc
+ * in `packages/browser/src/tab-api.ts`, which is the one place that reason is written
+ * down.
+ */
+function asTabRecord(record: NameRecord): TabNameRecord {
+  return { ...record, cid: record.cid.toString() }
+}
+
+/** Sign `cid` under {@link FIXTURE_NAME} with `key`, five minutes from now. */
+function signFixture(key: { priv: Uint8Array }, cid: string): TabNameRecord {
+  return asTabRecord(
+    signName(key.priv, {
+      name: FIXTURE_NAME,
+      cid: CID.parse(cid),
+      version: 1,
+      expiresAt: Date.now() + 300_000,
+    }),
+  )
+}
+
 let relay: FabricNode
 let relayAddr: string
 let server: ViteDevServer
@@ -65,13 +120,20 @@ async function openTab(name: string): Promise<Tab> {
   await page.waitForFunction(() => typeof window.o2 !== 'undefined', null, { timeout: 30_000 })
 
   const peerId = await page.evaluate(
-    async ([address, store]) => {
+    async ([address, store, anchor]) => {
       // BROW-01 has no test-only bypass: a harness consents for the same reason a
       // visitor clicks the button.
       window.o2.grantConsent()
-      return window.o2.start({ relayAddrs: [address!], blockstoreName: store! })
+      // DET-03: this tab will run a module exactly when `harness` signed for it — see
+      // `harness` above. Replaces the demo's default anchor rather than joining it, which
+      // the third case below reads rather than assumes.
+      return window.o2.start({
+        relayAddrs: [address!],
+        blockstoreName: store!,
+        trustAnchors: [anchor!],
+      })
     },
-    [relayAddr, `o2-${name}`],
+    [relayAddr, `o2-${name}`, harness.pub],
   )
 
   const tab: Tab = { name, context, page, peerId }
@@ -86,6 +148,9 @@ beforeAll(async () => {
     // Comfortably above the two tabs, so a refusal cannot be mistaken for a bug.
     maxReservations: 16,
     listen: ['/ip4/127.0.0.1/tcp/0/ws'],
+    // DET-03: relays, executes nothing — the subject is two tabs reaching each other.
+    // See `background-tab.e2e.test.ts` for the full note.
+    trustAnchors: 'runs-unsigned-artifacts',
   })
   const address = relay.browserDialableAddrs[0]
   if (address === undefined) throw new Error('relay produced no browser-dialable address')
@@ -181,20 +246,29 @@ describe('NET-02 — two tabs on one machine', () => {
       [...MODULE_WRITES_PARTITION],
     )
 
+    // DET-03/DATA-08: both tabs pin `harness.pub`, so the module needs a record that key
+    // signed for this exact CID. `putModule` returned it; the harness signs over it.
+    const record = signFixture(harness, moduleCid)
+
     const report = await a.page.evaluate(
-      async ([cid, peer]) =>
+      async ([cid, peer, signed]) =>
         window.o2.runJob({
-          moduleCid: cid!,
-          peerIds: [peer!],
+          moduleCid: cid as string,
+          moduleRecord: signed as TabNameRecord,
+          peerIds: [peer as string],
           shards: 4,
           redundancy: 2,
           // A submits and also executes; B executes. Two tabs, 2x redundancy.
           includeSelf: true,
         }),
-      [moduleCid, b.peerId],
+      [moduleCid, b.peerId, record] as const,
     )
 
     expect(report.complete).toBe(true)
+    // The paired positive for the two refusal cases below: the same field, in the same
+    // file, shown reading the other value. An assertion that a refusal happened proves
+    // nothing about the instrument unless the instrument is also seen reporting silence.
+    expect(report.failures).toEqual([])
     expect(report.partitions).toEqual([0, 1, 2, 3])
     for (const replicas of report.replicas) expect(replicas).toBe(2)
     for (const agreeing of report.agreeing) {
@@ -211,6 +285,114 @@ describe('NET-02 — two tabs on one machine', () => {
     // allowed to look alike.
     expect(report.egress.entries.length).toBeGreaterThan(0)
     expect(report.egress.violations).toEqual([])
+  }, 240_000)
+
+  /**
+   * DET-03/DATA-08 — the browser tier's guard, on the live path, between two real
+   * contexts.
+   *
+   * This is the case that goes green-to-red if the `provenance(...)` wrapper in
+   * `browser-node.ts`'s executor composition is deleted. Beside it rather than inside
+   * the job test above, so the accepted and refused readings are two independent runs of
+   * the same instrument rather than two halves of one.
+   *
+   * **What it proves:** a job dispatched between two genuinely separate browser
+   * contexts, over a real relay-signalled WebRTC connection, is refused when its record
+   * is signed by a key no tab pinned — and the refusal carries the resolver's own
+   * wording, so it is distinguishable from a relay that dropped. `complete: false` alone
+   * would be produced by that too, which is exactly why the boolean is not the assertion.
+   *
+   * **What it does not prove:** that the refusal happened before
+   * `WebAssembly.instantiate`. Nothing inside a page can watch that call. That property
+   * is carried by `module-provenance.test.ts`'s call-counter readings and by
+   * `signed-artifact.node.test.ts`'s never-fetched module block; neither runs in a
+   * browser, and this test adds neither and claims neither.
+   *
+   * The demo bundle these contexts load always passes `createTaskWorker`, so the
+   * executor under test here is the `WorkerExecutor`. A guard attached to some other
+   * executor would fail this case rather than pass it, which is why the proof lives in
+   * e2e and not in a unit test that composes its own executor.
+   */
+  it('refuses a job whose record no tab pinned, and says so in words', async () => {
+    const [a, b] = tabs as [Tab, Tab]
+
+    const moduleCid = await a.page.evaluate(
+      async (bytes) => window.o2.putModule(bytes),
+      [...MODULE_WRITES_PARTITION],
+    )
+
+    // Genuine in every respect except the one that matters: correctly signed, unexpired,
+    // naming the CID actually dispatched — and signed by a key neither tab asked for.
+    const forged = signFixture(unpinned, moduleCid)
+
+    const report = await a.page.evaluate(
+      async ([cid, peer, signed]) =>
+        window.o2.runJob({
+          moduleCid: cid as string,
+          moduleRecord: signed as TabNameRecord,
+          peerIds: [peer as string],
+          shards: 2,
+          redundancy: 2,
+          includeSelf: true,
+        }),
+      [moduleCid, b.peerId, forged] as const,
+    )
+
+    expect(report.complete).toBe(false)
+    // Asserted before anything about the text: a `some()` over an empty array is `false`
+    // for the wrong reason, and would read as a passing test that measured nothing.
+    expect(report.failures.length).toBeGreaterThan(0)
+    expect(report.failures.some((f) => f.reason.includes('not a pinned trust anchor'))).toBe(true)
+  }, 240_000)
+
+  /**
+   * The other half of "pins the harness key **and nothing else**".
+   *
+   * `KERNEL_RECORD` is not a forgery: it is the demo's own committed record, signed by
+   * the demo's own build authority, over the CID of the kernel this repository ships. A
+   * tab that had *merged* the supplied anchors with the demo default would run this job
+   * happily. These tabs asked for `harness.pub`, so they must refuse it.
+   *
+   * That is what makes "replaced, not extended" a reading rather than a claim — and it
+   * is the strongest reading available from outside the page, which is weaker than
+   * inspecting the anchor set and is stated as such: it proves the demo anchor is
+   * **absent**, not that the set holds exactly one entry. Nothing exposes a tab's pinned
+   * anchors, and this phase does not add such a surface — that would put node
+   * configuration on `window.o2`.
+   *
+   * `colouring-demo.e2e.test.ts` supplies the opposite direction: the same record
+   * accepted by a tab that pinned nothing and therefore inherited the demo default. Both
+   * directions are observed, in two files.
+   */
+  it('refuses the demo’s own genuine record, because these tabs asked for a different authority', async () => {
+    const [a, b] = tabs as [Tab, Tab]
+
+    const moduleCid = await a.page.evaluate(
+      async (bytes) => window.o2.putModule(bytes),
+      [...kernelBytes],
+    )
+    // The record vouches for the kernel this repository ships, and `putModule` just
+    // hashed those same bytes. `kernel-build.node.test.ts` is what keeps the two equal;
+    // asserted here so a drift shows up as this line rather than as a refusal with the
+    // right words for the wrong reason.
+    expect(moduleCid).toBe(KERNEL_RECORD.cid.toString())
+
+    const report = await a.page.evaluate(
+      async ([cid, peer, signed]) =>
+        window.o2.runJob({
+          moduleCid: cid as string,
+          moduleRecord: signed as TabNameRecord,
+          peerIds: [peer as string],
+          shards: 2,
+          redundancy: 2,
+          includeSelf: true,
+        }),
+      [moduleCid, b.peerId, asTabRecord(KERNEL_RECORD)] as const,
+    )
+
+    expect(report.complete).toBe(false)
+    expect(report.failures.length).toBeGreaterThan(0)
+    expect(report.failures.some((f) => f.reason.includes('not a pinned trust anchor'))).toBe(true)
   }, 240_000)
 
   it('leaves the pulled blocks in the second tab’s IndexedDB', async () => {

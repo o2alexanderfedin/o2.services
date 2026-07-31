@@ -1,9 +1,13 @@
+import { readFileSync } from 'node:fs'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { publicNodes, submitJob } from '@o2/core'
-import type { CanonicalValue, Task } from '@o2/core'
+import { fileURLToPath } from 'node:url'
+import { ed25519 } from '@noble/curves/ed25519.js'
+import { publicNodes, signName, submitJob, toHex } from '@o2/core'
+import type { CanonicalValue, NameRecord, Task } from '@o2/core'
 import { RemoteExecutor, blockCid } from '@o2/net'
+import type { CID } from 'multiformats/cid'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 // Test-only relative import — see the note in packages/net/src/distributed.test.ts.
 import { MODULE_WRITES_PARTITION } from '../../core/src/executor/fixtures.ts'
@@ -29,10 +33,52 @@ async function startNode(name: string, extra: Partial<FabricNodeOptions> = {}): 
     // Port 0: the OS picks a free port, so concurrent test runs cannot collide.
     listen: ['/ip4/127.0.0.1/tcp/0'],
     rpcTimeoutMs: 20_000,
+    // Everything above this line predates DET-03 and its subject is the transport,
+    // the job path and persistence — not provenance. Stating the opt-out here is what
+    // keeps those tests proving exactly what they were written to prove, and it is
+    // stated rather than defaulted so a reader counting the literal can see that this
+    // file's pre-existing cases do not exercise the signed path. The DET-03 block at
+    // the bottom passes real anchors and does not use this helper's default.
+    trustAnchors: 'runs-unsigned-artifacts',
     ...extra,
   })
   running.push(node)
   return node
+}
+
+/** The `naming.test.ts` fixture pattern — an ephemeral key derived from one byte. */
+function keypair(seed: number): { priv: Uint8Array; pub: string } {
+  const priv = new Uint8Array(32).fill(seed)
+  return { priv, pub: toHex(ed25519.getPublicKey(priv)) }
+}
+
+// Seeds distinct from every other fixture key in the repository.
+const publisher = keypair(41)
+const impostor = keypair(42)
+
+const KERNEL = 'fabric-node-fixture-kernel'
+
+function recordFor(priv: Uint8Array, cid: CID): NameRecord {
+  return signName(priv, {
+    name: KERNEL,
+    cid,
+    version: 1,
+    // Far enough out that this test never becomes a clock-dependent flake, and read
+    // from the real clock rather than a constant because the guard `FabricNode`
+    // composes uses `Date.now()` — a fixed epoch would expire on every run.
+    expiresAt: Date.now() + 3_600_000,
+  })
+}
+
+function taskFor(moduleCid: CID, inputCid: CID, record?: NameRecord): Task {
+  return {
+    moduleCid,
+    inputCid,
+    partitionIndex: 0,
+    partitionCount: 1,
+    label: 'public',
+    ...(record === undefined ? {} : { moduleRecord: record }),
+  }
 }
 
 function partitionOf(output: CanonicalValue): number {
@@ -262,4 +308,120 @@ describe('DATA-09 — the production serving executor is guarded without opting 
     const accepted = await new RemoteExecutor(clearedNode.peerId, submitter.rpc).execute(sovereignTask)
     expect(accepted.ok).toBe(true)
   }, 60_000)
+})
+
+describe('DET-03 — a production node runs only a module a pinned anchor vouched for', () => {
+  /**
+   * Read through `node.executor` directly, not over RPC, and that is the point rather
+   * than a shortcut. The guard is composed once at construction, inside the same
+   * expression `serveAgent` is handed — so a caller that bypasses the wire entirely
+   * gets the identical refusal a remote dispatch would. That is the property the
+   * comment above `guardSovereignty`'s composition already claims for its own subject;
+   * these read it for this one. Deleting the composition line in `fabric-node.ts`
+   * fails every case below with RPC untouched.
+   */
+  async function fixture(
+    name: string,
+    trustAnchors: FabricNodeOptions['trustAnchors'],
+  ): Promise<{ node: FabricNode; moduleCid: CID; inputCid: CID }> {
+    const node = await startNode(name, { trustAnchors })
+    const moduleCid = await node.store.put(MODULE_WRITES_PARTITION)
+    const inputCid = await node.store.put(new Uint8Array([0x80]))
+    return { node, moduleCid, inputCid }
+  }
+
+  it('executes a task the pinned anchor signed, and refuses the same task with the record omitted', async () => {
+    const { node, moduleCid, inputCid } = await fixture('anchored', [publisher.pub])
+
+    // The positive control, and it comes first deliberately: without it every refusal
+    // below is equally well explained by a node that refuses everything.
+    const signed = await node.executor.execute(
+      taskFor(moduleCid, inputCid, recordFor(publisher.priv, moduleCid)),
+    )
+    expect(signed.ok).toBe(true)
+
+    const bare = await node.executor.execute(taskFor(moduleCid, inputCid))
+    expect(bare.ok).toBe(false)
+    if (bare.ok) return
+    expect(bare.reason).toContain('signed name record')
+    expect(bare.reason).toContain(moduleCid.toString())
+  }, 60_000)
+
+  it('refuses a record signed by a key that was never pinned', async () => {
+    const { node, moduleCid, inputCid } = await fixture('impostor', [publisher.pub])
+
+    const outcome = await node.executor.execute(
+      taskFor(moduleCid, inputCid, recordFor(impostor.priv, moduleCid)),
+    )
+    expect(outcome.ok).toBe(false)
+    if (outcome.ok) return
+    expect(outcome.reason).toContain('not a pinned trust anchor')
+    expect(outcome.reason).toContain(impostor.pub)
+  }, 60_000)
+
+  it('trusts nobody when the anchor set is empty, and refuses signed and bare alike', async () => {
+    // An empty set is a node that has been told to trust nobody. That is the correct
+    // reading of an empty set and is deliberately not special-cased into meaning the
+    // opt-out. No binary produces this value — it is reachable only from TypeScript —
+    // and it is asserted because the type admits it.
+    const { node, moduleCid, inputCid } = await fixture('nobody', [])
+
+    const signed = await node.executor.execute(
+      taskFor(moduleCid, inputCid, recordFor(publisher.priv, moduleCid)),
+    )
+    expect(signed.ok).toBe(false)
+
+    const bare = await node.executor.execute(taskFor(moduleCid, inputCid))
+    expect(bare.ok).toBe(false)
+  }, 60_000)
+
+  it('runs an unsigned task when the call site wrote down that it wants one', async () => {
+    // The escape hatch, doing exactly what it says and nothing more. Without this the
+    // literal could be a no-op nobody would notice.
+    const { node, moduleCid, inputCid } = await fixture('unsigned', 'runs-unsigned-artifacts')
+
+    const outcome = await node.executor.execute(taskFor(moduleCid, inputCid))
+    expect(outcome.ok).toBe(true)
+  }, 60_000)
+
+  it('answers a remote dispatch the same way it answers a local one', async () => {
+    // The guard sits at construction, so the two routes cannot disagree. This is the
+    // one case that reads the refusal back over a real socket, which is what says the
+    // reason survives the wire rather than only the outcome.
+    const [submitter, worker] = await Promise.all([
+      startNode('s-det03'),
+      startNode('w-det03', { trustAnchors: [publisher.pub] }),
+    ])
+    await submitter.dial(worker.multiaddrs[0]!)
+
+    const moduleCid = await submitter.store.put(MODULE_WRITES_PARTITION)
+    const inputCid = await submitter.store.put(new Uint8Array([0x80]))
+    const remote = new RemoteExecutor(worker.peerId, submitter.rpc)
+
+    const bare = await remote.execute(taskFor(moduleCid, inputCid))
+    expect(bare.ok).toBe(false)
+    if (bare.ok) return
+    expect(bare.reason).toContain('signed name record')
+
+    const signed = await remote.execute(
+      taskFor(moduleCid, inputCid, recordFor(publisher.priv, moduleCid)),
+    )
+    expect(signed.ok).toBe(true)
+  }, 60_000)
+})
+
+describe('bin/agent.ts names its anchors on the way in and on the way out', () => {
+  const AGENT: string = readFileSync(fileURLToPath(new URL('./bin/agent.ts', import.meta.url)), 'utf8')
+
+  it('offers the flag in its usage line', () => {
+    expect(AGENT).toContain('--trust-anchor')
+  })
+
+  it('prints the set it actually pinned, not the one the source says it should', () => {
+    // An anchor is a public key, so publishing it discloses nothing, and it converts
+    // "the default is what the source says" into a reading a parent process can take.
+    // Plan 14-05 takes it across a real process boundary; this only asserts the field
+    // is in the line, which is the half that can be checked without spawning.
+    expect(AGENT).toContain('trustAnchors')
+  })
 })

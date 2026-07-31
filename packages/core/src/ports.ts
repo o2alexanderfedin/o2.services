@@ -12,6 +12,9 @@
 import type { CID } from 'multiformats/cid'
 import type { CanonicalValue } from './canonical/encode.ts'
 import type { WorkerTaskRequest, WorkerTaskResponse } from './executor/task-run.ts'
+// Type-only, so it adds no runtime edge to a file whose header rule is "types only";
+// and `naming.ts` does not import this file, so there is no cycle to create either way.
+import type { NameRecord } from './naming.ts'
 import type { OwnerId, Sovereignty } from './sovereignty.ts'
 
 /** Content-addressed block storage. */
@@ -46,6 +49,25 @@ export interface Task {
    */
   readonly label?: Sovereignty
   readonly ownerId?: OwnerId
+  /**
+   * The signed `key → CID` mapping that vouches for `moduleCid` (DET-03, DATA-08).
+   *
+   * A CID proves the bytes are the bytes that were hashed; it does not say who meant
+   * them to run. This is what says that, and it travels with the task so the refusal
+   * can be made on the serving node rather than trusted to whoever dispatched it —
+   * the same reason `label` travels, above.
+   *
+   * Deliberately optional at this interface level, and for exactly `label`'s reason:
+   * the raw `Task` literals across the executor, protocol and verification tests,
+   * whose subject is not provenance, must keep compiling unchanged.
+   *
+   * Optional here is not optional in effect, and enforcement is deliberately not in
+   * this file. `executor/module-provenance.ts` refuses a `Task` that arrives without
+   * a record, before any byte of the module is fetched; the two sites that compose
+   * that guard into a serving node's executor are `packages/node/src/fabric-node.ts`
+   * and `packages/browser/src/browser-node.ts`.
+   */
+  readonly moduleRecord?: NameRecord
 }
 
 /** What an executor produces. Output is a declared value, never raw memory. */

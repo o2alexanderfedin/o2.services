@@ -41,6 +41,7 @@ import { fileURLToPath } from 'node:url'
 import { createServer } from 'vite'
 import type { ViteDevServer } from 'vite'
 import { FabricNode } from './fabric-node.ts'
+import type { FabricNodeOptions } from './fabric-node.ts'
 
 const ROOT = fileURLToPath(new URL('../../..', import.meta.url))
 const PAGE_PATH = '/packages/browser/demo/index.html'
@@ -92,6 +93,16 @@ export interface SeedServerOptions {
   /** TCP port the node listens on for WebSockets. 0 picks a free one. */
   readonly wsPort?: number
   readonly blockstoreDir: string
+  /**
+   * The build authorities this seed's node will run a module for — DET-03, DATA-08.
+   *
+   * Required and passed straight through to {@link FabricNodeOptions.trustAnchors},
+   * where the three values and the reason none of them is a default are documented in
+   * full. A seed executes tasks like any other node — the only difference between
+   * nodes is discovery — so it needs the same anchors any other node needs, and the
+   * binary above it is what supplies them.
+   */
+  readonly trustAnchors: FabricNodeOptions['trustAnchors']
   readonly maxReservations?: number
   /**
    * Hostnames the page may be requested by.
@@ -220,6 +231,8 @@ export class SeedServer {
       blockstoreDir: options.blockstoreDir,
       listen: [`/ip4/0.0.0.0/tcp/${wsPort}/ws`, '/ip4/0.0.0.0/tcp/0'],
       maxReservations: options.maxReservations ?? 64,
+      // Straight through, never defaulted here — see `SeedServerOptions.trustAnchors`.
+      trustAnchors: options.trustAnchors,
     })
     undo.push(() => node.stop())
 

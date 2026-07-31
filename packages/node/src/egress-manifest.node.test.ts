@@ -60,6 +60,12 @@ async function startNode(name: string, extra: Partial<FabricNodeOptions> = {}): 
     // Port 0: the OS picks a free port, so concurrent test runs cannot collide.
     listen: ['/ip4/127.0.0.1/tcp/0'],
     rpcTimeoutMs: 20_000,
+    // DET-03: this file's subject is not provenance, and every dispatch in it is
+    // in-process on the node being configured. Stated rather than defaulted — the
+    // point of the field being required is that a reader counting this literal learns
+    // which tests do not exercise the signed path. No job here carries a
+    // `moduleRecord`: a node running with the opt-out has no guard to satisfy.
+    trustAnchors: 'runs-unsigned-artifacts',
     ...extra,
   })
   running.push(node)

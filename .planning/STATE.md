@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Wire What Was Built
-status: verifying
-stopped_at: Phase 13.1 executed 5/5 plans with 5/5 summaries and has no VERIFICATION.md; independent verification is the next unit
-last_updated: "2026-07-31T19:42:00.000Z"
+status: executing
+stopped_at: Phase 14 verified 3/3 and closed. Phase 13.1 verified 6/7 — DATA-10's at-rest half is owner-scheduled, its bare-submitJob half folded into Phase 20. Phase 15 is the next unit
+last_updated: "2026-07-31T23:45:00.000Z"
 last_activity: 2026-07-31
 progress:
   total_phases: 14
-  completed_phases: 3
+  completed_phases: 4
   total_plans: 45
-  completed_plans: 17
-  percent: 21
+  completed_plans: 22
+  percent: 29
 ---
 
 <!--
@@ -23,10 +23,14 @@ independent pass then scored 3/3 against the amended text. It counts now because
 verifier said so, which is the rule: a phase is done when a verifier says so, not when
 its plans are.
 
-**That rule is why `completed_phases` is 3 and not 4.** Phase 13.1's five plans all
-executed and all five summaries are filed, so `completed_plans` counts them — but the
-phase directory holds no VERIFICATION.md and its five requirements are all still `[ ]`
-in REQUIREMENTS.md. Executed is not verified. Do not tick 13.1 from its summaries.
+**That rule is why `completed_phases` is 4 and not 5.** The four are 11, 12, 13 and 14.
+**Phase 13.1 is not among them**: it was verified on 2026-07-31 and scored `gaps_found`
+at 6/7 — SCHED-06, NET-08, NET-09 and NET-10 closed, DATA-10 open. Four of five
+requirements is not a phase. It stays uncounted until criterion 7's at-rest half lands.
+
+**Phase 14 is counted because a verifier said so** — `passed`, 3/3, both mutation
+probes re-run independently and both red, DET-03 and DATA-08 ticked with their
+traceability rows moved off *Built, not wired*.
 
 `total_plans` counts plans that exist, and it is not a milestone denominator — phases
 18, 19, 20 and 22 have no directory yet, so it will grow. Counted on disk 2026-07-31:
@@ -49,67 +53,84 @@ paragraph. Maintain this frontmatter by hand.
 See: .planning/PROJECT.md (updated 2026-07-27)
 
 **Core value:** Usable capacity grows super-linearly with the user base, without any raw data leaving its owner's device.
-**Current focus:** Phase 13.1's code is in and nobody has checked it. All five plans executed
-on 2026-07-29 and all five summaries are filed, but no independent pass has scored it against
-its seven success criteria and no VERIFICATION.md exists. Its five requirements — SCHED-06,
-NET-08, NET-09, NET-10, DATA-10 — are all still `[ ]`. This is the milestone's only
-ambiguous phase, and Phase 18's criteria 2b and 2c were written *specifically* so that 18
-cannot silently pass around whatever 13.1 left open. Verify it before starting anything else.
+**Current focus:** Phase 15 (Capability-Chained Dispatch). Phases 13.1 and 14 were both
+verified on 2026-07-31 and their verdicts differ: **14 passed 3/3 and is closed**; **13.1
+scored 6/7 and is not.** 13.1's open item is DATA-10 — a node still serves a raw sovereign
+block once the job that registered it has ended, because `submitJobWithEgress` releases the
+registration in a `finally`, and bare `submitJob` never registers at all. Owner ruling
+2026-07-31: close the at-rest half at a boundary the node owns, and fold the bare-`submitJob`
+half into Phase 20, where `submitJob` becomes the single job path and the fix lands at one
+boundary rather than two. Phase 18's criteria 2b and 2c still exist so 18 cannot pass around
+what 13.1 left open, and criterion 2c is expected to turn `packages/net/src/discovery.test.ts`
+red when it lands.
 
 ## Current Position
 
-Phase: 13.1 (Node-Side Admission & Transport Bounds) — **executed, unverified**
-Status: 5/5 plans, 5/5 summaries, 0 verification passes. A partial pass scored 4 of 7
-criteria; that reading is not a verdict and no VERIFICATION.md was written from it.
-The five requirements are all measured defects, not inferred ones: SCHED-06, NET-08,
-NET-09, NET-10, DATA-10. **Not NET-07** — that ID was already taken by a done Phase 2
-requirement (REQUIREMENTS.md:212, the constants-regression test); an earlier version of
-this line carried the pre-renumbering list until 2026-07-29. ROADMAP.md's Phase 13.1
-entry is the authoritative list.
-Next: `/gsd-verify-work` on Phase 13.1. Then Phase 14, 15, 16, 17, 21 and 23 — all six
-are fully planned and every one of their blockers is a phase already closed, so they are
-unblocked today and can run concurrently.
+Phase: 14 (Signed Artifact Resolution) — **verified `passed`, 3/3, closed**
+Status: 5/5 plans, 5/5 summaries, 1 verification pass. DET-03 and DATA-08 ticked and
+their traceability rows moved off *Built, not wired*. Three mutation-ledger entries added
+(M27 Node tier, M28 browser tier, M29 demo anchors), every signature read off a real
+planted run; **34 of 34 mutations caught**.
+Next: Phase 15, then 16, 17, 18, 19, 20, 21, 23, 22. **These run strictly sequentially,
+not concurrently** — measured 2026-07-31 from their own `files_modified`: `fabric-node.ts`
+is touched by 14/15/17/21, `bin/bench.ts` by 14/15/16/17/23, `browser-node.ts` by
+14/15/17/21. "Wire What Was Built" means every phase converges on the same construction
+sites, so the earlier note that six phases "can run concurrently" was wrong.
 Last activity: 2026-07-31
 
 ```
-Test Files  262 · Tests 4008 · exit 0 · tsc --noEmit clean   (2026-07-30, load 89-160)
+Test Files  272 · Tests 4137 · exit 0 · tsc --noEmit clean   (2026-07-31, load 6.6-10.5)
+node 85 files/1285 · browser 180/2814 (chromium+firefox+webkit) · e2e 7/38
 ```
 
-The 262 counts vitest *file-runs*, not files: 108 `*.test.ts` files on disk, with the
-browser project running its share three times over chromium/firefox/webkit. That reading
-was taken deliberately under contention — a green suite at load 160 is stronger evidence
-than a green suite on a quiet host, and every full-suite failure in the preceding two days
-traced to load rather than to logic. **Do not take a fresh reading without checking
-`uptime` first.** At 12:42 on 2026-07-31 the host was at load 213 and no timing-sensitive
-result taken then would mean anything.
+The 272 counts vitest *file-runs*, not files, because the browser project runs its share
+three times over. **Run vitest by project, never by bare path** — `npx vitest run <path>`
+fans out across all four projects (`node`, `browser`, `e2e`, `perf`) and exceeded ten
+minutes twice on 2026-07-31 before this was understood. **Do not take a fresh reading
+without checking `uptime` first**: at 12:42 that day the host was at load 213 and no
+timing-sensitive result taken then would have meant anything; the reading above was taken
+at load 6.6-10.5 once the competing build finished.
 
 ### v1.0 carried forward, unarchived
 
 ```
-Ledger      33 / 72 wired · 30 built-not-wired · 5 partial · 4 open: hosting, a
+Ledger      35 / 72 wired · 28 built-not-wired · 5 partial · 4 open: hosting, a
             measured negative, and two whose cross-machine halves are descoped to
             one host (2026-07-28) and recorded as unmeasured, not met
-v1.1        7 of 50 requirements closed
+v1.1        9 of 50 requirements closed
+Whole file  40 of 82 ticked (35 in the v1 section + 5 in v1.1's)
 Historical  v1.0 closed at 112 test files / 1673 tests; 122 / 1775 on 2026-07-28
 ```
 
-The 30 reconciles with the audit's 36: six have been wired since — DATA-03, DATA-04,
-DATA-05, DATA-06, DATA-07 and DATA-09, all in Phase 12. Count them from the **traceability
-table** rows (`^| ID |` … `**Built, not wired**`), which is the only place that marker
-lives; a whole-file grep also catches the legend and one line of prose and returns 32.
+The 28 reconciles with the audit's 36: eight have been wired since — DATA-03, DATA-04,
+DATA-05, DATA-06, DATA-07 and DATA-09 in Phase 12, then DET-03 and DATA-08 in Phase 14.
+Count them from the **traceability table** rows (`^| ID |` … `**Built, not wired**`),
+which is the only place that marker lives; a whole-file grep also catches the legend and
+one line of prose and overcounts by two.
+
+**Ticking a requirement is three edits, not one.** Phase 14's verification found this:
+the checkbox, the traceability row's *Built, not wired* marker, and the section header's
+own count all have to move together, and ticking alone leaves the ledger disagreeing with
+itself. There is a fourth: `packages/node/src/acceptance-traceability.node.test.ts` pins
+specific ids in specific states, and 13.1's verification broke it by closing SCHED-06
+while that spot-check still asserted it open — **`develop` was red from that commit until
+it was caught by an unrelated executor.** Run that file after any ledger edit.
 
 **Two denominators, and confusing them is the trap.** REQUIREMENTS.md's own header reads
-*"33 of 72 are `[x]`"* — that is the **v1 section alone** (33 ticked + 39 not = 72) and it
+*"35 of 72 are `[x]`"* — that is the **v1 section alone** (35 ticked + 37 not = 72) and it
 is correct as written, not stale. v1.1 then minted 10 further IDs in its own sections
-(WIRE-01…04, SCHED-06, NET-08, NET-09, NET-10, DATA-10, BENCH-07), of which only WIRE-01
-is ticked. So the whole-file count is **34 of 82** and neither number contradicts the
-other. Recount with the section ranges, never with a whole-file grep.
+(WIRE-01…04, SCHED-06, NET-08, NET-09, NET-10, DATA-10, BENCH-07), of which five are now
+ticked: WIRE-01, plus SCHED-06, NET-08, NET-09 and NET-10 from 13.1's verification.
+DATA-10 is the one 13.1 left open. So the whole-file count is **40 of 82** and neither
+number contradicts the other. Recount with the section ranges, never with a whole-file grep.
 
 **v1.1's scope is 50, not 44.** Forty existing IDs to be wired, plus those 10 new ones.
 The line said 44 because it was written when only WIRE-01…04 existed; SCHED-06, NET-08,
 NET-09, NET-10 and DATA-10 were minted on 2026-07-28 with Phase 13.1 and BENCH-07 with
-Phase 23. The numerator is unchanged at 7 — DATA-03, DATA-04, DATA-05, DATA-06, DATA-07
-and DATA-09 from the existing forty, plus WIRE-01.
+Phase 23. **The numerator is 9:** DATA-03, DATA-04, DATA-05, DATA-06, DATA-07 and DATA-09
+from the existing forty (Phase 12), DET-03 and DATA-08 (Phase 14), plus WIRE-01. The four
+that 13.1's verification closed are among the 10 new IDs, not the forty, so they raise the
+whole-file count without moving this numerator.
 
 **Read `.planning/v1.0-MILESTONE-AUDIT.md` before planning.** It carries `file:line` for
 every claim. v1.0 was deliberately **not archived** — its audit returned `gaps_found`,
@@ -559,10 +580,64 @@ Recent decisions affecting current work:
   session's work gets destroyed.
 - **[Phase 13.1] The hook is named `admission`, not `capacity`.** Recorded in 13.1-05.
 
+- **[Phase 14] A guard wrapped at every construction site, not at one resolution point.**
+  The plan opened by correcting its own earlier draft: **three** `Executor` implementations
+  independently turn `task.moduleCid` into bytes — `core/src/executor/wasm.ts`,
+  `browser/src/worker-executor.ts` and `aot/src/wasi-executor.ts` — so "one resolution
+  point" was false and the guarantee `guardModuleProvenance` carries is composition at
+  every site instead.
+- **[Phase 14] A census that counts call sites cannot tell a composed guard from a
+  decorative one.** Deleting `provenance(...)` from `browser-node.ts` turns two tab
+  refusals red while `trust-anchors.node.test.ts` stays **20/20**, because
+  `guardModuleProvenance(` is still textually present, just applied to nothing. Recorded
+  as M28. This is the same shape as the disclosure gate's pattern that matched nothing and
+  read green — a text census answers "is it mentioned", never "is it wired".
+- **[Phase 14] `trustAnchors` is required and typed `readonly PublicKeyHex[] |
+  'runs-unsigned-artifacts'`**, on both `FabricNodeOptions` and `BrowserNodeOptions` —
+  Phase 11's sentinel convention. `TabApi` deliberately exposes **no opt-out at all**:
+  there is no value a page or a Playwright harness can pass through `window.o2` that
+  yields a tab resolving bare CIDs. All 22 uses of the opt-out are inside `*.test.ts`;
+  `bin/agent.ts` has no off-switch.
+- **[Phase 14] "Built, not wired" has a measurable signature, and it was measured in both
+  directions.** Before the phase, emptying both demo trust-anchor sets changed nothing
+  across fifteen e2e tests. After it, the same plant takes the colouring job down.
+  Recorded as M29 — the one ledger entry that pins a *change* rather than a guard.
+- **[Phase 14] A `not.toContain` never observed as a `toContain` is a silence, not a
+  reading.** Criterion 2's "before `WebAssembly.instantiate`" rests on two instruments —
+  an in-process call counter and a cross-process blockstore-directory census — and the
+  verification required each to have been seen taking **both** values. The cross-process
+  one is upstream of instantiation: the block never reached the agent's disk.
+- **[Phase 14] Corrections do not propagate between sibling plans.** 14-03 corrected six
+  wrong `file:line` facts in its own plan; 14-05's plan, written earlier, then restated
+  one of those same corrections verbatim. A correction living in a SUMMARY reaches nobody.
+  Feed each wave the prior wave's corrections explicitly, and verify every citation before
+  relying on it.
+
 ### Pending Todos
 
-Two open owner decisions, both deferred with the measurement they were waiting for now in
-hand. Neither blocks Phase 13.1's verification.
+**Scheduled work carried out of 13.1's and 14's verifications (2026-07-31):**
+
+- **DATA-10's at-rest half — owner-scheduled, not deferred.** A node still serves a raw
+  sovereign block once the job that registered it has ended: `submit-with-egress.ts:155`
+  takes the registration and a `finally` releases it. Close it at a boundary the node owns
+  — a per-node set of sovereign CIDs that outlives the job — rather than at one entry
+  point. The second half, that bare `submitJob` registers nothing at all, folds into
+  **Phase 20**, where `submitJob` becomes the single job path and the fix lands at one
+  boundary instead of two. `sovereignty-placement.node.test.ts` currently drives a real
+  spawned-agent sovereign scenario through bare `submitJob` and **passes because the gap
+  is real**.
+- **Two load-sensitive bounds, same family.** `churn.test.ts`'s 30%-killed case failed once
+  at load 17.5-59.4 and passed 3/3 in isolation; `transport-bounds.node.test.ts`'s
+  retained-bytes bound failed twice at load ~12.4 and passed at 8.72 and 7.70. Both are
+  wall-clock bounds inside otherwise deterministic tests — a bound that reads host
+  contention as a defect. Recorded in `phase-14-.../deferred-items.md`.
+- **Closed on 2026-07-31, listed so it is not re-found:** the `stopAgent` hookTimeout
+  inversion in `two-process`, `sovereignty-placement` and `egress-refusal` — a 10 s
+  SIGKILL fallback inside Vitest's 10 s default `hookTimeout`, so the fallback could never
+  fire and a wedged agent reported an anonymous timeout naming no step.
+
+**Two open owner decisions**, both deferred with the measurement they were waiting for now
+in hand.
 
 1. **The `lift.node.test.ts` integration timeout.** `INTEGRATION_TIMEOUT_MS` is 15 min and
    wraps 45 min of internal budget (a 5 min compile plus 2 × 20 min `DEFAULT_TIMEOUT_MS`) —
@@ -687,12 +762,28 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-07-31T19:42:00.000Z
-Stopped at: Phase 13.1 executed (5/5 plans, 5/5 summaries, `13.1-CONTEXT.md` written) and
-never verified. Two days of off-roadmap hardening then ran on top of it, all merged.
-Next unit: **`/gsd-verify-work` on Phase 13.1**, against the seven success criteria in
-ROADMAP.md:353. Phase 14 is not next, and its `14-CONTEXT.md` dated 2026-07-27 is fine and
-should be left alone — 13.1 was inserted ahead of it after the backpressure gap was measured.
+Last session: 2026-07-31T23:45:00.000Z
+Stopped at: Phase 14 executed and verified `passed` 3/3 in one autonomous run; Phase 13.1
+verified `gaps_found` 6/7 in the same run. Both verdicts and the ledger edits are on
+`develop`. Next unit: **Phase 15 (Capability-Chained Dispatch)**, 4 plans, already planned,
+depends only on Phase 11.
+
+**Phases run sequentially from here, and that is a measured constraint rather than a
+preference.** Their declared `files_modified` overlap heavily — `fabric-node.ts` in
+14/15/17/21, `bin/bench.ts` in 14/15/16/17/23, `browser-node.ts` in 14/15/17/21 — because
+"Wire What Was Built" means every phase converges on the same construction sites. Only
+verification of one phase overlaps safely with execution of another, and only when their
+planning directories differ.
+
+**How Phase 14 was actually run, for whoever picks this up:** five plans, four waves, each
+executor in its own `isolation="worktree"` agent, merged back one wave at a time with a
+`tsc` + targeted-vitest gate between waves. Two things made it work that are not obvious.
+First, **a worktree has no `node_modules`, and symlinking the main checkout's wholesale is
+silently wrong** — `node_modules/@o2/*` are relative symlinks back to the *main* checkout,
+so `tsc` and `vitest` verify the wrong tree and report clean without reading the agent's
+changes. Every executor built a resolver farm and proved it with
+`createRequire().resolve()` before editing. Second, **each wave's prompt carried the prior
+wave's corrections**, because a correction recorded in a SUMMARY reaches no sibling plan.
 
 ### Off-roadmap work, 2026-07-29 → 2026-07-31
 
