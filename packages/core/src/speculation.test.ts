@@ -163,6 +163,47 @@ describe('CHURN-02 — the budget is global and spent', () => {
     expect(() => new SpeculationLedger({ tasks: -1 })).toThrow(RangeError)
     expect(() => new SpeculationLedger({ tasks: 1, fraction: -0.1 })).toThrow(RangeError)
   })
+
+  it('names the task each discarded copy was a copy of, over a job of several', () => {
+    // The seam the `Discarded`/`RaceLoser` split created, exercised end to end: a race
+    // returns what a race can determine, and the id is added by whoever held it. One
+    // job-wide ledger takes both races, so the two tasks' losers land in one list and a
+    // mixed-up id has somewhere to show. Without this, `discard` stamping `''` — the
+    // exact value the split removed from `settleRace` — left all 46 cases green.
+    const ledger = new SpeculationLedger({ tasks: 10, fraction: 1 })
+
+    const races = [
+      // shard-a's copies agree; shard-b's disagree. So a loser attributed to the wrong
+      // task also lands the disagreement on the wrong task, which is the consequence
+      // that matters: this system's most informative event pointing at the wrong shard.
+      {
+        taskId: 'shard-a',
+        answers: [
+          { nodeId: 'a-fast', resultCid: 'bafyA', at: T0 + 100 },
+          { nodeId: 'a-slow', resultCid: 'bafyA', at: T0 + 900 },
+        ],
+      },
+      {
+        taskId: 'shard-b',
+        answers: [
+          { nodeId: 'b-fast', resultCid: 'bafyB', at: T0 + 50 },
+          { nodeId: 'b-slow', resultCid: 'bafyOTHER', at: T0 + 400 },
+        ],
+      },
+    ]
+
+    for (const { taskId, answers } of races) {
+      const outcome = settleRace(answers)
+      expect(outcome.settled).toBe(true)
+      if (!outcome.settled) continue
+      for (const loser of outcome.losers) ledger.discard(taskId, loser.nodeId, loser.disagreed)
+    }
+
+    expect(ledger.discarded).toEqual([
+      { taskId: 'shard-a', nodeId: 'a-slow', disagreed: false },
+      { taskId: 'shard-b', nodeId: 'b-slow', disagreed: true },
+    ])
+  })
 })
 
 describe('CHURN-02 — first result wins, and disagreement still surfaces', () => {
