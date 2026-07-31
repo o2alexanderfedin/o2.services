@@ -500,6 +500,28 @@ export const MUTATIONS: readonly Mutation[] = [
     caughtBy: ['packages/node/src/serve-agent-hooks.node.test.ts'],
     signature: 'bin/bench.ts: two call sites, real admission at both, five sentinels twice',
   },
+  {
+    id: 'M2c',
+    why:
+      'SCHED-06 in the browser tier. `BrowserNode` composed a bare `WasmExecutor` whenever ' +
+      '`createWorker` was omitted, so a tab ran an arbitrary peer’s WASM on its own main ' +
+      'thread — where a wall-clock deadline cannot fire, because a guest `run()` is a ' +
+      'synchronous call holding the very loop the timer would fire on, and where there is ' +
+      'no thread to terminate. A 52-byte `loop br 0` wedged the tab permanently, `stop()` ' +
+      'included. The Node tier had already been fixed by `WorkerExecutor({deadlineMs})`; ' +
+      'the browser tier kept a route around it, justified in its own comment by tests that ' +
+      'were never written. Restoring the branch on the option’s absence restores the ' +
+      'unbounded path. The guard is a structural count rather than a behavioural one, for ' +
+      'the same reason `M2b` is: the stronger half of this proof is a compile error, and ' +
+      '`Mutation.project` admits no entry that would run `tsc`.',
+    file: 'packages/browser/src/browser-node.ts',
+    find: '    const worker = browserWorkerExecutor({',
+    replace: '    const worker = options.createWorker === undefined ? null : browserWorkerExecutor({',
+    caughtBy: ['packages/browser/src/browser-node-contract.node.test.ts'],
+    project: 'node',
+    signature:
+      'browser-node.ts composes a killable thread and nothing else > constructs no main-thread executor, one worker-backed one, and branches on neither',
+  },
 ]
 
 /** Literal occurrences of `needle` in `text`. `needle` must be non-empty. */
