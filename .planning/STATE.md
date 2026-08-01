@@ -51,10 +51,25 @@ summary. A `find` across `.planning/phases/` returns 46 — the extra is phase-9
 which is v1.0 and outside this count.
 
 Do not take these from `gsd-sdk query progress.bar` — it counts plan files across the
-nine unarchived v1.0 phase directories and reports "17/9 plans (100%)". Also do not run
-`gsd-sdk query state.begin-phase` here: it overwrites this block from that same bad
-count (observed 2026-07-28, it rewrote 25% to 62%) and mangles the Current focus
-paragraph. Maintain this frontmatter by hand.
+nine unarchived v1.0 phase directories and reports "17/9 plans (100%)".
+
+**Three separate writers have now corrupted this frontmatter, so treat the whole family
+as unsafe and maintain it by hand:**
+
+- `gsd-sdk query state.begin-phase` — overwrites this block from that same bad count
+  (2026-07-28: rewrote 25% to 62%) and mangles the Current focus paragraph.
+- The `pause-work` workflow's own state update (2026-08-01) — rewrote `total_phases`
+  14 to 24, reset `completed_phases`, regressed `last_activity` by a day, and mangled
+  `milestone_name` to "— Wire What Was Built".
+- `gsd-sdk query state.record-metric` (2026-08-01, found by plan 18-03) — asked for a
+  single metrics row, it *also* rewrote `status` and `stopped_at`, regressed
+  `last_activity`, and rewrote every progress count: **percent 36 to 74**.
+
+`roadmap.update-plan-progress` is the one measured exception and is safe.
+
+**If you must add a metrics row, write it by hand.** And after any tool touches
+`.planning/`, `git diff .planning/STATE.md` before committing — every one of these was
+caught that way and not by the tool reporting a failure. None of them errored.
 -->
 
 
