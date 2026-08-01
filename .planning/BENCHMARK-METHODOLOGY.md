@@ -263,4 +263,108 @@ Written down so it is possible to be wrong:
 
 ## Amendments
 
-*None. Entries appended here must be dated and must state what changed and why.*
+*Entries appended here must be dated and must state what changed and why.*
+
+### 2026-07-31 — the reduce leg (Phase 16, MR-03 … MR-07)
+
+**Committed before the run it describes.** This entry is a separate, earlier commit than
+the regenerated `BENCHMARK-RESULTS.md`, for the reason the preamble gives: a plan amended
+after seeing the number it changed is not a plan. The two paragraphs that record what the
+run *printed* are marked as such and were appended afterwards; every **decision** below
+was fixed before any reduce number existed.
+
+**1. What was added.** `Observation` gains a required `reduce` group — `ok`, `reduceMs`,
+`treeDepth`, `combines`, `recomputes`, `combineExecutors` — and `SweepResult` gains a
+`ReduceReport` aggregating it. `renderMarkdown` emits one reduce table per transport,
+placed adjacent to the makespan tables. The aggregation rules, so a reader can reproduce
+the table from `observations`: `ms` is summarised under makespan's own completeness rule
+(completed runs only, cold-cache iteration excluded) and additionally only over runs whose
+reduce produced an aggregate; `treeDepth`, `combines` and `combineExecutors` are the
+**max** over those runs, because a max makes an outlying run visible where a mean would
+average it away; `recomputes` is the **sum**, because it is an event count and a mean of
+event counts across runs answers no question anyone asks. `Observation.reduce` is
+**required**, not optional-with-zero-defaults, so a driver that stops measuring fails
+`tsc` rather than publishing zeros.
+
+**2. What did not change: makespan.** §2.1 still reads *"wall-clock from job submission to
+the last shard's result being available to the requestor"*. A combine happens **after** the
+last shard's result, so the reduce is timed by its own `performance.now()` pair opened
+strictly after the makespan bracket closes, and `makespanMs` means today exactly what it
+meant on 2026-07-29. `packages/node/src/bench-reduce.node.test.ts` asserts the source
+ordering — the index of `const makespanMs =` precedes the index of `reduceJob(` — because
+that is the one property no pattern-based check can express, and a driver that widened the
+bracket would satisfy every other requirement in that file.
+
+**3. The argument for the other choice, recorded rather than suppressed.** A user waits for
+the aggregate, not for the last shard, so there is a real case for folding the reduce into
+makespan. It is **not taken**, and the reason is comparability: it would make every number
+published before this date incomparable with every number after, with no column to show the
+difference. The two tables are adjacent precisely so a reader who prefers that definition
+can add the columns; a reader given only the sum could not subtract them. Either answer is
+defensible — leaving the choice implicit is not, which is why it is written here.
+
+**4. What did not change: the makespan *sample*, and `incomplete`.** `complete` still means
+"every shard agreed", so `makespan`'s p50/p95/p99 are over the same population they were on
+2026-07-29 and the `incomplete` column keeps its meaning across this date. **The rejected
+alternative is the subtle one and a later editor will re-propose it:** folding the reduce's
+verdict into `complete` would have left each individual `makespanMs` measuring the
+identical interval while conditioning the *published statistics* on the reduce having
+succeeded — a silent re-sampling of the primary metric that no change to §2.1's wording
+would have revealed. The reduce's verdict travels instead as `Observation.reduce.ok`, and
+that is what the reduce aggregation filters on. Consequence, stated so the tables are read
+correctly: **a row can have a populated makespan and an em-dashed reduce, and that
+combination means the map completed and the aggregation did not.** An em dash is never a
+zero — a configuration whose reduce was not measured renders every reduce cell as `—`,
+because `0` would read as "the reduce ran and did nothing", which is a different claim.
+
+**5. What the reduce columns are, and which of them the run showed constant.** `reduce
+p50`, `reduce p95`, `recomputes` and `combine executors` are the columns expected to carry
+information. `tree depth` and `combines` are decided by `deriveReduceTree` from a shard
+count and a fanout this sweep never varies, so a column the run shows constant is published
+for legibility only — the same status `spec. tax` and `churn/task` already carry — and a
+reader must not take a constant for a result. The driver's `unmet` list says so in the
+artifact itself. The alternative that would make those two columns informative, varying the
+fanout across the sweep, was considered and rejected: rungs walking differently-shaped trees
+have incomparable reduce timings, which is the only thing the reduce table is for.
+
+*Appended after the run.* **The full run of 2026-08-01T05:38:05Z printed `tree depth 2`
+and `combines 5` on every rung of the memory transport — 1, 2, 4, 8 and 16 nodes alike.**
+Both columns are therefore constant across the published ladder and neither carries
+information about a configuration; they are recorded here so a later reader can tell that
+the constancy was observed rather than assumed. `combine executors` on the same rungs read
+**1, 2, 3, 4, 5** — it rises with the node count, which is the column that carries MR-05 —
+and `recomputes` read **0** on every rung, meaning no combine had to fall through the
+rendezvous ranking. Every rung of the **real** transport is an em dash for a separate
+reason given in paragraph 7.
+
+**7. What this run could not measure at all: the reduce over the real transport.**
+Recorded here because a table of em dashes with no stated cause is indistinguishable from
+a missing feature. `serveAgent`'s combine branch refuses unless its `authorize` hook is the
+`serves-unauthenticated` sentinel — an `Authorizer` takes a `Task` and a combine has none,
+so a node that authenticates everything else cannot be asked about a combine, and the gap
+was deliberately made to fail closed. Every `FabricNode` supplies a real
+`authorizeCapability`, so every node in the real-transport rig answered `combine requires a
+capability chain this build cannot verify`. Measured on this driver rather than inferred
+from the source: every combine failed at level 1, with `combines: 0`, `failed: 5`,
+`executedBy: 0` and `rootCid: null`. **The two reduce curves are therefore not comparable
+and no connectivity tax is computed over them.** Closing it is AUTH-03, Phase 15. Nothing
+was weakened to produce a populated row.
+
+**6. Egress figures move for a new reason.** The requestor now also sends combine requests,
+sends one directed `block` request per combine to retrieve each result, and serves leaf
+partial blocks — all over the same guarded transport — so the manifest's frame count and
+byte total rise for reasons unrelated to the map. **Those two printed figures are not
+comparable across this date.** The retrieval leg is named explicitly because it is the half
+a reader would under-count: every combine costs a *second* request/response pair, not one,
+so "one frame per combine" is wrong.
+
+*Appended after the run.* The full run of 2026-08-01T05:38:05Z printed **3055 frames /
+1468983 bytes** for the memory transport and **2367 frames / 1140430 bytes** for the real
+transport. Two cautions on reading them. They are **not** comparable with the figures on
+the previously published page, which was a `--quick` run (6 iterations, ladders `[1,2,4]`
+and `[1,2]`) rather than a full one, so the change across this date mixes the reduce leg
+with a fourfold change in iteration count and a longer ladder — the reduce's own
+contribution is not separable from these two numbers and no attempt is made here to
+separate it. And the real transport's figure includes combine requests that were all
+**refused** (paragraph 7), so it counts the request frames of an aggregation that never
+happened.
