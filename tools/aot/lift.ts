@@ -257,7 +257,54 @@ export type LiftFailure =
   | { readonly kind: 'input-unreadable'; readonly path: string; readonly detail: string }
   /** The pre-screen refused it before the container was started. */
   | { readonly kind: 'refused-by-screen'; readonly reason: ElfRefusal }
+  /**
+   * `docker` itself could not be run — not there, or not executable.
+   *
+   * Narrowed: this used to carry every `spawn` failure, including the ones that were
+   * the host refusing to fork. See {@link LiftFailure}'s `host-cannot-spawn` arm.
+   */
   | { readonly kind: 'docker-unavailable'; readonly detail: string }
+  /**
+   * The host could not create a process. This says nothing about Docker.
+   *
+   * Split out of `docker-unavailable` on 2026-08-01, against a reproduced failure
+   * rather than a suspicion. `lift.node.test.ts` fails intermittently on a loaded
+   * machine — 3 to 6 cases at a time, reported by three separate agents, always in
+   * that one file — and every report read `docker-unavailable` on a host where
+   * Docker was installed and working. Two code paths produced that kind, so the
+   * failure output could not say which fired, and both readings sent the reader
+   * somewhere useless: to `docker --version`, or to a budget that was already 44×
+   * larger than it needed to be.
+   *
+   * Two measured populations settle it, and they do not overlap:
+   *
+   * | population | how long the driver takes to answer |
+   * |---|---|
+   * | spawn refused by the host (`EAGAIN`, `RLIMIT_NPROC` below the live process count, 6/6) | **0–3 ms** |
+   * | spawn that succeeds, load average 42.7 → 54.5, 60/60, `p50` 116 ms `p90` 328 ms | **max 456 ms** |
+   * | the timeout that the *other* path needs before it fires | **5 000 / 20 000 ms** |
+   *
+   * The second row is the refutation. At the load the failures were reported at —
+   * 45–50 on 8 cores — a spawn that works costs 456 ms at worst, which is 11× under
+   * the smallest budget any caller in that file hands to `resolveImage` and 44×
+   * under the largest. For the timeout to have fired, spawning would have had to be
+   * two orders of magnitude worse than it measurably is at that exact load. The
+   * first row is what does fire, and it fires in about a millisecond — so the
+   * driver was reporting "docker could not be run" a millisecond after being asked,
+   * on a machine whose only problem was that it had no room for one more process.
+   *
+   * A refusal that names the wrong thing is a defect even when the operation
+   * correctly fails. Both spawn sites route here now; `ENOENT` and `EACCES` stay in
+   * `docker-unavailable`, because those two really are about `docker`.
+   */
+  | {
+      readonly kind: 'host-cannot-spawn'
+      /** What the host was asked to start, so the message is not about "a process". */
+      readonly command: string
+      /** `EAGAIN`, `EMFILE`, `ENFILE` or `ENOMEM` — see {@link HOST_EXHAUSTION_CODES}. */
+      readonly code: string
+      readonly detail: string
+    }
   /**
    * The image is not present locally.
    *
@@ -375,6 +422,16 @@ interface Ran {
   readonly stderr: string
   readonly timedOut: boolean
   readonly spawnError: string | null
+  /**
+   * `error.code` off the failed spawn — `EAGAIN`, `ENOENT`, `EACCES`, …
+   *
+   * Carried beside the message rather than recovered from it. The message is
+   * `spawn <path> EAGAIN`, and `<path>` is a caller-supplied path that may contain
+   * anything, so classifying on the message means substring-matching a string the
+   * caller partly controls — a `docker` under a directory named `EAGAIN` would
+   * classify itself. libuv already puts the errno in its own field; this reads that.
+   */
+  readonly spawnErrorCode: string | null
 }
 
 function run(command: string, args: readonly string[], timeoutMs: number): Promise<Ran> {
@@ -384,6 +441,7 @@ function run(command: string, args: readonly string[], timeoutMs: number): Promi
     let stderr = ''
     let timedOut = false
     let spawnError: string | null = null
+    let spawnErrorCode: string | null = null
 
     const timer = setTimeout(() => {
       timedOut = true
@@ -400,12 +458,57 @@ function run(command: string, args: readonly string[], timeoutMs: number): Promi
     })
     child.on('error', (error: Error) => {
       spawnError = error.message
+      // Structurally, not through `NodeJS.ErrnoException`: this file is the only
+      // place that reads it and a missing `code` is a real possibility rather than
+      // a type-system edge case.
+      const { code } = error as { readonly code?: unknown }
+      spawnErrorCode = typeof code === 'string' ? code : null
     })
     child.on('close', (code, signal) => {
       clearTimeout(timer)
-      resolve({ code, signal, stdout, stderr, timedOut, spawnError })
+      resolve({ code, signal, stdout, stderr, timedOut, spawnError, spawnErrorCode })
     })
   })
+}
+
+/**
+ * The `spawn` errnos that are the *host* running out of room.
+ *
+ * Every one of these says the machine could not make a new process; none of them
+ * says anything at all about the command it was asked to make. `ENOENT` and
+ * `EACCES` are deliberately absent — those two *are* statements about the command
+ * (not there, not executable) and belong in `docker-unavailable`.
+ *
+ * Measured on this host on 2026-08-01. Under `RLIMIT_NPROC` reduced below the live
+ * process count, 6 of 6 spawns of the test's own `#!/bin/sh` stub failed with
+ * `error.code === 'EAGAIN'` and `error.message === 'spawn <path> EAGAIN'`, and each
+ * came back in **0–3 ms**. See {@link LiftFailure}'s `host-cannot-spawn` arm for
+ * why that number is the whole argument.
+ */
+const HOST_EXHAUSTION_CODES: ReadonlySet<string> = new Set(['EAGAIN', 'EMFILE', 'ENFILE', 'ENOMEM'])
+
+/**
+ * Which failure a spawn that never happened is.
+ *
+ * One function, consulted by both spawn sites, because the two used to return the
+ * same `docker-unavailable` from two hand-written literals — and a classification
+ * written twice is a classification that drifts.
+ *
+ * Exported for the reason {@link verdictOf} is: the `EAGAIN` arm fires only on a host
+ * that has run out of process slots, which is not a state a unit test can put the
+ * machine into, so an arm nothing can call directly is an arm no test can show still
+ * fires. The wiring that feeds it — `run()` actually reading `error.code` — is held
+ * separately by a test that reduces `RLIMIT_NPROC` in a child process.
+ */
+export function classifySpawnFailure(
+  command: string,
+  code: string | null,
+  detail: string | null,
+): LiftFailure {
+  const message = detail ?? 'spawn failed with no message'
+  return code !== null && HOST_EXHAUSTION_CODES.has(code)
+    ? { kind: 'host-cannot-spawn', command, code, detail: message }
+    : { kind: 'docker-unavailable', detail: message }
 }
 
 /**
@@ -443,7 +546,10 @@ export async function resolveImage(
     timeoutMs,
   )
   if (inspected.spawnError !== null) {
-    return { ok: false, failure: { kind: 'docker-unavailable', detail: inspected.spawnError } }
+    return {
+      ok: false,
+      failure: classifySpawnFailure(docker, inspected.spawnErrorCode, inspected.spawnError),
+    }
   }
   // A daemon that never answered is not a missing image. Reporting `image-absent`
   // here — which is what a bare non-zero exit check does, because a SIGKILLed client
@@ -694,7 +800,10 @@ export async function liftElf(elfPath: string, options: LiftOptions = {}): Promi
     const durationMs = performance.now() - started
 
     if (ran.spawnError !== null) {
-      return { ok: false, failure: { kind: 'docker-unavailable', detail: ran.spawnError } }
+      return {
+        ok: false,
+        failure: classifySpawnFailure(docker, ran.spawnErrorCode, ran.spawnError),
+      }
     }
     if (ran.timedOut) {
       // Before the `finally` below removes the directory the container is mounted on.
@@ -790,6 +899,16 @@ export function describeLiftFailure(failure: LiftFailure): string {
       return `the pre-screen refused this input (${failure.reason.kind}) — no container was started`
     case 'docker-unavailable':
       return `docker could not be run: ${failure.detail}`
+    case 'host-cannot-spawn':
+      // Deliberately says nothing about Docker, and deliberately does not reuse the
+      // words "could not be run" — the whole defect was a reader being sent to check
+      // an installation that was fine. The fix is on the machine, so the machine is
+      // what the sentence is about.
+      return (
+        `this machine could not start a process (${failure.code}) — it is out of process ` +
+        `slots, file descriptors or memory, so ${failure.command} was never reached and ` +
+        `nothing here is known about it; retry when the host is quieter: ${failure.detail}`
+      )
     case 'image-absent':
       return `${failure.image} is not present locally, and this driver does not pull 6 GB on its own: ${failure.detail}`
     case 'image-has-no-digest':
