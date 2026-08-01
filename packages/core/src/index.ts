@@ -223,9 +223,12 @@ export type { NameRecord, ResolveFailure, ResolveResult } from './naming.ts'
 // Decomposable tree-reduce — MR-02 through MR-07.
 export {
   DEFAULT_FANOUT,
+  MAX_COMBINE_INPUTS,
   MAX_PARTIAL_BYTES,
+  asFabricPartial,
   deriveReduceTree,
   executeReduce,
+  fabricCombiner,
   localDispatch,
   rendezvousRank,
 } from './reduce.ts'
@@ -233,6 +236,7 @@ export type {
   CombineDispatch,
   CombineTask,
   Combiner,
+  FabricPartial,
   ReduceContribution,
   ReduceLeaf,
   ReduceOutcome,

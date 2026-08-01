@@ -75,6 +75,39 @@ export const DEFAULT_FANOUT = 4
 export const MAX_PARTIAL_BYTES = 9216
 
 /**
+ * Most inputs one combine may merge. A **configuration choice**; no arithmetic
+ * produces it.
+ *
+ * It exists because {@link deriveReduceTree} emits nodes with at most `fanout`
+ * children and `fanout` is a caller parameter with no ceiling of its own. A frame
+ * off the wire therefore needs a bound that does not depend on the sender having
+ * derived its tree the way everybody else did.
+ *
+ * The bound belongs at the **parser**, not at the handler: a frame naming more
+ * inputs than this does not become a request at all, which is the disposition
+ * `parseRequest` already gives a partition index outside its own count. Refusing
+ * later would mean refusing after the fetches it exists to prevent.
+ *
+ * **What it bounds, stated precisely, because the obvious reading is wrong.** This
+ * is a ceiling on the *number of inputs* one combine may **merge**. It is not a
+ * ceiling on what one combine frame may cause to be transferred or to stay
+ * resident. A combine names its inputs by CID, and the handler reads each one
+ * through a blockstore that — for a fetching blockstore — has by then already
+ * pulled the block over the wire, hash-verified it and written it to the local
+ * store; only afterwards can {@link MAX_PARTIAL_BYTES} refuse the merge.
+ *
+ * There *is* a wire ceiling underneath, and it is worth naming precisely so nobody
+ * reads more into this constant than it carries: NET-08 has landed, and
+ * `MAX_INBOUND_MESSAGE_BYTES` (`@o2/libp2p`) bounds any single inbound message,
+ * with a per-peer cap on concurrent accumulation beside it. What NET-08 bounds is
+ * *one message*; what this constant bounds is *how many* a single frame may
+ * provoke. No product of the two is written here, because a residency figure that
+ * nobody measured against a running node is not a guarantee — if one is ever
+ * wanted, measure it and record it with its date.
+ */
+export const MAX_COMBINE_INPUTS = 64
+
+/**
  * One partial, and whose data produced it.
  *
  * `contributorId` means **the owner whose data produced this partial**, never the
@@ -405,6 +438,102 @@ export async function executeReduce(run: ReduceRun): Promise<ReduceOutcome> {
  */
 export interface Combiner {
   (inputs: readonly CanonicalValue[]): CanonicalValue
+}
+
+/** The shape the fabric's one merge accepts: a count map and the rows behind it. */
+export interface FabricPartial {
+  readonly counts: { readonly [key: string]: number }
+  readonly rows: number
+}
+
+/**
+ * A partial off the wire, or `null` if it is not one.
+ *
+ * Exported as its own predicate rather than inlined into {@link fabricCombiner}
+ * because it has **two callers with two different dispositions**, and that split is
+ * the design rather than an accident:
+ *
+ * - **On the wire**, inside `fabricCombiner`, a `null` here contributes zero and the
+ *   merge continues. Bytes that arrived from a peer must not be able to abort a
+ *   combine — one malformed partial would otherwise take down an aggregate that
+ *   every other contributor answered honestly.
+ * - **At the requestor**, where a local projection produced the value, the same
+ *   `null` must be a *named failure*. There the value was authored here, so a
+ *   diagnosis is possible and silently contributing zero would turn a bug in the
+ *   projection into a quietly wrong answer.
+ *
+ * Neither disposition is the "correct" one to standardise on. Do not later
+ * "fix" one into the other.
+ */
+export function asFabricPartial(value: CanonicalValue): FabricPartial | null {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) return null
+  if (value instanceof Uint8Array) return null
+  const record = value as { readonly [k: string]: CanonicalValue }
+  const rows = record['rows']
+  if (typeof rows !== 'number' || !Number.isFinite(rows)) return null
+  const counts = record['counts']
+  if (counts === null || typeof counts !== 'object' || Array.isArray(counts)) return null
+  if (counts instanceof Uint8Array) return null
+  const entries = counts as { readonly [k: string]: CanonicalValue }
+  const checked: { [k: string]: number } = {}
+  for (const [word, n] of Object.entries(entries)) {
+    if (typeof n !== 'number' || !Number.isFinite(n)) return null
+    checked[word] = n
+  }
+  return { counts: checked, rows }
+}
+
+/**
+ * The one merge the fabric offers: key-wise sum of counts, plus a row total.
+ *
+ * **Why exactly one, and not a per-job choice.** If two nodes could hold different
+ * combiners, the mismatch would surface only as an {@link executeReduce}
+ * `disagreement` with nothing to name the cause — the tree is *derived, never
+ * agreed*, so there is no negotiation step at which two combiners could be compared
+ * and found different. Failing loud with no diagnosis is worse than having no
+ * configuration knob at all.
+ *
+ * Per-job semantics arrive instead as a requestor-side **projection**. The map
+ * output shape and the partial shape are not the same thing — `MODULE_WRITES_PARTITION`
+ * emits `{p: <4 LE bytes>}` while this monoid consumes `{counts, rows}` — so the
+ * projection is where a job says what its numbers mean. The projection never crosses
+ * a wire; the combiner never varies.
+ *
+ * **Nothing verifies the projection, and that gap is real.** `executeReduce` verifies
+ * the aggregation *over* partials; it cannot see whether the requestor projected each
+ * shard output faithfully into those partials in the first place. A requestor that
+ * projected its own outputs unfaithfully would not be caught. For a public job the
+ * requestor is the job's own author and has no reason to corrupt its own answer —
+ * that stops being true the moment a third party submits on someone else's behalf.
+ * The closure is the deferred content-addressed combine module, where the projection
+ * would itself be guest code carrying a CID.
+ *
+ * Total by construction: anything {@link asFabricPartial} rejects contributes zero
+ * rather than throwing, because a combine must survive one bad partial among many.
+ */
+export const fabricCombiner: Combiner = (inputs) => {
+  const counts = new Map<string, number>()
+  let rows = 0
+  for (const input of inputs) {
+    const partial = asFabricPartial(input)
+    if (partial === null) continue
+    rows += partial.rows
+    for (const [word, n] of Object.entries(partial.counts)) {
+      counts.set(word, (counts.get(word) ?? 0) + n)
+    }
+  }
+  // Sorted keys so *this object* has a stable iteration order for any reader that
+  // looks at it without encoding it first.
+  //
+  // It is deliberately **not** what makes the CID order-independent, and the comment
+  // this replaced said it was. Measured 2026-07-31: `@ipld/dag-cbor` sorts map keys
+  // itself at encode time, so `encode({x,z,y})` and `encode({y,x,z})` are byte-equal
+  // and the CID is order-independent with or without this line. Deleting the `.sort()`
+  // leaves every test in `reduce.test.ts` green — which is the evidence, and also the
+  // reason not to describe this line as load-bearing for determinism.
+  const merged: { [k: string]: number } = {}
+  for (const key of [...counts.keys()].sort()) merged[key] = counts.get(key) as number
+  return { counts: merged, rows }
 }
 
 /**
