@@ -541,6 +541,46 @@ hits first and this file is the one an auditor greps.
   3. A user-set CPU duty-cycle cap set at runtime on a running node — Node tier and browser tier alike — is honoured immediately, and the node's advertised capacity to `discoverExecutors` drops accordingly, observable in what the requestor is offered next
   4. A relay run via `bin/seed.ts` at reservation capacity reports the exhaustion by name to a joining node attempting to reserve, rather than the joiner failing indistinguishably from a network outage
   5. Under artificial load pressure applied during a live run, a sovereignty-pinned task still lands on its owner even though a lower-cost non-owner node is available, proving the cost heuristic is filtered after the sovereignty constraint rather than scored against it
+  6. **A node that enrols *after* a peer has already connected to it is taken by that peer without either side reconnecting** — the re-ask policy, closed ahead of planning on 2026-08-01 by owner ruling
+
+<!-- Criterion 6 added and CLOSED 2026-08-01, before this phase was planned. It is written
+     here rather than left in a summary because the defect lived on the dial path this phase
+     owns, and because the ruling it settles is fabric-wide.
+
+     THE DEFECT. `PeerVerifier` settled a peer's verdict once, on `peer:connect`, and cached
+     it for the life of the connection. A node that enrolled afterwards was excluded by that
+     peer permanently — with a correctly-named refusal the whole time, which is why nothing
+     reported it. Found by 17-06 on its first test failure and deliberately left unfixed
+     under Rule 4: every candidate changed how often nodes re-ask each other across the whole
+     fabric, and that is a protocol decision rather than a bug fix.
+
+     THE RULING — retryable/final split, refreshed lazily on read. Chosen over a timer, a
+     `records-changed` push, and a dial-ordering fix. The split falls out of `PeerFailure`'s
+     own structure, which already separates a fact about a **signed document** from a fact
+     about a **conversation**: `untrusted-issuer`, `bad-signature`, `nodeKey-mismatch` and
+     `unidentifiable-peer` are final for the connection; `no-records`, `unreachable`,
+     `unanswerable-peer`, `expired` and `not-yet-valid` are re-asked. The trigger is
+     `verifiedPeers`, which `RpcBlockSource` already reads per fetch, so no timer and no new
+     wire frame were added — the ceiling is one request per connected peer per retry floor,
+     paid only while something is actually fetching. `expired` and `not-yet-valid` are
+     deliberately retryable despite being `CertificateFailure`s: both are statements about a
+     clock rather than about the document.
+
+     WHY NOT THE OTHERS. A timer costs every node the sweep forever whether or not anything
+     needs a block, and puts a wall-clock bound inside a class that had none — the repo
+     already carries two open flakes of exactly that shape. A `records-changed` push has the
+     best latency but adds a wire frame and lets an *unverified* peer command work on demand,
+     which needs its own bound. Fixing the dial ordering alone closes only the startup race;
+     a node enrolling an hour later stays invisible, and Phases 19 and 20 both reopen the
+     window.
+
+     WHAT IT COST TO GET RIGHT. The first implementation of the anti-race guard was
+     unmeasured, and probing it found a second real defect: the generation counter was
+     per-peer, and `#onDisconnect` deletes the peer's entry — so the ask issued after a
+     reconnect was handed the same number as the one still in flight from before the
+     disconnect, and a stale refusal could overwrite a fresh acceptance. The counter is now
+     monotone across the verifier. Ledger entries M33/M34/M35 pin the three guards, all
+     three planted and caught with their recorded signature. -->
 **Plans**: TBD
 
 ### Phase 19: Quorum Composition & Owner-Domain Attestation

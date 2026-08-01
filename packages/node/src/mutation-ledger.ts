@@ -738,6 +738,62 @@ export const MUTATIONS: readonly Mutation[] = [
     caughtBy: ['packages/net/src/combine.test.ts', 'packages/node/src/admission.node.test.ts'],
     signature: 'AssertionError: expected CID(',
   },
+  {
+    id: 'M33',
+    why:
+      'AUTH-02 — the line that stops a verdict being permanent. `PeerVerifier` settled a ' +
+      'peer’s verdict once and cached it for the life of the connection, so a node that ' +
+      'enrolled *after* a peer had connected to it was excluded by that peer for ever, ' +
+      'silently and with a correctly-named refusal the whole time. Deleting this call ' +
+      'restores exactly that: every other reading stays green — the refusal is still named ' +
+      '`no-records`, the peer is still connected, the gate still reports itself working — ' +
+      'and only a peer whose answer *changes* is lost. It is the shape a "this getter ' +
+      'should be pure" cleanup leaves behind, and the reason the side effect is documented ' +
+      'on the getter rather than left to be discovered.',
+    file: 'packages/node/src/peer-verifier.ts',
+    find: '    for (const peer of peers) this.#refresh(peer)\n',
+    replace: '',
+    caughtBy: ['packages/node/src/peer-verifier.node.test.ts'],
+    signature: 'takes it once it holds a certificate',
+  },
+  {
+    id: 'M34',
+    why:
+      'AUTH-02 — the half of the retry that bounds it rather than enables it. Re-asking ' +
+      'is only safe because a refusal that cannot change is never re-asked; drop one kind ' +
+      'out of `FINAL` and this node spends an RPC per interval, for ever, on a peer that ' +
+      'already presented somebody else’s certificate. `nodeKey-mismatch` is the right kind ' +
+      'to plant on because it is the impersonation case — the one where repeatedly asking ' +
+      'is not merely wasteful but is work an unverified peer gets to command. Nothing ' +
+      'about the verdict changes, so every refusal-name assertion in the file stays green ' +
+      'and only the request count moves: the same shape as NET-08, where a bound placed ' +
+      'below a fetch loop left both refusal-text readings intact while reads went 0 to 2.',
+    file: 'packages/node/src/peer-verifier.ts',
+    find: "  'nodeKey-mismatch',\n",
+    replace: '',
+    caughtBy: ['packages/node/src/peer-verifier.node.test.ts'],
+    signature: 'never re-asks a refusal that cannot change',
+  },
+  {
+    id: 'M35',
+    why:
+      'AUTH-02 — the generation counter must be per verifier, and this plants the version ' +
+      'that looks right. Re-asking made two asks for one peer able to be in flight at ' +
+      'once, so a stale answer can now arrive after a fresh one and overwrite it. A ' +
+      'counter kept beside each peer’s own entry is the obvious shape and is wrong: ' +
+      '`#onDisconnect` deletes that entry, so the ask issued after a reconnect is handed ' +
+      'the same number as the one still in flight from before the disconnect, the guard ' +
+      'compares equal on two different asks, and a peer that is verified right now is ' +
+      'excluded by an answer about a connection that has ended. **This was a real defect ' +
+      'and not a hypothetical** — it was found by probing the guard rather than trusting ' +
+      'it, which is why the entry exists at all: the first version of the guard was ' +
+      'unmeasured and nothing in the suite moved when it was weakened.',
+    file: 'packages/node/src/peer-verifier.ts',
+    find: '    this.#generations += 1\n    const generation = this.#generations\n',
+    replace: '    const generation = (this.#lastAsk.get(peerId)?.generation ?? 0) + 1\n',
+    caughtBy: ['packages/node/src/peer-verifier.node.test.ts'],
+    signature: 'discards an answer from an ask that a disconnect and reconnect superseded',
+  },
 ]
 
 /** Literal occurrences of `needle` in `text`. `needle` must be non-empty. */

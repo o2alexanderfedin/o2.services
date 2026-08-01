@@ -3,8 +3,8 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Wire What Was Built
 status: executing
-stopped_at: Phase 17 verified 1/3 and is NOT closed. Its browser-partition regression is closed (17-06); AUTH-04's cost clause went to Phase 19 criterion 5 and criterion 2's accepting half to Phase 18 criterion 2d, both by owner ruling. A PeerVerifier ordering defect is open and needs a decision. Phase 18 is the next unit and must be planned first
-last_updated: "2026-08-01T17:20:00.000Z"
+stopped_at: Phase 17 verified 1/3 and is NOT closed. Its browser-partition regression is closed (17-06); AUTH-04's cost clause went to Phase 19 criterion 5 and criterion 2's accepting half to Phase 18 criterion 2d, both by owner ruling. The PeerVerifier re-ask defect that blocked planning is CLOSED 2026-08-01 by owner ruling (retryable/final split, lazy refresh) and is written up as Phase 18 criterion 6. Phase 18 is the next unit and must be planned first
+last_updated: "2026-08-01T18:05:00.000Z"
 last_activity: 2026-08-01
 progress:
   total_phases: 14

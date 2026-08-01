@@ -98,6 +98,15 @@ async function servedBy(options: {
   trustedIssuers: ReadonlySet<PublicKeyHex>
   /** Defaults to the served peer, which is what makes `start`'s seeding loop fire. */
   peers?: (peerId: string) => readonly string[]
+  /**
+   * Left at the production default unless a case is *about* the floor.
+   *
+   * The re-ask cases below pass `0` so that "asks again" is observable without a test
+   * sleeping through a real interval, and one case passes a large value precisely to
+   * measure that the floor holds. A case that passes neither is asserting the shipped
+   * behaviour, which is what most of this file wants.
+   */
+  retryFloorMs?: number
 }): Promise<HandBuilt> {
   const identity = await identityFromSeed(FIXTURE_SEED)
   const network = new MemoryNetwork()
@@ -120,6 +129,7 @@ async function servedBy(options: {
     rpc: clientRpc,
     peers: () => (options.peers ?? ((id: string) => [id]))(identity.peerId),
     trustedIssuers: options.trustedIssuers,
+    ...(options.retryFloorMs === undefined ? {} : { retryFloorMs: options.retryFloorMs }),
   })
 
   return {
@@ -625,6 +635,232 @@ describe('AUTH-02 — a peer connected before the verifier existed still gets a 
     )
     expect(served.verifier.verdictFor(served.peerId)?.ok).toBe(true)
     expect(served.verifier.verifiedPeers).toStrictEqual([served.peerId])
+  })
+})
+
+describe('AUTH-02 — a peer that enrols after connecting stops being excluded', () => {
+  /**
+   * **The defect this whole section exists for**, and the only one in Phase 17's merged
+   * tree that needed an owner ruling rather than a fix.
+   *
+   * `verify` memoised a verdict for the life of the connection, so a node that enrolled
+   * *after* a peer had already connected to it was excluded by that peer permanently, with
+   * nothing reporting it. It was observed rather than reasoned about: a gate dialled a tab
+   * before the tab's `serveAgent` was up, the `records` request went unanswered for the
+   * whole 30 s RPC budget, and the refusal that eventually settled would have stood for
+   * ever even though the tab held a valid certificate from the pinned issuer throughout.
+   *
+   * The fixture is the same peer answering differently over time — `holdsCertificate`
+   * starts false, which is exactly a node that has not enrolled yet. Nothing about the
+   * connection changes; only the answer does. That is the real sequence, and it is the one
+   * a memo cannot survive.
+   *
+   * Reddened by deleting the `#refresh` call from the `verifiedPeers` getter: the first two
+   * assertions still pass, and the poll then times out at `no-records` — the exact shape of
+   * the production failure.
+   */
+  it('re-asks a peer whose refusal could change, and takes it once it holds a certificate', async () => {
+    const { certificate } = certificateFor(FIXTURE_SEED, USER_SEED, Date.now())
+    let holdsCertificate = false
+    const served = await servedBy({
+      answer: () => (holdsCertificate ? recordsOf(certificate, FIXTURE_SEED) : null),
+      trustedIssuers: PINNED,
+      retryFloorMs: 0,
+    })
+    cleanups.push(served.stop)
+
+    // Before enrolment: refused by name, and excluded. Both readings matter — a peer that
+    // was excluded for some *other* reason would satisfy the second alone.
+    await until(() => served.verifier.verdictFor(served.peerId) !== undefined, 5_000, 'the first verdict')
+    const before = served.verifier.verdictFor(served.peerId)
+    expect(before?.ok === false ? before.failure.kind : 'no verdict').toBe('no-records')
+    expect(served.verifier.verifiedPeers).not.toContain(served.peerId)
+
+    // The node enrols. Same peer, same connection, same verifier.
+    holdsCertificate = true
+
+    await until(
+      () => served.verifier.verifiedPeers.includes(served.peerId),
+      5_000,
+      'the enrolled peer to be taken as a block source',
+    )
+    expect(served.verifier.verdictFor(served.peerId)?.ok).toBe(true)
+  })
+
+  /**
+   * The same getter, the opposite guarantee: a refusal that *cannot* change is asked once.
+   *
+   * Without this, the fix above would trade a permanent exclusion for an unbounded request
+   * rate — one RPC per peer per interval, for ever, aimed at a peer that already answered
+   * dishonestly. `nodeKey-mismatch` is the borrowed-certificate case from the refusals
+   * block above, and it is in `FINAL` for exactly that reason.
+   *
+   * `retryFloorMs: 0` is what makes this a reading of `FINAL` rather than of the floor —
+   * with the floor disabled, the only thing that can be holding the count at 1 is the kind
+   * check. Reddened by removing `'nodeKey-mismatch'` from `FINAL`, which takes the count to
+   * one per read.
+   */
+  it('never re-asks a refusal that cannot change, however often the gate is read', async () => {
+    const borrower = await identityFromSeed(BORROWED_SEED)
+    const { certificate } = certificateFor(BORROWED_SEED, USER_SEED, Date.now())
+    const served = await servedBy({
+      answer: () => recordsOf(certificate, BORROWED_SEED),
+      trustedIssuers: PINNED,
+      retryFloorMs: 0,
+    })
+    cleanups.push(served.stop)
+    expect(borrower.nodeKey).not.toBe(served.nodeKey)
+
+    await until(() => served.verifier.verdictFor(served.peerId) !== undefined, 5_000, 'the verdict')
+    expect(served.requests()).toBe(1)
+
+    for (let read = 0; read < 20; read += 1) {
+      expect(served.verifier.verifiedPeers).not.toContain(served.peerId)
+    }
+    // Still one. The reads went through `#refresh` twenty times and it declined every time.
+    expect(served.requests()).toBe(1)
+  })
+
+  /**
+   * The floor is what bounds the retryable case, and it is measured rather than assumed.
+   *
+   * `no-records` is retryable, so the previous test's guard does not apply here and the
+   * only thing standing between a per-block fetch loop and a per-block RPC is the
+   * interval. The floor is set far above the test's own duration so that "did not re-ask"
+   * cannot be a race with a timer.
+   *
+   * Reddened by deleting the `Date.now() - ... < this.#retryFloorMs` line.
+   */
+  it('holds a retryable refusal for the floor, so a hot read loop cannot become a request loop', async () => {
+    const served = await servedBy({
+      answer: () => null,
+      trustedIssuers: PINNED,
+      retryFloorMs: 600_000,
+    })
+    cleanups.push(served.stop)
+
+    await until(() => served.verifier.verdictFor(served.peerId) !== undefined, 5_000, 'the verdict')
+    expect(served.requests()).toBe(1)
+
+    for (let read = 0; read < 50; read += 1) {
+      expect(served.verifier.verifiedPeers).not.toContain(served.peerId)
+    }
+    expect(served.requests()).toBe(1)
+  })
+
+  /**
+   * A peer in `peers()` that this verifier never saw connect is asked, rather than sitting
+   * unasked for ever.
+   *
+   * Distinct from the seeding loop's case and not covered by it: `start` reads `peers()`
+   * **once**, so a peer arriving after that read and before the listener takes effect
+   * belongs to neither path. `peers` here returns the peer only after `start` has run,
+   * which reproduces that window exactly — the seeding loop sees an empty list and no
+   * `connect()` is ever fired.
+   *
+   * Reddened by deleting the `if (!this.#inFlight.has(peerId)) void this.verify(peerId)`
+   * branch from `#refresh`.
+   */
+  it('asks about a peer that appeared in peers() without a connect event', async () => {
+    const { certificate } = certificateFor(FIXTURE_SEED, USER_SEED, Date.now())
+    let visible = false
+    const served = await servedBy({
+      answer: () => recordsOf(certificate, FIXTURE_SEED),
+      trustedIssuers: PINNED,
+      peers: (peerId) => (visible ? [peerId] : []),
+    })
+    cleanups.push(served.stop)
+
+    // The seeding loop saw nothing, and nothing dispatched a connect event.
+    expect(served.requests()).toBe(0)
+    expect(served.verifier.verdictFor(served.peerId)).toBeUndefined()
+
+    visible = true
+    await until(
+      () => served.verifier.verifiedPeers.includes(served.peerId),
+      5_000,
+      'a verdict for a peer that only ever appeared in the thunk',
+    )
+  })
+})
+
+describe('AUTH-02 — a slow answer cannot overwrite a newer one', () => {
+  /**
+   * Re-asking made a settled answer able to arrive **late**, and this is the case that
+   * makes that dangerous rather than merely untidy.
+   *
+   * Before re-verification existed, only one ask per peer could ever be outstanding, so
+   * "the answer that arrives is the answer for the current connection" was true for free.
+   * It is not true any more: a disconnect drops the in-flight entry, and the reconnect
+   * issues a second ask while the first is still waiting on the wire. If the first then
+   * finishes second, a stale refusal lands on top of a fresh acceptance — a peer that is
+   * verified right now, excluded because of an answer about a connection that is over.
+   *
+   * **This test found a real flaw and is the reason the counter is per verifier rather than
+   * per peer.** The obvious shape — a counter kept beside each peer's entry — resets when
+   * `#onDisconnect` deletes that entry, so the ask issued after the reconnect is handed the
+   * same generation as the one still in flight from before it, and the guard compares equal
+   * on two different asks. That version fails here.
+   *
+   * The gate is a promise the test resolves by hand, so the ordering is chosen rather than
+   * raced: ask 1 cannot answer until ask 2 already has.
+   *
+   * Reddened by either weakening the guard to `#lastAsk.has(peerId)` — the pre-retry
+   * semantics — or by keying the counter off the peer's own entry.
+   */
+  it('discards an answer from an ask that a disconnect and reconnect superseded', async () => {
+    const identity = await identityFromSeed(FIXTURE_SEED)
+    const { certificate } = certificateFor(FIXTURE_SEED, USER_SEED, Date.now())
+    const network = new MemoryNetwork()
+    const serverRpc = new RpcEndpoint(network.connect(identity.peerId))
+    const clientRpc = new RpcEndpoint(network.connect('the-verifier'))
+
+    let asks = 0
+    let releaseFirstAsk = (): void => {}
+    const firstAskMayAnswer = new Promise<void>((resolve) => {
+      releaseFirstAsk = resolve
+    })
+
+    serverRpc.serve(async () => {
+      asks += 1
+      if (asks === 1) {
+        // The stale answer: held until the test says so, and a refusal when it lands.
+        await firstAskMayAnswer
+        return encodeResponse({ kind: 'records', records: null })
+      }
+      return encodeResponse({ kind: 'records', records: recordsOf(certificate, FIXTURE_SEED) })
+    })
+
+    const events = new EventTarget()
+    const verifier = PeerVerifier.start({
+      libp2p: events as unknown as Libp2p,
+      rpc: clientRpc,
+      peers: () => [identity.peerId],
+      trustedIssuers: PINNED,
+    })
+    cleanups.push(() => {
+      releaseFirstAsk()
+      verifier.stop()
+      serverRpc.close()
+      clientRpc.close()
+    })
+
+    // Ask 1 is issued by the seeding loop and is now parked inside the server handler.
+    await until(() => asks === 1, 5_000, 'the first ask to reach the server')
+    expect(verifier.verdictFor(identity.peerId)).toBeUndefined()
+
+    // The connection drops and comes back. Ask 2 is issued and answers immediately.
+    events.dispatchEvent(new CustomEvent('peer:disconnect', { detail: peerIdFromString(identity.peerId) }))
+    events.dispatchEvent(new CustomEvent('peer:connect', { detail: peerIdFromString(identity.peerId) }))
+    await until(() => verifier.verdictFor(identity.peerId)?.ok === true, 5_000, 'the second ask to verify')
+    expect(asks).toBe(2)
+
+    // Now let the stale answer land. It is about a connection that no longer exists.
+    releaseFirstAsk()
+    await new Promise((resolve) => setTimeout(resolve, 100))
+
+    expect(verifier.verdictFor(identity.peerId)?.ok).toBe(true)
+    expect(verifier.verifiedPeers).toContain(identity.peerId)
   })
 })
 
