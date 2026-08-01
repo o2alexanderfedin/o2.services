@@ -398,6 +398,84 @@ describe('SCHED-03 over the wire — a node refuses for itself', () => {
     }
   })
 
+  it('publishes its real figures in the offer answer, and still takes nothing', async () => {
+    // SCHED-02 / owner ruling D2, read over a real endpoint rather than from
+    // `LocalCapacity` directly: the claim is about what crosses the wire.
+    const fabric = await fabricOf({ workers: 1, maxConcurrent: 1 })
+    try {
+      const worker = fabric.workers[0] as Worker
+
+      for (let i = 0; i < 5; i++) {
+        const body = await fabric.requestorRpc.request(
+          worker.nodeKey,
+          encodeRequest({ kind: 'offer', shardId: `probe-${i}` }),
+        )
+        const answer = parseResponse(body)
+        expect(answer?.kind).toBe('offer')
+        if (answer?.kind !== 'offer') return
+        expect(answer.accepted).toBe(true)
+        // The same figures every time, because answering consumes nothing.
+        expect(answer.capacity).toStrictEqual({ slots: 1, inFlight: 0 })
+      }
+
+      // The seed holds the `'accepts-every-offer'` sentinel — no counters to read,
+      // so it states no capacity rather than inventing one.
+      const seedBody = await fabric.requestorRpc.request(
+        SEED,
+        encodeRequest({ kind: 'offer', shardId: 'probe' }),
+      )
+      const seedAnswer = parseResponse(seedBody)
+      expect(seedAnswer?.kind).toBe('offer')
+      if (seedAnswer?.kind !== 'offer') return
+      expect(seedAnswer.accepted).toBe(true)
+      expect(seedAnswer.capacity).toBeNull()
+
+      // The regression Phase 13.1 removed, and this plan promises not to restore.
+      expect(worker.capacity.inFlight).toBe(0)
+      expect(worker.capacity.peakInFlight).toBe(0)
+    } finally {
+      fabric.close()
+    }
+  })
+
+  it('publishes a refusal that says how full, from a node that really is full', async () => {
+    const fabric = await fabricOf({ workers: 1, maxConcurrent: 1 })
+    try {
+      const worker = fabric.workers[0] as Worker
+      // A test that wants a busy node has to make it busy — see this block's header.
+      expect(worker.capacity.offer({ shardId: 'held', nodeId: worker.nodeKey }).accepted).toBe(true)
+
+      const body = await fabric.requestorRpc.request(
+        worker.nodeKey,
+        encodeRequest({ kind: 'offer', shardId: 's0' }),
+      )
+      const answer = parseResponse(body)
+      expect(answer?.kind).toBe('offer')
+      if (answer?.kind !== 'offer') return
+      expect(answer.accepted).toBe(false)
+      expect(answer.reason).toContain('over-committed')
+      expect(answer.capacity).toStrictEqual({ slots: 1, inFlight: 1 })
+    } finally {
+      fabric.close()
+    }
+  })
+
+  it('bounds nothing on a node it could not reach', async () => {
+    const fabric = await fabricOf({ workers: 1 })
+    try {
+      const admit = rpcAdmission(fabric.requestorRpc, { probeTimeoutMs: 200 })
+      const answer = await admit({ shardId: 's0', nodeId: 'nobody' })
+
+      expect(answer.accepted).toBe(false)
+      // A requestor that learned nothing must not bound on a figure it invented.
+      // Defaulting this arm to a zero-slot node would make one dead peer look
+      // permanently full to every later shard in the same plan.
+      expect(answer.capacity).toBe('states-no-capacity')
+    } finally {
+      fabric.close()
+    }
+  })
+
   it('treats an unreachable node as a stated refusal, not a crash', async () => {
     const fabric = await fabricOf({ workers: 3 })
     try {

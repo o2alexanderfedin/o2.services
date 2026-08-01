@@ -162,6 +162,11 @@ export interface AdmissionOptions {
  * Every failure is a refusal *with a stated reason*, never an exception: a dead peer
  * must show up in the rejection list next to a busy one, or "why did this land here"
  * becomes unanswerable after the fact.
+ *
+ * A requestor that could not ask, or could not read the answer, learns **no** capacity
+ * and therefore bounds nothing — the same honest disposition this function already
+ * takes for the decision itself. Defaulting those arms to a zero-slot node would make
+ * one dead peer look permanently full to every later shard in the same plan.
  */
 export function rpcAdmission(
   rpc: RpcEndpoint,
@@ -184,9 +189,12 @@ export function rpcAdmission(
     if (response?.kind !== 'offer') {
       return { accepted: false, reason: 'malformed offer response', capacity: 'states-no-capacity' }
     }
+    // `capacity: null` on the wire is the node stating nothing, which is a named
+    // absence here rather than a zero.
+    const capacity = response.capacity ?? 'states-no-capacity'
     return response.accepted
-      ? { accepted: true, capacity: 'states-no-capacity' }
-      : { accepted: false, reason: response.reason, capacity: 'states-no-capacity' }
+      ? { accepted: true, capacity }
+      : { accepted: false, reason: response.reason, capacity }
   }
 
   return async (offer: Offer): Promise<Admission> => {
