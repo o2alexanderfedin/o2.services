@@ -192,10 +192,16 @@ export type {
 } from './coordinator.ts'
 
 // Discovery from a data CID — SCHED-01, NET-06.
+//
+// `SelfRecordIndex` is the production answer to `providers` — SCHED-01. Every node
+// answers about its own store at ask time, so nothing is announced and nothing goes
+// stale; see its class doc for owner ruling D1 and for where the only correct
+// withholding predicate comes from.
 export {
   discoverExecutors,
   FallbackRecordIndex,
   MemoryRecordIndex,
+  SelfRecordIndex,
   publishCapabilities,
   verifyCapabilityRecord,
 } from './discovery.ts'
@@ -210,6 +216,7 @@ export type {
   IndexSource,
   NodeRecords,
   RecordIndex,
+  SelfRecordIndexOptions,
 } from './discovery.ts'
 
 // Capability chains — AUTH-03, DET-03.
