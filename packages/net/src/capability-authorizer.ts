@@ -16,11 +16,20 @@
  *
  * ## This refusal is observable at the requestor, unlike DATA-05's
  *
- * Worth stating because a reader arriving from Phase 13.1 will expect otherwise. The
- * authorizer refuses *before* `executor.execute`, so `registerSovereignInputs` never
- * runs, nothing is registered, and the reply frame is scanned against nothing. Phase
- * 13.1's criterion 6 — a sovereignty refusal arriving at the requestor as an RPC
- * timeout — does not apply to this path. The refusal comes home as a string.
+ * Worth stating because a reader arriving from Phase 13.1 will expect otherwise. But
+ * **not for the reason this comment gave until 2026-07-31**, which was false in a way
+ * worth leaving visible: it claimed `registerSovereignInputs` never runs on a refusal.
+ * No such function exists in this repository, and the mechanism that does — the
+ * `takeSovereignHold` call at `agent.ts:385` — runs *before* `options.authorize` at
+ * `agent.ts:405`, not after. The hold is taken, and it is still held while the refusal
+ * is built.
+ *
+ * The conclusion survives on the real reason, which is about the frame rather than the
+ * registration: a refused `exec` replies `unauthorized: <text>` and nothing else, so
+ * there is no sovereign payload in it for the egress guard to match against. Phase
+ * 13.1's criterion 6 — a sovereignty refusal reaching the requestor as an RPC timeout —
+ * does not apply to this path. The refusal comes home as a string because the frame
+ * carries no registered bytes, not because nothing was registered.
  *
  * ## Nothing here reads what kind of node it is running on
  *

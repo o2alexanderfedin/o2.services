@@ -39,7 +39,12 @@ key-decisions:
   - "The browser tier's gap is closed for argument scrambling and left open for behaviour, and the summary says which is which"
   - "The ROADMAP goal was amended down to what is true rather than the evidence stretched up to the goal"
 
-requirements-completed: [AUTH-03]
+# AUTH-03 is NOT completed by this plan. Corrected 2026-07-31 after Phase 15's
+# verification found this line contradicting the phase's own amendment note. This plan
+# closed AUTH-03's *serving* half; its requestor half — delegate, CapabilitySupplier and
+# RemoteExecutor.execute's supplier branch — has zero production callers, and by owner
+# ruling it is Phase 23 criterion 5. The requirement stays open.
+requirements-completed: []
 
 duration: 27min
 completed: 2026-07-31
