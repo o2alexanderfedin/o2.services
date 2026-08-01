@@ -116,3 +116,32 @@ certificate-verification|trustedIssuers"` returns **0**; its only first-party im
 describe block only. A wall-clock assertion on a contended host is a measurement of the
 host. Not done here: this plan's scope boundary forbids fixing failures in unrelated files,
 and silently widening a budget would remove the only reading that bounds it.
+
+---
+
+## `vocabulary.node.test.ts` fails on `17-VERIFICATION.md` — found by 17-06, not caused by it
+
+**Found during:** 17-06, on the post-commit vocabulary run.
+
+**What fails:** two of the five `BANNED` readings, `earn` and `credits`, both from the
+same file and neither from source:
+
+| File | Line | Term | Text |
+|------|------|------|------|
+| `.planning/phases/phase-17-node-identity-enrollment/17-VERIFICATION.md` | 313 | `credits` | "Credit where due: it is asserted, not merely…" |
+| `.planning/phases/phase-17-node-identity-enrollment/17-VERIFICATION.md` | 347 | `earn` | "never earn one. So the moment an operator passes `--trusted-issuer`…" |
+
+**Why it is not 17-06's:** both lines arrived in commit `f6a172b`, which is an ancestor of
+this plan's base (`3e1c03e`). 17-06 modified nothing under `.planning/` other than adding
+this entry and its own summary, and a grep of every file it touched finds neither term.
+
+**Why it is not fixed here:** the scope boundary forbids fixing failures in unrelated
+files. It is also not obviously a defect *in the file* — "Credit where due" is English, not
+a currency claim, and the verification document is arguing against the vocabulary rather
+than using it. The choice is between rewording two sentences of a completed verification
+report and adding a path exemption, and that is the verifier's call rather than an
+executor's.
+
+**What would close it:** either reword the two lines, or add
+`17-VERIFICATION.md` to the `PathExemption` list with the reason that a document whose
+subject is a refusal will quote the words being refused.
