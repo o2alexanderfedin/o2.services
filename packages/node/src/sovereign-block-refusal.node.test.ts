@@ -50,9 +50,13 @@ import type { FabricNodeOptions } from './fabric-node.ts'
  *    this change, and it passes *because* the gap is real, not despite it. The
  *    `submitJob` call-site scan at the bottom of this file is what makes a **new**
  *    production submit path fail loudly rather than quietly inherit the gap.
- * 3. It does **not** prove the browser tier's submitter path. `BrowserNode.start` needs
- *    a real `indexedDB` and a relay, so it runs in neither vitest project — WIRE-03,
- *    Phase 19.
+ * 3. It does **not** prove the browser tier's submitter path — WIRE-03, Phase 19. The
+ *    reason recorded here until 2026-07-31, that `BrowserNode.start` *"needs a real
+ *    `indexedDB` and a relay, so it runs in neither vitest project"*, was false: the
+ *    `e2e` project starts that factory against a live tab
+ *    (`packages/node/src/browser-capability.e2e.test.ts`). What is genuinely unproven is
+ *    the **submitter** half in a tab — that file dispatches *to* a browser node and
+ *    reads what it serves, which is the other direction.
  *
  * What would close (1) and (2) together: registering at a boundary the node owns rather
  * than at one entry point — the submitting node's blockstore-put of a shard labelled

@@ -183,11 +183,15 @@ export interface BrowserNodeOptions {
    * peer wedged the tab permanently, `stop()` included.
    *
    * This was optional until SCHED-06, justified by "tests that have no bundler". No
-   * such test was ever written: `BrowserNode.start` needs a real `indexedDB` and a
-   * relay to dial, so `demo/main.ts` is the only construction site there has ever
-   * been — and it already passed a factory. The escape hatch was cut for a caller that
-   * does not exist, and it was the only thing between an untrusted peer's module and
-   * this tab's main thread.
+   * such test was ever written, and the reason recorded here — that `BrowserNode.start`
+   * *"needs a real `indexedDB` and a relay to dial"*, leaving `demo/main.ts` as the only
+   * construction site there has ever been — was **corrected on 2026-07-31**: it is false
+   * in both halves. `start-unwind.browser.test.ts` starts this factory to success in
+   * three engines, and `capability-harness.ts` constructs it with a bundler for
+   * `browser-capability.e2e.test.ts`. Both pass a factory, as `demo/main.ts` always did.
+   * What survives the correction is the conclusion: the escape hatch was cut for a
+   * caller that does not exist, and it was the only thing between an untrusted peer's
+   * module and this tab's main thread.
    */
   readonly createWorker: WorkerFactory
   /**
@@ -576,13 +580,14 @@ export class BrowserNode {
       // whose deletion this module's own comment records, one milestone earlier. And it
       // costs one argument.
       //
-      // **What checks it, stated plainly because the honest answer is uncomfortable.**
-      // The only thing this phase reads about this line is a count of one occurrence of
-      // the factory call's own name in this file — a substring count over source text,
-      // taken by `serve-agent-hooks.node.test.ts`. That count reads 1 whatever arguments
-      // are passed: `ownerId: sovereignty.ownerKey`, an `audience` derived from some
-      // other node, or a `now` that never advances all satisfy it. **The browser tier's
-      // authorizer behaviour is unmeasured.**
+      // **What checks it.** Two instruments, and the weaker one is named first because
+      // it is the one a reader will find by grepping. A count of one occurrence of the
+      // factory call's own name in this file — a substring count over source text, taken
+      // by `serve-agent-hooks.node.test.ts` — reads 1 whatever arguments are passed:
+      // `ownerId: sovereignty.ownerKey`, an `audience` derived from some other node, or a
+      // `now` that never advances all satisfy it. That file's argument-equality check
+      // catches those three, but only by requiring this call's text to match
+      // `fabric-node.ts`'s, so a defect planted identically in both would pass it.
       //
       // (The name is described rather than written out above, deliberately. The
       // instrument counts raw text across this whole file, comments included, and
@@ -591,15 +596,23 @@ export class BrowserNode {
       // write down for their own matchers, and the one this comment tripped over on
       // first draft.)
       //
-      // Why, and what would change it. `start-unwind.browser.test.ts` does start this
-      // factory to success in three engines, but with `relayAddrs: []` — and a tab
-      // listening on `['/p2p-circuit', '/webrtc']` alone, holding no relay reservation,
-      // has no address any peer can dial. Nothing can deliver a frame to the handler
-      // this hook sits behind. The two ways out, both larger than one plan: run a relay
-      // in the browser-project fixture and dispatch a sovereign task over it with and
-      // without a valid chain; or give `BrowserNodeOptions` an injectable `Transport`
-      // so a `MemoryNetwork` can stand in for libp2p — the same injection point Phase
-      // 17 needs for `privateKey`.
+      // **The behavioural one is `packages/node/src/browser-capability.e2e.test.ts`**,
+      // which dispatches three sovereign tasks to a live tab pinned to a real owner and
+      // reads the refusal *text* plus this node's own executor call count: a chain that
+      // is absent, one that has expired, and one that is valid, refused, refused and
+      // accepted, with the executor never called for either refusal. Mutation-ledger
+      // entry `M30` is that case planted against — transpose the two owner fields,
+      // hardcode the audience and freeze the clock, and it goes red because the tab then
+      // refuses for the wrong reason rather than the right one.
+      //
+      // The reason this stood unmeasured for four plans is worth leaving visible, because
+      // it was a false statement everybody inherited: *"a tab holding no relay reservation
+      // has no address any peer can dial, so it runs in neither vitest project"*. The
+      // **`browser`** project indeed cannot host it — a Circuit Relay v2 server *"will not
+      // work in browsers"* in `@libp2p/circuit-relay-v2`'s own words. The **`e2e`** project
+      // has no such limit, and it needs no relay at all: the tab dials a Node submitter's
+      // WebSocket listener directly, and the dispatch comes back along the connection the
+      // tab itself opened.
       authorize: authorizeCapability({
         ownerId: sovereignty.ownerId,
         ...(sovereignty.ownerKey === undefined ? {} : { ownerKey: sovereignty.ownerKey }),

@@ -99,30 +99,29 @@ describe('production serveAgent call sites state every hook explicitly', () => {
     // It counts a substring in source text, not a behaviour. It reads 1 for a call site
     // handing `ownerId: sovereignty.ownerKey`, or an `audience` derived from some other
     // node, or a `now` that never advances — measured, not supposed: Plan 15-03 planted
-    // exactly that scrambling and nothing in the repository moved. **The browser tier's
-    // authorizer behaviour is unmeasured** — do not cite this line as evidence that it
-    // works. The argument-level check in the next `it` was added in Plan 15-04 to catch
-    // that specific scrambling; read its comment for what it does and does not settle.
+    // exactly that scrambling and nothing in the repository moved. **Do not cite this
+    // line as evidence that the browser authorizer works.** Two other instruments do
+    // that: the argument-level check in the next `it` (Plan 15-04), and the behavioural
+    // one below.
     //
-    // Why it is unmeasured, corrected against source on 2026-07-31 (the phase plan's
-    // stated reason was that no test constructs a `BrowserNode`, and that is false —
-    // `start-unwind.browser.test.ts` starts one to success in three engines at its
-    // `:170` and `:195`). The real reason is narrower and survives that correction:
-    // those nodes start with `relayAddrs: []`, and a `BrowserNode` listens on
-    // `['/p2p-circuit', '/webrtc']` alone (`browser-node.ts:378`) after dialling each
-    // relay it was given (`:391`). A tab holding no relay reservation has no address any
-    // peer can dial, so nothing can deliver a frame to its `serveAgent` handler — which
-    // is what an authorizer would have to see to be measured. Corroborating greps:
-    // `grep -rln sovereign packages/browser/src packages/browser/demo` returns
-    // `browser-node.ts` alone, and the demo labels both its jobs `'public'`
-    // (`demo/main.ts:427`, `:630`), so no sovereign task is dispatched to a
-    // `BrowserNode` anywhere.
+    // **The behaviour is now measured, and this comment no longer claims otherwise.**
+    // `packages/node/src/browser-capability.e2e.test.ts` dispatches three sovereign
+    // tasks to a live tab pinned to a real owner — an absent chain, an expired one and a
+    // valid one — and reads the refusal text plus the tab's own executor call count.
+    // Mutation-ledger entry `M30` is 15-03's scrambling planted against it; it goes red.
     //
-    // What would measure it, so the next phase does not re-derive it: run a relay in the
-    // browser-project fixture and dispatch a sovereign task over it with and without a
-    // valid chain; or give `BrowserNodeOptions` an injectable `Transport` so a
-    // `MemoryNetwork` can stand in for libp2p — the same injection point Phase 17 needs
-    // for `privateKey`.
+    // The reason this stood unmeasured for four plans was a false statement everybody
+    // inherited, and it is left visible rather than quietly deleted. It read: those
+    // nodes start with `relayAddrs: []`, a `BrowserNode` listens on
+    // `['/p2p-circuit', '/webrtc']` alone, and a tab holding no relay reservation has no
+    // address any peer can dial, *"so it runs in neither vitest project"*. The last
+    // clause is the error. The **`browser`** project cannot host such a test, because a
+    // Circuit Relay v2 server *"will not work in browsers"* in
+    // `@libp2p/circuit-relay-v2`'s own words. The **`e2e`** project drives Playwright
+    // from Node and has neither limit — and needs no relay at all, because a relay
+    // exists to let two browsers exchange SDP and there is only one browser in that
+    // topology: the tab dials a Node submitter's WebSocket listener directly, and the
+    // dispatch returns along the connection the tab itself opened.
     expect(occurrences(BROWSER_NODE, "'serves-unauthenticated'")).toBe(0)
     expect(occurrences(BROWSER_NODE, 'authorizeCapability(')).toBe(1)
     expect(occurrences(BROWSER_NODE, "'serves-no-records'")).toBe(1)
@@ -130,10 +129,15 @@ describe('production serveAgent call sites state every hook explicitly', () => {
     expect(occurrences(BROWSER_NODE, "'relays-for-nobody'")).toBe(1)
     // The real callback is supplied, not the sentinel.
     expect(occurrences(BROWSER_NODE, "'reports-no-dispatch'")).toBe(0)
-    // SCHED-06, same burn-down as `fabric-node.ts` above. This factory's wiring is
-    // **unmeasured, not met**: `BrowserNode.start` needs a real `indexedDB` and a
-    // relay to dial, so it runs in neither vitest project, and this count is not
-    // allowed to stand in for running it. WIRE-03, Phase 19 builds that harness.
+    // SCHED-06, same burn-down as `fabric-node.ts` above. This factory's admission
+    // wiring is **unmeasured, not met**, and this count is not allowed to stand in for
+    // running it. The reason is no longer the one that stood here — *"`BrowserNode.start`
+    // needs a real `indexedDB` and a relay to dial, so it runs in neither vitest
+    // project"* was false, and the `e2e` project now starts this factory against a live
+    // tab in `browser-capability.e2e.test.ts`. What is still missing is narrower and is
+    // the whole of it: nothing drives an *over-committed* dispatch through a tab, so the
+    // number this node would refuse a requestor with has never been read. WIRE-03,
+    // Phase 19.
     expect(occurrences(BROWSER_NODE, "'accepts-every-offer'")).toBe(0)
   })
 
@@ -166,14 +170,17 @@ describe('production serveAgent call sites state every hook explicitly', () => {
     // **What it is not, stated so nobody over-reads it.** It cannot tell a correct
     // authorizer from an incorrect one; it can only tell a *divergent* one from a
     // convergent one. A defect planted identically in both factories passes this and
-    // every other check here. And it still says nothing whatever about a dispatch to a
-    // browser node, because no such dispatch exists — that half remains **unmeasured**,
-    // for the reason the previous `it` gives: a tab holding no relay reservation has no
-    // address any peer can dial, and the browser vitest project cannot run a Circuit
-    // Relay v2 server, which `@libp2p/circuit-relay-v2` states outright will not work in
-    // a browser. What would close *that* half is unchanged and larger than one plan: a
-    // relay in the browser-project fixture, or an injectable `Transport` on
-    // `BrowserNodeOptions` so a `MemoryNetwork` can stand in for libp2p.
+    // every other check here, and it says nothing whatever about a dispatch to a browser
+    // node. That limit is real and this check is kept for what it does cover.
+    //
+    // **What no longer stands is the claim that the other half is unmeasurable.** It
+    // read: no dispatch to a browser node exists, because a tab holding no relay
+    // reservation has no dialable address and the browser vitest project cannot run a
+    // Circuit Relay v2 server. The second clause is true and the conclusion drawn from
+    // it was not — the `e2e` project has neither constraint.
+    // `packages/node/src/browser-capability.e2e.test.ts` now dispatches to a live tab
+    // over a direct WebSocket the tab opened itself, with no relay in the topology at
+    // all, and reads three refusal texts and an executor call count against it.
     const fabric = authorizerArguments(FABRIC_NODE)
     const browser = authorizerArguments(BROWSER_NODE)
     // The positive control, and it is not decoration: without it, deleting *both* calls
