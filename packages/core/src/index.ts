@@ -92,6 +92,7 @@ export type {
   Admission,
   AdmissionControl,
   CapacityOptions,
+  NodeCapacity,
   Offer,
   OfferedPlacement,
   OfferOptions,
