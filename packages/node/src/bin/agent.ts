@@ -5,7 +5,8 @@
  * requests, and prints one JSON line describing how to reach it and who it says it is:
  *
  *   { "peerId": "12D3Koo…", "multiaddrs": ["/ip4/127.0.0.1/tcp/54321/p2p/12D3Koo…"],
- *     "trustAnchors": ["…"], "nodeKey": "…", "certificate": null, "issuerKey": null }
+ *     "trustAnchors": ["…"], "nodeKey": "…", "certificate": null, "issuerKey": null,
+ *     "peers": [] }
  *
  * The handshake is deliberately a single line on stdout rather than a fixed port or
  * a discovery service: the OS assigns the port, so parallel runs cannot collide,
@@ -20,9 +21,10 @@
  *
  * Every field on that line is **public by construction**: a peer id, listen addresses,
  * pinned build-authority public keys, this node's own public `nodeKey`, the whole of the
- * provider-signed certificate, and the public half of the provider key when this process
- * holds one. Nothing secret crosses it, and nothing secret may be added to it — a parent
- * process reads this line and so does anything that can read this process's stdout.
+ * provider-signed certificate, the public half of the provider key when this process
+ * holds one, and the peer ids this process dialled. Nothing secret crosses it, and
+ * nothing secret may be added to it — a parent process reads this line and so does
+ * anything that can read this process's stdout.
  *
  * `certificate` and `issuerKey` are **present and `null`** rather than absent when there
  * is nothing to report. An absent field and a stated absence read identically to
@@ -30,6 +32,14 @@
  * certificate rather than a summary, because a parent has to be able to compare what this
  * node advertised against what a peer fetches from it over the `records` request, and a
  * summary would make that comparison impossible.
+ *
+ * `peers` is the same rule applied to a third field, and it is **present and `[]`** when
+ * no `--peer-addr` was given rather than absent. A peer id is public by construction
+ * exactly as `peerId` and `nodeKey` above are — it is derived from a public key and is
+ * printed by every node in this repository — so publishing the ones this process reached
+ * discloses nothing. What it buys is that a parent knows the dial happened *before* it
+ * asserts anything about the dial's consequences: the line is written after the dials, so
+ * a parent that has read it is reading a completed peering rather than an intention.
  *
  * Adding a field is additive for existing parents: each reads only the keys it names.
  *
@@ -76,6 +86,15 @@ const { values } = parseArgs({
     // 15 does not depend on Phase 14 and must not block on it, so this is a third flag
     // rather than a refactor. Whichever phase touches this block next should fold all
     // three into one flags object rather than accreting a fourth.
+    //
+    // **Phase 18 accreted instead, and the reason is recorded here rather than left to
+    // look like an oversight.** Three plans in Phase 18 each add a flag to this same
+    // `parseArgs` object, in three different waves: 18-01's `--peer-addr` and
+    // `--max-concurrent-tasks`, 18-08's `--duty-cycle`, and 18-11's `--relay-addr`. A
+    // refactor landed in wave 1 would be re-litigated twice before the phase ended, and
+    // each re-litigation would touch a file two other plans hold open. The instruction is
+    // therefore carried forward rather than discharged: whichever phase touches this file
+    // next **with no other plan behind it** should do the fold.
     'owner-key': { type: 'string' },
     'can-execute-sovereign': { type: 'boolean', default: false },
     // DET-03/DATA-08's per-node build authority (`FabricNodeOptions.trustAnchors`),
@@ -160,6 +179,53 @@ const { values } = parseArgs({
     // node will run a module for, an issuer says whose *enrollment* signature it will
     // believe about a peer. A module and a peer are different subjects.
     'trusted-issuer': { type: 'string', multiple: true },
+    // AUTH-02's **accepting** half, across a real process boundary: the multiaddr of a peer
+    // this process dials once it is up, so a spawned node can be shown to *accept* a peer
+    // and not only to refuse one. Until this flag existed no phase could take that reading
+    // — `certificate-verification.node.test.ts` says so about itself, in the word
+    // "unmeasured" — because a verifier has to be connected to the peer it verifies and
+    // nothing on this binary made a spawned agent connect to anything.
+    //
+    // Repeatable, like `--trust-anchor` and `--trusted-issuer` above and for the identical
+    // reason: dialling two peers is ordinary configuration, and a comma-split string would
+    // be a parser nobody asked for.
+    //
+    // **It is not `--provider-addr`, and conflating the two would delete one of them.**
+    // That flag dials a provider to be certified, once; the connection's purpose ends with
+    // the certificate and no ongoing peering is established. This one establishes exactly
+    // that ongoing peering: the peer stays connected, `PeerVerifier` reaches a verdict on
+    // it, and — if the verdict is `ok` — `RpcBlockSource` may fetch blocks from it.
+    //
+    // Per-node setting, not a node kind: every agent process built by this binary has
+    // identical capability whether or not it is passed, the same sentence `--owner-id`,
+    // `--trust-anchor` and `--issues-certificates` each already carry. Being dialled and
+    // dialling are the same protocol seen from its two ends, so a node that was given this
+    // flag and a node that was not differ in what they *did*, never in what they can do.
+    //
+    // A multiaddr is public and goes on argv, unlike anything holding key material.
+    'peer-addr': { type: 'string', multiple: true },
+    // SCHED-06's slot limit (`FabricNodeOptions.maxConcurrentTasks`): how many tasks this
+    // node runs at once before it refuses an `exec` request with its own words. Three
+    // things about it.
+    //
+    // The option it reaches already carries the argument for why it is an option at all —
+    // *"a test that wants to observe [a refusal] has to be able to make one certain rather
+    // than hope for it"*. That argument only reached callers inside this process until now;
+    // a spawned agent could not be given a limit, so a later phase could not OBSERVE a
+    // refusal from one, only hope for one.
+    //
+    // A per-node capacity, not a node kind. A node with two slots serves exactly the same
+    // requests as one with sixty-four and nothing anywhere branches on the value — it just
+    // holds fewer at a time.
+    //
+    // **Passed straight through and never clamped.** The exit-2 check below refuses a bad
+    // value at the binary so an operator reads which input was rejected, and
+    // `LocalCapacity`'s own `RangeError` guard stays reachable for every other caller.
+    // Sanitising here would turn an operator's mistake into a silently different node.
+    //
+    // `type: 'string'` because `parseArgs` has no integer type; the parse and the range
+    // check are the validator below.
+    'max-concurrent-tasks': { type: 'string' },
     // AUTH-01/AUTH-04: this process holds a provider signing key, generated on-device into
     // `<dir>/.provider.key` on first start, and answers enrollment requests with a real
     // issuance decision instead of saying by name that it issues none.
@@ -180,7 +246,7 @@ const { values } = parseArgs({
 })
 
 const USAGE =
-  'usage: agent.ts --dir <blockstore-dir> [--port <n>] [--owner-id <id> [--owner-key <hex>] [--can-execute-sovereign]] [--trust-anchor <hex> ...] [--issues-certificates] [--provider-addr <multiaddr> --user-key <path> --operator-id <id>] [--trusted-issuer <hex> ...]\n'
+  'usage: agent.ts --dir <blockstore-dir> [--port <n>] [--owner-id <id> [--owner-key <hex>] [--can-execute-sovereign]] [--trust-anchor <hex> ...] [--issues-certificates] [--provider-addr <multiaddr> --user-key <path> --operator-id <id>] [--trusted-issuer <hex> ...] [--peer-addr <multiaddr> ...] [--max-concurrent-tasks <n>]\n'
 
 /**
  * The one exit-2 path, extended rather than duplicated.
@@ -215,6 +281,25 @@ if (values['provider-addr'] !== undefined) {
 for (const issuer of values['trusted-issuer'] ?? []) {
   if (parseKeyHex(issuer) === null) {
     refuse(`--trusted-issuer ${issuer} is not 64 lowercase hex characters`)
+  }
+}
+
+// **No second validator for `--peer-addr`'s format, deliberately.** `multiaddr()` throws on
+// a malformed address, and the dial loop's catch below turns that throw into the same named
+// refusal an unreachable address gets — so a bad multiaddr is already exit 2 with the value
+// in the message. A validator here would be a second parser sitting beside libp2p's own,
+// and the two would disagree the first time libp2p accepted a form this one had not heard
+// of. One refusal, composed by the parser that actually has to read the address.
+
+// SCHED-06: refused here rather than clamped, and the check is `LocalCapacity`'s own guard
+// restated against a string — integer, at least 1 — so the binary and the class cannot
+// disagree about which values exist. `Number` is what turns argv into the number that
+// reaches the option, so it is what the check has to run against; anything it reads as NaN
+// or as a fraction is named back with the value the operator actually typed.
+if (values['max-concurrent-tasks'] !== undefined) {
+  const slots = Number(values['max-concurrent-tasks'])
+  if (!Number.isInteger(slots) || slots < 1) {
+    refuse(`--max-concurrent-tasks ${values['max-concurrent-tasks']} is not an integer of at least 1`)
   }
 }
 
@@ -267,6 +352,13 @@ const node = await FabricNode.start({
   // different types. An absent flag must add no key at all.
   ...(enrollment === undefined ? {} : { enrollment }),
   ...(values['trusted-issuer'] === undefined ? {} : { trustedIssuers: values['trusted-issuer'] }),
+  // Validated above, so `Number` here cannot produce anything `LocalCapacity` would throw
+  // on — and the key is omitted entirely when the flag is absent, so the node takes
+  // `DEFAULT_MAX_CONCURRENT_TASKS` from `@o2/core` rather than a second copy of it stated
+  // here. Same conditional-spread idiom, same `exactOptionalPropertyTypes` reason.
+  ...(values['max-concurrent-tasks'] === undefined
+    ? {}
+    : { maxConcurrentTasks: Number(values['max-concurrent-tasks']) }),
   ...(values['owner-id'] === undefined
     ? {}
     : {
@@ -281,6 +373,45 @@ const node = await FabricNode.start({
         },
       }),
 })
+
+// AUTH-02: the peers this process was told to reach, dialled **after** `FabricNode.start`
+// has resolved and **before** the handshake line is written, so a parent that has read the
+// line knows every dial already succeeded.
+//
+// **Why this is here and not a `FabricNodeOptions` field.** `relayAddrs` already occupies
+// the factory position and means something else entirely: it asks libp2p for a
+// *reservation* and switches this node into the browser topology, changing how the node is
+// reachable. A plain peer dial changes nothing about this node's own reachability, so it
+// belongs at the call site rather than in the factory. Plan 18-11 adds `--relay-addr` for
+// the other meaning; two flags, deliberately, because they are two mechanisms.
+//
+// **Nothing has to be seeded for the verdict to land.** `PeerVerifier` subscribes to
+// `peer:connect` when the factory builds it, which is strictly before `start` resolves, so
+// a peer dialled here is caught by that subscription like any other.
+//
+// The peer id is read off the `Connection` rather than parsed out of the configured string,
+// for the reason `fabric-node.ts` states where it collects `relayPeerIds`: a peer id read
+// off a connection is the peer actually **reached**, one parsed out of a string is a claim
+// about who was *meant* to be. This line reports the first kind.
+const peers: string[] = []
+for (const address of values['peer-addr'] ?? []) {
+  try {
+    peers.push(await node.dial(address))
+  } catch (cause) {
+    // Stop before refusing. `refuse` calls `process.exit(2)`, and a started node holds a
+    // bound socket, a worker thread and two libp2p listeners; `FabricNode.start`'s own
+    // `undo` stack covers a failure *inside* it and does not cover one after it returned.
+    //
+    // The stop is swallowed rather than awaited bare: a `stop()` that itself rejects would
+    // replace this named refusal with an unhandled rejection and a different exit code,
+    // turning "the address could not be dialled" into no statement at all. Shutdown is
+    // best-effort here; the refusal is not.
+    await node.stop().catch(() => {})
+    refuse(
+      `--peer-addr ${address} could not be dialled: ${cause instanceof Error ? cause.message : String(cause)}`,
+    )
+  }
+}
 
 // The parent waits for exactly this line before dialling.
 //
@@ -297,6 +428,10 @@ const node = await FabricNode.start({
 // `peerId`, so the certificate is demonstrably about the key the peer id is derived from.
 // See the module comment for why all three are always present and why `null` is stated
 // rather than omitted.
+//
+// `peers` is read the same way and carries the same guarantee: `[]` is a statement that
+// this process reached nobody, not the absence of a statement, and every entry in it came
+// off a `Connection` that was actually established.
 process.stdout.write(
   `${JSON.stringify({
     peerId: node.peerId,
@@ -305,6 +440,7 @@ process.stdout.write(
     nodeKey: node.nodeKey,
     certificate: node.certificate,
     issuerKey: node.issuerKey,
+    peers,
   })}\n`,
 )
 

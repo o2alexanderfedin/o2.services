@@ -33,16 +33,24 @@ import { FsBlockstore } from './fs-blockstore.ts'
  * measures the code path somebody thought to instrument, and a dead process measures every
  * path there is — and it is the technique Plan 17-03 used to prove certificate reuse.
  *
- * ## The half of criterion 2 this file cannot reach, said before anything else
+ * ## The half of criterion 2 this file cannot reach — closed elsewhere, since Phase 18
  *
- * The **verifying** node below is a `FabricNode` in the test process, not a spawned one.
- * `bin/agent.ts` has **no flag that makes a spawned agent dial another agent** — the only
- * outbound dial it can be told to make is `--provider-addr`, which also enrols — and a
- * verifier has to be connected to the peers it verifies. So criterion 2's **accepting**
- * side is **UNMEASURED through `bin/agent.ts`**, in those words, and is measured here in
- * process. Descoped is not satisfied; unmeasured is not met. What would close it is a
- * dial/bootstrap-address flag on the binary — a real production need, and Phase 18's
- * bootstrap work rather than this phase's.
+ * The **verifying** node below is a `FabricNode` in the test process, not a spawned one,
+ * and this file measures criterion 2's accepting side in process only.
+ *
+ * When this file was written `bin/agent.ts` had **no flag that made a spawned agent dial
+ * another agent** — the only outbound dial it could be told to make was `--provider-addr`,
+ * which also enrols — and a verifier has to be connected to the peers it verifies. So the
+ * accepting side was recorded here as **UNMEASURED through `bin/agent.ts`**, in that word,
+ * and the remedy named was a dial-address flag on the binary.
+ *
+ * **Plan 18-01 added it, and the reading is now taken.** `--peer-addr` makes a spawned
+ * agent dial a named peer, and `packages/node/src/peer-dial.node.test.ts` measures a
+ * spawned node accepting a dialled peer's provider-signed certificate — through
+ * `RpcBlockSource`, over a block that exists in exactly one blockstore, with a
+ * different-issuer negative control and a no-anchor control on the same wire. This file's
+ * in-process reading is retained rather than deleted: it is the one that kills both
+ * authorities first, which the cross-process file does not do for its no-anchor control.
  *
  * What **is** measured across a real process boundary is `--trusted-issuer` itself and the
  * fail-closed gate it turns on: the last test spawns one agent with the flag and one
@@ -366,8 +374,11 @@ describe('AUTH-02 — --trusted-issuer measured through two spawned processes', 
    *
    * **What this covers and what it does not.** It covers the gate, fail-closed, in a real
    * process. It does **not** cover a spawned verifier *accepting* a certificate — that
-   * needs the spawned agent connected to an enrolled peer, and `bin/agent.ts` has no flag
-   * that makes it dial one. Unmeasured, in that word.
+   * needs the spawned agent connected to an enrolled peer. Since Plan 18-01 that is what
+   * `--peer-addr` does, and the accepting reading lives in
+   * `packages/node/src/peer-dial.node.test.ts`. Neither file is asked to carry the other:
+   * this one connects both agents to a peer that can never be verified by anybody, which
+   * is what makes its refusal a property of the flag rather than of the peer.
    */
   it('a spawned agent given --trusted-issuer refuses an unverifiable peer as a block source, and an identical one without it does not', async () => {
     // A real issuer key to pin, obtained from a provider process rather than invented, so
