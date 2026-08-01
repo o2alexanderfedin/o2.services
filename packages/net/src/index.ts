@@ -18,6 +18,10 @@ export type { AgentRequest, AgentResponse } from './protocol.ts'
 // come to be trusted on terms the wire would have refused.
 export { parseCertificate } from './protocol.ts'
 
+// Enrollment over the fabric's own protocol — AUTH-01, AUTH-04.
+export { enrolOverRpc, UNREACHABLE_PROVIDER } from './enrol-client.ts'
+export type { EnrolOutcome } from './enrol-client.ts'
+
 export { blockCid, FetchingBlockstore } from './block.ts'
 export type { BlockSource } from './block.ts'
 
