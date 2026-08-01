@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>o2 capability harness</title>
+  </head>
+  <body>
+    <!--
+      A test-only page. It is NOT the demo and is deliberately outside `demo/`, which is
+      the only directory `packages/browser/vite.config.ts` roots its production build at
+      — so nothing here can reach a built bundle.
+
+      It renders no surface and asks for no consent, because it is not a page a visitor
+      opens: `BROW-01`'s gate guards `window.o2`, and this page does not install one.
+      The harness it loads constructs a `BrowserNode` directly, which is the factory
+      under test.
+
+      The module lives under `src/` rather than beside this file so that `tsc` and
+      `purity.node.test.ts` both see it — `tsconfig.json` includes
+      `packages/*/src/**/*.ts` and `packages/*/demo/**/*.ts`, and a harness directory is
+      neither.
+    -->
+    <p>o2 capability harness — driven by <code>packages/node/src/browser-capability.e2e.test.ts</code>.</p>
+    <script type="module" src="/packages/browser/src/capability-harness.ts"></script>
+  </body>
+</html>
