@@ -66,7 +66,7 @@ function authorizerArguments(source: string): readonly string[] {
 }
 
 describe('production serveAgent call sites state every hook explicitly', () => {
-  it('fabric-node.ts: real authorizer, real reservations, real admission, three sentinels', () => {
+  it('fabric-node.ts: real authorizer, real reservations, real admission, four sentinels', () => {
     // AUTH-03 burned this one down. A zero on its own is also what deleting the
     // `serveAgent` call entirely produces, so it is only read next to the positive
     // count of what replaced it — the `'relays-for-nobody'` pattern three lines below.
@@ -81,6 +81,10 @@ describe('production serveAgent call sites state every hook explicitly', () => {
     expect(occurrences(FABRIC_NODE, "'serves-no-records'")).toBe(1)
     expect(occurrences(FABRIC_NODE, "'keeps-no-ledger'")).toBe(1)
     expect(occurrences(FABRIC_NODE, "'reports-no-dispatch'")).toBe(1)
+    // AUTH-01. A burn-down heading for 0 on a node started with a provider key, and
+    // the correct value for every node that was not — this factory has no way to be
+    // given one until Plan 17-03, so 1 is what a truthful node says today.
+    expect(occurrences(FABRIC_NODE, "'issues-no-certificates'")).toBe(1)
     // The already-fixed wire — the real thunk is supplied, not the sentinel.
     expect(occurrences(FABRIC_NODE, "'relays-for-nobody'")).toBe(0)
     // SCHED-06 burned this one down: the factory constructs a real `LocalCapacity`.
@@ -91,7 +95,7 @@ describe('production serveAgent call sites state every hook explicitly', () => {
     expect(occurrences(FABRIC_NODE, "'accepts-every-offer'")).toBe(0)
   })
 
-  it('browser-node.ts: real onDispatch, real admission, three sentinels', () => {
+  it('browser-node.ts: real onDispatch, real admission, four sentinels', () => {
     // AUTH-03, and **this pair is worth much less than the `FABRIC_NODE` pair above.**
     // Stated here rather than left for a reader to assume symmetry, because the two
     // lines look identical and are not:
@@ -127,6 +131,12 @@ describe('production serveAgent call sites state every hook explicitly', () => {
     expect(occurrences(BROWSER_NODE, "'serves-no-records'")).toBe(1)
     expect(occurrences(BROWSER_NODE, "'keeps-no-ledger'")).toBe(1)
     expect(occurrences(BROWSER_NODE, "'relays-for-nobody'")).toBe(1)
+    // AUTH-01, and the same count as `fabric-node.ts` deliberately. A browser node
+    // issues certificates on identical terms to any other node; it has no signing key
+    // here for the same reason the Node factory has none, which is that neither is
+    // given one until Plan 17-03. If this row ever diverges from the `FABRIC_NODE` row
+    // above without a stated reason, something has started keying on node kind.
+    expect(occurrences(BROWSER_NODE, "'issues-no-certificates'")).toBe(1)
     // The real callback is supplied, not the sentinel.
     expect(occurrences(BROWSER_NODE, "'reports-no-dispatch'")).toBe(0)
     // SCHED-06, same burn-down as `fabric-node.ts` above. This factory's admission
@@ -189,7 +199,7 @@ describe('production serveAgent call sites state every hook explicitly', () => {
     expect(browser).toEqual(fabric)
   })
 
-  it('bin/bench.ts: two call sites, real admission at both, five sentinels twice', () => {
+  it('bin/bench.ts: two call sites, real admission at both, six sentinels twice', () => {
     // **Two is the permanent correct value here, not a pending item.** The other two
     // production factories burned this count to 0 in Phase 15; this driver does not,
     // and a reader comparing the three rows would otherwise read this as unfinished
@@ -214,6 +224,34 @@ describe('production serveAgent call sites state every hook explicitly', () => {
     expect(occurrences(BENCH, "'keeps-no-ledger'")).toBe(2)
     expect(occurrences(BENCH, "'relays-for-nobody'")).toBe(2)
     expect(occurrences(BENCH, "'reports-no-dispatch'")).toBe(2)
+    // AUTH-01. Two, one per call site — a benchmark driver signs nothing.
+    expect(occurrences(BENCH, "'issues-no-certificates'")).toBe(2)
+  })
+
+  it('bench/src/perf-workload.ts: the third production serveAgent file', () => {
+    // **Not named in 17-02-PLAN.md, whose interfaces table listed four production
+    // `serveAgent` sites across three files.** There are six, across four. This file
+    // holds two of them, and it was found the same way the `RemoteExecutor` row at the
+    // bottom of this file was found one phase earlier: by re-grepping rather than
+    // trusting a plan's count. That row's own comment records the identical miss
+    // ("counted two production sites... recorded here so the next reader inherits
+    // three"), which makes this the second occurrence of one class of defect — a
+    // hand-maintained inventory of call sites drifting from the repository.
+    //
+    // The lesson worth inheriting: `tsc --noEmit` is what actually establishes that
+    // every site states the hook, because a required property cannot be omitted
+    // anywhere. These counts state which *choice* each site wrote down; they are not
+    // the proof that the set is complete.
+    expect(occurrences(PERF_WORKLOAD, "'serves-unauthenticated'")).toBe(2)
+    expect(occurrences(PERF_WORKLOAD, "'serves-no-records'")).toBe(2)
+    expect(occurrences(PERF_WORKLOAD, "'keeps-no-ledger'")).toBe(2)
+    expect(occurrences(PERF_WORKLOAD, "'relays-for-nobody'")).toBe(2)
+    expect(occurrences(PERF_WORKLOAD, "'reports-no-dispatch'")).toBe(2)
+    expect(occurrences(PERF_WORKLOAD, "'issues-no-certificates'")).toBe(2)
+    // Real admission at both, like the other two drivers — the other half of the
+    // fact, because a zero above is also what deleting a call site produces.
+    expect(occurrences(PERF_WORKLOAD, "'accepts-every-offer'")).toBe(0)
+    expect(occurrences(PERF_WORKLOAD, 'new LocalCapacity(')).toBe(2)
   })
 })
 

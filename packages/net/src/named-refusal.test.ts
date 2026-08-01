@@ -115,6 +115,7 @@ function servingNode(nodeId: string, faulty: Faulty = {}): Node {
     egress: { guard, sovereignInputs: new MemoryBlockstore() },
     authorize: 'serves-unauthenticated',
     index: faulty.index ?? 'serves-no-records',
+    enroll: 'issues-no-certificates',
     capacity: 'accepts-every-offer',
     ledger: 'keeps-no-ledger',
     reservations: 'relays-for-nobody',

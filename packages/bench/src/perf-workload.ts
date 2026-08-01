@@ -191,6 +191,8 @@ async function memoryRig(nodes: number): Promise<Rig> {
     egress: 'holds-no-registrations',
     authorize: 'serves-unauthenticated',
     index: 'serves-no-records',
+    // AUTH-01: this process holds no provider signing key.
+    enroll: 'issues-no-certificates',
     capacity: new LocalCapacity({ nodeId: 'requestor', maxConcurrent: GATE_ADMISSION_LIMIT }),
     ledger: 'keeps-no-ledger',
     reservations: 'relays-for-nobody',
@@ -212,6 +214,8 @@ async function memoryRig(nodes: number): Promise<Rig> {
       egress: 'holds-no-registrations',
       authorize: 'serves-unauthenticated',
       index: 'serves-no-records',
+      // AUTH-01: this process holds no provider signing key.
+      enroll: 'issues-no-certificates',
       // One per worker, never one shared: `serveAgent` keys a slot on
       // `inputCid:partitionIndex` and both replicas of a shard carry the same key, so a
       // counter shared across workers would refuse the second replica of every shard —
