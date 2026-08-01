@@ -78,7 +78,25 @@ describe('production serveAgent call sites state every hook explicitly', () => {
     // corroboration exists.
     expect(occurrences(FABRIC_NODE, "'serves-unauthenticated'")).toBe(0)
     expect(occurrences(FABRIC_NODE, 'authorizeCapability(')).toBe(1)
-    expect(occurrences(FABRIC_NODE, "'serves-no-records'")).toBe(1)
+    // SCHED-01 / owner ruling D1 burned this one down: the factory hands `serveAgent` a
+    // `SelfRecordIndex` on every path, so there is no longer a node it can build that has
+    // nothing to answer. A node with no certificate answers `records: null` and a real
+    // provider list — two truthful statements rather than one refusal to speak.
+    //
+    // **A count lowered to zero with nothing replacing it is a guarantee deleted.** The
+    // assertion below it is what makes this pair a statement about the *hook* rather than
+    // about a string that happened to vanish: zero alone is equally satisfied by deleting
+    // the `index:` line, or the whole `serveAgent` call.
+    //
+    // The trailing comma in the needle is load-bearing and was measured, not assumed.
+    // `occurrences` matches a literal substring, and the pre-plan text
+    // `index: records ?? 'serves-no-records',` *contains* `index: records` — so without
+    // the comma this assertion reads 1 both before and after the change and discriminates
+    // nothing. 18-03-PLAN.md's proof block claims the sentinel form makes it read 0; that
+    // was planted and read **1**. With the comma it reads 0 for the sentinel form and 1
+    // for this one, which is the reddening the plan intended.
+    expect(occurrences(FABRIC_NODE, "'serves-no-records'")).toBe(0)
+    expect(occurrences(FABRIC_NODE, 'index: records,')).toBe(1)
     expect(occurrences(FABRIC_NODE, "'keeps-no-ledger'")).toBe(1)
     expect(occurrences(FABRIC_NODE, "'reports-no-dispatch'")).toBe(1)
     // AUTH-01. A burn-down heading for 0 on a node started with a provider key, and
@@ -128,7 +146,18 @@ describe('production serveAgent call sites state every hook explicitly', () => {
     // dispatch returns along the connection the tab itself opened.
     expect(occurrences(BROWSER_NODE, "'serves-unauthenticated'")).toBe(0)
     expect(occurrences(BROWSER_NODE, 'authorizeCapability(')).toBe(1)
-    expect(occurrences(BROWSER_NODE, "'serves-no-records'")).toBe(1)
+    // SCHED-01 / owner ruling D1, and **the same count as `fabric-node.ts` deliberately**,
+    // for the reason the `'issues-no-certificates'` row below already gives: holding blocks
+    // is not a capability enrollment confers and it is not a capability a *tier* confers
+    // either. If this row ever diverges from the `FABRIC_NODE` row above without a stated
+    // reason, something has started keying on node kind — which is the failure Phases 16
+    // and 17 each shipped once.
+    //
+    // Paired with the positive for the same reason, and with the same comma: see the
+    // `FABRIC_NODE` block above for why the needle is `index: records,` and not
+    // `index: records`.
+    expect(occurrences(BROWSER_NODE, "'serves-no-records'")).toBe(0)
+    expect(occurrences(BROWSER_NODE, 'index: records,')).toBe(1)
     expect(occurrences(BROWSER_NODE, "'keeps-no-ledger'")).toBe(1)
     expect(occurrences(BROWSER_NODE, "'relays-for-nobody'")).toBe(1)
     // AUTH-01, and the same count as `fabric-node.ts` deliberately. A browser node
