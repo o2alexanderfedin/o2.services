@@ -219,8 +219,26 @@ async function spawnRefusal(name: string, extraArgs: readonly string[]): Promise
     )
     let stdout = ''
     let stderr = ''
+    const done = (error: Error): void => {
+      clearTimeout(timer)
+      child.kill('SIGKILL')
+      reject(error)
+    }
     child.stdout.on('data', (chunk: Buffer) => {
       stdout += chunk.toString()
+      // **Fail fast, and name what happened.** A whole handshake line means the process
+      // started a node instead of refusing — which is the defect these tests exist to
+      // catch, and waiting out the announce budget to report it as an anonymous timeout
+      // would hide the one fact a reader of a red run needs. The line is quoted back,
+      // because `peers: []` for an address that was never reached is the exact silent
+      // absence the refusal prevents.
+      if (stdout.includes('\n')) {
+        done(
+          new Error(
+            `agent ${name} announced instead of refusing: ${stdout.slice(0, stdout.indexOf('\n'))}`,
+          ),
+        )
+      }
     })
     child.stderr.on('data', (chunk: Buffer) => {
       stderr += chunk.toString()
