@@ -140,53 +140,7 @@ describe('MR-06 — a combine reply says what happened, or is refused', () => {
   })
 })
 
-describe('MR-06 — the eighth kind does not fall through to the exec branch', () => {
-  it('answers the null arm with a stated reason', async () => {
-    const network = new MemoryNetwork()
-    const store = new MemoryBlockstore()
-
-    // A combine must never reach the exec branch, which would read `request.task`.
-    const never: Executor = {
-      nodeId: 'w0',
-      async execute() {
-        throw new Error('the exec branch ran for a combine request')
-      },
-    }
-
-    const serverRpc = new RpcEndpoint(network.connect('w0'), { timeoutMs: 5_000 })
-    serveAgent({
-      rpc: serverRpc,
-      executor: never,
-      blockstore: store,
-      egress: 'holds-no-registrations',
-      authorize: 'serves-unauthenticated',
-      index: 'serves-no-records',
-      capacity: 'accepts-every-offer',
-      ledger: 'keeps-no-ledger',
-      reservations: 'relays-for-nobody',
-      onDispatch: 'reports-no-dispatch',
-    })
-
-    const client = new RpcEndpoint(network.connect('client'), { timeoutMs: 5_000 })
-    const reply = parseResponse(
-      await client.request(
-        'w0',
-        encodeRequest({
-          kind: 'combine',
-          combineId: 'node-a',
-          inputCids: await cids(2),
-          level: 1,
-        }),
-      ),
-    )
-
-    // The null arm and not an `error` frame: the frame parsed, so this is a combine
-    // that could not be run — exactly what the ranking walk expects. Plan 16-02
-    // replaces both the branch and this assertion.
-    expect(reply).toEqual({
-      kind: 'combine',
-      resultCid: null,
-      reason: 'combine not implemented in this build',
-    })
-  })
-})
+// Plan 16-01's placeholder branch — and the `describe` that asserted its reply — are
+// gone. The branch now runs the real handler, and what a node *does* with a combine is
+// judged in `combine.test.ts`, where a fabric exists to judge it against. Leaving a
+// test that asserts a stub's reply is how a stub survives its own replacement.

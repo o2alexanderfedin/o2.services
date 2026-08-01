@@ -34,6 +34,14 @@ export type { CapabilityAuthorizerOptions } from './capability-authorizer.ts'
 export { remoteDispatch } from './churn.ts'
 export type { RemoteDispatchOptions } from './churn.ts'
 
+// Dispatching a combine over RPC — MR-05, MR-06.
+export { remoteCombineDispatch } from './combine.ts'
+export type { RemoteCombineOptions } from './combine.ts'
+
+// Turning a JobResult into a reduce over connected peers — MR-04…MR-07.
+export { reduceJob } from './reduce-job.ts'
+export type { ReduceJobOptions, ReduceJobResult } from './reduce-job.ts'
+
 // Discovery and admission over RPC — SCHED-01, SCHED-03, NET-06.
 export { DEFAULT_PROBE_TIMEOUT_MS, RpcRecordIndex, rpcAdmission } from './discovery.ts'
 export type { AdmissionOptions } from './discovery.ts'

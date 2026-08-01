@@ -10,7 +10,7 @@
  */
 
 import type { CID } from 'multiformats/cid'
-import { encodeCanonical } from '@o2/core'
+import { MAX_PARTIAL_BYTES, canonicalCid, decodeCanonical, encodeCanonical, fabricCombiner } from '@o2/core'
 import type {
   Blockstore,
   CanonicalValue,
@@ -24,7 +24,7 @@ import type {
 import type { BlockSource } from './block.ts'
 import type { EgressGuard } from './egress.ts'
 import { encodeRequest, encodeResponse, parseRequest, parseResponse } from './protocol.ts'
-import type { AgentResponse } from './protocol.ts'
+import type { AgentRequest, AgentResponse } from './protocol.ts'
 import type { RpcEndpoint, RpcReply } from './rpc.ts'
 import { takeSovereignHold } from './sovereign-egress.ts'
 
@@ -227,7 +227,137 @@ function refusedReason(
   return violated === null ? null : `egress refused: ${violated} on ${nodeId}`
 }
 
-/** Install the request handler that makes this endpoint a serving node. */
+/**
+ * Merge the partials a `combine` request names — MR-03, MR-05, MR-06.
+ *
+ * Kept out of line so the handler ladder below stays readable, and kept *in* the
+ * ladder rather than beside the `exec` branch because a combine returns a plain body:
+ * a combine's inputs are partials, and only the executing node of a **map** task
+ * registers a sovereign payload (`takeSovereignHold`, wired at both production
+ * factories), so there is no registration outstanding against a combine reply to
+ * release and therefore no `afterSent` to schedule.
+ *
+ * Every failure is the `{resultCid: null, reason}` arm and never an `error` frame. The
+ * distinction is the retry policy: an `error` is a *node* condition and a combine that
+ * could not be run is exactly the fallthrough signal `executeReduce`'s ranking walk
+ * consumes, which moves to the next executor in the ranking.
+ *
+ * ---
+ *
+ * **Fetch amplification on this frame: bounded, accepted, and not closed.** This
+ * handler is where an unauthenticated `combine` turns into work, so the disposition
+ * belongs here rather than at the parser that flagged it.
+ *
+ * What actually bounds it, all three measurable:
+ *
+ * 1. `MAX_COMBINE_INPUTS` bounds *k* at the **parser** — a frame naming more inputs
+ *    than that never becomes a request, so this function is never entered for one.
+ * 2. The loop below is **sequential with an early return**, never a `Promise.all`. The
+ *    first input this node refuses ends the frame's cost at the inputs before it, so a
+ *    frame naming 64 CIDs whose second is oversized costs two reads and not 64. That
+ *    is a property of the loop's shape, and it is asserted in `combine.test.ts`.
+ * 3. A node with a real `Authorizer` pays **zero** reads, because the refusal below
+ *    happens before the loop is entered.
+ *
+ * What is **not** closed, stated rather than left to be inferred: a node serving
+ * unauthenticated still answers up to `MAX_COMBINE_INPUTS` reads per frame, and each
+ * read through a `FetchingBlockstore` has by then already pulled the block over the
+ * wire, hash-verified it and written it to the local store. So `MAX_PARTIAL_BYTES`
+ * below bounds what this node will **merge**, never what a peer can make it transfer
+ * or keep. There *is* a wire ceiling underneath and it is worth naming precisely so
+ * nobody reads more into this than it carries: NET-08 has landed, and
+ * `MAX_INBOUND_MESSAGE_BYTES` (`@o2/libp2p`) bounds any single inbound message with a
+ * per-peer cap on concurrent accumulation beside it. NET-08 bounds *one message*;
+ * `MAX_COMBINE_INPUTS` bounds *how many* one frame may provoke. No product of the two
+ * is written here — a residency figure nobody measured against a running node is not a
+ * guarantee. This surface is the same *kind* the `exec` and `block` branches already
+ * present, and the general answer to it is per-request admission (SCHED-06), not a
+ * second bound invented for this branch alone.
+ */
+async function runCombine(
+  request: Extract<AgentRequest, { readonly kind: 'combine' }>,
+  options: AgentOptions,
+): Promise<AgentResponse> {
+  // Authorisation, before any block is read.
+  //
+  // `Authorizer` takes `{task, capability}` and a combine has no `Task`, so the
+  // existing hook cannot be consulted about one. The choice is therefore between
+  // serving combines unauthenticated on a node that authenticates everything else,
+  // and refusing — and refusing is the direction a gap should fail in.
+  //
+  // Every production call site passes the sentinel today, so this is a no-op now and
+  // becomes a real refusal the moment a node is given a real `Authorizer`. Closing it
+  // properly is **AUTH-03 (Phase 15)**: whatever capability shape `exec` gets, a
+  // combine should reuse it rather than grow a second admission path beside it. Named
+  // here so the person who closes AUTH-03 finds this line.
+  if (options.authorize !== 'serves-unauthenticated') {
+    return {
+      kind: 'combine',
+      resultCid: null,
+      reason: 'combine requires a capability chain this build cannot verify',
+    }
+  }
+
+  const inputs: CanonicalValue[] = []
+  for (const cid of request.inputCids) {
+    const bytes = await options.blockstore.get(cid)
+    if (bytes === undefined) {
+      return { kind: 'combine', resultCid: null, reason: `combine input ${cid.toString()} not held and not obtainable` }
+    }
+    // `MAX_PARTIAL_BYTES`' first production reader — it had none before this branch,
+    // and a bound nothing enforces is a comment. What it bounds is what this node will
+    // **merge**; see this function's header for what it deliberately does not bound.
+    // Its own docstring carries the reason for the value: a partial that outgrows this
+    // has stopped being a summary and started being data, which is also a sovereignty
+    // problem.
+    if (bytes.byteLength > MAX_PARTIAL_BYTES) {
+      return {
+        kind: 'combine',
+        resultCid: null,
+        reason: `combine input ${cid.toString()} is ${bytes.byteLength} bytes, over the ${MAX_PARTIAL_BYTES} byte partial budget`,
+      }
+    }
+    let decoded: CanonicalValue
+    try {
+      decoded = decodeCanonical(bytes)
+    } catch {
+      return { kind: 'combine', resultCid: null, reason: `combine input ${cid.toString()} did not decode` }
+    }
+    inputs.push(decoded)
+  }
+
+  // `fabricCombiner` is total: a value `asFabricPartial` rejects contributes zero
+  // rather than throwing, because bytes that arrived from a peer must not be able to
+  // abort a combine every other contributor answered honestly. That is the *wire*
+  // disposition of the pair — `reduceJob` takes the other one.
+  const hashed = await canonicalCid(fabricCombiner(inputs))
+  if (!hashed.ok) {
+    return {
+      kind: 'combine',
+      resultCid: null,
+      reason: `combine result is not encodable: ${JSON.stringify(hashed.error)}`,
+    }
+  }
+  // The put is what makes the result retrievable by CID like any other block, and it
+  // is what makes a late duplicate free: same inputs, same bytes, same CID, no second
+  // entry. It writes to this node's own local tier and nowhere else — the requestor
+  // fetches it back deliberately, by CID, from this peer (`remoteCombineDispatch`).
+  await options.blockstore.put(hashed.bytes)
+  return { kind: 'combine', resultCid: hashed.cid, reason: '' }
+}
+
+/**
+ * Install the request handler that makes this endpoint a serving node.
+ *
+ * A node that serves also **combines**, unconditionally and with no option to say
+ * otherwise. Combining is not a capability a node can lack: if it were,
+ * `executeReduce`'s rendezvous ranking would be selecting among nodes that differ in
+ * what they can do, which is the one thing this project has ruled out. So the combine
+ * branch takes no new `AgentOptions` field — it uses the `blockstore` this function
+ * already takes and the fabric's single `fabricCombiner`. See `AgentOptions`' per-field
+ * docs for the shared reasoning it follows: the only difference between nodes is
+ * discovery.
+ */
 export function serveAgent(options: AgentOptions): void {
   const { rpc, executor, blockstore } = options
 
@@ -325,14 +455,10 @@ export function serveAgent(options: AgentOptions): void {
           ? { kind: 'offer', accepted: true, reason: '' }
           : { kind: 'offer', accepted: false, reason: decision.reason }
     } else if (request.kind === 'combine') {
-      // Placeholder, and it exists for a type-system reason rather than a design
-      // one: the final `else` narrows by exhaustion, so an eighth kind that is not
-      // caught here reaches code that reads `request.task`. Plan 16-02 replaces this
-      // whole branch with the real handler. Answering the null arm rather than an
-      // `error` frame is deliberate: the frame parsed, so this is a combine that
-      // could not be run, which is exactly what `executeReduce`'s ranking walk
-      // expects.
-      response = { kind: 'combine', resultCid: null, reason: 'combine not implemented in this build' }
+      // MR-03 / MR-05 / MR-06. A plain body, not an `RpcReply` — see `runCombine`'s
+      // header for why a combine has no egress hold to give back, and for this
+      // frame's fetch-amplification disposition.
+      response = await runCombine(request, options)
     } else {
       // SCHED-06 — admission, on the branch that actually costs a
       // `WebAssembly.compile` plus an `instantiate` plus a linear memory.
