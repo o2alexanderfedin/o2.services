@@ -873,21 +873,22 @@ async function main(): Promise<void> {
         ' fanout across the sweep would make the other two informative and was rejected' +
         ' for a stated reason: rungs walking differently-shaped trees have incomparable' +
         ' reduce timings, which is the only thing the reduce table is for.',
-      '**The real-transport reduce is NOT measured, and its every row is an em dash for' +
-        ' one named reason rather than for a missing feature.** `serveAgent`’s combine' +
-        ' branch refuses outright unless its `authorize` hook is the' +
-        ' `serves-unauthenticated` sentinel — a deliberate fail-closed gap, since an' +
-        ' `Authorizer` takes a `Task` and a combine has none, so a node that' +
-        ' authenticates everything else cannot be asked about a combine. Every' +
-        ' `FabricNode` supplies a real `authorizeCapability`, so every node in the' +
-        ' real-transport rig answers `combine requires a capability chain this build' +
-        ' cannot verify`. Measured on this run, not inferred: every combine at level 1' +
-        ' failed, `combines: 0`, `failed: 5`, `executedBy: 0`, `rootCid: null`. The' +
-        ' memory-transport rig passes the sentinel and is measured normally, so the two' +
-        ' reduce curves are **not** comparable and no connectivity tax is computed over' +
-        ' them. Closing it is **AUTH-03, Phase 15** — whatever capability shape `exec`' +
-        ' gets, `combine` reuses it. Nothing here was weakened to produce a populated' +
-        ' row; an em dash is the honest rendering of a refusal.',
+      '**The real-transport reduce refusal that emptied this table on 2026-08-01 has been' +
+        ' removed, and the rows below are whatever the run above actually produced.**' +
+        ' Recorded rather than deleted, because a reader comparing two dated artifacts' +
+        ' must be able to tell a figure that changed from a figure that was replaced. What' +
+        ' the previous run published here: every real-transport row an em dash, because' +
+        ' `serveAgent`’s combine branch refused outright unless its `authorize` hook was' +
+        ' the `serves-unauthenticated` sentinel, and every `FabricNode` supplies a real' +
+        ' `authorizeCapability` — so every node in the real-transport rig answered' +
+        ' `combine requires a capability chain this build cannot verify`, measured as' +
+        ' `combines: 0`, `failed: 5`, `executedBy: 0`, `rootCid: null`. 16-05 routed a' +
+        ' combine through `options.authorize` like every other request, so a combine is' +
+        ' now admitted or refused by the node’s own authorizer rather than by a branch' +
+        ' keyed on whether the node had one. **An em dash in this table therefore no' +
+        ' longer means "refused"** — it means that rung produced no reduce at all, and the' +
+        ' excluded list below is where its reason is named. The two reduce curves are' +
+        ' comparable only across rungs both transports measured.',
     ],
     excluded,
   }
