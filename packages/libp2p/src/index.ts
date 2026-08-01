@@ -35,3 +35,15 @@ export {
   WEBRTC_MAX_MESSAGE_BYTES,
   WIRE_CHUNK_BYTES,
 } from './constants.ts'
+
+// AUTH-01 — one on-device seed, read in two namespaces.
+export {
+  SEED_BYTES,
+  SeedLengthError,
+  generateSeed,
+  identityFromSeed,
+  nodeKeyForPeerId,
+  parseKeyHex,
+  peerIdForNodeKey,
+} from './identity.ts'
+export type { NodeIdentity } from './identity.ts'
