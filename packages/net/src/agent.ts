@@ -635,6 +635,15 @@ export function serveAgent(options: AgentOptions): void {
       // header for why a combine has no egress hold to give back, and for this
       // frame's fetch-amplification disposition.
       response = await runCombine(request, options)
+    } else if (request.kind === 'enrol') {
+      // AUTH-01 / AUTH-04. Answered by name rather than by falling through into the
+      // `exec` branch below — which is where a new request kind lands by default, and
+      // where this one landed until the type checker said so. An enrollment frame
+      // reaching the executor would be read as a task with no module and no input.
+      //
+      // Issuance itself arrives with `AgentOptions.enroll` in the next commit; until
+      // then this build holds no signing key on any path, and says exactly that.
+      response = { kind: 'error', reason: 'this node issues no certificates' }
     } else {
       // SCHED-06 — admission, on the branch that actually costs a
       // `WebAssembly.compile` plus an `instantiate` plus a linear memory.

@@ -1,5 +1,5 @@
 /**
- * The agent wire protocol — eight request kinds, nothing more.
+ * The agent wire protocol — nine request kinds, nothing more.
  *
  * `exec` dispatches one task; `block` fetches one content-addressed block. That
  * is the entire vocabulary needed to run a distributed map: a task is addressed
@@ -38,6 +38,18 @@
  * an ordinary `exec` over it — would put a payload where the whole point is an
  * address, and would move every partial through the requestor on the way.
  *
+ * Phase 17 adds `enrol`, which is how a node **asks** to be certified. It is a request
+ * kind rather than a standalone provider binary for a reason outside this file:
+ * `.planning/ROADMAP.md`, section `### Phase 22: Reachability Guard`, fixes the
+ * reachability guard's universe at five runnable entry points, and a sixth would put
+ * that phase in conflict with this one on day one. Whether a given process answers is a
+ * per-node setting (`AgentOptions.enroll`), not a kind of node.
+ *
+ * The parser matters more on this kind than on most. The frame carries a proof of
+ * possession and a user's consent, and the answer carries a signed statement about an
+ * identity; a parser that accepted a partly-formed request would hand the authority
+ * something to sign over that was never what the node sent.
+ *
  * Everything arriving here came off a wire, so every field is validated before
  * use. The parsers return `null` rather than throwing — a malformed frame from a
  * peer is an expected condition, not an exception. That matters more for the record
@@ -55,6 +67,9 @@ import type {
   CapabilityRecord,
   Delegation,
   Discoverability,
+  EnrollmentRefusal,
+  EnrollmentRequest,
+  EnrollmentResult,
   ExecutionOutcome,
   NameRecord,
   NodeCertificate,
@@ -110,6 +125,15 @@ export type AgentRequest =
       readonly inputCids: readonly CID[]
       readonly level: number
     }
+  /**
+   * AUTH-01 / AUTH-04: certify this node, if you hold a provider signing key.
+   *
+   * Carried as a request kind rather than as a separate provider binary — see this
+   * module's header. The frame holds public keys and signatures over a challenge, and
+   * never a private key: a provider that could issue without the node proving
+   * possession would be able to impersonate every node it ever certified.
+   */
+  | { readonly kind: 'enrol'; readonly request: EnrollmentRequest }
 
 export type AgentResponse =
   | { readonly kind: 'exec'; readonly outcome: ExecutionOutcome }
@@ -145,6 +169,16 @@ export type AgentResponse =
    * thing the requestor learns before trying the next executor.
    */
   | { readonly kind: 'combine'; readonly resultCid: CID | null; readonly reason: string }
+  /**
+   * AUTH-01 / AUTH-04: a certificate, or the named reason none was issued.
+   *
+   * A refusal is a `result` on this arm rather than an `error` frame, because it is an
+   * answer about the *request* — the node's proof did not check out, the named user did
+   * not consent, or the limit was reached — and each names a different next action. A
+   * node that holds no signing key at all answers `error` instead: that is a fact about
+   * the answering node, not about the request.
+   */
+  | { readonly kind: 'enrol'; readonly result: EnrollmentResult }
   | { readonly kind: 'error'; readonly reason: string }
 
 /** Copy any byte view into a plainly-owned ArrayBuffer-backed one. */
@@ -204,8 +238,12 @@ function certificateToValue(certificate: NodeCertificate): CanonicalValue {
  * *valid* — that is `verifyCertificate`'s job against pinned issuer keys, and keeping
  * the two separate is deliberate: a parser that also verified would tempt a caller to
  * treat "parsed" as "trusted".
+ *
+ * Exported because this is also the parser the **disk** path uses when a node reloads a
+ * persisted certificate (Plan 17-03), so one validator guards both the wire and the file
+ * and neither can drift into being the lenient one.
  */
-function parseCertificate(value: CanonicalValue | undefined): NodeCertificate | null {
+export function parseCertificate(value: CanonicalValue | undefined): NodeCertificate | null {
   const record = value === undefined ? null : asRecord(value)
   if (record === null) return null
   const { nodeKey, userKey, operatorId, discoverability, issuer, signature } = record
@@ -228,6 +266,137 @@ function parseCertificate(value: CanonicalValue | undefined): NodeCertificate | 
     issuer,
     signature,
   }
+}
+
+function enrollmentRequestToValue(request: EnrollmentRequest): CanonicalValue {
+  return {
+    nodeKey: request.nodeKey,
+    userKey: request.userKey,
+    operatorId: request.operatorId,
+    discoverability: request.discoverability,
+    relayIds: [...request.relayIds],
+    proofOfPossession: request.proofOfPossession,
+    ownerProof: request.ownerProof,
+  }
+}
+
+/**
+ * Parse an enrollment request off the wire — `parseCertificate`'s discipline exactly.
+ *
+ * Every field required and typed; `null` on anything malformed; and **no judgement about
+ * whether either signature is valid**. That split matters more here than almost anywhere
+ * else in this module: verifying is `EnrollmentAuthority.enrol`'s job, and it checks
+ * possession *and* owner consent in a stated order that a parser doing half the work
+ * would quietly pre-empt.
+ *
+ * Both proofs are required. The request carries **two** signatures — the node's over the
+ * possession challenge, and the named user's over the identical bytes — and a parser
+ * that admitted a request missing the second would hand the authority something to sign
+ * over that names a user who never consented to it.
+ */
+function parseEnrollmentRequest(value: CanonicalValue | undefined): EnrollmentRequest | null {
+  const record = value === undefined ? null : asRecord(value)
+  if (record === null) return null
+  const { nodeKey, userKey, operatorId, discoverability, proofOfPossession, ownerProof } = record
+  if (typeof nodeKey !== 'string' || typeof userKey !== 'string') return null
+  if (typeof operatorId !== 'string') return null
+  if (typeof proofOfPossession !== 'string' || typeof ownerProof !== 'string') return null
+  if (discoverability !== 'seed' && discoverability !== 'via-relay') return null
+  const relayIds = asKeyList(record['relayIds'])
+  if (relayIds === null) return null
+  return {
+    nodeKey,
+    userKey,
+    operatorId,
+    discoverability: discoverability satisfies Discoverability,
+    relayIds,
+    proofOfPossession,
+    ownerProof,
+  }
+}
+
+/**
+ * Encode an issuance outcome — a certificate, or the refusal that explains its absence.
+ *
+ * Each refusal arm carries the discriminant plus that kind's own fields and nothing
+ * else, so a reader of the frame learns which of the three events happened and the one
+ * value that identifies it. The `rate-limited` arm carries its `limit` and `windowMs`
+ * deliberately: AUTH-04 asks for a *stated* threshold, and a threshold readable only
+ * from the provider's source is not stated to the peer that hit it.
+ */
+function enrollmentResultToValue(result: EnrollmentResult): CanonicalValue {
+  if (result.ok) {
+    return { kind: 'enrol', ok: true, certificate: certificateToValue(result.certificate) }
+  }
+  const { refusal } = result
+  const base = { kind: 'enrol', ok: false, reason: result.reason }
+  if (refusal.kind === 'bad-proof-of-possession') {
+    return { ...base, refusal: { kind: refusal.kind, nodeKey: refusal.nodeKey } }
+  }
+  if (refusal.kind === 'bad-owner-proof') {
+    return { ...base, refusal: { kind: refusal.kind, userKey: refusal.userKey } }
+  }
+  return {
+    ...base,
+    refusal: {
+      kind: refusal.kind,
+      userKey: refusal.userKey,
+      limit: refusal.limit,
+      windowMs: refusal.windowMs,
+      retryAfterMs: refusal.retryAfterMs,
+    },
+  }
+}
+
+/**
+ * Parse a refusal off the wire.
+ *
+ * An unrecognised kind returns `null` rather than a partially-populated refusal. This is
+ * deliberately the opposite disposition from `parseCounts`, which drops an unknown
+ * *result* string and keeps the frame: a metric from a newer peer is worth having in
+ * part, whereas a refusal whose kind this build cannot read is a statement about why a
+ * node was not certified, and a caller acting on half of one would report the wrong
+ * cause. A refusal that names the wrong thing is a defect even when the request
+ * correctly failed.
+ */
+function parseEnrollmentRefusal(value: CanonicalValue | undefined): EnrollmentRefusal | null {
+  const record = value === undefined ? null : asRecord(value)
+  if (record === null) return null
+  const kind = record['kind']
+  if (kind === 'bad-proof-of-possession') {
+    const nodeKey = record['nodeKey']
+    if (typeof nodeKey !== 'string') return null
+    return { kind, nodeKey }
+  }
+  if (kind === 'bad-owner-proof') {
+    const userKey = record['userKey']
+    if (typeof userKey !== 'string') return null
+    return { kind, userKey }
+  }
+  if (kind !== 'rate-limited') return null
+  const userKey = record['userKey']
+  if (typeof userKey !== 'string') return null
+  const limit = asFiniteNumber(record['limit'])
+  const windowMs = asFiniteNumber(record['windowMs'])
+  const retryAfterMs = asFiniteNumber(record['retryAfterMs'])
+  if (limit === null || windowMs === null || retryAfterMs === null) return null
+  return { kind, userKey, limit, windowMs, retryAfterMs }
+}
+
+/** Parse an issuance outcome, reusing `parseCertificate` for the ok arm. */
+function parseEnrollmentResult(record: {
+  readonly [k: string]: CanonicalValue
+}): EnrollmentResult | null {
+  if (record['ok'] === true) {
+    const certificate = parseCertificate(record['certificate'])
+    if (certificate === null) return null
+    return { ok: true, certificate }
+  }
+  if (record['ok'] !== false) return null
+  const refusal = parseEnrollmentRefusal(record['refusal'])
+  if (refusal === null) return null
+  const reason = record['reason']
+  return { ok: false, refusal, reason: typeof reason === 'string' ? reason : 'unspecified' }
 }
 
 function capabilitiesToValue(capabilities: CapabilityRecord): CanonicalValue {
@@ -363,6 +532,9 @@ export function encodeRequest(request: AgentRequest): CanonicalValue {
       inputCids: [...request.inputCids],
       level: request.level,
     }
+  }
+  if (request.kind === 'enrol') {
+    return { kind: 'enrol', request: enrollmentRequestToValue(request.request) }
   }
   const { task } = request
   const base: { readonly [k: string]: CanonicalValue } = {
@@ -565,6 +737,12 @@ export function parseRequest(body: CanonicalValue): AgentRequest | null {
     return { kind: 'combine', combineId, inputCids: parsed, level }
   }
 
+  if (record['kind'] === 'enrol') {
+    const request = parseEnrollmentRequest(record['request'])
+    if (request === null) return null
+    return { kind: 'enrol', request }
+  }
+
   if (record['kind'] !== 'exec') return null
   const moduleCid = CID.asCID(record['moduleCid'] ?? null)
   const inputCid = CID.asCID(record['inputCid'] ?? null)
@@ -659,6 +837,8 @@ export function encodeResponse(response: AgentResponse): CanonicalValue {
           }
     case 'offer':
       return { kind: 'offer', accepted: response.accepted, reason: response.reason }
+    case 'enrol':
+      return enrollmentResultToValue(response.result)
     case 'reservations':
       return { kind: 'reservations', peerIds: [...response.peerIds] }
     case 'combine':
@@ -726,6 +906,11 @@ export function parseResponse(body: CanonicalValue): AgentResponse | null {
       const peerIds = asKeyList(record['peerIds'])
       if (peerIds === null) return null
       return { kind: 'reservations', peerIds }
+    }
+    case 'enrol': {
+      const result = parseEnrollmentResult(record)
+      if (result === null) return null
+      return { kind: 'enrol', result }
     }
     case 'report': {
       const counts = parseCounts(record['counts'])
