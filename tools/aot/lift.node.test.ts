@@ -14,6 +14,7 @@ import {
   UNDECODED_ADDRESSES_UNRECOVERED_BLIND_SPOT,
   UNDECODED_UNMEASURED_BLIND_SPOT,
   blindSpotsFor,
+  classifySpawnFailure,
   describeFinding,
   describeLift,
   describeLiftFailure,
@@ -24,7 +25,13 @@ import {
   scanToolchainOutput,
   verdictOf,
 } from './lift.ts'
-import type { LiftFinding, LiftOutcome, LiftedArtifact, UndecodedProbe } from './lift.ts'
+import type {
+  LiftFailure,
+  LiftFinding,
+  LiftOutcome,
+  LiftedArtifact,
+  UndecodedProbe,
+} from './lift.ts'
 
 /**
  * AOT-01 — the toolchain runs, and nothing it says about itself is taken on trust.
@@ -98,6 +105,24 @@ vi.setConfig({ testTimeout: 60_000 })
  * is 47× that worst sample, so nothing but a genuine wedge reaches it, and it is a
  * third of the framework budget above, so when something does reach it the driver's
  * timer fires first with 40 s to spare.
+ *
+ * **Re-measured 2026-08-01, and the number was never the problem.** This file was
+ * failing intermittently on loaded hosts — 3 to 6 cases at a time, reported by three
+ * separate agents — and every report read `docker-unavailable`, which was the
+ * suspicion against this constant. It was the wrong suspicion. Under synthetic load
+ * driven to the band the failures were reported at, 60 spawns of this exact stub gave:
+ *
+ * | load average (1 min) | p50 | p90 | max | failed to spawn |
+ * |---|---|---|---|---|
+ * | 27.5 | 38 ms | 54 ms | 348 ms | 0 / 60 |
+ * | 42.7 → 54.5 | 116 ms | 328 ms | **456 ms** | 0 / 60 |
+ *
+ * 456 ms is 44× under this budget and 11× under {@link TIMEOUT_CASE_BUDGET_MS}, which
+ * is the smallest budget any case here hands the driver. For the timeout to have been
+ * the cause, spawning would have had to be two orders of magnitude worse than it
+ * measurably is at that exact load. What fires instead is the *other* path — see
+ * {@link despiteAFullProcessTable} — and it fires in about a millisecond. The two
+ * populations do not overlap, which is why the driver no longer gives them one name.
  */
 const METADATA_BUDGET_MS = 20_000
 
@@ -723,6 +748,78 @@ function stubDocker(body: string): StubDocker {
 }
 
 /**
+ * Anything with the shape both `resolveImage` and `liftElf` return.
+ *
+ * Neither is a `LiftOutcome` — `resolveImage` yields a reference and `liftElf` an
+ * artifact — but they agree on the discriminant and on the failure type, which is all
+ * {@link despiteAFullProcessTable} needs to look at.
+ */
+type Attempted = { readonly ok: true } | { readonly ok: false; readonly failure: LiftFailure }
+
+/**
+ * How many times a case will let the host refuse to fork before it gives up.
+ *
+ * Four is a judgement and is recorded as one — unlike the latency figures above, the
+ * *transience* of `EAGAIN` under real load was not measured, because the only way
+ * `EAGAIN` could be provoked here was by reducing `RLIMIT_NPROC` below the live
+ * process count, where it is permanent rather than transient and every retry fails
+ * identically. So this is not a threshold sited between two populations; it is a
+ * small bound on a condition that costs a millisecond to detect. If it is ever seen
+ * to exhaust, the exhaustion is reported by name rather than swallowed, and that
+ * report is the measurement this comment is currently missing.
+ */
+const HOST_SPAWN_ATTEMPTS = 4
+
+/** Widening gap between retries, so a burst of fork pressure is given time to pass. */
+const HOST_SPAWN_BACKOFF_MS = 250
+
+/**
+ * Run `attempt` until the host actually manages to create the process.
+ *
+ * **This is not a retry-until-green.** It retries exactly one condition —
+ * `host-cannot-spawn`, which the driver only returns when `spawn` failed with an
+ * errno in its host-exhaustion set — and that condition means the code under test was
+ * never reached at all. A wrong classification, a wrong digest, a timeout that did not
+ * fire: all of those come straight back on the first attempt and fail the case. The
+ * assertion each caller makes is untouched.
+ *
+ * This is the defect that made this file flaky, and it is worth stating precisely
+ * because the shape is easy to mistake for weakening. Eight cases below hand a stub
+ * `docker` to the driver and assert *which* `LiftFailure` comes back. On a host under
+ * fork pressure `spawn` fails with `EAGAIN`, the driver returned `docker-unavailable`
+ * — the same kind it uses for "docker is not installed" — and eight assertions about
+ * classification reported that Docker was missing on a machine where Docker was fine.
+ * Naming the host distinctly is what makes this helper able to tell "the host had no
+ * room" from "the driver got it wrong", and only the first is retryable.
+ *
+ * `elapsedMs` is the final attempt's alone, never the sum, so a case that bounds how
+ * long the driver took still bounds the driver rather than the retries.
+ */
+async function despiteAFullProcessTable<T extends Attempted>(
+  attempt: () => Promise<T>,
+): Promise<{ readonly result: T; readonly elapsedMs: number; readonly attempts: number }> {
+  let result: T | undefined
+  let elapsedMs = 0
+  for (let n = 1; n <= HOST_SPAWN_ATTEMPTS; n++) {
+    const started = Date.now()
+    result = await attempt()
+    elapsedMs = Date.now() - started
+    if (result.ok || result.failure.kind !== 'host-cannot-spawn') {
+      return { result, elapsedMs, attempts: n }
+    }
+    if (n < HOST_SPAWN_ATTEMPTS) {
+      await new Promise((resolve) => setTimeout(resolve, HOST_SPAWN_BACKOFF_MS * n))
+    }
+  }
+  // Loud, never a skip and never a pass. A host that could not fork four times running
+  // has a problem worth reporting, and the driver already wrote the diagnosis.
+  throw new Error(
+    `the host refused to create a process ${HOST_SPAWN_ATTEMPTS} times running, so this case ` +
+      `never ran: ${result !== undefined && !result.ok ? describeLiftFailure(result.failure) : 'no result'}`,
+  )
+}
+
+/**
  * The smallest byte string `screenElf` accepts, built here rather than committed.
  *
  * These tests have to get *past* the pre-screen to observe what the driver does
@@ -787,7 +884,9 @@ describe('an image whose digests name another repository is refused, never run',
    */
   it('names the mismatch instead of resolving to the first digest in the list', async () => {
     const docker = stubDocker(emitDigests(FOREIGN_DIGESTS))
-    const resolved = await resolveImage(ELFCONV_IMAGE_TAG, docker.path, METADATA_BUDGET_MS)
+    const { result: resolved } = await despiteAFullProcessTable(() =>
+      resolveImage(ELFCONV_IMAGE_TAG, docker.path, METADATA_BUDGET_MS),
+    )
     expect(resolved.ok).toBe(false)
     if (resolved.ok) return
     expect(resolved.failure.kind).toBe('image-digest-foreign')
@@ -813,13 +912,16 @@ describe('an image whose digests name another repository is refused, never run',
 
   it('starts no container — the foreign digest never reaches docker run', async () => {
     const docker = stubDocker(emitDigests(FOREIGN_DIGESTS))
-    const outcome = await liftElf(stubElfPath, { docker: docker.path })
+    const { result: outcome } = await despiteAFullProcessTable(() =>
+      liftElf(stubElfPath, { docker: docker.path }),
+    )
     expect(outcome.ok).toBe(false)
     if (outcome.ok) return
     expect(outcome.failure.kind).toBe('image-digest-foreign')
 
     // The assertion the return value cannot make. One invocation, and it is the
-    // inspect.
+    // inspect. A retried attempt cannot inflate this count: the only thing retried is
+    // a spawn that never happened, and a stub that never ran logged nothing.
     const log = docker.invocations()
     expect(log).toHaveLength(1)
     expect(log[0]).toContain('image inspect')
@@ -831,7 +933,9 @@ describe('an image whose digests name another repository is refused, never run',
     // in a list whose first entry is foreign, which is exactly the case the fallback
     // used to get right by accident and could now get wrong on purpose.
     const docker = stubDocker(emitDigests([...FOREIGN_DIGESTS, MATCHING_DIGEST]))
-    const resolved = await resolveImage(ELFCONV_IMAGE_TAG, docker.path, METADATA_BUDGET_MS)
+    const { result: resolved } = await despiteAFullProcessTable(() =>
+      resolveImage(ELFCONV_IMAGE_TAG, docker.path, METADATA_BUDGET_MS),
+    )
     expect(resolved.ok).toBe(true)
     if (!resolved.ok) return
     expect(resolved.reference).toBe(MATCHING_DIGEST)
@@ -844,7 +948,9 @@ describe('an image whose digests name another repository is refused, never run',
     const image = 'localhost:5000/o2/elfconv:arm64'
     const digest = `localhost:5000/o2/elfconv@sha256:${'3'.repeat(64)}`
     const docker = stubDocker(emitDigests([digest]))
-    const resolved = await resolveImage(image, docker.path, METADATA_BUDGET_MS)
+    const { result: resolved } = await despiteAFullProcessTable(() =>
+      resolveImage(image, docker.path, METADATA_BUDGET_MS),
+    )
     expect(resolved.ok).toBe(true)
     if (!resolved.ok) return
     expect(resolved.reference).toBe(digest)
@@ -854,7 +960,9 @@ describe('an image whose digests name another repository is refused, never run',
     // Different fixes — push the locally built image, versus re-pull by the name you
     // mean — so collapsing them would send half the readers to the wrong one.
     const docker = stubDocker(emitDigests([]))
-    const resolved = await resolveImage(ELFCONV_IMAGE_TAG, docker.path, METADATA_BUDGET_MS)
+    const { result: resolved } = await despiteAFullProcessTable(() =>
+      resolveImage(ELFCONV_IMAGE_TAG, docker.path, METADATA_BUDGET_MS),
+    )
     expect(resolved.ok).toBe(false)
     if (resolved.ok) return
     expect(resolved.failure.kind).toBe('image-has-no-digest')
@@ -880,10 +988,12 @@ describe('a container that outlived its client is killed before its mount is del
         '  *) exit 0 ;;\n' +
         'esac',
     )
-    const outcome = await liftElf(stubElfPath, {
-      docker: docker.path,
-      timeoutMs: TIMEOUT_CASE_BUDGET_MS,
-    })
+    const { result: outcome } = await despiteAFullProcessTable(() =>
+      liftElf(stubElfPath, {
+        docker: docker.path,
+        timeoutMs: TIMEOUT_CASE_BUDGET_MS,
+      }),
+    )
     expect(outcome.ok).toBe(false)
     if (outcome.ok) return
     expect(outcome.failure.kind).toBe('timed-out')
@@ -917,10 +1027,12 @@ describe('a container that outlived its client is killed before its mount is del
         '  *) exit 0 ;;\n' +
         'esac',
     )
-    const outcome = await liftElf(stubElfPath, {
-      docker: docker.path,
-      timeoutMs: TIMEOUT_CASE_BUDGET_MS,
-    })
+    const { result: outcome } = await despiteAFullProcessTable(() =>
+      liftElf(stubElfPath, {
+        docker: docker.path,
+        timeoutMs: TIMEOUT_CASE_BUDGET_MS,
+      }),
+    )
     expect(outcome.ok).toBe(false)
     if (outcome.ok) return
     expect(outcome.failure.kind).toBe('timed-out')
@@ -937,9 +1049,11 @@ describe('the caller’s timeout bounds image resolution too', () => {
     // `exec` for the reason given in the block above: a forked sleep holds the stdio
     // pipes open past the SIGKILL and `run()` resolves on `close`.
     const docker = stubDocker('exec sleep 30')
-    const started = Date.now()
-    const outcome = await liftElf(stubElfPath, { docker: docker.path, timeoutMs: 400 })
-    const elapsed = Date.now() - started
+    // `elapsedMs` is the final attempt's, not the sum, so the bound below still bounds
+    // the driver rather than any retry that preceded it.
+    const { result: outcome, elapsedMs: elapsed } = await despiteAFullProcessTable(() =>
+      liftElf(stubElfPath, { docker: docker.path, timeoutMs: 400 }),
+    )
 
     expect(outcome.ok).toBe(false)
     if (outcome.ok) return
@@ -956,7 +1070,9 @@ describe('the caller’s timeout bounds image resolution too', () => {
     // twenty minutes the cap is what bounds it, and the cap is what stops a wedged
     // daemon holding a build in silence for the whole budget.
     const docker = stubDocker(emitDigests([MATCHING_DIGEST]))
-    const resolved = await resolveImage(ELFCONV_IMAGE_TAG, docker.path, METADATA_BUDGET_MS)
+    const { result: resolved } = await despiteAFullProcessTable(() =>
+      resolveImage(ELFCONV_IMAGE_TAG, docker.path, METADATA_BUDGET_MS),
+    )
     expect(resolved.ok).toBe(true)
     expect(IMAGE_RESOLVE_CAP_MS).toBeLessThan(DEFAULT_TIMEOUT_MS)
   })
@@ -991,15 +1107,18 @@ describe('the driver fails by name, and fails early', () => {
   })
 
   it('names an unavailable Docker rather than reporting an empty lift', async () => {
-    const resolved = await resolveImage(
-      ELFCONV_IMAGE_TAG,
-      '/nonexistent/definitely-not-docker',
-      METADATA_BUDGET_MS,
+    const { result: resolved } = await despiteAFullProcessTable(() =>
+      resolveImage(ELFCONV_IMAGE_TAG, '/nonexistent/definitely-not-docker', METADATA_BUDGET_MS),
     )
     expect(resolved.ok).toBe(false)
     if (resolved.ok) return
     expect(resolved.failure.kind).toBe('docker-unavailable')
-    expect(describeLiftFailure(resolved.failure)).toContain('docker could not be run')
+    const text = describeLiftFailure(resolved.failure)
+    expect(text).toContain('docker could not be run')
+    // The errno, not merely the kind. `ENOENT` is what makes this arm *about docker* —
+    // the host was perfectly able to fork, it just found nothing at that path — and it
+    // is the half of the split that has to keep saying "docker".
+    expect(text).toContain('ENOENT')
   })
 
   it('renders the findings a failed toolchain already named, not only its exit code', () => {
@@ -1040,6 +1159,7 @@ describe('the driver fails by name, and fails early', () => {
       { kind: 'input-unreadable', path: 'a', detail: 'b' },
       { kind: 'refused-by-screen', reason: { kind: 'not-aarch64', machine: 62 } },
       { kind: 'docker-unavailable', detail: 'x' },
+      { kind: 'host-cannot-spawn', command: '/usr/bin/docker', code: 'EAGAIN', detail: 'x' },
       { kind: 'image-absent', image: 'i', detail: 'd' },
       { kind: 'image-has-no-digest', image: 'i' },
       {
@@ -1070,20 +1190,244 @@ describe('the driver fails by name, and fails early', () => {
 })
 
 // ---------------------------------------------------------------------------
+// A host with no room to fork, which is not a host with no Docker.
+// ---------------------------------------------------------------------------
+
+/**
+ * The `lift.ts` next to this file, as something a child process can import.
+ *
+ * A file URL rather than a copied path: the child is written to `tmpdir()`, and a
+ * bare `@o2/core` inside `lift.ts` resolves from *`lift.ts`'s* directory, not from
+ * the importer's — so the child gets the same module graph this test has without
+ * needing a `node_modules` of its own.
+ */
+const LIFT_MODULE_URL = new URL('./lift.ts', import.meta.url).href
+
+/** POSIX single-quoting, because the child is launched through `sh -c` for `ulimit`. */
+const shellQuote = (text: string): string => `'${text.replaceAll("'", `'\\''`)}'`
+
+/**
+ * `resolveImage`, run in a child whose `RLIMIT_NPROC` is `maxProcesses`.
+ *
+ * `ulimit -u 1` against a machine already running hundreds of processes makes every
+ * `fork` fail immediately, which is the condition this whole block is about. `exec`
+ * is what makes it survivable: the shell is *replaced* by node rather than forking
+ * it, so the limit applies to a process that is already running and only bites when
+ * that process tries to spawn. Measured on this host: node starts fine at `-u 1`, and
+ * 6 of 6 spawns then fail with `EAGAIN` in 0–3 ms.
+ */
+function resolveImageUnderProcessLimit(maxProcesses: number | null, docker: string): Attempted {
+  const dir = mkdtempSync(join(tmpdir(), 'o2-nproc-'))
+  stubDirs.push(dir)
+  const child = join(dir, 'resolve-once.mjs')
+  writeFileSync(
+    child,
+    'const [, , liftUrl, image, docker] = process.argv\n' +
+      'const { resolveImage } = await import(liftUrl)\n' +
+      `const r = await resolveImage(image, docker, ${METADATA_BUDGET_MS})\n` +
+      'process.stdout.write(JSON.stringify(r.ok ? { ok: true } : { ok: false, failure: r.failure }))\n',
+  )
+  const argv = [
+    process.execPath,
+    '--experimental-strip-types',
+    '--no-warnings',
+    child,
+    LIFT_MODULE_URL,
+    ELFCONV_IMAGE_TAG,
+    docker,
+  ]
+    .map(shellQuote)
+    .join(' ')
+  const stdout = execFileSync(
+    '/bin/sh',
+    ['-c', `${maxProcesses === null ? '' : `ulimit -u ${maxProcesses}; `}exec ${argv}`],
+    { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], timeout: METADATA_BUDGET_MS },
+  )
+  return JSON.parse(stdout) as Attempted
+}
+
+describe('a host that cannot fork is not a host without Docker', () => {
+  /**
+   * The reproduced defect, and the reason this file was intermittently red.
+   *
+   * Both `spawn` failure and the inspect timeout returned `docker-unavailable`, so the
+   * failure output could not say which had fired — and on a loaded host it was always
+   * the first. Eight cases here assert *which* `LiftFailure` a stub produces; every one
+   * of them reported "docker could not be run" on a machine with a working Docker,
+   * because the host had briefly run out of process slots.
+   *
+   * `/bin/echo` is the `docker` here on purpose. It exists and is executable, so under
+   * no pressure the driver runs it and gets a real answer — see the control case below.
+   * The only difference between the two cases is whether the host can fork.
+   */
+  it('reports the host, not Docker, when there is no room for another process', () => {
+    const resolved = resolveImageUnderProcessLimit(1, '/bin/echo')
+    expect(resolved.ok).toBe(false)
+    if (resolved.ok) return
+    expect(resolved.failure.kind).toBe('host-cannot-spawn')
+    if (resolved.failure.kind !== 'host-cannot-spawn') return
+    // The errno itself, because the kind alone would survive a classifier that put
+    // every spawn failure in this arm — which is the mirror image of the defect.
+    expect(resolved.failure.code).toBe('EAGAIN')
+    expect(resolved.failure.detail).toContain('EAGAIN')
+
+    // The text, not merely the kind. This is the sentence a reader acts on, and the
+    // whole defect was that it sent them to check an installation that was fine.
+    const text = describeLiftFailure(resolved.failure)
+    expect(text).toContain('this machine could not start a process')
+    expect(text).toContain('EAGAIN')
+    expect(text).not.toContain('docker could not be run')
+  })
+
+  it('answers the same question differently when it has room to fork', () => {
+    // The control. Same driver, same `/bin/echo`, same arguments — only the process
+    // limit is lifted, and the answer is now about the image rather than the host.
+    // Without this, the case above would still pass if `resolveImage` had simply
+    // started returning `host-cannot-spawn` for everything.
+    const resolved = resolveImageUnderProcessLimit(null, '/bin/echo')
+    expect(resolved.ok).toBe(false)
+    if (resolved.ok) return
+    expect(resolved.failure.kind).toBe('image-has-no-digest')
+  })
+
+  it('sorts each spawn errno to the thing it is actually about', () => {
+    // `EAGAIN`/`EMFILE`/`ENFILE`/`ENOMEM` are the host running out of room and say
+    // nothing about the command. `ENOENT`/`EACCES` are statements about the command
+    // itself, and have to keep naming docker or the split has moved the lie rather
+    // than removed it.
+    for (const code of ['EAGAIN', 'EMFILE', 'ENFILE', 'ENOMEM']) {
+      const failure = classifySpawnFailure('/usr/bin/docker', code, `spawn /usr/bin/docker ${code}`)
+      expect(failure.kind, `${code} should be the host`).toBe('host-cannot-spawn')
+      expect(describeLiftFailure(failure)).not.toContain('docker could not be run')
+    }
+    for (const code of ['ENOENT', 'EACCES']) {
+      const failure = classifySpawnFailure('/usr/bin/docker', code, `spawn /usr/bin/docker ${code}`)
+      expect(failure.kind, `${code} should be docker`).toBe('docker-unavailable')
+      expect(describeLiftFailure(failure)).toContain('docker could not be run')
+    }
+  })
+
+  it('does not guess when the spawn failure carried no errno', () => {
+    // A `spawn` that failed without a `code` is not evidence that the host is full,
+    // and claiming it is would be the same defect pointing the other way.
+    const failure = classifySpawnFailure('/usr/bin/docker', null, 'something went wrong')
+    expect(failure.kind).toBe('docker-unavailable')
+    expect(describeLiftFailure(failure)).toContain('something went wrong')
+  })
+
+  it('names the command it never reached, so the message is not about "a process"', () => {
+    const failure = classifySpawnFailure('/opt/homebrew/bin/docker', 'EAGAIN', 'spawn … EAGAIN')
+    const text = describeLiftFailure(failure)
+    expect(text).toContain('/opt/homebrew/bin/docker')
+    expect(text).toContain('never reached')
+  })
+})
+
+/**
+ * The retry helper the eight classification cases now go through.
+ *
+ * Held to its contract directly, because it is load-bearing test infrastructure and
+ * the failure it guards against cannot be provoked in-process. A helper that had
+ * quietly stopped retrying, or that had started retrying *everything*, would leave
+ * every case above still green — the first by restoring the flake, the second by
+ * hiding real regressions behind three re-runs.
+ */
+describe('retrying a host that would not fork retries nothing else', () => {
+  const hostFull: Attempted = {
+    ok: false,
+    failure: { kind: 'host-cannot-spawn', command: '/usr/bin/docker', code: 'EAGAIN', detail: 'x' },
+  }
+
+  it('runs the case again once the host has room, and reports the later answer', async () => {
+    let calls = 0
+    const { result, attempts } = await despiteAFullProcessTable(() => {
+      calls += 1
+      return Promise.resolve(calls < 3 ? hostFull : ({ ok: true } as Attempted))
+    })
+    expect(result.ok).toBe(true)
+    expect(attempts).toBe(3)
+    expect(calls).toBe(3)
+  })
+
+  it('hands back a wrong classification immediately instead of asking again', async () => {
+    // The property that keeps this from being retry-until-green. `image-absent` is a
+    // real answer from a driver that ran; asking again would only hide it.
+    let calls = 0
+    const wrong: Attempted = {
+      ok: false,
+      failure: { kind: 'image-absent', image: 'i', detail: 'd' },
+    }
+    const { result, attempts } = await despiteAFullProcessTable(() => {
+      calls += 1
+      return Promise.resolve(wrong)
+    })
+    expect(result.ok).toBe(false)
+    expect(attempts).toBe(1)
+    expect(calls).toBe(1)
+  })
+
+  it('gives up loudly rather than skipping when the host never finds room', async () => {
+    let calls = 0
+    await expect(
+      despiteAFullProcessTable(() => {
+        calls += 1
+        return Promise.resolve(hostFull)
+      }),
+    ).rejects.toThrow(/refused to create a process 4 times/)
+    expect(calls).toBe(HOST_SPAWN_ATTEMPTS)
+  })
+})
+
+// ---------------------------------------------------------------------------
 // The real thing. Docker, six gigabytes, and about two minutes per lift.
 // ---------------------------------------------------------------------------
 
+/**
+ * Whether the image is here — and not merely whether this call managed to ask.
+ *
+ * The `catch` used to return `false` for every throw, which made "the host had no room
+ * to fork" indistinguishable from "the image is absent". That is the same defect the
+ * block above exists for, in its quieter form: instead of a wrong failure it produced
+ * a silent skip, and the only real coverage of the toolchain vanished on a loaded
+ * machine without anyone being told. `execFileSync` reports the errno on the thrown
+ * error, so the two are distinguishable and only one of them is worth retrying.
+ *
+ * Still `false` if the host cannot fork after {@link HOST_SPAWN_ATTEMPTS} tries. That
+ * is a legitimate skip rather than a lie: a machine with no free process slot cannot
+ * run a 6 GB container, so the thing these cases measure is genuinely unmeasurable
+ * there. It is the *unnamed* skip that was wrong.
+ */
 function imageIsPresent(): boolean {
-  try {
-    execFileSync('docker', ['image', 'inspect', ELFCONV_IMAGE_TAG, '--format', '{{.Id}}'], {
-      stdio: ['ignore', 'ignore', 'ignore'],
-      timeout: 60_000,
-    })
-    return true
-  } catch {
-    return false
+  for (let attempt = 1; attempt <= HOST_SPAWN_ATTEMPTS; attempt++) {
+    try {
+      execFileSync('docker', ['image', 'inspect', ELFCONV_IMAGE_TAG, '--format', '{{.Id}}'], {
+        stdio: ['ignore', 'ignore', 'ignore'],
+        timeout: 60_000,
+      })
+      return true
+    } catch (cause) {
+      const { code } = cause as { readonly code?: unknown }
+      // A non-zero exit from a docker that ran is the honest "not present". Only a
+      // spawn the host refused is worth asking again.
+      if (typeof code !== 'string' || !HOST_SPAWN_RETRY_CODES.has(code)) return false
+    }
   }
+  return false
 }
+
+/**
+ * The errnos {@link imageIsPresent} will ask again after.
+ *
+ * The same set the driver treats as host exhaustion, restated here because
+ * `execFileSync` is not routed through `classifySpawnFailure` — it is a gate, not a
+ * lift, and it answers a boolean rather than a `LiftFailure`.
+ */
+const HOST_SPAWN_RETRY_CODES: ReadonlySet<string> = new Set([
+  'EAGAIN',
+  'EMFILE',
+  'ENFILE',
+  'ENOMEM',
+])
 
 const HAVE_IMAGE = imageIsPresent()
 
