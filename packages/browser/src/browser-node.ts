@@ -35,7 +35,7 @@ import {
   DEFAULT_MAX_CONCURRENT_TASKS,
   EnrollmentAuthority,
   LocalCapacity,
-  MemoryRecordIndex,
+  SelfRecordIndex,
   SignedNameResolver,
   guardModuleProvenance,
   guardSovereignty,
@@ -43,10 +43,12 @@ import {
   requestEnrollment,
 } from '@o2/core'
 import type {
+  Blockstore,
   Executor,
   NodeCertificate,
   NodeSovereignty,
   PublicKeyHex,
+  SelfRecordIndexOptions,
 } from '@o2/core'
 import {
   Libp2pTransport,
@@ -67,6 +69,7 @@ import {
   authorizeCapability,
   enrolOverRpc,
   serveAgent,
+  withholdingFrom,
 } from '@o2/net'
 import type { EnrolOutcome } from '@o2/net'
 import { createLibp2p } from 'libp2p'
@@ -434,27 +437,40 @@ async function resolveCertificate(parts: {
 }
 
 /**
- * What this node answers a peer's `records` request with — AUTH-01.
+ * What this node answers a peer's `records` and `providers` requests with — AUTH-01,
+ * SCHED-01.
  *
- * Byte-for-byte `fabric-node.ts`'s `ownRecords`, for the reason that file gives; a node
- * holding no certificate has nothing to publish and keeps the sentinel at the hook.
+ * Byte-for-byte `fabric-node.ts`'s `ownRecords`, for the reason that file gives; the five
+ * decisions it carries are written down there and are not restated here, because two
+ * copies of a rationale drift and this file's whole claim is that it does not diverge from
+ * that one. A node holding no certificate still holds blocks, and under owner ruling D1 it
+ * answers for them — `records: 'holds-no-records'` is about a signed identity and says
+ * nothing about bytes.
  */
 function ownRecords(
-  certificate: NodeCertificate,
+  certificate: NodeCertificate | null,
   identity: NodeIdentity,
   canExecuteSovereign: boolean,
-): MemoryRecordIndex {
-  const index = new MemoryRecordIndex()
-  index.publish({
-    certificate,
-    capabilities: publishCapabilities(identity.seed, {
-      features: [],
-      sovereignFor: canExecuteSovereign ? [certificate.userKey] : [],
-      issuedAt: certificate.issuedAt,
-      expiresAt: certificate.expiresAt,
-    }),
+  store: Blockstore,
+  withhold: SelfRecordIndexOptions['withhold'],
+): SelfRecordIndex {
+  return new SelfRecordIndex({
+    nodeKey: identity.nodeKey,
+    store,
+    records:
+      certificate === null
+        ? 'holds-no-records'
+        : {
+            certificate,
+            capabilities: publishCapabilities(identity.seed, {
+              features: [],
+              sovereignFor: canExecuteSovereign ? [certificate.userKey] : [],
+              issuedAt: certificate.issuedAt,
+              expiresAt: certificate.expiresAt,
+            }),
+          },
+    withhold,
   })
-  return index
 }
 
 export class BrowserNode {
@@ -772,13 +788,24 @@ export class BrowserNode {
       relayPeerIds,
     })
 
-    // AUTH-01 — what this node answers a peer's `records` request with. A node holding no
-    // certificate has nothing to publish and keeps the sentinel at the hook below; a node
-    // holding one publishes it, exactly as a `FabricNode` does.
-    const records =
-      certificate === null
-        ? null
-        : ownRecords(certificate, identity, sovereignty.canExecuteSovereign)
+    // DATA-05 — the tap and the local-only tier, bound once and handed to both readers
+    // below, exactly as `fabric-node.ts` does and for the identical reason: the withholding
+    // predicate and the `block` branch must consult the same guard, and one value passed
+    // twice cannot disagree.
+    const egressDisposition = { guard: egress, sovereignInputs: store }
+
+    // AUTH-01 / SCHED-01 — what this node answers a peer's `records` *and* `providers`
+    // requests with, from the identical expression `fabric-node.ts` uses. Unconditional
+    // since owner ruling D1; the store is this tier's local-only `IdbBlockstore`, never
+    // `blockstore`, which has network fallback and would turn a question about this tab
+    // into a fetch.
+    const records = ownRecords(
+      certificate,
+      identity,
+      sovereignty.canExecuteSovereign,
+      store,
+      withholdingFrom(egressDisposition),
+    )
 
     // AUTH-01 — the provider signing key, persisted so a node that issues certificates
     // stays the same issuer across a reload. Generated and stored on first use rather
@@ -923,7 +950,7 @@ export class BrowserNode {
       // says which payloads are sovereign — so a sovereign task's input is guarded
       // for exactly as long as its reply frame takes to settle, and a dispatch that
       // declared nothing gives nothing back.
-      egress: { guard: egress, sovereignInputs: store },
+      egress: egressDisposition,
       // AUTH-03, and the argument is byte-identical to `fabric-node.ts`'s — read that
       // one for what the hook is and why the conditional spread is required.
       //
@@ -981,11 +1008,19 @@ export class BrowserNode {
       // absence partitions as effectively as a branch.
       //
       // Now derived, in the same expression `fabric-node.ts` uses, from values a caller
-      // decided: `records` is non-null exactly when this node holds a certificate, and
-      // `authority` exactly when it was told to issue them. The sentinels are still the
-      // answer for a node that was asked for neither — a named absence, which is the
-      // convention, and not a silent default, which is the hole.
-      index: records ?? 'serves-no-records',
+      // decided: `authority` is non-null exactly when this node was told to issue
+      // certificates. Its sentinel is still the answer for a node that was asked for none —
+      // a named absence, which is the convention, and not a silent default, which is the
+      // hole.
+      //
+      // **`index` no longer has a sentinel here, and that is owner ruling D1.** A tab
+      // holding no certificate still holds blocks, so it answers `records: null` and a real
+      // provider list rather than refusing to speak; the named absence moved inward, to
+      // `records: 'holds-no-records'`, where it describes the identity half alone. The
+      // `providers` half is answered by every node, and *"a `providers` request answers `[]`
+      // from every node because `provide()` is never called"* — true of this file from Phase
+      // 6 to Phase 17 — is retired rather than deleted, so the change is findable.
+      index: records,
       enroll: authority ?? 'issues-no-certificates',
       // SCHED-06. This hook answered "accepts everything" for the whole of two
       // milestones, so `serveAgent`'s `exec` branch ran `executor.execute` with

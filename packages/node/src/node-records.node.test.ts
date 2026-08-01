@@ -212,8 +212,19 @@ describe('AUTH-01 — a node with a certificate serves it to a peer that asks', 
   }, 40_000)
 
   /**
-   * A node serves its own records and nobody else's. It is not a directory: `provide()`
-   * is never called and the index holds exactly one publication.
+   * A node serves its own records and nobody else's. It is not a directory.
+   *
+   * **Why `[]` here, after Plan 18-03.** Until that plan the reason was *"`provide()` is
+   * never called and the index holds exactly one publication"* — the index was empty of
+   * providers because nothing ever filled it. Under owner ruling D1 a node answers
+   * `providers` from its own store at ask time, so the reason is now narrower and is the
+   * only one this assertion still carries: **A does not hold that block.** Nothing in this
+   * file puts it anywhere. The provider answer for a block a node *does* hold is measured
+   * in `provider-answering.node.test.ts`, which is where the positive reading belongs.
+   *
+   * No assertion in this file changed for Plan 18-03 — the whole file passed unedited, and
+   * that was the regression bar the plan named. Only this reason was corrected, because a
+   * comment describing the old mechanism beside the new code is worse than no comment.
    *
    * Reddened by publishing anything beyond this node's own records.
    */
@@ -243,9 +254,17 @@ describe('AUTH-01 — a node with a certificate serves it to a peer that asks', 
 
 describe('AUTH-01 — a node that never enrolled is unchanged by this plan', () => {
   /**
-   * Decision 9's first row. Such a node still passes the sentinel, so
-   * `'serves-no-records'` appears exactly once in `fabric-node.ts` and
-   * `serve-agent-hooks.node.test.ts` needs no change.
+   * Decision 9's first row.
+   *
+   * **The sentence that stood here is now false and is replaced rather than deleted.** It
+   * read: *"Such a node still passes the sentinel, so `'serves-no-records'` appears exactly
+   * once in `fabric-node.ts` and `serve-agent-hooks.node.test.ts` needs no change."* Plan
+   * 18-03 removed the sentinel from both factories — a node with no certificate now serves
+   * a `SelfRecordIndex` whose `records` is `'holds-no-records'` — so that count is 0 and
+   * that file did change. What did **not** change is the reading below: `agent.ts`'s
+   * `records` branch maps an `undefined` lookup to `records: null` with `?? null`, so the
+   * frame on the wire is byte-identical to the sentinel's, which is why this test passed
+   * unedited across the change.
    *
    * **No deletion in this plan turns this red, and the plan's claim that one does was
    * measured false rather than repeated.** 17-04's proof block says it is reddened by

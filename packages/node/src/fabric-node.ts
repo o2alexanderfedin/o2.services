@@ -81,7 +81,7 @@ import {
   EnrollmentAuthority,
   LocalCapacity,
   MemoryBlockstore,
-  MemoryRecordIndex,
+  SelfRecordIndex,
   SignedNameResolver,
   WorkerExecutor,
   guardModuleProvenance,
@@ -95,6 +95,7 @@ import type {
   NodeCertificate,
   NodeSovereignty,
   PublicKeyHex,
+  SelfRecordIndexOptions,
 } from '@o2/core'
 import {
   CountingExecutor,
@@ -106,6 +107,7 @@ import {
   authorizeCapability,
   enrolOverRpc,
   serveAgent,
+  withholdingFrom,
 } from '@o2/net'
 import type { EnrolOutcome } from '@o2/net'
 import { createLibp2p } from 'libp2p'
@@ -582,13 +584,25 @@ async function resolveCertificate(parts: {
  * This node's own records, in the shape a peer's `records` request is answered from —
  * AUTH-01, SCHED-01.
  *
- * Four decisions live here, each written down because each is one somebody will otherwise
+ * Five decisions live here, each written down because each is one somebody will otherwise
  * re-litigate.
  *
- * **This index holds this node's own records and nothing else.** `provide()` is never
- * called, so a `providers` request still answers `[]` from every node. Phase 17 publishes;
- * Phase 18 queries. A node is not a directory here, and turning it into one is a decision
- * that has to be taken deliberately rather than inherited from this line.
+ * **This index answers two independent questions about one node.** `recordsFor` is about a
+ * signed identity and is empty for a node nobody certified. `providers` is about bytes and
+ * is answered for every node, certificate or not, because **holding a block is not a
+ * capability enrollment confers**. The text retired here — *"`provide()` is never called,
+ * so a `providers` request still answers `[]` from every node. Phase 17 publishes; Phase 18
+ * queries"* — is retired by owner ruling D1, and saying so matters rather than deleting it
+ * quietly: a reader who finds the two halves conditional on each other will reunite them,
+ * and a node answering `[]` for blocks it really holds would be lying about itself in order
+ * to keep a sentinel true. A node is still not a directory — it answers for itself and for
+ * nobody else, which is `SelfRecordIndex`'s whole shape.
+ *
+ * **`providers` reads the local-only tier and never `blockstore`.** A `FetchingBlockstore`
+ * would answer "yes" for anything *obtainable* rather than anything *held*, and would pull
+ * the block over the wire to answer a question about it. This is the same rule
+ * `AgentOptions.egress.sovereignInputs` already states, for the same reason, which is why
+ * the argument is `store`.
  *
  * **`features: []` is honest, not a stub.** No feature-detection dependency exists in this
  * repository — `wasm-feature-detect` is recommended in `CLAUDE.md` and is not installed,
@@ -620,21 +634,29 @@ async function resolveCertificate(parts: {
  * have to invent.
  */
 function ownRecords(
-  certificate: NodeCertificate,
+  certificate: NodeCertificate | null,
   identity: NodeIdentity,
   canExecuteSovereign: boolean,
-): MemoryRecordIndex {
-  const index = new MemoryRecordIndex()
-  index.publish({
-    certificate,
-    capabilities: publishCapabilities(identity.seed, {
-      features: [],
-      sovereignFor: canExecuteSovereign ? [certificate.userKey] : [],
-      issuedAt: certificate.issuedAt,
-      expiresAt: certificate.expiresAt,
-    }),
+  store: Blockstore,
+  withhold: SelfRecordIndexOptions['withhold'],
+): SelfRecordIndex {
+  return new SelfRecordIndex({
+    nodeKey: identity.nodeKey,
+    store,
+    records:
+      certificate === null
+        ? 'holds-no-records'
+        : {
+            certificate,
+            capabilities: publishCapabilities(identity.seed, {
+              features: [],
+              sovereignFor: canExecuteSovereign ? [certificate.userKey] : [],
+              issuedAt: certificate.issuedAt,
+              expiresAt: certificate.expiresAt,
+            }),
+          },
+    withhold,
   })
-  return index
 }
 
 function hasReservations(value: unknown): value is RelayService {
@@ -1100,10 +1122,35 @@ export class FabricNode {
       relayPeerIds,
     })
 
-    // AUTH-01 — what this node answers a peer's `records` request with. See `ownRecords`
-    // for the four decisions it carries. A node holding no certificate has nothing to
-    // publish and keeps passing the sentinel at the hook below.
-    const records = certificate === null ? null : ownRecords(certificate, identity, sovereignty.canExecuteSovereign)
+    // DATA-05 — the tap and the local-only tier that says which payloads are sovereign,
+    // bound **once** and handed to both readers below. Two object literals saying the same
+    // thing would be two places to change, and the invariant underneath this line is
+    // precisely that the withholding predicate and the `block` branch consult the *same*
+    // guard: one value passed twice cannot disagree, whereas two copies diverge the first
+    // time one is edited.
+    const egressDisposition = { guard: egress, sovereignInputs: store }
+
+    // AUTH-01 / SCHED-01 — what this node answers a peer's `records` *and* `providers`
+    // requests with. See `ownRecords` for the five decisions it carries. Unconditional
+    // since owner ruling D1: a node holding no certificate still holds blocks, and
+    // answering `[]` about blocks it really has would be lying about itself.
+    //
+    // **The predicate names exactly the set `refusedReason` consults**, so `providers` can
+    // never advertise a block the `block` branch would refuse. It is built here rather than
+    // inside the helper so the guard it reads is unmistakably the one `serveAgent` is
+    // given, and it is `withholdingFrom` rather than a comparison against
+    // `egress.registrations`: that cheaper form is keyed on a registration *label* while
+    // the `block` branch is keyed on a *payload*, and 18-02 planted it and measured this
+    // node advertising, over the wire, a block its own `block` branch refused in the same
+    // test. Holding an invariant between two branches means asking one question twice, not
+    // writing the question down twice.
+    const records = ownRecords(
+      certificate,
+      identity,
+      sovereignty.canExecuteSovereign,
+      store,
+      withholdingFrom(egressDisposition),
+    )
 
     // AUTH-02 — per-peer verdicts, computed offline against the pinned issuer keys.
     //
@@ -1245,7 +1292,7 @@ export class FabricNode {
       // says which payloads are sovereign — so a sovereign task's input is guarded
       // for exactly as long as its reply frame takes to settle, and a dispatch that
       // declared nothing gives nothing back.
-      egress: { guard: egress, sovereignInputs: store },
+      egress: egressDisposition,
       // AUTH-03: `verifyChain` has been complete and fuzzed since Phase 4 with zero
       // production callers, and this hook has been explicit since Phase 11 with a
       // named sentinel at every production call site. This line is where the two meet.
@@ -1266,16 +1313,27 @@ export class FabricNode {
         audience,
         now: Date.now,
       }),
-      // AUTH-01 / SCHED-01. The sentinel is now the *fallback*, not the only value: a node
-      // holding a certificate answers with it and with its own signed capability record,
-      // and one that holds none says by name that it serves no records. Both are public
-      // statements whose entire purpose is to be read by a stranger; `providers` still
-      // answers `[]`, because `provide()` is never called. Nothing secret crosses this
-      // boundary and nothing may later be added that does.
+      // AUTH-01 / SCHED-01. **The sentinel is gone from this file**, because there is no
+      // longer a node this factory can build that has nothing to answer: one holding a
+      // certificate answers with it and with its own signed capability record, and one
+      // holding none answers `records: null` and a real provider list — two truthful
+      // statements rather than one refusal to speak.
       //
-      // A per-node configuration, not a node kind — the literal still appears exactly once
-      // in this file, which is what `serve-agent-hooks.node.test.ts` counts.
-      index: records ?? 'serves-no-records',
+      // What changed is the `providers` half. This comment used to read *"`providers` still
+      // answers `[]`, because `provide()` is never called"*, and that was accurate for
+      // every node from Phase 6 to Phase 17: the request kind was served by a branch whose
+      // index had never had anything provided into it. Owner ruling D1 replaced the
+      // announcement with an answer computed from this node's own store at ask time, so the
+      // decision is findable rather than merely gone.
+      //
+      // Both halves are public statements whose entire purpose is to be read by a stranger.
+      // Nothing secret crosses this boundary and nothing may later be added that does —
+      // which is what the withholding predicate at the construction site is for.
+      //
+      // A per-node configuration, not a node kind: `browser-node.ts` builds this from the
+      // identical expression over its own store and its own guard, and
+      // `serve-agent-hooks.node.test.ts` counts both.
+      index: records,
       // AUTH-01 / AUTH-04. The sentinel is now the *fallback*, not the only value: a node
       // started with `issuesCertificates` answers enrollment requests with a real
       // authority, and one that was not says by name that it issues none.
