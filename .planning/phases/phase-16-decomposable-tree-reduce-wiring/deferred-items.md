@@ -68,3 +68,46 @@ work done. It had to be SIGTERMed. Two things this adds to the entry above:
   is not further evidence for it.
 
 Still Phase 23's, unchanged.
+
+## Mutation ledger entry `M2b` records a signature that is one word off the test it names
+
+**Found during:** 16-06 Task 4, running the full `npm run test:mutations` after adding
+M31 and M32.
+
+**The reading, not a diagnosis.** 36 of 37 entries came back `caught`. One did not:
+
+```
+M2b  FAIL  wrong-signature  1.0s  exit 1, but the run never printed
+     "browser-node.ts: real onDispatch, real admission, four sentinels"
+```
+
+**The mutation is caught.** `serve-agent-hooks.node.test.ts` goes red exactly as the entry
+intends, at `:141` — `expect(occurrences(BROWSER_NODE, "'accepts-every-offer'")).toBe(0)`
+reading `expected 1 to be +0`. What has drifted is only the **signature text**: the entry
+quotes the test's name as *"…real admission, **four** sentinels"* and the test is named
+*"…real admission, **three** sentinels"*.
+
+**Pre-existing, and dated.** `git show a3fc168:packages/node/src/serve-agent-hooks.node.test.ts`
+already reads `three sentinels` at `:94`, and `git show a3fc168:packages/node/src/mutation-ledger.ts:156`
+already reads `four sentinels`. The rename landed in `19412e5`
+(*"test(15-03): the sentinel neither factory has stopped saying yet"*) and M2b's signature
+was not moved with it. Nothing in 16-06 touched either file.
+
+**Why the cheap layer did not see it.** `mutation-guard.node.test.ts` checks that each
+entry's `find` text still matches exactly once and that its `caughtBy` files are on disk.
+It does not check that the `signature` still appears in anything — it cannot, without
+planting. So this is a hole in the *fast* guard, and the script is the only thing that
+reports it. It reports it loudly rather than silently, which is the right failure mode.
+
+**Why it was not fixed here.** 16-06's scope is the combine branch's admission bound. This
+is a one-word correction in an unrelated entry about the browser factory's `capacity`
+wiring, and the repository's rule is that an out-of-scope discovery is logged rather than
+swept into an unrelated commit. Reported by id, as `mutation-guard.mutate.ts` itself asks
+(*"Report it by id rather than deleting the entry"*).
+
+**What would close it.** Either update M2b's `signature` to `three sentinels`, or — the
+better fix, because it prevents the next occurrence rather than this one — give the cheap
+guard something it *can* check: assert that a signature which looks like a test title
+(`caughtBy`'s file contains it as an `it(...)` string) is actually present in that file.
+That turns a rename into an immediate red instead of a survivor discovered on the next
+full mutation run.
