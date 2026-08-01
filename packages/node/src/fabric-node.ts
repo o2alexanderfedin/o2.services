@@ -85,17 +85,27 @@ import {
   WorkerExecutor,
   guardModuleProvenance,
   guardSovereignty,
+  requestEnrollment,
 } from '@o2/core'
-import type { Blockstore, Executor, NodeSovereignty, PublicKeyHex } from '@o2/core'
+import type {
+  Blockstore,
+  Executor,
+  NodeCertificate,
+  NodeSovereignty,
+  PublicKeyHex,
+} from '@o2/core'
 import {
   CountingExecutor,
   EgressGuard,
   FetchingBlockstore,
   RpcBlockSource,
   RpcEndpoint,
+  UNREACHABLE_PROVIDER,
   authorizeCapability,
+  enrolOverRpc,
   serveAgent,
 } from '@o2/net'
+import type { EnrolOutcome } from '@o2/net'
 import { createLibp2p } from 'libp2p'
 import type { Libp2p } from '@libp2p/interface'
 import { FsBlockstore } from './fs-blockstore.ts'
@@ -110,9 +120,16 @@ import {
   audienceKeyOf,
   generateSeed,
   identityFromSeed,
+  peerIdForNodeKey,
 } from '@o2/libp2p'
 import type { NodeIdentity } from '@o2/libp2p'
-import { IDENTITY_FILE, PROVIDER_FILE, loadOrCreateSeed } from './identity-store.ts'
+import {
+  IDENTITY_FILE,
+  PROVIDER_FILE,
+  loadCertificate,
+  loadOrCreateSeed,
+  saveCertificate,
+} from './identity-store.ts'
 import type { ReservationWatcher } from './reservation-watch.ts'
 import { workerThread } from './worker-thread.ts'
 
@@ -177,6 +194,64 @@ export interface FabricNodeOptions {
    * not a different kind of node.
    */
   readonly issuesCertificates?: boolean
+  /**
+   * The provider to enrol with, and the user this node belongs to — AUTH-01.
+   *
+   * Absent means this node was never told to enrol: it still generates and persists an
+   * identity key, `certificate` is `null`, and it starts. Present means enrollment is
+   * **fatal when it fails** — `start()` rejects with the refusal reason and leaves no
+   * listening socket behind. Both rows are written down rather than inferred
+   * (17-CONTEXT.md decision 9), because a node told to enrol, unable to, and running
+   * anyway is a node whose identity claim is silently absent — the shape
+   * `.planning/PROJECT.md` records as a hole.
+   *
+   * **One object rather than three optional fields**, and that is the whole point: every
+   * field here is required whenever *any* of them is given, so the requirement is a fact
+   * about the type rather than a runtime check somebody can forget. A default for either
+   * of the last two would write a placeholder into a signed statement, and `operatorId` is
+   * the unit of quorum diversity (`enrollment.ts`) — a silent default would make every
+   * node one operator, or every node its own, and Phase 19 would inherit a meaningless
+   * anti-affinity rule.
+   *
+   * **`userPrivateKey`, not a `userKey` hex string, and the difference is load-bearing.**
+   * `EnrollmentAuthority.enrol` requires an `ownerProof`: the *user's* signature over the
+   * same challenge bytes the node signs, refused by name as `bad-owner-proof` when it is
+   * absent or wrong. That proof can only be produced by whoever holds the user's private
+   * half, so a node configured with a public key alone could name a user key and would be
+   * refused on every attempt. `requestEnrollment` accordingly **derives** `userKey` from
+   * this value rather than accepting it as a field, so naming somebody else's user key is
+   * not a thing this option can be asked to do. Consent is a value here, not a check.
+   *
+   * That makes this the one option on this interface that takes key material, and it is
+   * deliberately **not** reachable from argv: `issuesCertificates` above is a boolean and
+   * Plan 17-05's `--issues-certificates` is too, precisely because argv is world-readable
+   * in `ps`. A user key must reach this field from a file or a prompt; a
+   * `--user-key <hex>` flag would be a regression rather than an addition, and could not
+   * work anyway — a public key cannot sign.
+   *
+   * **This round trip runs on this node's own `rpcTimeoutMs`.** A provider that accepts a
+   * connection and then never answers delays `start()` by that budget —
+   * `DEFAULT_RPC_TIMEOUT_MS` (`rpc.ts`, whose value this phase writes down once, in
+   * `enrol-client.ts`) unless a caller set one. `rpcTimeoutMs` is the lever; a second
+   * `RpcEndpoint` with a shorter budget is not, because its constructor subscribes to
+   * `transport.onMessage` and allocates request ids from its own counter, so two endpoints
+   * over one transport would each see the other's frames and collide on ids.
+   *
+   * **Labelled assumption:** `userPrivateKey` is deliberately not unified with
+   * `sovereignty.ownerId`. They are different types today — `OwnerId` is an opaque string,
+   * a user key is an ed25519 key — and unifying them is AUTH-05 / Phase 19's decision.
+   *
+   * `discoverability` and `relayIds` are **absent from this object on purpose.** They are
+   * derived from what this node can actually do, for the reason the module comment's "why
+   * relaying is derived and not configured" section gives in full: an option would be a
+   * lie waiting to happen, and a signed certificate is the worst possible place for a
+   * field with two answers.
+   */
+  readonly enrollment?: {
+    readonly userPrivateKey: Uint8Array
+    readonly operatorId: string
+    readonly providerAddr: string
+  }
   /**
    * The build authorities this node will run a module for — DET-03, DATA-08.
    *
@@ -354,6 +429,122 @@ interface RelayService {
   }
 }
 
+/**
+ * Obtain this node's certificate, or establish that it was never asked for — AUTH-01.
+ *
+ * A module-level helper rather than inline code so `#compose` stays readable, and the one
+ * place in this file that throws on an enrollment failure. `FabricNode.start`'s `undo`
+ * stack is what releases the socket when it does; nothing here stops libp2p itself,
+ * because a release that ran twice would be a shutdown error replacing the caller's real
+ * one.
+ */
+async function resolveCertificate(parts: {
+  enrollment: FabricNodeOptions['enrollment']
+  identity: NodeIdentity
+  rpc: RpcEndpoint
+  libp2p: Libp2p
+  blockstoreDir?: string
+  canRelay: boolean
+  relayPeerIds: readonly string[]
+}): Promise<NodeCertificate | null> {
+  const { enrollment, identity, rpc, libp2p, blockstoreDir, canRelay, relayPeerIds } = parts
+
+  // Decision 9 row 1: nobody asked. `null` means exactly this, here and nowhere else —
+  // which is why the failure paths below throw rather than widening this return type.
+  if (enrollment === undefined) return null
+
+  // Decision 11 — a persisted, unexpired certificate is reused and the provider is not
+  // contacted at all.
+  //
+  // The identity check is written through `peerIdForNodeKey` rather than as
+  // `loaded.nodeKey === identity.nodeKey`, for two reasons. It is the same guarantee — the
+  // derivation is injective, so the two agree on every well-formed input — plus one more:
+  // a `nodeKey` that is not valid lowercase hex yields `null`, which is not
+  // `identity.peerId`, so a hand-edited or older-build file fails closed instead of being
+  // compared string to string. The real-world case it catches is a directory cloned from
+  // another host, where the certificate is intact, unexpired, genuinely signed, and names
+  // somebody else.
+  //
+  // **This is `peerIdForNodeKey`'s production call site.** A capability exported from a
+  // barrel with no traced call path from a runnable entry point is what Phase 22's guard
+  // is specified to fail on (`.planning/ROADMAP.md`, section `### Phase 22: Reachability
+  // Guard`, criterion 1 — cited by section because the roadmap's line numbers move as
+  // phases are inserted). If this line ever goes, that export goes with it.
+  if (blockstoreDir !== undefined) {
+    const loaded = await loadCertificate(blockstoreDir)
+    if (
+      loaded !== null &&
+      peerIdForNodeKey(loaded.nodeKey) === identity.peerId &&
+      loaded.expiresAt > Date.now()
+    ) {
+      return loaded
+    }
+  }
+
+  // The dial, inside a `try/catch` that **assigns rather than returns**.
+  //
+  // This is not defensive padding; it is the only route into the `unreachable` arm an
+  // operator will ever take. `libp2p.dial` rejects for any genuinely unreachable address,
+  // and that rejection escapes one step *before* `enrolOverRpc` is entered — so without
+  // this catch the line on stderr is a raw libp2p dial error and `EnrolOutcome`'s
+  // three-arm design produces two arms in production. Once a dial has succeeded the peer
+  // is by definition reachable, so the arm's other route is an `rpc.request` failure.
+  //
+  // The failure arm is deliberately assignable to `EnrolOutcome` — same `ok`, same `kind`,
+  // same `reason`, and the same `UNREACHABLE_PROVIDER` prefix `@o2/net` exports for it — so
+  // the throw below cannot tell the two routes apart. One mapping, one operator-facing
+  // string, and the tests assert on *that* string rather than on whatever libp2p said.
+  type Dialed =
+    // Discriminated on `ok` so the narrowing below needs no non-null assertion.
+    | { readonly ok: true; readonly peerId: string }
+    | { readonly ok: false; readonly kind: 'unreachable'; readonly reason: string }
+
+  let dialed: Dialed
+  try {
+    const connection = await libp2p.dial(multiaddr(enrollment.providerAddr))
+    dialed = { ok: true, peerId: connection.remotePeer.toString() }
+  } catch (cause) {
+    dialed = {
+      ok: false,
+      kind: 'unreachable',
+      reason: `${UNREACHABLE_PROVIDER} ${enrollment.providerAddr}: ${cause instanceof Error ? cause.message : String(cause)}`,
+    }
+  }
+
+  // Built unconditionally, above the branch: `requestEnrollment` signs a local structure
+  // and touches no network, so it depends on nothing from the dial. `discoverability` and
+  // `relayIds` both fall out of `canRelay`, which is derived from the listen list for
+  // precisely the reason the module comment's "why relaying is derived" section gives.
+  //
+  // Three arguments, and the middle one is the user's *private* key: `userKey` is derived
+  // inside, and the same bytes sign the `ownerProof` the authority refuses enrollment
+  // without.
+  const request = requestEnrollment(identity.seed, enrollment.userPrivateKey, {
+    operatorId: enrollment.operatorId,
+    discoverability: canRelay ? 'seed' : 'via-relay',
+    relayIds: canRelay ? [] : [...relayPeerIds],
+  })
+
+  // Both routes collapse into one value in one statement, so `outcome` is definitely
+  // assigned and no branch can be forgotten. `dialed.ok` narrows `peerId` to `string` on
+  // the first arm; the second arm is already the `unreachable` member of `EnrolOutcome`.
+  const outcome: EnrolOutcome = dialed.ok
+    ? await enrolOverRpc(rpc, dialed.peerId, request)
+    : dialed
+
+  if (!outcome.ok) {
+    // One throw site for all three of `EnrolOutcome`'s failure kinds and for both routes
+    // into `unreachable`, so the operator-facing format cannot differ between "the
+    // provider refused you" and "nothing answered at that address".
+    throw new Error(
+      `enrollment with ${enrollment.providerAddr} failed (${outcome.kind}): ${outcome.reason}`,
+    )
+  }
+
+  if (blockstoreDir !== undefined) await saveCertificate(blockstoreDir, outcome.certificate)
+  return outcome.certificate
+}
+
 function hasReservations(value: unknown): value is RelayService {
   if (value === null || typeof value !== 'object') return false
   const candidate = (value as { reservations?: unknown }).reservations
@@ -407,6 +598,21 @@ export class FabricNode {
    */
   readonly admission: LocalCapacity
   /**
+   * This node's provider-signed certificate, or `null` when it holds none — AUTH-01.
+   *
+   * `null` means this node was **never told to enrol**, which is a stated configuration
+   * and not a failure. It does not mean enrollment was attempted and did not work: a node
+   * told to enrol and unable to never reaches this field at all, because it does not
+   * start. Those two are different events and only one of them produces an object.
+   *
+   * Public because a certificate is a public signed statement — every peer is meant to be
+   * able to read and verify it, and Plan 17-04 serves it through the `index` hook. Holding
+   * one is not a capability: a node with a certificate executes tasks, holds blocks and
+   * relays on exactly the same terms as one without. Until 17-04 lands, nobody can fetch
+   * it, which is a deliberate one-plan gap rather than a resting state.
+   */
+  readonly certificate: NodeCertificate | null
+  /**
    * The instrument {@link executorPeakInFlight} reads. The same object as
    * {@link executor} — `CountingExecutor` is composed outermost, so nothing can
    * reach this node's executor without being counted.
@@ -449,6 +655,7 @@ export class FabricNode {
     inboundPerSecond: number
     identity: NodeIdentity
     authority: EnrollmentAuthority | null
+    certificate: NodeCertificate | null
   }) {
     this.libp2p = parts.libp2p
     this.transport = parts.transport
@@ -465,6 +672,7 @@ export class FabricNode {
     this.#inboundPerSecond = parts.inboundPerSecond
     this.#identity = parts.identity
     this.#authority = parts.authority
+    this.certificate = parts.certificate
   }
 
   /**
@@ -679,8 +887,18 @@ export class FabricNode {
 
     // Connecting is what triggers the reservation; the `/p2p-circuit` listen entry
     // above is what makes libp2p ask for one.
+    //
+    // AUTH-01: the peer ids are collected here because a certificate has to name the
+    // relays this node depends on. They come from the `Connection` rather than from the
+    // configured address string for two reasons — `multiaddr@13` removed `getPeerId()`,
+    // and, the better one, a peer id read off a connection is the peer actually
+    // **reached**, while one parsed out of a configured string is a claim about who was
+    // *meant* to be reached. A signed statement is the worst possible place for the second
+    // kind of fact.
+    const relayPeerIds: string[] = []
     for (const address of relayAddrs) {
-      await libp2p.dial(multiaddr(address))
+      const connection = await libp2p.dial(multiaddr(address))
+      relayPeerIds.push(connection.remotePeer.toString())
     }
 
     // NET-08: the first `Libp2pTransportOptions` this factory has ever passed — the
@@ -749,6 +967,25 @@ export class FabricNode {
                 ? generateSeed()
                 : await loadOrCreateSeed(options.blockstoreDir, PROVIDER_FILE),
           })
+
+    // AUTH-01 — the enrollment round trip, over the fabric's own protocol, before this
+    // factory returns anything.
+    //
+    // `transport` and `rpc` are released here rather than left to `libp2p.stop()` alone,
+    // because this is the first `await` in `#compose` that can *reject* after they exist:
+    // the discipline this method's doc describes is a release pushed on the line after
+    // each acquisition, and until now nothing between them and the end could throw.
+    undo.push(() => transport.stop())
+    undo.push(() => rpc.close())
+    const certificate = await resolveCertificate({
+      enrollment: options.enrollment,
+      identity,
+      rpc,
+      libp2p,
+      ...(options.blockstoreDir === undefined ? {} : { blockstoreDir: options.blockstoreDir }),
+      canRelay,
+      relayPeerIds,
+    })
 
     // Blocks this node lacks are pulled from whichever peers are connected. The
     // peer list is a thunk, so a peer that connects later is usable immediately.
@@ -833,6 +1070,7 @@ export class FabricNode {
       inboundPerSecond,
       identity,
       authority,
+      certificate,
     })
 
     // Unconditional, and that is the point: there is no construction path through
