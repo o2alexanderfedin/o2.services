@@ -581,12 +581,12 @@ hits first and this file is the one an auditor greps.
      disconnect, and a stale refusal could overwrite a fresh acceptance. The counter is now
      monotone across the verifier. Ledger entries M33/M34/M35 pin the three guards, all
      three planted and caught with their recorded signature. -->
-**Plans:** 11 plans in 5 waves
+**Plans:** 3/11 plans executed
 
 Plans:
-- [ ] 18-01-PLAN.md — criterion 2d: `--peer-addr` and `--max-concurrent-tasks` on `bin/agent.ts`; AUTH-02's accepting half, cross-process
-- [ ] 18-02-PLAN.md — D1 kernel: `SelfRecordIndex` answers `providers` from a node's own store; `RpcRecordIndex.providers` unions across peers
-- [ ] 18-03-PLAN.md — D1 wiring: both tiers serve a `SelfRecordIndex`, and never advertise a block their `block` branch would refuse
+- [x] 18-01-PLAN.md — criterion 2d: `--peer-addr` and `--max-concurrent-tasks` on `bin/agent.ts`; AUTH-02's accepting half, cross-process
+- [x] 18-02-PLAN.md — D1 kernel: `SelfRecordIndex` answers `providers` from a node's own store; `RpcRecordIndex.providers` unions across peers
+- [x] 18-03-PLAN.md — D1 wiring: both tiers serve a `SelfRecordIndex`, and never advertise a block their `block` branch would refuse
 - [ ] 18-04-PLAN.md — criterion 2c (D2): the offer answer publishes slots and in-flight; `planWithOffers` bounds placement across shards
 - [ ] 18-05-PLAN.md — `submitJob` gains an offer arm; `discoverCandidates` turns a data CID into dispatchable candidates
 - [ ] 18-06-PLAN.md — criteria 1 and 2 across real `bin/agent.ts` processes, and `bin/bench.ts --discover` as the entry-point call path
@@ -776,7 +776,7 @@ Parallel tracks (config `parallelization: true`):
 | 15. Capability-Chained Dispatch | 0/TBD | Not started | - |
 | 16. Decomposable Tree-Reduce Wiring | 0/TBD | Not started | - |
 | 17. Node Identity & Enrollment | 0/TBD | Not started | - |
-| 18. Discovery, Capacity & Placement | 0/TBD | Not started | - |
+| 18. Discovery, Capacity & Placement | 3/11 | In Progress|  |
 | 19. Quorum Composition & Owner-Domain Attestation | 0/TBD | Not started | - |
 | 20. Single Job Path, Ledger & Churn Resilience | 0/TBD | Not started | - |
 | 21. AOT Translation Signing & Runtime | 0/TBD | Not started | - |

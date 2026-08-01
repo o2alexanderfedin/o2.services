@@ -365,6 +365,7 @@ that straggler-dominated distributions have meaningless means.
 | Phase 13 P01 | 12min | 2 tasks | 5 files |
 | Phase 13 P02 | 7min | 2 tasks | 2 files |
 | Phase 13 P03 | 25min | 2 tasks | 1 files |
+| Phase 18 P03 | 25min | 2 tasks | 5 files |
 
 ## Accumulated Context
 
