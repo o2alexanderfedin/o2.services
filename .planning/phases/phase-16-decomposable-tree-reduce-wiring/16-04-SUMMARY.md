@@ -224,6 +224,12 @@ Every `file:line` in the plan was re-grepped. Line numbers are pre-edit.
 - `renderMarkdown`'s section order, `Observation`/`SweepResult` shape and `runnerFor`'s
   closure were **added to, never restructured**, per the plan's merge-shape obligation.
 
+## Self-Check: PASSED
+
+All three created files exist on disk. All seven commits present in `git log 4f1a63d..HEAD`:
+`5dbbf53`, `bf82a20`, `0d1f7f6`, `f49d791`, `9c83854`, `34af9b4`, `fc7b7c2`. Working tree
+clean. `STATE.md` and `ROADMAP.md` untouched, as the orchestrator owns those writes.
+
 ## What criterion 4 does not measure
 
 Its second clause — *"rather than bypassing `executeReduce` the way the demo currently
