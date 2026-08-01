@@ -310,7 +310,7 @@ second. Green in my run. The same fact is stated at `packages/net/src/enrol-agen
 and traced to `#history` being a `Map` in the authority object, which I confirmed at
 `packages/core/src/enrollment.ts:287`.
 
-This is a correct, well-evidenced self-report. Credit where due: it is asserted, not merely
+This is a correct, well-evidenced self-report, and it deserves saying: it is asserted, not merely
 commented.
 
 ### 3. Criterion 2's accepting side unmeasured through `bin/agent.ts` — **CONFIRMED. There is no real-process coverage of the accepting half anywhere.**
@@ -344,7 +344,7 @@ does not depend on `@o2/node`, so `PeerVerifier` is structurally unreachable fro
 **Is that acceptable?** I do not think it is, and here is the behavioural consequence rather than
 the philosophical one. AUTH-02's gate is fail-closed by design: `peer-verifier.ts:200-202`
 filters `verifiedPeers` to peers with an `ok` verdict, and a peer that serves no records can
-never earn one. So the moment an operator passes `--trusted-issuer` — the flag this phase exists
+never obtain one. So the moment an operator passes `--trusted-issuer` — the flag this phase exists
 to add — that node stops treating **every browser peer in the fabric** as a usable block source.
 Phase 17 has therefore introduced a mechanism that partitions the fabric by tier, which is the
 precise shape the project's cardinal rule (*all nodes have equal functionality; the only
