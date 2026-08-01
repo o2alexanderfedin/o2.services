@@ -581,7 +581,58 @@ hits first and this file is the one an auditor greps.
      disconnect, and a stale refusal could overwrite a fresh acceptance. The counter is now
      monotone across the verifier. Ledger entries M33/M34/M35 pin the three guards, all
      three planted and caught with their recorded signature. -->
-**Plans**: TBD
+**Plans:** 11 plans in 5 waves
+
+Plans:
+- [ ] 18-01-PLAN.md — criterion 2d: `--peer-addr` and `--max-concurrent-tasks` on `bin/agent.ts`; AUTH-02's accepting half, cross-process
+- [ ] 18-02-PLAN.md — D1 kernel: `SelfRecordIndex` answers `providers` from a node's own store; `RpcRecordIndex.providers` unions across peers
+- [ ] 18-03-PLAN.md — D1 wiring: both tiers serve a `SelfRecordIndex`, and never advertise a block their `block` branch would refuse
+- [ ] 18-04-PLAN.md — criterion 2c (D2): the offer answer publishes slots and in-flight; `planWithOffers` bounds placement across shards
+- [ ] 18-05-PLAN.md — `submitJob` gains an offer arm; `discoverCandidates` turns a data CID into dispatchable candidates
+- [ ] 18-06-PLAN.md — criteria 1 and 2 across real `bin/agent.ts` processes, and `bin/bench.ts --discover` as the entry-point call path
+- [ ] 18-07-PLAN.md — criterion 3 kernel: a settable duty cycle composed with an environment governor; `LocalCapacity.slots` derived live
+- [ ] 18-08-PLAN.md — criterion 3 Node tier: the governor composed, `--duty-cycle`, and a `SIGHUP` re-read of a control file under `--dir`
+- [ ] 18-09-PLAN.md — criterion 3 browser tier: the same cap governor over `VisibilityGovernor`, read by a peer off a live tab
+- [ ] 18-10-PLAN.md — criterion 5: sovereignty survives the offer loop's re-pick, in the kernel and across real processes
+- [ ] 18-11-PLAN.md — criterion 4 / NET-05: `--relay-addr` installs a `ReservationWatcher`; a full `bin/seed.ts` relay refuses a joiner by name
+
+Criterion 6 needs no plan — it landed on `develop` as `351bde1` before this phase was planned and needs verification only.
+
+<!-- TWO RULINGS TAKEN AT PLANNING TIME, 2026-08-01. Both are recorded here rather than in a
+     summary because both decide how this phase is *scored*, and a scoring rule that lives
+     only in a summary is one nobody reads at verification time.
+
+     RULING A — criterion 2b is expected to score PARTIAL, and that is accepted in advance.
+     Its second clause, "and the requestor re-picks", is not reachable in this phase. The
+     refusal half is closed (SCHED-06, `agent.ts:729-751`). The re-pick half needs WIRE-04:
+     `submitJob` calls `executeVerified` once per shard with no retry
+     (`core/src/job/submit.ts:267`), and `admission.node.test.ts:273-279` already records
+     that the re-pick belongs to `runResilient` and is "unmeasured on every path that runs in
+     production". WIRE-04 is **Phase 20 criterion 1**, so the work is already scheduled.
+
+     The criterion text is NOT amended, and the phase is NOT allowed to close on it. This
+     follows the ruling made for Phase 17's criterion 2 on 2026-08-01, where the unprovable
+     clause was rescheduled to Phase 18 criterion 2d *and* criterion 2 still scored PARTIAL
+     *and* Phase 17 stayed uncounted at 1/3. A criterion is not rewritten to let a phase
+     close. Plan 18-06 Task 2 therefore asserts the **absence** as a measurement — a direct
+     dispatch refused, and no shard recording a second attempt — so the clause turns red the
+     day WIRE-04 lands instead of surviving as a sentence in a summary.
+
+     RULING B — criterion 3's "user-set at runtime" is satisfied by a control file plus
+     `SIGHUP` on the Node tier, and an in-page setter on the browser tier. No wire frame is
+     added, and the reason is a security one rather than a convenience one: `serveAgent`
+     serves unauthenticated, so a request kind that set a CPU cap would let any peer able to
+     dial this node throttle a machine it does not own. The Node tier re-reads a control file
+     under `--dir`, carrying exactly the authority of the filesystem permissions that already
+     protect `.identity.key` in that same directory.
+
+     This does NOT create a node class. The governor, its coupling to the advertised slot
+     count, and the criterion it satisfies are identical on both tiers; only the control
+     surface differs, because a browser tab has no signals. That is a platform fact of the
+     same kind as "a browser cannot bind a listening socket", not a capability difference —
+     and 18-09 is required to prove the browser tier's cap is read by a *peer*, off a live
+     tab, so the equality is measured rather than asserted. -->
+
 
 ### Phase 19: Quorum Composition & Owner-Domain Attestation
 **Goal**: Verification quorums compose under anti-affinity with a backbone-anchored replica, owner-domain agreement is labelled distinctly from independent-operator agreement, and two browser tabs on a static bundle find each other with nothing dialed by a harness
