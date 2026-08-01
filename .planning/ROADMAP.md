@@ -596,6 +596,25 @@ This phase is where the clause becomes measurable: it owns the recovery path, so
   3. A translated artifact produced by `tools/aot/cli.ts`, dispatched to a live node started via `bin/agent.ts`, executes successfully — the node constructs a real `WasiExecutor` in production, completing the same admission and verification path as a source-compiled module
 **Plans**: TBD
 
+**OPEN QUESTION FOR THE PLANNER — how does a 5.40 MiB artifact reach a node that does not have it? Answer this in the discuss step; do not let a plan assume it.** (Raised by the owner 2026-08-01. It is not rhetorical: criterion 3 cannot be met without an answer, because a node that cannot obtain the artifact fails at instantiate.)
+
+**The problem is not content addressing — we have that. It is durability and fan-out.** A CID tells you whether you got the right bytes; it says nothing about whether anyone still holds them. Today the only artifact path in production is `FetchingBlockstore` over the `block` RPC branch, which asks *a* peer. That has never been exercised as real distribution, because both existing paths dodge it: `packages/demo/src/kernel.ts` **embeds** the kernel in the JS bundle (`kernel-build.node.test.ts` asserts the bytes equal the committed `kernel.wasm`), and AOT artifacts have no production caller at all. In every case so far the holder and the requestor were the same process.
+
+Three consequences the planner must price:
+- **A resolvable name for unfetchable content is worse than no name.** Phase 14 made module resolution go through a signed `key → CID` mapping. If the one node holding those bytes leaves, the record still resolves and the job fails at `WebAssembly.instantiate` instead of at resolution.
+- **The browser tier loses copies silently.** IndexedDB evicts under storage pressure, and `idb-blockstore.ts` correctly treats a miss as "ask a peer" — which is only an answer while some peer has it.
+- **No fan-out.** N nodes needing one module each fetch it one-peer-at-a-time. Bitswap's want-lists and sessions exist for exactly this shape; our `block` branch does not have them.
+
+**The asymmetry that makes this tractable: an executable is public by construction, and sovereign data is not.** The two have *opposite* requirements — a module should be as widely available as possible; owner data must not move at all. They are currently served by one mechanism. The sovereignty argument that rules out third-party infrastructure for data therefore **does not apply to artifacts**, and `EgressGuard` already refuses any frame carrying a registered sovereign payload, so the separation is enforceable rather than aspirational.
+
+**The candidate to evaluate first is `@helia/http` alone** — trustless gateway block fetching over plain HTTP as a *second, public* retrieval path for artifacts only. Note this repository **does not depend on Helia at all today** (verified 2026-08-01: no `helia`, no `@helia/*`, no `unixfs`, no `bitswap` in any manifest), despite `STACK.md` recommending it at length — so this is a dependency decision, not a configuration one.
+
+**Explicitly do NOT adopt Helia wholesale.** Bitswap would put sovereign blocks on a general-purpose exchange protocol, and delegated routing (`delegated-ipfs.dev`) leaks query patterns to a third party. The gateway path is separable from both, and separability is the whole reason it is the candidate.
+
+**Two traps, both already measured — do not re-derive either:**
+- **Do not justify a gateway with V8 code caching.** Phase 10 tested exactly that configuration — 4.8 MB, `application/wasm`, query-free CID URL, `compileStreaming`, hot across three visits — and recorded the WASM code cache as **NOT OBSERVED**, while the same profile grew a 2 MB *JavaScript* cache and a `--v8-cache-options=none` calibration read the identical 72 B. AOT-05 records it independently. The argument for a gateway is **availability**, not warm compiles.
+- **The ~43 ms lifted-startup floor is not a distribution problem and a gateway will not touch it.** Measured 2026-07-31: the lifted `_start` alone is 42.83 ms against 42.65 ms for instantiate+start — indistinguishable, so the whole floor executes *inside* the guest in elfconv's emulated machine-state init, and is re-paid per task. Content addressing fully solves distributing the 5.40 MiB; the floor stays.
+
 ### Phase 22: Reachability Guard
 **Goal**: A guard test fails when a capability exported from a package barrel has no traced call path from any of the five runnable entry points — the class of defect this milestone exists to fix, made permanent
 **Mode:** mvp
