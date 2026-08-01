@@ -324,6 +324,15 @@ export function serveAgent(options: AgentOptions): void {
         decision === undefined || decision.accepted
           ? { kind: 'offer', accepted: true, reason: '' }
           : { kind: 'offer', accepted: false, reason: decision.reason }
+    } else if (request.kind === 'combine') {
+      // Placeholder, and it exists for a type-system reason rather than a design
+      // one: the final `else` narrows by exhaustion, so an eighth kind that is not
+      // caught here reaches code that reads `request.task`. Plan 16-02 replaces this
+      // whole branch with the real handler. Answering the null arm rather than an
+      // `error` frame is deliberate: the frame parsed, so this is a combine that
+      // could not be run, which is exactly what `executeReduce`'s ranking walk
+      // expects.
+      response = { kind: 'combine', resultCid: null, reason: 'combine not implemented in this build' }
     } else {
       // SCHED-06 — admission, on the branch that actually costs a
       // `WebAssembly.compile` plus an `instantiate` plus a linear memory.
