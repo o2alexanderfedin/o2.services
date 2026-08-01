@@ -335,6 +335,15 @@ describe("DATA-09 and AUTH-03's serving half — three node shapes, four dispatc
     if (unpinned.ok) return
     expect(unpinned.reason).toContain('unauthorized')
     expect(unpinned.reason).toContain('alice')
+    // **Which refusal, not merely that one arrived** — and this line is here because
+    // the two above did not discriminate. Measured: deleting the no-pinned-key
+    // precedence step from `capability-authorizer.ts` left this case **green**. A node
+    // with no `sovereignty` option resolves to `ownerId: ''`, so with that step gone it
+    // fell through to the next one and answered *"task names owner alice, but this node
+    // is pinned to owner "* — which is also prefixed `unauthorized` and also contains
+    // `alice`. The plan for this phase predicted this case would go red on that
+    // deletion; it did not, and this assertion is what makes the prediction true.
+    expect(unpinned.reason).toContain('no pinned owner key')
 
     // 2. DATA-09's production-path proof, restored. Pinned to alice and holding
     // alice's key, so the chain verifies and `authorize` returns null — and then the
