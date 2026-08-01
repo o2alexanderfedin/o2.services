@@ -39,6 +39,32 @@ function occurrences(text: string, needle: string): number {
   return text.split(needle).length - 1
 }
 
+/**
+ * The trimmed argument lines of a file's `authorizeCapability({ … })` call.
+ *
+ * Line-based rather than brace-matching on purpose: the conditional-spread argument
+ * contains `{ ownerKey: sovereignty.ownerKey })`, so the first `})` in the text is
+ * *inside* the argument list and a naive index search would stop there. The closing
+ * line is the one whose trimmed form starts with `})`; every argument line starts with
+ * an identifier or a spread.
+ *
+ * Returns `[]` when there is no such call, which is what makes deleting the call
+ * distinguishable from changing its arguments — provided the reading is taken next to a
+ * non-empty one. It always is; see the assertion below.
+ */
+function authorizerArguments(source: string): readonly string[] {
+  const lines = source.split('\n')
+  const start = lines.findIndex((line) => line.includes('authorizeCapability({'))
+  if (start === -1) return []
+  const collected: string[] = []
+  for (let index = start + 1; index < lines.length; index += 1) {
+    const trimmed = (lines[index] ?? '').trim()
+    if (trimmed.startsWith('})')) return collected
+    collected.push(trimmed)
+  }
+  return collected
+}
+
 describe('production serveAgent call sites state every hook explicitly', () => {
   it('fabric-node.ts: real authorizer, real reservations, real admission, three sentinels', () => {
     // AUTH-03 burned this one down. A zero on its own is also what deleting the
@@ -70,11 +96,13 @@ describe('production serveAgent call sites state every hook explicitly', () => {
     // Stated here rather than left for a reader to assume symmetry, because the two
     // lines look identical and are not:
     //
-    // It is the **only** check in this repository on the browser tier's authorizer. It
-    // counts a substring in source text, not a behaviour. It reads 1 for a call site
+    // It counts a substring in source text, not a behaviour. It reads 1 for a call site
     // handing `ownerId: sovereignty.ownerKey`, or an `audience` derived from some other
-    // node, or a `now` that never advances. **The browser tier's authorizer behaviour is
-    // unmeasured** — do not cite this line as evidence that it works.
+    // node, or a `now` that never advances — measured, not supposed: Plan 15-03 planted
+    // exactly that scrambling and nothing in the repository moved. **The browser tier's
+    // authorizer behaviour is unmeasured** — do not cite this line as evidence that it
+    // works. The argument-level check in the next `it` was added in Plan 15-04 to catch
+    // that specific scrambling; read its comment for what it does and does not settle.
     //
     // Why it is unmeasured, corrected against source on 2026-07-31 (the phase plan's
     // stated reason was that no test constructs a `BrowserNode`, and that is false —
@@ -107,6 +135,51 @@ describe('production serveAgent call sites state every hook explicitly', () => {
     // relay to dial, so it runs in neither vitest project, and this count is not
     // allowed to stand in for running it. WIRE-03, Phase 19 builds that harness.
     expect(occurrences(BROWSER_NODE, "'accepts-every-offer'")).toBe(0)
+  })
+
+  it('browser-node.ts hands its authorizer the identical arguments fabric-node.ts hands its own', () => {
+    // AUTH-03. **The gap this closes, and the exact size of the closure.**
+    //
+    // Plan 15-03 measured the browser tier's guard and found nothing behind it. The
+    // mutation it planted was not a deletion — it transposed the owner id and the owner
+    // key, hardcoded the audience to an eight-character literal, and froze the clock at
+    // zero. `tsc` exited 0. The count above stayed at 1. All 345 browser tests passed in
+    // three engines. A browser node verifying every chain against a made-up audience,
+    // with a frozen clock and its two owner fields swapped, was invisible to every
+    // instrument in this repository.
+    //
+    // This is the assertion that sees it. It reads the argument lines of each factory's
+    // call and requires them to be the same text. Transpose one pair, hardcode one
+    // value, or freeze one clock on either side and the two lists differ.
+    //
+    // **What it is.** A source-text check, like every other row in this file — not a
+    // behaviour, and it is not offered as one. What makes it worth more than a substring
+    // count is that it is *relational*: `fabric-node.ts`'s side of this equality is
+    // behaviourally proven, by `fabric-node.node.test.ts`'s four dispatches over three
+    // live nodes and by `capability-dispatch.node.test.ts`'s three criteria across a real
+    // process boundary. So this line transfers evidence from the tier that has it to the
+    // tier that has none, and it mechanises the standing rule `fabric-node.ts`'s module
+    // comment states in the imperative — all nodes have equal functionality, and the only
+    // difference is discovery. Two factories composing *different* authorizers is that
+    // rule being violated, whatever either one does.
+    //
+    // **What it is not, stated so nobody over-reads it.** It cannot tell a correct
+    // authorizer from an incorrect one; it can only tell a *divergent* one from a
+    // convergent one. A defect planted identically in both factories passes this and
+    // every other check here. And it still says nothing whatever about a dispatch to a
+    // browser node, because no such dispatch exists — that half remains **unmeasured**,
+    // for the reason the previous `it` gives: a tab holding no relay reservation has no
+    // address any peer can dial, and the browser vitest project cannot run a Circuit
+    // Relay v2 server, which `@libp2p/circuit-relay-v2` states outright will not work in
+    // a browser. What would close *that* half is unchanged and larger than one plan: a
+    // relay in the browser-project fixture, or an injectable `Transport` on
+    // `BrowserNodeOptions` so a `MemoryNetwork` can stand in for libp2p.
+    const fabric = authorizerArguments(FABRIC_NODE)
+    const browser = authorizerArguments(BROWSER_NODE)
+    // The positive control, and it is not decoration: without it, deleting *both* calls
+    // satisfies the equality below with two empty lists.
+    expect(fabric.length).toBeGreaterThan(0)
+    expect(browser).toEqual(fabric)
   })
 
   it('bin/bench.ts: two call sites, real admission at both, five sentinels twice', () => {
