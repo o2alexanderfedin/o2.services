@@ -1,6 +1,6 @@
 import { spawn } from 'node:child_process'
 import type { ChildProcessByStdio } from 'node:child_process'
-import type { Readable } from 'node:stream'
+import type { Readable, Writable } from 'node:stream'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -53,8 +53,15 @@ function recordFor(moduleCid: CID): NameRecord {
 
 const AGENT = fileURLToPath(new URL('./bin/agent.ts', import.meta.url))
 
-/** stdin is `ignore`d, so the child's type carries `null` for it. */
-type AgentProcess = ChildProcessByStdio<null, Readable, Readable>
+/**
+ * stdin is piped and never written to, so the child's type carries a `Writable` for it.
+ *
+ * The pipe is the point rather than the type: `bin/agent.ts` watches fd 0 and leaves when
+ * it closes, which is what stops a spawned agent outliving a parent that was killed rather
+ * than asked. Handing it `ignore` would put `/dev/null` on fd 0 and silently opt this file
+ * out. See `orphan-leash.node.test.ts`, which demonstrates it and guards this line.
+ */
+type AgentProcess = ChildProcessByStdio<Writable, Readable, Readable>
 
 interface Agent {
   readonly peerId: string
@@ -74,7 +81,7 @@ async function spawnAgent(name: string, extraArgs: readonly string[] = []): Prom
     process.execPath,
     [AGENT, '--dir', dir, '--trust-anchor', publisher.pub, ...extraArgs],
     {
-      stdio: ['ignore', 'pipe', 'pipe'],
+      stdio: ['pipe', 'pipe', 'pipe'],
     },
   )
 
