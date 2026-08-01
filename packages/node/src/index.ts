@@ -16,8 +16,19 @@ export type { FabricNodeOptions, RelayCapacity } from './fabric-node.ts'
 
 export { FsBlockstore } from './fs-blockstore.ts'
 
-// AUTH-01 — the identity seed, persisted beside the blocks.
-export { IDENTITY_FILE, MalformedSeedFileError, PROVIDER_FILE, hasSeed, loadOrCreateSeed } from './identity-store.ts'
+// AUTH-01 — the identity seed and the provider-signed certificate, persisted beside the
+// blocks. The certificate goes through the same parser the wire uses, plus the hex-key
+// narrowing that parser cannot make — see `loadCertificate`.
+export {
+  CERTIFICATE_FILE,
+  IDENTITY_FILE,
+  MalformedSeedFileError,
+  PROVIDER_FILE,
+  hasSeed,
+  loadCertificate,
+  loadOrCreateSeed,
+  saveCertificate,
+} from './identity-store.ts'
 
 // The Node tier's killable compute thread — SCHED-06, BROW-04's other half.
 export { workerThread } from './worker-thread.ts'

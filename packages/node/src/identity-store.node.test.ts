@@ -205,12 +205,27 @@ describe('AUTH-01 — the certificate on disk', () => {
   })
 
   /**
+   * `signature` and not `issuer`, and the difference was measured rather than assumed.
+   *
+   * Dropping `issuer` reddens under **neither** deletion on its own, because the two
+   * layers overlap on it: `parseCertificate` rejects a missing `issuer` for want of a
+   * string, and so does the `parseKeyHex` narrowing, since `/^[0-9a-f]{64}$/.test(undefined)`
+   * coerces to the string `'undefined'` and is false. A field caught twice cannot isolate
+   * either check. `signature` is outside the narrowing's three keys, so this assertion
+   * reddens for exactly one reason.
+   *
    * Reddened by deleting the `parseCertificate(...)` call in `loadCertificate` and
-   * returning the `JSON.parse` result cast — a half-built object would come back with
-   * `issuer` undefined and nothing would say so.
+   * returning the `JSON.parse` result cast — measured: this test and the
+   * `discoverability` one below both go red, the `parseKeyHex` one does not.
    */
   it('returns null when a required field is missing', async () => {
-    const { issuer: _dropped, ...withoutIssuer } = issue(NODE_SEED)
+    const { signature: _dropped, ...withoutSignature } = issue(NODE_SEED)
+    await plant(withoutSignature)
+    expect(await loadCertificate(dir)).toBeNull()
+
+    // Dropping `issuer` is refused too — by whichever layer sees it first, which is the
+    // point of having both.
+    const { issuer: _alsoDropped, ...withoutIssuer } = issue(NODE_SEED)
     await plant(withoutIssuer)
     expect(await loadCertificate(dir)).toBeNull()
   })
