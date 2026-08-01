@@ -21,6 +21,10 @@ export { RemoteExecutor } from './remote-executor.ts'
 export { RpcBlockSource, serveAgent } from './agent.ts'
 export type { AgentOptions, Authorizer } from './agent.ts'
 
+// AUTH-03 — the first real `Authorizer`: a chain verified against a pinned owner key.
+export { authorizeCapability } from './capability-authorizer.ts'
+export type { CapabilityAuthorizerOptions } from './capability-authorizer.ts'
+
 // Dispatching a shard over RPC with the failure kind preserved — CHURN-01.
 export { remoteDispatch } from './churn.ts'
 export type { RemoteDispatchOptions } from './churn.ts'
