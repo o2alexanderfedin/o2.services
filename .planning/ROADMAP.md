@@ -556,7 +556,12 @@ hits first and this file is the one an auditor greps.
   3. A straggler task is duplicated speculatively during a live run, the first correct result wins, and the job's reported cost accounting includes the speculation multiplier
   4. A cross-owner job run with some owners' nodes offline returns a coverage report (`covered: X/Y`) alongside its result, rather than presenting a silently partial aggregate as complete
   5. The browser demo's peer activity ledger, viewed across two or more connected tabs, shows merged counts contributed by every connected peer — not zero — because every node now supplies `serveAgent`'s `ledger` hook and reported outcomes are recorded rather than discarded
+  6. **A combine result arriving from a recovered node *after* `executeReduce` has already collected its `wanted` replicas is received and discarded harmlessly** — an unsolicited late duplicate, not one the test asked for. Routed here by owner ruling 2026-07-31 from Phase 16's criterion 3, which scored PARTIAL for this clause alone
 **Plans**: TBD
+
+**Criterion 6 exists because Phase 16 could measure half of its own criterion 3 and said so.** The dedupe property is fully established there across nine real `bin/agent.ts` processes — probe-store deltas `+1/+0/+1`, a ninth fresh process returning the identical CID, two holders at redundancy 2 — but *"arriving late"* is not, because `executeReduce` stops at `wanted` replicas and **has no channel on which a late result could be received at all**. The duplicate in Phase 16's test is therefore solicited by the test, and `tree-reduce-agents.node.test.ts` says so about itself rather than letting the reading pass for more than it is.
+
+This phase is where the clause becomes measurable: it owns the recovery path, so a recovered node's late result finally has somewhere to arrive. **Phase 16 keeps MR-04 open on this account** — the criterion was scheduled rather than rewritten, on the same principle that sent AUTH-03's requestor half to Phase 23: lowering a bar is not clearing it.
 
 ### Phase 21: AOT Translation Signing & Runtime
 **Goal**: `translationCid` is called by the lift pipeline itself and the CLI emits the CID it produces; a production node constructs a real `WasiExecutor` so a translated artifact dispatched to a running node executes instead of failing at instantiate
