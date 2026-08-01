@@ -325,8 +325,30 @@ for legibility only — the same status `spec. tax` and `churn/task` already car
 reader must not take a constant for a result. The driver's `unmet` list says so in the
 artifact itself. The alternative that would make those two columns informative, varying the
 fanout across the sweep, was considered and rejected: rungs walking differently-shaped trees
-have incomparable reduce timings, which is the only thing the reduce table is for. *The
-per-rung values the regenerated run printed are recorded below, after the run.*
+have incomparable reduce timings, which is the only thing the reduce table is for.
+
+*Appended after the run.* **The full run of 2026-08-01T05:38:05Z printed `tree depth 2`
+and `combines 5` on every rung of the memory transport — 1, 2, 4, 8 and 16 nodes alike.**
+Both columns are therefore constant across the published ladder and neither carries
+information about a configuration; they are recorded here so a later reader can tell that
+the constancy was observed rather than assumed. `combine executors` on the same rungs read
+**1, 2, 3, 4, 5** — it rises with the node count, which is the column that carries MR-05 —
+and `recomputes` read **0** on every rung, meaning no combine had to fall through the
+rendezvous ranking. Every rung of the **real** transport is an em dash for a separate
+reason given in paragraph 7.
+
+**7. What this run could not measure at all: the reduce over the real transport.**
+Recorded here because a table of em dashes with no stated cause is indistinguishable from
+a missing feature. `serveAgent`'s combine branch refuses unless its `authorize` hook is the
+`serves-unauthenticated` sentinel — an `Authorizer` takes a `Task` and a combine has none,
+so a node that authenticates everything else cannot be asked about a combine, and the gap
+was deliberately made to fail closed. Every `FabricNode` supplies a real
+`authorizeCapability`, so every node in the real-transport rig answered `combine requires a
+capability chain this build cannot verify`. Measured on this driver rather than inferred
+from the source: every combine failed at level 1, with `combines: 0`, `failed: 5`,
+`executedBy: 0` and `rootCid: null`. **The two reduce curves are therefore not comparable
+and no connectivity tax is computed over them.** Closing it is AUTH-03, Phase 15. Nothing
+was weakened to produce a populated row.
 
 **6. Egress figures move for a new reason.** The requestor now also sends combine requests,
 sends one directed `block` request per combine to retrieve each result, and serves leaf
@@ -334,5 +356,15 @@ partial blocks — all over the same guarded transport — so the manifest's fra
 byte total rise for reasons unrelated to the map. **Those two printed figures are not
 comparable across this date.** The retrieval leg is named explicitly because it is the half
 a reader would under-count: every combine costs a *second* request/response pair, not one,
-so "one frame per combine" is wrong. *The figures the regenerated run printed are recorded
-below, after the run.*
+so "one frame per combine" is wrong.
+
+*Appended after the run.* The full run of 2026-08-01T05:38:05Z printed **3055 frames /
+1468983 bytes** for the memory transport and **2367 frames / 1140430 bytes** for the real
+transport. Two cautions on reading them. They are **not** comparable with the figures on
+the previously published page, which was a `--quick` run (6 iterations, ladders `[1,2,4]`
+and `[1,2]`) rather than a full one, so the change across this date mixes the reduce leg
+with a fourfold change in iteration count and a longer ladder — the reduce's own
+contribution is not separable from these two numbers and no attempt is made here to
+separate it. And the real transport's figure includes combine requests that were all
+**refused** (paragraph 7), so it counts the request frames of an aggregation that never
+happened.
