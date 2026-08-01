@@ -31,6 +31,23 @@ const { values } = parseArgs({
     // is a per-node clearance flag, not a node kind: every agent process built by
     // this binary has identical capability regardless of whether it is passed.
     'owner-id': { type: 'string' },
+    // AUTH-03's pinned trust anchor (`NodeSovereignty.ownerKey`): the ed25519 public
+    // key, hex-encoded, that a capability chain naming `--owner-id` must be rooted at.
+    // Without it this process refuses every sovereign task naming that owner, because
+    // it has no key to verify a chain against — the safe default, and the same shape as
+    // omitting `--can-execute-sovereign`.
+    //
+    // A **public** key on a command line is fine, and nothing in this repository ever
+    // accepts a private one on an interface like this — `enrollment.ts`'s stated rule.
+    // Where the owner's private half actually comes from is Phase 17's concern; this
+    // phase pins only the public half, by configuration.
+    //
+    // Flag collision, recorded rather than resolved (14-CONTEXT.md Risk 3): Phase 14
+    // proposed a `--trust-anchor` flag on this same binary and it landed above. Phase
+    // 15 does not depend on Phase 14 and must not block on it, so this is a third flag
+    // rather than a refactor. Whichever phase touches this block next should fold all
+    // three into one flags object rather than accreting a fourth.
+    'owner-key': { type: 'string' },
     'can-execute-sovereign': { type: 'boolean', default: false },
     // DET-03/DATA-08's per-node build authority (`FabricNodeOptions.trustAnchors`),
     // repeatable. Four things about it, all of which decide behaviour:
@@ -55,7 +72,7 @@ const { values } = parseArgs({
 
 if (values.dir === undefined) {
   process.stderr.write(
-    'usage: agent.ts --dir <blockstore-dir> [--port <n>] [--owner-id <id> [--can-execute-sovereign]] [--trust-anchor <hex> ...]\n',
+    'usage: agent.ts --dir <blockstore-dir> [--port <n>] [--owner-id <id> [--owner-key <hex>] [--can-execute-sovereign]] [--trust-anchor <hex> ...]\n',
   )
   process.exit(2)
 }
@@ -73,6 +90,11 @@ const node = await FabricNode.start({
     : {
         sovereignty: {
           ownerId: values['owner-id'],
+          // Same conditional-spread idiom as the enclosing one, and required for the
+          // same reason: `exactOptionalPropertyTypes` makes an absent key and an
+          // explicit `undefined` different types, and `NodeSovereignty.ownerKey` is
+          // optional. Omitting it is what pins this process to no key at all.
+          ...(values['owner-key'] === undefined ? {} : { ownerKey: values['owner-key'] }),
           canExecuteSovereign: values['can-execute-sovereign'],
         },
       }),

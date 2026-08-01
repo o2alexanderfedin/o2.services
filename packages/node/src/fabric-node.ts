@@ -92,6 +92,7 @@ import {
   FetchingBlockstore,
   RpcBlockSource,
   RpcEndpoint,
+  authorizeCapability,
   serveAgent,
 } from '@o2/net'
 import { createLibp2p } from 'libp2p'
@@ -105,6 +106,7 @@ import {
   RELAY_DURATION_LIMIT_MS,
   RELAY_MAX_RESERVATIONS,
   RELAY_MAX_RESERVATION_TTL_MS,
+  audienceKeyOf,
 } from '@o2/libp2p'
 import type { ReservationWatcher } from './reservation-watch.ts'
 import { workerThread } from './worker-thread.ts'
@@ -122,18 +124,27 @@ export interface FabricNodeOptions {
    */
   readonly blockstoreDir?: string
   /**
-   * This node's clearance to execute sovereign data — DATA-09's serving-side
-   * gate (`guardSovereignty`, `@o2/core`), applied unconditionally to the
-   * `Executor` this factory hands to `serveAgent` below.
+   * This node's clearance to execute sovereign data, and the owner key it judges
+   * capability chains against — DATA-09's serving-side gate (`guardSovereignty`,
+   * `@o2/core`), applied unconditionally to the `Executor` this factory hands to
+   * `serveAgent` below, and AUTH-03's `authorize` hook at that same call.
    *
-   * Optional, and the default is the safe one: cleared for nobody
-   * (`canExecuteSovereign: false`). A node started with no `sovereignty` option
-   * therefore refuses every sovereign-labelled task regardless of whose owner
-   * id it names — `ownerId` only matters once `canExecuteSovereign` is `true`,
-   * so the default's placeholder value is never consulted. This is a per-node
-   * clearance, not a node class: every `FabricNode` has the identical executor,
-   * transport, and relay capability regardless of this setting — see the
-   * module comment's "why there is no second class".
+   * Optional, and the default is the safe one: cleared for nobody, pinned to nobody
+   * (`canExecuteSovereign: false`, no `ownerKey`). A node started with no
+   * `sovereignty` option therefore refuses every sovereign-labelled task **twice
+   * over** — the authorizer refuses it for want of a pinned owner key, and
+   * `guardSovereignty` would refuse it for want of clearance — and the first of those
+   * is the one a requestor observes, because `authorize` runs before `execute`.
+   *
+   * `ownerId` is consequently consulted on **every** sovereign dispatch, by the
+   * authorizer, before clearance is looked at. (Until Phase 15 this doc said the
+   * opposite — that `ownerId` mattered only once `canExecuteSovereign` was `true`, so
+   * the default's placeholder was never read. That stopped being true when a real
+   * authorizer was installed at the `serveAgent` call below.)
+   *
+   * This is a per-node clearance, not a node class: every `FabricNode` has the
+   * identical executor, transport, relay capability and authorizer regardless of this
+   * setting — see the module comment's "why there is no second class".
    */
   readonly sovereignty?: NodeSovereignty
   /**
@@ -593,6 +604,32 @@ export class FabricNode {
     // and `guardSovereignty`'s clearance check below — not two independently
     // defaulted copies that could drift (13-CONTEXT.md decision 2).
     const sovereignty = options.sovereignty ?? { ownerId: '', canExecuteSovereign: false }
+    // AUTH-03: this node's own identity is the audience a capability chain must end
+    // at, so a chain minted for another node is refused here by `wrong-audience`.
+    // Computed **once**, because it cannot change while the node runs, and computed
+    // **eagerly, before `serveAgent`** below — so there is no path by which this node
+    // serves with an authorizer whose audience was never derived.
+    //
+    // What that ordering claim is, and what it is not. It is "no node serves with an
+    // underived audience". It is *not* "an identity that cannot yield an audience key
+    // stops the node from starting" — that second claim is **unmeasured**, no assertion
+    // in Phase 15 can fail on it, and none was written. Verified against source on
+    // 2026-07-31: the `createLibp2p` call above passes `addresses`, `transports`,
+    // `connectionEncrypters`, `streamMuxers`, `connectionManager`, `services` and a
+    // conditionally-spread `logger`, and **no `privateKey`** — so every identity this
+    // factory produces is libp2p's Ed25519 default and `audienceKeyOf`'s two throwing
+    // branches are unreachable through it. What would measure it: an injected
+    // `privateKey` on `FabricNodeOptions`, driven from a test with a secp256k1 or RSA
+    // key. Phase 17 adds exactly that option for identity resolution, so the assertion
+    // belongs to whichever phase adds the injection point rather than to this one,
+    // which would otherwise be asserting against a branch it cannot reach.
+    //
+    // Accepting the *risk* that such an identity stops the node from starting is the
+    // right call — the alternative is a node that serves with an authorizer no chain
+    // can satisfy, refusing everything with `wrong-audience` and looking like a
+    // capability problem. But that is a judgement about the risk, not evidence that the
+    // branch works, and nothing here states a truth with no test behind it.
+    const audience = audienceKeyOf(libp2p.peerId)
     // DATA-05/DATA-06: every outbound RPC frame is recorded by construction —
     // `rpc` is built over this guard, not over the raw `transport`, below.
     const egress = new EgressGuard(transport, sovereignty.ownerId)
@@ -710,7 +747,26 @@ export class FabricNode {
       // for exactly as long as its reply frame takes to settle, and a dispatch that
       // declared nothing gives nothing back.
       egress: { guard: egress, sovereignInputs: store },
-      authorize: 'serves-unauthenticated',
+      // AUTH-03: `verifyChain` has been complete and fuzzed since Phase 4 with zero
+      // production callers, and this hook has been explicit since Phase 11 with a
+      // named sentinel at every production call site. This line is where the two meet.
+      //
+      // **Every node runs this identical authorizer.** What differs between two nodes
+      // is the owner they were configured with and the identity they were assigned —
+      // never what kind of node they are. A browser node passes the byte-identical
+      // argument (`packages/browser/src/browser-node.ts`).
+      //
+      // The conditional spread is required by `exactOptionalPropertyTypes`, which makes
+      // an absent key and an explicit `undefined` different types; `bin/agent.ts` builds
+      // its own `sovereignty` object with the same idiom. An absent `ownerKey` is not a
+      // pass — `authorizeCapability` refuses every sovereign task naming this owner
+      // when it has no key to root a chain at.
+      authorize: authorizeCapability({
+        ownerId: sovereignty.ownerId,
+        ...(sovereignty.ownerKey === undefined ? {} : { ownerKey: sovereignty.ownerKey }),
+        audience,
+        now: Date.now,
+      }),
       index: 'serves-no-records',
       // SCHED-06. This hook answered "accepts everything" for the whole of two
       // milestones, so `serveAgent`'s `exec` branch ran `executor.execute` with
