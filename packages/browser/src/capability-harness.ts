@@ -56,6 +56,29 @@ export interface HarnessStartOptions {
   readonly trustAnchors: readonly PublicKeyHex[]
   /** The owner this tab is pinned to, and whether it is cleared to execute for them. */
   readonly sovereignty: NodeSovereignty
+  /**
+   * Enrol with a provider on the way up — AUTH-01, passed straight through.
+   *
+   * `userPrivateKey` crosses the `page.evaluate` boundary as a plain number array, not a
+   * `Uint8Array`: Playwright serialises arguments as JSON, so typed arrays arrive as
+   * `{"0":…}` objects and `ed25519.getPublicKey` would derive a key from nothing. The
+   * conversion happens here, at the one place that knows both sides.
+   */
+  readonly enrollment?: {
+    readonly userPrivateKey: readonly number[]
+    readonly operatorId: string
+    readonly providerAddr: string
+  }
+  /**
+   * What the node does when its seed is gone — required, so the driving test says it.
+   *
+   * Passed through rather than fixed here. A test that reads identity persistence needs
+   * `'mints-a-new-identity'` on the first start and needs to be able to demand
+   * `'refuses-to-start-without-its-seed'` afterwards, which is the only way to tell "the
+   * peer id was reloaded" apart from "a new one was minted and happened to be asserted
+   * against itself".
+   */
+  readonly whenSeedIsGone: 'mints-a-new-identity' | 'refuses-to-start-without-its-seed'
 }
 
 /** The surface the driving test reaches through `page.evaluate`. */
@@ -93,6 +116,21 @@ export interface CapabilityHarness {
    */
   executed(): number
   peers(): string[]
+  /**
+   * This tab's own peer id — readable without starting, unlike {@link start}'s return.
+   *
+   * Needed because the reload reading has to compare the peer id *before* a restart with
+   * the one *after*, and `start` is the only other thing that reports it.
+   */
+  peerId(): string
+  /**
+   * The certificate this tab holds, or `null` — the AUTH-01 reading.
+   *
+   * Returned as its `nodeKey` and validity window rather than the whole structure,
+   * because that is all any assertion here needs and a certificate carries a signature
+   * that would be compared as a string across a JSON boundary for no benefit.
+   */
+  certificate(): { nodeKey: string; issuer: string; userKey: string; expiresAt: number } | null
   stop(): Promise<void>
 }
 
@@ -118,6 +156,17 @@ export function installCapabilityHarness(): void {
         blockstoreName: options.blockstoreName,
         trustAnchors: [...options.trustAnchors],
         sovereignty: options.sovereignty,
+        whenSeedIsGone: options.whenSeedIsGone,
+        // The `Uint8Array` is rebuilt here — see `HarnessStartOptions.enrollment`.
+        ...(options.enrollment === undefined
+          ? {}
+          : {
+              enrollment: {
+                userPrivateKey: new Uint8Array(options.enrollment.userPrivateKey),
+                operatorId: options.enrollment.operatorId,
+                providerAddr: options.enrollment.providerAddr,
+              },
+            }),
         // The submitter listens on loopback, which libp2p refuses from a browser by
         // default. Correct for the public internet, wrong for a test fixture.
         allowPrivateAddrs: true,
@@ -140,6 +189,24 @@ export function installCapabilityHarness(): void {
       return running()
         .libp2p.getConnections()
         .map((connection) => connection.remotePeer.toString())
+    },
+    peerId(): string {
+      return running().peerId
+    },
+    certificate(): {
+      nodeKey: string
+      issuer: string
+      userKey: string
+      expiresAt: number
+    } | null {
+      const held = running().certificate
+      if (held === null) return null
+      return {
+        nodeKey: held.nodeKey,
+        issuer: held.issuer,
+        userKey: held.userKey,
+        expiresAt: held.expiresAt,
+      }
     },
     async stop(): Promise<void> {
       const started = node

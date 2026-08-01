@@ -211,6 +211,10 @@ beforeAll(async () => {
         blockstoreName: 'o2-browser-capability',
         trustAnchors: [anchor!],
         sovereignty: { ownerId: ownerId!, ownerKey: ownerKey!, canExecuteSovereign: true },
+        // A fresh context, so there is no seed to find and the first start must mint one.
+        // The subject of this file is the capability chain, not identity persistence —
+        // `browser-enrollment.e2e.test.ts` is where that is read.
+        whenSeedIsGone: 'mints-a-new-identity',
       }),
     [submitterAddr, publisher.pub, OWNER_ID, OWNER_KEY],
   )

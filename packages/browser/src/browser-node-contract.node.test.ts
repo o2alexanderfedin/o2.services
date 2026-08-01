@@ -51,7 +51,15 @@ function buildFull(): BrowserNodeOptions {
   // node at all — `buildFull` only has to type-check. Stated rather than defaulted for
   // the reason `trustAnchors` is required at all: a reader counting this literal learns
   // exactly which files do not exercise the signed path, and this is one of them.
-  return { relayAddrs: [], createWorker, trustAnchors: 'runs-unsigned-artifacts' }
+  // `whenSeedIsGone` is stated for the same reason and reads the same way: it is required
+  // with no default, so it appears in every literal, and this file constructs no node so
+  // the value is never taken.
+  return {
+    relayAddrs: [],
+    createWorker,
+    trustAnchors: 'runs-unsigned-artifacts',
+    whenSeedIsGone: 'mints-a-new-identity',
+  }
 }
 
 const BROWSER_NODE = readFileSync(new URL('./browser-node.ts', import.meta.url), 'utf8')
