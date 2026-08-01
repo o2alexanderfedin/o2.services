@@ -89,7 +89,7 @@ function directChain(expiresAt = NOW + 60_000): Delegation[] {
 
 describe('authorizeCapability — refusal precedence, as a pure function', () => {
   it('never asks a public task for a chain, even an empty one', () => {
-    // Decision 2. A public task has no owner (`ShardSpec`, `submit.ts:29-31`) and so
+    // Decision 2. A public task has no owner (`ShardSpec`, `submit.ts:30-32`) and so
     // no root key to be rooted at; demanding a chain would mean inventing an owner.
     // This is what keeps `bin/bench.ts`'s scaling curve measuring what it measured
     // before, and it is the branch most likely to be mistaken for an oversight.

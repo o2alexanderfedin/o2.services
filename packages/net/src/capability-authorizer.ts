@@ -71,7 +71,7 @@ export function authorizeCapability(options: CapabilityAuthorizerOptions): Autho
     // 1. A public task is never asked for a chain.
     //
     // The decision most likely to be mistaken for an oversight, so: a public task has
-    // no owner (`ShardSpec`, `submit.ts:29-31`) and therefore no root key for a chain
+    // no owner (`ShardSpec`, `submit.ts:30-32`) and therefore no root key for a chain
     // to be rooted at. Demanding one would mean inventing an owner to root it at.
     if (task.label !== 'sovereign') return null
 
