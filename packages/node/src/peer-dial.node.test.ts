@@ -1,6 +1,6 @@
 import { spawn } from 'node:child_process'
 import type { ChildProcessByStdio } from 'node:child_process'
-import type { Readable } from 'node:stream'
+import type { Readable, Writable } from 'node:stream'
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -105,8 +105,15 @@ function recordFor(name: string, moduleCid: CID): NameRecord {
   return signName(publisher.priv, { name, cid: moduleCid, version: 1, expiresAt: Date.now() + 3_600_000 })
 }
 
-/** stdin is `ignore`d, so the child's type carries `null` for it. */
-type AgentProcess = ChildProcessByStdio<null, Readable, Readable>
+/**
+ * fd 0 is a pipe, so the child's type carries `Writable` for it.
+ *
+ * Not a stylistic choice: the agent's orphan leash arms only when fd 0 is a socket or a
+ * FIFO, and `'ignore'` hands it `/dev/null` — a character device that returns EOF at once,
+ * and the same shape as an operator's terminal. A spawned agent whose stdin is ignored
+ * outlives a SIGKILLed parent for ever. See `orphan-leash.node.test.ts`.
+ */
+type AgentProcess = ChildProcessByStdio<Writable, Readable, Readable>
 
 interface Handshake {
   readonly peerId: string
