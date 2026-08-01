@@ -3,7 +3,16 @@
 Out-of-scope findings recorded during execution rather than fixed, per the executor's
 scope boundary. Each names the file, the measurement, and what would close it.
 
-## 1. A false claim in `packages/node/src/fabric-node.ts:1029-1032`
+## 1. A false claim in `packages/node/src/fabric-node.ts:1029-1032` — **CLOSED by 17-05**
+
+**Closed 2026-08-01.** 17-05 rewrote the paragraph, as this entry asked. It now records that
+the `createLibp2p` call passes an Ed25519 `privateKey` derived on-device by
+`identityFromSeed`, that `audienceKeyOf`'s two throwing branches are therefore *still*
+unreachable through this factory, and that measuring them needs an **injectable**
+`privateKey` option which no phase has added — a present-tense statement in place of the
+prediction. Comment only; no behaviour changed. The original entry is kept below unedited.
+
+
 
 **Found during:** 17-04 Task 3, re-reading `#compose`.
 
@@ -83,4 +92,27 @@ drives a real tab, so the `e2e` project can measure the whole of it once the mec
 ## 4. AUTH-04's cost is still unmeasured — carried forward from 17-02
 
 Twenty *distinct* user keys still enrol unslowed; the limit is keyed on `userKey`. 17-04 adds
-nothing here and nothing here changed. Recorded so the finding does not go quiet.
+nothing here and nothing here changed. **Re-measured in 17-05 across a real process
+boundary** — twenty distinct user keys against a spawned `--issues-certificates` agent, all
+twenty accepted, twenty distinct subject keys issued — and the finding is unchanged.
+Recorded so it does not go quiet.
+
+## 5. `tools/aot/lift.node.test.ts` fails under host load and has no load gate
+
+**Found during:** 17-05's final full-project sweep. **Out of scope, not fixed.**
+
+Six assertions in that file failed at a 1-minute load average of ~45 and all 73 passed at
+4.41 on the same commit, with no source change between the two runs. The failing group is
+image-resolution budget behaviour — `resolveImage(...)` bounded by `IMAGE_RESOLVE_CAP_MS`
+against a **stubbed** `docker` — so what is being measured is how long a stub subprocess
+takes to be scheduled, which on a contended host exceeds the cap.
+
+It imports nothing this plan touched (`grep -cE "bin/agent|fabric-node|enrollment|
+certificate-verification|trustedIssuers"` returns **0**; its only first-party import is
+`./lift.ts`), so this is pre-existing and load-induced rather than a regression.
+
+**What would close it:** the load gate `transport-bounds.node.test.ts` already uses — read
+`os.loadavg()[0]` and skip loudly above a stated threshold — applied to the timing-bounded
+describe block only. A wall-clock assertion on a contended host is a measurement of the
+host. Not done here: this plan's scope boundary forbids fixing failures in unrelated files,
+and silently widening a budget would remove the only reading that bounds it.

@@ -1026,16 +1026,26 @@ export class FabricNode {
     // What that ordering claim is, and what it is not. It is "no node serves with an
     // underived audience". It is *not* "an identity that cannot yield an audience key
     // stops the node from starting" — that second claim is **unmeasured**, no assertion
-    // in Phase 15 can fail on it, and none was written. Verified against source on
-    // 2026-07-31: the `createLibp2p` call above passes `addresses`, `transports`,
-    // `connectionEncrypters`, `streamMuxers`, `connectionManager`, `services` and a
-    // conditionally-spread `logger`, and **no `privateKey`** — so every identity this
-    // factory produces is libp2p's Ed25519 default and `audienceKeyOf`'s two throwing
-    // branches are unreachable through it. What would measure it: an injected
-    // `privateKey` on `FabricNodeOptions`, driven from a test with a secp256k1 or RSA
-    // key. Phase 17 adds exactly that option for identity resolution, so the assertion
-    // belongs to whichever phase adds the injection point rather than to this one,
-    // which would otherwise be asserting against a branch it cannot reach.
+    // anywhere can fail on it, and none was written.
+    //
+    // **Corrected 2026-08-01 (Plan 17-05), because this paragraph stated as verified a
+    // fact about its own file that had stopped being true.** It read: *"the `createLibp2p`
+    // call above passes … and **no `privateKey`** — so every identity this factory
+    // produces is libp2p's Ed25519 default"*. Plan 17-01 added `privateKey:
+    // identity.privateKey` to that call and did not update this comment.
+    //
+    // The **conclusion** survives and the reason is now the true one: that key is derived
+    // by `identityFromSeed` from a 32-byte on-device seed through
+    // `generateKeyPairFromSeed('Ed25519', seed)`, so it is Ed25519 by construction and
+    // `audienceKeyOf`'s two throwing branches are still unreachable through this factory.
+    // What changed is only *why* — not "libp2p's default" but "the one algorithm this
+    // repository derives".
+    //
+    // It is still unreachable and still unmeasured, and no phase has added what would
+    // change that: an **injectable** `privateKey` on `FabricNodeOptions`, driven from a
+    // test with a secp256k1 or RSA key. Phase 17 added identity *resolution*, which always
+    // yields Ed25519, not an injection point — so this is a present-tense statement rather
+    // than the prediction it used to be.
     //
     // Accepting the *risk* that such an identity stops the node from starting is the
     // right call — the alternative is a node that serves with an authorizer no chain
