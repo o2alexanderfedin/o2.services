@@ -51,7 +51,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 13: Egress Manifest Completeness** - `EgressGuard` **refuses** a frame carrying a registered sovereign block rather than recording it afterwards, and a leaking cross-owner job fails from the submitter across two spawned `bin/agent.ts` processes — **3/3 on the amended criteria (`13-VERIFICATION-2.md`, 8 mutations planted by the verifier). Scored 0/3 on the original wording first (`13-VERIFICATION.md`); the criteria were then amended on three owner rulings and the gaps closed. Two follow-ons scheduled to Phase 13.1, not left implicit: NET-10 (the refusal arrives as a timeout, not a named outcome) and DATA-10 (only the executing node registers, so a submitter still serves raw sovereign bytes).**
 - [ ] **Phase 13.1: Node-Side Admission & Transport Bounds** (INSERTED) - A node refuses work it cannot run with a stated reason, and neither side of the wire can be driven past a bound by a peer — three defects measured against the real stack
 - [ ] **Phase 14: Signed Artifact Resolution** - Artifacts resolve only through a signed `key → CID` mapping on the live dispatch path, never a bare CID
-- [ ] **Phase 15: Capability-Chained Dispatch** - A dispatched task carries a capability chain the serving node verifies before `WebAssembly.instantiate`, both ends wired for the first time
+- [ ] **Phase 15: Capability-Chained Dispatch** - A dispatched task carries a capability chain the serving node verifies before `WebAssembly.instantiate` — the serving end wired and verified end to end, the requestor end wired to a required argument every production call site declines (see the amendment note under Phase 15)
 - [ ] **Phase 16: Decomposable Tree-Reduce Wiring** - A live multi-node job merges partials up `executeReduce`'s derived tree, replacing the demo's linear scan
 - [ ] **Phase 17: Node Identity & Enrollment** - A node generates its identity on-device and enrolls through a rate-limited, provider-signed flow that a peer verifies offline
 - [ ] **Phase 18: Discovery, Capacity & Placement** - Nodes discover candidates, sample and select by load, and refuse over-committed work — no static peer list, on a real job
@@ -410,7 +410,7 @@ The apparent ceiling of 256 with one peer is the **sender's** `maxOutboundStream
 **Plans**: TBD
 
 ### Phase 15: Capability-Chained Dispatch
-**Goal**: A task dispatched between two live nodes carries a capability chain rooted at the data owner's key, and the receiving node's `authorize` hook verifies it before `WebAssembly.instantiate` — both ends wired for the first time
+**Goal**: A task dispatched between two live nodes carries a capability chain rooted at the data owner's key, and the receiving node's `authorize` hook verifies it before `WebAssembly.instantiate` — the serving end wired and verified end to end; the requestor end wired to a required constructor argument that every production call site declines, so its supplier branch has no entry-point caller
 **Mode:** mvp
 **Depends on**: Phase 11
 **Requirements**: AUTH-03
@@ -419,7 +419,45 @@ The apparent ceiling of 256 with one peer is the **sender's** `maxOutboundStream
   1. A task dispatched through `bin/agent.ts` between two live nodes carries a capability chain attached by `RemoteExecutor`, and the receiving node's `authorize` hook verifies it before calling `WebAssembly.instantiate`
   2. A task arriving with no capability chain, or one that has expired, is refused before instantiation, and the refusal names the missing or expired link, observable in the node's response
   3. A validly delegated sub-chain (owner → intermediate → executor) is accepted, and a chain with a broken delegation link is refused, proving delegation depth is checked and not merely the chain's presence
-**Plans**: TBD
+**Plans**: 4 plans (01 audience key + authorizer, 02 the dispatching half, 03 both factories wired, 04 the three criteria across two processes)
+
+<!--
+Goal amended 2026-07-31 by Plan 15-04, while the phase was closing rather than after.
+The clause that read "both ends wired for the first time" is false, and shipping a goal
+line the phase's own summary contradicts is the same defect one level up.
+
+What is true. The serving end is wired and verified end to end: `bin/agent.ts` takes
+`--owner-key`, both node factories install `authorizeCapability`, neither says
+`'serves-unauthenticated'` any more, and all three criteria above are demonstrated
+between two real operating-system processes. The requestor end is wired to a **required**
+third constructor argument on `RemoteExecutor` — omitting it is a `tsc --noEmit` error —
+but every one of the five non-test call sites names the sentinel rather than a chain,
+because all five dispatch `label: 'public'` shards, which have no owner and therefore no
+root key. So `delegate`, `CapabilitySupplier` and the supplier branch of
+`RemoteExecutor.execute` end this phase with a production adapter and zero production
+callers. That is the exact shape `.planning/REQUIREMENTS.md` already records AUTH-03 as
+suffering from — "built, not wired" — and it is now named here rather than left for Phase
+22 to discover.
+
+The option declined, and its real cost, so a later reader does not re-derive it. An opt-in
+sovereign leg on `bin/bench.ts`, off by default, would give `delegate` a traced call path
+without moving the default scaling curve, which stays `label: 'public'`. It was declined
+**in this phase** rather than rejected outright, and the cost is larger than one flag:
+`realFabric`'s worker nodes start with no `sovereignty` configuration at all, so each
+would need an owner id, an owner key and clearance; the requestor would need a per-node
+chain minted against each worker's peer id; and `memoryFabric`'s nodes are raw
+`serveAgent` calls on `authorize: 'serves-unauthenticated'`, so the same leg would prove
+nothing on the memory fabric and the two published curves would stop measuring the same
+thing. `bin/bench.ts` is also the most contended file in the repository — six phases
+modify it. That is a design change needing its own context gathering, not a line in a
+proof plan.
+
+The goal was amended **down to what is true**, rather than the evidence being stretched up
+to the goal. The same standard the Phase 13 entry's amendment note closes on. The
+identical finding is recorded in `packages/net/src/remote-executor.ts`'s class comment and
+under Phase 22 below; if the three ever disagree, the class comment is the one a reader
+hits first and this file is the one an auditor greps.
+-->
 
 ### Phase 16: Decomposable Tree-Reduce Wiring
 **Goal**: A live multi-node job merges its shard partials by walking `executeReduce`'s derived tree, replacing the demo's linear scan
@@ -536,6 +574,25 @@ The apparent ceiling of 256 with one peer is the **sender's** `maxOutboundStream
   1. Running the reachability guard after Phases 11-21 land passes clean — every capability exported from a package barrel has a traced call path from one of the five runnable entry points (`bin/agent.ts`, `bin/seed.ts`, `bin/bench.ts`, `tools/aot/cli.ts`, the browser demo)
   2. Reintroducing the original defect — commenting out a wired call site, or adding a new exported-but-uncalled function — fails the guard, naming the unreachable symbol and the barrel it came from, the same way `purity.node.test.ts` names a layering violation
   3. The guard runs as part of the same CI gate as the rest of the suite, so a future change that builds a mechanism without wiring it to an entry point fails CI rather than merging silently, the way the original 36 did
+
+**Known finding, recorded in advance by Phase 15 rather than left to be discovered here.**
+Phase 15 made `verifyChain` and `describeFailure` reachable from `bin/agent.ts` — AUTH-03's
+serving side — but did **not** make `delegate` reachable from any of the five entry points,
+so criterion 1 above will find it. Both submitting entry points dispatch public work:
+`bin/bench.ts` and `packages/bench/src/perf-workload.ts` label every shard `'public'`, and
+the browser demo's colouring job has no owner and no key. The minting side of a capability
+chain therefore lives entirely in tests. Three options were considered and the third taken.
+Giving `bin/bench.ts` a sovereign leg would change what the benchmark measures, which
+15-CONTEXT.md decision 2 exists to protect; giving the demo one is impossible without an
+owner and a private key to root a chain at; so the requestor half of AUTH-03 is **accepted
+as entry-point-unreachable** and named here. The natural fix, so this phase does not
+re-derive it: an opt-in sovereign leg on `bin/bench.ts`, off by default, would give
+`delegate` a traced call path without moving the default scaling curve. This is a decision
+recorded in advance, not a defect discovered late — it is the same class of defect the
+milestone exists to remove, and shipping it silently would be worse than shipping it named.
+The identical finding is in `packages/net/src/remote-executor.ts`'s class comment and in the
+Phase 15 amendment note above.
+
 **Plans**: TBD
 
 ## Progress
