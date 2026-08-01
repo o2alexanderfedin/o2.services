@@ -81,10 +81,12 @@ import {
   EnrollmentAuthority,
   LocalCapacity,
   MemoryBlockstore,
+  MemoryRecordIndex,
   SignedNameResolver,
   WorkerExecutor,
   guardModuleProvenance,
   guardSovereignty,
+  publishCapabilities,
   requestEnrollment,
 } from '@o2/core'
 import type {
@@ -545,6 +547,65 @@ async function resolveCertificate(parts: {
   return outcome.certificate
 }
 
+/**
+ * This node's own records, in the shape a peer's `records` request is answered from —
+ * AUTH-01, SCHED-01.
+ *
+ * Four decisions live here, each written down because each is one somebody will otherwise
+ * re-litigate.
+ *
+ * **This index holds this node's own records and nothing else.** `provide()` is never
+ * called, so a `providers` request still answers `[]` from every node. Phase 17 publishes;
+ * Phase 18 queries. A node is not a directory here, and turning it into one is a decision
+ * that has to be taken deliberately rather than inherited from this line.
+ *
+ * **`features: []` is honest, not a stub.** No feature-detection dependency exists in this
+ * repository — `wasm-feature-detect` is recommended in `CLAUDE.md` and is not installed,
+ * and `packages/browser/src/wasm-probes.ts` builds probe modules and detects no engine
+ * features. `discoverExecutors` only excludes on features a caller actually asked for
+ * (`core/src/discovery.ts:279-285`), so an empty list excludes nobody. Populating it
+ * belongs with Phase 18's `discoverExecutors` wiring, which is the first thing that reads
+ * the field.
+ *
+ * **`sovereignFor` carries `certificate.userKey`, never `sovereignty.ownerId`**, and the
+ * reason has to be written down or somebody will "simplify" it back.
+ * `CapabilityRecord.sovereignFor` is `readonly PublicKeyHex[]` and its only consumer
+ * compares it against a user key — `core/src/discovery.ts:286-290`,
+ * `if (sovereignFor !== undefined && !capabilities.sovereignFor.includes(sovereignFor))`,
+ * where `ExecutorQuery.sovereignFor` is `PublicKeyHex`: the same hex ed25519 key the
+ * certificate carries as `userKey`. `OwnerId` is an opaque string (`sovereignty.ts`), so
+ * publishing it here would bake an operator's label into a signed statement Phase 18's
+ * sovereign branch could never match. That is exactly the defect 17-CONTEXT.md decision 10
+ * forbids — *a signed certificate is the worst possible place for a field with two
+ * answers* — and it would have landed on the one field this plan configures rather than
+ * derives. The repository's own fixture dodges it by making the owner id *be* a hex key
+ * (`net/src/sovereign-execution.test.ts`); deriving from `certificate.userKey` gets the
+ * same result without depending on an operator having typed a hex string into
+ * `--owner-id`. Only `canExecuteSovereign` is read from `sovereignty`.
+ *
+ * **The record's validity window is the certificate's own.** That needs no new policy
+ * number, and it makes a node whose certificate has expired stop advertising capabilities
+ * at exactly the moment it stops being verifiable — the answer somebody would otherwise
+ * have to invent.
+ */
+function ownRecords(
+  certificate: NodeCertificate,
+  identity: NodeIdentity,
+  canExecuteSovereign: boolean,
+): MemoryRecordIndex {
+  const index = new MemoryRecordIndex()
+  index.publish({
+    certificate,
+    capabilities: publishCapabilities(identity.seed, {
+      features: [],
+      sovereignFor: canExecuteSovereign ? [certificate.userKey] : [],
+      issuedAt: certificate.issuedAt,
+      expiresAt: certificate.expiresAt,
+    }),
+  })
+  return index
+}
+
 function hasReservations(value: unknown): value is RelayService {
   if (value === null || typeof value !== 'object') return false
   const candidate = (value as { reservations?: unknown }).reservations
@@ -987,6 +1048,11 @@ export class FabricNode {
       relayPeerIds,
     })
 
+    // AUTH-01 — what this node answers a peer's `records` request with. See `ownRecords`
+    // for the four decisions it carries. A node holding no certificate has nothing to
+    // publish and keeps passing the sentinel at the hook below.
+    const records = certificate === null ? null : ownRecords(certificate, identity, sovereignty.canExecuteSovereign)
+
     // Blocks this node lacks are pulled from whichever peers are connected. The
     // peer list is a thunk, so a peer that connects later is usable immediately.
     const blockstore = new FetchingBlockstore(store, new RpcBlockSource(rpc, () => transport.peers))
@@ -1119,7 +1185,16 @@ export class FabricNode {
         audience,
         now: Date.now,
       }),
-      index: 'serves-no-records',
+      // AUTH-01 / SCHED-01. The sentinel is now the *fallback*, not the only value: a node
+      // holding a certificate answers with it and with its own signed capability record,
+      // and one that holds none says by name that it serves no records. Both are public
+      // statements whose entire purpose is to be read by a stranger; `providers` still
+      // answers `[]`, because `provide()` is never called. Nothing secret crosses this
+      // boundary and nothing may later be added that does.
+      //
+      // A per-node configuration, not a node kind — the literal still appears exactly once
+      // in this file, which is what `serve-agent-hooks.node.test.ts` counts.
+      index: records ?? 'serves-no-records',
       // AUTH-01 / AUTH-04. The sentinel is now the *fallback*, not the only value: a node
       // started with `issuesCertificates` answers enrollment requests with a real
       // authority, and one that was not says by name that it issues none.
