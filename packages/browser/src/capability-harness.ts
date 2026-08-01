@@ -123,6 +123,8 @@ export interface CapabilityHarness {
    * the one *after*, and `start` is the only other thing that reports it.
    */
   peerId(): string
+  /** Dial a peer after start — see the implementation for why this is not `relayAddrs`. */
+  dial(address: string): Promise<string>
   /**
    * The certificate this tab holds, or `null` — the AUTH-01 reading.
    *
@@ -192,6 +194,19 @@ export function installCapabilityHarness(): void {
     },
     peerId(): string {
       return running().peerId
+    },
+    /**
+     * Dial a peer *after* this node is up, and hand back its peer id.
+     *
+     * Distinct from `relayAddrs`, and the distinction is load-bearing rather than
+     * cosmetic. `relayAddrs` is dialled inside `BrowserNode.start`, before the node is
+     * serving anything — a peer met that way asks for records and gets no answer,
+     * because `serveAgent` has not been called yet. That is the topology of a relay,
+     * which a node must reach to become addressable at all. It is *not* the topology of
+     * an ordinary peer, which meets a node that is already running.
+     */
+    async dial(address: string): Promise<string> {
+      return running().dial(address)
     },
     certificate(): {
       nodeKey: string
