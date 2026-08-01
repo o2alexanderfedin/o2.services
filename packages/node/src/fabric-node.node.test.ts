@@ -141,8 +141,8 @@ describe('NET-01 — a redundant job with every execution remote', () => {
     expect(await w2.store.has(moduleCid)).toBe(false)
 
     const executors = [
-      new RemoteExecutor(w1.peerId, submitter.rpc),
-      new RemoteExecutor(w2.peerId, submitter.rpc),
+      new RemoteExecutor(w1.peerId, submitter.rpc, 'dispatches-unauthenticated'),
+      new RemoteExecutor(w2.peerId, submitter.rpc, 'dispatches-unauthenticated'),
     ]
     const result = await submitJob(
       {
@@ -194,8 +194,8 @@ describe('NET-01 — a redundant job with every execution remote', () => {
     await w2.stop()
 
     const executors = [
-      new RemoteExecutor(w1.peerId, submitter.rpc),
-      new RemoteExecutor(w2.peerId, submitter.rpc),
+      new RemoteExecutor(w1.peerId, submitter.rpc, 'dispatches-unauthenticated'),
+      new RemoteExecutor(w2.peerId, submitter.rpc, 'dispatches-unauthenticated'),
     ]
     const result = await submitJob(
       {
@@ -224,7 +224,7 @@ describe('NET-01 — persistence across a restart', () => {
     await submitter.dial(worker.multiaddrs[0]!)
 
     const moduleCid = await submitter.store.put(MODULE_WRITES_PARTITION)
-    const executors = [new RemoteExecutor(worker.peerId, submitter.rpc)]
+    const executors = [new RemoteExecutor(worker.peerId, submitter.rpc, 'dispatches-unauthenticated')]
     const result = await submitJob(
       {
         moduleCid,
@@ -299,13 +299,21 @@ describe('DATA-09 — the production serving executor is guarded without opting 
       ownerId: 'alice',
     }
 
-    const refused = await new RemoteExecutor(defaultNode.peerId, submitter.rpc).execute(sovereignTask)
+    const refused = await new RemoteExecutor(
+      defaultNode.peerId,
+      submitter.rpc,
+      'dispatches-unauthenticated',
+    ).execute(sovereignTask)
     expect(refused.ok).toBe(false)
     if (refused.ok) return
     expect(refused.reason).toContain(defaultNode.peerId)
     expect(refused.reason).toContain('sovereignty')
 
-    const accepted = await new RemoteExecutor(clearedNode.peerId, submitter.rpc).execute(sovereignTask)
+    const accepted = await new RemoteExecutor(
+      clearedNode.peerId,
+      submitter.rpc,
+      'dispatches-unauthenticated',
+    ).execute(sovereignTask)
     expect(accepted.ok).toBe(true)
   }, 60_000)
 })
@@ -396,7 +404,7 @@ describe('DET-03 — a production node runs only a module a pinned anchor vouche
 
     const moduleCid = await submitter.store.put(MODULE_WRITES_PARTITION)
     const inputCid = await submitter.store.put(new Uint8Array([0x80]))
-    const remote = new RemoteExecutor(worker.peerId, submitter.rpc)
+    const remote = new RemoteExecutor(worker.peerId, submitter.rpc, 'dispatches-unauthenticated')
 
     const bare = await remote.execute(taskFor(moduleCid, inputCid))
     expect(bare.ok).toBe(false)

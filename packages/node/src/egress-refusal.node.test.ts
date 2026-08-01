@@ -243,8 +243,8 @@ describe('DATA-05 — the refusal across two real bin/agent.ts processes', () =>
     const aggregateCid = await submitter.store.put(MODULE_WRITES_PARTITION)
 
     const executors = [
-      new RemoteExecutor(alice.peerId, submitter.rpc),
-      new RemoteExecutor(other.peerId, submitter.rpc),
+      new RemoteExecutor(alice.peerId, submitter.rpc, 'dispatches-unauthenticated'),
+      new RemoteExecutor(other.peerId, submitter.rpc, 'dispatches-unauthenticated'),
     ]
 
     // Clearance held equal and load pointing the other way, so ownership is the

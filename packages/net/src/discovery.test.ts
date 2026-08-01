@@ -217,7 +217,7 @@ describe('criterion 1 — a requestor with no peer list runs a job', () => {
           const nodeId = placement.nodeIds[0] as string
           // Every node dispatched to came out of discovery, never from a fixture.
           expect(found.executors.some((e) => e.nodeKey === nodeId)).toBe(true)
-          return new RemoteExecutor(nodeId, fabric.requestorRpc).execute({
+          return new RemoteExecutor(nodeId, fabric.requestorRpc, 'dispatches-unauthenticated').execute({
             moduleCid: fabric.moduleCid,
             inputCid: fabric.inputCid,
             partitionIndex,

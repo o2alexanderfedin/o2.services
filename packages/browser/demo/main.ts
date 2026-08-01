@@ -404,7 +404,13 @@ const api: TabApi = {
 
     const executors = [
       node.executor,
-      ...options.peerIds.map((id) => new RemoteExecutor(id, node.rpc)),
+      // AUTH-03. The sentinel is the correct value here, permanently — not a stub
+      // and not a thing to burn down. Every shard this job dispatches is
+      // `label: 'public'` (below), a public task has no owner and therefore no root
+      // key a chain could be rooted at, and `authorizeCapability`'s first precedence
+      // step returns `null` for a public task in any case. The visitor whose tab this
+      // is has no identity to mint from either.
+      ...options.peerIds.map((id) => new RemoteExecutor(id, node.rpc, 'dispatches-unauthenticated')),
     ]
     // `submitJobWithEgress`, not bare `submitJob` — DATA-05/DATA-06's manifest,
     // sliced off `node.egress` (the guard `BrowserNode.start` already wraps this
@@ -595,7 +601,10 @@ const api: TabApi = {
       // what makes R=2 possible: one tab submits *and* executes, the other
       // executes, and the two must agree.
       ...(options.includeSelf === true ? [n.executor] : []),
-      ...options.peerIds.map((id) => new RemoteExecutor(id, n.rpc)),
+      // AUTH-03, same reasoning as `runColouring` above and equally permanent: every
+      // shard below is `label: 'public'`, so there is no owner, no root key, and
+      // nothing for a chain to say.
+      ...options.peerIds.map((id) => new RemoteExecutor(id, n.rpc, 'dispatches-unauthenticated')),
     ]
     // DET-03/DATA-08. Rebuilt field by field rather than spread, and that is not style:
     // this object arrived through structured cloning from whatever called

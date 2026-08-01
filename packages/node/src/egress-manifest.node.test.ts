@@ -133,8 +133,8 @@ describe('DATA-05 — the tap refuses the leaking frame, so the shard fails wher
     await alice.store.put(inputCid.bytes)
 
     const executors = [
-      new RemoteExecutor(alice.peerId, requestor.rpc),
-      new RemoteExecutor(other.peerId, requestor.rpc),
+      new RemoteExecutor(alice.peerId, requestor.rpc, 'dispatches-unauthenticated'),
+      new RemoteExecutor(other.peerId, requestor.rpc, 'dispatches-unauthenticated'),
     ]
 
     // Both descriptors say `canExecuteSovereign: true`, and the loads are
@@ -257,7 +257,7 @@ describe("DATA-06 — every job's manifest is reachable from its own result meta
     if (!inputCid.ok) throw new Error('fixture not encodable')
     await alice.store.put(inputCid.bytes)
 
-    const executors = [new RemoteExecutor(alice.peerId, requestor.rpc)]
+    const executors = [new RemoteExecutor(alice.peerId, requestor.rpc, 'dispatches-unauthenticated')]
     const result = await submitJobWithEgress(
       {
         moduleCid,
@@ -290,7 +290,7 @@ describe("DATA-06 — every job's manifest is reachable from its own result meta
     await requestor.dial(defaultNode.multiaddrs[0]!)
 
     const moduleCid = await requestor.store.put(MODULE_WRITES_PARTITION)
-    const executors = [new RemoteExecutor(defaultNode.peerId, requestor.rpc)]
+    const executors = [new RemoteExecutor(defaultNode.peerId, requestor.rpc, 'dispatches-unauthenticated')]
     const result = await submitJobWithEgress(
       {
         moduleCid,
@@ -326,7 +326,7 @@ describe("DATA-06 — every job's manifest is reachable from its own result meta
     if (!inputCid.ok) throw new Error('fixture not encodable')
     await alice.store.put(inputCid.bytes)
 
-    const executors = [new RemoteExecutor(alice.peerId, requestor.rpc)]
+    const executors = [new RemoteExecutor(alice.peerId, requestor.rpc, 'dispatches-unauthenticated')]
     const result = await submitJobWithEgress(
       {
         moduleCid,

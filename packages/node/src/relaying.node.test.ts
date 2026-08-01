@@ -308,7 +308,7 @@ describe('the rule: relaying and executing are the same node', () => {
     // Only the guest holds the module; the relaying node must pull it over the same
     // connection it is carrying a circuit on.
     const moduleCid = await guest.store.put(MODULE_WRITES_PARTITION)
-    const executors = [new RemoteExecutor(both.peerId, guest.rpc)]
+    const executors = [new RemoteExecutor(both.peerId, guest.rpc, 'dispatches-unauthenticated')]
     const result = await submitJob(
       {
         moduleCid,
@@ -364,7 +364,7 @@ describe('the rule: relaying and executing are the same node', () => {
     // dispatched over the connection it opened.
     await until(() => host.transport.peers.includes(guest.peerId), 30_000, 'the peer to appear')
     const moduleCid = await host.store.put(MODULE_WRITES_PARTITION)
-    const executors = [new RemoteExecutor(guest.peerId, host.rpc)]
+    const executors = [new RemoteExecutor(guest.peerId, host.rpc, 'dispatches-unauthenticated')]
     const result = await submitJob(
       {
         moduleCid,
