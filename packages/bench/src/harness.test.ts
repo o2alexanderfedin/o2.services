@@ -7,7 +7,13 @@ import {
   measure,
   sweepNodeCount,
 } from './harness.ts'
-import type { JobRunner, Observation, RunConfig, SweepResult } from './harness.ts'
+import type {
+  JobRunner,
+  Observation,
+  ReduceObservation,
+  RunConfig,
+  SweepResult,
+} from './harness.ts'
 import { hostCount, isSameMachine, machineLabel, renderMarkdown } from './report.ts'
 import type { Inventory, Machine } from './report.ts'
 import { summarise } from './stats.ts'
@@ -22,6 +28,17 @@ const config: RunConfig = {
   skew: 'uniform',
 }
 
+/** Plausible non-zero defaults, so a test that cares about a reduce figure sets it. */
+const reduce = (overrides: Partial<ReduceObservation> = {}): ReduceObservation => ({
+  ok: true,
+  reduceMs: 10,
+  treeDepth: 2,
+  combines: 5,
+  recomputes: 0,
+  combineExecutors: 2,
+  ...overrides,
+})
+
 const observation = (overrides: Partial<Observation> = {}): Observation => ({
   makespanMs: 100,
   complete: true,
@@ -31,6 +48,7 @@ const observation = (overrides: Partial<Observation> = {}): Observation => ({
   speculationMultiplier: 1,
   redispatches: 0,
   codeCache: 'warm',
+  reduce: reduce(),
   ...overrides,
 })
 
@@ -138,7 +156,13 @@ describe('BENCH-04 — gross and useful travel together', () => {
   })
 })
 
-const point = (nodes: number, p50: number): SweepResult => ({
+/** A measured reduce leg. `reduceReport(null)` is the *not measured* case. */
+const reduceReport = (p50: number | null): SweepResult['reduce'] =>
+  p50 === null
+    ? { ms: summarise([]), treeDepth: 0, combines: 0, recomputes: 0, combineExecutors: 0 }
+    : { ms: summarise([p50]), treeDepth: 2, combines: 5, recomputes: 1, combineExecutors: 3 }
+
+const point = (nodes: number, p50: number, reduceP50: number | null = 10): SweepResult => ({
   config: { ...config, nodes },
   makespan: summarise([p50]),
   coldStartMs: null,
@@ -150,6 +174,7 @@ const point = (nodes: number, p50: number): SweepResult => ({
     speculationTax: 1,
     churnTax: 0,
   },
+  reduce: reduceReport(reduceP50),
   observations: [],
 })
 
@@ -200,6 +225,128 @@ describe('the connectivity tax compares like with like', () => {
     const taxes = connectivityTax([point(1, 10), point(4, 40)], [point(1, 30)])
     expect(taxes).toHaveLength(1)
     expect(taxes[0]?.nodes).toBe(1)
+  })
+})
+
+describe('the reduce is measured beside makespan, never inside it', () => {
+  it('counts only completed runs in the reduce timing, the same rule makespan follows', async () => {
+    const runner = scripted([
+      observation({ reduce: reduce({ reduceMs: 10 }) }),
+      observation({ complete: false, reduce: reduce({ reduceMs: 11 }) }),
+      observation({ reduce: reduce({ reduceMs: 12 }) }),
+    ])
+    const result = await measure(runner, config, { runs: 3, separateColdStart: false })
+
+    // Hand-computed: three runs, one incomplete, so two enter the reduce timing.
+    expect(result.reduce.ms.n).toBe(2)
+    expect(result.incomplete).toBe(1)
+  })
+
+  it('keeps the makespan sample when a reduce failed on an otherwise complete run', async () => {
+    // The assertion that keeps the two populations apart. An implementation that
+    // coupled `complete` to the reduce fails this — and it fails on the FIRST number,
+    // which is why both are asserted in one `it`: asserting only `reduce.ms.n` would
+    // pass under the coupling too.
+    const runner = scripted([
+      observation({ reduce: reduce({ ok: true, reduceMs: 10 }) }),
+      observation({ reduce: reduce({ ok: false, reduceMs: 0 }) }),
+      observation({ reduce: reduce({ ok: true, reduceMs: 12 }) }),
+    ])
+    const result = await measure(runner, config, { runs: 3, separateColdStart: false })
+
+    expect(result.makespan.n).toBe(3)
+    expect(result.incomplete).toBe(0)
+    expect(result.reduce.ms.n).toBe(2)
+  })
+
+  it('excludes the cold-cache iteration from the reduce exactly as from makespan', async () => {
+    const runner = scripted([
+      observation({ reduce: reduce({ reduceMs: 900 }) }), // cold
+      observation({ reduce: reduce({ reduceMs: 10 }) }),
+      observation({ reduce: reduce({ reduceMs: 10 }) }),
+      observation({ reduce: reduce({ reduceMs: 10 }) }),
+    ])
+    const result = await measure(runner, config, { runs: 4 })
+
+    expect(result.makespan.n).toBe(3)
+    expect(result.reduce.ms.n).toBe(3)
+    expect(result.reduce.ms.max).toBe(10)
+  })
+
+  it('takes the max of the derived counts and the sum of the recomputes, never a mean', async () => {
+    // Values chosen so a mean gives a different answer for both: combines mean is
+    // (3+5+4)/3 = 4, max is 5; recomputes mean is (2+3+4)/3 = 3, sum is 9.
+    const runner = scripted([
+      observation({ reduce: reduce({ treeDepth: 1, combines: 3, recomputes: 2, combineExecutors: 1 }) }),
+      observation({ reduce: reduce({ treeDepth: 2, combines: 5, recomputes: 3, combineExecutors: 4 }) }),
+      observation({ reduce: reduce({ treeDepth: 2, combines: 4, recomputes: 4, combineExecutors: 2 }) }),
+    ])
+    const result = await measure(runner, config, { runs: 3, separateColdStart: false })
+
+    expect(result.reduce.combines).toBe(5)
+    expect(result.reduce.recomputes).toBe(9)
+    expect(result.reduce.treeDepth).toBe(2)
+    expect(result.reduce.combineExecutors).toBe(4)
+  })
+
+  it('reports no reduce measurement at all when every reduce failed', async () => {
+    const runner = scripted([observation({ reduce: reduce({ ok: false }) })])
+    const result = await measure(runner, config, { runs: 3, separateColdStart: false })
+    expect(result.reduce.ms.n).toBe(0)
+    // …and the map is untouched: three complete runs, none of them incomplete.
+    expect(result.makespan.n).toBe(3)
+    expect(result.incomplete).toBe(0)
+  })
+})
+
+describe('an unmeasured reduce renders as unmeasured, not as a zero', () => {
+  // Built inside the helper, not at describe scope: `machine` is declared further
+  // down this file, so reading it during registration would hit its temporal dead zone.
+  const reportWith = (memory: readonly SweepResult[]): string =>
+    renderMarkdown({
+      title: 'Test run',
+      at: '2026-07-31T12:00:00.000Z',
+      inventory: { machines: [machine('laptop')], nodeCount: 8 } satisfies Inventory,
+      baseline: summarise([10]),
+      memoryTransport: memory,
+      realTransport: [],
+      connectivity: [],
+      crossover: costCrossover(summarise([10]), [...memory]),
+      unmet: [],
+    })
+
+  it('em-dashes every reduce cell of a rung whose reduce was never measured', () => {
+    const markdown = reportWith([point(4, 100, null)])
+    // A zero here would read as "the reduce ran and did nothing" — a different claim.
+    expect(markdown).toContain('| 4 | — | — | — | — | — | — |')
+  })
+
+  it('leaves the makespan row of that same rung populated', () => {
+    // The third and worst claim would be an evacuated makespan row: a failed
+    // aggregation is not a failed map.
+    const markdown = reportWith([point(4, 100, null)])
+    const makespanRow = markdown
+      .split('\n')
+      .find((line) => line.startsWith('| 4 |') && line.includes('ms'))
+    expect(makespanRow).toBeDefined()
+    expect(makespanRow).toContain('100.0ms')
+  })
+
+  it('emits a reduce table per transport, each carrying the machine label', () => {
+    const markdown = reportWith([point(1, 100)])
+    expect(markdown).toContain('## Reduce tree — memory transport (SAME-MACHINE')
+    expect(markdown).toContain('## Reduce tree — real transport (SAME-MACHINE')
+    expect(markdown).toContain(
+      '| nodes | reduce p50 | reduce p95 | tree depth | combines | recomputes | combine executors |',
+    )
+  })
+
+  it('says `_no runs_` for a transport with no rungs, matching the makespan table', () => {
+    const markdown = reportWith([point(1, 100)])
+    // `realTransport` is empty above, so both its tables must say so rather than
+    // rendering an empty table a reader would take for a measured absence.
+    const afterRealReduce = markdown.slice(markdown.indexOf('## Reduce tree — real transport'))
+    expect(afterRealReduce).toContain('_no runs_')
   })
 })
 

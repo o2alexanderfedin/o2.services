@@ -46,6 +46,7 @@ import {
   RemoteExecutor,
   RpcBlockSource,
   RpcEndpoint,
+  reduceJob,
   serveAgent,
   submitJobWithEgress,
 } from '@o2/net'
@@ -57,7 +58,15 @@ import {
   renderMarkdown,
   summarise,
 } from '@o2/bench'
-import type { Inventory, JobRunner, Machine, Observation, RunConfig, SweepResult } from '@o2/bench'
+import type {
+  Inventory,
+  JobRunner,
+  Machine,
+  Observation,
+  ReduceObservation,
+  RunConfig,
+  SweepResult,
+} from '@o2/bench'
 import { MODULE_WRITES_PARTITION } from '../../../core/src/executor/fixtures.ts'
 import { FabricNode } from '../fabric-node.ts'
 
@@ -238,7 +247,10 @@ function inventory(nodeCount: number): Inventory {
   const cores = cpus()
   const machine: Machine = {
     hostId: hostname(),
-    roles: ['worker', 'requestor'],
+    // `aggregator` has been declared in `MachineRole` and never true since Phase 8. It
+    // becomes accurate here rather than staying a declared-and-never-true value,
+    // because the same processes now run combines as well as `exec`.
+    roles: ['worker', 'requestor', 'aggregator'],
     cpuModel: cores[0]?.model ?? 'unknown',
     // `os.cpus()` reports logical CPUs. Physical count is not exposed portably, so
     // it is reported as unknown rather than guessed at half — a guess here would
@@ -263,6 +275,41 @@ async function shardInputs(skew: RunConfig['skew']): Promise<readonly CanonicalV
       : { partition: i, payload: new Uint8Array(16).fill(1) },
   )
 }
+
+/** Read the 4-byte little-endian partition index the fixture emits. */
+const partitionOf = (output: CanonicalValue): number => {
+  const p = (output as { p?: unknown }).p
+  if (!(p instanceof Uint8Array) || p.length !== 4) throw new Error('not a partition output')
+  return new DataView(p.buffer, p.byteOffset, 4).getUint32(0, true)
+}
+
+/**
+ * The per-job projection from an agreed shard output to a `{counts, rows}` partial.
+ *
+ * **It decodes the output, and that is the whole point.** Writing
+ * `(_output, partitionIndex) => …` produces the identical values with one less step —
+ * and makes every leaf a pure function of an integer this driver already holds, so
+ * **nothing any executor computed would enter the aggregate at all**. The reduce leg
+ * would then time a tree walk over values the requestor invented, and a guest
+ * returning any agreed output whatsoever would give the identical root. Decoding
+ * `MODULE_WRITES_PARTITION`'s `{p: <4 LE bytes>}` costs one `DataView` read per shard
+ * per run and makes the timed work depend on what the map produced.
+ *
+ * **Distinctness is load-bearing and is inherited from the fixture, not imposed here.**
+ * `deriveReduceTree` dedupes on `contributorId` + cid, so a projection collapsing two
+ * shards to one value would shrink the tree and move `treeDepth` for a reason that has
+ * nothing to do with the fabric.
+ *
+ * This is the same projection Plans 16-02 and 16-03 use, so the three entry points are
+ * not measuring three different things. It is **not** the copy in
+ * `packages/net/src/distributed.test.ts`, which returns `-1` on an unrecognised shape
+ * where this one throws — 16-02 records why that difference is load-bearing. Do not
+ * "restore" the `-1`.
+ */
+const project = (output: CanonicalValue): CanonicalValue => ({
+  counts: { [`partition-${partitionOf(output)}`]: 1 },
+  rows: 1,
+})
 
 /** Wraps an executor so every call's wall time is recorded. */
 function timed(inner: Executor, into: { gross: number; perNode: Map<string, number> }): Executor {
@@ -297,6 +344,15 @@ interface Fabric {
    * over its endpoint), so this is the one guard whose manifest is interesting.
    */
   readonly guard: EgressGuard
+  /**
+   * The submitting node's own endpoint — the one every `RemoteExecutor` above is built
+   * over, and the one a combine is dispatched from.
+   *
+   * Surfaced rather than reconstructed, for the same reason {@link Fabric.guard} is:
+   * a second endpoint would be a second peer as far as the workers are concerned, and
+   * the combine nodes fetch their leaves back through *this* one's `serveAgent`.
+   */
+  readonly rpc: RpcEndpoint
   close(): Promise<void>
 }
 
@@ -406,6 +462,7 @@ async function memoryFabric(nodes: number): Promise<Fabric> {
     moduleCid,
     moduleRecord: FIXTURE_RECORD,
     guard: requestorGuard,
+    rpc: callerRpc,
     async close() {
       callerRpc.close()
       for (const rpc of endpoints) rpc.close()
@@ -472,6 +529,7 @@ async function realFabric(nodes: number): Promise<Fabric> {
     // and builds `rpc` over that wrapper (13-02) — nothing to construct here, only
     // to surface, exactly the same field `bin/agent.ts`'s own `FabricNode` exposes.
     guard: requestor.egress,
+    rpc: requestor.rpc,
     async close() {
       for (const node of [...started, requestor]) await node.stop()
       await rm(root, { recursive: true, force: true })
@@ -534,6 +592,65 @@ function runnerFor(build: (nodes: number) => Promise<Fabric>): {
       }
     }
 
+    // The reduce leg — MR-03, MR-04, MR-05. Its own `performance.now()` pair, opened
+    // strictly after the makespan bracket above closed.
+    //
+    // **The bracket is deliberately not widened**, and the reason is
+    // `.planning/BENCHMARK-METHODOLOGY.md` §2.1: makespan is defined to the last
+    // shard's result being available to the requestor, a combine happens after that,
+    // and folding it in would silently redefine every number published before this
+    // date. The two tables are adjacent in the report so a reader who prefers the
+    // other definition can add the columns.
+    let reduce: ReduceObservation = {
+      ok: false,
+      reduceMs: 0,
+      treeDepth: 0,
+      combines: 0,
+      recomputes: 0,
+      combineExecutors: 0,
+    }
+    if (result.ok) {
+      const reduceStarted = performance.now()
+      const reduced = await reduceJob(result.job, {
+        rpc: fabric.rpc,
+        // `fabric.executors` and **not** the `timed(...)` wrappers above: those exist
+        // to accumulate node-seconds for the *map*, and a combine's cost is reported
+        // separately as `reduceMs`. Wrapping them here would double-count a segment
+        // into `grossNodeSeconds` that is deliberately reported on its own.
+        executors: fabric.executors.map((executor) => executor.nodeId),
+        // The requestor's own store, not a fresh one: it is what this rig's
+        // `serveAgent` answers block requests from, so it is where combine nodes fetch
+        // the leaves — and where each combine's result is fetched back to, which is the
+        // only reason a level-2 combine can reach its inputs.
+        blockstore: fabric.blockstore,
+        project,
+        redundancy: config.redundancy,
+      })
+      const reduceMs = performance.now() - reduceStarted
+      // **Both**, and the conjunction is the point: `reduceJob` documents on its own
+      // type that `ok` means only *a reduce could be attempted*, so a run where every
+      // combine failed is `{ok: true}` with `outcome.ok === false`. Treating that as a
+      // measurement would publish a timing for an aggregation that did not happen.
+      if (reduced.ok && reduced.outcome.ok) {
+        reduce = {
+          ok: true,
+          reduceMs,
+          treeDepth: reduced.tree.depth,
+          combines: reduced.outcome.combines,
+          recomputes: reduced.outcome.recomputes,
+          combineExecutors: new Set(reduced.outcome.executedBy.values()).size,
+        }
+      }
+    }
+
+    // **Left alone, deliberately.** Appending `&& reduceOk` here would leave every
+    // individual `makespanMs` measuring the identical interval while conditioning the
+    // *published statistics* on the reduce, because `makespan` is summarised over
+    // `complete` runs in `@o2/bench`'s `measure`. That is a silent re-sampling of the
+    // primary metric even though the bracket is untouched, and it would move
+    // `incomplete` off its pre-reduce meaning too. A run that produced every shard but
+    // no aggregate is a complete **map** with a failed **aggregation**; `reduce.ok`
+    // records that, and `bench-reduce.node.test.ts` guards this expression by shape.
     const complete = result.ok && result.job.complete
     // Useful node-seconds = gross ÷ redundancy, because every replica of a shard
     // does the identical work and exactly one of them is the answer. Stated rather
@@ -552,6 +669,7 @@ function runnerFor(build: (nodes: number) => Promise<Fabric>): {
       speculationMultiplier: 1,
       redispatches: 0,
       codeCache,
+      reduce,
     } satisfies Observation
   }
 
@@ -739,6 +857,38 @@ async function main(): Promise<void> {
       'Speculation and churn taxes are 1.0 and 0 because `submitJob` neither speculates' +
         ' nor re-dispatches and no node was killed during these runs. They are identities,' +
         ' not measurements.',
+      '**The reduce figures are subject to the same one-process, one-event-loop' +
+        ' construction as the makespan figures.** `combine executors` counts distinct' +
+        ' *node identities*, not distinct machines and not even distinct OS processes, so' +
+        ' a value above 1 says the rendezvous ranking spread the combines across' +
+        ' identities — not that any of them ran anywhere else. The eight-process evidence' +
+        ' for the tree walk lives in `packages/node/src/tree-reduce-agents.node.test.ts`,' +
+        ' not here.',
+      '**`tree depth` and `combines` are decided by `deriveReduceTree` from a shard count' +
+        ' and a fanout this sweep never varies.** A column the run shows constant across' +
+        ' every rung of both transports carries no information about a configuration, and' +
+        ' a constant is not a result — the same status `spec. tax` and `churn/task` carry' +
+        ' above. The reduce columns expected to carry information are `reduce p50`,' +
+        ' `reduce p95`, `recomputes` and `combine executors`; read those. Varying the' +
+        ' fanout across the sweep would make the other two informative and was rejected' +
+        ' for a stated reason: rungs walking differently-shaped trees have incomparable' +
+        ' reduce timings, which is the only thing the reduce table is for.',
+      '**The real-transport reduce refusal that emptied this table on 2026-08-01 has been' +
+        ' removed, and the rows below are whatever the run above actually produced.**' +
+        ' Recorded rather than deleted, because a reader comparing two dated artifacts' +
+        ' must be able to tell a figure that changed from a figure that was replaced. What' +
+        ' the previous run published here: every real-transport row an em dash, because' +
+        ' `serveAgent`’s combine branch refused outright unless its `authorize` hook was' +
+        ' the `serves-unauthenticated` sentinel, and every `FabricNode` supplies a real' +
+        ' `authorizeCapability` — so every node in the real-transport rig answered' +
+        ' `combine requires a capability chain this build cannot verify`, measured as' +
+        ' `combines: 0`, `failed: 5`, `executedBy: 0`, `rootCid: null`. 16-05 routed a' +
+        ' combine through `options.authorize` like every other request, so a combine is' +
+        ' now admitted or refused by the node’s own authorizer rather than by a branch' +
+        ' keyed on whether the node had one. **An em dash in this table therefore no' +
+        ' longer means "refused"** — it means that rung produced no reduce at all, and the' +
+        ' excluded list below is where its reason is named. The two reduce curves are' +
+        ' comparable only across rungs both transports measured.',
     ],
     excluded,
   }

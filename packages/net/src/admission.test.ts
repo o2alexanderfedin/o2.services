@@ -196,7 +196,11 @@ describe('SCHED-06 — the exec branch admits, and gives the slot back', () => {
     const node = await servingNode({
       nodeId: 'admit-authz',
       maxConcurrent: 1,
-      authorize: (request) => (request.task.partitionIndex === 0 ? 'no capability chain' : null),
+      // Narrowed on `kind` rather than reaching straight for `task`, because 16-05
+      // widened `Authorizer` to take a combine as well. Refusing anything that is not
+      // the shard under test keeps this case about the slot, not about the union.
+      authorize: (request) =>
+        request.kind === 'exec' && request.task.partitionIndex === 0 ? 'no capability chain' : null,
     })
     const rpc = requestorFor('admit-authz')
     try {

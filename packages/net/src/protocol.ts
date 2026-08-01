@@ -1,5 +1,5 @@
 /**
- * The agent wire protocol — seven request kinds, nothing more.
+ * The agent wire protocol — eight request kinds, nothing more.
  *
  * `exec` dispatches one task; `block` fetches one content-addressed block. That
  * is the entire vocabulary needed to run a distributed map: a task is addressed
@@ -25,6 +25,19 @@
  * allowed and able to do — and `offer` is a node's own answer to "will you take this
  * shard", which is the only authoritative source for that (SCHED-03).
  *
+ * Phase 16 adds `combine`, and it exists because of an arity mismatch nothing else
+ * could absorb: `exec` carries a `Task`, and a `Task` has exactly one `inputCid`,
+ * while a combine has *k*. Its inputs are named by CID and never by payload, which
+ * is what lets a node that has never seen a partial run the combine anyway — it
+ * asks for the blocks.
+ *
+ * Two alternatives were rejected, recorded so the next reader need not re-derive
+ * them. A **WASM combine module** would need a guest that can decode DAG-CBOR to
+ * read *k* partials, and no fixture in this repository has ever been one. A
+ * **requestor-assembled input block** — merge the partials into one block, then send
+ * an ordinary `exec` over it — would put a payload where the whole point is an
+ * address, and would move every partial through the requestor on the way.
+ *
  * Everything arriving here came off a wire, so every field is validated before
  * use. The parsers return `null` rather than throwing — a malformed frame from a
  * peer is an expected condition, not an exception. That matters more for the record
@@ -36,7 +49,7 @@
  */
 
 import { CID } from 'multiformats/cid'
-import { START_FAILURES, isStartBrowserLabel } from '@o2/core'
+import { MAX_COMBINE_INPUTS, START_FAILURES, isStartBrowserLabel } from '@o2/core'
 import type {
   CanonicalValue,
   CapabilityRecord,
@@ -83,6 +96,20 @@ export type AgentRequest =
       /** Visitors this node knows declined to be counted. */
       readonly declined?: number
     }
+  /**
+   * MR-02…MR-07: merge these *k* partials into one.
+   *
+   * Inputs are addresses, never payloads — which is what lets this go to a node
+   * that has never seen any of them. `combineId` is the derived tree node's id, so
+   * two peers asking for the same combine name it identically without agreeing on
+   * anything first.
+   */
+  | {
+      readonly kind: 'combine'
+      readonly combineId: string
+      readonly inputCids: readonly CID[]
+      readonly level: number
+    }
 
 export type AgentResponse =
   | { readonly kind: 'exec'; readonly outcome: ExecutionOutcome }
@@ -110,6 +137,14 @@ export type AgentResponse =
    * cannot be lost in transmission.
    */
   | { readonly kind: 'report'; readonly counts: readonly OutcomeCount[]; readonly declined: number }
+  /**
+   * The combine's result, or why it did not run.
+   *
+   * `resultCid: null` is not an error — it is the fallthrough signal the requestor
+   * walks its rendezvous ranking on, so it keeps a `reason`: that string is the only
+   * thing the requestor learns before trying the next executor.
+   */
+  | { readonly kind: 'combine'; readonly resultCid: CID | null; readonly reason: string }
   | { readonly kind: 'error'; readonly reason: string }
 
 /** Copy any byte view into a plainly-owned ArrayBuffer-backed one. */
@@ -318,6 +353,17 @@ export function encodeRequest(request: AgentRequest): CanonicalValue {
         request.outcome.result.kind === 'started' ? 'started' : request.outcome.result.cause,
     }
   }
+  if (request.kind === 'combine') {
+    // Four keys, all of them addresses or the position they sit at in the tree. A
+    // fifth key is how a payload would arrive, so there is deliberately nowhere to
+    // put one.
+    return {
+      kind: 'combine',
+      combineId: request.combineId,
+      inputCids: [...request.inputCids],
+      level: request.level,
+    }
+  }
   const { task } = request
   const base: { readonly [k: string]: CanonicalValue } = {
     kind: 'exec',
@@ -484,6 +530,41 @@ export function parseRequest(body: CanonicalValue): AgentRequest | null {
     }
   }
 
+  if (record['kind'] === 'combine') {
+    const combineId = record['combineId']
+    if (typeof combineId !== 'string' || combineId.length === 0) return null
+
+    // `ReduceTreeNode.level` is documented as 1 for the first combine layer above
+    // the leaves, so 0 is not a level any derived tree produces.
+    const level = asIndex(record['level'])
+    if (level === null || level < 1) return null
+
+    const inputCids = record['inputCids']
+    if (!Array.isArray(inputCids)) return null
+
+    // The floor of two: `deriveReduceTree` promotes a lone child rather than
+    // wrapping it, so a one-input combine cannot come from a tree anybody derived.
+    // Running one would re-canonicalise its single input — work an unauthenticated
+    // peer could ask for and get nothing from.
+    //
+    // The ceiling: a combine request makes the receiving node fetch *k* blocks, each
+    // potentially a network round trip, before anything can be merged. Refusing here
+    // rather than in the handler means the frame does not become a request at all —
+    // the same disposition this parser already gives a partition index outside its
+    // own count. NET-08 is *not* the general form of this bound and does not cover
+    // it: NET-08 caps the bytes of one inbound message, while this caps how many
+    // fetches one in-limit message may provoke.
+    if (inputCids.length < 2 || inputCids.length > MAX_COMBINE_INPUTS) return null
+
+    const parsed: CID[] = []
+    for (const element of inputCids) {
+      const cid = CID.asCID(element ?? null)
+      if (cid === null) return null
+      parsed.push(cid)
+    }
+    return { kind: 'combine', combineId, inputCids: parsed, level }
+  }
+
   if (record['kind'] !== 'exec') return null
   const moduleCid = CID.asCID(record['moduleCid'] ?? null)
   const inputCid = CID.asCID(record['inputCid'] ?? null)
@@ -580,6 +661,10 @@ export function encodeResponse(response: AgentResponse): CanonicalValue {
       return { kind: 'offer', accepted: response.accepted, reason: response.reason }
     case 'reservations':
       return { kind: 'reservations', peerIds: [...response.peerIds] }
+    case 'combine':
+      return response.resultCid === null
+        ? { kind: 'combine', found: false, reason: response.reason }
+        : { kind: 'combine', found: true, resultCid: response.resultCid, reason: response.reason }
     case 'report':
       return {
         kind: 'report',
@@ -646,6 +731,18 @@ export function parseResponse(body: CanonicalValue): AgentResponse | null {
       const counts = parseCounts(record['counts'])
       if (counts === null) return null
       return { kind: 'report', counts, declined: asReportedCount(record['declined']) ?? 0 }
+    }
+    case 'combine': {
+      const reason = record['reason']
+      const stated = typeof reason === 'string' ? reason : 'unspecified'
+      if (record['found'] !== true) return { kind: 'combine', resultCid: null, reason: stated }
+      const resultCid = CID.asCID(record['resultCid'] ?? null)
+      // Refused, not folded into the null arm. The null arm is the fallthrough signal
+      // the requestor walks its ranking on, so a peer able to turn a corrupt answer
+      // into an ordinary "I could not" would be indistinguishable from an honest one
+      // that had nothing — and the requestor would count it as a normal miss.
+      if (resultCid === null) return null
+      return { kind: 'combine', resultCid, reason: stated }
     }
     case 'exec': {
       if (record['ok'] === true) {

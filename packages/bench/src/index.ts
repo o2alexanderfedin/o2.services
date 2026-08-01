@@ -29,6 +29,8 @@ export type {
   Crossover,
   JobRunner,
   Observation,
+  ReduceObservation,
+  ReduceReport,
   RunConfig,
   Skew,
   SweepOptions,

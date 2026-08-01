@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Wire What Was Built
 status: executing
-stopped_at: Phases 14 and 15 both verified and closed on their criteria. Phase 13.1 verified 6/7 and is not closed. AUTH-03's requestor half routed to Phase 23 criterion 5 by owner ruling. Phase 16 is the next unit
-last_updated: "2026-08-01T03:20:00.000Z"
-last_activity: 2026-07-31
+stopped_at: Phase 16 verified 3/4 and is NOT closed — criterion 3's late-arrival clause is scheduled to Phase 20 criterion 6. Its admission finding was closed afterwards by 16-06. Phase 17 is the next unit
+last_updated: "2026-08-01T07:15:00.000Z"
+last_activity: 2026-08-01
 progress:
   total_phases: 14
   completed_phases: 5
-  total_plans: 46
-  completed_plans: 27
+  total_plans: 48
+  completed_plans: 33
   percent: 36
 ---
 
@@ -78,7 +78,24 @@ red when it lands.
 
 ## Current Position
 
-Phase: 15 (Capability-Chained Dispatch) — **3/3 on criteria, closed; AUTH-03 stays open**
+Phase: 16 (Decomposable Tree-Reduce Wiring) — **3/4 on criteria, NOT closed**
+Status: 4 planned plans + 2 gap-closure plans (16-05, 16-06), 6 summaries, 1 verification
+pass. Criteria 1, 2 and 4 MET; **criterion 3 PARTIAL** — its dedupe half is proven across
+nine real `bin/agent.ts` processes, its *"arriving late"* half is not, because
+`executeReduce` stops at `wanted` replicas and has no channel on which a late result could
+arrive at all. Scheduled to **Phase 20 criterion 6** by owner ruling rather than rewritten.
+**MR-04 stays open**; nothing was ticked.
+
+**Uncounted for the same reason Phase 13.1 is, and it is worth seeing the pair together.**
+Phase 15 was counted with a Partial *requirement* because all its *criteria* were MET.
+Phases 13.1 and 16 are uncounted because one of their own *criteria* is PARTIAL. The rule
+does not bend for how nearly done a phase looks.
+
+**One finding was closed after the verifier wrote its report:** 16-06 bounded the combine
+branch at the `capacity` hook, closing the widened fetch surface that routing combine
+through the `Authorizer` had opened. The report predates it and still records it as open.
+
+Previous phase: 15 (Capability-Chained Dispatch) — **3/3 on criteria, closed; AUTH-03 open**
 Status: 4 planned plans + 1 gap-closure plan (15-05), 5 summaries, 1 verification pass.
 The serving half of AUTH-03 is wired and verified between two spawned `bin/agent.ts`
 processes; the requestor half — `delegate`, `CapabilitySupplier`, `RemoteExecutor`'s
@@ -93,8 +110,8 @@ earlier note that six phases "can run concurrently" was wrong.
 Last activity: 2026-07-31
 
 ```
-Test Files  293 · Tests 4253 · exit 0 · tsc --noEmit clean   (2026-07-31, load ~4)
-node 90 files/1321 · browser 195/2892 (chromium+firefox+webkit) · e2e 8/40
+Test Files  ~300 · Tests 4479 · exit 0 · tsc --noEmit clean   (2026-08-01, load 12)
+node 95 files/1399 · browser 3063 (chromium+firefox+webkit) · e2e 8/40 · 36 of 37 mutations caught
 ```
 
 The 272 counts vitest *file-runs*, not files, because the browser project runs its share
@@ -599,7 +616,17 @@ Recent decisions affecting current work:
   `git status --porcelain` afterwards listed only the new untracked test file. Worth
   copying: on a shared working tree a `git checkout --` to "restore" is how another
   session's work gets destroyed.
-- **[Phase 13.1] The hook is named `admission`, not `capacity`.** Recorded in 13.1-05.
+- **[Phase 13.1 — CORRECTED 2026-08-01] The hook is `AgentOptions.capacity`; `admission`
+  is the instrument.** This line used to read *"the hook is named `admission`, not
+  `capacity`"* and that is wrong — `agent.ts:171` declares
+  `readonly capacity: LocalCapacity | 'accepts-every-offer'`, and `admission` is the
+  local holding what `capacity.offer()` returns, plus `FabricNode.admission` as the
+  high-water instrument. `fabric-node.ts:365` explains why the two names differ.
+  **A second error rode along with it:** `LocalCapacity.offer` *does* reserve
+  (`placement.ts:372-378`). What reserves nothing is `serveAgent`'s **`offer` request
+  branch**, via `would`. Both errors were propagated into a Phase 16 executor's brief
+  verbatim; following them literally would have renamed the wrong symbol. A note that
+  compresses two names into one sentence is how that happens.
 
 - **[Phase 14] A guard wrapped at every construction site, not at one resolution point.**
   The plan opened by correcting its own earlier draft: **three** `Executor` implementations
@@ -661,6 +688,37 @@ Recent decisions affecting current work:
   failed" passes against it. Assert the refusal **text**. The same trap caught 15-03: a
   node with no `sovereignty` option resolves to `ownerId: ''` and falls through to a
   different `unauthorized` refusal naming the same peer.
+- **[Phase 16] A fabric cheaper than the real thing cannot observe a gate keyed on the
+  real thing's configuration.** `agent.ts` refused every combine on any node holding a
+  real `Authorizer`, and both node classes install one — so combine never worked in
+  production, from the moment the branch was written. Plan 16-02 could not see it because
+  every in-process fabric it tested builds `serveAgent({...SENTINELS})`, and the sentinel
+  is exactly what the branch keyed on. **Two plans hit it independently** (16-03 from
+  spawned processes, 16-04 from the benchmark) and **neither took the cheap way through**:
+  16-03 refused to change an auth path outside its scope, 16-04 refused to pass the
+  sentinel to `FabricNode` to make a benchmark row appear. Sibling of the Phase 15 lesson
+  and a stronger form of it.
+- **[Phase 16] The gate's premise was true when written and one phase later was not.**
+  Its comment read *"Every production call site passes the sentinel today, so this is a
+  no-op now."* Phase 15 installed real authorizers and falsified it silently. **A comment
+  asserting a fact about every call site is a claim with an expiry date**; if it matters,
+  a test must hold it, because nothing else will notice when it stops being true.
+- **[Phase 16] Routing combine through the `Authorizer` made a security property worse,
+  and that was measured rather than argued.** The old refusal had incidentally bounded
+  combine fetches to zero on any real node. Removing it widened the residue to every
+  node — and `authorizeCapability` admits every combine, because the frame carries no
+  sovereignty label and no node exposes an `authorize` option. Owner ruling: bound it at
+  the `capacity` hook, because combine partials are outputs of public map tasks and
+  therefore public by construction — **there is nothing to authorize; the exposure is CPU
+  and transfer, which is a capacity question.** Closed in 16-06.
+- **[Phase 16] The read count, not the reason string, is what proves a bound's placement.**
+  16-06 planted its cap *below* the fetch loop: both refusal-text assertions stayed green
+  while reads went 0 → 2. The reply is byte-identical in both placements. Same shape as
+  NET-08 — *a cap applied after a loop has already paid for the allocation it prevents.*
+- **[Phase 16] A mutation entry can be caught in substance and still be wrong.** The full
+  run found `M2b` catching its defect while its recorded signature says *"four sentinels"*
+  where the test says *"three"* — drifted in Phase 15 and unnoticed since. The cheap guard
+  checks that `find` still matches; it does not check that `signature` still does.
 - **[Phase 15] Naming a defect is not fixing it (owner ruling, 2026-07-31).** Plan 15-04
   amended Phase 15's goal down to the truth — correct — and then proposed accepting
   AUTH-03's requestor half as entry-point-unreachable. Declined. Recording a built-not-wired

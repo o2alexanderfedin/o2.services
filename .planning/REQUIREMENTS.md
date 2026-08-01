@@ -370,7 +370,7 @@ and the two end-to-end paths nothing exercises.
 | Origin phase | Requirements | The wire that connects them |
 |---|---|---|
 | 4 — Sovereignty | DET-03, DATA-03…DATA-09, AUTH-03 | an owner label in `JobSpec`/`Task`; the real job path through the sovereignty gate; `EgressGuard` on both transports; `signName` resolution; a capability chain on both ends of dispatch |
-| 5 — Tree-reduce | MR-02 … MR-07 | `executeReduce` on the aggregation path, replacing the demo's linear scan |
+| 5 — Tree-reduce | MR-02 … MR-07 | `executeReduce` on the aggregation path, replacing the demo's linear scan — the aggregation path is wired (Phase 16); the demo replacement is WIRE-02, Phase 22 |
 | 6 — Discovery & enrollment | AUTH-01, AUTH-02, AUTH-04, AUTH-05, SCHED-01, SCHED-02, SCHED-03, SCHED-05, NET-06, VER-03, VER-04, VER-08, VER-09, VER-10 | `serveAgent`'s `index` and `capacity` hooks supplied; `discoverExecutors` replacing the static list; `requestEnrollment` issuing a real node identity; `composeQuorum` and `attestationReceipt` on the verification path |
 | 7 — Churn | CHURN-01 … CHURN-06 | one job entry point that leases, speculates and accounts for coverage |
 | 10 — AOT | AOT-02 | `translationCid` called by the lift pipeline; the CLI emitting the CID |
@@ -580,12 +580,12 @@ criteria.
 | SCHED-04 | Phase 18 — Discovery, Capacity & Placement | **Partial** — GovernedExecutor is wired on the browser tier only; FabricNode composes a WorkerExecutor and no governor, and the duty cycle is readonly on both tiers, so "user-adjustable" is unmet |
 | SCHED-05 | Phase 18 — Discovery, Capacity & Placement | **Built, not wired** — the sovereignty gate runs inside placeWithOffers, reachable only through runResilient |
 | MR-01 | Phase 1 — Portable Kernel & Loopback Map Slice | Done |
-| MR-02 | Phase 16 — Decomposable Tree-Reduce Wiring | **Built, not wired** — executeReduce / deriveReduceTree have no caller; the demo merges with a linear scan |
-| MR-03 | Phase 16 — Decomposable Tree-Reduce Wiring | **Built, not wired** — executeReduce / deriveReduceTree have no caller; the demo merges with a linear scan |
-| MR-04 | Phase 16 — Decomposable Tree-Reduce Wiring | **Built, not wired** — executeReduce / deriveReduceTree have no caller; the demo merges with a linear scan |
-| MR-05 | Phase 16 — Decomposable Tree-Reduce Wiring | **Built, not wired** — executeReduce / deriveReduceTree have no caller; the demo merges with a linear scan |
-| MR-06 | Phase 16 — Decomposable Tree-Reduce Wiring | **Built, not wired** — executeReduce / deriveReduceTree have no caller; the demo merges with a linear scan |
-| MR-07 | Phase 16 — Decomposable Tree-Reduce Wiring | **Built, not wired** — executeReduce / deriveReduceTree have no caller; the demo merges with a linear scan |
+| MR-02 | Phase 16 — Decomposable Tree-Reduce Wiring | **Built, not wired** — and unmeasured for a second reason. Phase 16 ran the aggregation over public shards whose inputs travel to the executors by CID, so no partial was computed over an owner's own data and nothing distinguished a map that moved data from one that did not. Needs a sovereign map with an egress manifest, not a wiring step |
+| MR-03 | Phase 16 — Decomposable Tree-Reduce Wiring | **Partial** — wired at `bin/agent.ts` and `bin/bench.ts` via `reduceJob` (Phase 16). The demo still merges with a linear scan: `answerOf` in `packages/demo/src/job.ts`, called from `packages/browser/demo/main.ts`. That half is WIRE-02, Phase 22 |
+| MR-04 | Phase 16 — Decomposable Tree-Reduce Wiring | **Partial** — wired at `bin/agent.ts` and `bin/bench.ts` via `reduceJob` (Phase 16). The demo still merges with a linear scan: `answerOf` in `packages/demo/src/job.ts`, called from `packages/browser/demo/main.ts`. That half is WIRE-02, Phase 22 |
+| MR-05 | Phase 16 — Decomposable Tree-Reduce Wiring | **Partial** — wired at `bin/agent.ts` and `bin/bench.ts` via `reduceJob` (Phase 16). The demo still merges with a linear scan: `answerOf` in `packages/demo/src/job.ts`, called from `packages/browser/demo/main.ts`. That half is WIRE-02, Phase 22 |
+| MR-06 | Phase 16 — Decomposable Tree-Reduce Wiring | **Partial** — wired at `bin/agent.ts` and `bin/bench.ts` via `reduceJob` (Phase 16). The demo still merges with a linear scan: `answerOf` in `packages/demo/src/job.ts`, called from `packages/browser/demo/main.ts`. That half is WIRE-02, Phase 22 |
+| MR-07 | Phase 16 — Decomposable Tree-Reduce Wiring | **Partial** — wired at `bin/agent.ts` and `bin/bench.ts` via `reduceJob` (Phase 16). The demo still merges with a linear scan: `answerOf` in `packages/demo/src/job.ts`, called from `packages/browser/demo/main.ts`. That half is WIRE-02, Phase 22 |
 | CHURN-01 | Phase 20 — Single Job Path, Ledger & Churn Resilience | **Built, not wired** — runResilient has no caller; submitJob is the only job path and does not speculate or re-dispatch |
 | CHURN-02 | Phase 20 — Single Job Path, Ledger & Churn Resilience | **Built, not wired** — runResilient has no caller; submitJob is the only job path and does not speculate or re-dispatch |
 | CHURN-03 | Phase 20 — Single Job Path, Ledger & Churn Resilience | **Built, not wired** — checkpoint.ts is not even imported by coordinator.ts, and runResilient itself has no caller |

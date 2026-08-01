@@ -695,6 +695,49 @@ export const MUTATIONS: readonly Mutation[] = [
     project: 'e2e',
     signature: "to contain 'no capability chain supplied'",
   },
+  {
+    id: 'M31',
+    why:
+      'SCHED-06 on the combine branch — the *taking* half. `offer()` reserves and `would()` ' +
+      'asks the same question without consuming anything, so swapping them leaves the ' +
+      'refusal text readable and the bound inert: no combine ever occupies a slot, ' +
+      '`peakInFlight` never rises off zero, and a node answers an unlimited number of ' +
+      'concurrent combines while still appearing to have admission control. It is M1 one ' +
+      'branch over, and it is a separate entry because the two branches release ' +
+      'separately and a fix to one has never implied a fix to the other. **What this ' +
+      'mutation deliberately does not catch is worth writing down**: the two bound cases ' +
+      'declare their saturation by reserving a slot directly on the node’s own ' +
+      '`LocalCapacity`, so `would()` still sees a full table and still refuses — they stay ' +
+      'green. Only the three release readings see it, which is why `caughtBy` names the ' +
+      'in-process file and not the real-node one.',
+    file: 'packages/net/src/agent.ts',
+    find: 'const admission = capacity.offer({ shardId: slotKey, nodeId: options.executor.nodeId })',
+    replace: 'const admission = capacity.would({ shardId: slotKey, nodeId: options.executor.nodeId })',
+    caughtBy: ['packages/net/src/combine.test.ts'],
+    signature: 'does not climb its high-water mark across twenty combines',
+  },
+  {
+    id: 'M32',
+    why:
+      'SCHED-06 on the combine branch — the *refusing* half, and the line that closes ' +
+      '16-05’s measured consequence. Until 16-06 nothing this repository could start was ' +
+      'able to refuse a combine: `authorizeCapability` reaches its refusal rules through ' +
+      '`task.label === "sovereign"` and no combine can carry that label, so every node ' +
+      'admitted every combine and the fetch-amplification residue covered the whole ' +
+      'fabric rather than only unauthenticated nodes. Deleting this return puts that back ' +
+      'exactly, and it is the shape a "the reduce is stalling, let it through for now" ' +
+      'edit leaves behind — the slot is still taken, the counters still read plausibly, ' +
+      'and only the reply says anything is wrong. Caught on **both** layers, which is the ' +
+      'point of listing two files: the in-process rig can count reads, and the real ' +
+      '`FabricNode` proves the production factory is what wires it — a distinction this ' +
+      'phase exists because 16-05’s defect survived two milestones by hiding from cheap ' +
+      'fabrics.',
+    file: 'packages/net/src/agent.ts',
+    find: "      return { kind: 'combine', resultCid: null, reason: admission.reason }\n",
+    replace: '',
+    caughtBy: ['packages/net/src/combine.test.ts', 'packages/node/src/admission.node.test.ts'],
+    signature: 'AssertionError: expected CID(',
+  },
 ]
 
 /** Literal occurrences of `needle` in `text`. `needle` must be non-empty. */
