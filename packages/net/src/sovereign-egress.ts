@@ -47,8 +47,11 @@
  * portable code (`purity.node.test.ts` enforces this).
  */
 
+import { encodeCanonical } from '@o2/core'
 import type { Blockstore, Task } from '@o2/core'
+import type { CID } from 'multiformats/cid'
 import type { EgressGuard, EgressHold } from './egress.ts'
+import { encodeResponse } from './protocol.ts'
 
 export interface SovereignEgressOptions {
   /** The node's local-only tier — must already hold a sovereign input's bytes. */
@@ -74,4 +77,72 @@ export async function takeSovereignHold(
   const bytes = await options.blockstore.get(task.inputCid)
   if (bytes === undefined) return null
   return options.guard.guard(task.inputCid.toString(), bytes)
+}
+
+/**
+ * Exactly the value `AgentOptions.egress` carries.
+ *
+ * Written out here rather than imported from `agent.ts` so this module keeps its
+ * direction of dependency — `agent.ts` imports this file, not the other way round.
+ */
+export type EgressDisposition =
+  | { readonly guard: EgressGuard; readonly sovereignInputs: Blockstore }
+  | 'holds-no-registrations'
+
+/**
+ * The withholding predicate for `SelfRecordIndex` — SCHED-01, DATA-05.
+ *
+ * **This is the only correct construction, and the reason is not style.** The
+ * invariant is *a node never advertises a block its own `block` branch would refuse
+ * to serve*: a `providers` answer that said "yes, I hold it" about a refused block
+ * would convert the ruling recorded in `egress.ts` — that a peer cannot tell refusal
+ * from absence — into a peer that **can** tell, learning it without asking for the
+ * bytes and without anything appearing on this node's manifest. That is a side
+ * channel around a refusal.
+ *
+ * Holding an invariant between two branches means asking **one** question twice, not
+ * writing the question down twice. So this builds the candidate reply the `block`
+ * branch would build for that CID — `encodeCanonical(encodeResponse({kind:'block',
+ * bytes}))` — and puts it to {@link EgressGuard.violationIn}, which is the same pure
+ * query `serveAgent`'s pre-scan reaches through `refuse`. Same bytes, same scan, same
+ * answer.
+ *
+ * **The tempting cheaper version is wrong, and it is worth naming.**
+ * `guard.registrations.includes(cid.toString())` agrees with the block branch today,
+ * but only because two independent facts happen to line up: {@link takeSovereignHold}
+ * uses the CID string as the label, *and* registers exactly that CID's bytes.
+ * {@link EgressGuard.guard} takes an arbitrary label for an arbitrary payload, so
+ * neither fact is guaranteed by anything. The moment a payload is registered under
+ * any other label, the label-keyed predicate advertises a block the block branch
+ * refuses — the exact side channel, reintroduced by a line that reads like a
+ * simplification.
+ *
+ * `violationIn` records nothing (it is documented as a pure query), which is what
+ * makes it safe to ask on a lookup: a provider question is not a frame that was
+ * offered to the exit, and counting it on the manifest would make every provider
+ * lookup look like an attempted send.
+ *
+ * Two short-circuits, both mirroring `refusedReason`'s own so the two cannot drift:
+ * a node holding no registrations withholds nothing, and a body that will not
+ * canonicalise is not a body this node could send either — it fails loudly on its own
+ * path rather than being converted into a withholding here.
+ *
+ * Returns the stated absence `'advertises-everything-it-holds'` for a node whose sends
+ * are not tapped, which is the same case `refusedReason` answers `null` for.
+ */
+export function withholdingFrom(
+  egress: EgressDisposition,
+): ((cid: CID) => Promise<boolean>) | 'advertises-everything-it-holds' {
+  if (egress === 'holds-no-registrations') return 'advertises-everything-it-holds'
+  const { guard, sovereignInputs } = egress
+  return async (cid: CID): Promise<boolean> => {
+    if (guard.registrations.length === 0) return false
+    // The local-only tier, for the reason this module's header already gives about
+    // registration: asking whether to advertise a block must not itself fetch one.
+    const bytes = await sovereignInputs.get(cid)
+    if (bytes === undefined) return false
+    const encoded = encodeCanonical(encodeResponse({ kind: 'block', bytes }))
+    if (!encoded.ok) return false
+    return guard.violationIn(encoded.bytes) !== null
+  }
 }

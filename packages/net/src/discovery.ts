@@ -3,7 +3,7 @@
  *
  * The kernel's `discoverExecutors` works against a `RecordIndex` port and knows
  * nothing about how the answers arrive. This is the adapter that makes the port a
- * real network lookup: ask peers, take the first useful answer.
+ * real network lookup.
  *
  * **A peer is asked, not classified.** `RpcRecordIndex` takes a thunk returning the
  * peers to ask, so the set is whatever is currently connected. Nothing here inspects
@@ -13,7 +13,13 @@
  * branch that could treat one differently, because there is no field to branch on.
  *
  * **An unreachable peer is skipped, not fatal.** Discovery from a coffee shop means
- * half the peers you know are gone. A failed request moves to the next one.
+ * half the peers you know are gone. A failed `records` request moves to the next
+ * peer; a failed `providers` request contributes nothing to the union the others
+ * form. Neither fails the lookup.
+ *
+ * **The two halves resolve differently, and {@link RpcRecordIndex}'s doc says why** —
+ * `providers` unions across every peer, `recordsFor` takes the first answer. Read that
+ * before changing either: they are not two spellings of one policy.
  *
  * Pure module.
  */
@@ -27,10 +33,48 @@ import type { RpcEndpoint } from './rpc.ts'
 /**
  * A `RecordIndex` served by peers over RPC.
  *
- * Queries peers in order and returns the first non-empty answer. It does *not*
- * merge answers from every peer: a lookup that waited for all of them would be as
- * slow as the slowest, and the first peer holding the record is enough to proceed.
- * A caller that wants a fuller picture asks again with a different peer order.
+ * ## `providers` unions and `recordsFor` does not, and the asymmetry is the point
+ *
+ * This class used to argue for first-non-empty on both halves: *"a lookup that waited
+ * for all of them would be as slow as the slowest, and the first peer holding the
+ * record is enough to proceed."* That argument was correct while one index held
+ * everybody's records. Under owner ruling **D1** it is false for one of the two
+ * halves, and the two halves are now genuinely different questions.
+ *
+ * A **record** is a signed document. One copy of it is the whole of it: every field is
+ * covered by a signature `discoverExecutors` verifies against a pinned issuer, so a
+ * second copy from a second peer could only agree with the first or be discarded.
+ * First-non-empty is the right answer and stays.
+ *
+ * A **provider list** is a *set*, and under D1 each node answers `providers` only
+ * about its own store. So the first non-empty answer is exactly **one** element, and
+ * every other provider of that block is invisible to the requestor — however many
+ * peers hold it. Power-of-d sampling over one candidate is not sampling. It unions.
+ *
+ * ## What the union costs, stated rather than left to be discovered
+ *
+ * The lookup now pays the **slowest** peer instead of the fastest, and an unreachable
+ * peer costs the full `RpcEndpoint` budget on **every** lookup rather than being
+ * skipped once a fast answer had already arrived. Both are accepted.
+ *
+ * No probe deadline is adopted for it. {@link DEFAULT_PROBE_TIMEOUT_MS} exists in this
+ * file and is a number chosen for a different question — how long an *offer* may take
+ * — and reusing it here would be a quantity nobody measured for this one. What would
+ * change this is a measurement, and there is not one.
+ *
+ * ## The reach is directly-connected peers only
+ *
+ * No transitive routing and no DHT: the answer covers the peers this endpoint is
+ * currently connected to, and nothing beyond them. That is the fabric's existing shape
+ * rather than a new restriction, but it is the honest limit of what a discovery answer
+ * covers and it is stated here because a caller reading this class would otherwise
+ * assume the answer is global.
+ *
+ * ## Neither half classifies a peer
+ *
+ * See this module's header: the peers thunk returns whatever is currently connected
+ * and there is no field on which either half could branch on what kind of node a peer
+ * is. Both changes above are about *how many* answers are used, never about *whose*.
  */
 export class RpcRecordIndex implements RecordIndex {
   readonly #rpc: RpcEndpoint
@@ -42,14 +86,33 @@ export class RpcRecordIndex implements RecordIndex {
   }
 
   async providers(cid: CID): Promise<readonly PublicKeyHex[]> {
-    for (const peer of this.#peers()) {
-      const response = await this.#ask(peer, encodeRequest({ kind: 'providers', cid }))
+    // Concurrently, not in sequence: a union already pays the slowest peer, so asking
+    // one at a time would pay the *sum* of all of them for no benefit at all.
+    const answers = await Promise.all(
+      this.#peers().map(async (peer) => this.#ask(peer, encodeRequest({ kind: 'providers', cid }))),
+    )
+    const found = new Set<PublicKeyHex>()
+    for (const response of answers) {
+      // `#ask` swallowed a transport error, which is right here: a peer that could not
+      // be reached contributes nothing to a union and there is no verdict being formed
+      // about it. An empty answer is likewise a real answer and not a reason to stop.
       if (response?.kind !== 'providers') continue
-      if (response.nodeKeys.length > 0) return response.nodeKeys
+      for (const nodeKey of response.nodeKeys) found.add(nodeKey)
     }
-    return []
+    // Deduplicated and sorted, so two peers naming the same key produce one entry and
+    // the answer does not depend on the order the peers happened to reply in.
+    // `discoverExecutors` does this again on what it is handed; that is its business,
+    // and this adapter is honest on its own rather than relying on the kernel.
+    return [...found].sort()
   }
 
+  /**
+   * Unchanged, and deliberately so — see the class doc's first section.
+   *
+   * Sequential with an early return: the second peer is not asked once the first has
+   * answered, which is the whole difference from {@link RpcRecordIndex.providers} and
+   * is asserted by a request counter in `provider-merge.test.ts`.
+   */
   async recordsFor(nodeKey: PublicKeyHex): Promise<NodeRecords | undefined> {
     for (const peer of this.#peers()) {
       const response = await this.#ask(peer, encodeRequest({ kind: 'records', nodeKey }))
@@ -63,7 +126,7 @@ export class RpcRecordIndex implements RecordIndex {
     try {
       return parseResponse(await this.#rpc.request(peer, body))
     } catch {
-      return null // unreachable peer — ask the next one
+      return null // unreachable peer — contributes nothing, fails nothing
     }
   }
 }
