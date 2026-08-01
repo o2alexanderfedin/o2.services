@@ -78,6 +78,7 @@ import { webSockets } from '@libp2p/websockets'
 import { multiaddr } from '@multiformats/multiaddr'
 import {
   DEFAULT_MAX_CONCURRENT_TASKS,
+  EnrollmentAuthority,
   LocalCapacity,
   MemoryBlockstore,
   SignedNameResolver,
@@ -107,7 +108,11 @@ import {
   RELAY_MAX_RESERVATIONS,
   RELAY_MAX_RESERVATION_TTL_MS,
   audienceKeyOf,
+  generateSeed,
+  identityFromSeed,
 } from '@o2/libp2p'
+import type { NodeIdentity } from '@o2/libp2p'
+import { IDENTITY_FILE, PROVIDER_FILE, loadOrCreateSeed } from './identity-store.ts'
 import type { ReservationWatcher } from './reservation-watch.ts'
 import { workerThread } from './worker-thread.ts'
 
@@ -147,6 +152,31 @@ export interface FabricNodeOptions {
    * setting — see the module comment's "why there is no second class".
    */
   readonly sovereignty?: NodeSovereignty
+  /**
+   * Whether this process holds a provider signing key and answers enrollment requests —
+   * AUTH-01, AUTH-04.
+   *
+   * A **per-node setting, not a node kind.** Every `FabricNode` has the identical
+   * executor, transport, relay capability and protocol surface regardless of it — exactly
+   * as `sovereignty` above does, and exactly as `bin/agent.ts` says of `--owner-id`. A
+   * provider is a *configuration of the one node type*; anyone who writes "the provider
+   * node" in prose is recreating the class the module comment's "why there is no second
+   * class" section records as deleted, and this option is the thing that would let them.
+   * Nothing anywhere branches on it except the two lines that build the authority and hand
+   * it to `serveAgent`.
+   *
+   * **The key is generated on-device and is never passed in.** There is no option here
+   * that accepts key material, and Plan 17-05's `--issues-certificates` is a boolean for
+   * the same reason: argv is world-readable in `ps`, so a key on a command line is a key
+   * every account on the host has read. It is written to `.provider.key`, a **different
+   * file from `.identity.key`**, so `issuerKey !== nodeKey` always holds and a
+   * provider-signed certificate is never confusable with a self-signed one.
+   *
+   * A process given no `blockstoreDir` has nowhere to persist it and gets a fresh provider
+   * key per start — the same deployment choice `blockstoreDir`'s own doc frames above, and
+   * not a different kind of node.
+   */
+  readonly issuesCertificates?: boolean
   /**
    * The build authorities this node will run a module for — DET-03, DATA-08.
    *
@@ -387,6 +417,22 @@ export class FabricNode {
   readonly #limit: number
   readonly #pending: number
   readonly #inboundPerSecond: number
+  /**
+   * This node's identity — AUTH-01.
+   *
+   * Private, and deliberately: `seed` is the one secret this class holds, and a public
+   * field would put it one property access away from anything holding a node. The two
+   * public readings are {@link nodeKey} and {@link FabricNode.peerId}.
+   */
+  readonly #identity: NodeIdentity
+  /**
+   * The provider signing key, when this process holds one.
+   *
+   * Also private. A public `authority` would invite a caller to issue certificates around
+   * the wire, which would make the issuance path something other than the one
+   * `serveAgent`'s `enrol` branch rate-limits. {@link issuerKey} is the public reading.
+   */
+  readonly #authority: EnrollmentAuthority | null
 
   private constructor(parts: {
     libp2p: Libp2p
@@ -401,6 +447,8 @@ export class FabricNode {
     limit: number
     pending: number
     inboundPerSecond: number
+    identity: NodeIdentity
+    authority: EnrollmentAuthority | null
   }) {
     this.libp2p = parts.libp2p
     this.transport = parts.transport
@@ -415,6 +463,32 @@ export class FabricNode {
     this.#limit = parts.limit
     this.#pending = parts.pending
     this.#inboundPerSecond = parts.inboundPerSecond
+    this.#identity = parts.identity
+    this.#authority = parts.authority
+  }
+
+  /**
+   * The hex ed25519 public key a `NodeCertificate` names as this node's subject — AUTH-01.
+   *
+   * The same identity {@link FabricNode.peerId} reports, in the other namespace:
+   * `peerIdForNodeKey(node.nodeKey) === node.peerId` holds for every node this factory
+   * builds, by construction rather than by a lookup. Neither is independently settable, so
+   * the two cannot disagree.
+   */
+  get nodeKey(): PublicKeyHex {
+    return this.#identity.nodeKey
+  }
+
+  /**
+   * The provider key this process signs certificates with, or `null` when it holds none.
+   *
+   * `null` means this node was not told to issue — a stated configuration, not a failure
+   * and not a lesser kind of node. It is never equal to {@link nodeKey}: the two keys come
+   * from different files and therefore different bytes, which is what keeps a
+   * provider-signed certificate distinguishable from a self-signed one.
+   */
+  get issuerKey(): PublicKeyHex | null {
+    return this.#authority?.issuerKey ?? null
   }
 
   /**
@@ -485,6 +559,20 @@ export class FabricNode {
       options.blockstoreDir === undefined
         ? new MemoryBlockstore()
         : await FsBlockstore.open(options.blockstoreDir)
+
+    // AUTH-01 — resolved **here**, and the position is forced rather than chosen:
+    // `createLibp2p` below needs the key, so identity resolution has to precede it.
+    //
+    // The seed lives beside the blocks because that is the one directory a deployment has
+    // already told us it wants to survive a restart. A process given no directory has
+    // nowhere to persist and gets a fresh identity per start — a deployment choice, in the
+    // framing `blockstoreDir`'s own doc uses, and not a kind of node.
+    const seed =
+      options.blockstoreDir === undefined
+        ? generateSeed()
+        : await loadOrCreateSeed(options.blockstoreDir, IDENTITY_FILE)
+    const identity = await identityFromSeed(seed)
+
     const relayAddrs = options.relayAddrs ?? []
     const viaRelay = relayAddrs.length > 0
 
@@ -514,6 +602,10 @@ export class FabricNode {
       Math.max(LIBP2P_INBOUND_CONNECTION_THRESHOLD, limit)
 
     const libp2p = await createLibp2p({
+      // AUTH-01. Without this line libp2p mints a fresh ephemeral key on every start, so
+      // a node has no identity that outlives its process and no certificate could refer
+      // to it — which is exactly what every start did before this phase.
+      privateKey: identity.privateKey,
       addresses: { listen },
       transports: viaRelay
         ? [tcp(), webSockets(), circuitRelayTransport()]
@@ -638,6 +730,26 @@ export class FabricNode {
       options.rpcTimeoutMs === undefined ? {} : { timeoutMs: options.rpcTimeoutMs },
     )
 
+    // AUTH-01 / AUTH-04 — the provider signing key, when this process was told to hold
+    // one. A **separate file** from `.identity.key`, so `issuerKey !== nodeKey` always
+    // holds; and generated on-device, because no option in this phase accepts key material
+    // and argv is world-readable in `ps` (17-CONTEXT.md decision 6).
+    //
+    // Constructed with `providerPrivateKey` and nothing else, so the issuance defaults are
+    // left exactly as `enrollment.ts:229-231` declares them. Cited rather than restated:
+    // nothing in this phase's criteria asks for other numbers, a knob nobody sets is a
+    // knob that drifts from the tests, and a value copied into a comment is a value that
+    // can disagree with its source.
+    const authority =
+      options.issuesCertificates !== true
+        ? null
+        : new EnrollmentAuthority({
+            providerPrivateKey:
+              options.blockstoreDir === undefined
+                ? generateSeed()
+                : await loadOrCreateSeed(options.blockstoreDir, PROVIDER_FILE),
+          })
+
     // Blocks this node lacks are pulled from whichever peers are connected. The
     // peer list is a thunk, so a peer that connects later is usable immediately.
     const blockstore = new FetchingBlockstore(store, new RpcBlockSource(rpc, () => transport.peers))
@@ -719,6 +831,8 @@ export class FabricNode {
       limit,
       pending,
       inboundPerSecond,
+      identity,
+      authority,
     })
 
     // Unconditional, and that is the point: there is no construction path through
@@ -768,10 +882,14 @@ export class FabricNode {
         now: Date.now,
       }),
       index: 'serves-no-records',
-      // AUTH-01: this process holds no provider signing key. A per-node setting, not
-      // a node kind — see `AgentOptions.enroll`. Plan 17-03 is where this stops being
-      // the sentinel on a node started with `--issues-certificates`.
-      enroll: 'issues-no-certificates',
+      // AUTH-01 / AUTH-04. The sentinel is now the *fallback*, not the only value: a node
+      // started with `issuesCertificates` answers enrollment requests with a real
+      // authority, and one that was not says by name that it issues none.
+      //
+      // A per-node setting, not a node kind — see `FabricNodeOptions.issuesCertificates`
+      // and `AgentOptions.enroll`. The literal still appears exactly once in this file,
+      // which is what `serve-agent-hooks.node.test.ts` counts.
+      enroll: authority ?? 'issues-no-certificates',
       // SCHED-06. This hook answered "accepts everything" for the whole of two
       // milestones, so `serveAgent`'s `exec` branch ran `executor.execute` with
       // nothing counting what was in flight. `LocalCapacity` existed that entire
