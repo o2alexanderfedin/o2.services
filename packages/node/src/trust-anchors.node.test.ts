@@ -179,12 +179,39 @@ function occurrences(content: string): number {
   return stripComments(content).split(OPT_OUT).length - 1
 }
 
+/**
+ * How a read failure reads in a report — the errno when there is one, the message
+ * otherwise. `unknown` because a `catch` binding is `unknown` and pretending it is an
+ * `Error` is how a report ends up saying `undefined`.
+ */
+function readFailure(cause: unknown): string {
+  if (cause instanceof Error) {
+    const code = (cause as NodeJS.ErrnoException).code
+    return code ?? cause.message
+  }
+  return String(cause)
+}
+
 interface Scan {
   readonly flagged: readonly Flag[]
   readonly scanned: readonly string[]
   /** Files inside the jurisdiction whose stripped source names the literal at all. */
   readonly naming: readonly string[]
   readonly sources: ReadonlyMap<string, string>
+  /**
+   * Files git tracks, inside the jurisdiction, that could not be read.
+   *
+   * This used to be a bare `continue` with a comment guessing at the cause. The guess
+   * was reasonable and the behaviour was not: a file that is not scanned cannot be
+   * flagged, so an unreadable production path is indistinguishable from a clean one,
+   * and the jurisdiction silently shrinks by exactly the file nobody could look at.
+   * That is not hypothetical here — this repository is worked on by concurrent agents
+   * sharing a checkout, and a file removed mid-scan lands precisely on this line.
+   *
+   * The floor assertions below catch a wholesale failure. They cannot catch one file
+   * going missing, which is the case that matters, because one file is all it takes.
+   */
+  readonly unreadable: readonly string[]
 }
 
 function scanRepository(): Scan {
@@ -192,6 +219,7 @@ function scanRepository(): Scan {
   const scanned: string[] = []
   const naming: string[] = []
   const sources = new Map<string, string>()
+  const unreadable: string[] = []
 
   const tracked = execFileSync('git', ['ls-files', '-z'], { cwd: ROOT, encoding: 'utf8' })
     .split('\0')
@@ -202,8 +230,10 @@ function scanRepository(): Scan {
     let content: string
     try {
       content = readFileSync(join(ROOT, file), 'utf8')
-    } catch {
-      continue // staged deletion, or a file this checkout does not have
+    } catch (cause) {
+      // Recorded and reported by name, never skipped. See `Scan.unreadable`.
+      unreadable.push(`${file} — ${readFailure(cause)}`)
+      continue
     }
     scanned.push(file)
     sources.set(file, content)
@@ -211,7 +241,7 @@ function scanRepository(): Scan {
     flagged.push(...flags(file, content))
   }
 
-  return { flagged, scanned, naming, sources }
+  return { flagged, scanned, naming, sources, unreadable }
 }
 
 const REPO: Scan = scanRepository()
@@ -249,6 +279,20 @@ describe('the scan is looking at the population it claims to look at', () => {
     // The positive reading is asserted alongside the negative one.
     expect(REPO.naming.length).toBeGreaterThan(0)
     expect(REPO.naming.some((file) => file.endsWith('.test.ts'))).toBe(true)
+  })
+
+  it('dropped no file it could not read', () => {
+    // The population this file reports on must be the population git says exists. A
+    // file that fails to read is named here rather than quietly leaving the scan,
+    // because "no violations among the files I managed to open" is a different claim
+    // from "no violations", and only the second one is worth making.
+    //
+    // Normally empty, so it is an absence assertion like the rest and cannot audit
+    // itself. Proved able to fail on 2026-08-01 by `git add`-ing a file under
+    // `packages/node/src` and deleting it from disk before the run: `git ls-files`
+    // still lists it, `readFileSync` throws `ENOENT`, and this case named the file
+    // and the errno. Before the change the same plant was green.
+    expect(REPO.unreadable).toEqual([])
   })
 })
 
