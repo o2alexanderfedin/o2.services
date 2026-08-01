@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Wire What Was Built
 status: executing
-stopped_at: Phase 16 verified 3/4 and is NOT closed — criterion 3's late-arrival clause is scheduled to Phase 20 criterion 6. Its admission finding was closed afterwards by 16-06. Phase 17 is the next unit
-last_updated: "2026-08-01T07:15:00.000Z"
+stopped_at: Phase 17 verified 1/3 and is NOT closed. Its browser-partition regression is closed (17-06); AUTH-04's cost clause went to Phase 19 criterion 5 and criterion 2's accepting half to Phase 18 criterion 2d, both by owner ruling. A PeerVerifier ordering defect is open and needs a decision. Phase 18 is the next unit and must be planned first
+last_updated: "2026-08-01T17:20:00.000Z"
 last_activity: 2026-08-01
 progress:
   total_phases: 14
   completed_phases: 5
-  total_plans: 48
-  completed_plans: 33
+  total_plans: 54
+  completed_plans: 39
   percent: 36
 ---
 
@@ -78,7 +78,32 @@ red when it lands.
 
 ## Current Position
 
-Phase: 16 (Decomposable Tree-Reduce Wiring) — **3/4 on criteria, NOT closed**
+Phase: 17 (Node Identity & Enrollment) — **1/3 on criteria, NOT closed**
+Status: 5 planned plans + 1 gap closure (17-06), 6 summaries, 1 verification pass.
+**Criterion 1 MET** cross-process, and not as a self-report: `.identity.key` absent before
+the spawn and present after, `peerIdForNodeKey(nodeKey) === peerId`, and the certificate
+re-fetched over the production `records` RPC by a **third** process and verified there.
+Criteria 2 and 3 PARTIAL. **AUTH-01, AUTH-02 and AUTH-04 all stay open**; nothing ticked.
+
+**Two halves were scheduled rather than lowered** (owner rulings 2026-08-01):
+- **Phase 18 criterion 2d** — a flag that makes a spawned agent dial a named peer, plus a
+  cross-process proof of *acceptance*. `bin/agent.ts` parses eleven flags and none dials a
+  peer, so a spawned verifier can reach only `no-records`. Until such a flag exists **no
+  phase can prove any peer-to-peer acceptance cross-process**, not just this one.
+- **Phase 19 criterion 5** — enrolling must cost something an attacker cannot mint free.
+  AUTH-04's rate limit is fully proven; what it does not buy is the cost clause. The limit
+  is keyed on `userKey`, which is one `ed25519.keygen()`, and the budget is per provider
+  **process**, so a second provider defeats it without a second key.
+
+**The regression it introduced is closed.** The fail-closed gate had excluded *every*
+browser peer as a block source — a fabric partitioned by tier, against the cardinal rule.
+17-06 gave browser tabs their own persisted identity and enrollment, and the partition
+instrument was observed at **both** values against the same gate node with the same pinned
+issuer. The insecure-origin path 17-01 left unmeasured is now measured in three engines.
+
+**⚠ ONE DEFECT IS OPEN AND NEEDS AN OWNER DECISION — see Pending Todos.**
+
+Previous phase: 16 (Decomposable Tree-Reduce Wiring) — **3/4 on criteria, NOT closed**
 Status: 4 planned plans + 2 gap-closure plans (16-05, 16-06), 6 summaries, 1 verification
 pass. Criteria 1, 2 and 4 MET; **criterion 3 PARTIAL** — its dedupe half is proven across
 nine real `bin/agent.ts` processes, its *"arriving late"* half is not, because
@@ -110,8 +135,8 @@ earlier note that six phases "can run concurrently" was wrong.
 Last activity: 2026-07-31
 
 ```
-Test Files  ~300 · Tests 4479 · exit 0 · tsc --noEmit clean   (2026-08-01, load 12)
-node 95 files/1399 · browser 3063 (chromium+firefox+webkit) · e2e 8/40 · 36 of 37 mutations caught
+Test Files  ~320 · Tests 4772 · exit 0 · tsc --noEmit clean   (2026-08-01, load 7.1)
+node 106 files/1521 · browser 3207 (chromium+firefox+webkit) · e2e 9/44
 ```
 
 The 272 counts vitest *file-runs*, not files, because the browser project runs its share
@@ -727,6 +752,28 @@ Recent decisions affecting current work:
   repository is fought once rather than twice.
 
 ### Pending Todos
+
+**⚠ OPEN DEFECT NEEDING A DECISION — `PeerVerifier` settles a verdict once and never
+revisits it (found by 17-06, 2026-08-01, deliberately not fixed).**
+
+`PeerVerifier` decides a peer's verdict on `peer:connect` and never asks again. **So a node
+that enrols *after* a peer has already connected to it is permanently excluded by that
+peer.** Observed directly, not inferred: an enrolled tab holding a valid certificate sat at
+`'not asked yet'` for 20 s. It is **not browser-specific** — `FabricNode` also dials its
+provider before `serveAgent` is up, so the same window exists on the Node tier.
+
+Held under Rule 4 because every candidate fix changes how often a node re-asks its peers
+across the whole fabric — re-ask on a timer, re-ask on a records-changed push, or re-ask on
+first refusal. That is a fabric-wide behaviour decision, not a bug fix, and it interacts
+with Phase 18's discovery work. **Decide before Phase 18 plans, because 18 owns the dial
+path this defect lives on.**
+
+**Also from 17-06, and it corrects 17-04:** `PeerVerifier` should **not** move to
+`@o2/libp2p`. 17-04's portability half was right (no Node-only imports) and its
+"one-file fix" half was wrong — `@o2/libp2p` does not depend on `@o2/net`, which
+`PeerVerifier` imports four symbols from, so it is six files. Left in place for the stronger
+reason: no browser consumer exists, and **an export with no traced call path is exactly what
+Phase 22's guard fails on.**
 
 **Scheduled work carried out of 13.1's and 14's verifications (2026-07-31):**
 
