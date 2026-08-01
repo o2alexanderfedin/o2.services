@@ -138,7 +138,7 @@ describe('criterion 6 — the refusal is named, and it arrives long before the b
     const echoCid = await submitter.store.put(MODULE_ECHOES_INPUT)
     const aggregateCid = await submitter.store.put(MODULE_WRITES_PARTITION)
 
-    const executors = [new RemoteExecutor(alice.peerId, submitter.rpc)]
+    const executors = [new RemoteExecutor(alice.peerId, submitter.rpc, 'dispatches-unauthenticated')]
     const descriptors: readonly NodeDescriptor[] = [
       { nodeId: alice.peerId, ownerId: 'alice', canExecuteSovereign: true, load: 0 },
     ]

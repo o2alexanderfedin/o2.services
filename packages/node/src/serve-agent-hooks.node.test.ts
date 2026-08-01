@@ -4,12 +4,26 @@ import { describe, expect, it } from 'vitest'
 /**
  * WIRE-01, criterion 2 — the sentinel-count guard.
  *
- * A grep over source is brittle against reformatting, so this reads the three
- * production files' text off disk (structural, following the pattern
- * `purity.node.test.ts` established) and counts literal occurrences of each
- * sentinel string, rather than parsing shape. This is also the burn-down count the
- * project tracks going forward: every occurrence is a node stating, in one
- * grep-able line, which capability it currently substitutes with a named absence.
+ * A grep over source is brittle against reformatting, so this reads the production
+ * files' text off disk (structural, following the pattern `purity.node.test.ts`
+ * established) and counts literal occurrences of each sentinel string, rather than
+ * parsing shape. This is also the burn-down count the project tracks going forward:
+ * every occurrence is a node stating, in one grep-able line, which capability it
+ * currently substitutes with a named absence.
+ *
+ * AUTH-03 extended it to cover **both sides of a dispatch** — the hooks a node
+ * serves with, and the chain it dispatches with. The two are not symmetric in one
+ * respect that has to be written down or somebody will drive it to zero: the
+ * `'serves-unauthenticated'` counts are a burn-down heading for 0, but the
+ * `'dispatches-unauthenticated'` counts have a **permanent floor**. Every shard
+ * these three drivers submit is `label: 'public'`, and a public task has no owner
+ * and therefore no root key a chain could be rooted at, so the sentinel is the
+ * correct value at those sites forever rather than a stub awaiting wiring.
+ *
+ * What these counts do **not** prove is anything about a dispatch. They are
+ * substring counts over source text, like every other row in this file: they prove
+ * the string is present and state the floor it must not fall below. The behaviour
+ * is `remote-executor-contract.test.ts` and `capability-dispatch.test.ts`.
  *
  * Node-only: reads real source files off disk by relative path.
  */
@@ -17,6 +31,8 @@ import { describe, expect, it } from 'vitest'
 const FABRIC_NODE = readFileSync(new URL('./fabric-node.ts', import.meta.url), 'utf8')
 const BROWSER_NODE = readFileSync(new URL('../../browser/src/browser-node.ts', import.meta.url), 'utf8')
 const BENCH = readFileSync(new URL('./bin/bench.ts', import.meta.url), 'utf8')
+const DEMO_MAIN = readFileSync(new URL('../../browser/demo/main.ts', import.meta.url), 'utf8')
+const PERF_WORKLOAD = readFileSync(new URL('../../bench/src/perf-workload.ts', import.meta.url), 'utf8')
 
 /** How many times `needle` occurs in `text`, as a literal substring. */
 function occurrences(text: string, needle: string): number {
@@ -70,5 +86,37 @@ describe('production serveAgent call sites state every hook explicitly', () => {
     expect(occurrences(BENCH, "'keeps-no-ledger'")).toBe(2)
     expect(occurrences(BENCH, "'relays-for-nobody'")).toBe(2)
     expect(occurrences(BENCH, "'reports-no-dispatch'")).toBe(2)
+  })
+})
+
+describe('production RemoteExecutor call sites state the chain explicitly', () => {
+  // AUTH-03. The other half of a dispatch. `RemoteExecutor`'s third constructor
+  // argument is required — `remote-executor-contract.test.ts` holds the
+  // compile-failure proof — so these counts are not "is it wired", they are "which
+  // choice did the call site write down".
+  //
+  // Each expected number is a **floor that is also the ceiling**, and is expected to
+  // stay where it is rather than fall to 0. Every one of these five dispatch sites
+  // submits `label: 'public'` shards.
+
+  it('demo/main.ts: both peer dispatches are public work', () => {
+    expect(occurrences(DEMO_MAIN, "'dispatches-unauthenticated'")).toBe(2)
+    // The other half of the same fact, because a count of two is also what moving a
+    // sentinel onto a *third*, newly-added site would produce. Two constructions,
+    // one per job the demo can run — `runColouring` and `runJob`.
+    expect(occurrences(DEMO_MAIN, 'new RemoteExecutor(')).toBe(2)
+  })
+
+  it('bin/bench.ts: both drivers dispatch public shards', () => {
+    expect(occurrences(BENCH, "'dispatches-unauthenticated'")).toBe(2)
+    expect(occurrences(BENCH, 'new RemoteExecutor(')).toBe(2)
+  })
+
+  it('bench/src/perf-workload.ts: the third production dispatch site', () => {
+    // Not named in this phase's plan, which counted two production sites. Found by
+    // re-grepping rather than trusting the count, and recorded here so the next
+    // reader inherits three rather than re-discovering the third.
+    expect(occurrences(PERF_WORKLOAD, "'dispatches-unauthenticated'")).toBe(1)
+    expect(occurrences(PERF_WORKLOAD, 'new RemoteExecutor(')).toBe(1)
   })
 })

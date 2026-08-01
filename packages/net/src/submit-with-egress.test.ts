@@ -122,7 +122,7 @@ function buildFabric(nodeId: string): Fabric {
     nodeId,
     guard,
     local,
-    executors: [new RemoteExecutor(nodeId, requestorRpc)],
+    executors: [new RemoteExecutor(nodeId, requestorRpc, 'dispatches-unauthenticated')],
     nodes: [{ nodeId, ownerId: OWNER_ID, canExecuteSovereign: true, load: 0 }],
     close() {
       seedRpc.close()

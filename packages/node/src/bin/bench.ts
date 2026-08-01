@@ -389,7 +389,16 @@ async function memoryFabric(nodes: number): Promise<Fabric> {
     endpoints.push(rpc)
   }
 
-  const remote = endpoints.map((_, i) => new RemoteExecutor(`n${i}`, callerRpc))
+  // AUTH-03. The sentinel is the permanent, correct value at both of this driver's
+  // dispatch sites, not a placeholder. Every shard this benchmark submits is
+  // `label: 'public'` (`:517`), so there is no owner and no root key a chain could
+  // be rooted at; giving the benchmark a sovereign leg would change what it
+  // measures and break comparability with the published curves. Because the
+  // sentinel encodes no `capability` key at all, the frames this driver sends stay
+  // byte-identical to pre-Phase-15 ones and the existing numbers remain comparable.
+  const remote = endpoints.map(
+    (_, i) => new RemoteExecutor(`n${i}`, callerRpc, 'dispatches-unauthenticated'),
+  )
 
   return {
     executors: remote,
@@ -447,7 +456,12 @@ async function realFabric(nodes: number): Promise<Fabric> {
     await node.libp2p.dial(requestor.libp2p.getMultiaddrs())
   }
 
-  const executors = started.map((node) => new RemoteExecutor(node.libp2p.peerId.toString(), requestor.rpc))
+  // AUTH-03, same permanent sentinel and the same reason as the memory-transport
+  // leg above: this driver's shards are all public.
+  const executors = started.map(
+    (node) =>
+      new RemoteExecutor(node.libp2p.peerId.toString(), requestor.rpc, 'dispatches-unauthenticated'),
+  )
 
   return {
     executors,

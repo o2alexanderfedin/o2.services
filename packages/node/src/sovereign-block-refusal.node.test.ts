@@ -177,7 +177,7 @@ describe('criterion 7 — the row a node submitted does not leave it while the j
       expect(await owner.store.has(row.cid)).toBe(false)
       expect(await owner.store.has(moduleCid)).toBe(false)
 
-      const executors = [new RemoteExecutor(owner.peerId, submitter.rpc)]
+      const executors = [new RemoteExecutor(owner.peerId, submitter.rpc, 'dispatches-unauthenticated')]
       const descriptors: readonly NodeDescriptor[] = [
         { nodeId: owner.peerId, ownerId: OWNER, canExecuteSovereign: true, load: 0 },
       ]

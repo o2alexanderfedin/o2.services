@@ -315,7 +315,9 @@ describe('criterion 6 — an owner’s own nodes verify each other', () => {
       }
       const verification = await executeVerified(
         task,
-        placement.nodeIds.map((nodeId) => new RemoteExecutor(nodeId, fabric.requestorRpc)),
+        placement.nodeIds.map(
+          (nodeId) => new RemoteExecutor(nodeId, fabric.requestorRpc, 'dispatches-unauthenticated'),
+        ),
       )
       expect(verification.status).toBe('agreed')
 
@@ -344,7 +346,9 @@ describe('criterion 6 — an owner’s own nodes verify each other', () => {
       }
       const verification = await executeVerified(
         task,
-        fabric.owned.map((node) => new RemoteExecutor(node.nodeId, fabric.requestorRpc)),
+        fabric.owned.map(
+          (node) => new RemoteExecutor(node.nodeId, fabric.requestorRpc, 'dispatches-unauthenticated'),
+        ),
       )
       expect(verification.status).toBe('agreed')
 
@@ -381,7 +385,12 @@ describe('criterion 6 — an owner’s own nodes verify each other', () => {
     const fabric = await ownerFabric({ module: MODULE_ECHOES_INPUT, ownerNodes: 1 })
     try {
       const node = fabric.owned[0] as OwnerNode
-      const outcome = await new RemoteExecutor(node.nodeId, fabric.requestorRpc).execute({
+      const remote = new RemoteExecutor(
+        node.nodeId,
+        fabric.requestorRpc,
+        'dispatches-unauthenticated',
+      )
+      const outcome = await remote.execute({
         moduleCid: fabric.moduleCid,
         inputCid: fabric.inputCid,
         partitionIndex: 0,
@@ -438,6 +447,7 @@ describe('criterion 7 — one live node is owner-attested, and says so', () => {
       const outcome = await new RemoteExecutor(
         placement.nodeIds[0] as string,
         fabric.requestorRpc,
+        'dispatches-unauthenticated',
       ).execute({
         moduleCid: fabric.moduleCid,
         inputCid: fabric.inputCid,
@@ -480,7 +490,11 @@ describe('Phase 12 — sovereignty wired onto submitJob', () => {
       // test bypasses placement to prove its own server-side gate directly —
       // placement would never route a sovereign task to Bob, and the refusal
       // has to hold regardless of what dispatched it.
-      const outcome = await new RemoteExecutor(fabric.foreignKey, fabric.requestorRpc).execute(task)
+      const outcome = await new RemoteExecutor(
+        fabric.foreignKey,
+        fabric.requestorRpc,
+        'dispatches-unauthenticated',
+      ).execute(task)
       expect(outcome.ok).toBe(false)
       if (outcome.ok) return
       expect(outcome.reason).toContain(fabric.foreignKey)
@@ -503,7 +517,7 @@ describe('Phase 12 — sovereignty wired onto submitJob', () => {
     const fabric = await ownerFabric({ module: MODULE_WRITES_PARTITION, ownerNodes: 1 })
     try {
       const owned = fabric.owned[0] as OwnerNode
-      const executors = [new RemoteExecutor(owned.nodeId, fabric.requestorRpc)]
+      const executors = [new RemoteExecutor(owned.nodeId, fabric.requestorRpc, 'dispatches-unauthenticated')]
       const result = await submitJob(
         {
           moduleCid: fabric.moduleCid,

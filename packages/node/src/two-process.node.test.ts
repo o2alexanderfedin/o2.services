@@ -178,8 +178,8 @@ describe('NET-01 — a job across OS processes', () => {
     const moduleCid = await submitter.store.put(MODULE_WRITES_PARTITION)
 
     const executors = [
-      new RemoteExecutor(w1.peerId, submitter.rpc),
-      new RemoteExecutor(w2.peerId, submitter.rpc),
+      new RemoteExecutor(w1.peerId, submitter.rpc, 'dispatches-unauthenticated'),
+      new RemoteExecutor(w2.peerId, submitter.rpc, 'dispatches-unauthenticated'),
     ]
     const result = await submitJob(
       {
@@ -216,7 +216,7 @@ describe('NET-01 — a job across OS processes', () => {
     await submitter.dial(worker.multiaddrs[0]!)
 
     const moduleCid = await submitter.store.put(MODULE_WRITES_PARTITION)
-    const executors = [new RemoteExecutor(worker.peerId, submitter.rpc)]
+    const executors = [new RemoteExecutor(worker.peerId, submitter.rpc, 'dispatches-unauthenticated')]
     const result = await submitJob(
       {
         moduleCid,
@@ -257,8 +257,8 @@ describe('NET-01 — a job across OS processes', () => {
     await stopAgent(w2)
 
     const executors = [
-      new RemoteExecutor(w1.peerId, submitter.rpc),
-      new RemoteExecutor(w2.peerId, submitter.rpc),
+      new RemoteExecutor(w1.peerId, submitter.rpc, 'dispatches-unauthenticated'),
+      new RemoteExecutor(w2.peerId, submitter.rpc, 'dispatches-unauthenticated'),
     ]
     const result = await submitJob(
       {

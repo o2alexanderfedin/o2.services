@@ -190,9 +190,9 @@ describe('DATA-03/DATA-04 — sovereignty-pinned placement across real bin/agent
     const moduleCid = await submitter.store.put(MODULE_WRITES_PARTITION)
 
     const executors = [
-      new RemoteExecutor(alice.peerId, submitter.rpc),
-      new RemoteExecutor(bob1.peerId, submitter.rpc),
-      new RemoteExecutor(bob2.peerId, submitter.rpc),
+      new RemoteExecutor(alice.peerId, submitter.rpc, 'dispatches-unauthenticated'),
+      new RemoteExecutor(bob1.peerId, submitter.rpc, 'dispatches-unauthenticated'),
+      new RemoteExecutor(bob2.peerId, submitter.rpc, 'dispatches-unauthenticated'),
     ]
 
     // The placement-time descriptors `submitJob` sees. Alice's is described as

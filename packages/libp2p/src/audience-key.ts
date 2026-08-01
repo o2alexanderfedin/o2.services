@@ -10,7 +10,7 @@
  * node for its key — all introduce something to distribute and keep in step. The peer
  * id needs none of that: the serving node computes this from its own `libp2p.peerId`,
  * and the requestor computes the byte-identical key from the `nodeId` string it already
- * passes to `new RemoteExecutor(nodeId, rpc)`.
+ * passes as `new RemoteExecutor`'s first argument.
  *
  * The binding is the reason to prefer it, not merely the convenience. Only the holder
  * of that private key could have completed the noise handshake as that peer id, so the

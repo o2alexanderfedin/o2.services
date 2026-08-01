@@ -278,7 +278,7 @@ describe('DET-03/DATA-08 — signed artifact resolution across a real bin/agent.
     // the property `two-process.node.test.ts` establishes for NET-01, and the
     // precondition for the directory reading meaning anything at all.
     const moduleCid = await submitter.store.put(MODULE_WRITES_PARTITION)
-    const executors = [new RemoteExecutor(agent.peerId, submitter.rpc)]
+    const executors = [new RemoteExecutor(agent.peerId, submitter.rpc, 'dispatches-unauthenticated')]
 
     const result = await submitJob(
       {
@@ -311,7 +311,7 @@ describe('DET-03/DATA-08 — signed artifact resolution across a real bin/agent.
     await submitter.dial(agent.multiaddrs[0]!)
 
     const moduleCid = await submitter.store.put(MODULE_WRITES_PARTITION)
-    const executors = [new RemoteExecutor(agent.peerId, submitter.rpc)]
+    const executors = [new RemoteExecutor(agent.peerId, submitter.rpc, 'dispatches-unauthenticated')]
 
     // The accepted case's job with exactly one argument removed. `moduleRecord` is
     // optional on `JobSpec` by design — the refusal is on the far side of the wire,
@@ -353,7 +353,7 @@ describe('DET-03/DATA-08 — signed artifact resolution across a real bin/agent.
     await submitter.dial(agent.multiaddrs[0]!)
 
     const moduleCid = await submitter.store.put(MODULE_WRITES_PARTITION)
-    const executors = [new RemoteExecutor(agent.peerId, submitter.rpc)]
+    const executors = [new RemoteExecutor(agent.peerId, submitter.rpc, 'dispatches-unauthenticated')]
 
     // A structurally perfect record — correct CID, unexpired, version 1, and a genuine
     // Ed25519 signature that verifies against its own signer. The only thing wrong with
@@ -395,7 +395,7 @@ describe('DET-03/DATA-08 — signed artifact resolution across a real bin/agent.
     const echoCid = await submitter.store.put(MODULE_ECHOES_INPUT)
     expect(echoCid.toString()).not.toBe(writesCid.toString())
 
-    const executors = [new RemoteExecutor(agent.peerId, submitter.rpc)]
+    const executors = [new RemoteExecutor(agent.peerId, submitter.rpc, 'dispatches-unauthenticated')]
 
     // The attack a signature check alone does not catch, and what 14-CONTEXT.md calls
     // the entire point of the check: the record is signed by the key the agent pins, is
@@ -447,7 +447,7 @@ describe('DET-03/DATA-08 — signed artifact resolution across a real bin/agent.
     await submitter.dial(agent.multiaddrs[0]!)
 
     const moduleCid = await submitter.store.put(MODULE_WRITES_PARTITION)
-    const executors = [new RemoteExecutor(agent.peerId, submitter.rpc)]
+    const executors = [new RemoteExecutor(agent.peerId, submitter.rpc, 'dispatches-unauthenticated')]
 
     // Byte-for-byte the accepted case's job — correct key, correct CID, valid
     // signature, unexpired. The only thing that changed is which process it was sent
