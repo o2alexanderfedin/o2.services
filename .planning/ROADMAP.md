@@ -501,6 +501,22 @@ hits first and this file is the one an auditor greps.
   2. Placement observed during that run samples multiple candidates and selects the least-loaded; a node made to report itself over capacity refuses the offer with a stated reason, visible in the requestor's re-pick, and the job still completes. **The offer refusal is advisory**: the node reports its load and reserves nothing, so this clause is met by an honest answer and does not by itself bound anything
   2b. A node **at its execution slot limit refuses an `exec` request** with a stated reason naming the limit, and the requestor re-picks
   2c. Placing N shards through `planWithOffers` + `rpcAdmission` **does not over-commit a node past its declared limit**
+  2d. **`bin/agent.ts` gains a flag that makes a spawned agent dial a named peer**, and a spawned node started with it verifies that peer's certificate and *accepts* it — the accepting half of AUTH-02, cross-process. Routed here by owner ruling 2026-08-01 from Phase 17's criterion 2, which scored PARTIAL for this clause alone
+
+<!-- Criterion 2d added 2026-08-01. Phase 17 proved certificate verification is offline the
+     strong way — both provider processes stopped and asserted dead before the verifier exists —
+     and proved the *rejecting* half cross-process with a named `{kind:'untrusted-issuer'}`. It
+     could not prove the *accepting* half through `bin/agent.ts`, and the reason is structural
+     rather than a missing test: that binary parses eleven flags and **none of them dials a
+     peer**. `--provider-addr` dials only a provider, whose handshake carries
+     `certificate: null`, so a spawned verifier can reach nothing but `no-records`.
+
+     It lands here because a dial flag is discovery-shaped and this phase owns discovery — and
+     because until one exists, **no phase can prove any peer-to-peer acceptance cross-process**,
+     not just this one. Phase 17's verifier explicitly declined to defer it to this phase on its
+     own authority, since neither AUTH-02 nor certificate acceptance appeared in these criteria;
+     it is written in now rather than assumed. -->
+
 <!-- Criterion 2b added 2026-07-28. Criterion 2 exercises only the `offer` branch, and
      `serveAgent` consults `capacity` *only* there — the `exec` branch authorizes and then calls
      `await executor.execute(task)` with nothing counting what is in flight. Measured: 4 peers ×
@@ -542,6 +558,11 @@ hits first and this file is the one an auditor greps.
   2. Several node certificates chaining to one owner's user key resolve, through `bin/agent.ts`, as a single discoverable replica set; a sovereignty-pinned task with two or more of that owner's nodes live executes on two of them, the outputs are compared, and the receipt reports the agreement as owner-domain, not independent-operator
   3. The same task with only one of that owner's nodes live executes once, and the resulting receipt reads owner-attested rather than verified, wherever it is displayed — CLI output, demo UI, or job result
   4. Two browser peers opened against the static demo bundle — no seed process running, no `/bootstrap.json`, nothing dialed by a test harness — discover each other via the wired `index`/`reservations` hooks and complete a job together, proving browser peers participate in routing as full peers rather than only through backbone-served fallback. Run on **one host** under Playwright multi-browser (`chromium`, `firefox`, `webkit`), each peer in its own isolated context, against a locally-started relay — see the browser-tier testing standard in Constraints above; the result is a one-host result and is labelled as one
+  5. **Enrolling a node costs an attacker something they cannot mint for free**, and the cost is measured: creating the N-th fake identity is demonstrably more expensive than creating the first. Routed here by owner ruling 2026-08-01 from Phase 17's AUTH-04, whose rate-limiting half is proven and whose cost half is not
+
+**Criterion 5 exists because Phase 17 measured its own rate limit and found what it does not buy.** The burst limit is real and fully proven — a stated threshold read out of the refusal the peer received, `limit: 5 / windowMs: 3_600_000` on the wire. But AUTH-04's text asks that mass fake-node creation be *"measurably costly"*, and Phase 17's verification established two things that defeat it. The limit is keyed on `userKey`, which is **one `ed25519.keygen()`** — so twenty distinct user keys all enrol unslowed, and removing the rate guard entirely leaves that test green. And the budget is per provider **process**: a second provider defeats it without needing a second user key at all, asserted across two spawned providers.
+
+It lands here rather than in Phase 17 because the remedy is a design decision this phase is already making — what scarce thing an identity must present. This phase owns AUTH-05 and the attestation-strength machinery, so the natural candidates (a provider-issued invitation chained to an owner key, a persistent cross-process budget, or proof-of-work) all sit beside work already scheduled here. **AUTH-04 stays open until then**; Phase 17 records the rate-limiting half as measured and the cost half as not, in those words.
 **Plans**: TBD
 
 ### Phase 20: Single Job Path, Ledger & Churn Resilience
