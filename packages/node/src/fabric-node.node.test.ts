@@ -9,8 +9,9 @@ import type { CanonicalValue, NameRecord, Task } from '@o2/core'
 import { RemoteExecutor, blockCid } from '@o2/net'
 import type { CID } from 'multiformats/cid'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-// Test-only relative import — see the note in packages/net/src/distributed.test.ts.
+// Test-only relative imports — see the note in packages/net/src/distributed.test.ts.
 import { MODULE_WRITES_PARTITION } from '../../core/src/executor/fixtures.ts'
+import { OWNER_KEY, chainSupplierFor } from './capability-fixture.ts'
 import { FabricNode } from './fabric-node.ts'
 import type { FabricNodeOptions } from './fabric-node.ts'
 import { FsBlockstore } from './fs-blockstore.ts'
@@ -271,19 +272,36 @@ describe('NET-01 — persistence across a restart', () => {
   }, 60_000)
 })
 
-describe('DATA-09 — the production serving executor is guarded without opting in', () => {
-  it('a node started with no sovereignty option refuses; one started cleared for the owner accepts', async () => {
-    // `startNode` is the same factory call `bin/agent.ts` makes — no test-only
-    // bypass, no hand-built fabric. The point of this test is that a node built
-    // this way is guarded *before anyone opts in*, and that opting in (the
-    // `sovereignty` option) actually changes the outcome over real RPC.
-    const [submitter, defaultNode, clearedNode] = await Promise.all([
+describe("DATA-09 and AUTH-03's serving half — three node shapes, four dispatches", () => {
+  /**
+   * `startNode` is the same factory call `bin/agent.ts` makes — no test-only bypass,
+   * no hand-built fabric. Until Phase 15 this block proved one thing: a node built
+   * this way is guarded *before anyone opts in*, and opting in changes the outcome
+   * over real RPC. It now has to prove that **and** AUTH-03's serving half, because
+   * the two gates are stacked and the outer one hides the inner.
+   *
+   * The shape of the problem, which is why this is four dispatches over three nodes
+   * rather than a two-line edit (15-CONTEXT.md Risk 3). `authorize` runs before
+   * `execute`, so on a node with no pinned owner key the capability refusal arrives
+   * first and `guardSovereignty` never runs. DATA-09's own refusal is therefore
+   * reachable by exactly one node shape: pinned to the owner, given that owner's key,
+   * and still not cleared. Without `pinnedNode` below, this phase would quietly delete
+   * an existing guarantee's only production-path test while leaving a green suite.
+   */
+  it('refuses unpinned, refuses uncleared at the sovereignty gate, accepts pinned-and-cleared, refuses that same node with no chain', async () => {
+    const [submitter, defaultNode, pinnedNode, clearedNode] = await Promise.all([
       startNode('s3'),
       startNode('default'),
-      startNode('cleared', { sovereignty: { ownerId: 'alice', canExecuteSovereign: true } }),
+      startNode('pinned', {
+        sovereignty: { ownerId: 'alice', ownerKey: OWNER_KEY, canExecuteSovereign: false },
+      }),
+      startNode('cleared', {
+        sovereignty: { ownerId: 'alice', ownerKey: OWNER_KEY, canExecuteSovereign: true },
+      }),
     ])
     await Promise.all([
       submitter.dial(defaultNode.multiaddrs[0]!),
+      submitter.dial(pinnedNode.multiaddrs[0]!),
       submitter.dial(clearedNode.multiaddrs[0]!),
     ])
 
@@ -299,22 +317,66 @@ describe('DATA-09 — the production serving executor is guarded without opting 
       ownerId: 'alice',
     }
 
-    const refused = await new RemoteExecutor(
+    // 1. The safe default, observed. A node started with no `sovereignty` option at
+    // all refuses even a chain that is entirely valid for it.
+    //
+    // **The refusal has moved, and the old string is gone.** Before Phase 15 this node
+    // refused at `guardSovereignty`, with 'sovereignty' and its own peer id in the
+    // reason. It now refuses one step earlier, for want of a pinned owner key. Do not
+    // restore the old assertion by rewording the refusal — the point of the pinned
+    // node below is that the old refusal still has a test, on the one node shape that
+    // can still reach it.
+    const unpinned = await new RemoteExecutor(
       defaultNode.peerId,
       submitter.rpc,
-      'dispatches-unauthenticated',
+      chainSupplierFor(defaultNode.peerId),
     ).execute(sovereignTask)
-    expect(refused.ok).toBe(false)
-    if (refused.ok) return
-    expect(refused.reason).toContain(defaultNode.peerId)
-    expect(refused.reason).toContain('sovereignty')
+    expect(unpinned.ok).toBe(false)
+    if (unpinned.ok) return
+    expect(unpinned.reason).toContain('unauthorized')
+    expect(unpinned.reason).toContain('alice')
+    // **Which refusal, not merely that one arrived** — and this line is here because
+    // the two above did not discriminate. Measured: deleting the no-pinned-key
+    // precedence step from `capability-authorizer.ts` left this case **green**. A node
+    // with no `sovereignty` option resolves to `ownerId: ''`, so with that step gone it
+    // fell through to the next one and answered *"task names owner alice, but this node
+    // is pinned to owner "* — which is also prefixed `unauthorized` and also contains
+    // `alice`. The plan for this phase predicted this case would go red on that
+    // deletion; it did not, and this assertion is what makes the prediction true.
+    expect(unpinned.reason).toContain('no pinned owner key')
 
+    // 2. DATA-09's production-path proof, restored. Pinned to alice and holding
+    // alice's key, so the chain verifies and `authorize` returns null — and then the
+    // sovereignty gate refuses for want of clearance, naming itself.
+    const uncleared = await new RemoteExecutor(
+      pinnedNode.peerId,
+      submitter.rpc,
+      chainSupplierFor(pinnedNode.peerId),
+    ).execute(sovereignTask)
+    expect(uncleared.ok).toBe(false)
+    if (uncleared.ok) return
+    expect(uncleared.reason).toContain('sovereignty')
+    expect(uncleared.reason).toContain(pinnedNode.peerId)
+
+    // 3. Pinned, keyed and cleared: the same task with the same chain is accepted.
     const accepted = await new RemoteExecutor(
+      clearedNode.peerId,
+      submitter.rpc,
+      chainSupplierFor(clearedNode.peerId),
+    ).execute(sovereignTask)
+    expect(accepted.ok).toBe(true)
+
+    // 4. The control that makes assertion 3 mean something. Same node, same task, one
+    // argument changed: no chain. Without this reading, "the cleared node accepts" is
+    // equally well explained by an authorizer that accepts everything.
+    const unchained = await new RemoteExecutor(
       clearedNode.peerId,
       submitter.rpc,
       'dispatches-unauthenticated',
     ).execute(sovereignTask)
-    expect(accepted.ok).toBe(true)
+    expect(unchained.ok).toBe(false)
+    if (unchained.ok) return
+    expect(unchained.reason).toContain('no capability chain supplied')
   }, 60_000)
 })
 

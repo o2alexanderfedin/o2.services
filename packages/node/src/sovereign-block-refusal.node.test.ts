@@ -10,6 +10,7 @@ import { EgressGuard, RemoteExecutor, parseRequest, submitJobWithEgress } from '
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 // Test-only relative import — see the note in packages/net/src/distributed.test.ts.
 import { MODULE_WRITES_PARTITION } from '../../core/src/executor/fixtures.ts'
+import { OWNER_KEY, chainSupplierFor } from './capability-fixture.ts'
 import { FabricNode } from './fabric-node.ts'
 import type { FabricNodeOptions } from './fabric-node.ts'
 
@@ -23,6 +24,12 @@ import type { FabricNodeOptions } from './fabric-node.ts'
  * for the input block — **when the job was submitted through `submitJobWithEgress`**.
  * The claim is checked against every frame that reached the owner, not against an
  * outcome from which what crossed would have to be inferred.
+ *
+ * As of Phase 15 (AUTH-03) the owner node also verifies a capability chain before it
+ * executes anything, so both submits below carry a valid one and the owner is pinned
+ * with `ownerKey` to verify it against. That is a precondition this file now has to
+ * satisfy, not something it covers — **nothing here asserts on a capability refusal**,
+ * and the refusal it measures is still the block branch's.
  *
  * **What it does not prove, in three parts, none of them implied by criterion 7's
  * wording.**
@@ -143,9 +150,14 @@ function requestKinds(frames: readonly Uint8Array<ArrayBuffer>[]): string[] {
 
 describe('criterion 7 — the row a node submitted does not leave it while the job runs', () => {
   it('refuses the owner’s input fetch, keeps the raw row off every frame that arrived, records the refusal, and still runs the seeded control', async () => {
+    // AUTH-03: `ownerKey` is what the owner node verifies the chain below against.
+    // Without it both submits are refused for want of a pinned key, before the block
+    // branch this file is about is ever reached.
     const [submitter, owner] = await Promise.all([
       startNode('submitter'),
-      startNode('owner', { sovereignty: { ownerId: OWNER, canExecuteSovereign: true } }),
+      startNode('owner', {
+        sovereignty: { ownerId: OWNER, ownerKey: OWNER_KEY, canExecuteSovereign: true },
+      }),
     ])
 
     // The tap, on the **raw** transport and not on `owner.egress`, so it sees exactly
@@ -177,7 +189,7 @@ describe('criterion 7 — the row a node submitted does not leave it while the j
       expect(await owner.store.has(row.cid)).toBe(false)
       expect(await owner.store.has(moduleCid)).toBe(false)
 
-      const executors = [new RemoteExecutor(owner.peerId, submitter.rpc, 'dispatches-unauthenticated')]
+      const executors = [new RemoteExecutor(owner.peerId, submitter.rpc, chainSupplierFor(owner.peerId))]
       const descriptors: readonly NodeDescriptor[] = [
         { nodeId: owner.peerId, ownerId: OWNER, canExecuteSovereign: true, load: 0 },
       ]

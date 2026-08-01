@@ -40,8 +40,18 @@ function occurrences(text: string, needle: string): number {
 }
 
 describe('production serveAgent call sites state every hook explicitly', () => {
-  it('fabric-node.ts: real reservations, real admission, four sentinels', () => {
-    expect(occurrences(FABRIC_NODE, "'serves-unauthenticated'")).toBe(1)
+  it('fabric-node.ts: real authorizer, real reservations, real admission, three sentinels', () => {
+    // AUTH-03 burned this one down. A zero on its own is also what deleting the
+    // `serveAgent` call entirely produces, so it is only read next to the positive
+    // count of what replaced it — the `'relays-for-nobody'` pattern three lines below.
+    //
+    // **For `FABRIC_NODE` this pair is corroboration, not the evidence.** The evidence
+    // is `fabric-node.node.test.ts`'s DATA-09/AUTH-03 block, which dispatches sovereign
+    // tasks to three live nodes over real TCP and reads one acceptance and three
+    // distinct refusals. See the `BROWSER_NODE` pair below for the case where no such
+    // corroboration exists.
+    expect(occurrences(FABRIC_NODE, "'serves-unauthenticated'")).toBe(0)
+    expect(occurrences(FABRIC_NODE, 'authorizeCapability(')).toBe(1)
     expect(occurrences(FABRIC_NODE, "'serves-no-records'")).toBe(1)
     expect(occurrences(FABRIC_NODE, "'keeps-no-ledger'")).toBe(1)
     expect(occurrences(FABRIC_NODE, "'reports-no-dispatch'")).toBe(1)
@@ -55,8 +65,38 @@ describe('production serveAgent call sites state every hook explicitly', () => {
     expect(occurrences(FABRIC_NODE, "'accepts-every-offer'")).toBe(0)
   })
 
-  it('browser-node.ts: real onDispatch, real admission, four sentinels', () => {
-    expect(occurrences(BROWSER_NODE, "'serves-unauthenticated'")).toBe(1)
+  it('browser-node.ts: real onDispatch, real admission, three sentinels', () => {
+    // AUTH-03, and **this pair is worth much less than the `FABRIC_NODE` pair above.**
+    // Stated here rather than left for a reader to assume symmetry, because the two
+    // lines look identical and are not:
+    //
+    // It is the **only** check in this repository on the browser tier's authorizer. It
+    // counts a substring in source text, not a behaviour. It reads 1 for a call site
+    // handing `ownerId: sovereignty.ownerKey`, or an `audience` derived from some other
+    // node, or a `now` that never advances. **The browser tier's authorizer behaviour is
+    // unmeasured** — do not cite this line as evidence that it works.
+    //
+    // Why it is unmeasured, corrected against source on 2026-07-31 (the phase plan's
+    // stated reason was that no test constructs a `BrowserNode`, and that is false —
+    // `start-unwind.browser.test.ts` starts one to success in three engines at its
+    // `:170` and `:195`). The real reason is narrower and survives that correction:
+    // those nodes start with `relayAddrs: []`, and a `BrowserNode` listens on
+    // `['/p2p-circuit', '/webrtc']` alone (`browser-node.ts:378`) after dialling each
+    // relay it was given (`:391`). A tab holding no relay reservation has no address any
+    // peer can dial, so nothing can deliver a frame to its `serveAgent` handler — which
+    // is what an authorizer would have to see to be measured. Corroborating greps:
+    // `grep -rln sovereign packages/browser/src packages/browser/demo` returns
+    // `browser-node.ts` alone, and the demo labels both its jobs `'public'`
+    // (`demo/main.ts:427`, `:630`), so no sovereign task is dispatched to a
+    // `BrowserNode` anywhere.
+    //
+    // What would measure it, so the next phase does not re-derive it: run a relay in the
+    // browser-project fixture and dispatch a sovereign task over it with and without a
+    // valid chain; or give `BrowserNodeOptions` an injectable `Transport` so a
+    // `MemoryNetwork` can stand in for libp2p — the same injection point Phase 17 needs
+    // for `privateKey`.
+    expect(occurrences(BROWSER_NODE, "'serves-unauthenticated'")).toBe(0)
+    expect(occurrences(BROWSER_NODE, 'authorizeCapability(')).toBe(1)
     expect(occurrences(BROWSER_NODE, "'serves-no-records'")).toBe(1)
     expect(occurrences(BROWSER_NODE, "'keeps-no-ledger'")).toBe(1)
     expect(occurrences(BROWSER_NODE, "'relays-for-nobody'")).toBe(1)
@@ -70,6 +110,14 @@ describe('production serveAgent call sites state every hook explicitly', () => {
   })
 
   it('bin/bench.ts: two call sites, real admission at both, five sentinels twice', () => {
+    // **Two is the permanent correct value here, not a pending item.** The other two
+    // production factories burned this count to 0 in Phase 15; this driver does not,
+    // and a reader comparing the three rows would otherwise read this as unfinished
+    // work. `bench.ts` dispatches `label: 'public'` shards exclusively (`bench.ts:270`),
+    // a public task has no owner and therefore no key a chain could be rooted at, and
+    // `authorizeCapability`'s first precedence step returns `null` for a public task
+    // regardless — so installing one here would add a per-dispatch cost to the published
+    // scaling curves in exchange for a branch that can never refuse.
     expect(occurrences(BENCH, "'serves-unauthenticated'")).toBe(2)
     expect(occurrences(BENCH, "'serves-no-records'")).toBe(2)
     // SCHED-06 burn-down, and the reason it matters here is not tidiness. The

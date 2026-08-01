@@ -7,6 +7,7 @@ import { RemoteExecutor, encodeRequest, parseResponse } from '@o2/net'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 // Test-only relative import — see the note in packages/net/src/distributed.test.ts.
 import { MODULE_ECHOES_INPUT, MODULE_WRITES_PARTITION } from '../../core/src/executor/fixtures.ts'
+import { OWNER_KEY, chainSupplierFor } from './capability-fixture.ts'
 import { FabricNode } from './fabric-node.ts'
 import type { FabricNodeOptions } from './fabric-node.ts'
 
@@ -34,7 +35,17 @@ import type { FabricNodeOptions } from './fabric-node.ts'
  *
  * `startNode` is the same `FabricNode.start` factory call `bin/agent.ts` makes —
  * no test-only path — and the owner is started with the same `sovereignty` option a
- * real deployment passes through `--owner-id` / `--can-execute-sovereign`.
+ * real deployment passes through `--owner-id` / `--owner-key` /
+ * `--can-execute-sovereign`.
+ *
+ * The `--owner-key` half is Phase 15's (AUTH-03): the serving node now verifies a
+ * capability chain before it executes anything, so the dispatch below carries a valid
+ * one and alice is pinned to the key that verifies it. **The refusal this file
+ * measures is still the egress one and nothing else** — with no chain, alice would
+ * refuse first for want of a pinned key, which is a named refusal too and a completely
+ * different one. Only the criterion-6 block dispatches a task; the criterion-7 block
+ * below issues a raw block request and never reaches an authorizer, which is why its
+ * own alice node is left unpinned.
  */
 
 let workdir: string
@@ -115,8 +126,13 @@ afterEach(async () => {
 
 describe('criterion 6 — the refusal is named, and it arrives long before the budget does', () => {
   it('fails a leaking sovereign job by name in a fraction of the live 30 s budget, records it on the owner’s own tap, and still serves a control job', async () => {
+    // AUTH-03: `ownerKey` is what alice verifies the chain below against. Without it
+    // she refuses for want of a pinned key, before her tap is consulted — which would
+    // leave this test measuring the wrong named refusal.
     const [alice, submitter] = await Promise.all([
-      startNode('alice', { sovereignty: { ownerId: 'alice', canExecuteSovereign: true } }),
+      startNode('alice', {
+        sovereignty: { ownerId: 'alice', ownerKey: OWNER_KEY, canExecuteSovereign: true },
+      }),
       startNode('submitter'),
     ])
     await submitter.dial(alice.multiaddrs[0]!)
@@ -138,7 +154,7 @@ describe('criterion 6 — the refusal is named, and it arrives long before the b
     const echoCid = await submitter.store.put(MODULE_ECHOES_INPUT)
     const aggregateCid = await submitter.store.put(MODULE_WRITES_PARTITION)
 
-    const executors = [new RemoteExecutor(alice.peerId, submitter.rpc, 'dispatches-unauthenticated')]
+    const executors = [new RemoteExecutor(alice.peerId, submitter.rpc, chainSupplierFor(alice.peerId))]
     const descriptors: readonly NodeDescriptor[] = [
       { nodeId: alice.peerId, ownerId: 'alice', canExecuteSovereign: true, load: 0 },
     ]

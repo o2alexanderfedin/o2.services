@@ -11,8 +11,9 @@ import type { NameRecord, NodeDescriptor } from '@o2/core'
 import { RemoteExecutor } from '@o2/net'
 import type { CID } from 'multiformats/cid'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-// Test-only relative import — see the note in packages/net/src/distributed.test.ts.
+// Test-only relative imports — see the note in packages/net/src/distributed.test.ts.
 import { MODULE_WRITES_PARTITION } from '../../core/src/executor/fixtures.ts'
+import { OWNER_KEY, chainSupplierFor } from './capability-fixture.ts'
 import { FabricNode } from './fabric-node.ts'
 
 /**
@@ -168,13 +169,21 @@ afterEach(async () => {
 
 describe('DATA-03/DATA-04 — sovereignty-pinned placement across real bin/agent.ts processes', () => {
   it('places a sovereign shard only on the owner’s process, never on an idle foreign process, under load pressure engineered to force relocation', async () => {
-    // Alice's process is started already cleared for herself — the same
-    // `--owner-id`/`--can-execute-sovereign` flags a real deployment would pass —
-    // so a correctly-placed dispatch can actually complete. Both bob processes
-    // are started with no sovereignty option at all: bin/agent.ts's safe default
-    // (cleared for nobody), exactly as a stranger's volunteer node would be.
+    // Alice's process is started already cleared for herself and pinned to her key —
+    // the same `--owner-id`/`--owner-key`/`--can-execute-sovereign` flags a real
+    // deployment would pass — so a correctly-placed dispatch can actually complete.
+    // `--owner-key` is AUTH-03's addition: without it her process refuses the chain
+    // her submitter mints, before placement's outcome could be read at all.
+    //
+    // Both bob processes stay started with **no sovereignty arguments whatsoever**,
+    // and that must not be softened to make anything pass — it is the point of the
+    // test: bin/agent.ts's safe default, exactly as a stranger's volunteer node would
+    // be. As of Phase 15 they would refuse the shard for two independent reasons, no
+    // pinned owner key and no clearance, and neither is ever reached, because
+    // placement narrows a sovereign shard to its owner's nodes before load is
+    // consulted. That is what the assertions below read.
     const [alice, bob1, bob2] = await Promise.all([
-      spawnAgent('alice', ['--owner-id', 'alice', '--can-execute-sovereign']),
+      spawnAgent('alice', ['--owner-id', 'alice', '--owner-key', OWNER_KEY, '--can-execute-sovereign']),
       spawnAgent('bob1'),
       spawnAgent('bob2'),
     ])
@@ -190,9 +199,9 @@ describe('DATA-03/DATA-04 — sovereignty-pinned placement across real bin/agent
     const moduleCid = await submitter.store.put(MODULE_WRITES_PARTITION)
 
     const executors = [
-      new RemoteExecutor(alice.peerId, submitter.rpc, 'dispatches-unauthenticated'),
-      new RemoteExecutor(bob1.peerId, submitter.rpc, 'dispatches-unauthenticated'),
-      new RemoteExecutor(bob2.peerId, submitter.rpc, 'dispatches-unauthenticated'),
+      new RemoteExecutor(alice.peerId, submitter.rpc, chainSupplierFor(alice.peerId)),
+      new RemoteExecutor(bob1.peerId, submitter.rpc, chainSupplierFor(bob1.peerId)),
+      new RemoteExecutor(bob2.peerId, submitter.rpc, chainSupplierFor(bob2.peerId)),
     ]
 
     // The placement-time descriptors `submitJob` sees. Alice's is described as
