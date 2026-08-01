@@ -33,13 +33,29 @@ import { webSockets } from '@libp2p/websockets'
 import { multiaddr } from '@multiformats/multiaddr'
 import {
   DEFAULT_MAX_CONCURRENT_TASKS,
+  EnrollmentAuthority,
   LocalCapacity,
+  MemoryRecordIndex,
   SignedNameResolver,
   guardModuleProvenance,
   guardSovereignty,
+  publishCapabilities,
+  requestEnrollment,
 } from '@o2/core'
-import type { Executor, NodeSovereignty, PublicKeyHex } from '@o2/core'
-import { Libp2pTransport, audienceKeyOf } from '@o2/libp2p'
+import type {
+  Executor,
+  NodeCertificate,
+  NodeSovereignty,
+  PublicKeyHex,
+} from '@o2/core'
+import {
+  Libp2pTransport,
+  audienceKeyOf,
+  generateSeed,
+  identityFromSeed,
+  peerIdForNodeKey,
+} from '@o2/libp2p'
+import type { NodeIdentity } from '@o2/libp2p'
 import {
   CountingExecutor,
   EgressGuard,
@@ -47,12 +63,16 @@ import {
   GovernedExecutor,
   RpcBlockSource,
   RpcEndpoint,
+  UNREACHABLE_PROVIDER,
   authorizeCapability,
+  enrolOverRpc,
   serveAgent,
 } from '@o2/net'
+import type { EnrolOutcome } from '@o2/net'
 import { createLibp2p } from 'libp2p'
 import type { Libp2p } from '@libp2p/interface'
 import { IdbBlockstore } from './idb-blockstore.ts'
+import { IdbIdentityStore } from './idb-identity-store.ts'
 import { VisibilityGovernor } from './visibility-governor.ts'
 import { browserWorkerExecutor } from './worker-executor.ts'
 import type { WorkerExecutor } from '@o2/core'
@@ -132,6 +152,91 @@ export interface BrowserNodeOptions {
   readonly trustAnchors: readonly PublicKeyHex[] | 'runs-unsigned-artifacts'
   /** IndexedDB database name. Distinct names give one origin several independent nodes. */
   readonly blockstoreName?: string
+  /**
+   * What this tab does when its stored seed is not there — AUTH-01.
+   *
+   * **Required, with no `?` and no default**, and this is the field the whole of
+   * `idb-identity-store.ts` exists to hand a decision to. A node's seed *is* its name:
+   * `identityFromSeed` derives the peer id every peer dials and the `nodeKey` a
+   * certificate is signed over, so losing it is not losing a cache — it is becoming
+   * somebody else.
+   *
+   * A tab's storage is evicted silently under pressure, which this repository records
+   * as a property of IndexedDB. That is a *durability* difference from a Node process's
+   * `blockstoreDir` file, and it is the only one: delete that directory and a
+   * `FabricNode` loses the identical three values. What differs is that a disk does not
+   * do it while nobody is looking. So the branch that a Node process reaches by an
+   * operator's `rm` is one a tab reaches on an ordinary Tuesday, and it must be a
+   * decision rather than whatever the code happened to do.
+   *
+   * Two values, and what each costs:
+   *
+   * - **`'mints-a-new-identity'`** — generate a fresh seed, store it, carry on. The tab
+   *   comes back up with a **different peer id**, so every peer that had it in a peer
+   *   store now has a stale address; and any certificate that survived alongside is
+   *   refused by `resolveCertificate`'s own identity check, because its `nodeKey`
+   *   derives the *old* peer id. The node then re-enrols if it was configured to, or
+   *   runs uncertificated — and a peer pinned to `--trusted-issuer` will not take blocks
+   *   from it until it holds one again. This is the right value for a visitor's tab,
+   *   where refusing to start means a blank page for a fault nobody can act on.
+   * - **`'refuses-to-start-without-its-seed'`** — reject `start()`, naming the store. The
+   *   right value wherever the identity is load-bearing and a silent rename would be
+   *   worse than an outage: a long-lived kiosk, or a test that would otherwise pass by
+   *   measuring a node it accidentally re-created.
+   *
+   * A first run has no seed either, and it takes the same branch by construction —
+   * because "the seed was evicted" and "there has never been one" are the same
+   * observation from inside a tab, and a field that pretended to tell them apart would
+   * be inventing the distinction. `'refuses-to-start-without-its-seed'` therefore cannot
+   * bootstrap; a caller choosing it is saying the seed is provisioned elsewhere.
+   */
+  readonly whenSeedIsGone: 'mints-a-new-identity' | 'refuses-to-start-without-its-seed'
+  /**
+   * Enrol with a provider on the way up, and hold the certificate it signs — AUTH-01.
+   *
+   * **The same shape as `FabricNodeOptions.enrollment`** (`packages/node/src/fabric-node.ts`),
+   * field for field, and that file carries the long form of every argument below; the two
+   * docs are meant to be read together, as `trustAnchors` and `sovereignty` already are.
+   * It is the same shape because a browser node enrols on identical terms — **all nodes
+   * have equal functionality, and the only difference is discovery.**
+   *
+   * That last clause is the one this option exists to make true again. A node started
+   * with `--trusted-issuer` takes blocks only from peers whose certificate verifies
+   * (`PeerVerifier`), and until this field existed no tab could hold one — so the gate
+   * excluded every browser peer, and the fabric partitioned by tier. Nothing branched on
+   * node kind to do it; four mechanisms were simply absent here, and an absence
+   * partitions just as effectively as a branch.
+   *
+   * **`userPrivateKey`, not a `userKey` hex string, and the difference is load-bearing.**
+   * `EnrollmentAuthority.enrol` requires an `ownerProof` — the *user's* signature over
+   * the same challenge the node signs — and refuses by name as `bad-owner-proof` without
+   * it. A public key cannot sign, so a node configured with one would be refused on every
+   * attempt. `requestEnrollment` derives `userKey` from these bytes rather than accepting
+   * it as a field, so naming somebody else's user key is not a thing this option can be
+   * asked to do.
+   *
+   * `discoverability` and `relayIds` are **absent on purpose**, as they are in the Node
+   * tier: they are derived from what this node can actually do, at the composition below.
+   */
+  readonly enrollment?: {
+    readonly userPrivateKey: Uint8Array
+    readonly operatorId: string
+    readonly providerAddr: string
+  }
+  /**
+   * Whether this tab holds a provider signing key and answers enrollment requests —
+   * AUTH-01.
+   *
+   * Mirrors `FabricNodeOptions.issuesCertificates`. Defaults to `false`: a node that
+   * signed certificates because nobody said otherwise would be a trust root by accident.
+   *
+   * There is no browser-shaped reason for this to be here rather than absent, and that
+   * is the point — issuing needs a signing key and a durable place to keep it, and this
+   * tier now has both (`idb-identity-store.ts`). Leaving it off would have left one
+   * capability a `FabricNode` has and a `BrowserNode` cannot, which is the shape this
+   * plan exists to delete.
+   */
+  readonly issuesCertificates?: boolean
   readonly rpcTimeoutMs?: number
   /**
    * Tasks this tab will run at once before it refuses an `exec` request with its
@@ -206,6 +311,152 @@ export interface BrowserNodeOptions {
   readonly taskDeadlineMs?: number
 }
 
+/**
+ * The only listen set a browser can offer, named so `canRelay` can be *derived* from it.
+ *
+ * Written down once rather than inline at `createLibp2p` because a second reader of this
+ * list exists now, and two copies of a listen list is exactly how a derived property
+ * starts disagreeing with the thing it was derived from.
+ */
+const BROWSER_LISTEN = ['/p2p-circuit', '/webrtc'] as const
+
+/**
+ * Whether this node can be a seed a newcomer dials cold — derived, never configured.
+ *
+ * `fabric-node.ts` derives the same property from its own listen list, and the predicate
+ * here is that one widened by a protocol a Node listen list never contains. Both
+ * `/p2p-circuit` and `/webrtc` are **relay-mediated**: a browser's WebRTC address is
+ * expressed relative to the relay that carries its SDP exchange, so it is not an address
+ * anybody can reach without first reaching the relay. `fabric-node.ts`'s predicate —
+ * "some listen address that is not `/p2p-circuit`" — would read `/webrtc` as a bindable
+ * socket and answer `true` here, and the certificate would then claim `seed`
+ * discoverability for a node no newcomer can dial.
+ *
+ * **This is not a branch on node kind.** It is a function of the listen list, and a Node
+ * process configured with `listen: ['/p2p-circuit']` gets the same answer for the same
+ * reason. The distinction is the whole of `PROJECT.md`'s rule: the browser's difference
+ * is *discovery*, and this is the one place discovery is read.
+ */
+function canRelayFrom(listen: readonly string[]): boolean {
+  return listen.some((address) => !address.includes('/p2p-circuit') && !address.includes('/webrtc'))
+}
+
+/**
+ * Obtain this tab's certificate, or establish that it was never asked for — AUTH-01.
+ *
+ * **The browser-tier twin of `resolveCertificate` in `packages/node/src/fabric-node.ts`**,
+ * and deliberately the same shape: same three-arm outcome, same `UNREACHABLE_PROVIDER`
+ * prefix, same one throw site, same reuse-a-persisted-certificate decision, same
+ * `peerIdForNodeKey` identity check. Read that one for what each step is for; only the
+ * store differs, and it differs because a tab has IndexedDB where a process has a
+ * directory.
+ *
+ * It is a separate function rather than a shared one because `@o2/browser` does not
+ * depend on `@o2/node` and must not — see this plan's summary for the packaging finding.
+ * The duplication is real and is recorded rather than hidden.
+ */
+async function resolveCertificate(parts: {
+  enrollment: BrowserNodeOptions['enrollment']
+  identity: NodeIdentity
+  rpc: RpcEndpoint
+  libp2p: Libp2p
+  identityStore: IdbIdentityStore
+  canRelay: boolean
+  relayPeerIds: readonly string[]
+}): Promise<NodeCertificate | null> {
+  const { enrollment, identity, rpc, libp2p, identityStore, canRelay, relayPeerIds } = parts
+
+  // Nobody asked. `null` means exactly this, here and nowhere else — which is why the
+  // failure paths below throw rather than widening this return type.
+  if (enrollment === undefined) return null
+
+  // A persisted, unexpired certificate is reused and the provider is not contacted at
+  // all. The identity check goes through `peerIdForNodeKey` rather than comparing
+  // `nodeKey` strings for the reason the Node tier's copy gives at length: a `nodeKey`
+  // that is not valid lowercase hex yields `null`, which is not `identity.peerId`, so a
+  // hand-edited record fails closed instead of being compared string to string.
+  //
+  // The case this catches in a tab is the one `whenSeedIsGone` describes: storage was
+  // evicted, a new seed was minted, and a certificate naming the *old* node survived —
+  // or, just as real, an origin whose database was copied between profiles.
+  const loaded = await identityStore.loadCertificate()
+  if (
+    loaded !== null &&
+    peerIdForNodeKey(loaded.nodeKey) === identity.peerId &&
+    loaded.expiresAt > Date.now()
+  ) {
+    return loaded
+  }
+
+  // The dial, inside a `try/catch` that assigns rather than returns — so an unreachable
+  // provider arrives as the `unreachable` arm with the operator-facing prefix, and not as
+  // a raw libp2p dial error one step before `enrolOverRpc` is entered.
+  type Dialed =
+    | { readonly ok: true; readonly peerId: string }
+    | { readonly ok: false; readonly kind: 'unreachable'; readonly reason: string }
+
+  let dialed: Dialed
+  try {
+    const connection = await libp2p.dial(multiaddr(enrollment.providerAddr))
+    dialed = { ok: true, peerId: connection.remotePeer.toString() }
+  } catch (cause) {
+    dialed = {
+      ok: false,
+      kind: 'unreachable',
+      reason: `${UNREACHABLE_PROVIDER} ${enrollment.providerAddr}: ${cause instanceof Error ? cause.message : String(cause)}`,
+    }
+  }
+
+  // Signs a local structure and touches no network, so it depends on nothing from the
+  // dial. The middle argument is the user's *private* key: `userKey` is derived inside,
+  // and the same bytes sign the `ownerProof` the authority refuses enrollment without.
+  const request = requestEnrollment(identity.seed, enrollment.userPrivateKey, {
+    operatorId: enrollment.operatorId,
+    discoverability: canRelay ? 'seed' : 'via-relay',
+    relayIds: canRelay ? [] : [...relayPeerIds],
+  })
+
+  const outcome: EnrolOutcome = dialed.ok
+    ? await enrolOverRpc(rpc, dialed.peerId, request)
+    : dialed
+
+  if (!outcome.ok) {
+    // One throw site for all three failure kinds and both routes into `unreachable`, so
+    // the operator-facing format cannot differ between "the provider refused you" and
+    // "nothing answered at that address".
+    throw new Error(
+      `enrollment with ${enrollment.providerAddr} failed (${outcome.kind}): ${outcome.reason}`,
+    )
+  }
+
+  await identityStore.saveCertificate(outcome.certificate)
+  return outcome.certificate
+}
+
+/**
+ * What this node answers a peer's `records` request with — AUTH-01.
+ *
+ * Byte-for-byte `fabric-node.ts`'s `ownRecords`, for the reason that file gives; a node
+ * holding no certificate has nothing to publish and keeps the sentinel at the hook.
+ */
+function ownRecords(
+  certificate: NodeCertificate,
+  identity: NodeIdentity,
+  canExecuteSovereign: boolean,
+): MemoryRecordIndex {
+  const index = new MemoryRecordIndex()
+  index.publish({
+    certificate,
+    capabilities: publishCapabilities(identity.seed, {
+      features: [],
+      sovereignFor: canExecuteSovereign ? [certificate.userKey] : [],
+      issuedAt: certificate.issuedAt,
+      expiresAt: certificate.expiresAt,
+    }),
+  })
+  return index
+}
+
 export class BrowserNode {
   readonly libp2p: Libp2p
   readonly transport: Libp2pTransport
@@ -220,6 +471,19 @@ export class BrowserNode {
   /** IndexedDB plus network fallback — what the executor reads from. */
   readonly blockstore: FetchingBlockstore
   readonly store: IdbBlockstore
+  /** Where this tab's seed, provider key and certificate live across reloads — AUTH-01. */
+  readonly identityStore: IdbIdentityStore
+  /**
+   * This tab's provider-signed certificate, or `null` when it holds none — AUTH-01.
+   *
+   * `null` is the answer for a node nobody asked to enrol, and it is not a failure. Nor
+   * is it a lesser tier: a node with a certificate executes tasks, holds blocks and takes
+   * quorum slots on exactly the terms as one without, and what the certificate buys is
+   * being taken *by a peer that pinned an issuer*. Public, because a certificate is a
+   * public signed statement — every peer is meant to be able to read it. Mirrors
+   * `FabricNode.certificate`, which carries the long form.
+   */
+  readonly certificate: NodeCertificate | null
   /**
    * Governed: throttles with tab visibility.
    *
@@ -292,6 +556,8 @@ export class BrowserNode {
     egress: EgressGuard
     blockstore: FetchingBlockstore
     store: IdbBlockstore
+    identityStore: IdbIdentityStore
+    certificate: NodeCertificate | null
     executor: GovernedExecutor
     governor: VisibilityGovernor
     worker: WorkerExecutor
@@ -304,6 +570,8 @@ export class BrowserNode {
     this.egress = parts.egress
     this.blockstore = parts.blockstore
     this.store = parts.store
+    this.identityStore = parts.identityStore
+    this.certificate = parts.certificate
     this.executor = parts.executor
     this.governor = parts.governor
     this.worker = parts.worker
@@ -381,12 +649,47 @@ export class BrowserNode {
     options: BrowserNodeOptions,
     undo: (() => Promise<void> | void)[],
   ): Promise<BrowserNode> {
-    const store = await IdbBlockstore.open(options.blockstoreName ?? 'o2-blocks')
+    const blockstoreName = options.blockstoreName ?? 'o2-blocks'
+    const store = await IdbBlockstore.open(blockstoreName)
     undo.push(() => store.close())
+
+    // A separate database from the blocks, deliberately — see `idb-identity-store.ts`.
+    // Opened here rather than lazily because `createLibp2p` below needs the derived key,
+    // and the release goes on the line after the acquisition, as everything in this
+    // method does.
+    const identityStore = await IdbIdentityStore.open(`${blockstoreName}-identity`)
+    undo.push(() => identityStore.close())
+
+    // AUTH-01 — this tab's own name, and the one decision this factory refuses to make
+    // for its caller. `whenSeedIsGone` carries what each branch costs; all that happens
+    // here is that the branch is taken by a value somebody wrote down.
+    //
+    // A minted seed is persisted **before** anything is derived from it, so a tab that
+    // crashes between generating and using one comes back as the node it just became
+    // rather than as a third.
+    const stored = await identityStore.loadSeed()
+    let seed: Uint8Array<ArrayBuffer>
+    if (stored !== null) {
+      seed = stored
+    } else if (options.whenSeedIsGone === 'mints-a-new-identity') {
+      seed = generateSeed()
+      await identityStore.saveSeed(seed)
+    } else {
+      throw new Error(
+        `no seed in ${identityStore.name}: this node was started with 'refuses-to-start-without-its-seed', and starting anyway would give it a different peer id and invalidate any certificate naming the old one`,
+      )
+    }
+    const identity = await identityFromSeed(seed)
 
     const libp2p = await createLibp2p({
       // The only listen set a browser can offer.
-      addresses: { listen: ['/p2p-circuit', '/webrtc'] },
+      addresses: { listen: [...BROWSER_LISTEN] },
+      // AUTH-01: the derived key, so this tab's peer id is `identity.peerId` and survives
+      // a reload. Without it libp2p generates a fresh Ed25519 key per start, and the tab's
+      // certificate — which names `identity.nodeKey` — would name a peer id nobody was
+      // dialling. `identity.peerId` is computed from this same key's public half rather
+      // than from `nodeKey`, so the two cannot disagree.
+      privateKey: identity.privateKey,
       transports: [webSockets(), webRTC(), circuitRelayTransport()],
       connectionEncrypters: [noise()],
       streamMuxers: [yamux()],
@@ -399,8 +702,14 @@ export class BrowserNode {
 
     // Connecting to a relay is what triggers the reservation that makes this tab
     // addressable. Without at least one, nothing can ever reach it.
+    //
+    // The peer ids are collected because a certificate has to name the relays a node is
+    // reachable through when it is not reachable cold — `relayIds` below. Same collection
+    // `fabric-node.ts` makes at its own dial loop.
+    const relayPeerIds: string[] = []
     for (const address of options.relayAddrs) {
-      await libp2p.dial(multiaddr(address))
+      const connection = await libp2p.dial(multiaddr(address))
+      relayPeerIds.push(connection.remotePeer.toString())
     }
 
     // NET-08: the first `Libp2pTransportOptions` this factory has ever passed — the
@@ -445,6 +754,49 @@ export class BrowserNode {
       options.rpcTimeoutMs === undefined ? {} : { timeoutMs: options.rpcTimeoutMs },
     )
     const blockstore = new FetchingBlockstore(store, new RpcBlockSource(rpc, () => transport.peers))
+
+    // AUTH-01 — the enrollment round trip, over the fabric's own protocol, before this
+    // factory returns anything. Mirrors `fabric-node.ts` step for step, including where
+    // the releases go: this is the first `await` in `#compose` that can *reject* after
+    // `transport` and `rpc` exist, so they are pushed on the undo stack immediately above
+    // it rather than left to `libp2p.stop()` alone.
+    undo.push(() => transport.stop())
+    undo.push(() => rpc.close())
+    const certificate = await resolveCertificate({
+      enrollment: options.enrollment,
+      identity,
+      rpc,
+      libp2p,
+      identityStore,
+      canRelay: canRelayFrom(BROWSER_LISTEN),
+      relayPeerIds,
+    })
+
+    // AUTH-01 — what this node answers a peer's `records` request with. A node holding no
+    // certificate has nothing to publish and keeps the sentinel at the hook below; a node
+    // holding one publishes it, exactly as a `FabricNode` does.
+    const records =
+      certificate === null
+        ? null
+        : ownRecords(certificate, identity, sovereignty.canExecuteSovereign)
+
+    // AUTH-01 — the provider signing key, persisted so a node that issues certificates
+    // stays the same issuer across a reload. Generated and stored on first use rather
+    // than at every start, for the reason the seed is: a trust root whose key changed
+    // silently would invalidate every certificate it had ever signed.
+    let authority: EnrollmentAuthority | null = null
+    if (options.issuesCertificates === true) {
+      const existing = await identityStore.loadProviderSeed()
+      let providerPrivateKey: Uint8Array<ArrayBuffer>
+      if (existing !== null) {
+        providerPrivateKey = existing
+      } else {
+        providerPrivateKey = generateSeed()
+        await identityStore.saveProviderSeed(providerPrivateKey)
+      }
+      authority = new EnrollmentAuthority({ providerPrivateKey })
+    }
+
     // BROW-03: every task this tab runs — its own and other peers' — is paced by
     // the visibility governor. Wrapping here rather than at the submit site means a
     // backgrounded tab throttles work it is *serving*, which is the case that
@@ -555,6 +907,8 @@ export class BrowserNode {
       egress,
       blockstore,
       store,
+      identityStore,
+      certificate,
       executor,
       governor,
       worker,
@@ -619,7 +973,20 @@ export class BrowserNode {
         audience,
         now: Date.now,
       }),
-      index: 'serves-no-records',
+      // AUTH-01. Both of these were **unconditional sentinels** until this plan, and that
+      // is what partitioned the fabric: a peer started with `--trusted-issuer` takes
+      // blocks only from peers whose certificate verifies, and a tab that could not hold
+      // one was excluded from every such peer's block set. Nothing branched on node kind
+      // to do it — the option that would carry a certificate was simply absent, and an
+      // absence partitions as effectively as a branch.
+      //
+      // Now derived, in the same expression `fabric-node.ts` uses, from values a caller
+      // decided: `records` is non-null exactly when this node holds a certificate, and
+      // `authority` exactly when it was told to issue them. The sentinels are still the
+      // answer for a node that was asked for neither — a named absence, which is the
+      // convention, and not a silent default, which is the hole.
+      index: records ?? 'serves-no-records',
+      enroll: authority ?? 'issues-no-certificates',
       // SCHED-06. This hook answered "accepts everything" for the whole of two
       // milestones, so `serveAgent`'s `exec` branch ran `executor.execute` with
       // nothing counting what was in flight — a probe measured 800 simultaneous
@@ -691,5 +1058,8 @@ export class BrowserNode {
     await this.libp2p.stop()
     this.governor.stop()
     this.store.close()
+    // Closed last and beside the blockstore, because an open IndexedDB connection is what
+    // blocks a `deleteDatabase` — the effect `start-unwind.browser.test.ts` reads.
+    this.identityStore.close()
   }
 }

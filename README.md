@@ -129,10 +129,17 @@ the expensive way.
 
 ## Status
 
-**Phases 1–13 complete.** Milestone v1.1 ("Wire What Was Built") is in progress at
-3 of 14 phases.
+**Milestone v1.1 ("Wire What Was Built") is in progress at 5 of 14 phases verified.**
 
-Requirements ledger: **39 closed, 43 open.**
+v1.0 left 36 capabilities **built but unreachable** — real code, with its own tests,
+that no runnable program ever called. That count is now **22**, with 11 more partly
+wired. Reducing it is what this milestone measures.
+
+Requirements ledger: **40 closed, 42 open.**
+
+A phase closes when an independent pass says so, scored against its own success
+criteria — not when its plans finish. Two phases sit at "nearly done" and are
+deliberately **not** counted, because one criterion each is only half-proven.
 
 ### What is demonstrated
 
@@ -150,6 +157,20 @@ Requirements ledger: **39 closed, 43 open.**
   verified: 23 WASI imports, `_start` and `memory`, every import answered.
 - Sovereign data pinned to its owner: a job whose input never leaves the owning
   node, with an egress manifest recording what crossed the wire.
+- **Code that runs only if a trusted key vouched for it.** Modules resolve through
+  a signed name→CID mapping; an unsigned or wrongly-signed one is refused *before
+  the bytes are fetched*, shown by finding the node's block directory empty after a
+  refusal — read from a separate process, not inferred.
+- **Tasks that carry their own permission.** A dispatched task presents a chain of
+  delegation rooted in the data owner's key, and the receiving node verifies it
+  before instantiating anything.
+- **Results merged up a derived tree** across eight and nine spawned processes,
+  matching a single-machine reference byte-for-byte.
+- **Nodes with cryptographic identities of their own**, enrolled with a provider
+  and verifiable by other nodes **offline** — proven with the authority process shut
+  down and asserted dead, so nobody could have been consulted.
+- **Browser tabs enrolled on identical terms**, including on a plain-HTTP LAN
+  origin where WebCrypto is unavailable.
 
 ### What is explicitly *not* demonstrated
 
@@ -169,6 +190,19 @@ The project distinguishes **descoped** from **satisfied**, and **unmeasured** fr
 - **Parallel speedup at scale.** Every published benchmark curve currently runs N
   nodes on one event loop, so no parallel speedup is measurable at any N. A
   multi-process driver is planned.
+- **A cost on creating fake identities.** Enrollment is rate-limited and the
+  threshold is stated in the refusal — but the limit is keyed on a user key, which
+  costs one key generation, and the budget is per provider *process*. So the
+  hundredth fake identity costs what the first did. Rate-limiting is measured; cost
+  is not, and the difference is recorded rather than blurred.
+- **Peer-to-peer acceptance across separate processes.** A node rejecting a forged
+  certificate is proven across processes; a node *accepting* a valid one is not,
+  because no command-line flag yet makes one spawned agent dial another. Scheduled,
+  not assumed.
+- **Distribution of large artifacts.** A lifted native program is 5.40 MiB and
+  nothing has yet moved one between machines that did not already have it — the demo
+  embeds its module in the bundle. Content addressing says whether the bytes are
+  right, never whether anyone still holds them.
 
 ---
 
@@ -179,9 +213,13 @@ npm test              # everything
 npm run typecheck     # tsc --noEmit
 ```
 
-Vitest runs two projects from one config — `node` and `browser` (Playwright:
-Chromium, Firefox, WebKit) — over the same test files where applicable. Test
-suffixes are load-bearing: `*.node.test.ts`, `*.browser.test.ts`, `*.e2e.test.ts`.
+Vitest runs **four** projects from one config — `node`, `browser` (Playwright:
+Chromium, Firefox, WebKit), `e2e`, and `perf` (gated behind `O2_PERF=1`) — over the
+same test files where applicable. Test suffixes are load-bearing:
+`*.node.test.ts`, `*.browser.test.ts`, `*.e2e.test.ts`, `*.perf.test.ts`.
+
+Select a project explicitly (`vitest run --project node`). A bare path filter fans
+out across all four and is far slower than it looks.
 
 Multi-node tests come in three shapes: in-process over a memory transport for
 determinism, real OS processes spawned via `spawn(process.execPath, …)` for

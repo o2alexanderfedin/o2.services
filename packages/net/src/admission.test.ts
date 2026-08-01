@@ -89,6 +89,7 @@ async function servingNode(options: {
     authorize: options.authorize ?? 'serves-unauthenticated',
     egress: 'holds-no-registrations',
     index: 'serves-no-records',
+    enroll: 'issues-no-certificates',
     ledger: 'keeps-no-ledger',
     reservations: 'relays-for-nobody',
     onDispatch: options.reportsDispatch === true ? (from) => ranFor.push(from) : 'reports-no-dispatch',

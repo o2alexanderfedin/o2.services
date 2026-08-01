@@ -246,6 +246,18 @@ const api: TabApi = {
         // There is no value passable through `window.o2` that turns the check off. The
         // parameter is a list of keys or nothing; see `TabApi.start`.
         trustAnchors: options.trustAnchors ?? [KERNEL_TRUST_ANCHOR],
+        // AUTH-01, and the reason is the visitor: this page is opened by somebody who did
+        // not provision anything, so the first start has no seed and every later one may
+        // have lost it to an eviction nobody was told about. Refusing to start would hand
+        // that visitor a blank page for a fault they cannot act on.
+        //
+        // What it costs, written here rather than left implied: the tab comes back with a
+        // **different peer id**, so peers holding its old address must rediscover it, and
+        // a certificate stored beside the lost seed is refused by its own identity check
+        // and would have to be re-issued. That is the right trade for a demo tab and it
+        // is exactly the wrong one for a node whose name other people have pinned — which
+        // is why this is a value here and not a default in the factory.
+        whenSeedIsGone: 'mints-a-new-identity',
         rpcTimeoutMs: 60_000,
         // Aggressive so the throttle is unmistakable in a test rather than marginal.
         backgroundDutyCycle: 0.05,
