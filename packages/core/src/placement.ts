@@ -315,7 +315,10 @@ export class LocalCapacity {
    * What it is **not**: it measures slots held, not `execute` invocations. The two
    * coincide only because `serveAgent`'s exec branch acquires immediately before
    * the call and releases in a `finally` immediately after — a property of
-   * `net/src/agent.ts`, not of this class. It also cannot exceed `slots`, because
+   * `net/src/agent.ts`, not of this class. Since 16-06 they do not coincide at all
+   * on a node that has served a combine: that branch holds a slot from the same
+   * table and never reaches an executor, so a reading here can rise with no
+   * `execute` having happened. It also cannot exceed `slots`, because
    * `#decide` returns the refusal before `#inFlight.add` is ever reached, so
    * `peakInFlight <= slots` is arithmetic and can never fail. Reading it as
    * evidence that a bound held is therefore wrong; what it can say is that the
@@ -364,10 +367,18 @@ export class LocalCapacity {
   /**
    * Decide on an offer, reserving a slot when accepted.
    *
-   * The only production caller of the reserving form is `serveAgent`'s `exec`
-   * branch (`net/src/agent.ts`), which releases in a `finally` around the
-   * executor call. Everything that reserves must release, or the node admits
-   * correctly for exactly `slots` tasks and then refuses everything forever.
+   * Two production callers, both in `net/src/agent.ts` and both releasing in a
+   * `finally`: `serveAgent`'s `exec` branch around the executor call, and its
+   * `combine` branch around the fetch-and-merge (added in 16-06 — a combine's
+   * inputs are already public, so what it opens is a capacity surface rather than
+   * an authorisation one). Everything that reserves must release, or the node
+   * admits correctly for exactly `slots` requests and then refuses everything
+   * forever.
+   *
+   * They share one slot table deliberately: it is one node's CPU, and a bound a
+   * peer could spend twice by choosing which verb to send would not be a bound.
+   * Their keys are namespaced apart at the call sites so neither can dedupe-refuse
+   * the other's work.
    */
   offer(offer: Offer): Admission {
     const decision = this.#decide(offer)

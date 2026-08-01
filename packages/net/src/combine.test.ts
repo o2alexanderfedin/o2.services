@@ -1,4 +1,5 @@
 import {
+  LocalCapacity,
   MAX_PARTIAL_BYTES,
   MemoryBlockstore,
   MemoryNetwork,
@@ -269,6 +270,15 @@ describe('the cost of a combine frame is bounded by the first input the node ref
 /** A `Blockstore` decorator that counts the reads made through it. */
 class CountingBlockstore implements Blockstore {
   gets = 0
+  /**
+   * CID string whose read throws, or `null` for a store that answers everything.
+   *
+   * Here to make "the slot is released on a throw" a measurement rather than an
+   * argument. A store that always threw could not also serve the paired positive
+   * control — the combine that succeeds once the fault is cleared — and without that
+   * control the release assertion is satisfied by a node that never took a slot.
+   */
+  throwOn: string | null = null
   readonly #inner: Blockstore
 
   constructor(inner: Blockstore) {
@@ -281,6 +291,7 @@ class CountingBlockstore implements Blockstore {
 
   async get(cid: CID): Promise<Uint8Array<ArrayBuffer> | undefined> {
     this.gets += 1
+    if (this.throwOn === cid.toString()) throw new Error('the local tier faulted')
     return this.#inner.get(cid)
   }
 
@@ -420,6 +431,257 @@ describe('AUTH-03 / 16-05 — a combine is admitted or refused by the node`s own
       // Empty because the frame carries no chain — not because one was checked and
       // found empty. `agent.ts`' `AuthorizedWork` records which of the two this is.
       expect(work.capability).toEqual([])
+    } finally {
+      node.close()
+    }
+  })
+})
+
+/**
+ * A node with a real `LocalCapacity` and a blockstore that counts reads.
+ *
+ * Separate from {@link authorizingNode} rather than a parameter on it, because the two
+ * read different instruments: that helper's subject is what the `authorize` hook is
+ * told and obeys, this one's is how many slots the node is holding and what it says
+ * when it has none. Both wrap the store *after* the fixtures are in, so `gets` covers
+ * the handler alone.
+ *
+ * `putPartial` exposes the raw store so a test can add fixtures whose CIDs differ from
+ * the pair below. That matters for the leak case: `LocalCapacity` refuses a key already
+ * in flight *before* it reaches the over-committed branch, so a leak measured with one
+ * repeated input set would report `already in flight here` and never reach the reading
+ * the test is taking.
+ */
+async function capacityNode(options: { readonly maxConcurrent: number; readonly authorize?: Authorizer }) {
+  const network = new MemoryNetwork()
+  const store = new MemoryBlockstore()
+  const a = partial('alpha')
+  const b = partial('beta')
+  const aCid = await putValue(store, a)
+  const bCid = await putValue(store, b)
+  const counting = new CountingBlockstore(store)
+  const capacity = new LocalCapacity({ nodeId: 'w0', maxConcurrent: options.maxConcurrent })
+
+  const serverRpc = new RpcEndpoint(network.connect('w0'), { timeoutMs: 5_000 })
+  serveAgent({
+    ...SENTINELS,
+    rpc: serverRpc,
+    executor: inertExecutor('w0'),
+    blockstore: counting,
+    capacity,
+    ...(options.authorize === undefined ? {} : { authorize: options.authorize }),
+  })
+
+  const client = new RpcEndpoint(network.connect('client'), { timeoutMs: 5_000 })
+  const askCombine = async (inputCids: readonly CID[] = [aCid, bCid], combineId = 'tree-node-a') =>
+    parseResponse(
+      await client.request('w0', encodeRequest({ kind: 'combine', combineId, inputCids, level: 1 })),
+    )
+
+  return {
+    capacity,
+    counting,
+    cids: [aCid, bCid] as const,
+    inputs: [a, b] as const,
+    putPartial: async (key: string) => putValue(store, partial(key)),
+    askCombine,
+    close: () => {
+      client.close()
+      serverRpc.close()
+    },
+  }
+}
+
+/**
+ * SCHED-06 on the combine branch — the fetch-amplification bound the owner ruled for.
+ *
+ * **Why admission and not a second authorizer rule.** A combine's inputs are the
+ * outputs of public map tasks: content-addressed, and already public by construction.
+ * There is nothing on that frame to authorize. What a peer can provoke is CPU and
+ * transfer, which is a *capacity* question, and capacity is what `LocalCapacity`
+ * answers. `agent.ts`' own disclosure said so before this branch existed — *"the
+ * general answer to it is per-request admission (SCHED-06), not a second bound invented
+ * for this branch alone"*.
+ *
+ * **The `Authorizer` routing 16-05 added stays.** It is consulted on every node alike
+ * and becomes live the day a sovereign reduce exists; this is a capacity bound placed
+ * beside it, not a replacement for it. The three AUTH-03 cases above are untouched.
+ *
+ * ## Which instrument reads which claim, because they are not interchangeable
+ *
+ * - **The reply text** is the falsifiable reading of the bound. It can carry any string
+ *   at all, so `toBe('over-committed: 1 of 1 slots in use')` fails on a handler that
+ *   refused for the wrong reason while the combine still correctly produced nothing —
+ *   the failure mode this repository has been bitten by four times.
+ * - **`counting.gets`** is the falsifiable reading of *where* the check sits. A bound
+ *   applied after the loop has already paid for the transfers it exists to prevent, and
+ *   `gets` is the only thing that can tell the two placements apart: the reply text is
+ *   identical either way.
+ * - **`capacity.peakInFlight`** is a **release** reading, never a bound reading.
+ *   `LocalCapacity.offer` returns its refusal before `#inFlight.add`, so
+ *   `peakInFlight <= slots` is arithmetic and cannot fail. What it can say is that a
+ *   slot really was taken — which is what makes "and given back" a measurement.
+ */
+describe('SCHED-06 — the combine branch takes an admission slot, and gives it back', () => {
+  it('refuses at the limit in the node`s own words, reads nothing, and combines once a slot frees', async () => {
+    const node = await capacityNode({ maxConcurrent: 1 })
+    try {
+      // Saturation is *declared*, not raced — the same technique
+      // `admission.node.test.ts` uses on the exec branch, and for the same reason: a
+      // test that is usually saturated is worse than one that says how it made certain.
+      // The key is not any combine's derived key, so the incoming frame meets the
+      // over-committed branch and not the dedupe branch.
+      const held = node.capacity.offer({ shardId: 'held-by-this-test', nodeId: 'w0' })
+      expect(held.accepted).toBe(true)
+
+      const refused = await node.askCombine()
+
+      // The combine reply shape, never an `error` frame: `executeReduce`'s ranking walk
+      // consumes `resultCid: null` as the signal to try the next executor, and an
+      // `error` would be read as a node condition by a caller that never sees this
+      // string at all (`combine.ts` collapses every failure to `null`).
+      expect(refused?.kind).toBe('combine')
+      if (refused?.kind !== 'combine') return
+      expect(refused.resultCid).toBeNull()
+      // The **text**, not the kind. No prefix is added, so one capacity refusal reads
+      // identically whichever branch composed it — the exec branch sends
+      // `admission.reason` verbatim too.
+      expect(refused.reason).toBe('over-committed: 1 of 1 slots in use')
+      // The whole content of the ruling, as a number: the slot is taken before the
+      // fetch loop, so a refused combine costs nothing at all. A check placed after
+      // the loop passes the assertion above while failing this one.
+      expect(node.counting.gets).toBe(0)
+
+      // The paired positive control. Without it, `gets === 0` is equally satisfied by a
+      // handler that never reads, and the refusal above by a node that refuses always.
+      node.capacity.release('held-by-this-test')
+      const admitted = await node.askCombine()
+
+      const reference = await canonicalCid(fabricCombiner([...node.inputs]))
+      expect(reference.ok).toBe(true)
+      if (!reference.ok) return
+      expect(admitted?.kind).toBe('combine')
+      if (admitted?.kind !== 'combine') return
+      expect(admitted.reason).toBe('')
+      expect(admitted.resultCid?.toString()).toBe(reference.cid.toString())
+      expect(node.counting.gets).toBeGreaterThanOrEqual(2)
+
+      // Taken, and given back.
+      expect(node.capacity.peakInFlight).toBe(1)
+      expect(node.capacity.inFlight).toBe(0)
+    } finally {
+      node.close()
+    }
+  })
+
+  it('does not climb its high-water mark across twenty combines', async () => {
+    // **The leak test, and it matters more than the bound test.** A node that admits
+    // correctly and never releases is indistinguishable from a working one for exactly
+    // `slots` combines and then refuses everything forever — which on this branch means
+    // a reduce that silently stops finding executors, with nothing naming the cause.
+    //
+    // Two slots and one combine at a time, so a working release leaves the mark at 1.
+    // Each iteration names a *distinct* input pair: with one repeated pair a leak would
+    // surface as `already in flight here` on the second call, which is a different
+    // refusal answering a different question.
+    const node = await capacityNode({ maxConcurrent: 2 })
+    try {
+      const reference = await canonicalCid(fabricCombiner([...node.inputs]))
+      expect(reference.ok).toBe(true)
+
+      for (let i = 0; i < 20; i++) {
+        const pair = [await node.putPartial(`left-${i}`), await node.putPartial(`right-${i}`)]
+        const reply = await node.askCombine(pair, `tree-node-${i}`)
+        expect(reply?.kind).toBe('combine')
+        if (reply?.kind !== 'combine') return
+        // Instrument live: every one of the twenty really did combine. Twenty refusals
+        // would also leave `peakInFlight` where it started.
+        expect(reply.reason).toBe('')
+        expect(reply.resultCid).not.toBeNull()
+      }
+
+      // Never more than one slot held at any instant across twenty take/release pairs.
+      // A leak reads 2 here — and every combine from the third on reads
+      // `over-committed: 2 of 2 slots in use`, which is why the loop asserts each reply.
+      expect(node.capacity.peakInFlight).toBe(1)
+      expect(node.capacity.inFlight).toBe(0)
+    } finally {
+      node.close()
+    }
+  })
+
+  it('gives the slot back when the combine fails, and when the store throws', async () => {
+    const node = await capacityNode({ maxConcurrent: 1 })
+    try {
+      // Exit 1 — a named failure inside the handler: an input nobody holds. One slot,
+      // so a leak here makes every later assertion in this test read a refusal.
+      const missing = await canonicalCid(partial('nobody-holds-this'))
+      expect(missing.ok).toBe(true)
+      if (!missing.ok) return
+      const notHeld = await node.askCombine([node.cids[0], missing.cid])
+      expect(notHeld?.kind).toBe('combine')
+      if (notHeld?.kind !== 'combine') return
+      expect(notHeld.resultCid).toBeNull()
+      expect(notHeld.reason).toContain(missing.cid.toString())
+      expect(node.capacity.peakInFlight).toBe(1)
+      expect(node.capacity.inFlight).toBe(0)
+
+      // Exit 2 — a throw, which leaves this handler entirely and is answered by
+      // `serveAgent`'s outer catch. Nothing inside `runCombine` sees it, so only a
+      // `finally` can return the slot.
+      node.counting.throwOn = node.cids[0].toString()
+      const threw = await node.askCombine()
+      expect(threw?.kind).toBe('error')
+      if (threw?.kind !== 'error') return
+      expect(threw.reason).toContain('serving failed on w0')
+      expect(node.capacity.inFlight).toBe(0)
+
+      // Exit 3 — success, after the fault is cleared. This is the positive control for
+      // both exits above: a node still holding either slot answers this
+      // `over-committed: 1 of 1 slots in use` instead of combining.
+      node.counting.throwOn = null
+      const ok = await node.askCombine()
+      const reference = await canonicalCid(fabricCombiner([...node.inputs]))
+      expect(reference.ok).toBe(true)
+      if (!reference.ok) return
+      expect(ok?.kind).toBe('combine')
+      if (ok?.kind !== 'combine') return
+      expect(ok.reason).toBe('')
+      expect(ok.resultCid?.toString()).toBe(reference.cid.toString())
+      expect(node.capacity.inFlight).toBe(0)
+    } finally {
+      node.close()
+    }
+  })
+
+  it('gives the slot back when the authorizer refuses, an exit that reads nothing at all', async () => {
+    // The exit `admission.test.ts` singles out on the exec branch — *"the authorize
+    // refusal that never calls the executor at all"* — in its combine form. The slot is
+    // taken before the hook is consulted, so this path holds one without ever entering
+    // the fetch loop, and only a `finally` returns it.
+    let refuse = true
+    const node = await capacityNode({
+      maxConcurrent: 1,
+      authorize: () => (refuse ? 'no pinned owner key for owner-1 on this node' : null),
+    })
+    try {
+      const refused = await node.askCombine()
+      expect(refused?.kind).toBe('combine')
+      if (refused?.kind !== 'combine') return
+      expect(refused.reason).toBe('unauthorized: no pinned owner key for owner-1 on this node')
+      expect(node.counting.gets).toBe(0)
+      // A slot really was taken — the reading that makes "and given back" mean
+      // something — and it really was returned.
+      expect(node.capacity.peakInFlight).toBe(1)
+      expect(node.capacity.inFlight).toBe(0)
+
+      // The node is as free as one that has answered nothing.
+      refuse = false
+      const ok = await node.askCombine()
+      expect(ok?.kind).toBe('combine')
+      if (ok?.kind !== 'combine') return
+      expect(ok.reason).toBe('')
+      expect(ok.resultCid).not.toBeNull()
     } finally {
       node.close()
     }
