@@ -5,9 +5,12 @@ import { canonicalCid, decodeCanonical, encodeCanonical } from './canonical/enco
 import type { CanonicalValue } from './canonical/encode.ts'
 import {
   DEFAULT_FANOUT,
+  MAX_COMBINE_INPUTS,
   MAX_PARTIAL_BYTES,
+  asFabricPartial,
   deriveReduceTree,
   executeReduce,
+  fabricCombiner,
   localDispatch,
   rendezvousRank,
 } from './reduce.ts'
@@ -16,28 +19,12 @@ import type { Combiner, ReduceContribution } from './reduce.ts'
 /**
  * MR-02 … MR-07.
  *
- * The reducer throughout is a word-frequency merge: associative and commutative, and
- * the sort in `combine` keeps its output canonical so equal inputs hash equally
- * whatever order they arrive in.
+ * The reducer throughout is `fabricCombiner` — the production merge, imported rather
+ * than redefined here. That is the point of the promotion: the two single-node
+ * reference comparisons below measure the tree against the function the fabric
+ * actually ships, so a change to it that broke associativity would fail here instead
+ * of passing against a private copy that never left this file.
  */
-const combiner: Combiner = (inputs) => {
-  const counts = new Map<string, number>()
-  let rows = 0
-  for (const input of inputs) {
-    const record = input as { readonly counts?: CanonicalValue; readonly rows?: CanonicalValue }
-    rows += typeof record.rows === 'number' ? record.rows : 0
-    const partial = record.counts
-    if (partial === null || typeof partial !== 'object' || Array.isArray(partial)) continue
-    for (const [word, n] of Object.entries(partial)) {
-      if (typeof n !== 'number') continue
-      counts.set(word, (counts.get(word) ?? 0) + n)
-    }
-  }
-  // Sorted keys so the encoding — and therefore the CID — is order-independent.
-  const merged: { [k: string]: number } = {}
-  for (const key of [...counts.keys()].sort()) merged[key] = counts.get(key) as number
-  return { counts: merged, rows }
-}
 
 /** One owner's local partial over their own data. */
 function partialFor(owner: number): CanonicalValue {
@@ -174,7 +161,7 @@ describe('MR-04 — a leaf is a contribution, not a set of bytes', () => {
       executors: [...live],
       dispatch: localDispatch({
         blockstore: store,
-        combiner,
+        combiner: fabricCombiner,
         decode: decodeCanonical,
         liveNodes: () => live,
       }),
@@ -204,7 +191,7 @@ describe('MR-04 — a leaf is a contribution, not a set of bytes', () => {
       executors: [...live],
       dispatch: localDispatch({
         blockstore: store,
-        combiner,
+        combiner: fabricCombiner,
         decode: decodeCanonical,
         liveNodes: () => live,
       }),
@@ -255,7 +242,7 @@ describe('MR-02 / MR-03 — the aggregate is bit-identical to a single-node refe
       executors: [...live],
       dispatch: localDispatch({
         blockstore: store,
-        combiner,
+        combiner: fabricCombiner,
         decode: decodeCanonical,
         liveNodes: () => live,
       }),
@@ -265,7 +252,7 @@ describe('MR-02 / MR-03 — the aggregate is bit-identical to a single-node refe
     expect(outcome.recomputes).toBe(0)
 
     // The reference: everything merged at once, on one machine.
-    const reference = await canonicalCid(combiner(values))
+    const reference = await canonicalCid(fabricCombiner(values))
     expect(reference.ok).toBe(true)
     if (!reference.ok) return
 
@@ -279,7 +266,7 @@ describe('MR-02 / MR-03 — the aggregate is bit-identical to a single-node refe
     const live = new Set(['n1', 'n2'])
     const dispatch = localDispatch({
       blockstore: store,
-      combiner,
+      combiner: fabricCombiner,
       decode: decodeCanonical,
       liveNodes: () => live,
     })
@@ -308,7 +295,7 @@ describe('MR-02 / MR-03 — the aggregate is bit-identical to a single-node refe
       executors: ['n1'],
       dispatch: async (task, executorId) => {
         seen.push([...task.inputCids])
-        return localDispatch({ blockstore: store, combiner, decode: decodeCanonical, liveNodes: () => live })(
+        return localDispatch({ blockstore: store, combiner: fabricCombiner, decode: decodeCanonical, liveNodes: () => live })(
           task,
           executorId,
         )
@@ -334,7 +321,7 @@ describe('MR-06 / MR-07 — churn repair is recompute, not recovery', () => {
         executors,
         dispatch: localDispatch({
           blockstore: store,
-          combiner,
+          combiner: fabricCombiner,
           decode: decodeCanonical,
           liveNodes: () => new Set(executors),
         }),
@@ -350,7 +337,7 @@ describe('MR-06 / MR-07 — churn repair is recompute, not recovery', () => {
       executors,
       dispatch: localDispatch({
         blockstore: store,
-        combiner,
+        combiner: fabricCombiner,
         decode: decodeCanonical,
         liveNodes: () => live,
       }),
@@ -371,7 +358,7 @@ describe('MR-06 / MR-07 — churn repair is recompute, not recovery', () => {
     const live = new Set(['n1', 'n2'])
     const dispatch = localDispatch({
       blockstore: store,
-      combiner,
+      combiner: fabricCombiner,
       decode: decodeCanonical,
       liveNodes: () => live,
     })
@@ -396,7 +383,7 @@ describe('MR-06 / MR-07 — churn repair is recompute, not recovery', () => {
       executors: ['n1', 'n2'],
       dispatch: localDispatch({
         blockstore: store,
-        combiner,
+        combiner: fabricCombiner,
         decode: decodeCanonical,
         liveNodes: () => new Set(),
       }),
@@ -425,6 +412,78 @@ describe('reduce partials fit the browser mesh', () => {
   })
 })
 
+describe('MR-03 — the fabric offers exactly one combine, and it is total', () => {
+  const good: CanonicalValue = { counts: { a: 2, b: 3 }, rows: 5 }
+
+  /**
+   * Values a partial could arrive as and must not be merged as one.
+   *
+   * All of these can come off a wire: `decodeCanonical` will happily produce a
+   * number, an array or a record whose `counts` is a string.
+   */
+  const malformed: readonly CanonicalValue[] = [
+    42,
+    null,
+    ['x'],
+    'partial',
+    {},
+    { counts: { a: 1 } },
+    { rows: 1 },
+    { counts: 'not-a-record', rows: 1 },
+    { counts: { a: 'one' }, rows: 1 },
+    { counts: { a: 1 }, rows: 'many' },
+  ]
+
+  it('contributes nothing for a malformed partial instead of throwing', () => {
+    // A combiner that threw would fail this by rejection; one that let a bad input
+    // through would fail it by inequality. Both are the wire's problem, not a
+    // hypothetical: these bytes came from a peer.
+    expect(fabricCombiner([42, null, ['x'], good])).toEqual(fabricCombiner([good]))
+    expect(fabricCombiner(malformed)).toEqual({ counts: {}, rows: 0 })
+  })
+
+  it('agrees with asFabricPartial about what is malformed', () => {
+    // The two dispositions must be driven by one predicate. Changing one without
+    // the other fails one half of this pair.
+    for (const value of malformed) {
+      expect(asFabricPartial(value)).toBeNull()
+      expect(fabricCombiner([value, good])).toEqual(fabricCombiner([good]))
+    }
+    expect(asFabricPartial(good)).toEqual({ counts: { a: 2, b: 3 }, rows: 5 })
+  })
+
+  it('hashes the same whatever order its inputs arrive in', async () => {
+    const a: CanonicalValue = { counts: { x: 1, z: 4 }, rows: 2 }
+    const b: CanonicalValue = { counts: { y: 7, x: 2 }, rows: 3 }
+
+    // Commutativity, which the module docstring is careful to say is *not* strictly
+    // required — the tree relies on associativity. It is asserted rather than
+    // restated because it is what would let the grouping change without silently
+    // changing answers.
+    const forward = await canonicalCid(fabricCombiner([a, b]))
+    const reverse = await canonicalCid(fabricCombiner([b, a]))
+    expect(forward.ok && reverse.ok).toBe(true)
+    if (!forward.ok || !reverse.ok) return
+    expect(forward.cid.toString()).toBe(reverse.cid.toString())
+  })
+
+  it('counts a repeated contribution twice rather than deduplicating it', () => {
+    // The `Combiner` contract: two contributors reaching the same summary is the
+    // ordinary case, and a combiner that deduped would put back the defect the leaf
+    // key removed, one layer up.
+    expect(fabricCombiner([good, good])).toEqual({ counts: { a: 4, b: 6 }, rows: 10 })
+  })
+
+  it('bounds how many inputs one combine may merge', () => {
+    // Precisely two facts, and nothing else about the value: it is a whole number of
+    // inputs, and it can express at least the default tree's own fanout. No product
+    // is asserted against it — this bound is not a byte figure and multiplying it by
+    // one would claim a residency guarantee nobody measured.
+    expect(Number.isInteger(MAX_COMBINE_INPUTS)).toBe(true)
+    expect(MAX_COMBINE_INPUTS).toBeGreaterThanOrEqual(DEFAULT_FANOUT)
+  })
+})
+
 describe('MR-03 / criterion 5 — the aggregation is verified even when the maps are not', () => {
   it('runs each combine on two executors and agrees', async () => {
     // The C3 split made concrete. A sovereign map cannot be run twice — pinning data
@@ -441,7 +500,7 @@ describe('MR-03 / criterion 5 — the aggregation is verified even when the maps
       redundancy: 2,
       dispatch: localDispatch({
         blockstore: store,
-        combiner,
+        combiner: fabricCombiner,
         decode: decodeCanonical,
         liveNodes: () => live,
       }),
@@ -451,7 +510,7 @@ describe('MR-03 / criterion 5 — the aggregation is verified even when the maps
     expect(outcome.minReplicas).toBe(2)
     expect(outcome.disagreements).toEqual([])
 
-    const reference = await canonicalCid(combiner(values))
+    const reference = await canonicalCid(fabricCombiner(values))
     expect(reference.ok).toBe(true)
     if (!reference.ok) return
     expect(outcome.rootCid).toBe(reference.cid.toString())
@@ -464,7 +523,7 @@ describe('MR-03 / criterion 5 — the aggregation is verified even when the maps
     const live = new Set(['n1', 'n2', 'n3'])
     const honest = localDispatch({
       blockstore: store,
-      combiner,
+      combiner: fabricCombiner,
       decode: decodeCanonical,
       liveNodes: () => live,
     })
@@ -503,7 +562,7 @@ describe('MR-03 / criterion 5 — the aggregation is verified even when the maps
       redundancy: 3,
       dispatch: localDispatch({
         blockstore: store,
-        combiner,
+        combiner: fabricCombiner,
         decode: decodeCanonical,
         liveNodes: () => live,
       }),
