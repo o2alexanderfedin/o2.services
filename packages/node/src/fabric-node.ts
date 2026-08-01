@@ -768,6 +768,10 @@ export class FabricNode {
         now: Date.now,
       }),
       index: 'serves-no-records',
+      // AUTH-01: this process holds no provider signing key. A per-node setting, not
+      // a node kind — see `AgentOptions.enroll`. Plan 17-03 is where this stops being
+      // the sentinel on a node started with `--issues-certificates`.
+      enroll: 'issues-no-certificates',
       // SCHED-06. This hook answered "accepts everything" for the whole of two
       // milestones, so `serveAgent`'s `exec` branch ran `executor.execute` with
       // nothing counting what was in flight. `LocalCapacity` existed that entire

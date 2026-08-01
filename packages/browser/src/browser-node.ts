@@ -620,6 +620,10 @@ export class BrowserNode {
         now: Date.now,
       }),
       index: 'serves-no-records',
+      // AUTH-01: this process holds no provider signing key. Identical to
+      // `fabric-node.ts`'s line, and identical on purpose — a browser node enrols and
+      // issues on exactly the same terms as any other. The only difference is discovery.
+      enroll: 'issues-no-certificates',
       // SCHED-06. This hook answered "accepts everything" for the whole of two
       // milestones, so `serveAgent`'s `exec` branch ran `executor.execute` with
       // nothing counting what was in flight — a probe measured 800 simultaneous

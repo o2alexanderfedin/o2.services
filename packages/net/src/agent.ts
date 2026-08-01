@@ -15,6 +15,7 @@ import type {
   Blockstore,
   CanonicalValue,
   Delegation,
+  EnrollmentAuthority,
   Executor,
   LocalCapacity,
   RecordIndex,
@@ -239,6 +240,33 @@ export interface AgentOptions {
   readonly egress:
     | { readonly guard: EgressGuard; readonly sovereignInputs: Blockstore }
     | 'holds-no-registrations'
+  /**
+   * AUTH-01 / AUTH-04. The provider signing key this process holds, if it holds one.
+   *
+   * **This is a per-node setting, not a node kind.** Every node built anywhere in this
+   * repository has identical code and identical capability regardless of whether it is
+   * passed — the same sentence `bin/agent.ts` already uses about `--owner-id`: *"this is
+   * a per-node clearance flag, not a node kind: every agent process built by this binary
+   * has identical capability regardless of whether it is passed."*
+   *
+   * A reader who finds this in six months and writes *"the provider node"* in prose will
+   * recreate the defect `fabric-node.ts`' "Why there is no second class" section records:
+   * a class that bound a socket, could not run a task, and survived three rounds of
+   * renaming because the two disjoint capability sets stayed where they were. There is no
+   * provider node. There are nodes, and some of them were given a signing key.
+   *
+   * Pass `'issues-no-certificates'` to state that this process issues none. That is a
+   * truthful statement about this process and not a lesser kind of node, and a node that
+   * says it answers by name — see the handler below, which replies with a stated reason
+   * rather than with silence.
+   *
+   * Required rather than optional, for the reason `.planning/PROJECT.md`'s Key Decision
+   * **"An optional hook with a silent default is a hole"** gives. Here the hole has a
+   * specific shape: a silent default would be a node that answers enrollment requests
+   * with nothing at all, which a requestor cannot tell from an unreachable one — so a
+   * provider that was misconfigured would look exactly like a provider that was down.
+   */
+  readonly enroll: EnrollmentAuthority | 'issues-no-certificates'
 }
 
 /**
@@ -635,6 +663,45 @@ export function serveAgent(options: AgentOptions): void {
       // header for why a combine has no egress hold to give back, and for this
       // frame's fetch-amplification disposition.
       response = await runCombine(request, options)
+    } else if (request.kind === 'enrol') {
+      // AUTH-01 / AUTH-04. Answered by name rather than by falling through into the
+      // `exec` branch below — which is where a new request kind lands by default. An
+      // enrollment frame reaching the executor would be read as a task with no module
+      // and no input.
+      //
+      // A node holding no signing key answers `error`, not a refusal `result`. The
+      // distinction is which question was answered: a refusal says *your request was
+      // not granted* and names which of three things was wrong with it, while this
+      // says *I am not somewhere that grants them*, which is a fact about this node.
+      // Collapsing the two would tell a requestor to fix its proof when it should be
+      // asking somebody else.
+      //
+      // **No capacity slot is taken here, and that is a measurement rather than an
+      // omission.** `LocalCapacity` bounds how many units of work are in flight *at
+      // once*, and `EnrollmentAuthority.enrol` is fully synchronous — it verifies two
+      // signatures and signs one payload with no `await` anywhere in it. Nothing can
+      // interleave between a take and a release around a synchronous call, so the
+      // count could never read above one and the bound would never bind. Taking a slot
+      // here would be a reported bound rather than a measured one, which is the defect
+      // this repository keeps finding. What genuinely bounds this branch is AUTH-04's
+      // rate limit, one layer in, and it bounds *issuance* per user key.
+      //
+      // What that leaves open, stated rather than left to be found: a peer sending
+      // forged requests is refused before the limiter is reached
+      // (`enrollment.ts`' possession-then-consent-then-window ordering), so those cost
+      // this node two signature verifications each and consume nobody's budget. That is
+      // a CPU surface bounded by NET-08's inbound message ceiling and by nothing else
+      // on this branch.
+      response =
+        options.enroll === 'issues-no-certificates'
+          ? { kind: 'error', reason: 'this node issues no certificates' }
+          : // `Date.now()` at this boundary is deliberate, and this is the first clock
+            // read in production `@o2/net` source — said plainly so the next reader does
+            // not have to check. `@o2/core`'s enrollment module takes the clock as a
+            // parameter *precisely* so an adapter supplies it, keeping that module free
+            // of platform time and its limiter deterministic under test. `Date.now()`
+            // behaves identically in both targets `@o2/net` has to run in.
+            { kind: 'enrol', result: options.enroll.enrol(request.request, Date.now()) }
     } else {
       // SCHED-06 — admission, on the branch that actually costs a
       // `WebAssembly.compile` plus an `instantiate` plus a linear memory.

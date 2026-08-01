@@ -387,6 +387,8 @@ async function memoryFabric(nodes: number): Promise<Fabric> {
     egress: 'holds-no-registrations',
     authorize: 'serves-unauthenticated',
     index: 'serves-no-records',
+    // AUTH-01: this process holds no provider signing key.
+    enroll: 'issues-no-certificates',
     // SCHED-06 — the same declared limit `realFabric`'s nodes start with, so the
     // memory curve and the real curve are measured against nodes that admit
     // identically. See `DECLARED_ADMISSION_LIMIT`.
@@ -426,6 +428,8 @@ async function memoryFabric(nodes: number): Promise<Fabric> {
       egress: 'holds-no-registrations',
       authorize: 'serves-unauthenticated',
       index: 'serves-no-records',
+      // AUTH-01: this process holds no provider signing key.
+      enroll: 'issues-no-certificates',
       // SCHED-06 — one `LocalCapacity` per worker, at the declared limit.
       //
       // Per worker and never one shared instance, and the reason is a refusal read

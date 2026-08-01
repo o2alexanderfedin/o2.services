@@ -84,6 +84,7 @@ function servingNode(options: {
     egress: { guard, sovereignInputs: options.registrationStore },
     authorize: 'serves-unauthenticated',
     index: 'serves-no-records',
+    enroll: 'issues-no-certificates',
     capacity: 'accepts-every-offer',
     ledger: 'keeps-no-ledger',
     reservations: 'relays-for-nobody',
