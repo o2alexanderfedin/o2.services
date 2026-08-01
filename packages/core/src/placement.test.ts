@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { DutyCycleGovernor } from './governor.ts'
 import {
   DEFAULT_D,
   DEFAULT_MAX_CONCURRENT_TASKS,
@@ -8,6 +9,7 @@ import {
   sampleCandidates,
 } from './placement.ts'
 import type { Admission, Offer } from './placement.ts'
+import type { Governor } from './ports.ts'
 import type { NodeDescriptor, PlacementRequest } from './sovereignty.ts'
 
 /**
@@ -457,6 +459,152 @@ describe('LocalCapacity — a node decides from its own counters', () => {
     expect(capacity.would({ shardId: 's0', nodeId: 'n0' }).capacity).toStrictEqual({
       slots: 2,
       inFlight: 0,
+    })
+  })
+
+  describe('a slot count that is a reading, not a memory', () => {
+    /** A cap that can move, with no real waiting — the pacing is not what is under test. */
+    const governed = (dutyCycle: number): DutyCycleGovernor =>
+      new DutyCycleGovernor({
+        dutyCycle,
+        sleep: async () => {},
+        environment: 'no-environment-governor',
+      })
+
+    it('follows the duty cycle down on the same object, with no reconstruction', () => {
+      const governor = governed(1)
+      const capacity = new LocalCapacity({ nodeId: 'n0', maxConcurrent: 8, dutyCycle: governor })
+      expect(capacity.slots).toBe(8)
+      governor.setDutyCycle(0.25)
+      expect(capacity.slots).toBe(2)
+    })
+
+    it('drops the figure a requestor is offered next — criterion 3’s observable', () => {
+      // The criterion asks that a node's advertised capacity drop when its cap
+      // does, "observable in what the requestor is offered next". This is that
+      // observable, asserted in the kernel so the tier plans wire a measured path
+      // rather than a mechanism.
+      const governor = governed(1)
+      const capacity = new LocalCapacity({ nodeId: 'n0', maxConcurrent: 8, dutyCycle: governor })
+      expect(capacity.would({ shardId: 's0', nodeId: 'n0' }).capacity).toStrictEqual({
+        slots: 8,
+        inFlight: 0,
+      })
+      governor.setDutyCycle(0.25)
+      expect(capacity.would({ shardId: 's0', nodeId: 'n0' }).capacity).toStrictEqual({
+        slots: 2,
+        inFlight: 0,
+      })
+    })
+
+    it('keeps a heavily throttled node a participant, at one slot and never zero', () => {
+      const capacity = new LocalCapacity({
+        nodeId: 'n0',
+        maxConcurrent: 8,
+        dutyCycle: governed(0.01),
+      })
+      expect(capacity.slots).toBe(1)
+      expect(capacity.would({ shardId: 's0', nodeId: 'n0' }).accepted).toBe(true)
+    })
+
+    it('reads any Governor, not only the kernel’s own implementation', () => {
+      // The browser tier's source is `VisibilityGovernor`, a different class the
+      // kernel must not import. What `LocalCapacity` depends on is the port.
+      class StubGovernor implements Governor {
+        dutyCycle = 1
+        async yieldSlice(): Promise<void> {}
+      }
+      const governor = new StubGovernor()
+      const capacity = new LocalCapacity({ nodeId: 'n0', maxConcurrent: 8, dutyCycle: governor })
+      expect(capacity.slots).toBe(8)
+      governor.dutyCycle = 0.5
+      expect(capacity.slots).toBe(4)
+    })
+
+    it('bounds starting without retracting a grant when the cap drops below what is in flight', () => {
+      // Three readings in one case, deliberately. A bound that refused but leaked
+      // a slot would satisfy the refusal alone, and a "fix" that floored `slots` at
+      // the in-flight count would satisfy the releases alone.
+      const governor = governed(0.5)
+      const capacity = new LocalCapacity({ nodeId: 'n0', maxConcurrent: 8, dutyCycle: governor })
+      expect(capacity.slots).toBe(4)
+      for (const shardId of ['s0', 's1', 's2', 's3']) {
+        expect(capacity.offer({ shardId, nodeId: 'n0' }).accepted).toBe(true)
+      }
+
+      governor.setDutyCycle(0.25)
+      expect(capacity.slots).toBe(2)
+
+      const refused = capacity.would({ shardId: 's4', nodeId: 'n0' })
+      expect(refused.accepted).toBe(false)
+      if (refused.accepted) return
+      expect(refused.reason).toBe('over-committed: 4 of 2 slots in use at duty cycle 0.25')
+      // The refusal string and the published figure are one reading, not two: a
+      // node that said `4 of 2` while publishing some other slot count would be
+      // giving two answers to one question.
+      expect(refused.capacity).toStrictEqual({ slots: 2, inFlight: 4 })
+
+      for (const shardId of ['s0', 's1', 's2', 's3']) capacity.release(shardId)
+      expect(capacity.inFlight).toBe(0)
+      expect(capacity.would({ shardId: 's4', nodeId: 'n0' }).accepted).toBe(true)
+    })
+
+    it('reports load honestly above 1 while a lowered cap drains', () => {
+      const governor = governed(0.5)
+      const capacity = new LocalCapacity({ nodeId: 'n0', maxConcurrent: 8, dutyCycle: governor })
+      for (const shardId of ['s0', 's1', 's2', 's3']) capacity.offer({ shardId, nodeId: 'n0' })
+      expect(capacity.load).toBe(1)
+
+      governor.setDutyCycle(0.25)
+      // Clamping this to 1 would hide exactly the state a requestor most needs to
+      // see. `load` orders already-eligible nodes, so an honest 2 orders this node
+      // last, which is correct; a clamped 1 would order it level with a node that
+      // is merely full.
+      expect(capacity.load).toBeGreaterThan(1)
+      expect(capacity.load).toBe(2)
+    })
+
+    it('names the live duty cycle in the refusal, not the one it was built with', () => {
+      const governor = governed(0.5)
+      const capacity = new LocalCapacity({ nodeId: 'n0', maxConcurrent: 4, dutyCycle: governor })
+      expect(capacity.slots).toBe(2)
+      capacity.offer({ shardId: 's0', nodeId: 'n0' })
+      capacity.offer({ shardId: 's1', nodeId: 'n0' })
+
+      governor.setDutyCycle(0.25)
+      const refused = capacity.would({ shardId: 's2', nodeId: 'n0' })
+      expect(refused.accepted).toBe(false)
+      if (refused.accepted) return
+      expect(refused.reason).toContain('duty cycle 0.25')
+      expect(refused.reason).not.toContain('duty cycle 0.5')
+    })
+
+    it('drops the suffix when a live cap returns to full rate', () => {
+      const governor = governed(0.25)
+      const capacity = new LocalCapacity({ nodeId: 'n0', maxConcurrent: 4, dutyCycle: governor })
+      expect(capacity.slots).toBe(1)
+      capacity.offer({ shardId: 's0', nodeId: 'n0' })
+      governor.setDutyCycle(1)
+      expect(capacity.slots).toBe(4)
+
+      // Filling the restored slots and then refusing proves the suffix is absent
+      // because the node is unthrottled now, not because it was never throttled.
+      for (const shardId of ['s1', 's2', 's3']) capacity.offer({ shardId, nodeId: 'n0' })
+      const refused = capacity.would({ shardId: 's4', nodeId: 'n0' })
+      expect(refused.accepted).toBe(false)
+      if (refused.accepted) return
+      expect(refused.reason).toBe('over-committed: 4 of 4 slots in use')
+    })
+
+    it('refuses a nonsense numeric duty cycle exactly as before, and leaves a Governor to check its own', () => {
+      // The numeric arm's guard is unchanged. A `Governor` validated its cap when
+      // it was constructed and again on every `setDutyCycle`, so a second check
+      // here would be a second place for one rule to live.
+      expect(
+        () => new LocalCapacity({ nodeId: 'n', maxConcurrent: 1, dutyCycle: Number.NaN }),
+      ).toThrow(RangeError)
+      expect(() => governed(0)).toThrow(RangeError)
+      expect(() => governed(1.5)).toThrow(RangeError)
     })
   })
 
