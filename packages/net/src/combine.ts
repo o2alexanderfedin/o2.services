@@ -27,9 +27,21 @@
  * That is stated as a cost rather than elided. Recovering it would mean widening
  * `CombineDispatch` in `@o2/core`, which is a port change no criterion in this phase
  * asks for; and adding an observer callback instead would be an optional hook with a
- * silent default, which `.planning/PROJECT.md`'s Key Decisions rule out. What survives
- * for an operator debugging a reduce that failed everywhere is `ReduceOutcome.recomputes`
- * plus `executedBy` naming who actually answered.
+ * silent default, which `.planning/PROJECT.md`'s Key Decisions rule out.
+ *
+ * **What actually survives, corrected against a measurement rather than assumed.** The
+ * obvious answer — "`recomputes` plus `executedBy`" — is wrong for the case an operator
+ * most needs it in, so it is written down here rather than left to be rediscovered.
+ * `executeReduce` adds `attempts` to `recomputes` only for a combine that *eventually
+ * produced a CID*; a combine that failed outright takes the `continue` above that line
+ * and its attempts are discarded (`reduce.ts:397-406`). Measured 2026-07-31 on an
+ * eight-node in-process fabric with this dispatcher's fetch-back removed: the root
+ * combine fell through **all eight** executors and the run reported
+ * `recomputes: 0`, `combines: 2`, `executedBy.size: 2`, `rootCid: null`, and `failed`
+ * naming the root. So the diagnostics that do survive a reduce which failed everywhere
+ * are **`failed`** — which combines produced nothing — and **`executedBy`** — who
+ * answered for the ones that did. `recomputes` measures churn among *successes* and
+ * reads zero on total failure.
  *
  * Pure module — it lives in the portable set `purity.node.test.ts` enforces for
  * `@o2/net`, so no `node:*` and no platform import.
