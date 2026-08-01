@@ -44,6 +44,7 @@
  */
 
 import { rendezvousRank } from './reduce.ts'
+import type { Governor } from './ports.ts'
 import { eligibleNodes } from './sovereignty.ts'
 import type { NodeDescriptor, PlacementRequest } from './sovereignty.ts'
 
@@ -393,8 +394,22 @@ export interface CapacityOptions {
    * A node at 25% does not run a quarter of a task; it runs fewer of them. Slots are
    * floored at 1, so a heavily throttled node stays a participant rather than
    * silently disappearing from the fabric.
+   *
+   * ## A number or a `Governor` — one field, two ways of stating one quantity
+   *
+   * A number is a duty cycle that will not change; a `Governor` is one that may.
+   * They mean the same thing and only the second needs re-reading, so they share a
+   * field. The alternative — a `dutyCycle` option *and* a `governor` option — would
+   * be one quantity with two answers, and a class that had to decide which of them
+   * wins when both are given. `fabric-node.ts` records that shape as a defect
+   * repeatedly; this does not add another instance of it.
+   *
+   * Given a `Governor`, the slot count is derived on every read rather than at
+   * construction, so a cap the user lowers at runtime reaches the figure this node
+   * publishes in its next offer answer with nothing else to wire — SCHED-04's
+   * *honoured immediately* half, and the observable the requirement names.
    */
-  readonly dutyCycle?: number
+  readonly dutyCycle?: number | Governor
 }
 
 /**
@@ -406,11 +421,24 @@ export interface CapacityOptions {
  *
  * Slots are reserved on accept and must be returned with `release`, so the count
  * reflects work in flight rather than work ever offered.
+ *
+ * ## A lowered cap bounds starting and never retracts a grant
+ *
+ * When the duty cycle is a `Governor`, `slots` can fall below `inFlight`. What that
+ * means is fixed here and asserted in `placement.test.ts`: the next request is
+ * refused, and **every key already held stays releasable**. Nothing in flight is
+ * abandoned, cancelled or forgotten. It is the same property `GovernedExecutor`
+ * states for pacing — it yields *between* tasks and never inside one, because a WASM
+ * call cannot be suspended part-way — and the two halves are deliberately the same
+ * rule: lowering a cap changes what this node *starts*, never what it is doing.
+ *
+ * The visible consequence is that `load` reads above 1 while the excess drains. That
+ * is reported rather than clamped, for a reason given at the getter.
  */
 export class LocalCapacity {
   readonly #nodeId: string
-  readonly #slots: number
-  readonly #dutyCycle: number
+  readonly #maxConcurrent: number
+  readonly #dutyCycle: number | Governor
   readonly #inFlight = new Set<string>()
   #peak = 0
 
@@ -419,30 +447,61 @@ export class LocalCapacity {
       throw new RangeError(`maxConcurrent must be a positive integer, got ${options.maxConcurrent}`)
     }
     const dutyCycle = options.dutyCycle ?? 1
-    if (!(dutyCycle > 0) || dutyCycle > 1) {
+    // The numeric arm's guard, byte-for-byte what it was. A `Governor` checked its
+    // own cap when it was built and checks it again on every set, so a second check
+    // here would be a second place for one rule to live — and the two would drift
+    // the first time either moved.
+    if (typeof dutyCycle === 'number' && (!(dutyCycle > 0) || dutyCycle > 1)) {
       throw new RangeError(`dutyCycle must be in (0, 1], got ${dutyCycle}`)
     }
     this.#nodeId = options.nodeId
+    this.#maxConcurrent = options.maxConcurrent
     this.#dutyCycle = dutyCycle
-    this.#slots = Math.max(1, Math.floor(options.maxConcurrent * dutyCycle))
   }
 
   get nodeId(): string {
     return this.#nodeId
   }
 
-  /** Slots actually usable at the current duty cycle. */
+  /** The duty cycle in force right now — a constant, or whatever a governor reads. */
+  #dutyCycleNow(): number {
+    return typeof this.#dutyCycle === 'number' ? this.#dutyCycle : this.#dutyCycle.dutyCycle
+  }
+
+  /**
+   * Slots actually usable at the current duty cycle.
+   *
+   * Derived on every read rather than remembered from the constructor, because the
+   * duty cycle may be a `Governor` whose reading moves under this object. A figure
+   * captured at construction would be the answer to "what could this node run when
+   * it started", and what an offer has to answer is "what can it run now".
+   *
+   * Floored at 1. A heavily throttled node stays a participant rather than silently
+   * disappearing from the fabric — at zero slots `#decide` would refuse everything,
+   * which is a node that has left rather than a node that is going slowly. The floor
+   * predates this getter and moving the derivation must not lose it.
+   */
   get slots(): number {
-    return this.#slots
+    return Math.max(1, Math.floor(this.#maxConcurrent * this.#dutyCycleNow()))
   }
 
   get inFlight(): number {
     return this.#inFlight.size
   }
 
-  /** Fraction of usable slots occupied, for publishing as a load hint. */
+  /**
+   * Fraction of usable slots occupied, for publishing as a load hint.
+   *
+   * **May exceed 1**, and is deliberately not clamped. A cap lowered below what is
+   * already in flight leaves this node over its new bound until the excess drains,
+   * and that window is exactly the state a requestor most needs to see. `load` is a
+   * hint used only to order nodes that are *already* eligible (`sovereignty.ts`), so
+   * an honest reading above 1 sorts such a node last, which is correct. Clamped to 1
+   * it would sort level with a node that is merely full, and the requestor would
+   * spend an offer finding out what this number could have told it.
+   */
   get load(): number {
-    return this.#inFlight.size / this.#slots
+    return this.#inFlight.size / this.slots
   }
 
   /**
@@ -460,13 +519,24 @@ export class LocalCapacity {
    * `net/src/agent.ts`, not of this class. Since 16-06 they do not coincide at all
    * on a node that has served a combine: that branch holds a slot from the same
    * table and never reaches an executor, so a reading here can rise with no
-   * `execute` having happened. It also cannot exceed `slots`, because
-   * `#decide` returns the refusal before `#inFlight.add` is ever reached, so
-   * `peakInFlight <= slots` is arithmetic and can never fail. Reading it as
+   * `execute` having happened.
+   *
+   * **On a node whose duty cycle is a constant it also cannot exceed `slots`**,
+   * because `#decide` returns the refusal before `#inFlight.add` is ever reached,
+   * so `peakInFlight <= slots` is arithmetic and can never fail. Reading it as
    * evidence that a bound held is therefore wrong; what it can say is that the
    * limit was actually *reached* rather than never approached. A count that can
    * exceed the bound — and so falsify it — has to come from around the executor
    * itself (`@o2/net`'s `CountingExecutor`).
+   *
+   * **The `Governor` arm removes even that arithmetic**, and the qualifier above is
+   * not decoration. `slots` is a reading now, so a cap lowered below what is in
+   * flight leaves `peakInFlight > slots` legitimately, for as long as the excess
+   * takes to drain. Every construction in this repository today passes a number or
+   * omits the field, which is why the surrounding comments in `@o2/net` and the two
+   * node factories that state the bound unconditionally are still accurate about
+   * their own rigs — but anything that starts passing a governor must not carry the
+   * unconditional form across.
    *
    * It never decreases on release. A high-water mark that could fall would answer
    * "was this node ever saturated?" with whatever happened to be true at the
@@ -533,13 +603,24 @@ export class LocalCapacity {
     return decision
   }
 
-  /** This node's own room, as it stands right now — SCHED-02. Reserves nothing. */
-  #capacity(): NodeCapacity {
-    return { slots: this.#slots, inFlight: this.#inFlight.size }
+  /**
+   * This node's own room, as it stands right now — SCHED-02. Reserves nothing.
+   *
+   * Takes the slot count rather than reading it, so that one decision is built from
+   * one reading of a figure that may move. A governor lowered between the comparison
+   * and the answer would otherwise let a node refuse `4 of 2` while publishing some
+   * third number — two answers to one question, from the same call.
+   */
+  #capacity(slots: number): NodeCapacity {
+    return { slots, inFlight: this.#inFlight.size }
   }
 
   /** The decision half, shared by `offer` and `would`. Mutates nothing. */
   #decide(offer: Offer): Admission {
+    // One reading of each moving figure, used for the comparison, the refusal
+    // string and the published capacity alike.
+    const slots = this.slots
+    const dutyCycle = this.#dutyCycleNow()
     // Every arm states the capacity, refusals included. The refusal strings
     // themselves are untouched: `over-committed: N of M slots in use` is
     // wire-visible and SCHED-06 requires it by name, so it stays composed in
@@ -548,18 +629,21 @@ export class LocalCapacity {
       return {
         accepted: false,
         reason: `${offer.shardId} is already in flight here`,
-        capacity: this.#capacity(),
+        capacity: this.#capacity(slots),
       }
     }
-    if (this.#inFlight.size >= this.#slots) {
-      const throttled = this.#dutyCycle < 1 ? ` at duty cycle ${this.#dutyCycle}` : ''
+    if (this.#inFlight.size >= slots) {
+      // The live duty cycle, not the one this object was built with. A node
+      // throttled after construction that named its original rate here would be
+      // explaining its refusal with a number that is no longer true.
+      const throttled = dutyCycle < 1 ? ` at duty cycle ${dutyCycle}` : ''
       return {
         accepted: false,
-        reason: `over-committed: ${this.#inFlight.size} of ${this.#slots} slots in use${throttled}`,
-        capacity: this.#capacity(),
+        reason: `over-committed: ${this.#inFlight.size} of ${slots} slots in use${throttled}`,
+        capacity: this.#capacity(slots),
       }
     }
-    return { accepted: true, capacity: this.#capacity() }
+    return { accepted: true, capacity: this.#capacity(slots) }
   }
 
   /** Return a slot. Unknown shard ids are ignored — releasing twice is harmless. */
