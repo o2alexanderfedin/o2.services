@@ -6,6 +6,7 @@ import type { Delegation, Executor, PublicKeyHex, Task } from '@o2/core'
 import { MODULE_WRITES_PARTITION } from '../../core/src/executor/fixtures.ts'
 import { describe, expect, it } from 'vitest'
 import { RemoteExecutor, RpcEndpoint, serveAgent } from './index.ts'
+import type { AuthorizedWork } from './index.ts'
 
 /**
  * AUTH-03, criterion 1's *dispatching* half — a chain minted at the requestor
@@ -104,11 +105,15 @@ function delegatedChain(): Delegation[] {
   return [first, second]
 }
 
-/** What an `Authorizer` is handed. Captured whole rather than field by field. */
-interface AuthorizeRequest {
-  readonly task: Task
-  readonly capability: readonly Delegation[]
-}
+/**
+ * What an `Authorizer` is handed. Captured whole rather than field by field.
+ *
+ * `AuthorizedWork` since 16-05, which widened the hook to a union so a combine reaches
+ * it too. Deliberately the exported type rather than a local restatement of the exec
+ * arm: a local copy would keep compiling if the production shape changed underneath it,
+ * which is the opposite of what capturing the request whole is for.
+ */
+type AuthorizeRequest = AuthorizedWork
 
 interface Fabric {
   readonly requestorRpc: RpcEndpoint

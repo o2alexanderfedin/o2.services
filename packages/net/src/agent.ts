@@ -60,9 +60,54 @@ export class RpcBlockSource implements BlockSource {
   }
 }
 
-/** Decides whether a dispatched task may run. Returning a string refuses it. */
+/**
+ * A combine, in the shape an `Authorizer` judges it in.
+ *
+ * These are the combine frame's four keys minus `kind` — addresses and the position
+ * they sit at in the tree, and deliberately nothing else, because that is all the
+ * frame carries (`protocol.ts`' `encodeRequest`). Kept as its own type rather than
+ * flattened into {@link AuthorizedWork} so the set of facts an authorizer may decide a
+ * combine on is one declaration a reader can check against the wire.
+ */
+export interface CombineWork {
+  readonly combineId: string
+  readonly inputCids: readonly CID[]
+  readonly level: number
+}
+
+/**
+ * What this node is being asked to do, handed to {@link Authorizer} before it does it.
+ *
+ * **A union rather than a `Task`, and that is the whole of the 16-05 fix.** The combine
+ * branch used to refuse outright whenever a node had a real `Authorizer`, on the stated
+ * grounds that *"`Authorizer` takes `{task, capability}` and a combine has no `Task`"*.
+ * That premise was true; the conclusion did not follow. A combine is a unit of work this
+ * node is asked to perform, so it belongs in front of the same hook — it just is not a
+ * `Task`, and saying so in the type is what lets it through without anything being
+ * invented on its behalf.
+ *
+ * The rejected alternative is worth naming, because it is the one that keeps this type
+ * unchanged and is therefore the tempting one: build a `Task` literal for the combine.
+ * `Task` requires `moduleCid`, `inputCid`, `partitionIndex` and `partitionCount`, and a
+ * combine has **none** of them — it runs the fabric's fixed `fabricCombiner` rather than
+ * a module, reads *many* inputs rather than one, and sits at a tree level rather than a
+ * partition. Every one of those four fields would have had to be fabricated, and an
+ * authorizer that later read one would be admitting or refusing on the strength of a CID
+ * naming nothing. A refusal that names the wrong thing is a defect in this repository
+ * even when the job correctly fails, so the type widened instead.
+ *
+ * `capability` is present on both arms and is **always empty** on the combine arm,
+ * because the combine frame carries no chain and there is nowhere on it to put one. That
+ * is a statement about this build's wire and not a claim that the chain was checked and
+ * found empty — see {@link CombineWork}.
+ */
+export type AuthorizedWork =
+  | { readonly kind: 'exec'; readonly task: Task; readonly capability: readonly Delegation[] }
+  | { readonly kind: 'combine'; readonly combine: CombineWork; readonly capability: readonly Delegation[] }
+
+/** Decides whether dispatched work may run. Returning a string refuses it. */
 export interface Authorizer {
-  (request: { readonly task: Task; readonly capability: readonly Delegation[] }): string | null
+  (request: AuthorizedWork): string | null
 }
 
 export interface AgentOptions {
@@ -256,8 +301,11 @@ function refusedReason(
  *    first input this node refuses ends the frame's cost at the inputs before it, so a
  *    frame naming 64 CIDs whose second is oversized costs two reads and not 64. That
  *    is a property of the loop's shape, and it is asserted in `combine.test.ts`.
- * 3. A node with a real `Authorizer` pays **zero** reads, because the refusal below
- *    happens before the loop is entered.
+ * 3. A node whose `Authorizer` refuses this combine pays **zero** reads, because that
+ *    refusal happens before the loop is entered. Until 16-05 this line said *"a node
+ *    with a real `Authorizer`"*, which was true only while every such node refused every
+ *    combine — the defect 16-05 removed. An authorizer that *admits* now pays the reads,
+ *    which is what bounds 1 and 2 above are for.
  *
  * What is **not** closed, stated rather than left to be inferred: a node serving
  * unauthenticated still answers up to `MAX_COMBINE_INPUTS` reads per frame, and each
@@ -278,24 +326,47 @@ async function runCombine(
   request: Extract<AgentRequest, { readonly kind: 'combine' }>,
   options: AgentOptions,
 ): Promise<AgentResponse> {
-  // Authorisation, before any block is read.
+  // Authorisation, before any block is read — the same ordering the `exec` branch
+  // states below (*"refusing after execution would already have run the module against
+  // the owner's data"*), for the combine's own version of that reason: refusing after
+  // the loop would already have made this node fetch, hash-verify and store every
+  // partial the frame named. The ordering is asserted, not just intended:
+  // `combine.test.ts` counts zero reads on a refusal.
   //
-  // `Authorizer` takes `{task, capability}` and a combine has no `Task`, so the
-  // existing hook cannot be consulted about one. The choice is therefore between
-  // serving combines unauthenticated on a node that authenticates everything else,
-  // and refusing — and refusing is the direction a gap should fail in.
+  // **This used to be a hard refusal, and removing it is 16-05.** The branch read
+  // `options.authorize !== 'serves-unauthenticated'` and answered *"combine requires a
+  // capability chain this build cannot verify"*, on the premise — written into its own
+  // comment — that *"every production call site passes the sentinel today, so this is a
+  // no-op now"*. Phase 15 falsified that premise by installing `authorizeCapability` at
+  // both `FabricNode` and `BrowserNode`, leaving only `bin/bench.ts` on the sentinel. So
+  // every combine on every real node was refused and the reduce had no production path
+  // at all. It also refused *because* a real authorizer was present, which made a
+  // production node strictly less capable than a test node — the inverse of this
+  // repository's rule that the only difference between nodes is discovery.
   //
-  // Every production call site passes the sentinel today, so this is a no-op now and
-  // becomes a real refusal the moment a node is given a real `Authorizer`. Closing it
-  // properly is **AUTH-03 (Phase 15)**: whatever capability shape `exec` gets, a
-  // combine should reuse it rather than grow a second admission path beside it. Named
-  // here so the person who closes AUTH-03 finds this line.
-  if (options.authorize !== 'serves-unauthenticated') {
-    return {
-      kind: 'combine',
-      resultCid: null,
-      reason: 'combine requires a capability chain this build cannot verify',
-    }
+  // Owner ruling 2026-07-31: route a combine through the same hook as everything else,
+  // which is what the old comment itself asked for — *"a combine should reuse it rather
+  // than grow a second admission path beside it"*.
+  const refusal =
+    options.authorize === 'serves-unauthenticated'
+      ? null
+      : options.authorize({
+          kind: 'combine',
+          combine: {
+            combineId: request.combineId,
+            inputCids: request.inputCids,
+            level: request.level,
+          },
+          // Empty because the frame carries no chain, not because one was checked.
+          capability: [],
+        })
+  if (refusal !== null) {
+    // `unauthorized: `, the same prefix the `exec` branch puts on this hook's refusal,
+    // so one authorizer's text reads identically whichever branch consulted it. The
+    // combine reply shape rather than an `error` frame, for the reason this function's
+    // header gives: `executeReduce`'s ranking walk consumes a `resultCid: null` as the
+    // signal to try the next executor, and an `error` would be read as a node condition.
+    return { kind: 'combine', resultCid: null, reason: `unauthorized: ${refusal}` }
   }
 
   const inputs: CanonicalValue[] = []
@@ -538,6 +609,7 @@ export function serveAgent(options: AgentOptions): void {
           options.authorize === 'serves-unauthenticated'
             ? null
             : options.authorize({
+                kind: 'exec',
                 task: request.task,
                 capability: request.capability ?? [],
               })

@@ -3,6 +3,7 @@ import type { Delegation, ExecutionOutcome, Executor, PublicKeyHex, Task } from 
 import { CID } from 'multiformats/cid'
 import { describe, expect, it } from 'vitest'
 import { RpcEndpoint, authorizeCapability, encodeRequest, parseResponse, serveAgent } from './index.ts'
+import type { AuthorizedWork } from './index.ts'
 
 /**
  * AUTH-03 — the first real `Authorizer` in the repository, proven in isolation.
@@ -75,6 +76,18 @@ const publicTask: Task = {
   label: 'public',
 }
 
+/**
+ * A dispatched task, in the shape `Authorizer` now takes.
+ *
+ * 16-05 widened that shape to a union so a combine could reach the same hook without a
+ * `Task` being fabricated for it. This helper keeps every case below reading as
+ * `(task, chain)`, so the widening changed how the calls are spelled and nothing about
+ * what they assert.
+ */
+function execWork(task: Task, capability: readonly Delegation[]): AuthorizedWork {
+  return { kind: 'exec', task, capability }
+}
+
 /** owner → this node, directly, valid at `NOW`. */
 function directChain(expiresAt = NOW + 60_000): Delegation[] {
   return [
@@ -99,15 +112,15 @@ describe('authorizeCapability — refusal precedence, as a pure function', () =>
       audience: AUDIENCE,
       now: frozen,
     })
-    expect(authorize({ task: publicTask, capability: [] })).toBeNull()
-    expect(authorize({ task: publicTask, capability: directChain() })).toBeNull()
+    expect(authorize(execWork(publicTask, []))).toBeNull()
+    expect(authorize(execWork(publicTask, directChain()))).toBeNull()
   })
 
   it('refuses every sovereign task when no owner key is pinned', () => {
     // Absence refuses; it never passes. A node that quietly accepted would be
     // indistinguishable from one that verified.
     const authorize = authorizeCapability({ ownerId: 'alice', audience: AUDIENCE, now: frozen })
-    const refusal = authorize({ task: sovereignTask, capability: directChain() })
+    const refusal = authorize(execWork(sovereignTask, directChain()))
     expect(refusal).not.toBeNull()
     expect(refusal).toContain('alice')
     expect(refusal).toContain('no pinned')
@@ -120,7 +133,7 @@ describe('authorizeCapability — refusal precedence, as a pure function', () =>
       audience: AUDIENCE,
       now: frozen,
     })
-    const refusal = authorize({ task: sovereignTask, capability: directChain() })
+    const refusal = authorize(execWork(sovereignTask, directChain()))
     expect(refusal).not.toBeNull()
     expect(refusal).toContain('alice')
     expect(refusal).toContain('bob')
@@ -140,9 +153,66 @@ describe('authorizeCapability — refusal precedence, as a pure function', () =>
     // Anything in this repository claiming that a *missing* link is named by index is
     // claiming a string `describeFailure` never produces. The index-naming half of
     // ROADMAP criterion 2 is met by the expired case below, never by this one.
-    expect(authorize({ task: sovereignTask, capability: [] })).toBe('no capability chain supplied')
+    expect(authorize(execWork(sovereignTask, []))).toBe('no capability chain supplied')
+  })
+
+  it('admits a combine from the same instance that refuses a sovereign exec', async () => {
+    // 16-05. Both readings come from **one** authorizer instance, which is the point:
+    // before 16-05 a combine never reached this function at all, and `serveAgent`
+    // refused it precisely *because* the node held one of these. The pairing is what
+    // says the two work kinds now share an admission path rather than sit on either
+    // side of a gate keyed on the node's configuration.
+    const authorize = authorizeCapability({ ownerId: 'alice', audience: AUDIENCE, now: frozen })
+
+    // The refusal is asserted by its text, not by its kind. A refusal that names the
+    // wrong thing is a defect in this repository even when the work correctly fails.
+    expect(authorize(execWork(sovereignTask, directChain()))).toBe(
+      'no pinned owner key for alice on this node',
+    )
+
+    // The same instance, asked about a combine over content-addressed partials: admitted
+    // under rule 1, the rule that admits a public exec, because a combine names no owner.
+    const combine: AuthorizedWork = {
+      kind: 'combine',
+      combine: { combineId: 'tree-node-a', inputCids: [FIXED_CID, FIXED_CID], level: 1 },
+      capability: [],
+    }
+    expect(authorize(combine)).toBeNull()
+  })
+
+  it('has no reachable sovereign-combine refusal on this build, and the wire is why', async () => {
+    // **A recorded gap, asserted rather than described.** The owner ruling asks that a
+    // sovereign combine with no chain be refused by the same code that refuses a
+    // sovereign exec. That code is rules 2-4 above and it is reached by `task.label ===
+    // 'sovereign'`. A combine cannot present that label, because the combine frame
+    // carries four keys — `kind`, `combineId`, `inputCids`, `level` — and no sovereignty
+    // label at all, by the deliberate rule in `protocol.ts` that *"a fifth key is how a
+    // payload would arrive, so there is deliberately nowhere to put one"*
+    // (`combine-wire.test.ts` holds that shape).
+    //
+    // So the sovereign arm is **unreachable for a combine on this build** — not
+    // permissive, unreachable. This case exists so that fact is a failing test the day
+    // the frame grows an owner, rather than a sentence in a summary nobody re-reads: if
+    // `CombineWork` ever gains a field that could carry sovereignty, this stops
+    // compiling and the refusal rules above have to be extended to it deliberately.
+    const combineKeys: (keyof AuthorizedWorkCombine['combine'])[] = ['combineId', 'inputCids', 'level']
+    expect(combineKeys).toEqual(['combineId', 'inputCids', 'level'])
+
+    // And the consequence, measured rather than asserted from the type: a node pinned to
+    // an owner, which refuses every sovereign exec, still admits every combine.
+    const authorize = authorizeCapability({ ownerId: 'alice', audience: AUDIENCE, now: frozen })
+    expect(
+      authorize({
+        kind: 'combine',
+        combine: { combineId: 'tree-node-a', inputCids: [FIXED_CID, FIXED_CID], level: 9 },
+        capability: [],
+      }),
+    ).toBeNull()
   })
 })
+
+/** The combine arm of `AuthorizedWork`, named so the case above can index its shape. */
+type AuthorizedWorkCombine = Extract<AuthorizedWork, { kind: 'combine' }>
 
 /**
  * A counting executor stub — the instrument the ordering claim is read off.

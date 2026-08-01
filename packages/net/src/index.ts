@@ -24,7 +24,7 @@ export { RemoteExecutor } from './remote-executor.ts'
 export type { CapabilitySupplier } from './remote-executor.ts'
 
 export { RpcBlockSource, serveAgent } from './agent.ts'
-export type { AgentOptions, Authorizer } from './agent.ts'
+export type { AgentOptions, AuthorizedWork, Authorizer, CombineWork } from './agent.ts'
 
 // AUTH-03 — the first real `Authorizer`: a chain verified against a pinned owner key.
 export { authorizeCapability } from './capability-authorizer.ts'

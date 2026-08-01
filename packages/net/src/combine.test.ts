@@ -10,6 +10,7 @@ import type { Blockstore, CanonicalValue, Executor } from '@o2/core'
 import { CID } from 'multiformats/cid'
 import { describe, expect, it } from 'vitest'
 import { RpcBlockSource, serveAgent } from './agent.ts'
+import type { AuthorizedWork, Authorizer } from './agent.ts'
 import { FetchingBlockstore } from './block.ts'
 import { remoteCombineDispatch } from './combine.ts'
 import { EgressGuard } from './egress.ts'
@@ -292,47 +293,135 @@ class CountingBlockstore implements Blockstore {
   }
 }
 
-describe('AUTH-03 — a node that authorizes exec refuses combine before reading a block', () => {
-  it('refuses with a stated reason, and never calls get', async () => {
-    const network = new MemoryNetwork()
-    const store = new MemoryBlockstore()
-    const aCid = await putValue(store, partial('alpha'))
-    const bCid = await putValue(store, partial('beta'))
-    // Wrapped *after* the fixtures are in, so the count covers the handler alone.
-    const counting = new CountingBlockstore(store)
+/**
+ * A node holding a real `Authorizer`, with a blockstore that counts reads.
+ *
+ * The counting wrapper goes on *after* the fixtures are in, so `gets` covers the
+ * handler alone and nothing the test itself did to set up.
+ */
+async function authorizingNode(authorize: Authorizer) {
+  const network = new MemoryNetwork()
+  const store = new MemoryBlockstore()
+  const a = partial('alpha')
+  const b = partial('beta')
+  const aCid = await putValue(store, a)
+  const bCid = await putValue(store, b)
+  const counting = new CountingBlockstore(store)
 
-    const serverRpc = new RpcEndpoint(network.connect('w0'), { timeoutMs: 5_000 })
-    serveAgent({
-      ...SENTINELS,
-      rpc: serverRpc,
-      executor: inertExecutor('w0'),
-      blockstore: counting,
-      // A real Authorizer rather than the sentinel. What it *returns* is irrelevant:
-      // the combine branch cannot consult it at all, because `Authorizer` takes a
-      // `Task` and a combine has none.
-      authorize: () => null,
-    })
+  const serverRpc = new RpcEndpoint(network.connect('w0'), { timeoutMs: 5_000 })
+  serveAgent({ ...SENTINELS, rpc: serverRpc, executor: inertExecutor('w0'), blockstore: counting, authorize })
 
-    const client = new RpcEndpoint(network.connect('client'), { timeoutMs: 5_000 })
+  const client = new RpcEndpoint(network.connect('client'), { timeoutMs: 5_000 })
+  const askCombine = async () =>
+    parseResponse(
+      await client.request(
+        'w0',
+        encodeRequest({ kind: 'combine', combineId: 'tree-node-a', inputCids: [aCid, bCid], level: 1 }),
+      ),
+    )
+
+  return {
+    counting,
+    inputs: [a, b] as const,
+    askCombine,
+    close: () => {
+      client.close()
+      serverRpc.close()
+    },
+  }
+}
+
+/**
+ * AUTH-03 / 16-05 — a combine goes through `options.authorize`, like every other request.
+ *
+ * **What this describe replaced, because the record matters more than the diff.** Until
+ * 16-05 it held one case asserting that a node with a real `Authorizer` *refuses* every
+ * combine, with the text `'combine requires a capability chain this build cannot verify'`
+ * — and 16-02 mutation-tested that refusal with this same counting blockstore. The
+ * refusal was written on the premise that every production call site passed the
+ * `'serves-unauthenticated'` sentinel, so refusing cost nothing. Phase 15 falsified the
+ * premise: both `FabricNode` and `BrowserNode` install `authorizeCapability`, so the
+ * refusal fired on every real node and the reduce had no production path. Owner ruling
+ * 2026-07-31 routes a combine through the same hook instead.
+ *
+ * The two properties below are what replaced it, and they are the pair: **the hook is
+ * consulted** (a refusing authorizer refuses the combine, in its own words) and **the
+ * hook is obeyed** (an admitting authorizer gets a real combine, not a silent refusal).
+ * Either one alone is passed by a build that ignores `authorize` on this branch.
+ */
+describe('AUTH-03 / 16-05 — a combine is admitted or refused by the node`s own Authorizer', () => {
+  it('performs the combine when the authorizer admits it', async () => {
+    const node = await authorizingNode(() => null)
     try {
-      const reply = parseResponse(
-        await client.request(
-          'w0',
-          encodeRequest({ kind: 'combine', combineId: 'tree-node-a', inputCids: [aCid, bCid], level: 1 }),
-        ),
-      )
+      const reply = await node.askCombine()
+
+      // The reference is computed here, from the production combiner, so this asserts a
+      // combine actually happened rather than merely that nothing said no.
+      const reference = await canonicalCid(fabricCombiner([...node.inputs]))
+      expect(reference.ok).toBe(true)
+      if (!reference.ok) return
+
+      expect(reply?.kind).toBe('combine')
+      if (reply?.kind !== 'combine') return
+      expect(reply.reason).toBe('')
+      expect(reply.resultCid?.toString()).toBe(reference.cid.toString())
+      // Reads happen now, where before 16-05 the refusal made them zero. Asserted so
+      // the two cases cannot both be satisfied by a handler that never reads at all.
+      expect(node.counting.gets).toBeGreaterThanOrEqual(2)
+    } finally {
+      node.close()
+    }
+  })
+
+  it('returns the authorizer`s own refusal text, and never calls get', async () => {
+    // The text is the authorizer's, verbatim under the `unauthorized: ` prefix the
+    // `exec` branch also uses. Asserted with `toBe` rather than `toContain`: a handler
+    // that composed its own message — which is what the deleted gate did — fails here
+    // even though the combine still correctly fails.
+    const node = await authorizingNode(() => 'no pinned owner key for owner-1 on this node')
+    try {
+      const reply = await node.askCombine()
 
       expect(reply?.kind).toBe('combine')
       if (reply?.kind !== 'combine') return
       expect(reply.resultCid).toBeNull()
-      expect(reply.reason).toBe('combine requires a capability chain this build cannot verify')
-      // The ordering is the requirement. Refusing after fetching would already have
-      // made the peer do the work the refusal exists to prevent — and moving the
-      // check below the loop passes the reason assertion above while failing this.
-      expect(counting.gets).toBe(0)
+      expect(reply.reason).toBe('unauthorized: no pinned owner key for owner-1 on this node')
+      // The ordering is the requirement, and it is the one property the deleted gate
+      // got right: refusing after fetching would already have made the peer do the work
+      // the refusal exists to prevent. Moving the check below the loop passes the reason
+      // assertion above while failing this.
+      expect(node.counting.gets).toBe(0)
     } finally {
-      client.close()
-      serverRpc.close()
+      node.close()
+    }
+  })
+
+  it('hands the authorizer the combine`s own addresses, and no fabricated task', async () => {
+    // What the hook is *told* is load-bearing, because an authorizer decides on it. A
+    // combine has no `moduleCid`, no single `inputCid`, no partition index and no
+    // partition count, so `AuthorizedWork` gives it a `combine` arm rather than a `Task`
+    // literal with four invented fields. This pins that: the arm is discriminated, and
+    // it carries the frame's own three keys.
+    const seen: AuthorizedWork[] = []
+    const node = await authorizingNode((request) => {
+      seen.push(request)
+      return null
+    })
+    try {
+      await node.askCombine()
+
+      expect(seen).toHaveLength(1)
+      const work = seen[0]
+      expect(work?.kind).toBe('combine')
+      if (work?.kind !== 'combine') return
+      expect(work.combine.combineId).toBe('tree-node-a')
+      expect(work.combine.level).toBe(1)
+      expect(work.combine.inputCids).toHaveLength(2)
+      // Empty because the frame carries no chain — not because one was checked and
+      // found empty. `agent.ts`' `AuthorizedWork` records which of the two this is.
+      expect(work.capability).toEqual([])
+    } finally {
+      node.close()
     }
   })
 })

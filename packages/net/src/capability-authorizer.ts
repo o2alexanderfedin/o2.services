@@ -43,8 +43,8 @@
  */
 
 import { verifyChain } from '@o2/core'
-import type { Delegation, OwnerId, PublicKeyHex, Task } from '@o2/core'
-import type { Authorizer } from './agent.ts'
+import type { OwnerId, PublicKeyHex } from '@o2/core'
+import type { AuthorizedWork, Authorizer } from './agent.ts'
 
 export interface CapabilityAuthorizerOptions {
   /** The owner this node is pinned to. */
@@ -74,7 +74,31 @@ export interface CapabilityAuthorizerOptions {
  * Precedence, in this order, every refusal naming the owner or the link.
  */
 export function authorizeCapability(options: CapabilityAuthorizerOptions): Authorizer {
-  return (request: { readonly task: Task; readonly capability: readonly Delegation[] }) => {
+  return (request: AuthorizedWork) => {
+    // 0. A combine is admitted under rule 1, not under a rule of its own.
+    //
+    // This arm is what 16-05 added, and what it replaced is worth stating: `serveAgent`
+    // used to refuse every combine outright on any node holding a real `Authorizer`,
+    // which meant every combine on every `FabricNode` and `BrowserNode`. The reduce had
+    // no production path.
+    //
+    // Admitted for rule 1's reason, applied unchanged to the other kind of work: a
+    // combine reads content-addressed partials, names no owner and carries no
+    // sovereignty label, so — exactly as for a public task — there is no root key for a
+    // chain to be rooted at, and demanding one would mean inventing an owner to root it
+    // at.
+    //
+    // **What this deliberately does not claim.** It is not a finding that a combine is
+    // inherently public. It is a reading of what the combine frame carries, which is
+    // four keys of addresses and a tree position and no sovereignty label at all
+    // (`protocol.ts`: *"a fifth key is how a payload would arrive, so there is
+    // deliberately nowhere to put one"*). A sovereign combine is therefore not
+    // expressible on this build rather than permitted by it, and no test can construct
+    // one to watch this line refuse. **When the frame grows an owner, this is the line
+    // that changes** — and the rules below already say what it should then do, which is
+    // why they are reached through the same function rather than copied into a second.
+    if (request.kind === 'combine') return null
+
     const { task } = request
 
     // 1. A public task is never asked for a chain.
