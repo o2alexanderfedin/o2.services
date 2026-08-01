@@ -54,3 +54,17 @@ supplementary line (`skewed.makespan.p50`). It costs wall-clock, not correctness
 30 s timeout that fires under load *could* silently turn a measured rung into an
 em-dashed one, so a future run that reports unexpected em dashes should suspect this
 before suspecting the fabric.
+
+**Symptom 1 reproduced independently, 16-05 (2026-08-01, load 6.77 on 8 cores.)** A full
+run wrote its artifact and every leg completed — including the skewed leg, so symptom 2
+did **not** appear at this load — and the process was still alive afterwards with all its
+work done. It had to be SIGTERMed. Two things this adds to the entry above:
+
+- Symptom 1 survives the 16-05 combine fix, so nothing about the refused real-transport
+  reduce was keeping the loop referenced. That was a live possibility while every combine
+  on that ladder was failing, and it is now ruled out.
+- It is the **symptom that reproduces**; symptom 2 has now been absent at loads 5.58 and
+  6.77 and present at 8.35, which is consistent with the contention explanation above and
+  is not further evidence for it.
+
+Still Phase 23's, unchanged.
