@@ -8,6 +8,7 @@
   },
   "scripts": {
     "build:kernel": "node scripts/build-kernel.mjs",
+    "build:primes": "node scripts/build-primes.mjs",
     "sign:kernel": "node scripts/sign-kernel.ts"
   },
   "dependencies": {
