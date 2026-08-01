@@ -71,3 +71,23 @@ export {
   readPartial,
 } from './job.ts'
 export type { PartialStatus, ShardPartial } from './job.ts'
+
+// The prime-counting workload — a second guest module, sharing the same four-function
+// host ABI and the same publish-time determinism argument.
+//
+// It is here rather than in a package of its own because it is the same *kind* of
+// thing as the colouring job: a deterministic integer guest plus the host code that
+// builds its input and reads its output. What it adds is an oracle this project did
+// not write. The colouring answer is checked by `verifyColouring`, which shares an
+// author with the fabric; π(x) was tabulated in the mathematical literature long
+// before this repository existed, so a wrong answer cannot talk it into agreeing.
+export {
+  PRIME_COUNT_BYTES,
+  PRIME_COUNT_KEY,
+  PRIME_INPUT_VERSION,
+  PRIME_MAX_N,
+  buildPrimesInput,
+  primesKernelBytes,
+  projectPrimeCount,
+  readPrimeCount,
+} from './primes.ts'
