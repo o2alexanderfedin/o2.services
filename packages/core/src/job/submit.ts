@@ -20,6 +20,8 @@ import type { CID } from 'multiformats/cid'
 import { canonicalCid } from '../canonical/encode.ts'
 import type { CanonicalValue } from '../canonical/encode.ts'
 import type { NameRecord } from '../naming.ts'
+import { planWithOffers } from '../placement.ts'
+import type { AdmissionControl, Rejection } from '../placement.ts'
 import type { Blockstore, Executor, Task } from '../ports.ts'
 import { planPlacement } from '../sovereignty.ts'
 import type { NodeDescriptor, OwnerId, Placement, PlacementRequest } from '../sovereignty.ts'
@@ -73,6 +75,50 @@ export interface JobSpec {
    * failing the job — see `ShardResult.degraded`.
    */
   readonly redundancy: number
+  /**
+   * Consulted before a shard is placed on a node — SCHED-02, SCHED-03.
+   *
+   * **Present** means every shard is placed by `planWithOffers`: sample `d`
+   * candidates by rendezvous rank, take the least-loaded of the sample, offer, and
+   * re-pick on refusal, bounded across the shards of this job by what each node
+   * published about its own room. **Absent** means `planPlacement` as before — order
+   * every eligible node by load and take the best.
+   *
+   * ## Criterion 5 holds on both arms, and is not what chooses between them
+   *
+   * `placeWithOffers` calls `eligibleNodes` as its first act (`placement.ts:230`) and
+   * `planPlacement` calls the same function first (`sovereignty.ts:169`). That
+   * function is exported *"so that there is exactly one of it"*
+   * (`sovereignty.ts:124-128`). So sovereignty is filtered before cost is scored on
+   * both arms, because on both arms it is filtered by the same line — and a reader
+   * looking for the arm that is "the safe one" will not find it, because neither is.
+   *
+   * ## They are alternatives, and are never composed
+   *
+   * `planPlacement` returns `ordered.slice(0, redundancy)` (`sovereignty.ts:185`), so
+   * feeding its output into `placeWithOffers` would hand the offer loop a pool already
+   * narrowed to exactly the nodes it chose — leaving **nothing to re-pick onto**,
+   * which is the one behaviour the offer arm exists to have. It would also score cost
+   * twice. This is written down because "compose them" is the obvious next idea and it
+   * silently removes the re-pick.
+   *
+   * ## Why optional here is not a hole
+   *
+   * In the terms `moduleRecord`'s doc above already uses on this same interface:
+   * `submitJob` runs in the **requestor's own process**. A requestor that omits this
+   * is not attacking anybody — it places without probing, which is what every caller
+   * in this repository did before this phase. The bound that binds a *peer* is the
+   * serving node's own `LocalCapacity` on `serveAgent`'s `exec` branch, which is
+   * unconditional, authoritative, and unaffected by anything a requestor supplies or
+   * omits. The absence is also *asserted* rather than reached by omission — see
+   * *"a caller that made no offers gets an empty refusal list"* in `submit.test.ts`.
+   *
+   * ## The limit, in one sentence
+   *
+   * A requestor that supplies this bounds **itself**; a dishonest one still
+   * over-commits and is refused for real at `exec`.
+   */
+  readonly admit?: AdmissionControl
 }
 
 export interface ShardResult {
@@ -88,6 +134,20 @@ export interface ShardResult {
    * silently tolerated.
    */
   readonly degraded: boolean
+  /**
+   * The refusals collected on the way to placing this shard, in order, each in the
+   * refusing node's own words — SCHED-03.
+   *
+   * `[]` for a caller that supplied no `JobSpec.admit`, and that is a **truthful
+   * answer rather than a default**: no offer was made, so nothing refused. It is also
+   * `[]` for a shard held back by the cross-shard headroom bound, for the same reason
+   * — a node held back was never asked, so it never refused (`placement.ts`'s
+   * `planWithOffers` composes that reason on the placement, never on a `Rejection`).
+   *
+   * Populated on the placed and unplaceable arms alike: a shard nobody would take is
+   * the case where knowing *why* matters most.
+   */
+  readonly rejections: readonly Rejection[]
 }
 
 export interface JobResult {
@@ -202,39 +262,70 @@ export async function submitJob(
     inputCids.push(encoded.cid)
   }
 
-  // Placement pass — sequential and synchronous; only execution below needs
-  // concurrency. `dispatchCount` spreads shards across a public job's node set
-  // the way the old round-robin did, by nudging the load `planPlacement` orders
-  // on — it can never widen who is *eligible*, only reorder who is chosen first
-  // among already-eligible nodes.
-  const dispatchCount = new Map<string, number>()
+  // Placement pass — TWO ARRANGEMENTS OF ONE GATE, selected by whether the caller
+  // supplied a way to ask a node anything. What the two arms share is the whole of
+  // the rule: both build their `PlacementRequest`s through the same `requestFor`,
+  // both hand them to a placer whose first act is `eligibleNodes`, and neither
+  // re-derives who could run a shard — this module's standing rule, stated at
+  // :11-14. What differs is only how an already-eligible set is narrowed to a
+  // choice. They are alternatives and are never composed; `JobSpec.admit`'s doc
+  // carries the line that makes composing them lose the re-pick.
   const shardPlacements: Placement[] = []
-  for (let i = 0; i < partitionCount; i++) {
-    const shard = spec.shards[i] as ShardSpec
-    const request = requestFor(shard, String(i), spec.redundancy)
-    const nodesForShard = candidateNodes.map((n) => ({
-      ...n,
-      load: n.load + (dispatchCount.get(n.nodeId) ?? 0),
-    }))
-    const plan = planPlacement([request], nodesForShard)
-    const placement = plan.placements[0] as Placement
-    if (placement.status === 'placed') {
-      for (const nodeId of placement.nodeIds) {
-        dispatchCount.set(nodeId, (dispatchCount.get(nodeId) ?? 0) + 1)
+  // One empty list per shard. On the no-offer arm that is what survives, and it is a
+  // truthful reading rather than a default: no offer was made, so nothing refused.
+  let shardRejections: readonly (readonly Rejection[])[] = spec.shards.map(() => [])
+
+  if (spec.admit === undefined) {
+    // Sequential and synchronous; only execution below needs concurrency.
+    // `dispatchCount` spreads shards across a public job's node set the way the old
+    // round-robin did, by nudging the load `planPlacement` orders on — it can never
+    // widen who is *eligible*, only reorder who is chosen first among
+    // already-eligible nodes.
+    const dispatchCount = new Map<string, number>()
+    for (let i = 0; i < partitionCount; i++) {
+      const shard = spec.shards[i] as ShardSpec
+      const request = requestFor(shard, String(i), spec.redundancy)
+      const nodesForShard = candidateNodes.map((n) => ({
+        ...n,
+        load: n.load + (dispatchCount.get(n.nodeId) ?? 0),
+      }))
+      const plan = planPlacement([request], nodesForShard)
+      const placement = plan.placements[0] as Placement
+      if (placement.status === 'placed') {
+        for (const nodeId of placement.nodeIds) {
+          dispatchCount.set(nodeId, (dispatchCount.get(nodeId) ?? 0) + 1)
+        }
       }
+      shardPlacements.push(placement)
     }
-    shardPlacements.push(placement)
+  } else {
+    // `d` is deliberately not a `JobSpec` field: `placeWithOffers` defaults to
+    // `DEFAULT_D`, and what SCHED-02 asks is that placement sample *multiple*
+    // candidates — which two is. A knob nobody sets is a knob that drifts from the
+    // tests. There is no `dispatchCount` nudge here either: the offer arm's spread
+    // comes from the per-shard rendezvous ranking and from the headroom each node
+    // published, both of which are better information than a local tally.
+    const requests = spec.shards.map((shard, i) => requestFor(shard, String(i), spec.redundancy))
+    const offered = await planWithOffers(requests, candidateNodes, { admit: spec.admit })
+    shardRejections = offered.map((placement) => placement.rejections)
+    for (const placement of offered) shardPlacements.push(placement)
   }
 
   const shards = await Promise.all(
     inputCids.map(async (inputCid, partitionIndex): Promise<ShardResult> => {
       const placement = shardPlacements[partitionIndex] as Placement
+      const rejections = shardRejections[partitionIndex] as readonly Rejection[]
       if (placement.status === 'unplaceable') {
         return {
           partitionIndex,
           inputCid,
+          // The reason reaches the caller exactly as an unplaceable shard's always
+          // has; what is new is that the refusals that produced it are visible
+          // beside it, so "nobody would take it" is distinguishable from "there was
+          // nobody".
           verification: { status: 'insufficient', reason: placement.reason, failures: [] },
           degraded: false,
+          rejections,
         }
       }
 
@@ -270,7 +361,7 @@ export async function submitJob(
         const out = await canonicalCid(verification.output)
         if (out.ok) await blockstore.put(out.bytes)
       }
-      return { partitionIndex, inputCid, verification, degraded: placement.degraded }
+      return { partitionIndex, inputCid, verification, degraded: placement.degraded, rejections }
     }),
   )
 
