@@ -1,6 +1,6 @@
 import { spawn } from 'node:child_process'
 import type { ChildProcessByStdio } from 'node:child_process'
-import type { Readable } from 'node:stream'
+import type { Readable, Writable } from 'node:stream'
 import { mkdtemp, readdir, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -96,8 +96,15 @@ function keypair(seed: number): { priv: Uint8Array; pub: string } {
 const publisher = keypair(54)
 const impostor = keypair(55)
 
-/** stdin is `ignore`d, so the child's type carries `null` for it. */
-type AgentProcess = ChildProcessByStdio<null, Readable, Readable>
+/**
+ * stdin is piped and never written to, so the child's type carries a `Writable` for it.
+ *
+ * The pipe is the point rather than the type: `bin/agent.ts` watches fd 0 and leaves when
+ * it closes, which is what stops a spawned agent outliving a parent that was killed rather
+ * than asked. Handing it `ignore` would put `/dev/null` on fd 0 and silently opt this file
+ * out. See `orphan-leash.node.test.ts`, which demonstrates it and guards this line.
+ */
+type AgentProcess = ChildProcessByStdio<Writable, Readable, Readable>
 
 /**
  * The whole parsed handshake, not just the two fields the other spawn files keep.
@@ -138,7 +145,7 @@ const nodes: FabricNode[] = []
 async function spawnAgent(name: string, extraArgs: readonly string[] = []): Promise<Agent> {
   const dir = join(workdir, name)
   const child: AgentProcess = spawn(process.execPath, [AGENT, '--dir', dir, ...extraArgs], {
-    stdio: ['ignore', 'pipe', 'pipe'],
+    stdio: ['pipe', 'pipe', 'pipe'],
   })
 
   const handshake = await new Promise<Handshake>((resolve, reject) => {
