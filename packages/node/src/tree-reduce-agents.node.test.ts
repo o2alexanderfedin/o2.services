@@ -78,11 +78,12 @@ import { FsBlockstore } from './fs-blockstore.ts'
  *
  * ---
  *
- * **READ THIS BEFORE READING THE SKIPPED TEST BELOW.**
+ * **HISTORY. Nothing below is skipped and all three criteria pass — this section records
+ * why they did not, because the defect is more instructive than the fix.**
  *
- * Criteria 1, 2 and 3 are **NOT MET**, and they are not met for a reason this file is the
- * first thing in the repository to be able to see: **`runCombine` refuses every combine
- * on every real node.** `packages/net/src/agent.ts` gates the combine branch on
+ * Written when criteria 1, 2 and 3 were **NOT MET**, for a reason this file was the
+ * first thing in the repository able to see: **`runCombine` refused every combine
+ * on every real node.** `packages/net/src/agent.ts` gated the combine branch on
  * `options.authorize !== 'serves-unauthenticated'`, and both real node classes —
  * `FabricNode` (`packages/node/src/fabric-node.ts:764`) and `BrowserNode`
  * (`packages/browser/src/browser-node.ts:616`) — hardcode a real
@@ -102,23 +103,30 @@ import { FsBlockstore } from './fs-blockstore.ts'
  * "does this node have an authorizer at all" — rather than on the mechanism, and a fabric
  * cheaper than the real one could not observe it.
  *
- * Opening the gate is an admission-policy decision, not a test fix: it would delete a
+ * Opening the gate was an admission-policy decision, not a test fix: it deleted a
  * refusal Plan 16-02 asserted deliberately and proved able to fail
- * (`packages/net/src/combine.test.ts:328`, with a counting blockstore showing zero reads
- * precede it). This plan therefore **measures the blocker and stops**, rather than
- * changing an auth path in another plan's file. The measurement is the first `describe`
- * below and it passes; the criterion is the second and it is skipped, loudly, so that a
- * reader cannot mistake an unmeasured criterion for a met one.
+ * (`packages/net/src/combine.test.ts`, with a counting blockstore showing zero reads
+ * precede it). Plan 16-03 therefore **measured the blocker and stopped**, rather than
+ * changing an auth path in another plan's file, and left the criteria skipped so a
+ * reader could not mistake an unmeasured criterion for a met one.
  *
- * **When the gate is opened, the first `describe` goes red.** That is the intended
- * direction: whoever opens it deletes that measurement and removes the three `.skip`s
- * below in the same change.
+ * **The owner ruled on 2026-07-31: route combine through the same `Authorizer` as
+ * `exec`.** Plan 16-05 did so, removed the three `.skip`s, and deleted the
+ * blocker-measurement `describe` that this gate made meaningful. **Two limits of that
+ * fix are recorded at `agent.ts` rather than here**, because that is where they would
+ * change: a combine presents no `Task`-shaped value, so `Authorizer` widened to a union;
+ * and the combine frame carries no sovereignty label, so `authorizeCapability` admits
+ * every combine today. Verification measured the consequence — no node this repository
+ * can start is able to refuse one — and recorded it as an open finding, not a closed one.
  *
- * **The skipped tests are not speculative — all three were run and all three passed.**
- * With the gate opened locally (and only locally; the opened gate was restored
- * byte-exact and is not in this commit), criterion 1 passed in 1491 ms, criterion 2 in
- * 1606 ms and criterion 3 in 1867 ms. Six mutations were then planted one at a time on
- * top of the opened gate and each was watched failing against a different assertion:
+ * **The criteria below were never speculative.** 16-03 ran all three against a locally
+ * opened gate (restored byte-exact, not committed): 1491 ms, 1606 ms, 1867 ms. 16-05 then
+ * measured 1495 / 1518 / 2004 ms with the gate genuinely removed, and verification
+ * reproduced the pre-fix failure by restoring the gate — all four red, criterion 1 at
+ * `expected +0 to be 3`. Three independent readings, no assertion adjusted between them.
+ *
+ * Six mutations were planted one at a time on top of the opened gate, each watched
+ * failing against a different assertion:
  *
  * | Mutation | Where | Assertion it turned red | Reading |
  * |---|---|---|---|
