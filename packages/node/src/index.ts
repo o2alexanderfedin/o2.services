@@ -16,6 +16,9 @@ export type { FabricNodeOptions, RelayCapacity } from './fabric-node.ts'
 
 export { FsBlockstore } from './fs-blockstore.ts'
 
+// AUTH-01 — the identity seed, persisted beside the blocks.
+export { IDENTITY_FILE, MalformedSeedFileError, PROVIDER_FILE, hasSeed, loadOrCreateSeed } from './identity-store.ts'
+
 // The Node tier's killable compute thread — SCHED-06, BROW-04's other half.
 export { workerThread } from './worker-thread.ts'
 
