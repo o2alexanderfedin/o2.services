@@ -631,33 +631,46 @@ export function serveAgent(options: AgentOptions): void {
       // branch would fill every peer's slot table with a shard named `probe` and
       // then refuse all real work.
       //
-      // *What is lost.* `placeWithOffers` removes a probed candidate from the
-      // pool for **one** shard, and `pool` is rebuilt per request, so across
-      // shards the only thing that made wire-side placement over-commit-safe was
-      // the reservation — `planWithOffers`' own comment in `@o2/core` says
-      // exactly that. With `would()` reserving nothing, `planWithOffers` +
-      // `rpcAdmission` will place all N shards of a job on one node with
-      // `maxConcurrent: 1`. **Wire-side multi-shard over-commit protection is
-      // removed by this change and is Phase 18's to rebuild.** `discovery.test.ts`
-      // pins the consequence so it is visible rather than silent. The two
-      // candidate mechanisms, so the next reader need not rediscover them: carry
-      // the shard id on the `exec` request so an offer reservation can be
-      // redeemed and released, or publish the node's slot count in the `offer`
-      // response so a requestor can keep its own tally across a placement
-      // generation. Both are protocol changes; this phase makes neither.
+      // *What was lost, and what Phase 18 did about it.* `placeWithOffers`
+      // removes a probed candidate from the pool for **one** shard, and `pool` is
+      // rebuilt per request, so across shards the only thing that made wire-side
+      // placement over-commit-safe was the reservation. With `would()` reserving
+      // nothing, `planWithOffers` + `rpcAdmission` placed all N shards of a job on
+      // one node with `maxConcurrent: 1`, and `discovery.test.ts` pinned that
+      // consequence so it stayed visible rather than silent.
       //
-      // *Why it is still right now.* The node-side bound is what SCHED-06 asks
+      // Two candidate mechanisms were recorded here. **Phase 18 took the second**
+      // (owner ruling D2, 2026-08-01): this response publishes the node's slot
+      // count and in-flight count, and the requestor keeps its own tally across a
+      // placement generation. It reserves nothing, so there is no reservation to
+      // leak and no expiry to manage.
+      //
+      // **The first was rejected**, and the reason is the paragraph above: carrying
+      // a shard id on `exec` so an offer reservation could be redeemed is exactly
+      // what Phase 13.1 removed. Restoring it needs a reservation expiry, a
+      // wall-clock bound inside admission, and a way to tell a liveness probe from
+      // a real offer — three new mechanisms where D2 needs one field. Do not
+      // re-propose it.
+      //
+      // *Why `would` is still right.* The node-side bound is what SCHED-06 asks
       // for, and it is the only one that binds a peer which never probes at all.
-      // The requestor-side bound was advisory even before this change — nothing
-      // forces a requestor to probe.
+      // The requestor-side bound is advisory and always was — nothing forces a
+      // requestor to probe, or to believe what it reads. What D2 removes is wasted
+      // round trips, not the bound.
       const decision =
         options.capacity === 'accepts-every-offer'
           ? undefined
           : options.capacity.would({ shardId: request.shardId, nodeId: executor.nodeId })
+      // A node with no counters to read states nothing rather than inventing a
+      // figure. `LocalCapacity` always states one, on both arms.
+      const stated =
+        decision === undefined || decision.capacity === 'states-no-capacity'
+          ? null
+          : decision.capacity
       response =
         decision === undefined || decision.accepted
-          ? { kind: 'offer', accepted: true, reason: '' }
-          : { kind: 'offer', accepted: false, reason: decision.reason }
+          ? { kind: 'offer', accepted: true, reason: '', capacity: stated }
+          : { kind: 'offer', accepted: false, reason: decision.reason, capacity: stated }
     } else if (request.kind === 'combine') {
       // MR-03 / MR-05 / MR-06. A plain body, not an `RpcReply` — see `runCombine`'s
       // header for why a combine has no egress hold to give back, and for this

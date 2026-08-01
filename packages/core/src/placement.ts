@@ -65,10 +65,71 @@ export interface Rejection {
   readonly reason: string
 }
 
-/** What a node answers when offered work. A refusal must say why. */
+/**
+ * What a node says about its own room, in the answer to an offer — SCHED-02.
+ *
+ * Two integers the node already had. `LocalCapacity` exposes both as getters and
+ * neither is computed for this purpose, so publishing them costs a node nothing.
+ *
+ * ## What it is for
+ *
+ * Owner ruling D2. A requestor bounds **its own** placement across shards from it.
+ * Before it, `placeWithOffers` shrank its pool within one shard only and
+ * `planWithOffers` rebuilt that pool per request, so N shards of one job could all
+ * land on a one-slot node — which `net/src/discovery.test.ts` pinned as a recorded
+ * consequence of Phase 13.1, and which is now an assertion of the bound.
+ *
+ * ## It is advisory, and the word is not decoration
+ *
+ * **Nothing is reserved by answering.** A requestor that ignores this figure, or
+ * lies to itself about it, still over-commits — and is refused for real by the
+ * `exec` branch's SCHED-06 admission (`net/src/agent.ts`), which reserves, releases
+ * in a `finally`, and is the authoritative bound. That bound did not move. What D2
+ * removes is wasted round trips, not the bound. Any prose describing this as
+ * *preventing* over-commit is wrong wherever it appears.
+ *
+ * ## Why not a shard id on `exec`
+ *
+ * The other candidate was carrying a shard id on the exec request so that an offer
+ * reservation could be redeemed. That is precisely what Phase 13.1 **removed**: an
+ * offer reservation had no release anywhere on the wire, and the demo's liveness
+ * probe leaked one slot per peer per call, permanently. Restoring it needs a
+ * reservation expiry, a wall-clock bound inside admission, and a way to tell a probe
+ * from a real offer — three new mechanisms where this needs one field. Recorded here
+ * so it is not re-proposed.
+ *
+ * ## `inFlight` is read before this offer's own effect
+ *
+ * So two answers compose: a caller may subtract what it placed without
+ * double-counting its own reservation.
+ */
+export interface NodeCapacity {
+  /** Units of work this node will hold at once, at its current duty cycle. */
+  readonly slots: number
+  /** Units it is holding right now, read before this offer's own effect. */
+  readonly inFlight: number
+}
+
+/**
+ * What a node answers when offered work. A refusal must say why.
+ *
+ * Both arms carry a capacity, or the stated absence of one. A refusal that did not
+ * say how full is a refusal a requestor cannot plan around: it learns that this
+ * shard did not fit, and nothing about whether the next one would.
+ *
+ * `'states-no-capacity'` is a **named absence**, not a default. A requestor that
+ * learned nothing bounds nothing — it must not invent a figure, and it must not
+ * assume the node is full. Assuming full would make every node running an older
+ * build invisible to a node running this one: a fabric that partitions itself on an
+ * upgrade.
+ */
 export type Admission =
-  | { readonly accepted: true }
-  | { readonly accepted: false; readonly reason: string }
+  | { readonly accepted: true; readonly capacity: NodeCapacity | 'states-no-capacity' }
+  | {
+      readonly accepted: false
+      readonly reason: string
+      readonly capacity: NodeCapacity | 'states-no-capacity'
+    }
 
 /** An offer of one shard to one node. */
 export interface Offer {
@@ -213,30 +274,111 @@ export async function placeWithOffers(
   }
 }
 
-/** Place a whole job. Shards are independent, so one stalling does not stop the rest. */
+/**
+ * Place a whole job. Shards are independent, so one stalling does not stop the rest.
+ *
+ * ## The cross-shard bound is the requestor's own — SCHED-02, owner ruling D2
+ *
+ * `placeWithOffers` shrinks its pool within **one** shard, and rebuilds it per
+ * request, so nothing there can stop a second shard being offered to a node the
+ * first shard just filled. Until Phase 13.1 the thing that did stop it was the
+ * reservation the `offer` branch took; that reservation had no release anywhere on
+ * the wire and was removed, deliberately.
+ *
+ * What replaces it is not a reservation. Every `Admission` states the answering
+ * node's `slots` and `inFlight`, and this function keeps a running headroom tally
+ * from what it was told, offering a later shard only to nodes with room left.
+ *
+ * **It is advisory.** Nothing is reserved by answering, this tally lives in one
+ * requestor's memory, and a requestor that skipped it — or lied to itself about it —
+ * would over-commit exactly as before. It is then refused for real by the `exec`
+ * branch's SCHED-06 admission (`net/src/agent.ts`), which is the authoritative
+ * bound and did not move. What this removes is wasted round trips, not the bound.
+ *
+ * A node that states no capacity is left **unbounded** rather than assumed full, and
+ * a requestor that made no offers learns nothing and bounds nothing.
+ *
+ * ## Why the loop stays sequential — now for two reasons
+ *
+ * The first is unchanged: an in-process `admit` that calls `LocalCapacity.offer`
+ * directly — the form `placement.test.ts` uses — reserves capacity, so two shards
+ * placed concurrently against one node would both read the pre-offer count and
+ * over-commit it, the same concurrency hole the duty-cycle governor had.
+ *
+ * The second is new and belongs to the tally: a shard placed changes the headroom
+ * the next shard sees, so placing concurrently would race the tally against itself
+ * and reintroduce precisely what it exists to close.
+ *
+ * ## Why a cross-shard bound is the right shape here
+ *
+ * Because `submitJob` dispatches every shard of a job under one `Promise.all`
+ * (`job/submit.ts`), the shards really are simultaneous — a node's answer to the
+ * first is still true when the last is sent. A *sequential* dispatcher would be
+ * bounded too tightly by this, because slots it counted as occupied would already
+ * have been released, and it would need a different rule. No quantity — shard count,
+ * slot count, or any other — is claimed here about any workload.
+ */
 export async function planWithOffers(
   requests: readonly PlacementRequest[],
   nodes: readonly NodeDescriptor[],
   options: OfferOptions = {},
 ): Promise<readonly OfferedPlacement[]> {
   const placements: OfferedPlacement[] = []
-  // Sequential on purpose, and the reason now holds for only one of the two ways
-  // this is called. An in-process `admit` that calls `LocalCapacity.offer`
-  // directly — the form `placement.test.ts` uses — reserves capacity, so two
-  // shards placed concurrently against the same node would both see the
-  // pre-offer count and over-commit it, the same concurrency hole the duty-cycle
-  // governor had. Sequential placement still closes that, and that is what the
-  // existing spec pins.
-  //
-  // Over the wire it no longer holds: `rpcAdmission` reaches `serveAgent`'s
-  // `offer` branch, which since Phase 13.1 answers through
-  // `LocalCapacity.would` and reserves nothing. The reservation moved to the
-  // `exec` branch, where the CPU is actually consumed (`net/src/agent.ts`).
-  // Wire-side multi-shard over-commit protection is therefore gone and is Phase
-  // 18's to rebuild; `net/src/discovery.test.ts` pins the consequence so it is
-  // visible rather than silent.
+  // Absent from this map means "nothing learned about that node", which is
+  // unbounded — never zero. Defaulting it to a finite number would bound a node
+  // on a figure the requestor invented.
+  const headroom = new Map<string, number>()
+  const admit = options.admit
+  const recording: AdmissionControl | undefined =
+    admit === undefined
+      ? undefined
+      : async (offer) => {
+          const decision = await admit(offer)
+          if (decision.capacity !== 'states-no-capacity') {
+            headroom.set(
+              offer.nodeId,
+              Math.max(0, decision.capacity.slots - decision.capacity.inFlight),
+            )
+          }
+          // The node's figure was read before this offer's own effect, so an
+          // acceptance has to be subtracted here. On an unlearned node that
+          // subtraction is from infinity and changes nothing, which is correct.
+          if (decision.accepted) {
+            headroom.set(
+              offer.nodeId,
+              Math.max(0, (headroom.get(offer.nodeId) ?? Number.POSITIVE_INFINITY) - 1),
+            )
+          }
+          return decision
+        }
+
   for (const request of requests) {
-    placements.push(await placeWithOffers(request, nodes, options))
+    const available = nodes.filter(
+      (node) => (headroom.get(node.nodeId) ?? Number.POSITIVE_INFINITY) > 0,
+    )
+
+    if (available.length === 0 && nodes.length > 0) {
+      // Composed by the **requestor**, and therefore on `OfferedPlacement.reason`,
+      // which is already requestor-composed. It must never be pushed into a
+      // `Rejection`: that field's doc fixes it as the node's own words, and a node
+      // held back here was never asked, so it never refused. `probed: 0` and an
+      // empty rejection list are the honest record of a shard nobody was asked about.
+      placements.push({
+        shardId: request.shardId,
+        status: 'unplaceable',
+        reason: `no candidate for ${request.shardId} has headroom left; all ${nodes.length} are at the capacity they stated`,
+        rejections: [],
+        probed: 0,
+      })
+      continue
+    }
+
+    // The narrowed set goes through the sovereignty gate inside `placeWithOffers`,
+    // as the full set did. Narrowing before that gate can only shrink the pool, so
+    // no amount of headroom accounting can widen a sovereign shard's candidates.
+    const perShard: OfferOptions =
+      recording === undefined ? { ...options } : { ...options, admit: recording }
+    placements.push(await placeWithOffers(request, available, perShard))
   }
   return placements
 }
@@ -385,22 +527,39 @@ export class LocalCapacity {
     if (!decision.accepted) return decision
     this.#inFlight.add(offer.shardId)
     this.#peak = Math.max(this.#peak, this.#inFlight.size)
+    // Returned unchanged, so the capacity it carries is the one `#decide` read
+    // **above** the reservation on the line before. Re-reading it here would
+    // publish this offer's own effect and make two answers stop composing.
     return decision
+  }
+
+  /** This node's own room, as it stands right now — SCHED-02. Reserves nothing. */
+  #capacity(): NodeCapacity {
+    return { slots: this.#slots, inFlight: this.#inFlight.size }
   }
 
   /** The decision half, shared by `offer` and `would`. Mutates nothing. */
   #decide(offer: Offer): Admission {
+    // Every arm states the capacity, refusals included. The refusal strings
+    // themselves are untouched: `over-committed: N of M slots in use` is
+    // wire-visible and SCHED-06 requires it by name, so it stays composed in
+    // exactly this one place.
     if (this.#inFlight.has(offer.shardId)) {
-      return { accepted: false, reason: `${offer.shardId} is already in flight here` }
+      return {
+        accepted: false,
+        reason: `${offer.shardId} is already in flight here`,
+        capacity: this.#capacity(),
+      }
     }
     if (this.#inFlight.size >= this.#slots) {
       const throttled = this.#dutyCycle < 1 ? ` at duty cycle ${this.#dutyCycle}` : ''
       return {
         accepted: false,
         reason: `over-committed: ${this.#inFlight.size} of ${this.#slots} slots in use${throttled}`,
+        capacity: this.#capacity(),
       }
     }
-    return { accepted: true }
+    return { accepted: true, capacity: this.#capacity() }
   }
 
   /** Return a slot. Unknown shard ids are ignored — releasing twice is harmless. */
