@@ -22,10 +22,17 @@ import type { WorkerFactory } from './worker-executor.ts'
  *
  * The second half is a structural count, because `tsc` is not something
  * `mutation-guard.mutate.ts` can run — it drives vitest. It is the same weaker
- * instrument the ledger already accepts for this file at `M2b`, for the same reason:
- * `BrowserNode.start` needs a real `indexedDB` and a relay to dial, so no Node-project
- * test can reach this factory. A count of literals is not a measurement of behaviour
- * and is not allowed to stand in for one.
+ * instrument the ledger already accepts for this file at `M2b`. The reason given here
+ * until 2026-07-31 — that `BrowserNode.start` *"needs a real `indexedDB` and a relay to
+ * dial, so no Node-project test can reach this factory"* — was false, and the true one
+ * is narrower: no *Node-environment* test can reach it because there is no `indexedDB`
+ * in that environment, but the `e2e` project drives a real browser from Node and does
+ * reach it (`packages/node/src/browser-capability.e2e.test.ts`, via
+ * `packages/browser/src/capability-harness.ts`). What keeps this half structural is
+ * therefore the subject rather than the factory: the claim under test is about the
+ * *type*, and no runtime test of any kind can observe a required constructor argument.
+ * A count of literals is not a measurement of behaviour and is not allowed to stand in
+ * for one.
  *
  * Node-only: reads a real source file off disk by relative path.
  */

@@ -108,7 +108,7 @@ function requestor(
   timeoutMs = 2_000,
 ): { readonly rpc: RpcEndpoint; readonly executor: RemoteExecutor } {
   const rpc = new RpcEndpoint(network.connect(`requestor-${nodeId}`), { timeoutMs })
-  return { rpc, executor: new RemoteExecutor(nodeId, rpc) }
+  return { rpc, executor: new RemoteExecutor(nodeId, rpc, 'dispatches-unauthenticated') }
 }
 
 describe('takeSovereignHold — a production caller for EgressGuard.guard()', () => {

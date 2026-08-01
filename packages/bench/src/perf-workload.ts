@@ -224,7 +224,14 @@ async function memoryRig(nodes: number): Promise<Rig> {
     endpoints.push(rpc)
   }
 
-  const remote = endpoints.map((_, i) => new RemoteExecutor(`n${i}`, callerRpc))
+  // AUTH-03. Permanent and correct, for the same reason `bin/bench.ts` records at
+  // its own two sites: every shard this workload submits is `label: 'public'`
+  // (`:337`), a public task has no owner and therefore no root key, and the
+  // sentinel encodes no `capability` key at all — so the frames this workload
+  // measures are byte-identical to the ones the published curve was measured on.
+  const remote = endpoints.map(
+    (_, i) => new RemoteExecutor(`n${i}`, callerRpc, 'dispatches-unauthenticated'),
+  )
 
   return {
     executors: remote,

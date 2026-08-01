@@ -267,7 +267,7 @@ describe('RemoteExecutor', () => {
         label: 'public',
       }
 
-      const remote = new RemoteExecutor(worker.id, fabric.originRpc)
+      const remote = new RemoteExecutor(worker.id, fabric.originRpc, 'dispatches-unauthenticated')
       const outcome = await remote.execute(task)
 
       expect(outcome.ok).toBe(true)
@@ -285,7 +285,7 @@ describe('RemoteExecutor', () => {
     const fabric = await twoNodeFabric()
     try {
       const inputCid = await fabric.originStore.put(new Uint8Array([0x80]))
-      const remote = new RemoteExecutor('does-not-exist', fabric.originRpc)
+      const remote = new RemoteExecutor('does-not-exist', fabric.originRpc, 'dispatches-unauthenticated')
       const outcome = await remote.execute({
         moduleCid: fabric.moduleCid,
         inputCid,
@@ -303,7 +303,7 @@ describe('RemoteExecutor', () => {
   it('carries the remote node id, so verification names the right machine', async () => {
     const fabric = await twoNodeFabric({ workers: 1 })
     try {
-      const remote = new RemoteExecutor('w0', fabric.originRpc)
+      const remote = new RemoteExecutor('w0', fabric.originRpc, 'dispatches-unauthenticated')
       expect(remote.nodeId).toBe('w0')
     } finally {
       fabric.close()
@@ -315,7 +315,7 @@ describe('a whole job across nodes', () => {
   it('completes 4 shards at R=2 with every execution remote', async () => {
     const fabric = await twoNodeFabric({ workers: 2 })
     try {
-      const executors = fabric.workers.map((w) => new RemoteExecutor(w.id, fabric.originRpc))
+      const executors = fabric.workers.map((w) => new RemoteExecutor(w.id, fabric.originRpc, 'dispatches-unauthenticated'))
       const result = await submitJob(
         {
           moduleCid: fabric.moduleCid,
@@ -354,7 +354,7 @@ describe('a whole job across nodes', () => {
   it('surfaces disagreement with the dissenting remote node named', async () => {
     const fabric = await twoNodeFabric({ workers: 1 })
     try {
-      const honest = new RemoteExecutor(fabric.workers[0]!.id, fabric.originRpc)
+      const honest = new RemoteExecutor(fabric.workers[0]!.id, fabric.originRpc, 'dispatches-unauthenticated')
       // A liar that is otherwise a perfectly well-behaved Executor.
       const liar: Executor = {
         nodeId: 'liar',
@@ -542,7 +542,7 @@ describe('AUTH-03 — a task is refused before the module is instantiated', () =
 
     const callerRpc = new RpcEndpoint(network.connect('caller'), { timeoutMs: 5_000 })
     try {
-      const outcome = await new RemoteExecutor('w0', callerRpc).execute({
+      const outcome = await new RemoteExecutor('w0', callerRpc, 'dispatches-unauthenticated').execute({
         moduleCid,
         inputCid,
         partitionIndex: 0,
@@ -587,7 +587,7 @@ describe('AUTH-03 — a task is refused before the module is instantiated', () =
 
     const callerRpc = new RpcEndpoint(network.connect('caller'), { timeoutMs: 5_000 })
     try {
-      const outcome = await new RemoteExecutor('w0', callerRpc).execute({
+      const outcome = await new RemoteExecutor('w0', callerRpc, 'dispatches-unauthenticated').execute({
         moduleCid,
         inputCid,
         partitionIndex: 3,

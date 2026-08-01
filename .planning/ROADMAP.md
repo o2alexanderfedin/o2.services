@@ -51,7 +51,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 13: Egress Manifest Completeness** - `EgressGuard` **refuses** a frame carrying a registered sovereign block rather than recording it afterwards, and a leaking cross-owner job fails from the submitter across two spawned `bin/agent.ts` processes — **3/3 on the amended criteria (`13-VERIFICATION-2.md`, 8 mutations planted by the verifier). Scored 0/3 on the original wording first (`13-VERIFICATION.md`); the criteria were then amended on three owner rulings and the gaps closed. Two follow-ons scheduled to Phase 13.1, not left implicit: NET-10 (the refusal arrives as a timeout, not a named outcome) and DATA-10 (only the executing node registers, so a submitter still serves raw sovereign bytes).**
 - [ ] **Phase 13.1: Node-Side Admission & Transport Bounds** (INSERTED) - A node refuses work it cannot run with a stated reason, and neither side of the wire can be driven past a bound by a peer — three defects measured against the real stack
 - [ ] **Phase 14: Signed Artifact Resolution** - Artifacts resolve only through a signed `key → CID` mapping on the live dispatch path, never a bare CID
-- [ ] **Phase 15: Capability-Chained Dispatch** - A dispatched task carries a capability chain the serving node verifies before `WebAssembly.instantiate`, both ends wired for the first time
+- [ ] **Phase 15: Capability-Chained Dispatch** - A dispatched task carries a capability chain the serving node verifies before `WebAssembly.instantiate` — the serving end wired and verified end to end, the requestor end wired to a required argument every production call site declines (see the amendment note under Phase 15)
 - [ ] **Phase 16: Decomposable Tree-Reduce Wiring** - A live multi-node job merges partials up `executeReduce`'s derived tree, replacing the demo's linear scan
 - [ ] **Phase 17: Node Identity & Enrollment** - A node generates its identity on-device and enrolls through a rate-limited, provider-signed flow that a peer verifies offline
 - [ ] **Phase 18: Discovery, Capacity & Placement** - Nodes discover candidates, sample and select by load, and refuse over-committed work — no static peer list, on a real job
@@ -410,7 +410,7 @@ The apparent ceiling of 256 with one peer is the **sender's** `maxOutboundStream
 **Plans**: TBD
 
 ### Phase 15: Capability-Chained Dispatch
-**Goal**: A task dispatched between two live nodes carries a capability chain rooted at the data owner's key, and the receiving node's `authorize` hook verifies it before `WebAssembly.instantiate` — both ends wired for the first time
+**Goal**: A task dispatched between two live nodes carries a capability chain rooted at the data owner's key, and the receiving node's `authorize` hook verifies it before `WebAssembly.instantiate` — the serving end wired and verified end to end; the requestor end wired to a required constructor argument that every production call site declines, so its supplier branch has no entry-point caller
 **Mode:** mvp
 **Depends on**: Phase 11
 **Requirements**: AUTH-03
@@ -419,7 +419,51 @@ The apparent ceiling of 256 with one peer is the **sender's** `maxOutboundStream
   1. A task dispatched through `bin/agent.ts` between two live nodes carries a capability chain attached by `RemoteExecutor`, and the receiving node's `authorize` hook verifies it before calling `WebAssembly.instantiate`
   2. A task arriving with no capability chain, or one that has expired, is refused before instantiation, and the refusal names the missing or expired link, observable in the node's response
   3. A validly delegated sub-chain (owner → intermediate → executor) is accepted, and a chain with a broken delegation link is refused, proving delegation depth is checked and not merely the chain's presence
-**Plans**: TBD
+**Plans**: 4 plans (01 audience key + authorizer, 02 the dispatching half, 03 both factories wired, 04 the three criteria across two processes)
+
+<!--
+Goal amended 2026-07-31 by Plan 15-04, while the phase was closing rather than after.
+The clause that read "both ends wired for the first time" is false, and shipping a goal
+line the phase's own summary contradicts is the same defect one level up.
+
+What is true. The serving end is wired and verified end to end: `bin/agent.ts` takes
+`--owner-key`, both node factories install `authorizeCapability`, neither says
+`'serves-unauthenticated'` any more, and all three criteria above are demonstrated
+between two real operating-system processes. The requestor end is wired to a **required**
+third constructor argument on `RemoteExecutor` — omitting it is a `tsc --noEmit` error —
+but every one of the five non-test call sites names the sentinel rather than a chain,
+because all five dispatch `label: 'public'` shards, which have no owner and therefore no
+root key. So `delegate`, `CapabilitySupplier` and the supplier branch of
+`RemoteExecutor.execute` end this phase with a production adapter and zero production
+callers. That is the exact shape `.planning/REQUIREMENTS.md` already records AUTH-03 as
+suffering from — "built, not wired" — and it is now named here rather than left for Phase
+22 to discover.
+
+**Owner ruling, 2026-07-31: named is not fixed.** This plan proposed accepting the
+requestor half as entry-point-unreachable. Declined. **The opt-in sovereign leg is Phase 23
+criterion 5**, landing where `bin/bench.ts` is already being rewritten so the most
+contended file in the repository is fought once rather than twice. **AUTH-03 stays open
+until then** — Phase 15 closes its serving half only, and this phase may not tick it.
+
+The option declined, and its real cost, so a later reader does not re-derive it. An opt-in
+sovereign leg on `bin/bench.ts`, off by default, would give `delegate` a traced call path
+without moving the default scaling curve, which stays `label: 'public'`. It was declined
+**in this phase** rather than rejected outright, and the cost is larger than one flag:
+`realFabric`'s worker nodes start with no `sovereignty` configuration at all, so each
+would need an owner id, an owner key and clearance; the requestor would need a per-node
+chain minted against each worker's peer id; and `memoryFabric`'s nodes are raw
+`serveAgent` calls on `authorize: 'serves-unauthenticated'`, so the same leg would prove
+nothing on the memory fabric and the two published curves would stop measuring the same
+thing. `bin/bench.ts` is also the most contended file in the repository — six phases
+modify it. That is a design change needing its own context gathering, not a line in a
+proof plan.
+
+The goal was amended **down to what is true**, rather than the evidence being stretched up
+to the goal. The same standard the Phase 13 entry's amendment note closes on. The
+identical finding is recorded in `packages/net/src/remote-executor.ts`'s class comment and
+under Phase 22 below; if the three ever disagree, the class comment is the one a reader
+hits first and this file is the one an auditor greps.
+-->
 
 ### Phase 16: Decomposable Tree-Reduce Wiring
 **Goal**: A live multi-node job merges its shard partials by walking `executeReduce`'s derived tree, replacing the demo's linear scan
@@ -536,6 +580,32 @@ The apparent ceiling of 256 with one peer is the **sender's** `maxOutboundStream
   1. Running the reachability guard after Phases 11-21 land passes clean — every capability exported from a package barrel has a traced call path from one of the five runnable entry points (`bin/agent.ts`, `bin/seed.ts`, `bin/bench.ts`, `tools/aot/cli.ts`, the browser demo)
   2. Reintroducing the original defect — commenting out a wired call site, or adding a new exported-but-uncalled function — fails the guard, naming the unreachable symbol and the barrel it came from, the same way `purity.node.test.ts` names a layering violation
   3. The guard runs as part of the same CI gate as the rest of the suite, so a future change that builds a mechanism without wiring it to an entry point fails CI rather than merging silently, the way the original 36 did
+
+**Known finding, recorded in advance by Phase 15 rather than left to be discovered here.**
+Phase 15 made `verifyChain` and `describeFailure` reachable from `bin/agent.ts` — AUTH-03's
+serving side — but did **not** make `delegate` reachable from any of the five entry points,
+so criterion 1 above will find it. Both submitting entry points dispatch public work:
+`bin/bench.ts` and `packages/bench/src/perf-workload.ts` label every shard `'public'`, and
+the browser demo's colouring job has no owner and no key. The minting side of a capability
+chain therefore lives entirely in tests. Three options were considered and the third taken **by the plan**; the
+owner then overruled it on 2026-07-31 and took the first.
+
+**Superseded — do not read the paragraph below as the standing decision.** Plan 15-04
+proposed accepting the requestor half as entry-point-unreachable. That was declined:
+shipping an adapter with no callers is the defect this milestone exists to remove, and
+naming it is not the same as fixing it. **The opt-in sovereign leg is now Phase 23
+criterion 5**, where `bin/bench.ts` is already being rewritten and the file need only be
+fought once. So criterion 1 above should find `delegate` reachable by the time this phase
+runs; if it does not, Phase 23 did not finish its job and that is the finding.
+
+*(Retained for the reasoning, not the verdict.)* Giving `bin/bench.ts` a sovereign leg
+would change what the benchmark measures, which 15-CONTEXT.md decision 2 exists to
+protect — hence "opt-in, off by default, default curve unmoved". Giving the browser demo
+one is impossible without an owner and a private key to root a chain at, so the demo is
+not the route. The identical finding is in `packages/net/src/remote-executor.ts`'s class
+comment and in the Phase 15 amendment note above; both say *named here*, and both now mean
+*scheduled to Phase 23*.
+
 **Plans**: TBD
 
 ## Progress
@@ -579,14 +649,19 @@ Parallel tracks (config `parallelization: true`):
 ### Phase 23: Multi-Process Benchmark Driver
 **Goal**: The benchmark harness spawns N real operating-system processes instead of N `FabricNode`s on one event loop, so a parallel speedup is measurable at all — and the project's central scaling claim stops being unmeasured
 **Mode:** mvp
-**Depends on**: Phase 8 (the existing harness), Phase 12 (the spawn pattern)
-**Requirements**: BENCH-07 (new)
+**Depends on**: Phase 8 (the existing harness), Phase 12 (the spawn pattern), Phase 15 (AUTH-03's requestor half — see criterion 5)
+**Requirements**: BENCH-07 (new), AUTH-03 (requestor half, routed here by owner ruling 2026-07-31)
 **Research**: None — `sovereignty-placement.node.test.ts` and `two-process.node.test.ts` already spawn real `bin/agent.ts` processes via `spawn(process.execPath, [AGENT, '--dir', dir, ...])`. The work is moving `bin/bench.ts`'s node construction onto that pattern
 **Success Criteria** (what must be TRUE):
   1. A benchmark run at N nodes spawns N operating-system processes, verified by reading the child PIDs, and the published run records them — a run that silently falls back to in-process nodes fails the harness rather than reporting a curve
   2. Makespan at N=1 and N=8 differ on a fixture with enough work to saturate a core, and the ratio is published; a flat curve is a finding, but it must be a finding about the fabric rather than about the harness
   3. The two real-transport rungs Phase 8 published as excluded (8 and 16 nodes, dying on `INBOUND_CONNECTION_THRESHOLD = 5` per host) either run, or are re-excluded with a measurement showing the per-host inbound cap is still the cause under separate processes
   4. `BENCHMARK-RESULTS.md` states, for every published figure, whether it came from the single-process or the multi-process driver — no figure is silently replaced
+  5. **`bin/bench.ts` gains an opt-in sovereign leg, off by default, that mints a real capability chain and dispatches an owner-labelled shard through it** — giving `delegate` and `CapabilitySupplier` a traced call path from a runnable entry point, so Phase 22's guard finds them reachable. The default public curve must be **byte-identical in shape** to a run with the flag absent; if the leg moves the default measurement, it has been built wrong
+
+**Criterion 5 exists because of an owner ruling, and the alternative was cheaper to write down than to take.** Phase 15 wired AUTH-03's *serving* end and verified it end to end, but left `delegate`, `CapabilitySupplier` and `RemoteExecutor.execute`'s supplier branch as a production adapter with **zero production callers** — every one of the five production dispatch sites labels its shards `'public'`, which have no owner and therefore no root key to mint a chain at. That is the exact "built, not wired" shape this milestone exists to remove, so shipping it as *accepted unreachable* was declined on 2026-07-31.
+
+It lands **here** rather than in Phase 15 for one reason: this phase already rewrites `bin/bench.ts`'s node construction, and `bin/bench.ts` is the most contended file in the repository — six phases modify it. Doing the sovereign leg in Phase 15 would have meant fighting that file twice. The costs Phase 15 measured still apply and are the work of criterion 5: `realFabric`'s worker nodes start with no `sovereignty` configuration at all, so each needs an owner id, an owner key and clearance; the requestor needs a per-node chain minted against each worker's peer id; and `memoryFabric`'s nodes are raw `serveAgent` calls on `authorize: 'serves-unauthenticated'`, so the leg proves nothing there — which is precisely why it must stay opt-in and why the two published curves must keep measuring the same thing.
 
 **Why this phase exists.** Phase 8's own SUMMARY says it plainly: *"Every node in both curves runs inside one OS process on one JavaScript event loop ... no parallel speedup is measurable here at all ... the scaling claim remains unmeasured."* That has been read ever since as part of the BENCH-06 "needs a second machine" blocker. It is not. Phase 8 named the cheaper remedy itself — separate OS processes on one host — and Phase 12 has since built exactly that spawn harness for an unrelated reason. The blocker moved and nobody noticed.
 

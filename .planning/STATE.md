@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Wire What Was Built
 status: executing
-stopped_at: Phase 14 verified 3/3 and closed. Phase 13.1 verified 6/7 — DATA-10's at-rest half is owner-scheduled, its bare-submitJob half folded into Phase 20. Phase 15 is the next unit
-last_updated: "2026-07-31T23:45:00.000Z"
+stopped_at: Phases 14 and 15 both verified and closed on their criteria. Phase 13.1 verified 6/7 and is not closed. AUTH-03's requestor half routed to Phase 23 criterion 5 by owner ruling. Phase 16 is the next unit
+last_updated: "2026-08-01T03:20:00.000Z"
 last_activity: 2026-07-31
 progress:
   total_phases: 14
-  completed_phases: 4
-  total_plans: 45
-  completed_plans: 22
-  percent: 29
+  completed_phases: 5
+  total_plans: 46
+  completed_plans: 27
+  percent: 36
 ---
 
 <!--
@@ -23,14 +23,26 @@ independent pass then scored 3/3 against the amended text. It counts now because
 verifier said so, which is the rule: a phase is done when a verifier says so, not when
 its plans are.
 
-**That rule is why `completed_phases` is 4 and not 5.** The four are 11, 12, 13 and 14.
-**Phase 13.1 is not among them**: it was verified on 2026-07-31 and scored `gaps_found`
-at 6/7 — SCHED-06, NET-08, NET-09 and NET-10 closed, DATA-10 open. Four of five
-requirements is not a phase. It stays uncounted until criterion 7's at-rest half lands.
+**That rule is why `completed_phases` is 5 and not 6.** The five are 11, 12, 13, 14 and 15.
+**Phase 13.1 is not among them**: verified 2026-07-31, `gaps_found` at 6/7 — SCHED-06,
+NET-08, NET-09 and NET-10 closed, DATA-10 open. It stays uncounted until criterion 7's
+at-rest half lands.
 
-**Phase 14 is counted because a verifier said so** — `passed`, 3/3, both mutation
-probes re-run independently and both red, DET-03 and DATA-08 ticked with their
-traceability rows moved off *Built, not wired*.
+**The count is over criteria, never over requirements, and Phases 13.1 and 15 are the
+pair that shows why.** 13.1 is uncounted because one of its own **criteria** is PARTIAL.
+Phase 15 is counted because all three of its criteria are MET — even though its
+requirement, AUTH-03, is *also* Partial. A requirement can outlive the phase that opened
+it; a criterion cannot. AUTH-03's requestor half is scheduled, by owner ruling, to Phase
+23 criterion 5, and REQUIREMENTS.md's row says so. **`completed_phases` is not a count of
+closed requirements and must never be reconciled against one.**
+
+- **Phase 14** — `passed`, 3/3, both mutation probes re-run independently and both red;
+  DET-03 and DATA-08 ticked and moved off *Built, not wired*.
+- **Phase 15** — 3/3 on criteria. The verifier returned `human_needed` on three
+  escalations, **all three since closed**: a production comment naming a function this
+  repository does not have, a SUMMARY frontmatter claiming AUTH-03 complete, and an
+  unproven browser-tier authorizer. The last was closed behaviourally in 15-05 and is
+  pinned by mutation-ledger entry **M30**.
 
 `total_plans` counts plans that exist, and it is not a milestone denominator — phases
 18, 19, 20 and 22 have no directory yet, so it will grow. Counted on disk 2026-07-31:
@@ -66,21 +78,23 @@ red when it lands.
 
 ## Current Position
 
-Phase: 14 (Signed Artifact Resolution) — **verified `passed`, 3/3, closed**
-Status: 5/5 plans, 5/5 summaries, 1 verification pass. DET-03 and DATA-08 ticked and
-their traceability rows moved off *Built, not wired*. Three mutation-ledger entries added
-(M27 Node tier, M28 browser tier, M29 demo anchors), every signature read off a real
-planted run; **34 of 34 mutations caught**.
-Next: Phase 15, then 16, 17, 18, 19, 20, 21, 23, 22. **These run strictly sequentially,
-not concurrently** — measured 2026-07-31 from their own `files_modified`: `fabric-node.ts`
-is touched by 14/15/17/21, `bin/bench.ts` by 14/15/16/17/23, `browser-node.ts` by
-14/15/17/21. "Wire What Was Built" means every phase converges on the same construction
-sites, so the earlier note that six phases "can run concurrently" was wrong.
+Phase: 15 (Capability-Chained Dispatch) — **3/3 on criteria, closed; AUTH-03 stays open**
+Status: 4 planned plans + 1 gap-closure plan (15-05), 5 summaries, 1 verification pass.
+The serving half of AUTH-03 is wired and verified between two spawned `bin/agent.ts`
+processes; the requestor half — `delegate`, `CapabilitySupplier`, `RemoteExecutor`'s
+supplier branch — has a production adapter and **zero production callers**, and is Phase
+23 criterion 5 by owner ruling. Mutation-ledger entry **M30** now pins the browser tier's
+authorizer behaviourally.
+Next: Phase 16, then 17, 18, 19, 20, 21, 23, 22. **These run strictly sequentially, not
+concurrently** — measured 2026-07-31 from their own `files_modified`: `fabric-node.ts` is
+touched by 14/15/17/21, `bin/bench.ts` by 14/15/16/17/23, `browser-node.ts` by 14/15/17/21.
+"Wire What Was Built" means every phase converges on the same construction sites, so the
+earlier note that six phases "can run concurrently" was wrong.
 Last activity: 2026-07-31
 
 ```
-Test Files  272 · Tests 4137 · exit 0 · tsc --noEmit clean   (2026-07-31, load 6.6-10.5)
-node 85 files/1285 · browser 180/2814 (chromium+firefox+webkit) · e2e 7/38
+Test Files  293 · Tests 4253 · exit 0 · tsc --noEmit clean   (2026-07-31, load ~4)
+node 90 files/1321 · browser 195/2892 (chromium+firefox+webkit) · e2e 8/40
 ```
 
 The 272 counts vitest *file-runs*, not files, because the browser project runs its share
@@ -94,7 +108,7 @@ at load 6.6-10.5 once the competing build finished.
 ### v1.0 carried forward, unarchived
 
 ```
-Ledger      35 / 72 wired · 28 built-not-wired · 5 partial · 4 open: hosting, a
+Ledger      35 / 72 wired · 27 built-not-wired · 6 partial · 4 open: hosting, a
             measured negative, and two whose cross-machine halves are descoped to
             one host (2026-07-28) and recorded as unmeasured, not met
 v1.1        9 of 50 requirements closed
@@ -102,8 +116,15 @@ Whole file  40 of 82 ticked (35 in the v1 section + 5 in v1.1's)
 Historical  v1.0 closed at 112 test files / 1673 tests; 122 / 1775 on 2026-07-28
 ```
 
-The 28 reconciles with the audit's 36: eight have been wired since — DATA-03, DATA-04,
-DATA-05, DATA-06, DATA-07 and DATA-09 in Phase 12, then DET-03 and DATA-08 in Phase 14.
+**The 27 and the 6 moved together and the ticked counts did not.** Phase 15 took AUTH-03
+off *Built, not wired* and onto **Partial** without closing it: its serving half is wired
+and verified, its requestor half has zero production callers. A requirement can leave
+"built, not wired" without arriving at "done", and the ledger has to be able to say so —
+otherwise the only way to record progress is to overstate it.
+
+The 27 reconciles with the audit's 36: eight have been wired since — DATA-03, DATA-04,
+DATA-05, DATA-06, DATA-07 and DATA-09 in Phase 12, then DET-03 and DATA-08 in Phase 14 —
+and one, AUTH-03, moved to Partial in Phase 15.
 Count them from the **traceability table** rows (`^| ID |` … `**Built, not wired**`),
 which is the only place that marker lives; a whole-file grep also catches the legend and
 one line of prose and overcounts by two.
@@ -612,6 +633,40 @@ Recent decisions affecting current work:
   one of those same corrections verbatim. A correction living in a SUMMARY reaches nobody.
   Feed each wave the prior wave's corrections explicitly, and verify every citation before
   relying on it.
+
+- **[Phase 15] Plan citations drift far worse than anyone assumed: 41 wrong `file:line`
+  references across four plans** (6, 9, 14, 12). These plans were written weeks before
+  they ran. Two were wrong rather than merely stale, and both would have shipped a false
+  statement into source: `purity.node.test.ts:167-174` does **not** keep the `Executor`
+  port narrow (it is the "no dependency edge from `@o2/core` to any adapter" test, and the
+  string `Executor` appears nowhere in it), and **no test in this repository asserts the
+  `Executor` port carries no chain**. Assume every citation in an unexecuted plan is stale.
+- **[Phase 15] A wave field can lie where `depends_on` cannot.** Phase 15's four plans all
+  declared `wave: 1`, which would have launched four agents into a chain where 15-03 needs
+  01 and 02 and 15-04 needs all three. Derive waves from `depends_on` and from
+  `files_modified` overlap, never from the `wave` field alone — 15-01 and 15-02 also both
+  write `packages/net/src/index.ts`.
+- **[Phase 15] "It cannot be tested" survived four plans and was false.** Every plan
+  repeated that `BrowserNode.start` "needs a real `indexedDB` and a relay to dial, so it
+  runs in neither vitest project", and the browser tier's authorizer went unproven because
+  of it — a scrambling mutation left 345 browser tests green. The true statement is
+  narrower: the **`browser`** project cannot host it, because a Circuit Relay v2 server
+  cannot run inside a browser; the **`e2e`** project can, and `two-tabs.e2e.test.ts`
+  already did. 15-05 closed it there, and needed no relay at all — a relay exists to let
+  two browsers exchange SDP, and there is one browser in that test. **Six shipped comments
+  carried the false claim, one of them sitting directly on the authorize hook.**
+- **[Phase 15] A refusal that names the wrong thing is a defect even when the job
+  correctly fails.** M30's mutated tab still refuses — at a different precedence step,
+  naming the owner *key* where the owner *id* belongs. Any assertion of the form "the job
+  failed" passes against it. Assert the refusal **text**. The same trap caught 15-03: a
+  node with no `sovereignty` option resolves to `ownerId: ''` and falls through to a
+  different `unauthorized` refusal naming the same peer.
+- **[Phase 15] Naming a defect is not fixing it (owner ruling, 2026-07-31).** Plan 15-04
+  amended Phase 15's goal down to the truth — correct — and then proposed accepting
+  AUTH-03's requestor half as entry-point-unreachable. Declined. Recording a built-not-wired
+  adapter in three places is not the same as wiring it; it went to Phase 23 criterion 5,
+  where `bin/bench.ts` is already being rewritten and the most contended file in the
+  repository is fought once rather than twice.
 
 ### Pending Todos
 

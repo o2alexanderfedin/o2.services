@@ -137,12 +137,18 @@ export const MUTATIONS: readonly Mutation[] = [
   {
     id: 'M2b',
     why:
-      'The same reversion on the browser factory. `BrowserNode.start` needs a real ' +
-      '`indexedDB` and a relay to dial, so it runs in neither vitest project and no ' +
-      'behavioural test can reach it — the only instrument is the structural count in ' +
-      '`serve-agent-hooks.node.test.ts`. That is a weaker guard than `M2a` has, and ' +
-      'recording it as a separate entry is what keeps the difference visible instead of ' +
-      'letting one strong result cover for two call sites.',
+      'The same reversion on the browser factory, and the only instrument that sees it ' +
+      'is still the structural count in `serve-agent-hooks.node.test.ts` — a weaker ' +
+      'guard than `M2a` has, which is why this is a separate entry rather than one ' +
+      'strong result covering two call sites. **The reason is not that the factory is ' +
+      'unreachable.** That claim stood here until 2026-07-31 and was false: the `e2e` ' +
+      'project drives a real tab from Node, and `M30` below plants a defect in this ' +
+      'same file and watches a live tab catch it. What is missing for *this* entry is ' +
+      'narrower and is the whole of it — nothing drives an over-committed refusal ' +
+      'through a browser tab, so the admission bound has never been read there. The ' +
+      '`browser` project genuinely cannot host such a test, because a Circuit Relay v2 ' +
+      'server *"will not work in browsers"* in `@libp2p/circuit-relay-v2`’s own words; ' +
+      'the `e2e` project can, and closing this is a matter of writing the case.',
     file: 'packages/browser/src/browser-node.ts',
     find: '      capacity: admission,',
     replace: "      capacity: 'accepts-every-offer',",
@@ -657,6 +663,37 @@ export const MUTATIONS: readonly Mutation[] = [
     caughtBy: ['packages/node/src/colouring-demo.e2e.test.ts'],
     project: 'e2e',
     signature: 'runs every cube on two nodes and shows which two',
+  },
+  {
+    id: 'M30',
+    why:
+      'AUTH-03 in the browser tier, and the entry that closes the largest measured hole ' +
+      'this ledger has ever recorded. Plan 15-03 planted exactly this scrambling — the ' +
+      'owner id and owner key transposed, the audience replaced by an eight-character ' +
+      'literal, the clock frozen at zero — and nothing in the repository moved: `tsc` ' +
+      'exited 0, the substring count in `serve-agent-hooks.node.test.ts` stayed at 1, and ' +
+      '345 browser tests passed in three engines. Phase 15’s verifier re-planted it and ' +
+      'reproduced all three readings. What makes it the defect a reviewer would least ' +
+      'expect to be caught is that the mutated node still *refuses* — it simply refuses ' +
+      'for the wrong reason, naming the owner key where the owner id belongs, so every ' +
+      'assertion of the form "the job failed" passes. Only a test that reads the refusal ' +
+      '**text** against a live tab sees it, which is why `caughtBy` is an e2e file and ' +
+      'not the argument-equality check that also fires: that check is source text, and ' +
+      'the same defect planted in both factories would satisfy it.',
+    file: 'packages/browser/src/browser-node.ts',
+    find:
+      '        ownerId: sovereignty.ownerId,\n' +
+      '        ...(sovereignty.ownerKey === undefined ? {} : { ownerKey: sovereignty.ownerKey }),\n' +
+      '        audience,\n' +
+      '        now: Date.now,',
+    replace:
+      "        ownerId: sovereignty.ownerKey ?? '',\n" +
+      '        ...(sovereignty.ownerKey === undefined ? {} : { ownerKey: sovereignty.ownerId }),\n' +
+      "        audience: 'deadbeef',\n" +
+      '        now: () => 0,',
+    caughtBy: ['packages/node/src/browser-capability.e2e.test.ts'],
+    project: 'e2e',
+    signature: "to contain 'no capability chain supplied'",
   },
 ]
 

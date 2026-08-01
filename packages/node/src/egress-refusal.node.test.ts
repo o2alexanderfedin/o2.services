@@ -11,8 +11,9 @@ import type { CanonicalValue, NameRecord, NodeDescriptor } from '@o2/core'
 import { RemoteExecutor } from '@o2/net'
 import type { CID } from 'multiformats/cid'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-// Test-only relative import — see the note in packages/net/src/distributed.test.ts.
+// Test-only relative imports — see the note in packages/net/src/distributed.test.ts.
 import { MODULE_ECHOES_INPUT, MODULE_WRITES_PARTITION } from '../../core/src/executor/fixtures.ts'
+import { OWNER_KEY, chainSupplierFor } from './capability-fixture.ts'
 import { FabricNode } from './fabric-node.ts'
 import { FsBlockstore } from './fs-blockstore.ts'
 
@@ -42,6 +43,26 @@ import { FsBlockstore } from './fs-blockstore.ts'
  * `egress-manifest.node.test.ts` and `packages/net/src/egress.test.ts`, where the
  * guard is a value in the same process. The two halves are deliberately separate and
  * neither is asked to carry the other.
+ *
+ * ## Why this file mints a capability chain, as of Phase 15
+ *
+ * As of AUTH-03 the serving node also verifies a capability chain before it executes
+ * anything. So this test dispatches with a **valid** one, on purpose: the failure it
+ * measures is the egress refusal and nothing else, and alice is spawned with
+ * `--owner-key` so her process has something to verify against.
+ *
+ * That is not tidiness, it is the one change in Phase 15 that would otherwise have
+ * broken this file *silently*. The leaking submission below already expects to fail.
+ * Drop the chain and it still fails — for a completely different reason, an authorize
+ * refusal instead of an egress one — and every assertion around it still holds: the
+ * shard still stalls at alice, there is still exactly one failure, `other` is still
+ * never tried. The suite would stay green while DATA-05's cross-process proof
+ * evaporated. **Measured rather than reasoned:** with the authorizer installed and
+ * before this repair, this file reported exactly one failing assertion, and it was the
+ * control at the bottom (`'insufficient'` where `'agreed'` was expected) — every
+ * assertion about the leaking job passed for the wrong reason, exactly as described.
+ *
+ * The control is therefore load-bearing twice over. See its own comment below.
  */
 
 const AGENT = fileURLToPath(new URL('./bin/agent.ts', import.meta.url))
@@ -226,8 +247,12 @@ describe('DATA-05 — the refusal across two real bin/agent.ts processes', () =>
     // deployment passes. The second process is started with no sovereignty
     // arguments at all, the way any node starts before anyone has told it whose
     // data it may touch.
+    // AUTH-03: `--owner-key` is the anchor alice's process judges every chain below
+    // against. Without it she refuses each dispatch for want of a pinned key, before
+    // her tap is ever consulted — see this file's header for why that would have been
+    // invisible.
     const [alice, other] = await Promise.all([
-      spawnAgent('alice', ['--owner-id', 'alice', '--can-execute-sovereign']),
+      spawnAgent('alice', ['--owner-id', 'alice', '--owner-key', OWNER_KEY, '--can-execute-sovereign']),
       spawnAgent('other'),
     ])
     const submitter = await startSubmitter()
@@ -243,8 +268,8 @@ describe('DATA-05 — the refusal across two real bin/agent.ts processes', () =>
     const aggregateCid = await submitter.store.put(MODULE_WRITES_PARTITION)
 
     const executors = [
-      new RemoteExecutor(alice.peerId, submitter.rpc),
-      new RemoteExecutor(other.peerId, submitter.rpc),
+      new RemoteExecutor(alice.peerId, submitter.rpc, chainSupplierFor(alice.peerId)),
+      new RemoteExecutor(other.peerId, submitter.rpc, chainSupplierFor(other.peerId)),
     ]
 
     // Clearance held equal and load pointing the other way, so ownership is the
@@ -301,6 +326,14 @@ describe('DATA-05 — the refusal across two real bin/agent.ts processes', () =>
     // the module is the only argument that changes. Four alternative explanations
     // for the failure above die here at once: unreachability, process death,
     // module-fetch failure, and a budget too short to finish in.
+    //
+    // **A fifth, as of Phase 15, and it is the one that makes this control the whole
+    // file's safety net.** This control job is sovereign and reaches `agreed`, which is
+    // only possible if its capability chain verified against the key `--owner-key`
+    // pinned in alice's process. So the failure above cannot be an authorize refusal:
+    // the same executors carrying the same supplier were accepted here, moments later,
+    // by the same process. Without this reading, "alice refused both jobs for want of a
+    // valid chain" would explain the failure above just as well as the egress tap does.
     const control = await submitJob(
       {
         moduleCid: aggregateCid,
