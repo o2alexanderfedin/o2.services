@@ -439,6 +439,12 @@ callers. That is the exact shape `.planning/REQUIREMENTS.md` already records AUT
 suffering from — "built, not wired" — and it is now named here rather than left for Phase
 22 to discover.
 
+**Owner ruling, 2026-07-31: named is not fixed.** This plan proposed accepting the
+requestor half as entry-point-unreachable. Declined. **The opt-in sovereign leg is Phase 23
+criterion 5**, landing where `bin/bench.ts` is already being rewritten so the most
+contended file in the repository is fought once rather than twice. **AUTH-03 stays open
+until then** — Phase 15 closes its serving half only, and this phase may not tick it.
+
 The option declined, and its real cost, so a later reader does not re-derive it. An opt-in
 sovereign leg on `bin/bench.ts`, off by default, would give `delegate` a traced call path
 without moving the default scaling curve, which stays `label: 'public'`. It was declined
@@ -581,17 +587,24 @@ serving side — but did **not** make `delegate` reachable from any of the five 
 so criterion 1 above will find it. Both submitting entry points dispatch public work:
 `bin/bench.ts` and `packages/bench/src/perf-workload.ts` label every shard `'public'`, and
 the browser demo's colouring job has no owner and no key. The minting side of a capability
-chain therefore lives entirely in tests. Three options were considered and the third taken.
-Giving `bin/bench.ts` a sovereign leg would change what the benchmark measures, which
-15-CONTEXT.md decision 2 exists to protect; giving the demo one is impossible without an
-owner and a private key to root a chain at; so the requestor half of AUTH-03 is **accepted
-as entry-point-unreachable** and named here. The natural fix, so this phase does not
-re-derive it: an opt-in sovereign leg on `bin/bench.ts`, off by default, would give
-`delegate` a traced call path without moving the default scaling curve. This is a decision
-recorded in advance, not a defect discovered late — it is the same class of defect the
-milestone exists to remove, and shipping it silently would be worse than shipping it named.
-The identical finding is in `packages/net/src/remote-executor.ts`'s class comment and in the
-Phase 15 amendment note above.
+chain therefore lives entirely in tests. Three options were considered and the third taken **by the plan**; the
+owner then overruled it on 2026-07-31 and took the first.
+
+**Superseded — do not read the paragraph below as the standing decision.** Plan 15-04
+proposed accepting the requestor half as entry-point-unreachable. That was declined:
+shipping an adapter with no callers is the defect this milestone exists to remove, and
+naming it is not the same as fixing it. **The opt-in sovereign leg is now Phase 23
+criterion 5**, where `bin/bench.ts` is already being rewritten and the file need only be
+fought once. So criterion 1 above should find `delegate` reachable by the time this phase
+runs; if it does not, Phase 23 did not finish its job and that is the finding.
+
+*(Retained for the reasoning, not the verdict.)* Giving `bin/bench.ts` a sovereign leg
+would change what the benchmark measures, which 15-CONTEXT.md decision 2 exists to
+protect — hence "opt-in, off by default, default curve unmoved". Giving the browser demo
+one is impossible without an owner and a private key to root a chain at, so the demo is
+not the route. The identical finding is in `packages/net/src/remote-executor.ts`'s class
+comment and in the Phase 15 amendment note above; both say *named here*, and both now mean
+*scheduled to Phase 23*.
 
 **Plans**: TBD
 
@@ -636,14 +649,19 @@ Parallel tracks (config `parallelization: true`):
 ### Phase 23: Multi-Process Benchmark Driver
 **Goal**: The benchmark harness spawns N real operating-system processes instead of N `FabricNode`s on one event loop, so a parallel speedup is measurable at all — and the project's central scaling claim stops being unmeasured
 **Mode:** mvp
-**Depends on**: Phase 8 (the existing harness), Phase 12 (the spawn pattern)
-**Requirements**: BENCH-07 (new)
+**Depends on**: Phase 8 (the existing harness), Phase 12 (the spawn pattern), Phase 15 (AUTH-03's requestor half — see criterion 5)
+**Requirements**: BENCH-07 (new), AUTH-03 (requestor half, routed here by owner ruling 2026-07-31)
 **Research**: None — `sovereignty-placement.node.test.ts` and `two-process.node.test.ts` already spawn real `bin/agent.ts` processes via `spawn(process.execPath, [AGENT, '--dir', dir, ...])`. The work is moving `bin/bench.ts`'s node construction onto that pattern
 **Success Criteria** (what must be TRUE):
   1. A benchmark run at N nodes spawns N operating-system processes, verified by reading the child PIDs, and the published run records them — a run that silently falls back to in-process nodes fails the harness rather than reporting a curve
   2. Makespan at N=1 and N=8 differ on a fixture with enough work to saturate a core, and the ratio is published; a flat curve is a finding, but it must be a finding about the fabric rather than about the harness
   3. The two real-transport rungs Phase 8 published as excluded (8 and 16 nodes, dying on `INBOUND_CONNECTION_THRESHOLD = 5` per host) either run, or are re-excluded with a measurement showing the per-host inbound cap is still the cause under separate processes
   4. `BENCHMARK-RESULTS.md` states, for every published figure, whether it came from the single-process or the multi-process driver — no figure is silently replaced
+  5. **`bin/bench.ts` gains an opt-in sovereign leg, off by default, that mints a real capability chain and dispatches an owner-labelled shard through it** — giving `delegate` and `CapabilitySupplier` a traced call path from a runnable entry point, so Phase 22's guard finds them reachable. The default public curve must be **byte-identical in shape** to a run with the flag absent; if the leg moves the default measurement, it has been built wrong
+
+**Criterion 5 exists because of an owner ruling, and the alternative was cheaper to write down than to take.** Phase 15 wired AUTH-03's *serving* end and verified it end to end, but left `delegate`, `CapabilitySupplier` and `RemoteExecutor.execute`'s supplier branch as a production adapter with **zero production callers** — every one of the five production dispatch sites labels its shards `'public'`, which have no owner and therefore no root key to mint a chain at. That is the exact "built, not wired" shape this milestone exists to remove, so shipping it as *accepted unreachable* was declined on 2026-07-31.
+
+It lands **here** rather than in Phase 15 for one reason: this phase already rewrites `bin/bench.ts`'s node construction, and `bin/bench.ts` is the most contended file in the repository — six phases modify it. Doing the sovereign leg in Phase 15 would have meant fighting that file twice. The costs Phase 15 measured still apply and are the work of criterion 5: `realFabric`'s worker nodes start with no `sovereignty` configuration at all, so each needs an owner id, an owner key and clearance; the requestor needs a per-node chain minted against each worker's peer id; and `memoryFabric`'s nodes are raw `serveAgent` calls on `authorize: 'serves-unauthenticated'`, so the leg proves nothing there — which is precisely why it must stay opt-in and why the two published curves must keep measuring the same thing.
 
 **Why this phase exists.** Phase 8's own SUMMARY says it plainly: *"Every node in both curves runs inside one OS process on one JavaScript event loop ... no parallel speedup is measurable here at all ... the scaling claim remains unmeasured."* That has been read ever since as part of the BENCH-06 "needs a second machine" blocker. It is not. Phase 8 named the cheaper remedy itself — separate OS processes on one host — and Phase 12 has since built exactly that spawn harness for an unrelated reason. The blocker moved and nobody noticed.
 
