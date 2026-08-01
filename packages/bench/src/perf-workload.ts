@@ -368,6 +368,25 @@ export async function measureGateLadder(
         speculationMultiplier: 1,
         redispatches: 0,
         codeCache,
+        // **The perf gate deliberately runs no reduce**, and this is a not-measured
+        // sentinel rather than a measurement of zero.
+        //
+        // `bin/bench.ts` gained a reduce leg in Phase 16; this file did not, because
+        // its assertions are wall-clock comparisons against the committed numbers in
+        // `perf-baseline.ts`. Adding a second timed segment to the run would change
+        // what `sweep.makespan` measures relative to a baseline taken without it, and
+        // the gate would report a regression that is a change of workload rather than
+        // a change of speed. `ok: false` is therefore correct here in the same sense
+        // it is correct in the driver: no aggregate was produced, so there is nothing
+        // to report — and nothing in this file reads `SweepResult.reduce`.
+        reduce: {
+          ok: false,
+          reduceMs: 0,
+          treeDepth: 0,
+          combines: 0,
+          recomputes: 0,
+          combineExecutors: 0,
+        },
       } satisfies Observation
     }
 
