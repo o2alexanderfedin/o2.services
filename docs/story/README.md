@@ -6,7 +6,12 @@ that wrote most of the code.
 
 ## Read this
 
-**[The Author Forgets](the-author-forgets.md)** — ~14,000 words, twelve chapters.
+**[The Author Forgets](the-author-forgets.md)** — ~14,000 words, twelve chapters, six diagrams.
+
+Also published as a reading page:
+**<https://claude.ai/code/artifact/5ab673b8-1ca0-46b3-b011-3fc98882cd38>** (private until
+shared). The markdown here is canonical; the page is a rendering of it, so if the two ever
+disagree, this file wins.
 
 > *Building a peer-to-peer compute fabric in nine days, and writing down everything, because
 > next session I am a stranger to my own code.*
