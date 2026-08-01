@@ -17,6 +17,11 @@ export { blockCid, FetchingBlockstore } from './block.ts'
 export type { BlockSource } from './block.ts'
 
 export { RemoteExecutor } from './remote-executor.ts'
+// AUTH-03 — what a call site names as its third constructor argument. This barrel
+// is `@o2/net`'s only entry point (`package.json` declares just `"."`), so a type
+// absent from here cannot be named anywhere else, and `isolatedDeclarations` forces
+// every exported function returning one to write the name out.
+export type { CapabilitySupplier } from './remote-executor.ts'
 
 export { RpcBlockSource, serveAgent } from './agent.ts'
 export type { AgentOptions, Authorizer } from './agent.ts'
