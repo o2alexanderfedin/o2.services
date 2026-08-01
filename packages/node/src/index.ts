@@ -30,6 +30,13 @@ export {
   saveCertificate,
 } from './identity-store.ts'
 
+// AUTH-02 — one named verdict per peer, computed offline against pinned issuer keys.
+// `verifyCertificate` has been complete since Phase 6 with no production caller; this is
+// that caller. The module imports nothing Node-only and sits here only because
+// `@o2/browser` does not depend on `@o2/node` — see its own comment's packaging note.
+export { PeerVerifier } from './peer-verifier.ts'
+export type { PeerFailure, PeerVerdict, PeerVerifierOptions } from './peer-verifier.ts'
+
 // The Node tier's killable compute thread — SCHED-06, BROW-04's other half.
 export { workerThread } from './worker-thread.ts'
 
