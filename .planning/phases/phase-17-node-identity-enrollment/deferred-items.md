@@ -119,29 +119,34 @@ and silently widening a budget would remove the only reading that bounds it.
 
 ---
 
-## `vocabulary.node.test.ts` fails on `17-VERIFICATION.md` — found by 17-06, not caused by it
+## `vocabulary.node.test.ts` failed on `17-VERIFICATION.md` — CLOSED 2026-08-01
 
-**Found during:** 17-06, on the post-commit vocabulary run.
+**Found during:** 17-06, on the post-commit vocabulary run. **Closed by the orchestrator in
+`36458ad`, before this entry was merged.**
 
-**What fails:** two of the five `BANNED` readings, `earn` and `credits`, both from the
-same file and neither from source:
+**What failed:** two of the five `BANNED` readings, both in `17-VERIFICATION.md` and
+neither in source — one an ordinary English past participle about acquiring something, the
+other the opening of a common idiom about giving someone their due. Both arrived in
+`f6a172b`, an ancestor of 17-06's base; 17-06 caused neither.
 
-| File | Line | Term | Text |
-|------|------|------|------|
-| `.planning/phases/phase-17-node-identity-enrollment/17-VERIFICATION.md` | 313 | `credits` | "Credit where due: it is asserted, not merely…" |
-| `.planning/phases/phase-17-node-identity-enrollment/17-VERIFICATION.md` | 347 | `earn` | "never earn one. So the moment an operator passes `--trusted-issuer`…" |
+**How it was closed:** the two sentences were reworded. **Not** by adding a path exemption
+— `vocabulary.node.test.ts`'s own comment records that the bias is toward exempting as
+little as possible, and its `EXEMPT_LINES` are keyed by phrase precisely so an exemption
+names the exact text it forgives. An exemption for incidental English would have forgiven
+every future occurrence in that file, which is how a guard stops guarding.
 
-**Why it is not 17-06's:** both lines arrived in commit `f6a172b`, which is an ancestor of
-this plan's base (`3e1c03e`). 17-06 modified nothing under `.planning/` other than adding
-this entry and its own summary, and a grep of every file it touched finds neither term.
+The judgement 17-06 deferred was the right one to defer and the wrong one to resolve in
+its favour: the test is named *"no cryptojacking vocabulary reaches a reviewer who greps"*,
+so what the sentence meant does not matter. A reviewer grepping this repository must find
+nothing, including in a document arguing against the vocabulary.
 
-**Why it is not fixed here:** the scope boundary forbids fixing failures in unrelated
-files. It is also not obviously a defect *in the file* — "Credit where due" is English, not
-a currency claim, and the verification document is arguing against the vocabulary rather
-than using it. The choice is between rewording two sentences of a completed verification
-report and adding a path exemption, and that is the verifier's call rather than an
-executor's.
+**The lesson worth keeping, which is why this entry survives its own fix:** *this entry
+originally failed the guard too.* Describing the violation meant quoting it, and the quotes
+re-armed the same two readings from a second file — so the merge that carried the report of
+the problem also carried the problem. A finding about forbidden text cannot be written
+down in the forbidden text. Describe the shape, cite the `file:line`, and let the reader
+open it.
 
-**What would close it:** either reword the two lines, or add
-`17-VERIFICATION.md` to the `PathExemption` list with the reason that a document whose
-subject is a refusal will quote the words being refused.
+**Also relevant:** the guard scans `git ls-files`. 17-06 found this only because it ran the
+guard *after* committing; the verification pass that introduced it reported its guards green
+from a run that could not have read the file it was about to write.
