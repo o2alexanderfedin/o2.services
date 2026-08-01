@@ -514,28 +514,40 @@ afterEach(async () => {
  */
 const PROCESS_TEST_TIMEOUT = 300_000
 
-describe('the blocker: a real bin/agent.ts process refuses every combine', () => {
+/**
+ * **What this describe used to assert, and why it now asserts the opposite.**
+ *
+ * Plan 16-03 wrote it as *"the blocker: a real `bin/agent.ts` process refuses every
+ * combine"*, and it passed: `serveAgent` refused any combine on a node holding a real
+ * `Authorizer`, `bin/agent.ts` starts a `FabricNode`, and `FabricNode` installs
+ * `authorizeCapability`. That was the whole of Phase 16's defect, and 16-03 deliberately
+ * committed it as a **passing** test so it would go red the moment the defect was fixed
+ * rather than quietly keep describing a repaired build.
+ *
+ * 16-05 fixed it, so this went red, so it was rewritten to say what is now true. The
+ * reading it takes is the same reading in the same place — a raw `combine` frame against
+ * a spawned agent process — and only the expectation moved.
+ */
+describe('AUTH-03 / 16-05 — a real bin/agent.ts process answers a combine', () => {
   /**
-   * Two readings of the same refusal, taken one layer apart, because either alone is
-   * arguable and together they are not.
+   * Two readings a layer apart, because either alone is arguable.
    *
-   * (i) The **verbatim reason string** off a raw `combine` frame. A refusal that names
-   * the wrong thing is a defect even when the request correctly fails, so the text is
-   * asserted rather than the kind.
+   * (i) The **frame**, verbatim: a spawned `FabricNode` — which installs
+   * `authorizeCapability` and has no flag to say otherwise — answers a raw `combine` with
+   * a result address and an empty reason. The result is compared **bit for bit** against
+   * a reference computed in this process from the production combiner, so this is not
+   * merely "it stopped refusing": the remote process computed the right aggregate.
    *
-   * (ii) The **shape of the reduce that refusal produces** through the production driver.
-   * This is what makes it a blocker rather than a curiosity: `reduceJob` returns
-   * `ok: true` — a reduce *was* attempted — with an outcome that produced no aggregate at
-   * all. It is also an independent, cross-process confirmation of Plan 16-02's correction:
-   * `recomputes` reads **0** while every level-1 combine fell through all eight executors,
-   * because `executeReduce` discards the attempts of a combine that never produced a CID.
-   * `failed` and `executedBy` are the diagnostics that survive; `recomputes` is not one.
+   * (ii) The **driver**, end to end, which is what makes (i) load-bearing rather than a
+   * curiosity: `reduceJob` over eight agent processes now produces an aggregate. The
+   * inverse readings — `combines: 0`, `executedBy.size: 0`, every tree node in `failed`,
+   * `rootCid: null` — are what this same test measured before the fix.
    */
-  it('answers a combine with a capability refusal, and that refusal empties the reduce', async () => {
+  it('answers with the aggregate the production combiner computes, and the reduce completes', async () => {
     const fabric = await standUp(8)
     const { submitter, executorIds } = fabric
 
-    // (i) — the verbatim reason, from a raw frame the production dispatcher would send.
+    // (i) — a raw frame, exactly the one the production dispatcher sends.
     const a = await canonicalCid(project(partitionOutput(0)))
     const b = await canonicalCid(project(partitionOutput(1)))
     if (!a.ok || !b.ok) throw new Error('the fixture partials will not canonicalise')
@@ -550,10 +562,17 @@ describe('the blocker: a real bin/agent.ts process refuses every combine', () =>
     )
     expect(reply?.kind).toBe('combine')
     if (reply?.kind !== 'combine') return
-    expect(reply.resultCid).toBeNull()
-    expect(reply.reason).toBe('combine requires a capability chain this build cannot verify')
+    expect(reply.reason).toBe('')
 
-    // (ii) — what that refusal does to the production driver, end to end.
+    // Computed here, from the production combiner, so a peer answering with *something*
+    // does not pass. This is the process-level twin of `combine.test.ts`'s in-process
+    // reference — and the frame-level assertion the criteria below do not make.
+    const reference = await canonicalCid(fabricCombiner([project(partitionOutput(0)), project(partitionOutput(1))]))
+    expect(reference.ok).toBe(true)
+    if (!reference.ok) return
+    expect(reply.resultCid?.toString()).toBe(reference.cid.toString())
+
+    // (ii) — the production driver, end to end, over eight OS processes.
     const job = await runMap(fabric)
     const result = await reduceJob(job, {
       rpc: submitter.rpc,
@@ -566,38 +585,31 @@ describe('the blocker: a real bin/agent.ts process refuses every combine', () =>
     if (!result.ok) return
     const { outcome, tree } = result
 
-    // The map and the tree are fine. Only the combines are refused — which is why the
-    // criterion test below is written against a tree of exactly this shape.
+    // The tree shape is unchanged by the fix, and is asserted here so a failure below can
+    // be told apart from a tree that came out differently.
     expect(tree.leaves).toHaveLength(SHARDS)
     expect(tree.nodes).toHaveLength(3)
     expect(tree.depth).toBe(2)
 
-    // Nothing combined anywhere.
-    expect(outcome.ok).toBe(false)
-    expect(outcome.rootCid).toBeNull()
-    expect(outcome.combines).toBe(0)
-    expect(outcome.executedBy.size).toBe(0)
-    expect([...outcome.failed].sort()).toEqual(tree.nodes.map((n) => n.id).sort())
-
-    // Plan 16-02's correction, re-measured across OS processes: every level-1 combine
-    // walked all eight executors and `recomputes` still reads 0.
-    expect(outcome.recomputes).toBe(0)
+    // Every one of these read the opposite before 16-05.
+    expect(outcome.ok).toBe(true)
+    expect(outcome.rootCid).not.toBeNull()
+    expect(outcome.combines).toBe(3)
+    expect(outcome.executedBy.size).toBeGreaterThan(0)
+    expect([...outcome.failed]).toEqual([])
   }, PROCESS_TEST_TIMEOUT)
 })
 
 /**
- * **SKIPPED — criterion 1 is UNMEASURED, and unmeasured is not met.**
+ * **Criterion 1 — MEASURED.** Skipped by 16-03 on the combine refusal above; the `.skip`
+ * was removed by 16-05 in the same change that routed a combine through `options.authorize`.
  *
- * Blocked on the combine refusal measured above. Nothing in this test is conditional on
- * that blocker and nothing in it was weakened to accommodate it: it is written exactly as
- * it will run. Remove the `.skip` in the same change that opens the gate.
- *
- * It was run once against the tree in this state, to the point of failure, and the
- * failure it reported was `expected +0 to be 3` on `outcome.combines` — i.e. it fails at
- * the blocker and not before it, which is what makes the rest of the assertions worth
- * keeping rather than rewriting.
+ * Not one assertion here was rewritten to make it pass. 16-03 wrote it exactly as it now
+ * runs and recorded that against the unfixed tree it failed at `expected +0 to be 3` on
+ * `outcome.combines` — i.e. at the blocker and not before it, which is what licenses
+ * keeping the rest rather than re-deriving them.
  */
-describe.skip('MR-04…MR-07 — eight bin/agent.ts processes walk one derived tree', () => {
+describe('MR-04…MR-07 — eight bin/agent.ts processes walk one derived tree', () => {
   it('produces an aggregate bit-identical to a single-process reference, and exactly one agent directory holds the root', async () => {
     const fabric = await standUp(8)
     const { agents: spawned, submitter, executorIds } = fabric
@@ -705,10 +717,9 @@ describe.skip('MR-04…MR-07 — eight bin/agent.ts processes walk one derived t
 })
 
 /**
- * **SKIPPED — criterion 2 is UNMEASURED.** Same blocker as criterion 1, same instruction:
- * remove the `.skip` in the change that opens the combine gate.
+ * **Criterion 2 — MEASURED.** Same blocker as criterion 1, same removal in 16-05.
  */
-describe.skip('MR-05 / MR-06 — a combine node SIGKILLed mid-reduce is repaired elsewhere', () => {
+describe('MR-05 / MR-06 — a combine node SIGKILLed mid-reduce is repaired elsewhere', () => {
   it('completes the reduce from a different process, with no state having moved', async () => {
     const fabric = await standUp(8)
     const { agents: spawned, submitter, executorIds } = fabric
@@ -851,7 +862,7 @@ describe.skip('MR-05 / MR-06 — a combine node SIGKILLed mid-reduce is repaired
 })
 
 /**
- * **SKIPPED — criterion 3 is UNMEASURED.** Same blocker, same instruction.
+ * **Criterion 3 — MEASURED.** Same blocker, same removal in 16-05.
  *
  * And a second, independent limit that is **not** the blocker and survives it: the ROADMAP
  * wording is *"a duplicate combine result **arriving late** from a recovered node is
@@ -863,7 +874,7 @@ describe.skip('MR-05 / MR-06 — a combine node SIGKILLed mid-reduce is repaired
  * same inputs → same bytes → same CID → no second entry. Building a late-arrival handler
  * is new machinery no criterion asks for.
  */
-describe.skip('MR-07 — two replicas dedupe, and a duplicate from a fresh process costs nothing', () => {
+describe('MR-07 — two replicas dedupe, and a duplicate from a fresh process costs nothing', () => {
   it('holds the root in exactly two directories, and a ninth process re-answering adds no entry', async () => {
     const fabric = await standUp(8)
     const { agents: spawned, submitter, executorIds } = fabric
