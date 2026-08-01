@@ -103,6 +103,25 @@ Browser-to-browser is WebRTC, and only WebRTC. The transport matrix says so with
 
 The numbers came out of libp2p's own `transport-circuit-relay-v2/src/constants.ts` and are copied into this repository as `packages/libp2p/src/constants.ts`: duration limit 120,000 ms, data limit 131,072 bytes, 15 concurrent reservations, reservation TTL 7,200,000 ms. Two minutes and 128 KiB per relayed connection — an SDP handshake and nothing else.
 
+```mermaid
+sequenceDiagram
+    participant A as Tab A
+    participant R as Relay
+    participant B as Tab B
+    A->>R: hold a reservation
+    B->>R: hold a reservation
+    Note over A,R: 120 s and 128 KiB, per relayed connection
+    A->>R: dial B at its /p2p-circuit address
+    R->>B: relayed signalling stream
+    B-->>A: SDP answer back through the relay
+    Note over A,B: ICE completes
+    A->>B: direct WebRTC data channel
+    Note over A,B: 16 KiB per message, hardcoded
+    Note over R: the relay carries no further bytes
+```
+
+*The relay is in the path exactly long enough to carry the handshake. Everything after ICE is direct, which is what keeps the fabric's capacity independent of the backbone's bandwidth — and it is also why the two limits on the relayed leg are survivable at all.*
+
 Those numbers inverted a recorded decision. `PROJECT.md` had said public IPFS infrastructure primary, own relay as fallback; the stack research argues the reverse, because *"a public relay operator has no reason to raise them"* and because a browser whose WebRTC upgrade fails is not degraded to relayed — it is **dead**. Own AutoTLS-backed relays became primary; public infrastructure became opportunistic redundancy.
 
 The data path has its own ceiling. js-libp2p hardcodes `MAX_MESSAGE_SIZE = 16 * 1024`, and beneath that SCTP interop is worse than the number suggests: Firefox fragments at 16 KiB, Chromium does not reassemble those fragments, above ~256 KiB Chromium simply closes the data channel, and the SCTP `ndata` fix is unimplemented in every major browser. The consequence is architectural, not tactical: **the browser mesh is not a bulk data path.** Mergeable sketches — HyperLogLog, t-digest, Count-Min — stop being an optimisation and become a requirement, because a reduce partial that does not fit in single-digit KiB cannot move. Artifacts have to arrive over HTTP. Connections are expensive to make, too: ~1.04 s measured as a loopback floor with no STUN, so connection reuse is a design constraint rather than a nicety.
@@ -178,6 +197,21 @@ That aside was later promoted verbatim into `CLAUDE.md` as the project's positio
 
 An owner with a phone and a laptop has two executors without any data crossing a trust boundary. That recovers redundancy for a real and common case.
 
+```mermaid
+flowchart TD
+  S["one shard"] --> Q{"sovereign"}
+  Q -->|"no, public"| P["the identical module on independent nodes, one replica backbone-anchored"]
+  Q -->|"yes"| D{"a second live device under the same owner"}
+  D -->|"yes"| O["redundant execution inside the owner's node set"]
+  D -->|"no"| AT["owner-attested map, recorded as such in the receipt"]
+  P --> G["a partial"]
+  O --> G
+  AT --> G
+  G --> C["the aggregation over contributions, verified independently of how each partial was produced"]
+```
+
+*The fourth row is not a fourth case standing beside the other three. It is where all of them converge, and for a sovereign map it is the only verified claim anything ever reaches.*
+
 And immediately below the table, the caveat that stops the refinement being oversold: two devices under one owner are correlated — *"same operator, same intent, likely the same build"* — so an owner-domain quorum catches accidental corruption but not a biased owner. *"All replicas under one adversary make a quorum unanimous on a forgery rather than degrading, the same structure as an eclipsed DHT lookup."* Owner-domain agreement must therefore be reported *distinctly* from independent-operator agreement, so the weaker claim never implies the stronger one.
 
 One more door closed in the same passage: backbone encrypted replicas are availability-only. Executing a map requires decryption, so a backbone node running a sovereign task would see plaintext, *"reintroducing exactly the exposure sovereignty prevents."* Without a TEE, the execution-eligible replicas are the owner's own devices and nothing else.
@@ -217,6 +251,23 @@ Phase 2's acceptance bar was that adding a real network left `@o2/core` byte-for
 So the test scans every import specifier in every non-`.node.test.ts` file, per tier, each forbidden pattern carrying its own reason string — `node:` because *"a Node builtin does not exist in a browser"*, `@libp2p/` because *"libp2p modules belong in an adapter package"*. Three tiers: portable packages may not name a platform at all; dual-target ones may use libp2p but not `node:`; and `@o2/node` holds everything that must touch a platform.
 
 The same file then refuses to over-claim. It deliberately does not enforce the byte-for-byte criterion as a standing rule, because that rule *was already wrong once* — Phase 3's blockstore conformance suite found a real aliasing defect in `MemoryBlockstore` that had to be corrected in the kernel. What endures is the dependency direction: adapters may depend on the kernel, never the reverse.
+
+```mermaid
+flowchart TD
+  N["@o2/node — Node builtins, libp2p, anything"]
+  D["@o2/libp2p and @o2/browser — libp2p allowed, Node builtins not"]
+  P["@o2/net, @o2/bench, @o2/demo, @o2/aot — neither"]
+  K["@o2/core — the kernel, declaring no @o2 dependency at all"]
+  N --> D
+  N --> P
+  N --> K
+  D --> P
+  D --> K
+  P --> K
+  K -.->|"no edge may point back up"| N
+```
+
+*Arrows are dependencies. Each tier carries its own list of forbidden import specifiers, and each pattern carries the reason it is forbidden — so a violation reports why rather than only where.*
 
 And the last test in the file is the whole discipline compressed into a test name: `it('is checked into git, so the Phase 2 claim stays reproducible')`. If the kernel were untracked, `git diff` would have returned empty and the criterion would have been vacuously met.
 
@@ -276,6 +327,19 @@ Requirements DET-01 and DET-02 were removed, 74 → 72. `REQUIREMENTS.md` now op
 
 Determinism now lives at the serialization boundary. Anything hashed or content-addressed goes through strict DAG-CBOR, which rejects `NaN`, `Infinity` and `-Infinity`, forces `-0.0` to `+0.0`, and mandates one float width. No NaN can reach a hash, so the x86/ARM sign bit never becomes a CID. Protobuf bytes are never hashed, because protobuf's own documentation says serialization is not canonical across languages, builds or schema versions.
 
+```mermaid
+flowchart LR
+  R1["replica 1 output"] --> E["strict DAG-CBOR encode, which refuses NaN and both infinities"]
+  R2["replica 2 output"] --> E
+  E --> N{"did any replica answer"}
+  N -->|"no"| I["insufficient, with each failure and its reason"]
+  N -->|"yes"| C{"group the answers by result CID"}
+  C -->|"one group"| A["agreed, with the replica count it actually reached"]
+  C -->|"more than one"| X["disagreed, every distinct result listed with the nodes that produced it"]
+```
+
+*Nothing here predicts whether two replicas will agree. The encoder refuses the values whose bits could diverge, and the grouping finds out about everything else. No majority is computed at any point.*
+
 Which leaves two documents disagreeing, and I am not quietly fixing it here. `CLAUDE.md` still states the publish-time-artifact doctrine, which is what research concluded. `PROJECT.md` states the serialization-boundary doctrine, which is what shipped after the gate was built, measured and deleted. The disagreement is an artifact of a codebase written by an author who forgets, and it is more useful visible than tidied.
 
 ### The boundary the ghost may not cross
@@ -313,6 +377,25 @@ Why that shape of error is the expensive one is written into the same file: enco
 The better story. Lifting a static `int main(void){ return 42; }` — 659 KB from clang-16 `-O0 -static` — printed six cheerful `INFO` lines, exited **0**, produced a 5.66 MB artifact, and left **174 distinct addresses over 259 call sites** untranslated. Sampling them found real SVE instructions — `ld1b`, `st1b`, `whilelo`, `ptrue` — inside glibc's `__memcpy_a64fx`. Each is a `__ecv_warning` call, which at runtime is an abort. Nothing on stdout or stderr said so. And in the shipped image it is silent by construction: `WARNING_OUTPUT` is commented out at `backend/remill/include/remill/BC/HelperMacro.h:10`, so a decode failure prints nothing at all.
 
 So the driver measures the produced module instead of asking it. Two independent greps over the disassembled bitcode — the `__ecv_warning` call sites, and the addresses passed to them — must **agree** before the count is called evidence. A `counted-only` state exists precisely because a single grep that quietly stopped matching would fold into `addresses: []` *"that reads as 'the lifter gave up on nothing', which is the silent clean lift this whole driver exists to prevent."* Zero would have looked like good news. The verdict is a third value between clean and failed — `reservations` — mapped to exit code **2**, so a build script checking only for zero cannot read "translated, but 174 addresses will abort if reached" as success.
+
+```mermaid
+flowchart TD
+  X["elfconv exits 0 and leaves a module"] --> P["the driver disassembles the module it produced"]
+  P --> C1["one pass counts the warning call sites"]
+  P --> C2["another recovers the addresses passed to them"]
+  C1 --> Q{"do the two passes agree"}
+  C2 --> Q
+  Q -->|"addresses recovered"| M["measured"]
+  Q -->|"call sites but no addresses"| CO["counted-only"]
+  P -->|"no bitcode, or the disassembler failed"| NR["not-run"]
+  M --> E{"is the address list empty"}
+  E -->|"yes"| CL["clean, exit 0"]
+  E -->|"no"| RS["reservations, exit 2"]
+  CO --> RS
+  NR --> RS
+```
+
+*The exit code the toolchain hands back is an input to none of this. Every path that is not a completed measurement of nothing comes out at 2, because the one state that must never be reachable by accident is the clean one.*
 
 And the calibration that keeps the gate usable: a lift with findings is success *with reservations*, not failure, *"and the reason is the measurement above: the smallest possible input already has 174 of them. A driver that refused those would refuse everything and be deleted within a week."* `LiftFailure` also carries a `no-artifact` arm for exit 0 with no `.wasm`: *"Has happened; it is not a theoretical branch."*
 
@@ -494,6 +577,23 @@ Phase 13.1 planted ten defects by hand and watched nine go red. Then the record 
 Each carries why the line is load-bearing — a `why` under 40 characters is rejected as *"the reason is too short to be a reason"* — the exact `find` text, which must occur exactly once (zero means *"this mutation has stopped applying, and a mutation that cannot be planted guards nothing"*; more than one means it is ambiguous), the `replace`, the test files measured to catch it (*"not the set that ought to catch it — the set that did"*), and a `signature` observed in the failing output, so a red run from a port collision or an OOM worker is not accepted as evidence a guard fired.
 
 Two layers, and the split is not about speed. One runs in the ordinary suite and plants nothing; it asks only whether each entry still *describes* the source. The other plants for real: snapshot before the first write, run the recorded `caughtBy` files, restore in a `finally`, verify byte-identity, and finish with `git status --porcelain`, *"the only reading that can see a file some other path forgot to put back."* A survivor is reported by id rather than deleted — *"a finding about the test suite, not about this script."*
+
+```mermaid
+flowchart TD
+  L["one ledger entry — why, find, replace, caughtBy, signature"] --> A["the ordinary suite, which plants nothing"]
+  A --> A1["does the find text still occur exactly once in that file"]
+  L --> B["the script, run on demand"]
+  B --> B1["snapshot the file in memory"]
+  B1 --> B2["write the defect"]
+  B2 --> B3["run only that entry's caughtBy files"]
+  B3 --> B4{"non-zero exit and the recorded signature"}
+  B4 -->|"yes"| CA["caught"]
+  B4 -->|"no"| SU["survivor, reported by id"]
+  B3 --> RE["restore from the snapshot in a finally, then prove byte-identity"]
+  RE --> GS["require git status --porcelain to be empty"]
+```
+
+*The left branch never writes anything, which is why it can run beside everything else in the suite. The right branch is the one that has to be asked for, and its last step exists because every check above it looks at one file at a time.*
 
 Two entries pin the same guarantee because they catch different edits: one catches a reply key that stops naming the peer, which is obviously wrong on sight; the other catches *"the edit that looks reasonable: a receive path made tolerant so a peer whose address is spelled slightly differently still gets its reply matched."*
 
