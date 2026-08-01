@@ -175,20 +175,29 @@ by construction it cannot be loaded outside a bundler. Its own doc comment says 
 
 ### `browser-node.ts` — coverage independently confirms a known debt
 
-`ROADMAP.md` line 495 records four items deferred for want of a multi-browser
-environment, with one shared root cause: *"`BrowserNode.start()` needs a real
-`indexedDB` and a relay to dial, so it runs in **neither** vitest project."*
+> **Both claims below expired, and are corrected here on 2026-08-01 rather than
+> deleted, because what the measurement found was real when it was taken.** The
+> root cause was retired in the source by Plan 15-05, and the grep was re-run.
 
-Coverage corroborates it from the opposite direction, and a grep confirms the
-mechanism: **no test file anywhere in the repository imports `@o2/browser`,
-imports `./browser-node`, or constructs a `BrowserNode`.** The four specs that
-match the string `BrowserNode` mention it only in prose — e.g.
-`serve-agent-hooks.node.test.ts:50`, *"**unmeasured, not met**: `BrowserNode.start`
-needs a real `indexedDB` and a…"*.
+`ROADMAP.md`'s Phase 19 constraints record four items deferred for want of a
+multi-browser environment. Their shared root cause was recorded as *"`BrowserNode.start()`
+needs a real `indexedDB` and a relay to dial, so it runs in **neither** vitest
+project"* — **false, and now corrected in `ROADMAP.md` and `REQUIREMENTS.md`**: the
+`browser` project cannot host such a test because a Circuit Relay v2 server does not
+run in a browser, but the `e2e` project can and needs no relay.
 
-So `browser-node.ts` at 0/58 statements is not an instrument artefact. It is 58
-statements of the browser tier with no runtime execution in any project, and it is
-the single largest genuine gap this measurement found.
+**The grep no longer says what it said.** At measurement time no test file imported
+`@o2/browser`, imported `./browser-node`, or constructed a `BrowserNode`. Re-run
+2026-08-01: `packages/browser/src/start-unwind.browser.test.ts:2` imports
+`BrowserNode` and starts it to success in three engines, and
+`packages/node/src/browser-capability.e2e.test.ts` drives the factory in a live tab.
+
+So `browser-node.ts` at 0/58 statements **was** a genuine gap and not an instrument
+artefact — it was the single largest one this measurement found. It is no longer 0,
+and this document does not say what it is now: coverage has not been re-measured
+since 2026-07-29, and quoting a number nobody took is the error this whole file is
+supposed to be evidence against. The figure in the table above is the 2026-07-29
+reading and should be read with its date.
 
 ---
 
