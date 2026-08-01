@@ -4,6 +4,18 @@ Out-of-scope discoveries, logged rather than fixed. Recorded by Plan 15-03.
 
 ## 1. Five shipped comments claim `BrowserNode.start` runs in no vitest project. It does.
 
+> **CLOSED by Plan 15-05 (2026-07-31).** All five sites are corrected, and the
+> correction is sharper than the one proposed below: the barrier was never
+> *dialability* either. The **`browser`** project cannot host such a test, because a
+> Circuit Relay v2 server does not work in a browser and vitest's browser mode gives one
+> page per file. The **`e2e`** project can, and it needs no relay at all — a relay
+> exists to let two browsers exchange SDP, and a tab dialling a Node submitter's
+> WebSocket listener is a direct data path. `packages/node/src/browser-capability.e2e.test.ts`
+> is the case; mutation-ledger entry `M30` is 15-03's scrambling planted against it.
+>
+> The line-number table below was **wrong in every source that reproduced it** and is
+> corrected in `15-05-SUMMARY.md`'s corrections table. Read that, not this.
+
 **Measured 2026-07-31**, on this worktree:
 
 ```

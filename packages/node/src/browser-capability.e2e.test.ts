@@ -312,9 +312,10 @@ describe('AUTH-03 — a live browser tab judges a capability chain', () => {
 
     // ---- 2. An expired chain ------------------------------------------------------
     //
-    // No sleep and no timing bound: `expiresAt` is absolute Unix ms, *"absolute rather
-    // than a duration so it cannot drift"* (`capability.ts:56`), so a chain that expired
-    // one second ago is exact rather than approximate.
+    // No sleep and no timing bound: `expiresAt` is absolute Unix ms, *"Absolute rather
+    // than a duration so it cannot drift"* (`capability.ts:57` — `capability-dispatch.
+    // node.test.ts:458` cites `:56` for this line, which is one short), so a chain that
+    // expired one second ago is exact rather than approximate.
     const stale = new RemoteExecutor(tabPeerId, submitter.rpc, () =>
       directChainFor(tabPeerId, OWNER_ID, Date.now() - 1_000),
     )
@@ -338,7 +339,7 @@ describe('AUTH-03 — a live browser tab judges a capability chain', () => {
     //
     // `chainSupplierFor` mints `owner -> this tab`, with the audience derived from the
     // tab's peer id by `audienceKeyOf` — the identical derivation the factory ran over
-    // its own `libp2p.peerId` (`browser-node.ts:419`). Nothing is exchanged to make
+    // its own `libp2p.peerId` (`browser-node.ts:423`). Nothing is exchanged to make
     // those two agree, which is what makes a hardcoded audience in the factory fatal
     // here and invisible to every substring count.
     const valid = new RemoteExecutor(tabPeerId, submitter.rpc, chainSupplierFor(tabPeerId))
