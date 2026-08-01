@@ -1,10 +1,18 @@
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { DEFAULT_MAX_CONCURRENT_TASKS, publicNodes, runResilient } from '@o2/core'
-import type { ShardWork, Task } from '@o2/core'
+import {
+  DEFAULT_MAX_CONCURRENT_TASKS,
+  canonicalCid,
+  encodeCanonical,
+  fabricCombiner,
+  publicNodes,
+  runResilient,
+} from '@o2/core'
+import type { Blockstore, CanonicalValue, ShardWork, Task } from '@o2/core'
 import { encodeRequest, parseResponse, remoteDispatch } from '@o2/net'
 import type { AgentResponse } from '@o2/net'
+import type { CID } from 'multiformats/cid'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 // Test-only relative import — see the note in packages/net/src/distributed.test.ts.
 import { MODULE_WRITES_PARTITION } from '../../core/src/executor/fixtures.ts'
@@ -336,6 +344,101 @@ describe('SCHED-06 criterion 1, second clause — the requestor re-picks', () =>
     expect(free.executorPeakInFlight).toBeGreaterThan(0)
 
     busy.admission.release('held-by-this-test')
+  }, 120_000)
+})
+
+/** Put a canonical value into `store` and return its CID. */
+async function putValue(store: Blockstore, value: CanonicalValue): Promise<CID> {
+  const encoded = encodeCanonical(value)
+  if (!encoded.ok) throw new Error(`fixture will not canonicalise: ${JSON.stringify(encoded.error)}`)
+  return store.put(encoded.bytes)
+}
+
+describe('SCHED-06 — the combine branch admits too, on the production factory', () => {
+  it('refuses a combine at the slot limit without fetching a block, and combines the identical frame once a slot frees', async () => {
+    // **This has to be a real `FabricNode` and not an in-process fabric, and the
+    // reason is this phase's own history.** 16-05's defect — a combine refused on any
+    // node holding a real `Authorizer` — survived two milestones precisely because
+    // every in-process rig passed `authorize: 'serves-unauthenticated'`, so no cheap
+    // fabric could see a gate keyed on the real thing's configuration. The node below
+    // is started by the same `FabricNode.start` `bin/agent.ts` calls: it installs
+    // `authorizeCapability`, which admits every combine, so the only thing that can
+    // refuse the frame here is the admission bound under test.
+    //
+    // `packages/net/src/combine.test.ts` measures the same bound one layer down over
+    // `MemoryNetwork` with a counting blockstore. Neither file stands in for the other:
+    // that one can count individual reads, this one can say the production factory
+    // wires it.
+    const [server, client] = await Promise.all([
+      startNode('combine-bound', { maxConcurrentTasks: 1 }),
+      startNode('combine-client'),
+    ])
+    await client.dial(server.multiaddrs[0] as string)
+
+    // Held by the client alone. The server's blockstore is a `FetchingBlockstore` over
+    // its peers, so anything it merges it must pull over this connection — which is
+    // what makes `server.blockstore.fetched` a reading of what the frame cost.
+    const a: CanonicalValue = { counts: { alpha: 1 }, rows: 1 }
+    const b: CanonicalValue = { counts: { beta: 2 }, rows: 2 }
+    const aCid = await putValue(client.store, a)
+    const bCid = await putValue(client.store, b)
+    expect(server.blockstore.fetched).toBe(0)
+
+    const askCombine = async (): Promise<AgentResponse | null> =>
+      parseResponse(
+        await client.rpc.request(
+          server.peerId,
+          encodeRequest({ kind: 'combine', combineId: 'tree-node-a', inputCids: [aCid, bCid], level: 1 }),
+        ),
+      )
+
+    // Saturation is *declared*, not raced — the same technique the re-pick case above
+    // uses, on the same object `serveAgent` reserves against, under a key no combine
+    // derives so the frame meets the over-committed branch and not the dedupe branch.
+    const held = server.admission.offer({ shardId: 'held-by-this-test', nodeId: server.peerId })
+    expect(held.accepted).toBe(true)
+
+    const refused = await askCombine()
+
+    // The combine reply shape, never an `error` frame: `executeReduce` reads a null
+    // result as "try the next executor", which is the right answer from a busy node.
+    expect(refused?.kind).toBe('combine')
+    if (refused?.kind !== 'combine') throw new Error('expected a combine reply')
+    expect(refused.resultCid).toBeNull()
+    // The **text**, composed by `LocalCapacity` and carried across a real TCP + noise +
+    // yamux connection unchanged. Asserted by text and not by kind, because a refusal
+    // naming the wrong thing is a defect here even when the combine correctly fails.
+    expect(refused.reason).toBe('over-committed: 1 of 1 slots in use')
+    // Zero blocks crossed the wire for it. This is the bound the owner ruled for,
+    // measured on a real node rather than argued: the slot is taken before the fetch
+    // loop, so a refused combine costs the transfers it exists to prevent nothing.
+    expect(server.blockstore.fetched).toBe(0)
+
+    // The paired positive control. Without it, `fetched === 0` is equally satisfied by
+    // a node that never fetches, and the refusal by a node that refuses everything.
+    server.admission.release('held-by-this-test')
+    const admitted = await askCombine()
+
+    const reference = await canonicalCid(fabricCombiner([a, b]))
+    expect(reference.ok).toBe(true)
+    if (!reference.ok) return
+    expect(admitted?.kind).toBe('combine')
+    if (admitted?.kind !== 'combine') throw new Error('expected a combine reply')
+    expect(admitted.reason).toBe('')
+    // Bit-for-bit against a reference computed in this process from the production
+    // combiner, so "stopped refusing" cannot pass for "computed the right aggregate".
+    expect(admitted.resultCid?.toString()).toBe(reference.cid.toString())
+    // ...and it really did have to fetch both inputs to do it.
+    expect(server.blockstore.fetched).toBe(2)
+
+    // Taken, and given back. A slot that leaked would leave this node refusing every
+    // later combine forever, with the reduce quietly running out of executors.
+    expect(server.admission.inFlight).toBe(0)
+    // The limit was reached rather than never approached — the only claim this counter
+    // can make, since `peakInFlight <= slots` is arithmetic in `LocalCapacity`.
+    expect(server.admission.peakInFlight).toBe(1)
+    // The combine branch never touches the executor, on either exit.
+    expect(server.executorPeakInFlight).toBe(0)
   }, 120_000)
 })
 
