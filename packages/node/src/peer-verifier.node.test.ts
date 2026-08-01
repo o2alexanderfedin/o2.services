@@ -673,4 +673,23 @@ describe('AUTH-02 — stopping removes the listeners', () => {
     // verifier that never worked.
     expect(served.verifier.verdictFor(served.peerId)?.ok).toBe(true)
   })
+
+  /**
+   * The stub above is a **conforming** `EventTarget`, and saying so is the point: this
+   * reading passes whether or not `stop()` carries its flag, because `removeEventListener`
+   * genuinely removes a listener here. The reading that falsifies `stop()` needs a real
+   * libp2p object, and lives in `peer-gate.node.test.ts` next to the pin for why.
+   */
+  it('removes a listener from a conforming EventTarget, which is what makes the reading above weaker than the real one', () => {
+    const plain = new EventTarget()
+    let calls = 0
+    const listener = (): void => {
+      calls += 1
+    }
+    plain.addEventListener('peer:connect', listener)
+    plain.dispatchEvent(new CustomEvent('peer:connect', { detail: 'one' }))
+    plain.removeEventListener('peer:connect', listener)
+    plain.dispatchEvent(new CustomEvent('peer:connect', { detail: 'two' }))
+    expect(calls).toBe(1)
+  })
 })

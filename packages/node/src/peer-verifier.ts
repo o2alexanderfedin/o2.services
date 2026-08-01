@@ -136,14 +136,19 @@ export class PeerVerifier {
   /** The settled verdicts, which is what {@link verdictFor} and {@link verifiedPeers} read. */
   readonly #verdicts = new Map<string, PeerVerdict>()
   #subscribed = false
+  #stopped = false
 
   readonly #onConnect = (event: CustomEvent<PeerId>): void => {
+    // The guard is not belt-and-braces; it is the whole of what makes `stop()` work
+    // against a real libp2p. See {@link stop}.
+    if (this.#stopped) return
     // `verify` resolves for every outcome including failure — the catch is inside it — so
     // there is no rejection here to leave unhandled.
     void this.verify(event.detail.toString())
   }
 
   readonly #onDisconnect = (event: CustomEvent<PeerId>): void => {
+    if (this.#stopped) return
     // Both maps, deliberately. Dropping only the verdict would leave a settled promise
     // memoised, so a peer that reconnected would be trusted from memory rather than
     // verified again.
@@ -296,8 +301,33 @@ export class PeerVerifier {
     return { ok: true, certificate: verdict.certificate }
   }
 
-  /** Remove the listeners. A no-op when none were ever attached. */
+  /**
+   * Stop reacting to connections. A no-op when nothing was ever attached.
+   *
+   * **The flag is load-bearing and `removeEventListener` alone would not work**, which was
+   * measured rather than assumed after the real-libp2p reading in
+   * `peer-gate.node.test.ts` failed while the stub-`EventTarget` reading in
+   * `peer-verifier.node.test.ts` passed.
+   *
+   * `Libp2p` extends `TypedEventEmitter` from `main-event` (`libp2p/dist/src/libp2p.js:25`,
+   * `main-event@1.0.4`). Its `addEventListener` registers an **anonymous wrapper** with
+   * `super.addEventListener` (`main-event/dist/src/index.js:89-104`), and its
+   * `removeEventListener` passes the *caller's* listener to `super.removeEventListener`
+   * (`:116-124`) — a function that was never registered on the underlying `EventTarget`.
+   * So removal prunes only the internal bookkeeping array, and the listener keeps firing.
+   * Measured directly against the installed package: after `removeEventListener`,
+   * `listenerCount` reads `0` **and the listener is still called**, while a plain
+   * `EventTarget` control stops at the first call. A counter that reports success beside a
+   * listener that still fires is the worst possible shape, and it is pinned by a test in
+   * `peer-verifier.node.test.ts` so an upgrade that fixes it is noticed.
+   *
+   * `removeEventListener` is still called, because it is correct against a conforming
+   * `EventTarget` and because it does keep libp2p's own `listenerCount` honest. But the
+   * guarantee this method makes must not depend on a third party's listener-removal
+   * implementation, so the two handlers check {@link PeerVerifier.stop}'s flag first.
+   */
   stop(): void {
+    this.#stopped = true
     if (!this.#subscribed) return
     this.#libp2p.removeEventListener('peer:connect', this.#onConnect)
     this.#libp2p.removeEventListener('peer:disconnect', this.#onDisconnect)

@@ -132,6 +132,8 @@ import {
   loadOrCreateSeed,
   saveCertificate,
 } from './identity-store.ts'
+import { PeerVerifier } from './peer-verifier.ts'
+import type { PeerVerdict } from './peer-verifier.ts'
 import type { ReservationWatcher } from './reservation-watch.ts'
 import { workerThread } from './worker-thread.ts'
 
@@ -299,6 +301,35 @@ export interface FabricNodeOptions {
    * fails if they stop matching.
    */
   readonly trustAnchors: readonly PublicKeyHex[] | 'runs-unsigned-artifacts'
+  /**
+   * Provider keys whose certificates this node accepts from a peer — AUTH-02.
+   *
+   * A list of **issuers**, never of peers: pinning is about who signed, never about who is
+   * talking. A peer whose certificate chains to one of these is verified; every other
+   * connected peer is excluded from the block source's peer list, by name and with a
+   * verdict a caller can read through {@link FabricNode.verdictFor}.
+   *
+   * **Omitting it means this node verifies nobody and treats every connected peer as
+   * usable**, which is what every node in this repository did before this phase and what
+   * every existing test relies on. That is 17-CONTEXT.md decision 9's third row, and it is
+   * a **stated** absence rather than a safe default: the alternative — an empty verified
+   * set for a node that pinned nothing — would be indistinguishable from a network outage,
+   * which is the failure shape NET-05 exists to eliminate one tier down. So a node that
+   * pins nobody does no verification work at all: it never subscribes, never asks a peer
+   * for records, and `verdictFor` is undefined by construction rather than by winning a
+   * race. See `PeerVerifier`'s own comment for why the early return is where that lives.
+   *
+   * Per-node configuration, not a node kind. Every `FabricNode` has the identical executor,
+   * transport, relay behaviour and protocol surface whatever is passed here — exactly as
+   * `sovereignty` and `trustAnchors` do. It says which *provider* this node believes, in
+   * the same sense `--owner-id` states a clearance without defining a class.
+   *
+   * `trustAnchors` above is a different pinning and the two must not be conflated: an
+   * anchor says whose *build* records this node will run a module for, and an issuer says
+   * whose *enrollment* signature it will believe about a peer. A module and a peer are
+   * different subjects, and a key pinned for one says nothing about the other.
+   */
+  readonly trustedIssuers?: readonly PublicKeyHex[]
   /**
    * Tasks this node will run at once before it refuses an `exec` request with its
    * own words — SCHED-06.
@@ -700,6 +731,15 @@ export class FabricNode {
    * `serveAgent`'s `enrol` branch rate-limits. {@link issuerKey} is the public reading.
    */
   readonly #authority: EnrollmentAuthority | null
+  /**
+   * AUTH-02 — this node's per-peer verdicts.
+   *
+   * Private, because the two readings a caller needs are {@link verifiedPeers} and
+   * {@link verdictFor}, and a public field would expose `verify()` — an awaitable this
+   * class deliberately does not offer, since adding one purely so a test could await a
+   * verdict would be new public surface with no production caller.
+   */
+  readonly #verifier: PeerVerifier
 
   private constructor(parts: {
     libp2p: Libp2p
@@ -717,6 +757,7 @@ export class FabricNode {
     identity: NodeIdentity
     authority: EnrollmentAuthority | null
     certificate: NodeCertificate | null
+    verifier: PeerVerifier
   }) {
     this.libp2p = parts.libp2p
     this.transport = parts.transport
@@ -734,6 +775,7 @@ export class FabricNode {
     this.#identity = parts.identity
     this.#authority = parts.authority
     this.certificate = parts.certificate
+    this.#verifier = parts.verifier
   }
 
   /**
@@ -1053,9 +1095,37 @@ export class FabricNode {
     // publish and keeps passing the sentinel at the hook below.
     const records = certificate === null ? null : ownRecords(certificate, identity, sovereignty.canExecuteSovereign)
 
-    // Blocks this node lacks are pulled from whichever peers are connected. The
-    // peer list is a thunk, so a peer that connects later is usable immediately.
-    const blockstore = new FetchingBlockstore(store, new RpcBlockSource(rpc, () => transport.peers))
+    // AUTH-02 — per-peer verdicts, computed offline against the pinned issuer keys.
+    //
+    // Constructed **after** `resolveCertificate`, which dials the provider: that
+    // connection's `peer:connect` has therefore already fired with nobody listening, and
+    // it is `start`'s seeding loop over `peers()` that catches it. Same mechanism as the
+    // relay case the loop exists for.
+    //
+    // A node given no `trustedIssuers` gets a verifier that subscribes to nothing, asks
+    // nobody anything, and answers `verifiedPeers` with the connected set unchanged — so
+    // this line costs a node that pins nobody exactly one allocation.
+    const verifier = PeerVerifier.start({
+      libp2p,
+      rpc,
+      peers: () => transport.peers,
+      trustedIssuers: new Set(options.trustedIssuers ?? []),
+    })
+
+    // Blocks this node lacks are pulled from whichever peers are connected **and
+    // verified**. AUTH-02, and 17-CONTEXT.md decision 8: this line is the whole of the
+    // gate. Reading the verified subset here means an unverified peer is never asked for a
+    // block and never appears as a dispatch candidate — structurally, because there is
+    // nowhere left to forget the check. `Transport` deliberately learns nothing about
+    // certificates, so `libp2p-transport.ts` stays a three-member datagram port; the
+    // argument for keeping it that way is in its own module comment.
+    //
+    // Still a thunk, and now for two reasons rather than one. A peer that connects later
+    // is usable immediately, as before — and a peer that connects later is usable *once
+    // verified*, which is what makes the fail-closed window between connect and verdict
+    // cost nothing durable: the source is read per fetch, so a retry after the verdict
+    // lands succeeds without reconnecting and with no invalidation step anywhere.
+    const blockstore = new FetchingBlockstore(store, new RpcBlockSource(rpc, () => verifier.verifiedPeers))
 
     // The node's own peer id is its executor id, so a disagreement names the
     // machine that produced the dissenting result.
@@ -1137,6 +1207,7 @@ export class FabricNode {
       identity,
       authority,
       certificate,
+      verifier,
     })
 
     // Unconditional, and that is the point: there is no construction path through
@@ -1227,6 +1298,29 @@ export class FabricNode {
 
   get peerId(): string {
     return this.libp2p.peerId.toString()
+  }
+
+  /**
+   * The connected peers this node will fetch a block from — AUTH-02.
+   *
+   * The same list `RpcBlockSource` reads, so this is a reading of the gate rather than a
+   * parallel account of it. A node given no `trustedIssuers` returns the connected set
+   * unchanged; see that option's doc for why that is stated rather than defaulted.
+   */
+  get verifiedPeers(): readonly string[] {
+    return this.#verifier.verifiedPeers
+  }
+
+  /**
+   * Why a peer is or is not verified — AUTH-02.
+   *
+   * `undefined` means no verdict has been computed: either this node pins nobody and
+   * therefore verifies nobody, or the records round trip for that peer has not landed yet.
+   * Those two are different states and a caller that cares distinguishes them by whether
+   * it configured `trustedIssuers` at all.
+   */
+  verdictFor(peerId: string): PeerVerdict | undefined {
+    return this.#verifier.verdictFor(peerId)
   }
 
   /** Addresses a peer can dial to reach this node. */
@@ -1321,6 +1415,10 @@ export class FabricNode {
     // been shut down. `terminate()` is idempotent, and it resolves anything pending
     // rather than leaving a caller awaiting a promise that will never settle.
     this.#compute.terminate()
+    // AUTH-02, and before the transport: the verifier holds two listeners on `libp2p`, and
+    // a stopped node that kept them would react to a `peer:connect` by issuing a records
+    // request through an endpoint it has already closed.
+    this.#verifier.stop()
     await this.transport.stop()
     await this.libp2p.stop()
   }
