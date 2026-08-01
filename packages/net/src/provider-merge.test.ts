@@ -326,6 +326,86 @@ describe('SCHED-01 — providers unions across peers, because each answers only 
     }
   })
 
+  it('pays the full RPC budget for a peer that answers nothing, and still returns the rest', async () => {
+    // The cost the class doc states, measured rather than asserted. The number is the
+    // endpoint's OWN configured budget — no quantity is invented here, and none is
+    // compared against a wall clock that nobody chose.
+    const BUDGET_MS = 300
+    const network = new MemoryNetwork()
+    const store = new MemoryBlockstore()
+    const cid = await store.put(INPUT)
+
+    // A peer that receives the request and never answers it. `partition` and an
+    // unknown peer id both fail FAST, so neither would exercise the budget at all.
+    const mute = network.connect('mute')
+    mute.onMessage(() => {})
+
+    const priv = new Uint8Array(32).fill(77)
+    const answering = toHex(ed25519.getPublicKey(priv))
+    const authority = new EnrollmentAuthority({
+      providerPrivateKey: new Uint8Array(32).fill(60),
+      maxPerWindow: 100,
+    })
+    const enrolled = authority.enrol(
+      requestEnrollment(priv, new Uint8Array(32).fill(61), {
+        operatorId: 'op-answering',
+        discoverability: 'seed',
+        relayIds: [],
+      }),
+      NOW,
+    )
+    if (!enrolled.ok) throw new Error(`fixture enrolment failed: ${enrolled.reason}`)
+    const answeringStore = new MemoryBlockstore()
+    await answeringStore.put(INPUT)
+    const servingRpc = new RpcEndpoint(network.connect(answering), { timeoutMs: 5_000 })
+    serveAgent({
+      rpc: servingRpc,
+      executor: new WasmExecutor({ nodeId: answering, blockstore: answeringStore }),
+      blockstore: answeringStore,
+      egress: 'holds-no-registrations',
+      authorize: 'serves-unauthenticated',
+      index: new SelfRecordIndex({
+        nodeKey: answering,
+        store: answeringStore,
+        records: {
+          certificate: enrolled.certificate,
+          capabilities: publishCapabilities(priv, {
+            features: FEATURES,
+            sovereignFor: [],
+            issuedAt: NOW - 1000,
+            expiresAt: NOW + YEAR,
+          }),
+        },
+        withhold: 'advertises-everything-it-holds',
+      }),
+      enroll: 'issues-no-certificates',
+      capacity: 'accepts-every-offer',
+      ledger: 'keeps-no-ledger',
+      reservations: 'relays-for-nobody',
+      onDispatch: 'reports-no-dispatch',
+    })
+
+    const requestorRpc = new RpcEndpoint(network.connect('requestor'), {
+      timeoutMs: BUDGET_MS,
+    })
+    try {
+      const index = new RpcRecordIndex(requestorRpc, () => ['mute', answering])
+      const started = performance.now()
+      const answer = await index.providers(cid)
+      const elapsed = performance.now() - started
+
+      // The lookup completed on the answers it got.
+      expect(answer).toStrictEqual([answering])
+      // …and it waited out the silent peer's whole budget to do it. This is the cost,
+      // not a regression: under first-non-empty the fast answer would have returned
+      // and the silent peer would never have been waited for.
+      expect(elapsed).toBeGreaterThanOrEqual(BUDGET_MS)
+    } finally {
+      requestorRpc.close()
+      servingRpc.close()
+    }
+  })
+
   it('asks the peers concurrently, not one after another', async () => {
     // An ordering property, not a wall-clock threshold: a millisecond number here
     // would be a quantity nobody measured. Each serving index records how many

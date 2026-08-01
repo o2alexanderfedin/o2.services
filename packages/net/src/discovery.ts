@@ -53,9 +53,17 @@ import type { RpcEndpoint } from './rpc.ts'
  *
  * ## What the union costs, stated rather than left to be discovered
  *
- * The lookup now pays the **slowest** peer instead of the fastest, and an unreachable
- * peer costs the full `RpcEndpoint` budget on **every** lookup rather than being
- * skipped once a fast answer had already arrived. Both are accepted.
+ * The lookup now pays the **slowest** peer instead of the fastest, and a peer that
+ * answers nothing costs the full `RpcEndpoint` budget — `DEFAULT_RPC_TIMEOUT_MS`
+ * (`rpc.ts:25`) unless the endpoint was given its own — on **every** lookup, rather
+ * than being skipped once a fast answer had already arrived. Both are accepted, and
+ * the second is measured rather than asserted: `provider-merge.test.ts` puts a silent
+ * peer beside an answering one and reads the elapsed time against the endpoint's own
+ * configured budget.
+ *
+ * A peer that fails *fast* — an unknown id, a partitioned link — costs nothing, because
+ * the transport rejects before any budget is entered. The expensive case is silence,
+ * not absence.
  *
  * No probe deadline is adopted for it. {@link DEFAULT_PROBE_TIMEOUT_MS} exists in this
  * file and is a number chosen for a different question — how long an *offer* may take
