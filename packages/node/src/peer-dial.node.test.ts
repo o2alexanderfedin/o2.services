@@ -163,7 +163,10 @@ async function spawnAgent(name: string, extraArgs: readonly string[] = []): Prom
   const child: AgentProcess = spawn(
     process.execPath,
     [AGENT, '--dir', dir, '--trust-anchor', publisher.pub, ...extraArgs],
-    { stdio: ['ignore', 'pipe', 'pipe'] },
+    // fd 0 must be a pipe, not `'ignore'`: the agent's orphan leash arms only on a
+    // socket or FIFO, and `'ignore'` gives it `/dev/null`, which returns EOF at once.
+    // See `orphan-leash.node.test.ts`, whose source guard fails this file otherwise.
+    { stdio: ['pipe', 'pipe', 'pipe'] },
   )
 
   const handshake = await new Promise<Handshake>((resolve, reject) => {
@@ -210,7 +213,10 @@ async function spawnRefusal(name: string, extraArgs: readonly string[]): Promise
   const child: AgentProcess = spawn(
     process.execPath,
     [AGENT, '--dir', join(workdir, name), '--trust-anchor', publisher.pub, ...extraArgs],
-    { stdio: ['ignore', 'pipe', 'pipe'] },
+    // fd 0 must be a pipe, not `'ignore'`: the agent's orphan leash arms only on a
+    // socket or FIFO, and `'ignore'` gives it `/dev/null`, which returns EOF at once.
+    // See `orphan-leash.node.test.ts`, whose source guard fails this file otherwise.
+    { stdio: ['pipe', 'pipe', 'pipe'] },
   )
   return new Promise<Refusal>((resolve, reject) => {
     const timer = setTimeout(
