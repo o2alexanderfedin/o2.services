@@ -68,8 +68,8 @@ export { CountingExecutor } from './counting-executor.ts'
 // Egress control — DATA-04, DATA-05.
 export { EgressGuard, EgressRefusal } from './egress.ts'
 export type { EgressEntry, EgressHold, EgressManifest } from './egress.ts'
-export { takeSovereignHold } from './sovereign-egress.ts'
-export type { SovereignEgressOptions } from './sovereign-egress.ts'
+export { takeSovereignHold, withholdingFrom } from './sovereign-egress.ts'
+export type { EgressDisposition, SovereignEgressOptions } from './sovereign-egress.ts'
 export { sliceManifest, submitJobWithEgress } from './submit-with-egress.ts'
 export type { SubmitWithEgressResult } from './submit-with-egress.ts'
 
