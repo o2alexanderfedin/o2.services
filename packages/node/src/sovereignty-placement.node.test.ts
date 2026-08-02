@@ -8,13 +8,14 @@ import { fileURLToPath } from 'node:url'
 import { ed25519 } from '@noble/curves/ed25519.js'
 import { signName, submitJob, toHex } from '@o2/core'
 import type { NameRecord, NodeDescriptor } from '@o2/core'
-import { RemoteExecutor } from '@o2/net'
+import { RemoteExecutor, encodeRequest, parseResponse, rpcAdmission } from '@o2/net'
 import type { CID } from 'multiformats/cid'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 // Test-only relative imports — see the note in packages/net/src/distributed.test.ts.
-import { MODULE_WRITES_PARTITION } from '../../core/src/executor/fixtures.ts'
+import { MODULE_NEVER_RETURNS, MODULE_WRITES_PARTITION } from '../../core/src/executor/fixtures.ts'
 import { OWNER_KEY, chainSupplierFor } from './capability-fixture.ts'
 import { FabricNode } from './fabric-node.ts'
+import { FsBlockstore } from './fs-blockstore.ts'
 
 /**
  * ROADMAP criterion 1, in the exact evidentiary form it names: "A job submitted
@@ -244,5 +245,226 @@ describe('DATA-03/DATA-04 — sovereignty-pinned placement across real bin/agent
       // "cheaper" choice by every load signal a naive scheduler would react to.
       expect(shard.verification.agreeing).toEqual([alice.peerId])
     }
+  }, 120_000)
+})
+
+/**
+ * ## What the two blocks below add, and what they cannot reach
+ *
+ * The case above proves the criterion on the **`planPlacement`** arm — the arrangement
+ * `submitJob` takes when its caller supplies no `admit`. Plan 18-05 gave it a second
+ * arrangement, and a criterion met on one is not met on the other until it is measured
+ * there.
+ *
+ * The shape of the risk is what changes. `planPlacement` has no branch that can widen
+ * under load: it orders an already-narrowed set and there is nowhere for a cheaper node to
+ * come from. `placeWithOffers` adds a **loop** — a candidate refuses, it is dropped, and
+ * the next `d` are sampled from what remains. A loop that re-derived its pool from the full
+ * node list would leak a sovereign shard onto a foreign node on the second pass, and the
+ * case above would still pass, because nothing in it makes an owner's node refuse.
+ *
+ * **The cross-process reading of "bob was never asked" is weaker than the in-process one**,
+ * and the halves must not be read as one. The offer branch reserves nothing, so a spawned
+ * node that was asked and refused leaves exactly the trace of one that was never asked.
+ * The strong reading — a counted offer list — is
+ * `packages/core/src/sovereign-offers.test.ts`. **This file carries the outcome**: where
+ * the work ran, and where it provably did not.
+ *
+ * What is read from bob's side is his blockstore. Every agent starts with an empty `--dir`
+ * and only the submitter holds the module, so a bob process that executed anything must
+ * have pulled the module block over the wire to do it. `has(moduleCid)` on his own store,
+ * read after his process is stopped, is therefore a genuine reading from the far side
+ * rather than the requestor's account of itself.
+ *
+ * **The owner id here is the operator label `'alice'` and the descriptors are built by this
+ * file.** A discovery-derived descriptor carries `certificate.userKey` as its `ownerId`
+ * instead (Plan 18-05), so a sovereign job placed from `discoverCandidates` needs its
+ * shard's `ownerId` to be that user key. **This file does not exercise that path** —
+ * unifying the two is AUTH-05 / Phase 19's, and changing this fixture to a hex key would
+ * hide the seam rather than close it.
+ */
+
+interface OfferFixture {
+  readonly alice: Agent
+  readonly bobs: readonly [Agent, Agent]
+  readonly submitter: FabricNode
+  readonly moduleCid: CID
+  readonly executors: readonly RemoteExecutor[]
+  readonly descriptors: readonly NodeDescriptor[]
+}
+
+/**
+ * The same arrangement as the case above, stood up separately on purpose.
+ *
+ * The pre-existing case is what says the `planPlacement` arm did not move, so it is left
+ * byte-identical rather than refactored to share this helper. Some duplication is the
+ * price of that, and it is the right price.
+ */
+async function standUpForOffers(aliceArgs: readonly string[] = []): Promise<OfferFixture> {
+  const [alice, bob1, bob2] = await Promise.all([
+    spawnAgent('alice', [
+      '--owner-id',
+      'alice',
+      '--owner-key',
+      OWNER_KEY,
+      '--can-execute-sovereign',
+      ...aliceArgs,
+    ]),
+    spawnAgent('bob1'),
+    spawnAgent('bob2'),
+  ])
+  const submitter = await startSubmitter()
+  await Promise.all([
+    submitter.dial(alice.multiaddrs[0]!),
+    submitter.dial(bob1.multiaddrs[0]!),
+    submitter.dial(bob2.multiaddrs[0]!),
+  ])
+
+  const moduleCid = await submitter.store.put(MODULE_WRITES_PARTITION)
+
+  return {
+    alice,
+    bobs: [bob1, bob2],
+    submitter,
+    moduleCid,
+    executors: [
+      new RemoteExecutor(alice.peerId, submitter.rpc, chainSupplierFor(alice.peerId)),
+      new RemoteExecutor(bob1.peerId, submitter.rpc, chainSupplierFor(bob1.peerId)),
+      new RemoteExecutor(bob2.peerId, submitter.rpc, chainSupplierFor(bob2.peerId)),
+    ],
+    // Alice saturated, both of bob's idle — the arrangement a scheduler that treats
+    // sovereignty as a preference rather than a filter would react to.
+    descriptors: [
+      { nodeId: alice.peerId, ownerId: 'alice', canExecuteSovereign: true, load: 1 },
+      { nodeId: bob1.peerId, ownerId: 'bob', canExecuteSovereign: true, load: 0 },
+      { nodeId: bob2.peerId, ownerId: 'bob', canExecuteSovereign: true, load: 0 },
+    ],
+  }
+}
+
+/**
+ * Did this agent execute anything?
+ *
+ * Read after the process is stopped, so its own writes have landed. An agent that ran the
+ * shard had to pull the module over the wire to do it, and would hold it.
+ */
+async function ranAnything(agent: Agent, moduleCid: CID): Promise<boolean> {
+  const store = await FsBlockstore.open(agent.dir)
+  return store.has(moduleCid)
+}
+
+/** Ask a node directly whether it would take a shard, and read its own answer. */
+async function offerAnswer(
+  submitter: FabricNode,
+  nodeId: string,
+  shardId: string,
+): Promise<{ accepted: boolean; capacity: unknown; reason?: string }> {
+  const reply = parseResponse(await submitter.rpc.request(nodeId, encodeRequest({ kind: 'offer', shardId })))
+  if (reply?.kind !== 'offer') throw new Error(`expected an offer answer, got ${String(reply?.kind)}`)
+  return reply
+}
+
+describe('SCHED-05 — sovereignty survives the offer loop, across real processes', () => {
+  it('places a sovereign shard on its owner when placement asks every candidate first', async () => {
+    const fixture = await standUpForOffers()
+    const { alice, bobs, submitter, moduleCid } = fixture
+
+    const result = await submitJob(
+      {
+        moduleCid,
+        moduleRecord: recordFor(moduleCid),
+        shards: [{ value: { a: 0 }, label: 'sovereign', ownerId: 'alice' }],
+        executors: fixture.executors,
+        nodes: fixture.descriptors,
+        redundancy: 1,
+        // The only difference from the case above, and the whole subject of this block.
+        admit: rpcAdmission(submitter.rpc),
+      },
+      submitter.store,
+    )
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    const [shard] = result.job.shards
+    expect(shard?.verification.status).toBe('agreed')
+    if (shard?.verification.status !== 'agreed') return
+    expect(shard.verification.agreeing).toEqual([alice.peerId])
+
+    // Read from bob's own side rather than from the requestor's account of itself.
+    await Promise.all(bobs.map((b) => stopAgent(b)))
+    for (const bob of bobs) expect(await ranAnything(bob, moduleCid)).toBe(false)
+  }, 120_000)
+
+  it('stalls rather than relocating when the owner’s only node refuses', async () => {
+    // One slot, so a single held task saturates her.
+    const fixture = await standUpForOffers(['--max-concurrent-tasks', '1'])
+    const { alice, bobs, submitter, moduleCid } = fixture
+
+    // Saturation is a real held slot, not a reach into the node: nothing can reach into a
+    // spawned process. `MODULE_NEVER_RETURNS` loops until alice's own task deadline ends
+    // it. Its input differs from the sovereign shard's, which matters — a node's slot key
+    // is `inputCid:partitionIndex` and excludes the module, so a held task sharing the
+    // shard's input would make the shard meet the DEDUPE branch rather than the
+    // over-committed one, and the refusal read below would be the wrong refusal.
+    const neverCid = await submitter.store.put(MODULE_NEVER_RETURNS)
+    const heldInput = await submitter.store.put(new Uint8Array([0xf1, 0xf2, 0xf3, 0xf4]))
+    const held = new RemoteExecutor(alice.peerId, submitter.rpc, chainSupplierFor(alice.peerId))
+      .execute({
+        moduleCid: neverCid,
+        inputCid: heldInput,
+        partitionIndex: 0,
+        partitionCount: 1,
+        label: 'public',
+        moduleRecord: recordFor(neverCid),
+      })
+      .catch((cause: unknown) => ({ ok: false as const, reason: String(cause) }))
+
+    // Poll alice's own answer until she reports herself full. A sleep would be a guess.
+    const deadline = Date.now() + 30_000
+    let answer = await offerAnswer(submitter, alice.peerId, 'precondition')
+    while (answer.accepted && Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, 20))
+      answer = await offerAnswer(submitter, alice.peerId, 'precondition')
+    }
+    expect(answer.accepted).toBe(false)
+    expect(answer.capacity).toStrictEqual({ slots: 1, inFlight: 1 })
+
+    const result = await submitJob(
+      {
+        moduleCid,
+        moduleRecord: recordFor(moduleCid),
+        shards: [{ value: { a: 0 }, label: 'sovereign', ownerId: 'alice' }],
+        executors: fixture.executors,
+        nodes: fixture.descriptors,
+        redundancy: 1,
+        admit: rpcAdmission(submitter.rpc),
+      },
+      submitter.store,
+    )
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    const [shard] = result.job.shards
+    if (shard === undefined) throw new Error('expected one shard')
+
+    // The shard stalled. That is the CORRECT outcome and a much better one than a quiet
+    // leak: two idle foreign processes were available the whole time and neither was
+    // reachable from here, because the sovereignty gate ran before the loop did.
+    expect(shard.verification.status).toBe('insufficient')
+    expect(shard.rejections.map((r) => r.nodeId)).toStrictEqual([alice.peerId])
+    expect(shard.rejections[0]?.reason).toContain('over-committed: 1 of 1 slots in use')
+
+    // The precondition still held while the placement ran. `MODULE_NEVER_RETURNS` is
+    // ended by alice's own task deadline, so a slower placement would have found her free
+    // and every assertion above would have passed while measuring nothing.
+    const after = await offerAnswer(submitter, alice.peerId, 'post-placement')
+    expect(after.accepted).toBe(false)
+    expect(after.capacity).toStrictEqual({ slots: 1, inFlight: 1 })
+
+    // And bob ran nothing, read from bob's own store.
+    await Promise.all(bobs.map((b) => stopAgent(b)))
+    for (const bob of bobs) expect(await ranAnything(bob, moduleCid)).toBe(false)
+
+    await held
   }, 120_000)
 })

@@ -482,6 +482,22 @@ export interface FabricNodeOptions {
  * That is the right answer to "should I try to reserve here?" and it needs no
  * separate flag to read.
  */
+/**
+ * A relay this node was told to use and could not reach — NET-05, the joiner's side.
+ *
+ * Distinct from a reservation *refusal*, which is what `ReservationWatcher` reports:
+ * there the dial SUCCEEDED and the relay declined to hold a slot. Here the relay was
+ * never reached at all. The two demand opposite responses — wait and retry this one,
+ * versus try a different one — and collapsing them into "no circuit address appeared"
+ * is precisely the ambiguity NET-05 exists to remove.
+ */
+export interface RelayDialFailure {
+  /** The address as configured, so an operator can see which line was wrong. */
+  readonly address: string
+  /** libp2p's own words. Never synthesised here. */
+  readonly reason: string
+}
+
 export interface RelayCapacity {
   readonly granted: number
   readonly limit: number
@@ -799,6 +815,7 @@ export class FabricNode {
    * `serveAgent`'s `enrol` branch rate-limits. {@link issuerKey} is the public reading.
    */
   readonly #authority: EnrollmentAuthority | null
+  readonly #relayFailures: readonly RelayDialFailure[]
   /**
    * AUTH-02 — this node's per-peer verdicts.
    *
@@ -828,6 +845,7 @@ export class FabricNode {
     authority: EnrollmentAuthority | null
     certificate: NodeCertificate | null
     verifier: PeerVerifier
+    relayFailures: readonly RelayDialFailure[]
   }) {
     this.libp2p = parts.libp2p
     this.transport = parts.transport
@@ -847,6 +865,23 @@ export class FabricNode {
     this.#authority = parts.authority
     this.certificate = parts.certificate
     this.#verifier = parts.verifier
+    this.#relayFailures = parts.relayFailures
+  }
+
+  /**
+   * Relays this node was told to use and could not reach — NET-05.
+   *
+   * `[]` for a node given no `relayAddrs`, and `[]` for one that reached every relay it
+   * was given. A non-empty list is the difference between *"no circuit address appeared
+   * because the relay was full"* and *"because it was never there"*, which are the two
+   * readings NET-05 exists to keep apart. The refusal side is
+   * {@link FabricNodeOptions.reservationWatcher}; this is the unreachable side.
+   *
+   * Read after `start` resolves. A node with entries here started anyway, deliberately —
+   * see the loop that fills it.
+   */
+  get relayFailures(): readonly RelayDialFailure[] {
+    return this.#relayFailures
   }
 
   /**
@@ -1134,10 +1169,28 @@ export class FabricNode {
     // **reached**, while one parsed out of a configured string is a claim about who was
     // *meant* to be reached. A signed statement is the worst possible place for the second
     // kind of fact.
+    // NET-05: **a relay this node cannot reach is a named condition, not a reason to
+    // kill a node that can still work.** This loop used to let the dial throw. Because
+    // it runs inside `start`, before the node exists, the throw could not be caught by
+    // any caller that wanted to keep the node — and in `bin/agent.ts`, where `start` is
+    // a top-level `await`, it surfaced as an unhandled rejection: a stack trace, a
+    // nonzero exit, and none of the named-refusal reporting every other flag in that
+    // binary does.
+    //
+    // The disposition now matches the one the flag doc states: a node given several
+    // relays and able to reach only some of them keeps running on the ones it reached,
+    // and a node that reached none still serves everything that does not need a
+    // circuit. Which relays failed, and why, is reported rather than inferred from an
+    // empty `circuitAddrs` — the exact ambiguity NET-05 exists to remove.
     const relayPeerIds: string[] = []
+    const relayFailures: RelayDialFailure[] = []
     for (const address of relayAddrs) {
-      const connection = await libp2p.dial(multiaddr(address))
-      relayPeerIds.push(connection.remotePeer.toString())
+      try {
+        const connection = await libp2p.dial(multiaddr(address))
+        relayPeerIds.push(connection.remotePeer.toString())
+      } catch (cause) {
+        relayFailures.push({ address, reason: cause instanceof Error ? cause.message : String(cause) })
+      }
     }
 
     // NET-08: the first `Libp2pTransportOptions` this factory has ever passed — the
@@ -1393,6 +1446,7 @@ export class FabricNode {
       authority,
       certificate,
       verifier,
+      relayFailures,
     })
 
     // Unconditional, and that is the point: there is no construction path through

@@ -67,6 +67,7 @@ import { KERNEL_TRUST_ANCHOR } from '@o2/demo'
 import { SEED_BYTES, parseKeyHex } from '@o2/libp2p'
 import { FabricNode } from '../fabric-node.ts'
 import { armOrphanLeash } from '../orphan-leash.ts'
+import { ReservationWatcher } from '../reservation-watch.ts'
 
 const { values } = parseArgs({
   options: {
@@ -276,11 +277,33 @@ const { values } = parseArgs({
     // as every other one does, and anyone who writes "the provider node" in prose is
     // recreating the class `fabric-node.ts` records as deleted.
     'issues-certificates': { type: 'boolean', default: false },
+    // NET-05, the joining node's side. Repeatable.
+    //
+    // **This is not `--peer-addr`.** That flag establishes ongoing peering with a node
+    // this one can already reach and changes nothing about this node's own reachability.
+    // This one asks the far side for a *reservation*, which is how a node that cannot
+    // listen becomes dialable at all — the browser's situation, reproduced here in a
+    // process a test can spawn. Two flags, deliberately, because they are two mechanisms.
+    //
+    // **This node still relays for others, and `--relay-addr` does not change that.** It
+    // is worth saying because the opposite is easy to assume: `canRelay` is derived from
+    // the listen list, this binary always passes `--port` (default `0`), so an agent given
+    // a relay address binds a real address of its own *and* asks for a circuit. It is a
+    // relay client and a relay server at once. A node that bound nothing would be the
+    // browser case, and this binary has no way to produce one.
+    //
+    // Every outcome is reported by name and **none is fatal** — the same disposition
+    // `--duty-cycle`'s SIGHUP re-read takes, and the opposite of `--provider-addr`'s. A
+    // relay that is full, and a relay that is not there, are different conditions with
+    // opposite responses, and both are better than a node that dies or a node that goes
+    // quiet. A node that got into no relay still executes tasks, serves blocks and
+    // answers records for every peer that can reach it directly.
+    'relay-addr': { type: 'string', multiple: true },
   },
 })
 
 const USAGE =
-  'usage: agent.ts --dir <blockstore-dir> [--port <n>] [--owner-id <id> [--owner-key <hex>] [--can-execute-sovereign]] [--trust-anchor <hex> ...] [--issues-certificates] [--provider-addr <multiaddr> --user-key <path> --operator-id <id>] [--trusted-issuer <hex> ...] [--peer-addr <multiaddr> ...] [--max-concurrent-tasks <n>] [--duty-cycle <n>]\n'
+  'usage: agent.ts --dir <blockstore-dir> [--port <n>] [--owner-id <id> [--owner-key <hex>] [--can-execute-sovereign]] [--trust-anchor <hex> ...] [--issues-certificates] [--provider-addr <multiaddr> --user-key <path> --operator-id <id>] [--trusted-issuer <hex> ...] [--peer-addr <multiaddr> ...] [--max-concurrent-tasks <n>] [--duty-cycle <n>] [--relay-addr <multiaddr> ...]\n'
 
 /**
  * The one exit-2 path, extended rather than duplicated.
@@ -415,6 +438,21 @@ const shutdown = (): void => {
 
 armOrphanLeash(shutdown)
 
+/**
+ * NET-05: the first production process ever to construct one.
+ *
+ * `ReservationWatcher` existed, was exported, and was reached only by two tests. It
+ * observes libp2p's own reported reservation status through the `logger` injection point,
+ * because libp2p throws that status as an untyped `Error` inside a retry loop where no
+ * caller can catch it.
+ *
+ * Built only when a relay was actually asked for. A node with no `--relay-addr` never
+ * attempts a reservation, so a watcher on it would report nothing forever and its presence
+ * would suggest a measurement that is not happening.
+ */
+const relayAddrs = values['relay-addr'] ?? []
+const watcher = relayAddrs.length === 0 ? undefined : new ReservationWatcher()
+
 node = await FabricNode.start({
   blockstoreDir: values.dir,
   listen: [`/ip4/127.0.0.1/tcp/${values.port}`],
@@ -433,6 +471,9 @@ node = await FabricNode.start({
     ? {}
     : { maxConcurrentTasks: Number(values['max-concurrent-tasks']) }),
   ...(values['duty-cycle'] === undefined ? {} : { dutyCycle: Number(values['duty-cycle']) }),
+  // Both keys or neither: a watcher with no relay to watch reports nothing, and a relay
+  // with no watcher is the silence NET-05 exists to end.
+  ...(watcher === undefined ? {} : { relayAddrs, reservationWatcher: watcher }),
   ...(values['owner-id'] === undefined
     ? {}
     : {
@@ -506,6 +547,57 @@ for (const address of values['peer-addr'] ?? []) {
 // `peers` is read the same way and carries the same guarantee: `[]` is a statement that
 // this process reached nobody, not the absence of a statement, and every entry in it came
 // off a `Connection` that was actually established.
+/**
+ * NET-05: settle the relay question before announcing.
+ *
+ * A reservation is not held when `start` resolves. The dial returns as soon as the
+ * connection is up; libp2p then asks for the reservation inside its own retry loop, so a
+ * circuit address appears — or a refusal arrives — some time afterwards. Reading
+ * `circuitAddrs` immediately would report `[]` for a node that is about to be granted one,
+ * which is a false statement rather than an early one.
+ *
+ * So this waits for whichever answer comes first: a circuit, a named refusal, or an
+ * unreachable relay already recorded during `start`. All three resolve it — this is not a
+ * wait for success, it is a wait for **an answer** — and the budget bounds the case where
+ * none arrives, which is itself reported below as the fourth outcome rather than hidden by
+ * a longer timeout.
+ *
+ * The budget is spent only by a node that asked for a relay. Every other agent announces
+ * exactly as immediately as it did before this flag existed.
+ */
+const RELAY_SETTLE_BUDGET_MS = 30_000
+if (watcher !== undefined) {
+  // Subscribed BEFORE the wait below, not after, and that ordering is the whole of the
+  // mechanism rather than a detail. A subscription taken afterwards would be dead code for
+  // the startup refusal — the wait cannot end until the failure has already been recorded,
+  // so a replay of `watcher.failures` would report it first and the subscription would
+  // never fire. Measured: removing the subscription while such a replay existed changed
+  // nothing, and the test still passed. One reporting path, and it is this one.
+  //
+  // It also outlives startup, which is the reason to prefer it: libp2p keeps retrying a
+  // reservation for the life of the node, so a relay that fills up an hour from now
+  // refuses this node then, and that refusal is reported by the same line. **That later
+  // case is not measured by any test** — `reservation-exhaustion.node.test.ts` only
+  // exercises the startup one.
+  watcher.onFailure((failure) => {
+    process.stderr.write(`agent.ts: relay reservation ${failure.kind}: ${failure.status}\n`)
+  })
+
+  const deadline = Date.now() + RELAY_SETTLE_BUDGET_MS
+  while (
+    Date.now() < deadline &&
+    node.circuitAddrs.length === 0 &&
+    watcher.failures.length === 0 &&
+    node.relayFailures.length === 0
+  ) {
+    await new Promise((resolve) => setTimeout(resolve, 50))
+  }
+}
+
+//
+// `relays` is the grant side of NET-05: the relays this node holds a circuit through,
+// read off `circuitAddrs` rather than off the configured list, so it names relays that
+// actually granted rather than relays that were asked. `[]` is a statement.
 process.stdout.write(
   `${JSON.stringify({
     peerId: node.peerId,
@@ -516,8 +608,35 @@ process.stdout.write(
     issuerKey: node.issuerKey,
     peers,
     dutyCycle: node.dutyCycle,
+    relays: node.circuitAddrs,
   })}\n`,
 )
+
+/**
+ * NET-05's whole point, on stderr rather than on the handshake line.
+ *
+ * **Three outcomes, three different words, and the distinction is the deliverable.** A
+ * relay that granted, a relay that was reached and refused for want of capacity, and a
+ * relay that was never reached at all demand different responses — carry on, try another
+ * relay or wait, and fix the address. Collapsing any two of them into "no circuit address
+ * appeared" is the silence this requirement exists to replace.
+ *
+ * stderr, because stdout's first line is a machine-read handshake and every parent in this
+ * repository parses only up to its first newline. A second stdout line would be tolerated
+ * by all of them today, which is exactly why it should not be relied on.
+ *
+ * **None of this is fatal.** A node that got into no relay still executes tasks, serves
+ * blocks and answers records for every peer that can reach it directly — and killing it
+ * would be a worse answer than the one NET-05 exists to replace.
+ */
+if (watcher !== undefined) {
+  for (const failure of node.relayFailures) {
+    process.stderr.write(`agent.ts: relay ${failure.address} unreachable: ${failure.reason}\n`)
+  }
+  if (node.circuitAddrs.length === 0 && node.relayFailures.length === 0) {
+    process.stderr.write(`agent.ts: no relay granted a reservation yet; still serving directly\n`)
+  }
+}
 
 // Declared with `shutdown` above, alongside the leash, so the three ways this process can
 // be told to stop read as one paragraph rather than being separated by the handshake.

@@ -24,25 +24,30 @@ const SLOW_CUTOFF_MS = 1000
 const NODE_MEASUREMENT = {
   date: '2026-08-02',
   /**
-   * 1-minute load average, sampled every 15 s across the run — and the endpoints are
-   * **not** the story. It began at 33.4 and ended at 39.8, but peaked at 121.8 mid-run,
-   * so these spans are contention-dominated and each should be read as an upper bound on
-   * its file rather than as that file's cost.
+   * 1-minute load average, sampled every 15 s across the run.
    *
-   * The peak is recorded because the two endpoints alone would understate it by a factor
-   * of three, and an absolute-millisecond cutoff is not reproducible without knowing what
-   * the host was carrying when it was taken.
+   * **This reading was taken on a quiet host, and the previous one was not.** It began at
+   * 5.7, ended at 5.8 and peaked at 14.1 on 8 cores — against the run this replaced, which
+   * peaked at 121.8 because a browser demo and a second suite were sharing the machine.
+   * That is why the whole table moved: sum-of-spans fell from 614.1 s to 416.7 s and wall
+   * clock from 336.3 s to 210.5 s for **more** files, so the earlier numbers were
+   * measuring the contention rather than the tree.
+   *
+   * The peak is still recorded rather than the endpoints alone, because an
+   * absolute-millisecond cutoff is not reproducible without knowing what the host was
+   * carrying — and because a run whose endpoints look calm can still have been contended
+   * in the middle, which is exactly what the retired reading did.
    */
-  load: 33.4,
-  loadAtEnd: 39.8,
-  loadPeak: 121.8,
+  load: 5.7,
+  loadAtEnd: 5.8,
+  loadPeak: 14.1,
   /** Files and tests the `node` project ran, i.e. with no `test:unit` exclusions. */
-  files: 125,
-  tests: 1774,
+  files: 127,
+  tests: 1782,
   /** Sum of per-file spans. Not wall clock — vitest runs files in parallel. */
-  sumOfFileSpansMs: 614_141,
+  sumOfFileSpansMs: 416_676,
   /** Wall clock of that same run, for contrast with the sum above. */
-  wallClockMs: 336_323,
+  wallClockMs: 210_454,
   /**
    * What `npm run test:unit` measured with the derived list below applied.
    *
@@ -52,17 +57,21 @@ const NODE_MEASUREMENT = {
    * table, which is the cross-check that the derivation and the runner agree. Deriving
    * it alone would make the assertion a tautology.
    *
-   * `unitWallClockMs` is **one reading of a passing run at a stated load** — 8.48 s at
-   * 1-minute load 15.2 — and is not a bound. Two further readings minutes apart on the
-   * same tree gave 6.24 s at load 18.6 and 8.75 s, so read this as "under ten seconds"
-   * and read the spread as the reason this object records a load at all rather than a
-   * duration on its own. The 6.24 s reading is deliberately not the one recorded: it
-   * came from a run with three failing assertions, and a duration taken from a red run
-   * is not a duration for the suite this field claims to describe.
+   * `unitWallClockMs` is **one reading of a passing run at a stated load** — 5.96 s at
+   * 1-minute load 5.6 — and is not a bound. Readings across this session ranged 5.9–8.8 s
+   * at loads from 5.6 to 18.6 on the same tree, so read this as "under ten seconds" and
+   * read the spread as the reason this object records a load at all rather than a duration
+   * on its own.
+   *
+   * **Durations from red runs are deliberately never recorded here.** Two candidates were
+   * discarded on that rule during this session — 6.24 s taken while three assertions were
+   * failing, and 5.91 s taken while `slow-specs` itself was failing on the very count this
+   * field feeds. A duration measured on a suite that did not pass is not a duration for
+   * the suite this field claims to describe.
    */
-  unitFiles: 96,
-  unitTests: 1468,
-  unitWallClockMs: 8_480,
+  unitFiles: 98,
+  unitTests: 1477,
+  unitWallClockMs: 5_960,
 } as const
 
 /**
@@ -156,44 +165,44 @@ const NODE_MEASUREMENT = {
  * The rest are deliberately unannotated rather than guessed at.
  */
 const MEASURED_NODE_SPANS: readonly (readonly [string, number])[] = [
-  ['tools/aot/lift.node.test.ts', 335022],
-  ['packages/node/src/discovery-agents.node.test.ts', 38560],
-  ['packages/node/src/enrollment.node.test.ts', 31997],
-  ['packages/node/src/certificate-verification.node.test.ts', 27223],
-  ['packages/node/src/peer-dial.node.test.ts', 25804],
-  ['packages/node/src/orphan-leash.node.test.ts', 20869],
-  ['packages/node/src/tree-reduce-agents.node.test.ts', 20854],
-  ['packages/node/src/peer-gate.node.test.ts', 11671],
-  ['packages/node/src/transport-bounds.node.test.ts', 11459],
-  ['packages/node/src/admission.node.test.ts', 9514],
-  ['packages/node/src/signed-artifact.node.test.ts', 7243],
-  ['packages/node/src/two-process.node.test.ts', 6012],
-  ['packages/node/src/capability-dispatch.node.test.ts', 5733],
-  ['packages/node/src/duty-cycle.node.test.ts', 5604],
-  ['packages/demo/src/kernel.test.ts', 5473],
-  ['packages/node/src/fabric-node.node.test.ts', 5348],
-  ['packages/node/src/node-records.node.test.ts', 3734],
-  ['packages/node/src/trust-anchors.node.test.ts', 3477],
-  ['packages/node/src/peer-verifier.node.test.ts', 3233],
-  ['packages/node/src/sovereignty-placement.node.test.ts', 2575],
-  ['packages/node/src/execution-deadline.node.test.ts', 2480],
-  ['packages/node/src/provider-answering.node.test.ts', 2265],
-  ['packages/node/src/egress-refusal.node.test.ts', 2171],
-  ['packages/node/src/node-enrollment.node.test.ts', 1996],
-  ['packages/node/src/egress-manifest.node.test.ts', 1856],
-  ['packages/node/src/relaying.node.test.ts', 1777],
-  ['packages/node/src/named-refusal.node.test.ts', 1565],
-  ['packages/net/src/churn.test.ts', 1030],
-  ['packages/node/src/rendezvous-wire.node.test.ts', 1025],
+  ['tools/aot/lift.node.test.ts', 209729],
+  ['packages/node/src/discovery-agents.node.test.ts', 26622],
+  ['packages/node/src/certificate-verification.node.test.ts', 21374],
+  ['packages/node/src/enrollment.node.test.ts', 18166],
+  ['packages/node/src/sovereignty-placement.node.test.ts', 18162],
+  ['packages/node/src/orphan-leash.node.test.ts', 17900],
+  ['packages/node/src/tree-reduce-agents.node.test.ts', 13633],
+  ['packages/node/src/peer-gate.node.test.ts', 10841],
+  ['packages/node/src/transport-bounds.node.test.ts', 10296],
+  ['packages/node/src/admission.node.test.ts', 8245],
+  ['packages/node/src/peer-dial.node.test.ts', 6975],
+  ['packages/node/src/duty-cycle.node.test.ts', 4963],
+  ['packages/node/src/signed-artifact.node.test.ts', 4509],
+  ['packages/node/src/fabric-node.node.test.ts', 3730],
+  ['packages/node/src/capability-dispatch.node.test.ts', 3639],
+  ['packages/node/src/two-process.node.test.ts', 3575],
+  ['packages/node/src/node-records.node.test.ts', 3335],
+  ['packages/node/src/reservation-exhaustion.node.test.ts', 3172],
+  ['packages/node/src/peer-verifier.node.test.ts', 2733],
+  ['packages/node/src/execution-deadline.node.test.ts', 2260],
+  ['packages/demo/src/kernel.test.ts', 2115],
+  ['packages/node/src/provider-answering.node.test.ts', 1903],
+  ['packages/node/src/trust-anchors.node.test.ts', 1785],
+  ['packages/node/src/egress-manifest.node.test.ts', 1315],
+  ['packages/node/src/relaying.node.test.ts', 1197],
+  ['packages/node/src/egress-refusal.node.test.ts', 1165],
+  ['packages/node/src/named-refusal.node.test.ts', 1086],
+  ['packages/node/src/node-enrollment.node.test.ts', 1045],
+  ['packages/net/src/churn.test.ts', 1019],
   // ---- below the cut; listed so the boundary is visible, not excluded ----
-  ['packages/net/src/discovery.test.ts', 999],
-  ['tools/aot/cli.node.test.ts', 934],
-  ['packages/node/src/disclosure-gate.node.test.ts', 807],
-  ['packages/net/src/enrol-agent.test.ts', 761],
-  ['packages/node/src/fs-blockstore.node.test.ts', 748],
-  ['packages/core/src/discovery.test.ts', 655],
-  ['packages/node/src/sovereign-block-refusal.node.test.ts', 650],
-  ['packages/net/src/provider-merge.test.ts', 646],
+  ['packages/node/src/disclosure-gate.node.test.ts', 665],
+  ['packages/net/src/discovery.test.ts', 650],
+  ['packages/node/src/rendezvous-wire.node.test.ts', 612],
+  ['tools/aot/cli.node.test.ts', 503],
+  ['packages/node/src/sovereign-block-refusal.node.test.ts', 480],
+  ['packages/net/src/provider-merge.test.ts', 459],
+  ['packages/node/src/primes-reduce.node.test.ts', 357],
+  ['packages/node/src/fs-blockstore.node.test.ts', 353],
 ]
 
 /**

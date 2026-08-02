@@ -502,9 +502,23 @@
               ['relay', relayAddrs[0]],
               ['address', addrs[0] ?? '(none yet)'],
             ])
+            // **Not "another tab".** A node's identity lives in IndexedDB, which is scoped
+            // to the origin and not to the tab, so a second tab of this page in the same
+            // browser profile loads the SAME peer id — it is this node again, not a second
+            // one. It cannot connect to this tab, because a peer does not dial itself, and
+            // the relay holds one reservation rather than two. The page said "another tab"
+            // until 2026-08-02 and the two tabs then sat at one peer each with nothing
+            // explaining why.
+            //
+            // What does work is anything with its own origin storage: another device,
+            // another browser, or a private window. `two-tabs.e2e.test.ts` proves the
+            // WebRTC path itself and uses two isolated `BrowserContext`s for exactly this
+            // reason — its header says so in those words.
             explainEl.textContent =
-              'Open this same URL in another tab or on another device and the two find ' +
-              'each other over WebRTC. The relay only carries the handshake.'
+              'Open this same URL on another device, in another browser, or in a private ' +
+              'window, and the two find each other over WebRTC. The relay only carries the ' +
+              'handshake. A second tab in this same browser is not a second node — it ' +
+              'shares this one’s stored identity.'
             await findPeers()
             // Devices join at their own pace, so keep looking. A browser cannot be
             // dialled cold, so nobody will announce themselves to this tab.
