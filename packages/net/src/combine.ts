@@ -15,7 +15,17 @@
  * | `combine` came back with `resultCid: null` | `null` | the node was reachable and could not run it |
  * | `combine` came back with a CID, but that peer would not serve the block | `null` | a result the requestor cannot retrieve is a result the next level cannot use |
  * | `combine` came back with a CID, and the block did not hash to it | `null` | the peer is answering with something other than what it claimed |
+ * | the block came back and **this node** could not store it | throws {@link LocalStoreWriteFailed} | not a fact about the peer at all — see below |
  * | `combine` came back with a CID and the block was retrieved | the CID | the aggregate for this node is at that address, **and is resident here** |
+ *
+ * **The last row is the one that is easy to get wrong, so it is stated twice.** Every
+ * other row is a fact about the peer, and `null` says "that executor is gone" — the
+ * caller's cue to try the next in the ranking. A local `blockstore.put` that fails
+ * says nothing about the peer: the peer answered, and answered correctly. Reporting
+ * it as `null` sent `executeReduce` down the whole rendezvous ranking, recomputing on
+ * every other executor, failing the identical local write each time, and finally
+ * reporting **every executor in the fabric** as failed. A full disk read as a dead
+ * fabric. So this one failure throws instead, and the throw names the store.
  *
  * **How this differs from `remoteDispatch`, because a reader will otherwise ask.**
  * `remoteDispatch` preserves the failure *kind* — node, sender, task — because
@@ -68,14 +78,53 @@ export interface RemoteCombineOptions {
   readonly blockstore: Blockstore
 }
 
+/**
+ * This node could not write a combine result into its own store.
+ *
+ * Thrown, never returned as `null`, and the distinction is the whole point.
+ * `CombineDispatch` resolving to `null` is defined in `@o2/core` (`reduce.ts`) to
+ * mean *that executor is gone*; a `put` that fails is a fact about local storage —
+ * `FsBlockstore`'s `writeFile`/`rename` on ENOSPC or EACCES, a browser's
+ * `QuotaExceededError` — and the peer it would otherwise have accused answered
+ * correctly.
+ *
+ * It carries the tree node rather than the executor id for the same reason: the
+ * executor is not what went wrong, and naming it in the message would put the reader
+ * back where the `null` did.
+ */
+export class LocalStoreWriteFailed extends Error {
+  /** The *tree node's* combine id — `CombineTask.nodeId`, never a peer id. */
+  readonly combineId: string
+  /** The result that was retrieved and could not be kept. */
+  readonly cid: string
+  constructor(combineId: string, cid: string, cause: unknown) {
+    super(
+      `the local store refused the combine result for tree node ${combineId} (${cid}): ` +
+        `${cause instanceof Error ? cause.message : String(cause)} — ` +
+        "this is this node's own storage, not the executor that produced it",
+      { cause },
+    )
+    this.name = 'LocalStoreWriteFailed'
+    this.combineId = combineId
+    this.cid = cid
+  }
+}
+
 /** A `CombineDispatch` that runs one combine on a peer and retrieves its result. */
 export function remoteCombineDispatch(options: RemoteCombineOptions): CombineDispatch {
   return async (task, executorId): Promise<CID | null> => {
-    // The whole body is wrapped, which covers the RPC rejection *and* an unparseable
-    // input CID string. The `CID.parse` calls are deliberately inside the try and not
+    // The body is wrapped, which covers the RPC rejection *and* an unparseable input
+    // CID string. The `CID.parse` calls are deliberately inside the try and not
     // before it: `CombineTask.inputCids` are strings that came from `resolved` inside
     // `executeReduce`, and a malformed one there would otherwise take down the whole
     // level's `Promise.all` instead of costing this one combine an attempt.
+    //
+    // **What the wrapping does not cover is the local write**, and the `catch` binds
+    // its cause so it can say so. Everything the try covers is a fact about the peer;
+    // `LocalStoreWriteFailed` is a fact about this node, and collapsing it to `null`
+    // is how a full disk came to be reported as a fabric with no live executors. It
+    // is re-thrown by type rather than by position so a later edit cannot quietly
+    // move a local failure back inside the collapse.
     try {
       const inputCids = task.inputCids.map((cidString) => CID.parse(cidString))
 
@@ -133,9 +182,14 @@ export function remoteCombineDispatch(options: RemoteCombineOptions): CombineDis
       // ordering is load-bearing**: an edit that made this fetch fire-and-forget would
       // reintroduce the level-2 failure silently, with the reduce failing at a node
       // whose name says nothing about the cause.
-      await options.blockstore.put(reply.bytes)
+      try {
+        await options.blockstore.put(reply.bytes)
+      } catch (cause) {
+        throw new LocalStoreWriteFailed(task.nodeId, response.resultCid.toString(), cause)
+      }
       return response.resultCid
-    } catch {
+    } catch (cause) {
+      if (cause instanceof LocalStoreWriteFailed) throw cause
       return null
     }
   }
