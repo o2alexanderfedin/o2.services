@@ -185,6 +185,26 @@ const EXEMPT_LINES: readonly LineExemption[] = [
     phrase: 'rule earning its place',
     reason: 'ordinary English — a comment about the incomplete-run rule catching a real case',
   },
+  {
+    file: 'docs/business/o2-vs-aws-study.md',
+    phrase: 'https://aws.amazon.com/startups/credits',
+    reason:
+      "the source URL for AWS's startup programme, in the citation list — the study's prose was reworded to 'allowance' everywhere the word was the author's own, and this is the one occurrence that is somebody else's identifier and cannot be reworded without breaking the link",
+  },
+  // The two below are the committed renderings of the markdown above, and they carry the
+  // same URL for the same reason. They are listed separately rather than by exempting
+  // `docs/business/` as a tree, because a tree exemption would also cover the study's own
+  // prose — which is held to the rule, and was reworded in seven places to satisfy it.
+  {
+    file: 'docs/business/o2-vs-aws-study.html',
+    phrase: 'https://aws.amazon.com/startups/credits',
+    reason: 'generated from the exempted markdown by docs/business/build-study.py',
+  },
+  {
+    file: 'docs/business/o2-vs-aws-study.standalone.html',
+    phrase: 'https://aws.amazon.com/startups/credits',
+    reason: 'generated from the exempted markdown by docs/story/build-standalone.mjs',
+  },
 ]
 
 /**
