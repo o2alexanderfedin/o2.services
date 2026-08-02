@@ -120,7 +120,11 @@ echo "🔍 cheap guards (vocabulary, purity, mutation-ledger, disclosure, ledger
 # One vitest invocation, not four: process startup dominates the wall clock here.
 # `--project node` is required — four projects exist, and a bare path argument runs
 # the file under all of them.
-"$REPO_ROOT/node_modules/.bin/vitest" run --project node --silent \
+# `--silent=true`, not a bare `--silent`: the flag takes an OPTIONAL value, so a bare
+# one swallows the next argument as its value and vitest refuses with
+# `Unexpected value "--silent=packages/node/src/vocabulary.node.test.ts"`. That is
+# what this hook shipped with, which made it refuse every commit including its own.
+"$REPO_ROOT/node_modules/.bin/vitest" run --project node --silent=true \
   packages/node/src/vocabulary.node.test.ts \
   packages/node/src/purity.node.test.ts \
   packages/node/src/mutation-guard.node.test.ts \
