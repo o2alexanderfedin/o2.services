@@ -11,9 +11,9 @@
 
 ## How to read the checkboxes
 
-**36 of 72 are `[x]`.** That is down from the 68 that were checked before the v1.0
-milestone audit. Of the 36 now unchecked, **32 moved** and **4 were never checked**;
-none of the 32 moved because the work was undone — with one exception, VER-02, whose
+**38 of 72 are `[x]`.** That is down from the 68 that were checked before the v1.0
+milestone audit. Of the 34 now unchecked, **30 moved** and **4 were never checked**;
+none of the 30 moved because the work was undone — with one exception, VER-02, whose
 box was cleared on 2026-07-30 because the mechanism behind it was found to check
 nothing and was deleted. Read this before drawing a conclusion from the count.
 
@@ -32,8 +32,8 @@ So the ledger now distinguishes three states:
 | `[ ]` + **Built, not wired** | Mechanism exists and is unit-verified; nothing calls it |
 | `[ ]` + **Partial** | One leg reaches production, another does not |
 
-**The 36 unchecked boxes are 16 + 19 + 1**, and the three markers are not one label:
-16 are *Built, not wired*, 19 are *Partial*, and VER-02 alone is *Not started*.
+**The 34 unchecked boxes are 15 + 18 + 1**, and the three markers are not one label:
+15 are *Built, not wired*, 18 are *Partial*, and VER-02 alone is *Not started*.
 Quoting a single figure for "unreached" merges two states that mean different things —
 a mechanism nothing calls, and a mechanism half of which ships — and the merge is what
 let the count drift. `requirements-ledger.node.test.ts` now asserts every number in this
@@ -240,9 +240,9 @@ code, not the reports. -->
 
 ### Scheduling & Placement
 
-- [ ] **SCHED-01**: A requestor discovers candidate nodes by querying providers of
+- [x] **SCHED-01**: A requestor discovers candidate nodes by querying providers of
       a data CID intersected with required capability records
-- [ ] **SCHED-02**: Placement samples d candidate nodes and selects the
+- [x] **SCHED-02**: Placement samples d candidate nodes and selects the
       least-loaded, using local information only
 - [ ] **SCHED-03**: An over-committed node rejects work and the requestor re-picks
 - [ ] **SCHED-04**: A resource governor caps node CPU by duty cycle, is
@@ -379,7 +379,7 @@ code, not the reports. -->
 **Defined:** 2026-07-27, directly from `v1.0-MILESTONE-AUDIT.md`.
 
 **v1.1 mints almost no new requirement IDs, and that is deliberate.** The entries marked
-*Built, not wired* and *Partial* above — 16 and 19 as of 2026-08-02, not one merged
+*Built, not wired* and *Partial* above — 15 and 18 as of 2026-08-02, not one merged
 figure — are not missing requirements; they are the same requirements, unsatisfied. "The placer cannot relocate a sovereign task" is DATA-03
 whether or not a job runs through that placer; wiring it is what makes DATA-03 true.
 Minting `WIRE-05: wire the sovereignty gate` alongside it would count one obligation
@@ -611,8 +611,8 @@ criteria.
 | NET-05 | Phase 18 — Discovery, Capacity & Placement | **Partial** — the reading half is wired (capacity is derived from the live store and printed by the seed); ReservationWatcher is installed by no process, so a refused joiner gets no named error |
 | NET-06 | Phase 19 — Quorum Composition & Owner-Domain Attestation | **Partial** — corrected 2026-08-01; this row claimed no node supplies the `index` hook and both factories do. **The serving half is wired on both tiers**: `index: records ?? 'serves-no-records'` (`fabric-node.ts:1278`, `browser-node.ts:988`), non-null exactly when the node holds a certificate, so a browser peer answers a `records` request on the same terms as a backbone peer — which is the requirement's own point, that a browser differs only in that it cannot bind a listening socket. **The reading half is not**: `discoverCandidates` has no production caller, so nothing queries what is served — corrected 2026-08-02 from a sentence naming `discoverExecutors`, which plan 18-05 wired one level below this one. The index also holds this node's own records and nothing else — `provide()` is never called, so a `providers` request still answers `[]` from every node, and `features: []` is honest rather than a stub because no feature-detection dependency is installed |
 | NET-07 | Phase 2 — Real Network, Node ↔ Node | Done |
-| SCHED-01 | Phase 18 — Discovery, Capacity & Placement | **Partial** — 2026-08-02. The *not wired* half closed on the day this row predicted it would; It has now been rewritten twice at a moving frontier: it first claimed `discoverExecutors` was uncalled, plan 18-05 gave that its first production caller, and the claim moved up to `discoverCandidates`, which was then itself uncalled. Plan 18-06 closes it — `bin/bench.ts --discover` (`packages/node/src/bin/bench.ts`) derives the real rig's executors by intersecting real provider answers with signed capability records, so the bridge exists **and something crosses it** from a runnable entry point. Off by default, because a published scaling curve must not be reshaped by an undeclared change (15-CONTEXT.md decision 2). **What the flag needed that nobody had written down**: discovery answers with signed records, and `resolveCertificate` returns `null` whenever `enrollment` is absent — which was every node the driver had ever built — so the discover arm stands up a provider and enrols each worker under it. Measured with `cwd` in a temporary directory so the committed results could not be overwritten: `1 of 1` and `2 of 2` workers qualified across the real-transport ladder, both rungs completing their egress manifest. **Criteria 1 and 2 remain open** — placement across real `bin/agent.ts` processes is 18-06 tasks 1 and 2, not yet written |
-| SCHED-02 | Phase 18 — Discovery, Capacity & Placement | **Built, not wired** — placeWithOffers is reachable only through runResilient, which has no caller |
+| SCHED-01 | Phase 18 — Discovery, Capacity & Placement | **Done** — 2026-08-02, plan 18-06. Closed in two halves that were repeatedly mistaken for one. The *entry point* half: `bin/bench.ts --discover` derives the real rig's executors by intersecting real provider answers with signed capability records, off by default so a published curve is not reshaped by an undeclared change (15-CONTEXT.md decision 2). The *behaviour* half: `packages/node/src/discovery-agents.node.test.ts` proves it across seven real `bin/agent.ts` processes — a requestor holding one CID and no executor list finds the three nodes that hold the block and are enrolled by the provider it pinned, excludes by name the one enrolled elsewhere, never sees the one holding nothing, and completes the job on what it found. **The row moved three times at a moving frontier** — first claiming `discoverExecutors` was uncalled, then `discoverCandidates` after 18-05 gave the first a caller, then *Partial* while criteria 1 and 2 were open. Reddened by dropping `verifyCertificate` in `discoverExecutors` (E joins the executors, 4 not 3) and by un-gating `verifiedPeers` (the two peer thunks stop differing). **The reach is directly-connected peers only** — no transitive routing, no DHT — which is the honest limit of what is proven |
+| SCHED-02 | Phase 18 — Discovery, Capacity & Placement | **Done** — 2026-08-02, plan 18-06. `placeWithOffers` samples `d` candidates by rendezvous rank, takes the least-loaded (ties by ascending node id), drops a refusing node from the pool and re-picks. **It now has a production caller from a runnable entry point**: `submitJob` selects `planWithOffers` whenever `spec.admit` is present, and `bin/bench.ts --discover` supplies `admit: rpcAdmission(requestor.rpc)` on the discover rig alone — absent, not `undefined`, on the default rig, so the published curve is still placed by `planPlacement` exactly as before. **That wiring was missing for a day and this row would have been wrong**: 18-06 task 3 shipped the flag's doc claiming placement *asks each candidate before using it*, while no `admit` was ever passed. Measured across processes in `discovery-agents.node.test.ts`, where the first-probed node is derived by calling `sampleCandidates` rather than by re-implementing its rule. Reddened by making `submitJob` ignore `spec.admit`: `rejections` empties |
 | SCHED-03 | Phase 18 — Discovery, Capacity & Placement | **Partial** — corrected 2026-08-01; this row claimed every offer is accepted while `serve-agent-hooks.node.test.ts` and four mutation-ledger entries (`M2a`, `M2b`, `B1`, `B2`) existed to prove the opposite. **The refusal half is wired and measured**: `capacity: admission` (`fabric-node.ts:1300`, `browser-node.ts:1009`) backed by `new LocalCapacity` (`fabric-node.ts:986`, `browser-node.ts:899`, both `bin/bench.ts` sites and both `perf-workload.ts` sites). An over-committed node refuses by name — `over-committed: N of M slots in use` — where the same factory measured before the line changed ran 64 simultaneous `executor.execute()` calls with zero refusals and 32 requestors timing out (`admission.node.test.ts`, 2026-07-29). **The requestor does not re-pick**: `placeWithOffers`, which resamples, is reachable only through `runResilient` and `planWithOffers`, and neither has a production caller. The browser factory's refusal is also unmeasured — nothing drives an over-committed refusal through a tab, so the number it would answer with has never been read; the `e2e` project could host that case |
 | SCHED-04 | Phase 18 — Discovery, Capacity & Placement | **Partial** — GovernedExecutor is wired on the browser tier only; FabricNode composes a WorkerExecutor and no governor, and the duty cycle is readonly on both tiers, so "user-adjustable" is unmet |
 | SCHED-05 | Phase 18 — Discovery, Capacity & Placement | **Built, not wired** — the sovereignty gate runs inside placeWithOffers, reachable only through runResilient |

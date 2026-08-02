@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Wire What Was Built
 status: executing
-stopped_at: Phase 18 has EIGHT of eleven plans merged (18-01..18-05, 18-07, 18-08, 18-09); 18-06 plus wave 5 (18-10, 18-11) remain. The develop merge is DONE - that warning is retired. The pre-18-11 blocker is also closed - bin/seed.ts now carries the orphan leash, and the guard that would have stayed silent about it now derives its list from the bin/ directory. NEXT IS 18-06. Criterion 6 closed before planning; criterion 2b is expected to score PARTIAL by owner ruling and must not be reworded. Expect requirements-ledger.node.test.ts's SCHED-01 row to fail BY DESIGN when 18-06 wires discoverCandidates to bin/bench.ts --discover.
-last_updated: "2026-08-02T07:10:00.000Z"
+stopped_at: Phase 18 has NINE of eleven plans merged (18-01..18-09); only wave 5 (18-10, 18-11) remains. 18-06 closed criteria 1 and 2 in packages/node/src/discovery-agents.node.test.ts - seven real bin/agent.ts processes, reddened by three planted mutations. NEXT IS 18-10. CORRECTION: the previous value of this field said 'The develop merge is DONE'; that was true only of the INBOUND direction (f09f90d merged develop into the phase branch). The outbound merge had never happened and the branch was 51 commits ahead. It is done now - 8eb6c96 on develop, pushed. Criterion 6 closed before planning; criterion 2b scores PARTIAL by owner ruling and must not be reworded - its exec-refusal re-pick is now asserted ABSENT in discovery-agents.node.test.ts and will go red when WIRE-04 adds a retry. SCHED-01 and SCHED-02 are now Done; the ledger prose moved to 38/72 checked, 34 unchecked = 15 + 18 + 1. vitest.config.ts's MEASURED_NODE_SPANS was re-measured (125 files, 1774 tests) because its recorded inventory had drifted to 120 and adding one file would have exhausted the tolerance of 5. BEFORE 18-11: bin/bench.ts's EXEMPT entry in orphan-leash.node.test.ts must be DELETED, not amended, once --discover spawns agents.
+last_updated: "2026-08-02T08:45:00.000Z"
 last_activity: 2026-08-02
 progress:
   total_phases: 14
   completed_phases: 5
   total_plans: 56
-  completed_plans: 47
+  completed_plans: 48
   percent: 36
 ---
 
@@ -49,8 +49,8 @@ closed requirements and must never be reconciled against one.**
 
 **Recounted on disk 2026-08-02**, because both figures had gone stale by the width of a
 whole wave: 11:1, 12:4, 13:7, 13.1:5, 14:5, 15:4, 16:4, 17:5, **18:11**, 21:5, 23:5 =
-**56**, of which **47** have a summary. Phase 18 reads 11 plans / 8 summaries, which is
-exactly the "eight of eleven merged" in `stopped_at` — the two are derived from the same
+**56**, of which **48** have a summary. Phase 18 reads 11 plans / 9 summaries, which is
+exactly the "nine of eleven merged" in `stopped_at` — the two are derived from the same
 directory and should be checked against each other.
 
 **`completed_plans` counts summaries, and in three phases that is MORE than the plans.**
