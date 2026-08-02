@@ -1,4 +1,4 @@
-import { SendRefused, decodeCanonical, encodeCanonical } from '@o2/core'
+import { MemoryNetwork, SendRefused, decodeCanonical, encodeCanonical } from '@o2/core'
 import type { CanonicalValue, Transport } from '@o2/core'
 import { describe, expect, it } from 'vitest'
 import { RpcEndpoint, RpcFailure } from './rpc.ts'
@@ -189,6 +189,105 @@ describe('RpcEndpoint — a reply is matched against the peer it was requested f
       expect(await pending).toEqual({ sum: 42 })
     } finally {
       rpc.close()
+    }
+  })
+})
+
+/**
+ * A reply this node could not encode, answered rather than left to expire.
+ *
+ * `#encode`'s own comment says a frame that cannot be encoded is a programming error
+ * in this package and must **fail loudly rather than send a partial frame**. It sat
+ * inside a `catch` written for a *send* failure, two lines below that comment, and
+ * was swallowed there. Nothing was sent, nothing was recorded — the module is pure
+ * and has no logger — and the requester waited out its whole budget and was told the
+ * request had timed out. A defect in this node's own encoder, filed as the network
+ * being slow.
+ *
+ * The budget here is deliberately short. It is not a timing bound: the assertion is
+ * that the request **resolves** rather than rejecting, and 150 ms only decides how
+ * long the failing case takes to prove itself. `timeoutMs` at the default 30 s would
+ * assert exactly the same thing and take 200× longer to do it.
+ */
+describe('RpcEndpoint — a reply that will not encode comes back named, not as a timeout', () => {
+  /** A pair of endpoints on one in-process network. B serves, A asks. */
+  function pair(timeoutMs: number) {
+    const network = new MemoryNetwork()
+    const server = new RpcEndpoint(network.connect('B'), { timeoutMs: 5_000 })
+    const client = new RpcEndpoint(network.connect('A'), { timeoutMs })
+    return {
+      server,
+      client,
+      close: () => {
+        client.close()
+        server.close()
+      },
+    }
+  }
+
+  it('answers with the encoder\'s own account of what it refused, naming the field', async () => {
+    const { server, client, close } = pair(150)
+    // A handler that did its job and produced a value DAG-CBOR will not accept. The
+    // spec is explicit that NaN and the infinities "must not be accepted", so this is
+    // the ordinary shape of the defect rather than a contrived one.
+    server.serve(async () => ({ total: Number.POSITIVE_INFINITY, rows: 3 }))
+    try {
+      const reply = await client.request('B', { ask: 'sum' }).then(
+        (value: CanonicalValue) => value,
+        (cause: unknown) => cause,
+      )
+
+      // Not an `RpcFailure{kind:'timeout'}` — that is the defect, and it is what this
+      // line fails on when the encode throw goes back inside the send `catch`.
+      expect(reply).not.toBeInstanceOf(RpcFailure)
+
+      const record = reply as { readonly error?: unknown }
+      expect(typeof record.error).toBe('string')
+      const text = String(record.error)
+      // The text, not merely the shape. Each clause is a different question a reader
+      // has at 3am: whose fault, what kind of fault, and which field.
+      expect(text).toContain('reply')
+      expect(text).toContain('rpc frame not encodable')
+      expect(text).toContain('non-finite-float')
+      expect(text).toContain('body.total')
+      expect(text).toContain('Infinity')
+    } finally {
+      close()
+    }
+  })
+
+  it('still releases afterSent, because the frame has settled either way', async () => {
+    const { server, client, close } = pair(150)
+    let released = 0
+    server.serve(async () => ({
+      body: { total: Number.NaN } as CanonicalValue,
+      afterSent: () => {
+        released += 1
+      },
+    }))
+    try {
+      // Deliberately indifferent to how the request settles. This case is only about
+      // the callback, so that the two claims fail separately and each names its own
+      // subject rather than one masking the other.
+      await client.request('B', { ask: 'sum' }).catch(() => undefined)
+
+      // `serveAgent` holds a sovereign task's egress registration on this callback. A
+      // reply that could not be encoded is a frame that has settled — it will never
+      // go out — so the registration must be released, or an unencodable reply becomes
+      // an unbounded leak with a rare trigger.
+      expect(released).toBe(1)
+    } finally {
+      close()
+    }
+  })
+
+  it('leaves an encodable reply untouched', async () => {
+    const { server, client, close } = pair(150)
+    server.serve(async () => ({ total: 7, rows: 3 }))
+    try {
+      expect(await client.request('B', { ask: 'sum' })).toEqual({ total: 7, rows: 3 })
+    } finally {
+      close()
     }
   })
 })

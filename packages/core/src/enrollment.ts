@@ -58,7 +58,7 @@
  */
 
 import { ed25519 } from '@noble/curves/ed25519.js'
-import { encodeCanonical } from './canonical/encode.ts'
+import { NotEncodableError, encodeCanonical } from './canonical/encode.ts'
 import type { CanonicalValue } from './canonical/encode.ts'
 import { fromHex, toHex } from './capability.ts'
 import type { PublicKeyHex } from './capability.ts'
@@ -134,14 +134,14 @@ function payloadOf(certificate: Omit<NodeCertificate, 'signature'>): Uint8Array<
     issuer: certificate.issuer,
   }
   const encoded = encodeCanonical(value)
-  if (!encoded.ok) throw new Error(`certificate not encodable: ${JSON.stringify(encoded.error)}`)
+  if (!encoded.ok) throw new NotEncodableError('certificate', encoded.error)
   return encoded.bytes
 }
 
 /** The bytes a node signs to prove it holds the private half of `nodeKey`. */
 export function possessionChallenge(nodeKey: PublicKeyHex, userKey: PublicKeyHex): Uint8Array<ArrayBuffer> {
   const encoded = encodeCanonical({ purpose: 'o2-enrol', nodeKey, userKey })
-  if (!encoded.ok) throw new Error('challenge not encodable')
+  if (!encoded.ok) throw new NotEncodableError('challenge', encoded.error)
   return encoded.bytes
 }
 
@@ -241,15 +241,20 @@ export class EnrollmentAuthority {
   }
 
   enrol(request: EnrollmentRequest, now: number): EnrollmentResult {
+    // Built **above** both `try`s, and shared by them. `possessionChallenge` throws
+    // `NotEncodableError` by design, and inside the `try` that throw would have been
+    // caught and reported as `bad-proof-of-possession` — a codec defect in this
+    // package accusing the requester of not holding their own key. Out here it
+    // propagates under its own name, and the `catch` below is left with exactly the
+    // failures it was written for: `fromHex` on a non-hex string, and `ed25519.verify`
+    // on a malformed key or signature. Those are the requester's, and only those.
+    const challenge = possessionChallenge(request.nodeKey, request.userKey)
+
     // Possession first. Without it a provider would certify keys the requester does
     // not hold, and could therefore impersonate every node it ever enrolled.
     let holdsKey = false
     try {
-      holdsKey = ed25519.verify(
-        fromHex(request.proofOfPossession),
-        possessionChallenge(request.nodeKey, request.userKey),
-        fromHex(request.nodeKey),
-      )
+      holdsKey = ed25519.verify(fromHex(request.proofOfPossession), challenge, fromHex(request.nodeKey))
     } catch {
       holdsKey = false
     }
@@ -268,11 +273,7 @@ export class EnrollmentAuthority {
     // nothing is lost by doing it first.
     let holdsOwner = false
     try {
-      holdsOwner = ed25519.verify(
-        fromHex(request.ownerProof),
-        possessionChallenge(request.nodeKey, request.userKey),
-        fromHex(request.userKey),
-      )
+      holdsOwner = ed25519.verify(fromHex(request.ownerProof), challenge, fromHex(request.userKey))
     } catch {
       holdsOwner = false
     }
@@ -349,9 +350,14 @@ export function verifyCertificate(
     }
   }
 
+  // Above the `try`, not inside it — `payloadOf` throws `NotEncodableError` by
+  // design, and a certificate this package cannot encode is not a certificate whose
+  // signature was forged. Inside, that throw read as `bad-signature`.
+  const payload = payloadOf(certificate)
+
   let valid = false
   try {
-    valid = ed25519.verify(fromHex(certificate.signature), payloadOf(certificate), fromHex(certificate.issuer))
+    valid = ed25519.verify(fromHex(certificate.signature), payload, fromHex(certificate.issuer))
   } catch {
     valid = false
   }

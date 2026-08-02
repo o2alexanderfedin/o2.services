@@ -18,7 +18,7 @@
  * Node, a browser, and a Worker.
  */
 
-import { SendRefused, decodeCanonical, encodeCanonical } from '@o2/core'
+import { NotEncodableError, SendRefused, decodeCanonical, encodeCanonical } from '@o2/core'
 import type { CanonicalValue, Transport } from '@o2/core'
 
 /** Default time a request waits before giving up. */
@@ -234,7 +234,7 @@ export class RpcEndpoint {
     if (!encoded.ok) {
       // A control frame that cannot be encoded is a programming error in this
       // package, not a peer's fault — fail loudly rather than send a partial frame.
-      throw new Error(`rpc frame not encodable: ${JSON.stringify(encoded.error)}`)
+      throw new NotEncodableError('rpc frame', encoded.error)
     }
     return encoded.bytes
   }
@@ -280,25 +280,75 @@ export class RpcEndpoint {
       result = { error: cause instanceof Error ? cause.message : String(cause) }
     }
     const { body: reply, afterSent } = unwrapReply(result)
-    // The `finally` exists for three exits, and all three are exits the frame has
+    // The `finally` exists for four exits, and all four are exits the frame has
     // settled on: the send succeeded, the send was refused by this node's own
-    // egress tap, and the endpoint closed between the handler returning and the
-    // frame going out. The `#closed` check therefore lives *inside* the `try`
-    // rather than as a bare return above it — a registration that leaked whenever
-    // an endpoint closed mid-reply would be the same unbounded growth with a rarer
-    // trigger.
+    // egress tap, the endpoint closed between the handler returning and the frame
+    // going out, and the reply could not be encoded so a named refusal went in its
+    // place. The `#closed` check therefore lives *inside* the `try` rather than as a
+    // bare return above it — a registration that leaked whenever an endpoint closed
+    // mid-reply would be the same unbounded growth with a rarer trigger.
     //
     // This module deliberately does not know what `afterSent` does. The layer that
     // knows the label is `serveAgent`; the layer that knows the frame has settled
     // is this one. Neither can do the other's half.
+    //
+    // **The send `catch` is nested, and that nesting is the fix for a real defect.**
+    // `#encode` throws by design — its own comment says a frame that cannot be
+    // encoded is a programming error in this package and must fail loudly rather than
+    // go out partial. It used to sit inside a `catch` written for a *send* failure,
+    // two lines from where that comment promised the opposite, and was swallowed
+    // there. The requester then waited out the whole budget — 60 s in the demo tier —
+    // and got `kind: 'timeout'`, so a reply this node could not encode was filed as
+    // network latency; and this module is pure and has no logger, so nothing anywhere
+    // recorded it. The `catch` now sees `transport.send` and nothing else.
     try {
       if (this.#closed) return
-      await this.#transport.send(from, this.#encode({ k: 'res', id, body: reply }))
-    } catch {
-      // The requester will time out. Nothing useful to do here — and throwing
-      // would surface inside the transport's delivery path.
+      const frame = this.#encodeReply(id, reply)
+      try {
+        await this.#transport.send(from, frame)
+      } catch {
+        // The requester will time out. Nothing useful to do here — and throwing
+        // would surface inside the transport's delivery path. This `catch` covers
+        // `transport.send` alone: `Transport.send` is declared to return a promise
+        // but nothing forbids a synchronous throw, so it stays a `try`/`catch` rather
+        // than a `.catch()`, which would see only the rejection.
+      }
     } finally {
       afterSent?.()
+    }
+  }
+
+  /**
+   * The response frame, or a named refusal when the reply will not encode.
+   *
+   * A handler's reply is not a control frame this package authored, so an
+   * unencodable one is not treated as unrecoverable: the body is replaced with the
+   * same `{error}` shape a throwing handler already produces, and the requester
+   * learns *by name, immediately* that its answer could not be encoded — instead of
+   * waiting out the full timeout and being told the network was slow.
+   *
+   * Only a failure to encode **that** is beyond help. It is a record of one short
+   * string, so `encodeCanonical` cannot reject it; if it ever did, the throw is the
+   * honest outcome and `afterSent` still runs, because the caller's `finally` wraps
+   * this call.
+   *
+   * **How far "by name" reaches, stated rather than assumed.** `request` resolves
+   * with this body, so a caller reading the reply directly sees the account in full.
+   * A caller that runs it through `parseResponse` does not: `{error}` carries no
+   * `kind`, so it takes that function's `default` arm and arrives as `null`, the same
+   * as any other unrecognised frame. That is pre-existing and deliberate — it is
+   * where a throwing handler's reply has always landed, five lines above — and this
+   * module cannot improve on it without learning `AgentResponse`'s vocabulary, which
+   * is `protocol.ts`'s to own and not a transport's. What is fixed here is the part
+   * that was wrong: the requester is answered, promptly, instead of being told 60 s
+   * later that the network was slow.
+   */
+  #encodeReply(id: number, reply: CanonicalValue): Uint8Array<ArrayBuffer> {
+    try {
+      return this.#encode({ k: 'res', id, body: reply })
+    } catch (cause) {
+      if (!(cause instanceof NotEncodableError)) throw cause
+      return this.#encode({ k: 'res', id, body: { error: `reply ${cause.message}` } })
     }
   }
 }
