@@ -43,6 +43,12 @@
       }
       button[disabled] { opacity: .4; cursor: default; }
       .note { font-size: .85rem; opacity: .75; }
+      /* A rule above it, so it reads as a footer rather than as one more paragraph
+         of whichever section happens to be visible at the time. */
+      #measurements {
+        margin-top: 2.5rem; padding-top: 1rem;
+        border-top: 1px solid color-mix(in srgb, currentColor 20%, transparent);
+      }
       .note code {
         background: color-mix(in srgb, currentColor 12%, transparent);
         padding: .1em .35em; border-radius: 3px;
@@ -153,6 +159,18 @@
       <pre id="report">not asked yet</pre>
       <p class="controls"><button id="refresh-report">Refresh</button></p>
     </section>
+
+    <!--
+      Outside `#gate` and `#main`, both of which are `hidden` until a visitor has
+      consented and started a node. A reader who wants to know what this thing costs
+      before running anything is exactly the reader who has not pressed the button,
+      so a link inside either section would be invisible to the only audience for it.
+    -->
+    <footer class="note" id="measurements">
+      Measured, with the method and the numbers that disagreed with the prediction:
+      <a href="./perf/">prime counting and a pi series on this fabric</a> — throughput,
+      decomposition cost, fabric overhead and real parallel speedup.
+    </footer>
 
     <!-- BROW-04. Rendered only while a node exists; never dismissible while it does. -->
     <div id="bar" hidden>
