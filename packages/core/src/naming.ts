@@ -17,7 +17,7 @@
 
 import { ed25519 } from '@noble/curves/ed25519.js'
 import { CID } from 'multiformats/cid'
-import { encodeCanonical } from './canonical/encode.ts'
+import { NotEncodableError, encodeCanonical } from './canonical/encode.ts'
 import type { CanonicalValue } from './canonical/encode.ts'
 import { fromHex, toHex } from './capability.ts'
 import type { PublicKeyHex } from './capability.ts'
@@ -45,7 +45,7 @@ function payloadOf(record: Omit<NameRecord, 'signature'>): Uint8Array<ArrayBuffe
     signer: record.signer,
   }
   const encoded = encodeCanonical(value)
-  if (!encoded.ok) throw new Error(`name record not encodable: ${JSON.stringify(encoded.error)}`)
+  if (!encoded.ok) throw new NotEncodableError('name record', encoded.error)
   return encoded.bytes
 }
 
@@ -110,9 +110,13 @@ export class SignedNameResolver {
       return this.#refuse({ kind: 'untrusted-signer', name: record.name, signer: record.signer })
     }
 
+    // Above the `try` — `payloadOf` throws `NotEncodableError` by design, and a
+    // record this package cannot encode is not a record whose signature was forged.
+    const payload = payloadOf(record)
+
     let valid = false
     try {
-      valid = ed25519.verify(fromHex(record.signature), payloadOf(record), fromHex(record.signer))
+      valid = ed25519.verify(fromHex(record.signature), payload, fromHex(record.signer))
     } catch {
       valid = false
     }

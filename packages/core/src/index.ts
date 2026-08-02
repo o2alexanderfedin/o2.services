@@ -26,7 +26,7 @@ export { SendRefused } from './ports.ts'
 export { SHA256_CODE, sha256 } from './hash.ts'
 
 // Canonical encoding — DET-05.
-export { canonicalCid, decodeCanonical, encodeCanonical } from './canonical/encode.ts'
+export { NotEncodableError, canonicalCid, decodeCanonical, encodeCanonical } from './canonical/encode.ts'
 export type {
   CanonicalValue,
   EncodeError,
