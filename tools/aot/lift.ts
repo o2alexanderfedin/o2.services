@@ -188,6 +188,24 @@ export const UNDECODED_ADDRESSES_UNRECOVERED_BLIND_SPOT: LiftBlindSpot = {
 }
 
 /**
+ * The disassembly was produced and this host could not read it back.
+ *
+ * Same `undecoded-unmeasured` class again, and a third note rather than a third reuse
+ * of the first one. {@link UNDECODED_UNMEASURED_BLIND_SPOT} says the bitcode "could not
+ * be disassembled", which is a sentence about the container; this case is reached only
+ * after the container reported the disassembly it wrote, so repeating that sentence
+ * here would carry D07's wrong accusation into the artifact — where it outlives the
+ * failure that produced it, because a blind spot is what gets quoted later.
+ */
+export const UNDECODED_UNREADABLE_BLIND_SPOT: LiftBlindSpot = {
+  kind: 'undecoded-unmeasured',
+  note:
+    'the container disassembled the bitcode and reported its call-site count, and this host ' +
+    'then could not read the addresses it wrote to the bind mount — the untranslated addresses ' +
+    'are unknown for this lift, and the toolchain is not what failed',
+}
+
+/**
  * Addresses the lifter gave up on without saying so.
  *
  * Recovered from `call void @__ecv_warning(…, i64 <address>, …)` in the disassembled
@@ -220,7 +238,31 @@ export type UndecodedProbe =
     }
   /** Call sites counted, no address recovered from any of them. See above. */
   | { readonly kind: 'counted-only'; readonly callSites: number }
-  | { readonly kind: 'not-run'; readonly why: 'no-bitcode' | 'disassembler-failed' }
+  /**
+   * The probe produced no measurement, and `why` says which of three things happened.
+   *
+   * - `no-bitcode` — the container never wrote `undecoded-callsites`, so `llvm-dis-16`
+   *   was never reached or refused the `.bc`.
+   * - `disassembler-failed` — the container wrote `undecoded-probe=failed`, which is
+   *   the *container* saying the disassembler did not run.
+   * - `undecoded-unreadable` — the container said it ran and the host could not read
+   *   what it produced. Added 2026-08-01: this case was reported as
+   *   `disassembler-failed`, and that reading is refuted by the code that reaches it.
+   *   Getting there requires `undecoded-callsites` to be present, and the container
+   *   script writes that key and `/o2/undecoded.txt` in the same `if` branch — so by
+   *   construction the disassembler had already run and succeeded. A failed read of a
+   *   bind-mounted file on the *host* was being stamped with a reason that names a
+   *   tool inside the container, sending whoever read it in to debug something that
+   *   worked. Same family as `host-cannot-spawn`: the operation correctly failed and
+   *   the refusal named the wrong component, which this project counts as a defect on
+   *   its own.
+   */
+  | {
+      readonly kind: 'not-run'
+      readonly why: 'no-bitcode' | 'disassembler-failed' | 'undecoded-unreadable'
+      /** Present only for `undecoded-unreadable`: the host's own read error. */
+      readonly detail?: string
+    }
 
 /**
  * A translated artifact and every reservation attached to it.
@@ -235,6 +277,26 @@ export interface LiftedArtifact {
   readonly target: typeof LIFT_TARGET
   /** Everything whose change could change these bytes, for `translationCid`. */
   readonly toolchain: ToolchainVersions
+  /**
+   * Which keys of {@link toolchain} this lift could not establish, sorted.
+   *
+   * The stated-degraded half of the provenance split — the refusing half is
+   * `provenance-unreadable`. `meta.txt` read, and a tool in it did not name its version:
+   * `clang-16 --version` returning nothing, `WASI_VERSION_FULL` unset, `git rev-parse`
+   * failing in an image built without a `.git`. That is a real and survivable state, and
+   * it was previously spelled `'unknown'` inside the record and nowhere else — a string
+   * among strings, in the one field that is supposed to identify things.
+   *
+   * Required rather than optional, and empty on a fully identified lift, for the reason
+   * `blindSpots` is: a caller that has to know to ask is a caller that will not.
+   *
+   * **The values in {@link toolchain} are deliberately left exactly as they were.** An
+   * absent key stays `'unknown'` and a present-but-empty one stays `''`, because
+   * `translationCid` refuses `''` as `blank-version` and normalising the two together
+   * would either lose that refusal or invent one. This field states the fact; it does
+   * not edit the record the fact is about.
+   */
+  readonly unidentifiedTools: readonly string[]
   /** Multihash of the input, hex — the `inputDigest` half of the translation key. */
   readonly inputDigest: string
   /** Read from the artifact's own `target_features` section, never hardcoded. */
@@ -357,6 +419,39 @@ export type LiftFailure =
       readonly stderr: string
     }
   | { readonly kind: 'features-unreadable'; readonly reason: FeatureFailure }
+  /**
+   * `meta.txt` could not be read, so this lift has no toolchain provenance at all.
+   *
+   * A refusal rather than a degraded success, and the choice is the finding. The read
+   * was wrapped in `catch { meta = new Map() }` with no comment, which turned one
+   * unread file into all five provenance fields reading `'unknown'` on an artifact
+   * still returned `ok: true` — indistinguishable from a lift whose toolchain genuinely
+   * could not be identified, and emitted as the thing the adjacent comment calls the
+   * cache key.
+   *
+   * Three facts make refusal the right arm rather than a strict one:
+   *
+   * 1. **`'unknown'` defeats the only guard downstream.** `translationCid` refuses a
+   *    `blank-version`, so an *empty* field is caught — but `'unknown'` is not blank.
+   *    Five of them produce a perfectly well-formed CID that names no particular
+   *    toolchain, and it goes on matching after the compiler underneath it changes.
+   *    That is the precise failure `cache-key.ts` says is "worse than no cache".
+   * 2. **It is an anomaly, not a degradation.** `CONTAINER_SCRIPT` writes `/o2/meta.txt`
+   *    unconditionally and *before* it copies `artifact.wasm`, and this point is only
+   *    reached once `artifact.wasm` has been read from that same bind mount. A host
+   *    that read one and not the other has a problem worth stopping for.
+   * 3. **Nothing is lost by stopping.** The bytes are reproducible by re-running; a
+   *    cache entry poisoned under a trusted key is not.
+   *
+   * It also removes a second wrong label the empty map produced: `readUndecoded` read
+   * the missing `undecoded-callsites` as `why: 'no-bitcode'`, reporting a disassembler
+   * result for a file that was never read.
+   *
+   * The *partial* case is deliberately not this. A `meta.txt` that reads but does not
+   * name every tool is a stated-degraded result, carried on the artifact as
+   * {@link LiftedArtifact.unidentifiedTools}.
+   */
+  | { readonly kind: 'provenance-unreadable'; readonly path: string; readonly detail: string }
 
 export type LiftOutcome =
   | { readonly ok: true; readonly verdict: 'clean'; readonly artifact: LiftedArtifact }
@@ -601,6 +696,25 @@ function parseMeta(text: string): ReadonlyMap<string, string> {
   return entries
 }
 
+/**
+ * Which of `tools` `meta` does not actually name a version for, sorted.
+ *
+ * Absent *and* blank both count. `parseMeta` keeps a `clang=` line with nothing after
+ * the `=` as an empty string, so `meta.get('clang') ?? 'unknown'` yields `''` — the
+ * `??` only ever fired for a key that was missing entirely. The two spellings reach
+ * `translationCid` as different outcomes (`''` refused as `blank-version`, `'unknown'`
+ * accepted), which is exactly why neither is a sound thing to report by itself.
+ *
+ * Exported so this list can be checked against a `meta.txt` without running a
+ * container, which is the only way the partial case is reachable in a test.
+ */
+export function unidentifiedIn(
+  meta: ReadonlyMap<string, string>,
+  tools: readonly string[],
+): readonly string[] {
+  return tools.filter((tool) => (meta.get(tool) ?? '').trim() === '').sort()
+}
+
 function toHex(bytes: Uint8Array): string {
   let out = ''
   for (const byte of bytes) out += byte.toString(16).padStart(2, '0')
@@ -669,7 +783,13 @@ export function blindSpotsFor(
   verdict: LiftVerdict,
 ): readonly LiftBlindSpot[] {
   const spots: LiftBlindSpot[] = [CROSS_MACHINE_BLIND_SPOT]
-  if (undecoded.kind === 'not-run') spots.push(UNDECODED_UNMEASURED_BLIND_SPOT)
+  if (undecoded.kind === 'not-run') {
+    spots.push(
+      undecoded.why === 'undecoded-unreadable'
+        ? UNDECODED_UNREADABLE_BLIND_SPOT
+        : UNDECODED_UNMEASURED_BLIND_SPOT,
+    )
+  }
   if (countedWithoutAddresses(undecoded) !== undefined) {
     spots.push(UNDECODED_ADDRESSES_UNRECOVERED_BLIND_SPOT)
   }
@@ -677,7 +797,20 @@ export function blindSpotsFor(
   return spots
 }
 
-async function readUndecoded(workDir: string, meta: ReadonlyMap<string, string>): Promise<UndecodedProbe> {
+/**
+ * The probe's three inputs — two `meta.txt` keys and one file — read into one answer.
+ *
+ * Exported for the reason {@link verdictOf} and {@link classifySpawnFailure} are, and
+ * with a better excuse than either: every arm here is reachable from a plain directory
+ * and none of them is reachable from a stubbed `docker`, because the stub would have to
+ * reproduce the container script's own branch structure to get here at all. A directory
+ * holding a `meta.txt` that counts call sites and no `undecoded.txt` beside it *is* the
+ * `undecoded-unreadable` condition, exactly.
+ */
+export async function readUndecoded(
+  workDir: string,
+  meta: ReadonlyMap<string, string>,
+): Promise<UndecodedProbe> {
   if (meta.get('undecoded-probe') === 'failed') return { kind: 'not-run', why: 'disassembler-failed' }
   const callSitesRaw = meta.get('undecoded-callsites')
   if (callSitesRaw === undefined) return { kind: 'not-run', why: 'no-bitcode' }
@@ -685,8 +818,16 @@ async function readUndecoded(workDir: string, meta: ReadonlyMap<string, string>)
   let text: string
   try {
     text = await readFile(join(workDir, 'undecoded.txt'), 'utf8')
-  } catch {
-    return { kind: 'not-run', why: 'disassembler-failed' }
+  } catch (cause) {
+    // Not `disassembler-failed`. `undecoded-callsites` is present — that is the line
+    // above — and the container writes that key and `/o2/undecoded.txt` in one branch,
+    // so the disassembler demonstrably ran. What failed is this host reading the bind
+    // mount, and the detail is the host's error rather than a guess about the tool.
+    return {
+      kind: 'not-run',
+      why: 'undecoded-unreadable',
+      detail: cause instanceof Error ? cause.message : String(cause),
+    }
   }
   const addresses = text
     .split('\n')
@@ -844,11 +985,22 @@ export async function liftElf(elfPath: string, options: LiftOptions = {}): Promi
     const features = readTargetFeatures(artifactBytes)
     if (!features.ok) return { ok: false, failure: { kind: 'features-unreadable', reason: features.reason } }
 
+    const metaPath = join(workDir, 'meta.txt')
     let meta: ReadonlyMap<string, string>
     try {
-      meta = parseMeta(await readFile(join(workDir, 'meta.txt'), 'utf8'))
-    } catch {
-      meta = new Map()
+      meta = parseMeta(await readFile(metaPath, 'utf8'))
+    } catch (cause) {
+      // Refused, not defaulted to an empty map. See `provenance-unreadable`: an empty
+      // map here spread `'unknown'` across all five provenance fields of an `ok: true`
+      // artifact, and `'unknown'` is the one wrong value `translationCid` cannot catch.
+      return {
+        ok: false,
+        failure: {
+          kind: 'provenance-unreadable',
+          path: metaPath,
+          detail: cause instanceof Error ? cause.message : String(cause),
+        },
+      }
     }
     const undecoded = await readUndecoded(workDir, meta)
     const verdict = verdictOf(scan.findings, scan.unparsed, undecoded)
@@ -864,6 +1016,16 @@ export async function liftElf(elfPath: string, options: LiftOptions = {}): Promi
       'wasi-sdk': meta.get('wasi-sdk') ?? 'unknown',
       wasmedge: meta.get('wasmedge') ?? 'unknown',
     }
+    // `elfconv-image` is excluded because it does not come from `meta.txt` at all —
+    // `resolveImage` already refused every way it could have been unidentified, and a
+    // lift cannot reach here without a digest for it.
+    const unidentifiedTools = unidentifiedIn(meta, [
+      'elfconv-commit',
+      'elflift-sha256',
+      'clang',
+      'wasi-sdk',
+      'wasmedge',
+    ])
 
     return {
       ok: true,
@@ -873,6 +1035,7 @@ export async function liftElf(elfPath: string, options: LiftOptions = {}): Promi
         verdict,
         target: LIFT_TARGET,
         toolchain,
+        unidentifiedTools,
         inputDigest: toHex(digest.bytes),
         requiredFeatures: features.features.required,
         declaredFeatures: features.features.declared,
@@ -941,6 +1104,15 @@ export function describeLiftFailure(failure: LiftFailure): string {
       return `elfconv exited 0 and produced no .wasm: ${failure.detail}`
     case 'features-unreadable':
       return `the artifact's feature set could not be read: ${failure.reason.kind}`
+    case 'provenance-unreadable':
+      // Says what was lost rather than only what failed. "meta.txt could not be read"
+      // reads like a missing log file; the artifact being unnameable is the point.
+      return (
+        `the lift produced a .wasm and its toolchain provenance could not be read from ` +
+        `${failure.path} (${failure.detail}) — every version in the translation key would ` +
+        `be "unknown", which is not blank enough for translationCid to refuse and not a ` +
+        `toolchain, so this artifact is unnameable and was not returned`
+      )
   }
 }
 
@@ -963,6 +1135,15 @@ export function describeLift(artifact: LiftedArtifact): string {
   lines.push(`  needs ${artifact.requiredFeatures.join(' ') || 'no features'}`)
   for (const [tool, version] of Object.entries(artifact.toolchain).sort(([a], [b]) => a.localeCompare(b))) {
     lines.push(`  ${tool}: ${version}`)
+  }
+  // Beside the versions rather than after the findings, because this line is about the
+  // lines immediately above it. `unknown` printed among five real versions is a word a
+  // reader skims; naming the fields that are not identified is a sentence.
+  if (artifact.unidentifiedTools.length > 0) {
+    lines.push(
+      `  provenance incomplete: ${artifact.unidentifiedTools.join(', ')} did not report a` +
+        ' version, so the translation key does not distinguish this toolchain from another',
+    )
   }
   for (const finding of artifact.findings) lines.push(`  finding: ${describeFinding(finding)}`)
   for (const line of artifact.unparsed) {

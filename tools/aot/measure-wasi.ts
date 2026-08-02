@@ -29,7 +29,7 @@ import { performance } from 'node:perf_hooks'
 import { Fd, WASI, wasi as wasiDefs } from '@bjorn3/browser_wasi_shim'
 import { MemoryBlockstore, encodeCanonical } from '@o2/core'
 import { WasiExecutor } from '@o2/aot'
-import { ELFCONV_IMAGE_TAG, liftElf } from './lift.ts'
+import { ELFCONV_IMAGE_TAG, describeLiftFailure, liftElf } from './lift.ts'
 
 const RUNS = Number(process.env['O2_RUNS'] ?? 50)
 
@@ -85,7 +85,11 @@ const outcome = await liftElf(join(work, 'subject'))
 const liftMs = performance.now() - liftStart
 console.log(`lift:     ${(liftMs / 1000).toFixed(1)}s   ok=${outcome.ok}   load ${load()}`)
 if (!outcome.ok) {
-  console.log(`lift failed: ${JSON.stringify(outcome.failure)}`)
+  // Through the describe helper, not `JSON.stringify`. The struct spelling printed a
+  // shape where a sentence was needed — and it degrades worst on exactly the failures
+  // that carry the most explanation, since `toolchain-failed` renders its findings as
+  // nested objects and `provenance-unreadable`'s whole content is prose.
+  console.log(`lift failed: ${describeLiftFailure(outcome.failure)}`)
   process.exit(1)
 }
 const bytes = outcome.artifact.bytes as Uint8Array<ArrayBuffer>
