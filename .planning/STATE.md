@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Wire What Was Built
 status: executing
-stopped_at: Phase 18 has NINE of eleven plans merged (18-01..18-09); only wave 5 (18-10, 18-11) remains. 18-06 closed criteria 1 and 2 in packages/node/src/discovery-agents.node.test.ts - seven real bin/agent.ts processes, reddened by three planted mutations. NEXT IS 18-10. CORRECTION: the previous value of this field said 'The develop merge is DONE'; that was true only of the INBOUND direction (f09f90d merged develop into the phase branch). The outbound merge had never happened and the branch was 51 commits ahead. It is done now - 8eb6c96 on develop, pushed. Criterion 6 closed before planning; criterion 2b scores PARTIAL by owner ruling and must not be reworded - its exec-refusal re-pick is now asserted ABSENT in discovery-agents.node.test.ts and will go red when WIRE-04 adds a retry. SCHED-01 and SCHED-02 are now Done; the ledger prose moved to 38/72 checked, 34 unchecked = 15 + 18 + 1. vitest.config.ts's MEASURED_NODE_SPANS was re-measured (125 files, 1774 tests) because its recorded inventory had drifted to 120 and adding one file would have exhausted the tolerance of 5. BEFORE 18-11: bin/bench.ts's EXEMPT entry in orphan-leash.node.test.ts must be DELETED, not amended, once --discover spawns agents.
-last_updated: "2026-08-02T08:45:00.000Z"
+stopped_at: Phase 18 has ALL ELEVEN plans merged and summarised, and is merged to develop (4c20f95). It is NOT done: there is NO VERIFICATION.md for it, and the project rule is that a phase is done when a verifier says so, not when its plans are. NEXT IS VERIFY PHASE 18. 18-10 changed no production file - the offer loop was already correct and the property was unmeasured; its kernel test counts OFFERS, because the offer itself is the leak even when the placement is correct. 18-11 closed NET-05 and fixed a production defect on the way: FabricNode.start dialled relays with a bare await inside start, so an unreachable relay became an unhandled rejection in bin/agent.ts. The dial is non-fatal now - an OWNER DECISION, outside 18-11's declared files. Criterion 2b remains PARTIAL by owner ruling and must not be reworded; its exec-refusal re-pick is asserted ABSENT in discovery-agents.node.test.ts and goes red when WIRE-04 adds a retry. vitest.config.ts's MEASURED_NODE_SPANS was re-measured on a QUIET host (127 files, 210.5 s wall clock, load peak 14.1) - the reading it replaced peaked at 121.8 and was measuring contention rather than the tree. Durations from red runs are never recorded there; two were discarded this session. The demo page told visitors a second tab is a second node; IndexedDB is origin-scoped so it is the SAME peer id. Corrected.
+last_updated: "2026-08-02T19:25:00.000Z"
 last_activity: 2026-08-02
 progress:
   total_phases: 14
   completed_phases: 5
   total_plans: 56
-  completed_plans: 48
+  completed_plans: 50
   percent: 36
 ---
 
@@ -49,8 +49,8 @@ closed requirements and must never be reconciled against one.**
 
 **Recounted on disk 2026-08-02**, because both figures had gone stale by the width of a
 whole wave: 11:1, 12:4, 13:7, 13.1:5, 14:5, 15:4, 16:4, 17:5, **18:11**, 21:5, 23:5 =
-**56**, of which **48** have a summary. Phase 18 reads 11 plans / 9 summaries, which is
-exactly the "nine of eleven merged" in `stopped_at` — the two are derived from the same
+**56**, of which **50** have a summary. Phase 18 reads 11 plans / 11 summaries, which is
+exactly the "all eleven merged" in `stopped_at` — the two are derived from the same
 directory and should be checked against each other.
 
 **`completed_plans` counts summaries, and in three phases that is MORE than the plans.**
