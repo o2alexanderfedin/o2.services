@@ -6,10 +6,10 @@ that wrote most of the code.
 
 ## Read this
 
-**[The Author Forgets](the-author-forgets.md)** — ~14,000 words, twelve chapters, six diagrams.
+**[The Author Forgets](the-author-forgets.md)** — 14,477 words, twelve chapters, six diagrams, and a glossary.
 
 Also published as a reading page:
-**<https://claude.ai/code/artifact/5ab673b8-1ca0-46b3-b011-3fc98882cd38>** (private until
+**<https://claude.ai/code/artifact/5a52af78-773a-47ea-ac7c-6c45e1ba7b0f>** (private until
 shared). The markdown here is canonical; the page is a rendering of it, so if the two ever
 disagree, this file wins.
 
