@@ -14,8 +14,10 @@
  *
  * - `mutation-guard.node.test.ts` runs in the ordinary suite and plants **nothing**.
  *   It asks whether each entry still *describes* the source: that its {@link
- *   Mutation.find} text appears in its file exactly once, and that every file named
- *   in {@link Mutation.caughtBy} is still on disk.
+ *   Mutation.find} text appears in its file exactly once, that every file named in
+ *   {@link Mutation.caughtBy} is still on disk, and — for the entries whose
+ *   {@link Mutation.signatureSource} says the signature is source text — that the
+ *   test it names is still in one of those files.
  * - `mutation-guard.mutate.ts` is a script — `npm run test:mutations` — that plants
  *   each mutation for real, runs its `caughtBy` files, and requires a non-zero exit
  *   carrying the recorded {@link Mutation.signature}.
@@ -41,6 +43,16 @@
  * so that "the suite went red" is not accepted on its own: a mutation that trips an
  * unrelated flake, a port collision or an OOM would also produce a non-zero exit,
  * and that is not evidence the guard saw anything.
+ *
+ * A signature is therefore *output*, and most output has no literal in any file. But
+ * a large majority of these — 26 of the 40 — are the test's own title, which vitest
+ * echoes verbatim, and a title **is** source text. That is the half the cheap layer
+ * can check, and until 2026-08-01 it did not: `B1` and `B2` named a test that had
+ * been renamed from `five sentinels` to `six` four commits earlier, and every
+ * ordinary run stayed green because nothing compared the signature to anything.
+ * {@link Mutation.signatureSource} is how each entry says which half it is in, and
+ * {@link problemsWith} checks the half that can be checked and states plainly that
+ * it checks nothing about the other.
  *
  * Pure module: data and one predicate. No I/O, so both layers can import it and the
  * script can import it without a test runner.
@@ -77,6 +89,30 @@ export interface Mutation {
    * guard does not count as the guard working.
    */
   readonly signature: string
+  /**
+   * Where the {@link Mutation.signature} text comes from — and therefore whether the
+   * cheap layer can check it at all.
+   *
+   * This is declared per entry rather than guessed from the string, and that is the
+   * whole point of the field. A classifier that sniffed the text would put `M7`'s
+   * `63 raw bytes inside a 106-byte frame` in the greppable arm — it has none of the
+   * `expected `/`AssertionError` markers an assertion string carries — and then fail
+   * an entry that is perfectly healthy, because that sentence is assembled from a
+   * template at run time and exists nowhere in source. Guessing is wrong in both
+   * directions here, so nothing guesses.
+   *
+   * - `test-title` — the signature is verbatim source text in at least one
+   *   {@link Mutation.caughtBy} file, normally the `it(...)`/`describe(...)` title
+   *   vitest prints on the FAIL line. Drift is a string comparison, so
+   *   {@link problemsWith} makes it one.
+   * - `rendered-at-runtime` — the signature is produced while the test runs:
+   *   assertion output (`expected 32 to be less than or equal to 2`), runner output
+   *   (`Error: Test timed out in 5000ms.`), or refusal text built from a template
+   *   (`63 raw bytes inside a 106-byte frame`). There is no literal in source to
+   *   compare against, so the cheap layer checks **nothing** about these and says so
+   *   rather than implying otherwise.
+   */
+  readonly signatureSource: 'test-title' | 'rendered-at-runtime'
   /**
    * The vitest project the `caughtBy` files belong to. Defaults to `node`.
    *
@@ -115,6 +151,7 @@ export const MUTATIONS: readonly Mutation[] = [
     replace: 'const admission = capacity.would({ shardId: slotKey, nodeId: executor.nodeId })',
     caughtBy: ['packages/net/src/admission.test.ts', 'packages/node/src/admission.node.test.ts'],
     signature: 'expected 32 to be less than or equal to 2',
+    signatureSource: 'rendered-at-runtime',
   },
   {
     id: 'M2a',
@@ -133,6 +170,7 @@ export const MUTATIONS: readonly Mutation[] = [
       'packages/node/src/serve-agent-hooks.node.test.ts',
     ],
     signature: 'expected 64 to be less than or equal to 2',
+    signatureSource: 'rendered-at-runtime',
   },
   {
     id: 'M2b',
@@ -154,6 +192,7 @@ export const MUTATIONS: readonly Mutation[] = [
     replace: "      capacity: 'accepts-every-offer',",
     caughtBy: ['packages/node/src/serve-agent-hooks.node.test.ts'],
     signature: 'browser-node.ts: real onDispatch, real admission, four sentinels',
+    signatureSource: 'test-title',
   },
   {
     id: 'M3a',
@@ -171,6 +210,7 @@ export const MUTATIONS: readonly Mutation[] = [
     replace: '',
     caughtBy: ['packages/node/src/transport-bounds.node.test.ts'],
     signature: "expected 'resolved' not to be 'resolved'",
+    signatureSource: 'rendered-at-runtime',
   },
   {
     id: 'M3b',
@@ -188,6 +228,7 @@ export const MUTATIONS: readonly Mutation[] = [
       'packages/node/src/admission.node.test.ts',
     ],
     signature: 'a node started with a small maxMessageBytes refuses a frame a default node accepts',
+    signatureSource: 'test-title',
   },
   {
     id: 'M13',
@@ -203,6 +244,7 @@ export const MUTATIONS: readonly Mutation[] = [
     replace: '',
     caughtBy: ['packages/node/src/transport-bounds.node.test.ts'],
     signature: 'refuses accumulation past the budget while every single message stays in limit',
+    signatureSource: 'test-title',
   },
   {
     id: 'M4',
@@ -220,6 +262,7 @@ export const MUTATIONS: readonly Mutation[] = [
     replace: 'if (true) {',
     caughtBy: ['packages/node/src/transport-bounds.node.test.ts'],
     signature: 'to be an instance of SendRefused',
+    signatureSource: 'rendered-at-runtime',
   },
   {
     id: 'M14',
@@ -234,6 +277,7 @@ export const MUTATIONS: readonly Mutation[] = [
     replace: '',
     caughtBy: ['packages/node/src/start-unwind.node.test.ts'],
     signature: 'gives the port back when a relay dial fails',
+    signatureSource: 'test-title',
   },
   {
     id: 'M15',
@@ -248,6 +292,7 @@ export const MUTATIONS: readonly Mutation[] = [
     replace: '',
     caughtBy: ['packages/node/src/start-unwind.node.test.ts'],
     signature: 'stops the node it already started when the HTTP server cannot bind',
+    signatureSource: 'test-title',
   },
   {
     id: 'M5',
@@ -261,6 +306,7 @@ export const MUTATIONS: readonly Mutation[] = [
     replace: "if (false && cause instanceof RpcFailure && cause.detail.kind === 'send-refused') {",
     caughtBy: ['packages/net/src/churn.test.ts'],
     signature: "expected 'node' to be 'sender'",
+    signatureSource: 'rendered-at-runtime',
   },
   {
     id: 'M6',
@@ -280,6 +326,7 @@ export const MUTATIONS: readonly Mutation[] = [
       'packages/node/src/named-refusal.node.test.ts',
     ],
     signature: 'stops a map step that forgot to aggregate and tried to ship its input',
+    signatureSource: 'test-title',
   },
   {
     id: 'M7',
@@ -294,6 +341,7 @@ export const MUTATIONS: readonly Mutation[] = [
     replace: 'void label',
     caughtBy: ['packages/node/src/sovereign-block-refusal.node.test.ts'],
     signature: '63 raw bytes inside a 106-byte frame',
+    signatureSource: 'rendered-at-runtime',
   },
   {
     id: 'M8',
@@ -311,6 +359,7 @@ export const MUTATIONS: readonly Mutation[] = [
       'packages/node/src/sovereign-block-refusal.node.test.ts',
     ],
     signature: 'does ask, on the same instrument, once something is registered',
+    signatureSource: 'test-title',
   },
   {
     id: 'M12',
@@ -328,6 +377,7 @@ export const MUTATIONS: readonly Mutation[] = [
     replace: '      const timer = setTimeout(() => {}, this.#deadlineMs)',
     caughtBy: ['packages/core/src/executor/worker-executor.test.ts'],
     signature: 'Error: Test timed out in 5000ms.',
+    signatureSource: 'rendered-at-runtime',
   },
   {
     id: 'M16',
@@ -343,6 +393,7 @@ export const MUTATIONS: readonly Mutation[] = [
     replace: '',
     caughtBy: ['packages/core/src/executor/wasm.test.ts'],
     signature: 'cannot have a refusal laundered by a smaller write that follows it',
+    signatureSource: 'test-title',
   },
   {
     id: 'M10',
@@ -359,6 +410,7 @@ export const MUTATIONS: readonly Mutation[] = [
     replace: "        egress === 'holds-no-registrations' || true\n          ? null",
     caughtBy: ['packages/net/src/sovereign-egress.test.ts'],
     signature: 'and the tap refuses the leaking reply',
+    signatureSource: 'test-title',
   },
   {
     id: 'M11',
@@ -374,6 +426,7 @@ export const MUTATIONS: readonly Mutation[] = [
     replace: '',
     caughtBy: ['packages/net/src/egress.test.ts'],
     signature: "expected [] to deeply equal [ 'alice-row' ]",
+    signatureSource: 'rendered-at-runtime',
   },
   {
     id: 'M17',
@@ -389,6 +442,7 @@ export const MUTATIONS: readonly Mutation[] = [
     replace: '    if (false) {',
     caughtBy: ['packages/core/src/enrollment.test.ts'],
     signature: 'does not let a refused cross-user request consume the victim',
+    signatureSource: 'test-title',
   },
   {
     id: 'M9',
@@ -404,6 +458,7 @@ export const MUTATIONS: readonly Mutation[] = [
     replace: 'return String(id)',
     caughtBy: ['packages/net/src/rpc.test.ts'],
     signature: "expected 'FORGED-BY-C' to be 'ANSWERED-BY-B'",
+    signatureSource: 'rendered-at-runtime',
   },
   {
     id: 'M20',
@@ -422,6 +477,7 @@ export const MUTATIONS: readonly Mutation[] = [
     replace: "const key = [...this.#pending.keys()].find((k) => k.endsWith(`\\u0000${id}`)) ?? ''",
     caughtBy: ['packages/net/src/rpc.test.ts'],
     signature: "expected 'FORGED-BY-C' to be 'ANSWERED-BY-B'",
+    signatureSource: 'rendered-at-runtime',
   },
   {
     id: 'M21',
@@ -439,6 +495,7 @@ export const MUTATIONS: readonly Mutation[] = [
     replace: '    if (this.#closed) return\n    try {\n',
     caughtBy: ['packages/net/src/sovereign-egress.test.ts'],
     signature: 'releases when the endpoint closes between the outcome and the frame',
+    signatureSource: 'test-title',
   },
   {
     id: 'M18',
@@ -458,6 +515,7 @@ export const MUTATIONS: readonly Mutation[] = [
     replace: '',
     caughtBy: ['packages/core/src/coordinator.test.ts'],
     signature: 'records a copy that fails after the winner is picked as a failure of that shard',
+    signatureSource: 'test-title',
   },
   {
     id: 'M19',
@@ -477,6 +535,7 @@ export const MUTATIONS: readonly Mutation[] = [
     caughtBy: ['packages/node/src/two-tabs.e2e.test.ts'],
     project: 'e2e',
     signature: 'renders no peer aggregate beside a report that can only hold this tab',
+    signatureSource: 'test-title',
   },
   {
     id: 'B1',
@@ -491,7 +550,8 @@ export const MUTATIONS: readonly Mutation[] = [
     find: "capacity: new LocalCapacity({ nodeId: 'requestor', maxConcurrent: DECLARED_ADMISSION_LIMIT }),",
     replace: "capacity: 'accepts-every-offer',",
     caughtBy: ['packages/node/src/serve-agent-hooks.node.test.ts'],
-    signature: 'bin/bench.ts: two call sites, real admission at both, five sentinels twice',
+    signature: 'bin/bench.ts: two call sites, real admission at both, six sentinels twice',
+    signatureSource: 'test-title',
   },
   {
     id: 'B2',
@@ -504,7 +564,8 @@ export const MUTATIONS: readonly Mutation[] = [
     find: 'capacity: new LocalCapacity({ nodeId: id, maxConcurrent: DECLARED_ADMISSION_LIMIT }),',
     replace: "capacity: 'accepts-every-offer',",
     caughtBy: ['packages/node/src/serve-agent-hooks.node.test.ts'],
-    signature: 'bin/bench.ts: two call sites, real admission at both, five sentinels twice',
+    signature: 'bin/bench.ts: two call sites, real admission at both, six sentinels twice',
+    signatureSource: 'test-title',
   },
   {
     id: 'M2c',
@@ -527,6 +588,7 @@ export const MUTATIONS: readonly Mutation[] = [
     project: 'node',
     signature:
       'browser-node.ts composes a killable thread and nothing else > constructs no main-thread executor, one worker-backed one, and branches on neither',
+    signatureSource: 'test-title',
   },
   {
     id: 'M22',
@@ -542,6 +604,7 @@ export const MUTATIONS: readonly Mutation[] = [
     replace: 'if (groups.size > 1 && [...groups.values()].every((n) => n.length < 2)) {',
     caughtBy: ['packages/core/src/job/verify.test.ts'],
     signature: "expected 'agreed' to be 'disagreed'",
+    signatureSource: 'rendered-at-runtime',
   },
   {
     id: 'M23',
@@ -559,6 +622,7 @@ export const MUTATIONS: readonly Mutation[] = [
     replace: '',
     caughtBy: ['packages/browser/src/dial-plan.test.ts'],
     signature: 'stops at the budget rather than sitting out a timeout per candidate',
+    signatureSource: 'test-title',
   },
   {
     id: 'M24',
@@ -579,6 +643,7 @@ export const MUTATIONS: readonly Mutation[] = [
       '  const userKey = (fields as { userKey?: PublicKeyHex }).userKey ?? toHex(ed25519.getPublicKey(userPrivateKey))',
     caughtBy: ['packages/core/src/enrollment.test.ts'],
     signature: 'cannot be handed a user key through its fields at all',
+    signatureSource: 'test-title',
   },
   {
     id: 'M25',
@@ -598,6 +663,7 @@ export const MUTATIONS: readonly Mutation[] = [
     replace: "this.#discarded.push({ taskId: '', nodeId, disagreed })",
     caughtBy: ['packages/core/src/speculation.test.ts'],
     signature: 'names the task each discarded copy was a copy of, over a job of several',
+    signatureSource: 'test-title',
   },
   {
     id: 'M26',
@@ -614,6 +680,7 @@ export const MUTATIONS: readonly Mutation[] = [
     replace: '',
     caughtBy: ['packages/net/src/start-report.test.ts'],
     signature: 'lets no single peer decide the aggregate by claiming a number nobody can hold',
+    signatureSource: 'test-title',
   },
   {
     id: 'M27',
@@ -630,6 +697,7 @@ export const MUTATIONS: readonly Mutation[] = [
     replace: 'compute',
     caughtBy: ['packages/node/src/signed-artifact.node.test.ts'],
     signature: "expected 'agreed' to be 'insufficient'",
+    signatureSource: 'rendered-at-runtime',
   },
   {
     id: 'M28',
@@ -647,6 +715,7 @@ export const MUTATIONS: readonly Mutation[] = [
     caughtBy: ['packages/node/src/two-tabs.e2e.test.ts'],
     project: 'e2e',
     signature: 'refuses a job whose record no tab pinned',
+    signatureSource: 'test-title',
   },
   {
     id: 'M29',
@@ -663,6 +732,7 @@ export const MUTATIONS: readonly Mutation[] = [
     caughtBy: ['packages/node/src/colouring-demo.e2e.test.ts'],
     project: 'e2e',
     signature: 'runs every cube on two nodes and shows which two',
+    signatureSource: 'test-title',
   },
   {
     id: 'M30',
@@ -694,6 +764,7 @@ export const MUTATIONS: readonly Mutation[] = [
     caughtBy: ['packages/node/src/browser-capability.e2e.test.ts'],
     project: 'e2e',
     signature: "to contain 'no capability chain supplied'",
+    signatureSource: 'rendered-at-runtime',
   },
   {
     id: 'M31',
@@ -715,6 +786,7 @@ export const MUTATIONS: readonly Mutation[] = [
     replace: 'const admission = capacity.would({ shardId: slotKey, nodeId: options.executor.nodeId })',
     caughtBy: ['packages/net/src/combine.test.ts'],
     signature: 'does not climb its high-water mark across twenty combines',
+    signatureSource: 'test-title',
   },
   {
     id: 'M32',
@@ -737,6 +809,7 @@ export const MUTATIONS: readonly Mutation[] = [
     replace: '',
     caughtBy: ['packages/net/src/combine.test.ts', 'packages/node/src/admission.node.test.ts'],
     signature: 'AssertionError: expected CID(',
+    signatureSource: 'rendered-at-runtime',
   },
   {
     id: 'M33',
@@ -755,6 +828,7 @@ export const MUTATIONS: readonly Mutation[] = [
     replace: '',
     caughtBy: ['packages/node/src/peer-verifier.node.test.ts'],
     signature: 'takes it once it holds a certificate',
+    signatureSource: 'test-title',
   },
   {
     id: 'M34',
@@ -773,6 +847,7 @@ export const MUTATIONS: readonly Mutation[] = [
     replace: '',
     caughtBy: ['packages/node/src/peer-verifier.node.test.ts'],
     signature: 'never re-asks a refusal that cannot change',
+    signatureSource: 'test-title',
   },
   {
     id: 'M35',
@@ -793,6 +868,7 @@ export const MUTATIONS: readonly Mutation[] = [
     replace: '    const generation = (this.#lastAsk.get(peerId)?.generation ?? 0) + 1\n',
     caughtBy: ['packages/node/src/peer-verifier.node.test.ts'],
     signature: 'discards an answer from an ask that a disconnect and reconnect superseded',
+    signatureSource: 'test-title',
   },
 ]
 
@@ -800,6 +876,85 @@ export const MUTATIONS: readonly Mutation[] = [
 export function occurrences(text: string, needle: string): number {
   if (needle.length === 0) return 0
   return text.split(needle).length - 1
+}
+
+/**
+ * Vitest joins a nested title with this when it prints a FAIL line, so a signature
+ * copied off a `describe > it` run is two source strings, not one.
+ */
+const TITLE_SEPARATOR = ' > '
+
+/**
+ * Whether a `test-title` signature is still findable in the tests that catch it.
+ *
+ * ## What this catches
+ *
+ * A test renamed while the ledger's signature stayed behind — `B1`/`B2` sat at
+ * `five sentinels twice` for four commits after the test became `six`, and the only
+ * thing that noticed was a full `npm run test:mutations`. That is now a red in the
+ * ordinary suite, on the same run that would have introduced it.
+ *
+ * ## What this does not catch, and must not be read as catching
+ *
+ * - **The whole `rendered-at-runtime` arm.** Fourteen of these entries carry
+ *   assertion or runner output, which exists in no file. Nothing here reads them;
+ *   only a planted run can.
+ * - **A title that is present but not running.** `it.skip`, a `describe` that no
+ *   longer wraps it, a title sitting in a comment — all contain the substring. This
+ *   is a text search, not a collection of the suite.
+ * - **Whether the mutation actually makes *that* test fail.** A signature can name a
+ *   live, passing test in the right file and still be the wrong test for this defect.
+ *   That is exactly what layer 2 establishes, and this does not replace it.
+ * - **A signature short enough to match by accident.** Length is checked against zero
+ *   and nothing else, so a three-character signature would pass here and be worthless.
+ *
+ * The first bullet is the one worth restating: this check is silent on 14 of the 40
+ * entries by construction. A guard that appears to cover a population it cannot is
+ * the defect this function exists to close, so its scope is written down rather than
+ * left to be inferred from the fact that it passes.
+ */
+function signatureProblems(entry: Mutation, caughtByContent: readonly (string | null)[]): string[] {
+  // Both already produce their own, more specific problem above. Reporting a second
+  // one here would name a cause that is not the cause.
+  if (entry.signature.length === 0) return []
+  const texts = caughtByContent.filter((text) => text !== null)
+  if (texts.length === 0) return []
+
+  const somewhere = (needle: string): boolean => texts.some((text) => text.includes(needle))
+  const where = entry.caughtBy.join(', ')
+
+  if (entry.signatureSource === 'rendered-at-runtime') {
+    // The reverse reading, and it costs nothing. An entry that says "no literal
+    // exists" while the literal is right there is a false statement in the ledger,
+    // and it is also the shape a copied entry leaves behind — the stronger arm was
+    // available and was not taken.
+    if (somewhere(entry.signature)) {
+      return [
+        `${entry.id}: declares its signature rendered-at-runtime, but ${JSON.stringify(entry.signature)} ` +
+          `appears verbatim in ${where} — say 'test-title' instead, which is the arm that is checked`,
+      ]
+    }
+    return []
+  }
+
+  if (somewhere(entry.signature)) return []
+
+  // A compound `describe > it` signature is never one literal, because the two
+  // titles are two string literals in the source. Split, and require every half —
+  // requiring only one would let the `it` half drift while the `describe` half held
+  // the check up, which is the same hole one level down.
+  const parts = entry.signature.split(TITLE_SEPARATOR).filter((part) => part.length > 0)
+  const split = parts.filter((part) => !somewhere(part))
+  if (parts.length > 1 && split.length === 0) return []
+  // A signature that is nothing but separators splits to no parts at all, and an
+  // empty `missing` list would report a drift while naming nothing drifted.
+  const missing = split.length > 0 ? split : [entry.signature]
+
+  return [
+    `${entry.id}: declares a test-title signature that ${where} no longer contains. ` +
+      `A signature that names no test cannot prove a guard fired, and the full planted ` +
+      `run is the only thing that would have noticed. Missing: ${missing.map((part) => JSON.stringify(part)).join(', ')}`,
+  ]
 }
 
 /**
@@ -812,11 +967,18 @@ export function occurrences(text: string, needle: string): number {
  *
  * `content` is `null` when the file is not on disk at all; that is a distinct
  * failure from a `find` that no longer matches, and it is reported as one.
+ *
+ * `caughtByContent` carries the *text* of each `caughtBy` file, in the order they are
+ * named, with `null` for one that is not on disk. It used to be a `boolean[]` of
+ * presence, which was the whole of the D20 hole: presence answers "is the file still
+ * there", and nothing answered "does the file still contain the test this entry says
+ * catches it". See {@link signatureProblems} for what the answer covers and, more
+ * importantly, what it does not.
  */
 export function problemsWith(
   entry: Mutation,
   content: string | null,
-  caughtByOnDisk: readonly boolean[],
+  caughtByContent: readonly (string | null)[],
 ): string[] {
   const problems: string[] = []
   if (entry.id.length === 0) problems.push('has no id')
@@ -852,8 +1014,9 @@ export function problemsWith(
       )
     }
   }
-  for (const [index, present] of caughtByOnDisk.entries()) {
-    if (!present) problems.push(`${entry.id}: caughtBy names ${entry.caughtBy[index]}, which is not on disk`)
+  for (const [index, text] of caughtByContent.entries()) {
+    if (text === null) problems.push(`${entry.id}: caughtBy names ${entry.caughtBy[index]}, which is not on disk`)
   }
+  problems.push(...signatureProblems(entry, caughtByContent))
   return problems
 }
