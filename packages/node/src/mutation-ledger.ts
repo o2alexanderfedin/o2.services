@@ -355,8 +355,15 @@ export const MUTATIONS: readonly Mutation[] = [
       'that is not pre-scanned is not refused-and-named, it hangs until the requestor’s ' +
       'budget expires. A peer cannot tell that from a node that has gone away.',
     file: 'packages/net/src/agent.ts',
-    find: 'const violated = refusedReason(options.egress, from, encodeResponse(found), executor.nodeId)',
-    replace: 'const violated = null',
+    // The line grew a second consultation on 2026-08-02 — DATA-10's durable CID set is
+    // asked before the payload scan. `find` follows it rather than being loosened: an
+    // entry that matched a prefix would keep passing while the half it names stopped
+    // running. `replace` nulls BOTH consultations, because either one surviving would
+    // still refuse and this entry's claim is that the branch asks at all.
+    find:
+      '      const violated =\n' +
+      '        durable ?? refusedReason(options.egress, from, encodeResponse(found), executor.nodeId)',
+    replace: '      const violated: string | null = null',
     caughtBy: [
       'packages/net/src/named-refusal.test.ts',
       'packages/node/src/named-refusal.node.test.ts',

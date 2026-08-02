@@ -81,7 +81,7 @@ function servingNode(options: {
     // This node's own tap, the one `rpc` is built over, plus the local-only tier
     // that says which payloads are sovereign — so the hold the serve path takes is
     // given back once the reply frame has settled, and only that hold.
-    egress: { guard, sovereignInputs: options.registrationStore },
+    egress: { guard, sovereignInputs: options.registrationStore, sovereignCids: 'forgets-sovereignty-between-jobs' },
     authorize: 'serves-unauthenticated',
     index: 'serves-no-records',
     enroll: 'issues-no-certificates',

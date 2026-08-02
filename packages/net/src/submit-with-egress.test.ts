@@ -106,7 +106,7 @@ function buildFabric(nodeId: string): Fabric {
     blockstore: store,
     // The owner node's own tap — the guard `rpc` is built over — plus the local-only
     // tier a sovereign input has to be resident in before the serve path declares it.
-    egress: { guard, sovereignInputs: local },
+    egress: { guard, sovereignInputs: local, sovereignCids: 'forgets-sovereignty-between-jobs' },
     authorize: 'serves-unauthenticated',
     index: 'serves-no-records',
     enroll: 'issues-no-certificates',

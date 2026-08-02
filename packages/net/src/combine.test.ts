@@ -744,7 +744,7 @@ describe('MR-06 — a combine reply is a plain body, with no egress hold to give
       rpc: serverRpc,
       executor: succeeds,
       blockstore: local,
-      egress: { guard, sovereignInputs: local },
+      egress: { guard, sovereignInputs: local, sovereignCids: 'forgets-sovereignty-between-jobs' },
     })
 
     const client = new RpcEndpoint(network.connect('client'), { timeoutMs: 5_000 })

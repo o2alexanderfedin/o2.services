@@ -216,9 +216,24 @@ function requestFor(shard: ShardSpec, shardId: string, redundancy: number): Plac
  * Shards run concurrently — they share no state by construction, which is the
  * whole reason the partition is the unit of parallelism.
  */
+export interface SubmitOptions {
+  /**
+   * Where to record that a shard's bytes are sovereign — DATA-10's at-rest half.
+   *
+   * Optional, and the omission is real rather than a hole: `task-worker.ts` hard-codes
+   * `label:'public'` shards into a `MemoryBlockstore`, so it has nothing sovereign to
+   * record and no durable place to record it. A caller handling sovereign shards that
+   * omits this keeps the pre-13.1 behaviour — it holds the row and nothing guards it —
+   * which is why `sovereign-block-refusal.node.test.ts` pins the set of files allowed to
+   * call this function at all.
+   */
+  readonly sovereignCids?: { add(cid: string): Promise<void> }
+}
+
 export async function submitJob(
   spec: JobSpec,
   blockstore: Blockstore,
+  options?: SubmitOptions,
 ): Promise<SubmitResult> {
   if (spec.shards.length === 0) return { ok: false, error: { kind: 'no-shards' } }
   if (!Number.isInteger(spec.redundancy) || spec.redundancy < 1) {
@@ -259,6 +274,22 @@ export async function submitJob(
       }
     }
     await blockstore.put(encoded.bytes)
+    // DATA-10, and this is the boundary the node owns. `submit-with-egress.ts` names it
+    // as the fix a later phase would make, in exactly these words: *register at a boundary
+    // the node owns — the blockstore-put of a shard labelled sovereign*.
+    //
+    // Here rather than in the guarded wrapper, because THIS is the line that makes the
+    // submitter hold the row. A submitter reaching the fabric through bare `submitJob`
+    // used to put another owner's raw bytes into its own store and record nothing, and
+    // `sovereignty-placement.node.test.ts` has been driving that path and passing for
+    // exactly that reason. Registering where the put happens covers every caller instead
+    // of every caller that remembered.
+    //
+    // The bytes are already in hand, so this costs a set insert and one append — the
+    // second canonicalisation `submit-with-egress.ts` pays is not repeated here.
+    if ((spec.shards[i] as ShardSpec).label === 'sovereign' && options?.sovereignCids !== undefined) {
+      await options.sovereignCids.add(encoded.cid.toString())
+    }
     inputCids.push(encoded.cid)
   }
 

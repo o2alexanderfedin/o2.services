@@ -180,7 +180,7 @@ async function ownerFabric(options: { module: Uint8Array<ArrayBuffer>; ownerNode
       // is the point: the payload under watch is not one a reply would release.
       // `local` is the node's local-only tier, which is what declares a sovereign
       // input, mirroring both production factories.
-      egress: { guard, sovereignInputs: local },
+      egress: { guard, sovereignInputs: local, sovereignCids: 'forgets-sovereignty-between-jobs' },
       authorize: 'serves-unauthenticated',
       index: 'serves-no-records',
       enroll: 'issues-no-certificates',
@@ -602,7 +602,7 @@ describe('a hold survives an exec that never took one', () => {
         canExecuteSovereign: true,
       }),
       blockstore: served,
-      egress: { guard, sovereignInputs },
+      egress: { guard, sovereignInputs, sovereignCids: 'forgets-sovereignty-between-jobs' },
 
       authorize: 'serves-unauthenticated',
       index: 'serves-no-records',

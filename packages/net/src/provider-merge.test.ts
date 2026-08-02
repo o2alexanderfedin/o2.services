@@ -510,7 +510,7 @@ describe('DATA-05 — a provider answer is not a side channel around an egress r
     // How a registration is actually produced on a running node.
     guard.guard(options.label(sovereignCid), sovereignBytes)
 
-    const egress = { guard, sovereignInputs: store }
+    const egress = { guard, sovereignInputs: store, sovereignCids: 'forgets-sovereignty-between-jobs' } as const
     const rpc = new RpcEndpoint(guard, { timeoutMs: 5_000 })
     serveAgent({
       rpc,
@@ -610,7 +610,7 @@ describe('DATA-05 — a provider answer is not a side channel around an egress r
     const bytes = new TextEncoder().encode('owner-pinned bytes') as Uint8Array<ArrayBuffer>
     const cid = await store.put(bytes)
     const guard = new EgressGuard(network.connect('n'), 'owner')
-    const withhold = withholdingFrom({ guard, sovereignInputs: store })
+    const withhold = withholdingFrom({ guard, sovereignInputs: store, sovereignCids: 'forgets-sovereignty-between-jobs' })
     if (withhold === 'advertises-everything-it-holds') throw new Error('fixture')
 
     expect(await withhold(cid)).toBe(false)

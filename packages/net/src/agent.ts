@@ -28,6 +28,7 @@ import { encodeRequest, encodeResponse, parseRequest, parseResponse } from './pr
 import type { AgentRequest, AgentResponse } from './protocol.ts'
 import type { RpcEndpoint, RpcReply } from './rpc.ts'
 import { takeSovereignHold } from './sovereign-egress.ts'
+import type { EgressDisposition } from './sovereign-egress.ts'
 
 /**
  * Pulls blocks from peers over RPC, trying each in turn.
@@ -237,9 +238,7 @@ export interface AgentOptions {
    * nothing failing and nobody measuring. Making the omission something a call site
    * has to write down is what turns that into a decision.
    */
-  readonly egress:
-    | { readonly guard: EgressGuard; readonly sovereignInputs: Blockstore }
-    | 'holds-no-registrations'
+  readonly egress: EgressDisposition
   /**
    * AUTH-01 / AUTH-04. The provider signing key this process holds, if it holds one.
    *
@@ -588,7 +587,24 @@ export function serveAgent(options: AgentOptions): void {
       // which treats any non-`block` reply as a miss and asks the next peer. So a
       // multi-peer fetch degrades rather than loops, while a caller that asked
       // this node directly gets a named reason. That shape is deliberate.
-      const violated = refusedReason(options.egress, from, encodeResponse(found), executor.nodeId)
+      // DATA-10's at-rest half — asked by CID, and asked FIRST.
+      //
+      // `refusedReason` below scans the frame against every payload the guard currently
+      // holds, and holds are job-scoped, so it stops answering the moment a job ends. That
+      // lifetime is right for a byte scan and wrong for a fact about data: sovereignty is
+      // a property of the bytes, not of whether a job happens to be running over them.
+      //
+      // A `block` request names a CID, so this case never needed the scan. One lookup,
+      // and it keeps answering for as long as the node holds the row.
+      const durable =
+        options.egress === 'holds-no-registrations' ||
+        options.egress.sovereignCids === 'forgets-sovereignty-between-jobs'
+          ? null
+          : options.egress.sovereignCids.has(request.cid.toString())
+            ? `egress refused: ${request.cid.toString()} on ${executor.nodeId}`
+            : null
+      const violated =
+        durable ?? refusedReason(options.egress, from, encodeResponse(found), executor.nodeId)
       response = violated === null ? found : { kind: 'error', reason: violated }
     } else if (request.kind === 'providers') {
       // An empty list from a node that holds no index is a truthful answer, not an
