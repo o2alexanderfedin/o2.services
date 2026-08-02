@@ -9,11 +9,24 @@
  * A browser cannot do mDNS itself, so the one URL is unavoidable. Everything after it
  * is derived: the page asks its own origin for `/bootstrap.json` and is told to dial
  * the very host it already reached.
+ *
+ * ## This process stops when the process that spawned it goes away
+ *
+ * The same leash `bin/agent.ts` carries, from the same module, for the same reason: on
+ * POSIX a child does not die with its parent and `SIGKILL` runs no handler. A seed leaks
+ * harder than an agent when it leaks — it holds a Vite dev server, a libp2p node, and a
+ * low TCP port. **Measured on the machine this was written on:** a `bin/seed.ts` five days
+ * and twenty-three hours old, 40 MB resident, still holding port 5173.
+ *
+ * That one was started by hand in a terminal and its shell was still alive, so it was the
+ * operator's and not a leak — and `../orphan-leash.ts`'s `fstat` gate is exactly what keeps
+ * this change from killing it. A tty is a character device; the leash does not arm.
  */
 
 import { parseArgs } from 'node:util'
 import { KERNEL_TRUST_ANCHOR } from '@o2/demo'
 import qrcode from 'qrcode-terminal'
+import { armOrphanLeash } from '../orphan-leash.ts'
 import { SeedServer } from '../seed-server.ts'
 
 const { values } = parseArgs({
@@ -40,7 +53,37 @@ const { values } = parseArgs({
 
 const trustAnchors = values['trust-anchor'] ?? [KERNEL_TRUST_ANCHOR]
 
-const seed = await SeedServer.start({
+/**
+ * The server, once it exists.
+ *
+ * `let` rather than `const`, and the leash below is armed *before* `SeedServer.start`,
+ * because the startup window is not free: standing up a libp2p node and a Vite dev server
+ * takes long enough to be interrupted, and a parent killed during it would orphan this
+ * process before there was anything to shut down. Both halves tolerate not existing —
+ * `shutdown` checks, and leaving during startup is safe to do abruptly.
+ */
+let seed: SeedServer | undefined
+
+let stopping = false
+const shutdown = (): void => {
+  if (stopping) return
+  stopping = true
+  if (seed === undefined) {
+    process.exit(0)
+  }
+  void seed.stop().then(
+    () => process.exit(0),
+    () => process.exit(1),
+  )
+}
+
+// Declared together so the three ways this process can be told to stop read as one
+// paragraph, and armed here so the startup below is covered rather than only the run.
+process.on('SIGINT', shutdown)
+process.on('SIGTERM', shutdown)
+armOrphanLeash(shutdown)
+
+seed = await SeedServer.start({
   blockstoreDir: values.dir ?? '.o2-seed',
   httpPort: Number(values.port),
   wsPort: Number(values['ws-port']),
@@ -64,14 +107,12 @@ line(`  capacity   ${seed.node.capacity.limit} reservations`)
 // DET-03: what this process will actually run a module for, so an operator can see it
 // without reading the source.
 //
-// **Nothing asserts this line.** No test spawns `bin/seed.ts`, so its presence and its
-// wording are unmeasured. What would measure them is a test that spawns the binary with
-// `--port 0 --ws-port 0 --dir <tmp>` and reads stdout; that is not done here because the
-// binary boots a Vite dev server, which is a minute of test time for one line of output.
-// The property the line reports is covered from two sides instead:
-// `trust-anchors.node.test.ts` compares this binary's default expression with
-// `bin/agent.ts`'s in source, and Plan 14-05 reads the agent's actual pinned set out of
-// its handshake across a real process boundary.
+// **This line is asserted**, in both its branches, by `trust-anchors.node.test.ts` — it
+// spawns this binary and reads the banner back. It previously said the opposite, on the
+// grounds that spawning the seed cost *a minute of test time for one line of output*.
+// Measured while adding the leash above: the full banner appears **590 ms** after spawn.
+// The estimate was wrong by two orders of magnitude, and it had been repeated in two other
+// files as a reason not to look.
 line(
   `  trusts     ${trustAnchors.length} pinned anchor${trustAnchors.length === 1 ? '' : 's'}` +
     `${values['trust-anchor'] === undefined ? ' (the demo default — pass --trust-anchor to replace it)' : ' (from --trust-anchor)'}`,
@@ -89,15 +130,3 @@ qrcode.generate(seed.joinUrl, { small: true }, (code) => {
 line('  The page asks this origin who to dial, so nothing is hardcoded.')
 line('  Ctrl-C to stop.')
 line()
-
-let stopping = false
-const shutdown = (): void => {
-  if (stopping) return
-  stopping = true
-  void seed.stop().then(
-    () => process.exit(0),
-    () => process.exit(1),
-  )
-}
-process.on('SIGINT', shutdown)
-process.on('SIGTERM', shutdown)

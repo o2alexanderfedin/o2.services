@@ -72,6 +72,7 @@ import type {
   EnrollmentResult,
   ExecutionOutcome,
   NameRecord,
+  NodeCapacity,
   NodeCertificate,
   NodeRecords,
   OutcomeCount,
@@ -142,7 +143,30 @@ export type AgentResponse =
   | { readonly kind: 'providers'; readonly nodeKeys: readonly PublicKeyHex[] }
   /** `records: null` means "I hold none for that key", which is not an error. */
   | { readonly kind: 'records'; readonly records: NodeRecords | null }
-  | { readonly kind: 'offer'; readonly accepted: boolean; readonly reason: string }
+  /**
+   * The verdict, and what the answering node says about its own room — SCHED-02.
+   *
+   * Three things a reader needs, all of them easy to get wrong:
+   *
+   * - **The figures are advisory and reserve nothing.** This branch answers through
+   *   `LocalCapacity.would`, which takes no slot. A requestor bounds *itself* from
+   *   what it reads here; the authoritative refusal is still the `exec` branch's
+   *   SCHED-06 admission, which reserves for real and releases in a `finally`.
+   * - **`inFlight` is the count from before this offer's own effect**, so two
+   *   answers compose and a caller can subtract what it placed without
+   *   double-counting.
+   * - **`capacity: null` means the node stated nothing, and leaves it unbounded by
+   *   the requestor** — not assumed full. The safe-looking alternative is wrong:
+   *   assuming full would make every node running the previous build undiscoverable
+   *   to a node running this one, which is a fabric that partitions itself on an
+   *   upgrade.
+   */
+  | {
+      readonly kind: 'offer'
+      readonly accepted: boolean
+      readonly reason: string
+      readonly capacity: NodeCapacity | null
+    }
   /**
    * Peer ids currently holding a reservation on the answering node.
    *
@@ -836,7 +860,19 @@ export function encodeResponse(response: AgentResponse): CanonicalValue {
             capabilities: capabilitiesToValue(response.records.capabilities),
           }
     case 'offer':
-      return { kind: 'offer', accepted: response.accepted, reason: response.reason }
+      // The `found`-style discriminant this file uses for every nested-or-absent
+      // value. Emitting `slots`/`inFlight` as explicit `undefined` keys instead
+      // would be a different shape from absent under the canonical encoding.
+      return response.capacity === null
+        ? { kind: 'offer', accepted: response.accepted, reason: response.reason, bounded: false }
+        : {
+            kind: 'offer',
+            accepted: response.accepted,
+            reason: response.reason,
+            bounded: true,
+            slots: response.capacity.slots,
+            inFlight: response.capacity.inFlight,
+          }
     case 'enrol':
       return enrollmentResultToValue(response.result)
     case 'reservations':
@@ -900,7 +936,16 @@ export function parseResponse(body: CanonicalValue): AgentResponse | null {
       const accepted = record['accepted']
       const reason = record['reason']
       if (typeof accepted !== 'boolean') return null
-      return { kind: 'offer', accepted, reason: typeof reason === 'string' ? reason : '' }
+      const stated = typeof reason === 'string' ? reason : ''
+      if (record['bounded'] !== true) return { kind: 'offer', accepted, reason: stated, capacity: null }
+      const slots = asIndex(record['slots'])
+      const inFlight = asIndex(record['inFlight'])
+      // Refused, not folded into the absent arm — the same disposition the
+      // `combine` arm takes below. A peer able to turn a corrupt capacity into an
+      // ordinary "I state nothing" would be indistinguishable from an honest node
+      // that states nothing, and the requestor treats that node as unbounded.
+      if (slots === null || inFlight === null) return null
+      return { kind: 'offer', accepted, reason: stated, capacity: { slots, inFlight } }
     }
     case 'reservations': {
       const peerIds = asKeyList(record['peerIds'])

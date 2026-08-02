@@ -1,11 +1,13 @@
 import { ed25519 } from '@noble/curves/ed25519.js'
 import { describe, expect, it } from 'vitest'
+import { MemoryBlockstore } from './blockstore/memory.ts'
 import { canonicalCid } from './canonical/encode.ts'
 import { toHex } from './capability.ts'
 import {
   discoverExecutors,
   FallbackRecordIndex,
   MemoryRecordIndex,
+  SelfRecordIndex,
   publishCapabilities,
   verifyCapabilityRecord,
 } from './discovery.ts'
@@ -443,5 +445,196 @@ describe('capability records are worthless alone and that is the design', () => 
     expect(found.executors).toEqual([])
     expect(found.excluded[0]?.reason.kind).toBe('certificate-mismatch')
     void index
+  })
+})
+
+describe('SCHED-01 — a node answers for what it holds, from its own store', () => {
+  const bytesOf = (text: string): Uint8Array<ArrayBuffer> =>
+    new TextEncoder().encode(text) as Uint8Array<ArrayBuffer>
+
+  /** A store holding two blocks, and one CID that was hashed but never stored. */
+  async function stocked(): Promise<{
+    store: MemoryBlockstore
+    held: Awaited<ReturnType<typeof inputCid>>
+    alsoHeld: Awaited<ReturnType<typeof inputCid>>
+    absent: Awaited<ReturnType<typeof inputCid>>
+  }> {
+    const store = new MemoryBlockstore()
+    const held = await store.put(bytesOf('the block this node holds'))
+    const alsoHeld = await store.put(bytesOf('a second block this node holds'))
+    // Hashed by a store nobody asks, so the CID is real and this node does not hold it.
+    const absent = await new MemoryBlockstore().put(bytesOf('a block held somewhere else'))
+    return { store, held, alsoHeld, absent }
+  }
+
+  it('answers for a block it holds and says nothing about one it does not', async () => {
+    const auth = authority()
+    const a = node(auth, 1)
+    const { store, held, absent } = await stocked()
+
+    const index = new SelfRecordIndex({
+      nodeKey: a.nodeKey,
+      store,
+      records: a.records,
+      withhold: 'advertises-everything-it-holds',
+    })
+
+    // Both readings in one test: an implementation that always answered `[nodeKey]`
+    // passes the first and fails the second, and one that always answered `[]` the
+    // other way round.
+    expect(await index.providers(held)).toStrictEqual([a.nodeKey])
+    expect(await index.providers(absent)).toStrictEqual([])
+  })
+
+  it('serves its own records and nobody else’s — it is not a directory', async () => {
+    const auth = authority()
+    const a = node(auth, 1)
+    const b = node(auth, 2)
+    const { store } = await stocked()
+
+    const index = new SelfRecordIndex({
+      nodeKey: a.nodeKey,
+      store,
+      records: a.records,
+      withhold: 'advertises-everything-it-holds',
+    })
+
+    expect(await index.recordsFor(a.nodeKey)).toStrictEqual(a.records)
+    // A node that answered for `b` would be claiming to hold somebody else's signed
+    // documents, which is the announce-and-replicate design D1 rejected.
+    expect(await index.recordsFor(b.nodeKey)).toBeUndefined()
+  })
+
+  it('answers providers with no certificate at all — the two halves are independent', async () => {
+    // Holding blocks is not a capability enrollment confers. Such a provider is
+    // excluded BY NAME as `no-records` further down, which is informative; silence
+    // would be an exclusion nobody can name.
+    const { store, held } = await stocked()
+    const unenrolled = keypair(120).pub
+
+    const index = new SelfRecordIndex({
+      nodeKey: unenrolled,
+      store,
+      records: 'holds-no-records',
+      withhold: 'advertises-everything-it-holds',
+    })
+
+    expect(await index.providers(held)).toStrictEqual([unenrolled])
+    expect(await index.recordsFor(unenrolled)).toBeUndefined()
+  })
+
+  it('is heard from and then excluded by name, rather than never heard from', async () => {
+    // The consequence of the test above, read at the level a requestor sees it.
+    const { store, held } = await stocked()
+    const unenrolled = keypair(121).pub
+
+    const index = new SelfRecordIndex({
+      nodeKey: unenrolled,
+      store,
+      records: 'holds-no-records',
+      withhold: 'advertises-everything-it-holds',
+    })
+
+    const found = await discoverExecutors({ inputCid: held }, index, {
+      trustedIssuers: trusted,
+      now: NOW,
+    })
+    expect(found.providers).toBe(1)
+    expect(found.executors).toStrictEqual([])
+    expect(found.excluded.map((e) => e.reason.kind)).toStrictEqual(['no-records'])
+    expect(found.excluded[0]?.detail).toContain(unenrolled)
+  })
+
+  it('does not advertise a block it holds but would refuse to serve', async () => {
+    const auth = authority()
+    const a = node(auth, 1)
+    const { store, held, alsoHeld } = await stocked()
+
+    const index = new SelfRecordIndex({
+      nodeKey: a.nodeKey,
+      store,
+      records: a.records,
+      withhold: (cid) => cid.toString() === held.toString(),
+    })
+
+    // Both readings, or "it answered empty" is indistinguishable from "it does not
+    // hold it" — and the whole point is that this node does hold it.
+    expect(await store.has(held)).toBe(true)
+    expect(await index.providers(held)).toStrictEqual([])
+    // The withholding is about one block, not about this node.
+    expect(await index.providers(alsoHeld)).toStrictEqual([a.nodeKey])
+  })
+
+  it('exercises the stated absence rather than merely spelling it', async () => {
+    const auth = authority()
+    const a = node(auth, 1)
+    const { store, held, alsoHeld } = await stocked()
+
+    const index = new SelfRecordIndex({
+      nodeKey: a.nodeKey,
+      store,
+      records: a.records,
+      withhold: 'advertises-everything-it-holds',
+    })
+
+    expect(await index.providers(held)).toStrictEqual([a.nodeKey])
+    expect(await index.providers(alsoHeld)).toStrictEqual([a.nodeKey])
+  })
+
+  it('consults the predicate per lookup, so a hold taken later is honoured', async () => {
+    // A registration's lifetime is a hold, not a process. A snapshot taken at
+    // construction would advertise a block that became sovereign a second later.
+    const auth = authority()
+    const a = node(auth, 1)
+    const { store, held } = await stocked()
+
+    const registered = new Set<string>()
+    const index = new SelfRecordIndex({
+      nodeKey: a.nodeKey,
+      store,
+      records: a.records,
+      withhold: (cid) => registered.has(cid.toString()),
+    })
+
+    expect(await index.providers(held)).toStrictEqual([a.nodeKey])
+    registered.add(held.toString())
+    expect(await index.providers(held)).toStrictEqual([])
+    // …and giving the hold back restores the answer, on the same instance.
+    registered.delete(held.toString())
+    expect(await index.providers(held)).toStrictEqual([a.nodeKey])
+  })
+
+  it('composes inside a fallback chain, ordered by availability and never by kind', async () => {
+    // NET-06. A third implementation of the port is exactly what could break the
+    // rule that `FallbackRecordIndex` keys on a state and not on what kind of node
+    // something is — so the chain is asserted with a `SelfRecordIndex` in it.
+    const auth = authority()
+    const a = node(auth, 1)
+    const { store, held } = await stocked()
+
+    const own = new SelfRecordIndex({
+      nodeKey: a.nodeKey,
+      store,
+      records: a.records,
+      withhold: 'advertises-everything-it-holds',
+    })
+    const { index: peer } = await indexOf(a)
+
+    let reachable = false
+    const chain = new FallbackRecordIndex([
+      { name: 'self', index: own, available: () => reachable },
+      { name: 'peer', index: peer, available: () => true },
+    ])
+
+    // Unreachable: the chain delegates, exactly as it does for a `MemoryRecordIndex`.
+    // `peer`'s fixture published a different CID, so it answers nothing for this one.
+    expect(await chain.providers(held)).toStrictEqual([])
+    expect(await chain.recordsFor(a.nodeKey)).toStrictEqual(a.records)
+    expect(chain.lastSource).toBe('peer')
+
+    // Reachable: it serves for itself, with no code path changed.
+    reachable = true
+    expect(await chain.providers(held)).toStrictEqual([a.nodeKey])
+    expect(chain.lastSource).toBe('self')
   })
 })

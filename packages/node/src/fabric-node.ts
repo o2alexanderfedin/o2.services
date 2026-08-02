@@ -87,10 +87,11 @@ import { webSockets } from '@libp2p/websockets'
 import { multiaddr } from '@multiformats/multiaddr'
 import {
   DEFAULT_MAX_CONCURRENT_TASKS,
+  DutyCycleGovernor,
   EnrollmentAuthority,
   LocalCapacity,
   MemoryBlockstore,
-  MemoryRecordIndex,
+  SelfRecordIndex,
   SignedNameResolver,
   WorkerExecutor,
   guardModuleProvenance,
@@ -104,17 +105,20 @@ import type {
   NodeCertificate,
   NodeSovereignty,
   PublicKeyHex,
+  SelfRecordIndexOptions,
 } from '@o2/core'
 import {
   CountingExecutor,
   EgressGuard,
   FetchingBlockstore,
+  GovernedExecutor,
   RpcBlockSource,
   RpcEndpoint,
   UNREACHABLE_PROVIDER,
   authorizeCapability,
   enrolOverRpc,
   serveAgent,
+  withholdingFrom,
 } from '@o2/net'
 import type { EnrolOutcome } from '@o2/net'
 import { createLibp2p } from 'libp2p'
@@ -364,6 +368,27 @@ export interface FabricNodeOptions {
    */
   readonly maxConcurrentTasks?: number
   /**
+   * The share of wall clock this node will spend running tasks — SCHED-04.
+   *
+   * A number in `(0, 1]`, defaulting to **1**: unthrottled, which is exactly how
+   * every node behaved before this option existed. A node at 1 pays nothing for the
+   * governor's presence — no sleep and no serialisation — which is why every
+   * concurrency test in this package passes unedited.
+   *
+   * Per-node, and **not** a node class: nothing branches on it, and a node at 0.1
+   * serves precisely the same requests as one at 1, more slowly and fewer at a time.
+   * Same rule as `maxConcurrentTasks` above.
+   *
+   * It is a starting value rather than a fixed one. {@link FabricNode.setDutyCycle}
+   * moves it on a process that is already running, which is what makes this a control
+   * rather than a configuration — and is the half of SCHED-04 that no tier had.
+   *
+   * Passed straight through, never clamped: `DutyCycleGovernor`'s constructor refuses
+   * anything outside `(0, 1]` with a `RangeError` naming the value, and sanitising
+   * here would turn a caller's mistake into a silently different node.
+   */
+  readonly dutyCycle?: number
+  /**
    * How long one task may hold its thread before it is killed — SCHED-06.
    *
    * Defaults to `DEFAULT_TASK_DEADLINE_MS` (`@o2/core`, the only place the value
@@ -591,13 +616,25 @@ async function resolveCertificate(parts: {
  * This node's own records, in the shape a peer's `records` request is answered from —
  * AUTH-01, SCHED-01.
  *
- * Four decisions live here, each written down because each is one somebody will otherwise
+ * Five decisions live here, each written down because each is one somebody will otherwise
  * re-litigate.
  *
- * **This index holds this node's own records and nothing else.** `provide()` is never
- * called, so a `providers` request still answers `[]` from every node. Phase 17 publishes;
- * Phase 18 queries. A node is not a directory here, and turning it into one is a decision
- * that has to be taken deliberately rather than inherited from this line.
+ * **This index answers two independent questions about one node.** `recordsFor` is about a
+ * signed identity and is empty for a node nobody certified. `providers` is about bytes and
+ * is answered for every node, certificate or not, because **holding a block is not a
+ * capability enrollment confers**. The text retired here — *"`provide()` is never called,
+ * so a `providers` request still answers `[]` from every node. Phase 17 publishes; Phase 18
+ * queries"* — is retired by owner ruling D1, and saying so matters rather than deleting it
+ * quietly: a reader who finds the two halves conditional on each other will reunite them,
+ * and a node answering `[]` for blocks it really holds would be lying about itself in order
+ * to keep a sentinel true. A node is still not a directory — it answers for itself and for
+ * nobody else, which is `SelfRecordIndex`'s whole shape.
+ *
+ * **`providers` reads the local-only tier and never `blockstore`.** A `FetchingBlockstore`
+ * would answer "yes" for anything *obtainable* rather than anything *held*, and would pull
+ * the block over the wire to answer a question about it. This is the same rule
+ * `AgentOptions.egress.sovereignInputs` already states, for the same reason, which is why
+ * the argument is `store`.
  *
  * **`features: []` is honest, not a stub.** No feature-detection dependency exists in this
  * repository — `wasm-feature-detect` is recommended in `CLAUDE.md` and is not installed,
@@ -629,21 +666,29 @@ async function resolveCertificate(parts: {
  * have to invent.
  */
 function ownRecords(
-  certificate: NodeCertificate,
+  certificate: NodeCertificate | null,
   identity: NodeIdentity,
   canExecuteSovereign: boolean,
-): MemoryRecordIndex {
-  const index = new MemoryRecordIndex()
-  index.publish({
-    certificate,
-    capabilities: publishCapabilities(identity.seed, {
-      features: [],
-      sovereignFor: canExecuteSovereign ? [certificate.userKey] : [],
-      issuedAt: certificate.issuedAt,
-      expiresAt: certificate.expiresAt,
-    }),
+  store: Blockstore,
+  withhold: SelfRecordIndexOptions['withhold'],
+): SelfRecordIndex {
+  return new SelfRecordIndex({
+    nodeKey: identity.nodeKey,
+    store,
+    records:
+      certificate === null
+        ? 'holds-no-records'
+        : {
+            certificate,
+            capabilities: publishCapabilities(identity.seed, {
+              features: [],
+              sovereignFor: canExecuteSovereign ? [certificate.userKey] : [],
+              issuedAt: certificate.issuedAt,
+              expiresAt: certificate.expiresAt,
+            }),
+          },
+    withhold,
   })
-  return index
 }
 
 function hasReservations(value: unknown): value is RelayService {
@@ -714,11 +759,25 @@ export class FabricNode {
    */
   readonly certificate: NodeCertificate | null
   /**
-   * The instrument {@link executorPeakInFlight} reads. The same object as
-   * {@link executor} — `CountingExecutor` is composed outermost, so nothing can
-   * reach this node's executor without being counted.
+   * The instrument {@link executorPeakInFlight} reads.
+   *
+   * **No longer the same object as {@link executor}.** SCHED-04 wrapped the counter in
+   * a `GovernedExecutor`, so the counter is now one layer in rather than the outermost
+   * one, and a caller reaching `node.executor` passes through the pacing before it is
+   * counted. That is the browser tier's order and it is deliberate: a counter outside
+   * the governor would count tasks parked on its serialisation chain as in flight,
+   * which is not what "how many tasks is this node running at once" means.
    */
   readonly #counter: CountingExecutor
+  /**
+   * This node's duty-cycle cap — SCHED-04.
+   *
+   * Held so {@link FabricNode.setDutyCycle} can move it on a running process, and so
+   * {@link FabricNode.dutyCycle} can read it. The same object is inside
+   * {@link executor} and inside `admission`, which is what makes one call change both
+   * the pacing and the advertised slot count.
+   */
+  readonly #governor: DutyCycleGovernor
   /** The thread tasks run on. Held only so {@link FabricNode.stop} can end it. */
   readonly #compute: WorkerExecutor
   readonly #limit: number
@@ -757,7 +816,9 @@ export class FabricNode {
     egress: EgressGuard
     blockstore: FetchingBlockstore
     store: Blockstore
-    executor: CountingExecutor
+    executor: GovernedExecutor
+    counter: CountingExecutor
+    governor: DutyCycleGovernor
     compute: WorkerExecutor
     admission: LocalCapacity
     limit: number
@@ -775,7 +836,8 @@ export class FabricNode {
     this.blockstore = parts.blockstore
     this.store = parts.store
     this.executor = parts.executor
-    this.#counter = parts.executor
+    this.#counter = parts.counter
+    this.#governor = parts.governor
     this.#compute = parts.compute
     this.admission = parts.admission
     this.#limit = parts.limit
@@ -826,9 +888,45 @@ export class FabricNode {
    * local call never reaches it. So `executorPeakInFlight <= admission.slots` is a
    * claim about a run in which every dispatch arrived over RPC, and a test asserting
    * it has to say so.
+   *
+   * **Since SCHED-04 the counter sits inside the governor**, so at a duty cycle below
+   * 1 this reads tasks *running*, never tasks *queued* — a dispatch waiting its turn
+   * on the serialisation chain has not reached the counter yet. At a duty cycle of 1
+   * nothing waits and the reading is what it was before the governor existed, which is
+   * why the concurrency specs in this package needed no edit.
    */
   get executorPeakInFlight(): number {
     return this.#counter.peakInFlight
+  }
+
+  /**
+   * The share of wall clock this node currently spends running tasks — SCHED-04.
+   *
+   * Reads through the governor rather than echoing a stored option, so it reports what
+   * is in force after any {@link setDutyCycle} call.
+   */
+  get dutyCycle(): number {
+    return this.#governor.dutyCycle
+  }
+
+  /**
+   * Move this node's cap while it is running — the half of SCHED-04 no tier had.
+   *
+   * Honoured by the **next task started** and by the **next offer answered**. A task
+   * already executing is not disturbed, which is `GovernedExecutor`'s between-tasks
+   * rule: a guest `run()` is synchronous and V8 has no fuel, so there is no point at
+   * which a running task could be slowed even in principle.
+   *
+   * Both effects come from the one object. The governor is inside {@link executor}, so
+   * the pacing changes; it is inside `admission`, so `admission.slots` changes with no
+   * reconstruction and the very next offer answer carries the lower figure.
+   *
+   * Throws a `RangeError` naming the value for anything outside `(0, 1]`. The guard is
+   * the governor's own, reached rather than duplicated here — a second copy is a second
+   * thing that can drift.
+   */
+  setDutyCycle(value: number): void {
+    this.#governor.setDutyCycle(value)
   }
 
   /** Calls currently inside `executor.execute()` on this node. */
@@ -989,12 +1087,41 @@ export class FabricNode {
     // resolved from below, so the capacity's node id and the executor's cannot
     // drift — the pattern this factory already applies to `sovereignty`.
     //
-    // No `dutyCycle` is passed. This node has no governor to feed one from;
-    // `browser-node.ts` has one and deliberately does not feed it either, for the
-    // reason written beside its own construction.
+    // SCHED-04 — the cap this node paces itself to, and the first production
+    // `DutyCycleGovernor` on either tier.
+    //
+    // Built before `admission` because the capacity reads it. `environment` is a
+    // named absence rather than an omission: this tier has no visibility signal to
+    // compose with, and saying so is what stops a reader assuming one was forgotten.
+    const governor = new DutyCycleGovernor({
+      dutyCycle: options.dutyCycle ?? 1,
+      sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+      environment: 'no-environment-governor',
+    })
+
+    // `dutyCycle: governor` — and this line reverses a decision recorded next to
+    // `browser-node.ts`'s own construction, so it is argued rather than just changed.
+    //
+    // The objection on record was that *"two independent throttles on one path produce
+    // a number nobody can predict"*. That holds only if these are two throttles, and
+    // they are not. `GovernedExecutor` is the **mechanism** — it is what actually makes
+    // a task wait. The slot count is the **statement about** that mechanism: advisory,
+    // reserving nothing, and read by a requestor deciding where to send work. One cap,
+    // seen twice. `CapacityOptions`' own doc already argued for exactly this coupling —
+    // *"A node at 25% does not run a quarter of a task; it runs fewer of them."*
+    //
+    // Criterion 3 requires a cap to be observable in what a requestor is offered next.
+    // The offer answer carries a slot count and the slot count derives from the duty
+    // cycle, so this one argument is the whole of that requirement.
+    //
+    // What is genuinely given up, said plainly: a throttled node now refuses earlier as
+    // well as running slower. That is intended. A node at a low cap still advertising a
+    // high slot count would be inviting work it will not get to, which is the precise
+    // failure a load hint exists to prevent.
     const admission = new LocalCapacity({
       nodeId: libp2p.peerId.toString(),
       maxConcurrent: options.maxConcurrentTasks ?? DEFAULT_MAX_CONCURRENT_TASKS,
+      dutyCycle: governor,
     })
 
     // Connecting is what triggers the reservation; the `/p2p-circuit` listen entry
@@ -1109,10 +1236,35 @@ export class FabricNode {
       relayPeerIds,
     })
 
-    // AUTH-01 — what this node answers a peer's `records` request with. See `ownRecords`
-    // for the four decisions it carries. A node holding no certificate has nothing to
-    // publish and keeps passing the sentinel at the hook below.
-    const records = certificate === null ? null : ownRecords(certificate, identity, sovereignty.canExecuteSovereign)
+    // DATA-05 — the tap and the local-only tier that says which payloads are sovereign,
+    // bound **once** and handed to both readers below. Two object literals saying the same
+    // thing would be two places to change, and the invariant underneath this line is
+    // precisely that the withholding predicate and the `block` branch consult the *same*
+    // guard: one value passed twice cannot disagree, whereas two copies diverge the first
+    // time one is edited.
+    const egressDisposition = { guard: egress, sovereignInputs: store }
+
+    // AUTH-01 / SCHED-01 — what this node answers a peer's `records` *and* `providers`
+    // requests with. See `ownRecords` for the five decisions it carries. Unconditional
+    // since owner ruling D1: a node holding no certificate still holds blocks, and
+    // answering `[]` about blocks it really has would be lying about itself.
+    //
+    // **The predicate names exactly the set `refusedReason` consults**, so `providers` can
+    // never advertise a block the `block` branch would refuse. It is built here rather than
+    // inside the helper so the guard it reads is unmistakably the one `serveAgent` is
+    // given, and it is `withholdingFrom` rather than a comparison against
+    // `egress.registrations`: that cheaper form is keyed on a registration *label* while
+    // the `block` branch is keyed on a *payload*, and 18-02 planted it and measured this
+    // node advertising, over the wire, a block its own `block` branch refused in the same
+    // test. Holding an invariant between two branches means asking one question twice, not
+    // writing the question down twice.
+    const records = ownRecords(
+      certificate,
+      identity,
+      sovereignty.canExecuteSovereign,
+      store,
+      withholdingFrom(egressDisposition),
+    )
 
     // AUTH-02 — per-peer verdicts, computed offline against the pinned issuer keys.
     //
@@ -1208,7 +1360,19 @@ export class FabricNode {
       createThread: workerThread,
       ...(options.taskDeadlineMs === undefined ? {} : { deadlineMs: options.taskDeadlineMs }),
     })
-    const executor = new CountingExecutor(guardSovereignty(provenance(compute), sovereignty))
+    // SCHED-06 + SCHED-04. The counter sits **inside** the governor, which is a change
+    // from this tier's previous order and brings it into line with `browser-node.ts`.
+    //
+    // The reason is that tier's, quoted rather than re-derived: a counter outside the
+    // governor would count tasks parked on its serialisation chain as in flight, which
+    // is precisely not what "how many tasks is this node running at once" means. The
+    // two tiers now agree on layer order, which is what the equal-functionality rule is
+    // actually about.
+    //
+    // Everything inside is unchanged and the order still matters: sovereignty outside
+    // provenance, provenance innermost against `compute`.
+    const counter = new CountingExecutor(guardSovereignty(provenance(compute), sovereignty))
+    const executor = new GovernedExecutor(counter, governor)
 
     const node = new FabricNode({
       libp2p,
@@ -1218,6 +1382,8 @@ export class FabricNode {
       blockstore,
       store,
       executor,
+      counter,
+      governor,
       compute,
       admission,
       limit,
@@ -1254,7 +1420,7 @@ export class FabricNode {
       // says which payloads are sovereign — so a sovereign task's input is guarded
       // for exactly as long as its reply frame takes to settle, and a dispatch that
       // declared nothing gives nothing back.
-      egress: { guard: egress, sovereignInputs: store },
+      egress: egressDisposition,
       // AUTH-03: `verifyChain` has been complete and fuzzed since Phase 4 with zero
       // production callers, and this hook has been explicit since Phase 11 with a
       // named sentinel at every production call site. This line is where the two meet.
@@ -1275,16 +1441,27 @@ export class FabricNode {
         audience,
         now: Date.now,
       }),
-      // AUTH-01 / SCHED-01. The sentinel is now the *fallback*, not the only value: a node
-      // holding a certificate answers with it and with its own signed capability record,
-      // and one that holds none says by name that it serves no records. Both are public
-      // statements whose entire purpose is to be read by a stranger; `providers` still
-      // answers `[]`, because `provide()` is never called. Nothing secret crosses this
-      // boundary and nothing may later be added that does.
+      // AUTH-01 / SCHED-01. **The sentinel is gone from this file**, because there is no
+      // longer a node this factory can build that has nothing to answer: one holding a
+      // certificate answers with it and with its own signed capability record, and one
+      // holding none answers `records: null` and a real provider list — two truthful
+      // statements rather than one refusal to speak.
       //
-      // A per-node configuration, not a node kind — the literal still appears exactly once
-      // in this file, which is what `serve-agent-hooks.node.test.ts` counts.
-      index: records ?? 'serves-no-records',
+      // What changed is the `providers` half. This comment used to read *"`providers` still
+      // answers `[]`, because `provide()` is never called"*, and that was accurate for
+      // every node from Phase 6 to Phase 17: the request kind was served by a branch whose
+      // index had never had anything provided into it. Owner ruling D1 replaced the
+      // announcement with an answer computed from this node's own store at ask time, so the
+      // decision is findable rather than merely gone.
+      //
+      // Both halves are public statements whose entire purpose is to be read by a stranger.
+      // Nothing secret crosses this boundary and nothing may later be added that does —
+      // which is what the withholding predicate at the construction site is for.
+      //
+      // A per-node configuration, not a node kind: `browser-node.ts` builds this from the
+      // identical expression over its own store and its own guard, and
+      // `serve-agent-hooks.node.test.ts` counts both.
+      index: records,
       // AUTH-01 / AUTH-04. The sentinel is now the *fallback*, not the only value: a node
       // started with `issuesCertificates` answers enrollment requests with a real
       // authority, and one that was not says by name that it issues none.

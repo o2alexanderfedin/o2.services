@@ -5,7 +5,8 @@
  * requests, and prints one JSON line describing how to reach it and who it says it is:
  *
  *   { "peerId": "12D3Koo…", "multiaddrs": ["/ip4/127.0.0.1/tcp/54321/p2p/12D3Koo…"],
- *     "trustAnchors": ["…"], "nodeKey": "…", "certificate": null, "issuerKey": null }
+ *     "trustAnchors": ["…"], "nodeKey": "…", "certificate": null, "issuerKey": null,
+ *     "peers": [], "dutyCycle": 1 }
  *
  * The handshake is deliberately a single line on stdout rather than a fixed port or
  * a discovery service: the OS assigns the port, so parallel runs cannot collide,
@@ -20,9 +21,10 @@
  *
  * Every field on that line is **public by construction**: a peer id, listen addresses,
  * pinned build-authority public keys, this node's own public `nodeKey`, the whole of the
- * provider-signed certificate, and the public half of the provider key when this process
- * holds one. Nothing secret crosses it, and nothing secret may be added to it — a parent
- * process reads this line and so does anything that can read this process's stdout.
+ * provider-signed certificate, the public half of the provider key when this process
+ * holds one, and the peer ids this process dialled. Nothing secret crosses it, and
+ * nothing secret may be added to it — a parent process reads this line and so does
+ * anything that can read this process's stdout.
  *
  * `certificate` and `issuerKey` are **present and `null`** rather than absent when there
  * is nothing to report. An absent field and a stated absence read identically to
@@ -30,6 +32,14 @@
  * certificate rather than a summary, because a parent has to be able to compare what this
  * node advertised against what a peer fetches from it over the `records` request, and a
  * summary would make that comparison impossible.
+ *
+ * `peers` is the same rule applied to a third field, and it is **present and `[]`** when
+ * no `--peer-addr` was given rather than absent. A peer id is public by construction
+ * exactly as `peerId` and `nodeKey` above are — it is derived from a public key and is
+ * printed by every node in this repository — so publishing the ones this process reached
+ * discloses nothing. What it buys is that a parent knows the dial happened *before* it
+ * asserts anything about the dial's consequences: the line is written after the dials, so
+ * a parent that has read it is reading a completed peering rather than an intention.
  *
  * Adding a field is additive for existing parents: each reads only the keys it names.
  *
@@ -44,52 +54,19 @@
  *
  * ## This process stops when the process that spawned it goes away
  *
- * On POSIX a child does not die with its parent. Every spawn site of this binary is a
- * test, every one of them tears its agents down in an `afterEach`, and none of that runs
- * when the parent is killed rather than asked: an interrupted run, a killed Vitest worker,
- * a harness torn down mid-test. `SIGKILL` runs no handler by definition, so nothing on
- * the *parent* side can be made to cover it. **Measured, not reasoned:** a sweep on
- * 2026-08-01 found three agent processes from two different sessions still listening,
- * reparented to pid 1, the oldest 20h45m old at 14.5 MB. That is process-table pressure
- * this repository already has a name for — `tools/aot/lift.ts`'s `host-cannot-spawn`.
- *
- * So the answer has to live here, in the child, and it is stdin. A parent that spawns
- * this binary with a pipe on fd 0 holds the write end; when that parent dies — however it
- * dies — the kernel closes it and this process reads EOF. No handler on the parent side,
- * no bookkeeping, no timer, and it covers the one case no exit handler can.
- *
- * **The leash arms only when fd 0 is a socket or a FIFO, and that condition is the whole
- * design.** Three readings of fd 0 have to be told apart, and `fstat` tells them apart
- * exactly:
- *
- * | How this process was started | fd 0 | Leash |
- * |---|---|---|
- * | `spawn(…, { stdio: ['pipe', …] })` | socket (libuv uses `socketpair`) | armed |
- * | `some-command \| agent.ts` | FIFO | armed |
- * | `spawn(…, { stdio: ['ignore', …] })` | character device (`/dev/null`) | not armed |
- * | an operator at a terminal | character device (tty) | not armed |
- * | `agent.ts < /dev/null`, `nohup agent.ts &` | character device | not armed |
- *
- * The two rows that must not arm are the same row to `fstat`, which is what makes the
- * gate safe rather than lucky: **`/dev/null` returns EOF on the very first read**, so an
- * ungated version of this would exit during startup at every caller that ignores stdin —
- * and until the commit that added this, that was *every* caller. An operator's terminal
- * is a character device too, so it is excluded by the same clause, and so is a node
- * deliberately backgrounded away from its shell. Nothing here reads stdin for content;
- * the pipe carries no data, only the fact that it is still open.
- *
- * The consequence a caller has to know: **a spawn site that ignores stdin gets no leash.**
- * That is opt-in by construction — the parent asks for supervision by handing over a pipe
- * — and `orphan-leash.node.test.ts` both demonstrates the leash against a `SIGKILL`ed
- * parent and guards every spawn site in this package against quietly opting out again.
+ * On POSIX a child does not die with its parent, and `SIGKILL` runs no handler, so no
+ * amount of care in the spawning test covers an interrupted run. The leash lives in
+ * `../orphan-leash.ts` — read that module for the `fstat` table that decides when it arms
+ * and why an operator at a terminal is excluded by the same clause that excludes
+ * `/dev/null`. It is shared with `bin/seed.ts` rather than copied into it.
  */
 
-import { fstatSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
 import { parseArgs } from 'node:util'
 import { KERNEL_TRUST_ANCHOR } from '@o2/demo'
 import { SEED_BYTES, parseKeyHex } from '@o2/libp2p'
 import { FabricNode } from '../fabric-node.ts'
+import { armOrphanLeash } from '../orphan-leash.ts'
 
 const { values } = parseArgs({
   options: {
@@ -118,6 +95,15 @@ const { values } = parseArgs({
     // 15 does not depend on Phase 14 and must not block on it, so this is a third flag
     // rather than a refactor. Whichever phase touches this block next should fold all
     // three into one flags object rather than accreting a fourth.
+    //
+    // **Phase 18 accreted instead, and the reason is recorded here rather than left to
+    // look like an oversight.** Three plans in Phase 18 each add a flag to this same
+    // `parseArgs` object, in three different waves: 18-01's `--peer-addr` and
+    // `--max-concurrent-tasks`, 18-08's `--duty-cycle`, and 18-11's `--relay-addr`. A
+    // refactor landed in wave 1 would be re-litigated twice before the phase ended, and
+    // each re-litigation would touch a file two other plans hold open. The instruction is
+    // therefore carried forward rather than discharged: whichever phase touches this file
+    // next **with no other plan behind it** should do the fold.
     'owner-key': { type: 'string' },
     'can-execute-sovereign': { type: 'boolean', default: false },
     // DET-03/DATA-08's per-node build authority (`FabricNodeOptions.trustAnchors`),
@@ -202,6 +188,78 @@ const { values } = parseArgs({
     // node will run a module for, an issuer says whose *enrollment* signature it will
     // believe about a peer. A module and a peer are different subjects.
     'trusted-issuer': { type: 'string', multiple: true },
+    // AUTH-02's **accepting** half, across a real process boundary: the multiaddr of a peer
+    // this process dials once it is up, so a spawned node can be shown to *accept* a peer
+    // and not only to refuse one. Until this flag existed no phase could take that reading
+    // — `certificate-verification.node.test.ts` says so about itself, in the word
+    // "unmeasured" — because a verifier has to be connected to the peer it verifies and
+    // nothing on this binary made a spawned agent connect to anything.
+    //
+    // Repeatable, like `--trust-anchor` and `--trusted-issuer` above and for the identical
+    // reason: dialling two peers is ordinary configuration, and a comma-split string would
+    // be a parser nobody asked for.
+    //
+    // **It is not `--provider-addr`, and conflating the two would delete one of them.**
+    // That flag dials a provider to be certified, once; the connection's purpose ends with
+    // the certificate and no ongoing peering is established. This one establishes exactly
+    // that ongoing peering: the peer stays connected, `PeerVerifier` reaches a verdict on
+    // it, and — if the verdict is `ok` — `RpcBlockSource` may fetch blocks from it.
+    //
+    // Per-node setting, not a node kind: every agent process built by this binary has
+    // identical capability whether or not it is passed, the same sentence `--owner-id`,
+    // `--trust-anchor` and `--issues-certificates` each already carry. Being dialled and
+    // dialling are the same protocol seen from its two ends, so a node that was given this
+    // flag and a node that was not differ in what they *did*, never in what they can do.
+    //
+    // A multiaddr is public and goes on argv, unlike anything holding key material.
+    'peer-addr': { type: 'string', multiple: true },
+    // SCHED-06's slot limit (`FabricNodeOptions.maxConcurrentTasks`): how many tasks this
+    // node runs at once before it refuses an `exec` request with its own words. Three
+    // things about it.
+    //
+    // The option it reaches already carries the argument for why it is an option at all —
+    // *"a test that wants to observe [a refusal] has to be able to make one certain rather
+    // than hope for it"*. That argument only reached callers inside this process until now;
+    // a spawned agent could not be given a limit, so a later phase could not OBSERVE a
+    // refusal from one, only hope for one.
+    //
+    // A per-node capacity, not a node kind. A node with two slots serves exactly the same
+    // requests as one with sixty-four and nothing anywhere branches on the value — it just
+    // holds fewer at a time.
+    //
+    // **Passed straight through and never clamped.** The exit-2 check below refuses a bad
+    // value at the binary so an operator reads which input was rejected, and
+    // `LocalCapacity`'s own `RangeError` guard stays reachable for every other caller.
+    // Sanitising here would turn an operator's mistake into a silently different node.
+    //
+    // `type: 'string'` because `parseArgs` has no integer type; the parse and the range
+    // check are the validator below.
+    'max-concurrent-tasks': { type: 'string' },
+    // SCHED-04: the share of wall clock this node spends running tasks, in (0, 1].
+    //
+    // **The starting value, not a fixed one.** The requirement asks for a cap an operator
+    // can set on a node that is already running, and a flag alone cannot do that. The
+    // control file and `SIGHUP` handler below are the other half; this is where the process
+    // begins.
+    //
+    // A per-node setting, not a node kind. A node at 0.1 serves exactly the same requests
+    // as one at 1, more slowly and fewer at a time, and nothing anywhere branches on it.
+    //
+    // **Why a file and a signal, and not a wire frame.** `serveAgent` serves
+    // unauthenticated. A frame that set a node's CPU cap would let any peer able to dial
+    // this process throttle a machine it does not own, and bounding that needs an
+    // authorization surface this phase has no reason to open. `<dir>/.duty-cycle` is
+    // reached only by whoever can already write the directory this agent was handed.
+    //
+    // Note *which* property of `--dir` is being used: `.identity.key` and `.provider.key`
+    // live there because they are **secret**, and this file lives there because it is
+    // **owned**. A duty cycle is not a secret — it is published on the handshake line and
+    // implied by every offer answer. The directory is the ownership boundary, and that is
+    // the only reason the control file shares it.
+    //
+    // `type: 'string'` because `parseArgs` has no number type; the parse and the range check
+    // are the validator below.
+    'duty-cycle': { type: 'string' },
     // AUTH-01/AUTH-04: this process holds a provider signing key, generated on-device into
     // `<dir>/.provider.key` on first start, and answers enrollment requests with a real
     // issuance decision instead of saying by name that it issues none.
@@ -222,7 +280,7 @@ const { values } = parseArgs({
 })
 
 const USAGE =
-  'usage: agent.ts --dir <blockstore-dir> [--port <n>] [--owner-id <id> [--owner-key <hex>] [--can-execute-sovereign]] [--trust-anchor <hex> ...] [--issues-certificates] [--provider-addr <multiaddr> --user-key <path> --operator-id <id>] [--trusted-issuer <hex> ...]\n'
+  'usage: agent.ts --dir <blockstore-dir> [--port <n>] [--owner-id <id> [--owner-key <hex>] [--can-execute-sovereign]] [--trust-anchor <hex> ...] [--issues-certificates] [--provider-addr <multiaddr> --user-key <path> --operator-id <id>] [--trusted-issuer <hex> ...] [--peer-addr <multiaddr> ...] [--max-concurrent-tasks <n>] [--duty-cycle <n>]\n'
 
 /**
  * The one exit-2 path, extended rather than duplicated.
@@ -257,6 +315,37 @@ if (values['provider-addr'] !== undefined) {
 for (const issuer of values['trusted-issuer'] ?? []) {
   if (parseKeyHex(issuer) === null) {
     refuse(`--trusted-issuer ${issuer} is not 64 lowercase hex characters`)
+  }
+}
+
+// **No second validator for `--peer-addr`'s format, deliberately.** `multiaddr()` throws on
+// a malformed address, and the dial loop's catch below turns that throw into the same named
+// refusal an unreachable address gets — so a bad multiaddr is already exit 2 with the value
+// in the message. A validator here would be a second parser sitting beside libp2p's own,
+// and the two would disagree the first time libp2p accepted a form this one had not heard
+// of. One refusal, composed by the parser that actually has to read the address.
+
+// SCHED-06: refused here rather than clamped, and the check is `LocalCapacity`'s own guard
+// restated against a string — integer, at least 1 — so the binary and the class cannot
+// disagree about which values exist. `Number` is what turns argv into the number that
+// reaches the option, so it is what the check has to run against; anything it reads as NaN
+// or as a fraction is named back with the value the operator actually typed.
+if (values['max-concurrent-tasks'] !== undefined) {
+  const slots = Number(values['max-concurrent-tasks'])
+  if (!Number.isInteger(slots) || slots < 1) {
+    refuse(`--max-concurrent-tasks ${values['max-concurrent-tasks']} is not an integer of at least 1`)
+  }
+}
+
+// SCHED-04: refused here rather than clamped, for `--max-concurrent-tasks`'s reason — the
+// binary and `DutyCycleGovernor` must not disagree about which values exist, so this is that
+// class's own guard restated against a string. Zero is rejected along with everything else
+// outside (0, 1]: a node that ran tasks 0% of the time would accept work it would never
+// start, which is a worse answer than refusing to start at all.
+if (values['duty-cycle'] !== undefined) {
+  const cap = Number(values['duty-cycle'])
+  if (!Number.isFinite(cap) || cap <= 0 || cap > 1) {
+    refuse(`--duty-cycle ${values['duty-cycle']} is not a number in (0, 1]`)
   }
 }
 
@@ -300,40 +389,6 @@ const enrollment =
 const trustAnchors = values['trust-anchor'] ?? [KERNEL_TRUST_ANCHOR]
 
 /**
- * How long a leash-triggered stop may take before this process leaves anyway.
- *
- * `stopAgent` in the spawning tests gives a wedged node 10 s and then `SIGKILL`s it. On
- * this path there is no parent left to do that — being parentless is the whole reason
- * this path ran — so the deadline has to be local, or a node that wedges in `stop()`
- * becomes exactly the orphan this leash exists to prevent. 5 s rather than 10 because
- * nothing is waiting on a clean unwind here: no parent will read an exit code and no peer
- * is owed a goodbye.
- *
- * **Unmeasured, and said rather than left to be assumed:** nothing in this repository
- * induces a wedged `stop()`, so this budget's *expiry* is reasoned and not observed. What
- * is observed is the ordinary path — `orphan-leash.node.test.ts` sees the process gone
- * 250–500 ms after its parent dies, an order of magnitude inside this.
- */
-const LEASH_STOP_BUDGET_MS = 5_000
-
-/**
- * Is fd 0 a pipe somebody is holding open, rather than `/dev/null` or a terminal?
- *
- * See the module comment for the table this implements and why the distinction is the
- * whole design. A closed or unreadable fd 0 is *not* a leash: `fstat` is the only thing
- * consulted, and if it cannot answer, this process is supervised by nobody and says so by
- * declining to arm rather than by guessing.
- */
-function parentHoldsAPipe(): boolean {
-  try {
-    const fd0 = fstatSync(0)
-    return fd0.isSocket() || fd0.isFIFO()
-  } catch {
-    return false
-  }
-}
-
-/**
  * The node, once it exists.
  *
  * `let` rather than `const`, and the leash is armed *before* `FabricNode.start` below,
@@ -358,23 +413,7 @@ const shutdown = (): void => {
   )
 }
 
-if (parentHoldsAPipe()) {
-  const leashBroke = (): void => {
-    // Unreffed so this timer is never the reason the process stays up; the node's own
-    // listener keeps the loop alive long enough for it to fire, and if `stop()` finishes
-    // first the process is already gone.
-    setTimeout(() => process.exit(0), LEASH_STOP_BUDGET_MS).unref()
-    shutdown()
-  }
-  // `end` is EOF: the last writer closed. `error` is the same fact arriving as ECONNRESET,
-  // which a socketpair can report when the peer is killed rather than closed — and an
-  // unhandled `error` on this stream would take the process down with a stack trace
-  // instead of an unwind, which is a worse way to be right.
-  process.stdin.on('end', leashBroke)
-  process.stdin.on('error', leashBroke)
-  process.stdin.resume()
-  process.stdin.unref()
-}
+armOrphanLeash(shutdown)
 
 node = await FabricNode.start({
   blockstoreDir: values.dir,
@@ -386,6 +425,14 @@ node = await FabricNode.start({
   // different types. An absent flag must add no key at all.
   ...(enrollment === undefined ? {} : { enrollment }),
   ...(values['trusted-issuer'] === undefined ? {} : { trustedIssuers: values['trusted-issuer'] }),
+  // Validated above, so `Number` here cannot produce anything `LocalCapacity` would throw
+  // on — and the key is omitted entirely when the flag is absent, so the node takes
+  // `DEFAULT_MAX_CONCURRENT_TASKS` from `@o2/core` rather than a second copy of it stated
+  // here. Same conditional-spread idiom, same `exactOptionalPropertyTypes` reason.
+  ...(values['max-concurrent-tasks'] === undefined
+    ? {}
+    : { maxConcurrentTasks: Number(values['max-concurrent-tasks']) }),
+  ...(values['duty-cycle'] === undefined ? {} : { dutyCycle: Number(values['duty-cycle']) }),
   ...(values['owner-id'] === undefined
     ? {}
     : {
@@ -400,6 +447,45 @@ node = await FabricNode.start({
         },
       }),
 })
+
+// AUTH-02: the peers this process was told to reach, dialled **after** `FabricNode.start`
+// has resolved and **before** the handshake line is written, so a parent that has read the
+// line knows every dial already succeeded.
+//
+// **Why this is here and not a `FabricNodeOptions` field.** `relayAddrs` already occupies
+// the factory position and means something else entirely: it asks libp2p for a
+// *reservation* and switches this node into the browser topology, changing how the node is
+// reachable. A plain peer dial changes nothing about this node's own reachability, so it
+// belongs at the call site rather than in the factory. Plan 18-11 adds `--relay-addr` for
+// the other meaning; two flags, deliberately, because they are two mechanisms.
+//
+// **Nothing has to be seeded for the verdict to land.** `PeerVerifier` subscribes to
+// `peer:connect` when the factory builds it, which is strictly before `start` resolves, so
+// a peer dialled here is caught by that subscription like any other.
+//
+// The peer id is read off the `Connection` rather than parsed out of the configured string,
+// for the reason `fabric-node.ts` states where it collects `relayPeerIds`: a peer id read
+// off a connection is the peer actually **reached**, one parsed out of a string is a claim
+// about who was *meant* to be. This line reports the first kind.
+const peers: string[] = []
+for (const address of values['peer-addr'] ?? []) {
+  try {
+    peers.push(await node.dial(address))
+  } catch (cause) {
+    // Stop before refusing. `refuse` calls `process.exit(2)`, and a started node holds a
+    // bound socket, a worker thread and two libp2p listeners; `FabricNode.start`'s own
+    // `undo` stack covers a failure *inside* it and does not cover one after it returned.
+    //
+    // The stop is swallowed rather than awaited bare: a `stop()` that itself rejects would
+    // replace this named refusal with an unhandled rejection and a different exit code,
+    // turning "the address could not be dialled" into no statement at all. Shutdown is
+    // best-effort here; the refusal is not.
+    await node.stop().catch(() => {})
+    refuse(
+      `--peer-addr ${address} could not be dialled: ${cause instanceof Error ? cause.message : String(cause)}`,
+    )
+  }
+}
 
 // The parent waits for exactly this line before dialling.
 //
@@ -416,6 +502,10 @@ node = await FabricNode.start({
 // `peerId`, so the certificate is demonstrably about the key the peer id is derived from.
 // See the module comment for why all three are always present and why `null` is stated
 // rather than omitted.
+//
+// `peers` is read the same way and carries the same guarantee: `[]` is a statement that
+// this process reached nobody, not the absence of a statement, and every entry in it came
+// off a `Connection` that was actually established.
 process.stdout.write(
   `${JSON.stringify({
     peerId: node.peerId,
@@ -424,6 +514,8 @@ process.stdout.write(
     nodeKey: node.nodeKey,
     certificate: node.certificate,
     issuerKey: node.issuerKey,
+    peers,
+    dutyCycle: node.dutyCycle,
   })}\n`,
 )
 
@@ -431,3 +523,47 @@ process.stdout.write(
 // be told to stop read as one paragraph rather than being separated by the handshake.
 process.on('SIGTERM', shutdown)
 process.on('SIGINT', shutdown)
+
+/** The control file, under the directory this agent was already handed. */
+const DUTY_CYCLE_FILE = '.duty-cycle'
+
+/**
+ * SCHED-04 — re-read the cap on a running node.
+ *
+ * **Deliberately not on `shutdown`'s path.** `SIGHUP`'s default disposition is to
+ * terminate the process, so the existence of this handler is the only thing keeping the
+ * node alive through one; wiring it to the shutdown path would have looked tidy and would
+ * have made the signal do exactly what having no handler does.
+ *
+ * **Every failure is named and none is fatal**, which is the opposite disposition from
+ * `--provider-addr`'s in this same file, and the difference is worth stating because the
+ * two rules will otherwise read as inconsistent. That check runs *before the node exists*,
+ * where refusing to start is the honest answer to a half-configured process. This one runs
+ * while the node is **serving other peers' work**, and a control file somebody mistyped is
+ * not a reason to drop those connections. So a bad file writes one line to stderr and
+ * leaves the running cap exactly where it was.
+ */
+process.on('SIGHUP', () => {
+  void (async () => {
+    const path = `${String(values.dir)}/${DUTY_CYCLE_FILE}`
+    let text: string
+    try {
+      text = await readFile(path, 'utf8')
+    } catch {
+      process.stderr.write(`agent.ts: ${path} could not be read; duty cycle unchanged\n`)
+      return
+    }
+    const cap = Number(text.trim())
+    if (text.trim() === '' || !Number.isFinite(cap) || cap <= 0 || cap > 1) {
+      process.stderr.write(
+        `agent.ts: ${path} holds ${JSON.stringify(text.trim())}, expected a number in (0, 1]; duty cycle unchanged\n`,
+      )
+      return
+    }
+    node?.setDutyCycle(cap)
+  })().catch(() => {
+    // Unreachable in practice — every step above handles its own failure — but a throw
+    // escaping here would become an unhandled rejection and kill a node that is serving.
+    process.stderr.write('agent.ts: duty-cycle re-read failed; duty cycle unchanged\n')
+  })
+})

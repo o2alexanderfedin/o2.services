@@ -1,7 +1,10 @@
-import { execFileSync } from 'node:child_process'
+import { execFileSync, spawn } from 'node:child_process'
 import { readFileSync } from 'node:fs'
+import { mkdtemp, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { KERNEL_TRUST_ANCHOR } from '@o2/demo'
 import { describe, expect, it } from 'vitest'
 
 /**
@@ -408,11 +411,8 @@ describe('the two binaries have not drifted apart', () => {
   it('write the identical default, so two processes started with no flags answer alike', () => {
     // The **measured half** of "any divergence lives in an argv default and there is
     // currently none". The other half — what each binary actually pins at runtime — is
-    // read for `bin/agent.ts` in Plan 14-05, out of the handshake line it prints, and is
-    // **unmeasured for `bin/seed.ts`**, which no test spawns. What would measure that:
-    // spawning `bin/seed.ts --port 0 --ws-port 0 --dir <tmp>` and reading the anchors
-    // line it prints. Not done here — the seed binary boots a Vite dev server, which is
-    // a minute of test time for one line of output.
+    // read for `bin/agent.ts` in Plan 14-05 out of its handshake line, and for
+    // `bin/seed.ts` by the suite below.
     const agent = defaultExpression('packages/node/src/bin/agent.ts')
     const seed = defaultExpression('packages/node/src/bin/seed.ts')
 
@@ -423,6 +423,105 @@ describe('the two binaries have not drifted apart', () => {
 
     expect(seed).toBe(agent)
   })
+})
+
+/**
+ * What `bin/seed.ts` actually pins, read out of a running process rather than its source.
+ *
+ * ## Why this exists now and did not before
+ *
+ * Three files carried the same admission — this one, `signed-artifact.node.test.ts`, and
+ * `bin/seed.ts` itself — that the seed's no-flag runtime behaviour was unmeasured, each
+ * giving the same reason: the binary boots a Vite dev server, and that was said to be *a
+ * minute of test time for one line of output*.
+ *
+ * **That number was wrong by about two orders of magnitude.** Measured while adding the
+ * seed's orphan leash: `bin/seed.ts --dir <tmp> --port 0 --ws-port 0` prints its complete
+ * banner **590 ms** after spawn. A blocker that costs 600 ms is not a blocker, and three
+ * files had been citing it to each other.
+ *
+ * The textual comparison above is still worth having — it catches the two defaults drifting
+ * *before* anyone runs anything — but it can only ever prove the two binaries write the
+ * same expression. It cannot prove the expression reaches the node, and DET-03 is a claim
+ * about what the process pins, not about what its source says.
+ *
+ * ## Reading stdout rather than instrumenting
+ *
+ * The line is the seed's own report of the value it passed to `SeedServer.start`, which is
+ * the same thing Plan 14-05 does with the agent's handshake. It is also the only seam
+ * available: the anchors go into a constructor argument inside another process.
+ */
+describe('the seed pins what it says it pins, in a real process', () => {
+  const SEED = fileURLToPath(new URL('./bin/seed.ts', import.meta.url))
+
+  /**
+   * Spawn the seed, return its banner, and make sure nothing is left behind.
+   *
+   * `stdio[0]` is a pipe deliberately and `orphan-leash.node.test.ts` enforces it across
+   * every spawn site: it arms the seed's leash, so a Vitest worker killed mid-run takes
+   * this process with it instead of leaving a 40 MB server holding a port. That is not
+   * hypothetical — the sweep that added the leash found a `bin/seed.ts` on this machine
+   * five days and twenty-three hours old.
+   */
+  async function bannerOf(args: readonly string[]): Promise<string> {
+    const dir = await mkdtemp(join(tmpdir(), 'o2-seed-anchors-'))
+    const child = spawn(process.execPath, [SEED, '--dir', dir, '--port', '0', '--ws-port', '0', ...args], {
+      stdio: ['pipe', 'pipe', 'pipe'],
+    })
+    try {
+      return await new Promise<string>((resolve, reject) => {
+        const timer = setTimeout(() => reject(new Error(`seed printed no banner in time: ${err}`)), 60_000)
+        let out = ''
+        let err = ''
+        child.stderr.on('data', (chunk: Buffer) => {
+          err += chunk.toString()
+        })
+        child.stdout.on('data', (chunk: Buffer) => {
+          out += chunk.toString()
+          // The last line it writes, so the whole banner is present rather than a prefix.
+          if (!out.includes('Ctrl-C to stop.')) return
+          clearTimeout(timer)
+          resolve(out)
+        })
+        child.on('exit', (code) => {
+          clearTimeout(timer)
+          reject(new Error(`seed exited with ${String(code)} before printing a banner: ${err}`))
+        })
+      })
+    } finally {
+      // SIGKILL, not SIGTERM: this file has no stake in a clean unwind and a wedged
+      // shutdown here would be an orphan holding a port for the rest of the run.
+      child.kill('SIGKILL')
+      await rm(dir, { recursive: true, force: true })
+    }
+  }
+
+  /** The `trusts` line alone, so a failure prints the claim rather than the whole banner. */
+  function trustsLine(banner: string): string {
+    return (banner.split('\n').find((line) => line.includes('trusts')) ?? '<no trusts line>').trim()
+  }
+
+  it('pins exactly the demo anchor when started with no flags', async () => {
+    const line = trustsLine(await bannerOf([]))
+
+    expect(line).toContain('1 pinned anchor')
+    // Not merely "one anchor": that it is the *demo default* and that the process says so.
+    // A seed that had silently fallen back to the opt-out would still print a count.
+    expect(line).toContain('the demo default')
+    expect(line).not.toContain('from --trust-anchor')
+  }, 120_000)
+
+  it('reports the flag when one is given, so the two branches are distinguishable', async () => {
+    // The same value the default resolves to. The subject here is *which branch ran*, and
+    // passing a different key would additionally test parsing, which belongs elsewhere.
+    const line = trustsLine(await bannerOf(['--trust-anchor', KERNEL_TRUST_ANCHOR]))
+
+    expect(line).toContain('1 pinned anchor')
+    expect(line).toContain('from --trust-anchor')
+    // Anti-vacuity for the case above: the two branches must not print the same sentence,
+    // or `toContain('the demo default')` would pass no matter which one ran.
+    expect(line).not.toContain('the demo default')
+  }, 120_000)
 })
 
 interface CensusEntry {

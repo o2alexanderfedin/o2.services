@@ -24,6 +24,11 @@ dist/
 __screenshots__/
 .vitest-attachments/
 
+# Playwright-MCP scratch — console logs and page snapshots a browsing tool drops in the
+# working directory as a side effect of being used. They record one moment of one session
+# and nothing regenerates them, which is precisely why they do not belong in the history.
+.playwright-mcp/
+
 # Vite dependency pre-bundling cache
 .vite/
 node_modules/.vite/
@@ -47,6 +52,16 @@ tools/aot/fixtures/lifted-*.wasm
 tools/aot/fixtures/subject-native
 tools/aot/fixtures/workload-native
 tools/aot/fixtures/workload-linux
+
+# Real ELF fixtures and the artifact lifted from one, for the reason stated just above:
+# an opaque artifact in the repository is worse than one reproducible from its source.
+# `tools/aot/build-elf-fixtures.mjs` rebuilds the five ELFs in seconds and
+# `npm run aot:lift -- tools/aot/fixtures/elf/hello_static` re-lifts the artifact.
+# `elf-fixtures.node.test.ts` fails, with those commands in the message, on any host that
+# could have built them and did not — which is what stops their absence being silent the
+# way it was for all of deficiency D21.
+tools/aot/fixtures/elf/
+tools/aot/fixtures/r1/
 
 # Agent worktrees. `isolation="worktree"` checks a second copy of the whole repository
 # out under here, so an untracked `.claude/` shows up in every `git status` and one

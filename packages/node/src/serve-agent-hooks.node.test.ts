@@ -78,7 +78,25 @@ describe('production serveAgent call sites state every hook explicitly', () => {
     // corroboration exists.
     expect(occurrences(FABRIC_NODE, "'serves-unauthenticated'")).toBe(0)
     expect(occurrences(FABRIC_NODE, 'authorizeCapability(')).toBe(1)
-    expect(occurrences(FABRIC_NODE, "'serves-no-records'")).toBe(1)
+    // SCHED-01 / owner ruling D1 burned this one down: the factory hands `serveAgent` a
+    // `SelfRecordIndex` on every path, so there is no longer a node it can build that has
+    // nothing to answer. A node with no certificate answers `records: null` and a real
+    // provider list — two truthful statements rather than one refusal to speak.
+    //
+    // **A count lowered to zero with nothing replacing it is a guarantee deleted.** The
+    // assertion below it is what makes this pair a statement about the *hook* rather than
+    // about a string that happened to vanish: zero alone is equally satisfied by deleting
+    // the `index:` line, or the whole `serveAgent` call.
+    //
+    // The trailing comma in the needle is load-bearing and was measured, not assumed.
+    // `occurrences` matches a literal substring, and the pre-plan text
+    // `index: records ?? 'serves-no-records',` *contains* `index: records` — so without
+    // the comma this assertion reads 1 both before and after the change and discriminates
+    // nothing. 18-03-PLAN.md's proof block claims the sentinel form makes it read 0; that
+    // was planted and read **1**. With the comma it reads 0 for the sentinel form and 1
+    // for this one, which is the reddening the plan intended.
+    expect(occurrences(FABRIC_NODE, "'serves-no-records'")).toBe(0)
+    expect(occurrences(FABRIC_NODE, 'index: records,')).toBe(1)
     expect(occurrences(FABRIC_NODE, "'keeps-no-ledger'")).toBe(1)
     expect(occurrences(FABRIC_NODE, "'reports-no-dispatch'")).toBe(1)
     // AUTH-01. A burn-down heading for 0 on a node started with a provider key, and
@@ -128,7 +146,18 @@ describe('production serveAgent call sites state every hook explicitly', () => {
     // dispatch returns along the connection the tab itself opened.
     expect(occurrences(BROWSER_NODE, "'serves-unauthenticated'")).toBe(0)
     expect(occurrences(BROWSER_NODE, 'authorizeCapability(')).toBe(1)
-    expect(occurrences(BROWSER_NODE, "'serves-no-records'")).toBe(1)
+    // SCHED-01 / owner ruling D1, and **the same count as `fabric-node.ts` deliberately**,
+    // for the reason the `'issues-no-certificates'` row below already gives: holding blocks
+    // is not a capability enrollment confers and it is not a capability a *tier* confers
+    // either. If this row ever diverges from the `FABRIC_NODE` row above without a stated
+    // reason, something has started keying on node kind — which is the failure Phases 16
+    // and 17 each shipped once.
+    //
+    // Paired with the positive for the same reason, and with the same comma: see the
+    // `FABRIC_NODE` block above for why the needle is `index: records,` and not
+    // `index: records`.
+    expect(occurrences(BROWSER_NODE, "'serves-no-records'")).toBe(0)
+    expect(occurrences(BROWSER_NODE, 'index: records,')).toBe(1)
     expect(occurrences(BROWSER_NODE, "'keeps-no-ledger'")).toBe(1)
     expect(occurrences(BROWSER_NODE, "'relays-for-nobody'")).toBe(1)
     // AUTH-01, and the same count as `fabric-node.ts` deliberately. A browser node
@@ -273,9 +302,49 @@ describe('production RemoteExecutor call sites state the chain explicitly', () =
     expect(occurrences(DEMO_MAIN, 'new RemoteExecutor(')).toBe(2)
   })
 
-  it('bin/bench.ts: both drivers dispatch public shards', () => {
-    expect(occurrences(BENCH, "'dispatches-unauthenticated'")).toBe(2)
+  it('bin/bench.ts: both drivers dispatch public shards, and so does the discovered set', () => {
+    // **Three, raised from two by 18-06, and the raise is the honest answer rather than
+    // the convenient one.** The third is not a new dispatch *site* in the sense the other
+    // two are — it is `discoverCandidates`' required `dispatch` option, which is handed to
+    // every `RemoteExecutor` that helper builds on the `--discover` arm. So it states the
+    // same sentinel for the same permanent reason the other two do: every shard this
+    // driver submits is `label: 'public'`, and a public task has no owner and therefore no
+    // key a capability chain could be rooted at.
+    //
+    // The plan for 18-06 said this count must stay at 2. It could only have stayed at 2 by
+    // hoisting the literal into a constant, which would have taken it to 1 and made the
+    // floor this file exists to hold unreadable — a worse outcome than a number that moved
+    // for a stated reason. `CandidateOptions.dispatch` is required precisely so that a
+    // candidate built without one cannot dispatch unauthenticated silently.
+    expect(occurrences(BENCH, "'dispatches-unauthenticated'")).toBe(3)
+    // Unmoved: the discover arm builds no `RemoteExecutor` of its own — it takes the ones
+    // `discoverCandidates` returns, which is the entire point of the helper.
     expect(occurrences(BENCH, 'new RemoteExecutor(')).toBe(2)
+  })
+
+  it('bin/bench.ts: discoverCandidates is reachable from the entry point', () => {
+    // SCHED-01's entry-point call path, and the reason it is asserted at all: Phase 22's
+    // guard fails on an exported capability with no path from a runnable entry point, and
+    // that phase's roadmap section records an overruled proposal to accept one as
+    // unreachable — *naming it is not the same as fixing it*.
+    //
+    // **The pattern is the call and not the name**, because the name appears four times in
+    // that file — an import, two doc comments, and the call — so a bare substring count
+    // would have been satisfied by the prose alone and would have read `4` while meaning
+    // nothing. `await discoverCandidates(` can only be the invocation.
+    //
+    // **What this still cannot do, and what would**: it is source text, so it proves the
+    // call is written, not that the branch runs. No test executes the `--discover` arm,
+    // and the reason is that `bin/bench.ts` writes `.planning/BENCHMARK-RESULTS.md` at
+    // `process.cwd()` — a test that invoked the driver would overwrite the repository's
+    // committed measurements as a side effect of checking a flag. What would measure it
+    // without that cost: running the driver with `cwd` set to a temporary directory. That
+    // was done by hand while writing this — `--quick --discover` printed
+    // `1 of 1 workers qualified from 1 providers` and `2 of 2 ... from 2 providers` across
+    // the real-transport ladder, and both rungs completed their egress manifest, so the
+    // discovered executors really did carry the job. Recorded in 18-06-SUMMARY.md rather
+    // than automated here.
+    expect(occurrences(BENCH, 'await discoverCandidates(')).toBe(1)
   })
 
   it('bench/src/perf-workload.ts: the third production dispatch site', () => {

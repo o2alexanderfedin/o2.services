@@ -6,7 +6,7 @@ import { describe, expect, it } from 'vitest'
 // export map exposes only its public entry, and adding a fixtures export would modify
 // the kernel package. Reaching the file directly keeps the fixture DRY.
 import { MODULE_WRITES_PARTITION } from '../../core/src/executor/fixtures.ts'
-import { encodeRequest, parseRequest } from './protocol.ts'
+import { encodeRequest, encodeResponse, parseRequest, parseResponse } from './protocol.ts'
 
 /**
  * DET-03 / DATA-08 at the wire — a signed name record survives the crossing.
@@ -222,5 +222,66 @@ describe('a malformed module record refuses the whole frame, one field at a time
     expect(new SignedNameResolver([publisher.pub]).accept(parsed.task.moduleRecord!, NOW).ok).toBe(
       true,
     )
+  })
+})
+
+/**
+ * SCHED-02 / owner ruling D2 — the offer answer carries the node's own room.
+ *
+ * Two integers and a discriminant. The discriminant is the point: this file's
+ * `found: true/false` idiom for `block`, `records` and `combine` exists because the
+ * canonical encoding treats an explicit `undefined` key as a different shape from an
+ * absent one, so "this node stated nothing" has to be a value the parser can read
+ * rather than a gap it has to guess at.
+ */
+describe('the offer answer states the node’s room, or states that it states none', () => {
+  it('round-trips a bounded answer', () => {
+    const bounded = {
+      kind: 'offer',
+      accepted: true,
+      reason: '',
+      capacity: { slots: 4, inFlight: 1 },
+    } as const
+    expect(parseResponse(encodeResponse(bounded))).toStrictEqual(bounded)
+  })
+
+  it('round-trips a refusal that says how full', () => {
+    const refusal = {
+      kind: 'offer',
+      accepted: false,
+      reason: 'over-committed: 1 of 1 slots in use',
+      capacity: { slots: 1, inFlight: 1 },
+    } as const
+    expect(parseResponse(encodeResponse(refusal))).toStrictEqual(refusal)
+  })
+
+  it('round-trips an answer that states no capacity', () => {
+    const unbounded = { kind: 'offer', accepted: true, reason: '', capacity: null } as const
+    expect(parseResponse(encodeResponse(unbounded))).toStrictEqual(unbounded)
+  })
+
+  it('refuses a corrupt capacity outright rather than softening it to an absence', () => {
+    // The same disposition the `combine` arm takes, for the same reason: a peer able
+    // to turn a corrupt answer into an ordinary "I state nothing" would be
+    // indistinguishable from an honest node that states nothing — and a requestor
+    // treats the latter as unbounded.
+    const frame = (extra: Record<string, unknown>): CanonicalValue =>
+      ({
+        kind: 'offer',
+        accepted: true,
+        reason: '',
+        bounded: true,
+        slots: 2,
+        inFlight: 0,
+        ...extra,
+      }) as CanonicalValue
+
+    expect(parseResponse(frame({}))).not.toBeNull() // the control
+    expect(parseResponse(frame({ slots: -1 }))).toBeNull()
+    expect(parseResponse(frame({ inFlight: -1 }))).toBeNull()
+    expect(parseResponse(frame({ slots: 1.5 }))).toBeNull()
+    expect(parseResponse(frame({ inFlight: 'two' }))).toBeNull()
+    expect(parseResponse(frame({ slots: undefined }))).toBeNull()
+    expect(parseResponse(frame({ inFlight: undefined }))).toBeNull()
   })
 })

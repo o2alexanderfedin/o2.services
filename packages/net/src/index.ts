@@ -55,6 +55,12 @@ export type { ReduceJobOptions, ReduceJobResult } from './reduce-job.ts'
 export { DEFAULT_PROBE_TIMEOUT_MS, RpcRecordIndex, rpcAdmission } from './discovery.ts'
 export type { AdmissionOptions } from './discovery.ts'
 
+// SCHED-01's requestor half — a data CID and a peer list become dispatchable
+// candidates. The bridge `discoverExecutors` never had: it answers in node keys and
+// a transport is addressed by peer ids.
+export { discoverCandidates } from './discover-candidates.ts'
+export type { CandidateOptions, CandidateSet } from './discover-candidates.ts'
+
 // DATA-02 — one addressing contract, checked against every Blockstore adapter.
 export { BLOCK_VECTORS, CONFORMANCE_BLOCK_COUNT, checkBlockstoreConformance } from './conformance.ts'
 export type { BlockVector, ConformanceReport } from './conformance.ts'
@@ -68,8 +74,8 @@ export { CountingExecutor } from './counting-executor.ts'
 // Egress control — DATA-04, DATA-05.
 export { EgressGuard, EgressRefusal } from './egress.ts'
 export type { EgressEntry, EgressHold, EgressManifest } from './egress.ts'
-export { takeSovereignHold } from './sovereign-egress.ts'
-export type { SovereignEgressOptions } from './sovereign-egress.ts'
+export { takeSovereignHold, withholdingFrom } from './sovereign-egress.ts'
+export type { EgressDisposition, SovereignEgressOptions } from './sovereign-egress.ts'
 export { sliceManifest, submitJobWithEgress } from './submit-with-egress.ts'
 export type { SubmitWithEgressResult } from './submit-with-egress.ts'
 

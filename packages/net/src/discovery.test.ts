@@ -266,12 +266,26 @@ describe('criterion 1 — a requestor with no peer list runs a job', () => {
  * lives on `serveAgent`'s `exec` branch, where the work does. So a test that
  * wants a node to be busy has to *make* it busy — filling its slots directly is
  * not a fixture shortcut here, it is the only way a probe can see a full node.
+ * **That sentence is unchanged and still true.**
+ *
+ * What owner ruling **D2** (2026-08-01) added is what the answer now *carries*:
+ * the node's slot count and in-flight count, from which the requestor bounds its
+ * **own** placement across the shards of one job. That bound is advisory too — it
+ * lives in one requestor's memory, nothing is reserved by answering, and a
+ * requestor that ignored the figure would over-commit exactly as before. The
+ * authoritative refusal is still the `exec` branch's, which reserves for real.
  *
  * `d: 4` against four candidates makes the sample the whole pool on every
  * iteration, so the probe order is `placeWithOffers`' documented load-then-id
  * tie-break — ascending `nodeId`, every load being 0. That is what lets the case
  * below occupy exactly the nodes that will be probed first and assert an exact
  * rejection count instead of an inequality.
+ *
+ * The requestor's bound never pre-empts a node's own refusal, because it is built
+ * only from answers already received. Nothing has been learned about any node
+ * before the first offer of the first shard, so every candidate is still probed —
+ * which is why `'re-picks onto the one node that did not refuse'` below is
+ * unedited, and why its `probed` count is load-bearing rather than incidental.
  */
 describe('SCHED-03 over the wire — a node refuses for itself', () => {
   it('re-picks onto the one node that did not refuse', async () => {
@@ -349,17 +363,24 @@ describe('SCHED-03 over the wire — a node refuses for itself', () => {
     }
   })
 
-  it('no longer bounds anything across shards — four land on one 1-slot node', async () => {
-    // A **recorded consequence**, not a desired behaviour.
+  it('bounds placement across shards — one lands on a 1-slot node, three are held back', async () => {
+    // **Criterion 2c, and the history of this case is the point of keeping it.**
     //
-    // `placeWithOffers` shrinks `pool` within one shard only, and `pool` is
-    // rebuilt per request, so the cross-shard bound was the reservation that the
-    // offer branch no longer takes. Wire-side multi-shard over-commit protection
-    // is removed and is **Phase 18's** to rebuild.
+    // It used to assert the opposite, under this same fixture, and it said so:
+    // `placeWithOffers` shrinks `pool` within one shard only and `pool` is rebuilt
+    // per request, so once Phase 13.1 moved the offer branch to `would` — which
+    // reserves nothing — the cross-shard bound was gone and all four shards landed
+    // on `only`. That was recorded as a **consequence**, never as a desired
+    // behaviour, and it was written to turn red when the bound was rebuilt.
     //
-    // This case is expected to turn **red** when Phase 18 rebuilds it. That is
-    // the point: an over-commit nothing in the suite noticed is how this one
-    // arrived.
+    // Owner ruling **D2** (2026-08-01) rebuilt it: the offer *answer* now publishes
+    // the node's slot count and in-flight count, and the requestor bounds its own
+    // placement from what it was told. So this case now asserts the bound.
+    //
+    // The bound is **advisory**. Nothing is reserved by answering, and a requestor
+    // that ignored the published figure would over-commit exactly as before — it
+    // would then be refused for real by the `exec` branch's SCHED-06 admission,
+    // which is the authoritative bound and did not move.
     const fabric = await fabricOf({ workers: 1, maxConcurrent: 1 })
     try {
       const index = new RpcRecordIndex(fabric.requestorRpc, () => [SEED])
@@ -380,19 +401,141 @@ describe('SCHED-03 over the wire — a node refuses for itself', () => {
       })
 
       expect(placements).toHaveLength(4)
-      expect(placements.every((p) => p.status === 'placed')).toBe(true)
-      expect(placements.flatMap((p) => (p.status === 'placed' ? p.nodeIds : []))).toEqual([
-        only,
-        only,
-        only,
-        only,
-      ])
-      expect(placements.flatMap((p) => p.rejections)).toHaveLength(0)
-      // Eight probes answered, not one slot taken — the offer branch reserves
-      // nothing at all.
+      // One placed where four were placed before, over the identical fixture.
+      expect(placements.flatMap((p) => (p.status === 'placed' ? p.nodeIds : []))).toEqual([only])
+
+      const held = placements.filter((p) => p.status === 'unplaceable')
+      expect(held).toHaveLength(3)
+      for (const placement of held) {
+        if (placement.status !== 'unplaceable') continue
+        // Names the bound, not "no nodes available".
+        expect(placement.reason).toContain('headroom')
+        // The read count, not the reason string, is what places the bound: these
+        // three shards cost **no** probe at all, which is what distinguishes a
+        // requestor that held back from one that asked and was refused.
+        expect(placement.probed).toBe(0)
+        // And a node that was never asked never refused — `Rejection.reason` is
+        // fixed as the node's own words.
+        expect(placement.rejections).toStrictEqual([])
+      }
+      // Retained verbatim, and its meaning is what changed: this used to say the
+      // offer branch reserves nothing *and therefore bounds nothing*. It now says
+      // the offer branch **still** reserves nothing, and the bound is the
+      // requestor's own.
       const worker = fabric.workers[0] as Worker
       expect(worker.capacity.inFlight).toBe(0)
       expect(worker.capacity.peakInFlight).toBe(0)
+    } finally {
+      fabric.close()
+    }
+  })
+
+  it('places four shards across four 1-slot workers, one each', async () => {
+    // The bound has to be shown not refusing as well as refusing, or it is
+    // indistinguishable from a placer that stopped working.
+    const fabric = await fabricOf({ workers: 4, maxConcurrent: 1 })
+    try {
+      const index = new RpcRecordIndex(fabric.requestorRpc, () => [SEED])
+      const found = await discoverExecutors({ inputCid: fabric.inputCid }, index, {
+        trustedIssuers: fabric.trustedIssuers,
+        now: NOW,
+      })
+      expect(found.executors).toHaveLength(4)
+
+      const shards = [0, 1, 2, 3].map((i) => ({
+        shardId: `s${i}`,
+        label: 'public' as const,
+        redundancy: 1,
+      }))
+      const placements = await planWithOffers(shards, descriptorsOf(found.executors), {
+        d: 4,
+        admit: rpcAdmission(fabric.requestorRpc),
+      })
+
+      expect(placements.every((p) => p.status === 'placed')).toBe(true)
+      const chosen = placements.flatMap((p) => (p.status === 'placed' ? p.nodeIds : []))
+      expect(chosen).toHaveLength(4)
+      expect(new Set(chosen).size).toBe(4)
+      // Still nothing reserved anywhere, on any of the four.
+      for (const worker of fabric.workers) expect(worker.capacity.peakInFlight).toBe(0)
+    } finally {
+      fabric.close()
+    }
+  })
+
+  it('publishes its real figures in the offer answer, and still takes nothing', async () => {
+    // SCHED-02 / owner ruling D2, read over a real endpoint rather than from
+    // `LocalCapacity` directly: the claim is about what crosses the wire.
+    const fabric = await fabricOf({ workers: 1, maxConcurrent: 1 })
+    try {
+      const worker = fabric.workers[0] as Worker
+
+      for (let i = 0; i < 5; i++) {
+        const body = await fabric.requestorRpc.request(
+          worker.nodeKey,
+          encodeRequest({ kind: 'offer', shardId: `probe-${i}` }),
+        )
+        const answer = parseResponse(body)
+        expect(answer?.kind).toBe('offer')
+        if (answer?.kind !== 'offer') return
+        expect(answer.accepted).toBe(true)
+        // The same figures every time, because answering consumes nothing.
+        expect(answer.capacity).toStrictEqual({ slots: 1, inFlight: 0 })
+      }
+
+      // The seed holds the `'accepts-every-offer'` sentinel — no counters to read,
+      // so it states no capacity rather than inventing one.
+      const seedBody = await fabric.requestorRpc.request(
+        SEED,
+        encodeRequest({ kind: 'offer', shardId: 'probe' }),
+      )
+      const seedAnswer = parseResponse(seedBody)
+      expect(seedAnswer?.kind).toBe('offer')
+      if (seedAnswer?.kind !== 'offer') return
+      expect(seedAnswer.accepted).toBe(true)
+      expect(seedAnswer.capacity).toBeNull()
+
+      // The regression Phase 13.1 removed, and this plan promises not to restore.
+      expect(worker.capacity.inFlight).toBe(0)
+      expect(worker.capacity.peakInFlight).toBe(0)
+    } finally {
+      fabric.close()
+    }
+  })
+
+  it('publishes a refusal that says how full, from a node that really is full', async () => {
+    const fabric = await fabricOf({ workers: 1, maxConcurrent: 1 })
+    try {
+      const worker = fabric.workers[0] as Worker
+      // A test that wants a busy node has to make it busy — see this block's header.
+      expect(worker.capacity.offer({ shardId: 'held', nodeId: worker.nodeKey }).accepted).toBe(true)
+
+      const body = await fabric.requestorRpc.request(
+        worker.nodeKey,
+        encodeRequest({ kind: 'offer', shardId: 's0' }),
+      )
+      const answer = parseResponse(body)
+      expect(answer?.kind).toBe('offer')
+      if (answer?.kind !== 'offer') return
+      expect(answer.accepted).toBe(false)
+      expect(answer.reason).toContain('over-committed')
+      expect(answer.capacity).toStrictEqual({ slots: 1, inFlight: 1 })
+    } finally {
+      fabric.close()
+    }
+  })
+
+  it('bounds nothing on a node it could not reach', async () => {
+    const fabric = await fabricOf({ workers: 1 })
+    try {
+      const admit = rpcAdmission(fabric.requestorRpc, { probeTimeoutMs: 200 })
+      const answer = await admit({ shardId: 's0', nodeId: 'nobody' })
+
+      expect(answer.accepted).toBe(false)
+      // A requestor that learned nothing must not bound on a figure it invented.
+      // Defaulting this arm to a zero-slot node would make one dead peer look
+      // permanently full to every later shard in the same plan.
+      expect(answer.capacity).toBe('states-no-capacity')
     } finally {
       fabric.close()
     }

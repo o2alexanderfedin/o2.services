@@ -1033,6 +1033,16 @@ const HOST_SPAWN_BACKOFF_MS = 250
  */
 async function despiteAFullProcessTable<T extends Attempted>(
   attempt: () => Promise<T>,
+  /**
+   * Whether a daemon that did not answer is transient here.
+   *
+   * `true` everywhere except the two cases whose **subject** is a wedged inspect: they
+   * stub `exec sleep 30` against a 400 ms budget on purpose, so `docker-not-answering` is
+   * the result they are asserting, and retrying it four times turns the expected answer
+   * into "the host refused to create a process 4 times running". Measured, not foreseen —
+   * widening the retry did exactly that on the first run.
+   */
+  retryUnansweredDaemon = true,
 ): Promise<{ readonly result: T; readonly elapsedMs: number; readonly attempts: number }> {
   let result: T | undefined
   let elapsedMs = 0
@@ -1040,7 +1050,16 @@ async function despiteAFullProcessTable<T extends Attempted>(
     const started = Date.now()
     result = await attempt()
     elapsedMs = Date.now() - started
-    if (result.ok || result.failure.kind !== 'host-cannot-spawn') {
+    // Both transient conditions, and the second was added on 2026-08-02 against a
+    // reproduced failure: on a whole-suite run this wrapper returned immediately on a
+    // swamped daemon, and the two timeout cases went red with `docker-unavailable` where
+    // they expect `timed-out`. A host too loaded to fork and a host too loaded to answer
+    // an inspect are the same condition wearing two labels; only one of them was retried.
+    const transient = result.ok
+      ? false
+      : result.failure.kind === 'host-cannot-spawn' ||
+        (retryUnansweredDaemon && result.failure.kind === 'docker-not-answering')
+    if (!transient) {
       return { result, elapsedMs, attempts: n }
     }
     if (n < HOST_SPAWN_ATTEMPTS) {
@@ -1285,8 +1304,10 @@ describe('the caller’s timeout bounds image resolution too', () => {
     const docker = stubDocker('exec sleep 30')
     // `elapsedMs` is the final attempt's, not the sum, so the bound below still bounds
     // the driver rather than any retry that preceded it.
-    const { result: outcome, elapsedMs: elapsed } = await despiteAFullProcessTable(() =>
-      liftElf(stubElfPath, { docker: docker.path, timeoutMs: 400 }),
+    const { result: outcome, elapsedMs: elapsed } = await despiteAFullProcessTable(
+      () => liftElf(stubElfPath, { docker: docker.path, timeoutMs: 400 }),
+      // The wedged inspect is this case's subject, not an obstacle to it.
+      false,
     )
 
     expect(outcome.ok).toBe(false)
@@ -1294,7 +1315,11 @@ describe('the caller’s timeout bounds image resolution too', () => {
     // Not `image-absent`: the image was never reported missing, the daemon just never
     // answered, and telling someone to pull six gigabytes they already have would
     // send them to the same wedged daemon.
-    expect(outcome.failure.kind).toBe('docker-unavailable')
+    //
+    // And not `docker-unavailable` either, since 2026-08-02. That kind means `docker`
+    // could not be run at all; this one means it ran and the answer never came, which is
+    // transient and is retried rather than reported as a broken installation.
+    expect(outcome.failure.kind).toBe('docker-not-answering')
     expect(describeLiftFailure(outcome.failure)).toContain('did not answer within 400 ms')
     expect(elapsed).toBeLessThan(TIMER_BEAT_A_HARDCODED_MINUTE_MS)
   })

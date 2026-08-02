@@ -53,6 +53,7 @@ import { fromHex, toHex } from './capability.ts'
 import type { PublicKeyHex } from './capability.ts'
 import { verifyCertificate } from './enrollment.ts'
 import type { CertificateFailure, NodeCertificate } from './enrollment.ts'
+import type { Blockstore } from './ports.ts'
 
 /**
  * A node's own signed statement of what it can execute.
@@ -381,5 +382,128 @@ export class MemoryRecordIndex implements RecordIndex {
 
   async recordsFor(nodeKey: PublicKeyHex): Promise<NodeRecords | undefined> {
     return this.#records.get(nodeKey)
+  }
+}
+
+export interface SelfRecordIndexOptions {
+  /** The key this node answers for, and the only key `recordsFor` will match. */
+  readonly nodeKey: PublicKeyHex
+  /**
+   * The node's **local-only** tier. Never one with network fallback — see the class
+   * doc's second section for why that would turn a question into a fetch.
+   */
+  readonly store: Blockstore
+  /** This node's own signed records, or `'holds-no-records'` if it has none. */
+  readonly records: NodeRecords | 'holds-no-records'
+  /**
+   * Says a CID must not be advertised even though this node holds it, or
+   * `'advertises-everything-it-holds'`.
+   *
+   * The predicate may be asynchronous, and in the only production construction it is:
+   * deciding this correctly means asking the *same* question the serving node's
+   * `block` branch asks about the *same* candidate reply, and that needs the bytes.
+   * A synchronous predicate satisfies this type too, so a caller with a cheaper
+   * question is not forced into a promise.
+   */
+  readonly withhold: ((cid: CID) => boolean | Promise<boolean>) | 'advertises-everything-it-holds'
+}
+
+/**
+ * One node's answer to both halves of a lookup, computed from its own store — SCHED-01.
+ *
+ * ## Why an answer computed at ask time, and not an announcement
+ *
+ * Owner ruling **D1** (`18-CONTEXT.md`). A node is authoritative about what it holds,
+ * so there is nothing to replicate in advance and nothing to go stale. The rejected
+ * alternative was announce-on-write, and the three reasons it was rejected are worth
+ * naming here rather than being rediscovered: it needs a new wire frame; a node that
+ * evicts a block still reads as a provider until something retracts the announcement;
+ * and it lets an unverified peer grow another node's map without bound, which then
+ * needs a cap, and a cap that silently drops entries is the shape this project keeps
+ * removing.
+ *
+ * ## Why `store` must be the local-only tier
+ *
+ * Handing this a `FetchingBlockstore` would make `providers` answer "yes" for anything
+ * *obtainable* rather than anything *held*, turning a question about this node into a
+ * recursive network lookup — and `has()` on a fetching store would pull the block over
+ * the wire merely to answer a question about it. This is the same rule
+ * `AgentOptions.egress.sovereignInputs` already states for its own store, for the same
+ * reason, and it is stated again here because the mistake is identical and the two
+ * fields are configured at the same call sites.
+ *
+ * ## Why `withhold` exists, and that it is not decoration
+ *
+ * `serveAgent`'s `block` branch refuses a reply carrying a registered sovereign
+ * payload, and the owner ruling recorded in `net/src/egress.ts` knowingly accepts that
+ * **a peer cannot tell refusal from absence**. A `providers` answer that said "yes, I
+ * hold it" about such a block would convert *cannot tell* into *can tell*: a side
+ * channel around a refusal, obtained without ever asking for the bytes and without
+ * anything appearing on the refusing node's manifest. The invariant is one sentence,
+ * and it is a test rather than a sentence: **this index never advertises a block the
+ * `block` branch would refuse to serve.**
+ *
+ * That invariant is a property of the *predicate*, not of this class, and the only way
+ * to hold it is for the predicate to ask the block branch's own question rather than a
+ * second question that happens to agree today. `@o2/net`'s `withholdingFrom` is that
+ * one construction; a predicate written any other way — comparing a CID against a set
+ * of registration labels, say — is a second copy of the condition, and two copies
+ * diverge the first time anything registers a payload under a label that is not its
+ * CID. This class cannot enforce that, because it must not import an adapter; what it
+ * can do is say where the only correct predicate comes from.
+ *
+ * ## Why the predicate is consulted per lookup
+ *
+ * A registration's lifetime is a hold, not a process. A snapshot resolved in the
+ * constructor would advertise a block that became sovereign a second later, and would
+ * go on withholding one whose hold was given back.
+ *
+ * ## Why a node with no certificate still answers `providers`
+ *
+ * Holding blocks is not a capability enrollment confers. `discoverExecutors` handles
+ * such a provider by name — it is excluded as `no-records` with a `detail` fit to show
+ * a human — and silence would be the worse answer, because *"every exclusion is
+ * named"* is this module's own rule and a provider nobody hears from is an exclusion
+ * nobody can name.
+ *
+ * ## Nothing here branches on what kind of node it belongs to
+ *
+ * Said in the voice `net/src/discovery.ts` uses for NET-06: this takes a store, a key,
+ * records and a predicate, and there is no field to branch on. A browser tab holding a
+ * relay reservation and a listening server construct the identical object from their
+ * own four values. All nodes have equal functionality; the only difference is
+ * discovery.
+ */
+export class SelfRecordIndex implements RecordIndex {
+  readonly #nodeKey: PublicKeyHex
+  readonly #store: Blockstore
+  readonly #records: NodeRecords | 'holds-no-records'
+  readonly #withhold: SelfRecordIndexOptions['withhold']
+
+  constructor(options: SelfRecordIndexOptions) {
+    this.#nodeKey = options.nodeKey
+    this.#store = options.store
+    this.#records = options.records
+    // Held as given, and asked again on every lookup. Resolving it here — into a
+    // boolean, into a copy of whatever set it reads, or into a per-CID memo — is the
+    // defect the per-lookup section above exists to prevent, and all three forms are
+    // planted and caught in `discovery.test.ts`.
+    this.#withhold = options.withhold
+  }
+
+  async providers(cid: CID): Promise<readonly PublicKeyHex[]> {
+    if (!(await this.#store.has(cid))) return []
+    // Asked only about blocks this node actually holds, which is what "must not be
+    // advertised even though this node holds it" means — and it keeps the production
+    // predicate, which reads bytes, off every lookup for a block nobody has.
+    if (this.#withhold !== 'advertises-everything-it-holds' && (await this.#withhold(cid))) {
+      return []
+    }
+    return [this.#nodeKey]
+  }
+
+  async recordsFor(nodeKey: PublicKeyHex): Promise<NodeRecords | undefined> {
+    if (nodeKey !== this.#nodeKey) return undefined
+    return this.#records === 'holds-no-records' ? undefined : this.#records
   }
 }

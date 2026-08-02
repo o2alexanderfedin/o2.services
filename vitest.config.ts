@@ -22,27 +22,44 @@ const SLOW_CUTOFF_MS = 1000
  * `MEASURED_NODE_SPANS`.
  */
 const NODE_MEASUREMENT = {
-  date: '2026-08-01',
-  /** 1-minute load average, start and end of the run. It rose while the run went on. */
-  load: 20.9,
-  loadAtEnd: 42.3,
+  date: '2026-08-02',
+  /**
+   * 1-minute load average, start and end of the run — and **neither is the peak**.
+   * Sampled mid-run it reached 115, so this run's spans are contention-dominated and
+   * should be read as an upper bound on each file rather than as its cost. The peak is
+   * recorded here because the two endpoints alone would understate it: the run began at
+   * 50 and ended at 16, and a reader averaging those would conclude the host was quiet.
+   *
+   * Roughly half the load was this run's own doing — `lift.node.test.ts` drives the
+   * Docker VM hard — and the rest was not: an unrelated file-sync daemon and the OS
+   * indexer were each holding ~60 % of a core throughout.
+   */
+  load: 50.0,
+  loadAtEnd: 15.9,
+  loadPeak: 115,
   /** Files and tests the `node` project ran, i.e. with no `test:unit` exclusions. */
-  files: 113,
-  tests: 1611,
+  files: 120,
+  tests: 1738,
   /** Sum of per-file spans. Not wall clock — vitest runs files in parallel. */
-  sumOfFileSpansMs: 594_300,
+  sumOfFileSpansMs: 483_408,
   /** Wall clock of that same run, for contrast with the sum above. */
-  wallClockMs: 353_000,
+  wallClockMs: 253_393,
   /**
    * What `npm run test:unit` measured with the derived list below applied.
    *
-   * Two consecutive readings at load ~16 gave 7.07 s and 5.35 s. The spread is the
-   * same load sensitivity the table's own note is about; the figure here is the
-   * faster of the two and should be read as "about five seconds", not as a bound.
+   * `unitFiles` is not an independent reading — `slow-specs.node.test.ts` asserts it
+   * equals `files` minus the derived exclusion count, so it moves when the table does.
+   * It was also observed directly at 92, which is the cross-check that the derivation
+   * and the runner agree.
+   *
+   * `unitWallClockMs` is the **faster of two readings** and is not a bound: 6.99 s at
+   * load 5.6, then 9.95 s at load 35.7, the same tree and the same 1434 tests minutes
+   * apart. Read it as "under ten seconds". The spread is the whole reason this object
+   * records a load at all.
    */
-  unitFiles: 77,
-  unitTests: 1141,
-  unitWallClockMs: 5_350,
+  unitFiles: 92,
+  unitTests: 1434,
+  unitWallClockMs: 6_990,
 } as const
 
 /**
@@ -57,11 +74,20 @@ const NODE_MEASUREMENT = {
  *
  * ## The measurement
  *
- * `vitest run --project node --reporter=json`, **2026-08-01**, 113 files / 1611 tests,
- * 0 failures. Sum-of-file-spans 594.3 s against 353 s of wall clock, the difference
- * being vitest's own parallelism. Distribution: median 167 ms, p75 2198 ms, p90 8087 ms.
- * Load average 20.9 rising to 42.3 — other agents were building on this host
- * throughout, and that is recorded because it changes the answer.
+ * `vitest run --project node --reporter=json`, **2026-08-02**, 120 files / 1738 tests.
+ * Sum-of-file-spans 483.4 s against 253.4 s of wall clock, the difference being vitest's
+ * own parallelism. Distribution: median 131 ms, p75 900 ms, p90 6843 ms. Load average 50
+ * at the start, 16 at the end, **115 sampled mid-run** — see `NODE_MEASUREMENT.loadPeak`,
+ * which exists because the two endpoints average to something the host never was.
+ *
+ * **This run was taken on a contended host and is the weaker of the two readings**, which
+ * is said here rather than discovered later. It is nonetheless the recorded one, because
+ * the alternative was to keep a measurement describing 113 files for a tree that holds
+ * 120 — and a stale inventory is a worse failure than a noisy span, since the inventory
+ * is what decides whether a file is excluded *at all*.
+ *
+ * The measurement replaced was taken on 2026-08-01 at load 20.9→42.3: 113 files / 1611
+ * tests, sum 594.3 s, wall clock 353 s, and 36 files at or above the cut.
  *
  * ## An absolute millisecond cut is not reproducible, and this is the evidence
  *
@@ -71,9 +97,18 @@ const NODE_MEASUREMENT = {
  * | run | 1-min load | files at or above 1 s |
  * |---|---|---|
  * | 2026-07-29 (recorded by the prior pass) | ~9 | 23 |
- * | this pass, run 1 | 53 → 108 | 29 |
- * | this pass, run 2 | 10 → 25 | 28 |
- * | this pass, run 3 — **the table below** | 21 → 42 | 36 |
+ * | 2026-08-01, run 1 | 53 → 108 | 29 |
+ * | 2026-08-01, run 2 | 10 → 25 | 28 |
+ * | 2026-08-01, run 3 — the table until 2026-08-02 | 21 → 42 | 36 |
+ * | 2026-08-02 — **the table below** | 50 → 115 → 16 | 28 |
+ *
+ * The last row is the point restated with a year's worth of evidence in one line: the
+ * 2026-08-02 run holds **seven more files** than the run above it and selects **eight
+ * fewer** as slow. Eleven files crossed from above the cut to below it without being
+ * touched — `enrol-agent`, `fs-blockstore`, `identity-store`, `primes-reduce`,
+ * `wasi-executor`, `sovereign-execution`, `node-identity`, `core/discovery`,
+ * `disclosure-gate`, `start-unwind`, `relayed-job`. Nothing about them changed; the
+ * host did.
  *
  * Membership near the boundary is noise: `churn.test.ts` read 1134 ms in one run and
  * 961 ms in the next, crossing the cut without changing. **So the list cannot be made
@@ -91,13 +126,16 @@ const NODE_MEASUREMENT = {
  *
  * ## What the cut buys
  *
- * The 36 excluded files are **98.1 %** of the 594.3 s. The 77 that remain total
- * **11.4 s of test time across 1141 tests**, and `npm run test:unit` wall-clocks at
- * about **5 s**. `lift.node.test.ts` alone is 318 s — 54 % of the suite in one file.
+ * The 28 excluded files are **96.5 %** of the 483.4 s. The 92 that remain total
+ * **17.1 s of test time**. `lift.node.test.ts` alone is 251.5 s — 52 % of the suite in
+ * one file, and the single strongest argument for the cut existing at all.
  *
- * For contrast with what this replaces: under the old nine-file list the same tree
- * gives 103 files / 1427 tests, which is the 102 / 1411 / 24.03 s the audit recorded
- * plus the two guard files added by this pass.
+ * The excluded set shrank from 36 to 28 while the project grew, which pulls the inner
+ * loop the wrong way: eleven files re-entered `test:unit` on a timing difference rather
+ * than on a change to them. That is under-excluding, and the note above says erring
+ * generous is the safe direction. It is left as measured anyway — pinning entries at
+ * their old values would make this table a blend of two runs, and its whole worth is
+ * that it is *one* run somebody can reproduce.
  *
  * ## Entries below the cut are listed too, on purpose
  *
@@ -115,53 +153,50 @@ const NODE_MEASUREMENT = {
  * The rest are deliberately unannotated rather than guessed at.
  */
 const MEASURED_NODE_SPANS: readonly (readonly [string, number])[] = [
-  ['tools/aot/lift.node.test.ts', 318366],                            // 48 `docker` invocations via execFileSync
-  ['packages/node/src/enrollment.node.test.ts', 51460],
-  ['packages/node/src/certificate-verification.node.test.ts', 30184],
-  ['packages/node/src/tree-reduce-agents.node.test.ts', 19828],
-  ['packages/demo/src/kernel.test.ts', 17349],                        // heavy WASM build, 120 s testTimeout
-  ['packages/node/src/peer-gate.node.test.ts', 12506],
-  ['packages/node/src/transport-bounds.node.test.ts', 12141],         // waits out real 3/10/20 s RPC timeouts
-  ['packages/node/src/signed-artifact.node.test.ts', 11053],
-  ['packages/node/src/capability-dispatch.node.test.ts', 9390],
-  ['packages/node/src/admission.node.test.ts', 9160],                 // CPU-bound WASM synthesis, 120 s testTimeout
-  ['packages/node/src/fabric-node.node.test.ts', 8501],               // real libp2p nodes, 120 s testTimeout
-  ['packages/node/src/two-process.node.test.ts', 8417],               // 8 real `spawn` calls
-  ['packages/node/src/orphan-leash.node.test.ts', 8087],
-  ['packages/node/src/sovereignty-placement.node.test.ts', 6924],     // 6 real `spawn` calls
-  ['packages/node/src/egress-refusal.node.test.ts', 5701],            // 10 real `spawn` calls
-  ['packages/node/src/relaying.node.test.ts', 5068],
-  ['packages/net/src/enrol-agent.test.ts', 4294],
-  ['packages/node/src/egress-manifest.node.test.ts', 4129],
-  ['packages/node/src/node-records.node.test.ts', 3583],
-  ['packages/node/src/rendezvous-wire.node.test.ts', 3437],
-  ['packages/node/src/node-enrollment.node.test.ts', 3436],
-  ['packages/net/src/discovery.test.ts', 2991],
-  ['packages/node/src/peer-verifier.node.test.ts', 2975],
-  ['packages/node/src/execution-deadline.node.test.ts', 2621],
-  ['packages/node/src/primes-reduce.node.test.ts', 2372],
-  ['packages/node/src/fs-blockstore.node.test.ts', 2320],
-  ['packages/aot/src/wasi-executor.test.ts', 2217],
-  ['packages/node/src/identity-store.node.test.ts', 2215],
-  ['packages/net/src/sovereign-execution.test.ts', 2198],
-  ['packages/core/src/discovery.test.ts', 2045],
-  ['packages/node/src/node-identity.node.test.ts', 1912],
-  ['packages/node/src/relayed-job.node.test.ts', 1417],
-  ['packages/node/src/disclosure-gate.node.test.ts', 1330],
-  ['packages/node/src/start-unwind.node.test.ts', 1155],
-  ['tools/aot/cli.node.test.ts', 1100],
-  ['packages/node/src/named-refusal.node.test.ts', 1022],
+  ['tools/aot/lift.node.test.ts', 251510],                            // 48 `docker` invocations via execFileSync
+  ['packages/node/src/enrollment.node.test.ts', 32497],
+  ['packages/node/src/certificate-verification.node.test.ts', 25042],
+  ['packages/node/src/peer-dial.node.test.ts', 24216],                // spawns real `bin/agent.ts` processes
+  ['packages/node/src/tree-reduce-agents.node.test.ts', 18245],
+  ['packages/node/src/peer-gate.node.test.ts', 13145],
+  ['packages/node/src/transport-bounds.node.test.ts', 12849],         // waits out real 3/10/20 s RPC timeouts
+  ['packages/node/src/admission.node.test.ts', 9852],                 // CPU-bound WASM synthesis, 120 s testTimeout
+  ['packages/node/src/signed-artifact.node.test.ts', 9062],
+  ['packages/node/src/two-process.node.test.ts', 8460],               // 8 real `spawn` calls
+  ['packages/node/src/capability-dispatch.node.test.ts', 8458],
+  ['packages/node/src/orphan-leash.node.test.ts', 6843],
+  ['packages/node/src/fabric-node.node.test.ts', 6801],               // real libp2p nodes, 120 s testTimeout
+  ['packages/demo/src/kernel.test.ts', 6313],                         // heavy WASM build, 120 s testTimeout
+  ['packages/node/src/node-records.node.test.ts', 3771],
+  ['packages/node/src/peer-verifier.node.test.ts', 3599],
+  ['packages/node/src/sovereignty-placement.node.test.ts', 3213],     // 6 real `spawn` calls
+  ['packages/node/src/egress-manifest.node.test.ts', 3077],
+  ['packages/node/src/execution-deadline.node.test.ts', 2708],
+  ['packages/node/src/egress-refusal.node.test.ts', 2700],            // 10 real `spawn` calls
+  ['packages/node/src/provider-answering.node.test.ts', 2469],
+  ['packages/node/src/relaying.node.test.ts', 2331],
+  ['packages/node/src/node-enrollment.node.test.ts', 2309],
+  ['packages/node/src/named-refusal.node.test.ts', 1944],
+  ['tools/aot/cli.node.test.ts', 1433],
+  ['packages/net/src/discovery.test.ts', 1297],
+  ['packages/node/src/rendezvous-wire.node.test.ts', 1165],
+  ['packages/net/src/churn.test.ts', 1015],                           // 800k-iteration churn loop
   // ---- below the cut; listed so the boundary is visible, not excluded ----
-  ['packages/net/src/churn.test.ts', 961],                            // 800k-iteration churn loop
-  ['packages/aot/src/fixtures/wasi-fixtures.node.test.ts', 797],
-  ['packages/net/src/distributed.test.ts', 690],
-  ['packages/node/src/purity.node.test.ts', 620],
-  ['packages/libp2p/src/identity.test.ts', 603],
-  ['packages/node/src/sovereign-block-refusal.node.test.ts', 580],
-  ['packages/net/src/reduce-job.test.ts', 483],
-  ['packages/net/src/remote-executor-contract.test.ts', 423],
-  ['packages/net/src/enrol-protocol.test.ts', 417],
-  ['packages/core/src/reduce.test.ts', 406],
+  ['packages/net/src/enrol-agent.test.ts', 951],
+  ['packages/core/src/discovery.test.ts', 900],
+  ['packages/node/src/sovereign-block-refusal.node.test.ts', 874],
+  ['packages/node/src/fs-blockstore.node.test.ts', 866],
+  ['packages/node/src/disclosure-gate.node.test.ts', 818],
+  ['packages/net/src/provider-merge.test.ts', 800],
+  ['packages/net/src/sovereign-execution.test.ts', 747],
+  ['packages/node/src/node-identity.node.test.ts', 739],
+  ['packages/core/src/enrollment.test.ts', 702],
+  ['packages/node/src/primes-reduce.node.test.ts', 702],
+  ['packages/node/src/start-unwind.node.test.ts', 607],
+  ['packages/node/src/relayed-job.node.test.ts', 584],
+  ['packages/net/src/discover-candidates.test.ts', 584],
+  ['packages/node/src/identity-store.node.test.ts', 547],
+  ['packages/aot/src/wasi-executor.test.ts', 455],
 ]
 
 /**

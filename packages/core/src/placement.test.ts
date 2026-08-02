@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { DutyCycleGovernor } from './governor.ts'
 import {
   DEFAULT_D,
   DEFAULT_MAX_CONCURRENT_TASKS,
@@ -8,6 +9,7 @@ import {
   sampleCandidates,
 } from './placement.ts'
 import type { Admission, Offer } from './placement.ts'
+import type { Governor } from './ports.ts'
 import type { NodeDescriptor, PlacementRequest } from './sovereignty.ts'
 
 /**
@@ -39,7 +41,21 @@ const sovereignShard = (shardId: string, redundancy = 1): PlacementRequest => ({
   redundancy,
 })
 
-const refuse = (reason: string) => (): Admission => ({ accepted: false, reason })
+/**
+ * Stub answers state **no** capacity, deliberately.
+ *
+ * These cases are about sampling, re-pick and the sovereignty gate, none of which
+ * reads a capacity figure. A stub that invented one would bound `planWithOffers`'
+ * headroom tally on a number no node ever published, and the cases below would then
+ * be measuring the fixture. The cases that *are* about the figure build a real
+ * `LocalCapacity` and read what it says.
+ */
+const refuse = (reason: string) => (): Admission => ({
+  accepted: false,
+  reason,
+  capacity: 'states-no-capacity',
+})
+const STATES_NOTHING = { capacity: 'states-no-capacity' } as const
 
 describe('SCHED-02 — placement samples d and looks no further', () => {
   it('chooses the least-loaded of the sample, not the least-loaded overall', async () => {
@@ -122,8 +138,8 @@ describe('SCHED-03 — a refusal re-picks; it does not fail the job', () => {
     const admit = (offer: Offer): Admission => {
       offered.push(offer.nodeId)
       return offered.length === 1
-        ? { accepted: false, reason: 'over-committed: 4 of 4 slots in use' }
-        : { accepted: true }
+        ? { accepted: false, reason: 'over-committed: 4 of 4 slots in use', ...STATES_NOTHING }
+        : { accepted: true, ...STATES_NOTHING }
     }
 
     const placement = await placeWithOffers(publicShard('s0'), nodes, { admit })
@@ -142,7 +158,9 @@ describe('SCHED-03 — a refusal re-picks; it does not fail the job', () => {
     const nodes = Array.from({ length: 8 }, (_, i) => node(`n${i}`, 0))
     let refusals = 0
     const admit = (): Admission =>
-      refusals++ < 5 ? { accepted: false, reason: `busy #${refusals}` } : { accepted: true }
+      refusals++ < 5
+        ? { accepted: false, reason: `busy #${refusals}`, ...STATES_NOTHING }
+        : { accepted: true, ...STATES_NOTHING }
 
     const placement = await placeWithOffers(publicShard('s0'), nodes, { admit })
     expect(placement.status).toBe('placed')
@@ -156,7 +174,7 @@ describe('SCHED-03 — a refusal re-picks; it does not fail the job', () => {
     const asked: string[] = []
     const admit = (offer: Offer): Admission => {
       asked.push(offer.nodeId)
-      return { accepted: false, reason: 'no' }
+      return { accepted: false, reason: 'no', ...STATES_NOTHING }
     }
 
     await placeWithOffers(publicShard('s0'), nodes, { admit })
@@ -184,7 +202,9 @@ describe('SCHED-03 — a refusal re-picks; it does not fail the job', () => {
     const nodes = Array.from({ length: 4 }, (_, i) => node(`n${i}`, 0))
     let accepted = 0
     const admit = (): Admission =>
-      accepted++ < 1 ? { accepted: true } : { accepted: false, reason: 'over-committed' }
+      accepted++ < 1
+        ? { accepted: true, ...STATES_NOTHING }
+        : { accepted: false, reason: 'over-committed', ...STATES_NOTHING }
 
     const placement = await placeWithOffers(publicShard('s0', 3), nodes, { admit })
     expect(placement.status).toBe('placed')
@@ -207,7 +227,7 @@ describe('SCHED-05 — sampling happens behind the sovereignty filter', () => {
     const offered: string[] = []
     const admit = (offer: Offer): Admission => {
       offered.push(offer.nodeId)
-      return { accepted: true }
+      return { accepted: true, ...STATES_NOTHING }
     }
 
     const placement = await placeWithOffers(sovereignShard('s0'), nodes, { admit })
@@ -233,7 +253,7 @@ describe('SCHED-05 — sampling happens behind the sovereignty filter', () => {
     const offered: string[] = []
     const admit = (offer: Offer): Admission => {
       offered.push(offer.nodeId)
-      return { accepted: false, reason: 'over-committed: 2 of 2 slots in use' }
+      return { accepted: false, reason: 'over-committed: 2 of 2 slots in use', ...STATES_NOTHING }
     }
 
     const placement = await placeWithOffers(sovereignShard('s0'), nodes, { admit })
@@ -268,8 +288,17 @@ describe('SCHED-05 — sampling happens behind the sovereignty filter', () => {
 describe('LocalCapacity — a node decides from its own counters', () => {
   it('accepts up to its slot count and then refuses with the numbers', () => {
     const capacity = new LocalCapacity({ nodeId: 'n0', maxConcurrent: 2 })
-    expect(capacity.offer({ shardId: 's0', nodeId: 'n0' })).toEqual({ accepted: true })
-    expect(capacity.offer({ shardId: 's1', nodeId: 'n0' })).toEqual({ accepted: true })
+    // Widened by owner ruling D2, not weakened: every answer now states the node's
+    // room as well as its verdict, so these two assert the whole answer rather than
+    // just the verdict they used to carry.
+    expect(capacity.offer({ shardId: 's0', nodeId: 'n0' })).toStrictEqual({
+      accepted: true,
+      capacity: { slots: 2, inFlight: 0 },
+    })
+    expect(capacity.offer({ shardId: 's1', nodeId: 'n0' })).toStrictEqual({
+      accepted: true,
+      capacity: { slots: 2, inFlight: 1 },
+    })
 
     const refused = capacity.offer({ shardId: 's2', nodeId: 'n0' })
     expect(refused.accepted).toBe(false)
@@ -330,7 +359,13 @@ describe('LocalCapacity — a node decides from its own counters', () => {
   it('answers `would` without consuming the thing being asked about', () => {
     const capacity = new LocalCapacity({ nodeId: 'n0', maxConcurrent: 1 })
     for (let i = 0; i < 10; i++) {
-      expect(capacity.would({ shardId: 'probe', nodeId: 'n0' })).toEqual({ accepted: true })
+      // Widened by D2, and the widening strengthens this case rather than
+      // diluting it: the *published* in-flight count stays 0 across all ten
+      // probes, so a reader of the answer sees the node as free too.
+      expect(capacity.would({ shardId: 'probe', nodeId: 'n0' })).toStrictEqual({
+        accepted: true,
+        capacity: { slots: 1, inFlight: 0 },
+      })
     }
     expect(capacity.inFlight).toBe(0)
     // An offer is a question; asking it ten times must leave the node as free as it
@@ -387,6 +422,192 @@ describe('LocalCapacity — a node decides from its own counters', () => {
     expect(capacity.peakInFlight).toBe(1)
   })
 
+  it('says how full it is when it refuses, not only that it refused', () => {
+    // SCHED-02 / owner ruling D2. A refusal that did not say how full is a refusal
+    // a requestor cannot plan around: it learns that this shard did not fit and
+    // nothing about whether the next one would.
+    const capacity = new LocalCapacity({ nodeId: 'n0', maxConcurrent: 1 })
+    expect(capacity.offer({ shardId: 's0', nodeId: 'n0' }).accepted).toBe(true)
+
+    const refusal = capacity.would({ shardId: 's1', nodeId: 'n0' })
+    expect(refusal.accepted).toBe(false)
+    expect(refusal.capacity).toStrictEqual({ slots: 1, inFlight: 1 })
+  })
+
+  it('states its capacity on the accepting arm too, not only when refusing', () => {
+    const capacity = new LocalCapacity({ nodeId: 'n0', maxConcurrent: 4 })
+    expect(capacity.would({ shardId: 's0', nodeId: 'n0' })).toStrictEqual({
+      accepted: true,
+      capacity: { slots: 4, inFlight: 0 },
+    })
+  })
+
+  it('reports the in-flight count from before its own reservation, so two answers compose', () => {
+    // The figure is taken at decision time. If it were read after the reservation,
+    // a caller subtracting one per shard it placed would double-count its own
+    // effect and stop offering a node that still had room.
+    const capacity = new LocalCapacity({ nodeId: 'n0', maxConcurrent: 2 })
+    const first = capacity.offer({ shardId: 's0', nodeId: 'n0' })
+    const second = capacity.offer({ shardId: 's1', nodeId: 'n0' })
+
+    expect(first.capacity).toStrictEqual({ slots: 2, inFlight: 0 })
+    expect(second.capacity).toStrictEqual({ slots: 2, inFlight: 1 })
+  })
+
+  it('publishes a duty-cycled slot count, not the unthrottled one', () => {
+    const capacity = new LocalCapacity({ nodeId: 'n0', maxConcurrent: 8, dutyCycle: 0.25 })
+    expect(capacity.would({ shardId: 's0', nodeId: 'n0' }).capacity).toStrictEqual({
+      slots: 2,
+      inFlight: 0,
+    })
+  })
+
+  describe('a slot count that is a reading, not a memory', () => {
+    /** A cap that can move, with no real waiting — the pacing is not what is under test. */
+    const governed = (dutyCycle: number): DutyCycleGovernor =>
+      new DutyCycleGovernor({
+        dutyCycle,
+        sleep: async () => {},
+        environment: 'no-environment-governor',
+      })
+
+    it('follows the duty cycle down on the same object, with no reconstruction', () => {
+      const governor = governed(1)
+      const capacity = new LocalCapacity({ nodeId: 'n0', maxConcurrent: 8, dutyCycle: governor })
+      expect(capacity.slots).toBe(8)
+      governor.setDutyCycle(0.25)
+      expect(capacity.slots).toBe(2)
+    })
+
+    it('drops the figure a requestor is offered next — criterion 3’s observable', () => {
+      // The criterion asks that a node's advertised capacity drop when its cap
+      // does, "observable in what the requestor is offered next". This is that
+      // observable, asserted in the kernel so the tier plans wire a measured path
+      // rather than a mechanism.
+      const governor = governed(1)
+      const capacity = new LocalCapacity({ nodeId: 'n0', maxConcurrent: 8, dutyCycle: governor })
+      expect(capacity.would({ shardId: 's0', nodeId: 'n0' }).capacity).toStrictEqual({
+        slots: 8,
+        inFlight: 0,
+      })
+      governor.setDutyCycle(0.25)
+      expect(capacity.would({ shardId: 's0', nodeId: 'n0' }).capacity).toStrictEqual({
+        slots: 2,
+        inFlight: 0,
+      })
+    })
+
+    it('keeps a heavily throttled node a participant, at one slot and never zero', () => {
+      const capacity = new LocalCapacity({
+        nodeId: 'n0',
+        maxConcurrent: 8,
+        dutyCycle: governed(0.01),
+      })
+      expect(capacity.slots).toBe(1)
+      expect(capacity.would({ shardId: 's0', nodeId: 'n0' }).accepted).toBe(true)
+    })
+
+    it('reads any Governor, not only the kernel’s own implementation', () => {
+      // The browser tier's source is `VisibilityGovernor`, a different class the
+      // kernel must not import. What `LocalCapacity` depends on is the port.
+      class StubGovernor implements Governor {
+        dutyCycle = 1
+        async yieldSlice(): Promise<void> {}
+      }
+      const governor = new StubGovernor()
+      const capacity = new LocalCapacity({ nodeId: 'n0', maxConcurrent: 8, dutyCycle: governor })
+      expect(capacity.slots).toBe(8)
+      governor.dutyCycle = 0.5
+      expect(capacity.slots).toBe(4)
+    })
+
+    it('bounds starting without retracting a grant when the cap drops below what is in flight', () => {
+      // Three readings in one case, deliberately. A bound that refused but leaked
+      // a slot would satisfy the refusal alone, and a "fix" that floored `slots` at
+      // the in-flight count would satisfy the releases alone.
+      const governor = governed(0.5)
+      const capacity = new LocalCapacity({ nodeId: 'n0', maxConcurrent: 8, dutyCycle: governor })
+      expect(capacity.slots).toBe(4)
+      for (const shardId of ['s0', 's1', 's2', 's3']) {
+        expect(capacity.offer({ shardId, nodeId: 'n0' }).accepted).toBe(true)
+      }
+
+      governor.setDutyCycle(0.25)
+      expect(capacity.slots).toBe(2)
+
+      const refused = capacity.would({ shardId: 's4', nodeId: 'n0' })
+      expect(refused.accepted).toBe(false)
+      if (refused.accepted) return
+      expect(refused.reason).toBe('over-committed: 4 of 2 slots in use at duty cycle 0.25')
+      // The refusal string and the published figure are one reading, not two: a
+      // node that said `4 of 2` while publishing some other slot count would be
+      // giving two answers to one question.
+      expect(refused.capacity).toStrictEqual({ slots: 2, inFlight: 4 })
+
+      for (const shardId of ['s0', 's1', 's2', 's3']) capacity.release(shardId)
+      expect(capacity.inFlight).toBe(0)
+      expect(capacity.would({ shardId: 's4', nodeId: 'n0' }).accepted).toBe(true)
+    })
+
+    it('reports load honestly above 1 while a lowered cap drains', () => {
+      const governor = governed(0.5)
+      const capacity = new LocalCapacity({ nodeId: 'n0', maxConcurrent: 8, dutyCycle: governor })
+      for (const shardId of ['s0', 's1', 's2', 's3']) capacity.offer({ shardId, nodeId: 'n0' })
+      expect(capacity.load).toBe(1)
+
+      governor.setDutyCycle(0.25)
+      // Clamping this to 1 would hide exactly the state a requestor most needs to
+      // see. `load` orders already-eligible nodes, so an honest 2 orders this node
+      // last, which is correct; a clamped 1 would order it level with a node that
+      // is merely full.
+      expect(capacity.load).toBeGreaterThan(1)
+      expect(capacity.load).toBe(2)
+    })
+
+    it('names the live duty cycle in the refusal, not the one it was built with', () => {
+      const governor = governed(0.5)
+      const capacity = new LocalCapacity({ nodeId: 'n0', maxConcurrent: 4, dutyCycle: governor })
+      expect(capacity.slots).toBe(2)
+      capacity.offer({ shardId: 's0', nodeId: 'n0' })
+      capacity.offer({ shardId: 's1', nodeId: 'n0' })
+
+      governor.setDutyCycle(0.25)
+      const refused = capacity.would({ shardId: 's2', nodeId: 'n0' })
+      expect(refused.accepted).toBe(false)
+      if (refused.accepted) return
+      expect(refused.reason).toContain('duty cycle 0.25')
+      expect(refused.reason).not.toContain('duty cycle 0.5')
+    })
+
+    it('drops the suffix when a live cap returns to full rate', () => {
+      const governor = governed(0.25)
+      const capacity = new LocalCapacity({ nodeId: 'n0', maxConcurrent: 4, dutyCycle: governor })
+      expect(capacity.slots).toBe(1)
+      capacity.offer({ shardId: 's0', nodeId: 'n0' })
+      governor.setDutyCycle(1)
+      expect(capacity.slots).toBe(4)
+
+      // Filling the restored slots and then refusing proves the suffix is absent
+      // because the node is unthrottled now, not because it was never throttled.
+      for (const shardId of ['s1', 's2', 's3']) capacity.offer({ shardId, nodeId: 'n0' })
+      const refused = capacity.would({ shardId: 's4', nodeId: 'n0' })
+      expect(refused.accepted).toBe(false)
+      if (refused.accepted) return
+      expect(refused.reason).toBe('over-committed: 4 of 4 slots in use')
+    })
+
+    it('refuses a nonsense numeric duty cycle exactly as before, and leaves a Governor to check its own', () => {
+      // The numeric arm's guard is unchanged. A `Governor` validated its cap when
+      // it was constructed and again on every `setDutyCycle`, so a second check
+      // here would be a second place for one rule to live.
+      expect(
+        () => new LocalCapacity({ nodeId: 'n', maxConcurrent: 1, dutyCycle: Number.NaN }),
+      ).toThrow(RangeError)
+      expect(() => governed(0)).toThrow(RangeError)
+      expect(() => governed(1.5)).toThrow(RangeError)
+    })
+  })
+
   it('ships an admission default between a usable floor and the measured defect', () => {
     expect(Number.isInteger(DEFAULT_MAX_CONCURRENT_TASKS)).toBe(true)
     // The floor is the shipped configuration choice; the ceiling is the roadmap
@@ -406,7 +627,11 @@ describe('planWithOffers — a whole job against real capacity', () => {
     const shards = Array.from({ length: 8 }, (_, i) => publicShard(`s${i}`))
 
     const admit = (offer: Offer): Admission =>
-      capacities.get(offer.nodeId)?.offer(offer) ?? { accepted: false, reason: 'unknown node' }
+      capacities.get(offer.nodeId)?.offer(offer) ?? {
+        accepted: false,
+        reason: 'unknown node',
+        ...STATES_NOTHING,
+      }
 
     const placements = await planWithOffers(shards, nodes, { admit, d: 2 })
 
@@ -427,5 +652,97 @@ describe('planWithOffers — a whole job against real capacity', () => {
 
     expect(placements[0]?.status).toBe('placed')
     expect(placements[1]?.status).toBe('unplaceable')
+  })
+
+  it('never hands a node more shards than the headroom it published', async () => {
+    // Criterion 2c. Before D2, `placeWithOffers` shrank its pool within one shard
+    // only and `pool` was rebuilt per request, so all four landed here.
+    const capacity = new LocalCapacity({ nodeId: 'n0', maxConcurrent: 1 })
+    const nodes = [node('n0', 0)]
+    const shards = Array.from({ length: 4 }, (_, i) => publicShard(`s${i}`))
+
+    const placements = await planWithOffers(shards, nodes, {
+      admit: (offer) => capacity.offer(offer),
+    })
+
+    expect(placements.filter((p) => p.status === 'placed')).toHaveLength(1)
+    const held = placements.filter((p) => p.status === 'unplaceable')
+    expect(held).toHaveLength(3)
+    for (const placement of held) {
+      if (placement.status !== 'unplaceable') continue
+      // Names the bound, rather than claiming there was nobody.
+      expect(placement.reason).toContain('headroom')
+      // `Rejection.reason` is fixed as the node's own words. A node the requestor
+      // held back was never asked, so it never refused — and the read count says
+      // so more precisely than the reason string does.
+      expect(placement.rejections).toStrictEqual([])
+      expect(placement.probed).toBe(0)
+    }
+  })
+
+  it('places every shard that fits — the bound is not a refusal machine', async () => {
+    const capacities = new Map(
+      ['n0', 'n1'].map((id) => [id, new LocalCapacity({ nodeId: id, maxConcurrent: 2 })]),
+    )
+    const nodes = [...capacities.keys()].map((id) => node(id, 0))
+    const shards = Array.from({ length: 4 }, (_, i) => publicShard(`s${i}`))
+
+    const placements = await planWithOffers(shards, nodes, {
+      admit: (offer) =>
+        capacities.get(offer.nodeId)?.offer(offer) ?? {
+          accepted: false,
+          reason: 'unknown node',
+          capacity: 'states-no-capacity',
+        },
+    })
+
+    expect(placements.every((p) => p.status === 'placed')).toBe(true)
+    const chosen = placements.flatMap((p) => (p.status === 'placed' ? p.nodeIds : []))
+    expect(chosen).toHaveLength(4)
+    // At most two per two-slot node. A bound that only ever refuses is
+    // indistinguishable from a broken placer.
+    for (const id of ['n0', 'n1']) expect(chosen.filter((c) => c === id)).toHaveLength(2)
+  })
+
+  it('does not bound a node that states no capacity', async () => {
+    // The named absence, asserted rather than reached by omission. Assuming a
+    // silent node full would make every node running an older build invisible to
+    // one running this build.
+    const nodes = [node('n0', 0)]
+    const shards = Array.from({ length: 4 }, (_, i) => publicShard(`s${i}`))
+    const asked: string[] = []
+
+    const placements = await planWithOffers(shards, nodes, {
+      admit: (offer) => {
+        asked.push(offer.shardId)
+        return { accepted: true, capacity: 'states-no-capacity' }
+      },
+    })
+
+    expect(placements.every((p) => p.status === 'placed')).toBe(true)
+    expect(placements.flatMap((p) => (p.status === 'placed' ? p.nodeIds : []))).toEqual([
+      'n0',
+      'n0',
+      'n0',
+      'n0',
+    ])
+    expect(asked).toEqual(['s0', 's1', 's2', 's3'])
+  })
+
+  it('is unchanged for a caller that makes no offers', async () => {
+    // The regression bar. No offers are made, so no capacity is ever learned and
+    // no bound can apply — an unlearned node is unbounded, not bounded at zero.
+    const nodes = [node('n0', 0)]
+    const shards = Array.from({ length: 4 }, (_, i) => publicShard(`s${i}`))
+
+    const placements = await planWithOffers(shards, nodes)
+
+    expect(placements.every((p) => p.status === 'placed')).toBe(true)
+    expect(placements.flatMap((p) => (p.status === 'placed' ? p.nodeIds : []))).toEqual([
+      'n0',
+      'n0',
+      'n0',
+      'n0',
+    ])
   })
 })

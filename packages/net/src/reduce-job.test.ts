@@ -107,12 +107,19 @@ function jobWith(shards: readonly ShardResult[]): JobResult {
   }
 }
 
-/** One agreed shard whose decoded output is `output`. */
+/**
+ * One agreed shard whose decoded output is `output`.
+ *
+ * `rejections: []` because this fixture stands for a shard of a job that made no
+ * offers — the truthful reading of an empty list, and the same one `submitJob`
+ * produces on its no-`admit` arm. It is not a placeholder.
+ */
 function agreed(partitionIndex: number, output: CanonicalValue): ShardResult {
   return {
     partitionIndex,
     inputCid: FIXED_CID,
     degraded: false,
+    rejections: [],
     verification: {
       status: 'agreed',
       resultCid: FIXED_CID,
@@ -131,6 +138,8 @@ function insufficient(partitionIndex: number): ShardResult {
     partitionIndex,
     inputCid: FIXED_CID,
     degraded: true,
+    // Empty for the same reason as `agreed` above: no offer was made here.
+    rejections: [],
     verification: { status: 'insufficient', reason: 'nobody answered', failures: [] },
   }
 }

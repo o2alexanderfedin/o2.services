@@ -65,14 +65,16 @@ import { FabricNode } from './fabric-node.ts'
  * `packages/core/src/executor/module-provenance.test.ts`'s call counter, in a different
  * process and a different plan.
  *
- * **`bin/seed.ts`'s no-flag runtime behaviour is unmeasured, here and everywhere.**
- * That binary writes the identical default expression `values['trust-anchor'] ??
- * [KERNEL_TRUST_ANCHOR]`, and `trust-anchors.node.test.ts` compares the two binaries'
- * source textually — but no test spawns it, so nothing reads what it actually pins at
- * runtime the way the two `trustAnchors` assertions below read `bin/agent.ts`. What
- * would measure it: spawning `bin/seed.ts --port 0 --ws-port 0 --dir <tmp>` and reading
- * the anchors line it prints. Not done here, because that binary boots a Vite dev
- * server and this file's subject is dispatch, not hosting.
+ * **`bin/seed.ts`'s no-flag runtime behaviour is measured, but not here.** That binary
+ * writes the identical default expression `values['trust-anchor'] ?? [KERNEL_TRUST_ANCHOR]`,
+ * and `trust-anchors.node.test.ts` both compares the two binaries' source textually *and*
+ * spawns the seed to read what it actually pins — the same reading the two `trustAnchors`
+ * assertions below take from `bin/agent.ts`. This file's subject is dispatch rather than
+ * hosting, so the seed is named here and asserted there.
+ *
+ * This paragraph used to say that reading was not done anywhere, because spawning the seed
+ * boots a Vite dev server. That much is true; the cost attached to it was not. It was
+ * measured at **590 ms** to a complete banner, against an estimate of a minute.
  *
  * **A correction to the plan this file was written from, recorded rather than absorbed.**
  * Plan 14-05 states in its objective and again in Task 1 that `WasmExecutor`'s first act

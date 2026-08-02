@@ -34,8 +34,9 @@ import { multiaddr } from '@multiformats/multiaddr'
 import {
   DEFAULT_MAX_CONCURRENT_TASKS,
   EnrollmentAuthority,
+  DutyCycleGovernor,
   LocalCapacity,
-  MemoryRecordIndex,
+  SelfRecordIndex,
   SignedNameResolver,
   guardModuleProvenance,
   guardSovereignty,
@@ -43,10 +44,12 @@ import {
   requestEnrollment,
 } from '@o2/core'
 import type {
+  Blockstore,
   Executor,
   NodeCertificate,
   NodeSovereignty,
   PublicKeyHex,
+  SelfRecordIndexOptions,
 } from '@o2/core'
 import {
   Libp2pTransport,
@@ -67,6 +70,7 @@ import {
   authorizeCapability,
   enrolOverRpc,
   serveAgent,
+  withholdingFrom,
 } from '@o2/net'
 import type { EnrolOutcome } from '@o2/net'
 import { createLibp2p } from 'libp2p'
@@ -252,6 +256,23 @@ export interface BrowserNodeOptions {
    */
   readonly maxConcurrentTasks?: number
   /**
+   * The share of wall clock this tab will spend running tasks — SCHED-04.
+   *
+   * A number in `(0, 1]`, defaulting to **1**. This is the *user's* cap, and it composes
+   * with the visibility governor rather than replacing it: the effective rate is the
+   * **lower** of the two, so a backgrounded tab at a user cap of 1 still throttles to the
+   * background rate, and a foregrounded tab at 0.25 still runs at 0.25. BROW-03 is
+   * unchanged by this option existing.
+   *
+   * Per-node and not a node kind, exactly as on the Node tier. A starting value rather
+   * than a fixed one — {@link BrowserNode.setDutyCycle} moves it on a running tab, which
+   * is the half of SCHED-04 that neither tier had.
+   *
+   * Passed straight through, never clamped: `DutyCycleGovernor` refuses anything outside
+   * `(0, 1]` with a `RangeError` naming the value.
+   */
+  readonly dutyCycle?: number
+  /**
    * Largest single inbound frame this tab will accumulate before it aborts the
    * stream — NET-08.
    *
@@ -434,27 +455,40 @@ async function resolveCertificate(parts: {
 }
 
 /**
- * What this node answers a peer's `records` request with — AUTH-01.
+ * What this node answers a peer's `records` and `providers` requests with — AUTH-01,
+ * SCHED-01.
  *
- * Byte-for-byte `fabric-node.ts`'s `ownRecords`, for the reason that file gives; a node
- * holding no certificate has nothing to publish and keeps the sentinel at the hook.
+ * Byte-for-byte `fabric-node.ts`'s `ownRecords`, for the reason that file gives; the five
+ * decisions it carries are written down there and are not restated here, because two
+ * copies of a rationale drift and this file's whole claim is that it does not diverge from
+ * that one. A node holding no certificate still holds blocks, and under owner ruling D1 it
+ * answers for them — `records: 'holds-no-records'` is about a signed identity and says
+ * nothing about bytes.
  */
 function ownRecords(
-  certificate: NodeCertificate,
+  certificate: NodeCertificate | null,
   identity: NodeIdentity,
   canExecuteSovereign: boolean,
-): MemoryRecordIndex {
-  const index = new MemoryRecordIndex()
-  index.publish({
-    certificate,
-    capabilities: publishCapabilities(identity.seed, {
-      features: [],
-      sovereignFor: canExecuteSovereign ? [certificate.userKey] : [],
-      issuedAt: certificate.issuedAt,
-      expiresAt: certificate.expiresAt,
-    }),
+  store: Blockstore,
+  withhold: SelfRecordIndexOptions['withhold'],
+): SelfRecordIndex {
+  return new SelfRecordIndex({
+    nodeKey: identity.nodeKey,
+    store,
+    records:
+      certificate === null
+        ? 'holds-no-records'
+        : {
+            certificate,
+            capabilities: publishCapabilities(identity.seed, {
+              features: [],
+              sovereignFor: canExecuteSovereign ? [certificate.userKey] : [],
+              issuedAt: certificate.issuedAt,
+              expiresAt: certificate.expiresAt,
+            }),
+          },
+    withhold,
   })
-  return index
 }
 
 export class BrowserNode {
@@ -493,6 +527,15 @@ export class BrowserNode {
    */
   readonly executor: GovernedExecutor
   readonly governor: VisibilityGovernor
+  /**
+   * The user's cap — SCHED-04. Distinct from {@link governor}, which stays the
+   * environment signal.
+   *
+   * Private because the two are easy to confuse and only one of them is settable: a caller
+   * wanting to change the cap uses {@link setDutyCycle}, and a caller wanting the effective
+   * rate reads {@link dutyCycle}, which is already the lower of the two.
+   */
+  readonly #capGovernor: DutyCycleGovernor
   /**
    * This tab's execution admission control — SCHED-06.
    *
@@ -560,6 +603,7 @@ export class BrowserNode {
     certificate: NodeCertificate | null
     executor: GovernedExecutor
     governor: VisibilityGovernor
+    capGovernor: DutyCycleGovernor
     worker: WorkerExecutor
     admission: LocalCapacity
     counter: CountingExecutor
@@ -574,6 +618,7 @@ export class BrowserNode {
     this.certificate = parts.certificate
     this.executor = parts.executor
     this.governor = parts.governor
+    this.#capGovernor = parts.capGovernor
     this.worker = parts.worker
     this.admission = parts.admission
     this.#counter = parts.counter
@@ -592,6 +637,44 @@ export class BrowserNode {
    */
   get executorPeakInFlight(): number {
     return this.#counter.peakInFlight
+  }
+
+  /**
+   * The share of wall clock this tab currently spends running tasks — SCHED-04.
+   *
+   * **The effective rate, not the user's cap**: it is the lower of the user's cap and the
+   * visibility governor's, so a backgrounded tab reads the background rate whatever the
+   * user asked for. That is the composition working, not a lost setting — foreground the
+   * tab and the user's cap is what binds again.
+   *
+   * Read through the governor rather than echoing a stored option, so it reports what is
+   * in force after any {@link setDutyCycle} call and after any visibility change.
+   */
+  get dutyCycle(): number {
+    return this.#capGovernor.dutyCycle
+  }
+
+  /**
+   * Move this tab's cap while it is running — the half of SCHED-04 no tier had.
+   *
+   * Honoured by the **next task started** and by the **next offer answered**. A task
+   * already executing is not disturbed: `GovernedExecutor` paces between tasks, and a
+   * guest `run()` is synchronous with no fuel in V8, so there is no point at which a
+   * running task could be slowed even in principle.
+   *
+   * Both effects come from one object. The cap governor is inside {@link executor}, so the
+   * pacing changes; it is inside `admission`, so `admission.slots` changes with no
+   * reconstruction and the very next offer answer carries the lower figure.
+   *
+   * **This sets the user's cap, never the environment's.** Backgrounding still throttles
+   * on top of whatever is set here, because the two compose by taking the lower — see
+   * {@link dutyCycle}.
+   *
+   * Throws a `RangeError` naming the value for anything outside `(0, 1]`. The guard is the
+   * governor's own, reached rather than duplicated.
+   */
+  setDutyCycle(value: number): void {
+    this.#capGovernor.setDutyCycle(value)
   }
 
   /** Calls currently inside the inner executor. */
@@ -772,13 +855,24 @@ export class BrowserNode {
       relayPeerIds,
     })
 
-    // AUTH-01 — what this node answers a peer's `records` request with. A node holding no
-    // certificate has nothing to publish and keeps the sentinel at the hook below; a node
-    // holding one publishes it, exactly as a `FabricNode` does.
-    const records =
-      certificate === null
-        ? null
-        : ownRecords(certificate, identity, sovereignty.canExecuteSovereign)
+    // DATA-05 — the tap and the local-only tier, bound once and handed to both readers
+    // below, exactly as `fabric-node.ts` does and for the identical reason: the withholding
+    // predicate and the `block` branch must consult the same guard, and one value passed
+    // twice cannot disagree.
+    const egressDisposition = { guard: egress, sovereignInputs: store }
+
+    // AUTH-01 / SCHED-01 — what this node answers a peer's `records` *and* `providers`
+    // requests with, from the identical expression `fabric-node.ts` uses. Unconditional
+    // since owner ruling D1; the store is this tier's local-only `IdbBlockstore`, never
+    // `blockstore`, which has network fallback and would turn a question about this tab
+    // into a fetch.
+    const records = ownRecords(
+      certificate,
+      identity,
+      sovereignty.canExecuteSovereign,
+      store,
+      withholdingFrom(egressDisposition),
+    )
 
     // AUTH-01 — the provider signing key, persisted so a node that issues certificates
     // stays the same issuer across a reload. Generated and stored on first use rather
@@ -881,17 +975,45 @@ export class BrowserNode {
     // tell the two apart, so this file does not put the text where it would be counted.
     // The same rule `trust-anchors.node.test.ts` writes down for its own matchers.
     const counter = new CountingExecutor(guardSovereignty(provenance(worker), sovereignty))
-    const executor = new GovernedExecutor(counter, governor)
+    // SCHED-04 — the user's cap, composed **over** the visibility governor rather than
+    // replacing it. `environment: governor` is what makes `dutyCycle` return the lower of
+    // the two, so BROW-03's background throttle still binds at any user cap and the user's
+    // cap still binds on a visible tab. Passing `VisibilityGovernor` alone here would give
+    // the tab a live environment reading and still no settable cap, which is the whole of
+    // what this plan is for.
+    const capGovernor = new DutyCycleGovernor({
+      dutyCycle: options.dutyCycle ?? 1,
+      sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+      environment: governor,
+    })
+    const executor = new GovernedExecutor(counter, capGovernor)
     // SCHED-06 — this tab's own admission control, handed to `serveAgent` below.
     //
-    // **The visibility duty cycle is deliberately not passed as `dutyCycle`.** It is
-    // the obvious next line and it is wrong: this tab already paces every task
-    // through `GovernedExecutor`, and two independent throttles on one path produce
-    // a number nobody can predict — a backgrounded tab would both run tasks slower
-    // *and* refuse them earlier, from two mechanisms neither of which knows about
-    // the other. The slot count is what this tab will hold at once; the governor is
-    // how fast it runs them. They are different questions and only one of them is
-    // this object's.
+    // **`dutyCycle: capGovernor` — and this reverses what this comment used to say.**
+    //
+    // It used to read that the duty cycle was *deliberately not* passed here, because
+    // "two independent throttles on one path produce a number nobody can predict — a
+    // backgrounded tab would both run tasks slower *and* refuse them earlier, from two
+    // mechanisms neither of which knows about the other". That is recorded rather than
+    // deleted, because the reasoning was sound and the premise was not.
+    //
+    // They are not two throttles. `GovernedExecutor` is the **mechanism** — the thing that
+    // actually makes a task wait. The slot count is the **statement about** that mechanism:
+    // advisory, reserving nothing, read by a requestor deciding where to send work. One
+    // cap, seen twice. And the two now share an object, so neither can fail to know about
+    // the other — which was the specific fear.
+    //
+    // Criterion 3 requires a cap to be observable in what a requestor is offered next, and
+    // the offer answer carries a slot count derived from the duty cycle, so this argument
+    // is the whole of that requirement on this tier.
+    //
+    // What is genuinely given up, stated: a throttled tab now refuses earlier as well as
+    // running slower. That is intended — a tab at a low cap still advertising a high slot
+    // count would be inviting work it will not get to.
+    //
+    // `fabric-node.ts` makes the identical change in the same phase (Plan 18-08), so the
+    // two tiers agree here as they now agree on layer order. A reader finding one without
+    // the other should treat that as the defect.
     //
     // Constructed after `libp2p` because the node id comes from it, and thrown
     // straight out of `start` when the option is nonsense: `LocalCapacity`'s own
@@ -899,6 +1021,28 @@ export class BrowserNode {
     const admission = new LocalCapacity({
       nodeId,
       maxConcurrent: options.maxConcurrentTasks ?? DEFAULT_MAX_CONCURRENT_TASKS,
+          // **The user's cap, never the composed value** — and the difference is a measured
+      // one rather than a nicety. `capGovernor.dutyCycle` is `min(user, visibility)`, so
+      // feeding it here would make a backgrounded tab advertise
+      // `floor(8 × 0.05) → 1` slot and refuse five of the six shards of a job it had
+      // already accepted. That is exactly what happened: `background-tab.e2e.test.ts`
+      // went from complete to incomplete, twice out of twice, and passed again the moment
+      // this read the user's cap instead.
+      //
+      // Which vindicates half of the comment above and not the other half. The visibility
+      // duty cycle really should not feed a capacity — a tab that goes to the background
+      // must honour what it took on and merely run it slower, which is BROW-03. What was
+      // wrong was extending that to the *user's* cap: somebody who caps their own machine
+      // is saying "do not give me as much", and that belongs in the slot count.
+      //
+      // One object still, so nothing can drift: `setDutyCycle` moves the cap that both
+      // this and the pacing read.
+      dutyCycle: {
+        get dutyCycle(): number {
+          return capGovernor.ownDutyCycle
+        },
+        yieldSlice: (): Promise<void> => Promise.resolve(),
+      },
     })
     const node = new BrowserNode({
       libp2p,
@@ -911,6 +1055,7 @@ export class BrowserNode {
       certificate,
       executor,
       governor,
+      capGovernor,
       worker,
       admission,
       counter,
@@ -923,7 +1068,7 @@ export class BrowserNode {
       // says which payloads are sovereign — so a sovereign task's input is guarded
       // for exactly as long as its reply frame takes to settle, and a dispatch that
       // declared nothing gives nothing back.
-      egress: { guard: egress, sovereignInputs: store },
+      egress: egressDisposition,
       // AUTH-03, and the argument is byte-identical to `fabric-node.ts`'s — read that
       // one for what the hook is and why the conditional spread is required.
       //
@@ -981,11 +1126,19 @@ export class BrowserNode {
       // absence partitions as effectively as a branch.
       //
       // Now derived, in the same expression `fabric-node.ts` uses, from values a caller
-      // decided: `records` is non-null exactly when this node holds a certificate, and
-      // `authority` exactly when it was told to issue them. The sentinels are still the
-      // answer for a node that was asked for neither — a named absence, which is the
-      // convention, and not a silent default, which is the hole.
-      index: records ?? 'serves-no-records',
+      // decided: `authority` is non-null exactly when this node was told to issue
+      // certificates. Its sentinel is still the answer for a node that was asked for none —
+      // a named absence, which is the convention, and not a silent default, which is the
+      // hole.
+      //
+      // **`index` no longer has a sentinel here, and that is owner ruling D1.** A tab
+      // holding no certificate still holds blocks, so it answers `records: null` and a real
+      // provider list rather than refusing to speak; the named absence moved inward, to
+      // `records: 'holds-no-records'`, where it describes the identity half alone. The
+      // `providers` half is answered by every node, and *"a `providers` request answers `[]`
+      // from every node because `provide()` is never called"* — true of this file from Phase
+      // 6 to Phase 17 — is retired rather than deleted, so the change is findable.
+      index: records,
       enroll: authority ?? 'issues-no-certificates',
       // SCHED-06. This hook answered "accepts everything" for the whole of two
       // milestones, so `serveAgent`'s `exec` branch ran `executor.execute` with
