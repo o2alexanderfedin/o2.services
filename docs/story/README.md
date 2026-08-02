@@ -8,6 +8,27 @@ that wrote most of the code.
 
 **[The Author Forgets](the-author-forgets.md)** — 14,477 words, twelve chapters, six diagrams, and a glossary.
 
+The rendered page is **[the-author-forgets.html](the-author-forgets.html)**, generated from
+the markdown by a converter that lives here rather than somewhere else:
+
+```sh
+python3 docs/story/build-page.py \
+        docs/story/the-author-forgets.md \
+        docs/story/the-author-forgets.html
+```
+
+`build-page.py` handles the markdown subset this article actually uses — h1-h3, paragraphs,
+tables, fenced blocks, blockquotes, lists, rules, inline code/bold/italic/links, and
+` ```mermaid ` fences, which become native diagram blocks. It supports nothing else, on
+purpose. `page-shell.html` holds the design: a token-level palette defined for both themes,
+and one typographic rule — **the argument is set in serif, every piece of evidence is set in
+mono**, because that distinction is the article's own subject.
+
+The HTML is committed alongside the markdown, following the same convention as
+`packages/demo/src/kernel.wat` and its `kernel.wasm`. **Nothing checks that the two agree**
+— unlike the kernel, which has `primes-build.node.test.ts` — so regenerate after editing the
+markdown rather than trusting the checked-in copy.
+
 Also published as a reading page:
 **<https://claude.ai/code/artifact/5a52af78-773a-47ea-ac7c-6c45e1ba7b0f>** (private until
 shared). The markdown here is canonical; the page is a rendering of it, so if the two ever
