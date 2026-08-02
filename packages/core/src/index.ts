@@ -38,7 +38,7 @@ export type {
 export { MAX_PARTITIONS, TASK_ENTRYPOINT, WasmExecutor } from './executor/wasm.ts'
 export type { WasmExecutorOptions } from './executor/wasm.ts'
 // The cross-thread ABI both tiers speak, and the executor that bounds it.
-export { runTask } from './executor/task-run.ts'
+export { runTask, runTaskAndPost } from './executor/task-run.ts'
 export type { WorkerTaskRequest, WorkerTaskResponse } from './executor/task-run.ts'
 export { DEFAULT_TASK_DEADLINE_MS, WorkerExecutor } from './executor/worker-executor.ts'
 export type { WorkerExecutorOptions } from './executor/worker-executor.ts'
