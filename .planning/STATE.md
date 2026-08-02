@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Wire What Was Built
 status: executing
-stopped_at: Phase 18 has six of eleven plans merged (18-01..18-05, 18-07); waves 4 and 5 remain. FIRST ACTION IS NOT PHASE 18 - the phase branch is 40 commits behind develop, which took 28 of 33 deficiency fixes plus the project's written history. Merge develop into it and expect a small conflict in core/src/discovery.ts. Criterion 6 closed before planning; criterion 2b is expected to score PARTIAL by owner ruling and must not be reworded.
-last_updated: "2026-08-02T01:05:00.000Z"
-last_activity: 2026-08-01
+stopped_at: Phase 18 has EIGHT of eleven plans merged (18-01..18-05, 18-07, 18-08, 18-09); 18-06 plus wave 5 (18-10, 18-11) remain. The develop merge is DONE - that warning is retired. The pre-18-11 blocker is also closed - bin/seed.ts now carries the orphan leash, and the guard that would have stayed silent about it now derives its list from the bin/ directory. NEXT IS 18-06. Criterion 6 closed before planning; criterion 2b is expected to score PARTIAL by owner ruling and must not be reworded. Expect requirements-ledger.node.test.ts's SCHED-01 row to fail BY DESIGN when 18-06 wires discoverCandidates to bin/bench.ts --discover.
+last_updated: "2026-08-02T07:10:00.000Z"
+last_activity: 2026-08-02
 progress:
   total_phases: 14
   completed_phases: 5
-  total_plans: 54
-  completed_plans: 39
+  total_plans: 56
+  completed_plans: 47
   percent: 36
 ---
 
@@ -45,10 +45,22 @@ closed requirements and must never be reconciled against one.**
   pinned by mutation-ledger entry **M30**.
 
 `total_plans` counts plans that exist, and it is not a milestone denominator — phases
-18, 19, 20 and 22 have no directory yet, so it will grow. Counted on disk 2026-07-31:
-11:1, 12:4, 13:7, 13.1:5, 14:5, 15:4, 16:4, 17:5, 21:5, 23:5 = 45, of which 17 have a
-summary. A `find` across `.planning/phases/` returns 46 — the extra is phase-9's plan,
-which is v1.0 and outside this count.
+19, 20 and 22 still have no directory, so it will grow.
+
+**Recounted on disk 2026-08-02**, because both figures had gone stale by the width of a
+whole wave: 11:1, 12:4, 13:7, 13.1:5, 14:5, 15:4, 16:4, 17:5, **18:11**, 21:5, 23:5 =
+**56**, of which **47** have a summary. Phase 18 reads 11 plans / 8 summaries, which is
+exactly the "eight of eleven merged" in `stopped_at` — the two are derived from the same
+directory and should be checked against each other.
+
+**`completed_plans` counts summaries, and in three phases that is MORE than the plans.**
+15, 16 and 17 each carry a gap-closure summary with no plan of its own, so the figure is
+not a subset of `total_plans` and must not be read as a percentage of it. A `find` across
+`.planning/phases/` returns more still — the extra are v1.0 phases, outside this count.
+
+**18-08 and 18-09 had merged code and no summary for a day**, which is what made the
+recount necessary: their work was in `git log` while the artifact a verifier reads did not
+exist. A plan is not finished when its commit lands.
 
 Do not take these from `gsd-sdk query progress.bar` — it counts plan files across the
 nine unarchived v1.0 phase directories and reports "17/9 plans (100%)".
