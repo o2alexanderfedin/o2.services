@@ -8,8 +8,44 @@ that wrote most of the code.
 
 **[The Author Forgets](the-author-forgets.md)** — 14,477 words, twelve chapters, six diagrams, and a glossary.
 
-The rendered page is **[the-author-forgets.html](the-author-forgets.html)**, generated from
-the markdown by a converter that lives here rather than somewhere else:
+## Three renderings, all built from the markdown
+
+| File | For |
+|---|---|
+| [`the-author-forgets.html`](the-author-forgets.html) | the hosted page — diagrams stay as `mermaid` blocks and are drawn by the host |
+| [`the-author-forgets.standalone.html`](the-author-forgets.standalone.html) | opening from disk — diagrams baked to inline SVG, **no script, no network** |
+| [`the-author-forgets.pdf`](the-author-forgets.pdf) | print — 60 pages, A4, chapters on fresh pages |
+
+```sh
+# 1. the hosted page
+python3 docs/story/build-page.py \
+        docs/story/the-author-forgets.md \
+        docs/story/the-author-forgets.html
+
+# 2. the standalone page and the PDF, from (1)
+#    mermaid is installed to a scratch directory on purpose — a documentation
+#    renderer has no business in this repository's dependency tree
+npm --prefix /tmp/mermaid-build i mermaid@11
+node docs/story/build-standalone.mjs \
+     docs/story/the-author-forgets.html \
+     docs/story/the-author-forgets.standalone.html \
+     docs/story/the-author-forgets.pdf \
+     /tmp/mermaid-build/node_modules/mermaid/dist/mermaid.min.js
+```
+
+The standalone page's diagrams are **single-theme**, rendered on a light ground. Stated
+rather than hidden: a printed page has one ground, and a diagram whose colours came from a
+theme the reader is not using is worse than one that commits.
+
+### Not published
+
+`gh-pages` is untouched, and nothing here adds anything under `.github/`. Publishing is a
+**separately-triggered human act** by this project's own constraint — public hosting is
+public disclosure, and DEMO-04 requires that no deploy workflow file exist at all, which
+`disclosure-gate.node.test.ts` asserts. These files are built and ready; whether they go
+anywhere is not a build step's decision.
+
+### How the hosted page is made
 
 ```sh
 python3 docs/story/build-page.py \
