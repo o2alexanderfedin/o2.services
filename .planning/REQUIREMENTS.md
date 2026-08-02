@@ -11,18 +11,18 @@
 
 ## How to read the checkboxes
 
-**35 of 72 are `[x]`.** That is down from 68, and the 37 that moved did **not** move
-because the work was undone — with one exception, VER-02, whose box was cleared on
-2026-07-30 because the mechanism behind it was found to check nothing and was deleted.
-Read this before drawing a conclusion from the count.
+**36 of 72 are `[x]`.** That is down from the 68 that were checked before the v1.0
+milestone audit. Of the 36 now unchecked, **32 moved** and **4 were never checked**;
+none of the 32 moved because the work was undone — with one exception, VER-02, whose
+box was cleared on 2026-07-30 because the mechanism behind it was found to check
+nothing and was deleted. Read this before drawing a conclusion from the count.
 
 The v1.0 milestone audit (`v1.0-MILESTONE-AUDIT.md`) traced every requirement from the
 five runnable entry points — `bin/agent.ts`, `bin/seed.ts`, `bin/bench.ts`,
-`tools/aot/cli.ts`, and the demo page — to the mechanism meant to satisfy it. For 36
-requirements the trace does not arrive. Sovereignty labelling, tree-reduce, discovery,
-enrollment, quorum composition, capability chains and the entire churn coordinator are
-**implemented, exported, and covered by their own specs** — and no path a person can
-run reaches any of them.
+`tools/aot/cli.ts`, and the demo page — to the mechanism meant to satisfy it. Sovereignty
+labelling, tree-reduce, discovery, quorum composition, capability chains and the entire
+churn coordinator are **implemented, exported, and covered by their own specs** — and no
+path a person can run reaches any of them.
 
 So the ledger now distinguishes three states:
 
@@ -32,9 +32,33 @@ So the ledger now distinguishes three states:
 | `[ ]` + **Built, not wired** | Mechanism exists and is unit-verified; nothing calls it |
 | `[ ]` + **Partial** | One leg reaches production, another does not |
 
+**The 36 unchecked boxes are 17 + 18 + 1**, and the three markers are not one label:
+17 are *Built, not wired*, 18 are *Partial*, and VER-02 alone is *Not started*.
+Quoting a single figure for "unreached" merges two states that mean different things —
+a mechanism nothing calls, and a mechanism half of which ships — and the merge is what
+let the count drift. `requirements-ledger.node.test.ts` now asserts every number in this
+paragraph against the boxes and the table, so a row that changes marker without the
+prose changing with it fails rather than rots.
+
 The traceability table at the bottom carries the specific reason for each, naming the
-symbol that proves it — `runResilient` has no caller, `EgressGuard` decorates no
-production transport, `RemoteExecutor` sends no capability field, and so on.
+symbol that proves it — `runResilient` has no caller, `composeQuorum` has none, no
+production site calls `discoverExecutors`, and so on. **That naming is now checked, not
+just written**: the same guard reads each *Built, not wired* row's own "X has no caller"
+sentence and fails if X has acquired a production call site. Five rows — AUTH-01,
+AUTH-02, AUTH-04, SCHED-03, NET-06 — were corrected on 2026-08-01 after exactly that
+drift went unnoticed for a day, every one of them understating what had shipped.
+
+**Two examples that used to stand in this paragraph were themselves expired, which is
+the point.** It read *"`EgressGuard` decorates no production transport, `RemoteExecutor`
+sends no capability field"*. Measured 2026-08-01: `new EgressGuard(transport, …)` is in
+both node constructors (`fabric-node.ts:1058`, `browser-node.ts:751`) and in both
+benchmark drivers, so the first was flatly false. The second was true only by accident of
+its call sites — `RemoteExecutor` *does* put `capability: chain` on the wire
+(`remote-executor.ts:115`); what is true is that all six production construction sites
+pass the `'dispatches-unauthenticated'` sentinel, so no chain leaves a production
+dispatch today. A sentence about a mechanism and a sentence about its callers are
+different sentences, and only the second one was checkable. The examples above were
+replaced with ones the guard actually holds.
 
 **Why the checkbox rather than only the table.** A requirement is a claim about what
 the system does. "The placer cannot relocate a sovereign task" is true of a placer no
@@ -179,7 +203,7 @@ code, not the reports. -->
 
 ### Authorization & Node Identity
 
-- [ ] **AUTH-01**: A node's identity key is generated on-device and its public half
+- [x] **AUTH-01**: A node's identity key is generated on-device and its public half
       is signed into a provider-issued certificate
 - [ ] **AUTH-02**: A node verifies a peer's provider-signed certificate offline,
       with no live certificate authority
@@ -354,9 +378,9 @@ code, not the reports. -->
 
 **Defined:** 2026-07-27, directly from `v1.0-MILESTONE-AUDIT.md`.
 
-**v1.1 mints almost no new requirement IDs, and that is deliberate.** The 36 entries
-marked *Built, not wired* above are not missing requirements — they are the same
-requirements, unsatisfied. "The placer cannot relocate a sovereign task" is DATA-03
+**v1.1 mints almost no new requirement IDs, and that is deliberate.** The entries marked
+*Built, not wired* and *Partial* above — 17 and 18 as of 2026-08-01, not one merged
+figure — are not missing requirements; they are the same requirements, unsatisfied. "The placer cannot relocate a sovereign task" is DATA-03
 whether or not a job runs through that placer; wiring it is what makes DATA-03 true.
 Minting `WIRE-05: wire the sovereignty gate` alongside it would count one obligation
 twice and let the ledger reach 100% while saying less than it does now.
@@ -371,7 +395,7 @@ and the two end-to-end paths nothing exercises.
 |---|---|---|
 | 4 — Sovereignty | DET-03, DATA-03…DATA-09, AUTH-03 | an owner label in `JobSpec`/`Task`; the real job path through the sovereignty gate; `EgressGuard` on both transports; `signName` resolution; a capability chain on both ends of dispatch |
 | 5 — Tree-reduce | MR-02 … MR-07 | `executeReduce` on the aggregation path, replacing the demo's linear scan — the aggregation path is wired (Phase 16); the demo replacement is WIRE-02, Phase 22 |
-| 6 — Discovery & enrollment | AUTH-01, AUTH-02, AUTH-04, AUTH-05, SCHED-01, SCHED-02, SCHED-03, SCHED-05, NET-06, VER-03, VER-04, VER-08, VER-09, VER-10 | `serveAgent`'s `index` and `capacity` hooks supplied; `discoverExecutors` replacing the static list; `requestEnrollment` issuing a real node identity; `composeQuorum` and `attestationReceipt` on the verification path |
+| 6 — Discovery & enrollment | AUTH-01, AUTH-02, AUTH-04, AUTH-05, SCHED-01, SCHED-02, SCHED-03, SCHED-05, NET-06, VER-03, VER-04, VER-08, VER-09, VER-10 | **Partly landed 2026-08-01, and the row above it said otherwise for a day.** Done: `serveAgent`'s `index` and `capacity` hooks are supplied by both factories, and `requestEnrollment` issues a real node identity before `start()` returns (AUTH-01 `[x]`; AUTH-02, AUTH-04, SCHED-03, NET-06 now *Partial*). Outstanding: `discoverExecutors` replacing the static list — which is also the *reading* half of NET-06 and the re-pick half of SCHED-03 — a `PeerVerifier` on the browser tier, and `composeQuorum` / `attestationReceipt` on the verification path |
 | 7 — Churn | CHURN-01 … CHURN-06 | one job entry point that leases, speculates and accounts for coverage |
 | 10 — AOT | AOT-02 | `translationCid` called by the lift pipeline; the CLI emitting the CID |
 | Partials | NET-05, SCHED-04, BROW-02, AOT-04 | `ReservationWatcher` installed; the governor on both tiers and runtime-adjustable; a ledger that is actually supplied; a production node able to construct a `WasiExecutor` |
@@ -426,12 +450,25 @@ table below and in the audit.
          browser, so the refusal branch is compiled and has never executed in a real tab.
          There is now a *behaviour* to exercise, not only a composition to inspect
 
-      **The recorded root cause of all four is one sentence**, and it is the same sentence
-      in every one of those documents: `BrowserNode.start()` needs a real `indexedDB` and a
-      relay to dial, so it runs in **neither** vitest project — the `node` project has no
-      `indexedDB`, and the `browser` project has no Node-side relay to dial against. The
-      standard above removes exactly that obstacle, which is why these four are listed
-      against this requirement and not against four separate ones
+      **The recorded root cause of all four was one sentence, and that sentence was
+      false.** It read: `BrowserNode.start()` needs a real `indexedDB` and a relay to
+      dial, so it runs in **neither** vitest project. Retired in the source by Plan 15-05
+      and corrected here on 2026-08-01, four months of inheritance later — the correction
+      had stopped at the package boundary while these planning documents, which is where
+      a planner looks first, still cited the retired claim as authoritative.
+
+      **The corrected statement**, which is the one every source site now carries
+      (`browser-node.ts:964`, `:999-1000`, `mutation-ledger.ts:140-151`,
+      `serve-agent-hooks.node.test.ts`, `sovereign-block-refusal.node.test.ts`): the
+      **`browser`** project genuinely cannot host such a test, because a Circuit Relay v2
+      server *"will not work in browsers"* in `@libp2p/circuit-relay-v2`'s own words. The
+      **`e2e`** project has no such limit **and needs no relay at all** — the tab dials a
+      Node submitter's WebSocket listener directly, and the dispatch returns along the
+      connection the tab itself opened. `packages/node/src/browser-capability.e2e.test.ts`
+      starts that factory against a live tab today, and
+      `packages/browser/src/start-unwind.browser.test.ts` starts it to success in three
+      engines. So these four are listed against this requirement because the `e2e` project
+      is where they belong, not because nothing can host them
 - [ ] **WIRE-04**: The fabric has exactly one job entry point. Submitting a job gets
       lease renewal, speculation and coverage accounting without the caller choosing
       between two functions — today `runResilient` is a second job implementation that
@@ -562,21 +599,21 @@ criteria.
 | DATA-07 | Phase 12 — Sovereignty-Pinned Placement | Done — a sovereign shard submitted through `submitJob` emits a partial smaller than its raw input; `EgressGuard` (reused as a test instrument) shows zero violations for the run (12-04, criterion 3) |
 | DATA-08 | Phase 14 — Signed Artifact Resolution | Done — the `key → CID` mapping travels the wire as `Task.moduleRecord` (`net/src/protocol.ts`), is threaded by `submit.ts` into both task branches, and is checked against `task.moduleCid` at the executor boundary so a genuine record for another artifact cannot rubber-stamp a substituted CID. The demo ships a committed `KERNEL_RECORD` whose signing key's private half was discarded at generation (`demo/scripts/sign-kernel.ts`), and both binaries default to that anchor. Mutation-probed by 14-VERIFICATION.md: emptying the demo anchors turns `colouring-demo.e2e.test.ts` red |
 | DATA-09 | Phase 12 — Sovereignty-Pinned Placement | Done — `guardSovereignty` wired into both production node constructors (`fabric-node.ts`, `browser-node.ts`), safe default; a genuine replica holder refuses a direct sovereign dispatch over real RPC while still answering block requests (12-02, 12-04 criterion 4) |
-| AUTH-01 | Phase 17 — Node Identity & Enrollment | **Built, not wired** — requestEnrollment / EnrollmentAuthority have no production caller; a node identity is the raw libp2p peerId |
-| AUTH-02 | Phase 17 — Node Identity & Enrollment | **Built, not wired** — verifyCertificate is reachable only through discoverExecutors, which has no caller |
+| AUTH-01 | Phase 17 — Node Identity & Enrollment | Done — corrected 2026-08-01; this row claimed no production caller and both factories had one. `requestEnrollment` is called at `fabric-node.ts:555` and `browser-node.ts:413`, `new EnrollmentAuthority` at `fabric-node.ts:1077` and `browser-node.ts:797`, reachable from `bin/agent.ts` via `--provider-addr --user-key --operator-id` and `--issues-certificates`. The round trip completes **before `start()` returns** — a node told to enrol that cannot enrol does not start, and leaves no socket bound. The certificate is persisted dot-prefixed, reused on restart with the provider switched off, replaced when expired, and another node's certificate is not presented as its own. Measured across real operating-system processes (`node-enrollment.node.test.ts`, `enrollment.node.test.ts`). A node not told to enrol still starts with `certificate: null`, so the identity is the raw libp2p peerId only when nobody asked for more |
+| AUTH-02 | Phase 17 — Node Identity & Enrollment | **Partial** — corrected 2026-08-01; this row claimed `verifyCertificate` was reachable only through `discoverExecutors`, and it is reachable another way. **The Node tier is wired and verified offline**: `PeerVerifier.start` (`fabric-node.ts:1118`) reaches `verifyCertificate` (`peer-verifier.ts:477`), which takes its anchors as an argument and dials no authority; `certificate-verification.node.test.ts` takes a verdict **with both provider processes dead**, and again through two spawned agents differing only in `--trusted-issuer`. **The browser tier verifies nobody** — `browser-node.ts` constructs no `PeerVerifier`, so a tab takes blocks from any peer. A tab can now *hold* a certificate (the `enrollment` option) and so be verified *by* a Node peer; it does not verify in return, and that asymmetry is the remaining leg. `discoverExecutors` does still have no production caller — it is simply no longer the only path to `verifyCertificate` |
 | AUTH-03 | Phase 15 — Capability-Chained Dispatch (serving half) → Phase 23 criterion 5 (requestor half) | **Partial** — the serving half is wired and verified end to end: both node factories install `authorizeCapability`, neither says `'serves-unauthenticated'`, `bin/agent.ts` takes `--owner-key`, and all three of Phase 15's criteria are demonstrated between two spawned `bin/agent.ts` processes (`15-VERIFICATION.md`, 3/3, with an ordering-inversion mutation turning all three red on a blockstore-directory instrument while `tsc` stayed at exit 0). **The requestor half is not wired.** `RemoteExecutor` takes a *required* chain argument — omitting it is a `tsc` error — but all five production dispatch sites name the sentinel, because every one labels its shards `'public'` and a public shard has no owner key to root a chain at. So `delegate`, `CapabilitySupplier` and `RemoteExecutor.execute`'s supplier branch have a production adapter and zero production callers. Owner ruling 2026-07-31: **naming that is not fixing it** — routed to Phase 23 criterion 5 (an opt-in sovereign leg on `bin/bench.ts`, off by default), which is where `bin/bench.ts` is already being rewritten. Also unproven: the **browser** factory's authorizer, which survives a scrambling mutation with 345 browser tests green and is guarded today only by a source-text argument-equality check |
-| AUTH-04 | Phase 17 — Node Identity & Enrollment | **Built, not wired** — requestEnrollment / EnrollmentAuthority have no production caller |
+| AUTH-04 | Phase 17 — Node Identity & Enrollment | **Partial** — corrected 2026-08-01; this row claimed no production caller and both factories had one. **Provider-gating and rate-limiting are wired and measured**: `new EnrollmentAuthority` at `fabric-node.ts:1077` / `browser-node.ts:797`, reachable from `bin/agent.ts --issues-certificates`, with the provider signing key generated on-device into a file separate from `.identity.key` so `issuerKey !== nodeKey` always holds; a burst through the production `enrol` request path is refused past the stated threshold (`enrollment.node.test.ts`, criterion 3). **"Costly" is measured *false*, not unmeasured** — the limiter keys on `userKey` and a fresh user key is one `ed25519.keygen()` call, so twenty requests under twenty distinct keys all succeed, and no deletion turns that assertion red. The threshold is also per provider *uptime*, not per wall-clock window, because the issuance history is a `Map` held in the authority object and a restart forgets it. Proof-of-work, payment or an out-of-band identity check is what would close the cost half; the limiter is where it plugs in, and it is out of scope for v1.1 |
 | AUTH-05 | Phase 19 — Quorum Composition & Owner-Domain Attestation | **Built, not wired** — resolveReplicaSets has no production caller |
 | NET-01 | Phase 2 — Real Network, Node ↔ Node | Done |
 | NET-02 | Phase 3 — Browser Tier & Backbone Relay | Done |
 | NET-03 | Phase 3 — Browser Tier & Backbone Relay | Partial — relay is browser-dialable; AutoTLS needs a public host |
 | NET-04 | Phase 3 — Browser Tier & Backbone Relay | Done |
 | NET-05 | Phase 18 — Discovery, Capacity & Placement | **Partial** — the reading half is wired (capacity is derived from the live store and printed by the seed); ReservationWatcher is installed by no process, so a refused joiner gets no named error |
-| NET-06 | Phase 19 — Quorum Composition & Owner-Domain Attestation | **Built, not wired** — no node supplies serveAgent’s `index` hook, so none serves a record |
+| NET-06 | Phase 19 — Quorum Composition & Owner-Domain Attestation | **Partial** — corrected 2026-08-01; this row claimed no node supplies the `index` hook and both factories do. **The serving half is wired on both tiers**: `index: records ?? 'serves-no-records'` (`fabric-node.ts:1278`, `browser-node.ts:988`), non-null exactly when the node holds a certificate, so a browser peer answers a `records` request on the same terms as a backbone peer — which is the requirement's own point, that a browser differs only in that it cannot bind a listening socket. **The reading half is not**: `discoverExecutors` has no production caller, so nothing queries what is served. The index also holds this node's own records and nothing else — `provide()` is never called, so a `providers` request still answers `[]` from every node, and `features: []` is honest rather than a stub because no feature-detection dependency is installed |
 | NET-07 | Phase 2 — Real Network, Node ↔ Node | Done |
 | SCHED-01 | Phase 18 — Discovery, Capacity & Placement | **Built, not wired** — discoverExecutors has no caller outside tests |
 | SCHED-02 | Phase 18 — Discovery, Capacity & Placement | **Built, not wired** — placeWithOffers is reachable only through runResilient, which has no caller |
-| SCHED-03 | Phase 18 — Discovery, Capacity & Placement | **Built, not wired** — no node supplies serveAgent’s `capacity` hook, so every offer is accepted |
+| SCHED-03 | Phase 18 — Discovery, Capacity & Placement | **Partial** — corrected 2026-08-01; this row claimed every offer is accepted while `serve-agent-hooks.node.test.ts` and four mutation-ledger entries (`M2a`, `M2b`, `B1`, `B2`) existed to prove the opposite. **The refusal half is wired and measured**: `capacity: admission` (`fabric-node.ts:1300`, `browser-node.ts:1009`) backed by `new LocalCapacity` (`fabric-node.ts:986`, `browser-node.ts:899`, both `bin/bench.ts` sites and both `perf-workload.ts` sites). An over-committed node refuses by name — `over-committed: N of M slots in use` — where the same factory measured before the line changed ran 64 simultaneous `executor.execute()` calls with zero refusals and 32 requestors timing out (`admission.node.test.ts`, 2026-07-29). **The requestor does not re-pick**: `placeWithOffers`, which resamples, is reachable only through `runResilient` and `planWithOffers`, and neither has a production caller. The browser factory's refusal is also unmeasured — nothing drives an over-committed refusal through a tab, so the number it would answer with has never been read; the `e2e` project could host that case |
 | SCHED-04 | Phase 18 — Discovery, Capacity & Placement | **Partial** — GovernedExecutor is wired on the browser tier only; FabricNode composes a WorkerExecutor and no governor, and the duty cycle is readonly on both tiers, so "user-adjustable" is unmet |
 | SCHED-05 | Phase 18 — Discovery, Capacity & Placement | **Built, not wired** — the sovereignty gate runs inside placeWithOffers, reachable only through runResilient |
 | MR-01 | Phase 1 — Portable Kernel & Loopback Map Slice | Done |

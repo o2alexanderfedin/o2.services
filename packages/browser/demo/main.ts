@@ -9,10 +9,22 @@
  *
  * ## Consent is the gate, and it has no bypass
  *
- * `start` takes a `GrantedConsent`, which only `grantConsent` mints. There is no
- * test-only path around it: a path that could start without consenting would be a
- * path, and BROW-01 is not a property you can have on weekdays. A harness calls
- * `window.o2.grantConsent()` for the same reason a visitor clicks the button.
+ * `start` calls `requireConsent()` before it touches anything, and that throws unless
+ * this origin's storage already holds a record answering the current disclosure
+ * version. There is no test-only path around it: a path that could start without
+ * consenting would be a path, and BROW-01 is not a property you can have on weekdays.
+ * A harness calls `window.o2.grantConsent()` for the same reason a visitor clicks the
+ * button — to *write* that record.
+ *
+ * **Two corrections to what this paragraph used to say, both measurable here.**
+ * `start` does not take a `GrantedConsent`: its signature is
+ * `start(options: { relayAddrs, blockstoreName, trustAnchors? })` and `requireConsent()`'s
+ * return value is discarded below. And `grantConsent` is not the only minter —
+ * `requireConsent` goes through `readConsent(store)`, which mints one of its own from a
+ * record already on disk (`consent.ts:154`), so a returning visitor starts with
+ * `grantConsent` never running. What is true, and what the gate actually rests on, is
+ * that `new GrantedConsent(...)` is reachable at two places only, both inside
+ * `consent.ts` and both behind a module-private `MINTED` symbol.
  *
  * Nothing here touches the network before that call either — not even relay
  * discovery, which fetches `/bootstrap.json`. The requirement names CPU; the owner's
@@ -513,14 +525,28 @@ const api: TabApi = {
     const connected = [...n.transport.peers]
     // Asked, not classified. An offer is the cheapest request that proves a peer
     // speaks the agent protocol at all, and its refusal is as good an answer as its
-    // acceptance — either way somebody replied. A peer that does not handle the
-    // protocol fails protocol negotiation immediately, so this costs no timeout.
+    // acceptance — either way somebody replied.
+    //
+    // **The catch collapses two different peers into one answer, and only one of them
+    // is cheap.** A peer that does not handle the protocol fails multistream
+    // negotiation immediately, so it costs no timeout — that is the case the reasoning
+    // above was written for. A peer that *does* speak it but is wedged burns this
+    // demo's full `rpcTimeoutMs` (60 s, set where this page constructs its node) and is then
+    // dropped from the tally exactly as though it had never spoken.
+    //
+    // Swallowed deliberately rather than reported: this is a display count on a demo
+    // page, a wedged peer is indistinguishable from a departed one from here, and the
+    // honest rendering of both is "not counted". What it must not do is claim the round
+    // was cheap in the wedged case, which is why the timeout is named here — a
+    // `computePeers()` that takes a minute is this branch, not a hung page.
     const answers = await Promise.all(
       connected.map(async (peer) => {
         try {
           const body = await n.rpc.request(peer, encodeRequest({ kind: 'offer', shardId: 'probe' }))
           return parseResponse(body)?.kind === 'offer' ? peer : null
         } catch {
+          // Refusal, timeout, or a peer that vanished mid-request — all three mean the
+          // same thing to a peer count, and none of them is this page's to report.
           return null
         }
       }),

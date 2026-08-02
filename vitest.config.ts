@@ -2,42 +2,177 @@ import { playwright } from '@vitest/browser-playwright'
 import { defineConfig } from 'vitest/config'
 
 /**
+ * The measured cut. A file at or above this is excluded by `test:unit`.
+ *
+ * Read by `MEASURED_NODE_SPANS` below and by
+ * `packages/node/src/slow-specs.node.test.ts`, which parses this file's source. The
+ * threshold is a stated judgement rather than a discovered boundary — the curve is
+ * smooth below `lift.node.test.ts`, so no cut falls in a natural gap.
+ */
+const SLOW_CUTOFF_MS = 1000
+
+/**
+ * The run `MEASURED_NODE_SPANS` came from, as data rather than as prose.
+ *
+ * Every figure that used to sit in the paragraph below is here instead, because the
+ * paragraph is what went wrong: it stated a file count, a test count and a wall clock,
+ * all three were false, and nothing read them. `slow-specs.node.test.ts` reads these.
+ *
+ * `load` is recorded because it changes the answer. See the note on reproducibility in
+ * `MEASURED_NODE_SPANS`.
+ */
+const NODE_MEASUREMENT = {
+  date: '2026-08-01',
+  /** 1-minute load average, start and end of the run. It rose while the run went on. */
+  load: 20.9,
+  loadAtEnd: 42.3,
+  /** Files and tests the `node` project ran, i.e. with no `test:unit` exclusions. */
+  files: 113,
+  tests: 1611,
+  /** Sum of per-file spans. Not wall clock — vitest runs files in parallel. */
+  sumOfFileSpansMs: 594_300,
+  /** Wall clock of that same run, for contrast with the sum above. */
+  wallClockMs: 353_000,
+  /**
+   * What `npm run test:unit` measured with the derived list below applied.
+   *
+   * Two consecutive readings at load ~16 gave 7.07 s and 5.35 s. The spread is the
+   * same load sensitivity the table's own note is about; the figure here is the
+   * faster of the two and should be read as "about five seconds", not as a bound.
+   */
+  unitFiles: 77,
+  unitTests: 1141,
+  unitWallClockMs: 5_350,
+} as const
+
+/**
+ * Per-file spans from one recorded run, and the **only** hand-maintained data here.
+ *
+ * `SLOW_NODE_SPECS` is derived from this table by applying `SLOW_CUTOFF_MS`, so the
+ * list and the measurement cannot disagree. They did before: the list held nine files
+ * while twenty-three met its own stated rule, and every figure in the prose around it
+ * was false — it claimed `test:unit` ran 66 files / 946 tests in 6.46 s when the real
+ * numbers were 102 / 1411 / 24.03 s. A list maintained beside a rule drifts from the
+ * rule; a list computed from the rule cannot.
+ *
+ * ## The measurement
+ *
+ * `vitest run --project node --reporter=json`, **2026-08-01**, 113 files / 1611 tests,
+ * 0 failures. Sum-of-file-spans 594.3 s against 353 s of wall clock, the difference
+ * being vitest's own parallelism. Distribution: median 167 ms, p75 2198 ms, p90 8087 ms.
+ * Load average 20.9 rising to 42.3 — other agents were building on this host
+ * throughout, and that is recorded because it changes the answer.
+ *
+ * ## An absolute millisecond cut is not reproducible, and this is the evidence
+ *
+ * The same rule was applied to **three** runs of the same tree on the same machine
+ * within one hour, and selected a different set each time:
+ *
+ * | run | 1-min load | files at or above 1 s |
+ * |---|---|---|
+ * | 2026-07-29 (recorded by the prior pass) | ~9 | 23 |
+ * | this pass, run 1 | 53 → 108 | 29 |
+ * | this pass, run 2 | 10 → 25 | 28 |
+ * | this pass, run 3 — **the table below** | 21 → 42 | 36 |
+ *
+ * Membership near the boundary is noise: `churn.test.ts` read 1134 ms in one run and
+ * 961 ms in the next, crossing the cut without changing. **So the list cannot be made
+ * to enforce itself by re-timing** — a guard that re-measured would disagree with
+ * itself between runs, and the only stable thing to check is structure. That is what
+ * `packages/node/src/slow-specs.node.test.ts` does, and why it explicitly does not
+ * re-time anything.
+ *
+ * What *is* stable is the shape: a handful of files dominate by more than an order of
+ * magnitude, and the marginal ~1 s files barely matter because vitest runs them in
+ * parallel. Erring generous is therefore both safe and cheap — over-excluding costs
+ * `test:unit` some coverage it was never the last word on, while under-excluding costs
+ * the inner loop the thing it exists for. A bare `vitest run` and `npm run test:node`
+ * both still see every file, so nothing becomes unreachable either way.
+ *
+ * ## What the cut buys
+ *
+ * The 36 excluded files are **98.1 %** of the 594.3 s. The 77 that remain total
+ * **11.4 s of test time across 1141 tests**, and `npm run test:unit` wall-clocks at
+ * about **5 s**. `lift.node.test.ts` alone is 318 s — 54 % of the suite in one file.
+ *
+ * For contrast with what this replaces: under the old nine-file list the same tree
+ * gives 103 files / 1427 tests, which is the 102 / 1411 / 24.03 s the audit recorded
+ * plus the two guard files added by this pass.
+ *
+ * ## Entries below the cut are listed too, on purpose
+ *
+ * Everything down to 400 ms is here, so the neighbourhood of the boundary is visible
+ * and a file that crosses it is a one-line diff against a recorded number rather than
+ * a rediscovery. Files under 400 ms are omitted.
+ *
+ * ## Mechanism, where it was actually established
+ *
+ * Filename is not a usable signal and neither is the obvious mechanical proxy:
+ * grepping for `node:child_process` or `docker` selects a different set —
+ * `disclosure-gate`, `purity` and `vocabulary` all spawn real processes and are fast,
+ * while `transport-bounds` and `admission` import neither and are among the slowest.
+ * The mechanism notes below are only on the files where a previous pass verified one.
+ * The rest are deliberately unannotated rather than guessed at.
+ */
+const MEASURED_NODE_SPANS: readonly (readonly [string, number])[] = [
+  ['tools/aot/lift.node.test.ts', 318366],                            // 48 `docker` invocations via execFileSync
+  ['packages/node/src/enrollment.node.test.ts', 51460],
+  ['packages/node/src/certificate-verification.node.test.ts', 30184],
+  ['packages/node/src/tree-reduce-agents.node.test.ts', 19828],
+  ['packages/demo/src/kernel.test.ts', 17349],                        // heavy WASM build, 120 s testTimeout
+  ['packages/node/src/peer-gate.node.test.ts', 12506],
+  ['packages/node/src/transport-bounds.node.test.ts', 12141],         // waits out real 3/10/20 s RPC timeouts
+  ['packages/node/src/signed-artifact.node.test.ts', 11053],
+  ['packages/node/src/capability-dispatch.node.test.ts', 9390],
+  ['packages/node/src/admission.node.test.ts', 9160],                 // CPU-bound WASM synthesis, 120 s testTimeout
+  ['packages/node/src/fabric-node.node.test.ts', 8501],               // real libp2p nodes, 120 s testTimeout
+  ['packages/node/src/two-process.node.test.ts', 8417],               // 8 real `spawn` calls
+  ['packages/node/src/orphan-leash.node.test.ts', 8087],
+  ['packages/node/src/sovereignty-placement.node.test.ts', 6924],     // 6 real `spawn` calls
+  ['packages/node/src/egress-refusal.node.test.ts', 5701],            // 10 real `spawn` calls
+  ['packages/node/src/relaying.node.test.ts', 5068],
+  ['packages/net/src/enrol-agent.test.ts', 4294],
+  ['packages/node/src/egress-manifest.node.test.ts', 4129],
+  ['packages/node/src/node-records.node.test.ts', 3583],
+  ['packages/node/src/rendezvous-wire.node.test.ts', 3437],
+  ['packages/node/src/node-enrollment.node.test.ts', 3436],
+  ['packages/net/src/discovery.test.ts', 2991],
+  ['packages/node/src/peer-verifier.node.test.ts', 2975],
+  ['packages/node/src/execution-deadline.node.test.ts', 2621],
+  ['packages/node/src/primes-reduce.node.test.ts', 2372],
+  ['packages/node/src/fs-blockstore.node.test.ts', 2320],
+  ['packages/aot/src/wasi-executor.test.ts', 2217],
+  ['packages/node/src/identity-store.node.test.ts', 2215],
+  ['packages/net/src/sovereign-execution.test.ts', 2198],
+  ['packages/core/src/discovery.test.ts', 2045],
+  ['packages/node/src/node-identity.node.test.ts', 1912],
+  ['packages/node/src/relayed-job.node.test.ts', 1417],
+  ['packages/node/src/disclosure-gate.node.test.ts', 1330],
+  ['packages/node/src/start-unwind.node.test.ts', 1155],
+  ['tools/aot/cli.node.test.ts', 1100],
+  ['packages/node/src/named-refusal.node.test.ts', 1022],
+  // ---- below the cut; listed so the boundary is visible, not excluded ----
+  ['packages/net/src/churn.test.ts', 961],                            // 800k-iteration churn loop
+  ['packages/aot/src/fixtures/wasi-fixtures.node.test.ts', 797],
+  ['packages/net/src/distributed.test.ts', 690],
+  ['packages/node/src/purity.node.test.ts', 620],
+  ['packages/libp2p/src/identity.test.ts', 603],
+  ['packages/node/src/sovereign-block-refusal.node.test.ts', 580],
+  ['packages/net/src/reduce-job.test.ts', 483],
+  ['packages/net/src/remote-executor-contract.test.ts', 423],
+  ['packages/net/src/enrol-protocol.test.ts', 417],
+  ['packages/core/src/reduce.test.ts', 406],
+]
+
+/**
  * The `node` specs that dominate its wall clock, excluded by `test:unit`.
  *
- * Measured, not guessed from filenames. `vitest run --project node
- * --reporter=json` on 2026-07-29 gave a per-file span for every file in the
- * project: median 37 ms, p75 267 ms, p90 1070 ms, total 252.7 s. The nine files
- * below are every file that came in at or above 1 s.
- *
- * The effect was then measured on the script itself rather than predicted from
- * that table: `npm run test:unit` runs 66 files / 946 tests in **6.46 s**, against
- * `npm run test:node` at 75 files / 1080 tests in **210 s**. Roughly 33× faster for
- * 88 % of the files.
- *
- * The criterion is the measured 1 s cut, which is p90 of that distribution. It is
- * a stated judgement, not a discovered boundary: below `lift.node.test.ts` (22×
- * the next file) the curve is smooth, so no threshold falls in a natural gap. 1 s
- * is chosen because tightening it to 500 ms drops four more files to save only a
- * further 2.3 s.
- *
- * Filename was *not* a usable signal, and neither was the obvious mechanical
- * proxy. Grepping for `node:child_process` or `docker` selects a different set:
- * `disclosure-gate` (528 ms), `purity` (219 ms) and `vocabulary` all spawn real
- * processes and are fast, while `transport-bounds` (9.85 s) and `admission`
- * (7.61 s) — the 2nd and 3rd slowest — import neither. The verified mechanisms are
- * four, not one, and the comment on each line says which applies.
+ * Derived, never edited by hand. To change what is excluded, re-measure and update
+ * `MEASURED_NODE_SPANS`; to change the rule, change `SLOW_CUTOFF_MS`.
  */
-const SLOW_NODE_SPECS: readonly string[] = [
-  'tools/aot/lift.node.test.ts', //                        217.1 s — 48 `docker` invocations via execFileSync
-  'packages/node/src/transport-bounds.node.test.ts', //       9.9 s — waits out real 3/10/20 s RPC timeouts
-  'packages/node/src/admission.node.test.ts', //              7.6 s — CPU-bound WASM synthesis, 120 s testTimeout
-  'packages/node/src/two-process.node.test.ts', //            3.0 s — 8 real `spawn` calls
-  'packages/demo/src/kernel.test.ts', //                      2.5 s — heavy WASM build, 120 s testTimeout
-  'packages/node/src/fabric-node.node.test.ts', //            1.9 s — real libp2p nodes, 120 s testTimeout
-  'packages/node/src/sovereignty-placement.node.test.ts', //  1.3 s — 6 real `spawn` calls
-  'packages/node/src/egress-refusal.node.test.ts', //         1.1 s — 10 real `spawn` calls
-  'packages/net/src/churn.test.ts', //                        1.1 s — 800k-iteration churn loop
-]
+const SLOW_NODE_SPECS: readonly string[] = MEASURED_NODE_SPANS.filter(
+  ([, ms]) => ms >= SLOW_CUTOFF_MS,
+).map(([path]) => path)
 
 /**
  * Switched here rather than on the command line because vitest 4.1.10's

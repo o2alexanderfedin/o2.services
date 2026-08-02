@@ -57,5 +57,92 @@ if [[ ! $BRANCH =~ $VALID_BRANCH_PATTERN ]]; then
   echo ""
 fi
 
+# ---------------------------------------------------------------------------
+# The cheap guards, run against what is about to be committed
+# ---------------------------------------------------------------------------
+#
+# Added 2026-08-01. Until now this hook enforced branch naming and nothing else:
+# no test, no `tsc`, no guard ran before a commit anywhere in this repository.
+#
+# WHY THIS IS A HOOK AND NOT CI. It must stay local. `disclosure-gate.node.test.ts`
+# asserts that `.github/workflows` does not exist and that no workflow file is
+# tracked *or* untracked, because public hosting is public disclosure and the EPO
+# and China have no patent grace period — publishing forfeits those rights
+# permanently. Adding CI to close this would break the invariant it is meant to
+# protect. Do not "fix" the absence of `.github/` by adding it.
+#
+# WHY PRE-COMMIT AND NOT PRE-PUSH. `vocabulary.node.test.ts` and
+# `disclosure-gate.node.test.ts` build their corpus from `git ls-files`, i.e. the
+# index. A guard run *before* `git add` cannot see the file it is about to judge,
+# and that has already produced a defect: a verification pass reported its guards
+# green from a run that could not have read the file it was about to write. By the
+# time this hook runs, `git add` has happened, so the file is in the index and
+# inside the guards' jurisdiction.
+#
+# WHAT THIS STILL DOES NOT CATCH, stated rather than left to be discovered. The
+# guards list files from the index but read their *contents* from the working tree.
+# A partially-staged file is therefore judged in its working-tree form, which is not
+# what the commit will contain. `git commit -a` and a fully-staged tree are exact;
+# `git add -p` is not.
+#
+# Deliberately not run here: `tsc --noEmit` (~10 s) and the full node suite
+# (~290 s). A hook slow enough to be resented is a hook that gets disabled with
+# `--no-verify`, and then it guards nothing at all. These three take about 1.5 s of
+# test time.
+
+if [ "$O2_SKIP_GUARDS" = "1" ]; then
+  echo "⏭️  O2_SKIP_GUARDS=1 — skipping the cheap guards"
+  exit 0
+fi
+
+REPO_ROOT=$(git rev-parse --show-toplevel)
+
+# A worktree that was never installed into has no runner. Skip loudly rather than
+# failing the commit: this repository's own workflow creates worktrees per agent,
+# and a hook that blocks every commit in a fresh one would be removed within a day.
+if [ ! -x "$REPO_ROOT/node_modules/.bin/vitest" ]; then
+  echo "⏭️  no node_modules/.bin/vitest in $REPO_ROOT — skipping the cheap guards"
+  echo "   (run 'npm install' to enable them)"
+  exit 0
+fi
+
+# Only worth running when something they read is staged. `--diff-filter=ACMR`
+# leaves out deletions, whose content cannot be scanned.
+STAGED=$(git diff --cached --name-only --diff-filter=ACMR)
+RELEVANT=$(printf '%s\n' "$STAGED" | grep -E '(\.ts$|^\.planning/.*\.md$|^\.github/)')
+
+if [ -z "$RELEVANT" ]; then
+  exit 0
+fi
+
+echo "🔍 cheap guards (vocabulary, purity, mutation-ledger, disclosure, ledgers)…"
+
+# One vitest invocation, not four: process startup dominates the wall clock here.
+# `--project node` is required — four projects exist, and a bare path argument runs
+# the file under all of them.
+"$REPO_ROOT/node_modules/.bin/vitest" run --project node --silent \
+  packages/node/src/vocabulary.node.test.ts \
+  packages/node/src/purity.node.test.ts \
+  packages/node/src/mutation-guard.node.test.ts \
+  packages/node/src/disclosure-gate.node.test.ts \
+  packages/node/src/requirements-ledger.node.test.ts \
+  packages/node/src/slow-specs.node.test.ts
+GUARD_STATUS=$?
+
+if [ "$GUARD_STATUS" -ne 0 ]; then
+  echo ""
+  echo "❌ a cheap guard failed — commit refused"
+  echo ""
+  echo "These are the guards that are fast enough to run every time. A failure here"
+  echo "is a real finding about the staged tree, not flake."
+  echo ""
+  echo "To commit anyway (and you should have a reason):"
+  echo "  O2_SKIP_GUARDS=1 git commit …"
+  echo ""
+  exit 1
+fi
+
+echo "✅ cheap guards passed"
+
 # Allow commit to proceed
 exit 0

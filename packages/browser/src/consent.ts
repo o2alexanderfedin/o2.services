@@ -97,11 +97,24 @@ export class GrantedConsent {
   }
 }
 
+/**
+ * A stored record, or `null` for anything this cannot read as one.
+ *
+ * **Every failure collapses to `null`, and `null` shows the gate.** Malformed JSON, a
+ * JSON value that is not an object, and an object missing a field all answer the same
+ * way, and none is distinguished from "nothing was ever stored". That is the safe
+ * direction and the only one worth having: the sole consequence of a `null` is that the
+ * visitor is asked to consent again, which is what should happen when this origin's
+ * storage cannot be shown to hold their answer. Reporting the difference would mean
+ * surfacing a parse error on a page whose correct response is to show a consent
+ * dialogue anyway.
+ */
 function parse(raw: string): ConsentRecord | null {
   let value: unknown
   try {
     value = JSON.parse(raw)
   } catch {
+    // Corrupt or truncated storage — treated as no consent, which shows the gate.
     return null
   }
   if (typeof value !== 'object' || value === null) return null
@@ -204,6 +217,11 @@ export function localConsentStore(): ConsentStore {
     try {
       return globalThis.localStorage ?? null
     } catch {
+      // Access itself throws, not just returns undefined: Safari private browsing and
+      // a third-party frame with storage blocked both do this. Collapsed to `null`
+      // deliberately, and it is the same `null` as "no such global" one line up —
+      // every caller's next move is identical for both, namely to behave as though
+      // nothing is stored, which shows the gate rather than silently starting a node.
       return null
     }
   }

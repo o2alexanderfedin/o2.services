@@ -344,11 +344,26 @@ function readWsPort(multiaddrs: readonly string[]): number | null {
   return null
 }
 
+/**
+ * The port a join URL names, or `null` when it names none this function can read.
+ *
+ * **`null` means two things and the caller cannot tell them apart, which is on purpose
+ * here and would not be elsewhere.** A well-formed URL with no explicit port (`https://
+ * host/`, port defaulted by scheme) and a string that is not a URL at all both answer
+ * `null`. The caller wants "is there a port to reuse", and for that question the two
+ * are the same answer; nothing downstream branches on which it was.
+ *
+ * Recorded rather than left silent because its sibling `readWsPort` above carries a
+ * comment about a bug that shipped once, and a reader arriving from that comment is
+ * entitled to know whether this one hides the same class of mistake. It does not — but
+ * that is a claim worth writing down rather than leaving to be re-derived.
+ */
 function readUrlPort(url: string): number | null {
   try {
     const port = new URL(url).port
     return port === '' ? null : Number(port)
   } catch {
+    // Not a URL. Indistinguishable from "no port" to every caller, by design above.
     return null
   }
 }
