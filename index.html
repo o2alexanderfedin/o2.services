@@ -30,6 +30,10 @@
       }
       button[disabled] { opacity: .4; cursor: default; }
       .note { font-size: .85rem; opacity: .75; }
+      #measurements {
+        margin-top: 2.5rem; padding-top: 1rem;
+        border-top: 1px solid color-mix(in srgb, currentColor 20%, transparent);
+      }
       .note code {
         background: color-mix(in srgb, currentColor 12%, transparent);
         padding: .1em .35em; border-radius: 3px;
@@ -57,6 +61,12 @@
     <dl id="facts"></dl>
 
     <p class="note" id="explain"></p>
+
+    <footer class="note" id="measurements">
+      Measured, with the method and the numbers that disagreed with the prediction:
+      <a href="./perf/">prime counting and a pi series on this fabric</a> &mdash;
+      throughput, decomposition cost, fabric overhead and real parallel speedup.
+    </footer>
 
   </body>
 </html>
