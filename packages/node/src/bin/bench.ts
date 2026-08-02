@@ -38,7 +38,7 @@ import {
   publicNodes,
   signName,
 } from '@o2/core'
-import type { CanonicalValue, Executor, NameRecord, Task } from '@o2/core'
+import type { CanonicalValue, Executor, NameRecord, NodeDescriptor, Task } from '@o2/core'
 import type { CID } from 'multiformats/cid'
 import {
   EgressGuard,
@@ -46,10 +46,12 @@ import {
   RemoteExecutor,
   RpcBlockSource,
   RpcEndpoint,
+  discoverCandidates,
   reduceJob,
   serveAgent,
   submitJobWithEgress,
 } from '@o2/net'
+import { peerIdForNodeKey } from '@o2/libp2p'
 import {
   NODE_LADDER,
   connectivityTax,
@@ -69,6 +71,41 @@ import type {
 } from '@o2/bench'
 import { MODULE_WRITES_PARTITION } from '../../../core/src/executor/fixtures.ts'
 import { FabricNode } from '../fabric-node.ts'
+
+/**
+ * Derive the real rig's executors by **discovery** rather than from this driver's own
+ * list — SCHED-01's entry-point call path. Off by default.
+ *
+ * ## Why the flag exists
+ *
+ * `discoverCandidates` (`@o2/net`) must be reachable from one of the five runnable entry
+ * points or Phase 22's guard fails on it, and that phase's roadmap section records an
+ * overruled proposal to accept a capability as entry-point-unreachable: *shipping an
+ * adapter with no callers is the defect this milestone exists to remove, and naming it is
+ * not the same as fixing it.* This is that path.
+ *
+ * ## Why it is off by default
+ *
+ * 15-CONTEXT.md decision 2 — a published scaling curve must not be reshaped by a change
+ * nobody declared. With the flag absent, `realFabric` builds exactly what it built before
+ * this flag existed, down to the enrollment round trip not happening at all. The default
+ * run measures what it measured yesterday.
+ *
+ * ## What it changes when set, and why the two runs are not comparable
+ *
+ * The executor set stops being `started.map(...)` and becomes the intersection of real
+ * provider answers with signed capability records, keyed by the input CID; and placement
+ * asks each candidate before using it (`admit`). Both are real work on the timed path, so
+ * **a `--discover` run must not be published beside a default one.** The report line says
+ * so rather than leaving it to whoever reads the numbers.
+ *
+ * ## Read the same way `--quick` is read
+ *
+ * `process.argv.includes`, not `parseArgs`. The plan called for `parseArgs`, and this file
+ * has none — `QUICK` on the next line is how it has always read a flag. Following the file
+ * beats importing a parser to add one boolean.
+ */
+const DISCOVER = process.argv.includes('--discover')
 
 const QUICK = process.argv.includes('--quick')
 const RUNS = QUICK ? 6 : 20
@@ -330,6 +367,18 @@ function timed(inner: Executor, into: { gross: number; perNode: Map<string, numb
 
 interface Fabric {
   readonly executors: readonly Executor[]
+  /**
+   * The descriptors placement ranks over, correlated with {@link Fabric.executors} by
+   * `nodeId`.
+   *
+   * Carried on the rig rather than derived in `runnerFor`, because the two arms derive it
+   * differently and only the rig knows which arm it is: the default path is
+   * `publicNodes(executors)` exactly as before, while a `--discover` rig uses the
+   * descriptors `discoverCandidates` returned — which carry a real `ownerId` and
+   * `canExecuteSovereign` read off each node's signed capability record, rather than the
+   * public placeholder `publicNodes` synthesises.
+   */
+  readonly nodes: readonly NodeDescriptor[]
   readonly blockstore: MemoryBlockstore
   readonly moduleCid: Awaited<ReturnType<MemoryBlockstore['put']>>
   /**
@@ -462,6 +511,7 @@ async function memoryFabric(nodes: number): Promise<Fabric> {
 
   return {
     executors: remote,
+    nodes: publicNodes(remote),
     blockstore: originStore,
     moduleCid,
     moduleRecord: FIXTURE_RECORD,
@@ -474,10 +524,53 @@ async function memoryFabric(nodes: number): Promise<Fabric> {
   }
 }
 
+/**
+ * The user key every `--discover` worker enrols under.
+ *
+ * A fixed seed rather than a fresh one per run, because the enrolment it produces is
+ * setup and not measurement: nothing in the report depends on this value, and a constant
+ * keeps a `--discover` run reproducible in the one way it can be. Never used on the
+ * default path — nothing on that path enrols at all.
+ */
+const BENCH_USER_SEED = new Uint8Array(32).fill(7)
+
+/** The TCP multiaddr a peer dials this node at, peer id included. */
+function dialableAddr(node: FabricNode): string {
+  const addr = node.multiaddrs.find((ma) => ma.includes('/tcp/') && !ma.includes('/p2p-circuit'))
+  if (addr === undefined) throw new Error(`no dialable address on ${node.peerId}`)
+  return addr
+}
+
 /** N real libp2p nodes over TCP on loopback. Same machine — labelled as such. */
 async function realFabric(nodes: number): Promise<Fabric> {
   const root = await mkdtemp(join(tmpdir(), 'o2-bench-'))
   const started: FabricNode[] = []
+
+  // ── the --discover arm's provider ──────────────────────────────────────────────────
+  //
+  // Discovery answers with **signed** records, so a node with no certificate is excluded
+  // as `no-records` and a discovering run over the default topology would find nobody.
+  // The plan for this flag did not say so; it was found by reading `resolveCertificate`,
+  // which returns `null` the moment `enrollment` is undefined — which is every node this
+  // driver has ever built.
+  //
+  // So the discover arm needs an issuer, and it gets one that exists ONLY on that arm.
+  // Everything below is skipped entirely by a default run, which is what keeps the
+  // default curve where it was: no provider process, no enrolment round trip, no extra
+  // dial.
+  let provider: FabricNode | undefined
+  if (DISCOVER) {
+    const providerDir = join(root, 'provider')
+    await mkdir(providerDir, { recursive: true })
+    provider = await FabricNode.start({
+      blockstoreDir: providerDir,
+      rpcTimeoutMs: 30_000,
+      maxConcurrentTasks: DECLARED_ADMISSION_LIMIT,
+      trustAnchors: [BENCH_TRUST_ANCHOR],
+      issuesCertificates: true,
+    })
+  }
+  const providerAddr = provider === undefined ? undefined : dialableAddr(provider)
 
   for (let i = 0; i < nodes; i++) {
     const dir = join(root, `node-${i}`)
@@ -498,6 +591,19 @@ async function realFabric(nodes: number): Promise<Fabric> {
         // same reason it states the same admission limit: it is a `FabricNode` like
         // any other and serves `exec` requests like any other.
         trustAnchors: [BENCH_TRUST_ANCHOR],
+        // Spread rather than a conditional field: `exactOptionalPropertyTypes` makes an
+        // explicit `undefined` different from an absent key, and on the default path this
+        // key must be absent — a worker that enrolled would publish a certificate, which
+        // is a change to what the default rig IS and not only to how fast it runs.
+        ...(providerAddr === undefined
+          ? {}
+          : {
+              enrollment: {
+                userPrivateKey: BENCH_USER_SEED,
+                operatorId: `bench-worker-${i}`,
+                providerAddr,
+              },
+            }),
       }),
     )
   }
@@ -509,6 +615,11 @@ async function realFabric(nodes: number): Promise<Fabric> {
     rpcTimeoutMs: 30_000,
     maxConcurrentTasks: DECLARED_ADMISSION_LIMIT,
     trustAnchors: [BENCH_TRUST_ANCHOR],
+    // Pinned only on the discover arm, and absent otherwise for the reason the worker's
+    // `enrollment` spread gives: a node with no `trustedIssuers` answers `verifiedPeers`
+    // with its whole connected set, so setting this on the default path would change what
+    // that reading means there too.
+    ...(provider?.issuerKey == null ? {} : { trustedIssuers: [provider.issuerKey] }),
   })
   const moduleCid = sameFixtureCid('realFabric', await requestor.store.put(MODULE_WRITES_PARTITION))
 
@@ -519,13 +630,64 @@ async function realFabric(nodes: number): Promise<Fabric> {
 
   // AUTH-03, same permanent sentinel and the same reason as the memory-transport
   // leg above: this driver's shards are all public.
-  const executors = started.map(
+  let executors: readonly Executor[] = started.map(
     (node) =>
       new RemoteExecutor(node.libp2p.peerId.toString(), requestor.rpc, 'dispatches-unauthenticated'),
   )
+  let descriptors = publicNodes(executors)
+
+  if (DISCOVER) {
+    // The requestor must be able to ask each worker, so it dials them — the default path
+    // only has the workers dialling *it*, which is enough to fetch blocks but leaves the
+    // requestor with no peers of its own to query.
+    for (const node of started) await requestor.libp2p.dial(node.libp2p.getMultiaddrs())
+
+    // **Discovery keys on the module block, not on a shard input, and that is a departure
+    // from the plan worth stating.** The plan says "the workload's input CID"; the shards
+    // do not exist yet. They are produced per-run by `shardInputs(config.skew)` inside
+    // `run`, while `executors` is fixed here, once per node count. Discovering on a CID
+    // that will not exist for another few milliseconds is not possible, and rebuilding the
+    // executor set per iteration would put a discovery round trip inside the timed region
+    // of every run rather than once per rig.
+    //
+    // The module block is a real content CID that real workers really hold, so the
+    // question asked is the same question — *who has this block* — over the one block that
+    // is available at rig-construction time. Each worker is given it here explicitly,
+    // because on the default path a worker holds nothing until it fetches during a run.
+    for (const node of started) await node.store.put(MODULE_WRITES_PARTITION)
+
+    const found = await discoverCandidates(
+      { inputCid: moduleCid },
+      {
+        rpc: requestor.rpc,
+        // `verifiedPeers` and not `transport.peers`: a provider list steers where work
+        // goes, so a peer that has not cleared verification does not get to contribute
+        // one. This is `discover-candidates.ts`'s own recommendation.
+        peers: () => requestor.verifiedPeers,
+        trustedIssuers: new Set(provider?.issuerKey == null ? [] : [provider.issuerKey]),
+        now: () => Date.now(),
+        peerIdFor: peerIdForNodeKey,
+        // The same permanent sentinel as the list above: every shard here is public.
+        dispatch: 'dispatches-unauthenticated',
+      },
+    )
+
+    process.stdout.write(
+      `--discover: ${String(found.executors.length)} of ${String(started.length)} workers` +
+        ` qualified from ${String(found.providers)} providers` +
+        `${found.excluded.length === 0 ? '' : `, ${String(found.excluded.length)} excluded`}\n`,
+    )
+    if (found.executors.length === 0) {
+      throw new Error('--discover found no candidates; refusing to report a curve measured on nothing')
+    }
+
+    executors = found.executors
+    descriptors = found.nodes
+  }
 
   return {
     executors,
+    nodes: descriptors,
     blockstore: requestor.store as unknown as MemoryBlockstore,
     moduleCid,
     moduleRecord: FIXTURE_RECORD,
@@ -578,7 +740,11 @@ function runnerFor(build: (nodes: number) => Promise<Fabric>): {
         moduleRecord: fabric.moduleRecord,
         shards: shards.map((value) => ({ value, label: 'public' as const })),
         executors,
-        nodes: publicNodes(executors),
+        // `fabric.nodes` and not `publicNodes(executors)`: on a --discover rig the
+        // descriptors carry an ownerId read from each node's signed capability record,
+        // and re-deriving them here would throw that away. `timed` preserves `nodeId`,
+        // so the correlation submitJob checks still holds.
+        nodes: fabric.nodes,
         redundancy: config.redundancy,
       },
       fabric.blockstore,

@@ -302,9 +302,49 @@ describe('production RemoteExecutor call sites state the chain explicitly', () =
     expect(occurrences(DEMO_MAIN, 'new RemoteExecutor(')).toBe(2)
   })
 
-  it('bin/bench.ts: both drivers dispatch public shards', () => {
-    expect(occurrences(BENCH, "'dispatches-unauthenticated'")).toBe(2)
+  it('bin/bench.ts: both drivers dispatch public shards, and so does the discovered set', () => {
+    // **Three, raised from two by 18-06, and the raise is the honest answer rather than
+    // the convenient one.** The third is not a new dispatch *site* in the sense the other
+    // two are — it is `discoverCandidates`' required `dispatch` option, which is handed to
+    // every `RemoteExecutor` that helper builds on the `--discover` arm. So it states the
+    // same sentinel for the same permanent reason the other two do: every shard this
+    // driver submits is `label: 'public'`, and a public task has no owner and therefore no
+    // key a capability chain could be rooted at.
+    //
+    // The plan for 18-06 said this count must stay at 2. It could only have stayed at 2 by
+    // hoisting the literal into a constant, which would have taken it to 1 and made the
+    // floor this file exists to hold unreadable — a worse outcome than a number that moved
+    // for a stated reason. `CandidateOptions.dispatch` is required precisely so that a
+    // candidate built without one cannot dispatch unauthenticated silently.
+    expect(occurrences(BENCH, "'dispatches-unauthenticated'")).toBe(3)
+    // Unmoved: the discover arm builds no `RemoteExecutor` of its own — it takes the ones
+    // `discoverCandidates` returns, which is the entire point of the helper.
     expect(occurrences(BENCH, 'new RemoteExecutor(')).toBe(2)
+  })
+
+  it('bin/bench.ts: discoverCandidates is reachable from the entry point', () => {
+    // SCHED-01's entry-point call path, and the reason it is asserted at all: Phase 22's
+    // guard fails on an exported capability with no path from a runnable entry point, and
+    // that phase's roadmap section records an overruled proposal to accept one as
+    // unreachable — *naming it is not the same as fixing it*.
+    //
+    // **The pattern is the call and not the name**, because the name appears four times in
+    // that file — an import, two doc comments, and the call — so a bare substring count
+    // would have been satisfied by the prose alone and would have read `4` while meaning
+    // nothing. `await discoverCandidates(` can only be the invocation.
+    //
+    // **What this still cannot do, and what would**: it is source text, so it proves the
+    // call is written, not that the branch runs. No test executes the `--discover` arm,
+    // and the reason is that `bin/bench.ts` writes `.planning/BENCHMARK-RESULTS.md` at
+    // `process.cwd()` — a test that invoked the driver would overwrite the repository's
+    // committed measurements as a side effect of checking a flag. What would measure it
+    // without that cost: running the driver with `cwd` set to a temporary directory. That
+    // was done by hand while writing this — `--quick --discover` printed
+    // `1 of 1 workers qualified from 1 providers` and `2 of 2 ... from 2 providers` across
+    // the real-transport ladder, and both rungs completed their egress manifest, so the
+    // discovered executors really did carry the job. Recorded in 18-06-SUMMARY.md rather
+    // than automated here.
+    expect(occurrences(BENCH, 'await discoverCandidates(')).toBe(1)
   })
 
   it('bench/src/perf-workload.ts: the third production dispatch site', () => {
