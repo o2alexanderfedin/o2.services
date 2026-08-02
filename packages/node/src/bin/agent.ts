@@ -54,52 +54,19 @@
  *
  * ## This process stops when the process that spawned it goes away
  *
- * On POSIX a child does not die with its parent. Every spawn site of this binary is a
- * test, every one of them tears its agents down in an `afterEach`, and none of that runs
- * when the parent is killed rather than asked: an interrupted run, a killed Vitest worker,
- * a harness torn down mid-test. `SIGKILL` runs no handler by definition, so nothing on
- * the *parent* side can be made to cover it. **Measured, not reasoned:** a sweep on
- * 2026-08-01 found three agent processes from two different sessions still listening,
- * reparented to pid 1, the oldest 20h45m old at 14.5 MB. That is process-table pressure
- * this repository already has a name for — `tools/aot/lift.ts`'s `host-cannot-spawn`.
- *
- * So the answer has to live here, in the child, and it is stdin. A parent that spawns
- * this binary with a pipe on fd 0 holds the write end; when that parent dies — however it
- * dies — the kernel closes it and this process reads EOF. No handler on the parent side,
- * no bookkeeping, no timer, and it covers the one case no exit handler can.
- *
- * **The leash arms only when fd 0 is a socket or a FIFO, and that condition is the whole
- * design.** Three readings of fd 0 have to be told apart, and `fstat` tells them apart
- * exactly:
- *
- * | How this process was started | fd 0 | Leash |
- * |---|---|---|
- * | `spawn(…, { stdio: ['pipe', …] })` | socket (libuv uses `socketpair`) | armed |
- * | `some-command \| agent.ts` | FIFO | armed |
- * | `spawn(…, { stdio: ['ignore', …] })` | character device (`/dev/null`) | not armed |
- * | an operator at a terminal | character device (tty) | not armed |
- * | `agent.ts < /dev/null`, `nohup agent.ts &` | character device | not armed |
- *
- * The two rows that must not arm are the same row to `fstat`, which is what makes the
- * gate safe rather than lucky: **`/dev/null` returns EOF on the very first read**, so an
- * ungated version of this would exit during startup at every caller that ignores stdin —
- * and until the commit that added this, that was *every* caller. An operator's terminal
- * is a character device too, so it is excluded by the same clause, and so is a node
- * deliberately backgrounded away from its shell. Nothing here reads stdin for content;
- * the pipe carries no data, only the fact that it is still open.
- *
- * The consequence a caller has to know: **a spawn site that ignores stdin gets no leash.**
- * That is opt-in by construction — the parent asks for supervision by handing over a pipe
- * — and `orphan-leash.node.test.ts` both demonstrates the leash against a `SIGKILL`ed
- * parent and guards every spawn site in this package against quietly opting out again.
+ * On POSIX a child does not die with its parent, and `SIGKILL` runs no handler, so no
+ * amount of care in the spawning test covers an interrupted run. The leash lives in
+ * `../orphan-leash.ts` — read that module for the `fstat` table that decides when it arms
+ * and why an operator at a terminal is excluded by the same clause that excludes
+ * `/dev/null`. It is shared with `bin/seed.ts` rather than copied into it.
  */
 
-import { fstatSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
 import { parseArgs } from 'node:util'
 import { KERNEL_TRUST_ANCHOR } from '@o2/demo'
 import { SEED_BYTES, parseKeyHex } from '@o2/libp2p'
 import { FabricNode } from '../fabric-node.ts'
+import { armOrphanLeash } from '../orphan-leash.ts'
 
 const { values } = parseArgs({
   options: {
@@ -422,40 +389,6 @@ const enrollment =
 const trustAnchors = values['trust-anchor'] ?? [KERNEL_TRUST_ANCHOR]
 
 /**
- * How long a leash-triggered stop may take before this process leaves anyway.
- *
- * `stopAgent` in the spawning tests gives a wedged node 10 s and then `SIGKILL`s it. On
- * this path there is no parent left to do that — being parentless is the whole reason
- * this path ran — so the deadline has to be local, or a node that wedges in `stop()`
- * becomes exactly the orphan this leash exists to prevent. 5 s rather than 10 because
- * nothing is waiting on a clean unwind here: no parent will read an exit code and no peer
- * is owed a goodbye.
- *
- * **Unmeasured, and said rather than left to be assumed:** nothing in this repository
- * induces a wedged `stop()`, so this budget's *expiry* is reasoned and not observed. What
- * is observed is the ordinary path — `orphan-leash.node.test.ts` sees the process gone
- * 250–500 ms after its parent dies, an order of magnitude inside this.
- */
-const LEASH_STOP_BUDGET_MS = 5_000
-
-/**
- * Is fd 0 a pipe somebody is holding open, rather than `/dev/null` or a terminal?
- *
- * See the module comment for the table this implements and why the distinction is the
- * whole design. A closed or unreadable fd 0 is *not* a leash: `fstat` is the only thing
- * consulted, and if it cannot answer, this process is supervised by nobody and says so by
- * declining to arm rather than by guessing.
- */
-function parentHoldsAPipe(): boolean {
-  try {
-    const fd0 = fstatSync(0)
-    return fd0.isSocket() || fd0.isFIFO()
-  } catch {
-    return false
-  }
-}
-
-/**
  * The node, once it exists.
  *
  * `let` rather than `const`, and the leash is armed *before* `FabricNode.start` below,
@@ -480,23 +413,7 @@ const shutdown = (): void => {
   )
 }
 
-if (parentHoldsAPipe()) {
-  const leashBroke = (): void => {
-    // Unreffed so this timer is never the reason the process stays up; the node's own
-    // listener keeps the loop alive long enough for it to fire, and if `stop()` finishes
-    // first the process is already gone.
-    setTimeout(() => process.exit(0), LEASH_STOP_BUDGET_MS).unref()
-    shutdown()
-  }
-  // `end` is EOF: the last writer closed. `error` is the same fact arriving as ECONNRESET,
-  // which a socketpair can report when the peer is killed rather than closed — and an
-  // unhandled `error` on this stream would take the process down with a stack trace
-  // instead of an unwind, which is a worse way to be right.
-  process.stdin.on('end', leashBroke)
-  process.stdin.on('error', leashBroke)
-  process.stdin.resume()
-  process.stdin.unref()
-}
+armOrphanLeash(shutdown)
 
 node = await FabricNode.start({
   blockstoreDir: values.dir,
