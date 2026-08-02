@@ -167,8 +167,16 @@ describe('takeSovereignHold — a production caller for EgressGuard.guard()', ()
       // `{kind:'error'}` because it wants the opposite retry policy.
       expect.soft(outcome.reason.startsWith('egress refused: ')).toBe(true)
       expect.soft(outcome.reason).toContain(inputCid.toString())
-      // The measurement. Against a 10 s budget, a refusal that arrives in a small
-      // fraction of it cannot be the budget expiring.
+      // The measurement, and both of its populations rather than only the upper one.
+      //
+      // Fast path, measured 2026-08-01: **1.9–9.0 ms** over 51 samples — 24 in Node
+      // (1-min load 10.9→11.9 on 8 cores) and 27 across chromium/firefox/webkit
+      // (load 11.5→29.1). Firefox and WebKit coarsen `performance.now()` to ~1 ms,
+      // so their readings are the integers 2–9; Chromium's are 1.9–3.8.
+      // Upper population: the 10 s budget above, which is what this reads if the
+      // refusal is ever replaced by a wait. 1 s sits two orders of magnitude above
+      // the measured maximum and one below the control, so neither ambient noise on
+      // a contended host nor a coarsened clock can reach it.
       expect.soft(elapsed).toBeLessThan(1_000)
 
       // Refused *and* recorded — the two halves of the ordering guarantee, both

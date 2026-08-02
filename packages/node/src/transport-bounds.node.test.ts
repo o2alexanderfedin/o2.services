@@ -694,8 +694,17 @@ describe('NET-09 — a per-peer send gate, and the tear-down it exists to stop',
     }
 
     // "It rejected eventually" and "it refused at once" are different guarantees
-    // and only the second is a usable signal. 20 s send timeout above; this whole
-    // burst settles far inside it.
+    // and only the second is a usable signal.
+    //
+    // Both populations, in the form the sibling at `:334` already uses. Measured
+    // 2026-08-01 over 19 runs of this file alone, 1-min load 10.3→11.5 on 8 cores:
+    // the whole burst settles in **8–14 ms**. One further reading of **36 ms** was
+    // taken with this file sharing a vitest process with another spec — worth
+    // recording, because it is 2.6× the single-file maximum and is the closest thing
+    // to a tail this bound has. The other population is the 20 s send timeout
+    // configured above: what this reads the day the gate starts queueing instead of
+    // refusing. 5 s is ~139× the worst reading seen under contention and 4× under the
+    // control, so it separates the two without sitting near either.
     expect(Date.now() - started).toBeLessThan(5_000)
   }, 60_000)
 

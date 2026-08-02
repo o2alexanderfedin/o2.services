@@ -288,7 +288,23 @@ describe('BROW-04 / SCHED-06 — a runaway guest is killed by the deadline, not 
       expect(outcome.ok).toBe(false)
       if (outcome.ok) return
       expect(outcome.reason).toMatch(/exceeded \d+ms/)
-      expect(elapsed).toBeLessThan(deadlineMs * 8)
+      // That the deadline fired at all is already causal: `PROBE_NEVER_RETURNS` is a
+      // bare `loop br 0`, so an outcome arriving here at all means the thread was
+      // killed, and had the framework budget been what ended it this case would read
+      // `Test timed out` instead. What the clock adds is *promptness* — BROW-04's
+      // "one click provably drops CPU to zero" is not satisfied by a deadline that
+      // fires eventually — so the bound stays, sited on measurement.
+      //
+      // `deadlineMs * 8` stood here before. Arithmetic on the constant under test is
+      // the same number twice: it cannot fail for the reason it claims. Measured
+      // instead, 2026-08-01, 24 samples over 8 runs across chromium/firefox/webkit,
+      // 1-min load 34.9→60.0 on 8 cores — deliberately taken while three other
+      // suites were running, so this is a loaded population, not a quiet one:
+      // **600.3–618 ms** against a 600 ms deadline, i.e. 0.3–18 ms of overhead.
+      // The other population is the 60 s framework budget on the line below, which
+      // is what a guest that outlives its deadline costs. 3 000 is ~166× the worst
+      // overhead measured and 20× under that budget.
+      expect(elapsed).toBeLessThan(3_000)
       // Stop was never pressed, so the node is still willing to work.
       expect(executor.terminated).toBe(false)
 

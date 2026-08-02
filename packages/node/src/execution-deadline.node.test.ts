@@ -90,7 +90,23 @@ it('SCHED-06 — a module that never returns is failed by the deadline, and the 
   if (reply.outcome.ok) return
   expect(reply.outcome.reason).toMatch(/exceeded \d+ms/)
   expect(reply.outcome.reason).toContain(server.peerId)
-  expect(elapsed).toBeLessThan(deadlineMs * 4)
+  // Promptness, and the only claim here the assertions above do not already carry.
+  // That the RPC budget was not what ended this is settled causally — a timeout
+  // rejects `rpc.request` and there would be no `reply` to parse — so what is left
+  // for a clock is whether the deadline is enforced *near* its configured value or
+  // merely eventually.
+  //
+  // Sited between two populations rather than by arithmetic on `deadlineMs`, which
+  // is what stood here before (`deadlineMs * 4`) and could not fail for the reason
+  // it claimed. Measured 2026-08-01 over 22 runs, 1-min load 23.97→12.68 on 8 cores:
+  // **1517.8–1534.7 ms**, i.e. 18–35 ms above the 1 500 ms deadline, and the window
+  // includes two real libp2p nodes, a dial and both blocks pulled over the wire.
+  // The other population is `DEFAULT_RPC_TIMEOUT_MS` (30 s), asserted against
+  // `DEFAULT_TASK_DEADLINE_MS` in the case below — that is what this reads if the
+  // deadline stops firing and the requestor's own budget ends the exchange instead.
+  // 2 500 leaves ~1 s of headroom, ~28× the worst overhead measured on a host
+  // already carrying three times its core count, and stays 12× under the control.
+  expect(elapsed).toBeLessThan(2_500)
 
   // (b) The event loop is alive. This is the claim; everything above is how it is
   // reported. A wedged node cannot answer at all.
