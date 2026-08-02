@@ -168,15 +168,23 @@ describe('CHURN-01 — nodes that actually go away, mid-run', () => {
         fabric.network.disconnect(nodeId)
       }
 
+      // Every peer the dispatcher actually asked, in order. Recording this is what
+      // lets the attribution below be stated as a positive — see the comment there.
+      const attempted: string[] = []
+      const inner = remoteDispatch({
+        rpc: fabric.requestorRpc,
+        blockstore: fabric.requestorStore,
+        taskFor: taskFor(fabric),
+      })
+
       const outcome = await runResilient({
         work,
         nodes: fabric.nodes,
         now: time.now,
-        dispatch: remoteDispatch({
-          rpc: fabric.requestorRpc,
-          blockstore: fabric.requestorStore,
-          taskFor: taskFor(fabric),
-        }),
+        dispatch: async (shard, nodeId, lease) => {
+          attempted.push(nodeId)
+          return inner(shard, nodeId, lease)
+        },
       })
 
       expect(outcome.ok).toBe(true)
@@ -189,9 +197,39 @@ describe('CHURN-01 — nodes that actually go away, mid-run', () => {
       for (const shard of outcome.shards) expect(dead).not.toContain(shard.nodeId)
 
       // And the departures are attributed, not merely survived.
+      //
+      // This used to read `for (const f of nodeFailures) expect(dead).toContain(
+      // f.nodeId)` — a negative over a set the clock can add to, and the known flake
+      // recorded as the Phase 14 deferred item. The mechanism is not a loose number:
+      // `fabricOf` gives the requestor a 400 ms RPC budget, so on a contended host a
+      // *live* node's dispatch exceeds it, `rpc.ts:188` rejects with `kind:'timeout'`,
+      // `churn.ts:83-87` turns any throw into `kind:'node'` naming the attempted peer,
+      // and a nodeId that is not in `dead` joins the set. That is the dispatcher
+      // behaving correctly — the node really did fail to answer — so no threshold can
+      // separate it from the injected departures. Widening the timeout only makes the
+      // wrong assertion fail less often.
+      //
+      // Stated as what the case actually means, it needs no clock and no threshold:
+      //
+      //   (a) every failure names a peer this run really dispatched to, so a failure
+      //       is never blamed on a bystander — the mis-attribution this guards;
+      //   (b) every departed node that was asked is named by a failure of its own, so
+      //       a departure is attributed rather than silently retried past;
+      //   (c) the run did ask at least one departed node, so (b) is not vacuous;
+      //   (d) every failure is a `'node'` condition, so a departure is never filed as
+      //       a fault in the task — the distinction `churn.ts` exists to draw.
+      //
+      // A live node timing out satisfies all four, because it was attempted and it is
+      // a node condition. A regression that named the wrong peer, dropped a departed
+      // node's attribution, or refiled a departure as `'task'` still fails.
       const nodeFailures = outcome.shards.flatMap((s) => s.failures)
-      expect(nodeFailures.every((f) => f.kind === 'node')).toBe(true)
-      for (const failure of nodeFailures) expect(dead).toContain(failure.nodeId)
+      const failedIds = new Set(nodeFailures.map((f) => f.nodeId))
+      const deadAttempted = [...new Set(attempted)].filter((id) => dead.includes(id))
+
+      for (const failure of nodeFailures) expect(attempted).toContain(failure.nodeId) // (a)
+      for (const nodeId of deadAttempted) expect(failedIds).toContain(nodeId) //          (b)
+      expect(deadAttempted.length).toBeGreaterThan(0) //                                  (c)
+      expect(nodeFailures.every((f) => f.kind === 'node')).toBe(true) //                  (d)
     } finally {
       fabric.close()
     }
@@ -523,7 +561,16 @@ describe('NET-09 — classifying a refusal this node made, against every other f
 
   it('retries a sender refusal like a node failure and never burns the task budget', async () => {
     // Through `runResilient`, not by reading the field: what matters is the policy
-    // the kind selects, and `coordinator.ts` reads `kind` in exactly one place.
+    // the kind selects, and `coordinator.ts` reads `kind` **for policy** in exactly
+    // one place — `:492`, whose own comment says so.
+    //
+    // The two words mattered. Without them this read as a claim about the file, and
+    // the file does not support it: counted 2026-08-01, `coordinator.ts` reads `.kind`
+    // at six sites — `:264`, `:492`, `:594`, `:611`, `:612`, `:616`. Only `:492`
+    // decides anything. `:264` and `:594` copy the kind into a record, and `:611`,
+    // `:612` and `:616` read a different `kind` altogether, the `LateOutcome`
+    // discriminant. A reader who checked the unqualified version would have found it
+    // false and had no way to tell which part was wrong.
     const nodes: NodeDescriptor[] = Array.from({ length: 5 }, (_, i) => ({
       nodeId: `n${i}`,
       ownerId: 'alice',

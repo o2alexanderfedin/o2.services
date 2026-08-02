@@ -200,17 +200,36 @@ describe('BROW-03 — backgrounding throttles, returning resumes', () => {
       transitions: 0,
     })
 
-    // Background the worker tab and measure end to end: from this action to the tab
-    // reporting itself throttled. Measured here rather than in the governor, because a
-    // latency the governor computed about its own handler would be zero by
-    // construction and would prove nothing.
-    const hiddenAt = Date.now()
-    await worker.evaluate(() => window.o2.simulateHidden(true))
-    await worker.waitForFunction(() => window.o2.governor().hidden, null, { timeout: 5_000 })
-    const throttledWithinMs = Date.now() - hiddenAt
+    // Background the worker tab, and read the governor back in the **same round trip**
+    // that backgrounds it.
+    //
+    // That ordering is the assertion. `simulateHidden` shadows the two getters and
+    // dispatches a genuine `visibilitychange` synchronously (`demo/main.ts:582-592`),
+    // so a governor that reacts *to the event* has already throttled before this
+    // `evaluate` returns its value. One that polled for the flag, or deferred to a
+    // timer or a microtask, would still read `hidden: false` here. BROW-03 asks for
+    // "within a second"; what the implementation actually guarantees is "before the
+    // call that hid it comes back", and this asserts the guarantee rather than the
+    // requirement's rounder restatement of it.
+    //
+    // What was here before was `Date.now()` either side of an `evaluate` plus a
+    // `waitForFunction`, bounded at 1 s — the figure from the requirement prose, not
+    // from measurement, and nested inside a 5 s poll, so the bound and its own wait
+    // disagreed by 5×. It could not measure the governor at all: because the handler
+    // is synchronous, the wait was satisfied on its first poll every time and the
+    // reading was two Playwright CDP round trips across a process boundary and
+    // nothing else. Its only available failure was a slow round trip — a false one.
+    const afterDispatch = await worker.evaluate(() => {
+      window.o2.simulateHidden(true)
+      return window.o2.governor()
+    })
+    expect(afterDispatch.hidden).toBe(true)
+    expect(afterDispatch.dutyCycle).toBeLessThan(1)
+    expect(afterDispatch.transitions).toBe(1)
 
-    expect(throttledWithinMs).toBeLessThan(1_000)
-
+    // And it is still throttled once the dust settles, rather than having flipped back
+    // — a separate round trip, so this is the state the tab holds, not the state the
+    // dispatch left on the stack.
     const throttled = await worker.evaluate(() => window.o2.governor())
     expect(throttled.hidden).toBe(true)
     expect(throttled.dutyCycle).toBeLessThan(1)
