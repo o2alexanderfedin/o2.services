@@ -91,3 +91,23 @@ export {
   projectPrimeCount,
   readPrimeCount,
 } from './primes.ts'
+
+// The third kernel, and the complement of the second rather than a repeat of it. The
+// prime count's oracle is published but blind in one direction, measured rather than
+// supposed: quoted at powers of ten, and a power of ten sits far enough from the prime
+// below it that a guest losing the top of its range still returns the right total. The
+// Madhava-Leibniz series has no such gap — every term is non-zero, and the ones a
+// tail-dropping defect loses are the largest ones left.
+export {
+  PI_INPUT_VERSION,
+  PI_MAX_TERMS,
+  PI_PARTIAL_BYTES,
+  PI_PARTIAL_KEY,
+  PI_SCALE,
+  buildPiInput,
+  estimatePi,
+  piErrorBound,
+  piKernelBytes,
+  projectPiPartial,
+  readPiPartial,
+} from './pi.ts'

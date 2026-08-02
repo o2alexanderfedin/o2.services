@@ -399,7 +399,23 @@ describe('SCHED-01 — providers unions across peers, because each answers only 
       // …and it waited out the silent peer's whole budget to do it. This is the cost,
       // not a regression: under first-non-empty the fast answer would have returned
       // and the silent peer would never have been waited for.
-      expect(elapsed).toBeGreaterThanOrEqual(BUDGET_MS)
+      //
+      // The bound carries a millisecond of slack, and the reason is the interesting
+      // part: a `setTimeout(BUDGET_MS)` is compared against libuv's cached loop
+      // timestamp rather than a fresh clock read, so it can fire a fraction of a
+      // millisecond before `BUDGET_MS` has elapsed on `performance.now()`. Measured
+      // here at **299.666 ms against a 300 ms budget** — and only on an idle host,
+      // because under load the scheduling delay swamps the granularity and the reading
+      // lands well above. A bound with no slack therefore fails when the machine is
+      // quiet and passes when it is busy, which is exactly the wrong way round for a
+      // guard: it would be green on the contended host that hides real regressions and
+      // red on the clean one that would show them.
+      //
+      // One millisecond covers the granularity and comes nowhere near admitting the
+      // behaviour being guarded against — a first-non-empty lookup returns on the fast
+      // peer's answer in single-digit milliseconds, two orders of magnitude below this.
+      const TIMER_GRANULARITY_MS = 1
+      expect(elapsed).toBeGreaterThanOrEqual(BUDGET_MS - TIMER_GRANULARITY_MS)
     } finally {
       requestorRpc.close()
       servingRpc.close()
