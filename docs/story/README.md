@@ -20,7 +20,7 @@ python3 docs/story/build-page.py \
 `build-page.py` handles the markdown subset this article actually uses — h1-h3, paragraphs,
 tables, fenced blocks, blockquotes, lists, rules, inline code/bold/italic/links, and
 ` ```mermaid ` fences, which become native diagram blocks. It supports nothing else, on
-purpose. `page-shell.html` holds the design: a token-level palette defined for both themes,
+purpose. `page-shell.html` holds the design: a palette defined at custom-property level for both themes,
 and one typographic rule — **the argument is set in serif, every piece of evidence is set in
 mono**, because that distinction is the article's own subject.
 
