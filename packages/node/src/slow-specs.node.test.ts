@@ -1,0 +1,225 @@
+import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs'
+import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
+import { describe, expect, it } from 'vitest'
+
+/**
+ * `vitest.config.ts`'s exclusion list, held to its own stated rule.
+ *
+ * ## What went wrong
+ *
+ * `SLOW_NODE_SPECS` excluded nine files. Its docblock stated the rule — *"every file
+ * that came in at or above 1 s"* — and **twenty-three files met it**, including the
+ * second and third slowest in the project. Every number in the surrounding prose was
+ * also false by then: it claimed `test:unit` ran 66 files / 946 tests in 6.46 s when
+ * the real figures were 102 / 1411 / 24.03 s, so the fast inner loop was 3.7× its
+ * recorded cost and one unexcluded file accounted for nearly all of it.
+ *
+ * Nothing was wrongly *listed*. A phase landed fourteen new slow files and nobody
+ * re-measured, which is the whole mechanism: **a list maintained beside a rule drifts
+ * from the rule.**
+ *
+ * ## What changed, and what this file is for
+ *
+ * `SLOW_NODE_SPECS` is no longer written down. It is `MEASURED_NODE_SPANS` filtered by
+ * `SLOW_CUTOFF_MS`, so the list cannot disagree with the measurement it claims to come
+ * from — that class of drift is now impossible rather than guarded. This file holds the
+ * three things the derivation cannot hold by itself:
+ *
+ * 1. **The derivation is still a derivation.** A future edit that pastes a literal
+ *    array back over it fails here.
+ * 2. **The measured paths still exist and are still in the `node` project.** A renamed
+ *    or deleted file silently excludes nothing; vitest does not complain about an
+ *    exclude pattern that matches no file.
+ * 3. **The measurement still describes this repository.** This is the one that catches
+ *    what actually happened, and it is a *drift* check rather than an equality — see
+ *    `FILE_COUNT_TOLERANCE`.
+ *
+ * ## Why this parses source text instead of importing the config
+ *
+ * Importing `vitest.config.ts` evaluates `defineConfig` and calls `playwright()`, which
+ * is a browser-provider factory this Node-project spec has no business starting. Reading
+ * the source is also the established idiom here — `serve-agent-hooks.node.test.ts`
+ * counts sentinels in production files exactly this way.
+ *
+ * ## What this deliberately does not do
+ *
+ * It does not re-time anything. Re-measuring inside a guard means a ~400 s run on every
+ * invocation, and the guard would then be excluded from `test:unit` by the very list it
+ * checks. The timings are evidence recorded at a stated date and load; this file checks
+ * that the evidence still describes the repository, not that it is still the fastest
+ * possible answer.
+ */
+
+const ROOT = fileURLToPath(new URL('../../..', import.meta.url))
+const CONFIG_PATH = join(ROOT, 'vitest.config.ts')
+const CONFIG = readFileSync(CONFIG_PATH, 'utf8')
+
+// ---------------------------------------------------------------------------
+// Parsing the config
+// ---------------------------------------------------------------------------
+
+/** `['some/path.test.ts', 1234],` — the measured-span table's entry form. */
+const SPAN_ENTRY = /\[\s*'([^']+)',\s*(\d[\d_]*)\s*\]/g
+
+interface Span {
+  readonly path: string
+  readonly ms: number
+}
+
+const SPANS: readonly Span[] = (() => {
+  const table = /const MEASURED_NODE_SPANS[\s\S]*?\n\]/.exec(CONFIG)?.[0] ?? ''
+  const found: Span[] = []
+  for (const match of table.matchAll(SPAN_ENTRY)) {
+    const path = match[1]
+    const ms = match[2]
+    if (path !== undefined && ms !== undefined) found.push({ path, ms: Number(ms.replaceAll('_', '')) })
+  }
+  return found
+})()
+
+const CUTOFF_MS = Number(/const SLOW_CUTOFF_MS = (\d[\d_]*)/.exec(CONFIG)?.[1]?.replaceAll('_', '') ?? NaN)
+
+function measurementField(name: string): number {
+  const raw = new RegExp(String.raw`\n\s*${name}:\s*(\d[\d_.]*)`).exec(CONFIG)?.[1]
+  return Number((raw ?? '').replaceAll('_', ''))
+}
+
+const EXCLUDED = SPANS.filter((span) => span.ms >= CUTOFF_MS)
+
+// ---------------------------------------------------------------------------
+// The node project's real file set
+// ---------------------------------------------------------------------------
+
+const SKIP_DIRS: readonly string[] = ['node_modules', '.git', 'dist', 'coverage', '.vite']
+
+function walk(dir: string, out: string[] = []): string[] {
+  for (const entry of readdirSync(dir)) {
+    if (SKIP_DIRS.includes(entry)) continue
+    const path = join(dir, entry)
+    if (statSync(path).isDirectory()) walk(path, out)
+    else out.push(path)
+  }
+  return out
+}
+
+/**
+ * Every file the `node` project would collect, derived from the same globs the config
+ * declares: `packages/​*​/src/**​/*.test.ts` plus `tools/**​/*.node.test.ts`, less the
+ * `browser`, `e2e` and `perf` suffixes that have their own projects.
+ *
+ * Reimplemented rather than asked of vitest, because asking vitest means starting it.
+ * Verified against a real `--reporter=json` run: both say 112 on 2026-08-01.
+ */
+const NODE_PROJECT_FILES: readonly string[] = (() => {
+  const packages = walk(join(ROOT, 'packages')).filter((path) =>
+    /\/packages\/[^/]+\/src\/.*\.test\.ts$/.test(path),
+  )
+  const tools = walk(join(ROOT, 'tools')).filter((path) => path.endsWith('.node.test.ts'))
+  return [...packages, ...tools]
+    .filter((path) => !/\.(browser|e2e|perf)\.test\.ts$/.test(path))
+    // Repo-relative and slash-free at the front, matching how `MEASURED_NODE_SPANS`
+    // writes a path. `ROOT` carries a trailing slash, so the slice already drops it.
+    .map((path) => path.slice(ROOT.length).replace(/^\//, ''))
+    .sort()
+})()
+
+/**
+ * How far the project may grow before the measurement must be retaken.
+ *
+ * **Equality was considered and rejected**, and the reason is worth stating because the
+ * strict version looks more rigorous. Under equality, adding any test file — a fast one,
+ * a doc-only guard like this file — fails the suite until somebody runs a ~400 s
+ * measurement. A guard that expensive to satisfy gets deleted, and a deleted guard
+ * catches nothing; the failure mode of over-strictness here is total, not partial.
+ *
+ * Five is chosen against the drift that actually happened: the project grew by
+ * **thirty-six** files between measurements, of which fourteen were slow. Five catches a
+ * phase landing its specs while leaving room for the ordinary one-file change. It is a
+ * judgement, not a discovered boundary, and it is the number to argue with.
+ */
+const FILE_COUNT_TOLERANCE = 5
+
+// ---------------------------------------------------------------------------
+
+describe('the config was really parsed', () => {
+  it('found the cutoff and a table of measured spans', () => {
+    expect(CUTOFF_MS).toBe(1000)
+    // A floor: a parse that stopped matching would satisfy every "list is empty"
+    // assertion below perfectly.
+    expect(SPANS.length).toBeGreaterThan(30)
+    expect(EXCLUDED.length).toBeGreaterThan(20)
+  })
+
+  it('read spans as numbers, in descending order, spanning the cutoff', () => {
+    for (const span of SPANS) expect(Number.isFinite(span.ms), `${span.path} has no span`).toBe(true)
+    const descending = [...SPANS].sort((a, b) => b.ms - a.ms).map((span) => span.path)
+    expect(SPANS.map((span) => span.path)).toEqual(descending)
+    // Entries below the cutoff are listed on purpose, so the boundary is visible.
+    // If they ever vanish, the table has become the answer rather than the evidence.
+    expect(SPANS.filter((span) => span.ms < CUTOFF_MS).length).toBeGreaterThan(0)
+  })
+})
+
+describe('the exclusion list is derived from the measurement, not written beside it', () => {
+  it('computes SLOW_NODE_SPECS with the cutoff rather than listing paths', () => {
+    const declaration = /const SLOW_NODE_SPECS[\s\S]*?\n\n/.exec(CONFIG)?.[0] ?? ''
+    expect(declaration).toContain('MEASURED_NODE_SPANS.filter')
+    expect(declaration).toContain('SLOW_CUTOFF_MS')
+    // The regression this prevents: a literal array pasted back over the derivation.
+    // Any `'…test.ts'` inside the declaration means a hand-maintained path is back.
+    expect(declaration).not.toMatch(/'[^']*\.test\.ts'/)
+  })
+})
+
+describe('every measured path is still a file this project runs', () => {
+  it('has no measured path that does not exist on disk', () => {
+    const missing = SPANS.filter((span) => !existsSync(join(ROOT, span.path))).map((span) => span.path)
+    expect(missing).toEqual([])
+  })
+
+  it('has no measured path outside the node project', () => {
+    // An excluded path the project would not have collected anyway excludes nothing,
+    // and reads exactly like a working exclusion.
+    const stray = SPANS.filter((span) => !NODE_PROJECT_FILES.includes(span.path)).map(
+      (span) => span.path,
+    )
+    expect(stray).toEqual([])
+  })
+})
+
+describe('the recorded measurement still describes this repository', () => {
+  it('collected the node project the same way the reporter did', () => {
+    // Cross-check of the reimplemented globs against the recorded run, which is what
+    // makes the drift check below mean anything.
+    expect(NODE_PROJECT_FILES.length).toBeGreaterThan(80)
+    expect(NODE_PROJECT_FILES).toContain('tools/aot/lift.node.test.ts')
+    expect(NODE_PROJECT_FILES).toContain('packages/node/src/fabric-node.node.test.ts')
+    expect(NODE_PROJECT_FILES.filter((path) => /\.(browser|e2e|perf)\.test\.ts$/.test(path))).toEqual([])
+  })
+
+  it('has not drifted further from the measured file count than the tolerance allows', () => {
+    const recorded = measurementField('files')
+    const drift = Math.abs(NODE_PROJECT_FILES.length - recorded)
+    expect(
+      drift,
+      `the node project holds ${NODE_PROJECT_FILES.length} test files, the recorded ` +
+        `measurement covered ${recorded}. Re-measure with ` +
+        `\`npx vitest run --project node --reporter=json --outputFile=…\` and update ` +
+        `MEASURED_NODE_SPANS and NODE_MEASUREMENT in vitest.config.ts.`,
+    ).toBeLessThanOrEqual(FILE_COUNT_TOLERANCE)
+  })
+
+  it('states figures consistent with the table they came from', () => {
+    // The specific failure being prevented: prose figures nothing reads. These are the
+    // ones derivable from the table itself; the rest are evidence held by the drift
+    // check above.
+    expect(measurementField('unitFiles')).toBe(measurementField('files') - EXCLUDED.length)
+    // Sum-of-spans must at least cover the files actually listed.
+    const listed = SPANS.reduce((total, span) => total + span.ms, 0)
+    expect(measurementField('sumOfFileSpansMs')).toBeGreaterThanOrEqual(listed)
+    // A load average is recorded, because an absolute-millisecond cut is not
+    // reproducible without one. Zero would mean nobody filled it in.
+    expect(measurementField('load')).toBeGreaterThan(0)
+  })
+})

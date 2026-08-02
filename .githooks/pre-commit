@@ -115,7 +115,7 @@ if [ -z "$RELEVANT" ]; then
   exit 0
 fi
 
-echo "🔍 cheap guards (vocabulary, purity, mutation-ledger, disclosure, ledger)…"
+echo "🔍 cheap guards (vocabulary, purity, mutation-ledger, disclosure, ledgers)…"
 
 # One vitest invocation, not four: process startup dominates the wall clock here.
 # `--project node` is required — four projects exist, and a bare path argument runs
@@ -125,7 +125,8 @@ echo "🔍 cheap guards (vocabulary, purity, mutation-ledger, disclosure, ledger
   packages/node/src/purity.node.test.ts \
   packages/node/src/mutation-guard.node.test.ts \
   packages/node/src/disclosure-gate.node.test.ts \
-  packages/node/src/requirements-ledger.node.test.ts
+  packages/node/src/requirements-ledger.node.test.ts \
+  packages/node/src/slow-specs.node.test.ts
 GUARD_STATUS=$?
 
 if [ "$GUARD_STATUS" -ne 0 ]; then
