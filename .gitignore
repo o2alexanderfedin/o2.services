@@ -24,6 +24,11 @@ dist/
 __screenshots__/
 .vitest-attachments/
 
+# Playwright-MCP scratch — console logs and page snapshots a browsing tool drops in the
+# working directory as a side effect of being used. They record one moment of one session
+# and nothing regenerates them, which is precisely why they do not belong in the history.
+.playwright-mcp/
+
 # Vite dependency pre-bundling cache
 .vite/
 node_modules/.vite/
