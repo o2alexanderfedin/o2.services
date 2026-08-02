@@ -4,7 +4,9 @@ import {
   MemoryBlockstore,
   MemoryNetwork,
   canonicalCid,
+  deriveReduceTree,
   encodeCanonical,
+  executeReduce,
   fabricCombiner,
 } from '@o2/core'
 import type { Blockstore, CanonicalValue, Executor } from '@o2/core'
@@ -13,7 +15,7 @@ import { describe, expect, it } from 'vitest'
 import { RpcBlockSource, serveAgent } from './agent.ts'
 import type { AuthorizedWork, Authorizer } from './agent.ts'
 import { FetchingBlockstore } from './block.ts'
-import { remoteCombineDispatch } from './combine.ts'
+import { LocalStoreWriteFailed, remoteCombineDispatch } from './combine.ts'
 import { EgressGuard } from './egress.ts'
 import type { EgressHold } from './egress.ts'
 import { encodeRequest, encodeResponse, parseResponse } from './protocol.ts'
@@ -1066,6 +1068,133 @@ describe('MR-05 — every way a combine can fail resolves null, and none of them
     } finally {
       clientRpc.close()
       peer.rpc.close()
+    }
+  })
+})
+
+/**
+ * A store that answers every `put` with the failure a full disk produces.
+ *
+ * `FsBlockstore.put` reaches `writeFile`/`rename`, so ENOSPC and EACCES arrive here;
+ * a browser's `IDBBlockstore` raises `QuotaExceededError`. All three are the same
+ * event as far as the dispatcher is concerned: **this node** could not keep the
+ * block. `get`/`has`/`size` stay real so nothing else in the path changes shape.
+ */
+class RefusingStore extends MemoryBlockstore {
+  puts = 0
+  override async put(_bytes: Uint8Array<ArrayBuffer>): Promise<CID> {
+    this.puts += 1
+    throw new Error('ENOSPC: no space left on device, write')
+  }
+}
+
+/** A peer that runs a real combine and serves the result — it does nothing wrong. */
+function honestCombiner(network: MemoryNetwork, id: string, merged: { cid: CID; bytes: Uint8Array<ArrayBuffer> }) {
+  return recordingNode(network, id, (body) =>
+    (body as { kind?: unknown }).kind === 'combine'
+      ? encodeResponse({ kind: 'combine', resultCid: merged.cid, reason: '' })
+      : encodeResponse({ kind: 'block', bytes: merged.bytes }),
+  )
+}
+
+describe('MR-05 — a store this node could not write to is not an executor that is gone', () => {
+  it('throws LocalStoreWriteFailed naming the local store, and does not accuse the peer', async () => {
+    const network = new MemoryNetwork()
+    const merged = await canonicalCid(fabricCombiner([partial('alpha'), partial('beta')]))
+    if (!merged.ok) throw new Error('fixture will not canonicalise')
+    const peer = honestCombiner(network, 'w0', merged)
+    const clientRpc = new RpcEndpoint(network.connect('client'), { timeoutMs: 5_000 })
+    const store = new RefusingStore()
+    const aCid = await blockCidOf(partial('alpha'))
+    const bCid = await blockCidOf(partial('beta'))
+
+    try {
+      const dispatch = remoteCombineDispatch({ rpc: clientRpc, blockstore: store })
+      const thrown = await dispatch(combineTask([aCid, bCid]), 'w0').then(
+        (cid) => ({ kind: 'resolved' as const, cid }),
+        (error: unknown) => ({ kind: 'threw' as const, error }),
+      )
+
+      // Not `null`. `reduce.ts` defines `null` as "that executor is gone", and w0 is
+      // not gone — it ran the combine and served the block when asked.
+      expect(thrown.kind).toBe('threw')
+      if (thrown.kind !== 'threw') return
+      expect(thrown.error).toBeInstanceOf(LocalStoreWriteFailed)
+      if (!(thrown.error instanceof LocalStoreWriteFailed)) return
+
+      // The text, not just the type — the message is what a human reads at 3am, and
+      // a refusal that names the wrong thing is the defect this case exists for.
+      expect(thrown.error.message).toContain('the local store refused the combine result')
+      expect(thrown.error.message).toContain('tree node tree-node-a')
+      expect(thrown.error.message).toContain('ENOSPC: no space left on device')
+      expect(thrown.error.message).toContain("this node's own storage, not the executor that produced it")
+      // The peer is not named anywhere in the refusal, because the peer did nothing.
+      expect(thrown.error.message).not.toContain('w0')
+
+      expect(thrown.error.combineId).toBe('tree-node-a')
+      expect(thrown.error.cid).toBe(merged.cid.toString())
+      expect(thrown.error.cause).toBeInstanceOf(Error)
+
+      // The peer was asked exactly twice — the combine and the block — and the write
+      // was attempted exactly once. So the failure is the local write and nothing
+      // about the exchange before it.
+      expect(peer.bodies.length).toBe(2)
+      expect(store.puts).toBe(1)
+    } finally {
+      clientRpc.close()
+      peer.rpc.close()
+    }
+  })
+
+  /**
+   * The read count, not the reason string, is what proves this one.
+   *
+   * A full disk used to be reported as `null`, and `executeReduce` reads `null` as
+   * "try the next executor in the rendezvous ranking". So it walked **every** peer,
+   * failing the identical local write at each, and reported the whole fabric failed.
+   * Counting combine requests is the only assertion that separates the two
+   * behaviours: both end with no root CID, and only one of them asks four peers.
+   */
+  it('costs one combine request, not one per executor in the ranking', async () => {
+    const network = new MemoryNetwork()
+    const merged = await canonicalCid(fabricCombiner([partial('alpha'), partial('beta')]))
+    if (!merged.ok) throw new Error('fixture will not canonicalise')
+
+    const executors = ['w0', 'w1', 'w2', 'w3']
+    const peers = executors.map((id) => honestCombiner(network, id, merged))
+    const clientRpc = new RpcEndpoint(network.connect('client'), { timeoutMs: 5_000 })
+    const store = new RefusingStore()
+
+    const aCid = await blockCidOf(partial('alpha'))
+    const bCid = await blockCidOf(partial('beta'))
+    const tree = deriveReduceTree([
+      { contributorId: 'c0', cid: aCid },
+      { contributorId: 'c1', cid: bCid },
+    ])
+
+    try {
+      const outcome = await executeReduce({
+        tree,
+        executors,
+        dispatch: remoteCombineDispatch({ rpc: clientRpc, blockstore: store }),
+      }).then(
+        (result) => ({ kind: 'resolved' as const, result }),
+        (error: unknown) => ({ kind: 'threw' as const, error }),
+      )
+
+      expect(outcome.kind).toBe('threw')
+      if (outcome.kind !== 'threw') return
+      expect(outcome.error).toBeInstanceOf(LocalStoreWriteFailed)
+
+      // One combine request in total, across all four peers. The old behaviour issued
+      // four combines and four block fetches — eight bodies — and then called every
+      // executor in the fabric failed.
+      const combines = peers.flatMap((p) => p.bodies).filter((b) => (b as { kind?: unknown }).kind === 'combine')
+      expect(combines.length).toBe(1)
+      expect(store.puts).toBe(1)
+    } finally {
+      clientRpc.close()
+      for (const p of peers) p.rpc.close()
     }
   })
 })

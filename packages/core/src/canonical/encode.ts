@@ -47,6 +47,37 @@ export type EncodeResult =
   | { ok: false; error: EncodeError }
 
 /**
+ * A record this package built and then could not canonically encode.
+ *
+ * Thrown by the payload builders that feed a signature — `payloadOf`,
+ * `possessionChallenge`, `capabilityPayload` — and deliberately **never** returned
+ * as a verdict. That is the whole reason the type exists.
+ *
+ * A payload that will not encode and a signature that does not check are different
+ * claims about different parties. The second says *this peer sent a record it did
+ * not sign*; the first says *this package built a record its own codec rejects*, and
+ * the peer is not mentioned in it at all. Six verify paths used to report the first
+ * as the second, so a defect in our encoder read on the wire as a peer forging a
+ * signature. A caller that must tell them apart branches on this type; a caller with
+ * nothing useful to do about a codec defect lets it propagate, which is the honest
+ * outcome for a bug in this package.
+ *
+ * `what` is the record being built, not the field that failed — `error` carries the
+ * field, with its path, from {@link EncodeError}.
+ */
+export class NotEncodableError extends Error {
+  /** The record that failed to encode, e.g. `'certificate'`. */
+  readonly what: string
+  readonly error: EncodeError
+  constructor(what: string, error: EncodeError) {
+    super(`${what} not encodable: ${JSON.stringify(error)}`)
+    this.name = 'NotEncodableError'
+    this.what = what
+    this.error = error
+  }
+}
+
+/**
  * Walk a value and report the first non-finite float, with its path.
  *
  * `@ipld/dag-cbor` rejects these too, but its error does not say *where*. For a

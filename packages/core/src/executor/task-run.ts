@@ -97,3 +97,42 @@ export async function runTask(request: WorkerTaskRequest): Promise<WorkerTaskRes
     }
   }
 }
+
+/**
+ * Run one task and hand the answer to `post`, reporting a failed post as a result.
+ *
+ * The thread entries used to be `void runTask(request).then((r) => post(r))`, and
+ * that `.then` had no `.catch`. `runTask` never rejects — every path above is inside
+ * the one `try` — so the only rejection there was `post` itself throwing, which is
+ * what `postMessage` does on a response the structured-clone algorithm will not take.
+ * It became an unhandled rejection, the parent's pending entry expired, and the task
+ * was recorded as a thread that never answered. A `DataCloneError` reported as a
+ * missing worker: the same misattribution as a peer that answered being reported as
+ * a peer that is gone.
+ *
+ * So a post that throws is answered with a post, not a silence. The substitute is the
+ * `ok: false` arm of the response the caller is already waiting on, carrying the
+ * reason, and it holds nothing but a number, a boolean and a string — so whatever the
+ * first response contained that could not cross, this one does not.
+ *
+ * **Rejects only if the substitute cannot be posted either.** That is a thread with
+ * no channel left to its parent, and there is nothing this side can do about it but
+ * say so; the entry points record why they leave that one unhandled.
+ */
+export async function runTaskAndPost(
+  request: WorkerTaskRequest,
+  post: (response: WorkerTaskResponse) => void,
+): Promise<void> {
+  const response = await runTask(request)
+  try {
+    post(response)
+  } catch (cause) {
+    post({
+      id: request.id,
+      ok: false,
+      reason: `the result could not be posted back to the calling thread: ${
+        cause instanceof Error ? cause.message : String(cause)
+      }`,
+    })
+  }
+}

@@ -25,7 +25,7 @@
  */
 
 import { ed25519 } from '@noble/curves/ed25519.js'
-import { encodeCanonical } from './canonical/encode.ts'
+import { NotEncodableError, encodeCanonical } from './canonical/encode.ts'
 import type { CanonicalValue } from './canonical/encode.ts'
 
 const HEX = '0123456789abcdef'
@@ -71,7 +71,7 @@ function payloadOf(delegation: Omit<Delegation, 'signature'>): Uint8Array<ArrayB
     expiresAt: delegation.expiresAt,
   }
   const encoded = encodeCanonical(value)
-  if (!encoded.ok) throw new Error(`delegation not encodable: ${JSON.stringify(encoded.error)}`)
+  if (!encoded.ok) throw new NotEncodableError('delegation', encoded.error)
   return encoded.bytes
 }
 
@@ -172,9 +172,14 @@ export function verifyChain(chain: readonly Delegation[], options: VerifyOptions
     }
 
     // Signature before anything derived from the contents is trusted.
+    //
+    // The payload is built above the `try` — `payloadOf` throws `NotEncodableError`
+    // by design, and a link this package cannot encode is not a link whose signature
+    // was forged. Inside, that throw read as `bad-signature` against `link.issuer`.
+    const payload = payloadOf(link)
     let valid = false
     try {
-      valid = ed25519.verify(fromHex(link.signature), payloadOf(link), fromHex(link.issuer))
+      valid = ed25519.verify(fromHex(link.signature), payload, fromHex(link.issuer))
     } catch {
       valid = false
     }
