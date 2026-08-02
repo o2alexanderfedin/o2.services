@@ -646,13 +646,19 @@ describe('the ledger this suite parses is the real ledger', () => {
     //
     // `SCHED-06` used to carry both the open role and the late-minted role at once,
     // which is why closing it broke this check rather than merely dating it. An id's
-    // state is not a fixture — it changes when a verifier says so — so the roles are
-    // now split across `SCHED-06` (late-minted, closed by 13.1's verification) and
-    // `DATA-10` (late-minted, still open: 13.1 scored criterion 7 partial).
+    // state is not a fixture — it changes when a verifier says so — and this check has
+    // now been re-aimed twice for that reason, which is the mechanism working rather
+    // than the check being brittle.
+    //
+    // `DATA-10` held the late-minted-and-open role until 2026-08-02, when the at-rest
+    // half closed and 13.1's criterion 7 went from PARTIAL to MET. The role moved to
+    // `BENCH-07`, which is late-minted and open for a reason no phase can retire on its
+    // own: it needs a second machine.
     expect(locate('DATA-05')?.satisfied).toBe(true) // v1 section, closed
     expect(locate('MR-02')?.satisfied).toBe(false) // v1 section, open
     expect(locate('SCHED-06')?.satisfied).toBe(true) // v1.1 section, closed
-    expect(locate('DATA-10')?.satisfied).toBe(false) // v1.1 section, open
+    expect(locate('BENCH-07')?.satisfied).toBe(false) // v1.1 section, open
+    expect(locate('DATA-10')?.satisfied).toBe(true) // v1.1 section, closed 2026-08-02
     expect(locate('WIRE-01')?.satisfied).toBe(true)
   })
 

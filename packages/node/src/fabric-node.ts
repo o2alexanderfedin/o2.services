@@ -124,6 +124,8 @@ import type { EnrolOutcome } from '@o2/net'
 import { createLibp2p } from 'libp2p'
 import type { Libp2p } from '@libp2p/interface'
 import { FsBlockstore } from './fs-blockstore.ts'
+import { FsSovereignCids } from './sovereign-cids.ts'
+import type { SovereignCids } from '@o2/net'
 import {
   LIBP2P_INBOUND_CONNECTION_THRESHOLD,
   LIBP2P_MAX_INCOMING_PENDING_CONNECTIONS,
@@ -816,6 +818,7 @@ export class FabricNode {
    */
   readonly #authority: EnrollmentAuthority | null
   readonly #relayFailures: readonly RelayDialFailure[]
+  readonly #sovereignCids: SovereignCids | 'forgets-sovereignty-between-jobs'
   /**
    * AUTH-02 — this node's per-peer verdicts.
    *
@@ -846,6 +849,7 @@ export class FabricNode {
     certificate: NodeCertificate | null
     verifier: PeerVerifier
     relayFailures: readonly RelayDialFailure[]
+    sovereignCids: SovereignCids | 'forgets-sovereignty-between-jobs'
   }) {
     this.libp2p = parts.libp2p
     this.transport = parts.transport
@@ -866,6 +870,7 @@ export class FabricNode {
     this.certificate = parts.certificate
     this.#verifier = parts.verifier
     this.#relayFailures = parts.relayFailures
+    this.#sovereignCids = parts.sovereignCids
   }
 
   /**
@@ -882,6 +887,23 @@ export class FabricNode {
    */
   get relayFailures(): readonly RelayDialFailure[] {
     return this.#relayFailures
+  }
+
+  /**
+   * This node's durable sovereign-CID set — DATA-10.
+   *
+   * Exposed because a submitter has to hand it to its own job: `submitJob`'s
+   * blockstore-put is where this node comes to hold the row, and the put writes into
+   * *this* node's store, so it is *this* node's set that has to record it. A submitter
+   * that omits it holds the row unguarded once its job's holds are given back — which is
+   * the whole of the at-rest gap, and is why the option exists rather than being inferred.
+   *
+   * `'forgets-sovereignty-between-jobs'` on a node with no `blockstoreDir`: there is
+   * nowhere durable to record anything, and saying so is better than a set that quietly
+   * evaporates on exit.
+   */
+  get sovereignCids(): SovereignCids | 'forgets-sovereignty-between-jobs' {
+    return this.#sovereignCids
   }
 
   /**
@@ -1295,7 +1317,17 @@ export class FabricNode {
     // precisely that the withholding predicate and the `block` branch consult the *same*
     // guard: one value passed twice cannot disagree, whereas two copies diverge the first
     // time one is edited.
-    const egressDisposition = { guard: egress, sovereignInputs: store }
+    //
+    // DATA-10's at-rest half. A node with a `blockstoreDir` records sovereign CIDs beside
+    // its blocks and keeps refusing them after the job ends; one without a directory has
+    // nowhere durable to put them and says so by name rather than by omission — an
+    // in-memory node loses the set on exit either way, and pretending otherwise would be
+    // the silent default this option's shape exists to prevent.
+    const sovereignCids =
+      options.blockstoreDir === undefined
+        ? ('forgets-sovereignty-between-jobs' as const)
+        : await FsSovereignCids.open(options.blockstoreDir)
+    const egressDisposition = { guard: egress, sovereignInputs: store, sovereignCids }
 
     // AUTH-01 / SCHED-01 — what this node answers a peer's `records` *and* `providers`
     // requests with. See `ownRecords` for the five decisions it carries. Unconditional
@@ -1447,6 +1479,7 @@ export class FabricNode {
       certificate,
       verifier,
       relayFailures,
+      sovereignCids,
     })
 
     // Unconditional, and that is the point: there is no construction path through

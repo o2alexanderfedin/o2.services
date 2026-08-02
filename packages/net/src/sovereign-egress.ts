@@ -86,8 +86,66 @@ export async function takeSovereignHold(
  * direction of dependency — `agent.ts` imports this file, not the other way round.
  */
 export type EgressDisposition =
-  | { readonly guard: EgressGuard; readonly sovereignInputs: Blockstore }
+  | {
+      readonly guard: EgressGuard
+      readonly sovereignInputs: Blockstore
+      /**
+       * DATA-10's at-rest half — the CIDs this node has ever come to hold sovereign
+       * bytes for, surviving the job and the process.
+       *
+       * **Required, with a named absence, because an optional hook with a silent
+       * default is a hole** — the same rule `serveAgent`'s hooks are held to.
+       */
+      readonly sovereignCids: SovereignCids | 'forgets-sovereignty-between-jobs'
+    }
   | 'holds-no-registrations'
+
+/**
+ * A durable set of CIDs whose bytes are sovereign — DATA-10, criterion 7's at-rest half.
+ *
+ * ## Why this is not just a longer-lived `EgressGuard` hold
+ *
+ * `EgressGuard` is keyed on **payload bytes** and answers "does this outbound frame
+ * contain a guarded row", by scanning. That question is worth its cost because it catches
+ * sovereign bytes anywhere in any frame, including ones nobody anticipated — and the cost
+ * is what bounds its lifetime to a job. `egress.ts`'s own `guard()` doc forbids eviction
+ * and says why: *the set is bounded by giving holds back, which is a bound somebody can be
+ * shown*. Holding forever would remove that bound and leave every later frame scanned
+ * against every row the node ever submitted, which `submit-with-egress.ts` names as
+ * *exactly the unbounded scan cost Plan 13-07 was written to remove*.
+ *
+ * This is keyed on the **CID** and answers "is this block sovereign", by lookup. A `block`
+ * request names a CID, so the at-rest case never needed the byte scan. Unbounded growth
+ * here costs memory proportional to the number of distinct sovereign blocks the node has
+ * held — it does not cost anything per frame.
+ *
+ * **So the two coexist rather than one replacing the other**, and each answers the
+ * question it is cheap at. A node forgetting one still has the other.
+ *
+ * ## What is deliberately absent
+ *
+ * No `delete`, no eviction, no cap — for the reason `egress.ts:230-237` gives about its own
+ * set. Sovereignty is a property of the data. A node that forgot a CID was sovereign would
+ * serve it, and would do so silently.
+ */
+export interface SovereignCids {
+  /**
+   * Record that `cid`'s bytes are sovereign. Idempotent.
+   *
+   * Durable before it resolves: a node that recorded a CID and then lost power must not
+   * come back serving it.
+   */
+  add(cid: string): Promise<void>
+  /**
+   * Whether `cid` is known sovereign.
+   *
+   * Synchronous on purpose. It is consulted on the `block` branch's hot path, and an
+   * implementation that had to await I/O per request would put a disk read between a peer
+   * and every block it asks for. Both shipped adapters load the set at open and keep it in
+   * memory; `add` is what writes.
+   */
+  has(cid: string): boolean
+}
 
 /**
  * The withholding predicate for `SelfRecordIndex` — SCHED-01, DATA-05.
@@ -134,8 +192,19 @@ export function withholdingFrom(
   egress: EgressDisposition,
 ): ((cid: CID) => Promise<boolean>) | 'advertises-everything-it-holds' {
   if (egress === 'holds-no-registrations') return 'advertises-everything-it-holds'
-  const { guard, sovereignInputs } = egress
+  const { guard, sovereignInputs, sovereignCids } = egress
   return async (cid: CID): Promise<boolean> => {
+    // DATA-10's at-rest half, asked FIRST and by CID. The `block` branch refuses a
+    // recorded CID outright, so `providers` must withhold it outright too — the invariant
+    // this predicate exists to hold is that it names exactly the set `refusedReason`
+    // consults, and a node advertising a block its own `block` branch refuses is the
+    // defect 18-02 planted and measured.
+    //
+    // Before the guard check, not after, because it is the cheaper question and the one
+    // that stays true after the job ends.
+    if (sovereignCids !== 'forgets-sovereignty-between-jobs' && sovereignCids.has(cid.toString())) {
+      return true
+    }
     if (guard.registrations.length === 0) return false
     // The local-only tier, for the reason this module's header already gives about
     // registration: asking whether to advertise a block must not itself fetch one.

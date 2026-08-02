@@ -92,6 +92,7 @@
 
 import type { Blockstore, JobResult, JobSpec, SubmitError } from '@o2/core'
 import { canonicalCid, submitJob } from '@o2/core'
+import type { SubmitOptions } from '@o2/core'
 import type { EgressGuard, EgressHold, EgressManifest } from './egress.ts'
 
 export type SubmitWithEgressResult =
@@ -138,6 +139,7 @@ export async function submitJobWithEgress(
   spec: JobSpec,
   blockstore: Blockstore,
   guards: readonly EgressGuard[],
+  options?: SubmitOptions,
 ): Promise<SubmitWithEgressResult> {
   // One hold per sovereign *shard* per guard, not per distinct label: a value
   // appearing in two shards takes two holds and gives two back. Holding the values
@@ -161,7 +163,11 @@ export async function submitJobWithEgress(
     // manifests today. It is placed this way because the delta window means "what left
     // during this job", and a registration is not something that left.
     const before = guards.map((guard) => guard.manifest.entries.length)
-    const result = await submitJob(spec, blockstore)
+    // Passed straight through. The durable registration happens at `submitJob`'s
+    // blockstore-put rather than here, because that put is what makes this node hold the
+    // row — and doing it there covers bare `submitJob` too, which this wrapper never
+    // could. A caller that omits it keeps the job-scoped guarding below and nothing else.
+    const result = await submitJob(spec, blockstore, options)
     if (!result.ok) return result
     return {
       ok: true,

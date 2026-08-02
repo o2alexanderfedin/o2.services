@@ -112,7 +112,7 @@ function servingNode(nodeId: string, faulty: Faulty = {}): Node {
     blockstore: faulty.blockstore ?? store,
     // This file takes holds directly, so the store the serve path would declare
     // from is deliberately empty: nothing here is meant to register through a task.
-    egress: { guard, sovereignInputs: new MemoryBlockstore() },
+    egress: { guard, sovereignInputs: new MemoryBlockstore(), sovereignCids: 'forgets-sovereignty-between-jobs' },
     authorize: 'serves-unauthenticated',
     index: faulty.index ?? 'serves-no-records',
     enroll: 'issues-no-certificates',

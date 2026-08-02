@@ -4,11 +4,11 @@ milestone: v1.1
 milestone_name: Wire What Was Built
 status: executing
 stopped_at: Phase 18 has ALL ELEVEN plans merged and summarised, and is merged to develop (4c20f95). It is NOT done: there is NO VERIFICATION.md for it, and the project rule is that a phase is done when a verifier says so, not when its plans are. NEXT IS VERIFY PHASE 18. 18-10 changed no production file - the offer loop was already correct and the property was unmeasured; its kernel test counts OFFERS, because the offer itself is the leak even when the placement is correct. 18-11 closed NET-05 and fixed a production defect on the way: FabricNode.start dialled relays with a bare await inside start, so an unreachable relay became an unhandled rejection in bin/agent.ts. The dial is non-fatal now - an OWNER DECISION, outside 18-11's declared files. Criterion 2b remains PARTIAL by owner ruling and must not be reworded; its exec-refusal re-pick is asserted ABSENT in discovery-agents.node.test.ts and goes red when WIRE-04 adds a retry. vitest.config.ts's MEASURED_NODE_SPANS was re-measured on a QUIET host (127 files, 210.5 s wall clock, load peak 14.1) - the reading it replaced peaked at 121.8 and was measuring contention rather than the tree. Durations from red runs are never recorded there; two were discarded this session. The demo page told visitors a second tab is a second node; IndexedDB is origin-scoped so it is the SAME peer id. Corrected.
-last_updated: "2026-08-02T19:25:00.000Z"
+last_updated: "2026-08-02T22:10:00.000Z"
 last_activity: 2026-08-02
 progress:
   total_phases: 14
-  completed_phases: 5
+  completed_phases: 6
   total_plans: 56
   completed_plans: 50
   percent: 36
@@ -23,10 +23,17 @@ independent pass then scored 3/3 against the amended text. It counts now because
 verifier said so, which is the rule: a phase is done when a verifier says so, not when
 its plans are.
 
-**That rule is why `completed_phases` is 5 and not 6.** The five are 11, 12, 13, 14 and 15.
-**Phase 13.1 is not among them**: verified 2026-07-31, `gaps_found` at 6/7 — SCHED-06,
-NET-08, NET-09 and NET-10 closed, DATA-10 open. It stays uncounted until criterion 7's
-at-rest half lands.
+**`completed_phases` is 6 as of 2026-08-02.** The six are 11, 12, 13, **13.1**, 14 and 15.
+**Phase 13.1 joined them today**: it was verified 2026-07-31 at `gaps_found` 6/7 with DATA-10
+open, and criterion 7's at-rest half has now landed — a durable per-node sovereign-CID set
+(`sovereign-cids.ts`, `idb-sovereign-cids.ts`) registered at `submit.ts`'s blockstore-put and
+consulted by the `block` branch. The verification carries a dated amendment rather than being
+rewritten, so what it found on 2026-07-31 is still readable.
+
+**The fix deliberately did NOT hold the EgressGuard registration forever.** That would have
+closed the criterion and reintroduced the unbounded per-frame scan `egress.ts` forbids by
+name. The durable set is keyed on CID and answers by lookup; the guard stays keyed on payload
+and stays job-scoped. Two mechanisms, each cheap at its own question — do not merge them.
 
 **The count is over criteria, never over requirements, and Phases 13.1 and 15 are the
 pair that shows why.** 13.1 is uncounted because one of its own **criteria** is PARTIAL.

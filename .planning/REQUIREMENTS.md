@@ -508,7 +508,7 @@ inference.
       and every test touching this path shortens its budget because the wait dominates,
       which is the cost showing up as wall-clock. Closes the standing principle *every
       exclusion is named* against the refusal path
-- [ ] **DATA-10**: A node does not serve a raw sovereign block to a peer, whether or not
+- [x] **DATA-10**: A node does not serve a raw sovereign block to a peer, whether or not
       it has executed a task over that block. Today only the **executing** node registers
       its input with the guard (`registerSovereignInputs`), so a submitting node that never
       ran the task holds no registration and will serve the raw bytes on request —

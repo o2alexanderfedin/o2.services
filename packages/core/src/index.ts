@@ -49,7 +49,15 @@ export type { Receipt, VerificationResult } from './job/verify.ts'
 
 // Job submission — MR-01, DATA-01, DATA-03, DATA-04.
 export { submitJob } from './job/submit.ts'
-export type { JobResult, JobSpec, ShardResult, ShardSpec, SubmitError, SubmitResult } from './job/submit.ts'
+export type {
+  JobResult,
+  JobSpec,
+  ShardResult,
+  ShardSpec,
+  SubmitError,
+  SubmitOptions,
+  SubmitResult,
+} from './job/submit.ts'
 
 // Adapters.
 export { MemoryBlockstore } from './blockstore/memory.ts'

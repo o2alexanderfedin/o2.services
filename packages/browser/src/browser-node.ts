@@ -77,6 +77,7 @@ import { createLibp2p } from 'libp2p'
 import type { Libp2p } from '@libp2p/interface'
 import { IdbBlockstore } from './idb-blockstore.ts'
 import { IdbIdentityStore } from './idb-identity-store.ts'
+import { IdbSovereignCids } from './idb-sovereign-cids.ts'
 import { VisibilityGovernor } from './visibility-governor.ts'
 import { browserWorkerExecutor } from './worker-executor.ts'
 import type { WorkerExecutor } from '@o2/core'
@@ -859,7 +860,13 @@ export class BrowserNode {
     // below, exactly as `fabric-node.ts` does and for the identical reason: the withholding
     // predicate and the `block` branch must consult the same guard, and one value passed
     // twice cannot disagree.
-    const egressDisposition = { guard: egress, sovereignInputs: store }
+    //
+    // DATA-10's at-rest half, the same closure the Node tier makes — this tier is not
+    // exempt from it. Name derived by suffix from the blockstore's, exactly as the
+    // identity database is, so one origin can hold several independent nodes.
+    const sovereignCids = await IdbSovereignCids.open(`${blockstoreName}-sovereign`)
+    undo.push(() => sovereignCids.close())
+    const egressDisposition = { guard: egress, sovereignInputs: store, sovereignCids }
 
     // AUTH-01 / SCHED-01 — what this node answers a peer's `records` *and* `providers`
     // requests with, from the identical expression `fabric-node.ts` uses. Unconditional
