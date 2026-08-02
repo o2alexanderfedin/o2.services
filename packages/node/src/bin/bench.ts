@@ -38,7 +38,14 @@ import {
   publicNodes,
   signName,
 } from '@o2/core'
-import type { CanonicalValue, Executor, NameRecord, NodeDescriptor, Task } from '@o2/core'
+import type {
+  AdmissionControl,
+  CanonicalValue,
+  Executor,
+  NameRecord,
+  NodeDescriptor,
+  Task,
+} from '@o2/core'
 import type { CID } from 'multiformats/cid'
 import {
   EgressGuard,
@@ -48,6 +55,7 @@ import {
   RpcEndpoint,
   discoverCandidates,
   reduceJob,
+  rpcAdmission,
   serveAgent,
   submitJobWithEgress,
 } from '@o2/net'
@@ -402,6 +410,19 @@ interface Fabric {
    * the combine nodes fetch their leaves back through *this* one's `serveAgent`.
    */
   readonly rpc: RpcEndpoint
+  /**
+   * How placement asks a candidate whether it will take a shard — SCHED-02/SCHED-03.
+   *
+   * Carried on the rig for the same reason {@link Fabric.nodes} is: only the rig knows
+   * which arm it is. **Present only on a `--discover` rig**, and absent — not
+   * `undefined` — otherwise, because `submitJob` branches on `spec.admit === undefined`
+   * to choose between `planPlacement` and `planWithOffers`. The default curve therefore
+   * places exactly as it did before this field existed.
+   *
+   * The memory rig never sets it whatever flags are passed. Its nodes are reached over
+   * `MemoryNetwork` and an offer probe there would be measuring the harness.
+   */
+  readonly admit?: AdmissionControl
   close(): Promise<void>
 }
 
@@ -696,6 +717,10 @@ async function realFabric(nodes: number): Promise<Fabric> {
     // to surface, exactly the same field `bin/agent.ts`'s own `FabricNode` exposes.
     guard: requestor.egress,
     rpc: requestor.rpc,
+    // Set on the discover arm alone. Absent — not `undefined` — on the default arm, so
+    // `submitJob`'s `spec.admit === undefined` branch still selects `planPlacement` and
+    // the published curve is placed the way it always was.
+    ...(DISCOVER ? { admit: rpcAdmission(requestor.rpc) } : {}),
     async close() {
       for (const node of [...started, requestor]) await node.stop()
       await rm(root, { recursive: true, force: true })
@@ -746,6 +771,11 @@ function runnerFor(build: (nodes: number) => Promise<Fabric>): {
         // so the correlation submitJob checks still holds.
         nodes: fabric.nodes,
         redundancy: config.redundancy,
+        // Absent on the default arm, so `submitJob` takes `planPlacement` exactly as it
+        // did before `--discover` existed. Present on a discover rig, which is what
+        // gives `planWithOffers` — sample `d`, take the least-loaded, re-pick on a
+        // refusal — a caller from a runnable entry point rather than only from tests.
+        ...(fabric.admit === undefined ? {} : { admit: fabric.admit }),
       },
       fabric.blockstore,
       [fabric.guard],

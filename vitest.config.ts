@@ -24,42 +24,45 @@ const SLOW_CUTOFF_MS = 1000
 const NODE_MEASUREMENT = {
   date: '2026-08-02',
   /**
-   * 1-minute load average, start and end of the run — and **neither is the peak**.
-   * Sampled mid-run it reached 115, so this run's spans are contention-dominated and
-   * should be read as an upper bound on each file rather than as its cost. The peak is
-   * recorded here because the two endpoints alone would understate it: the run began at
-   * 50 and ended at 16, and a reader averaging those would conclude the host was quiet.
+   * 1-minute load average, sampled every 15 s across the run — and the endpoints are
+   * **not** the story. It began at 33.4 and ended at 39.8, but peaked at 121.8 mid-run,
+   * so these spans are contention-dominated and each should be read as an upper bound on
+   * its file rather than as that file's cost.
    *
-   * Roughly half the load was this run's own doing — `lift.node.test.ts` drives the
-   * Docker VM hard — and the rest was not: an unrelated file-sync daemon and the OS
-   * indexer were each holding ~60 % of a core throughout.
+   * The peak is recorded because the two endpoints alone would understate it by a factor
+   * of three, and an absolute-millisecond cutoff is not reproducible without knowing what
+   * the host was carrying when it was taken.
    */
-  load: 50.0,
-  loadAtEnd: 15.9,
-  loadPeak: 115,
+  load: 33.4,
+  loadAtEnd: 39.8,
+  loadPeak: 121.8,
   /** Files and tests the `node` project ran, i.e. with no `test:unit` exclusions. */
-  files: 120,
-  tests: 1738,
+  files: 125,
+  tests: 1774,
   /** Sum of per-file spans. Not wall clock — vitest runs files in parallel. */
-  sumOfFileSpansMs: 483_408,
+  sumOfFileSpansMs: 614_141,
   /** Wall clock of that same run, for contrast with the sum above. */
-  wallClockMs: 253_393,
+  wallClockMs: 336_323,
   /**
    * What `npm run test:unit` measured with the derived list below applied.
    *
    * `unitFiles` is not an independent reading — `slow-specs.node.test.ts` asserts it
    * equals `files` minus the derived exclusion count, so it moves when the table does.
-   * It was also observed directly at 92, which is the cross-check that the derivation
-   * and the runner agree.
+   * It was **also observed directly at 96** by running `npm run test:unit` against this
+   * table, which is the cross-check that the derivation and the runner agree. Deriving
+   * it alone would make the assertion a tautology.
    *
-   * `unitWallClockMs` is the **faster of two readings** and is not a bound: 6.99 s at
-   * load 5.6, then 9.95 s at load 35.7, the same tree and the same 1434 tests minutes
-   * apart. Read it as "under ten seconds". The spread is the whole reason this object
-   * records a load at all.
+   * `unitWallClockMs` is **one reading of a passing run at a stated load** — 8.48 s at
+   * 1-minute load 15.2 — and is not a bound. Two further readings minutes apart on the
+   * same tree gave 6.24 s at load 18.6 and 8.75 s, so read this as "under ten seconds"
+   * and read the spread as the reason this object records a load at all rather than a
+   * duration on its own. The 6.24 s reading is deliberately not the one recorded: it
+   * came from a run with three failing assertions, and a duration taken from a red run
+   * is not a duration for the suite this field claims to describe.
    */
-  unitFiles: 92,
-  unitTests: 1434,
-  unitWallClockMs: 6_990,
+  unitFiles: 96,
+  unitTests: 1468,
+  unitWallClockMs: 8_480,
 } as const
 
 /**
@@ -153,50 +156,44 @@ const NODE_MEASUREMENT = {
  * The rest are deliberately unannotated rather than guessed at.
  */
 const MEASURED_NODE_SPANS: readonly (readonly [string, number])[] = [
-  ['tools/aot/lift.node.test.ts', 251510],                            // 48 `docker` invocations via execFileSync
-  ['packages/node/src/enrollment.node.test.ts', 32497],
-  ['packages/node/src/certificate-verification.node.test.ts', 25042],
-  ['packages/node/src/peer-dial.node.test.ts', 24216],                // spawns real `bin/agent.ts` processes
-  ['packages/node/src/tree-reduce-agents.node.test.ts', 18245],
-  ['packages/node/src/peer-gate.node.test.ts', 13145],
-  ['packages/node/src/transport-bounds.node.test.ts', 12849],         // waits out real 3/10/20 s RPC timeouts
-  ['packages/node/src/admission.node.test.ts', 9852],                 // CPU-bound WASM synthesis, 120 s testTimeout
-  ['packages/node/src/signed-artifact.node.test.ts', 9062],
-  ['packages/node/src/two-process.node.test.ts', 8460],               // 8 real `spawn` calls
-  ['packages/node/src/capability-dispatch.node.test.ts', 8458],
-  ['packages/node/src/orphan-leash.node.test.ts', 6843],
-  ['packages/node/src/fabric-node.node.test.ts', 6801],               // real libp2p nodes, 120 s testTimeout
-  ['packages/demo/src/kernel.test.ts', 6313],                         // heavy WASM build, 120 s testTimeout
-  ['packages/node/src/node-records.node.test.ts', 3771],
-  ['packages/node/src/peer-verifier.node.test.ts', 3599],
-  ['packages/node/src/sovereignty-placement.node.test.ts', 3213],     // 6 real `spawn` calls
-  ['packages/node/src/egress-manifest.node.test.ts', 3077],
-  ['packages/node/src/execution-deadline.node.test.ts', 2708],
-  ['packages/node/src/egress-refusal.node.test.ts', 2700],            // 10 real `spawn` calls
-  ['packages/node/src/provider-answering.node.test.ts', 2469],
-  ['packages/node/src/relaying.node.test.ts', 2331],
-  ['packages/node/src/node-enrollment.node.test.ts', 2309],
-  ['packages/node/src/named-refusal.node.test.ts', 1944],
-  ['tools/aot/cli.node.test.ts', 1433],
-  ['packages/net/src/discovery.test.ts', 1297],
-  ['packages/node/src/rendezvous-wire.node.test.ts', 1165],
-  ['packages/net/src/churn.test.ts', 1015],                           // 800k-iteration churn loop
+  ['tools/aot/lift.node.test.ts', 335022],
+  ['packages/node/src/discovery-agents.node.test.ts', 38560],
+  ['packages/node/src/enrollment.node.test.ts', 31997],
+  ['packages/node/src/certificate-verification.node.test.ts', 27223],
+  ['packages/node/src/peer-dial.node.test.ts', 25804],
+  ['packages/node/src/orphan-leash.node.test.ts', 20869],
+  ['packages/node/src/tree-reduce-agents.node.test.ts', 20854],
+  ['packages/node/src/peer-gate.node.test.ts', 11671],
+  ['packages/node/src/transport-bounds.node.test.ts', 11459],
+  ['packages/node/src/admission.node.test.ts', 9514],
+  ['packages/node/src/signed-artifact.node.test.ts', 7243],
+  ['packages/node/src/two-process.node.test.ts', 6012],
+  ['packages/node/src/capability-dispatch.node.test.ts', 5733],
+  ['packages/node/src/duty-cycle.node.test.ts', 5604],
+  ['packages/demo/src/kernel.test.ts', 5473],
+  ['packages/node/src/fabric-node.node.test.ts', 5348],
+  ['packages/node/src/node-records.node.test.ts', 3734],
+  ['packages/node/src/trust-anchors.node.test.ts', 3477],
+  ['packages/node/src/peer-verifier.node.test.ts', 3233],
+  ['packages/node/src/sovereignty-placement.node.test.ts', 2575],
+  ['packages/node/src/execution-deadline.node.test.ts', 2480],
+  ['packages/node/src/provider-answering.node.test.ts', 2265],
+  ['packages/node/src/egress-refusal.node.test.ts', 2171],
+  ['packages/node/src/node-enrollment.node.test.ts', 1996],
+  ['packages/node/src/egress-manifest.node.test.ts', 1856],
+  ['packages/node/src/relaying.node.test.ts', 1777],
+  ['packages/node/src/named-refusal.node.test.ts', 1565],
+  ['packages/net/src/churn.test.ts', 1030],
+  ['packages/node/src/rendezvous-wire.node.test.ts', 1025],
   // ---- below the cut; listed so the boundary is visible, not excluded ----
-  ['packages/net/src/enrol-agent.test.ts', 951],
-  ['packages/core/src/discovery.test.ts', 900],
-  ['packages/node/src/sovereign-block-refusal.node.test.ts', 874],
-  ['packages/node/src/fs-blockstore.node.test.ts', 866],
-  ['packages/node/src/disclosure-gate.node.test.ts', 818],
-  ['packages/net/src/provider-merge.test.ts', 800],
-  ['packages/net/src/sovereign-execution.test.ts', 747],
-  ['packages/node/src/node-identity.node.test.ts', 739],
-  ['packages/core/src/enrollment.test.ts', 702],
-  ['packages/node/src/primes-reduce.node.test.ts', 702],
-  ['packages/node/src/start-unwind.node.test.ts', 607],
-  ['packages/node/src/relayed-job.node.test.ts', 584],
-  ['packages/net/src/discover-candidates.test.ts', 584],
-  ['packages/node/src/identity-store.node.test.ts', 547],
-  ['packages/aot/src/wasi-executor.test.ts', 455],
+  ['packages/net/src/discovery.test.ts', 999],
+  ['tools/aot/cli.node.test.ts', 934],
+  ['packages/node/src/disclosure-gate.node.test.ts', 807],
+  ['packages/net/src/enrol-agent.test.ts', 761],
+  ['packages/node/src/fs-blockstore.node.test.ts', 748],
+  ['packages/core/src/discovery.test.ts', 655],
+  ['packages/node/src/sovereign-block-refusal.node.test.ts', 650],
+  ['packages/net/src/provider-merge.test.ts', 646],
 ]
 
 /**
