@@ -327,6 +327,24 @@ export type LiftFailure =
    */
   | { readonly kind: 'docker-unavailable'; readonly detail: string }
   /**
+   * `docker` was reached and did not answer in time — a wedged or merely swamped
+   * daemon, not a missing one.
+   *
+   * **Split out of `docker-unavailable` on 2026-08-02, for the second time this
+   * distinction has had to be made.** The first was `host-cannot-spawn`: a host that
+   * could not fork, described as a host without Docker, sending a reader to check an
+   * installation that was fine. This is the same sentence one step later — the process
+   * started, the daemon was there, and the machine was too busy for the answer to arrive
+   * inside the budget.
+   *
+   * It matters because it is **transient and worth retrying**, which neither of the other
+   * two are. `lift.node.test.ts` retries on it for exactly that reason: its
+   * `despiteAFullProcessTable` wrapper already retried `host-cannot-spawn` and returned
+   * immediately on this, so a whole-suite run on a loaded host turned two cases red with a
+   * verdict that read as a broken installation.
+   */
+  | { readonly kind: 'docker-not-answering'; readonly detail: string; readonly afterMs: number }
+  /**
    * The host could not create a process. This says nothing about Docker.
    *
    * Split out of `docker-unavailable` on 2026-08-01, against a reproduced failure
@@ -654,8 +672,9 @@ export async function resolveImage(
     return {
       ok: false,
       failure: {
-        kind: 'docker-unavailable',
+        kind: 'docker-not-answering',
         detail: `docker image inspect did not answer within ${timeoutMs} ms`,
+        afterMs: timeoutMs,
       },
     }
   }
@@ -1062,6 +1081,16 @@ export function describeLiftFailure(failure: LiftFailure): string {
       return `the pre-screen refused this input (${failure.reason.kind}) — no container was started`
     case 'docker-unavailable':
       return `docker could not be run: ${failure.detail}`
+    case 'docker-not-answering':
+      // Says nothing about the installation, for `host-cannot-spawn`'s reason: docker was
+      // found and started. What is unknown is whether the image is there, so the sentence
+      // must not imply it is missing — a reader sent to pull six gigabytes they already
+      // have would wait on the same swamped daemon to do it.
+      return (
+        `docker was reached but did not answer within ${failure.afterMs} ms — the daemon is ` +
+        `wedged or the host is swamped, so nothing here is known about the image or the ` +
+        `lift; retry when the host is quieter: ${failure.detail}`
+      )
     case 'host-cannot-spawn':
       // Deliberately says nothing about Docker, and deliberately does not reuse the
       // words "could not be run" — the whole defect was a reader being sent to check
