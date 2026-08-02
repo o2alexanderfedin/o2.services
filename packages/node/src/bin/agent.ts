@@ -6,7 +6,7 @@
  *
  *   { "peerId": "12D3Koo…", "multiaddrs": ["/ip4/127.0.0.1/tcp/54321/p2p/12D3Koo…"],
  *     "trustAnchors": ["…"], "nodeKey": "…", "certificate": null, "issuerKey": null,
- *     "peers": [] }
+ *     "peers": [], "dutyCycle": 1 }
  *
  * The handshake is deliberately a single line on stdout rather than a fixed port or
  * a discovery service: the OS assigns the port, so parallel runs cannot collide,
@@ -268,6 +268,31 @@ const { values } = parseArgs({
     // `type: 'string'` because `parseArgs` has no integer type; the parse and the range
     // check are the validator below.
     'max-concurrent-tasks': { type: 'string' },
+    // SCHED-04: the share of wall clock this node spends running tasks, in (0, 1].
+    //
+    // **The starting value, not a fixed one.** The requirement asks for a cap an operator
+    // can set on a node that is already running, and a flag alone cannot do that. The
+    // control file and `SIGHUP` handler below are the other half; this is where the process
+    // begins.
+    //
+    // A per-node setting, not a node kind. A node at 0.1 serves exactly the same requests
+    // as one at 1, more slowly and fewer at a time, and nothing anywhere branches on it.
+    //
+    // **Why a file and a signal, and not a wire frame.** `serveAgent` serves
+    // unauthenticated. A frame that set a node's CPU cap would let any peer able to dial
+    // this process throttle a machine it does not own, and bounding that needs an
+    // authorization surface this phase has no reason to open. `<dir>/.duty-cycle` is
+    // reached only by whoever can already write the directory this agent was handed.
+    //
+    // Note *which* property of `--dir` is being used: `.identity.key` and `.provider.key`
+    // live there because they are **secret**, and this file lives there because it is
+    // **owned**. A duty cycle is not a secret — it is published on the handshake line and
+    // implied by every offer answer. The directory is the ownership boundary, and that is
+    // the only reason the control file shares it.
+    //
+    // `type: 'string'` because `parseArgs` has no number type; the parse and the range check
+    // are the validator below.
+    'duty-cycle': { type: 'string' },
     // AUTH-01/AUTH-04: this process holds a provider signing key, generated on-device into
     // `<dir>/.provider.key` on first start, and answers enrollment requests with a real
     // issuance decision instead of saying by name that it issues none.
@@ -288,7 +313,7 @@ const { values } = parseArgs({
 })
 
 const USAGE =
-  'usage: agent.ts --dir <blockstore-dir> [--port <n>] [--owner-id <id> [--owner-key <hex>] [--can-execute-sovereign]] [--trust-anchor <hex> ...] [--issues-certificates] [--provider-addr <multiaddr> --user-key <path> --operator-id <id>] [--trusted-issuer <hex> ...] [--peer-addr <multiaddr> ...] [--max-concurrent-tasks <n>]\n'
+  'usage: agent.ts --dir <blockstore-dir> [--port <n>] [--owner-id <id> [--owner-key <hex>] [--can-execute-sovereign]] [--trust-anchor <hex> ...] [--issues-certificates] [--provider-addr <multiaddr> --user-key <path> --operator-id <id>] [--trusted-issuer <hex> ...] [--peer-addr <multiaddr> ...] [--max-concurrent-tasks <n>] [--duty-cycle <n>]\n'
 
 /**
  * The one exit-2 path, extended rather than duplicated.
@@ -342,6 +367,18 @@ if (values['max-concurrent-tasks'] !== undefined) {
   const slots = Number(values['max-concurrent-tasks'])
   if (!Number.isInteger(slots) || slots < 1) {
     refuse(`--max-concurrent-tasks ${values['max-concurrent-tasks']} is not an integer of at least 1`)
+  }
+}
+
+// SCHED-04: refused here rather than clamped, for `--max-concurrent-tasks`'s reason — the
+// binary and `DutyCycleGovernor` must not disagree about which values exist, so this is that
+// class's own guard restated against a string. Zero is rejected along with everything else
+// outside (0, 1]: a node that ran tasks 0% of the time would accept work it would never
+// start, which is a worse answer than refusing to start at all.
+if (values['duty-cycle'] !== undefined) {
+  const cap = Number(values['duty-cycle'])
+  if (!Number.isFinite(cap) || cap <= 0 || cap > 1) {
+    refuse(`--duty-cycle ${values['duty-cycle']} is not a number in (0, 1]`)
   }
 }
 
@@ -478,6 +515,7 @@ node = await FabricNode.start({
   ...(values['max-concurrent-tasks'] === undefined
     ? {}
     : { maxConcurrentTasks: Number(values['max-concurrent-tasks']) }),
+  ...(values['duty-cycle'] === undefined ? {} : { dutyCycle: Number(values['duty-cycle']) }),
   ...(values['owner-id'] === undefined
     ? {}
     : {
@@ -560,6 +598,7 @@ process.stdout.write(
     certificate: node.certificate,
     issuerKey: node.issuerKey,
     peers,
+    dutyCycle: node.dutyCycle,
   })}\n`,
 )
 
@@ -567,3 +606,47 @@ process.stdout.write(
 // be told to stop read as one paragraph rather than being separated by the handshake.
 process.on('SIGTERM', shutdown)
 process.on('SIGINT', shutdown)
+
+/** The control file, under the directory this agent was already handed. */
+const DUTY_CYCLE_FILE = '.duty-cycle'
+
+/**
+ * SCHED-04 — re-read the cap on a running node.
+ *
+ * **Deliberately not on `shutdown`'s path.** `SIGHUP`'s default disposition is to
+ * terminate the process, so the existence of this handler is the only thing keeping the
+ * node alive through one; wiring it to the shutdown path would have looked tidy and would
+ * have made the signal do exactly what having no handler does.
+ *
+ * **Every failure is named and none is fatal**, which is the opposite disposition from
+ * `--provider-addr`'s in this same file, and the difference is worth stating because the
+ * two rules will otherwise read as inconsistent. That check runs *before the node exists*,
+ * where refusing to start is the honest answer to a half-configured process. This one runs
+ * while the node is **serving other peers' work**, and a control file somebody mistyped is
+ * not a reason to drop those connections. So a bad file writes one line to stderr and
+ * leaves the running cap exactly where it was.
+ */
+process.on('SIGHUP', () => {
+  void (async () => {
+    const path = `${String(values.dir)}/${DUTY_CYCLE_FILE}`
+    let text: string
+    try {
+      text = await readFile(path, 'utf8')
+    } catch {
+      process.stderr.write(`agent.ts: ${path} could not be read; duty cycle unchanged\n`)
+      return
+    }
+    const cap = Number(text.trim())
+    if (text.trim() === '' || !Number.isFinite(cap) || cap <= 0 || cap > 1) {
+      process.stderr.write(
+        `agent.ts: ${path} holds ${JSON.stringify(text.trim())}, expected a number in (0, 1]; duty cycle unchanged\n`,
+      )
+      return
+    }
+    node?.setDutyCycle(cap)
+  })().catch(() => {
+    // Unreachable in practice — every step above handles its own failure — but a throw
+    // escaping here would become an unhandled rejection and kill a node that is serving.
+    process.stderr.write('agent.ts: duty-cycle re-read failed; duty cycle unchanged\n')
+  })
+})

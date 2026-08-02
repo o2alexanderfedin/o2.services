@@ -87,6 +87,7 @@ import { webSockets } from '@libp2p/websockets'
 import { multiaddr } from '@multiformats/multiaddr'
 import {
   DEFAULT_MAX_CONCURRENT_TASKS,
+  DutyCycleGovernor,
   EnrollmentAuthority,
   LocalCapacity,
   MemoryBlockstore,
@@ -110,6 +111,7 @@ import {
   CountingExecutor,
   EgressGuard,
   FetchingBlockstore,
+  GovernedExecutor,
   RpcBlockSource,
   RpcEndpoint,
   UNREACHABLE_PROVIDER,
@@ -365,6 +367,27 @@ export interface FabricNodeOptions {
    * caller's mistake into a silently different node.
    */
   readonly maxConcurrentTasks?: number
+  /**
+   * The share of wall clock this node will spend running tasks — SCHED-04.
+   *
+   * A number in `(0, 1]`, defaulting to **1**: unthrottled, which is exactly how
+   * every node behaved before this option existed. A node at 1 pays nothing for the
+   * governor's presence — no sleep and no serialisation — which is why every
+   * concurrency test in this package passes unedited.
+   *
+   * Per-node, and **not** a node class: nothing branches on it, and a node at 0.1
+   * serves precisely the same requests as one at 1, more slowly and fewer at a time.
+   * Same rule as `maxConcurrentTasks` above.
+   *
+   * It is a starting value rather than a fixed one. {@link FabricNode.setDutyCycle}
+   * moves it on a process that is already running, which is what makes this a control
+   * rather than a configuration — and is the half of SCHED-04 that no tier had.
+   *
+   * Passed straight through, never clamped: `DutyCycleGovernor`'s constructor refuses
+   * anything outside `(0, 1]` with a `RangeError` naming the value, and sanitising
+   * here would turn a caller's mistake into a silently different node.
+   */
+  readonly dutyCycle?: number
   /**
    * How long one task may hold its thread before it is killed — SCHED-06.
    *
@@ -736,11 +759,25 @@ export class FabricNode {
    */
   readonly certificate: NodeCertificate | null
   /**
-   * The instrument {@link executorPeakInFlight} reads. The same object as
-   * {@link executor} — `CountingExecutor` is composed outermost, so nothing can
-   * reach this node's executor without being counted.
+   * The instrument {@link executorPeakInFlight} reads.
+   *
+   * **No longer the same object as {@link executor}.** SCHED-04 wrapped the counter in
+   * a `GovernedExecutor`, so the counter is now one layer in rather than the outermost
+   * one, and a caller reaching `node.executor` passes through the pacing before it is
+   * counted. That is the browser tier's order and it is deliberate: a counter outside
+   * the governor would count tasks parked on its serialisation chain as in flight,
+   * which is not what "how many tasks is this node running at once" means.
    */
   readonly #counter: CountingExecutor
+  /**
+   * This node's duty-cycle cap — SCHED-04.
+   *
+   * Held so {@link FabricNode.setDutyCycle} can move it on a running process, and so
+   * {@link FabricNode.dutyCycle} can read it. The same object is inside
+   * {@link executor} and inside `admission`, which is what makes one call change both
+   * the pacing and the advertised slot count.
+   */
+  readonly #governor: DutyCycleGovernor
   /** The thread tasks run on. Held only so {@link FabricNode.stop} can end it. */
   readonly #compute: WorkerExecutor
   readonly #limit: number
@@ -779,7 +816,9 @@ export class FabricNode {
     egress: EgressGuard
     blockstore: FetchingBlockstore
     store: Blockstore
-    executor: CountingExecutor
+    executor: GovernedExecutor
+    counter: CountingExecutor
+    governor: DutyCycleGovernor
     compute: WorkerExecutor
     admission: LocalCapacity
     limit: number
@@ -797,7 +836,8 @@ export class FabricNode {
     this.blockstore = parts.blockstore
     this.store = parts.store
     this.executor = parts.executor
-    this.#counter = parts.executor
+    this.#counter = parts.counter
+    this.#governor = parts.governor
     this.#compute = parts.compute
     this.admission = parts.admission
     this.#limit = parts.limit
@@ -848,9 +888,45 @@ export class FabricNode {
    * local call never reaches it. So `executorPeakInFlight <= admission.slots` is a
    * claim about a run in which every dispatch arrived over RPC, and a test asserting
    * it has to say so.
+   *
+   * **Since SCHED-04 the counter sits inside the governor**, so at a duty cycle below
+   * 1 this reads tasks *running*, never tasks *queued* — a dispatch waiting its turn
+   * on the serialisation chain has not reached the counter yet. At a duty cycle of 1
+   * nothing waits and the reading is what it was before the governor existed, which is
+   * why the concurrency specs in this package needed no edit.
    */
   get executorPeakInFlight(): number {
     return this.#counter.peakInFlight
+  }
+
+  /**
+   * The share of wall clock this node currently spends running tasks — SCHED-04.
+   *
+   * Reads through the governor rather than echoing a stored option, so it reports what
+   * is in force after any {@link setDutyCycle} call.
+   */
+  get dutyCycle(): number {
+    return this.#governor.dutyCycle
+  }
+
+  /**
+   * Move this node's cap while it is running — the half of SCHED-04 no tier had.
+   *
+   * Honoured by the **next task started** and by the **next offer answered**. A task
+   * already executing is not disturbed, which is `GovernedExecutor`'s between-tasks
+   * rule: a guest `run()` is synchronous and V8 has no fuel, so there is no point at
+   * which a running task could be slowed even in principle.
+   *
+   * Both effects come from the one object. The governor is inside {@link executor}, so
+   * the pacing changes; it is inside `admission`, so `admission.slots` changes with no
+   * reconstruction and the very next offer answer carries the lower figure.
+   *
+   * Throws a `RangeError` naming the value for anything outside `(0, 1]`. The guard is
+   * the governor's own, reached rather than duplicated here — a second copy is a second
+   * thing that can drift.
+   */
+  setDutyCycle(value: number): void {
+    this.#governor.setDutyCycle(value)
   }
 
   /** Calls currently inside `executor.execute()` on this node. */
@@ -1011,12 +1087,41 @@ export class FabricNode {
     // resolved from below, so the capacity's node id and the executor's cannot
     // drift — the pattern this factory already applies to `sovereignty`.
     //
-    // No `dutyCycle` is passed. This node has no governor to feed one from;
-    // `browser-node.ts` has one and deliberately does not feed it either, for the
-    // reason written beside its own construction.
+    // SCHED-04 — the cap this node paces itself to, and the first production
+    // `DutyCycleGovernor` on either tier.
+    //
+    // Built before `admission` because the capacity reads it. `environment` is a
+    // named absence rather than an omission: this tier has no visibility signal to
+    // compose with, and saying so is what stops a reader assuming one was forgotten.
+    const governor = new DutyCycleGovernor({
+      dutyCycle: options.dutyCycle ?? 1,
+      sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+      environment: 'no-environment-governor',
+    })
+
+    // `dutyCycle: governor` — and this line reverses a decision recorded next to
+    // `browser-node.ts`'s own construction, so it is argued rather than just changed.
+    //
+    // The objection on record was that *"two independent throttles on one path produce
+    // a number nobody can predict"*. That holds only if these are two throttles, and
+    // they are not. `GovernedExecutor` is the **mechanism** — it is what actually makes
+    // a task wait. The slot count is the **statement about** that mechanism: advisory,
+    // reserving nothing, and read by a requestor deciding where to send work. One cap,
+    // seen twice. `CapacityOptions`' own doc already argued for exactly this coupling —
+    // *"A node at 25% does not run a quarter of a task; it runs fewer of them."*
+    //
+    // Criterion 3 requires a cap to be observable in what a requestor is offered next.
+    // The offer answer carries a slot count and the slot count derives from the duty
+    // cycle, so this one argument is the whole of that requirement.
+    //
+    // What is genuinely given up, said plainly: a throttled node now refuses earlier as
+    // well as running slower. That is intended. A node at a low cap still advertising a
+    // high slot count would be inviting work it will not get to, which is the precise
+    // failure a load hint exists to prevent.
     const admission = new LocalCapacity({
       nodeId: libp2p.peerId.toString(),
       maxConcurrent: options.maxConcurrentTasks ?? DEFAULT_MAX_CONCURRENT_TASKS,
+      dutyCycle: governor,
     })
 
     // Connecting is what triggers the reservation; the `/p2p-circuit` listen entry
@@ -1255,7 +1360,19 @@ export class FabricNode {
       createThread: workerThread,
       ...(options.taskDeadlineMs === undefined ? {} : { deadlineMs: options.taskDeadlineMs }),
     })
-    const executor = new CountingExecutor(guardSovereignty(provenance(compute), sovereignty))
+    // SCHED-06 + SCHED-04. The counter sits **inside** the governor, which is a change
+    // from this tier's previous order and brings it into line with `browser-node.ts`.
+    //
+    // The reason is that tier's, quoted rather than re-derived: a counter outside the
+    // governor would count tasks parked on its serialisation chain as in flight, which
+    // is precisely not what "how many tasks is this node running at once" means. The
+    // two tiers now agree on layer order, which is what the equal-functionality rule is
+    // actually about.
+    //
+    // Everything inside is unchanged and the order still matters: sovereignty outside
+    // provenance, provenance innermost against `compute`.
+    const counter = new CountingExecutor(guardSovereignty(provenance(compute), sovereignty))
+    const executor = new GovernedExecutor(counter, governor)
 
     const node = new FabricNode({
       libp2p,
@@ -1265,6 +1382,8 @@ export class FabricNode {
       blockstore,
       store,
       executor,
+      counter,
+      governor,
       compute,
       admission,
       limit,
