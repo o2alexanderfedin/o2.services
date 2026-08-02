@@ -139,6 +139,37 @@ export class DutyCycleGovernor implements Governor {
   }
 
   /**
+   * The cap this governor was **set to**, before any environment is composed in.
+   *
+   * `dutyCycle` above is what the node *runs at*; this is what its operator or its
+   * visitor *asked for*. On a node with no environment governor the two are the same
+   * number, and the distinction only becomes visible on a tier that has one.
+   *
+   * **It exists because the two answer different questions and one caller needs the
+   * second.** A slot count is a statement about what a node will *accept*; an
+   * environment throttle is a statement about how fast it runs what it *already
+   * accepted*. A backgrounded tab should finish what it took on and merely run it
+   * slower, which is BROW-03; it should not start refusing work it had already
+   * advertised capacity for.
+   *
+   * **Stated as reasoning, not as a measurement**, because the obvious measurement was
+   * attempted and came back negative. Feeding the composed value to `LocalCapacity` does
+   * arithmetically collapse a backgrounded tab to one slot — `floor(8 × 0.05)` is 0 and
+   * the count floors at 1 — but removing that coupling did *not* fix the BROW-03 failure
+   * that prompted this, so it was not the cause. The cause was `yieldSlice` bypassing the
+   * environment's own accounting; see the note there. The distinction below is kept on
+   * its merits, and no test in this repository currently fails when it is collapsed —
+   * which is worth knowing before relying on it.
+   *
+   * So a capacity reads this, and the executor reads {@link dutyCycle}. A user lowering
+   * their own cap does narrow what the node accepts, which is what SCHED-04 asks for;
+   * the window manager backgrounding a tab does not.
+   */
+  get ownDutyCycle(): number {
+    return this.#dutyCycle
+  }
+
+  /**
    * Set the user's cap on a running governor — SCHED-04's *user-adjustable* half.
    *
    * Takes effect on the next `yieldSlice`, which is the next task boundary,
@@ -165,6 +196,26 @@ export class DutyCycleGovernor implements Governor {
   async yieldSlice(): Promise<void> {
     const duty = this.dutyCycle
     if (duty >= 1) return
+    // **When the environment is the binding constraint, the environment does the
+    // yielding.** Not an optimisation — composing by taking the lower of two rates and
+    // then sleeping *here* silently bypasses whatever the environment's own yield does
+    // besides sleep, and at least one implementation does more than sleep.
+    //
+    // Measured: `VisibilityGovernor` accrues `sleptMs`, which is the reading BROW-03
+    // uses to prove a backgrounded tab paid its throttle rather than merely being
+    // configured for one. Wrapping it without this branch left that counter at 0 while
+    // the tab really was being paced — `background-tab.e2e.test.ts` went red on
+    // `expected 0 to be greater than 0` with the pacing itself perfectly correct. An
+    // instrument that stops being written is indistinguishable from a throttle that
+    // stopped happening, and only one of those is survivable.
+    //
+    // `<=` rather than `<` so that when the two are equal the environment still owns the
+    // yield: at that point it is a binding constraint too, and the tie should go to the
+    // object whose accounting somebody is reading.
+    if (this.#environment !== 'no-environment-governor' && this.#environment.dutyCycle <= this.#dutyCycle) {
+      await this.#environment.yieldSlice()
+      return
+    }
     const offMs = this.#sliceMs * (1 / duty - 1)
     await this.#sleep(offMs)
   }

@@ -271,6 +271,12 @@ const api: TabApi = {
         // is why this is a value here and not a default in the factory.
         whenSeedIsGone: 'mints-a-new-identity',
         rpcTimeoutMs: 60_000,
+        // Conditional spread, so an omitted option is genuinely absent and the factory's
+        // own default is what applies — passing `undefined` explicitly would override it.
+        ...(options.maxConcurrentTasks === undefined
+          ? {}
+          : { maxConcurrentTasks: options.maxConcurrentTasks }),
+        ...(options.dutyCycle === undefined ? {} : { dutyCycle: options.dutyCycle }),
         // Aggressive so the throttle is unmistakable in a test rather than marginal.
         backgroundDutyCycle: 0.05,
         // Loopback relay: refused by libp2p's browser defaults, correct to allow here.
@@ -585,6 +591,20 @@ const api: TabApi = {
         remoteAddr: connection.remoteAddr.toString(),
         limited: connection.limits !== undefined,
       }))
+  },
+
+  setDutyCycle(value: number) {
+    // Straight through to the node, so the `RangeError` a page sees is the governor's own
+    // and the binary, the tab and the class cannot disagree about which values exist.
+    required().setDutyCycle(value)
+  },
+
+  capacity() {
+    const node = required()
+    return {
+      dutyCycle: node.dutyCycle,
+      slots: node.admission.slots,
+    }
   },
 
   governor() {

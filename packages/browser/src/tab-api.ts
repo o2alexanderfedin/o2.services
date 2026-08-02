@@ -283,6 +283,20 @@ export interface TabApi {
     relayAddrs: string[]
     blockstoreName: string
     trustAnchors?: string[]
+    /**
+     * SCHED-06 — tasks this tab will hold at once. Omitted takes the factory default.
+     *
+     * Exposed for the same reason `FabricNodeOptions.maxConcurrentTasks` is: a test that
+     * wants to *observe* a refusal, or a slot count moving with a cap, has to be able to
+     * make one certain rather than hope for it.
+     */
+    maxConcurrentTasks?: number
+    /**
+     * SCHED-04 — this tab's starting user CPU cap, in `(0, 1]`. Omitted means 1.
+     *
+     * A starting value only; {@link TabApi.setDutyCycle} moves it on a running tab.
+     */
+    dutyCycle?: number
   }): Promise<string>
   /**
    * Join using whatever the page's own origin says to dial.
@@ -338,6 +352,24 @@ export interface TabApi {
   putModule(bytes: number[]): Promise<string>
   storedBlocks(): Promise<number>
   governor(): TabGovernorState
+  /**
+   * SCHED-04 — set this tab's user CPU cap while it is running, in `(0, 1]`.
+   *
+   * **The user's cap, not the environment's.** It composes with the visibility governor
+   * by taking the lower of the two, so a backgrounded tab still throttles to the
+   * background rate whatever is set here, and `capacity().dutyCycle` reports the
+   * effective rate rather than this argument.
+   *
+   * Throws a `RangeError` naming the value for anything outside `(0, 1]`, and a tab whose
+   * call threw is unchanged — there is no partial application of a cap.
+   *
+   * This is the page's control. There is deliberately **no wire frame** that does the
+   * same thing: `serveAgent` serves unauthenticated, so a peer able to dial this tab must
+   * not be able to throttle it.
+   */
+  setDutyCycle(value: number): void
+  /** SCHED-04 — this tab's effective rate and the slot count it now advertises. */
+  capacity(): { dutyCycle: number; slots: number }
   isolation(): TabIsolation
   /**
    * Force the page's visibility signal, then dispatch a real `visibilitychange`.

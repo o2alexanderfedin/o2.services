@@ -22,7 +22,11 @@ function fakeSleep() {
  */
 class StubEnvironment implements Governor {
   dutyCycle = 1
-  async yieldSlice(): Promise<void> {}
+  /** Counted, because whether the environment's own yield ran is now a claim. */
+  yields = 0
+  async yieldSlice(): Promise<void> {
+    this.yields += 1
+  }
 }
 
 describe('DutyCycleGovernor — SCHED-04', () => {
@@ -193,17 +197,53 @@ describe('DutyCycleGovernor — SCHED-04', () => {
       expect(g.dutyCycle).toBe(0.05)
     })
 
-    it('paces at the composed reading, not at the cap', async () => {
-      // The cap is 0.5 and the environment is 0.1, so a governor that paced from
-      // its own field would idle 50ms and a governor that paced from the binding
-      // reading idles 450ms. The difference is the whole point of composing.
+    it('hands the yield to the environment when the environment is what binds', async () => {
+      /*
+       * **This case asserted the opposite until 2026-08-02, and the reason it changed is
+       * worth more than the case.**
+       *
+       * It used to require that this governor compute `450` from the composed reading
+       * and sleep that itself — the cap being 0.5, the environment 0.1, and 450ms the
+       * off-period for 0.1. The arithmetic was right and the design was wrong, because
+       * an environment governor is a `Governor` and not a number: its `yieldSlice` may
+       * do more than sleep, and sleeping on its behalf silently skips whatever else it
+       * does.
+       *
+       * `VisibilityGovernor` is exactly that case. It accrues `sleptMs`, which is the
+       * reading `background-tab.e2e.test.ts` uses to prove a backgrounded tab paid its
+       * throttle rather than merely being configured for one. Composing over it without
+       * delegating left that counter at 0 while the pacing itself was perfectly correct,
+       * and BROW-03 went red on `expected 0 to be greater than 0`.
+       *
+       * So the integration evidence overruled the unit assumption, which is the right way
+       * round. What the case still holds is the property it was written for — that the
+       * *composed* reading binds and not the cap — it now holds it by requiring the
+       * binding governor to be the one that acts.
+       */
       const { calls, sleep } = fakeSleep()
       const environment = new StubEnvironment()
       environment.dutyCycle = 0.1
       const g = new DutyCycleGovernor({ dutyCycle: 0.5, sliceMs: 50, sleep, environment })
 
       await g.yieldSlice()
+
+      expect(environment.yields).toBe(1)
+      // And this governor did not also sleep — one yield, not two.
+      expect(calls).toEqual([])
+    })
+
+    it('does its own sleeping when the cap is what binds', async () => {
+      // The other side of the branch, without which "delegates" would be satisfied by a
+      // governor that always delegated and never paced anything itself.
+      const { calls, sleep } = fakeSleep()
+      const environment = new StubEnvironment()
+      environment.dutyCycle = 0.5
+      const g = new DutyCycleGovernor({ dutyCycle: 0.1, sliceMs: 50, sleep, environment })
+
+      await g.yieldSlice()
+
       expect(calls).toEqual([450])
+      expect(environment.yields).toBe(0)
     })
 
     it('does not sleep when both sides are at full rate', async () => {
