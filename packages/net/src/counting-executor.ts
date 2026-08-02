@@ -36,13 +36,28 @@
  * it. So `peakInFlight <= slots` is a claim only about a run in which every
  * dispatch arrived over RPC, and any test asserting it must say so.
  *
- * ## Production call site
+ * ## Production call sites — two, composed differently on purpose
  *
- * Plan 13.1-05 Task 1 composes it as the outermost wrapper of the executor in
- * both `fabric-node.ts` and `browser-node.ts` and exposes its readings on the
- * node. It is created and used here so the mechanism is proven before it is
- * wired; a mechanism whose only caller is a test is the pattern this milestone
- * exists to remove.
+ * Both node factories construct one and expose its readings, and **the two do not
+ * wrap at the same depth.** Do not read either as the general rule:
+ *
+ * - `fabric-node.ts` composes it **outermost**, over the sovereignty and provenance
+ *   guards.
+ * - `browser-node.ts` composes it **inside** `GovernedExecutor`, which is the
+ *   outermost layer there. That file states the two reasons at its own composition:
+ *   `BrowserNode.executor` must stay exactly a `GovernedExecutor` for BROW-04's
+ *   `.executed`/`.dutyCycle` surface, and a counter outside the governor would count
+ *   tasks parked on its serialization chain as in flight — which is not what "how
+ *   many tasks is this tab running at once" means.
+ *
+ * The consequence is worth stating where the counter is defined rather than only
+ * where it is wired: on the browser tier this counts tasks the governor has already
+ * admitted, so a reading taken here and a reading taken on `fabric-node.ts` answer
+ * slightly different questions. Anything comparing the two across tiers has to say so.
+ *
+ * It is also created and used in this package's own specs so the mechanism is proven
+ * independently of either wiring; a mechanism whose only caller is a test is the
+ * pattern this milestone exists to remove.
  *
  * Pure module.
  */

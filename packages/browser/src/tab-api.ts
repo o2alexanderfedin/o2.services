@@ -201,10 +201,21 @@ export interface TabApi {
    */
   consentState(): TabConsentState
   /**
-   * Record that the visitor consented, and mint the proof `start` requires.
+   * Record that the visitor consented, and mint the proof of it.
    *
-   * This is the only thing that opens the gate. A test harness calls it for the
-   * same reason a visitor clicks the button, and there is deliberately no bypass:
+   * **This is how the gate is opened, not the only way it is found open.** The
+   * corrected form of a claim that stood here and was false: a returning visitor
+   * never calls this, because {@link start} re-reads storage through `readConsent`,
+   * which mints a `GrantedConsent` of its own from a record already written
+   * (`consent.ts:154`). `consent.ts` states the real rule at the class itself —
+   * there is no way to obtain one *"than to have written, or to have found, a
+   * consent record"* — and this method is the writing half.
+   *
+   * **The gate is sound, which is why only the description needed correcting.**
+   * `new GrantedConsent(...)` is reachable at exactly two places, both in
+   * `consent.ts` and both behind a module-private `MINTED` symbol that is exported
+   * nowhere; the constructor refuses any other caller. So there is still no bypass,
+   * and a test harness calls this for the same reason a visitor clicks the button:
    * a test path that could start without consenting would be a path.
    */
   grantConsent(options?: { reporting?: boolean }): TabConsentState

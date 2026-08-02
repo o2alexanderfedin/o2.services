@@ -41,9 +41,18 @@
  * **Where the mismatch case lives, and why it is not a sixth `ResolveFailure`.** The
  * expected move is to widen `naming.ts`'s `ResolveFailure` union, on the grounds that
  * an exhaustively-switched union makes every consumer fail loudly until updated. That
- * buys nothing here: `ResolveFailure` has exactly one consumer,
- * `describeResolveFailure`, in the same file — there is no distant switch to make
- * fail. The cost is real, though. It would put a variant `SignedNameResolver` can
+ * buys nothing here, and the reason has to state its scope or it is false. **What is
+ * true: `describeResolveFailure`, in `naming.ts`, is the only exhaustive `switch` over
+ * `ResolveFailure`'s discriminant anywhere in the repository** — so widening the union
+ * makes exactly one function fail to compile, in the same file as the union, and there
+ * is no distant switch to make fail.
+ *
+ * What is *not* true, and was written here as though it were, is that the type has one
+ * consumer. It is referenced at `naming.ts:86` and `:156` and again below at `:71`, and
+ * it is re-exported publicly from `packages/core/src/index.ts`, so the consumer count is
+ * not bounded by this repository at all. The exhaustive-switch count is; that is the one
+ * the argument needs, and it is the one to re-check before widening. The cost is real,
+ * though. It would put a variant `SignedNameResolver` can
  * never itself return inside the resolver's own failure type, which is a false
  * statement about that type. And the mismatch is not a resolution failure at all:
  * resolution succeeded. It is the *dispatcher* that attached a record for a different
