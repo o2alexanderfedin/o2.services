@@ -104,6 +104,21 @@ line('  ────────────────────────
 line(`  peer id    ${seed.node.peerId}`)
 line(`  it does    executes tasks, serves blocks, relays for peers that cannot listen`)
 line(`  capacity   ${seed.node.capacity.limit} reservations`)
+// NET-05: the address an agent is actually pointed at.
+//
+// **Nothing printed here was dialable by a peer before this line.** The join URLs below
+// are HTTP, for a browser; `--relay-addr` needs a multiaddr, and an operator who wanted
+// one had to read `seed-server.ts` to learn how to build it. A criterion whose own
+// configuration is unreachable without reading the source is not configured, it is
+// guessed at.
+//
+// Every one of them, not the first. This node binds `0.0.0.0`, so libp2p expands it to
+// one address per interface and which comes first is not fixed — printing "the" address
+// would print a LAN IP on one host and loopback on another, and the operator on the other
+// side of the room needs the one this listing does not privilege.
+for (const address of seed.node.browserDialableAddrs) {
+  line(`  relay      ${address}`)
+}
 // DET-03: what this process will actually run a module for, so an operator can see it
 // without reading the source.
 //

@@ -269,14 +269,18 @@ export const MUTATIONS: readonly Mutation[] = [
     why:
       'The release for the one resource `FabricNode.start` acquires before anything that ' +
       'can fail. `createLibp2p` has bound a listening socket by that line, and every step ' +
-      'after it — the relay dials most of all, which is this factory’s likeliest failure — ' +
-      'used to reject with the socket still bound and no handle anywhere to close it. The ' +
-      'second attempt then failed with EADDRINUSE, which names the wrong problem entirely.',
+      'after it used to reject with the socket still bound and no handle anywhere to close ' +
+      'it. The second attempt then failed with EADDRINUSE, which names the wrong problem ' +
+      'entirely. **This entry used to name the relay dials as the likeliest such failure, ' +
+      'and Plan 18-11 made that false**: NET-05 rules that a node which could not reach one ' +
+      'relay can still work, so that dial no longer rejects at all. The trigger moved to an ' +
+      'unreachable enrollment provider, which fails in the same place — after the bind, and ' +
+      'over the network — and the signature below moved with it.',
     file: 'packages/node/src/fabric-node.ts',
     find: '    undo.push(() => libp2p.stop())\n',
     replace: '',
     caughtBy: ['packages/node/src/start-unwind.node.test.ts'],
-    signature: 'gives the port back when a relay dial fails',
+    signature: 'gives the port back when a provider dial fails',
     signatureSource: 'test-title',
   },
   {

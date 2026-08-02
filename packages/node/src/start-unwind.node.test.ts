@@ -81,8 +81,30 @@ async function isFree(port: number, host = '127.0.0.1'): Promise<boolean> {
 }
 
 /** Reachable by nobody: port 1 on loopback, named with a well-formed peer id. */
-const UNREACHABLE_RELAY =
+const UNREACHABLE_PEER =
   '/ip4/127.0.0.1/tcp/1/p2p/12D3KooWHPSVMPEezVCXvka2ahwT26JGL8EBr61LpGEU3ujHQM9Q'
+
+/**
+ * An enrollment nobody will answer — the async, post-bind failure this file needs.
+ *
+ * **This used to be an unreachable `relayAddrs`, and the swap is a behaviour change
+ * elsewhere rather than a preference here.** Plan 18-11 made the relay dial NON-FATAL:
+ * NET-05's position is that a node which could not get into one relay can still work, and
+ * killing it would be worse than the silence the requirement exists to replace. So an
+ * unreachable relay no longer rejects `start`, and this file needed a different trigger.
+ *
+ * `resolveCertificate` dials the provider and throws when it cannot be reached, which puts
+ * the failure in the same place the relay dial used to occupy: after `createLibp2p` has
+ * bound a real listener, and asynchronously. That placement is the whole reason these
+ * cases are not merged into the `maxConcurrentTasks: 0` one below — **a synchronous
+ * constructor throw and a failed network round trip unwind through different code**, and a
+ * file that covered only the first would say it covered both.
+ */
+const UNANSWERED_ENROLLMENT = {
+  userPrivateKey: new Uint8Array(32).fill(0x77),
+  operatorId: 'start-unwind',
+  providerAddr: UNREACHABLE_PEER,
+} as const
 
 /**
  * DET-03, stated once for all seven construction sites below.
@@ -109,12 +131,12 @@ describe('the port probe reads both states, so an absence below means something'
 })
 
 describe('a rejected start leaves nothing listening', () => {
-  it('gives the port back when a relay dial fails', async () => {
+  it('gives the port back when a provider dial fails', async () => {
     const port = await freePort()
 
     const failure = await FabricNode.start({
-      listen: [`/ip4/127.0.0.1/tcp/${port}`, '/p2p-circuit'],
-      relayAddrs: [UNREACHABLE_RELAY],
+      listen: [`/ip4/127.0.0.1/tcp/${port}`],
+      enrollment: UNANSWERED_ENROLLMENT,
       trustAnchors: UNWIND_ANCHORS,
     }).then(
       (node) => {
@@ -132,9 +154,9 @@ describe('a rejected start leaves nothing listening', () => {
     const port = await freePort()
     const attempt = async (): Promise<unknown> =>
       await FabricNode.start({
-        listen: [`/ip4/127.0.0.1/tcp/${port}`, '/p2p-circuit'],
-        relayAddrs: [UNREACHABLE_RELAY],
-      trustAnchors: UNWIND_ANCHORS,
+        listen: [`/ip4/127.0.0.1/tcp/${port}`],
+        enrollment: UNANSWERED_ENROLLMENT,
+        trustAnchors: UNWIND_ANCHORS,
       }).then(
         (node) => {
           started.push(node)
@@ -180,8 +202,8 @@ describe('a rejected start leaves nothing listening', () => {
     const port = await freePort()
 
     const failure = await FabricNode.start({
-      listen: [`/ip4/127.0.0.1/tcp/${port}`, '/p2p-circuit'],
-      relayAddrs: [UNREACHABLE_RELAY],
+      listen: [`/ip4/127.0.0.1/tcp/${port}`],
+      enrollment: UNANSWERED_ENROLLMENT,
       trustAnchors: UNWIND_ANCHORS,
     }).then(
       (node) => {
@@ -194,7 +216,9 @@ describe('a rejected start leaves nothing listening', () => {
     // The caller is told about the dial it asked for. An unwind that replaced this
     // with its own shutdown error would leave a node whose start failed and whose
     // operator has no idea which peer was unreachable.
-    expect(String(failure)).toMatch(/ECONNREFUSED|connect|dial/i)
+    expect(String(failure)).toMatch(/ECONNREFUSED|connect|dial|unreachable/i)
+    // And it names the address, so the operator knows WHICH line was wrong.
+    expect(String(failure)).toContain(UNREACHABLE_PEER)
   }, 60_000)
 })
 

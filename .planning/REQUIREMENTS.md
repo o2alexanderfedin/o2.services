@@ -11,9 +11,9 @@
 
 ## How to read the checkboxes
 
-**38 of 72 are `[x]`.** That is down from the 68 that were checked before the v1.0
-milestone audit. Of the 34 now unchecked, **30 moved** and **4 were never checked**;
-none of the 30 moved because the work was undone — with one exception, VER-02, whose
+**39 of 72 are `[x]`.** That is down from the 68 that were checked before the v1.0
+milestone audit. Of the 33 now unchecked, **29 moved** and **4 were never checked**;
+none of the 29 moved because the work was undone — with one exception, VER-02, whose
 box was cleared on 2026-07-30 because the mechanism behind it was found to check
 nothing and was deleted. Read this before drawing a conclusion from the count.
 
@@ -32,8 +32,8 @@ So the ledger now distinguishes three states:
 | `[ ]` + **Built, not wired** | Mechanism exists and is unit-verified; nothing calls it |
 | `[ ]` + **Partial** | One leg reaches production, another does not |
 
-**The 34 unchecked boxes are 15 + 18 + 1**, and the three markers are not one label:
-15 are *Built, not wired*, 18 are *Partial*, and VER-02 alone is *Not started*.
+**The 33 unchecked boxes are 15 + 17 + 1**, and the three markers are not one label:
+15 are *Built, not wired*, 17 are *Partial*, and VER-02 alone is *Not started*.
 Quoting a single figure for "unreached" merges two states that mean different things —
 a mechanism nothing calls, and a mechanism half of which ships — and the merge is what
 let the count drift. `requirements-ledger.node.test.ts` now asserts every number in this
@@ -224,7 +224,7 @@ code, not the reports. -->
       browser reservations without manual certificate management
 - [x] **NET-04**: Relayed protocol handlers register with `runOnLimitedConnection`,
       and no hardcoded certhash multiaddr is required to join
-- [ ] **NET-05**: Relay reservation exhaustion is detected and reported rather than
+- [x] **NET-05**: Relay reservation exhaustion is detected and reported rather than
       failing silently
 - [ ] **NET-06**: Browser peers participate in routing as full peers. Backbone nodes
       may serve records on their behalf as an optimisation and as a fallback when a
@@ -379,7 +379,7 @@ code, not the reports. -->
 **Defined:** 2026-07-27, directly from `v1.0-MILESTONE-AUDIT.md`.
 
 **v1.1 mints almost no new requirement IDs, and that is deliberate.** The entries marked
-*Built, not wired* and *Partial* above — 15 and 18 as of 2026-08-02, not one merged
+*Built, not wired* and *Partial* above — 15 and 17 as of 2026-08-02, not one merged
 figure — are not missing requirements; they are the same requirements, unsatisfied. "The placer cannot relocate a sovereign task" is DATA-03
 whether or not a job runs through that placer; wiring it is what makes DATA-03 true.
 Minting `WIRE-05: wire the sovereignty gate` alongside it would count one obligation
@@ -608,7 +608,7 @@ criteria.
 | NET-02 | Phase 3 — Browser Tier & Backbone Relay | Done |
 | NET-03 | Phase 3 — Browser Tier & Backbone Relay | Partial — relay is browser-dialable; AutoTLS needs a public host |
 | NET-04 | Phase 3 — Browser Tier & Backbone Relay | Done |
-| NET-05 | Phase 18 — Discovery, Capacity & Placement | **Partial** — the reading half is wired (capacity is derived from the live store and printed by the seed); ReservationWatcher is installed by no process, so a refused joiner gets no named error |
+| NET-05 | Phase 18 — Discovery, Capacity & Placement | **Done** — 2026-08-02, plan 18-11. Both halves. The *reading* half was already wired: capacity is derived from the live reservation store and printed by the seed. The *joiner* half is closed here — `bin/agent.ts` gains `--relay-addr` and is the **first production process ever to construct a `ReservationWatcher`**, which existed, was exported, and was reached only by two tests. `bin/seed.ts` now prints a dialable relay multiaddr, because it previously printed only HTTP join URLs and an operator wanting to point an agent at it had to read `seed-server.ts` — a criterion whose own configuration is unreachable without reading the source is guessed at, not configured. Measured in `packages/node/src/reservation-exhaustion.node.test.ts` across one real seed and three real agents: the first is granted a circuit, the second reports `at-capacity: RESERVATION_REFUSED` **by name**, and the third reports `unreachable`. **The second and third are the point** — both end with no circuit address and look identical from outside while demanding opposite responses, and the run separates them by having the refused joiner reach the very address that granted the first one moments earlier. **A production defect was fixed to get here**: `FabricNode.start` dialled relays with a bare `await`, inside `start` and therefore before the node existed, so an unreachable relay became an unhandled rejection in `bin/agent.ts` rather than a named refusal. The dial is now non-fatal and the failure is surfaced on `FabricNode.relayFailures`. Reddened by silencing the refusal report (the joiner never names it) and by making the dial fatal again (the third joiner exits 1). **A refusal arriving after startup is reported by the same path and is measured by nothing** |
 | NET-06 | Phase 19 — Quorum Composition & Owner-Domain Attestation | **Partial** — corrected 2026-08-01; this row claimed no node supplies the `index` hook and both factories do. **The serving half is wired on both tiers**: `index: records ?? 'serves-no-records'` (`fabric-node.ts:1278`, `browser-node.ts:988`), non-null exactly when the node holds a certificate, so a browser peer answers a `records` request on the same terms as a backbone peer — which is the requirement's own point, that a browser differs only in that it cannot bind a listening socket. **The reading half is not**: `discoverCandidates` has no production caller, so nothing queries what is served — corrected 2026-08-02 from a sentence naming `discoverExecutors`, which plan 18-05 wired one level below this one. The index also holds this node's own records and nothing else — `provide()` is never called, so a `providers` request still answers `[]` from every node, and `features: []` is honest rather than a stub because no feature-detection dependency is installed |
 | NET-07 | Phase 2 — Real Network, Node ↔ Node | Done |
 | SCHED-01 | Phase 18 — Discovery, Capacity & Placement | **Done** — 2026-08-02, plan 18-06. Closed in two halves that were repeatedly mistaken for one. The *entry point* half: `bin/bench.ts --discover` derives the real rig's executors by intersecting real provider answers with signed capability records, off by default so a published curve is not reshaped by an undeclared change (15-CONTEXT.md decision 2). The *behaviour* half: `packages/node/src/discovery-agents.node.test.ts` proves it across seven real `bin/agent.ts` processes — a requestor holding one CID and no executor list finds the three nodes that hold the block and are enrolled by the provider it pinned, excludes by name the one enrolled elsewhere, never sees the one holding nothing, and completes the job on what it found. **The row moved three times at a moving frontier** — first claiming `discoverExecutors` was uncalled, then `discoverCandidates` after 18-05 gave the first a caller, then *Partial* while criteria 1 and 2 were open. Reddened by dropping `verifyCertificate` in `discoverExecutors` (E joins the executors, 4 not 3) and by un-gating `verifiedPeers` (the two peer thunks stop differing). **The reach is directly-connected peers only** — no transitive routing, no DHT — which is the honest limit of what is proven |
