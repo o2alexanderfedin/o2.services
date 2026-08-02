@@ -13,6 +13,7 @@ import {
   REACHABILITY_BLIND_SPOT,
   UNDECODED_ADDRESSES_UNRECOVERED_BLIND_SPOT,
   UNDECODED_UNMEASURED_BLIND_SPOT,
+  UNDECODED_UNREADABLE_BLIND_SPOT,
   blindSpotsFor,
   classifySpawnFailure,
   describeFinding,
@@ -20,9 +21,11 @@ import {
   describeLiftFailure,
   liftElf,
   readTargetFeatures,
+  readUndecoded,
   resolveImage,
   scanStream,
   scanToolchainOutput,
+  unidentifiedIn,
   verdictOf,
 } from './lift.ts'
 import type {
@@ -88,6 +91,35 @@ import type {
  * that load cannot decide a verdict, tight enough to still catch a hang. The
  * integration cases at the foot of the file pass their own explicit timeouts and are
  * untouched by this line.
+ *
+ * ## Why there is no `loadavg()` gate below this line
+ *
+ * This file was carried as "has timing bounds and no load gate — 6 known failures at
+ * load ≈45", with the fix written as: copy the `transport-bounds.node.test.ts` gate and
+ * site a `LOAD_CEILING` on the 45-vs-4.41 readings. That gate was not added, because
+ * measuring first showed there is nothing left for it to protect.
+ *
+ * The six failures were real, and they were the `EAGAIN` defect: `spawn` refused by a
+ * full process table, reported as `docker-unavailable`, in about a millisecond. They
+ * are fixed at the source — `host-cannot-spawn` names the host, and
+ * {@link despiteAFullProcessTable} retries that one condition. Three things were then
+ * measured on 2026-08-01, and none of them is load-sensitive:
+ *
+ * 1. **The only wall-clock assertion.** 64 samples across load 10 → 64: worst 702 ms
+ *    against an 8 000 ms bound. See {@link TIMER_BEAT_A_HARDCODED_MINUTE_MS}.
+ * 2. **This budget.** The two slowest unskipped cases — the deliberate timeouts, which
+ *    the paragraph above sizes this constant against — measured **5 519 ms and
+ *    5 499 ms at load average 55–56**, against the ~5.4 s they take on an idle host.
+ *    Load moved them by about 2%, because they are dominated by the driver's own 5 s
+ *    timer rather than by scheduling. 60 000 is 10.9× the worst of them.
+ * 3. **The population that actually failed.** All 34 stub-`docker` cases, run three
+ *    times over a load average falling from 54 to 10: **102 of 102 passed.**
+ *
+ * A gate keyed on load ≈45 would sit inside a band where every measured sample passes
+ * with an order of magnitude to spare — it could only ever skip cases that were going
+ * to pass, which converts a green run into a silent one. That is a worse failure than
+ * the flake it would be replacing, and unlike the flake it would never be noticed. The
+ * gate goes in when a bound is measured to fail under load, and no bound here is.
  */
 vi.setConfig({ testTimeout: 60_000 })
 
@@ -146,6 +178,36 @@ const METADATA_BUDGET_MS = 20_000
  * file that takes 280 s.
  */
 const TIMEOUT_CASE_BUDGET_MS = 5_000
+
+/**
+ * The bound on "the caller's 400 ms reached `resolveImage`", sited between two
+ * populations rather than by arithmetic.
+ *
+ * The value is unchanged. What was missing was a reason: the comment justified it as
+ * "twenty times the requested timeout", which names one end by multiplication and the
+ * other not at all — and this was the file's only wall-clock assertion, so it was also
+ * the whole of its exposure to machine load.
+ *
+ * | population | elapsed |
+ * |---|---|
+ * | **fails**: `resolveImage` given a hardcoded `60_000` while the caller asked for 400 ms — the defect this case exists to catch | **~60 000 ms** |
+ * | **passes**: the fix, load average 9.5–10.6, 20 samples | p50 404 ms · p90 408 ms · **max 418 ms** |
+ * | **passes**: the fix, load average 41.4, 20 samples | p50 416 ms · p90 523 ms · **max 540 ms** |
+ * | **passes**: the fix, load average 59.8 → 64.5, 24 samples | p50 440 ms · p90 555 ms · **max 702 ms** |
+ *
+ * Measured 2026-08-01 by replaying this exact case — same stub, same ELF, same
+ * `timeoutMs: 400`, same `Date.now()` bracket — 64 times across the three bands. All 64
+ * returned `docker-unavailable`, the classification this case asserts. 8 000 sits 11×
+ * above the worst passing sample and 8.5× below the failing one, and the gap between
+ * the two populations is two orders of magnitude, so no arithmetic choice inside it
+ * changes which side anything lands on.
+ *
+ * **The load dependence is the point.** Going from load 10 to load 64 — well past the
+ * ~45 at which this file was reported failing — moved the worst sample from 418 ms to
+ * 702 ms. That is 284 ms of drift against 7 298 ms of headroom. See
+ * {@link METADATA_BUDGET_MS} for why the budgets were never what failed here.
+ */
+const TIMER_BEAT_A_HARDCODED_MINUTE_MS = 8_000
 
 const FIXTURES = fileURLToPath(new URL('./fixtures/', import.meta.url))
 
@@ -567,6 +629,8 @@ const RENDERED_ARTIFACT: LiftedArtifact = {
   verdict: 'reservations',
   target: LIFT_TARGET,
   toolchain: { 'elfconv-image': 'ghcr.io/yomaytk/elfconv@sha256:22a404f3', clang: '16.0.6' },
+  /** Both fields above named a version, so this lift is fully provenanced. */
+  unidentifiedTools: [],
   inputDigest: '1220ab',
   requiredFeatures: ['bulk-memory'],
   declaredFeatures: [{ name: 'bulk-memory', use: 'used' }],
@@ -692,6 +756,178 @@ describe('a probe that counted call sites and recovered no addresses is not a cl
   it('leaves the blind spots of a measured probe alone', () => {
     const spots = blindSpotsFor(PROBE_FOUND_NOTHING, 'clean')
     expect(spots).toEqual([CROSS_MACHINE_BLIND_SPOT])
+  })
+})
+
+// ---------------------------------------------------------------------------
+// The probe's own reasons, read from a directory rather than from a container.
+// ---------------------------------------------------------------------------
+
+/**
+ * A read the host could not do is not a disassembler that failed.
+ *
+ * `readUndecoded` stamped `why: 'disassembler-failed'` on a failed read of
+ * `undecoded.txt` — and the code proves that reading is false. Getting to that read
+ * requires `undecoded-callsites` to be in `meta.txt`, and `CONTAINER_SCRIPT` writes
+ * that key and `/o2/undecoded.txt` inside one `if llvm-dis-16 …; then` branch. So the
+ * disassembler had already run *and succeeded*; what failed was this host reading a
+ * bind-mounted file. The reason sent whoever read it into the container to debug a
+ * tool that worked.
+ *
+ * The same family as `host-cannot-spawn`: fail-safe on the verdict, wrong on the
+ * reason. Every case here builds the directory the driver would have been handed,
+ * which is the whole condition — no container, no stub, no injection.
+ */
+describe('the probe says which of three things stopped it', () => {
+  const probeDir = (files: Readonly<Record<string, string>>): string => {
+    const dir = mkdtempSync(join(tmpdir(), 'o2-probe-'))
+    stubDirs.push(dir)
+    for (const [name, content] of Object.entries(files)) writeFileSync(join(dir, name), content)
+    return dir
+  }
+
+  it('names the host read, not the disassembler, when the count is there and the file is not', async () => {
+    // The reddening case. This directory is exactly what the container leaves when it
+    // disassembled, counted, and this host then could not read the addresses back.
+    const dir = probeDir({ 'meta.txt': 'undecoded-callsites=259\n' })
+    const probe = await readUndecoded(dir, new Map([['undecoded-callsites', '259']]))
+    expect(probe.kind).toBe('not-run')
+    expect(probe.kind === 'not-run' && probe.why).toBe('undecoded-unreadable')
+  })
+
+  it('carries the host’s own error rather than a guess about the toolchain', async () => {
+    const dir = probeDir({ 'meta.txt': 'undecoded-callsites=259\n' })
+    const probe = await readUndecoded(dir, new Map([['undecoded-callsites', '259']]))
+    // ENOENT for `undecoded.txt` — a fact about this filesystem, which is the thing
+    // that actually went wrong.
+    expect(probe.kind === 'not-run' && probe.detail).toContain('ENOENT')
+    expect(probe.kind === 'not-run' && probe.detail).toContain('undecoded.txt')
+  })
+
+  it('still says disassembler-failed when the container is the one saying so', async () => {
+    // The arm that must keep its name. `undecoded-probe=failed` is written by the
+    // `else` of the disassembly branch, so here the tool really is what failed.
+    const dir = probeDir({ 'meta.txt': 'undecoded-probe=failed\n' })
+    const probe = await readUndecoded(dir, new Map([['undecoded-probe', 'failed']]))
+    expect(probe.kind === 'not-run' && probe.why).toBe('disassembler-failed')
+  })
+
+  it('says no-bitcode when the container never reported a count at all', async () => {
+    const dir = probeDir({ 'meta.txt': 'clang=16.0.6\n' })
+    const probe = await readUndecoded(dir, new Map([['clang', '16.0.6']]))
+    expect(probe.kind === 'not-run' && probe.why).toBe('no-bitcode')
+  })
+
+  it('measures normally when both halves are present, so the guard has not eaten the good case', async () => {
+    const dir = probeDir({ 'undecoded.txt': '4290836\n4290840\n' })
+    const probe = await readUndecoded(dir, new Map([['undecoded-callsites', '259']]))
+    expect(probe).toEqual({
+      kind: 'measured',
+      callSites: 259,
+      addresses: [0x417914n, 0x417918n],
+    })
+  })
+
+  it('carries a blind spot about this host, not about the bitcode', async () => {
+    // The wrong accusation one level up. A blind spot outlives the failure that made
+    // it — it is the sentence that gets quoted later — so repeating "could not be
+    // disassembled" here would carry the defect into the artifact.
+    const spots = blindSpotsFor({ kind: 'not-run', why: 'undecoded-unreadable' }, 'reservations')
+    expect(spots).toContainEqual(UNDECODED_UNREADABLE_BLIND_SPOT)
+    expect(spots).not.toContainEqual(UNDECODED_UNMEASURED_BLIND_SPOT)
+    expect(UNDECODED_UNREADABLE_BLIND_SPOT.note).toContain('the toolchain is not what failed')
+    expect(UNDECODED_UNREADABLE_BLIND_SPOT.note).not.toContain('could not be disassembled')
+  })
+
+  it('leaves the other two reasons pointing at the container', async () => {
+    for (const why of ['no-bitcode', 'disassembler-failed'] as const) {
+      const spots = blindSpotsFor({ kind: 'not-run', why }, 'reservations')
+      expect(spots).toContainEqual(UNDECODED_UNMEASURED_BLIND_SPOT)
+    }
+  })
+
+  it('is still not a clean lift, whichever of the three it was', async () => {
+    // Fail-safe on the verdict was never the defect and must not become one.
+    for (const why of ['no-bitcode', 'disassembler-failed', 'undecoded-unreadable'] as const) {
+      expect(verdictOf([], [], { kind: 'not-run', why })).toBe('reservations')
+    }
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Provenance: the refusing half and the stated-degraded half.
+// ---------------------------------------------------------------------------
+
+/**
+ * An artifact whose provenance could not be established was not provenanced.
+ *
+ * The read of `meta.txt` was `catch { meta = new Map() }`, with no comment, and the
+ * consequence was five `'unknown'` strings in the record the line above them calls the
+ * cache key — on an artifact still returned `ok: true`. The reason that is not a
+ * survivable default is `translationCid`: it refuses a *blank* version as
+ * `blank-version`, and `'unknown'` is not blank. Five of them hash to a perfectly
+ * well-formed CID that names no particular toolchain and goes on matching after the
+ * compiler changes underneath it — which `cache-key.ts` calls worse than no cache.
+ *
+ * So the split is: unreadable is a refusal, and unidentified-in-part is a stated
+ * result carried on the artifact. Both halves are asserted here, and the point is that
+ * a caller can tell them apart.
+ */
+describe('provenance that could not be read is refused, not defaulted', () => {
+  it('names the file, the reason, and what it would have cost to continue', () => {
+    // Refusal text, not merely kind: `'unknown'` defeating the downstream guard is the
+    // entire argument for refusing, and a message that omits it reads like a missing
+    // log file.
+    const text = describeLiftFailure({
+      kind: 'provenance-unreadable',
+      path: '/tmp/o2-lift-x/meta.txt',
+      detail: 'ENOENT: no such file or directory',
+    })
+    expect(text).toContain('/tmp/o2-lift-x/meta.txt')
+    expect(text).toContain('ENOENT')
+    expect(text).toContain('unknown')
+    expect(text).toContain('unnameable')
+  })
+
+  it('counts a key that is absent as unidentified', () => {
+    expect(unidentifiedIn(new Map([['clang', '16.0.6']]), ['clang', 'wasmedge'])).toEqual([
+      'wasmedge',
+    ])
+  })
+
+  it('counts a key that is present and empty as unidentified too', () => {
+    // `printf 'clang=%s\n' "$(clang-16 --version …)"` with no output writes `clang=`,
+    // and `parseMeta` keeps that as `''`. The `?? 'unknown'` in the record only ever
+    // fired for a key that was missing entirely, so this spelling went into the cache
+    // key as an empty string and was reported downstream as a *key* defect rather than
+    // as the provenance defect it is.
+    expect(unidentifiedIn(new Map([['clang', '']]), ['clang'])).toEqual(['clang'])
+    expect(unidentifiedIn(new Map([['clang', '   ']]), ['clang'])).toEqual(['clang'])
+  })
+
+  it('reports nothing when every tool named a version', () => {
+    const meta = new Map([
+      ['clang', '16.0.6'],
+      ['wasmedge', '0.14.1'],
+    ])
+    expect(unidentifiedIn(meta, ['clang', 'wasmedge'])).toEqual([])
+  })
+
+  it('states the incomplete provenance where the versions are printed', () => {
+    const rendered = describeLift({
+      ...RENDERED_ARTIFACT,
+      toolchain: { ...RENDERED_ARTIFACT.toolchain, wasmedge: 'unknown' },
+      unidentifiedTools: ['wasmedge'],
+    })
+    expect(rendered).toContain('provenance incomplete')
+    expect(rendered).toContain('wasmedge')
+    expect(rendered).toContain('does not distinguish this toolchain from another')
+  })
+
+  it('says nothing about provenance when the lift was fully identified', () => {
+    // Anti-vacuity for the line above: a renderer that always printed it would satisfy
+    // that case and tell a reader nothing.
+    expect(describeLift(RENDERED_ARTIFACT)).not.toContain('provenance incomplete')
   })
 })
 
@@ -1043,9 +1279,7 @@ describe('a container that outlived its client is killed before its mount is del
 describe('the caller’s timeout bounds image resolution too', () => {
   it('gives up on a wedged inspect in the time it was given, not in a hardcoded minute', async () => {
     // `liftElf` passed a literal 60_000 to `resolveImage`, so `timeoutMs` did not
-    // reach it at all. The bound below is deliberately loose: it is twenty times the
-    // requested timeout and still an order of magnitude under the minute this used to
-    // take.
+    // reach it at all.
     // `exec` for the reason given in the block above: a forked sleep holds the stdio
     // pipes open past the SIGKILL and `run()` resolves on `close`.
     const docker = stubDocker('exec sleep 30')
@@ -1062,7 +1296,7 @@ describe('the caller’s timeout bounds image resolution too', () => {
     // send them to the same wedged daemon.
     expect(outcome.failure.kind).toBe('docker-unavailable')
     expect(describeLiftFailure(outcome.failure)).toContain('did not answer within 400 ms')
-    expect(elapsed).toBeLessThan(8_000)
+    expect(elapsed).toBeLessThan(TIMER_BEAT_A_HARDCODED_MINUTE_MS)
   })
 
   it('does not hand a twenty-minute lift budget to a metadata read', async () => {
@@ -1075,6 +1309,107 @@ describe('the caller’s timeout bounds image resolution too', () => {
     )
     expect(resolved.ok).toBe(true)
     expect(IMAGE_RESOLVE_CAP_MS).toBeLessThan(DEFAULT_TIMEOUT_MS)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// The provenance split, through the driver rather than through its parts.
+// ---------------------------------------------------------------------------
+
+/**
+ * A `docker` that produces an artifact, and whatever `meta.txt` the case wants.
+ *
+ * The unit cases above hold `unidentifiedIn` and `describeLiftFailure` to their
+ * contracts, and a driver that never called either of them satisfies every one of
+ * them — so these two go through `liftElf` itself. The stub finds the work directory
+ * the way the real container would: `liftElf` passes `-v <workDir>:/o2`, so the mount
+ * argument names it.
+ *
+ * `wasmPath` is a real `target_features` section, because `readTargetFeatures` runs
+ * before the provenance read and a driver that refused the bytes would never reach the
+ * behaviour under test.
+ */
+function stubDockerProducing(wasmPath: string, metaLine: string | null): StubDocker {
+  return stubDocker(
+    'case "$1" in\n' +
+      `  image) printf '%s\\n' '${MATCHING_DIGEST}'; exit 0 ;;\n` +
+      '  run)\n' +
+      '    for a in "$@"; do case "$a" in *:/o2) d="${a%:/o2}" ;; esac; done\n' +
+      `    cp '${wasmPath}' "$d/artifact.wasm"\n` +
+      (metaLine === null ? '' : `    printf '%s\\n' '${metaLine}' > "$d/meta.txt"\n`) +
+      '    exit 0 ;;\n' +
+      '  *) exit 0 ;;\n' +
+      'esac',
+  )
+}
+
+describe('an artifact the driver cannot provenance is not returned', () => {
+  let wasmPath = ''
+
+  beforeAll(() => {
+    const dir = mkdtempSync(join(tmpdir(), 'o2-stub-wasm-'))
+    stubDirs.push(dir)
+    wasmPath = join(dir, 'artifact.wasm')
+    writeFileSync(wasmPath, bytes(WASM_HEADER, REAL_SECTION))
+  })
+
+  it('refuses the lift when meta.txt cannot be read at all', async () => {
+    // The reddening case for the wholesale swallow. The container "succeeded", the
+    // `.wasm` is there and readable, and the only thing missing is the file naming the
+    // toolchain that produced it — which used to yield `ok: true` and five `'unknown'`s.
+    const docker = stubDockerProducing(wasmPath, null)
+    const { result: outcome } = await despiteAFullProcessTable(() =>
+      liftElf(stubElfPath, { docker: docker.path, timeoutMs: METADATA_BUDGET_MS }),
+    )
+    expect(outcome.ok).toBe(false)
+    if (outcome.ok) return
+    expect(outcome.failure.kind).toBe('provenance-unreadable')
+    expect(describeLiftFailure(outcome.failure)).toContain('meta.txt')
+  })
+
+  it('does not report the missing provenance as a missing disassembly', async () => {
+    // The knock-on the empty map produced: `readUndecoded` read the absent
+    // `undecoded-callsites` as `why: 'no-bitcode'`, so one unread file also produced a
+    // second wrong label — a statement about the bitcode, from a file never read.
+    const docker = stubDockerProducing(wasmPath, null)
+    const { result: outcome } = await despiteAFullProcessTable(() =>
+      liftElf(stubElfPath, { docker: docker.path, timeoutMs: METADATA_BUDGET_MS }),
+    )
+    expect(outcome.ok).toBe(false)
+    if (outcome.ok) return
+    expect(describeLiftFailure(outcome.failure)).not.toContain('bitcode')
+  })
+
+  it('returns the artifact and names the tools that did not identify themselves', async () => {
+    // The other half of the split, and the reason it is a split: a `meta.txt` that
+    // reads is survivable, and the survivable case must stay survivable.
+    const docker = stubDockerProducing(wasmPath, 'clang=16.0.6')
+    const { result: outcome } = await despiteAFullProcessTable(() =>
+      liftElf(stubElfPath, { docker: docker.path, timeoutMs: METADATA_BUDGET_MS }),
+    )
+    expect(outcome.ok, outcome.ok ? '' : describeLiftFailure(outcome.failure)).toBe(true)
+    if (!outcome.ok) return
+    // `clang` named a version and is absent from the list; the other four did not.
+    expect(outcome.artifact.unidentifiedTools).toEqual([
+      'elfconv-commit',
+      'elflift-sha256',
+      'wasi-sdk',
+      'wasmedge',
+    ])
+    expect(describeLift(outcome.artifact)).toContain('provenance incomplete')
+  })
+
+  it('reports an empty value as unidentified, not as a version', async () => {
+    // `clang=` is what `printf 'clang=%s\n' "$(clang-16 --version)"` writes when the
+    // command says nothing. It reached the cache key as `''` and was reported by
+    // `translationCid` as a blank *key* field rather than as absent provenance.
+    const docker = stubDockerProducing(wasmPath, 'clang=')
+    const { result: outcome } = await despiteAFullProcessTable(() =>
+      liftElf(stubElfPath, { docker: docker.path, timeoutMs: METADATA_BUDGET_MS }),
+    )
+    expect(outcome.ok, outcome.ok ? '' : describeLiftFailure(outcome.failure)).toBe(true)
+    if (!outcome.ok) return
+    expect(outcome.artifact.unidentifiedTools).toContain('clang')
   })
 })
 
@@ -1180,12 +1515,17 @@ describe('the driver fails by name, and fails early', () => {
       { kind: 'timed-out', afterMs: 1_200_000 },
       { kind: 'no-artifact', detail: 'ENOENT', stdout: '', stderr: '' },
       { kind: 'features-unreadable', reason: { kind: 'no-target-features-section' } },
+      { kind: 'provenance-unreadable', path: '/tmp/o2-lift-x/meta.txt', detail: 'ENOENT' },
     ] as const
     for (const failure of every) {
       const text = describeLiftFailure(failure)
       expect(text.length).toBeGreaterThan(10)
       expect(text).not.toContain('[object')
     }
+    // The list is the assertion, so a list that fell behind the union is a test that
+    // passes while covering less. `describeLiftFailure` has no `default:` arm, so this
+    // count and `tsc` between them make an unnamed failure impossible to add quietly.
+    expect(new Set(every.map((failure) => failure.kind)).size).toBe(every.length)
   })
 })
 

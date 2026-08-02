@@ -44,6 +44,11 @@
  * a real container lift against the test runner's own argv. The guard below compares
  * `argv[1]` to this module, so importing is inert and invoking is not.
  *
+ * That comparison can also *fail*, which is a third answer and used to be spelled as
+ * the second one — see {@link EntryVerdict}. A guard that answers "no" when it means
+ * "I could not tell" is how this file produced the exit code its own paragraph above
+ * calls the worst available.
+ *
  * Node-only.
  */
 
@@ -156,21 +161,106 @@ async function main(argv: readonly string[]): Promise<number> {
 }
 
 /**
- * True only when this file *is* the program.
+ * Which file this process was actually asked to run.
  *
- * `realpathSync` on both sides because a launcher reached through a symlinked
- * `node_modules/.bin` entry gives an `argv[1]` that spells the same file differently
- * from `import.meta.url`, and the failure mode of getting that wrong is the worst
- * available: the command runs, prints nothing, and exits 0.
+ * Four answers rather than a boolean, and the fourth is the whole point. The guard
+ * was written as `try { … } catch { return false }`, and `false` is the answer that
+ * means "do nothing" — so every way `realpathSync` can fail (a dangling symlink in
+ * `node_modules/.bin`, `ELOOP`, `EACCES` or `ENOTDIR` on a path component, a cwd
+ * unlinked under a relative `argv[1]`) produced exactly the outcome the docblock
+ * below already named as the worst available: the command runs, prints nothing, and
+ * exits 0. The tool whose entire reason for existing is that *elfconv's* exit code
+ * cannot be trusted was emitting an untrustworthy one of its own.
+ *
+ * `undecidable` is not `another-module`. "I compared them and they differ" and "I
+ * could not compare them" are different statements, and only the first justifies
+ * silence.
  */
-function invokedAsCommand(): boolean {
-  const entry = process.argv[1]
-  if (entry === undefined) return false
-  try {
-    return pathToFileURL(realpathSync(entry)).href === import.meta.url
-  } catch {
-    return false
+export type EntryVerdict =
+  /** `argv[1]` names this file, so `main()` is the program. */
+  | { readonly kind: 'this-module' }
+  /** `argv[1]` names something else — this file was imported, and must stay inert. */
+  | { readonly kind: 'another-module'; readonly entry: string }
+  /** No `argv[1]` at all: `node -e`, the REPL, an embedder. Genuinely not a command. */
+  | { readonly kind: 'no-entry' }
+  /** The comparison could not be made. See {@link EntryVerdict}. */
+  | { readonly kind: 'undecidable'; readonly entry: string; readonly detail: string }
+
+export function describeEntryVerdict(verdict: EntryVerdict): string {
+  switch (verdict.kind) {
+    case 'this-module':
+      return 'this file is the program'
+    case 'another-module':
+      return `this file was imported by ${verdict.entry}, so it did nothing`
+    case 'no-entry':
+      return 'there is no entry script, so this file was imported rather than run'
+    case 'undecidable':
+      return (
+        `could not establish whether ${verdict.entry} is this file (${verdict.detail}), so ` +
+        'nothing was lifted and this is not a success — re-run with a path that resolves'
+      )
   }
 }
 
-if (invokedAsCommand()) process.exitCode = await main(process.argv.slice(2))
+/** `null` rather than a throw, so an unrepresentable path is a comparison that failed. */
+function hrefOf(path: string): string | null {
+  try {
+    return pathToFileURL(path).href
+  } catch {
+    return null
+  }
+}
+
+/**
+ * `argv[1]` against this module's URL, without letting a failed syscall mean "no".
+ *
+ * The unresolved comparison runs *first* and is decisive on a match: `import.meta.url`
+ * is already fully resolved, so `argv[1]` spelling it exactly settles the question with
+ * no syscall at all. `realpathSync` is only needed for the case it was introduced for —
+ * a launcher reached through a symlinked `node_modules/.bin` entry, whose `argv[1]`
+ * spells the same file differently — and when it throws, the answer is that there is no
+ * answer.
+ *
+ * `realpath` is a parameter because the arm that matters cannot be provoked from a
+ * real filesystem here: node had to resolve `argv[1]` to load anything at all, so a
+ * path that fails this call is one that succeeded moments earlier. An arm nothing can
+ * call directly is an arm no test can show still fires — the reason `lift.ts` exports
+ * `classifySpawnFailure`.
+ */
+export function classifyEntry(
+  entry: string | undefined,
+  moduleUrl: string,
+  realpath: (path: string) => string = realpathSync,
+): EntryVerdict {
+  if (entry === undefined) return { kind: 'no-entry' }
+  if (hrefOf(entry) === moduleUrl) return { kind: 'this-module' }
+
+  let resolved: string
+  try {
+    resolved = realpath(entry)
+  } catch (cause) {
+    return {
+      kind: 'undecidable',
+      entry,
+      detail: cause instanceof Error ? cause.message : String(cause),
+    }
+  }
+
+  const resolvedHref = hrefOf(resolved)
+  if (resolvedHref === null) {
+    return { kind: 'undecidable', entry, detail: `${resolved} is not expressible as a file URL` }
+  }
+  return resolvedHref === moduleUrl ? { kind: 'this-module' } : { kind: 'another-module', entry }
+}
+
+const invocation = classifyEntry(process.argv[1], import.meta.url)
+if (invocation.kind === 'this-module') {
+  process.exitCode = await main(process.argv.slice(2))
+} else if (invocation.kind === 'undecidable') {
+  // Reported and failed, never run. Running `main()` on a maybe would lift a container
+  // as a side effect of an `import`, which is worse than the defect being fixed; exiting
+  // 0 having established nothing is the defect being fixed. Refusing is the only arm
+  // left, and it is the one that makes the exit code follow the measurement.
+  process.stderr.write(`${describeEntryVerdict(invocation)}\n`)
+  process.exitCode = EXIT_FAILED
+}
