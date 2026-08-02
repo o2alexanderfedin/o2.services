@@ -198,42 +198,68 @@ describe('a ledger merges two different kinds of thing, and knows which', () => 
  * became an allocation the reading tab could not survive. `MAX_INBOUND_MESSAGE_BYTES`
  * cannot help: the amplification is entirely post-decode.
  *
- * The budgets below are the assertion that actually detects it. They are generous
- * enough not to flake on a loaded machine and still three orders of magnitude under
- * what materialising two million objects costs.
+ * ## Why these are not budgets
+ *
+ * They used to be: `elapsed < 50ms`, twice, with neither population written down.
+ * The measurement that retired them, taken 2026-08-01 — 24 samples per case across
+ * chromium, firefox and webkit (1-min load 39.2→31.1 on 8 cores) and 12 more per
+ * case in Node (load 24.2→21.2):
+ *
+ *   browser   every one of the 48 readings was **0** — `performance.now()` is
+ *             coarsened to ~1 ms in firefox and webkit, and this is two additions
+ *   node      0.006–0.032 ms
+ *
+ * So in two of the three engines the fast path sits *below the resolution of the
+ * clock the assertion used*. There was never a second population to site 50 against:
+ * one end is indistinguishable from zero, and the other end — a `report()` that
+ * expands a count into that many objects — does not produce a slow reading, it
+ * produces a process that never comes back. Nothing can be sited between "0" and
+ * "never", so 50 was separating noise from noise.
+ *
+ * What replaces it is the arithmetic itself. Every magnitude below is chosen so that
+ * *enumerating* it is impossible rather than merely slow — at a billion steps a
+ * second, one row of `1e15` is eleven days — while *adding* it is one instruction and
+ * exact, because the totals stay under `Number.MAX_SAFE_INTEGER`. An implementation
+ * that materialises cannot reach these assertions at all; one that adds reaches them
+ * immediately, on any engine at any load. That is a claim about which operation ran,
+ * and it has no clock in it.
  */
 describe('a reported count costs what it says, not what it claims', () => {
-  const BUDGET_MS = 50
-
-  it('sums a million-strong count without allocating a million anything', () => {
+  it('sums counts no host could enumerate, because it adds them instead', () => {
     const ledger = new StartOutcomeLedger()
     ledger.mergeDisjoint([
-      { browser: 'chromium 141', result: 'started', count: 1_000_000 },
-      { browser: 'safari 18', result: 'wasm-unavailable', count: 1_000_000 },
+      { browser: 'chromium 141', result: 'started', count: 1e15 },
+      { browser: 'safari 18', result: 'wasm-unavailable', count: 1e15 },
     ])
 
-    const started = performance.now()
     const report = ledger.report()
-    const elapsed = performance.now() - started
 
-    expect(report.reported).toBe(2_000_000)
-    expect(report.failed).toBe(1_000_000)
-    expect(elapsed).toBeLessThan(BUDGET_MS)
+    // Exact, and the exactness is the evidence: 2e15 is under `MAX_SAFE_INTEGER`, so
+    // a sum is precise — while no loop over 2e15 units returns inside this suite, or
+    // inside this week.
+    expect(report.reported).toBe(2e15)
+    expect(report.failed).toBe(1e15)
+    // And it reached those totals from two rows. One entry per (browser, result) is
+    // what makes the magnitude free.
+    expect(ledger.counts()).toHaveLength(2)
   })
 
-  it('costs nothing to be told a hostile magnitude', () => {
+  it('costs nothing to be told the largest magnitude the wire can carry', () => {
     const ledger = new StartOutcomeLedger()
-    ledger.mergeOverlapping([{ browser: 'chromium 141', result: 'started', count: 1e9 }])
+    // The biggest integer a JSON number survives as itself. A peer cannot claim more
+    // without the claim decoding to something else, so this is the top of the hostile
+    // range rather than a sample from the middle of it.
+    ledger.mergeOverlapping([
+      { browser: 'chromium 141', result: 'started', count: Number.MAX_SAFE_INTEGER },
+    ])
 
-    const started = performance.now()
     const report = ledger.report()
-    const elapsed = performance.now() - started
 
     // The count is BELIEVED. Inflation is this module's stated, accepted property —
     // a peer can lie about its own numbers and that is what the docstring says. What
     // is fixed here is only that the lie is free to hold, not free to make.
-    expect(report.reported).toBe(1e9)
-    expect(elapsed).toBeLessThan(BUDGET_MS)
+    expect(report.reported).toBe(Number.MAX_SAFE_INTEGER)
+    expect(ledger.counts()).toHaveLength(1)
   })
 
   it('agrees with the outcome-by-outcome path, orderings and reliability included', () => {

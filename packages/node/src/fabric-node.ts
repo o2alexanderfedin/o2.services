@@ -1,12 +1,21 @@
 /**
  * A fabric node. There is one node class on this side, and this is it.
  *
- * Every part is behind a port, and this factory is the only place that knows which
- * concrete implementation is in use:
+ * Every part is behind a port, and **for a `FabricNode`** this factory is the only place
+ * that knows which concrete implementation is in use:
  *
  *   `Transport`  → libp2p over TCP and WebSockets, plus a circuit when it needs one
  *   `Blockstore` → the filesystem when given a directory, memory when not
  *   `Executor`   → the kernel's `WasmExecutor`, on a thread this process can kill
+ *
+ * **The scope is the class, not the package, and the sentence has to say so.** It read
+ * "the only place" without it, which `bin/bench.ts` falsifies: that driver builds
+ * `MemoryBlockstore` and `WasmExecutor` itself and calls `serveAgent` directly, without
+ * going through this factory at all. That is deliberate — the benchmark is measuring the
+ * kernel over a chosen transport, not a node's startup — but it means "nothing else in
+ * `@o2/node` names a concrete implementation" is not a claim this file can make. What it
+ * can claim, and what the port boundary is worth, is that no code holding a `FabricNode`
+ * learns what is behind its ports from anywhere but here.
  *
  * A node is symmetric. It executes tasks, holds blocks, serves records, and relays
  * for peers that cannot be dialled — all of it, on every node. There is no

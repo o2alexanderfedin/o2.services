@@ -44,7 +44,7 @@ export { remoteDispatch } from './churn.ts'
 export type { RemoteDispatchOptions } from './churn.ts'
 
 // Dispatching a combine over RPC — MR-05, MR-06.
-export { remoteCombineDispatch } from './combine.ts'
+export { LocalStoreWriteFailed, remoteCombineDispatch } from './combine.ts'
 export type { RemoteCombineOptions } from './combine.ts'
 
 // Turning a JobResult into a reduce over connected peers — MR-04…MR-07.

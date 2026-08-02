@@ -184,29 +184,60 @@ const TRACEABILITY_FLOOR = 60
 type Corpus = ReadonlyMap<string, string>
 
 /**
+ * How a read failure reads in a report — the errno when there is one, the message
+ * otherwise. `unknown` because a `catch` binding is `unknown` and pretending it is an
+ * `Error` is how a report ends up saying `undefined`.
+ */
+function readFailure(cause: unknown): string {
+  if (cause instanceof Error) {
+    const code = (cause as NodeJS.ErrnoException).code
+    return code ?? cause.message
+  }
+  return String(cause)
+}
+
+/**
+ * The corpus, plus every tracked test file that could not be read.
+ *
+ * The second half exists because the first used to swallow a read failure. A test
+ * file that never enters the corpus cannot supply traceability for any requirement,
+ * so a dropped file makes ids look untraced — or, in the direction that actually
+ * hurts, lets `TEST_FILE_FLOOR` be met by a corpus that is quietly one file short
+ * while every "no absent requirements" assertion reads as healthy.
+ */
+interface CorpusScan {
+  readonly corpus: Corpus
+  readonly unreadable: readonly string[]
+}
+
+/**
  * Every test file git tracks, keyed by repo-relative path.
  *
  * `git ls-files` rather than a directory walk, for `vocabulary.node.test.ts`'s
  * reason: it matches what somebody sees when they clone the repository, which is the
  * population a traceability claim is about. The cost is that an untracked test file
  * is not evidence — which is the right direction, because nobody else can read it.
+ *
+ * A file git tracks that this cannot open is a different thing entirely, and it is
+ * reported by name rather than dropped.
  */
-function readCorpus(): Corpus {
+function readCorpus(): CorpusScan {
   const tracked = execFileSync('git', ['ls-files', '-z'], { cwd: ROOT, encoding: 'utf8' })
     .split('\0')
     .filter((path) => path.length > 0)
 
   const corpus = new Map<string, string>()
+  const unreadable: string[] = []
   for (const path of tracked) {
     if (!path.endsWith('.test.ts')) continue
     if (path === SELF) continue
     try {
       corpus.set(path, readFileSync(join(ROOT, path), 'utf8'))
-    } catch {
-      // staged deletion, or a file this checkout does not have
+    } catch (cause) {
+      unreadable.push(`${path} — ${readFailure(cause)}`)
     }
   }
-  return corpus
+  return { corpus, unreadable }
 }
 
 /**
@@ -567,7 +598,8 @@ function audit(
 const LEDGER_SOURCE = readFileSync(join(ROOT, LEDGER), 'utf8')
 const REQUIREMENTS = parseLedger(LEDGER_SOURCE)
 const TRACEABILITY = parseTraceability(LEDGER_SOURCE)
-const CORPUS = readCorpus()
+const CORPUS_SCAN = readCorpus()
+const CORPUS = CORPUS_SCAN.corpus
 const LIVE = audit(REQUIREMENTS, CORPUS, EXEMPT)
 
 function locate(id: string): Requirement | undefined {
@@ -640,6 +672,19 @@ describe('the test corpus was really read', () => {
     for (const [path, source] of CORPUS) {
       expect(source.length, `${path} read as empty`).toBeGreaterThan(0)
     }
+  })
+
+  it('dropped no tracked test file it could not read', () => {
+    // `TEST_FILE_FLOOR` above catches the corpus collapsing. It cannot catch it
+    // losing one file, and one file is the whole of what a traceability claim about
+    // that file's requirements rests on. So a read failure is named here instead of
+    // becoming a slightly smaller population that still clears the floor.
+    //
+    // Normally empty, and therefore unable to audit itself. Proved able to fail on
+    // 2026-08-01 by `git add`-ing a `.test.ts` file and deleting it from disk before
+    // the run: `git ls-files` still lists it, `readFileSync` throws `ENOENT`, and
+    // this case named the file and the errno. Before the change the plant was green.
+    expect(CORPUS_SCAN.unreadable).toEqual([])
   })
 
   it('extracted titles from them, so the strong form of the rule is live', () => {

@@ -208,9 +208,7 @@ describe('DATA-04 — a raw sovereign byte does not reach the wire at all', () =
     const owner = ownerNode(network, 'alice-1')
     coordinator(network)
 
-    // Ten seconds, so an elapsed reading under one second cannot be a timeout.
     const rpc = new RpcEndpoint(owner, { timeoutMs: 10_000 })
-    const started = Date.now()
     try {
       const failure = await rpc.request('coordinator', { row: SOVEREIGN_ROW }).then(
         () => null,
@@ -218,10 +216,23 @@ describe('DATA-04 — a raw sovereign byte does not reach the wire at all', () =
       )
       expect(failure).toBeInstanceOf(RpcFailure)
       const detail = (failure as RpcFailure).detail
+      // "Not a timeout" is asserted by *name*, not by the clock. `rpc.ts` gives the
+      // two mechanisms two structurally different values — `{kind:'send-failed', to,
+      // detail}` at `:213` against `{kind:'timeout', to, afterMs}` at `:188` — so a
+      // reading of `send-failed` is not a timeout that happened to be quick; it is a
+      // value the timeout path cannot construct. That is the whole of the title's
+      // claim, and it is decided by the tag rather than by how long this took.
+      //
+      // There used to be an `elapsed < 1_000` here as well. It was removed rather
+      // than re-sited, because it never discriminated anything: measured on
+      // 2026-08-01, 24 Node samples (1-min load 10.9→11.9 on 8 cores) and 27 browser
+      // samples across chromium/firefox/webkit (load 11.5→29.1) every one read
+      // **0 or 1 ms** — `Date.now()`'s own resolution. A bound cannot be sited
+      // between a population that is indistinguishable from zero and one that never
+      // arrives; the only readings it could ever have separated were noise.
       expect(detail.kind).toBe('send-failed')
       if (detail.kind !== 'send-failed') return
       expect(detail.detail).toContain('alice-row')
-      expect(Date.now() - started).toBeLessThan(1_000)
     } finally {
       rpc.close()
     }

@@ -47,7 +47,7 @@
 
 import { ed25519 } from '@noble/curves/ed25519.js'
 import type { CID } from 'multiformats/cid'
-import { encodeCanonical } from './canonical/encode.ts'
+import { NotEncodableError, encodeCanonical } from './canonical/encode.ts'
 import type { CanonicalValue } from './canonical/encode.ts'
 import { fromHex, toHex } from './capability.ts'
 import type { PublicKeyHex } from './capability.ts'
@@ -94,7 +94,7 @@ function capabilityPayload(record: Omit<CapabilityRecord, 'signature'>): Uint8Ar
     expiresAt: record.expiresAt,
   }
   const encoded = encodeCanonical(value)
-  if (!encoded.ok) throw new Error(`capability record not encodable: ${JSON.stringify(encoded.error)}`)
+  if (!encoded.ok) throw new NotEncodableError('capability record', encoded.error)
   return encoded.bytes
 }
 
@@ -115,8 +115,11 @@ export function publishCapabilities(
 /** Verify a capability record against its own node key. Offline, like everything here. */
 export function verifyCapabilityRecord(record: CapabilityRecord, now: number): boolean {
   if (record.issuedAt > now || record.expiresAt <= now) return false
+  // Above the `try` — `capabilityPayload` throws `NotEncodableError` by design, and
+  // a record this package cannot encode is not a record that failed to verify.
+  const payload = capabilityPayload(record)
   try {
-    return ed25519.verify(fromHex(record.signature), capabilityPayload(record), fromHex(record.nodeKey))
+    return ed25519.verify(fromHex(record.signature), payload, fromHex(record.nodeKey))
   } catch {
     return false
   }
