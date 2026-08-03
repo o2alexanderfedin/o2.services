@@ -349,6 +349,37 @@ into a refusal and put the refusal before the thing it was about*. A candidate s
 to verify is a condition the caller does not control; the answer is to report what was achieved,
 not to kill the job — unless the caller said in advance that a weaker answer is useless to them.
 
+### A working-tree revert can eat another agent's in-progress edits — near-miss, 2026-08-03
+
+**This nearly cost ~290 lines and it was caught by arithmetic, not by an error.** Two executors
+were running plans 19-06 and 19-16 on this one checkout. Mid-session, `packages/core/src/job/submit.ts`
+was **reverted to `HEAD` underneath six in-progress edits**. Nothing failed. Nothing warned. The
+only signal was `git diff HEAD --stat` reading **19 insertions where ~290 were expected**.
+
+**The defence, and it is cheap: `git add` immediately after each edit group.** Staged content
+lives in the index, where a working-tree revert cannot reach it. An editor that stages as it goes
+loses nothing to this class of accident; one that stages only at commit time can lose everything
+since its last commit.
+
+This sits beside the standing constraints already recorded — never `git add -A`, never
+`git checkout --` a file you did not write, never switch branches, restore by `cp` + `cmp`. Those
+protect *other* agents from you. **This one protects you from them.**
+
+Related discipline the same executor used and which is worth copying: when `tsc` was red for the
+*other* plan's fan-out, it measured attribution at each step (`grep -c` → 48, 2, 0) rather than
+assuming whose errors they were; and when it inherited a failing case, it proved the failure
+pre-existing by running `git show HEAD:` over its own copy before touching anything.
+
+### Handoff: three types 19-10 and 19-11 need are NOT exported yet
+
+`ShardAttestation`, `ShardQuorum` and `NoVerifiedAttestation` are defined by 19-06 but **not
+re-exported from `packages/core/src/index.ts`** — confirmed absent, `grep -c` returns 0. 19-06 left
+them deliberately: that file was under continuous edit by the concurrent 19-16 executor and sits
+outside 19-06's declared files.
+
+**19-10 (the CLI receipt) and 19-11 (the demo UI receipt) both need them.** Whichever runs first
+adds the re-exports; the other should expect them already present and say so if they are not.
+
 ### Claude's Discretion
 
 - Plan sequencing, wave structure, and how many plans to split this into.
