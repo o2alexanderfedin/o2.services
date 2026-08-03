@@ -308,7 +308,11 @@ describe('what a node said about its own result survives the wire', () => {
   const nodeSeed = new Uint8Array(32).fill(32)
   const userSeed = new Uint8Array(32).fill(33)
 
-  const issued = new EnrollmentAuthority({ providerPrivateKey: provider.priv }).enrol(
+  const issued = new EnrollmentAuthority({
+    providerPrivateKey: provider.priv,
+    maxIssuedPerWindow: 'issues-without-an-aggregate-budget',
+    issuance: 'remembers-only-within-this-process',
+  }).enrol(
     requestEnrollment(nodeSeed, userSeed, {
       operatorId: 'acme-ops',
       discoverability: 'via-relay',

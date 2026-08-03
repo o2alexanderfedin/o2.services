@@ -280,6 +280,11 @@ export type {
   EnrollmentRefusal,
   EnrollmentRequest,
   EnrollmentResult,
+  // The issuance budget and the port both budgets read. A host supplies the second; how
+  // it makes a write durable is the host's problem, on each tier.
+  IssuanceBudget,
+  IssuanceHistory,
+  IssuanceLedger,
   NodeCertificate,
   Discoverability,
   ReplicaSet,

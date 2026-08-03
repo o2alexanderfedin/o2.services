@@ -161,6 +161,8 @@ function certificateFor(
   const authority = new EnrollmentAuthority({
     providerPrivateKey: PROVIDER_SEED,
     certificateLifetimeMs: lifetimeMs,
+    maxIssuedPerWindow: 'issues-without-an-aggregate-budget',
+    issuance: 'remembers-only-within-this-process',
   })
   const result = authority.enrol(
     requestEnrollment(subjectSeed, userSeed, {

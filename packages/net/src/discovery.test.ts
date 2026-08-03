@@ -76,7 +76,12 @@ interface Fabric {
 async function fabricOf(options: { workers: number; maxConcurrent?: number }): Promise<Fabric> {
   const network = new MemoryNetwork()
   const providerKey = new Uint8Array(32).fill(60)
-  const authority = new EnrollmentAuthority({ providerPrivateKey: providerKey, maxPerWindow: 100 })
+  const authority = new EnrollmentAuthority({
+    providerPrivateKey: providerKey,
+    maxPerWindow: 100,
+    maxIssuedPerWindow: 'issues-without-an-aggregate-budget',
+    issuance: 'remembers-only-within-this-process',
+  })
   const trustedIssuers = new Set([authority.issuerKey])
   const userPriv = new Uint8Array(32).fill(61)
   const userKey = toHex(ed25519.getPublicKey(userPriv))

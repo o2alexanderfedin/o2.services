@@ -102,6 +102,8 @@ async function ownerFabric(options: { module: Uint8Array<ArrayBuffer>; ownerNode
   const authority = new EnrollmentAuthority({
     providerPrivateKey: new Uint8Array(32).fill(80),
     maxPerWindow: 100,
+    maxIssuedPerWindow: 'issues-without-an-aggregate-budget',
+    issuance: 'remembers-only-within-this-process',
   })
   const trustedIssuers = new Set([authority.issuerKey])
   const aliceUserPriv = new Uint8Array(32).fill(81)

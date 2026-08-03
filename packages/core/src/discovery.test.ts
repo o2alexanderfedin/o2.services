@@ -35,7 +35,12 @@ const NOW = 1_800_000_000_000
 const YEAR = 365 * 24 * 3_600_000
 
 const authority = (): EnrollmentAuthority =>
-  new EnrollmentAuthority({ providerPrivateKey: provider.priv, maxPerWindow: 50 })
+  new EnrollmentAuthority({
+    providerPrivateKey: provider.priv,
+    maxPerWindow: 50,
+    maxIssuedPerWindow: 'issues-without-an-aggregate-budget',
+    issuance: 'remembers-only-within-this-process',
+  })
 
 const trusted = new Set([toHex(ed25519.getPublicKey(provider.priv))])
 
@@ -116,7 +121,11 @@ describe('SCHED-01 — discovery is the intersection of three facts', () => {
   it('excludes a provider that holds the data but is not enrolled', async () => {
     // Planted violation: a node publishes records but its certificate is signed by a
     // key the requestor has not pinned. Holding the block is not identity.
-    const rogueAuthority = new EnrollmentAuthority({ providerPrivateKey: keypair(93).priv })
+    const rogueAuthority = new EnrollmentAuthority({
+      providerPrivateKey: keypair(93).priv,
+      maxIssuedPerWindow: 'issues-without-an-aggregate-budget',
+      issuance: 'remembers-only-within-this-process',
+    })
     const auth = authority()
     const honest = node(auth, 1)
     const impostor = node(rogueAuthority, 2)
@@ -213,6 +222,8 @@ describe('SCHED-01 — discovery is the intersection of three facts', () => {
     const auth = new EnrollmentAuthority({
       providerPrivateKey: provider.priv,
       certificateLifetimeMs: 1000,
+      maxIssuedPerWindow: 'issues-without-an-aggregate-budget',
+      issuance: 'remembers-only-within-this-process',
     })
     const a = node(auth, 1)
     const { index, cid } = await indexOf(a)

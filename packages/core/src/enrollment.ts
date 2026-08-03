@@ -267,6 +267,75 @@ export type IssuanceBudget =
   /** This authority signs with no aggregate budget: only the per-user window bounds it. */
   | 'issues-without-an-aggregate-budget'
 
+/**
+ * Where an authority's issuance history lives — **the host's, not the authority's**.
+ *
+ * Both budgets read this. The authority holds no history of its own, which is what lets
+ * a provider that restarts be handed back everything it already issued: how a host makes
+ * a write durable is the host's problem, on each tier.
+ *
+ * **Synchronous is a requirement, not a preference.** `packages/net/src/agent.ts` records
+ * at its `enrol` branch that `EnrollmentAuthority.enrol` is fully synchronous, *and* that
+ * this is **why** the branch takes no capacity slot — nothing can interleave around a
+ * synchronous call, so a slot taken there would be a reported bound rather than a
+ * measured one. An `await` inside this port would silently invalidate that recorded
+ * argument in a file nothing here opens.
+ *
+ * **Pruning to the window is the authority's, not the ledger's.** A ledger that pruned
+ * would need to know `windowMs`, which is the authority's policy — and a host that got it
+ * wrong would silently widen or narrow *both* budgets with nothing anywhere failing. So a
+ * ledger returns everything it holds and this module filters. The consequence, stated
+ * rather than left to be found: an implementation accumulates one timestamp per
+ * certificate issued, for as long as it is kept. Compaction is the host's, beside
+ * durability, and neither is decided here.
+ */
+export interface IssuanceLedger {
+  /** Every issue timestamp recorded for one user key. Unpruned. */
+  issuedTo(userKey: PublicKeyHex): readonly number[]
+  /** Every issue timestamp recorded for anybody. Unpruned. */
+  issuedToAnybody(): readonly number[]
+  /** Record one issuance. Called only after a certificate has been signed. */
+  record(userKey: PublicKeyHex, at: number): void
+}
+
+/**
+ * A host's issuance history, or the named admission that there is not one.
+ *
+ * The sentinel means *this authority remembers only within this process*, and taking it
+ * reproduces the pre-Phase-19 behaviour **exactly** — which is the point of it being a
+ * sentinel rather than a default. Phase 17 measured that behaviour as defeating the
+ * limit: a second provider process starts with an empty history, so the same user key is
+ * accepted again immediately. That is now something a caller has to **ask for by name**.
+ *
+ * The failure mode a reader must not reintroduce: make this optional and default it to
+ * the in-process implementation, and the mechanism degrades to exactly the per-process
+ * budget Phase 17 measured as defeated, **with nothing anywhere failing**. That is why it
+ * is required, and why a host with nothing durable to offer writes the sentinel rather
+ * than omitting a field.
+ */
+export type IssuanceHistory = IssuanceLedger | 'remembers-only-within-this-process'
+
+/** What the sentinel selects: a history that lives and dies with this object. */
+class InProcessIssuance implements IssuanceLedger {
+  readonly #byUser = new Map<PublicKeyHex, number[]>()
+  readonly #anybody: number[] = []
+
+  issuedTo(userKey: PublicKeyHex): readonly number[] {
+    return this.#byUser.get(userKey) ?? []
+  }
+
+  issuedToAnybody(): readonly number[] {
+    return this.#anybody
+  }
+
+  record(userKey: PublicKeyHex, at: number): void {
+    const existing = this.#byUser.get(userKey)
+    if (existing === undefined) this.#byUser.set(userKey, [at])
+    else existing.push(at)
+    this.#anybody.push(at)
+  }
+}
+
 export interface AuthorityOptions {
   readonly providerPrivateKey: Uint8Array
   /** Certificates one user key may obtain per window. */
@@ -276,6 +345,11 @@ export interface AuthorityOptions {
    * for why this one is required while the per-user limit above is not.
    */
   readonly maxIssuedPerWindow: IssuanceBudget
+  /**
+   * Where both budgets read their history from. See {@link IssuanceHistory} for why this
+   * is required, and for what the sentinel costs a caller who takes it.
+   */
+  readonly issuance: IssuanceHistory
   /** The window **both** budgets are measured over, so an operator has one period to reason about. */
   readonly windowMs?: number
   readonly certificateLifetimeMs?: number
@@ -294,8 +368,8 @@ export class EnrollmentAuthority {
   readonly #maxIssuedPerWindow: IssuanceBudget
   readonly #windowMs: number
   readonly #lifetimeMs: number
-  /** Issue timestamps per user key, pruned to the window on each request. */
-  readonly #history = new Map<PublicKeyHex, number[]>()
+  /** The host's issuance history. **Not this object's** — see {@link IssuanceHistory}. */
+  readonly #issuance: IssuanceLedger
 
   constructor(options: AuthorityOptions) {
     this.#privateKey = options.providerPrivateKey
@@ -304,6 +378,10 @@ export class EnrollmentAuthority {
     this.#maxIssuedPerWindow = options.maxIssuedPerWindow
     this.#windowMs = options.windowMs ?? 3_600_000
     this.#lifetimeMs = options.certificateLifetimeMs ?? 30 * 24 * 3_600_000
+    this.#issuance =
+      options.issuance === 'remembers-only-within-this-process'
+        ? new InProcessIssuance()
+        : options.issuance
   }
 
   get issuerKey(): PublicKeyHex {
@@ -328,16 +406,12 @@ export class EnrollmentAuthority {
 
   /** Issue timestamps for one user key, pruned to the window. */
   #recentFor(userKey: PublicKeyHex, now: number): number[] {
-    return (this.#history.get(userKey) ?? []).filter((at) => at > now - this.#windowMs)
+    return this.#issuance.issuedTo(userKey).filter((at) => at > now - this.#windowMs)
   }
 
   /** Issue timestamps for anybody, pruned to the window. */
   #recentForAnybody(now: number): number[] {
-    const recent: number[] = []
-    for (const times of this.#history.values()) {
-      for (const at of times) if (at > now - this.#windowMs) recent.push(at)
-    }
-    return recent
+    return this.#issuance.issuedToAnybody().filter((at) => at > now - this.#windowMs)
   }
 
   enrol(request: EnrollmentRequest, now: number): EnrollmentResult {
@@ -443,7 +517,11 @@ export class EnrollmentAuthority {
       signature: toHex(ed25519.sign(payloadOf(unsigned), this.#privateKey)),
     }
 
-    this.#history.set(request.userKey, [...recent, now])
+    // Recorded only on success, and recorded where the **host** can read it. Both halves
+    // matter: no refusal consumes anybody's budget, which is what makes the two checks
+    // above orderable on reason rather than on state; and a certificate this provider
+    // signed is not something a restart may hand back.
+    this.#issuance.record(request.userKey, now)
     return { ok: true, certificate }
   }
 }

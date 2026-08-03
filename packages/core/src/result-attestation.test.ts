@@ -36,7 +36,12 @@ const NOW = 1_800_000_000_000
 const PINNED: ReadonlySet<string> = new Set([provider.pub])
 
 function authorityFor(providerKey: Uint8Array): EnrollmentAuthority {
-  return new EnrollmentAuthority({ providerPrivateKey: providerKey, maxPerWindow: 50 })
+  return new EnrollmentAuthority({
+    providerPrivateKey: providerKey,
+    maxPerWindow: 50,
+    maxIssuedPerWindow: 'issues-without-an-aggregate-budget',
+    issuance: 'remembers-only-within-this-process',
+  })
 }
 
 /** A real node identity: a seed and the certificate a real authority issued for it. */

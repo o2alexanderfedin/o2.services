@@ -305,6 +305,7 @@ describe('AUTH-02 — verification is offline', () => {
       providerPrivateKey: provider.priv,
       certificateLifetimeMs: 1_000,
       maxIssuedPerWindow: 'issues-without-an-aggregate-budget',
+      issuance: 'remembers-only-within-this-process',
     })
     const { result } = enrol(auth, 7)
     expect(result.ok).toBe(true)

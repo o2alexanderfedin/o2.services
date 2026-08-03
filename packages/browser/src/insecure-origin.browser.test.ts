@@ -96,7 +96,11 @@ describe('AUTH-01 — the identity path on an origin with no WebCrypto', () => {
     const nodeSeed = generateSeed()
     const userPrivateKey = generateSeed()
     const providerPrivateKey = generateSeed()
-    const authority = new EnrollmentAuthority({ providerPrivateKey })
+    const authority = new EnrollmentAuthority({
+      providerPrivateKey,
+      maxIssuedPerWindow: 'issues-without-an-aggregate-budget',
+      issuance: 'remembers-only-within-this-process',
+    })
 
     const outcome = await withoutSubtle(async () => {
       // Signing twice — the node over its own possession challenge, the user over the

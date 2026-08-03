@@ -74,10 +74,14 @@ async function fabricOf(options: {
   const authority = new EnrollmentAuthority({
     providerPrivateKey: new Uint8Array(32).fill(60),
     maxPerWindow: 100,
+    maxIssuedPerWindow: 'issues-without-an-aggregate-budget',
+    issuance: 'remembers-only-within-this-process',
   })
   const rogue = new EnrollmentAuthority({
     providerPrivateKey: new Uint8Array(32).fill(99),
     maxPerWindow: 100,
+    maxIssuedPerWindow: 'issues-without-an-aggregate-budget',
+    issuance: 'remembers-only-within-this-process',
   })
   const userPriv = new Uint8Array(32).fill(61)
   const userKey = toHex(ed25519.getPublicKey(userPriv))

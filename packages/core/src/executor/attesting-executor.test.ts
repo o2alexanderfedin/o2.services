@@ -28,7 +28,11 @@ const PINNED: ReadonlySet<string> = new Set([toHex(ed25519.getPublicKey(provider
 
 function enrolled(seed: number): ResultSigner {
   const nodeSeed = new Uint8Array(32).fill(seed)
-  const result = new EnrollmentAuthority({ providerPrivateKey: provider }).enrol(
+  const result = new EnrollmentAuthority({
+    providerPrivateKey: provider,
+    maxIssuedPerWindow: 'issues-without-an-aggregate-budget',
+    issuance: 'remembers-only-within-this-process',
+  }).enrol(
     requestEnrollment(nodeSeed, alice, {
       operatorId: `op-${seed}`,
       discoverability: 'via-relay',

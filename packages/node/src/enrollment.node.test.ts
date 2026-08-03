@@ -49,20 +49,27 @@ import { FsBlockstore } from './fs-blockstore.ts'
  * ## What this file does NOT prove, stated here so the rest is not read as covering it
  *
  * **It does not prove that mass fake-node creation is costly.** AUTH-04's wording asks for
- * that and the mechanism does not do it: the limiter is keyed on `userKey`, and generating
+ * that and the *per-user* limiter does not do it: it is keyed on `userKey`, and generating
  * a fresh user key is one `ed25519.keygen()` call. The second measurement below issues
  * twenty requests under twenty *distinct* user keys against a provider with a fresh
  * history and records that **all twenty succeed**. No deletion anywhere turns that
- * assertion red, and that is the finding, not a gap in the test. Reported in these words:
- * **rate-limiting is measured; cost is unmeasured.** What would change it — a
- * proof-of-work, a payment, or an out-of-band identity check — is out of scope for v1.1
- * and the limiter is where it would plug in.
+ * assertion red, and that is the finding, not a gap in the test.
+ *
+ * **What changed in Phase 19, and why these numbers did not.** `EnrollmentAuthority` now
+ * carries a second budget — `maxIssuedPerWindow`, an aggregate on a quantity no request
+ * field can rotate around — and a host-supplied issuance ledger both budgets read. Both
+ * options are **required unions with named sentinels**, and `fabric-node.ts` writes the
+ * sentinels: this tier states that it has neither an aggregate budget nor a durable
+ * history. So every reading below is unchanged, and unchanged **for a reason a reader can
+ * see at the construction site** rather than because nothing exists. Plan 19-07 is where
+ * this tier takes both for real, and the cross-process measurement belongs to it.
  *
  * **The stated threshold is a threshold per provider *uptime*, not per wall-clock window.**
- * `EnrollmentAuthority`'s issuance history is a `Map` held in the authority object, so a
- * provider process that restarts forgets every issuance it made. The burst measurement is
- * valid — a burst against one running provider is genuinely refused past the limit — and
- * this is the limit's actual scope rather than something a reader should have to infer.
+ * The agents spawned here take `issuance: 'remembers-only-within-this-process'` through
+ * `FabricNode`, so a provider process that restarts forgets every issuance it made. The
+ * burst measurement is valid — a burst against one running provider is genuinely refused
+ * past the limit — and this is the limit's actual scope rather than something a reader
+ * should have to infer.
  *
  * **Nothing here measures verification.** Criterion 2 lives in
  * `certificate-verification.node.test.ts`, where both provider processes are killed before
@@ -526,12 +533,17 @@ describe('AUTH-04 — criterion 3, the burst through the production request path
   /**
    * The honest counter-measurement, published beside the first.
    *
-   * **Rate-limiting is measured; cost is unmeasured.** Twenty requests naming twenty
-   * *distinct* user keys all succeed, unslowed, because the limiter is keyed on `userKey`
-   * and generating a fresh user key is one `ed25519.keygen()` call. **No deletion turns
-   * this assertion red, and that is the finding** — there is nothing in the mechanism for a
+   * **Rate-limiting is measured; the per-user limiter buys no cost.** Twenty requests
+   * naming twenty *distinct* user keys all succeed, unslowed, because that limiter is
+   * keyed on `userKey` and generating a fresh user key is one `ed25519.keygen()` call.
+   * **No deletion turns this assertion red** — there is nothing in *that* mechanism for a
    * mutation to remove. It is here so the repository stops implying that AUTH-04's
-   * *"so mass fake-node creation is costly"* has been demonstrated.
+   * *"so mass fake-node creation is costly"* has been demonstrated by the per-user window.
+   *
+   * The bound that does answer it is `maxIssuedPerWindow`, and this spawned agent states
+   * `'issues-without-an-aggregate-budget'` — so twenty still succeed here, and would not
+   * against a provider that named a number. `enrollment.test.ts` runs this exact
+   * population against both configurations side by side.
    *
    * A **second** provider process rather than a reuse of the first, deliberately: neither
    * number may depend on the other measurement having run, and the first test deliberately
@@ -566,9 +578,12 @@ describe('AUTH-04 — criterion 3, the burst through the production request path
    * threshold per provider *uptime*.
    *
    * The same user key that was refused above is accepted immediately by a **second**
-   * provider process, because the issuance history is a `Map` in the authority object and
-   * a process that restarts starts with an empty one. That the threshold survives a
-   * provider restart is **unmeasured and false**, and this is the reading that says so.
+   * provider process, because this tier takes `issuance:
+   * 'remembers-only-within-this-process'` and a process that restarts starts with an
+   * empty history. That the threshold survives a provider restart is **unmeasured and
+   * false on this configuration**, and this is the reading that says so. The port that
+   * would make it true exists; supplying a durable implementation of it is Plan 19-07's,
+   * and the restart is the reading that plan has to take.
    */
   it('a second provider process has a fresh budget for the same user key', async () => {
     const first = await spawnAgent('scope-provider-1', ['--issues-certificates'])

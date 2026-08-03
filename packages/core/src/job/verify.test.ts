@@ -100,7 +100,12 @@ const ISSUED_AT = 1_800_000_000_000
 /** Wrap `inner` so it signs what it produced, as a node this provider enrolled. */
 function attesting(inner: Executor, seed: number): { executor: Executor; nodeKey: PublicKeyHex } {
   const nodeSeed = new Uint8Array(32).fill(seed)
-  const issued = new EnrollmentAuthority({ providerPrivateKey: PROVIDER, maxPerWindow: 50 }).enrol(
+  const issued = new EnrollmentAuthority({
+    providerPrivateKey: PROVIDER,
+    maxPerWindow: 50,
+    maxIssuedPerWindow: 'issues-without-an-aggregate-budget',
+    issuance: 'remembers-only-within-this-process',
+  }).enrol(
     requestEnrollment(nodeSeed, OWNER, {
       operatorId: `op-${inner.nodeId}`,
       discoverability: 'via-relay',

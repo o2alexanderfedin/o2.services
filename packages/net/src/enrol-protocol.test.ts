@@ -34,7 +34,11 @@ const user = keypair(73)
 const NOW = 1_800_000_000_000
 
 function authority(seed: Uint8Array = provider.priv): EnrollmentAuthority {
-  return new EnrollmentAuthority({ providerPrivateKey: seed })
+  return new EnrollmentAuthority({
+    providerPrivateKey: seed,
+    maxIssuedPerWindow: 'issues-without-an-aggregate-budget',
+    issuance: 'remembers-only-within-this-process',
+  })
 }
 
 /**
