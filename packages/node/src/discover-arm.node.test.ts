@@ -34,6 +34,18 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
  * is invalidated by contention, and this file is meant to run beside the rest of the
  * suite. It reads a count, which is contention-independent, and never a duration.
  *
+ * ## What is deliberately NOT here, and where it went instead
+ *
+ * Plan 19-10 added an attestation line per rung — VER-09, VER-10, criterion 3's CLI half —
+ * and those readings are in **`bench-attestation.node.test.ts`**, a sibling that spawns
+ * the same binary the same way. They are not here because a rung's attestation line is
+ * printed *after that rung's runs complete*: measured 2026-08-03, the two real-transport
+ * readings arrive at t+62 s and t+153 s (t+213 s on a second run of the same tree). Folding
+ * them in would have replaced this 4 s spec with a 3-minute one and broken the rule two
+ * paragraphs up — so the fast half stays fast and the slow half carries its own measured
+ * span. Neither file's readings are available from the other's stopping point, which is
+ * why there are two.
+ *
  * ## Why `cwd` is a temporary directory
  *
  * `main()` opens with `mkdir(join(process.cwd(), '.planning', 'bench'))` and the run writes
