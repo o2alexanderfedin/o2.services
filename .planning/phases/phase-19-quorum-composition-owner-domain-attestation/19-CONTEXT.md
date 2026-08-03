@@ -21,7 +21,7 @@ phase is wrong on two counts**, and both change what the plans must contain.
 ### The backbone-anchored replica — VER-03 needs BUILDING, not wiring
 
 - **`composeQuorum` does not implement it today.** It sorts candidates by `relayIds.length`
-  ascending (`packages/core/src/quorum.ts:139-141`) and refuses on a *shared* relay via
+  ascending (`packages/core/src/quorum.ts:140-142`) and refuses on a *shared* relay via
   `sharedRelay` (`:169`). **Nothing requires a member that is backbone-anchored.** There is no
   `backbone` symbol anywhere in `packages/*/src` — the only occurrences are prose in
   `libp2p/src/constants.ts:13,85`, `fabric-node.ts:34` and `sovereignty.ts:46`.
@@ -45,6 +45,34 @@ phase is wrong on two counts**, and both change what the plans must contain.
 - `classifyAttestation`'s rule, for reference: `<=1 operator → 'owner-attested'`; `>=2 operators
   → 'independent'`; otherwise `'owner-domain'`.
 
+### `composeQuorum` can NEVER return `owner-domain`, so criterion 2 must not run through it
+
+**Added 2026-08-02 during planning. This is the most likely way to get this phase wrong**, and
+nothing in the ROADMAP or in the rest of this file says it.
+
+`composeQuorum` reduces its candidates to **one certificate per operator, by construction**
+(`packages/core/src/quorum.ts:123-126`) — the comment there says so outright: *"Taking the first
+per operator … is what makes 'no two from the same operator' a property of the construction
+rather than a check bolted on after."*
+
+`classifyAttestation` returns `'owner-domain'` only for **two or more certificates sharing one
+operator**. Those two facts are incompatible: after the per-operator reduction there is exactly
+one certificate per operator, so the `owner-domain` arm is unreachable through `composeQuorum`,
+and a sovereign shard routed through it would be **refused with `insufficient-operators`**.
+
+**Criterion 2 therefore runs through `resolveReplicaSets` + `attestationReceipt`, not through
+`composeQuorum`.** A planner who wired "quorum composition" uniformly across both criteria would
+have made criterion 2 unreachable while every unit test stayed green — the two mechanisms answer
+different questions:
+
+| | asks | admits |
+|---|---|---|
+| `composeQuorum` | who may verify *together* | one node per operator, anti-affinity by construction |
+| `resolveReplicaSets` + `attestationReceipt` | how strong is the agreement we *got* | several nodes under one owner, which is the whole point |
+
+The gate belongs at the composition site: quorum composition applies to `label === 'public'` with
+`redundancy >= 2` and all candidates certificated. Sovereign shards take the replica-set path.
+
 ### The certificate seam — widen `NodeDescriptor` where the certificate is already in hand
 
 - **The type gap.** `composeQuorum`, `attestationReceipt` and `resolveReplicaSets` all take
@@ -52,7 +80,7 @@ phase is wrong on two counts**, and both change what the plans must contain.
   (`packages/core/src/sovereignty.ts:39`) — `{nodeId, ownerId, canExecuteSovereign, load}`, with
   no certificate, no operator, no relays, no discoverability. **None of the three can be called
   anywhere on the current path.**
-- **Decision: widen `NodeDescriptor` at `packages/net/src/discover-candidates.ts:175-196`**,
+- **Decision: widen `NodeDescriptor` at `packages/net/src/discover-candidates.ts:161-186`**,
   which already holds the certificate and deliberately discards everything but
   `certificate.userKey`. One seam, no `JobSpec` change.
 - **Why not thread certificates through `JobSpec`.** Four production submitters would each have
@@ -66,7 +94,7 @@ phase is wrong on two counts**, and both change what the plans must contain.
 
 - A discovery-derived descriptor's `ownerId` is `certificate.userKey` (hex), while `OwnerId` is
   an opaque string and `--owner-id` takes an operator label. Two different things in one field.
-- `packages/net/src/discover-candidates.ts:44-58` and
+- `packages/net/src/discover-candidates.ts:46-58` and
   `packages/node/src/sovereignty-placement.node.test.ts:279-284` **both already assign this to
   AUTH-05 / Phase 19 by name.** Do not rediscover it; close it.
 
@@ -150,7 +178,7 @@ measured false against `bin/bench.ts:680`.
 - `submitJob` — `packages/core/src/job/submit.ts:233`. Path: `spec.nodes` → `candidateNodes`
   (`:249`) → `planPlacement` (`:325`) / `planWithOffers` (`:340`) → `executeVerified` (`:389`) →
   `ShardResult` (`:121`) → `JobResult` (`:153`).
-- The certificate discard: `discover-candidates.ts:175-196`, looping `DiscoveredExecutor`
+- The certificate discard: `discover-candidates.ts:161-186`, looping `DiscoveredExecutor`
   (`packages/core/src/discovery.ts:196` — `{nodeKey, certificate, capabilities}`).
 - Demo bootstrap: `api.discoverRelays()` (`packages/browser/demo/main.ts:299-328`) with
   precedence `?relay=` → `/bootstrap.json` → none; and `runDiscoveryRound()` (`:141-194`,
