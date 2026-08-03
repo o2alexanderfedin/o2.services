@@ -26,6 +26,9 @@ const node = (nodeId: string, load: number, ownerId = 'alice'): NodeDescriptor =
   ownerId,
   canExecuteSovereign: true,
   load,
+  // Placement reads load and ownership and nothing else. Stated rather than omitted,
+  // which is the whole reason the field is required.
+  certificate: 'carries-no-certificate',
 })
 
 const publicShard = (shardId: string, redundancy = 1): PlacementRequest => ({
@@ -275,8 +278,20 @@ describe('SCHED-05 — sampling happens behind the sovereignty filter', () => {
 
   it('excludes an owner node that holds only an encrypted replica', async () => {
     const nodes: NodeDescriptor[] = [
-      { nodeId: 'alice-cold', ownerId: 'alice', canExecuteSovereign: false, load: 0 },
-      { nodeId: 'alice-warm', ownerId: 'alice', canExecuteSovereign: true, load: 0.9 },
+      {
+        nodeId: 'alice-cold',
+        ownerId: 'alice',
+        canExecuteSovereign: false,
+        load: 0,
+        certificate: 'carries-no-certificate',
+      },
+      {
+        nodeId: 'alice-warm',
+        ownerId: 'alice',
+        canExecuteSovereign: true,
+        load: 0.9,
+        certificate: 'carries-no-certificate',
+      },
     ]
     const placement = await placeWithOffers(sovereignShard('s0'), nodes)
     expect(placement.status).toBe('placed')

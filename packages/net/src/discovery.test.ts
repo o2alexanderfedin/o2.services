@@ -76,7 +76,12 @@ interface Fabric {
 async function fabricOf(options: { workers: number; maxConcurrent?: number }): Promise<Fabric> {
   const network = new MemoryNetwork()
   const providerKey = new Uint8Array(32).fill(60)
-  const authority = new EnrollmentAuthority({ providerPrivateKey: providerKey, maxPerWindow: 100 })
+  const authority = new EnrollmentAuthority({
+    providerPrivateKey: providerKey,
+    maxPerWindow: 100,
+    maxIssuedPerWindow: 'issues-without-an-aggregate-budget',
+    issuance: 'remembers-only-within-this-process',
+  })
   const trustedIssuers = new Set([authority.issuerKey])
   const userPriv = new Uint8Array(32).fill(61)
   const userKey = toHex(ed25519.getPublicKey(userPriv))
@@ -99,6 +104,7 @@ async function fabricOf(options: { workers: number; maxConcurrent?: number }): P
     ledger: 'keeps-no-ledger',
     reservations: 'relays-for-nobody',
     onDispatch: 'reports-no-dispatch',
+    attest: 'signs-nothing',
   })
 
   // One dataset block, held by every worker. This is the CID the requestor queries.
@@ -152,6 +158,7 @@ async function fabricOf(options: { workers: number; maxConcurrent?: number }): P
       ledger: 'keeps-no-ledger',
       reservations: 'relays-for-nobody',
       onDispatch: 'reports-no-dispatch',
+      attest: 'signs-nothing',
     })
 
     index.provide(inputCid, nodeKey)
@@ -184,6 +191,9 @@ const descriptorsOf = (
     ownerId: executor.certificate.userKey,
     canExecuteSovereign: false,
     load: 0,
+    // The parameter type here is the user key alone, not a whole certificate, so this
+    // helper has nothing to carry. `discoverCandidates` is the producer that does.
+    certificate: 'carries-no-certificate',
   }))
 
 describe('criterion 1 — a requestor with no peer list runs a job', () => {

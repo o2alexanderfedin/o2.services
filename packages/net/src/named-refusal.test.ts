@@ -80,7 +80,7 @@ function stubExecutor(nodeId: string): Executor {
   return {
     nodeId,
     execute(): Promise<ExecutionOutcome> {
-      return Promise.resolve({ ok: true, output: { rows: 3 }, fuelUsed: 0 })
+      return Promise.resolve({ ok: true, output: { rows: 3 }, fuelUsed: 0, attestation: 'signed-by-nobody' })
     },
   }
 }
@@ -120,6 +120,7 @@ function servingNode(nodeId: string, faulty: Faulty = {}): Node {
     ledger: 'keeps-no-ledger',
     reservations: 'relays-for-nobody',
     onDispatch: 'reports-no-dispatch',
+    attest: 'signs-nothing',
   })
   return {
     nodeId,

@@ -18,6 +18,7 @@ const node = (nodeId: string, ownerId = 'alice'): NodeDescriptor => ({
   ownerId,
   canExecuteSovereign: true,
   load: 0,
+  certificate: 'carries-no-certificate',
 })
 
 const sovereign: PlacementRequest = {
@@ -53,8 +54,20 @@ describe('CHURN-06 — a speculative duplicate cannot leave the owner’s nodes'
 
   it('excludes an owner node that holds only an encrypted replica', () => {
     const nodes: NodeDescriptor[] = [
-      { nodeId: 'alice-1', ownerId: 'alice', canExecuteSovereign: true, load: 1 },
-      { nodeId: 'alice-cold', ownerId: 'alice', canExecuteSovereign: false, load: 0 },
+      {
+        nodeId: 'alice-1',
+        ownerId: 'alice',
+        canExecuteSovereign: true,
+        load: 1,
+        certificate: 'carries-no-certificate',
+      },
+      {
+        nodeId: 'alice-cold',
+        ownerId: 'alice',
+        canExecuteSovereign: false,
+        load: 0,
+        certificate: 'carries-no-certificate',
+      },
     ]
     expect(speculativeCandidates(sovereign, nodes, ['alice-1'])).toEqual([])
   })

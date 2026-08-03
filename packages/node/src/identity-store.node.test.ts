@@ -153,7 +153,11 @@ describe('AUTH-01 — the certificate on disk', () => {
 
   /** A genuinely signed certificate, over a request built by the production helper. */
   const issue = (seed: Uint8Array, relayIds: readonly string[] = []): NodeCertificate => {
-    const authority = new EnrollmentAuthority({ providerPrivateKey: PROVIDER_SEED })
+    const authority = new EnrollmentAuthority({
+      providerPrivateKey: PROVIDER_SEED,
+      maxIssuedPerWindow: 'issues-without-an-aggregate-budget',
+      issuance: 'remembers-only-within-this-process',
+    })
     // Three parameters. `userKey` is derived from the user's PRIVATE key inside
     // `requestEnrollment`, never passed as a field — which is also why
     // `FabricNodeOptions.enrollment` has to carry a private key rather than a hex one.

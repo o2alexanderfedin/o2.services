@@ -459,6 +459,7 @@ describe('the whole job, across cubes, at redundancy 2', () => {
         executors,
         nodes: publicNodes(executors),
         redundancy: 2,
+        onQuorumShortfall: 'runs-at-available-redundancy',
       },
       store,
     )
@@ -506,6 +507,7 @@ describe('the whole job, across cubes, at redundancy 2', () => {
         executors,
         nodes: publicNodes(executors),
         redundancy: 1,
+        onQuorumShortfall: 'runs-at-available-redundancy',
       },
       store,
     )

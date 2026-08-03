@@ -195,7 +195,7 @@ describe('criterion 7 — the row a node submitted does not leave it while the j
 
       const executors = [new RemoteExecutor(owner.peerId, submitter.rpc, chainSupplierFor(owner.peerId))]
       const descriptors: readonly NodeDescriptor[] = [
-        { nodeId: owner.peerId, ownerId: OWNER, canExecuteSovereign: true, load: 0 },
+        { nodeId: owner.peerId, ownerId: OWNER, canExecuteSovereign: true, load: 0, certificate: 'carries-no-certificate' },
       ]
 
       // `submitJobWithEgress` with the submitter's **own** guard — the same production
@@ -210,6 +210,7 @@ describe('criterion 7 — the row a node submitted does not leave it while the j
           executors,
           nodes: descriptors,
           redundancy: 1,
+          onQuorumShortfall: 'runs-at-available-redundancy',
         },
         submitter.store,
         [submitter.egress],
@@ -313,6 +314,7 @@ describe('criterion 7 — the row a node submitted does not leave it while the j
           executors,
           nodes: descriptors,
           redundancy: 1,
+          onQuorumShortfall: 'runs-at-available-redundancy',
         },
         submitter.store,
         [submitter.egress],

@@ -42,6 +42,19 @@ export interface WorkerTaskRequest {
   readonly maxOutputBytes?: number
 }
 
+/**
+ * The cross-thread answer. Deliberately **carries no attestation** — VER-08/09/10.
+ *
+ * A thread has no identity. It holds bytes and a partition index, never a seed and never
+ * a certificate, and the `WasmExecutor` it builds below reports `'signed-by-nobody'` for
+ * exactly that reason. Widening this ABI to carry a signature would mean posting a
+ * node's signing material across a `postMessage` boundary to a context that has no
+ * business holding it.
+ *
+ * So `WorkerExecutor` reconstructs an `ExecutionOutcome` on the calling thread with the
+ * sentinel, and signing — if this node signs at all — happens outside both, in the
+ * wrapper composed at the node's construction (`executor/attesting-executor.ts`).
+ */
 export type WorkerTaskResponse =
   | {
       readonly id: number

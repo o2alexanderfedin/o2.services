@@ -458,6 +458,17 @@ const api: TabApi = {
         executors,
         nodes: publicNodes(executors),
         redundancy: options.redundancy,
+        // VER-03/VER-04. A tab fabric is routinely one operator, and routinely behind
+        // one relay — which is the topology this demo exists to show, not a degenerate
+        // case of it. `'refuses-the-shard'` here would refuse every cube on exactly the
+        // set of visitors the demo is for, and the page would render nothing on the
+        // machine of anyone who opened it alone.
+        //
+        // So it degrades, and Plan 19-11 renders the weaker strength that comes back.
+        // **That rendering is the demo being honest, not the demo being broken**: a
+        // visitor sees a real answer next to a truthful statement of how well it was
+        // checked, which is a stronger claim than a blank panel.
+        onQuorumShortfall: 'runs-at-available-redundancy',
       },
       node.store,
       [node.egress],
@@ -487,8 +498,13 @@ const api: TabApi = {
       complete: result.job.complete,
       found: bits !== null,
       statuses,
+      // Node ids, projected off the entries. `TabColouringRun.agreeing` is declared
+      // `readonly string[][]` and stays that way: what a tab reports to a page is peer
+      // ids, and the attestation each entry now carries is for a receipt, not a roster.
       agreeing: result.job.shards.map((shard) =>
-        shard.verification.status === 'agreed' ? [...shard.verification.agreeing] : [],
+        shard.verification.status === 'agreed'
+          ? shard.verification.agreeing.map((replica) => replica.nodeId)
+          : [],
       ),
       verificationMultiplier: result.job.verificationMultiplier,
       elapsedMs: performance.now() - started,
@@ -690,6 +706,10 @@ const api: TabApi = {
         executors,
         nodes: publicNodes(executors),
         redundancy: options.redundancy,
+        // VER-03/VER-04 — the same choice and the same reason as `runColouring` above:
+        // a tab fabric that refused every shard it could not independently verify would
+        // show nothing on the topology this page is for.
+        onQuorumShortfall: 'runs-at-available-redundancy',
       },
       n.store,
       [n.egress],
@@ -704,8 +724,9 @@ const api: TabApi = {
       partitions: result.job.shards.map((s) =>
         s.verification.status === 'agreed' ? partitionOf(s.verification.output) : -1,
       ),
+      // Node ids, as above. `TabJobReport.agreeing` is unchanged.
       agreeing: result.job.shards.map((s) =>
-        s.verification.status === 'agreed' ? [...s.verification.agreeing] : [],
+        s.verification.status === 'agreed' ? s.verification.agreeing.map((replica) => replica.nodeId) : [],
       ),
       replicas: result.job.shards.map((s) =>
         s.verification.status === 'agreed' ? s.verification.replicas : 0,

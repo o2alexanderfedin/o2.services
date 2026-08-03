@@ -1292,11 +1292,21 @@ export class FabricNode {
     // holds; and generated on-device, because no option in this phase accepts key material
     // and argv is world-readable in `ps` (17-CONTEXT.md decision 6).
     //
-    // Constructed with `providerPrivateKey` and nothing else, so the issuance defaults are
-    // left exactly as `enrollment.ts:229-231` declares them. Cited rather than restated:
-    // nothing in this phase's criteria asks for other numbers, a knob nobody sets is a
-    // knob that drifts from the tests, and a value copied into a comment is a value that
-    // can disagree with its source.
+    // The two *optional* issuance numbers are left exactly as `enrollment.ts` declares
+    // them. Cited rather than restated: nothing in this phase's criteria asks for other
+    // numbers, a knob nobody sets is a knob that drifts from the tests, and a value copied
+    // into a comment is a value that can disagree with its source.
+    //
+    // The two **required** ones are written out below as named sentinels, and both say
+    // the same thing: this tier does not yet have what the option is for. Neither is
+    // omitted, because an omission would be indistinguishable from a decision — and for
+    // `issuance` specifically, defaulting it to the in-process history is *precisely* the
+    // per-process budget Phase 17 measured as defeated, with nothing anywhere failing.
+    //
+    // **Plan 19-07 is where each gets its durable form on this tier** — a ledger over
+    // `<dir>/`, beside `.provider.key`, and an aggregate number to go with it. Until then
+    // this node states that it has neither, which is a reading a host can take rather
+    // than an absence a reader has to infer.
     const authority =
       options.issuesCertificates !== true
         ? null
@@ -1305,6 +1315,8 @@ export class FabricNode {
               options.blockstoreDir === undefined
                 ? generateSeed()
                 : await loadOrCreateSeed(options.blockstoreDir, PROVIDER_FILE),
+            maxIssuedPerWindow: 'issues-without-an-aggregate-budget',
+            issuance: 'remembers-only-within-this-process',
           })
 
     // AUTH-01 — the enrollment round trip, over the fabric's own protocol, before this
@@ -1589,6 +1601,22 @@ export class FabricNode {
       reservations: () => node.reservedPeerIds,
       ledger: 'keeps-no-ledger',
       onDispatch: 'reports-no-dispatch',
+      // VER-08 / VER-09 / VER-10 — the node's own signing identity, for **both** verbs.
+      //
+      // **The sentinel here is a burn-down and it has a date.** Plan 19-15 replaces it
+      // with a real signer built from this node's seed and the certificate it holds,
+      // composing `attestResults` around `executor` in the same pass so that `exec` and
+      // `combine` sign under one identity. Until then this node answers combines
+      // unsigned, truthfully and by name: the sentinel below reaches a peer as
+      // `signed-by-nobody` on the reply rather than as an omission.
+      //
+      // A per-node setting, not a node kind — see this hook's own doc in `agent.ts`.
+      // When 19-15 lands, this literal leaves this file and
+      // `serve-agent-hooks.node.test.ts`'s count for it goes to 0, exactly as the record
+      // and capacity sentinels already have. (Those two are described rather than
+      // written out, deliberately: that instrument counts raw text across this whole
+      // file, comments included, and cannot tell a construction from a mention.)
+      attest: 'signs-nothing',
     })
 
     return node

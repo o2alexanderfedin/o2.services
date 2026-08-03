@@ -58,6 +58,7 @@ async function twoNodeFabric(options: { readonly workers: number } = { workers: 
     ledger: 'keeps-no-ledger',
     reservations: 'relays-for-nobody',
     onDispatch: 'reports-no-dispatch',
+    attest: 'signs-nothing',
   })
 
   const workers: { id: string; rpc: RpcEndpoint; store: FetchingBlockstore }[] = []
@@ -82,6 +83,7 @@ async function twoNodeFabric(options: { readonly workers: number } = { workers: 
       ledger: 'keeps-no-ledger',
       reservations: 'relays-for-nobody',
       onDispatch: 'reports-no-dispatch',
+      attest: 'signs-nothing',
     })
     workers.push({ id, rpc, store })
   }
@@ -325,6 +327,7 @@ describe('a whole job across nodes', () => {
           executors,
           nodes: publicNodes(executors),
           redundancy: 2,
+          onQuorumShortfall: 'runs-at-available-redundancy',
         },
         fabric.originStore,
       )
@@ -339,7 +342,7 @@ describe('a whole job across nodes', () => {
         expect(shard.verification.status).toBe('agreed')
         if (shard.verification.status !== 'agreed') continue
         expect(shard.verification.replicas).toBe(2)
-        expect([...shard.verification.agreeing].sort()).toEqual(['w0', 'w1'])
+        expect(shard.verification.agreeing.map((e) => e.nodeId).sort()).toEqual(['w0', 'w1'])
       }
 
       // Every worker pulled the module exactly once despite 4 concurrent shards,
@@ -361,7 +364,7 @@ describe('a whole job across nodes', () => {
       const liar: Executor = {
         nodeId: 'liar',
         async execute() {
-          return { ok: true, output: { p: new Uint8Array([9, 9, 9, 9]) }, fuelUsed: 1 }
+          return { ok: true, output: { p: new Uint8Array([9, 9, 9, 9]) }, fuelUsed: 1, attestation: 'signed-by-nobody' }
         },
       }
 
@@ -373,6 +376,7 @@ describe('a whole job across nodes', () => {
           executors,
           nodes: publicNodes(executors),
           redundancy: 2,
+          onQuorumShortfall: 'runs-at-available-redundancy',
         },
         fabric.originStore,
       )
@@ -470,7 +474,7 @@ describe('protocol validation', () => {
       nodeId: 'w0',
       async execute() {
         executed += 1
-        return { ok: true, output: null, fuelUsed: 1 }
+        return { ok: true, output: null, fuelUsed: 1, attestation: 'signed-by-nobody' }
       },
     }
 
@@ -487,6 +491,7 @@ describe('protocol validation', () => {
       ledger: 'keeps-no-ledger',
       reservations: 'relays-for-nobody',
       onDispatch: 'reports-no-dispatch',
+      attest: 'signs-nothing',
     })
 
     const callerRpc = new RpcEndpoint(network.connect('caller'), { timeoutMs: 5_000 })
@@ -524,7 +529,7 @@ describe('AUTH-03 — a task is refused before the module is instantiated', () =
       nodeId: 'w0',
       async execute() {
         executed += 1
-        return { ok: true, output: null, fuelUsed: 1 }
+        return { ok: true, output: null, fuelUsed: 1, attestation: 'signed-by-nobody' }
       },
     }
 
@@ -542,6 +547,7 @@ describe('AUTH-03 — a task is refused before the module is instantiated', () =
       ledger: 'keeps-no-ledger',
       reservations: 'relays-for-nobody',
       onDispatch: 'reports-no-dispatch',
+      attest: 'signs-nothing',
     })
 
     const callerRpc = new RpcEndpoint(network.connect('caller'), { timeoutMs: 5_000 })
@@ -588,6 +594,7 @@ describe('AUTH-03 — a task is refused before the module is instantiated', () =
       ledger: 'keeps-no-ledger',
       reservations: 'relays-for-nobody',
       onDispatch: 'reports-no-dispatch',
+      attest: 'signs-nothing',
     })
 
     const callerRpc = new RpcEndpoint(network.connect('caller'), { timeoutMs: 5_000 })

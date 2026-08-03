@@ -227,7 +227,7 @@ function countingExecutor(): { executor: Executor; count: () => number } {
       nodeId: 'w0',
       async execute(): Promise<ExecutionOutcome> {
         executed += 1
-        return { ok: true, output: null, fuelUsed: 1 }
+        return { ok: true, output: null, fuelUsed: 1, attestation: 'signed-by-nobody' }
       },
     },
     count: () => executed,
@@ -291,6 +291,7 @@ function fabric(options: {
     ledger: 'keeps-no-ledger',
     reservations: 'relays-for-nobody',
     onDispatch: 'reports-no-dispatch',
+    attest: 'signs-nothing',
   })
 
   const callerRpc = new RpcEndpoint(network.connect('caller'), { timeoutMs: RPC_BUDGET_MS })

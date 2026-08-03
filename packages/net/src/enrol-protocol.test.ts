@@ -34,7 +34,11 @@ const user = keypair(73)
 const NOW = 1_800_000_000_000
 
 function authority(seed: Uint8Array = provider.priv): EnrollmentAuthority {
-  return new EnrollmentAuthority({ providerPrivateKey: seed })
+  return new EnrollmentAuthority({
+    providerPrivateKey: seed,
+    maxIssuedPerWindow: 'issues-without-an-aggregate-budget',
+    issuance: 'remembers-only-within-this-process',
+  })
 }
 
 /**
@@ -231,7 +235,7 @@ describe('a refusal crosses the wire with its numbers intact', () => {
   })
 
   /**
-   * The third arm. `EnrollmentRefusal` has **three** kinds, not two: a node that did not
+   * The third arm. `EnrollmentRefusal` has **four** kinds, not two: a node that did not
    * prove possession and a user who did not consent are different events with different
    * remedies, and the wire has to keep them apart.
    */
@@ -245,6 +249,52 @@ describe('a refusal crosses the wire with its numbers intact', () => {
       kind: 'enrol',
       result,
     })
+  })
+
+  /**
+   * The fourth arm, and the reason this plan's *"no wire change anywhere"* was wrong.
+   *
+   * `EnrollmentRefusal` is a wire type: `serveAgent` answers an `enrol` frame with the
+   * `EnrollmentResult` the authority produced, and this module is what puts it on the
+   * wire. Adding a refusal kind therefore **is** a wire change, whatever else the plan
+   * that added it changed. `tsc` found the encoder — `refusal.userKey` stopped existing
+   * on the union — and said nothing at all about the parser, which returns `null` for a
+   * kind it does not know and compiles clean while doing it. A provider would have
+   * refused correctly and the peer would have read a malformed frame.
+   *
+   * The arm carries **no `userKey`**, so this case is also what would fail if somebody
+   * copied the `rate-limited` arm and left the requester's key in it.
+   */
+  it('round-trips the issuance-budget-exhausted arm, which names nobody', () => {
+    const result = {
+      ok: false,
+      refusal: {
+        kind: 'issuance-budget-exhausted',
+        limit: 5,
+        windowMs: 3_600_000,
+        retryAfterMs: 12_345,
+      },
+      reason: 'this provider has issued 5 certificates in the last 3600000ms (limit 5)',
+    } as const
+
+    const parsed = parseResponse(encodeResponse({ kind: 'enrol', result }))
+    expect(parsed).toStrictEqual({ kind: 'enrol', result })
+    // The threshold reaches the peer that hit it, which is what "stated threshold"
+    // means — and the reason names no user key, on the wire as well as in the object.
+    if (parsed?.kind !== 'enrol' || parsed.result.ok) throw new Error('expected a refusal')
+    if (parsed.result.refusal.kind !== 'issuance-budget-exhausted') throw new Error('wrong kind')
+    expect(Object.keys(parsed.result.refusal)).not.toContain('userKey')
+    expect(parsed.result.reason).not.toContain(user.pub)
+  })
+
+  it('refuses an issuance-budget-exhausted arm whose numbers are not numbers', () => {
+    const parsed = parseResponse({
+      kind: 'enrol',
+      ok: false,
+      refusal: { kind: 'issuance-budget-exhausted', limit: 5, windowMs: 'an hour', retryAfterMs: 1 },
+      reason: 'malformed',
+    })
+    expect(parsed).toBeNull()
   })
 
   it('refuses a refusal kind this build does not know, rather than half-populating one', () => {

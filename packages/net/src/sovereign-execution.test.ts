@@ -102,6 +102,8 @@ async function ownerFabric(options: { module: Uint8Array<ArrayBuffer>; ownerNode
   const authority = new EnrollmentAuthority({
     providerPrivateKey: new Uint8Array(32).fill(80),
     maxPerWindow: 100,
+    maxIssuedPerWindow: 'issues-without-an-aggregate-budget',
+    issuance: 'remembers-only-within-this-process',
   })
   const trustedIssuers = new Set([authority.issuerKey])
   const aliceUserPriv = new Uint8Array(32).fill(81)
@@ -127,6 +129,7 @@ async function ownerFabric(options: { module: Uint8Array<ArrayBuffer>; ownerNode
     ledger: 'keeps-no-ledger',
     reservations: 'relays-for-nobody',
     onDispatch: 'reports-no-dispatch',
+    attest: 'signs-nothing',
   })
 
   const certificates: NodeCertificate[] = []
@@ -188,6 +191,7 @@ async function ownerFabric(options: { module: Uint8Array<ArrayBuffer>; ownerNode
       ledger: 'keeps-no-ledger',
       reservations: 'relays-for-nobody',
       onDispatch: 'reports-no-dispatch',
+      attest: 'signs-nothing',
     })
 
     index.provide(inputCid, nodeId)
@@ -224,6 +228,7 @@ async function ownerFabric(options: { module: Uint8Array<ArrayBuffer>; ownerNode
     ledger: 'keeps-no-ledger',
     reservations: 'relays-for-nobody',
     onDispatch: 'reports-no-dispatch',
+    attest: 'signs-nothing',
   })
   index.provide(inputCid, foreignKey)
   index.publish({
@@ -267,6 +272,11 @@ const sovereignDescriptors = (
     ownerId,
     canExecuteSovereign: true,
     load: 0,
+    // This helper is handed node keys, not records, so it has no certificate to pass
+    // on and says so. `discoverCandidates` is the producer that does carry one; the
+    // difference between the two is what this file's fixture stands in for, and
+    // closing it means widening this signature rather than guessing a value here.
+    certificate: 'carries-no-certificate',
   }))
 
 describe('criterion 6 — an owner’s own nodes verify each other', () => {
@@ -529,8 +539,17 @@ describe('Phase 12 — sovereignty wired onto submitJob', () => {
           // pattern the falsification test above proves the tap can catch.
           shards: [{ value: SOVEREIGN_ROW, label: 'sovereign', ownerId: fabric.aliceUserKey }],
           executors,
-          nodes: [{ nodeId: owned.nodeId, ownerId: fabric.aliceUserKey, canExecuteSovereign: true, load: 0 }],
+          nodes: [
+            {
+              nodeId: owned.nodeId,
+              ownerId: fabric.aliceUserKey,
+              canExecuteSovereign: true,
+              load: 0,
+              certificate: 'carries-no-certificate',
+            },
+          ],
           redundancy: 1,
+          onQuorumShortfall: 'runs-at-available-redundancy',
         },
         // SEED's own store — the node's `RpcBlockSource` fetches from `[SEED]`,
         // so this is where a real requestor's local blockstore corresponds to.
@@ -611,6 +630,7 @@ describe('a hold survives an exec that never took one', () => {
       ledger: 'keeps-no-ledger',
       reservations: 'relays-for-nobody',
       onDispatch: 'reports-no-dispatch',
+      attest: 'signs-nothing',
     })
 
     const clientRpc = new RpcEndpoint(network.connect('client'), { timeoutMs: 5_000 })

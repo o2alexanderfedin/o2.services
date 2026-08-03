@@ -911,7 +911,21 @@ export class BrowserNode {
         providerPrivateKey = generateSeed()
         await identityStore.saveProviderSeed(providerPrivateKey)
       }
-      authority = new EnrollmentAuthority({ providerPrivateKey })
+      // Both required issuance options are written out as named sentinels, and both say
+      // the same thing: this tier does not yet have what the option is for. Omitting
+      // either would be indistinguishable from a decision — and for `issuance`
+      // specifically, a default of the in-process history is *precisely* the per-process
+      // budget Phase 17 measured as defeated, with nothing anywhere failing.
+      //
+      // **Plan 19-07 is where each gets its durable form on this tier** — a ledger over
+      // `identityStore`, which already persists the provider seed beside it, and an
+      // aggregate number to go with it. A tab's storage is evictable, so what "durable"
+      // means here is 19-07's question and not this line's.
+      authority = new EnrollmentAuthority({
+        providerPrivateKey,
+        maxIssuedPerWindow: 'issues-without-an-aggregate-budget',
+        issuance: 'remembers-only-within-this-process',
+      })
     }
 
     // BROW-03: every task this tab runs — its own and other peers' — is paced by
@@ -1189,6 +1203,17 @@ export class BrowserNode {
         node.servedFor.set(from, (node.servedFor.get(from) ?? 0) + 1)
         node.#announce()
       },
+      // VER-08 / VER-09 / VER-10 — the node's own signing identity, for **both** verbs.
+      //
+      // **The sentinel here is a burn-down with a date, and it is the same count as
+      // `fabric-node.ts`'s deliberately.** Plan 19-15 replaces both with real signers in
+      // one pass. Signing is not a capability a tier confers: a tab that has been
+      // enrolled signs on identical terms to any other node, and if this row ever
+      // diverges from the Node factory's without a stated reason, something has started
+      // keying on node kind — the failure Phases 16 and 17 each shipped once.
+      //
+      // Until 19-15 this tab answers combines unsigned, truthfully and by name.
+      attest: 'signs-nothing',
     })
     return node
   }

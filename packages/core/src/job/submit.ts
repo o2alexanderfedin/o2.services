@@ -19,14 +19,19 @@
 import type { CID } from 'multiformats/cid'
 import { canonicalCid } from '../canonical/encode.ts'
 import type { CanonicalValue } from '../canonical/encode.ts'
+import type { NodeCertificate } from '../enrollment.ts'
 import type { NameRecord } from '../naming.ts'
 import { planWithOffers } from '../placement.ts'
 import type { AdmissionControl, Rejection } from '../placement.ts'
 import type { Blockstore, Executor, Task } from '../ports.ts'
+import { attestationRank, attestationReceipt, composeQuorum } from '../quorum.ts'
+import type { AttestationReceipt, QuorumRefusal } from '../quorum.ts'
+import { verifyResultAttestation } from '../result-attestation.ts'
+import type { ResultWork } from '../result-attestation.ts'
 import { planPlacement } from '../sovereignty.ts'
 import type { NodeDescriptor, OwnerId, Placement, PlacementRequest } from '../sovereignty.ts'
 import { executeVerified } from './verify.ts'
-import type { VerificationResult } from './verify.ts'
+import type { AgreeingReplica, VerificationResult } from './verify.ts'
 
 /** One shard's input, carrying the sovereignty label that constrains where it may run. */
 export type ShardSpec =
@@ -76,6 +81,68 @@ export interface JobSpec {
    */
   readonly redundancy: number
   /**
+   * VER-03 / VER-04. What this caller wants when a public shard asked for
+   * verification and the candidate set cannot compose a valid quorum.
+   *
+   * **Two named choices, and neither of them is "off".** A caller that does not much
+   * care still writes one down, which is the whole reason this is required rather
+   * than optional with a default — see the last section below.
+   *
+   * ## `'runs-at-available-redundancy'` — what degrading actually does
+   *
+   * The shard runs at whatever redundancy the eligible set yields, it is reported
+   * `degraded` on its `ShardResult`, and its receipt reports the weaker attestation
+   * strength. **The job does not fail.** A caller on this arm gets an answer plus an
+   * accurate statement of how well it was checked.
+   *
+   * ## Why that is the default answer to an uncomposable quorum
+   *
+   * Phase 12 retired `not-enough-executors` precisely to stop a shard below its
+   * requested redundancy from failing a whole job: it is placed at what is available
+   * and marked degraded instead. A candidate set too concentrated to verify is the
+   * same condition one step further out — and it is a condition the *caller does not
+   * control*. Turning it into a refusal would put a refusal in front of the thing it
+   * is about, which is the shape the retracted anchor rule had.
+   *
+   * ## Why degrading here is not silent
+   *
+   * Criterion 1's load-bearing word is *silently*, not *accepted*.
+   * `classifyAttestation` labels a one-operator quorum `owner-attested`, and a
+   * multi-certificate one-operator quorum `owner-domain`, rather than `independent` —
+   * so the weaker outcome is named by construction, and `degraded` says so a second
+   * time on the shard. Nothing about this arm hides anything; it reports a weaker
+   * result as weaker.
+   *
+   * ## When to ask for `'refuses-the-shard'`
+   *
+   * Only when a weaker answer is worse to this caller than no answer at all — a
+   * caller that genuinely requires independent verification and would rather have
+   * nothing than something it cannot show to a third party. A caller that would go on
+   * to use a degraded result anyway and asks for refusal has chosen to fail jobs it
+   * would have accepted.
+   *
+   * ## Nothing reads this field yet
+   *
+   * Stated rather than left to be discovered. **Plan 19-06 is where an uncomposable
+   * quorum starts consulting it**; until then both arms travel the submission path
+   * identically and no branch anywhere tests them. That scheduled arrival is this
+   * phase's established shape — Plans 19-13 and 19-14 each landed a type and its
+   * fan-out one wave ahead of the code that read it.
+   *
+   * ## Required rather than optional, and the reason is measured
+   *
+   * `.planning/PROJECT.md`'s Key Decision **"An optional hook with a silent default is
+   * a hole"**, and here the hole has a specific shape this phase has already fallen
+   * into twice. Plans 19-01 and 19-13 each made a field optional and omitted it, and
+   * each observed **`tsc --noEmit` exit 0 while the behavioural assertion failed**. An
+   * optional strictness field would let every existing call site mean *degrade*
+   * without ever having said so — a whole tree of callers holding a position none of
+   * them stated. Note also that this belongs on `JobSpec` and not on `SubmitOptions`:
+   * that object is optional *as a whole*, so a required property inside it would still
+   * be omittable by omitting the object, which is the same defect one level down.
+   */
+  readonly onQuorumShortfall: 'runs-at-available-redundancy' | 'refuses-the-shard'
+  /**
    * Consulted before a shard is placed on a node — SCHED-02, SCHED-03.
    *
    * **Present** means every shard is placed by `planWithOffers`: sample `d`
@@ -121,19 +188,150 @@ export interface JobSpec {
   readonly admit?: AdmissionControl
 }
 
+/**
+ * The named statement that this requestor holds no verified signed statement about
+ * who produced a result — VER-08, VER-09, VER-10.
+ *
+ * **A statement, never a default.** It says something specific and true: *this
+ * requestor cannot account, from signatures it checked, for who ran this shard.* That
+ * is a fact about the requestor's own knowledge, not about the nodes — every node in
+ * this fabric has equal functionality, and a node reporting `'signed-by-nobody'` is an
+ * ordinary node whose executor holds no identity. Reading it as a weak strength would
+ * be the conflation this whole phase exists to end, one level down: `owner-attested`
+ * over one verified replica of three *sounds stronger* than the truth, which is that
+ * two of them are unaccounted for.
+ *
+ * **It carries its counts because the label alone cannot be acted on.** `agreeing` is
+ * how many replicas matched, `verified` how many of those produced a signature that
+ * checked out. `0 of 2` and `1 of 2` are different situations with different remedies,
+ * and a bare literal would make them the same word.
+ */
+export interface NoVerifiedAttestation {
+  readonly kind: 'holds-no-verified-attestation'
+  /** Why, in this module's own words, naming each replica that was not counted. */
+  readonly reason: string
+  /** Replicas whose outputs matched. `0` when the shard never agreed. */
+  readonly agreeing: number
+  /** Of those, how many carried a signature over this result that this requestor checked. */
+  readonly verified: number
+}
+
+/**
+ * What a result is attested by, or the named statement that nothing was.
+ *
+ * **Derived from checked signatures, never declared.** `quorum.ts`'s own doc gives the
+ * reason: *a caller that could declare a result independently verified would eventually
+ * declare one that was not.* So the receipt arm here is built by
+ * `attestationReceipt(...)` over certificates whose holders' signatures over **this
+ * task and this output** verified, and there is no path by which a caller supplies one.
+ *
+ * **It reads the AGREEING set, not the placed set.** A node that was placed and then
+ * failed attested nothing, and counting it would report redundancy the result does not
+ * have.
+ *
+ * **What a signature does not say.** It says a certified node computed this output. It
+ * says nothing about whether the output is *correct* — correctness is `executeVerified`'s
+ * N-version comparison, and a signature on a wrong answer is a signed wrong answer,
+ * signed just as convincingly as a right one. Somebody will read "results are signed
+ * now" and propose reducing redundancy; attribution tells you whom to stop trusting
+ * *after* you know the answer was wrong, and the only thing here that tells you it was
+ * wrong is a second independent execution.
+ *
+ * **This is the map half's receipt and it is NOT the aggregate's.** `submitJob` does not
+ * reduce; `reduceJob` is a separate entry point whose aggregation carries its own claim,
+ * verified from combine signatures. The two are not one restated — `PROJECT.md`'s split
+ * means a sovereign map is `owner-attested` by construction while the aggregation over
+ * it can be redundant, so they routinely differ. `reduce.ts`'s own header already writes
+ * that split down. Do not unify them.
+ */
+export type ShardAttestation = AttestationReceipt | NoVerifiedAttestation
+
+/**
+ * What the verification quorum came to for one shard — VER-03, VER-04.
+ *
+ * Three arms, because *why no quorum was attempted* is as much a fact about a result as
+ * a refusal is, and a caller told only "not composed" could not tell a sovereign shard
+ * from an over-concentrated candidate set.
+ *
+ * **A composed quorum does not pre-declare a strength, and this is worth its own line.**
+ * `operators` here are the operators that were **asked**; {@link ShardAttestation}
+ * reports who **answered and signed**. A quorum of two operators whose second member
+ * returned nothing verifiable reads the named absence, not `independent` — that is the
+ * correct answer rather than a defect in this gate, and reading a strength off
+ * `QuorumResult.strength` instead would be the exact conflation this phase exists to end.
+ */
+export type ShardQuorum =
+  /** Composed. These are the operators whose nodes were asked, and the pool placement got. */
+  | { readonly kind: 'composed'; readonly operators: readonly string[] }
+  /**
+   * Attempted and refused, in the composer's own words.
+   *
+   * Carried onto the shard rather than dropped, because **degrading is defensible only
+   * because it is not silent** — a caller that can read `insufficient-operators` or
+   * `shared-relay-dependency` can tell an over-concentrated fabric from any other
+   * degradation, and one that cannot, cannot.
+   */
+  | { readonly kind: 'not-composed'; readonly refusal: QuorumRefusal; readonly reason: string }
+  /** No quorum was attempted. One of the gate's three conditions did not hold, and this says which. */
+  | { readonly kind: 'not-attempted'; readonly reason: string }
+
+/** One shard's quorum decision, and what placement is handed because of it. */
+interface ShardGate {
+  readonly quorum: ShardQuorum
+  /** The pool placement receives — the quorum's members, or the full candidate set. */
+  readonly pool: readonly NodeDescriptor[]
+  /** True when this shard runs but did not get the independence it asked for. */
+  readonly degraded: boolean
+  /** The composer's reason, when the caller asked for refusal rather than a weaker answer. */
+  readonly refusal: string | null
+}
+
 export interface ShardResult {
   readonly partitionIndex: number
   readonly inputCid: CID
   readonly verification: VerificationResult
   /**
-   * True when this shard's achieved redundancy is below `JobSpec.redundancy`.
+   * True when this shard did not get everything it asked for — in **redundancy**, or in
+   * **independence**.
    *
-   * A degraded shard that nonetheless `agreed` has NOT been verified at the
-   * requested strength — it is owner-attested, not independently confirmed. See
-   * `sovereignty.ts`'s `Placement.degraded` for why this is reported rather than
+   * It covered only the first until Plan 19-06, when it read *"achieved redundancy is
+   * below `JobSpec.redundancy`"*. **A quorum shortfall can occur at full redundancy** —
+   * two nodes of one operator are two replicas and no quorum — so the narrower reading
+   * would have been `false` on a shard that failed to get the verification it asked for,
+   * and a caller filtering on this field would have accepted that shard silently. The
+   * alternative, considered and rejected: leave this field alone and rely on the receipt.
+   * It loses on both counts — the owner ruling says such a shard is *marked degraded*,
+   * and a caller filtering on `degraded` is precisely who must not be told nothing.
+   *
+   * **The receipt says which of the two happened**, and the two are different tests:
+   * `degraded` compares what was **asked for** against what was achieved, while
+   * {@link ShardResult.attestation} reports what was **established**. A shard can be
+   * undegraded and still `owner-domain` — full redundancy across one owner's own nodes is
+   * exactly that — so neither field can be inferred from the other. This field also used
+   * to say in prose that a degraded shard which agreed *"is owner-attested, not
+   * independently confirmed"*; the receipt now says so as a value, so the prose is gone
+   * rather than kept beside it. {@link ShardResult.quorum} carries the composer's own
+   * words when the shortfall was a quorum's.
+   *
+   * See `sovereignty.ts`'s `Placement.degraded` for why this is reported rather than
    * silently tolerated.
    */
   readonly degraded: boolean
+  /**
+   * What the verification quorum came to for this shard — VER-03, VER-04.
+   *
+   * Present on every shard, including those no quorum was attempted for. See
+   * {@link ShardQuorum}.
+   */
+  readonly quorum: ShardQuorum
+  /**
+   * How strongly this shard's result is attested, or the named absence.
+   *
+   * See {@link ShardAttestation}. Required rather than optional: an omitted receipt read
+   * as "attested" would make an unsigned result indistinguishable from a signed one at
+   * the exact point the distinction is the product.
+   */
+  readonly attestation: ShardAttestation
   /**
    * The refusals collected on the way to placing this shard, in order, each in the
    * refusing node's own words — SCHED-03.
@@ -153,6 +351,16 @@ export interface ShardResult {
 export interface JobResult {
   readonly moduleCid: CID
   readonly shards: readonly ShardResult[]
+  /**
+   * The **weakest** of this job's shard receipts, or the named absence if any shard
+   * carries one.
+   *
+   * A job is no stronger than its weakest shard: a caller shown `independent` for a job
+   * one of whose shards ran once would be told the stronger guarantee on the strength of
+   * the weaker one. The comparison goes through `attestationRank` rather than through a
+   * remembered string order, which is what that function exists for.
+   */
+  readonly attestation: ShardAttestation
   /** True only if every shard reached `agreed` at its full requested redundancy. */
   readonly complete: boolean
   /** Node-seconds spent including redundant work. */
@@ -210,6 +418,160 @@ function requestFor(shard: ShardSpec, shardId: string, redundancy: number): Plac
     : { shardId, label: shard.label, redundancy }
 }
 
+/** A shard that produced no agreement produced nothing to attest. */
+function noAgreementToAttest(status: string): NoVerifiedAttestation {
+  return {
+    kind: 'holds-no-verified-attestation',
+    reason: `this shard is ${status} rather than agreed, so there is no agreement to attest`,
+    agreeing: 0,
+    verified: 0,
+  }
+}
+
+/**
+ * Build a shard's receipt from the replicas that agreed **and proved it**.
+ *
+ * Four questions per agreeing replica, each with its own name when the answer is no.
+ * They are separate because a reader told only "not counted" would go looking at the
+ * signature when the real answer is that this requestor holds no certificate for the
+ * node at all.
+ *
+ * 1. **Does this requestor hold a certificate for that node?** The trust anchor is the
+ *    descriptor's own `certificate` field, and deliberately **not** a `trustedIssuers`
+ *    argument on `submitJob`. The pinned-issuer decision was already made, and already
+ *    applied, where the certificate entered — `discoverCandidates`, which verifies
+ *    against `trustedIssuers` at the discovery seam. Threading a second issuer set in
+ *    here would create *a second place the same decision is made*, which can disagree
+ *    with the first with nothing able to catch the disagreement — the same argument that
+ *    rejected a parallel `nodeId → certificate` map. It also keeps four production
+ *    submitters unchanged, which is the argument that rejected threading certificates
+ *    through `JobSpec`.
+ * 2. **Did the executor sign anything?** `'signed-by-nobody'` is a truthful statement by
+ *    an executor nobody enrolled, not a signature that failed. A replica that signs
+ *    nothing has said nothing, and that is not misconduct.
+ * 3. **Is the certificate presented the one this node was discovered under?** It looks
+ *    redundant beside question 4 and is not: without it a node could answer under some
+ *    *other* certificate of its own, and the receipt would report an operator — or a
+ *    user key — that this requestor never placed anything with.
+ *
+ *    Compared on `nodeKey` rather than on the whole certificate, because byte equality
+ *    is wrong in one real case: a node that **re-enrolled** between discovery and
+ *    execution answers under a fresher certificate with a later `issuedAt`, and a shard
+ *    would fall to the named absence though nothing dishonest happened. Pinning *which
+ *    node* and then verifying the presented certificate on its own terms accepts the
+ *    fresher one and still refuses a substituted one.
+ *
+ *    **The issuer half is carried by the pinned set below, not by a second comparison
+ *    here.** `verifyResultAttestation` is handed exactly the descriptor's own issuer, so
+ *    a certificate from any other provider is refused by name as `untrusted-issuer`. An
+ *    `issuer !== issuer` test beside it would be a branch nothing could reach, and this
+ *    module's neighbours record what a check that cannot fire costs: it reads as a
+ *    guarantee while guarding nothing. Widening that set — to every issuer this
+ *    requestor knows, say — is what would make such a comparison live again, and is
+ *    exactly the change that must not be made quietly.
+ * 4. **Does the signature check out over THIS work?** The challenge is rebuilt from the
+ *    caller's own task and from `verification.resultCid` — never from anything the
+ *    attestation supplies, or it would verify against itself every time. `resultCid` is
+ *    the right output to rebuild with because every agreeing replica hashed to it; that
+ *    is what agreement means, so no shard output is re-hashed here.
+ *
+ * A **partial** verification returns the named absence rather than a receipt over
+ * whatever happened to check out. A receipt over the subset would overstate or
+ * understate, and which of the two would depend on an accident.
+ *
+ * The transferable half survives this local shortcut: the attestation carries the whole
+ * certificate on the wire, so a third party holding only the provider's public key can
+ * check the same statement without any of this requestor's descriptors. The shortcut is
+ * about what *this* requestor already knows, not about what the artifact contains.
+ */
+function receiptFor(
+  agreeing: readonly AgreeingReplica[],
+  work: ResultWork,
+  descriptors: ReadonlyMap<string, NodeDescriptor>,
+  now: number,
+): ShardAttestation {
+  const verified: NodeCertificate[] = []
+  const unaccounted: string[] = []
+
+  for (const replica of agreeing) {
+    const descriptor = descriptors.get(replica.nodeId)
+    if (descriptor === undefined) {
+      unaccounted.push(`${replica.nodeId}: this requestor holds no descriptor for it`)
+      continue
+    }
+    if (descriptor.certificate === 'carries-no-certificate') {
+      unaccounted.push(`${replica.nodeId}: this requestor holds no certificate for it`)
+      continue
+    }
+    if (replica.attestation === 'signed-by-nobody') {
+      unaccounted.push(`${replica.nodeId}: the executor stated that it signs nothing`)
+      continue
+    }
+    if (replica.attestation.certificate.nodeKey !== descriptor.certificate.nodeKey) {
+      unaccounted.push(
+        `${replica.nodeId}: answered under node key ${replica.attestation.certificate.nodeKey}, ` +
+          `which is not the ${descriptor.certificate.nodeKey} it was discovered under`,
+      )
+      continue
+    }
+    const checked = verifyResultAttestation(
+      replica.attestation,
+      work,
+      new Set([descriptor.certificate.issuer]),
+      now,
+    )
+    if (!checked.ok) {
+      unaccounted.push(`${replica.nodeId}: ${checked.reason}`)
+      continue
+    }
+    verified.push(checked.certificate)
+  }
+
+  if (unaccounted.length > 0 || verified.length === 0) {
+    return {
+      kind: 'holds-no-verified-attestation',
+      reason:
+        verified.length === 0
+          ? `no agreeing replica produced a signed statement this requestor could check — ${unaccounted.join('; ')}`
+          : `only ${verified.length} of ${agreeing.length} agreeing replicas produced a signed ` +
+            'statement this requestor could check, and a strength over that subset would state ' +
+            `something this requestor cannot account for — ${unaccounted.join('; ')}`,
+      agreeing: agreeing.length,
+      verified: verified.length,
+    }
+  }
+
+  // `attestationReceipt` reports `replicas` from `agreeing.length` and does not dedupe,
+  // so two entries for one node would report redundancy the result does not have. The
+  // invariant belongs here and not in `quorum.ts`: that module is a pure report over
+  // whatever it is handed, and a dedupe inside it would silently repair an assembly bug
+  // instead of failing on one. Unreachable through `executeVerified`, which produces one
+  // entry per executor and whose executors are keyed by node id one function up — which
+  // is why this throws rather than returning a value: it is a defect in this module's own
+  // assembly, not a verdict about anything a peer sent, the same call `NotEncodableError`
+  // and `WrongSigningKeyError` already make in this package.
+  if (new Set(verified.map((certificate) => certificate.nodeKey)).size !== verified.length) {
+    throw new Error(
+      'two agreeing replicas of one shard verified under the same node key — a receipt built ' +
+        'from this set would report redundancy the result does not have',
+    )
+  }
+
+  return attestationReceipt(verified)
+}
+
+/** A job is no stronger than its weakest shard. */
+function jobAttestationOf(shards: readonly ShardResult[]): ShardAttestation {
+  const absent = shards.find((shard) => 'kind' in shard.attestation)
+  if (absent !== undefined) return absent.attestation
+  return shards.reduce((weakest, shard) => {
+    if ('kind' in weakest.attestation || 'kind' in shard.attestation) return weakest
+    return attestationRank(shard.attestation.strength) < attestationRank(weakest.attestation.strength)
+      ? shard
+      : weakest
+  }, shards[0] as ShardResult).attestation
+}
+
 /**
  * Submit a job: shard it, place each shard, execute redundantly, verify, return CIDs.
  *
@@ -241,6 +603,11 @@ export async function submitJob(
   }
 
   const execByNodeId = new Map(spec.executors.map((e) => [e.nodeId, e] as const))
+  // Beside it, and for the receipt rather than for placement: the descriptor is where
+  // this requestor's certificate for a node lives, and therefore where the question
+  // "did the node that answered me answer under the certificate I discovered it with?"
+  // is settled. See {@link receiptFor}.
+  const descriptorByNodeId = new Map(spec.nodes.map((n) => [n.nodeId, n] as const))
   for (const executor of spec.executors) {
     if (!spec.nodes.some((n) => n.nodeId === executor.nodeId)) {
       return { ok: false, error: { kind: 'missing-node-descriptor', nodeId: executor.nodeId } }
@@ -257,6 +624,20 @@ export async function submitJob(
   }
 
   const partitionCount = spec.shards.length
+
+  // One instant for the whole job, so two shards cannot disagree about whether a
+  // certificate had expired.
+  //
+  // **This module reads the wall clock, once, and nothing else about it.** It is the
+  // first read of a platform clock in `packages/core/src`, and it is deliberate rather
+  // than incidental: deciding whether a certificate's validity window is open is the
+  // *requestor's* call about its own willingness to count a statement, which is the same
+  // call `peer-verifier.ts` makes with `Date.now()` directly. The alternatives were both
+  // worse. A clock on `SubmitOptions` would be omittable by omitting the object — the
+  // required-field-inside-an-optional-object defect, one level down. A clock on `JobSpec`
+  // would be a ninety-four-site fan-out for a value every one of them would fill with
+  // this same expression.
+  const now = Date.now()
 
   // Persist every shard input as a block first, so a task is addressed entirely
   // by CID and could be re-dispatched to any node without resending the payload.
@@ -301,6 +682,128 @@ export async function submitJob(
   // :11-14. What differs is only how an already-eligible set is narrowed to a
   // choice. They are alternatives and are never composed; `JobSpec.admit`'s doc
   // carries the line that makes composing them lose the re-pick.
+  //
+  // ── The quorum gate — VER-03, VER-04 ──────────────────────────────────────────────
+  //
+  // It sits HERE, above the arm selection, so both arms receive the same narrowed pool
+  // and neither can drift from the other. It narrows an already-eligible set by a
+  // constraint placement has no way to express; it does not re-derive who *could* run a
+  // shard, so this module's standing rule at :11-14 is intact. And it is applied
+  // **before** the load preference, never after: a hard constraint applied after a
+  // preference is not a constraint, a shape this repository has recorded twice — NET-08's
+  // cap after the loop and 16-06's bound below the fetch.
+  //
+  // A quorum is composed for a shard only when all three of these hold, and each is
+  // written out because each will look like an escape hatch to somebody who does not
+  // know why it is there:
+  //
+  //   1. **`label: 'public'`.** A sovereign shard runs on one owner's own nodes and
+  //      therefore has one operator, so `composeQuorum` — which holds one certificate
+  //      per operator by construction — would refuse it with `insufficient-operators`,
+  //      correctly and uselessly. This is `PROJECT.md`'s split expressed in a branch
+  //      rather than in prose: public data gets N-version redundancy across operators,
+  //      sovereign data is owner-attested with the aggregation over it verified. Remove
+  //      this condition and `owner-domain` becomes unreachable, which is the single most
+  //      likely way to get this whole thing wrong.
+  //   2. **`redundancy >= 2`.** At redundancy 1 there is no verification — VER-06 makes
+  //      it a dial reaching 1, off — and so no quorum to compose. This is the ruling's
+  //      first opt-out, and it yields `owner-attested`.
+  //   3. **Every candidate carries a certificate.** A requestor holding none cannot
+  //      compose anything, and refusing its job would break every caller that builds its
+  //      descriptors through `publicNodes`. This is the condition most in need of its
+  //      argument written down, so: it is **not** a silent degradation, because the
+  //      receipt reports the named absence on every shard of such a job — a caller that
+  //      supplies no certificates gets a result that says no attestation was established.
+  //      `submitJob` runs in the requestor's own process and a requestor that supplies
+  //      nothing bounds only its own claim, which is the same argument `JobSpec.admit`'s
+  //      doc already makes for itself.
+  //
+  // The composition itself is job-level because its input is: the candidate pool is the
+  // same for every shard, so `composeQuorum` would return the same answer per shard.
+  // Computed once and applied per shard by label.
+  const certificated = candidateNodes.flatMap((node) =>
+    node.certificate === 'carries-no-certificate' ? [] : [node.certificate],
+  )
+  const composition =
+    candidateNodes.length > 0 && certificated.length === candidateNodes.length && spec.redundancy >= 2
+      ? composeQuorum(certificated, { size: spec.redundancy })
+      : null
+  // The members' descriptors, in the pool's own order. One array, shared by every shard
+  // that composes, which is what lets the offer arm group by pool identity below.
+  const quorumPool: readonly NodeDescriptor[] =
+    composition !== null && composition.ok
+      ? ((keys) =>
+          candidateNodes.filter(
+            (node) => node.certificate !== 'carries-no-certificate' && keys.has(node.certificate.nodeKey),
+          ))(new Set(composition.members.map((member) => member.nodeKey)))
+      : candidateNodes
+
+  const gates = spec.shards.map((shard): ShardGate => {
+    if (shard.label !== 'public') {
+      return {
+        quorum: {
+          kind: 'not-attempted',
+          reason:
+            'a sovereign shard runs on its owner’s own nodes, which is one operator — the ' +
+            'composer would refuse it correctly and uselessly, so it is never handed one',
+        },
+        pool: candidateNodes,
+        degraded: false,
+        refusal: null,
+      }
+    }
+    if (spec.redundancy < 2) {
+      return {
+        quorum: {
+          kind: 'not-attempted',
+          reason: 'redundancy 1 asks for no verification, so there is no quorum to compose',
+        },
+        pool: candidateNodes,
+        degraded: false,
+        refusal: null,
+      }
+    }
+    if (composition === null) {
+      return {
+        quorum: {
+          kind: 'not-attempted',
+          reason:
+            'this requestor holds no certificate for at least one candidate, so it has nothing ' +
+            'to compose a quorum from — the receipt reports the named absence rather than a strength',
+        },
+        pool: candidateNodes,
+        degraded: false,
+        refusal: null,
+      }
+    }
+    if (composition.ok) {
+      // The narrowing costs the offer arm its re-pick **on this shard**: with the pool
+      // equal to the quorum, a member that refuses leaves nothing to re-pick onto and the
+      // shard comes back unplaceable naming the refusal. That is a worse liveness answer
+      // and a strictly better correctness one, and the trade is written here rather than
+      // discovered later. If a later phase wants both, the mechanism is a larger quorum
+      // with a chosen subset — a new decision, not a widening of this one. Note what the
+      // cost is not: a shard that degraded keeps the full eligible pool and therefore
+      // keeps its re-pick, so the liveness is paid by exactly the callers who got the
+      // stronger guarantee.
+      return {
+        quorum: { kind: 'composed', operators: composition.operators },
+        pool: quorumPool,
+        degraded: false,
+        refusal: null,
+      }
+    }
+    // Composition was attempted and refused, so there is a shortfall and the dial is
+    // consulted — here and only here. It is not read where no quorum was attempted,
+    // because there was nothing to fall short of.
+    return {
+      quorum: { kind: 'not-composed', refusal: composition.refusal, reason: composition.reason },
+      pool: candidateNodes,
+      degraded: spec.onQuorumShortfall === 'runs-at-available-redundancy',
+      refusal: spec.onQuorumShortfall === 'refuses-the-shard' ? composition.reason : null,
+    }
+  })
+
   const shardPlacements: Placement[] = []
   // One empty list per shard. On the no-offer arm that is what survives, and it is a
   // truthful reading rather than a default: no offer was made, so nothing refused.
@@ -314,9 +817,16 @@ export async function submitJob(
     // already-eligible nodes.
     const dispatchCount = new Map<string, number>()
     for (let i = 0; i < partitionCount; i++) {
+      const gate = gates[i] as ShardGate
+      if (gate.refusal !== null) {
+        // The caller's stated preference, in the composer's own words. Nothing else
+        // licenses a refusal here.
+        shardPlacements.push({ shardId: String(i), status: 'unplaceable', reason: gate.refusal })
+        continue
+      }
       const shard = spec.shards[i] as ShardSpec
       const request = requestFor(shard, String(i), spec.redundancy)
-      const nodesForShard = candidateNodes.map((n) => ({
+      const nodesForShard = gate.pool.map((n) => ({
         ...n,
         load: n.load + (dispatchCount.get(n.nodeId) ?? 0),
       }))
@@ -336,10 +846,50 @@ export async function submitJob(
     // tests. There is no `dispatchCount` nudge here either: the offer arm's spread
     // comes from the per-shard rendezvous ranking and from the headroom each node
     // published, both of which are better information than a local tally.
-    const requests = spec.shards.map((shard, i) => requestFor(shard, String(i), spec.redundancy))
-    const offered = await planWithOffers(requests, candidateNodes, { admit: spec.admit })
-    shardRejections = offered.map((placement) => placement.rejections)
-    for (const placement of offered) shardPlacements.push(placement)
+    //
+    // **Grouped by pool, because `planWithOffers` takes one pool for a whole job and
+    // keeps its cross-shard headroom tally inside a single call.** A per-shard pool
+    // therefore cannot be expressed by narrowing its argument. There are at most two
+    // distinct pools in any job — the composed quorum, and the full candidate set every
+    // sovereign or degraded shard keeps — so the requests are grouped by the array they
+    // were handed and each group makes one call. **With one pool this is the single call
+    // it replaces, in shard order, byte for byte**, which is every job that composes
+    // nothing and every all-public job that does. With two, a node's published headroom
+    // is tallied within each group and not across them; that is recorded here rather than
+    // found later, and the alternative — one call per shard — would lose the tally
+    // altogether, which is a bound `18-04` measured and this module inherits.
+    const byPool = new Map<readonly NodeDescriptor[], number[]>()
+    for (let i = 0; i < partitionCount; i++) {
+      const gate = gates[i] as ShardGate
+      if (gate.refusal !== null) continue
+      const group = byPool.get(gate.pool)
+      if (group === undefined) byPool.set(gate.pool, [i])
+      else group.push(i)
+    }
+
+    const placedByShard = new Map<number, Placement>()
+    const rejectionsByShard: (readonly Rejection[])[] = spec.shards.map(() => [])
+    for (const [pool, indices] of byPool) {
+      const requests = indices.map((i) =>
+        requestFor(spec.shards[i] as ShardSpec, String(i), spec.redundancy),
+      )
+      const offered = await planWithOffers(requests, pool, { admit: spec.admit })
+      for (const [k, shardIndex] of indices.entries()) {
+        const placement = offered[k]
+        if (placement === undefined) continue
+        placedByShard.set(shardIndex, placement)
+        rejectionsByShard[shardIndex] = placement.rejections
+      }
+    }
+    for (let i = 0; i < partitionCount; i++) {
+      const gate = gates[i] as ShardGate
+      shardPlacements.push(
+        gate.refusal !== null
+          ? { shardId: String(i), status: 'unplaceable', reason: gate.refusal }
+          : (placedByShard.get(i) as Placement),
+      )
+    }
+    shardRejections = rejectionsByShard
   }
 
   const shards = await Promise.all(
@@ -355,8 +905,13 @@ export async function submitJob(
           // beside it, so "nobody would take it" is distinguishable from "there was
           // nobody".
           verification: { status: 'insufficient', reason: placement.reason, failures: [] },
+          // A shard that never ran has no result to describe, so this stays what it has
+          // always been on this arm. The record of *why* is on `quorum` beside it, in the
+          // composer's own words when a caller asked for refusal.
           degraded: false,
+          quorum: (gates[partitionIndex] as ShardGate).quorum,
           rejections,
+          attestation: noAgreementToAttest('unplaceable'),
         }
       }
 
@@ -392,7 +947,36 @@ export async function submitJob(
         const out = await canonicalCid(verification.output)
         if (out.ok) await blockstore.put(out.bytes)
       }
-      return { partitionIndex, inputCid, verification, degraded: placement.degraded, rejections }
+      // The receipt, built from the agreeing replicas' checked signatures. `resultCid` is
+      // the output every one of them hashed to — that is what agreement means — so the
+      // challenge is rebuilt from this requestor's own task and that CID, and nothing the
+      // attestations carry is used to say what they are about.
+      const attestation =
+        verification.status === 'agreed'
+          ? receiptFor(
+              verification.agreeing,
+              {
+                moduleCid: spec.moduleCid,
+                inputCid,
+                partitionIndex,
+                outputCid: verification.resultCid,
+              },
+              descriptorByNodeId,
+              now,
+            )
+          : noAgreementToAttest(verification.status)
+      const gate = gates[partitionIndex] as ShardGate
+      return {
+        partitionIndex,
+        inputCid,
+        verification,
+        // Either shortfall degrades the shard: fewer replicas than asked for, or the
+        // independence a composed quorum would have given it.
+        degraded: placement.degraded || gate.degraded,
+        quorum: gate.quorum,
+        rejections,
+        attestation,
+      }
     }),
   )
 
@@ -410,6 +994,7 @@ export async function submitJob(
     job: {
       moduleCid: spec.moduleCid,
       shards,
+      attestation: jobAttestationOf(shards),
       complete: shards.every((s) => s.verification.status === 'agreed' && !s.degraded),
       grossFuel: gross,
       usefulFuel: useful,

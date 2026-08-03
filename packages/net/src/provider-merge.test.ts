@@ -102,6 +102,8 @@ async function fabricOf(options: {
   const authority = new EnrollmentAuthority({
     providerPrivateKey: new Uint8Array(32).fill(60),
     maxPerWindow: 100,
+    maxIssuedPerWindow: 'issues-without-an-aggregate-budget',
+    issuance: 'remembers-only-within-this-process',
   })
   const userPriv = new Uint8Array(32).fill(61)
 
@@ -159,6 +161,7 @@ async function fabricOf(options: {
       ledger: 'keeps-no-ledger',
       reservations: 'relays-for-nobody',
       onDispatch: 'reports-no-dispatch',
+      attest: 'signs-nothing',
     })
     peers.push({ nodeKey, rpc, store, index, records })
   }
@@ -263,6 +266,8 @@ describe('SCHED-01 — providers unions across peers, because each answers only 
     const authority = new EnrollmentAuthority({
       providerPrivateKey: new Uint8Array(32).fill(60),
       maxPerWindow: 100,
+      maxIssuedPerWindow: 'issues-without-an-aggregate-budget',
+      issuance: 'remembers-only-within-this-process',
     })
     const priv = new Uint8Array(32).fill(99)
     const subject = toHex(ed25519.getPublicKey(priv))
@@ -305,6 +310,7 @@ describe('SCHED-01 — providers unions across peers, because each answers only 
         ledger: 'keeps-no-ledger',
         reservations: 'relays-for-nobody',
         onDispatch: 'reports-no-dispatch',
+        attest: 'signs-nothing',
       })
       held.push(watched)
       serving.push(rpc)
@@ -345,6 +351,8 @@ describe('SCHED-01 — providers unions across peers, because each answers only 
     const authority = new EnrollmentAuthority({
       providerPrivateKey: new Uint8Array(32).fill(60),
       maxPerWindow: 100,
+      maxIssuedPerWindow: 'issues-without-an-aggregate-budget',
+      issuance: 'remembers-only-within-this-process',
     })
     const enrolled = authority.enrol(
       requestEnrollment(priv, new Uint8Array(32).fill(61), {
@@ -383,6 +391,7 @@ describe('SCHED-01 — providers unions across peers, because each answers only 
       ledger: 'keeps-no-ledger',
       reservations: 'relays-for-nobody',
       onDispatch: 'reports-no-dispatch',
+      attest: 'signs-nothing',
     })
 
     const requestorRpc = new RpcEndpoint(network.connect('requestor'), {
@@ -478,6 +487,8 @@ describe('DATA-05 — a provider answer is not a side channel around an egress r
     const authority = new EnrollmentAuthority({
       providerPrivateKey: new Uint8Array(32).fill(60),
       maxPerWindow: 100,
+      maxIssuedPerWindow: 'issues-without-an-aggregate-budget',
+      issuance: 'remembers-only-within-this-process',
     })
     const userPriv = new Uint8Array(32).fill(61)
     const enrolled = authority.enrol(
@@ -529,6 +540,7 @@ describe('DATA-05 — a provider answer is not a side channel around an egress r
       ledger: 'keeps-no-ledger',
       reservations: 'relays-for-nobody',
       onDispatch: 'reports-no-dispatch',
+      attest: 'signs-nothing',
     })
 
     const requestorRpc = new RpcEndpoint(network.connect('requestor'), { timeoutMs: 5_000 })

@@ -47,7 +47,11 @@ function buildFabric(options: { readonly issues: boolean }): {
   readonly providerId: string
 } {
   const network = new MemoryNetwork()
-  const authority = new EnrollmentAuthority({ providerPrivateKey: provider.priv })
+  const authority = new EnrollmentAuthority({
+    providerPrivateKey: provider.priv,
+    maxIssuedPerWindow: 'issues-without-an-aggregate-budget',
+    issuance: 'remembers-only-within-this-process',
+  })
   const providerId = options.issues ? PROVIDER : SILENT
 
   const store = new MemoryBlockstore()
@@ -64,6 +68,7 @@ function buildFabric(options: { readonly issues: boolean }): {
     ledger: 'keeps-no-ledger',
     reservations: 'relays-for-nobody',
     onDispatch: 'reports-no-dispatch',
+    attest: 'signs-nothing',
   })
 
   // A short budget, so the unreachable behaviour below does not wait out
@@ -214,16 +219,20 @@ describe('AUTH-04 — the limit holds, and states itself', () => {
   /**
    * The honest counter-measurement, asserted rather than described.
    *
-   * **Rate-limiting is measured; cost is unmeasured.** The limiter keys on `userKey`, so
-   * twenty requests under twenty *distinct* user keys meet no limit at all. Generating a
-   * fresh user key is one `ed25519` keygen — microseconds — so an attacker holding many
-   * user keys is not slowed in the slightest. `enrollment.ts`' own header says this
-   * ("makes fake nodes *rate-limited*, not *expensive*"), and this is where the
-   * repository stops asserting otherwise.
+   * **Rate-limiting is measured; the per-user limiter buys no cost.** It keys on
+   * `userKey`, so twenty requests under twenty *distinct* user keys meet no limit at all.
+   * Generating a fresh user key is one `ed25519` keygen — microseconds — so an attacker
+   * holding many user keys is not slowed in the slightest.
    *
-   * **No deletion turns this test red, and that is the finding.** It measures the
-   * absence of a guarantee. What would change it — a proof-of-work, a payment, or an
-   * out-of-band identity check — plugs in at the limiter and is out of scope for v1.1.
+   * **What is now available and what this fixture states it does not take.** Phase 19
+   * added `maxIssuedPerWindow`, an aggregate budget on a quantity no request field can
+   * rotate around, and **this fixture writes the `'issues-without-an-aggregate-budget'`
+   * sentinel** — see `buildFabric`. So the reading below is unchanged and remains true of
+   * this configuration; it is no longer true of every configuration, and a reader must
+   * not carry it to one that states a number.
+   *
+   * **No deletion turns this test red, and that is still the finding here.** It measures
+   * the absence of a guarantee this fixture asked to be without.
    */
   it('lets twenty distinct user keys each enrol a node, unslowed', async () => {
     const { rpc, providerId } = buildFabric({ issues: true })
@@ -244,9 +253,14 @@ describe('AUTH-04 — the limit holds, and states itself', () => {
   /**
    * The limit's scope, stated because a reader would otherwise infer durability.
    *
-   * `#history` is a `Map` in the authority object, so the threshold is per provider
-   * *uptime*, not per wall-clock window. A fresh authority has a fresh budget for the
-   * same user key — which a restarted provider would also have.
+   * This fixture takes `issuance: 'remembers-only-within-this-process'`, so the threshold
+   * is per provider *uptime*, not per wall-clock window. A fresh authority has a fresh
+   * budget for the same user key — which a restarted provider would also have.
+   *
+   * **That is now a named request rather than the only behaviour available.** The history
+   * is a port the host supplies; a host that hands the same ledger to a second authority
+   * gets the opposite reading, which `enrollment.test.ts` asserts in one process. What
+   * neither file measures is a real restart — that is Plan 19-07's.
    */
   it('gives a second authority its own budget for the same user key', async () => {
     const first = buildFabric({ issues: true })

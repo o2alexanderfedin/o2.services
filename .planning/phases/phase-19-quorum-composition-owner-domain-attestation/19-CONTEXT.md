@@ -1,0 +1,554 @@
+# Phase 19: Quorum Composition & Owner-Domain Attestation - Context
+
+**Gathered:** 2026-08-02
+**Status:** Ready for planning
+
+<domain>
+## Phase Boundary
+
+Verification quorums compose under anti-affinity with a backbone-anchored replica; owner-domain
+agreement is labelled distinctly from independent-operator agreement, and that label reaches
+every surface a job result is displayed on; two browser peers on a static bundle find each
+other without a harness dialling for them.
+
+**Read the scouting findings below before planning. The ROADMAP's `Research: None` for this
+phase is wrong on two counts**, and both change what the plans must contain.
+</domain>
+
+<decisions>
+## Implementation Decisions
+
+### ~~The backbone-anchored replica — VER-03 needs BUILDING, not wiring~~ — VOID 2026-08-03
+
+**This whole section is void. Do not implement anything in it.** It said to derive the anchor
+rule from `discoverability === 'seed'`, that was built in plan 19-02, and it was **retracted in
+`0314208` for keying on node kind.** The full account is in the RETRACTED item under *"Two
+consequences measured during wave 1"* below; the short version is that `STATE.md:479-480` permits
+discovery data **only** for shared-dependency analysis, which is what `sharedRelay` already does.
+
+**VER-03 was reworded by owner ruling 2026-08-03 and is now satisfiable without new machinery.**
+Its rationale clause always read *"so eclipsing a quorum requires a backbone compromise"* — the
+requirement is **eclipse resistance**, and `composeQuorum`'s rule 2 over the **chosen member set**
+delivers exactly that. "Anchored on a backbone node" was mechanism wording from before the
+cardinal rule existed. See `REQUIREMENTS.md`'s VER-03 entry and `ROADMAP.md`'s criterion 1 comment.
+
+**What survives from the original section, and is still true:** `composeQuorum` sorts candidates
+by `relayIds.length` ascending (`packages/core/src/quorum.ts:140-142`) and refuses on a shared
+relay via `sharedRelay`. There is no `backbone` symbol anywhere in `packages/*/src` — and after
+this ruling there should not be one.
+
+**Left visible rather than deleted**, because the error is the instructive part: I proposed this
+derivation *believing* a discovery-derived rule was the safe choice that avoided minting a node
+class, and had the constraint exactly backwards.
+
+### `composeQuorum` has a latent defect aimed straight at criterion 2
+
+- **It returns `strength: 'independent'` unconditionally** on its ok arm
+  (`packages/core/src/quorum.ts:159`) and **never calls `classifyAttestation`** — which exists,
+  at `:202`, and is the only place the three labels are computed.
+- Wire it as-is and every quorum reports `independent`, **including the owner-domain ones**.
+  That is precisely the conflation criterion 2 exists to forbid, so this is a Phase 19 fix and
+  not a follow-up.
+- `classifyAttestation`'s rule, for reference: `<=1 operator → 'owner-attested'`; `>=2 operators
+  → 'independent'`; otherwise `'owner-domain'`.
+
+### `composeQuorum` can NEVER return `owner-domain`, so criterion 2 must not run through it
+
+**Added 2026-08-02 during planning. This is the most likely way to get this phase wrong**, and
+nothing in the ROADMAP or in the rest of this file says it.
+
+`composeQuorum` reduces its candidates to **one certificate per operator, by construction**
+(`packages/core/src/quorum.ts:123-126`) — the comment there says so outright: *"Taking the first
+per operator … is what makes 'no two from the same operator' a property of the construction
+rather than a check bolted on after."*
+
+`classifyAttestation` returns `'owner-domain'` only for **two or more certificates sharing one
+operator**. Those two facts are incompatible: after the per-operator reduction there is exactly
+one certificate per operator, so the `owner-domain` arm is unreachable through `composeQuorum`,
+and a sovereign shard routed through it would be **refused with `insufficient-operators`**.
+
+**Criterion 2 therefore runs through `resolveReplicaSets` + `attestationReceipt`, not through
+`composeQuorum`.** A planner who wired "quorum composition" uniformly across both criteria would
+have made criterion 2 unreachable while every unit test stayed green — the two mechanisms answer
+different questions:
+
+| | asks | admits |
+|---|---|---|
+| `composeQuorum` | who may verify *together* | one node per operator, anti-affinity by construction |
+| `resolveReplicaSets` + `attestationReceipt` | how strong is the agreement we *got* | several nodes under one owner, which is the whole point |
+
+The gate belongs at the composition site: quorum composition applies to `label === 'public'` with
+`redundancy >= 2` and all candidates certificated. Sovereign shards take the replica-set path.
+
+### The certificate seam — widen `NodeDescriptor` where the certificate is already in hand
+
+- **The type gap.** `composeQuorum`, `attestationReceipt` and `resolveReplicaSets` all take
+  `NodeCertificate[]`. `submitJob`'s path carries `NodeDescriptor`
+  (`packages/core/src/sovereignty.ts:39`) — `{nodeId, ownerId, canExecuteSovereign, load}`, with
+  no certificate, no operator, no relays, no discoverability. **None of the three can be called
+  anywhere on the current path.**
+- **Decision: widen `NodeDescriptor` at `packages/net/src/discover-candidates.ts:161-186`**,
+  which already holds the certificate and deliberately discards everything but
+  `certificate.userKey`. One seam, no `JobSpec` change.
+- **Why not thread certificates through `JobSpec`.** Four production submitters would each have
+  to supply them (`bin/bench.ts:759`, `packages/bench/src/perf-workload.ts:345`,
+  `packages/browser/demo/main.ts:449` and `:682`), and a caller that forgot would get silent
+  degradation — the exact shape WIRE-01 exists to prevent.
+- **Why not a parallel `nodeId → certificate` map.** A second source of truth that can disagree
+  with `NodeDescriptor`, with nothing able to catch the disagreement.
+
+### Owner-id unification is this phase's, and the tree already says so
+
+- A discovery-derived descriptor's `ownerId` is `certificate.userKey` (hex), while `OwnerId` is
+  an opaque string and `--owner-id` takes an operator label. Two different things in one field.
+- `packages/net/src/discover-candidates.ts:46-58` and
+  `packages/node/src/sovereignty-placement.node.test.ts:279-284` **both already assign this to
+  AUTH-05 / Phase 19 by name.** Do not rediscover it; close it.
+
+### The receipt reaches all three display sites
+
+- **No receipt slot exists anywhere.** `ShardResult` (`packages/core/src/job/submit.ts:121`) and
+  `JobResult` (`:153`) have no `strength`/`receipt` field, and `VerificationResult`'s `agreed`
+  arm (`packages/core/src/job/verify.ts:85-95`) carries `agreeing: readonly string[]` — node
+  **ids**, not certificates.
+- **Decision: all three sites carry it** — `JobResult`/`ShardResult`, the CLI
+  (`bin/bench.ts`'s `Observation`, `:860-873`), and the demo UI
+  (`packages/browser/demo/index.html:367-383`, sourced from `TabJobReport` /`TabColouringRun` in
+  `packages/browser/src/tab-api.ts:37-66` and `:145-160`).
+- **Why not defer the display half.** Criterion 3 says the receipt reads owner-attested
+  *"wherever it is displayed"*. A receipt nothing renders is **built, not wired** — the single
+  condition this entire milestone exists to eliminate, reappearing in a new place.
+- The only place a receipt is built and asserted today is a spec that constructs it itself:
+  `packages/net/src/sovereign-execution.test.ts:329` and `:464`. **No node emits one.** That file
+  is the closest existing prototype of criteria 2 and 3.
+
+### Criterion 4 — the relay answers rendezvous; tabs keep the sentinel
+
+- **`browser-node.ts:1201` supplies `reservations: 'relays-for-nobody'` — a named absence.**
+  `FabricNode` supplies a real thunk (`fabric-node.ts:1601`). So **a tab cannot answer another
+  tab's rendezvous**, and criterion 4's phrase *"the wired `index`/`reservations` hooks"* is
+  half-true: `index` is genuinely wired (`browser-node.ts:1178`, byte-identical to the Node
+  tier's), `reservations` is not.
+- **Decision: two tabs discover each other by both asking the relay**, which is a `FabricNode`
+  holding a real thunk. No browser-tier protocol change. This matches the recorded constraint
+  requiring *"a locally-started Circuit Relay v2 peer to dial"*.
+- **This is not a node-class decision and must not be planned as one.** A tab holds no
+  reservations of its own, so a tab answering `reservations` would be reporting on peers it
+  learned from a relay — a different claim than the hook makes. The asymmetry is about *what
+  each node knows*, not about what it is permitted to do.
+- **Criterion 4's wording should be corrected to name `index` alone**, in the same pass, rather
+  than left to read as though both hooks were wired on both tiers.
+
+### The signing triangle — owner decision 2026-08-02, and it settles criterion 5
+
+**Two of the three legs already exist. The phase adds the third.**
+
+| leg | who signs | verified against | status |
+|---|---|---|---|
+| the **code** a node runs | the service provider (publisher) | `NameResolver`'s pinned `trustAnchors` (`packages/core/src/naming.ts:99-103`); `guardModuleProvenance` composed at every executor construction site | **exists** (Phase 14) |
+| the **node's certificate** | the service provider (issuer) | `verifyCertificate` against `trustedIssuers`, refusing `untrusted-issuer` by name (`packages/core/src/enrollment.ts:340-352`) | **exists** (Phase 17) |
+| the **result** a node returns | the node, with its node key | the `nodeKey` in its own certificate, which the provider signed | **MISSING — this phase adds it** |
+
+**What the third leg buys, and why it is not cosmetic.** Agreement is attested today by
+**transport authentication only** — Noise proves peer X sent this frame, but that proof is not
+transferable and cannot be shown to anyone else. `VerificationResult`'s `agreed` arm carries
+`agreeing: readonly string[]` — **plain node-id strings**
+(`packages/core/src/job/verify.ts:85-95`). A receipt built on that is worth exactly the
+submitter's word about itself, which is not what VER-08/09/10 promise.
+
+With results signed, a third party holding **only the provider's public key** can verify: *this
+result came from a node that provider enrolled, running code that provider published.* That is
+what makes `attestationReceipt` a transferable attestation rather than a self-report.
+
+**Criterion 5 is answered by this architecture, not by proof-of-work.** The scarce thing an
+identity must present already exists — **a provider-issued certificate**, which an attacker
+cannot mint because `verifyCertificate` refuses an untrusted issuer. What is broken is that
+**issuance is not scarce**, and Phase 17 measured exactly how: the limit is keyed on `userKey`,
+which is one `ed25519.keygen()`, and the budget is per provider **process**, so a second
+provider process resets it.
+
+So criterion 5's work is **one thing**: a **persistent, cross-process issuance budget**, closing
+the hole Phase 17 named. The N-th fake identity costs a fresh issuance against a budget that does
+not reset. Measured across processes **and a provider restart** — the restart is the load-bearing
+reading, because a per-process budget passes every other one.
+
+**Certificate lifetimes are NOT part of the cost argument — owner correction 2026-08-02.** An
+earlier draft of this section also called for *short* lifetimes. That was over-engineering, and
+the reason is that **the attack radius is far too small to justify it**:
+
+- Results are signed and attributable, so a bad result names its author.
+- Integrity rests on **N-version comparison, not on trusting an identity**. A single fake node
+  cannot change an answer; it can only disagree and be caught.
+- `composeQuorum` already enforces anti-affinity by `operatorId` — one certificate per operator
+  by construction (`quorum.ts:123-126`) — so **N sybils under one operator buy exactly one
+  quorum slot.**
+- Sovereign data never leaves the owner's node, so a fake node cannot exfiltrate anything by
+  being admitted.
+
+Net: a sybil attacker can waste compute and be refused. **That is a nuisance, not a breach.**
+Relatively long expiration periods are fine. Do not plan renewal churn, re-certification loops,
+or lifetime tuning — and if a future argument seems to need short lifetimes, re-read this list
+first.
+
+**NO BLOCKCHAIN. Owner constraint, and the one place a design drifts toward one is revocation.**
+A global revocation list is shared mutable state and needs consensus. **This design does not have
+one: revocation is non-renewal.** A misbehaving node is simply not re-certified, and its
+certificate lapses on its own clock. Combined with per-verifier pinned `trustAnchors` /
+`trustedIssuers`, trust stays **local**, several independent providers coexist by construction,
+and nothing global has to be agreed by anyone.
+
+**Do not introduce**: a shared revocation list, a global reputation score, a consensus round, an
+append-only shared log, or any structure requiring nodes to agree on one view of the world. If a
+plan seems to need one, re-read the attack-radius list above — the answer is almost always that
+the threat does not warrant the machinery. It is **not** "a shorter certificate lifetime"; this
+sentence used to say that and was superseded by the owner correction three paragraphs above.
+
+### The combine result is signed too — owner decision 2026-08-02
+
+**The signing triangle covers `exec` only unless this is said explicitly, and that would leave
+the project's headline claim resting on an unsigned step.** `PROJECT.md` states it as: *the
+owner's contribution is trusted; the aggregation over contributions is verified.* Sign only map
+results and a map/reduce job ends with **signed map results feeding an unsigned aggregation** —
+precisely the half claimed to be the verified one.
+
+So the combine frame carries an attestation slot on the same terms as `exec`: the combining node
+signs over what it combined and what it produced, verifiable against its provider-signed
+certificate.
+
+**No sovereignty complication.** Combine partials are outputs of public map tasks and therefore
+public by construction — the reasoning Phase 16 already recorded when it bounded combine at the
+`capacity` hook rather than the `authorize` hook. There is nothing here to authorize; the
+question is only whether the aggregation can be shown to a third party, and unsigned it cannot.
+
+### The aggregate issuance budget's exposure is accepted, and named
+
+**Accepted trade, owner decision 2026-08-02.** The persistent cross-process issuance budget that
+closes criterion 5 also opens a denial-of-service: `serveAgent` serves enrolment
+**unauthenticated**, so anyone who can dial a provider can burn its whole window at the cost of
+one `ed25519.keygen()` per attempt. Before the aggregate budget, an attacker could burn only
+*their own* user key's window.
+
+**Why it is accepted rather than mitigated.** The architectural answer is real and is the same
+one the whole design rests on: **trust is per-verifier and pinned**, so a burned provider is
+routed around by trusting or running another. Nothing global has to recover, because nothing
+global was ever agreed.
+
+**What must be recorded rather than assumed, because it is not measured.** Every fixture in this
+repository and the demo itself are **single-provider**. So the multi-provider recovery that makes
+this exposure acceptable is an argument, not a reading. Say so in the plan and in the ledger row
+— *unmeasured is not met* applies to the mitigation as much as to the mechanism.
+
+### Two consequences measured during wave 1 — read before planning 19-06 or touching the challenges
+
+**1. RETRACTED 2026-08-03 — the anchor rule as built is WRONG and must be undone.** This entry
+used to say a quorum cannot be composed from browser tabs alone, and that this was VER-03 working.
+**Both halves were false**, the derivation that produced them was mine, and the error is instructive
+enough to leave visible rather than delete.
+
+Plan 19-02 implemented the anchor rule as `discoverability === 'seed'`, so an all-`via-relay`
+candidate set was refused with `no-direct-discovery-path`.
+
+**It violates this project's cardinal rule, stated at `STATE.md:479-480`:**
+
+> **If a decision keys on node kind, it is wrong** — the only legitimate use is shared-dependency
+> analysis over the discovery graph.
+
+`discoverability === 'seed'` **is** keying on node kind. And shared-dependency analysis is already
+what rule 2 does, correctly, by asking whether members share a relay. The seed requirement is not
+that analysis; it is a node class wearing a discovery field's clothes.
+
+**A measured counter-example already existed, three lines above that rule.** In Phase 3 an iPhone
+was dialled at its `/p2p-circuit/webrtc` address and **ran half of a 2×-redundant job**. A
+relay-discovered peer has already taken a verification slot in this fabric. *"Once connected, the
+peers are indistinguishable"* is a recorded, proven decision — the relay is a **signalling channel
+for registration and discovery, not a data path**, and it drops out once peers connect.
+
+**The correct reading, owner ruling 2026-08-03: `backbone-anchored` describes the REPLICA, not the
+node.** `CLAUDE.md`'s table says *"≥1 replica backbone-anchored"* — the noun is *replica*. A quorum
+is anchored when **at least one copy of its result is pinned somewhere durable**, so the
+verification survives the nodes that produced it going away. That is a **storage** property. It has
+nothing to do with who can be dialled cold, and three tabs behind one relay compose a perfectly
+good quorum provided one of them pins its result durably.
+
+**What this implies structurally, and it may not be resolvable inside `composeQuorum`.** That
+function runs *before* execution and takes `NodeCertificate[]`; durability of a result is a fact
+*after* execution, and **no field on `NodeCertificate` states whether a node pins durably.** So the
+anchor check may not belong at composition time at all — it may belong where the result is
+recorded. Whoever fixes this must decide that and say which, rather than forcing a durability
+question into a type that cannot answer it.
+
+19-02 also found that **rule 3 implies rule 2 over any chosen member set** — `sharedRelay` returns
+`null` the moment it sees a seed, so a rule-2 check placed after rule 3 is dead code and
+`shared-relay-dependency` would have become unreachable. Rule 2 therefore runs on the **candidate
+pool**, ahead of rule 3. A side effect worth knowing: `requireIndependentPaths: false` no longer
+lets a single-relay fixture compose; the flag now decides *which refusal speaks*.
+
+**2. `nodeKey` inside a challenge does NOT bind a statement to its signer.** Plan 19-13 measured
+this: deleting `nodeKey` from `resultChallenge` left all fourteen cases green — **including the one
+presenting node A's signature under node B's certificate.** Ed25519 verification under
+`certificate.nodeKey` already does that work, and the challenge field adds nothing to it.
+
+The field was kept, because it does buy something real and narrower: **two replicas of one shard
+sign different bytes**, so their attestations cannot be confused or swapped. The docblock now says
+that instead of the binding claim it used to make.
+
+**`possessionChallenge` carries `nodeKey` under the same conditions and the same correction
+applies** — nobody has re-read it yet. Do not repeat the binding claim in any new challenge; state
+what the field actually buys.
+
+### `tsc` finds construction sites, not reader sites — measured twice, carry it into every fan-out
+
+Nearly every remaining plan in this phase is a type fan-out driven by `tsc --noEmit`. **Two
+executors have now measured, independently, that a `tsc` worklist is not the whole worklist:**
+
+- 19-13: three `toEqual` sites in `sovereignty-guard.test.ts` **compile clean and fail at
+  runtime**. A grep would have found them.
+- 19-14: `tsc` enumerated **4 of 34** readers of the field it changed. Its own plan carried the
+  instruction *"never a grep"*, and that instruction is false.
+
+The rule: **adding a required field breaks every site that CONSTRUCTS the type, and `tsc` will
+list those. It does not list sites that READ the value, compare it with `toEqual`, or destructure
+it loosely.** Run a grep for the symbol alongside the type-check and reconcile the two lists.
+
+**This correction was already recorded in 19-13's summary one wave before 19-14 repeated the
+mistake.** That is Phase 14's recorded lesson happening again — *corrections do not propagate
+between sibling plans; a correction living in a SUMMARY reaches nobody.* It is written here
+because this file is what the next executor is handed.
+
+### The quorum is the default and it is OPTIONAL — owner ruling 2026-08-03
+
+**Do not build quorum composition as mandatory.** Two separate opt-outs, and both must work:
+
+1. **Not asking for verification at all.** `redundancy: 1` means no quorum is composed and the
+   result is `owner-attested`. Already the shape; keep it.
+2. **Asking for verification and not getting it.** A public shard at `redundancy >= 2` whose
+   candidate set cannot compose a valid quorum **degrades by default** — it runs at whatever
+   redundancy is available, is marked `degraded`, and the receipt reports the weaker strength.
+   It does **not** fail the job.
+
+**Default degrade, with a caller-set strictness dial for the exception.** A caller who genuinely
+requires independent verification — and would rather have nothing than a weaker answer — asks for
+refusal explicitly on `JobSpec`.
+
+**The dial is a REQUIRED UNION WITH A NAMED SENTINEL, never an optional with a default.** WIRE-01's
+convention, and this phase measured why twice: 19-01 and 19-13 each planted "make it optional and
+omit it" and each saw **`tsc --noEmit` exit 0 while the behavioural assertion failed.** An optional
+strictness field would let every existing call site silently mean "degrade" without ever having
+said so, which is the precise defect this milestone exists to remove. Every current caller states
+its choice; the fan-out is the point, not the cost.
+
+**Why degrade is the default rather than refusal.** Phase 12's recorded decision:
+*not-enough-executors retired; a shard below requested redundancy is placed at what is available
+and marked degraded on `ShardResult`/`JobResult` instead of failing the whole job.* And criterion
+1's phrase is *"refused rather than **silently** accepted"* — the load-bearing word is *silently*.
+`classifyAttestation` already labels a one-operator quorum `owner-attested` rather than
+`independent`, so the weaker outcome is named by construction and nothing is silent.
+
+**This is the retracted anchor rule's shape, and it must not recur.** That defect *turned a repair
+into a refusal and put the refusal before the thing it was about*. A candidate set too concentrated
+to verify is a condition the caller does not control; the answer is to report what was achieved,
+not to kill the job — unless the caller said in advance that a weaker answer is useless to them.
+
+### `git stash` on a path you do not own is destructive — incident, 2026-08-03, RESOLVED
+
+**The cause is named, and it is a command whose name does not sound dangerous.** The 19-16
+executor, diagnosing a `requirements-ledger` failure caused by another agent's unstaged file, ran:
+
+```
+git stash push --keep-index -- packages/core/src/job/submit.ts
+```
+
+That **reverted the file to `HEAD`**, destroying roughly 250 lines of the concurrent 19-06
+executor's in-progress work. `git stash pop` then refused, because they had already begun
+re-typing. It never wrote to their file — and that is the point: **stash is a write.**
+
+**Resolved with nothing lost.** Verified rather than assumed: `HEAD`'s `submit.ts` is **1004
+lines against the stash's 743**; every distinctive argument from the destroyed copy is present in
+the rewrite; `tsc --noEmit` exit 0 and `submit.test.ts` exit 0. The 30 sorted-diff lines unique to
+the stash were all earlier drafts of prose and expressions that were rewritten. A copy is
+preserved outside git, and the stash entry was dropped — a dangling stash on a shared tree is its
+own hazard, since anyone may `pop` it onto unrelated work.
+
+**Two rules, and the second is the one nobody had written down:**
+
+1. **Never `git stash` a path you do not own** — it is destructive despite the word. The
+   diagnosis it served here was answerable from the guard's own output without touching the file
+   at all.
+2. **`git add` immediately after each edit group.** Staged content lives in the index, where a
+   working-tree revert cannot reach it. The standing constraints already recorded — never
+   `git add -A`, never `git checkout --` a file you did not write, never switch branches, restore
+   by `cp` + `cmp` — protect *other* agents from you. **This one protects you from them.**
+
+**The near-miss was caught by arithmetic, not by an error.** Nothing failed and nothing warned;
+the only signal was `git diff HEAD --stat` reading **19 insertions where ~290 were expected**.
+
+Worth copying from the same pair: when `tsc` went red for the *other* plan's fan-out, attribution
+was **measured** at each step (`grep -c` → 48, 2, 0) rather than assumed; and an inherited failing
+case was proved pre-existing with `git show HEAD:` over the agent's own copy before anything was
+touched. The 19-16 executor also **reported the incident in full, unprompted, and preserved two
+snapshots** — which is why it cost an hour of verification rather than a day of archaeology.
+
+### (superseded heading — see above)
+
+**This nearly cost ~290 lines and it was caught by arithmetic, not by an error.** Two executors
+were running plans 19-06 and 19-16 on this one checkout. Mid-session, `packages/core/src/job/submit.ts`
+was **reverted to `HEAD` underneath six in-progress edits**. Nothing failed. Nothing warned. The
+only signal was `git diff HEAD --stat` reading **19 insertions where ~290 were expected**.
+
+**The defence, and it is cheap: `git add` immediately after each edit group.** Staged content
+lives in the index, where a working-tree revert cannot reach it. An editor that stages as it goes
+loses nothing to this class of accident; one that stages only at commit time can lose everything
+since its last commit.
+
+This sits beside the standing constraints already recorded — never `git add -A`, never
+`git checkout --` a file you did not write, never switch branches, restore by `cp` + `cmp`. Those
+protect *other* agents from you. **This one protects you from them.**
+
+Related discipline the same executor used and which is worth copying: when `tsc` was red for the
+*other* plan's fan-out, it measured attribution at each step (`grep -c` → 48, 2, 0) rather than
+assuming whose errors they were; and when it inherited a failing case, it proved the failure
+pre-existing by running `git show HEAD:` over its own copy before touching anything.
+
+### Handoff: three types 19-10 and 19-11 need are NOT exported yet
+
+`ShardAttestation`, `ShardQuorum` and `NoVerifiedAttestation` are defined by 19-06 but **not
+re-exported from `packages/core/src/index.ts`** — confirmed absent, `grep -c` returns 0. 19-06 left
+them deliberately: that file was under continuous edit by the concurrent 19-16 executor and sits
+outside 19-06's declared files.
+
+**19-10 (the CLI receipt) and 19-11 (the demo UI receipt) both need them.** Whichever runs first
+adds the re-exports; the other should expect them already present and say so if they are not.
+
+### Claude's Discretion
+
+- Plan sequencing, wave structure, and how many plans to split this into.
+- Whether the `discoverability`-derived backbone rule lives in `composeQuorum` itself or in a
+  small helper beside it.
+- The exact field names added to `NodeDescriptor`, provided they do not read as a node class.
+
+</decisions>
+
+<code_context>
+## Existing Code Insights
+
+### The four symbols, measured rather than assumed
+
+| symbol | definition | production callers | test callers |
+|---|---|---|---|
+| `composeQuorum` | `packages/core/src/quorum.ts:110` | **zero** (barrel re-export only, `core/src/index.ts:289`) | `quorum.test.ts` ×11 |
+| `attestationReceipt` | `packages/core/src/quorum.ts:225` | **zero** (barrel `core/src/index.ts:287`) | `quorum.test.ts` ×3, `sovereign-execution.test.ts:329,464` |
+| `resolveReplicaSets` | `packages/core/src/enrollment.ts:405` | **zero** (barrel `core/src/index.ts:269`) | `enrollment.test.ts` ×3, `sovereign-execution.test.ts:279` |
+| `discoverCandidates` | `packages/net/src/discover-candidates.ts:147` | **one** — `bin/bench.ts:680`, inside `if (DISCOVER)`, **off by default** | `discover-candidates.test.ts` ×5, `discovery-agents.node.test.ts` ×3 |
+
+The first three ledger claims are **confirmed**. The fourth is already recorded as corrected —
+NET-06's row and `requirements-ledger.node.test.ts:316` both note the "callerless" wording was
+measured false against `bin/bench.ts:680`.
+
+### Reusable assets
+
+- `classifyAttestation` (`quorum.ts:202`), `attestationRank` (`:49`), `describeAttestation`
+  (`:61`) — the label machinery is complete and unit-verified; only its caller is missing.
+- `findReservedPeers` (`packages/net/src/rendezvous.ts:76`) issuing `{kind:'reservations'}`,
+  answered by `serveAgent` at `packages/net/src/agent.ts:622-625`.
+- `planDials` (`packages/browser/src/dial-plan.ts:59`) — pure, with an 8-dial budget.
+- `packages/node/src/seed-discovery.e2e.test.ts:264-345` — *"two devices on one seed find each
+  other with nobody dialling for them"*, with a comment at `:273-275` stating it deliberately
+  calls no `window.o2.dial`. **The closest existing analogue to criterion 4**, failing three of
+  its conditions: a live `SeedServer` serves the page, `/bootstrap.json` is the answering
+  directory, and both pages are `context.newPage()` on **one** context so they share origin
+  storage.
+- `packages/node/src/built-bundle.e2e.test.ts` covers the static-bundle half (a dumb 404-ing
+  file server, `:57-72`; `?relay=` at `:249-251`) but opens one page and never discovers peers.
+
+### Integration points
+
+- `submitJob` — `packages/core/src/job/submit.ts:233`. Path: `spec.nodes` → `candidateNodes`
+  (`:249`) → `planPlacement` (`:325`) / `planWithOffers` (`:340`) → `executeVerified` (`:389`) →
+  `ShardResult` (`:121`) → `JobResult` (`:153`).
+- The certificate discard: `discover-candidates.ts:161-186`, looping `DiscoveredExecutor`
+  (`packages/core/src/discovery.ts:196` — `{nodeKey, certificate, capabilities}`).
+- Demo bootstrap: `api.discoverRelays()` (`packages/browser/demo/main.ts:299-328`) with
+  precedence `?relay=` → `/bootstrap.json` → none; and `runDiscoveryRound()` (`:141-194`,
+  exposed as `connectDiscoveredPeers()` at `:518`), whose comment at `:161-163` names
+  `findReservedPeers` as *"the only route on a static host"*.
+
+### The e2e project, and what criterion 4's standard actually costs
+
+- `vitest.config.ts`'s `e2e` project is `environment: 'node'`, `fileParallelism: false`, **no
+  `browser` block, no `instances`, no provider** — each spec launches Playwright itself.
+- **All ten e2e specs are chromium-only.** Zero occurrences of `firefox` or `webkit` under
+  `packages/node/src/*.e2e.test.ts`. Multi-browser `instances` exist only in the `browser`
+  project.
+- Isolated contexts are already used (`two-tabs.e2e.test.ts:106`,
+  `browser-capability.e2e.test.ts`), and a locally-started relay is already used
+  (`two-tabs.e2e.test.ts:146-153`, `built-bundle.e2e.test.ts:81-85`). **The three pieces exist
+  individually; the combination does not exist anywhere.**
+- **Every existing multi-tab test dials from the harness** — `two-tabs.e2e.test.ts:223`,
+  `colouring-demo.e2e.test.ts:139`, `background-tab.e2e.test.ts:255`,
+  `duty-cycle-tab.e2e.test.ts:273`. Criterion 4 forbids exactly this.
+
+### Guards that will read this phase's edits
+
+- `packages/node/src/requirements-ledger.node.test.ts` parses REQUIREMENTS.md rows and
+  re-derives call sites (regex at `:322-328`, excluding the declaring file). Its scope was
+  widened to *Partial* rows on 2026-08-02 — **any Phase 19 row edit will be read by it.**
+- `packages/node/src/slow-specs.node.test.ts` parses `vitest.config.ts`'s source, so changing
+  `SLOW_NODE_SPECS`/`MEASURED_NODE_SPANS` has a guard.
+
+</code_context>
+
+<specifics>
+## Specific Ideas
+
+**Two claims in the ROADMAP's own Phase 19 Constraints block are false and must not be planned
+against.** Both were measured on 2026-08-02:
+
+1. **`registerSovereignInputs` does not exist in this repository.** Zero definitions, zero calls.
+   The name was retired; the real symbols are `takeSovereignHold` and `withholdingFrom`, both
+   exported at `packages/net/src/index.ts:77`. `packages/net/src/capability-authorizer.ts:20-25`
+   already records this verbatim, including that `takeSovereignHold` runs at `agent.ts:385`,
+   *before* `options.authorize` at `:405`. The planning documents inherited a name the source
+   had already dropped.
+2. **"No sovereign job has ever run in a browser" is refuted.**
+   `packages/node/src/browser-capability.e2e.test.ts` dispatches three `label:'sovereign'` tasks
+   (`:280-281`) to a live tab started with `canExecuteSovereign: true` (`:213`) and asserts the
+   third is **accepted and executed** (`:349-353`).
+
+**What genuinely remains unexecuted in a tab is narrower than the constraint states**, and the
+source is more precise than the roadmap:
+
+- The **`authorize`/AUTH-03 refusal** — *executed* in a real tab (the absent-chain and
+  expired-chain arms, `browser-capability.e2e.test.ts:296-338`).
+- The **`EgressGuard`/`withholdingFrom` refusal** — **unconfirmed as executed**. No e2e spec
+  drives a sovereign payload out of a tab and reads the guard's refusal.
+  `two-tabs.e2e.test.ts:275-277` reads the *clean* manifest on a **public** job — the positive
+  arm only. `packages/node/src/sovereign-block-refusal.node.test.ts:53` states outright that it
+  does not prove the browser submitter path, and names WIRE-03 / Phase 19.
+- The **`capacity`/SCHED-06 refusal** — **explicitly unexecuted, and the source names this
+  phase**: `packages/browser/src/browser-node.ts:1176-1184` says *"nothing drives a refusal
+  through this hook … WIRE-03, Phase 19 builds the harness that would measure it."* Note that
+  `duty-cycle-tab.e2e.test.ts:263` reads a tab's advertised slots fall 8 → 2 — an **offer
+  answer, not a refusal**.
+
+**Criterion 1's entry point has the same substitution Phase 18 hit.** `bin/agent.ts` never
+submits a job — zero hits for `submitJob`/`JobSpec`/`executeVerified`; it is a serving node whose
+only stdout is a handshake JSON at `:601`. *"A job run through `bin/agent.ts`"* is satisfiable
+only as *"a job run **across** `bin/agent.ts` processes"*, the shape
+`packages/node/src/discovery-agents.node.test.ts` uses. Record the substitution at planning time
+the way Phase 18 did at `ROADMAP.md:592`, rather than discovering it at verification.
+</specifics>
+
+<deferred>
+## Deferred Ideas
+
+- **Giving the browser tier a real `reservations` thunk.** Decided against for this phase; a tab
+  holds no reservations of its own. If a later phase wants tabs answerable directly, it is a
+  protocol question about what the hook asserts, not a wiring task.
+- **Multi-browser (`firefox`, `webkit`) coverage for the other nine e2e specs.** Criterion 4
+  brings the standard to one spec. Retrofitting the rest is its own measured task — all ten are
+  chromium-only today.
+- **`admit:` at `bin/bench.ts:723` is guarded by nothing** — carried from Phase 18, recorded
+  against Phase 20 in `ROADMAP.md`, and touched by this phase only if a plan moves that line.
+- **`tools/aot/lift.node.test.ts`** — its recorded "passes in isolation" diagnosis is false
+  (12 failures, ten 60 s timeouts, 850 s alone on a quiet host). Phase 21 owns `tools/aot`.
+</deferred>

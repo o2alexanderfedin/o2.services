@@ -152,6 +152,7 @@ describe('NET-01 — a redundant job with every execution remote', () => {
         executors,
         nodes: publicNodes(executors),
         redundancy: 2,
+        onQuorumShortfall: 'runs-at-available-redundancy',
       },
       submitter.store,
     )
@@ -169,7 +170,7 @@ describe('NET-01 — a redundant job with every execution remote', () => {
       expect(shard.verification.status).toBe('agreed')
       if (shard.verification.status !== 'agreed') continue
       expect(shard.verification.replicas).toBe(2)
-      expect([...shard.verification.agreeing].sort()).toEqual([w1.peerId, w2.peerId].sort())
+      expect(shard.verification.agreeing.map((e) => e.nodeId).sort()).toEqual([w1.peerId, w2.peerId].sort())
     }
 
     // R=2 over 4 shards is exactly 2x the useful work.
@@ -205,6 +206,7 @@ describe('NET-01 — a redundant job with every execution remote', () => {
         executors,
         nodes: publicNodes(executors),
         redundancy: 2,
+        onQuorumShortfall: 'runs-at-available-redundancy',
       },
       submitter.store,
     )
@@ -215,7 +217,7 @@ describe('NET-01 — a redundant job with every execution remote', () => {
     expect(verification.status).toBe('agreed')
     if (verification.status !== 'agreed') return
     expect(verification.replicas).toBe(1)
-    expect(verification.agreeing).toEqual([w1.peerId])
+    expect(verification.agreeing.map((e) => e.nodeId)).toEqual([w1.peerId])
   }, 60_000)
 })
 
@@ -233,6 +235,7 @@ describe('NET-01 — persistence across a restart', () => {
         executors,
         nodes: publicNodes(executors),
         redundancy: 1,
+        onQuorumShortfall: 'runs-at-available-redundancy',
       },
       submitter.store,
     )

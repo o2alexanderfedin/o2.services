@@ -760,6 +760,10 @@ export class WasiExecutor implements Executor {
       ok: true,
       output: outcome.value,
       fuelUsed: outcome.inputBytes + outcome.stdoutBytes,
+      // Unsigned by construction, for `WasmExecutor`'s reason and with no exception for
+      // the lifted-binary path: this class holds a blockstore and a node id, never a key
+      // or a certificate. Signing is `attestResults`, composed at a node's construction.
+      attestation: 'signed-by-nobody',
     }
   }
 

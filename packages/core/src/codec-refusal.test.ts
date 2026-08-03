@@ -91,7 +91,11 @@ function expectNotEncodable(
 
 describe('a certificate that will not encode is not a certificate with a bad signature', () => {
   function certificate(overrides: Partial<NodeCertificate> = {}): NodeCertificate {
-    const auth = new EnrollmentAuthority({ providerPrivateKey: provider.priv })
+    const auth = new EnrollmentAuthority({
+      providerPrivateKey: provider.priv,
+      maxIssuedPerWindow: 'issues-without-an-aggregate-budget',
+      issuance: 'remembers-only-within-this-process',
+    })
     const issued = auth.enrol(
       requestEnrollment(node.priv, owner.priv, {
         operatorId: 'op',
@@ -251,7 +255,12 @@ describe('a capability record that will not encode is not a record that failed t
  * on the strength of an encoder error.
  */
 describe('a challenge that will not encode is not a node failing to prove possession', () => {
-  const auth = () => new EnrollmentAuthority({ providerPrivateKey: provider.priv })
+  const auth = () =>
+    new EnrollmentAuthority({
+      providerPrivateKey: provider.priv,
+      maxIssuedPerWindow: 'issues-without-an-aggregate-budget',
+      issuance: 'remembers-only-within-this-process',
+    })
   const valid = () =>
     requestEnrollment(node.priv, owner.priv, {
       operatorId: 'op',

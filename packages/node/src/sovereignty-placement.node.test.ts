@@ -219,9 +219,9 @@ describe('DATA-03/DATA-04 — sovereignty-pinned placement across real bin/agent
     // clearance. A scheduler that let load override ownership would pick a bob
     // node here every time.
     const nodesDescriptor: readonly NodeDescriptor[] = [
-      { nodeId: alice.peerId, ownerId: 'alice', canExecuteSovereign: true, load: 1 },
-      { nodeId: bob1.peerId, ownerId: 'bob', canExecuteSovereign: true, load: 0 },
-      { nodeId: bob2.peerId, ownerId: 'bob', canExecuteSovereign: true, load: 0 },
+      { nodeId: alice.peerId, ownerId: 'alice', canExecuteSovereign: true, load: 1, certificate: 'carries-no-certificate' },
+      { nodeId: bob1.peerId, ownerId: 'bob', canExecuteSovereign: true, load: 0, certificate: 'carries-no-certificate' },
+      { nodeId: bob2.peerId, ownerId: 'bob', canExecuteSovereign: true, load: 0, certificate: 'carries-no-certificate' },
     ]
 
     const result = await submitJob(
@@ -232,6 +232,7 @@ describe('DATA-03/DATA-04 — sovereignty-pinned placement across real bin/agent
         executors,
         nodes: nodesDescriptor,
         redundancy: 1,
+        onQuorumShortfall: 'runs-at-available-redundancy',
       },
       submitter.store,
     )
@@ -243,7 +244,7 @@ describe('DATA-03/DATA-04 — sovereignty-pinned placement across real bin/agent
     if (shard?.verification.status === 'agreed') {
       // Never one of the two idle foreign processes, despite them being the
       // "cheaper" choice by every load signal a naive scheduler would react to.
-      expect(shard.verification.agreeing).toEqual([alice.peerId])
+      expect(shard.verification.agreeing.map((e) => e.nodeId)).toEqual([alice.peerId])
     }
   }, 120_000)
 })
@@ -335,9 +336,9 @@ async function standUpForOffers(aliceArgs: readonly string[] = []): Promise<Offe
     // Alice saturated, both of bob's idle — the arrangement a scheduler that treats
     // sovereignty as a preference rather than a filter would react to.
     descriptors: [
-      { nodeId: alice.peerId, ownerId: 'alice', canExecuteSovereign: true, load: 1 },
-      { nodeId: bob1.peerId, ownerId: 'bob', canExecuteSovereign: true, load: 0 },
-      { nodeId: bob2.peerId, ownerId: 'bob', canExecuteSovereign: true, load: 0 },
+      { nodeId: alice.peerId, ownerId: 'alice', canExecuteSovereign: true, load: 1, certificate: 'carries-no-certificate' },
+      { nodeId: bob1.peerId, ownerId: 'bob', canExecuteSovereign: true, load: 0, certificate: 'carries-no-certificate' },
+      { nodeId: bob2.peerId, ownerId: 'bob', canExecuteSovereign: true, load: 0, certificate: 'carries-no-certificate' },
     ],
   }
 }
@@ -377,6 +378,7 @@ describe('SCHED-05 — sovereignty survives the offer loop, across real processe
         executors: fixture.executors,
         nodes: fixture.descriptors,
         redundancy: 1,
+        onQuorumShortfall: 'runs-at-available-redundancy',
         // The only difference from the case above, and the whole subject of this block.
         admit: rpcAdmission(submitter.rpc),
       },
@@ -388,7 +390,7 @@ describe('SCHED-05 — sovereignty survives the offer loop, across real processe
     const [shard] = result.job.shards
     expect(shard?.verification.status).toBe('agreed')
     if (shard?.verification.status !== 'agreed') return
-    expect(shard.verification.agreeing).toEqual([alice.peerId])
+    expect(shard.verification.agreeing.map((e) => e.nodeId)).toEqual([alice.peerId])
 
     // Read from bob's own side rather than from the requestor's account of itself.
     await Promise.all(bobs.map((b) => stopAgent(b)))
@@ -437,6 +439,7 @@ describe('SCHED-05 — sovereignty survives the offer loop, across real processe
         executors: fixture.executors,
         nodes: fixture.descriptors,
         redundancy: 1,
+        onQuorumShortfall: 'runs-at-available-redundancy',
         admit: rpcAdmission(submitter.rpc),
       },
       submitter.store,

@@ -206,6 +206,16 @@ export class WasmExecutor implements Executor {
     // Fuel is a deterministic proxy — bytes moved across the ABI. Wall time would
     // be nondeterministic, and fuel sits outside the compared digest (VER-05)
     // precisely so a cost metric can never cause honest nodes to disagree.
-    return { ok: true, output: decoded, fuelUsed: inputBytes.length + output.length }
+    // Unsigned by construction, and the sentinel is what says so. This class is kernel
+    // code: it holds a blockstore and a node id, and no key and no certificate. A
+    // kernel that signed would need an identity, which is the thing `ports.ts` exists to
+    // keep out. Signing is a wrapper composed at a node's construction —
+    // `executor/attesting-executor.ts` — exactly as module provenance is.
+    return {
+      ok: true,
+      output: decoded,
+      fuelUsed: inputBytes.length + output.length,
+      attestation: 'signed-by-nobody',
+    }
   }
 }

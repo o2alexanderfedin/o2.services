@@ -476,6 +476,19 @@ async function memoryFabric(nodes: number): Promise<Fabric> {
     ledger: 'keeps-no-ledger',
     reservations: 'relays-for-nobody',
     onDispatch: 'reports-no-dispatch',
+    // VER-08 / VER-09 / VER-10. **The permanent, correct value at both of this driver's
+    // `serveAgent` sites, not a burn-down** — the same disposition this driver's
+    // capability-chain sentinel has below, and stated for the same reason a reader
+    // comparing this file with the two node factories would otherwise read it as
+    // unfinished work. (That sentinel is described rather than quoted: the guard over
+    // this file counts raw text, comments included.)
+    //
+    // Nothing enrolled these endpoints. A node signs with a **provider-issued**
+    // certificate, and this rig has no provider in it; a node signing for itself with a
+    // key nobody vouched for produces a statement that verifies against no trust anchor
+    // any reader holds, so it proves exactly nothing while adding an Ed25519 sign per
+    // combine to a published scaling curve. The sentinel is the truthful answer.
+    attest: 'signs-nothing',
   })
 
   const endpoints: RpcEndpoint[] = []
@@ -515,6 +528,9 @@ async function memoryFabric(nodes: number): Promise<Fabric> {
       ledger: 'keeps-no-ledger',
       reservations: 'relays-for-nobody',
       onDispatch: 'reports-no-dispatch',
+      // VER-08 / VER-09 / VER-10 — permanent here too, and for the reason stated in full
+      // at the requestor endpoint above: nothing enrolled these workers.
+      attest: 'signs-nothing',
     })
     endpoints.push(rpc)
   }
@@ -771,6 +787,16 @@ function runnerFor(build: (nodes: number) => Promise<Fabric>): {
         // so the correlation submitJob checks still holds.
         nodes: fabric.nodes,
         redundancy: config.redundancy,
+        // VER-03/VER-04. This is a measurement driver, and a refused shard yields no
+        // reading — so refusing on an uncomposable quorum would make the driver quietly
+        // measure less the more concentrated the fabric got, which is the direction the
+        // interesting readings are in. It degrades, and a degraded reading is still a
+        // reading: the receipt names the weaker strength beside it.
+        //
+        // This matters most on the `--discover` arm, which is where Plan 19-10 takes
+        // criterion 3's CLI readings — a discovered rig is exactly the case where the
+        // candidate set may turn out to be one operator's.
+        onQuorumShortfall: 'runs-at-available-redundancy',
         // Absent on the default arm, so `submitJob` takes `planPlacement` exactly as it
         // did before `--discover` existed. Present on a discover rig, which is what
         // gives `planWithOffers` — sample `d`, take the least-loaded, re-pick on a

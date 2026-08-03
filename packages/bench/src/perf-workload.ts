@@ -197,6 +197,13 @@ async function memoryRig(nodes: number): Promise<Rig> {
     ledger: 'keeps-no-ledger',
     reservations: 'relays-for-nobody',
     onDispatch: 'reports-no-dispatch',
+    // VER-08 / VER-09 / VER-10. **Permanent, not a burn-down**, on the same terms
+    // `bin/bench.ts` records at its own two sites: nothing enrolled these endpoints, a
+    // node signs with a provider-issued certificate, and this rig has no provider in it.
+    // A node signing for itself with a key nobody vouched for verifies against no trust
+    // anchor any reader holds, so it proves nothing and costs a signature per combine on
+    // a measured path.
+    attest: 'signs-nothing',
   })
 
   const endpoints: RpcEndpoint[] = []
@@ -224,6 +231,8 @@ async function memoryRig(nodes: number): Promise<Rig> {
       ledger: 'keeps-no-ledger',
       reservations: 'relays-for-nobody',
       onDispatch: 'reports-no-dispatch',
+      // VER-08 / VER-09 / VER-10 — permanent here too; see the requestor endpoint above.
+      attest: 'signs-nothing',
     })
     endpoints.push(rpc)
   }
@@ -349,6 +358,10 @@ export async function measureGateLadder(
           executors,
           nodes: publicNodes(executors),
           redundancy: config.redundancy,
+          // VER-03/VER-04 — `bin/bench.ts`'s reason, on the workload it drives: a
+          // benchmark that refuses work measures nothing. The reading is what this
+          // file exists to produce, and a degraded one carries its own strength label.
+          onQuorumShortfall: 'runs-at-available-redundancy',
         },
         rig.blockstore,
         [rig.guard],

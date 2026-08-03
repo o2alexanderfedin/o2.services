@@ -108,6 +108,7 @@ describe('DATA-10 at rest — a node refuses a sovereign block after the job tha
         executors: [],
         nodes: [],
         redundancy: 1,
+        onQuorumShortfall: 'runs-at-available-redundancy',
       },
       holder.store,
       holder.sovereignCids === 'forgets-sovereignty-between-jobs'
@@ -148,6 +149,7 @@ describe('DATA-10 at rest — a node refuses a sovereign block after the job tha
         executors: [],
         nodes: [],
         redundancy: 1,
+        onQuorumShortfall: 'runs-at-available-redundancy',
       },
       holder.store,
       holder.sovereignCids === 'forgets-sovereignty-between-jobs'
@@ -179,6 +181,7 @@ describe('DATA-10 at rest — a node refuses a sovereign block after the job tha
           executors: [],
           nodes: [],
           redundancy: 1,
+          onQuorumShortfall: 'runs-at-available-redundancy',
         },
         holder.store,
         holder.sovereignCids === 'forgets-sovereignty-between-jobs'

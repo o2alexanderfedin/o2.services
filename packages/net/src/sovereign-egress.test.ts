@@ -89,6 +89,7 @@ function servingNode(options: {
     ledger: 'keeps-no-ledger',
     reservations: 'relays-for-nobody',
     onDispatch: 'reports-no-dispatch',
+    attest: 'signs-nothing',
   })
   return {
     nodeId: options.nodeId,
@@ -403,7 +404,7 @@ describe('the registration is released after the reply frame has settled', () =>
           // nothing at all.
           heldWhileRunning.push([...(server as Node).guard.registrations])
           ;(server as Node).close()
-          return { ok: true, output: 0, fuelUsed: 0 }
+          return { ok: true, output: 0, fuelUsed: 0, attestation: 'signed-by-nobody' }
         },
       },
     })

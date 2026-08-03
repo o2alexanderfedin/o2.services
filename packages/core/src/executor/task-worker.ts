@@ -50,6 +50,7 @@ export async function runJobInWorker(request: WorkerRequest): Promise<WorkerResp
         executors,
         nodes: publicNodes(executors),
         redundancy: request.redundancy,
+        onQuorumShortfall: 'runs-at-available-redundancy',
       },
       store,
     )

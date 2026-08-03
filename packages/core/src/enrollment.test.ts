@@ -8,7 +8,12 @@ import {
   resolveReplicaSets,
   verifyCertificate,
 } from './enrollment.ts'
-import type { NodeCertificate } from './enrollment.ts'
+import type {
+  IssuanceBudget,
+  IssuanceHistory,
+  IssuanceLedger,
+  NodeCertificate,
+} from './enrollment.ts'
 
 /** AUTH-01, AUTH-02, AUTH-04, AUTH-05. */
 
@@ -22,11 +27,23 @@ const rogue = keypair(41)
 const alice = keypair(42)
 const NOW = 1_800_000_000_000
 
-function authority(overrides: { maxPerWindow?: number; windowMs?: number } = {}) {
+function authority(
+  overrides: {
+    maxPerWindow?: number
+    windowMs?: number
+    maxIssuedPerWindow?: IssuanceBudget
+    issuance?: IssuanceHistory
+  } = {},
+) {
   return new EnrollmentAuthority({
     providerPrivateKey: provider.priv,
     maxPerWindow: overrides.maxPerWindow ?? 3,
     windowMs: overrides.windowMs ?? 60_000,
+    // Every case built on this helper is about the per-user window, so the defaults are
+    // the two named absences — written out rather than omitted, which is the whole point
+    // of both options being required.
+    maxIssuedPerWindow: overrides.maxIssuedPerWindow ?? 'issues-without-an-aggregate-budget',
+    issuance: overrides.issuance ?? 'remembers-only-within-this-process',
   })
 }
 
@@ -38,6 +55,60 @@ function enrol(auth: EnrollmentAuthority, seed: number, opts: { operatorId?: str
     relayIds: opts.relayIds ?? ['relay-1'],
   })
   return { node, result: auth.enrol(request, opts.at ?? NOW) }
+}
+
+/**
+ * One enrolment under a **freshly generated** user key, which is the attacker's move.
+ *
+ * Seeds are derived from `which` so a failure names the request it was, and the two
+ * ranges are disjoint from every other fixture key in this file.
+ */
+function underFreshUser(auth: EnrollmentAuthority, which: number, at: number = NOW) {
+  const node = keypair(100 + which)
+  const user = keypair(150 + which)
+  return {
+    userKey: user.pub,
+    result: auth.enrol(
+      requestEnrollment(node.priv, user.priv, {
+        operatorId: `op-${which}`,
+        discoverability: 'seed',
+        relayIds: [],
+      }),
+      at,
+    ),
+  }
+}
+
+/**
+ * A ledger this file owns, so a pre-loaded timestamp is one the authority never wrote.
+ *
+ * Hand-written rather than imported: the point of the port is that a **host** supplies
+ * the history, and a test that used the implementation the sentinel selects would be
+ * asserting against the authority's own memory again. `writes` records the calls in
+ * order, which is what makes the synchronous reading below observable.
+ */
+function testLedger(preloaded: readonly (readonly [string, number])[] = []): IssuanceLedger & {
+  readonly writes: [string, number][]
+} {
+  const byUser = new Map<string, number[]>()
+  const anybody: number[] = []
+  const writes: [string, number][] = []
+  const put = (userKey: string, at: number): void => {
+    const existing = byUser.get(userKey)
+    if (existing === undefined) byUser.set(userKey, [at])
+    else existing.push(at)
+    anybody.push(at)
+  }
+  for (const [userKey, at] of preloaded) put(userKey, at)
+  return {
+    writes,
+    issuedTo: (userKey) => byUser.get(userKey) ?? [],
+    issuedToAnybody: () => anybody,
+    record: (userKey, at) => {
+      put(userKey, at)
+      writes.push([userKey, at])
+    },
+  }
 }
 
 describe('AUTH-01 — the private key never leaves the device', () => {
@@ -230,7 +301,12 @@ describe('AUTH-02 — verification is offline', () => {
   })
 
   it('refuses an expired or not-yet-valid certificate', () => {
-    const auth = new EnrollmentAuthority({ providerPrivateKey: provider.priv, certificateLifetimeMs: 1_000 })
+    const auth = new EnrollmentAuthority({
+      providerPrivateKey: provider.priv,
+      certificateLifetimeMs: 1_000,
+      maxIssuedPerWindow: 'issues-without-an-aggregate-budget',
+      issuance: 'remembers-only-within-this-process',
+    })
     const { result } = enrol(auth, 7)
     expect(result.ok).toBe(true)
     if (!result.ok) return
@@ -281,6 +357,252 @@ describe('AUTH-04 — enrollment is rate-limited per user key', () => {
 
     expect(auth.issuedWithin(alice.pub, NOW)).toBe(1)
     expect(auth.issuedWithin(bob.pub, NOW)).toBe(1)
+  })
+})
+
+/**
+ * The second budget, on the one quantity an attacker cannot rotate.
+ *
+ * Phase 17 measured the per-user window and published what it does not buy: the limiter
+ * keys on `userKey`, a fresh user key is one `ed25519.keygen()`, and twenty requests
+ * under twenty distinct user keys all succeed with **no deletion turning that assertion
+ * red** (`enrollment.node.test.ts`, *"rate-limiting is measured; cost is unmeasured"*).
+ * That exact population is what the first case below runs, against an authority that
+ * states an aggregate budget — and then again against one that states it has none, so
+ * the two configurations are shown to differ rather than assumed to.
+ *
+ * What this bounds is **issuance per provider per window**, not the price of an
+ * identity. See `enrollment.ts`'s header for what that does and does not buy.
+ */
+describe('AUTH-04 — a provider signs a stated number of certificates per window', () => {
+  it('refuses past its stated number however many free keygens the requester mints', () => {
+    // `maxPerWindow: 3` never binds here: every request names a different user key and
+    // spends one of that key's three. The only thing that can refuse is the aggregate.
+    const budgeted = authority({ maxPerWindow: 3, maxIssuedPerWindow: 5 })
+    const outcomes = Array.from({ length: 20 }, (_, i) => underFreshUser(budgeted, i).result)
+
+    expect(outcomes.filter((o) => o.ok)).toHaveLength(5)
+    expect(budgeted.issuedToAnybodyWithin(NOW)).toBe(5)
+    for (const outcome of outcomes.filter((o) => !o.ok)) {
+      if (outcome.ok) continue
+      expect(outcome.refusal.kind).toBe('issuance-budget-exhausted')
+    }
+
+    // The control, in the same run: the identical twenty against an authority that
+    // states it has no aggregate budget. Without this the first half would be equally
+    // well explained by twenty requests that were never going to succeed.
+    const unbudgeted = authority({ maxPerWindow: 3 })
+    const same = Array.from({ length: 20 }, (_, i) => underFreshUser(unbudgeted, i).result)
+    expect(same.filter((o) => o.ok)).toHaveLength(20)
+    expect(unbudgeted.issuedToAnybodyWithin(NOW)).toBe(20)
+  })
+
+  it('names the provider’s own budget and says nothing about the requester', () => {
+    const auth = authority({ maxIssuedPerWindow: 1 })
+    expect(underFreshUser(auth, 0).result.ok).toBe(true)
+
+    const second = underFreshUser(auth, 1)
+    expect(second.result.ok).toBe(false)
+    if (second.result.ok) return
+
+    // Asserted by name, not by `ok === false`. A refusal that named the requester
+    // would send an operator looking at a user key that is not the problem — this
+    // requester did nothing wrong and has a different next action from a rate-limited
+    // one: find another provider, rather than wait.
+    expect(second.result.refusal.kind).toBe('issuance-budget-exhausted')
+    if (second.result.refusal.kind !== 'issuance-budget-exhausted') return
+    expect(second.result.refusal.limit).toBe(1)
+    expect(second.result.refusal.windowMs).toBe(60_000)
+    expect(second.result.refusal.retryAfterMs).toBeGreaterThan(0)
+
+    // Nothing about the requester, in the refusal or in the sentence beside it.
+    expect(Object.keys(second.result.refusal)).not.toContain('userKey')
+    expect(Object.keys(second.result.refusal)).not.toContain('nodeKey')
+    expect(second.result.reason).not.toContain(second.userKey)
+  })
+
+  it('tells a requester their own window is full before it tells them the provider’s is', () => {
+    // Both budgets bind at once. Which reason is reported is the whole of this case:
+    // the more specific true statement about *this* request wins.
+    const auth = authority({ maxPerWindow: 2, maxIssuedPerWindow: 2 })
+    expect(enrol(auth, 120).result.ok).toBe(true)
+    expect(enrol(auth, 121).result.ok).toBe(true)
+    expect(auth.issuedWithin(alice.pub, NOW)).toBe(2)
+    expect(auth.issuedToAnybodyWithin(NOW)).toBe(2)
+
+    const hers = enrol(auth, 122).result
+    expect(hers.ok).toBe(false)
+    if (hers.ok) return
+    expect(hers.refusal.kind).toBe('rate-limited')
+
+    // And a stranger, whose own window is empty, meets the aggregate instead — which
+    // is what shows the ordering is an ordering rather than the aggregate being
+    // unreachable.
+    const stranger = underFreshUser(auth, 7).result
+    expect(stranger.ok).toBe(false)
+    if (stranger.ok) return
+    expect(stranger.refusal.kind).toBe('issuance-budget-exhausted')
+  })
+
+  it('slides the aggregate window rather than closing the provider forever', () => {
+    const auth = authority({ maxPerWindow: 3, maxIssuedPerWindow: 2, windowMs: 60_000 })
+    expect(underFreshUser(auth, 10).result.ok).toBe(true)
+    expect(underFreshUser(auth, 11).result.ok).toBe(true)
+    expect(underFreshUser(auth, 12).result.ok).toBe(false)
+
+    // Past the window, the earlier issuances no longer count against the provider.
+    expect(underFreshUser(auth, 13, NOW + 60_001).result.ok).toBe(true)
+    expect(auth.issuedToAnybodyWithin(NOW + 60_001)).toBe(1)
+  })
+})
+
+/**
+ * Neither budget lives in the authority's heap.
+ *
+ * Both read a ledger the **host** supplies, which is what lets a provider that restarts
+ * be handed back everything it already issued. The readings here are all in one process,
+ * because that is what a pure module can measure: an authority constructed over a ledger
+ * it did not write is the in-process form of the cross-process reading Plan 19-07 takes
+ * across a real restart. Nothing here claims the restart itself has been measured.
+ */
+describe('AUTH-04 — the issuance history belongs to the host, not to the authority', () => {
+  const providerOptions = { providerPrivateKey: provider.priv, windowMs: 60_000 } as const
+
+  it('counts issuances it never made, because the budget was never its own', () => {
+    const stranger = keypair(200)
+    const ledger = testLedger([
+      [alice.pub, NOW - 1_000],
+      [alice.pub, NOW - 2_000],
+      [stranger.pub, NOW - 3_000],
+    ])
+    const auth = new EnrollmentAuthority({
+      ...providerOptions,
+      maxPerWindow: 2,
+      maxIssuedPerWindow: 3,
+      issuance: ledger,
+    })
+
+    // A brand-new authority object that has issued nothing, and both readers already
+    // report the host's history rather than an empty heap.
+    expect(auth.issuedWithin(alice.pub, NOW)).toBe(2)
+    expect(auth.issuedToAnybodyWithin(NOW)).toBe(3)
+
+    // And both budgets *bind* on it, which is the assertion this plan exists for.
+    const hers = enrol(auth, 131).result
+    expect(hers.ok).toBe(false)
+    if (hers.ok) return
+    expect(hers.refusal.kind).toBe('rate-limited')
+
+    const theirs = underFreshUser(auth, 30).result
+    expect(theirs.ok).toBe(false)
+    if (theirs.ok) return
+    expect(theirs.refusal.kind).toBe('issuance-budget-exhausted')
+  })
+
+  it('hands a second authority over the same ledger everything the first issued', () => {
+    // The restart, as far as one process can show it: a new authority object, the same
+    // host-owned history. The `'remembers-only-within-this-process'` control below is
+    // the same sequence against a heap that is not shared, and it is the behaviour
+    // Phase 17 measured as defeating the limit.
+    const ledger = testLedger()
+    const options = { ...providerOptions, maxPerWindow: 5, maxIssuedPerWindow: 2 } as const
+
+    const first = new EnrollmentAuthority({ ...options, issuance: ledger })
+    expect(underFreshUser(first, 31).result.ok).toBe(true)
+    expect(underFreshUser(first, 32).result.ok).toBe(true)
+
+    const second = new EnrollmentAuthority({ ...options, issuance: ledger })
+    expect(second.issuedToAnybodyWithin(NOW)).toBe(2)
+    const after = underFreshUser(second, 33).result
+    expect(after.ok).toBe(false)
+    if (after.ok) return
+    expect(after.refusal.kind).toBe('issuance-budget-exhausted')
+
+    // The control. Same options, same requests, a history that is this object's own.
+    const forgetful = new EnrollmentAuthority({
+      ...options,
+      issuance: 'remembers-only-within-this-process',
+    })
+    expect(underFreshUser(forgetful, 31).result.ok).toBe(true)
+    expect(underFreshUser(forgetful, 32).result.ok).toBe(true)
+    const restarted = new EnrollmentAuthority({
+      ...options,
+      issuance: 'remembers-only-within-this-process',
+    })
+    expect(restarted.issuedToAnybodyWithin(NOW)).toBe(0)
+    expect(underFreshUser(restarted, 33).result.ok).toBe(true)
+  })
+
+  it('records every issuance where the host can see it, by user key and in the aggregate', () => {
+    const ledger = testLedger()
+    const auth = new EnrollmentAuthority({
+      ...providerOptions,
+      maxPerWindow: 5,
+      maxIssuedPerWindow: 'issues-without-an-aggregate-budget',
+      issuance: ledger,
+    })
+
+    expect(enrol(auth, 132).result.ok).toBe(true)
+    expect(underFreshUser(auth, 34).result.ok).toBe(true)
+
+    expect(ledger.issuedTo(alice.pub)).toEqual([NOW])
+    expect(ledger.issuedToAnybody()).toEqual([NOW, NOW])
+    // A refusal consumes nothing, so the ledger is a record of certificates rather than
+    // of attempts — which is the property the per-user ordering above rests on.
+    expect(underFreshUser(auth, 35, NOW).result.ok).toBe(true)
+    expect(ledger.writes).toHaveLength(3)
+  })
+
+  it('records synchronously, which is why the serving branch takes no capacity slot', () => {
+    // `agent.ts` records that `enrol` is fully synchronous and that this is *why* the
+    // enrol branch takes no capacity slot. So the write is asserted visible on the line
+    // after the call, with no `await` anywhere in this case.
+    //
+    // **Which mutation actually holds that argument was measured, because the obvious
+    // one does not.** Giving `IssuanceLedger.record` a `Promise<void>` return type leaves
+    // `agent.ts` compiling perfectly — `enrol` still returns a value, and the write is
+    // merely a floating promise; the only `tsc` complaint is against a hand-written
+    // ledger like the one above. What the compiler *does* refuse is `enrol` itself
+    // becoming `async`: `agent.ts:724` then reports `{ kind: 'enrol'; result:
+    // Promise<EnrollmentResult> }` is not an `AgentResponse`. The signature is the
+    // compile-time guard; this case is the runtime one, and a port that awaited inside
+    // would be caught here rather than there.
+    const ledger = testLedger()
+    const auth = new EnrollmentAuthority({
+      ...providerOptions,
+      maxPerWindow: 5,
+      maxIssuedPerWindow: 5,
+      issuance: ledger,
+    })
+
+    const result = auth.enrol(
+      requestEnrollment(keypair(133).priv, alice.priv, {
+        operatorId: 'alice-op',
+        discoverability: 'seed',
+        relayIds: [],
+      }),
+      NOW,
+    )
+
+    expect(result).not.toBeInstanceOf(Promise)
+    expect(result.ok).toBe(true)
+    expect(ledger.writes).toEqual([[alice.pub, NOW]])
+  })
+
+  it('reproduces the per-process behaviour exactly when a caller asks for it by name', () => {
+    // What licenses the one-line sentinel written at every other construction site in
+    // this repository: on the sentinel, the existing rate-limit readings are unchanged.
+    const auth = authority({ maxPerWindow: 3, windowMs: 60_000 })
+    for (let i = 0; i < 3; i++) expect(enrol(auth, 140 + i).result.ok).toBe(true)
+    const fourth = enrol(auth, 143).result
+    expect(fourth.ok).toBe(false)
+    if (fourth.ok) return
+    expect(fourth.refusal.kind).toBe('rate-limited')
+    expect(auth.issuedWithin(alice.pub, NOW)).toBe(3)
+    expect(auth.issuedToAnybodyWithin(NOW)).toBe(3)
+
+    // Past the window it slides, exactly as before.
+    expect(enrol(auth, 144, { at: NOW + 60_001 }).result.ok).toBe(true)
   })
 })
 

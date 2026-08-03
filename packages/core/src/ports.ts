@@ -15,6 +15,9 @@ import type { WorkerTaskRequest, WorkerTaskResponse } from './executor/task-run.
 // Type-only, so it adds no runtime edge to a file whose header rule is "types only";
 // and `naming.ts` does not import this file, so there is no cycle to create either way.
 import type { NameRecord } from './naming.ts'
+// Type-only for `naming.ts`'s reason: no runtime edge, and `result-attestation.ts` does
+// not import this file, so there is no cycle to create either way.
+import type { AttestedResult } from './result-attestation.ts'
 import type { OwnerId, Sovereignty } from './sovereignty.ts'
 
 /** Content-addressed block storage. */
@@ -70,9 +73,36 @@ export interface Task {
   readonly moduleRecord?: NameRecord
 }
 
-/** What an executor produces. Output is a declared value, never raw memory. */
+/**
+ * What an executor produces. Output is a declared value, never raw memory.
+ *
+ * ## `attestation` — what the *node* says about what it produced
+ *
+ * Distinct from the compared digest, and deliberately so. `output` is compared across
+ * replicas to detect divergence (VER-05); an attestation is per-node by construction
+ * and is never compared, because two honest replicas of one shard sign different bytes
+ * and always will. The rule at `Executor` below — that `nodeId` is not part of the
+ * compared digest — is about the compared value and is untouched by this field.
+ *
+ * **Required, with a named sentinel, never optional.** An omitted field read as
+ * "attested" would make an unsigned result indistinguishable from a signed one at
+ * exactly the point a receipt is computed, which is the one place the distinction is
+ * the product. `.planning/PROJECT.md` records the general form of the rule: an optional
+ * hook with a silent default is a hole.
+ *
+ * `'signed-by-nobody'` is a **truthful statement by an executor nobody enrolled**, not a
+ * degraded mode and not an error. The kernel's own executors — `WasmExecutor`,
+ * `WorkerExecutor`, `runTask` and `@o2/aot`'s `WasiExecutor` — take it by construction,
+ * because a kernel that signed would need an identity, and keeping an identity out of
+ * the kernel is what this file exists for. Signing is a wrapper composed at a node's
+ * construction (`executor/attesting-executor.ts`), on the same terms as
+ * `guardModuleProvenance`.
+ *
+ * The **failure arm carries nothing**: a failed execution attests nothing, because there
+ * is no output and therefore no statement to sign.
+ */
 export type ExecutionOutcome =
-  | { ok: true; output: CanonicalValue; fuelUsed: number }
+  | { ok: true; output: CanonicalValue; fuelUsed: number; attestation: AttestedResult }
   | { ok: false; reason: string }
 
 /**

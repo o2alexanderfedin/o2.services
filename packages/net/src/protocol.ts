@@ -63,6 +63,7 @@
 import { CID } from 'multiformats/cid'
 import { MAX_COMBINE_INPUTS, START_FAILURES, isStartBrowserLabel } from '@o2/core'
 import type {
+  AttestedResult,
   CanonicalValue,
   CapabilityRecord,
   Delegation,
@@ -186,13 +187,23 @@ export type AgentResponse =
    */
   | { readonly kind: 'report'; readonly counts: readonly OutcomeCount[]; readonly declined: number }
   /**
-   * The combine's result, or why it did not run.
+   * The combine's result, what the combining node signed about it, or why it did not run.
    *
    * `resultCid: null` is not an error — it is the fallthrough signal the requestor
    * walks its rendezvous ranking on, so it keeps a `reason`: that string is the only
    * thing the requestor learns before trying the next executor.
+   *
+   * `attestation` is the aggregation's half of VER-08/09/10 — see `runCombine` in
+   * `agent.ts`. It is `'signed-by-nobody'` on every refusal arm, because there is no
+   * result to make a statement about, and it is a real statement only on the success
+   * path.
    */
-  | { readonly kind: 'combine'; readonly resultCid: CID | null; readonly reason: string }
+  | {
+      readonly kind: 'combine'
+      readonly resultCid: CID | null
+      readonly reason: string
+      readonly attestation: AttestedResult
+    }
   /**
    * AUTH-01 / AUTH-04: a certificate, or the named reason none was issued.
    *
@@ -292,6 +303,64 @@ export function parseCertificate(value: CanonicalValue | undefined): NodeCertifi
   }
 }
 
+/**
+ * Encode what a node said about the result it is returning — VER-08/09/10.
+ *
+ * The sentinel crosses as **the type's own literal**, not as a `found:`-style
+ * discriminant like `offer` and `records` use. Those model a value that is nested *or
+ * absent*; `'signed-by-nobody'` is neither — it is a first-class named state meaning
+ * *this node signs nothing*, which is a truthful answer from an unenrolled peer and not
+ * an error. Spelling it the same way on the wire and in the type is what keeps a reader
+ * of a frame and a reader of `ports.ts` looking at one word.
+ *
+ * **What this costs the wire:** 612 DAG-CBOR bytes per attested exec reply, measured
+ * 2026-08-03 against a real certificate from this repository's own `EnrollmentAuthority`
+ * — three 64-char hex keys and two 128-char hex signatures, stored as text because they
+ * are strings in the certificate the provider signed. Against NET-08's inbound ceiling
+ * and the browser tier's 16 KiB per-message WebRTC bound that is under 4% of one
+ * message. It is the price of the statement being self-contained, and the alternative —
+ * a bare node key the requestor resolves to a certificate out of band — is not checkable
+ * by the third party this whole leg exists for.
+ */
+function attestationToValue(attestation: AttestedResult): CanonicalValue {
+  return attestation === 'signed-by-nobody'
+    ? 'signed-by-nobody'
+    : {
+        certificate: certificateToValue(attestation.certificate),
+        signature: attestation.signature,
+      }
+}
+
+/**
+ * Parse an attestation off an exec reply, or refuse the frame.
+ *
+ * **A malformed attestation returns `null`, and `parseResponse` turns that into a
+ * refused frame rather than degrading to the sentinel.** That choice needs writing down
+ * because the other option looks safer and is not. A frame that parsed to "unsigned"
+ * would report a peer's *protocol error* as an *unenrolled peer*: the requestor would
+ * accept the reply, build a weaker receipt, and never learn the frame was broken. The
+ * quiet answer is the worse one. `RemoteExecutor` already renders a `null` parse as
+ * `malformed response from <node>`, which is the honest one.
+ *
+ * The certificate goes through the exported `parseCertificate`, so the wire and the disk
+ * path share one validator and neither can drift into being the lenient one. Nothing
+ * here judges whether the certificate is *valid* — that is
+ * `verifyResultAttestation`'s, against pinned issuers — and keeping the two apart stops a
+ * caller reading "parsed" as "trusted".
+ *
+ * A field added to `ResultAttestation` without being parsed here fails to compile,
+ * because the returned literal must satisfy the declared return type.
+ */
+function parseAttestation(value: CanonicalValue | undefined): AttestedResult | null {
+  if (value === 'signed-by-nobody') return 'signed-by-nobody' satisfies AttestedResult
+  const record = value === undefined ? null : asRecord(value)
+  if (record === null) return null
+  const certificate = parseCertificate(record['certificate'])
+  const signature = record['signature']
+  if (certificate === null || typeof signature !== 'string') return null
+  return { certificate, signature }
+}
+
 function enrollmentRequestToValue(request: EnrollmentRequest): CanonicalValue {
   return {
     nodeKey: request.nodeKey,
@@ -343,10 +412,15 @@ function parseEnrollmentRequest(value: CanonicalValue | undefined): EnrollmentRe
  * Encode an issuance outcome — a certificate, or the refusal that explains its absence.
  *
  * Each refusal arm carries the discriminant plus that kind's own fields and nothing
- * else, so a reader of the frame learns which of the three events happened and the one
+ * else, so a reader of the frame learns which of the four events happened and the one
  * value that identifies it. The `rate-limited` arm carries its `limit` and `windowMs`
  * deliberately: AUTH-04 asks for a *stated* threshold, and a threshold readable only
  * from the provider's source is not stated to the peer that hit it.
+ *
+ * `issuance-budget-exhausted` carries the same three numbers for the same reason and
+ * **no key of any kind**, because it is a statement about the provider rather than about
+ * whoever asked. Copying the `rate-limited` arm and leaving its `userKey` in would put a
+ * blameless requester's key on a frame that is not about them.
  */
 function enrollmentResultToValue(result: EnrollmentResult): CanonicalValue {
   if (result.ok) {
@@ -359,6 +433,17 @@ function enrollmentResultToValue(result: EnrollmentResult): CanonicalValue {
   }
   if (refusal.kind === 'bad-owner-proof') {
     return { ...base, refusal: { kind: refusal.kind, userKey: refusal.userKey } }
+  }
+  if (refusal.kind === 'issuance-budget-exhausted') {
+    return {
+      ...base,
+      refusal: {
+        kind: refusal.kind,
+        limit: refusal.limit,
+        windowMs: refusal.windowMs,
+        retryAfterMs: refusal.retryAfterMs,
+      },
+    }
   }
   return {
     ...base,
@@ -382,6 +467,13 @@ function enrollmentResultToValue(result: EnrollmentResult): CanonicalValue {
  * node was not certified, and a caller acting on half of one would report the wrong
  * cause. A refusal that names the wrong thing is a defect even when the request
  * correctly failed.
+ *
+ * **This function is the reader `tsc` cannot find.** Adding a kind to
+ * `EnrollmentRefusal` breaks the encoder above — it destructures fields per arm — and
+ * leaves this one compiling perfectly while returning `null` for the new kind. The
+ * provider refuses correctly, the frame is well formed, and the peer reads nothing. That
+ * is the whole of 19-CONTEXT.md's *"`tsc` finds construction sites, not reader sites"*,
+ * in the one file a plan that said "no wire change" did not open.
  */
 function parseEnrollmentRefusal(value: CanonicalValue | undefined): EnrollmentRefusal | null {
   const record = value === undefined ? null : asRecord(value)
@@ -396,6 +488,15 @@ function parseEnrollmentRefusal(value: CanonicalValue | undefined): EnrollmentRe
     const userKey = record['userKey']
     if (typeof userKey !== 'string') return null
     return { kind, userKey }
+  }
+  if (kind === 'issuance-budget-exhausted') {
+    const limit = asFiniteNumber(record['limit'])
+    const windowMs = asFiniteNumber(record['windowMs'])
+    const retryAfterMs = asFiniteNumber(record['retryAfterMs'])
+    if (limit === null || windowMs === null || retryAfterMs === null) return null
+    // No key is read, and none is carried. A peer that received one anyway is talking
+    // about somebody the provider had no business naming here.
+    return { kind, limit, windowMs, retryAfterMs }
   }
   if (kind !== 'rate-limited') return null
   const userKey = record['userKey']
@@ -878,9 +979,20 @@ export function encodeResponse(response: AgentResponse): CanonicalValue {
     case 'reservations':
       return { kind: 'reservations', peerIds: [...response.peerIds] }
     case 'combine':
+      // The refusal arm carries no `attestation` key at all, rather than the sentinel
+      // spelled out. The `exec` arm does the same with its `ok: false` shape and for the
+      // same reason: a refusal has no result, so a field naming what was signed about it
+      // would be a field about nothing. The parse below supplies the sentinel on this
+      // arm, so the type stays total without the wire paying for it.
       return response.resultCid === null
         ? { kind: 'combine', found: false, reason: response.reason }
-        : { kind: 'combine', found: true, resultCid: response.resultCid, reason: response.reason }
+        : {
+            kind: 'combine',
+            found: true,
+            resultCid: response.resultCid,
+            reason: response.reason,
+            attestation: attestationToValue(response.attestation),
+          }
     case 'report':
       return {
         kind: 'report',
@@ -898,6 +1010,7 @@ export function encodeResponse(response: AgentResponse): CanonicalValue {
             ok: true,
             output: response.outcome.output,
             fuelUsed: response.outcome.fuelUsed,
+            attestation: attestationToValue(response.outcome.attestation),
           }
         : { kind: 'exec', ok: false, reason: response.outcome.reason }
   }
@@ -965,14 +1078,32 @@ export function parseResponse(body: CanonicalValue): AgentResponse | null {
     case 'combine': {
       const reason = record['reason']
       const stated = typeof reason === 'string' ? reason : 'unspecified'
-      if (record['found'] !== true) return { kind: 'combine', resultCid: null, reason: stated }
+      // A refusal carries no statement, and the sentinel is supplied here rather than
+      // sent. It is the truthful reading of that frame: nothing was produced, so nothing
+      // was signed.
+      if (record['found'] !== true) {
+        return { kind: 'combine', resultCid: null, reason: stated, attestation: 'signed-by-nobody' }
+      }
       const resultCid = CID.asCID(record['resultCid'] ?? null)
       // Refused, not folded into the null arm. The null arm is the fallthrough signal
       // the requestor walks its ranking on, so a peer able to turn a corrupt answer
       // into an ordinary "I could not" would be indistinguishable from an honest one
       // that had nothing — and the requestor would count it as a normal miss.
       if (resultCid === null) return null
-      return { kind: 'combine', resultCid, reason: stated }
+      // Refused, never downgraded — the disposition the `exec` arm takes below, for the
+      // reason `parseAttestation`'s docblock gives. A frame whose attestation does not
+      // parse is a peer's protocol error; degrading it to the sentinel would report that
+      // as an honest unenrolled peer, and the requestor would record an unsigned combine
+      // and never learn the frame was broken.
+      //
+      // **What this costs the wire:** one certificate per attested combine reply — 612
+      // DAG-CBOR bytes, the figure measured for the `exec` reply and identical here
+      // because it is the same `certificateToValue`. Against NET-08's inbound ceiling
+      // and the browser tier's 16 KiB per-message WebRTC bound that is under 4% of one
+      // message, and it does not grow with the number of inputs merged.
+      const attestation = parseAttestation(record['attestation'])
+      if (attestation === null) return null
+      return { kind: 'combine', resultCid, reason: stated, attestation }
     }
     case 'exec': {
       if (record['ok'] === true) {
@@ -981,7 +1112,12 @@ export function parseResponse(body: CanonicalValue): AgentResponse | null {
         if (output === undefined || typeof fuelUsed !== 'number' || !Number.isFinite(fuelUsed)) {
           return null
         }
-        return { kind: 'exec', outcome: { ok: true, output, fuelUsed } }
+        // Refused, never downgraded. A frame whose attestation does not parse is a
+        // protocol error, and reporting it as an honest peer that holds no certificate
+        // would hand the requestor a weaker receipt with nothing to indicate why.
+        const attestation = parseAttestation(record['attestation'])
+        if (attestation === null) return null
+        return { kind: 'exec', outcome: { ok: true, output, fuelUsed, attestation } }
       }
       if (record['ok'] !== false) return null
       const reason = record['reason']

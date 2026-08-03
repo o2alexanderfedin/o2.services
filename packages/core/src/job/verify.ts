@@ -31,8 +31,20 @@ import type { CID } from 'multiformats/cid'
 import { canonicalCid } from '../canonical/encode.ts'
 import type { CanonicalValue } from '../canonical/encode.ts'
 import type { Executor, Task } from '../ports.ts'
+import type { AttestedResult } from '../result-attestation.ts'
 
-/** What one executor's run of a task came to. */
+/**
+ * What one executor's run of a task came to.
+ *
+ * `attestation` is what the node itself said about the output — a signature checkable
+ * against its provider-issued certificate, or `'signed-by-nobody'`. It reaches a caller
+ * on {@link AgreeingReplica}, one `.map` below, and this array is the only place it
+ * comes from.
+ *
+ * It is deliberately outside the compared value. `resultCid` is what replicas are
+ * compared on (VER-05); two honest replicas of one shard produce the same `resultCid`
+ * and different attestations, and always will, because the signer is in the challenge.
+ */
 export type Receipt =
   | {
       ok: true
@@ -40,6 +52,7 @@ export type Receipt =
       resultCid: CID
       output: CanonicalValue
       fuelUsed: number
+      attestation: AttestedResult
     }
   | { ok: false; nodeId: string; reason: string }
 
@@ -79,7 +92,52 @@ async function runOne(executor: Executor, task: Task): Promise<Receipt> {
     resultCid: hashed.cid,
     output: outcome.output,
     fuelUsed: outcome.fuelUsed,
+    attestation: outcome.attestation,
   }
+}
+
+/**
+ * One replica that agreed, and what that replica signed.
+ *
+ * ## Why the signature lives on the same element as the node id
+ *
+ * The cheaper change was to leave `agreeing` a `readonly string[]` and add a sibling
+ * `attestations` array beside it. It is refused for the reason `19-CONTEXT.md` gives
+ * against a parallel `nodeId → certificate` map — *a second source of truth that can
+ * disagree, with nothing able to catch the disagreement* — which here would be a
+ * **positional** correspondence that drifts silently. And it would leave a downstream
+ * reader a **choice** between building a receipt from names and building one from
+ * signatures. A receipt derived from names is the submitter's word about itself, which
+ * is the artifact this leg exists to replace, so the choice is removed rather than
+ * documented.
+ *
+ * `executeVerified` is the only producer, and both halves come off the same `answered`
+ * array in one expression. That is what makes one field safe where two would not have
+ * been: the ids and the attestations are two projections of one array and cannot drift
+ * apart.
+ *
+ * ## Three things a reader must not assume
+ *
+ * - **This is the set that MATCHED, never the set that was placed.** The grouping above
+ *   is keyed on `resultCid`, so a node that was asked and answered differently is in a
+ *   partition, and a node that was asked and failed is in `failures`. A receipt computed
+ *   over this array is therefore a statement about agreement, not about dispatch.
+ * - **`'signed-by-nobody'` is a truthful statement, not a degraded reading.** It says a
+ *   replica nobody enrolled ran this work; it is not a signature that failed, and
+ *   `verifyResultAttestation` refuses it by its own name, `not-attested`. The four
+ *   kernel executors report it by construction.
+ * - **An attestation is NOT part of the compared digest.** VER-05's rule is unchanged:
+ *   what replicas are compared on covers `(task, output)` and nothing else. An
+ *   attestation is per node — two honest replicas of one shard sign different bytes by
+ *   design — so folding it into the comparison would make every honest redundant
+ *   execution disagree. It travels beside the compared value, and the two sit adjacent
+ *   here precisely because they are easy to confuse.
+ */
+export interface AgreeingReplica {
+  /** The replica's node id — the same string this field carried before it grew a record. */
+  readonly nodeId: string
+  /** What this replica said about the output, or its statement that it signs nothing. */
+  readonly attestation: AttestedResult
 }
 
 export type VerificationResult =
@@ -87,8 +145,8 @@ export type VerificationResult =
       status: 'agreed'
       resultCid: CID
       output: CanonicalValue
-      /** Nodes whose reveals matched. */
-      agreeing: readonly string[]
+      /** Replicas whose reveals matched, each with what it signed. */
+      agreeing: readonly AgreeingReplica[]
       /** Redundancy actually achieved. */
       replicas: number
       grossFuel: number
@@ -96,7 +154,14 @@ export type VerificationResult =
     }
   | {
       status: 'disagreed'
-      /** Every distinct result, with the nodes that produced it. */
+      /**
+       * Every distinct result, with the nodes that produced it.
+       *
+       * **Node ids only, and deliberately.** A shard that did not agree has no agreement
+       * to attest, and signatures here would invite a reader to pick the side with the
+       * better-attested nodes — which is the majority vote this module's header refuses
+       * to take, wearing different clothes.
+       */
       partitions: readonly { resultCid: string; nodes: readonly string[] }[]
       failures: readonly { nodeId: string; reason: string }[]
     }
@@ -155,7 +220,10 @@ export async function executeVerified(
     status: 'agreed',
     resultCid: winner.resultCid,
     output: winner.output,
-    agreeing: answered.map((r) => r.nodeId),
+    // One `.map` over one array: the node id and the attestation are two projections of
+    // the same receipt and cannot be assembled from different orders. See
+    // {@link AgreeingReplica} for why that is the whole argument for one field.
+    agreeing: answered.map((r) => ({ nodeId: r.nodeId, attestation: r.attestation })),
     replicas: answered.length,
     grossFuel,
     usefulFuel: winner.fuelUsed,

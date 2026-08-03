@@ -21,11 +21,18 @@
  *     code does not make.
  */
 
+import { ed25519 } from '@noble/curves/ed25519.js'
 import { describe, expect, it } from 'vitest'
 import { CID } from 'multiformats/cid'
 import { canonicalCid } from '../canonical/encode.ts'
 import type { CanonicalValue } from '../canonical/encode.ts'
+import { toHex } from '../capability.ts'
+import type { PublicKeyHex } from '../capability.ts'
+import { EnrollmentAuthority, requestEnrollment } from '../enrollment.ts'
+import { attestResults } from '../executor/attesting-executor.ts'
 import type { Executor, ExecutionOutcome, Task } from '../ports.ts'
+import { verifyResultAttestation } from '../result-attestation.ts'
+import type { ResultWork } from '../result-attestation.ts'
 import { executeVerified } from './verify.ts'
 
 const MODULE_CID = CID.parse('bafyreidykglsfhoixmivffc5uwhcgshx4j465xwqntbmu43nb2dzqwfvae')
@@ -42,7 +49,7 @@ function honest(nodeId: string, fuelUsed = 100): Executor {
   return {
     nodeId,
     async execute(t: Task): Promise<ExecutionOutcome> {
-      return { ok: true, output: { shard: t.partitionIndex, of: t.partitionCount, sum: 42 }, fuelUsed }
+      return { ok: true, output: { shard: t.partitionIndex, of: t.partitionCount, sum: 42 }, fuelUsed, attestation: 'signed-by-nobody' }
     },
   }
 }
@@ -52,7 +59,7 @@ function liar(nodeId: string, sum: number): Executor {
   return {
     nodeId,
     async execute(t: Task): Promise<ExecutionOutcome> {
-      return { ok: true, output: { shard: t.partitionIndex, of: t.partitionCount, sum }, fuelUsed: 100 }
+      return { ok: true, output: { shard: t.partitionIndex, of: t.partitionCount, sum }, fuelUsed: 100, attestation: 'signed-by-nobody' }
     },
   }
 }
@@ -77,12 +84,60 @@ function throwing(nodeId: string, message: string): Executor {
   }
 }
 
+/**
+ * One provider, and the nodes it enrolled — the fixture the attestation cases need.
+ *
+ * A real `EnrollmentAuthority` rather than a hand-built certificate, so a signature
+ * these cases accept is one `verifyResultAttestation` accepts against a pinned issuer
+ * with nothing stubbed between the two.
+ */
+const PROVIDER = new Uint8Array(32).fill(70)
+const PROVIDER_KEY: PublicKeyHex = toHex(ed25519.getPublicKey(PROVIDER))
+const OWNER = new Uint8Array(32).fill(71)
+const PINNED: ReadonlySet<PublicKeyHex> = new Set([PROVIDER_KEY])
+const ISSUED_AT = 1_800_000_000_000
+
+/** Wrap `inner` so it signs what it produced, as a node this provider enrolled. */
+function attesting(inner: Executor, seed: number): { executor: Executor; nodeKey: PublicKeyHex } {
+  const nodeSeed = new Uint8Array(32).fill(seed)
+  const issued = new EnrollmentAuthority({
+    providerPrivateKey: PROVIDER,
+    maxPerWindow: 50,
+    maxIssuedPerWindow: 'issues-without-an-aggregate-budget',
+    issuance: 'remembers-only-within-this-process',
+  }).enrol(
+    requestEnrollment(nodeSeed, OWNER, {
+      operatorId: `op-${inner.nodeId}`,
+      discoverability: 'via-relay',
+      relayIds: ['relay-1'],
+    }),
+    ISSUED_AT,
+  )
+  if (!issued.ok) throw new Error('fixture failed to enrol')
+  return {
+    executor: attestResults(inner, { nodeSeed, certificate: issued.certificate }),
+    nodeKey: issued.certificate.nodeKey,
+  }
+}
+
+/** The work `honest` answers, as a verifier of an attestation rebuilds it. */
+async function workFor(output: CanonicalValue): Promise<ResultWork> {
+  const hashed = await canonicalCid(output)
+  if (!hashed.ok) throw new Error('fixture output failed to encode')
+  return {
+    moduleCid: task.moduleCid,
+    inputCid: task.inputCid,
+    partitionIndex: task.partitionIndex,
+    outputCid: hashed.cid,
+  }
+}
+
 /** Produces a value the canonical codec refuses — a NaN can never be hashed. */
 function nanProducer(nodeId: string): Executor {
   return {
     nodeId,
     async execute(): Promise<ExecutionOutcome> {
-      return { ok: true, output: { mean: Number.NaN } as CanonicalValue, fuelUsed: 100 }
+      return { ok: true, output: { mean: Number.NaN } as CanonicalValue, fuelUsed: 100, attestation: 'signed-by-nobody' }
     },
   }
 }
@@ -96,7 +151,7 @@ describe('what an agreement claims', () => {
     expect(r.status).toBe('agreed')
     if (r.status === 'agreed') {
       expect(r.replicas).toBe(1)
-      expect(r.agreeing).toEqual(['solo'])
+      expect(r.agreeing.map((e) => e.nodeId)).toEqual(['solo'])
     }
   })
 
@@ -108,7 +163,7 @@ describe('what an agreement claims', () => {
     const r = await executeVerified(task, [honest('a'), failing('b', 'oom'), honest('c')])
     expect(r.status).toBe('agreed')
     if (r.status === 'agreed') {
-      expect(r.agreeing).toEqual(['a', 'c'])
+      expect(r.agreeing.map((e) => e.nodeId)).toEqual(['a', 'c'])
       expect(r.replicas).toBe(2)
     }
   })
@@ -136,7 +191,7 @@ describe('what an agreement claims', () => {
       nodeId,
       async execute(t: Task): Promise<ExecutionOutcome> {
         seen.push({ nodeId, task: t })
-        return { ok: true, output: { sum: 42 }, fuelUsed: 100 }
+        return { ok: true, output: { sum: 42 }, fuelUsed: 100, attestation: 'signed-by-nobody' }
       },
     })
 
@@ -148,6 +203,90 @@ describe('what an agreement claims', () => {
       expect(s.task.inputCid.toString()).toBe(MODULE_CID.toString())
       expect(s.task.partitionIndex).toBe(2)
       expect(s.task.partitionCount).toBe(4)
+    }
+  })
+})
+
+/**
+ * VER-08, VER-09, VER-10 — the agreeing set says who **signed**, not only who answered.
+ *
+ * Until this arm carried attestations, a receipt computed over an agreement was worth
+ * the submitter's own word about itself: the submitter chose the node ids, held every
+ * executor and minted the whole record. These cases are about the *shape* reaching a
+ * reader. Every executor a running fabric composes still reports the sentinel, because
+ * nothing wires the signing wrapper yet, so the signed readings here compose it
+ * themselves.
+ */
+describe('an agreement says what each replica signed', () => {
+  it('hands a reader a statement it can check without trusting the requestor', async () => {
+    const a = attesting(honest('a'), 1)
+    const r = await executeVerified(task, [a.executor])
+    expect(r.status).toBe('agreed')
+    if (r.status !== 'agreed') return
+
+    const [entry] = r.agreeing
+    expect(entry?.nodeId).toBe('a')
+    if (entry === undefined) return
+
+    // Rebuilt from the caller's own view of the work — `r.output` and the task it
+    // asked for — never from anything the attestation carries.
+    const checked = verifyResultAttestation(entry.attestation, await workFor(r.output), PINNED, ISSUED_AT)
+    expect(checked.ok).toBe(true)
+    if (!checked.ok) return
+    expect(checked.certificate.nodeKey).toBe(a.nodeKey)
+    expect(checked.certificate.issuer).toBe(PROVIDER_KEY)
+  })
+
+  it('gives every entry the attestation of the node that entry names', async () => {
+    // The reading that justifies one field instead of two. A sibling `attestations`
+    // array beside `agreeing` would correspond to it only positionally, and a
+    // positional correspondence can drift with nothing able to notice. Here the two
+    // halves come off one array in one expression, so this case is what fails if the
+    // ids and the signatures are ever assembled separately.
+    const a = attesting(honest('a'), 1)
+    const c = attesting(honest('c'), 3)
+    // `b` is a replica nobody enrolled. The sentinel is its truthful statement, not a
+    // degraded reading of a signature that failed.
+    const r = await executeVerified(task, [a.executor, honest('b'), c.executor])
+    expect(r.status).toBe('agreed')
+    if (r.status !== 'agreed') return
+
+    expect(r.agreeing.map((e) => e.nodeId)).toEqual(['a', 'b', 'c'])
+    const work = await workFor(r.output)
+    const signers = new Map<string, PublicKeyHex>([
+      ['a', a.nodeKey],
+      ['c', c.nodeKey],
+    ])
+    for (const entry of r.agreeing) {
+      const expected = signers.get(entry.nodeId)
+      if (expected === undefined) {
+        expect(entry.attestation).toBe('signed-by-nobody')
+        continue
+      }
+      expect(entry.attestation).not.toBe('signed-by-nobody')
+      if (entry.attestation === 'signed-by-nobody') continue
+      // The certificate this entry carries names this entry's node, and the signature
+      // checks out under it.
+      expect(entry.attestation.certificate.nodeKey).toBe(expected)
+      expect(verifyResultAttestation(entry.attestation, work, PINNED, ISSUED_AT).ok).toBe(true)
+    }
+  })
+
+  it('puts no signature on a disagreement, so nobody can pick a winner out of them', async () => {
+    // Asserted as an absence by shape rather than left to a reading that would pass
+    // either way. Attestations on a disagreement would invite somebody to choose the
+    // side with the better-signed nodes, which is precisely what this module's header
+    // forbids: divergence is surfaced, never voted away.
+    const a = attesting(honest('a'), 1)
+    const c = attesting(liar('c', 999), 3)
+    const r = await executeVerified(task, [a.executor, c.executor])
+    expect(r.status).toBe('disagreed')
+    if (r.status !== 'disagreed') return
+
+    expect(r.partitions).toHaveLength(2)
+    for (const partition of r.partitions) {
+      expect(Object.keys(partition).sort()).toEqual(['nodes', 'resultCid'])
+      for (const node of partition.nodes) expect(typeof node).toBe('string')
     }
   })
 })
@@ -239,7 +378,7 @@ describe('a replica that could not answer is that replica failing, not divergenc
     const r = await executeVerified(task, [honest('a'), failing('b', 'oom')])
     expect(r.status).toBe('agreed')
     if (r.status === 'agreed') {
-      expect(r.agreeing).toEqual(['a'])
+      expect(r.agreeing.map((e) => e.nodeId)).toEqual(['a'])
       expect(r.replicas).toBe(1)
     }
   })
@@ -266,7 +405,7 @@ describe('a replica that could not answer is that replica failing, not divergenc
     const r = await executeVerified(task, [honest('good'), throwing('bad', 'blockstore ENOSPC')])
     expect(r.status).toBe('agreed')
     if (r.status === 'agreed') {
-      expect(r.agreeing).toEqual(['good'])
+      expect(r.agreeing.map((e) => e.nodeId)).toEqual(['good'])
       expect(r.replicas).toBe(1)
     }
   })
@@ -289,7 +428,7 @@ describe('a replica that could not answer is that replica failing, not divergenc
     const r = await executeVerified(task, [honest('a'), nanProducer('b')])
     expect(r.status).toBe('agreed')
     if (r.status === 'agreed') {
-      expect(r.agreeing).toEqual(['a'])
+      expect(r.agreeing.map((e) => e.nodeId)).toEqual(['a'])
     }
   })
 

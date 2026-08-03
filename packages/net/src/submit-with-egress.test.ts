@@ -90,6 +90,7 @@ function buildFabric(nodeId: string): Fabric {
     ledger: 'keeps-no-ledger',
     reservations: 'relays-for-nobody',
     onDispatch: 'reports-no-dispatch',
+    attest: 'signs-nothing',
   })
 
   const guard = new EgressGuard(network.connect(nodeId), OWNER_ID)
@@ -114,6 +115,7 @@ function buildFabric(nodeId: string): Fabric {
     ledger: 'keeps-no-ledger',
     reservations: 'relays-for-nobody',
     onDispatch: 'reports-no-dispatch',
+    attest: 'signs-nothing',
   })
 
   const requestorRpc = new RpcEndpoint(network.connect(`requestor-${nodeId}`), { timeoutMs: 5_000 })
@@ -125,7 +127,15 @@ function buildFabric(nodeId: string): Fabric {
     guard,
     local,
     executors: [new RemoteExecutor(nodeId, requestorRpc, 'dispatches-unauthenticated')],
-    nodes: [{ nodeId, ownerId: OWNER_ID, canExecuteSovereign: true, load: 0 }],
+    nodes: [
+      {
+        nodeId,
+        ownerId: OWNER_ID,
+        canExecuteSovereign: true,
+        load: 0,
+        certificate: 'carries-no-certificate',
+      },
+    ],
     close() {
       seedRpc.close()
       requestorRpc.close()
@@ -156,6 +166,7 @@ describe('submitJobWithEgress — a job’s manifest, reachable from the call th
         executors: fabric.executors,
         nodes: fabric.nodes,
         redundancy: 1,
+        onQuorumShortfall: 'runs-at-available-redundancy',
       }
 
       const result = await submitJobWithEgress(spec, fabric.seedStore, [fabric.guard])
@@ -194,6 +205,7 @@ describe('submitJobWithEgress — a job’s manifest, reachable from the call th
         executors: fabric.executors,
         nodes: fabric.nodes,
         redundancy: 1,
+        onQuorumShortfall: 'runs-at-available-redundancy',
       })
 
       const first = await submitJobWithEgress(specFor({ n: 1 }), fabric.seedStore, [fabric.guard])
@@ -224,6 +236,7 @@ describe('submitJobWithEgress — a job’s manifest, reachable from the call th
         executors: fabric.executors,
         nodes: fabric.nodes,
         redundancy: 1,
+        onQuorumShortfall: 'runs-at-available-redundancy',
       }
 
       const expected = await submitJob(spec, fabric.seedStore)
@@ -277,7 +290,7 @@ class WatchingExecutor implements Executor {
 
   async execute(task: Task): Promise<ExecutionOutcome> {
     this.#observe()
-    return { ok: true, output: { partition: task.partitionIndex }, fuelUsed: 1 }
+    return { ok: true, output: { partition: task.partitionIndex }, fuelUsed: 1, attestation: 'signed-by-nobody' }
   }
 }
 
@@ -287,7 +300,15 @@ function scratchGuard(nodeId: string): EgressGuard {
 }
 
 function soleOwnerNode(nodeId: string): readonly NodeDescriptor[] {
-  return [{ nodeId, ownerId: OWNER_ID, canExecuteSovereign: true, load: 0 }]
+  return [
+    {
+      nodeId,
+      ownerId: OWNER_ID,
+      canExecuteSovereign: true,
+      load: 0,
+      certificate: 'carries-no-certificate',
+    },
+  ]
 }
 
 describe('submitJobWithEgress — a submitter does not serve the row it submitted (DATA-10)', () => {
@@ -314,6 +335,7 @@ describe('submitJobWithEgress — a submitter does not serve the row it submitte
         executors: [executor],
         nodes: soleOwnerNode('watcher'),
         redundancy: 1,
+        onQuorumShortfall: 'runs-at-available-redundancy',
       },
       store,
       guards,
@@ -364,6 +386,7 @@ describe('submitJobWithEgress — a submitter does not serve the row it submitte
         executors: [executor],
         nodes: soleOwnerNode('watcher'),
         redundancy: 1,
+        onQuorumShortfall: 'runs-at-available-redundancy',
       },
       store,
       [submitterGuard],
@@ -429,6 +452,7 @@ describe('submitJobWithEgress — a submitter does not serve the row it submitte
           executors: [new WatchingExecutor('watcher', () => {})],
           nodes: soleOwnerNode('watcher'),
           redundancy: 1,
+          onQuorumShortfall: 'runs-at-available-redundancy',
         },
         failing,
         [guard],
@@ -462,6 +486,7 @@ describe('submitJobWithEgress — a submitter does not serve the row it submitte
         executors: [executor],
         nodes: soleOwnerNode('watcher'),
         redundancy: 1,
+        onQuorumShortfall: 'runs-at-available-redundancy',
       },
       store,
       [guard],
@@ -500,6 +525,7 @@ describe('submitJobWithEgress — a submitter does not serve the row it submitte
         executors: [executor],
         nodes: soleOwnerNode('watcher'),
         redundancy: 1,
+        onQuorumShortfall: 'runs-at-available-redundancy',
       },
       store,
       [guard],

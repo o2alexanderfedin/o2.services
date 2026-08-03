@@ -48,12 +48,22 @@ const ALICE_1: NodeDescriptor = {
   // criterion 5 requires be filtered AFTER the sovereignty constraint rather than scored
   // against it, so the fixture makes the owner the expensive choice on purpose.
   load: 1,
+  // No node here carries one. `placeWithOffers` reads owner, clearance and load, and
+  // this file is about which of those three decides — so the certificate is stated as
+  // absent rather than left off, which is the distinction the field exists to make.
+  certificate: 'carries-no-certificate',
 }
-const ALICE_2: NodeDescriptor = { nodeId: 'alice-2', ownerId: 'alice', canExecuteSovereign: true, load: 1 }
+const ALICE_2: NodeDescriptor = {
+  nodeId: 'alice-2',
+  ownerId: 'alice',
+  canExecuteSovereign: true,
+  load: 1,
+  certificate: 'carries-no-certificate',
+}
 const BOB: readonly NodeDescriptor[] = [
-  { nodeId: 'bob-1', ownerId: 'bob', canExecuteSovereign: true, load: 0 },
-  { nodeId: 'bob-2', ownerId: 'bob', canExecuteSovereign: true, load: 0 },
-  { nodeId: 'bob-3', ownerId: 'bob', canExecuteSovereign: true, load: 0 },
+  { nodeId: 'bob-1', ownerId: 'bob', canExecuteSovereign: true, load: 0, certificate: 'carries-no-certificate' },
+  { nodeId: 'bob-2', ownerId: 'bob', canExecuteSovereign: true, load: 0, certificate: 'carries-no-certificate' },
+  { nodeId: 'bob-3', ownerId: 'bob', canExecuteSovereign: true, load: 0, certificate: 'carries-no-certificate' },
 ]
 
 function sovereignFor(ownerId: string | undefined, redundancy = 1): PlacementRequest {

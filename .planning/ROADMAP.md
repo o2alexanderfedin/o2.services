@@ -641,22 +641,218 @@ Criterion 6 needs no plan — it landed on `develop` as `351bde1` before this ph
 **Mode:** mvp
 **Depends on**: Phase 18, Phase 17
 **Requirements**: AUTH-05, NET-06, VER-03, VER-04, VER-08, VER-09, VER-10, WIRE-03
-**Research**: None — `composeQuorum`, `attestationReceipt`, and `resolveReplicaSets` exist and are unit-verified in Phase 6; the gap is that nothing on the production dispatch path calls them, and no test has ever put two tabs on a static bundle without a harness dialing for them
+**Research**: None — but *"the gap"* is three different gaps, and calling them one is what this line got wrong. **Corrected in place 2026-08-03 by plan 19-03**; the superseded sentence and the measurements that refute it are in the dated note below the criteria. `attestationReceipt` and `resolveReplicaSets` exist, are unit-verified in Phase 6, and are indeed only *uncalled* on the production dispatch path. `composeQuorum` is not in that state: VER-03's anchored replica is **unimplemented rather than unwired**, and its ok arm returns `strength: 'independent'` unconditionally while never calling `classifyAttestation`, so wiring it as it stood would have reported every quorum `independent`. And no test had ever put two tabs on a static bundle without a harness dialing for them — that one is closed by 19-03
 **Constraints** (recorded 2026-07-28 by Phase 13, before criterion 2's plan is written):
   - Raw sovereign data does not move between nodes, including two nodes the same owner controls — `EgressGuard.send` refuses any frame carrying a registered sovereign payload rather than forwarding it (Plan 13-04). Criterion 2 below is therefore reachable only if the owner has already placed the input on both of their live nodes; the fabric will not fetch it onto the second one. See the **Raw sovereign data does not move between nodes** row in `.planning/PROJECT.md`'s Key Decisions
-  - That refusal path has no runtime coverage in a real tab anywhere. `BrowserNode` composes the identical `EgressGuard` and `registerSovereignInputs` wiring `FabricNode` does, but no sovereign job has ever run in a browser, so the refusal branch is compiled and never executed. This is the same structural gap `12-VERIFICATION.md` recorded and `13-03-PLAN.md` already routed to WIRE-03; naming it here so the WIRE-03 planner knows there is now a *behavior* to exercise and not only a composition to inspect
+  - **CORRECTED 2026-08-02 — this bullet previously said two things that are false, and both would have misdirected the WIRE-03 planner.** It read: *"`BrowserNode` composes the identical `EgressGuard` and `registerSovereignInputs` wiring `FabricNode` does, but no sovereign job has ever run in a browser, so the refusal branch is compiled and never executed."* (1) **`registerSovereignInputs` does not exist in this repository** — zero definitions, zero calls. The name was retired; the real symbols are `takeSovereignHold` and `withholdingFrom`, both exported at `packages/net/src/index.ts:77`, and `packages/net/src/capability-authorizer.ts:20-25` already records this verbatim. The planning documents inherited a name the source had dropped — the same failure this bullet's neighbour below documents for a different sentence. (2) **"No sovereign job has ever run in a browser" is refuted**: `packages/node/src/browser-capability.e2e.test.ts` dispatches three `label:'sovereign'` tasks (`:280-281`) to a live tab started with `canExecuteSovereign: true` (`:213`) and asserts the third is *accepted and executed* (`:349-353`)
+  - **What the composition claim gets right, and what actually remains unexecuted in a tab.** The composition holds line for line: guard construction (`fabric-node.ts:1284` / `browser-node.ts:851`), disposition object (`:1345` / `:885`), `withholdingFrom` (`:1366` / `:897`), `egress:` hook (`:1525` / `:1094`). What is *not* executed in a tab is narrower than "the refusal branch", and the source is more precise than this roadmap was: the **`authorize`/AUTH-03 refusal is executed** in a real tab; the **`EgressGuard`/`withholdingFrom` refusal is unconfirmed** — no e2e spec drives a sovereign payload out of a tab and reads the guard's refusal, and `two-tabs.e2e.test.ts:275-277` reads the *clean* manifest on a *public* job, the positive arm only; and the **`capacity`/SCHED-06 refusal is explicitly unexecuted, with the source naming this phase** — `packages/browser/src/browser-node.ts:1176-1184` says *"nothing drives a refusal through this hook … WIRE-03, Phase 19 builds the harness that would measure it."* Those two are WIRE-03's real content. This is the same structural gap `12-VERIFICATION.md` recorded and `13-03-PLAN.md` routed to WIRE-03
   - **Browser-tier testing standard, one host and several browsers** (owner ruling, 2026-07-28): Playwright multi-browser on this machine — `instances: [{browser:'chromium'},{browser:'firefox'},{browser:'webkit'}]` — each peer in its own **isolated browser context** so it gets its own origin storage and IndexedDB, plus a **locally-started Circuit Relay v2 peer to dial**. Three engines on one host are three independent implementations and three independent storage backends; they are **not** three machines, and no result obtained this way may be labelled cross-machine or distributed-hardware. This standard is what makes criterion 4 runnable at all, and it **unblocks four items deferred for want of a multi-browser environment**: `BrowserNode.start()` has no dedicated runtime test anywhere in the repository (Phase 11, `11-VERIFICATION.md`); `BrowserNode`'s `guardSovereignty` wiring has zero runtime proof (Phase 12, `12-VERIFICATION.md`); `BrowserNode.egress` is unproven at runtime (Phase 13, threat T-13-08 in `13-03-PLAN.md`); and the Phase 13 `EgressGuard` refusal inherits into the browser tier untested (`13-VERIFICATION-2.md`). The recorded root cause was one sentence shared by all four — `BrowserNode.start()` needs a real `indexedDB` and a relay to dial, so it runs in **neither** vitest project — and **that sentence was false**. Retired in the source by Plan 15-05 and corrected here on 2026-08-01; it had survived at the package boundary, in the two documents a planner reads first. Corrected: the **`browser`** project cannot host such a test, because a Circuit Relay v2 server *"will not work in browsers"* in `@libp2p/circuit-relay-v2`'s own words; the **`e2e`** project can and **needs no relay at all**, because the tab dials a Node submitter's WebSocket listener directly. `packages/node/src/browser-capability.e2e.test.ts` starts that factory against a live tab today. The multi-browser standard above is still what criterion 4 needs — two tabs finding *each other* do need a relay — but it is not what unblocks the four deferred items, and treating it as such is what let them stay deferred. Full statement in REQUIREMENTS.md under WIRE-03
 **Success Criteria** (what must be TRUE):
-  1. A verification quorum assembled during a job run through `bin/agent.ts` contains at least one backbone-anchored replica and no two replicas from the same operator — a run engineered to try to fill a quorum from one operator's nodes is refused rather than silently accepted
+  1. A verification quorum assembled during a job run through `bin/agent.ts` rests on no single shared reachability dependency and contains no two replicas from the same operator — a run engineered to try to fill a quorum from one operator's nodes is refused rather than silently accepted, and so is one whose members all hang off the same relay
+
+<!-- CRITERION 1's FIRST CLAUSE REWORDED 2026-08-03 BY OWNER RULING. It read "contains at least
+     one backbone-anchored replica". The property is unchanged and the bar is NOT lowered — this
+     is a correction of wording that encoded a forbidden mechanism, not a criterion rewritten to
+     let a phase close.
+
+     WHAT WENT WRONG. "Backbone-anchored" was implemented in plan 19-02 as
+     `discoverability === 'seed'`, which collides head-on with `STATE.md:479-480`: *if a decision
+     keys on node kind, it is wrong — the only legitimate use is shared-dependency analysis over
+     the discovery graph.* It also contradicted a measured result: Phase 3 dialled an iPhone at
+     its `/p2p-circuit/webrtc` address and it ran half of a 2×-redundant job, so a
+     relay-discovered peer had already held a verification slot. The relay is a signalling
+     channel for registration and discovery, not a data path, and it drops out once peers
+     connect. Retracted in `0314208`.
+
+     WHY THE REWORDING IS FAITHFUL. VER-03's own rationale clause has always been *"so eclipsing
+     a quorum requires a backbone compromise"* — the requirement is **eclipse resistance**, and
+     shared-dependency analysis is the cardinal rule's named-legitimate way to express it.
+     `composeQuorum`'s rule 2 (`sharedRelay` over the chosen member set) delivers exactly that
+     property, and 19-02's own retraction measured why it must sit on the MEMBER set rather than
+     the candidate pool: a pool of relay-1/relay-1/relay-2 passes a pool-level check and then
+     draws two members both on relay-1 — a redundancy of two against a single point of failure.
+
+     THE DEFECT'S SHAPE, WORTH KEEPING. The old rule turned a repair into a refusal and put the
+     refusal before the thing it was about. If a quorum's dependencies are too concentrated the
+     answer is to draw a different member, not to refuse composition on what kind of node
+     somebody is. -->
+
   2. Several node certificates chaining to one owner's user key resolve, through `bin/agent.ts`, as a single discoverable replica set; a sovereignty-pinned task with two or more of that owner's nodes live executes on two of them, the outputs are compared, and the receipt reports the agreement as owner-domain, not independent-operator
   3. The same task with only one of that owner's nodes live executes once, and the resulting receipt reads owner-attested rather than verified, wherever it is displayed — CLI output, demo UI, or job result
-  4. Two browser peers opened against the static demo bundle — no seed process running, no `/bootstrap.json`, nothing dialed by a test harness — discover each other via the wired `index`/`reservations` hooks and complete a job together, proving browser peers participate in routing as full peers rather than only through backbone-served fallback. Run on **one host** under Playwright multi-browser (`chromium`, `firefox`, `webkit`), each peer in its own isolated context, against a locally-started relay — see the browser-tier testing standard in Constraints above; the result is a one-host result and is labelled as one
+  4. Two browser peers opened against the static demo bundle — no seed process running, no `/bootstrap.json`, nothing dialed by a test harness — discover each other via the `index` hook each of them serves and the `reservations` answer the relay gives, and complete a job together, proving browser peers participate in routing as full peers rather than only through backbone-served fallback. Run on **one host** under Playwright multi-browser (`chromium`, `firefox`, `webkit`), each peer in its own isolated context, against a locally-started relay — see the browser-tier testing standard in Constraints above; the result is a one-host result and is labelled as one
+
+<!-- CRITERION 4's HOOK PHRASING CORRECTED 2026-08-03 BY PLAN 19-03, AND THE CORRECTION WAS
+     ITSELF CORRECTED BY OWNER RULING THE SAME DAY. The property is unchanged and the bar is
+     not lowered. This is a factual correction to a statement about the source, not a criterion
+     adjusted so a phase can close — RULING A above is explicit that a criterion is not
+     rewritten to let a phase close, and no other criterion text in this entry is touched.
+
+     WHAT IT USED TO SAY. *"discover each other via the wired `index`/`reservations` hooks"*.
+     That reads as though both hooks were wired on both tiers, and one of them is not.
+
+     WHAT WAS MEASURED. `index` is wired on both tiers and identically: `index: records` at
+     `browser-node.ts:1178` and `fabric-node.ts:1578`, each built by the same `ownRecords(
+     certificate, identity, sovereignty.canExecuteSovereign, store, withholdingFrom(
+     egressDisposition))` call over its own tier's store. `reservations` is wired on the Node
+     tier only — a real thunk over the reservation store at `fabric-node.ts:1601` — while the
+     browser tier supplies the **named absence** `'relays-for-nobody'` at `browser-node.ts:1201`.
+
+     WHY NOT SIMPLY NAME `index` ALONE. `19-CONTEXT.md` proposed exactly that, and the owner
+     ruled on 2026-08-03 that it **understates** the criterion. Both hooks are load-bearing;
+     they are just load-bearing on different nodes. The rendezvous answer that introduces two
+     tabs comes from the relay's `reservations` thunk, and each tab's own `index` hook is what
+     makes it a full routing peer rather than a client of one — which is precisely the clause
+     *"as full peers rather than only through backbone-served fallback"*. Dropping the second
+     name would have left that clause resting on nothing.
+
+     WHAT THE ASYMMETRY IS AND IS NOT. It is a statement about what each node *knows*, not
+     about what either is permitted to do. A tab holds no reservations of its own, so a tab
+     answering `reservations` would be reporting on peers it learned from a relay — a different
+     claim than the hook makes. **This is not a node-class decision** and must not be read as
+     one; giving the browser tier a real `reservations` thunk is deferred by decision, and if a
+     later phase wants it, it is a protocol question about what the hook asserts.
+
+     MEASURED, not argued from construction: `packages/node/src/static-rendezvous.e2e.test.ts`
+     takes both readings on the built bundle with no origin to ask and no harness dial. -->
+
   5. **Enrolling a node costs an attacker something they cannot mint for free**, and the cost is measured: creating the N-th fake identity is demonstrably more expensive than creating the first. Routed here by owner ruling 2026-08-01 from Phase 17's AUTH-04, whose rate-limiting half is proven and whose cost half is not
 
 **Criterion 5 exists because Phase 17 measured its own rate limit and found what it does not buy.** The burst limit is real and fully proven — a stated threshold read out of the refusal the peer received, `limit: 5 / windowMs: 3_600_000` on the wire. But AUTH-04's text asks that mass fake-node creation be *"measurably costly"*, and Phase 17's verification established two things that defeat it. The limit is keyed on `userKey`, which is **one `ed25519.keygen()`** — so twenty distinct user keys all enrol unslowed, and removing the rate guard entirely leaves that test green. And the budget is per provider **process**: a second provider defeats it without needing a second user key at all, asserted across two spawned providers.
 
 It lands here rather than in Phase 17 because the remedy is a design decision this phase is already making — what scarce thing an identity must present. This phase owns AUTH-05 and the attestation-strength machinery, so the natural candidates (a provider-issued invitation chained to an owner key, a persistent cross-process budget, or proof-of-work) all sit beside work already scheduled here. **AUTH-04 stays open until then**; Phase 17 records the rate-limiting half as measured and the cost half as not, in those words.
-**Plans**: TBD
+**Plans:** 18 plans, 8 waves
+
+Plans:
+- [ ] 19-01-PLAN.md — the certificate seam: `NodeDescriptor` carries the certificate discovery already held, or names its absence; `discoverCandidates` reports replica sets
+- [ ] 19-02-PLAN.md — `composeQuorum` gains the backbone anchor VER-03 never had, and reports the strength its members support instead of the constant it always declared
+- [ ] 19-03-PLAN.md — criterion 4: three browser peers on the static bundle, three engines, one relay, nothing dialled by the harness; plus this entry's three recorded corrections
+- [ ] 19-04-PLAN.md — WIRE-03: the two refusals a tab has never executed — the egress refusal on the browser submitter path, and the `exec` refusal at the slot limit
+- [ ] 19-05-PLAN.md — criterion 5, mechanism half: a second budget on the one quantity an attacker cannot rotate — the provider's own aggregate issuance — and an issuance ledger the host owns rather than the authority's heap
+- [ ] 19-06-PLAN.md — `submitJob` composes the quorum for public shards at redundancy ≥ 2 and emits the attestation receipt on every shard and every job
+- [ ] 19-07-PLAN.md — criterion 5, cost half: the durable issuance record on both tiers, the flag, and the budget that a provider restart does not hand back, measured across real processes
+- [ ] 19-08-PLAN.md — criterion 1 across real `bin/agent.ts` processes, with two engineered fabrics — one operator, and no anchor — each refused in the composer's own words
+- [ ] 19-09-PLAN.md — criterion 2 and AUTH-05: a node's owner id becomes its enrolled user key, and two of one owner's nodes agree as `owner-domain`
+- [ ] 19-10-PLAN.md — criterion 3 on the CLI: `bin/bench.ts` prints the receipt, and three readings are taken off the spawned driver's own stdout
+- [ ] 19-11-PLAN.md — criterion 3 in the demo UI, and the page's unconditional claim that every cube ran twice on different nodes is corrected
+- [ ] 19-12-PLAN.md — the ledger: one mutation entry per instrument, and requirement rows moved only as far as what landed supports
+- [ ] 19-13-PLAN.md — the third signing leg: a result a node signs with its certified key, the wrapper that produces it, and the wire that carries it
+- [ ] 19-14-PLAN.md — the agreeing set carries what each replica signed rather than a list of node ids the requestor chose
+- [ ] 19-15-PLAN.md — wired: both factories sign both verbs from one identity, and a signature verifies across a real process boundary
+- [ ] 19-16-PLAN.md — the aggregation is signed too: the combining node signs what it merged and what it produced, and `serveAgent` grows the one hook both verbs reach their key through
+- [ ] 19-17-PLAN.md — two receipts, because there are two claims: the aggregation's own strength, verified from combine signatures and printed beside the map job's
+- [ ] 19-18-PLAN.md — the strictness dial: every submitter states what it wants when verification cannot be composed, and not choosing stops being expressible
+
+<!-- Plan number is NOT wave order in this phase, and has not been since 19-04 was scheduled
+     after 19-05. Waves are: 1 = 01, 02, 03, 13; 2 = 05, 14; 3 = 18; 4 = 06, 16;
+     5 = 08, 10, 15; 6 = 04, 09; 7 = 07, 11, 17; 8 = 12. Every plan's frontmatter carries its
+     own `wave`, and
+     that is the authority — this list is ordered by number so a reader can find a plan, not by
+     when it runs. Machine-checked at planning time: every `depends_on` resolves to a strictly
+     earlier wave, and no two plans in one wave share a `files_modified` entry. -->
+
+<!-- PLANNED 2026-08-02. Three things a verifier should know before scoring this phase, all
+     of them decided at planning time rather than left to be discovered.
+
+     ENTRY-POINT SUBSTITUTION FOR CRITERIA 1 AND 2. `bin/agent.ts` never submits a job —
+     zero hits for `submitJob`, `JobSpec` or `executeVerified`; it is a serving node whose
+     only stdout is a handshake JSON at `:601`. *"A job run through `bin/agent.ts`"* is
+     satisfiable only as *"a job run **across** `bin/agent.ts` processes"*, which is the
+     shape `discovery-agents.node.test.ts` already uses for Phase 18's criteria 1 and 2.
+     Plans 19-08 and 19-09 take that shape and say so in their own headers. Recorded here
+     the way Phase 18 recorded its own at line 592, rather than left for verification.
+     Re-measured 2026-08-03 by plan 19-03, whose own task list carried this substitution as a
+     third correction to make: still zero hits for all three symbols, and `process.stdout.write`
+     still occurs exactly once in the file, at `:601`. Nothing was added — the record was
+     already correct, and duplicating it would have made one measurement look like two.
+
+     THE `Research: None` LINE ABOVE IS WRONG ON TWO COUNTS, both measured 2026-08-02.
+     VER-03's backbone-anchored replica is **unimplemented**, not unwired — `composeQuorum`
+     sorts by `relayIds.length` and refuses on a *shared* relay, and nothing anywhere
+     requires an anchored member; there is no `backbone` symbol in `packages/*/src` at all.
+     And `composeQuorum` returns `strength: 'independent'` **unconditionally** on its ok arm
+     while never calling `classifyAttestation`, so wiring it as it stood would have made
+     every quorum report `independent` including a size-1 one. Plan 19-02 fixes both; plan
+     19-03 corrects this line in place.
+
+     CRITERION 5's MECHANISM WAS DECIDED BY THE OWNER ON 2026-08-02, AND IT IS NONE OF THE
+     THREE CANDIDATES NAMED ABOVE AS THEY WERE FRAMED. Plan 19-05 originally opened with a
+     blocking decision between an invitation chain, a persistent budget and proof-of-work. The
+     ruling: the scarce thing an identity must present *already exists* — a provider-issued
+     certificate an attacker cannot mint, because `verifyCertificate` refuses an untrusted
+     issuer. What is not scarce is **issuance**. So the mechanism is a persistent, cross-process
+     **aggregate** issuance budget — how many certificates one provider will sign per window,
+     held where a restart cannot clear it — and nothing else. A budget keyed on any request
+     field is one the attacker rotates around, which is Phase 17's finding restated rather than
+     fixed. Plans 19-05 and 19-07 were replanned against it; the invitation, proof-of-work and a
+     larger rate limit are all off the table. The full ruling is in `19-CONTEXT.md` under
+     *"The signing triangle"*.
+
+     WHAT THAT MECHANISM IS, SO A VERIFIER SCORES THE EVIDENCE RATHER THAN THE WORDING. It is a
+     **bound made durable, not a per-identity price**: the N-th identity is *refused* inside the
+     window, and the refusal survives a provider restart. Criterion 5's phrase *"demonstrably
+     more expensive than the first"* can be read as requiring a rising price, and nothing in this
+     phase delivers one — no such price exists in this design and none was built. If a verifier
+     takes that reading, PARTIAL is the honest score and RULING A applies unchanged: a criterion
+     is not rewritten to let a phase close. Plan 19-07's own test file states the reading in its
+     header so the dispute surfaces at planning time rather than at verification.
+
+     THE PHASE ALSO ADDS THE THIRD SIGNING LEG, AND CRITERIA 2 AND 3 NOW DEPEND ON IT. Two legs
+     existed: the code a node runs is signed by its publisher (Phase 14, `guardModuleProvenance`
+     against pinned `trustAnchors`), and the node's certificate is signed by its provider
+     (Phase 17, `verifyCertificate` against `trustedIssuers`). The result a node returns was
+     signed by nobody — agreement was attested by transport authentication only, which is not
+     transferable, and `VerificationResult.agreeing` carried plain node-id strings. Plans 19-13,
+     19-14 and 19-15 add the leg for `exec`, and Plan 19-06 makes a certificate count toward a
+     receipt only when that node's signature over *this* result verifies. A receipt built
+     without it is the submitter's word about itself, so VER-08/09/10 may not be ticked on one —
+     recorded in Plan 19-12's disposition. Certificate lifetimes are explicitly **not** part of
+     any of this: the owner corrected an earlier draft that called for short ones, because the
+     attack radius does not justify them. No renewal machinery is planned and none may be added.
+
+     AND THE LEG COVERS THE COMBINE VERB TOO — owner decision 2026-08-02, taken after the first
+     three plans were written. Signing `exec` alone would have left a map/reduce job ending with
+     signed map results feeding an **unsigned aggregation**, which is precisely the half
+     `PROJECT.md` calls the verified one: *the owner's contribution is trusted; the aggregation
+     over contributions is verified*. `ReduceOutcome.executedBy` is a map of peer-id strings —
+     the combine verb's exact analogue of the defect being fixed for `exec`. Plan 19-16 has the
+     combining node sign the input set it merged, in merge order, and the result it produced;
+     Plan 19-17 verifies those signatures inside `reduceJob` and reports the aggregation's own
+     strength beside the map job's. **Two receipts, never one restated**: a sovereign map is
+     owner-attested by construction while the aggregation over it can be redundant, so they
+     routinely differ, and VER-08/09/10 may not be ticked on half the claim.
+
+     THE ISSUANCE BUDGET OPENS A DENIAL OF SERVICE, AND THE OWNER ACCEPTED IT AS A TRADE.
+     `serveAgent` serves enrolment unauthenticated, so anyone able to dial a provider can burn
+     its whole window at one `ed25519.keygen()` per attempt — where before the aggregate budget
+     they could burn only their own user key's window. No mitigation machinery is built: the
+     answer is that trust is per-verifier and pinned, so a burned provider is routed around by
+     trusting or running another. **But every fixture in this repository and the demo are
+     single-provider, so that recovery is an argument and not a reading.** Both sentences belong
+     in AUTH-04's row. *Unmeasured is not met* applies to a mitigation exactly as it applies to
+     a mechanism, and "mitigated by design" is not a phrase this row may use.
+
+     THE QUORUM IS THE DEFAULT AND IT IS OPTIONAL — owner ruling 2026-08-03, taken after 19-06
+     and 19-08 were written and requiring both to be replanned. A public shard at redundancy >= 2
+     whose candidate set cannot compose a valid quorum **degrades**: it runs at whatever
+     redundancy is available, is marked degraded, and its receipt reports the weaker strength.
+     **It does not fail the job.** Phase 12 already retired `not-enough-executors` for the same
+     reason, and criterion 1's load-bearing word is *silently* — `classifyAttestation` labels a
+     one-operator agreement `owner-attested` or `owner-domain` and never `independent`, so the
+     weaker outcome is named by construction. The exception is caller-set: Plan 19-18 puts a
+     **required two-armed dial** on `JobSpec`, and a caller that would rather have nothing than a
+     weaker answer takes the strict arm. Required rather than optional because this phase has
+     twice measured the alternative — Plans 19-01 and 19-13 each planted "make it optional and
+     omit it" and each saw `tsc --noEmit` exit 0 while the behavioural assertion failed. The
+     fan-out across every submitter is the point, not the cost.
+
+     THIS IS THE RETRACTED ANCHOR RULE'S SHAPE, AND IT IS WHY BOTH WERE CAUGHT THE SAME WEEK.
+     That defect turned a repair into a refusal and put the refusal before the thing it was
+     about. A candidate set too concentrated to verify is a condition the caller does not
+     control; the answer is to report what was achieved, not to kill the job — unless the caller
+     said in advance that a weaker answer is useless to them. Plan 19-08 now measures the same
+     over-concentrated fabric on **both** arms of the dial over one live fixture, because two
+     fabrics behaving differently proves nothing about a dial and one fabric submitted twice
+     does. -->
 
 ### Phase 20: Single Job Path, Ledger & Churn Resilience
 **Goal**: `submitJob` becomes the one job path — lease renewal, speculation, and coverage accounting live inside it, not in a second uncalled implementation — and the peer ledger records real cross-node outcomes instead of discarding them

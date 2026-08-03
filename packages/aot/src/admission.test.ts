@@ -216,6 +216,7 @@ describe('a translated artifact reaches the fabric through the public entry poin
         executors: nativeNodes,
         nodes: publicNodes(nativeNodes),
         redundancy: 2,
+        onQuorumShortfall: 'runs-at-available-redundancy',
       },
       blockstore,
     )
@@ -226,6 +227,7 @@ describe('a translated artifact reaches the fabric through the public entry poin
         executors: wasiNodes,
         nodes: publicNodes(wasiNodes),
         redundancy: 2,
+        onQuorumShortfall: 'runs-at-available-redundancy',
       },
       blockstore,
     )

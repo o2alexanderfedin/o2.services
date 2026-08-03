@@ -93,6 +93,7 @@ async function servingNode(options: {
     ledger: 'keeps-no-ledger',
     reservations: 'relays-for-nobody',
     onDispatch: options.reportsDispatch === true ? (from) => ranFor.push(from) : 'reports-no-dispatch',
+    attest: 'signs-nothing',
   })
 
   return {

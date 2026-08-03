@@ -52,6 +52,7 @@ function node(
     ledger,
     reservations: 'relays-for-nobody',
     onDispatch: 'reports-no-dispatch',
+    attest: 'signs-nothing',
   })
   return rpc
 }

@@ -46,13 +46,52 @@
  *
  * ## What "mass fake-node creation is costly" means here, precisely
  *
- * `EnrollmentAuthority` rate-limits issuance per owner over a sliding window. That
- * makes fake nodes *rate-limited*, not *expensive*: an attacker with many owner
- * identities is not slowed, and the ceiling is a policy number rather than a physical
- * one. Making it genuinely costly needs something the attacker must spend — a
- * proof-of-work, a payment, or an out-of-band identity check — and that is a scope
- * decision, not a coding one. The limit here is the enforcement point those would plug
- * into, and the gap is stated rather than papered over.
+ * **Two budgets, answering different questions.** `maxPerWindow` bounds how many
+ * certificates **one user key** may obtain in a window. `maxIssuedPerWindow` bounds how
+ * many this provider **will sign in a window at all**, whoever asked. Only the second
+ * one bounds an attacker, because nothing in an enrolment request is scarce: `userKey`,
+ * `operatorId` and `relayIds` are all requester-chosen, and a fresh user key is one
+ * `ed25519.keygen()`. Phase 17 measured that — twenty requests under twenty distinct
+ * user keys all succeeded, and deleting the per-user guard left the reading unchanged.
+ *
+ * **What the aggregate budget buys.** Issuance is finite per provider per window, on a
+ * quantity no request field can rotate around; and because both budgets read a ledger
+ * the **host** owns rather than this object's heap, a provider that restarts can be
+ * handed back everything it already issued.
+ *
+ * **What it does not buy, in the words that have to keep being used for it: a bound made
+ * durable, not a per-identity price.** It does not make one identity cost an attacker
+ * something they can pay unilaterally. It makes identities finite per provider per
+ * window, and makes exhausting them durable and visible. This repository has twice been
+ * burned by a mechanism whose description outran its measurement, and the honest
+ * description of this one is that short.
+ *
+ * **What it costs, accepted deliberately rather than mitigated** (owner decision
+ * 2026-08-02). `serveAgent` serves enrolment **unauthenticated**, so anyone who can dial
+ * a provider can consume its whole window at one `ed25519.keygen()` per attempt — where
+ * before the aggregate budget they could consume only *their own* user key's window. An
+ * attacker who does that also denies honest enrolment against that provider for the rest
+ * of the window. The architectural answer is the one the whole design rests on: trust is
+ * pinned **per verifier**, so several independent providers coexist by construction, a
+ * starved one is routed around by trusting or running another, and nothing global has to
+ * recover because nothing global was ever agreed. It is **not** a shared list of
+ * anything, and a reader reaching for one should be sent back to `19-CONTEXT.md`'s
+ * NO BLOCKCHAIN constraint.
+ *
+ * **And that answer is untested here.** Every fixture in this repository and the demo
+ * itself are **single-provider**, so the multi-provider recovery is an argument and not a
+ * reading. *Unmeasured is not met* — which applies to a mitigation exactly as much as to
+ * a mechanism. No mitigation machinery is built: no proof-of-work at the enrolment frame,
+ * no authenticated enrolment, no per-peer quota. The trade was a trade, and the next
+ * reader is owed that word rather than a claim of design.
+ *
+ * **Why a shorter certificate lifetime is not part of this argument** (owner correction
+ * 2026-08-02). The attack radius does not pay for renewal churn: results are signed and
+ * attributable, integrity rests on N-version comparison rather than on trusting an
+ * identity, `composeQuorum` enforces anti-affinity by `operatorId` so N sybils under one
+ * operator take exactly one quorum slot, and sovereign data never leaves its owner's
+ * node. Revocation is **non-renewal on the certificate's own clock**, not a list and not
+ * a shorter clock; `certificateLifetimeMs` keeps its default.
  *
  * Pure module.
  */
@@ -195,15 +234,123 @@ export type EnrollmentRefusal =
   /** The named user did not sign. A different event from the one above — see `enrol`. */
   | { readonly kind: 'bad-owner-proof'; readonly userKey: PublicKeyHex }
   | { readonly kind: 'rate-limited'; readonly userKey: PublicKeyHex; readonly limit: number; readonly windowMs: number; readonly retryAfterMs: number }
+  /**
+   * This provider has signed its stated number of certificates for this window.
+   *
+   * **Carries nothing about the requester, and that is the point of it being its own
+   * kind.** `rate-limited` names a `userKey` because it *is* about that user; this one
+   * is about the provider. A requester who met this did nothing wrong, and an operator
+   * who read a user key here would go looking in the wrong place. The next action
+   * differs too: a rate-limited requester waits, one who met an exhausted provider
+   * finds another.
+   */
+  | { readonly kind: 'issuance-budget-exhausted'; readonly limit: number; readonly windowMs: number; readonly retryAfterMs: number }
 
 export type EnrollmentResult =
   | { readonly ok: true; readonly certificate: NodeCertificate }
   | { readonly ok: false; readonly refusal: EnrollmentRefusal; readonly reason: string }
 
+/**
+ * How many certificates one authority will sign in a window, **to anybody**.
+ *
+ * A required union with a named sentinel rather than an optional number, and the reason
+ * is specific to this field: an omitted optional would leave the one mechanism that
+ * bounds an attacker switched off with **nothing anywhere failing**. This phase measured
+ * that shape twice — 19-01 and 19-13 each planted "make it optional and omit it" and each
+ * saw `tsc --noEmit` exit 0 while the behavioural assertion failed. A default here would
+ * also be a policy nobody chose. A provider that signs without an aggregate budget has to
+ * say so in its own construction.
+ */
+export type IssuanceBudget =
+  /** Certificates this authority will sign per window, whoever asks. */
+  | number
+  /** This authority signs with no aggregate budget: only the per-user window bounds it. */
+  | 'issues-without-an-aggregate-budget'
+
+/**
+ * Where an authority's issuance history lives — **the host's, not the authority's**.
+ *
+ * Both budgets read this. The authority holds no history of its own, which is what lets
+ * a provider that restarts be handed back everything it already issued: how a host makes
+ * a write durable is the host's problem, on each tier.
+ *
+ * **Synchronous is a requirement, not a preference.** `packages/net/src/agent.ts` records
+ * at its `enrol` branch that `EnrollmentAuthority.enrol` is fully synchronous, *and* that
+ * this is **why** the branch takes no capacity slot — nothing can interleave around a
+ * synchronous call, so a slot taken there would be a reported bound rather than a
+ * measured one. An `await` inside this port would silently invalidate that recorded
+ * argument in a file nothing here opens.
+ *
+ * **Pruning to the window is the authority's, not the ledger's.** A ledger that pruned
+ * would need to know `windowMs`, which is the authority's policy — and a host that got it
+ * wrong would silently widen or narrow *both* budgets with nothing anywhere failing. So a
+ * ledger returns everything it holds and this module filters. The consequence, stated
+ * rather than left to be found: an implementation accumulates one timestamp per
+ * certificate issued, for as long as it is kept. Compaction is the host's, beside
+ * durability, and neither is decided here.
+ */
+export interface IssuanceLedger {
+  /** Every issue timestamp recorded for one user key. Unpruned. */
+  issuedTo(userKey: PublicKeyHex): readonly number[]
+  /** Every issue timestamp recorded for anybody. Unpruned. */
+  issuedToAnybody(): readonly number[]
+  /** Record one issuance. Called only after a certificate has been signed. */
+  record(userKey: PublicKeyHex, at: number): void
+}
+
+/**
+ * A host's issuance history, or the named admission that there is not one.
+ *
+ * The sentinel means *this authority remembers only within this process*, and taking it
+ * reproduces the pre-Phase-19 behaviour **exactly** — which is the point of it being a
+ * sentinel rather than a default. Phase 17 measured that behaviour as defeating the
+ * limit: a second provider process starts with an empty history, so the same user key is
+ * accepted again immediately. That is now something a caller has to **ask for by name**.
+ *
+ * The failure mode a reader must not reintroduce: make this optional and default it to
+ * the in-process implementation, and the mechanism degrades to exactly the per-process
+ * budget Phase 17 measured as defeated, **with nothing anywhere failing**. That is why it
+ * is required, and why a host with nothing durable to offer writes the sentinel rather
+ * than omitting a field.
+ */
+export type IssuanceHistory = IssuanceLedger | 'remembers-only-within-this-process'
+
+/** What the sentinel selects: a history that lives and dies with this object. */
+class InProcessIssuance implements IssuanceLedger {
+  readonly #byUser = new Map<PublicKeyHex, number[]>()
+  readonly #anybody: number[] = []
+
+  issuedTo(userKey: PublicKeyHex): readonly number[] {
+    return this.#byUser.get(userKey) ?? []
+  }
+
+  issuedToAnybody(): readonly number[] {
+    return this.#anybody
+  }
+
+  record(userKey: PublicKeyHex, at: number): void {
+    const existing = this.#byUser.get(userKey)
+    if (existing === undefined) this.#byUser.set(userKey, [at])
+    else existing.push(at)
+    this.#anybody.push(at)
+  }
+}
+
 export interface AuthorityOptions {
   readonly providerPrivateKey: Uint8Array
   /** Certificates one user key may obtain per window. */
   readonly maxPerWindow?: number
+  /**
+   * Certificates this authority will sign per window in total. See {@link IssuanceBudget}
+   * for why this one is required while the per-user limit above is not.
+   */
+  readonly maxIssuedPerWindow: IssuanceBudget
+  /**
+   * Where both budgets read their history from. See {@link IssuanceHistory} for why this
+   * is required, and for what the sentinel costs a caller who takes it.
+   */
+  readonly issuance: IssuanceHistory
+  /** The window **both** budgets are measured over, so an operator has one period to reason about. */
   readonly windowMs?: number
   readonly certificateLifetimeMs?: number
 }
@@ -218,17 +365,23 @@ export class EnrollmentAuthority {
   readonly #privateKey: Uint8Array
   readonly #issuer: PublicKeyHex
   readonly #maxPerWindow: number
+  readonly #maxIssuedPerWindow: IssuanceBudget
   readonly #windowMs: number
   readonly #lifetimeMs: number
-  /** Issue timestamps per user key, pruned to the window on each request. */
-  readonly #history = new Map<PublicKeyHex, number[]>()
+  /** The host's issuance history. **Not this object's** — see {@link IssuanceHistory}. */
+  readonly #issuance: IssuanceLedger
 
   constructor(options: AuthorityOptions) {
     this.#privateKey = options.providerPrivateKey
     this.#issuer = toHex(ed25519.getPublicKey(options.providerPrivateKey))
     this.#maxPerWindow = options.maxPerWindow ?? 5
+    this.#maxIssuedPerWindow = options.maxIssuedPerWindow
     this.#windowMs = options.windowMs ?? 3_600_000
     this.#lifetimeMs = options.certificateLifetimeMs ?? 30 * 24 * 3_600_000
+    this.#issuance =
+      options.issuance === 'remembers-only-within-this-process'
+        ? new InProcessIssuance()
+        : options.issuance
   }
 
   get issuerKey(): PublicKeyHex {
@@ -237,7 +390,28 @@ export class EnrollmentAuthority {
 
   /** Certificates issued to this user key inside the current window. */
   issuedWithin(userKey: PublicKeyHex, now: number): number {
-    return (this.#history.get(userKey) ?? []).filter((at) => at > now - this.#windowMs).length
+    return this.#recentFor(userKey, now).length
+  }
+
+  /**
+   * Certificates this authority has issued inside the current window, whoever asked.
+   *
+   * The sibling of {@link issuedWithin}, and it exists for the same reason a refusal
+   * carries its own threshold: a provider that cannot report its own budget cannot be
+   * measured from outside, and a bound nobody can read is a bound nobody can check.
+   */
+  issuedToAnybodyWithin(now: number): number {
+    return this.#recentForAnybody(now).length
+  }
+
+  /** Issue timestamps for one user key, pruned to the window. */
+  #recentFor(userKey: PublicKeyHex, now: number): number[] {
+    return this.#issuance.issuedTo(userKey).filter((at) => at > now - this.#windowMs)
+  }
+
+  /** Issue timestamps for anybody, pruned to the window. */
+  #recentForAnybody(now: number): number[] {
+    return this.#issuance.issuedToAnybody().filter((at) => at > now - this.#windowMs)
   }
 
   enrol(request: EnrollmentRequest, now: number): EnrollmentResult {
@@ -285,7 +459,7 @@ export class EnrollmentAuthority {
       }
     }
 
-    const recent = (this.#history.get(request.userKey) ?? []).filter((at) => at > now - this.#windowMs)
+    const recent = this.#recentFor(request.userKey, now)
     if (recent.length >= this.#maxPerWindow) {
       const oldest = Math.min(...recent)
       return {
@@ -298,6 +472,33 @@ export class EnrollmentAuthority {
           retryAfterMs: oldest + this.#windowMs - now,
         },
         reason: `user ${request.userKey} has enrolled ${recent.length} nodes in the last ${this.#windowMs}ms (limit ${this.#maxPerWindow})`,
+      }
+    }
+
+    // The aggregate budget, **after** the per-user window and immediately before
+    // signing. Both orderings are correct on state — nothing above writes history, so
+    // no refusal consumes anybody's budget — so the choice is purely about **which
+    // reason a requester is told when both bind**, and the more specific true statement
+    // about *this* request is the right one. Their next actions differ: a requester
+    // whose own window is full waits, or uses a second user key of their own; one who
+    // met an exhausted provider has to find another provider. Reversing these two would
+    // send the first requester after a provider that was never their problem.
+    if (this.#maxIssuedPerWindow !== 'issues-without-an-aggregate-budget') {
+      const issued = this.#recentForAnybody(now)
+      if (issued.length >= this.#maxIssuedPerWindow) {
+        const oldest = Math.min(...issued)
+        return {
+          ok: false,
+          refusal: {
+            kind: 'issuance-budget-exhausted',
+            limit: this.#maxIssuedPerWindow,
+            windowMs: this.#windowMs,
+            retryAfterMs: oldest + this.#windowMs - now,
+          },
+          // Names no user key and no node key, deliberately. See the refusal's own
+          // docblock: this requester is not what went wrong.
+          reason: `this provider has issued ${issued.length} certificates in the last ${this.#windowMs}ms (limit ${this.#maxIssuedPerWindow})`,
+        }
       }
     }
 
@@ -316,7 +517,11 @@ export class EnrollmentAuthority {
       signature: toHex(ed25519.sign(payloadOf(unsigned), this.#privateKey)),
     }
 
-    this.#history.set(request.userKey, [...recent, now])
+    // Recorded only on success, and recorded where the **host** can read it. Both halves
+    // matter: no refusal consumes anybody's budget, which is what makes the two checks
+    // above orderable on reason rather than on state; and a certificate this provider
+    // signed is not something a restart may hand back.
+    this.#issuance.record(request.userKey, now)
     return { ok: true, certificate }
   }
 }

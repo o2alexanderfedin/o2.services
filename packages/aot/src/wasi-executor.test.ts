@@ -1226,6 +1226,7 @@ describe('a WASI artifact travels the fabric’s ordinary verified path — AOT-
         executors,
         nodes: publicNodes(executors),
         redundancy: 2,
+        onQuorumShortfall: 'runs-at-available-redundancy',
       },
       blockstore,
     )

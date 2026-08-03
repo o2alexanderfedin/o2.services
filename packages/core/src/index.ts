@@ -45,7 +45,7 @@ export type { WorkerExecutorOptions } from './executor/worker-executor.ts'
 
 // Redundant execution and verification — VER-01, VER-02, VER-05, VER-06.
 export { executeVerified } from './job/verify.ts'
-export type { Receipt, VerificationResult } from './job/verify.ts'
+export type { AgreeingReplica, Receipt, VerificationResult } from './job/verify.ts'
 
 // Job submission — MR-01, DATA-01, DATA-03, DATA-04.
 export { submitJob } from './job/submit.ts'
@@ -84,6 +84,10 @@ export type { NodeSovereignty } from './executor/sovereignty-guard.ts'
 // Serving-side signed-artifact gate — DET-03, DATA-08.
 export { describeModuleRefusal, guardModuleProvenance } from './executor/module-provenance.ts'
 export type { ModuleProvenance, ModuleRefusal } from './executor/module-provenance.ts'
+
+// Leg 3's wrapper, beside leg 1's above. Composed nowhere until Plan 19-15.
+export { attestResults } from './executor/attesting-executor.ts'
+export type { ResultAttestor } from './executor/attesting-executor.ts'
 
 // Power-of-d placement with rejection and re-pick — SCHED-02, SCHED-03, SCHED-05.
 export {
@@ -250,6 +254,7 @@ export {
 } from './reduce.ts'
 export type {
   CombineDispatch,
+  CombineProduct,
   CombineTask,
   Combiner,
   FabricPartial,
@@ -276,10 +281,37 @@ export type {
   EnrollmentRefusal,
   EnrollmentRequest,
   EnrollmentResult,
+  // The issuance budget and the port both budgets read. A host supplies the second; how
+  // it makes a write durable is the host's problem, on each tier.
+  IssuanceBudget,
+  IssuanceHistory,
+  IssuanceLedger,
   NodeCertificate,
   Discoverability,
   ReplicaSet,
 } from './enrollment.ts'
+
+// The third signing leg — a result the node that produced it signed. VER-08, VER-09,
+// VER-10. The other two legs are `guardModuleProvenance` (the code) and
+// `verifyCertificate` (the node), both above.
+export {
+  WrongSigningKeyError,
+  combineChallenge,
+  resultChallenge,
+  signCombine,
+  signResult,
+  signingKeyOf,
+  verifyCombineAttestation,
+  verifyResultAttestation,
+} from './result-attestation.ts'
+export type {
+  AttestationRefusal,
+  AttestationResult,
+  AttestedResult,
+  ResultAttestation,
+  ResultSigner,
+  ResultWork,
+} from './result-attestation.ts'
 
 // Quorum composition and attestation strength — VER-03, VER-04, VER-08, VER-09, VER-10.
 export {

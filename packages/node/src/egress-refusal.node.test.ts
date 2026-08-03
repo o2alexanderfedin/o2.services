@@ -283,8 +283,8 @@ describe('DATA-05 — the refusal across two real bin/agent.ts processes', () =>
     // only thing left that can exclude the idle process. A scheduler treating
     // sovereignty as a preference rather than a filter would pick the idle one.
     const descriptors: readonly NodeDescriptor[] = [
-      { nodeId: alice.peerId, ownerId: 'alice', canExecuteSovereign: true, load: 1 },
-      { nodeId: other.peerId, ownerId: 'bob', canExecuteSovereign: true, load: 0 },
+      { nodeId: alice.peerId, ownerId: 'alice', canExecuteSovereign: true, load: 1, certificate: 'carries-no-certificate' },
+      { nodeId: other.peerId, ownerId: 'bob', canExecuteSovereign: true, load: 0, certificate: 'carries-no-certificate' },
     ]
 
     // Bare `submitJob`, not `submitJobWithEgress`. The submitter's own manifest is
@@ -301,6 +301,7 @@ describe('DATA-05 — the refusal across two real bin/agent.ts processes', () =>
         executors,
         nodes: descriptors,
         redundancy: 1,
+        onQuorumShortfall: 'runs-at-available-redundancy',
       },
       submitter.store,
     )
@@ -349,6 +350,7 @@ describe('DATA-05 — the refusal across two real bin/agent.ts processes', () =>
         executors,
         nodes: descriptors,
         redundancy: 1,
+        onQuorumShortfall: 'runs-at-available-redundancy',
       },
       submitter.store,
     )
@@ -358,7 +360,7 @@ describe('DATA-05 — the refusal across two real bin/agent.ts processes', () =>
     const controlShard = control.job.shards[0]
     expect(controlShard?.verification.status).toBe('agreed')
     if (controlShard?.verification.status !== 'agreed') return
-    expect(controlShard.verification.agreeing).toEqual([alice.peerId])
+    expect(controlShard.verification.agreeing.map((e) => e.nodeId)).toEqual([alice.peerId])
     expect(control.job.complete).toBe(true)
   }, 120_000)
 })
