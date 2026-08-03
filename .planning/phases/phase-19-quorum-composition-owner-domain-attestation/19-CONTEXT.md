@@ -196,6 +196,41 @@ plan seems to need one, re-read the attack-radius list above — the answer is a
 the threat does not warrant the machinery. It is **not** "a shorter certificate lifetime"; this
 sentence used to say that and was superseded by the owner correction three paragraphs above.
 
+### The combine result is signed too — owner decision 2026-08-02
+
+**The signing triangle covers `exec` only unless this is said explicitly, and that would leave
+the project's headline claim resting on an unsigned step.** `PROJECT.md` states it as: *the
+owner's contribution is trusted; the aggregation over contributions is verified.* Sign only map
+results and a map/reduce job ends with **signed map results feeding an unsigned aggregation** —
+precisely the half claimed to be the verified one.
+
+So the combine frame carries an attestation slot on the same terms as `exec`: the combining node
+signs over what it combined and what it produced, verifiable against its provider-signed
+certificate.
+
+**No sovereignty complication.** Combine partials are outputs of public map tasks and therefore
+public by construction — the reasoning Phase 16 already recorded when it bounded combine at the
+`capacity` hook rather than the `authorize` hook. There is nothing here to authorize; the
+question is only whether the aggregation can be shown to a third party, and unsigned it cannot.
+
+### The aggregate issuance budget's exposure is accepted, and named
+
+**Accepted trade, owner decision 2026-08-02.** The persistent cross-process issuance budget that
+closes criterion 5 also opens a denial-of-service: `serveAgent` serves enrolment
+**unauthenticated**, so anyone who can dial a provider can burn its whole window at the cost of
+one `ed25519.keygen()` per attempt. Before the aggregate budget, an attacker could burn only
+*their own* user key's window.
+
+**Why it is accepted rather than mitigated.** The architectural answer is real and is the same
+one the whole design rests on: **trust is per-verifier and pinned**, so a burned provider is
+routed around by trusting or running another. Nothing global has to recover, because nothing
+global was ever agreed.
+
+**What must be recorded rather than assumed, because it is not measured.** Every fixture in this
+repository and the demo itself are **single-provider**. So the multi-provider recovery that makes
+this exposure acceptable is an argument, not a reading. Say so in the plan and in the ledger row
+— *unmeasured is not met* applies to the mitigation as much as to the mechanism.
+
 ### Claude's Discretion
 
 - Plan sequencing, wave structure, and how many plans to split this into.
