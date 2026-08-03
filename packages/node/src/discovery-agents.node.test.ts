@@ -55,7 +55,7 @@ import type { Readable, Writable } from 'node:stream'
 import { fileURLToPath } from 'node:url'
 import { ed25519 } from '@noble/curves/ed25519.js'
 import { DEFAULT_D, canonicalCid, sampleCandidates, signName, submitJob, toHex } from '@o2/core'
-import type { CanonicalValue, NameRecord, NodeCertificate } from '@o2/core'
+import type { Admission, CanonicalValue, NameRecord, NodeCertificate, Offer } from '@o2/core'
 import { SEED_BYTES, peerIdForNodeKey } from '@o2/libp2p'
 import { RemoteExecutor, discoverCandidates, encodeRequest, parseResponse, rpcAdmission } from '@o2/net'
 import type { CID } from 'multiformats/cid'
@@ -198,6 +198,20 @@ async function writeUserKey(name: string, fill: number): Promise<string> {
 /** The one value the job shards over, and the block discovery goes looking for. */
 const SHARD_VALUE: CanonicalValue = { shard: 'discovery-agents' }
 
+/**
+ * A second shard value, for the exec-stage reading only, and its separateness is
+ * load-bearing for the same reason the direct probe's own value is: a node's slot key
+ * is `inputCid:partitionIndex` (`net/src/agent.ts:757`), and the task saturating the
+ * node carries `SHARD_VALUE` at partition 0. A shard reusing that value would collide
+ * with the held task's key and be refused as a DUPLICATE — `… is already in flight
+ * here` — which is a different claim from the over-committed one criterion 2b is about.
+ *
+ * It is seeded onto the holders beside `SHARD_VALUE` so that a re-pick, once one
+ * exists, can actually run rather than failing to fetch its input and producing an
+ * `insufficient` that looks like the absence being measured here.
+ */
+const EXEC_STAGE_VALUE: CanonicalValue = { shard: 'discovery-agents-exec-stage' }
+
 interface Fixture {
   readonly p: Agent
   readonly p2: Agent
@@ -224,13 +238,20 @@ interface Fixture {
 async function standUp(holderArgs: readonly string[] = []): Promise<Fixture> {
   const encoded = await canonicalCid(SHARD_VALUE)
   if (!encoded.ok) throw new Error('fixture value is not encodable')
+  const execStage = await canonicalCid(EXEC_STAGE_VALUE)
+  if (!execStage.ok) throw new Error('exec-stage value is not encodable')
 
   // Seeded before the spawn, so each block is resident on exactly the nodes named.
   // `MODULE_NEVER_RETURNS` goes to the three holders because which of them will be
   // saturated is not known until their peer ids are — see the second block below.
+  //
+  // `EXEC_STAGE_VALUE` rides along for the same reason and changes nothing about
+  // discovery: every reading below asks who holds `SHARD_VALUE`'s CID, and holding a
+  // second unrelated block makes a node no more and no less a provider of the first.
   for (const name of ['a', 'b', 'c', 'e']) {
     const store = await FsBlockstore.open(join(workdir, name))
     await store.put(encoded.bytes)
+    await store.put(execStage.bytes)
     await store.put(MODULE_WRITES_PARTITION)
     await store.put(MODULE_NEVER_RETURNS)
   }
@@ -516,16 +537,16 @@ describe('criterion 2 — sample, refuse, re-pick, complete', () => {
     expect(stillBusy.accepted).toBe(false)
     expect(stillBusy.capacity).toStrictEqual({ slots: 1, inFlight: 1 })
 
-    // ---- What this file does NOT close, asserted as an absence. -----------------
+    // ---- Which refusal a saturated node gives, read directly. -------------------
     // Criterion 2b's second clause — *"a node at its execution slot limit refuses an
     // `exec` request … and the requestor re-picks"*. The offer re-pick above and the
-    // exec re-pick here are DIFFERENT EVENTS. `job/submit.ts` calls `executeVerified`
-    // exactly once per shard: no retry, no resample. So a direct dispatch to the
-    // saturated node is refused, and nothing retries it.
+    // exec re-pick are DIFFERENT EVENTS. `job/submit.ts` calls `executeVerified`
+    // exactly once per shard: no retry, no resample.
     //
-    // **WIRE-04 / Phase 20 criterion 1 owns the merge that would add a retry**, and
-    // this assertion goes red the day it lands — which is the correct moment for it to
-    // be revisited rather than a sentence in a summary nobody re-reads.
+    // This dispatch settles the refusal's IDENTITY and nothing more. It is a bare
+    // `RemoteExecutor.execute()` **outside** `submitJob`, so a retry added inside
+    // `submitJob`/`runResilient` could never reach it and it can never go red — the
+    // absence is therefore read one level up, in the block after this one.
     //
     // **The probe carries its own input block, and that is load-bearing.** A node's
     // slot key is derived from `inputCid:partitionIndex` and does NOT include the
@@ -554,10 +575,106 @@ describe('criterion 2 — sample, refuse, re-pick, complete', () => {
     expect(direct.ok).toBe(false)
     if (!direct.ok) expect(direct.reason).toContain('over-committed')
 
-    // One dispatch per shard: the completed job records exactly one agreeing node.
-    expect(shard.verification.agreeing).toHaveLength(1)
+    // ---- The absence itself, on the production submit path. ---------------------
+    // The reading that used to sit here was `expect(shard.verification.agreeing)
+    // .toHaveLength(1)`, and it could not fail. `agreeing` is a subset of the
+    // executors `submitJob` selected, which is `placement.nodeIds`, whose length IS
+    // `redundancy` — 1 in this fixture. So the value was confined to `{0,1}`, and the
+    // `agreed` narrowing above it excluded 0. No implementation of a re-pick could
+    // have moved it. It is removed rather than kept beside the reading below: a green
+    // assertion that looks like a guard and is not is worse than no assertion,
+    // because the next reader stops looking.
+    //
+    // What can fail is a job whose SELECTED executor refuses at exec. The node
+    // answers the offer while it is free, is saturated between that answer and the
+    // dispatch, and then refuses the dispatch. That race is not contrived — it is the
+    // one the two clauses of criterion 2b are actually about, and the offer branch
+    // makes it inevitable on purpose: answering an offer reserves nothing
+    // (`LocalCapacity.would` is the non-reserving twin of `offer`, and its doc gives
+    // the leak that forced the split), so an accepted offer is a statement about the
+    // past by the time the exec arrives.
+    //
+    // `shard.rejections` cannot carry this refusal. `submit.ts:341` fills it from
+    // `planWithOffers`' PLACEMENT-stage refusals only, so an exec-stage refusal is
+    // structurally invisible there; the reading goes through `verification.failures`,
+    // which is not bounded by the placement and is where a refused executor lands.
+    //
+    // **This is the assertion that inverts the day WIRE-04 lands.** The shard is
+    // `insufficient` *because nothing retries it* — given a re-pick it would reach a
+    // second executor, which is free, and stop being `insufficient`. That inversion
+    // was measured rather than asserted: a re-pick planted in `submitJob` for the
+    // length of one run turned this red. **WIRE-04 / Phase 20 criterion 1 owns the
+    // merge that would add it**, and this is the correct moment for the clause to be
+    // revisited rather than a sentence in a summary nobody re-reads.
+    const ask = rpcAdmission(requestor.rpc)
+    const victims: string[] = []
+    const heldOnVictim: Promise<unknown>[] = []
+    const admitThenSaturate = async (offer: Offer): Promise<Admission> => {
+      const decision = await ask(offer)
+      // The first node to accept is the node the placement will choose, because
+      // `placeWithOffers` stops at `redundancy` acceptances and redundancy is 1.
+      if (!decision.accepted || victims.length > 0) return decision
+      victims.push(offer.nodeId)
+      // Keyed on `SHARD_VALUE` at partition 0, which is a DIFFERENT slot key from the
+      // shard about to be dispatched — see `EXEC_STAGE_VALUE`'s doc. Same technique as
+      // the held task above: a real long-running `exec` this file does not await.
+      const occupy = new RemoteExecutor(
+        offer.nodeId,
+        requestor.rpc,
+        'dispatches-unauthenticated',
+      ).execute({
+        moduleCid: neverCid,
+        inputCid: fixture.inputCid,
+        partitionIndex: 0,
+        partitionCount: 1,
+        label: 'public',
+        moduleRecord: recordFor('discovery-agents-never-returns', neverCid),
+      })
+      heldOnVictim.push(occupy.catch((cause: unknown) => ({ ok: false as const, reason: String(cause) })))
+      // Returns only once the node says so itself, so the dispatch that follows meets
+      // a node genuinely at its limit rather than one that is about to be.
+      const full = await untilFull(requestor, offer.nodeId)
+      expect(full.accepted).toBe(false)
+      return decision
+    }
 
-    await heldOutcome
+    const stalled = await submitJob(
+      {
+        moduleCid: fixture.moduleCid,
+        moduleRecord: fixture.moduleRecord,
+        shards: [{ value: EXEC_STAGE_VALUE, label: 'public' }],
+        executors: found.executors,
+        nodes: found.nodes,
+        redundancy: 1,
+        admit: admitThenSaturate,
+      },
+      requestor.store,
+    )
+
+    expect(stalled.ok).toBe(true)
+    if (!stalled.ok) return
+    const stalledShard = stalled.job.shards[0]
+    if (stalledShard === undefined) throw new Error('expected one shard')
+    const victim = victims[0]
+    if (victim === undefined) throw new Error('no node accepted the offer, so none was saturated')
+
+    // Not vacuous in the other direction: a shard that was never placed on the
+    // saturated node would also be `insufficient`, for an unrelated reason. Naming the
+    // node in the failure is what separates the two.
+    expect(stalledShard.verification.status).toBe('insufficient')
+    if (stalledShard.verification.status !== 'insufficient') return
+    expect(stalledShard.verification.failures.map((f) => f.nodeId)).toStrictEqual([victim])
+    expect(stalledShard.verification.failures.some((f) => f.reason.includes('over-committed'))).toBe(
+      true,
+    )
+    expect(stalled.job.complete).toBe(false)
+
+    // And the victim appears in NO placement-stage rejection: it accepted the offer.
+    // Its refusal exists only in `failures`, which is the whole reason that field is
+    // the one this reading goes through.
+    expect(stalledShard.rejections.map((r) => r.nodeId)).not.toContain(victim)
+
+    await Promise.all([heldOutcome, ...heldOnVictim])
   }, PROCESS_TEST_TIMEOUT)
 })
 
