@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Wire What Was Built
 status: executing
-stopped_at: Phase 18 has ALL ELEVEN plans merged and summarised, and is merged to develop (4c20f95). It is NOT done: there is NO VERIFICATION.md for it, and the project rule is that a phase is done when a verifier says so, not when its plans are. NEXT IS VERIFY PHASE 18. 18-10 changed no production file - the offer loop was already correct and the property was unmeasured; its kernel test counts OFFERS, because the offer itself is the leak even when the placement is correct. 18-11 closed NET-05 and fixed a production defect on the way: FabricNode.start dialled relays with a bare await inside start, so an unreachable relay became an unhandled rejection in bin/agent.ts. The dial is non-fatal now - an OWNER DECISION, outside 18-11's declared files. Criterion 2b remains PARTIAL by owner ruling and must not be reworded; its exec-refusal re-pick is asserted ABSENT in discovery-agents.node.test.ts and goes red when WIRE-04 adds a retry. vitest.config.ts's MEASURED_NODE_SPANS was re-measured on a QUIET host (127 files, 210.5 s wall clock, load peak 14.1) - the reading it replaced peaked at 121.8 and was measuring contention rather than the tree. Durations from red runs are never recorded there; two were discarded this session. The demo page told visitors a second tab is a second node; IndexedDB is origin-scoped so it is the SAME peer id. Corrected.
-last_updated: "2026-08-02T22:10:00.000Z"
+stopped_at: Phase 18 is VERIFIED at 8/9 and stays UNCOUNTED, by owner ruling 2026-08-02 applying RULING A. Thirteen plans, thirteen summaries, one verification amended once. The first independent pass scored 7/9 and found the thing that mattered - criterion 2b's absence-instrument COULD NOT FAIL. RULING A had accepted 2b at PARTIAL on one condition, that the missing re-pick was held by a reading which turns red the day WIRE-04 lands; it would not have. The assertion read verification.agreeing, whose length is redundancy, and the status==='agreed' narrowing three lines above excluded zero - a tautology, confirmed at the type level, not a weak guard. Plans 18-12 and 18-13 closed both gaps with ZERO production change; re-verification moved 2b FAILED->PARTIAL and criterion 3 PARTIAL->MET. Ledger entries M36 and M37 pin the two new instruments and were run as ledger data, both caught. THE PHASE DOES NOT CLOSE ON 2b - the re-pick is WIRE-04's, scheduled to Phase 20 criterion 1, and the tripwire now fires when it lands. Three findings outlived the phase and are tracked, not fixed - admit at bin/bench.ts:723 can be deleted with the whole suite green and is the SOLE production caller behind SCHED-02's runnable-entry-point claim; tools/aot/lift.node.test.ts failed WORSE alone on a quiet host than under load, contradicting its own recorded diagnosis; and 23 of ~45 ledger citations had outrun the tree, nine of them inside the very plan written to correct drift.
+last_updated: "2026-08-03T02:30:00.000Z"
 last_activity: 2026-08-02
 progress:
   total_phases: 14
   completed_phases: 6
-  total_plans: 56
-  completed_plans: 50
-  percent: 36
+  total_plans: 58
+  completed_plans: 52
+  percent: 43
 ---
 
 <!--
@@ -99,20 +99,70 @@ caught that way and not by the tool reporting a failure. None of them errored.
 See: .planning/PROJECT.md (updated 2026-07-27)
 
 **Core value:** Usable capacity grows super-linearly with the user base, without any raw data leaving its owner's device.
-**Current focus:** Phase 15 (Capability-Chained Dispatch). Phases 13.1 and 14 were both
-verified on 2026-07-31 and their verdicts differ: **14 passed 3/3 and is closed**; **13.1
-scored 6/7 and is not.** 13.1's open item is DATA-10 — a node still serves a raw sovereign
-block once the job that registered it has ended, because `submitJobWithEgress` releases the
-registration in a `finally`, and bare `submitJob` never registers at all. Owner ruling
-2026-07-31: close the at-rest half at a boundary the node owns, and fold the bare-`submitJob`
-half into Phase 20, where `submitJob` becomes the single job path and the fix lands at one
-boundary rather than two. Phase 18's criteria 2b and 2c still exist so 18 cannot pass around
-what 13.1 left open, and criterion 2c is expected to turn `packages/net/src/discovery.test.ts`
-red when it lands.
+**Current focus:** Phase 19 (Quorum Composition & Owner-Domain Attestation) — not yet
+started, no directory. Phase 18 is verified at 8/9 and **stays uncounted**, which is the
+rule working rather than the rule failing: 13.1 at 6/7, 16 at 3/4 and 17 at 1/3 are
+uncounted for the same reason, and 15 is counted at 3/3 despite a Partial *requirement*.
+**The count is over criteria, never over requirements** — a requirement can outlive the
+phase that opened it; a criterion cannot.
+
+DATA-10 closed on 2026-08-02 and 13.1 is counted. The at-rest half landed as a durable
+per-node sovereign-CID set registered at `submit.ts`'s blockstore-put; the bare-`submitJob`
+half is covered by the same boundary rather than deferred to Phase 20 as the 2026-07-31
+ruling anticipated.
 
 ## Current Position
 
-Phase: 17 (Node Identity & Enrollment) — **1/3 on criteria, NOT closed**
+Phase: 18 (Discovery, Capacity & Placement) — **8/9 on criteria, NOT closed, and that is
+by ruling rather than by a remaining defect**
+Status: 11 planned plans + 2 gap-closure plans (18-12, 18-13), 13 summaries, 1 verification
+amended once. **No automated gap remains.** Criteria 1, 2, 2c, 2d, 3, 4, 5 and 6 MET;
+**criterion 2b PARTIAL** and the phase is not permitted to close on it — RULING A, written
+at planning time in `ROADMAP.md` precisely so this would not need re-deciding.
+
+**The first pass found a tautology, and that is the phase's real finding.** Criterion 2b's
+absence-instrument — the thing RULING A required in exchange for accepting PARTIAL, so the
+clause would *"turn red the day WIRE-04 lands"* — could not fail at all.
+`expect(shard.verification.agreeing).toHaveLength(1)` reads a subset of `placement.nodeIds`,
+whose length **is** `redundancy` = 1, and the `status === 'agreed'` narrowing three lines
+above excludes 0. Confirmed at the type level on re-verification. Its companion,
+`expect(direct.ok).toBe(false)`, was broken a second and independent way: taken on a bare
+`RemoteExecutor.execute()` **outside** `submitJob`, where a retry inside `submitJob` can
+never reach it. **A guard that cannot fail is worse than no guard, because the next reader
+stops looking** — and this one was load-bearing for a ruling.
+
+Both gaps closed with **zero production change** (`git diff` over `packages/core`,
+`packages/browser`, `packages/net`, `packages/libp2p` is empty across 18-12). The
+replacements were each planted, watched RED, and restored by `cmp`: **M36** re-picks inside
+`submitJob` and reads `expected 'agreed' to be 'insufficient'`; **M37** builds a second
+`LocalCapacity` without the governor and turns the peer's wire reading red while **every
+in-page assertion stays green** — 1 failed, 5 passed, which is the whole content of
+criterion 3's browser half.
+
+**Three findings outlived the phase and are tracked rather than fixed:**
+- **`admit:` at `bin/bench.ts:723` is guarded by nothing.** Deleting it moves `submitJob`
+  from `planWithOffers` to `planPlacement`, and on a rig where nothing refuses the two place
+  identically. It is the **sole production caller** behind SCHED-02's runnable-entry-point
+  claim. Closing it needs a rig where a node actually refuses.
+- **`tools/aot/lift.node.test.ts` failed WORSE alone on a quiet host** (12 failures, ten
+  60 s timeouts, 850 s against the config's recorded 217 s) than under suite load, so
+  `deferred-items.md` item 2's *"passes in isolation"* diagnosis is false. Phase 21 owns it.
+- **23 of ~45 ledger citations had outrun the tree**, nine of them introduced by the very
+  plan written to correct drift. A blanket offset would have been wrong twice over — one
+  citation was out by 117, and five were already exact. A cheap guard was **measured and
+  declined**: the tractable check catches 16 of 22 and needs four exemptions, which reads
+  green and retires the question.
+
+**18-13 found the defect under the stale rows.** Both claim-checking cases in
+`requirements-ledger.node.test.ts` iterated `BUILT_NOT_WIRED`, so a row marked *Partial* left
+the guard's population entirely — **the act of fixing a row was the act of exempting it**.
+SCHED-03 was corrected on 2026-08-01 and went stale by the next day, unwatched. Widening to
+every row immediately surfaced a fourth stale row nobody had reported (NET-06).
+`WITHOUT_A_CHECKABLE_CLAIM` went 2 → 17 without anything becoming less checked: the
+consuming assertion demands **exact set equality**, so a row with a bindable claim cannot be
+parked there.
+
+Previous phase: 17 (Node Identity & Enrollment) — **1/3 on criteria, NOT closed**
 Status: 5 planned plans + 1 gap closure (17-06), 6 summaries, 1 verification pass.
 **Criterion 1 MET** cross-process, and not as a self-report: `.identity.key` absent before
 the spawn and present after, `peerIdForNodeKey(nodeKey) === peerId`, and the certificate

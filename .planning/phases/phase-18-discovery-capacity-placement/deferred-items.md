@@ -67,3 +67,66 @@ in this phase owns.
 **What would close it:** either give the probe a distinguishable "docker present but did not
 answer in time" refusal, or serialise this file the way the `e2e` and `perf` projects already
 serialise (`fileParallelism: false`) so it never competes with the rest of the node project.
+
+### Re-measured during 18-12, and **the "passes in isolation" half no longer holds**
+
+**Measured 2026-08-02, on a quiet host.** The heading above is now wrong in its second clause
+and is left standing so the change is findable rather than edited away.
+
+| run | load at start | result |
+|---|---|---|
+| full `--project node` | 5.34 | **7 failed** \| 1778 passed \| 2 skipped, 128 files, 707 s |
+| `lift.node.test.ts` **alone** | 4.39 | **12 failed** \| 87 passed, 850 s |
+
+Isolation made it **worse**, not better — the opposite of 18-01's reading, and taken with
+`docker info` succeeding immediately beforehand. The failure mode has moved too: 10 of the 12
+are `Error: Test timed out in 60000ms`, not the `expected 'docker-unavailable' to be …`
+assertion 18-01 recorded. The file has also grown from 73 tests to 99 since that reading, and
+alone it now takes 850 s against the config table's 217.1 s.
+
+**Still not this plan's, and demonstrably not this plan's doing.** `lift.node.test.ts` imports
+only node builtins, vitest and `./lift.ts`; nothing under `tools/` references any file 18-12
+touched, and all four of those files are tests or ledger data — `git diff HEAD~3 HEAD` names no
+production file at all. Every other one of the 128 node files passed.
+
+**What this changes about the recommendation.** Serialising the file would no longer be enough,
+because contention is no longer the whole story: something makes these docker invocations hang
+for a full 60 s apiece on an idle machine. The probe's inability to tell a *slow* docker from an
+*absent* one is now the primary finding rather than a secondary one, and whoever picks this up
+should re-measure before trusting either the 18-01 reading or this one.
+
+---
+
+## 3. No guard reads a `file:line` citation in `REQUIREMENTS.md`, and the cheap one would read green
+
+**Found during:** the F-2 follow-up fix on 2026-08-03.
+
+**What went wrong first.** `a5a70c7` corrected four ledger rows; `548e119`, three commits later
+in the same plan, inserted fifteen comment lines into `fabric-node.ts` and sixteen into
+`browser-node.ts`. Every coordinate written below those points was stale before the plan closed.
+Sweeping the rest of the file found the same rot in citations written earlier and by other
+plans: **22 of the 27 `fabric-node.ts` / `browser-node.ts` coordinates in the ledger pointed at
+the wrong line**, one of them out by 117. Every claim was true; only the coordinates had moved.
+
+**Why a guard is wanted.** `requirements-ledger.node.test.ts` already parses these rows and
+already holds their *sentences* against the tree. It reads no coordinate, so this whole class is
+unguarded, and it is a class this repository keeps producing — a citation is a claim with an
+expiry date in the same way a call-site comment is.
+
+**The cheap version was measured rather than assumed, and it fails.** The tractable check is
+"a cited line must not be a comment or blank", since a drifted coordinate usually lands in the
+comment block that displaced it. Run against the 22 known-wrong coordinates before they were
+fixed, it flags **16 and reads green on 6** — including `SCHED-04`'s `fabric-node.ts:1460`
+(landed on `createThread: workerThread,`) and `AUTH-01`'s `fabric-node.ts:1077` (landed on a
+`Math.max(…)`). It also needs four exemptions up front, for the citations that deliberately name
+prose inside a comment. A guard that misses six of twenty-two while carrying an exemption list is
+the failure mode this repository keeps rediscovering: it reads green and it retires the question.
+
+**What a real one needs, and why it is not a line to slip into this diff.** To say *"the cited
+line shows what the row names"* the check must first extract what the row names, and the rows
+name things in at least six shapes — a constructor call, a property in an object literal, a
+method declaration, prose inside a comment, a `describe` title, and a string inside a data table.
+An extractor over English rows is a research task with its own measurement, and the alternative —
+re-shaping the citation syntax so it carries the text it points at, which is how
+`vocabulary.node.test.ts` solved the same problem for its exemptions — is a rewrite of every
+citation in the ledger. Either is a plan, not an addition to a documentation fix.

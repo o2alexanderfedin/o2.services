@@ -352,7 +352,23 @@ describe('the signature check applies to most of the ledger, not to a corner of 
     const rendered = MUTATIONS.filter((entry) => entry.signatureSource === 'rendered-at-runtime').map((e) => e.id)
     expect(rendered.length).toBeLessThan(MUTATIONS.length / 2)
     expect([...rendered].sort()).toEqual(
-      ['M1', 'M11', 'M12', 'M2a', 'M20', 'M22', 'M27', 'M3a', 'M30', 'M32', 'M4', 'M5', 'M7', 'M9'].sort(),
+      // `M36` and `M37` were added by 18-12, and the justification this case asks for is
+      // that a title would have been the WEAKER key for both. Each catches a defect in a
+      // file whose one `it` carries dozens of assertions — `discovery-agents.node.test.ts`
+      // has 40 — so a title-keyed signature would accept a red produced by any of them,
+      // including one produced by load: this repository already has a test that fails
+      // under full-suite contention and passes alone. The assertion strings pin the exact
+      // inversion instead. `expected 'agreed' to be 'insufficient'` is the shard reaching
+      // a second executor, and nothing else in that file can render it; `expected
+      // { slots: 8 … } to deeply equal { slots: 2 … }` is a tab advertising an uncapped
+      // slot count, and it is the *only* reading in its file that moves when the wire
+      // answer and the page answer diverge. Neither string exists in any source file, so
+      // `test-title` would also have been a false declaration — see the case above that
+      // rejects the opposite mistake.
+      [
+        'M1', 'M11', 'M12', 'M2a', 'M20', 'M22', 'M27', 'M3a', 'M30', 'M32', 'M36', 'M37',
+        'M4', 'M5', 'M7', 'M9',
+      ].sort(),
     )
   })
 })

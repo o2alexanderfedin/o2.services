@@ -4,6 +4,7 @@ import type { Browser, BrowserContext, Page } from 'playwright'
 import { createServer } from 'vite'
 import type { ViteDevServer } from 'vite'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { encodeRequest, parseResponse } from '@o2/net'
 import { FabricNode } from './fabric-node.ts'
 
 /**
@@ -12,28 +13,47 @@ import { FabricNode } from './fabric-node.ts'
  *
  * ## What this file measures
  *
- * On a real page, in a real Chromium, against a real relay:
+ * On a real page, in a real Chromium, against a real Node-tier peer:
  *
  * - the cap is settable at runtime and the tab's advertised slot count follows it;
  * - the composition binds from both sides — a user cap below 1 lowers the effective rate
  *   on a visible tab, and backgrounding lowers it at a user cap of 1;
- * - a cap outside `(0, 1]` throws in the page and changes nothing.
+ * - a cap outside `(0, 1]` throws in the page and changes nothing;
+ * - **a peer reads the tab's advertised slot count off the wire**, before and after one
+ *   `setDutyCycle` call — criterion 3's *"observable in what the requestor is offered
+ *   next"*, taken on the browser tier by the peer rather than by the page.
  *
- * ## What it does not measure, stated rather than implied
+ * ## The peer-side reading, and the argument it replaces
  *
- * **A peer reading the tab's slot count off the wire.** Plan 18-09 asks for that, and it
- * is not here. The reading it would need is a Node-tier `FabricNode` dialling a browser
- * and sending an `offer` frame, and no test in this repository does that yet — every
- * existing browser↔peer path in `e2e` is tab-to-tab. That is transport ground this plan
- * has no business breaking on the way past.
+ * This section used to say that reading was out of reach here: that it would need "a
+ * Node-tier `FabricNode` dialling a browser", that "no test in this repository does that
+ * yet", and that this was "transport ground this plan has no business breaking on the way
+ * past". The first two are false now, and the third was already false when it was
+ * written — `browser-capability.e2e.test.ts` had broken exactly that ground, driving real
+ * frames between a Node `FabricNode` and a live tab over a direct WebSocket the tab
+ * opened itself. The last case below follows that topology.
  *
- * What *is* proven, and where: the wire half is measured on the **Node tier**, in
- * `duty-cycle.node.test.ts`, where a peer probes with `{kind:'offer'}` over tcp + noise +
- * yamux and reads `slots: 2` after a `setDutyCycle(0.25)`. The mechanism that produces
- * that number — `LocalCapacity` reading a governor — is the identical object on both
- * tiers, constructed the same way in `browser-node.ts` and `fabric-node.ts`. So the gap
- * is the *reading*, not the behaviour, and criterion 3's browser half should be scored
- * against that distinction rather than against this file's silence.
+ * What stood in its place was an argument from shared construction: `LocalCapacity`
+ * reading a governor is the same object on both tiers, constructed the same way in
+ * `browser-node.ts` and `fabric-node.ts`, so the Node-tier reading in
+ * `duty-cycle.node.test.ts` was offered as covering the browser's as well. That argument
+ * is sound, and it is still not a measurement — which is the distinction criterion 3
+ * turns on. The criterion names both tiers and asks for an effect *observable in what the
+ * requestor is offered next*, and an observable nobody observed is a statement about the
+ * code rather than a reading of it. What the difference is worth is recorded as mutation
+ * `M37`: a browser-tier slot count wired to a fixed number leaves every in-page assertion
+ * in this file green and turns only the peer's reading red.
+ *
+ * ## A direct WebSocket, not a relayed circuit
+ *
+ * The peer that takes the reading is a **second** Node-tier node, and it is deliberately
+ * not the relay: it reserves nothing for anybody, so a circuit through it does not exist
+ * to be taken by accident. The tab dials its `/ws` listener itself, and the case still
+ * asserts that the connection carrying the `offer` frames is unlimited and holds no
+ * `/p2p-circuit` hop — the transport's own answer rather than this file's.
+ * `.planning/PROJECT.md` fixes a relayed circuit as a signalling channel — 2 minutes,
+ * 128 KiB — that may not carry a job, so a capacity reading leaning on one would rest on
+ * a path the project says is for something else.
  *
  * **The `hidden` signal is simulated**, for `background-tab.e2e.test.ts`'s measured
  * reason: Chromium under automation never reports a page as hidden, in headless or
@@ -48,6 +68,8 @@ const PAGE = 'packages/browser/demo/index.html'
 
 let relay: FabricNode
 let relayAddr: string
+let peer: FabricNode
+let peerAddr: string
 let server: ViteDevServer
 let browser: Browser
 let baseUrl: string
@@ -89,6 +111,19 @@ beforeAll(async () => {
   if (address === undefined) throw new Error('relay produced no browser-dialable address')
   relayAddr = address
 
+  // The peer that takes the wire reading. **No `maxReservations`**, so it is not a relay
+  // server and holds no reservation for the tab — the connection between them can only be
+  // the direct WebSocket the tab opens below, which is the property the last case asserts
+  // rather than assumes. It executes nothing either, so it needs no trust anchor of
+  // substance for the same reason the relay does not.
+  peer = await FabricNode.start({
+    listen: ['/ip4/127.0.0.1/tcp/0/ws'],
+    trustAnchors: 'runs-unsigned-artifacts',
+  })
+  const peerAddress = peer.browserDialableAddrs[0]
+  if (peerAddress === undefined) throw new Error('peer produced no browser-dialable address')
+  peerAddr = peerAddress
+
   server = await createServer({ root: ROOT, logLevel: 'error', server: { port: 0 } })
   await server.listen()
   const url = server.resolvedUrls?.local[0]
@@ -103,6 +138,7 @@ afterAll(async () => {
   await context?.close().catch(() => {})
   await browser?.close().catch(() => {})
   await server?.close().catch(() => {})
+  await peer?.stop().catch(() => {})
   await relay?.stop().catch(() => {})
 })
 
@@ -202,5 +238,71 @@ describe('the user cap and the visibility governor compose, taking the lower', (
 
     const capped = await page.evaluate(() => window.o2.capacity())
     expect(capped.dutyCycle).toBe(hidden.dutyCycle)
+  }, 180_000)
+})
+
+/**
+ * An offer probe from the Node side, reading the raw reply rather than a flattening —
+ * the same helper shape `duty-cycle.node.test.ts` uses for the Node-tier reading, so the
+ * two tiers' readings are comparable line for line rather than merely similar in spirit.
+ */
+async function offerToTab(tabPeerId: string, shardId: string): Promise<{ slots: number; inFlight: number }> {
+  const reply = parseResponse(await peer.rpc.request(tabPeerId, encodeRequest({ kind: 'offer', shardId })))
+  if (reply?.kind !== 'offer') throw new Error(`expected an offer answer, got ${String(reply?.kind)}`)
+  if (reply.capacity === null || reply.capacity === undefined) {
+    // A node that answers an offer while stating no capacity is the `accepts-every-offer`
+    // sentinel wired in place of a real `LocalCapacity`. Named here rather than left to
+    // surface as `expected null to equal { slots: 8 … }`, because that is a different
+    // defect from a wrong slot count and the two must not read alike.
+    throw new Error('the tab answered the offer but stated no capacity at all')
+  }
+  return reply.capacity
+}
+
+describe('a Node peer reads the tab’s advertised capacity across a cap change', () => {
+  it('sees the slot count fall from 8 to 2, off the wire', async () => {
+    const page = await openPage('peer-read')
+    const tabPeerId = (await page.evaluate(() => window.o2.addresses())).peerId
+    expect(tabPeerId).not.toBe(peer.peerId)
+
+    // The tab opens the connection, because a browser cannot listen — the transport
+    // matrix in `CLAUDE.md` lists WebSockets as browser→server only. The Node side
+    // answers back along it: `Libp2pTransport.send` dials by `PeerId`
+    // (`libp2p-transport.ts:339`), which resolves to the open connection rather than to
+    // a new one, so nothing here needs the tab to be dialable.
+    await page.evaluate((address) => window.o2.dial(address), peerAddr)
+    expect(await page.evaluate(() => window.o2.peers())).toContain(peer.peerId)
+
+    // ---- The path the reading travels, asserted rather than assumed. ------------
+    // `limited` is libp2p's own mark for a relayed circuit (2 min / 128 KiB), so this is
+    // the transport's answer to "is this a circuit", not this file's. Without it the case
+    // would still pass over a circuit and would quietly be measuring capacity across the
+    // one path `.planning/PROJECT.md` says may not carry work.
+    const connections = await page.evaluate((id) => window.o2.connectionsTo(id), peer.peerId)
+    expect(connections.length).toBeGreaterThan(0)
+    expect(connections.map((c) => c.limited)).not.toContain(true)
+    expect(connections.filter((c) => c.remoteAddr.includes('p2p-circuit'))).toStrictEqual([])
+    expect(connections.some((c) => c.remoteAddr.includes('/ws'))).toBe(true)
+
+    // ---- Both values are read, not only the capped one. -------------------------
+    // A case that asserted only `slots: 2` would pass against a tab that had been capped
+    // since it started, which proves nothing about a cap reaching the wire.
+    expect(await offerToTab(tabPeerId, 'tab-before')).toEqual({ slots: 8, inFlight: 0 })
+
+    await page.evaluate(() => {
+      window.o2.setDutyCycle(0.25)
+    })
+
+    // ---- The observable, from the peer's side. ----------------------------------
+    // Every other reading in this file goes through `page.evaluate`, which can only show
+    // that the setter ran — the thing 18-09 already established. This one is the answer
+    // the tab put on the wire, composed by the tab's own `LocalCapacity` and parsed by a
+    // different process. It is the browser-tier twin of `duty-cycle.node.test.ts:101-104`.
+    expect(await offerToTab(tabPeerId, 'tab-after')).toEqual({ slots: 2, inFlight: 0 })
+
+    // The in-page reading agrees, and is stated last and deliberately: it is the
+    // corroboration, not the evidence. Planted defect `M37` separates them — it leaves
+    // this line green and turns the two above it red.
+    expect(await page.evaluate(() => window.o2.capacity())).toEqual({ dutyCycle: 0.25, slots: 2 })
   }, 180_000)
 })

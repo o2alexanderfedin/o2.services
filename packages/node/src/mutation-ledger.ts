@@ -881,6 +881,71 @@ export const MUTATIONS: readonly Mutation[] = [
     signature: 'discards an answer from an ask that a disconnect and reconnect superseded',
     signatureSource: 'test-title',
   },
+  {
+    id: 'M36',
+    why:
+      'SCHED-06 / WIRE-04 — this entry pins an **absence**, which is the unusual thing ' +
+      'about it. `submitJob` calls `executeVerified` once per shard and nothing retries a ' +
+      'selected executor that refuses at exec; that is correct for now, because the re-pick ' +
+      'is Phase 20 criterion 1’s. RULING A accepted criterion 2b as PARTIAL on one stated ' +
+      'condition — that the absence be held by a reading which turns red the day the retry ' +
+      'lands, rather than by a sentence in a summary. The reading that claimed to do that ' +
+      'was `expect(shard.verification.agreeing).toHaveLength(1)`, and it could not: ' +
+      '`agreeing` is a subset of `placement.nodeIds`, whose length IS `redundancy` — 1 in ' +
+      'that fixture — so it was confined to `{0,1}` and the `agreed` narrowing above it ' +
+      'excluded 0. **Planting the retry is therefore the only way to know the replacement ' +
+      'is not the same kind of ornament**, and the mutation is deliberately the shape ' +
+      'WIRE-04 would take: dispatch to a candidate the placement did not choose. With it ' +
+      'planted the shard reaches a free second executor and stops being `insufficient`, ' +
+      'which is exactly the inversion the ruling asked for. When WIRE-04 really lands, this ' +
+      'entry is the thing to delete — not the assertion, which by then has a behaviour to ' +
+      'describe.',
+    file: 'packages/core/src/job/submit.ts',
+    find: '      const verification = await executeVerified(task, selectedExecutors)',
+    replace:
+      '      let verification = await executeVerified(task, selectedExecutors)\n' +
+      "      if (verification.status === 'insufficient') {\n" +
+      '        const chosen = new Set(placement.nodeIds)\n' +
+      '        for (const alt of spec.executors.filter((e) => !chosen.has(e.nodeId))) {\n' +
+      '          const retry = await executeVerified(task, [alt])\n' +
+      "          if (retry.status === 'agreed') {\n" +
+      '            verification = retry\n' +
+      '            break\n' +
+      '          }\n' +
+      '        }\n' +
+      '      }',
+    caughtBy: ['packages/node/src/discovery-agents.node.test.ts'],
+    signature: "expected 'agreed' to be 'insufficient'",
+    signatureSource: 'rendered-at-runtime',
+  },
+  {
+    id: 'M37',
+    why:
+      'SCHED-04 on the browser tier — the defect this catches is a **divergence**, not a ' +
+      'breakage, which is why nothing already in the repository saw it. `window.o2.' +
+      'capacity()` reads `node.admission`; the wire answer is composed by whatever object ' +
+      '`serveAgent` was handed. Hand it a second `LocalCapacity` built without the ' +
+      'governor and the two stop agreeing: the page still reports `{dutyCycle: 0.25, ' +
+      'slots: 2}` and every in-page assertion in `duty-cycle-tab.e2e.test.ts` stays green, ' +
+      'while the tab advertises 8 slots to every peer that asks and takes on four times ' +
+      'the work its user capped it to. It is the same class of defect that file already ' +
+      'records against `GovernedExecutor` — the right value read from the wrong object — ' +
+      'and it survived there once for exactly this reason. **Measured: 5 passed, 1 ' +
+      'failed**, the one being the peer’s reading. That divergence is the whole argument ' +
+      'for taking criterion 3’s browser half off the wire instead of inferring it from ' +
+      'shared construction, and this entry is what keeps the reading honest.',
+    file: 'packages/browser/src/browser-node.ts',
+    find: '      capacity: admission,',
+    replace:
+      '      capacity: new LocalCapacity({\n' +
+      '        nodeId,\n' +
+      '        maxConcurrent: options.maxConcurrentTasks ?? DEFAULT_MAX_CONCURRENT_TASKS,\n' +
+      '      }),',
+    caughtBy: ['packages/node/src/duty-cycle-tab.e2e.test.ts'],
+    signature: 'expected { slots: 8, inFlight: +0 } to deeply equal { slots: 2, inFlight: +0 }',
+    signatureSource: 'rendered-at-runtime',
+    project: 'e2e',
+  },
 ]
 
 /** Literal occurrences of `needle` in `text`. `needle` must be non-empty. */
