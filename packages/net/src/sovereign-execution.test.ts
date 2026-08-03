@@ -546,6 +546,7 @@ describe('Phase 12 — sovereignty wired onto submitJob', () => {
             },
           ],
           redundancy: 1,
+          onQuorumShortfall: 'runs-at-available-redundancy',
         },
         // SEED's own store — the node's `RpcBlockSource` fetches from `[SEED]`,
         // so this is where a real requestor's local blockstore corresponds to.

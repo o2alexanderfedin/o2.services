@@ -316,6 +316,7 @@ describe('the rule: relaying and executing are the same node', () => {
         executors,
         nodes: publicNodes(executors),
         redundancy: 1,
+        onQuorumShortfall: 'runs-at-available-redundancy',
       },
       guest.store,
     )
@@ -372,6 +373,7 @@ describe('the rule: relaying and executing are the same node', () => {
         executors,
         nodes: publicNodes(executors),
         redundancy: 1,
+        onQuorumShortfall: 'runs-at-available-redundancy',
       },
       host.store,
     )

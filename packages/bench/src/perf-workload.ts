@@ -349,6 +349,10 @@ export async function measureGateLadder(
           executors,
           nodes: publicNodes(executors),
           redundancy: config.redundancy,
+          // VER-03/VER-04 — `bin/bench.ts`'s reason, on the workload it drives: a
+          // benchmark that refuses work measures nothing. The reading is what this
+          // file exists to produce, and a degraded one carries its own strength label.
+          onQuorumShortfall: 'runs-at-available-redundancy',
         },
         rig.blockstore,
         [rig.guard],

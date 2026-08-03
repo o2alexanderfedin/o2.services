@@ -244,6 +244,7 @@ async function runMap(fabric: Fabric, bound: number, shards: number): Promise<Jo
       executors: fabric.executors,
       nodes: publicNodes(fabric.executors),
       redundancy: REDUNDANCY,
+      onQuorumShortfall: 'runs-at-available-redundancy',
     },
     fabric.originStore,
   )

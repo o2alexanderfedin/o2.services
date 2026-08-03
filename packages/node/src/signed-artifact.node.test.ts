@@ -297,6 +297,7 @@ describe('DET-03/DATA-08 — signed artifact resolution across a real bin/agent.
         executors,
         nodes: publicNodes(executors),
         redundancy: 1,
+        onQuorumShortfall: 'runs-at-available-redundancy',
       },
       submitter.store,
     )
@@ -332,6 +333,7 @@ describe('DET-03/DATA-08 — signed artifact resolution across a real bin/agent.
         executors,
         nodes: publicNodes(executors),
         redundancy: 1,
+        onQuorumShortfall: 'runs-at-available-redundancy',
       },
       submitter.store,
     )
@@ -375,6 +377,7 @@ describe('DET-03/DATA-08 — signed artifact resolution across a real bin/agent.
         executors,
         nodes: publicNodes(executors),
         redundancy: 1,
+        onQuorumShortfall: 'runs-at-available-redundancy',
       },
       submitter.store,
     )
@@ -418,6 +421,7 @@ describe('DET-03/DATA-08 — signed artifact resolution across a real bin/agent.
         executors,
         nodes: publicNodes(executors),
         redundancy: 1,
+        onQuorumShortfall: 'runs-at-available-redundancy',
       },
       submitter.store,
     )
@@ -469,6 +473,7 @@ describe('DET-03/DATA-08 — signed artifact resolution across a real bin/agent.
         executors,
         nodes: publicNodes(executors),
         redundancy: 1,
+        onQuorumShortfall: 'runs-at-available-redundancy',
       },
       submitter.store,
     )

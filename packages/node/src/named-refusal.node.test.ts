@@ -167,6 +167,7 @@ describe('criterion 6 — the refusal is named, and it arrives long before the b
         executors,
         nodes: descriptors,
         redundancy: 1,
+        onQuorumShortfall: 'runs-at-available-redundancy',
       },
       submitter.store,
     )
@@ -222,6 +223,7 @@ describe('criterion 6 — the refusal is named, and it arrives long before the b
         executors,
         nodes: descriptors,
         redundancy: 1,
+        onQuorumShortfall: 'runs-at-available-redundancy',
       },
       submitter.store,
     )

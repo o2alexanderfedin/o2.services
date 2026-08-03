@@ -202,6 +202,7 @@ describe('MR-04 / MR-05 / MR-07 — eight shards reduce over eight peers that ca
           executors,
           nodes: publicNodes(executors),
           redundancy: 2,
+          onQuorumShortfall: 'runs-at-available-redundancy',
         },
         fabric.originStore,
       )

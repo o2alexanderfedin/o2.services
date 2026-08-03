@@ -168,6 +168,7 @@ describe('BROW-03 — a job spanning a visibility change', () => {
         executors,
         nodes: publicNodes(executors),
         redundancy: 1,
+        onQuorumShortfall: 'runs-at-available-redundancy',
       },
       store,
     )
@@ -238,6 +239,7 @@ describe('GovernedExecutor — concurrency cannot bypass the cap', () => {
         executors,
         nodes: publicNodes(executors),
         redundancy: 1,
+        onQuorumShortfall: 'runs-at-available-redundancy',
       },
       store,
     )
@@ -281,6 +283,7 @@ describe('GovernedExecutor — concurrency cannot bypass the cap', () => {
         executors,
         nodes: publicNodes(executors),
         redundancy: 1,
+        onQuorumShortfall: 'runs-at-available-redundancy',
       },
       store,
     )

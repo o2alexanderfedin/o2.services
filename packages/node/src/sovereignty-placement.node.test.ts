@@ -232,6 +232,7 @@ describe('DATA-03/DATA-04 — sovereignty-pinned placement across real bin/agent
         executors,
         nodes: nodesDescriptor,
         redundancy: 1,
+        onQuorumShortfall: 'runs-at-available-redundancy',
       },
       submitter.store,
     )
@@ -377,6 +378,7 @@ describe('SCHED-05 — sovereignty survives the offer loop, across real processe
         executors: fixture.executors,
         nodes: fixture.descriptors,
         redundancy: 1,
+        onQuorumShortfall: 'runs-at-available-redundancy',
         // The only difference from the case above, and the whole subject of this block.
         admit: rpcAdmission(submitter.rpc),
       },
@@ -437,6 +439,7 @@ describe('SCHED-05 — sovereignty survives the offer loop, across real processe
         executors: fixture.executors,
         nodes: fixture.descriptors,
         redundancy: 1,
+        onQuorumShortfall: 'runs-at-available-redundancy',
         admit: rpcAdmission(submitter.rpc),
       },
       submitter.store,

@@ -227,6 +227,7 @@ describe('end to end — a real WASM job at R=2', () => {
         executors,
         nodes: publicNodes(executors),
         redundancy: 2,
+        onQuorumShortfall: 'runs-at-available-redundancy',
       },
       store,
     )

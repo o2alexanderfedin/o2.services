@@ -417,6 +417,7 @@ async function runMap(fabric: Fabric): Promise<JobResult> {
       executors,
       nodes: publicNodes(executors),
       redundancy: MAP_REDUNDANCY,
+      onQuorumShortfall: 'runs-at-available-redundancy',
     },
     fabric.submitter.store,
   )

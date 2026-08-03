@@ -220,6 +220,7 @@ describe('SCHED-01 — a data CID and a peer list become dispatchable candidates
           executors: found.executors,
           nodes: found.nodes,
           redundancy: 1,
+          onQuorumShortfall: 'runs-at-available-redundancy',
         },
         new MemoryBlockstore(),
       )

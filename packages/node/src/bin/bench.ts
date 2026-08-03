@@ -771,6 +771,16 @@ function runnerFor(build: (nodes: number) => Promise<Fabric>): {
         // so the correlation submitJob checks still holds.
         nodes: fabric.nodes,
         redundancy: config.redundancy,
+        // VER-03/VER-04. This is a measurement driver, and a refused shard yields no
+        // reading — so refusing on an uncomposable quorum would make the driver quietly
+        // measure less the more concentrated the fabric got, which is the direction the
+        // interesting readings are in. It degrades, and a degraded reading is still a
+        // reading: the receipt names the weaker strength beside it.
+        //
+        // This matters most on the `--discover` arm, which is where Plan 19-10 takes
+        // criterion 3's CLI readings — a discovered rig is exactly the case where the
+        // candidate set may turn out to be one operator's.
+        onQuorumShortfall: 'runs-at-available-redundancy',
         // Absent on the default arm, so `submitJob` takes `planPlacement` exactly as it
         // did before `--discover` existed. Present on a discover rig, which is what
         // gives `planWithOffers` — sample `d`, take the least-loaded, re-pick on a

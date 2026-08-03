@@ -152,6 +152,7 @@ describe('NET-01 — a redundant job with every execution remote', () => {
         executors,
         nodes: publicNodes(executors),
         redundancy: 2,
+        onQuorumShortfall: 'runs-at-available-redundancy',
       },
       submitter.store,
     )
@@ -205,6 +206,7 @@ describe('NET-01 — a redundant job with every execution remote', () => {
         executors,
         nodes: publicNodes(executors),
         redundancy: 2,
+        onQuorumShortfall: 'runs-at-available-redundancy',
       },
       submitter.store,
     )
@@ -233,6 +235,7 @@ describe('NET-01 — persistence across a restart', () => {
         executors,
         nodes: publicNodes(executors),
         redundancy: 1,
+        onQuorumShortfall: 'runs-at-available-redundancy',
       },
       submitter.store,
     )

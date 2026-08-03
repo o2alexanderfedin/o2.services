@@ -164,6 +164,7 @@ describe('submitJobWithEgress — a job’s manifest, reachable from the call th
         executors: fabric.executors,
         nodes: fabric.nodes,
         redundancy: 1,
+        onQuorumShortfall: 'runs-at-available-redundancy',
       }
 
       const result = await submitJobWithEgress(spec, fabric.seedStore, [fabric.guard])
@@ -202,6 +203,7 @@ describe('submitJobWithEgress — a job’s manifest, reachable from the call th
         executors: fabric.executors,
         nodes: fabric.nodes,
         redundancy: 1,
+        onQuorumShortfall: 'runs-at-available-redundancy',
       })
 
       const first = await submitJobWithEgress(specFor({ n: 1 }), fabric.seedStore, [fabric.guard])
@@ -232,6 +234,7 @@ describe('submitJobWithEgress — a job’s manifest, reachable from the call th
         executors: fabric.executors,
         nodes: fabric.nodes,
         redundancy: 1,
+        onQuorumShortfall: 'runs-at-available-redundancy',
       }
 
       const expected = await submitJob(spec, fabric.seedStore)
@@ -330,6 +333,7 @@ describe('submitJobWithEgress — a submitter does not serve the row it submitte
         executors: [executor],
         nodes: soleOwnerNode('watcher'),
         redundancy: 1,
+        onQuorumShortfall: 'runs-at-available-redundancy',
       },
       store,
       guards,
@@ -380,6 +384,7 @@ describe('submitJobWithEgress — a submitter does not serve the row it submitte
         executors: [executor],
         nodes: soleOwnerNode('watcher'),
         redundancy: 1,
+        onQuorumShortfall: 'runs-at-available-redundancy',
       },
       store,
       [submitterGuard],
@@ -445,6 +450,7 @@ describe('submitJobWithEgress — a submitter does not serve the row it submitte
           executors: [new WatchingExecutor('watcher', () => {})],
           nodes: soleOwnerNode('watcher'),
           redundancy: 1,
+          onQuorumShortfall: 'runs-at-available-redundancy',
         },
         failing,
         [guard],
@@ -478,6 +484,7 @@ describe('submitJobWithEgress — a submitter does not serve the row it submitte
         executors: [executor],
         nodes: soleOwnerNode('watcher'),
         redundancy: 1,
+        onQuorumShortfall: 'runs-at-available-redundancy',
       },
       store,
       [guard],
@@ -516,6 +523,7 @@ describe('submitJobWithEgress — a submitter does not serve the row it submitte
         executors: [executor],
         nodes: soleOwnerNode('watcher'),
         redundancy: 1,
+        onQuorumShortfall: 'runs-at-available-redundancy',
       },
       store,
       [guard],

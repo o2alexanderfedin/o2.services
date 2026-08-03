@@ -301,6 +301,7 @@ describe('DATA-05 — the refusal across two real bin/agent.ts processes', () =>
         executors,
         nodes: descriptors,
         redundancy: 1,
+        onQuorumShortfall: 'runs-at-available-redundancy',
       },
       submitter.store,
     )
@@ -349,6 +350,7 @@ describe('DATA-05 — the refusal across two real bin/agent.ts processes', () =>
         executors,
         nodes: descriptors,
         redundancy: 1,
+        onQuorumShortfall: 'runs-at-available-redundancy',
       },
       submitter.store,
     )

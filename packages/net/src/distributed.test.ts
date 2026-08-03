@@ -325,6 +325,7 @@ describe('a whole job across nodes', () => {
           executors,
           nodes: publicNodes(executors),
           redundancy: 2,
+          onQuorumShortfall: 'runs-at-available-redundancy',
         },
         fabric.originStore,
       )
@@ -373,6 +374,7 @@ describe('a whole job across nodes', () => {
           executors,
           nodes: publicNodes(executors),
           redundancy: 2,
+          onQuorumShortfall: 'runs-at-available-redundancy',
         },
         fabric.originStore,
       )
