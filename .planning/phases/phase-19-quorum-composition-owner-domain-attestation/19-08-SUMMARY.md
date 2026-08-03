@@ -303,7 +303,7 @@ agent `b` to report, because the armed instrument never printed.**
 | `npx vitest run --project node --reporter=json` (the measurement run) | **exit 0** — 134 files, 1884 passed, 2 skipped, 263 s wall |
 | `npm run test:unit` | **exit 0** — 94 files, 1444 passed, 1 skipped, 7.49 s |
 | `npx vitest run --project node packages/node/src/slow-specs.node.test.ts` | **exit 0** — 8 tests |
-| `npx vitest run --project node` (final) | **exit 0** — see below |
+| `npx vitest run --project node` (final) | **exit 0** — 134 files, 1884 passed, 2 skipped |
 
 Every exit code was read with `EXIT=$?` on the line immediately after the command, never
 through a pipe, and appended into the log.
