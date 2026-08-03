@@ -20,8 +20,19 @@
  * applies within an owner's own node set when they have two or more live, and to the
  * aggregation over contributions. That is settled.
  *
- * Pure module.
+ * Pure module. Its one import is `import type`, which erases at build time, so this
+ * file still contributes no runtime dependency to anything that loads it — the property
+ * the phrase "zero imports" used to stand in for. `enrollment.ts` does not import this
+ * file, so the direction is one-way and adds no cycle.
+ *
+ * The reason the certificate belongs *on* `NodeDescriptor` rather than beside it: a
+ * second structure keyed on `nodeId` is a second source of truth about the same node,
+ * and nothing in this repository could catch the two disagreeing. One of them would be
+ * consulted for placement and the other for verification, and the day they diverge is
+ * the day a result is attested against a certificate that did not run it.
  */
+
+import type { NodeCertificate } from './enrollment.ts'
 
 /** Who owns a piece of data. Opaque; identity is established elsewhere. */
 export type OwnerId = string
@@ -52,6 +63,31 @@ export interface NodeDescriptor {
   readonly canExecuteSovereign: boolean
   /** Current load in [0, 1]. Used only to choose *among* already-eligible nodes. */
   readonly load: number
+  /**
+   * The provider-signed certificate that qualified this node, or the statement that
+   * this descriptor carries none.
+   *
+   * **What it buys.** `operatorId` is the unit of quorum diversity and
+   * `discoverability` is what makes a member backbone-anchored, so this one field is
+   * what carries VER-03, VER-04 and VER-08…VER-10 onto the dispatch path.
+   * `composeQuorum`, `attestationReceipt` and `resolveReplicaSets` all take
+   * `NodeCertificate[]`, and until this field existed there was no point on the path a
+   * job actually runs where any of them could be called at all.
+   *
+   * **Required, and the absence is a statement rather than a default.** A hook or fact
+   * whose absence matters is a value the call site writes, never an omission the type
+   * tolerates — the convention Phase 11 recorded on `AgentOptions`. Optional here would
+   * let a descriptor reach the quorum step carrying nothing, and the quorum step would
+   * then have to guess whether that meant "nobody enrolled this node" or "whoever built
+   * this descriptor forgot", which are different facts with different remedies.
+   *
+   * **`'carries-no-certificate'` is not a node class.** Every node in this fabric has
+   * equal functionality and the only difference between them is discovery. What the
+   * literal reports is that *this requestor* holds no signed statement about the node —
+   * a fact about the requestor's knowledge, which changes the moment it learns one. A
+   * descriptor carrying it names a perfectly ordinary node.
+   */
+  readonly certificate: NodeCertificate | 'carries-no-certificate'
 }
 
 /**
@@ -67,8 +103,13 @@ export interface NodeDescriptor {
  * does not introduce a node class, only a default descriptor shape for the
  * common case where the caller has not modelled per-owner nodes at all.
  *
+ * `certificate` is the one field here that is not a placeholder. It is the honest
+ * answer: this function builds descriptors from anything carrying a `nodeId`, so
+ * there is no certificate for it to pass on, and it says so rather than leaving a
+ * reader to infer it from an absent key.
+ *
  * Takes the minimal structural shape rather than `Executor` from `ports.ts` so
- * this file's zero-import, pure-module property is undisturbed.
+ * this file's pure-module property is undisturbed.
  */
 export function publicNodes(
   executors: readonly { readonly nodeId: string }[],
@@ -78,6 +119,7 @@ export function publicNodes(
     ownerId: 'public',
     canExecuteSovereign: true,
     load: 0,
+    certificate: 'carries-no-certificate',
   }))
 }
 

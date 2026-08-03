@@ -54,8 +54,10 @@
  *
  * That tension is already recorded in `fabric-node.ts`, and
  * `net/src/sovereign-execution.test.ts` dodges it by making the owner id *be* a hex
- * key. **AUTH-05 / Phase 19 owns unifying the two.** This module does not unify it; it
- * names it, so the next reader does not rediscover it from a silent stall.
+ * key. **Plan 19-09 owns unifying the two**, and it is the plan to read rather than the
+ * phase in general — the naming half is discharged here, by the descriptor now carrying
+ * the certificate the user key was read off, so a reader can see both spellings of the
+ * same node side by side instead of inferring one from the other.
  *
  * ## `requiredFeatures` is deliberately left to the caller, and callers pass none
  *
@@ -67,12 +69,13 @@
  */
 
 import type { CID } from 'multiformats/cid'
-import { discoverExecutors } from '@o2/core'
+import { discoverExecutors, resolveReplicaSets } from '@o2/core'
 import type {
   Exclusion,
   ExecutorQuery,
   NodeDescriptor,
   PublicKeyHex,
+  ReplicaSet,
 } from '@o2/core'
 import { RpcRecordIndex } from './discovery.ts'
 import { RemoteExecutor } from './remote-executor.ts'
@@ -135,6 +138,19 @@ export interface CandidateSet {
    * different problem from one that was excluded for cause.
    */
   readonly undialable: readonly PublicKeyHex[]
+  /**
+   * The qualified nodes grouped by the user key their certificates name — AUTH-05.
+   *
+   * Computed here rather than left to a call site because the certificates were
+   * verified exactly once, at the moment they qualified, against the clock this lookup
+   * read. Regrouping later means re-verifying against a clock that has moved, and a
+   * certificate that expired in between would silently drop an owner's second replica —
+   * turning a verified result into an owner-attested one with nothing to show for it.
+   *
+   * Taken over the **qualified** set rather than over every provider answered, so a
+   * replica set never contains a node the lookup's own intersection excluded.
+   */
+  readonly replicaSets: readonly ReplicaSet[]
 }
 
 /**
@@ -149,9 +165,12 @@ export async function discoverCandidates(
   options: CandidateOptions,
 ): Promise<CandidateSet> {
   const index = new RpcRecordIndex(options.rpc, options.peers)
+  // Read once and reused below, so the replica sets are grouped against the same
+  // instant the certificates were qualified at rather than a slightly later one.
+  const now = options.now()
   const found = await discoverExecutors(query, index, {
     trustedIssuers: options.trustedIssuers,
-    now: options.now(),
+    now,
   })
 
   const executors: RemoteExecutor[] = []
@@ -182,8 +201,32 @@ export async function discoverCandidates(
       // read as one — the offer answer (SCHED-02) is where a real figure comes from,
       // and until one arrives every candidate is equally unranked.
       load: 0,
+      // The whole certificate rides along now, so the two fields summarised above are
+      // readable directly rather than through this comment — and so are `operatorId`
+      // and `discoverability`, which the quorum step needs and which nothing on the
+      // dispatch path could reach while this loop kept the user key alone. It is the
+      // object the provider signed, passed on unaltered: rebuilding it from parts here
+      // would drop `issuer` and `signature`, which are the whole of what makes it
+      // checkable by somebody who was not present.
+      certificate: executor.certificate,
     })
   }
 
-  return { executors, nodes, excluded: found.excluded, providers: found.providers, undialable }
+  return {
+    executors,
+    nodes,
+    excluded: found.excluded,
+    providers: found.providers,
+    undialable,
+    // The same pinned issuers and the same instant the lookup qualified them against.
+    // `resolveReplicaSets` re-verifies each certificate itself and drops any that does
+    // not verify, so an unverifiable one cannot inflate an owner's replica count — at
+    // this call site that is a second refusal behind `discoverExecutors`'s first, and
+    // it is kept rather than skipped because the function's guarantee is its own.
+    replicaSets: resolveReplicaSets(
+      found.executors.map((executor) => executor.certificate),
+      options.trustedIssuers,
+      now,
+    ),
+  }
 }
