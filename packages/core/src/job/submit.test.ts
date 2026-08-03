@@ -87,7 +87,7 @@ describe('executeVerified — agreement', () => {
     expect(r.status).toBe('agreed')
     if (r.status === 'agreed') {
       expect(r.replicas).toBe(2)
-      expect([...r.agreeing].sort()).toEqual(['a', 'b'])
+      expect(r.agreeing.map((e) => e.nodeId).sort()).toEqual(['a', 'b'])
       // Gross counts both replicas; useful counts the one that produced the answer.
       expect(r.grossFuel).toBe(200)
       expect(r.usefulFuel).toBe(100)
@@ -129,7 +129,7 @@ describe('executeVerified — disagreement is surfaced, never voted away (VER-01
     const r = await executeVerified(task, [honest('a'), failing('b', 'oom')])
     expect(r.status).toBe('agreed')
     if (r.status === 'agreed') {
-      expect(r.agreeing).toEqual(['a'])
+      expect(r.agreeing.map((e) => e.nodeId)).toEqual(['a'])
       expect(r.replicas).toBe(1)
     }
   })
@@ -155,7 +155,7 @@ describe('executeVerified — disagreement is surfaced, never voted away (VER-01
     const r = await executeVerified(task, [honest('a'), nanProducer('b')])
     expect(r.status).toBe('agreed')
     if (r.status === 'agreed') {
-      expect(r.agreeing).toEqual(['a'])
+      expect(r.agreeing.map((e) => e.nodeId)).toEqual(['a'])
     }
   })
 })
@@ -188,7 +188,7 @@ describe('what is compared covers (task, output) only (VER-05)', () => {
     expect(r.status).toBe('agreed')
     if (r.status === 'agreed') {
       expect(r.replicas).toBe(2)
-      expect([...r.agreeing].sort()).toEqual([second.nodeId, first.nodeId].sort())
+      expect(r.agreeing.map((e) => e.nodeId).sort()).toEqual([second.nodeId, first.nodeId].sort())
     }
   })
 
@@ -355,7 +355,7 @@ describe('submitJob — sharding and content addressing (MR-01, DATA-01)', () =>
     // The co-replica's completed work survives its neighbour's collapse.
     expect(shard?.verification.status).toBe('agreed')
     if (shard?.verification.status === 'agreed') {
-      expect(shard.verification.agreeing).toEqual(['good'])
+      expect(shard.verification.agreeing.map((e) => e.nodeId)).toEqual(['good'])
       expect(shard.verification.replicas).toBe(1)
     }
   })
@@ -486,7 +486,7 @@ describe('DATA-03/DATA-04 — sovereignty wired onto submitJob', () => {
     if (shard?.verification.status === 'agreed') {
       // Never one of the four idle foreign nodes, despite them being the
       // "cheaper" choice by every load signal.
-      expect(shard.verification.agreeing).toEqual(['alice-1'])
+      expect(shard.verification.agreeing.map((e) => e.nodeId)).toEqual(['alice-1'])
     }
   })
 
@@ -527,7 +527,7 @@ describe('DATA-03/DATA-04 — sovereignty wired onto submitJob', () => {
     const [shard] = r.job.shards
     expect(shard?.verification.status).toBe('agreed')
     if (shard?.verification.status === 'agreed') {
-      expect(shard.verification.agreeing).toEqual(['alice-1'])
+      expect(shard.verification.agreeing.map((e) => e.nodeId)).toEqual(['alice-1'])
     }
     expect(replicaCalls).toBe(0)
     expect(await store.has(shard!.inputCid)).toBe(true)
@@ -767,7 +767,7 @@ describe('SCHED-03 — submitJob places by offers when it is given a way to ask'
     expect(shard?.verification.status).toBe('agreed')
     if (shard?.verification.status === 'agreed') {
       // Placed on the other one — the re-pick happened.
-      expect(shard.verification.agreeing).not.toEqual([first])
+      expect(shard.verification.agreeing.map((e) => e.nodeId)).not.toEqual([first])
     }
     // Both were asked, the refuser first: the read count, not the reason string.
     expect(stub.offered()).toHaveLength(2)
@@ -919,7 +919,7 @@ describe('SCHED-03 — submitJob places by offers when it is given a way to ask'
     // arms AGREE, which is what says `eligibleNodes` is the same gate on both.
     if (a?.status === 'agreed' && b?.status === 'agreed') {
       expect(a.agreeing).toStrictEqual(b.agreeing)
-      expect(a.agreeing).toStrictEqual(['alice-1'])
+      expect(a.agreeing.map((e) => e.nodeId)).toStrictEqual(['alice-1'])
     }
     // And the offer arm only ever asked the eligible one.
     expect(accepting.offered()).toStrictEqual(['alice-1'])
@@ -1007,7 +1007,7 @@ describe('SCHED-02 — the no-offer arm places exactly as it did before this pha
     if (!r.ok) return
     const v = r.job.shards[0]?.verification
     expect(v?.status).toBe('agreed')
-    if (v?.status === 'agreed') expect(v.agreeing).toStrictEqual(['n-idle'])
+    if (v?.status === 'agreed') expect(v.agreeing.map((e) => e.nodeId)).toStrictEqual(['n-idle'])
   })
 
   it('keeps the dispatchCount nudge — four shards over four idle nodes land one each', async () => {
@@ -1034,7 +1034,7 @@ describe('SCHED-02 — the no-offer arm places exactly as it did before this pha
     expect(r.ok).toBe(true)
     if (!r.ok) return
     const chosen = r.job.shards.map((s) =>
-      s.verification.status === 'agreed' ? s.verification.agreeing[0] : undefined,
+      s.verification.status === 'agreed' ? s.verification.agreeing[0]?.nodeId : undefined,
     )
     // One shard each, in order — the round-robin the nudge reproduces.
     expect(chosen).toStrictEqual(['w0', 'w1', 'w2', 'w3'])

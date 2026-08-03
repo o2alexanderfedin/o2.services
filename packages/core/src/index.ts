@@ -45,7 +45,7 @@ export type { WorkerExecutorOptions } from './executor/worker-executor.ts'
 
 // Redundant execution and verification — VER-01, VER-02, VER-05, VER-06.
 export { executeVerified } from './job/verify.ts'
-export type { Receipt, VerificationResult } from './job/verify.ts'
+export type { AgreeingReplica, Receipt, VerificationResult } from './job/verify.ts'
 
 // Job submission — MR-01, DATA-01, DATA-03, DATA-04.
 export { submitJob } from './job/submit.ts'

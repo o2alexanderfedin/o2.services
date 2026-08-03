@@ -124,7 +124,10 @@ function agreed(partitionIndex: number, output: CanonicalValue): ShardResult {
       status: 'agreed',
       resultCid: FIXED_CID,
       output,
-      agreeing: ['w0'],
+      // The sentinel, because nothing enrolled the node this fixture stands for. It is
+      // that node's truthful statement rather than a placeholder — the same reading
+      // every executor in the tree gives until the signing wrapper is composed.
+      agreeing: [{ nodeId: 'w0', attestation: 'signed-by-nobody' }],
       replicas: 1,
       grossFuel: 0,
       usefulFuel: 0,

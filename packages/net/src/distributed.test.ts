@@ -339,7 +339,7 @@ describe('a whole job across nodes', () => {
         expect(shard.verification.status).toBe('agreed')
         if (shard.verification.status !== 'agreed') continue
         expect(shard.verification.replicas).toBe(2)
-        expect([...shard.verification.agreeing].sort()).toEqual(['w0', 'w1'])
+        expect(shard.verification.agreeing.map((e) => e.nodeId).sort()).toEqual(['w0', 'w1'])
       }
 
       // Every worker pulled the module exactly once despite 4 concurrent shards,

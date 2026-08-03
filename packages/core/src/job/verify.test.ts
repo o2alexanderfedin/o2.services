@@ -146,7 +146,7 @@ describe('what an agreement claims', () => {
     expect(r.status).toBe('agreed')
     if (r.status === 'agreed') {
       expect(r.replicas).toBe(1)
-      expect(r.agreeing).toEqual(['solo'])
+      expect(r.agreeing.map((e) => e.nodeId)).toEqual(['solo'])
     }
   })
 
@@ -158,7 +158,7 @@ describe('what an agreement claims', () => {
     const r = await executeVerified(task, [honest('a'), failing('b', 'oom'), honest('c')])
     expect(r.status).toBe('agreed')
     if (r.status === 'agreed') {
-      expect(r.agreeing).toEqual(['a', 'c'])
+      expect(r.agreeing.map((e) => e.nodeId)).toEqual(['a', 'c'])
       expect(r.replicas).toBe(2)
     }
   })
@@ -373,7 +373,7 @@ describe('a replica that could not answer is that replica failing, not divergenc
     const r = await executeVerified(task, [honest('a'), failing('b', 'oom')])
     expect(r.status).toBe('agreed')
     if (r.status === 'agreed') {
-      expect(r.agreeing).toEqual(['a'])
+      expect(r.agreeing.map((e) => e.nodeId)).toEqual(['a'])
       expect(r.replicas).toBe(1)
     }
   })
@@ -400,7 +400,7 @@ describe('a replica that could not answer is that replica failing, not divergenc
     const r = await executeVerified(task, [honest('good'), throwing('bad', 'blockstore ENOSPC')])
     expect(r.status).toBe('agreed')
     if (r.status === 'agreed') {
-      expect(r.agreeing).toEqual(['good'])
+      expect(r.agreeing.map((e) => e.nodeId)).toEqual(['good'])
       expect(r.replicas).toBe(1)
     }
   })
@@ -423,7 +423,7 @@ describe('a replica that could not answer is that replica failing, not divergenc
     const r = await executeVerified(task, [honest('a'), nanProducer('b')])
     expect(r.status).toBe('agreed')
     if (r.status === 'agreed') {
-      expect(r.agreeing).toEqual(['a'])
+      expect(r.agreeing.map((e) => e.nodeId)).toEqual(['a'])
     }
   })
 
