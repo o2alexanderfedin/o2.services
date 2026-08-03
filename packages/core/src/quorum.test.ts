@@ -106,29 +106,20 @@ describe('VER-09 — no single relay may be the only way to find a whole quorum'
     // The point of the correction this case was written for: browser peers are not
     // disqualified, and fill quorum slots on identical terms.
     //
-    // **Fixture widened on 2026-08-02, and the reason is not cosmetic.** It used to
-    // be these three alone at `size: 3`. VER-03's anchor rule now refuses a set with
-    // no member reachable without a relay, and that refusal is asserted directly in
-    // its own case below rather than being absorbed here. Adding a fourth candidate
-    // and asking for four keeps all three relay-discovered peers as members, which
-    // is the whole of what this case ever claimed.
+    // **Restored on 2026-08-03 to the three-candidate form it held before
+    // 2026-08-02.** It was widened to four, one of them a seed, to survive an anchor
+    // rule that has since been retracted — see the block below. Widening it was the
+    // right move *given* that rule, and it cost the case its subject: with a seed in
+    // the members, the claim "a quorum of relay-discovered peers composes" was no
+    // longer the thing being read.
     const result = composeQuorum(
-      [
-        cert('n1', 'op-a', ['relay-1']),
-        cert('n2', 'op-b', ['relay-2']),
-        cert('n3', 'op-c', ['relay-3']),
-        cert('n4', 'op-d', []),
-      ],
-      { size: 4 },
+      [cert('n1', 'op-a', ['relay-1']), cert('n2', 'op-b', ['relay-2']), cert('n3', 'op-c', ['relay-3'])],
+      { size: 3 },
     )
     expect(result.ok).toBe(true)
     if (!result.ok) return
-    expect(result.members.filter((m) => m.discoverability === 'via-relay').map((m) => m.nodeKey)).toEqual([
-      'n1',
-      'n2',
-      'n3',
-    ])
-    expect(result.members.filter((m) => m.discoverability === 'seed')).toHaveLength(1)
+    expect(result.members.map((m) => m.nodeKey)).toEqual(['n1', 'n2', 'n3'])
+    expect(result.members.every((m) => m.discoverability === 'via-relay')).toBe(true)
   })
 
   it('applies the same rule to seed nodes — no exemption for servers', () => {
@@ -156,15 +147,16 @@ describe('VER-09 — no single relay may be the only way to find a whole quorum'
     expect(sharedRelay([cert('a', 'op-a', [])])).toBeNull()
   })
 
-  it('can be waived deliberately, and the waiver does not reach the anchor rule', () => {
-    // **Changed on 2026-08-02, and the change is the subject.** This case used to
-    // read that a single-relay fixture composes with the flag off. It no longer
-    // does — not because the waiver stopped working, but because VER-03's anchor
-    // rule is deliberately not conditioned on this flag: the flag excuses a
-    // fixture's *topology*, and eclipse resistance has no fixture excuse.
+  it('can be waived deliberately for a single-relay fixture', () => {
+    // **Restored on 2026-08-03.** Between 2026-08-02 and that date this read that a
+    // waived single-relay fixture is refused anyway, by an anchor rule the flag was
+    // deliberately not allowed to reach. That rule is gone, and with it the only
+    // thing that stood between this fixture and a composition — so the flag does
+    // what its name and its docblock have always said again.
     //
-    // What the waiver still decides is which rule speaks. Both refusals stay
-    // reachable, and asserting both is what stops either being deleted as redundant.
+    // Both halves are asserted, which is one more than this case carried before
+    // 2026-08-02: a waiver that is never observed to change an answer is not
+    // evidence the option is wired to anything.
     const singleRelay = [cert('n1', 'op-a', ['relay-1']), cert('n2', 'op-b', ['relay-1'])]
 
     const guarded = composeQuorum(singleRelay, { size: 2 })
@@ -173,97 +165,123 @@ describe('VER-09 — no single relay may be the only way to find a whole quorum'
     expect(guarded.refusal.kind).toBe('shared-relay-dependency')
 
     const waived = composeQuorum(singleRelay, { size: 2, requireIndependentPaths: false })
-    expect(waived.ok).toBe(false)
-    if (waived.ok) return
-    expect(waived.refusal.kind).toBe('no-direct-discovery-path')
+    expect(waived.ok).toBe(true)
+    if (!waived.ok) return
+    expect(waived.members.map((m) => m.nodeKey)).toEqual(['n1', 'n2'])
   })
 })
 
-describe('VER-03 — a quorum keeps one member a newcomer can reach without a relay', () => {
-  it('refuses a candidate set nothing can be reached in without a relay', () => {
-    // **The boundary between rule 2 and rule 3, and the reason neither is
-    // redundant.** These three depend on three *different* relays, so `sharedRelay`
-    // reports no shared dependency and rule 2 has nothing to say — and yet whoever
-    // holds those three relays holds every path into this quorum. Delete rule 3 and
-    // this composes, which is exactly what it did until 2026-08-02.
+/**
+ * The retracted anchor rule, and what stands in its place.
+ *
+ * Between 2026-08-02 and 2026-08-03 this file carried a `VER-03` block asserting a
+ * third composition rule: at least one member whose `discoverability` is `'seed'`,
+ * refused otherwise with the kind `no-direct-discovery-path`. It is gone, and the
+ * cases below are what remain true once it is.
+ *
+ * **Why it went.** `discoverability === 'seed'` is a decision keyed on node kind, and
+ * `STATE.md:479-480` forbids exactly that: *"if a decision keys on node kind, it is
+ * wrong — the only legitimate use is shared-dependency analysis over the discovery
+ * graph."* Rule 2 is that analysis. A seed requirement is not; it is a node class
+ * wearing a discovery field's clothes, and the counter-example was already recorded
+ * three lines from the rule — a browser peer dialled at its `/p2p-circuit/webrtc`
+ * address ran half of a 2×-redundant job in Phase 3. The relay is a signalling
+ * channel for registration and discovery, not a data path, and it drops out once the
+ * peers connect.
+ *
+ * **What VER-03 actually asks for**, owner ruling 2026-08-03: `backbone-anchored`
+ * describes the **replica**, not the node — at least one *copy of the result* pinned
+ * somewhere durable, so the verification outlives the nodes that produced it. That is
+ * a storage property and a fact that only exists *after* execution. `composeQuorum`
+ * runs before execution over `NodeCertificate[]`, and no field on a certificate says
+ * whether a node pins durably, so the check is not expressible here at all. Nothing
+ * below stands in for it. VER-03 is unimplemented, and that is the honest state.
+ */
+describe('composition never keys on how a node is discovered', () => {
+  it('composes a quorum no member of which can be dialled cold', () => {
+    // **The counter-example the retracted rule denied.** Three peers, three
+    // operators, none directly dialable, each found through a different relay.
+    // `sharedRelay` is null — their discovery paths really are independent — so
+    // the shared-dependency analysis has nothing to object to, and neither does
+    // anything else. Reinstate a seed requirement and this is the first case to
+    // redden.
     const candidates = [
       cert('n1', 'op-a', ['relay-1']),
       cert('n2', 'op-b', ['relay-2']),
       cert('n3', 'op-c', ['relay-3']),
     ]
     expect(sharedRelay(candidates)).toBeNull()
+    expect(candidates.every((c) => c.discoverability === 'via-relay')).toBe(true)
 
     const result = composeQuorum(candidates, { size: 3 })
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.members.map((m) => m.nodeKey)).toEqual(['n1', 'n2', 'n3'])
+    // Three tabs behind three relays are a quorum. Three tabs behind *one* are not,
+    // and the case below that one is why.
+    expect(result.strength).toBe('independent')
+  })
+
+  it('refuses a quorum whose own members share a relay the wider pool does not', () => {
+    // **This is what decides where rule 2 is asked.** The pool's three candidates
+    // do not share a relay — `sharedRelay` over all three is null, because n3 is
+    // found through relay-2 — so rule 2 asked of the *pool* passes and the two
+    // members it then hands back both hang off relay-1. That composition reports a
+    // redundancy of two against a single point of failure, which is the exact thing
+    // VER-09 exists to refuse.
+    //
+    // Asked of the members, the same fixture is refused and names the relay. The
+    // member set is what the caller receives and what the failure domain is a
+    // property of, so that is where the question belongs.
+    const pool = [
+      cert('n1', 'op-a', ['relay-1']),
+      cert('n2', 'op-b', ['relay-1']),
+      cert('n3', 'op-c', ['relay-2']),
+    ]
+    expect(sharedRelay(pool)).toBeNull()
+
+    const result = composeQuorum(pool, { size: 2 })
     expect(result.ok).toBe(false)
     if (result.ok) return
-    expect(result.refusal.kind).toBe('no-direct-discovery-path')
-    if (result.refusal.kind !== 'no-direct-discovery-path') return
-    expect(result.refusal.relayDependent).toBe(3)
-    expect(result.reason).toContain('without a relay')
+    expect(result.refusal.kind).toBe('shared-relay-dependency')
+    if (result.refusal.kind !== 'shared-relay-dependency') return
+    expect(result.refusal.relayId).toBe('relay-1')
+    expect(result.reason).toContain('member')
   })
 
-  it('chooses the anchor before the other slots rather than checking after', () => {
-    // The seed here advertises through three relays, so fewest-dependencies-first
-    // sorts it **last** and the three relay-discovered peers ahead of it. Filling
-    // the slots by that preference and *then* looking for an anchor would refuse a
-    // set that plainly contains one — a bound applied after the choice has already
-    // spent what it was meant to protect. Delete rule 3 and this still composes,
-    // but with no seed among its members, which is the reading that matters.
-    const result = composeQuorum(
-      [
-        cert('n1', 'op-a', ['relay-1']),
-        cert('n2', 'op-b', ['relay-2']),
-        cert('n3', 'op-c', ['relay-3']),
-        cert('n4', 'op-d', ['relay-4', 'relay-5', 'relay-6'], { discoverability: 'seed' }),
-      ],
-      { size: 3 },
-    )
-    expect(result.ok).toBe(true)
-    if (!result.ok) return
-    expect(result.members.map((m) => m.nodeKey)).toContain('n4')
-    // It leads the members, because it was chosen first and not filtered in.
-    expect(result.members[0]?.nodeKey).toBe('n4')
-    // …and it is the one the existing preference would have dropped: sorted by
-    // dependency count alone it comes last of the members it is now first of.
-    expect(
-      [...result.members].sort((a, b) => a.relayIds.length - b.relayIds.length).at(-1)?.nodeKey,
-    ).toBe('n4')
-  })
-
-  it('composes when the anchor is also what the existing ordering would have picked', () => {
-    // The ordinary case, recorded rather than assumed. A seed usually lists no
-    // relays, so fewest-dependencies-first puts it first anyway and the two
-    // orderings agree. Nothing here would fail if rule 3 were deleted — which is
-    // precisely why the case above it exists, and why this one must not be mistaken
-    // for evidence that the rule is implemented.
-    const result = composeQuorum(
-      [cert('n1', 'op-a', []), cert('n2', 'op-b', ['relay-1']), cert('n3', 'op-c', ['relay-2'])],
-      { size: 3 },
-    )
-    expect(result.ok).toBe(true)
-    if (!result.ok) return
-    expect(result.members[0]?.nodeKey).toBe('n1')
-    expect(result.members.filter((m) => m.discoverability === 'seed')).toHaveLength(1)
-  })
-
-  it('asks for the anchor at size 1 too, where a quorum is one node', () => {
-    // Stated uniformly so the function stays total. Whether one replica is a
-    // verification quorum at all is a question for whoever composes it, not for
-    // this function — and a size-1 composition with no directly dialable member is
-    // a result nobody else can reach the producer of.
-    //
-    // Two candidates for one slot, deliberately: rule 2 is asked first, and a pool
-    // of one relay-dependent node shares a relay with itself, so a single-candidate
-    // fixture would be refused for the other reason and this case would be reading
-    // rule 2's answer while claiming to read rule 3's.
+  it('refuses a one-member quorum that hangs off a single relay', () => {
+    // The same reading at the smallest size the function is total at. Two
+    // candidates on two relays for one slot: the pool is independent and the one
+    // member chosen out of it is not, because a quorum of one has exactly the
+    // failure domain of its only member.
     const result = composeQuorum(
       [cert('n1', 'op-a', ['relay-1']), cert('n2', 'op-b', ['relay-2'])],
       { size: 1 },
     )
     expect(result.ok).toBe(false)
     if (result.ok) return
-    expect(result.refusal.kind).toBe('no-direct-discovery-path')
-    // Delete rule 3 and this composes a one-node quorum nobody can dial cold.
+    expect(result.refusal.kind).toBe('shared-relay-dependency')
+  })
+
+  it('prefers the fewest discovery dependencies when filling the slots', () => {
+    // The ordering preference, which is production behaviour and is otherwise
+    // unpinned now that the anchor selection that used to reorder around it is
+    // gone. It is a *preference* — the first case in this block proves a member set
+    // with no directly dialable node composes — and this is what it buys.
+    //
+    // `z9` is named to sort last alphabetically and depends on nothing, so the two
+    // orderings disagree and the case can tell them apart. Two slots for three
+    // candidates: by dependency count the members are `z9` and `n1`, whose paths are
+    // independent. By node key alone they would be `n1` and `n2`, who share relay-1
+    // — so the preference is what keeps a composable set out of a refusal here,
+    // rather than a cosmetic ordering nothing reads.
+    const result = composeQuorum(
+      [cert('n1', 'op-b', ['relay-1']), cert('n2', 'op-c', ['relay-1']), cert('z9', 'op-a', [])],
+      { size: 2 },
+    )
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.members.map((m) => m.nodeKey)).toEqual(['z9', 'n1'])
   })
 })
 
