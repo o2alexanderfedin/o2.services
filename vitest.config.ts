@@ -24,73 +24,56 @@ const SLOW_CUTOFF_MS = 1000
 const NODE_MEASUREMENT = {
   date: '2026-08-03',
   /**
-   * 1-minute load average, sampled at the run's two endpoints only.
+   * 1-minute load average, sampled every 40 s across the whole run.
    *
-   * **This reading was taken on a contended host and is the weaker of the two, and the
-   * previous one was quiet** — the exact reverse of the sentence that stood here, and it
-   * is said plainly rather than left for a reader to infer from the numbers. It began at
-   * 8.98 on 8 cores and ended at 11.28. Sum-of-spans rose from 416.7 s to 689.4 s and wall
-   * clock from 210.5 s to 306.8 s for **six more files**, so most of that movement is the
-   * host rather than the tree.
+   * **This one is a real peak**, and saying so matters because the reading it replaces was
+   * explicitly not: that run — the same date, earlier — sampled only its two endpoints and
+   * recorded in this very field that its true maximum was unmeasured. This one was polled
+   * twelve times on 8 cores and read 7.41 → 12.72 → **30.71** → 18.56 → 9.42 → 7.78 →
+   * 7.37 → 6.71 → 4.95 → 4.58 → 5.41 → 5.75. The host was heavily contended for the first
+   * ninety seconds and quiet by the end, which is a different shape from any run recorded
+   * above and is why the endpoints alone would have described it as a quiet run.
    *
-   * **`loadPeak` here is the highest figure actually sampled, not a peak.** The previous
-   * reading polled every 15 s and could report a real mid-run maximum; this one did not,
-   * and inventing one would be the class of number this whole object exists to stop. What
-   * *is* known is that the 5-minute average read 16.13 and the 15-minute average 14.10 at
-   * the moment the run ended, both above every 1-minute figure sampled — so the true peak
-   * was higher than 11.28 and is **unmeasured**.
-   *
-   * ## Why a weaker reading replaced a better one
-   *
-   * Not by choice. Plan 19-15 added `result-signature.node.test.ts`, which took the node
-   * project from 132 files to 133 against a recorded 127 — past
-   * `slow-specs.node.test.ts`'s tolerance of 5, which had already been sitting exactly at
-   * its limit. The alternatives were to raise the tolerance, which is weakening a guard to
-   * avoid work, or to paste one measured entry into a table from another run, which
-   * `MEASURED_NODE_SPANS` explicitly refuses: *"pinning entries at their old values would
-   * make this table a blend of two runs, and its whole worth is that it is one run
-   * somebody can reproduce."* A noisy span is recoverable by re-measuring on a quiet host;
-   * a stale inventory decides whether a file is excluded **at all**.
+   * The effect is visible in the table and runs opposite to what a peak of 30 suggests:
+   * sum-of-spans FELL from 689.4 s to 565.3 s and wall clock from 306.8 s to 263.0 s while
+   * the project grew by one file. Both runs are honest readings of the same tree; the
+   * difference is the host, which is the whole reason this field exists.
    */
-  load: 8.98,
-  loadAtEnd: 11.28,
-  loadPeak: 11.28,
+  load: 7.41,
+  loadAtEnd: 5.75,
+  loadPeak: 30.71,
   /** Files and tests the `node` project ran, i.e. with no `test:unit` exclusions. */
-  files: 133,
-  tests: 1883,
+  files: 134,
+  tests: 1886,
   /** Sum of per-file spans. Not wall clock — vitest runs files in parallel. */
-  sumOfFileSpansMs: 689_390,
+  sumOfFileSpansMs: 565_296,
   /** Wall clock of that same run, for contrast with the sum above. */
-  wallClockMs: 306_830,
+  wallClockMs: 263_000,
   /**
    * What `npm run test:unit` measured with the derived list below applied.
    *
    * `unitFiles` is not an independent reading — `slow-specs.node.test.ts` asserts it
    * equals `files` minus the derived exclusion count, so it moves when the table does.
-   * It was **also observed directly at 97** by running `npm run test:unit` against this
-   * table, which is the cross-check that the derivation and the runner agree. Deriving
-   * it alone would make the assertion a tautology.
+   * It was **also observed directly** by running `npm run test:unit` against this table,
+   * which is the cross-check that the derivation and the runner agree. Deriving it alone
+   * would make the assertion a tautology.
    *
-   * `unitTests` is the run's total including the one skipped case — 1514 passed, 1 skipped
-   * — because the figure this field is compared against by hand is what the reporter
-   * prints, and it prints the total.
+   * `unitTests` is the run's total including the skipped cases, because the figure this
+   * field is compared against by hand is what the reporter prints, and it prints the total.
    *
-   * `unitWallClockMs` is **one reading of a passing run at a stated load** — 9.97 s at
-   * 1-minute load 8.38 rising to 10.70 across the run — and is not a bound. Read it as
-   * "about ten seconds", and read the fact that the previous recorded figure was 5.96 s at
-   * load 5.6 as the reason this object records a load at all rather than a duration on its
-   * own: the tree grew by six files between the two, and the host by three points of load.
+   * `unitWallClockMs` is **one reading of a passing run at a stated load** and is not a
+   * bound: 7.49 s at 1-minute load 6.12 rising to 6.98, on a run reporting
+   * `94 passed (94)` and exit 0. Read it as under ten seconds, and read the recorded
+   * history — 5.96 s at load 5.6, then 9.97 s at load 8.4, now 7.49 s at load 6.1 — as the
+   * reason this object records a load at all rather than a duration on its own.
    *
-   * **Durations from red runs are deliberately never recorded here.** Two candidates were
-   * discarded on that rule during an earlier session — 6.24 s taken while three assertions
-   * were failing, and 5.91 s taken while `slow-specs` itself was failing on the very count
-   * this field feeds. A duration measured on a suite that did not pass is not a duration
-   * for the suite this field claims to describe. The 9.97 s above is from a green run:
-   * `97 passed (97)`, exit 0.
+   * **Durations from red runs are deliberately never recorded here.** A duration measured
+   * on a suite that did not pass is not a duration for the suite this field claims to
+   * describe.
    */
-  unitFiles: 97,
-  unitTests: 1515,
-  unitWallClockMs: 9_970,
+  unitFiles: 94,
+  unitTests: 1445,
+  unitWallClockMs: 7_490,
 } as const
 
 /**
@@ -105,24 +88,22 @@ const NODE_MEASUREMENT = {
  *
  * ## The measurement
  *
- * `vitest run --project node --reporter=json`, **2026-08-03**, 133 files / 1883 tests.
- * Sum-of-file-spans 689.4 s against 306.8 s of wall clock, the difference being vitest's
- * own parallelism. Distribution: median 164 ms, p75 1124 ms, p90 8062 ms. Load average
- * 8.98 at the start and 11.28 at the end, **with no mid-run sample** — see
- * `NODE_MEASUREMENT.load`, which records what that costs and why the number was not
- * invented.
+ * `vitest run --project node --reporter=json`, **2026-08-03**, 134 files / 1886 tests, on
+ * a **green** run — exit 0, 1884 passed, 2 skipped. Sum-of-file-spans 565.3 s against
+ * 263.0 s of wall clock, the difference being vitest's own parallelism. Distribution:
+ * median 134 ms, p75 1389 ms, p90 4938 ms. Load average polled every 40 s: 7.41 at the
+ * start, **30.71 at its peak ninety seconds in**, 5.75 at the end.
  *
- * **This run was taken on a contended host and is the weaker of the two readings**, and
- * it replaced a quiet one — which is the reverse of the last two replacements and is the
- * reason `NODE_MEASUREMENT` carries a paragraph about why a worse reading was taken. The
- * short version: the node project reached 133 files against a recorded 127, past
- * `slow-specs.node.test.ts`'s tolerance, and a stale inventory is a worse failure than a
- * noisy span because the inventory is what decides whether a file is excluded *at all*.
+ * **This is the first reading here whose peak was actually sampled rather than inferred
+ * from its endpoints**, and the shape it caught is the argument for polling: a run that
+ * began at 7.4 and ended at 5.8 would have been recorded as quiet, while its real
+ * maximum was 30.7. The reading it replaces said so about itself — that its true peak was
+ * higher than either endpoint and was unmeasured — and this one is the follow-through.
  *
- * The measurement replaced was taken on 2026-08-02 on a quiet host at load 5.7→5.8, peak
- * 14.1: 127 files / 1782 tests, sum 416.7 s, wall clock 210.5 s, and 28 files at or above
- * the cut. **Re-measuring this table on a quiet host is worth doing** and needs no
- * decision from anybody — it is one command and this docblock is the instruction.
+ * The measurement replaced was taken earlier the same day at 8.98 → 11.28 with no mid-run
+ * sample: 133 files / 1883 tests, sum 689.4 s, wall clock 306.8 s, 36 files at or above
+ * the cut. Sum-of-spans **fell** by 124 s and wall clock by 44 s across a tree that grew
+ * by one file, which is the host and nothing else.
  *
  * ## An absolute millisecond cut is not reproducible, and this is the evidence
  *
@@ -136,18 +117,16 @@ const NODE_MEASUREMENT = {
  * | 2026-08-01, run 2 | 10 → 25 | 28 |
  * | 2026-08-01, run 3 — the table until 2026-08-02 | 21 → 42 | 36 |
  * | 2026-08-02 — the table until 2026-08-03 | 50 → 115 → 16 | 28 |
- * | 2026-08-03 — **the table below** | 8.98 → 11.28, no mid-run sample | 36 |
+ * | 2026-08-03, run 1 — the table until this one | 8.98 → 11.28, no mid-run sample | 36 |
+ * | 2026-08-03, run 2 — **the table below** | 7.41 → 30.71 → 5.75, polled every 40 s | 40 |
  *
- * The last two rows make the point twice over and in opposite directions. The 2026-08-02
- * run held **seven more files** than the run above it and selected **eight fewer** as
- * slow; the 2026-08-03 run holds **six more files still** and selects **eight more**,
- * putting the count back exactly where the 2026-08-01 run had it. Both movements are the
- * host. In the first, eleven files crossed from above the cut to below it without being
- * touched — `enrol-agent`, `fs-blockstore`, `identity-store`, `primes-reduce`,
- * `wasi-executor`, `sovereign-execution`, `node-identity`, `core/discovery`,
- * `disclosure-gate`, `start-unwind`, `relayed-job`. Nothing about them changed; the
- * host did. In the second, eight crossed back the other way, and only one of the
- * thirty-six — `result-signature.node.test.ts` — is genuinely new.
+ * The rows make the point repeatedly and in both directions. Between the last two, **six
+ * files crossed up and two crossed down while exactly one file was added to the tree**:
+ * up went `core/job/submit`, `sovereign-block-refusal`, `fs-blockstore`, `core/discovery`,
+ * `identity-store` and the genuinely-new `quorum-agents`; down went `core/enrollment`
+ * (1851 → 782 ms) and `tools/aot/cli` (1204 → 826 ms). Nothing about any of the eight
+ * changed. Note also that the higher-peak run produced the **shorter** spans, so load and
+ * span do not move together in any way a reader could predict from one number.
  *
  * Membership near the boundary is noise: `churn.test.ts` read 1134 ms in one run and
  * 961 ms in the next, crossing the cut without changing. **So the list cannot be made
@@ -165,15 +144,14 @@ const NODE_MEASUREMENT = {
  *
  * ## What the cut buys
  *
- * The 36 excluded files are **97.4 %** of the 689.4 s. The 97 that remain total
- * **18.1 s of test time**. `lift.node.test.ts` alone is 305.3 s — 44 % of the suite in
+ * The 40 excluded files are **97.3 %** of the 565.3 s. The 94 that remain total
+ * **15.2 s of test time**. `lift.node.test.ts` alone is 260.7 s — 46 % of the suite in
  * one file, and the single strongest argument for the cut existing at all.
  *
- * The excluded set grew from 28 back to 36 while the project grew by six files, which
- * pulls the inner loop the right way this time — but for the wrong reason, since eight of
- * those files re-crossed the cut on a timing difference rather than on a change to them.
- * It is left as measured anyway: pinning entries at their old values would make this
- * table a blend of two runs, and its whole worth is that it is *one* run somebody can
+ * The excluded set grew from 36 to 40 while the project grew by one file, and five of
+ * those four-net entries re-crossed the cut on a timing difference rather than on a change
+ * to them. It is left as measured anyway: pinning entries at their old values would make
+ * this table a blend of two runs, and its whole worth is that it is *one* run somebody can
  * reproduce.
  *
  * ## Entries below the cut are listed too, on purpose
@@ -192,61 +170,62 @@ const NODE_MEASUREMENT = {
  * The rest are deliberately unannotated rather than guessed at.
  */
 const MEASURED_NODE_SPANS: readonly (readonly [string, number])[] = [
-  ['tools/aot/lift.node.test.ts', 305_276],
-  ['packages/node/src/discovery-agents.node.test.ts', 49_403],
-  ['packages/node/src/enrollment.node.test.ts', 42_017],
-  ['packages/node/src/certificate-verification.node.test.ts', 33_369],
-  ['packages/node/src/tree-reduce-agents.node.test.ts', 27_091],
-  ['packages/node/src/orphan-leash.node.test.ts', 25_100],
-  ['packages/node/src/peer-dial.node.test.ts', 23_287],
-  ['packages/node/src/sovereignty-placement.node.test.ts', 22_196],
-  ['packages/node/src/transport-bounds.node.test.ts', 13_819],
-  ['packages/node/src/peer-gate.node.test.ts', 13_386],
-  ['packages/node/src/signed-artifact.node.test.ts', 12_140],
-  ['packages/node/src/admission.node.test.ts', 10_823],
-  ['packages/node/src/reservation-exhaustion.node.test.ts', 9735],
-  ['packages/node/src/two-process.node.test.ts', 8672],
-  ['packages/node/src/fabric-node.node.test.ts', 8062],
-  ['packages/node/src/capability-dispatch.node.test.ts', 7564],
-  ['packages/node/src/discover-arm.node.test.ts', 6616],
-  ['packages/node/src/duty-cycle.node.test.ts', 6076],
-  ['packages/node/src/result-signature.node.test.ts', 6066],
-  ['packages/node/src/trust-anchors.node.test.ts', 4930],
-  ['packages/node/src/node-records.node.test.ts', 3918],
-  ['packages/demo/src/kernel.test.ts', 3642],
-  ['packages/node/src/peer-verifier.node.test.ts', 3469],
-  ['packages/node/src/egress-refusal.node.test.ts', 2814],
-  ['packages/node/src/relaying.node.test.ts', 2508],
-  ['packages/node/src/egress-manifest.node.test.ts', 2495],
-  ['packages/node/src/execution-deadline.node.test.ts', 2405],
-  ['packages/node/src/provider-answering.node.test.ts', 2118],
-  ['packages/node/src/node-enrollment.node.test.ts', 2077],
-  ['packages/node/src/sovereign-at-rest.node.test.ts', 1971],
-  ['packages/node/src/named-refusal.node.test.ts', 1961],
-  ['packages/core/src/enrollment.test.ts', 1851],
-  ['tools/aot/cli.node.test.ts', 1204],
-  ['packages/node/src/combine-signature.node.test.ts', 1124],
-  ['packages/node/src/rendezvous-wire.node.test.ts', 1078],
-  ['packages/net/src/churn.test.ts', 1061],
+  ['tools/aot/lift.node.test.ts', 260_723],
+  ['packages/node/src/enrollment.node.test.ts', 29_046],
+  ['packages/node/src/certificate-verification.node.test.ts', 25_702],
+  ['packages/node/src/peer-dial.node.test.ts', 24_554],
+  ['packages/node/src/discovery-agents.node.test.ts', 24_277],
+  ['packages/node/src/quorum-agents.node.test.ts', 24_061],
+  ['packages/node/src/orphan-leash.node.test.ts', 20_276],
+  ['packages/node/src/tree-reduce-agents.node.test.ts', 19_019],
+  ['packages/node/src/sovereignty-placement.node.test.ts', 16_725],
+  ['packages/node/src/peer-gate.node.test.ts', 11_567],
+  ['packages/node/src/transport-bounds.node.test.ts', 10_725],
+  ['packages/node/src/admission.node.test.ts', 8381],
+  ['packages/node/src/duty-cycle.node.test.ts', 5904],
+  ['packages/node/src/two-process.node.test.ts', 5000],
+  ['packages/node/src/capability-dispatch.node.test.ts', 4794],
+  ['packages/node/src/result-signature.node.test.ts', 4763],
+  ['packages/node/src/fabric-node.node.test.ts', 4563],
+  ['packages/node/src/reservation-exhaustion.node.test.ts', 4256],
+  ['packages/node/src/discover-arm.node.test.ts', 4114],
+  ['packages/node/src/signed-artifact.node.test.ts', 3974],
+  ['packages/node/src/node-records.node.test.ts', 3606],
+  ['packages/demo/src/kernel.test.ts', 3350],
+  ['packages/node/src/peer-verifier.node.test.ts', 3154],
+  ['packages/node/src/trust-anchors.node.test.ts', 2290],
+  ['packages/node/src/execution-deadline.node.test.ts', 2226],
+  ['packages/node/src/provider-answering.node.test.ts', 2190],
+  ['packages/node/src/egress-manifest.node.test.ts', 2018],
+  ['packages/node/src/egress-refusal.node.test.ts', 1941],
+  ['packages/node/src/sovereign-at-rest.node.test.ts', 1852],
+  ['packages/core/src/job/submit.test.ts', 1771],
+  ['packages/node/src/relaying.node.test.ts', 1723],
+  ['packages/node/src/sovereign-block-refusal.node.test.ts', 1651],
+  ['packages/node/src/rendezvous-wire.node.test.ts', 1466],
+  ['packages/node/src/fs-blockstore.node.test.ts', 1398],
+  ['packages/node/src/named-refusal.node.test.ts', 1362],
+  ['packages/core/src/discovery.test.ts', 1354],
+  ['packages/node/src/combine-signature.node.test.ts', 1163],
+  ['packages/net/src/churn.test.ts', 1114],
+  ['packages/node/src/identity-store.node.test.ts', 1038],
+  ['packages/node/src/node-enrollment.node.test.ts', 1014],
   // ---- below the cut; listed so the boundary is visible, not excluded ----
-  ['packages/net/src/discovery.test.ts', 893],
-  ['packages/node/src/fs-blockstore.node.test.ts', 880],
-  ['packages/node/src/sovereign-block-refusal.node.test.ts', 816],
-  ['packages/net/src/discover-candidates.test.ts', 815],
-  ['packages/core/src/job/submit.test.ts', 757],
-  ['packages/node/src/disclosure-gate.node.test.ts', 744],
-  ['packages/core/src/discovery.test.ts', 720],
-  ['packages/node/src/pi-reduce.node.test.ts', 691],
-  ['packages/node/src/node-identity.node.test.ts', 677],
-  ['packages/net/src/enrol-agent.test.ts', 655],
-  ['packages/aot/src/wasi-real.node.test.ts', 651],
-  ['packages/net/src/provider-merge.test.ts', 642],
-  ['packages/node/src/start-unwind.node.test.ts', 547],
-  ['packages/node/src/primes-reduce.node.test.ts', 517],
-  ['packages/net/src/sovereign-execution.test.ts', 493],
-  ['packages/node/src/identity-store.node.test.ts', 457],
-  ['packages/core/src/result-attestation.test.ts', 439],
-  ['packages/aot/src/wasi-executor.test.ts', 435],
+  ['packages/node/src/disclosure-gate.node.test.ts', 907],
+  ['tools/aot/cli.node.test.ts', 826],
+  ['packages/net/src/provider-merge.test.ts', 825],
+  ['packages/core/src/enrollment.test.ts', 782],
+  ['packages/net/src/sovereign-execution.test.ts', 751],
+  ['packages/node/src/node-identity.node.test.ts', 731],
+  ['packages/net/src/discover-candidates.test.ts', 686],
+  ['packages/net/src/discovery.test.ts', 608],
+  ['packages/net/src/enrol-agent.test.ts', 598],
+  ['packages/node/src/relayed-job.node.test.ts', 590],
+  ['packages/node/src/pi-reduce.node.test.ts', 564],
+  ['packages/node/src/primes-reduce.node.test.ts', 540],
+  ['packages/core/src/result-attestation.test.ts', 515],
+  ['packages/aot/src/wasi-real.node.test.ts', 489],
+  ['packages/node/src/start-unwind.node.test.ts', 463],
 ]
 
 /**
