@@ -3,14 +3,18 @@ import { CID } from 'multiformats/cid'
 import { MemoryBlockstore } from '../blockstore/memory.ts'
 import { canonicalCid } from '../canonical/encode.ts'
 import type { CanonicalValue } from '../canonical/encode.ts'
+import { EnrollmentAuthority, requestEnrollment } from '../enrollment.ts'
+import type { NodeCertificate } from '../enrollment.ts'
 import { signName } from '../naming.ts'
 import type { Executor, ExecutionOutcome, Task } from '../ports.ts'
 import { LocalCapacity } from '../placement.ts'
 import type { Admission, AdmissionControl, Offer } from '../placement.ts'
+import { signResult } from '../result-attestation.ts'
+import type { ResultSigner } from '../result-attestation.ts'
 import { publicNodes } from '../sovereignty.ts'
 import type { NodeDescriptor } from '../sovereignty.ts'
 import { submitJob } from './submit.ts'
-import type { JobSpec, ShardSpec } from './submit.ts'
+import type { JobSpec, ShardResult, ShardSpec } from './submit.ts'
 import { executeVerified } from './verify.ts'
 
 const MODULE_CID = CID.parse('bafyreidykglsfhoixmivffc5uwhcgshx4j465xwqntbmu43nb2dzqwfvae')
@@ -1189,3 +1193,400 @@ async function firstAsked(nodes: readonly NodeDescriptor[]): Promise<string | un
   )
   return first
 }
+
+// ---------------------------------------------------------------------------
+// VER-03, VER-04, VER-08, VER-09, VER-10 — the quorum on the path and the
+// receipt on the result.
+// ---------------------------------------------------------------------------
+
+/**
+ * Real identities, because the subject of every case below is a **checked signature**.
+ *
+ * Nothing in production signs at the wave this file was written — Plan 19-15 composes
+ * the signing wrapper at the two node factories — so these fixtures sign directly
+ * through `result-attestation.ts`, which is the level this plan's claims live at
+ * anyway. `submitJob` reads the wall clock to judge a certificate's validity window,
+ * so the authority issues at `Date.now()` rather than at a pinned epoch: a fixture
+ * certificate minted for some other instant would be refused as expired or not-yet-valid
+ * and every case here would read the named absence for a reason that has nothing to do
+ * with what it is testing.
+ */
+const PROVIDER_KEY = new Uint8Array(32).fill(19)
+const OTHER_PROVIDER_KEY = new Uint8Array(32).fill(21)
+const OWNER_KEY = new Uint8Array(32).fill(20)
+
+function authorityFor(providerPrivateKey: Uint8Array): EnrollmentAuthority {
+  return new EnrollmentAuthority({
+    providerPrivateKey,
+    maxPerWindow: 50,
+    maxIssuedPerWindow: 'issues-without-an-aggregate-budget',
+    issuance: 'remembers-only-within-this-process',
+  })
+}
+
+interface Enrolled {
+  readonly nodeId: string
+  readonly signer: ResultSigner
+  readonly certificate: NodeCertificate
+}
+
+/** Distinct node seeds, so no two fixture nodes share a key by accident. */
+let nodeSeedCounter = 100
+
+function enrol(
+  nodeId: string,
+  operatorId: string,
+  relayIds: readonly string[],
+  providerPrivateKey: Uint8Array = PROVIDER_KEY,
+  issuedAt: number = Date.now(),
+): Enrolled {
+  nodeSeedCounter += 1
+  const nodeSeed = new Uint8Array(32).fill(nodeSeedCounter)
+  const issued = authorityFor(providerPrivateKey).enrol(
+    requestEnrollment(nodeSeed, OWNER_KEY, { operatorId, discoverability: 'via-relay', relayIds }),
+    issuedAt,
+  )
+  if (!issued.ok) throw new Error(`fixture failed to enrol ${nodeId}: ${JSON.stringify(issued.refusal)}`)
+  return { nodeId, signer: { nodeSeed, certificate: issued.certificate }, certificate: issued.certificate }
+}
+
+function descriptorFor(node: Enrolled, ownerId = 'public', load = 0): NodeDescriptor {
+  return { nodeId: node.nodeId, ownerId, canExecuteSovereign: true, load, certificate: node.certificate }
+}
+
+/** The shared answer, so replicas of one shard agree on the result they are attesting. */
+function answerFor(task: Task): CanonicalValue {
+  return { shard: task.partitionIndex, of: task.partitionCount, sum: task.partitionIndex * 10 }
+}
+
+async function cidOf(value: CanonicalValue): Promise<CID> {
+  const hashed = await canonicalCid(value)
+  if (!hashed.ok) throw new Error('fixture value not encodable')
+  return hashed.cid
+}
+
+/** An honest executor that signs what it produced, as a real enrolled node would. */
+function signing(node: Enrolled, signer: ResultSigner = node.signer): Executor {
+  return {
+    nodeId: node.nodeId,
+    async execute(task: Task): Promise<ExecutionOutcome> {
+      const output = answerFor(task)
+      return {
+        ok: true,
+        output,
+        fuelUsed: 100,
+        attestation: signResult(signer, {
+          moduleCid: task.moduleCid,
+          inputCid: task.inputCid,
+          partitionIndex: task.partitionIndex,
+          outputCid: await cidOf(output),
+        }),
+      }
+    },
+  }
+}
+
+/**
+ * An executor that returns the agreed answer and signs a **different** one.
+ *
+ * The replica agrees — the outputs matched, so it is in `agreeing` — and its statement
+ * is about something else. That is the whole third leg: a certificate counts because a
+ * signature over *this* result checked out, not because the node was in the set.
+ */
+function signingSomethingElse(node: Enrolled): Executor {
+  return {
+    nodeId: node.nodeId,
+    async execute(task: Task): Promise<ExecutionOutcome> {
+      return {
+        ok: true,
+        output: answerFor(task),
+        fuelUsed: 100,
+        attestation: signResult(node.signer, {
+          moduleCid: task.moduleCid,
+          inputCid: task.inputCid,
+          partitionIndex: task.partitionIndex,
+          outputCid: await cidOf({ some: 'other output' }),
+        }),
+      }
+    },
+  }
+}
+
+describe('VER-08/VER-09/VER-10 — every shard says how strongly it was attested', () => {
+  it('reads owner-attested when one verified replica ran it', async () => {
+    const solo = enrol('solo', 'op-solo', ['relay-solo'])
+    const r = await submitJob(
+      {
+        moduleCid: MODULE_CID,
+        shards: [{ value: { n: 1 }, label: 'public' }],
+        executors: [signing(solo)],
+        nodes: [descriptorFor(solo)],
+        redundancy: 1,
+        onQuorumShortfall: 'runs-at-available-redundancy',
+      },
+      new MemoryBlockstore(),
+    )
+
+    expect(r.ok).toBe(true)
+    if (!r.ok) return
+    const attestation = (r.job.shards[0] as ShardResult).attestation
+    expect(attestation).toMatchObject({ strength: 'owner-attested', replicas: 1 })
+    expect(r.job.attestation).toMatchObject({ strength: 'owner-attested' })
+  })
+
+  it('reads owner-domain when two verified replicas share an operator', async () => {
+    const one = enrol('bob-1', 'op-bob', ['relay-1'])
+    const two = enrol('bob-2', 'op-bob', ['relay-2'])
+    const r = await submitJob(
+      {
+        moduleCid: MODULE_CID,
+        shards: [{ value: { n: 1 }, label: 'sovereign', ownerId: 'bob' }],
+        executors: [signing(one), signing(two)],
+        nodes: [descriptorFor(one, 'bob'), descriptorFor(two, 'bob')],
+        redundancy: 2,
+        onQuorumShortfall: 'runs-at-available-redundancy',
+      },
+      new MemoryBlockstore(),
+    )
+
+    expect(r.ok).toBe(true)
+    if (!r.ok) return
+    expect((r.job.shards[0] as ShardResult).attestation).toMatchObject({
+      strength: 'owner-domain',
+      replicas: 2,
+      operators: ['op-bob'],
+    })
+  })
+
+  it('reads independent when two verified replicas answer under different operators', async () => {
+    const a = enrol('a', 'op-a', ['relay-a'])
+    const b = enrol('b', 'op-b', ['relay-b'])
+    const r = await submitJob(
+      {
+        moduleCid: MODULE_CID,
+        shards: [{ value: { n: 1 }, label: 'public' }],
+        executors: [signing(a), signing(b)],
+        nodes: [descriptorFor(a), descriptorFor(b)],
+        redundancy: 2,
+        onQuorumShortfall: 'runs-at-available-redundancy',
+      },
+      new MemoryBlockstore(),
+    )
+
+    expect(r.ok).toBe(true)
+    if (!r.ok) return
+    expect((r.job.shards[0] as ShardResult).attestation).toMatchObject({
+      strength: 'independent',
+      replicas: 2,
+      operators: ['op-a', 'op-b'],
+    })
+  })
+
+  it('excludes a replica whose signature is over a different output, and says so', async () => {
+    const a = enrol('a', 'op-a', ['relay-a'])
+    const b = enrol('b', 'op-b', ['relay-b'])
+    const r = await submitJob(
+      {
+        moduleCid: MODULE_CID,
+        shards: [{ value: { n: 1 }, label: 'public' }],
+        executors: [signing(a), signingSomethingElse(b)],
+        nodes: [descriptorFor(a), descriptorFor(b)],
+        redundancy: 2,
+        onQuorumShortfall: 'runs-at-available-redundancy',
+      },
+      new MemoryBlockstore(),
+    )
+
+    expect(r.ok).toBe(true)
+    if (!r.ok) return
+    const shard = r.job.shards[0] as ShardResult
+    // The two agreed — this is not a disagreement — and the requestor still cannot
+    // account for one of them.
+    expect(shard.verification.status).toBe('agreed')
+    expect(shard.attestation).toMatchObject({
+      kind: 'holds-no-verified-attestation',
+      agreeing: 2,
+      verified: 1,
+    })
+    expect(shard.attestation).not.toMatchObject({ strength: 'independent' })
+    if ('kind' in shard.attestation) {
+      expect(shard.attestation.reason).toContain('did not sign this output')
+    }
+  })
+
+  it('excludes a replica answering under a certificate this requestor did not place with', async () => {
+    const a = enrol('a', 'op-a', ['relay-a'])
+    const b = enrol('b', 'op-b', ['relay-b'])
+    // `b`'s second identity: its own certificate, from the same provider, naming an
+    // operator this requestor never placed anything with.
+    const bElsewhere = enrol('b', 'op-elsewhere', ['relay-b'])
+    const r = await submitJob(
+      {
+        moduleCid: MODULE_CID,
+        shards: [{ value: { n: 1 }, label: 'public' }],
+        executors: [signing(a), signing(b, bElsewhere.signer)],
+        nodes: [descriptorFor(a), descriptorFor(b)],
+        redundancy: 2,
+        onQuorumShortfall: 'runs-at-available-redundancy',
+      },
+      new MemoryBlockstore(),
+    )
+
+    expect(r.ok).toBe(true)
+    if (!r.ok) return
+    const shard = r.job.shards[0] as ShardResult
+    expect(shard.attestation).toMatchObject({
+      kind: 'holds-no-verified-attestation',
+      agreeing: 2,
+      verified: 1,
+    })
+    if ('kind' in shard.attestation) {
+      expect(shard.attestation.reason).toContain('discovered under')
+    }
+  })
+
+  it('accepts a node that re-enrolled between discovery and execution', async () => {
+    // Same node key, a fresher certificate from the same provider. Byte equality would
+    // refuse an honest node for having renewed; `nodeKey` plus the pinned issuer accepts
+    // it.
+    const a = enrol('a', 'op-a', ['relay-a'], PROVIDER_KEY, Date.now() - 60_000)
+    const renewed = authorityFor(PROVIDER_KEY).enrol(
+      requestEnrollment(a.signer.nodeSeed, OWNER_KEY, {
+        operatorId: 'op-a',
+        discoverability: 'via-relay',
+        relayIds: ['relay-a', 'relay-a2'],
+      }),
+      Date.now(),
+    )
+    expect(renewed.ok).toBe(true)
+    if (!renewed.ok) return
+
+    const r = await submitJob(
+      {
+        moduleCid: MODULE_CID,
+        shards: [{ value: { n: 1 }, label: 'public' }],
+        executors: [signing(a, { nodeSeed: a.signer.nodeSeed, certificate: renewed.certificate })],
+        nodes: [descriptorFor(a)],
+        redundancy: 1,
+        onQuorumShortfall: 'runs-at-available-redundancy',
+      },
+      new MemoryBlockstore(),
+    )
+
+    expect(r.ok).toBe(true)
+    if (!r.ok) return
+    expect((r.job.shards[0] as ShardResult).attestation).toMatchObject({
+      strength: 'owner-attested',
+      replicas: 1,
+    })
+  })
+
+  it('builds the receipt from the replicas that agreed, never from the nodes that were placed', async () => {
+    const a = enrol('a', 'op-a', ['relay-a'])
+    const b = enrol('b', 'op-b', ['relay-b'])
+    const c = enrol('c', 'op-c', ['relay-c'])
+    const r = await submitJob(
+      {
+        moduleCid: MODULE_CID,
+        shards: [{ value: { n: 1 }, label: 'public' }],
+        executors: [signing(a), signing(b), failing('c', 'disk gave out')],
+        nodes: [descriptorFor(a), descriptorFor(b), descriptorFor(c)],
+        redundancy: 3,
+        onQuorumShortfall: 'runs-at-available-redundancy',
+      },
+      new MemoryBlockstore(),
+    )
+
+    expect(r.ok).toBe(true)
+    if (!r.ok) return
+    const shard = r.job.shards[0] as ShardResult
+    // Three were placed; two attested. A node that was asked and failed said nothing.
+    expect(shard.attestation).toMatchObject({ strength: 'independent', replicas: 2 })
+    if ('strength' in shard.attestation) {
+      expect(shard.attestation.operators).not.toContain('op-c')
+    }
+  })
+
+  it('states the absence rather than defaulting to owner-attested when nobody signed', async () => {
+    // Every caller building descriptors through `publicNodes` lands here, and the
+    // honest answer is that this requestor holds no signed statement about the result —
+    // which is a different claim from the weakest strength, not a weaker version of it.
+    const executors = [honest('n1'), honest('n2')]
+    const r = await submitJob(
+      {
+        moduleCid: MODULE_CID,
+        shards: [{ value: { n: 1 }, label: 'public' }],
+        executors,
+        nodes: publicNodes(executors),
+        redundancy: 2,
+        onQuorumShortfall: 'runs-at-available-redundancy',
+      },
+      new MemoryBlockstore(),
+    )
+
+    expect(r.ok).toBe(true)
+    if (!r.ok) return
+    const shard = r.job.shards[0] as ShardResult
+    expect(shard.verification.status).toBe('agreed')
+    expect(shard.attestation).toMatchObject({
+      kind: 'holds-no-verified-attestation',
+      agreeing: 2,
+      verified: 0,
+    })
+    expect(shard.attestation).not.toMatchObject({ strength: 'owner-attested' })
+    expect(r.job.attestation).toMatchObject({ kind: 'holds-no-verified-attestation' })
+  })
+
+  it('reports a shard that never agreed as holding no attestation, not as owner-attested', async () => {
+    const a = enrol('a', 'op-a', ['relay-a'])
+    const r = await submitJob(
+      {
+        moduleCid: MODULE_CID,
+        shards: [{ value: { n: 1 }, label: 'public' }],
+        executors: [failing(a.nodeId, 'nothing left to give')],
+        nodes: [descriptorFor(a)],
+        redundancy: 1,
+        onQuorumShortfall: 'runs-at-available-redundancy',
+      },
+      new MemoryBlockstore(),
+    )
+
+    expect(r.ok).toBe(true)
+    if (!r.ok) return
+    expect((r.job.shards[0] as ShardResult).attestation).toMatchObject({
+      kind: 'holds-no-verified-attestation',
+      agreeing: 0,
+      verified: 0,
+    })
+  })
+
+  it('reports the job at its weakest shard, not its strongest and not its first', async () => {
+    const a = enrol('a', 'op-a', ['relay-a'])
+    const b = enrol('b', 'op-b', ['relay-b'])
+    // Alice holds one node, so her sovereign shard runs once — owner-attested. The
+    // public shard ahead of it agrees across two operators — independent.
+    const alice = enrol('alice-1', 'op-alice', ['relay-alice'])
+    const r = await submitJob(
+      {
+        moduleCid: MODULE_CID,
+        shards: [
+          { value: { n: 1 }, label: 'public' },
+          { value: { n: 2 }, label: 'sovereign', ownerId: 'alice' },
+        ],
+        executors: [signing(a), signing(b), signing(alice)],
+        nodes: [descriptorFor(a), descriptorFor(b), descriptorFor(alice, 'alice')],
+        redundancy: 2,
+        onQuorumShortfall: 'runs-at-available-redundancy',
+      },
+      new MemoryBlockstore(),
+    )
+
+    expect(r.ok).toBe(true)
+    if (!r.ok) return
+    expect((r.job.shards[0] as ShardResult).attestation).toMatchObject({ strength: 'independent' })
+    expect((r.job.shards[1] as ShardResult).attestation).toMatchObject({ strength: 'owner-attested' })
+    // The first shard is the strong one, so "first" and "strongest" both read
+    // `independent` here and only "weakest" reads this.
+    expect(r.job.attestation).toMatchObject({ strength: 'owner-attested' })
+  })
+})
