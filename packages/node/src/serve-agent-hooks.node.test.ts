@@ -333,17 +333,17 @@ describe('production RemoteExecutor call sites state the chain explicitly', () =
     // would have been satisfied by the prose alone and would have read `4` while meaning
     // nothing. `await discoverCandidates(` can only be the invocation.
     //
-    // **What this still cannot do, and what would**: it is source text, so it proves the
-    // call is written, not that the branch runs. No test executes the `--discover` arm,
-    // and the reason is that `bin/bench.ts` writes `.planning/BENCHMARK-RESULTS.md` at
-    // `process.cwd()` — a test that invoked the driver would overwrite the repository's
-    // committed measurements as a side effect of checking a flag. What would measure it
-    // without that cost: running the driver with `cwd` set to a temporary directory. That
-    // was done by hand while writing this — `--quick --discover` printed
-    // `1 of 1 workers qualified from 1 providers` and `2 of 2 ... from 2 providers` across
-    // the real-transport ladder, and both rungs completed their egress manifest, so the
-    // discovered executors really did carry the job. Recorded in 18-06-SUMMARY.md rather
-    // than automated here.
+    // **What this cannot do, and what now does it**: it is source text, so it proves the
+    // call is written, not that the branch runs. It used to be the only thing holding the
+    // arm — recorded as W-1 in `18-VERIFICATION.md` — because `bin/bench.ts` writes its
+    // report under `process.cwd()`, so a test that invoked the driver would overwrite the
+    // repository's committed measurements as a side effect of checking a flag.
+    //
+    // `discover-arm.node.test.ts` closes that: it spawns the driver with `cwd` in a
+    // temporary directory, reads `--discover: 1 of 1 workers qualified from 1 providers`
+    // off its stdout, and kills it once the arm has spoken. So the count below is no
+    // longer load-bearing on its own, and is kept as the cheap half of a pair — this one
+    // fails in milliseconds when the call is deleted, that one fails on what it did.
     expect(occurrences(BENCH, 'await discoverCandidates(')).toBe(1)
   })
 
