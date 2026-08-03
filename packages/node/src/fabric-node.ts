@@ -1204,6 +1204,21 @@ export class FabricNode {
     // and a node that reached none still serves everything that does not need a
     // circuit. Which relays failed, and why, is reported rather than inferred from an
     // empty `circuitAddrs` — the exact ambiguity NET-05 exists to remove.
+    //
+    // **The browser tier does the opposite, and that divergence is deliberate.**
+    // `browser-node.ts`'s dial loop has no `catch`: the failure propagates, `start`
+    // rejects, and the tab unwinds. The reason is the platform, not an oversight — this
+    // process binds a real listening port and remains useful to anyone who can reach it
+    // directly, while a tab binds nothing, so a tab holding no reservation cannot be
+    // reached at all and starting it would produce a node nobody can dial with no named
+    // reason why. Each side is measured as its own disposition:
+    // `reservation-exhaustion.node.test.ts` case C drives this one cross-process through
+    // `bin/agent.ts` and reads `relay … unreachable:` off stderr with `exitCode` null;
+    // `start-unwind.browser.test.ts` — *"closes the blockstore and stops libp2p when a
+    // relay dial fails"* — reads the other in all three engines. **Do not make them
+    // agree.** W-2 of `18-VERIFICATION.md` is that this paragraph used to describe the
+    // change without recording that the two tiers now differ, which is a trap for
+    // whoever reads the other file first.
     const relayPeerIds: string[] = []
     const relayFailures: RelayDialFailure[] = []
     for (const address of relayAddrs) {

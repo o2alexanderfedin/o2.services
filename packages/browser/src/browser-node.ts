@@ -790,6 +790,22 @@ export class BrowserNode {
     // The peer ids are collected because a certificate has to name the relays a node is
     // reachable through when it is not reachable cold — `relayIds` below. Same collection
     // `fabric-node.ts` makes at its own dial loop.
+    //
+    // **The absent `catch` is the decision, not an omission, and the two tiers diverge
+    // here on purpose.** A failed dial propagates, `start` rejects, and `#compose`'s
+    // unwind closes the store and stops libp2p. `fabric-node.ts` does the opposite under
+    // NET-05: it catches, records the address and reason on `FabricNode.relayFailures`,
+    // and keeps the node running. Both are right for their platform. That process binds a
+    // real listening port, so a relay it could not enter costs it circuit reachability and
+    // nothing else; a tab binds no socket, so a tab with no reservation cannot be reached
+    // by anyone, and starting it would hand the visitor a node that silently does nothing
+    // — the ambiguity NET-05 removed on the other tier, reintroduced on this one. Each
+    // side is measured as its own disposition: `start-unwind.browser.test.ts` — *"closes
+    // the blockstore and stops libp2p when a relay dial fails"* — holds this one in all
+    // three engines, and `reservation-exhaustion.node.test.ts` case C holds the other
+    // cross-process through `bin/agent.ts`. **Do not add a `catch` here to match that
+    // file.** W-2 of `18-VERIFICATION.md` is that the divergence was recorded on neither
+    // side, which is what makes it read as drift.
     const relayPeerIds: string[] = []
     for (const address of options.relayAddrs) {
       const connection = await libp2p.dial(multiaddr(address))

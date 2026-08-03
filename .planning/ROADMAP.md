@@ -581,20 +581,22 @@ hits first and this file is the one an auditor greps.
      disconnect, and a stale refusal could overwrite a fresh acceptance. The counter is now
      monotone across the verifier. Ledger entries M33/M34/M35 pin the three guards, all
      three planted and caught with their recorded signature. -->
-**Plans:** 3/11 plans executed
+**Plans:** 13/13 plans executed
 
 Plans:
 - [x] 18-01-PLAN.md — criterion 2d: `--peer-addr` and `--max-concurrent-tasks` on `bin/agent.ts`; AUTH-02's accepting half, cross-process
 - [x] 18-02-PLAN.md — D1 kernel: `SelfRecordIndex` answers `providers` from a node's own store; `RpcRecordIndex.providers` unions across peers
 - [x] 18-03-PLAN.md — D1 wiring: both tiers serve a `SelfRecordIndex`, and never advertise a block their `block` branch would refuse
-- [ ] 18-04-PLAN.md — criterion 2c (D2): the offer answer publishes slots and in-flight; `planWithOffers` bounds placement across shards
-- [ ] 18-05-PLAN.md — `submitJob` gains an offer arm; `discoverCandidates` turns a data CID into dispatchable candidates
-- [ ] 18-06-PLAN.md — criteria 1 and 2 across real `bin/agent.ts` processes, and `bin/bench.ts --discover` as the entry-point call path
-- [ ] 18-07-PLAN.md — criterion 3 kernel: a settable duty cycle composed with an environment governor; `LocalCapacity.slots` derived live
-- [ ] 18-08-PLAN.md — criterion 3 Node tier: the governor composed, `--duty-cycle`, and a `SIGHUP` re-read of a control file under `--dir`
-- [ ] 18-09-PLAN.md — criterion 3 browser tier: the same cap governor over `VisibilityGovernor`, read by a peer off a live tab
-- [ ] 18-10-PLAN.md — criterion 5: sovereignty survives the offer loop's re-pick, in the kernel and across real processes
-- [ ] 18-11-PLAN.md — criterion 4 / NET-05: `--relay-addr` installs a `ReservationWatcher`; a full `bin/seed.ts` relay refuses a joiner by name
+- [x] 18-04-PLAN.md — criterion 2c (D2): the offer answer publishes slots and in-flight; `planWithOffers` bounds placement across shards
+- [x] 18-05-PLAN.md — `submitJob` gains an offer arm; `discoverCandidates` turns a data CID into dispatchable candidates
+- [x] 18-06-PLAN.md — criteria 1 and 2 across real `bin/agent.ts` processes, and `bin/bench.ts --discover` as the entry-point call path
+- [x] 18-07-PLAN.md — criterion 3 kernel: a settable duty cycle composed with an environment governor; `LocalCapacity.slots` derived live
+- [x] 18-08-PLAN.md — criterion 3 Node tier: the governor composed, `--duty-cycle`, and a `SIGHUP` re-read of a control file under `--dir`
+- [x] 18-09-PLAN.md — criterion 3 browser tier: the same cap governor over `VisibilityGovernor`, read by a peer off a live tab
+- [x] 18-10-PLAN.md — criterion 5: sovereignty survives the offer loop's re-pick, in the kernel and across real processes
+- [x] 18-11-PLAN.md — criterion 4 / NET-05: `--relay-addr` installs a `ReservationWatcher`; a full `bin/seed.ts` relay refuses a joiner by name
+- [x] 18-12-PLAN.md — gap closure: criterion 2b's absence-instrument re-armed, and criterion 3's browser half read by a peer off the wire
+- [x] 18-13-PLAN.md — gap closure: the stale ledger rows and the guard that could not read them; `--discover` executed; the relay-dial divergence documented on both tiers
 
 Criterion 6 needs no plan — it landed on `develop` as `351bde1` before this phase was planned and needs verification only.
 
