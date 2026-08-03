@@ -648,7 +648,35 @@ Criterion 6 needs no plan — it landed on `develop` as `351bde1` before this ph
   - **What the composition claim gets right, and what actually remains unexecuted in a tab.** The composition holds line for line: guard construction (`fabric-node.ts:1284` / `browser-node.ts:851`), disposition object (`:1345` / `:885`), `withholdingFrom` (`:1366` / `:897`), `egress:` hook (`:1525` / `:1094`). What is *not* executed in a tab is narrower than "the refusal branch", and the source is more precise than this roadmap was: the **`authorize`/AUTH-03 refusal is executed** in a real tab; the **`EgressGuard`/`withholdingFrom` refusal is unconfirmed** — no e2e spec drives a sovereign payload out of a tab and reads the guard's refusal, and `two-tabs.e2e.test.ts:275-277` reads the *clean* manifest on a *public* job, the positive arm only; and the **`capacity`/SCHED-06 refusal is explicitly unexecuted, with the source naming this phase** — `packages/browser/src/browser-node.ts:1176-1184` says *"nothing drives a refusal through this hook … WIRE-03, Phase 19 builds the harness that would measure it."* Those two are WIRE-03's real content. This is the same structural gap `12-VERIFICATION.md` recorded and `13-03-PLAN.md` routed to WIRE-03
   - **Browser-tier testing standard, one host and several browsers** (owner ruling, 2026-07-28): Playwright multi-browser on this machine — `instances: [{browser:'chromium'},{browser:'firefox'},{browser:'webkit'}]` — each peer in its own **isolated browser context** so it gets its own origin storage and IndexedDB, plus a **locally-started Circuit Relay v2 peer to dial**. Three engines on one host are three independent implementations and three independent storage backends; they are **not** three machines, and no result obtained this way may be labelled cross-machine or distributed-hardware. This standard is what makes criterion 4 runnable at all, and it **unblocks four items deferred for want of a multi-browser environment**: `BrowserNode.start()` has no dedicated runtime test anywhere in the repository (Phase 11, `11-VERIFICATION.md`); `BrowserNode`'s `guardSovereignty` wiring has zero runtime proof (Phase 12, `12-VERIFICATION.md`); `BrowserNode.egress` is unproven at runtime (Phase 13, threat T-13-08 in `13-03-PLAN.md`); and the Phase 13 `EgressGuard` refusal inherits into the browser tier untested (`13-VERIFICATION-2.md`). The recorded root cause was one sentence shared by all four — `BrowserNode.start()` needs a real `indexedDB` and a relay to dial, so it runs in **neither** vitest project — and **that sentence was false**. Retired in the source by Plan 15-05 and corrected here on 2026-08-01; it had survived at the package boundary, in the two documents a planner reads first. Corrected: the **`browser`** project cannot host such a test, because a Circuit Relay v2 server *"will not work in browsers"* in `@libp2p/circuit-relay-v2`'s own words; the **`e2e`** project can and **needs no relay at all**, because the tab dials a Node submitter's WebSocket listener directly. `packages/node/src/browser-capability.e2e.test.ts` starts that factory against a live tab today. The multi-browser standard above is still what criterion 4 needs — two tabs finding *each other* do need a relay — but it is not what unblocks the four deferred items, and treating it as such is what let them stay deferred. Full statement in REQUIREMENTS.md under WIRE-03
 **Success Criteria** (what must be TRUE):
-  1. A verification quorum assembled during a job run through `bin/agent.ts` contains at least one backbone-anchored replica and no two replicas from the same operator — a run engineered to try to fill a quorum from one operator's nodes is refused rather than silently accepted
+  1. A verification quorum assembled during a job run through `bin/agent.ts` rests on no single shared reachability dependency and contains no two replicas from the same operator — a run engineered to try to fill a quorum from one operator's nodes is refused rather than silently accepted, and so is one whose members all hang off the same relay
+
+<!-- CRITERION 1's FIRST CLAUSE REWORDED 2026-08-03 BY OWNER RULING. It read "contains at least
+     one backbone-anchored replica". The property is unchanged and the bar is NOT lowered — this
+     is a correction of wording that encoded a forbidden mechanism, not a criterion rewritten to
+     let a phase close.
+
+     WHAT WENT WRONG. "Backbone-anchored" was implemented in plan 19-02 as
+     `discoverability === 'seed'`, which collides head-on with `STATE.md:479-480`: *if a decision
+     keys on node kind, it is wrong — the only legitimate use is shared-dependency analysis over
+     the discovery graph.* It also contradicted a measured result: Phase 3 dialled an iPhone at
+     its `/p2p-circuit/webrtc` address and it ran half of a 2×-redundant job, so a
+     relay-discovered peer had already held a verification slot. The relay is a signalling
+     channel for registration and discovery, not a data path, and it drops out once peers
+     connect. Retracted in `0314208`.
+
+     WHY THE REWORDING IS FAITHFUL. VER-03's own rationale clause has always been *"so eclipsing
+     a quorum requires a backbone compromise"* — the requirement is **eclipse resistance**, and
+     shared-dependency analysis is the cardinal rule's named-legitimate way to express it.
+     `composeQuorum`'s rule 2 (`sharedRelay` over the chosen member set) delivers exactly that
+     property, and 19-02's own retraction measured why it must sit on the MEMBER set rather than
+     the candidate pool: a pool of relay-1/relay-1/relay-2 passes a pool-level check and then
+     draws two members both on relay-1 — a redundancy of two against a single point of failure.
+
+     THE DEFECT'S SHAPE, WORTH KEEPING. The old rule turned a repair into a refusal and put the
+     refusal before the thing it was about. If a quorum's dependencies are too concentrated the
+     answer is to draw a different member, not to refuse composition on what kind of node
+     somebody is. -->
+
   2. Several node certificates chaining to one owner's user key resolve, through `bin/agent.ts`, as a single discoverable replica set; a sovereignty-pinned task with two or more of that owner's nodes live executes on two of them, the outputs are compared, and the receipt reports the agreement as owner-domain, not independent-operator
   3. The same task with only one of that owner's nodes live executes once, and the resulting receipt reads owner-attested rather than verified, wherever it is displayed — CLI output, demo UI, or job result
   4. Two browser peers opened against the static demo bundle — no seed process running, no `/bootstrap.json`, nothing dialed by a test harness — discover each other via the wired `index`/`reservations` hooks and complete a job together, proving browser peers participate in routing as full peers rather than only through backbone-served fallback. Run on **one host** under Playwright multi-browser (`chromium`, `firefox`, `webkit`), each peer in its own isolated context, against a locally-started relay — see the browser-tier testing standard in Constraints above; the result is a one-host result and is labelled as one

@@ -118,8 +118,22 @@ itself. The work is real and the table says so; the box tracks delivery.
       outputs compared, with disagreement surfaced rather than silently resolved
 - [ ] **VER-02**: Executors commit to a result hash before revealing the result,
       so a replica cannot plagiarize a peer's answer
-- [ ] **VER-03**: At least one replica of every verification quorum is anchored on
-      a backbone node, so eclipsing a quorum requires a backbone compromise
+- [ ] **VER-03**: No verification quorum rests on a single shared reachability
+      dependency, so eclipsing a quorum requires compromising more than one of them.
+      **Reworded 2026-08-03 by owner ruling; the property is unchanged and the bar is
+      not lowered.** It used to read *"At least one replica of every verification
+      quorum is anchored on a backbone node"*, and that phrasing encoded a
+      **mechanism** — a node class — for a property that is about the **discovery
+      graph**. The rationale clause was always the requirement: *eclipsing a quorum
+      requires compromising more than one dependency.* `STATE.md:479-480` states the
+      rule this collided with — *if a decision keys on node kind, it is wrong; the only
+      legitimate use is shared-dependency analysis over the discovery graph* — and
+      shared-dependency analysis is exactly what satisfies this. The old wording
+      produced a real defect: Plan 19-02 implemented it as
+      `discoverability === 'seed'`, which refused a quorum of relay-discovered peers
+      even though Phase 3 had already measured one taking a verification slot (an
+      iPhone at `/p2p-circuit/webrtc`, running half a 2×-redundant job). Retracted in
+      `0314208`
 - [ ] **VER-04**: Quorum members are selected with anti-affinity, so one operator
       cannot supply a whole quorum
 - [x] **VER-05**: The verifier compares `(task, outputs)` only — timing, fuel, and
