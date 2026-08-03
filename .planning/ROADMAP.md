@@ -657,7 +657,48 @@ Criterion 6 needs no plan — it landed on `develop` as `351bde1` before this ph
 **Criterion 5 exists because Phase 17 measured its own rate limit and found what it does not buy.** The burst limit is real and fully proven — a stated threshold read out of the refusal the peer received, `limit: 5 / windowMs: 3_600_000` on the wire. But AUTH-04's text asks that mass fake-node creation be *"measurably costly"*, and Phase 17's verification established two things that defeat it. The limit is keyed on `userKey`, which is **one `ed25519.keygen()`** — so twenty distinct user keys all enrol unslowed, and removing the rate guard entirely leaves that test green. And the budget is per provider **process**: a second provider defeats it without needing a second user key at all, asserted across two spawned providers.
 
 It lands here rather than in Phase 17 because the remedy is a design decision this phase is already making — what scarce thing an identity must present. This phase owns AUTH-05 and the attestation-strength machinery, so the natural candidates (a provider-issued invitation chained to an owner key, a persistent cross-process budget, or proof-of-work) all sit beside work already scheduled here. **AUTH-04 stays open until then**; Phase 17 records the rate-limiting half as measured and the cost half as not, in those words.
-**Plans**: TBD
+**Plans:** 12 plans, 6 waves
+
+Plans:
+- [ ] 19-01-PLAN.md — the certificate seam: `NodeDescriptor` carries the certificate discovery already held, or names its absence; `discoverCandidates` reports replica sets
+- [ ] 19-02-PLAN.md — `composeQuorum` gains the backbone anchor VER-03 never had, and reports the strength its members support instead of the constant it always declared
+- [ ] 19-03-PLAN.md — criterion 4: three browser peers on the static bundle, three engines, one relay, nothing dialled by the harness; plus this entry's three recorded corrections
+- [ ] 19-04-PLAN.md — WIRE-03: the two refusals a tab has never executed — the egress refusal on the browser submitter path, and the `exec` refusal at the slot limit
+- [ ] 19-05-PLAN.md — criterion 5, mechanism half: **opens with a blocking owner decision** on what scarce thing an identity must present; then the invitation, its spend record, and its wire form
+- [ ] 19-06-PLAN.md — `submitJob` composes the quorum for public shards at redundancy ≥ 2 and emits the attestation receipt on every shard and every job
+- [ ] 19-07-PLAN.md — criterion 5, cost half: the spend record on both tiers, the flags, and the N-th identity measured across real processes and across a provider restart
+- [ ] 19-08-PLAN.md — criterion 1 across real `bin/agent.ts` processes, with two engineered fabrics — one operator, and no anchor — each refused in the composer's own words
+- [ ] 19-09-PLAN.md — criterion 2 and AUTH-05: a node's owner id becomes its enrolled user key, and two of one owner's nodes agree as `owner-domain`
+- [ ] 19-10-PLAN.md — criterion 3 on the CLI: `bin/bench.ts` prints the receipt, and three readings are taken off the spawned driver's own stdout
+- [ ] 19-11-PLAN.md — criterion 3 in the demo UI, and the page's unconditional claim that every cube ran twice on different nodes is corrected
+- [ ] 19-12-PLAN.md — the ledger: one mutation entry per instrument, and requirement rows moved only as far as what landed supports
+
+<!-- PLANNED 2026-08-02. Three things a verifier should know before scoring this phase, all
+     of them decided at planning time rather than left to be discovered.
+
+     ENTRY-POINT SUBSTITUTION FOR CRITERIA 1 AND 2. `bin/agent.ts` never submits a job —
+     zero hits for `submitJob`, `JobSpec` or `executeVerified`; it is a serving node whose
+     only stdout is a handshake JSON at `:601`. *"A job run through `bin/agent.ts`"* is
+     satisfiable only as *"a job run **across** `bin/agent.ts` processes"*, which is the
+     shape `discovery-agents.node.test.ts` already uses for Phase 18's criteria 1 and 2.
+     Plans 19-08 and 19-09 take that shape and say so in their own headers. Recorded here
+     the way Phase 18 recorded its own at line 592, rather than left for verification.
+
+     THE `Research: None` LINE ABOVE IS WRONG ON TWO COUNTS, both measured 2026-08-02.
+     VER-03's backbone-anchored replica is **unimplemented**, not unwired — `composeQuorum`
+     sorts by `relayIds.length` and refuses on a *shared* relay, and nothing anywhere
+     requires an anchored member; there is no `backbone` symbol in `packages/*/src` at all.
+     And `composeQuorum` returns `strength: 'independent'` **unconditionally** on its ok arm
+     while never calling `classifyAttestation`, so wiring it as it stood would have made
+     every quorum report `independent` including a size-1 one. Plan 19-02 fixes both; plan
+     19-03 corrects this line in place.
+
+     CRITERION 5 CARRIES A BLOCKING DECISION. Plan 19-05 opens by asking the owner which of
+     the three candidates named above the fabric will use, because all three change what
+     nodes must present each other and this project sends protocol decisions to the owner —
+     as it did for the `PeerVerifier` re-ask, the offer/exec reservation, and the combine
+     bound. Plans 19-05 and 19-07 are written against the invitation option; a different
+     choice means replanning both rather than adapting them. -->
 
 ### Phase 20: Single Job Path, Ledger & Churn Resilience
 **Goal**: `submitJob` becomes the one job path — lease renewal, speculation, and coverage accounting live inside it, not in a second uncalled implementation — and the peer ledger records real cross-node outcomes instead of discarding them
