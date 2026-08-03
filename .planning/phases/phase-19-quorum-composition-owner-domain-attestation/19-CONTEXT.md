@@ -132,6 +132,54 @@ The gate belongs at the composition site: quorum composition applies to `label =
 - **Criterion 4's wording should be corrected to name `index` alone**, in the same pass, rather
   than left to read as though both hooks were wired on both tiers.
 
+### The signing triangle — owner decision 2026-08-02, and it settles criterion 5
+
+**Two of the three legs already exist. The phase adds the third.**
+
+| leg | who signs | verified against | status |
+|---|---|---|---|
+| the **code** a node runs | the service provider (publisher) | `NameResolver`'s pinned `trustAnchors` (`packages/core/src/naming.ts:99-103`); `guardModuleProvenance` composed at every executor construction site | **exists** (Phase 14) |
+| the **node's certificate** | the service provider (issuer) | `verifyCertificate` against `trustedIssuers`, refusing `untrusted-issuer` by name (`packages/core/src/enrollment.ts:340-352`) | **exists** (Phase 17) |
+| the **result** a node returns | the node, with its node key | the `nodeKey` in its own certificate, which the provider signed | **MISSING — this phase adds it** |
+
+**What the third leg buys, and why it is not cosmetic.** Agreement is attested today by
+**transport authentication only** — Noise proves peer X sent this frame, but that proof is not
+transferable and cannot be shown to anyone else. `VerificationResult`'s `agreed` arm carries
+`agreeing: readonly string[]` — **plain node-id strings**
+(`packages/core/src/job/verify.ts:85-95`). A receipt built on that is worth exactly the
+submitter's word about itself, which is not what VER-08/09/10 promise.
+
+With results signed, a third party holding **only the provider's public key** can verify: *this
+result came from a node that provider enrolled, running code that provider published.* That is
+what makes `attestationReceipt` a transferable attestation rather than a self-report.
+
+**Criterion 5 is answered by this architecture, not by proof-of-work.** The scarce thing an
+identity must present already exists — **a provider-issued certificate**, which an attacker
+cannot mint because `verifyCertificate` refuses an untrusted issuer. What is broken is that
+**issuance is not scarce**, and Phase 17 measured exactly how: the limit is keyed on `userKey`,
+which is one `ed25519.keygen()`, and the budget is per provider **process**, so a second
+provider process resets it.
+
+So criterion 5's work is:
+1. **A persistent, cross-process issuance budget** — closing the hole Phase 17 named.
+2. **Short certificate lifetimes.** `NodeCertificate` already carries `issuedAt` and `expiresAt`
+   (`enrollment.ts:119-120`).
+
+The N-th fake identity then costs a fresh issuance against a budget that does not reset, **and**
+must be continually renewed to stay usable. That is a measurable escalation, and it is measured
+across processes and a provider restart.
+
+**NO BLOCKCHAIN. Owner constraint, and the one place a design drifts toward one is revocation.**
+A global revocation list is shared mutable state and needs consensus. **This design does not have
+one: revocation is non-renewal.** A misbehaving node is simply not re-certified, and its
+certificate lapses on its own clock. Combined with per-verifier pinned `trustAnchors` /
+`trustedIssuers`, trust stays **local**, several independent providers coexist by construction,
+and nothing global has to be agreed by anyone.
+
+**Do not introduce**: a shared revocation list, a global reputation score, a consensus round, an
+append-only shared log, or any structure requiring nodes to agree on one view of the world. If a
+plan seems to need one, the answer is a shorter certificate lifetime.
+
 ### Claude's Discretion
 
 - Plan sequencing, wave structure, and how many plans to split this into.
