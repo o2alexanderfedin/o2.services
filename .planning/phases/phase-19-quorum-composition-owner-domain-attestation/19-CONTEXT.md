@@ -308,6 +308,40 @@ mistake.** That is Phase 14's recorded lesson happening again — *corrections d
 between sibling plans; a correction living in a SUMMARY reaches nobody.* It is written here
 because this file is what the next executor is handed.
 
+### The quorum is the default and it is OPTIONAL — owner ruling 2026-08-03
+
+**Do not build quorum composition as mandatory.** Two separate opt-outs, and both must work:
+
+1. **Not asking for verification at all.** `redundancy: 1` means no quorum is composed and the
+   result is `owner-attested`. Already the shape; keep it.
+2. **Asking for verification and not getting it.** A public shard at `redundancy >= 2` whose
+   candidate set cannot compose a valid quorum **degrades by default** — it runs at whatever
+   redundancy is available, is marked `degraded`, and the receipt reports the weaker strength.
+   It does **not** fail the job.
+
+**Default degrade, with a caller-set strictness dial for the exception.** A caller who genuinely
+requires independent verification — and would rather have nothing than a weaker answer — asks for
+refusal explicitly on `JobSpec`.
+
+**The dial is a REQUIRED UNION WITH A NAMED SENTINEL, never an optional with a default.** WIRE-01's
+convention, and this phase measured why twice: 19-01 and 19-13 each planted "make it optional and
+omit it" and each saw **`tsc --noEmit` exit 0 while the behavioural assertion failed.** An optional
+strictness field would let every existing call site silently mean "degrade" without ever having
+said so, which is the precise defect this milestone exists to remove. Every current caller states
+its choice; the fan-out is the point, not the cost.
+
+**Why degrade is the default rather than refusal.** Phase 12's recorded decision:
+*not-enough-executors retired; a shard below requested redundancy is placed at what is available
+and marked degraded on `ShardResult`/`JobResult` instead of failing the whole job.* And criterion
+1's phrase is *"refused rather than **silently** accepted"* — the load-bearing word is *silently*.
+`classifyAttestation` already labels a one-operator quorum `owner-attested` rather than
+`independent`, so the weaker outcome is named by construction and nothing is silent.
+
+**This is the retracted anchor rule's shape, and it must not recur.** That defect *turned a repair
+into a refusal and put the refusal before the thing it was about*. A candidate set too concentrated
+to verify is a condition the caller does not control; the answer is to report what was achieved,
+not to kill the job — unless the caller said in advance that a weaker answer is useless to them.
+
 ### Claude's Discretion
 
 - Plan sequencing, wave structure, and how many plans to split this into.
