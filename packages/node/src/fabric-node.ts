@@ -94,6 +94,7 @@ import {
   SelfRecordIndex,
   SignedNameResolver,
   WorkerExecutor,
+  attestResults,
   guardModuleProvenance,
   guardSovereignty,
   publishCapabilities,
@@ -105,6 +106,7 @@ import type {
   NodeCertificate,
   NodeSovereignty,
   PublicKeyHex,
+  ResultAttestor,
   SelfRecordIndexOptions,
 } from '@o2/core'
 import {
@@ -1486,6 +1488,60 @@ export class FabricNode {
     const counter = new CountingExecutor(guardSovereignty(provenance(compute), sovereignty))
     const executor = new GovernedExecutor(counter, governor)
 
+    // VER-08 / VER-09 / VER-10 — this node's signing identity, resolved **once**, on one
+    // line, for both verbs.
+    //
+    // The seed and the certificate are the values this factory already holds: `identity`
+    // is what `requestEnrollment` signed with and `certificate.nodeKey` is its public
+    // half, so the two cannot disagree. Neither is an option and neither is re-derived. A
+    // node signing with anything but the key its certificate names produces attestations
+    // that verify for nobody, and `signingKeyOf` throws at composition when they diverge —
+    // there is no reason to make that state expressible from outside.
+    //
+    // **The literal, not a branch, and the difference is what a later reader can do to
+    // it.** A node nobody enrolled reaches this line by the same route as one that was,
+    // and states that it signs nothing. A `certificate === null` branch wrapped around
+    // the composition below would be a thing a later edit could extend — one more
+    // condition under which this node quietly stops signing; a named literal is a thing
+    // that edit would have to write down.
+    //
+    // **A per-node setting, not a node kind**, and `browser-node.ts` builds this from the
+    // byte-identical expression over its own two values. A tab that has been enrolled
+    // signs exactly as a server that has been; a node that has not says so identically on
+    // both tiers. The only asymmetry anywhere in this leg is where each tier persists its
+    // seed, and that is not in this file.
+    const attestor: ResultAttestor =
+      certificate === null ? 'signs-nothing' : { nodeSeed: identity.seed, certificate }
+
+    // The signing layer is **outermost** — outside `GovernedExecutor`, with nothing
+    // composed after it. It signs the outcome that actually leaves this node, so no layer
+    // added later can alter an answer after it was signed. That is the same argument the
+    // three orderings below it make, one layer further out, and **none of those three
+    // moves**: provenance stays innermost against `compute`, sovereignty stays outside
+    // provenance, and the counter stays inside the governor.
+    //
+    // Unconditional, on `serveAgent`'s own terms below: there is no construction path
+    // through this factory that yields a node whose results carry neither a signature nor
+    // its stated absence of one.
+    //
+    // **What this layer is for.** A result leaving this node carries this node's
+    // signature over it, checkable by somebody who was not present, so a receipt
+    // downstream is a statement about nodes a provider certified rather than about node
+    // id strings the requestor chose.
+    //
+    // **What it is not for: correctness.** A signature on a wrong answer is a signed
+    // wrong answer, signed exactly as convincingly as a right one. `executeVerified`'s
+    // N-version comparison is still the only thing in this design that says an answer is
+    // right, and this is written at the line because somebody will read "results are
+    // signed now" and propose reducing redundancy.
+    //
+    // `node.executor` below stays the `GovernedExecutor` — BROW-04 requires the concrete
+    // type on the browser tier and both tiers agree on this stack's shape — so a caller
+    // reaching a node's executor in-process gets the unsigned outcome. That is the
+    // truthful reading: nothing left the node, and a node's signed statement to itself
+    // establishes nothing it did not already hold.
+    const signing = attestResults(executor, attestor)
+
     const node = new FabricNode({
       libp2p,
       transport,
@@ -1528,7 +1584,9 @@ export class FabricNode {
     // the wire.
     serveAgent({
       rpc,
-      executor,
+      // VER-08 — the signing layer, which is the outermost one. Every `exec` reply this
+      // node sends is composed from an outcome that passed through it.
+      executor: signing,
       blockstore,
       // DATA-05: the same guard `rpc` is built over, plus the local-only tier that
       // says which payloads are sovereign — so a sovereign task's input is guarded
@@ -1601,22 +1659,24 @@ export class FabricNode {
       reservations: () => node.reservedPeerIds,
       ledger: 'keeps-no-ledger',
       onDispatch: 'reports-no-dispatch',
-      // VER-08 / VER-09 / VER-10 — the node's own signing identity, for **both** verbs.
+      // VER-08 / VER-09 / VER-10 — the node's own signing identity, for **both** verbs,
+      // and **the same value the executor above was wrapped with**. One identity resolved
+      // on one line and reaching both, rather than two derivations from one source: two
+      // derivations are two things that can drift, and the drift has a specific shape —
+      // a node that signed its map results and not the aggregation over them would
+      // satisfy the letter of this leg and none of its purpose, which is why one plan
+      // turned both verbs on rather than two.
       //
-      // **The sentinel here is a burn-down and it has a date.** Plan 19-15 replaces it
-      // with a real signer built from this node's seed and the certificate it holds,
-      // composing `attestResults` around `executor` in the same pass so that `exec` and
-      // `combine` sign under one identity. Until then this node answers combines
-      // unsigned, truthfully and by name: the sentinel below reaches a peer as
-      // `signed-by-nobody` on the reply rather than as an omission.
+      // The two verbs reach it by different routes because the codebase is shaped that
+      // way and not by preference: `exec` runs through an `Executor`, so it signs through
+      // the wrapper composed above; a combine passes through no executor at all —
+      // `serveAgent` performs it itself — so its signer has to arrive here.
+      //
+      // A node holding no certificate passes the named absence to **both**, so there is
+      // no construction path through this factory that signs one verb and not the other.
       //
       // A per-node setting, not a node kind — see this hook's own doc in `agent.ts`.
-      // When 19-15 lands, this literal leaves this file and
-      // `serve-agent-hooks.node.test.ts`'s count for it goes to 0, exactly as the record
-      // and capacity sentinels already have. (Those two are described rather than
-      // written out, deliberately: that instrument counts raw text across this whole
-      // file, comments included, and cannot tell a construction from a mention.)
-      attest: 'signs-nothing',
+      attest: attestor,
     })
 
     return node

@@ -38,6 +38,7 @@ import {
   LocalCapacity,
   SelfRecordIndex,
   SignedNameResolver,
+  attestResults,
   guardModuleProvenance,
   guardSovereignty,
   publishCapabilities,
@@ -49,6 +50,7 @@ import type {
   NodeCertificate,
   NodeSovereignty,
   PublicKeyHex,
+  ResultAttestor,
   SelfRecordIndexOptions,
 } from '@o2/core'
 import {
@@ -1024,6 +1026,56 @@ export class BrowserNode {
       environment: governor,
     })
     const executor = new GovernedExecutor(counter, capGovernor)
+
+    // VER-08 / VER-09 / VER-10 — this tab's signing identity, resolved **once**, on one
+    // line, for both verbs. The byte-identical expression `fabric-node.ts` builds, over
+    // this tier's own two values.
+    //
+    // `identity.seed` is what `requestEnrollment` signed with above and
+    // `certificate.nodeKey` is its public half, so the two cannot disagree. Neither is a
+    // `BrowserNodeOptions` field and neither is re-derived: a tab signing with anything
+    // but the key its certificate names produces attestations that verify for nobody, and
+    // there is no reason to make that expressible from a page.
+    //
+    // **The literal, not a branch.** A tab nobody enrolled reaches this line by the same
+    // route as one that was, and states that it signs nothing. A `certificate === null`
+    // branch around the composition below is a thing a later edit could extend; a named
+    // literal is a thing that edit would have to write down.
+    //
+    // **This is not a node class, and the whole point of doing both tiers in one pass is
+    // that it cannot become one.** Signing is not a capability a tier confers. A tab
+    // holding a certificate signs exactly as a server holding one does, from the same
+    // wrapper over the same values in the same place; a node holding none says so
+    // identically on both tiers. The only asymmetry in this leg is where each tier
+    // persists its seed — `IdbIdentityStore` here, a file there — and that is a storage
+    // fact, not a capability.
+    const attestor: ResultAttestor =
+      certificate === null ? 'signs-nothing' : { nodeSeed: identity.seed, certificate }
+
+    // The signing layer is **outermost** — outside `GovernedExecutor`, with nothing
+    // composed after it — so it signs the outcome that actually leaves this tab and no
+    // layer added later can alter an answer after it was signed. Everything beneath it is
+    // untouched and the order still matters exactly as the block above states: provenance
+    // innermost against the worker, sovereignty outside provenance, the counter inside
+    // the governor.
+    //
+    // **What this layer is for.** A result leaving this tab carries this tab's signature
+    // over it, checkable by somebody who was not present — so a receipt downstream is a
+    // statement about nodes a provider certified rather than about node id strings the
+    // requestor chose.
+    //
+    // **What it is not for: correctness.** A signature on a wrong answer is a signed
+    // wrong answer. `executeVerified`'s N-version comparison remains the only thing that
+    // says an answer is right, and this is written at the line because somebody will read
+    // "results are signed now" and propose reducing redundancy.
+    //
+    // `executor` — not this — is what `BrowserNode` holds, because that field must stay
+    // exactly a `GovernedExecutor` for BROW-04's surface, which is also why the counter
+    // sits where it does. So a page dispatching to its own node in-process
+    // (`demo/main.ts`'s `includeSelf`) gets the unsigned outcome, and that is the
+    // truthful reading: nothing left the tab, and a node's signed statement to itself
+    // establishes nothing it did not already hold.
+    const signing = attestResults(executor, attestor)
     // SCHED-06 — this tab's own admission control, handed to `serveAgent` below.
     //
     // **`dutyCycle: capGovernor` — and this reverses what this comment used to say.**
@@ -1099,7 +1151,9 @@ export class BrowserNode {
     })
     serveAgent({
       rpc,
-      executor,
+      // VER-08 — the signing layer, which is the outermost one. Every `exec` reply this
+      // tab sends is composed from an outcome that passed through it.
+      executor: signing,
       blockstore,
       // DATA-05: the same guard `rpc` is built over, plus the local-only tier that
       // says which payloads are sovereign — so a sovereign task's input is guarded
@@ -1203,17 +1257,23 @@ export class BrowserNode {
         node.servedFor.set(from, (node.servedFor.get(from) ?? 0) + 1)
         node.#announce()
       },
-      // VER-08 / VER-09 / VER-10 — the node's own signing identity, for **both** verbs.
+      // VER-08 / VER-09 / VER-10 — the node's own signing identity, for **both** verbs,
+      // and **the same value the executor above was wrapped with**. One identity resolved
+      // on one line and reaching both: two derivations from one source are two things
+      // that can drift, and the drift has a specific shape — a node that signed its map
+      // results and not the aggregation over them would satisfy the letter of this leg
+      // and none of its purpose.
       //
-      // **The sentinel here is a burn-down with a date, and it is the same count as
-      // `fabric-node.ts`'s deliberately.** Plan 19-15 replaces both with real signers in
-      // one pass. Signing is not a capability a tier confers: a tab that has been
-      // enrolled signs on identical terms to any other node, and if this row ever
-      // diverges from the Node factory's without a stated reason, something has started
-      // keying on node kind — the failure Phases 16 and 17 each shipped once.
+      // The two verbs reach it by different routes because the codebase is shaped that
+      // way: `exec` runs through an `Executor` and signs through the wrapper composed
+      // above; a combine passes through no executor at all, so its signer arrives here.
       //
-      // Until 19-15 this tab answers combines unsigned, truthfully and by name.
-      attest: 'signs-nothing',
+      // A tab holding no certificate passes the named absence to **both**, so no
+      // construction path through this factory signs one verb and not the other. Signing
+      // is not a capability a tier confers — if this row ever diverges from the Node
+      // factory's without a stated reason, something has started keying on node kind,
+      // which is the failure Phases 16 and 17 each shipped once.
+      attest: attestor,
     })
     return node
   }

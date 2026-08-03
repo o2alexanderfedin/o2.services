@@ -111,12 +111,21 @@ describe('production serveAgent call sites state every hook explicitly', () => {
     // 13-VERIFICATION-2.md recorded what a composition an inspection can confirm is
     // worth when the behaviour has never run.
     expect(occurrences(FABRIC_NODE, "'accepts-every-offer'")).toBe(0)
-    // VER-08 / VER-09 / VER-10 — a burn-down with a date, and 1 is the correct reading
-    // today. Plan 19-15 composes a real signer here and this goes to 0, the way
-    // `'serves-no-records'` and `'accepts-every-offer'` already have. Paired with the
-    // hook's presence, because a 0 alone is also what deleting the `attest:` line
-    // produces — and *that* deletion no longer compiles, which is the stronger guard
-    // `agent-contract.test.ts` holds.
+    // VER-08 / VER-09 / VER-10 — **1 is now the permanent correct value, and this
+    // sentence replaces a prediction that was wrong.** It used to read that Plan 19-15
+    // composes a real signer and this count goes to 0, the way `'serves-no-records'` and
+    // `'accepts-every-offer'` already had. 19-15 landed and it did not, for a reason
+    // worth keeping rather than quietly correcting: the other two sentinels were
+    // *replaced* by a real value, whereas this one is the answer a node that nobody
+    // enrolled still has to give. It moved — from the hook argument to the identity the
+    // factory resolves once for both verbs — and at that line it is written exactly
+    // once, on the arm where the certificate is `null`. A count of 0 here would mean a
+    // factory that had branched around the absence instead of naming it, which is the
+    // thing the required-with-sentinel rule exists to prevent.
+    //
+    // Paired with the hook's presence, because a 0 alone is also what deleting the
+    // `attest:` line produces — and *that* deletion no longer compiles, which is the
+    // stronger guard `agent-contract.test.ts` holds.
     //
     // **This `it`'s title says "four sentinels" and is not renamed to five.** Two
     // mutation-ledger entries key their `signature` on the titles in this file, and the
@@ -196,8 +205,13 @@ describe('production serveAgent call sites state every hook explicitly', () => {
     // VER-08 / VER-09 / VER-10, and **the same count as `fabric-node.ts` deliberately**.
     // Signing is not a capability a tier confers: an enrolled tab signs on identical
     // terms to any other node. If this row ever diverges from the `FABRIC_NODE` row
-    // above without a stated reason, something has started keying on node kind. Plan
-    // 19-15 takes both to 0 in one pass.
+    // above without a stated reason, something has started keying on node kind.
+    //
+    // The prediction that used to close this comment — *Plan 19-15 takes both to 0 in one
+    // pass* — was wrong in the same way its twin above was, and for the same reason: 19-15
+    // moved the literal to the resolved identity rather than deleting it, because a tab
+    // nobody enrolled still has to say what it signs. See the `FABRIC_NODE` row for the
+    // full account. Both tiers moved it identically, which is the row's real subject.
     expect(occurrences(BROWSER_NODE, "'signs-nothing'")).toBe(1)
     expect(occurrences(BROWSER_NODE, 'attest:')).toBe(1)
   })
