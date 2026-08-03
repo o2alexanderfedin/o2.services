@@ -281,6 +281,26 @@ export type {
   ReplicaSet,
 } from './enrollment.ts'
 
+// The third signing leg — a result the node that produced it signed. VER-08, VER-09,
+// VER-10. The other two legs are `guardModuleProvenance` (the code) and
+// `verifyCertificate` (the node), both above.
+export {
+  WrongSigningKeyError,
+  combineChallenge,
+  resultChallenge,
+  signResult,
+  signingKeyOf,
+  verifyResultAttestation,
+} from './result-attestation.ts'
+export type {
+  AttestationRefusal,
+  AttestationResult,
+  AttestedResult,
+  ResultAttestation,
+  ResultSigner,
+  ResultWork,
+} from './result-attestation.ts'
+
 // Quorum composition and attestation strength — VER-03, VER-04, VER-08, VER-09, VER-10.
 export {
   attestationRank,
