@@ -160,14 +160,28 @@ cannot mint because `verifyCertificate` refuses an untrusted issuer. What is bro
 which is one `ed25519.keygen()`, and the budget is per provider **process**, so a second
 provider process resets it.
 
-So criterion 5's work is:
-1. **A persistent, cross-process issuance budget** — closing the hole Phase 17 named.
-2. **Short certificate lifetimes.** `NodeCertificate` already carries `issuedAt` and `expiresAt`
-   (`enrollment.ts:119-120`).
+So criterion 5's work is **one thing**: a **persistent, cross-process issuance budget**, closing
+the hole Phase 17 named. The N-th fake identity costs a fresh issuance against a budget that does
+not reset. Measured across processes **and a provider restart** — the restart is the load-bearing
+reading, because a per-process budget passes every other one.
 
-The N-th fake identity then costs a fresh issuance against a budget that does not reset, **and**
-must be continually renewed to stay usable. That is a measurable escalation, and it is measured
-across processes and a provider restart.
+**Certificate lifetimes are NOT part of the cost argument — owner correction 2026-08-02.** An
+earlier draft of this section also called for *short* lifetimes. That was over-engineering, and
+the reason is that **the attack radius is far too small to justify it**:
+
+- Results are signed and attributable, so a bad result names its author.
+- Integrity rests on **N-version comparison, not on trusting an identity**. A single fake node
+  cannot change an answer; it can only disagree and be caught.
+- `composeQuorum` already enforces anti-affinity by `operatorId` — one certificate per operator
+  by construction (`quorum.ts:123-126`) — so **N sybils under one operator buy exactly one
+  quorum slot.**
+- Sovereign data never leaves the owner's node, so a fake node cannot exfiltrate anything by
+  being admitted.
+
+Net: a sybil attacker can waste compute and be refused. **That is a nuisance, not a breach.**
+Relatively long expiration periods are fine. Do not plan renewal churn, re-certification loops,
+or lifetime tuning — and if a future argument seems to need short lifetimes, re-read this list
+first.
 
 **NO BLOCKCHAIN. Owner constraint, and the one place a design drifts toward one is revocation.**
 A global revocation list is shared mutable state and needs consensus. **This design does not have
