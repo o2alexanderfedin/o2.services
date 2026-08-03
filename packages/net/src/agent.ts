@@ -433,7 +433,11 @@ async function runCombine(
       // `remoteCombineDispatch` collapses every failure to `null`, so this reason does
       // not reach the requestor at all. That channel is `combine.ts`' documented
       // pre-existing limitation and this branch does not widen it.
-      return { kind: 'combine', resultCid: null, reason: admission.reason }
+      //
+      // No attestation, and that is not an oversight the sentinel papers over: this
+      // node did not run the combine, so it has nothing to make a statement about.
+      // Every refusal arm below reads the same way.
+      return { kind: 'combine', resultCid: null, reason: admission.reason, attestation: 'signed-by-nobody' }
     }
   }
   try {
@@ -498,14 +502,24 @@ async function combineAdmitted(
     // combine reply shape rather than an `error` frame, for the reason this function's
     // header gives: `executeReduce`'s ranking walk consumes a `resultCid: null` as the
     // signal to try the next executor, and an `error` would be read as a node condition.
-    return { kind: 'combine', resultCid: null, reason: `unauthorized: ${refusal}` }
+    return {
+      kind: 'combine',
+      resultCid: null,
+      reason: `unauthorized: ${refusal}`,
+      attestation: 'signed-by-nobody',
+    }
   }
 
   const inputs: CanonicalValue[] = []
   for (const cid of request.inputCids) {
     const bytes = await options.blockstore.get(cid)
     if (bytes === undefined) {
-      return { kind: 'combine', resultCid: null, reason: `combine input ${cid.toString()} not held and not obtainable` }
+      return {
+        kind: 'combine',
+        resultCid: null,
+        reason: `combine input ${cid.toString()} not held and not obtainable`,
+        attestation: 'signed-by-nobody',
+      }
     }
     // `MAX_PARTIAL_BYTES`' first production reader — it had none before this branch,
     // and a bound nothing enforces is a comment. What it bounds is what this node will
@@ -518,13 +532,19 @@ async function combineAdmitted(
         kind: 'combine',
         resultCid: null,
         reason: `combine input ${cid.toString()} is ${bytes.byteLength} bytes, over the ${MAX_PARTIAL_BYTES} byte partial budget`,
+        attestation: 'signed-by-nobody',
       }
     }
     let decoded: CanonicalValue
     try {
       decoded = decodeCanonical(bytes)
     } catch {
-      return { kind: 'combine', resultCid: null, reason: `combine input ${cid.toString()} did not decode` }
+      return {
+        kind: 'combine',
+        resultCid: null,
+        reason: `combine input ${cid.toString()} did not decode`,
+        attestation: 'signed-by-nobody',
+      }
     }
     inputs.push(decoded)
   }
@@ -539,6 +559,7 @@ async function combineAdmitted(
       kind: 'combine',
       resultCid: null,
       reason: `combine result is not encodable: ${JSON.stringify(hashed.error)}`,
+      attestation: 'signed-by-nobody',
     }
   }
   // The put is what makes the result retrievable by CID like any other block, and it
@@ -546,7 +567,7 @@ async function combineAdmitted(
   // entry. It writes to this node's own local tier and nowhere else — the requestor
   // fetches it back deliberately, by CID, from this peer (`remoteCombineDispatch`).
   await options.blockstore.put(hashed.bytes)
-  return { kind: 'combine', resultCid: hashed.cid, reason: '' }
+  return { kind: 'combine', resultCid: hashed.cid, reason: '', attestation: 'signed-by-nobody' }
 }
 
 /**

@@ -187,13 +187,23 @@ export type AgentResponse =
    */
   | { readonly kind: 'report'; readonly counts: readonly OutcomeCount[]; readonly declined: number }
   /**
-   * The combine's result, or why it did not run.
+   * The combine's result, what the combining node signed about it, or why it did not run.
    *
    * `resultCid: null` is not an error — it is the fallthrough signal the requestor
    * walks its rendezvous ranking on, so it keeps a `reason`: that string is the only
    * thing the requestor learns before trying the next executor.
+   *
+   * `attestation` is the aggregation's half of VER-08/09/10 — see `runCombine` in
+   * `agent.ts`. It is `'signed-by-nobody'` on every refusal arm, because there is no
+   * result to make a statement about, and it is a real statement only on the success
+   * path.
    */
-  | { readonly kind: 'combine'; readonly resultCid: CID | null; readonly reason: string }
+  | {
+      readonly kind: 'combine'
+      readonly resultCid: CID | null
+      readonly reason: string
+      readonly attestation: AttestedResult
+    }
   /**
    * AUTH-01 / AUTH-04: a certificate, or the named reason none was issued.
    *
@@ -969,9 +979,20 @@ export function encodeResponse(response: AgentResponse): CanonicalValue {
     case 'reservations':
       return { kind: 'reservations', peerIds: [...response.peerIds] }
     case 'combine':
+      // The refusal arm carries no `attestation` key at all, rather than the sentinel
+      // spelled out. The `exec` arm does the same with its `ok: false` shape and for the
+      // same reason: a refusal has no result, so a field naming what was signed about it
+      // would be a field about nothing. The parse below supplies the sentinel on this
+      // arm, so the type stays total without the wire paying for it.
       return response.resultCid === null
         ? { kind: 'combine', found: false, reason: response.reason }
-        : { kind: 'combine', found: true, resultCid: response.resultCid, reason: response.reason }
+        : {
+            kind: 'combine',
+            found: true,
+            resultCid: response.resultCid,
+            reason: response.reason,
+            attestation: attestationToValue(response.attestation),
+          }
     case 'report':
       return {
         kind: 'report',
@@ -1057,14 +1078,32 @@ export function parseResponse(body: CanonicalValue): AgentResponse | null {
     case 'combine': {
       const reason = record['reason']
       const stated = typeof reason === 'string' ? reason : 'unspecified'
-      if (record['found'] !== true) return { kind: 'combine', resultCid: null, reason: stated }
+      // A refusal carries no statement, and the sentinel is supplied here rather than
+      // sent. It is the truthful reading of that frame: nothing was produced, so nothing
+      // was signed.
+      if (record['found'] !== true) {
+        return { kind: 'combine', resultCid: null, reason: stated, attestation: 'signed-by-nobody' }
+      }
       const resultCid = CID.asCID(record['resultCid'] ?? null)
       // Refused, not folded into the null arm. The null arm is the fallthrough signal
       // the requestor walks its ranking on, so a peer able to turn a corrupt answer
       // into an ordinary "I could not" would be indistinguishable from an honest one
       // that had nothing — and the requestor would count it as a normal miss.
       if (resultCid === null) return null
-      return { kind: 'combine', resultCid, reason: stated }
+      // Refused, never downgraded — the disposition the `exec` arm takes below, for the
+      // reason `parseAttestation`'s docblock gives. A frame whose attestation does not
+      // parse is a peer's protocol error; degrading it to the sentinel would report that
+      // as an honest unenrolled peer, and the requestor would record an unsigned combine
+      // and never learn the frame was broken.
+      //
+      // **What this costs the wire:** one certificate per attested combine reply — 612
+      // DAG-CBOR bytes, the figure measured for the `exec` reply and identical here
+      // because it is the same `certificateToValue`. Against NET-08's inbound ceiling
+      // and the browser tier's 16 KiB per-message WebRTC bound that is under 4% of one
+      // message, and it does not grow with the number of inputs merged.
+      const attestation = parseAttestation(record['attestation'])
+      if (attestation === null) return null
+      return { kind: 'combine', resultCid, reason: stated, attestation }
     }
     case 'exec': {
       if (record['ok'] === true) {

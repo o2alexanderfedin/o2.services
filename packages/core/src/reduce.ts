@@ -55,6 +55,7 @@ import { canonicalCid } from './canonical/encode.ts'
 import type { CanonicalValue } from './canonical/encode.ts'
 import { toHex } from './capability.ts'
 import type { Blockstore } from './ports.ts'
+import type { AttestedResult } from './result-attestation.ts'
 
 /**
  * Default children per combine.
@@ -261,13 +262,40 @@ export interface CombineTask {
 }
 
 /**
+ * What one combine produced, and what the node that produced it said about it.
+ *
+ * The second field is the whole of VER-08/09/10 on the reduce side. `PROJECT.md` states
+ * the project's split as *the owner's contribution is trusted; the aggregation over
+ * contributions is verified* — and an aggregation nobody signed is not verified by
+ * anybody, it is merely reported by whoever asked for it. So a combine's result and the
+ * producing node's statement about it travel together, from the dispatch to
+ * {@link ReduceOutcome}, and there is no arrangement of this type in which one arrives
+ * without the other.
+ *
+ * `attestation` is `'signed-by-nobody'` when the producing node holds no certificate.
+ * That is a truthful answer and not a degraded one — see `result-attestation.ts`, where
+ * {@link AttestedResult}'s sentinel is defined.
+ */
+export interface CombineProduct {
+  /** `canonicalCid` of the merged value. Exactly what this dispatch used to return. */
+  readonly cid: CID
+  /** The producing node's signed statement over `(inputCids, cid)`, or the sentinel. */
+  readonly attestation: AttestedResult
+}
+
+/**
  * Runs one combine on a named executor.
  *
  * Resolving to `null` means that executor is gone — the caller falls through to the
- * next in the rendezvous ranking and recomputes there.
+ * next in the rendezvous ranking and recomputes there. **That meaning did not change
+ * when this return widened to {@link CombineProduct}**, and it is written down here
+ * because a widened return type is exactly where a recorded distinction gets flattened
+ * by accident: an unsigned answer is a `CombineProduct` carrying the sentinel, never a
+ * `null`, and `@o2/net`'s `LocalStoreWriteFailed` is still thrown rather than collapsed
+ * into either.
  */
 export interface CombineDispatch {
-  (task: CombineTask, executorId: string): Promise<CID | null>
+  (task: CombineTask, executorId: string): Promise<CombineProduct | null>
 }
 
 export interface ReduceRun {
@@ -300,6 +328,37 @@ export interface ReduceOutcome {
   readonly recomputes: number
   /** Which executor actually produced each combine. */
   readonly executedBy: ReadonlyMap<string, string>
+  /**
+   * What each combine's producer **signed** about it — tree node id → attestation.
+   *
+   * A second map beside {@link executedBy} rather than a widened value, and the two
+   * answer different questions: `executedBy` is *the requestor's own record of who
+   * answered*, this is *what that answerer said, in a form a third party can check*.
+   * Both are filled in one loop in {@link executeReduce} from one accepted result, so
+   * they cannot drift apart.
+   *
+   * **Why a second map here, when Plan 19-14 refused a second array beside
+   * `VerificationResult.agreeing`.** The two plans read as inconsistent without this
+   * paragraph, and the difference is real. There, a downstream reader could have built a
+   * receipt out of the *names* while the signatures sat unread beside them — possible
+   * because a requestor's discovery descriptors can turn a node id into a certificate,
+   * so a wrong choice genuinely existed. **Here there is no such wrong choice**: this
+   * map's sibling holds peer ids, and nothing anywhere in the reduce path can turn a
+   * peer id into a certificate. A receipt cannot be built from `executedBy` at all, so
+   * separating the two costs a reader nothing and leaves `executedBy` answering exactly
+   * the question it always answered.
+   *
+   * **A combine whose replicas disagreed is absent from this map**, while remaining
+   * present in `executedBy` and in {@link disagreements}. `verify.ts`'s standing rule:
+   * putting signatures on a disagreement invites somebody to pick a winner from them,
+   * and there is no agreed answer to attest.
+   *
+   * **A signed aggregation is not a correct one.** The signature says a certified node
+   * performed this merge over these partials; whether the answer is right is what
+   * `redundancy` and `disagreements` are for, exactly as a signed `exec` result is not
+   * a correct one.
+   */
+  readonly attestations: ReadonlyMap<string, AttestedResult>
   readonly failed: readonly string[]
   /**
    * Combines where replicas produced different CIDs, with every distinct answer.
@@ -327,6 +386,7 @@ export async function executeReduce(run: ReduceRun): Promise<ReduceOutcome> {
       combines: 0,
       recomputes: 0,
       executedBy: new Map(),
+      attestations: new Map(),
       failed: [tree.rootId],
       disagreements: [],
       minReplicas: 0,
@@ -337,6 +397,7 @@ export async function executeReduce(run: ReduceRun): Promise<ReduceOutcome> {
   // so it starts resolved — at its address, which is not its identity.
   const resolved = new Map<string, string>(tree.leaves.map((leaf) => [leaf.id, leaf.cid]))
   const executedBy = new Map<string, string>()
+  const attestations = new Map<string, AttestedResult>()
   const failed: string[] = []
   const disagreements: { nodeId: string; resultCids: readonly string[] }[] = []
   let combines = 0
@@ -365,28 +426,39 @@ export async function executeReduce(run: ReduceRun): Promise<ReduceOutcome> {
         // The ranking *is* the fallback list — no lookup, no coordinator.
         const ranked = rendezvousRank(node.id, executors)
         const wanted = Math.max(1, run.redundancy ?? 1)
-        const produced: { cid: string; executorId: string }[] = []
+        const produced: { cid: string; executorId: string; attestation: AttestedResult }[] = []
         let attempts = 0
 
         // Walk the ranking until `wanted` replicas have answered. A node that is
         // gone costs an attempt and nothing else — the next in the ranking
         // recomputes from the same CIDs.
+        //
+        // **`null` here still means only one thing**, and the widened return is why it
+        // is worth saying: a node that produced a result but signs nothing answers with
+        // a `CombineProduct` carrying the sentinel and is a perfectly ordinary replica.
+        // Reading an unsigned answer as a dead peer would walk the ranking past every
+        // unenrolled node in the fabric.
         for (const executorId of ranked) {
           if (produced.length >= wanted) break
-          const cid = await dispatch(task, executorId)
-          if (cid === null) {
+          const product = await dispatch(task, executorId)
+          if (product === null) {
             attempts += 1
             continue
           }
-          produced.push({ cid: cid.toString(), executorId })
+          produced.push({ cid: product.cid.toString(), executorId, attestation: product.attestation })
         }
 
         if (produced.length === 0) return { node, cid: null, attempts, replicas: 0, cids: [] }
+        const accepted = produced[0] as { cid: string; executorId: string; attestation: AttestedResult }
         return {
           node,
-          cid: (produced[0] as { cid: string }).cid,
+          cid: accepted.cid,
           attempts,
-          executorId: (produced[0] as { executorId: string }).executorId,
+          executorId: accepted.executorId,
+          // The accepted replica's own statement, never one composed from several. Under
+          // redundancy the replicas that agreed each signed their own bytes; this is the
+          // one whose result the outcome carries.
+          attestation: accepted.attestation,
           replicas: produced.length,
           cids: [...new Set(produced.map((p) => p.cid))],
         }
@@ -407,6 +479,12 @@ export async function executeReduce(run: ReduceRun): Promise<ReduceOutcome> {
       minReplicas = Math.min(minReplicas, result.replicas)
       if (result.cids.length > 1) {
         disagreements.push({ nodeId: result.node.id, resultCids: result.cids })
+      } else {
+        // Recorded on the same pass as the executor, from the same accepted result, so
+        // the two maps cannot drift. Deliberately **not** recorded on the disagreement
+        // arm above: a signature beside a combine with no agreed answer is an invitation
+        // to pick a winner out of the signatures, which `verify.ts` forbids.
+        attestations.set(result.node.id, result.attestation as AttestedResult)
       }
     }
   }
@@ -419,6 +497,7 @@ export async function executeReduce(run: ReduceRun): Promise<ReduceOutcome> {
     combines,
     recomputes,
     executedBy,
+    attestations,
     failed,
     disagreements,
     minReplicas: Number.isFinite(minReplicas) ? minReplicas : 0,
@@ -543,6 +622,13 @@ export const fabricCombiner: Combiner = (inputs) => {
  * triggers the fallback path. Writing the result is idempotent because the blockstore
  * is content-addressed — which is exactly why a late duplicate from a node presumed
  * dead costs nothing: same inputs, same bytes, same CID, no second entry.
+ *
+ * **It states that it signs nothing, and that is the right answer rather than a gap to
+ * be closed later.** This combiner is the requestor's own code running in the
+ * requestor's own process: a signature it made would be the requestor attesting to
+ * itself, which proves nothing to the only party reading it. The named sentinel is what
+ * stops somebody handing this function a signing key on the assumption that more
+ * signatures are always better.
  */
 export function localDispatch(options: {
   readonly blockstore: Blockstore
@@ -565,6 +651,6 @@ export function localDispatch(options: {
     const hashed = await canonicalCid(merged)
     if (!hashed.ok) return null
     await options.blockstore.put(hashed.bytes)
-    return hashed.cid
+    return { cid: hashed.cid, attestation: 'signed-by-nobody' }
   }
 }

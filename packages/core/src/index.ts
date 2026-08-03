@@ -254,6 +254,7 @@ export {
 } from './reduce.ts'
 export type {
   CombineDispatch,
+  CombineProduct,
   CombineTask,
   Combiner,
   FabricPartial,
@@ -297,8 +298,10 @@ export {
   WrongSigningKeyError,
   combineChallenge,
   resultChallenge,
+  signCombine,
   signResult,
   signingKeyOf,
+  verifyCombineAttestation,
   verifyResultAttestation,
 } from './result-attestation.ts'
 export type {

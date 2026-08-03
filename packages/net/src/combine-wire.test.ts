@@ -117,16 +117,65 @@ describe('MR-06 — a combine reply says what happened, or is refused', () => {
     const [resultCid] = await cids(1)
 
     const answered = parseResponse(
-      encodeResponse({ kind: 'combine', resultCid: resultCid as CID, reason: '' }),
+      encodeResponse({
+        kind: 'combine',
+        resultCid: resultCid as CID,
+        reason: '',
+        attestation: 'signed-by-nobody',
+      }),
     )
-    expect(answered).toEqual({ kind: 'combine', resultCid, reason: '' })
+    expect(answered).toEqual({
+      kind: 'combine',
+      resultCid,
+      reason: '',
+      attestation: 'signed-by-nobody',
+    })
 
     // The null arm keeps its reason: that string is the only thing a requestor gets
-    // before it falls through the ranking to the next executor.
+    // before it falls through the ranking to the next executor. It carries no
+    // attestation key on the wire and reads back as the sentinel — a refusal produced
+    // nothing, so there is nothing it could have signed.
     const declined = parseResponse(
-      encodeResponse({ kind: 'combine', resultCid: null, reason: 'input not held' }),
+      encodeResponse({
+        kind: 'combine',
+        resultCid: null,
+        reason: 'input not held',
+        attestation: 'signed-by-nobody',
+      }),
     )
-    expect(declined).toEqual({ kind: 'combine', resultCid: null, reason: 'input not held' })
+    expect(declined).toEqual({
+      kind: 'combine',
+      resultCid: null,
+      reason: 'input not held',
+      attestation: 'signed-by-nobody',
+    })
+  })
+
+  it('carries a real attestation byte-exact, certificate and all', async () => {
+    // VER-08/09/10 on the aggregation. The statement is only worth carrying if it
+    // arrives unchanged: every field of the certificate the provider signed is part of
+    // what `verifyCertificate` re-derives, so one dropped field surfaces downstream as
+    // an unexplainable `bad-signature` against a node that did nothing wrong.
+    const [resultCid] = await cids(1)
+    const attestation = {
+      certificate: {
+        nodeKey: 'a'.repeat(64),
+        userKey: 'b'.repeat(64),
+        operatorId: 'operator-one',
+        discoverability: 'via-relay' as const,
+        relayIds: ['relay-a', 'relay-b'],
+        issuedAt: 1_700_000_000_000,
+        expiresAt: 1_800_000_000_000,
+        issuer: 'c'.repeat(64),
+        signature: 'd'.repeat(128),
+      },
+      signature: 'e'.repeat(128),
+    }
+
+    const parsed = parseResponse(
+      encodeResponse({ kind: 'combine', resultCid: resultCid as CID, reason: '', attestation }),
+    )
+    expect(parsed).toEqual({ kind: 'combine', resultCid, reason: '', attestation })
   })
 
   it('refuses a corrupt reply rather than degrading it to the null arm', () => {
@@ -134,9 +183,53 @@ describe('MR-06 — a combine reply says what happened, or is refused', () => {
     // into an indistinguishable "I could not", which the requestor would count as an
     // ordinary fallthrough.
     expect(
-      parseResponse({ kind: 'combine', found: true, resultCid: 'not-a-cid', reason: '' }),
+      parseResponse({
+        kind: 'combine',
+        found: true,
+        resultCid: 'not-a-cid',
+        reason: '',
+        attestation: 'signed-by-nobody',
+      }),
     ).toBeNull()
-    expect(parseResponse({ kind: 'combine', found: true, reason: '' })).toBeNull()
+    expect(
+      parseResponse({ kind: 'combine', found: true, reason: '', attestation: 'signed-by-nobody' }),
+    ).toBeNull()
+  })
+
+  it('refuses a reply whose attestation is malformed, rather than reading it as unsigned', async () => {
+    // The choice this pins is the one that looks safer the other way round. A frame
+    // that degraded to `'signed-by-nobody'` would report a peer's **protocol error** as
+    // an honest peer holding no certificate: the requestor would accept the reply,
+    // record an unsigned combine, and never learn the frame was broken. Refusing turns
+    // it into a dead executor, and `executeReduce` walks to the next in the ranking.
+    const [resultCid] = await cids(1)
+    const base: CanonicalValue = { kind: 'combine', found: true, resultCid: resultCid as CID, reason: '' }
+
+    // Absent altogether.
+    expect(parseResponse(base)).toBeNull()
+    // A word that is not the sentinel.
+    expect(parseResponse({ ...base, attestation: 'signed-by-somebody' })).toBeNull()
+    // Present, structured, and missing its certificate.
+    expect(parseResponse({ ...base, attestation: { signature: 'f'.repeat(128) } })).toBeNull()
+    // Certificate present and one field of it dropped.
+    expect(
+      parseResponse({
+        ...base,
+        attestation: {
+          signature: 'f'.repeat(128),
+          certificate: {
+            nodeKey: 'a'.repeat(64),
+            userKey: 'b'.repeat(64),
+            operatorId: 'operator-one',
+            discoverability: 'via-relay',
+            issuedAt: 1,
+            expiresAt: 2,
+            issuer: 'c'.repeat(64),
+            signature: 'd'.repeat(128),
+          },
+        },
+      }),
+    ).toBeNull()
   })
 })
 

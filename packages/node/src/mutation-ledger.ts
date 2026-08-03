@@ -816,7 +816,13 @@ export const MUTATIONS: readonly Mutation[] = [
       'phase exists because 16-05’s defect survived two milestones by hiding from cheap ' +
       'fabrics.',
     file: 'packages/net/src/agent.ts',
-    find: "      return { kind: 'combine', resultCid: null, reason: admission.reason }\n",
+    // Re-anchored 2026-08-03 by Plan 19-16, which gave the combine reply an
+    // `attestation` field, so this return grew a key. The mutation is unchanged — delete
+    // the refusal and the branch falls through to run the combine anyway — and only the
+    // text it is keyed on moved. The cheap layer is what caught the drift.
+    find:
+      "      return { kind: 'combine', resultCid: null, reason: admission.reason, " +
+      "attestation: 'signed-by-nobody' }\n",
     replace: '',
     caughtBy: ['packages/net/src/combine.test.ts', 'packages/node/src/admission.node.test.ts'],
     signature: 'AssertionError: expected CID(',

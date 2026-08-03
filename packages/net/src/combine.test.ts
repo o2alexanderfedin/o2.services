@@ -839,11 +839,11 @@ async function expectNull(
   const aCid = await blockCidOf(partial('alpha'))
   const bCid = await blockCidOf(partial('beta'))
   try {
-    const cid = await remoteCombineDispatch({ rpc: clientRpc, blockstore: new MemoryBlockstore() })(
+    const product = await remoteCombineDispatch({ rpc: clientRpc, blockstore: new MemoryBlockstore() })(
       combineTask([aCid, bCid]),
       'w0',
     )
-    expect(cid).toBeNull()
+    expect(product).toBeNull()
   } finally {
     clientRpc.close()
     peer.rpc.close()
@@ -868,9 +868,13 @@ describe('MR-05 — remoteCombineDispatch runs a combine on a peer and brings th
       expect(await plain.has(reference.cid)).toBe(false)
 
       const dispatch = remoteCombineDispatch({ rpc: fabric.clientRpc, blockstore: plain })
-      const cid = await dispatch(combineTask([aCid, bCid]), 'w0')
+      const product = await dispatch(combineTask([aCid, bCid]), 'w0')
 
-      expect(cid?.toString()).toBe(reference.cid.toString())
+      expect(product?.cid.toString()).toBe(reference.cid.toString())
+      // The peer here holds no certificate, so its truthful answer is the sentinel —
+      // read explicitly, because `undefined` would also satisfy a `not.toBeNull()` on
+      // the product and say nothing about whether the field was carried at all.
+      expect(product?.attestation).toBe('signed-by-nobody')
       // The assertion that closes level 2. An implementation that returned the CID and
       // stopped passes the line above and fails this one.
       expect(await plain.has(reference.cid)).toBe(true)
@@ -904,12 +908,12 @@ describe('MR-05 — remoteCombineDispatch runs a combine on a peer and brings th
     const clientRpc = new RpcEndpoint(network.connect('client'), { timeoutMs: 5_000 })
     const plain = new MemoryBlockstore()
     try {
-      const cid = await remoteCombineDispatch({ rpc: clientRpc, blockstore: plain })(
+      const product = await remoteCombineDispatch({ rpc: clientRpc, blockstore: plain })(
         combineTask([aCid, bCid]),
         'w0',
       )
 
-      expect(cid).not.toBeNull()
+      expect(product).not.toBeNull()
       // Both asserted: residency alone would still pass for an implementation that
       // fanned out and happened to find a holder.
       expect(w1.bodies).toEqual([])
@@ -928,7 +932,7 @@ describe('MR-05 — remoteCombineDispatch runs a combine on a peer and brings th
 
     const peer = recordingNode(network, 'w0', (body) =>
       (body as { kind?: unknown }).kind === 'combine'
-        ? encodeResponse({ kind: 'combine', resultCid: hashed.cid, reason: '' })
+        ? encodeResponse({ kind: 'combine', resultCid: hashed.cid, reason: '', attestation: 'signed-by-nobody' })
         : encodeResponse({ kind: 'block', bytes: hashed.bytes }),
     )
 
@@ -936,11 +940,11 @@ describe('MR-05 — remoteCombineDispatch runs a combine on a peer and brings th
     const aCid = await blockCidOf(partial('alpha'))
     const bCid = await blockCidOf(partial('beta'))
     try {
-      const cid = await remoteCombineDispatch({ rpc: clientRpc, blockstore: new MemoryBlockstore() })(
+      const product = await remoteCombineDispatch({ rpc: clientRpc, blockstore: new MemoryBlockstore() })(
         combineTask([aCid, bCid]),
         'w0',
       )
-      expect(cid?.toString()).toBe(hashed.cid.toString())
+      expect(product?.cid.toString()).toBe(hashed.cid.toString())
 
       // MR-06 at the dispatch site, where a future edit would actually add a payload.
       // No deletion turns this red — it fires on *addition*, which is correct for a
@@ -973,11 +977,11 @@ describe('MR-05 — every way a combine can fail resolves null, and none of them
     const aCid = await blockCidOf(partial('alpha'))
     const bCid = await blockCidOf(partial('beta'))
     try {
-      const cid = await remoteCombineDispatch({ rpc: clientRpc, blockstore: new MemoryBlockstore() })(
+      const product = await remoteCombineDispatch({ rpc: clientRpc, blockstore: new MemoryBlockstore() })(
         combineTask([aCid, bCid]),
         'nobody',
       )
-      expect(cid).toBeNull()
+      expect(product).toBeNull()
     } finally {
       clientRpc.close()
     }
@@ -991,11 +995,11 @@ describe('MR-05 — every way a combine can fail resolves null, and none of them
     const bCid = await blockCidOf(partial('beta'))
     clientRpc.close()
     try {
-      const cid = await remoteCombineDispatch({ rpc: clientRpc, blockstore: new MemoryBlockstore() })(
+      const product = await remoteCombineDispatch({ rpc: clientRpc, blockstore: new MemoryBlockstore() })(
         combineTask([aCid, bCid]),
         'w0',
       )
-      expect(cid).toBeNull()
+      expect(product).toBeNull()
     } finally {
       peer.rpc.close()
     }
@@ -1018,7 +1022,12 @@ describe('MR-05 — every way a combine can fail resolves null, and none of them
   it('(e) resolves null when the peer could not run the combine', async () => {
     await expectNull((network) =>
       recordingNode(network, 'w0', () =>
-        encodeResponse({ kind: 'combine', resultCid: null, reason: 'input not held' }),
+        encodeResponse({
+          kind: 'combine',
+          resultCid: null,
+          reason: 'input not held',
+          attestation: 'signed-by-nobody',
+        }),
       ),
     )
   })
@@ -1032,7 +1041,7 @@ describe('MR-05 — every way a combine can fail resolves null, and none of them
     await expectNull((network) =>
       recordingNode(network, 'w0', (body) =>
         (body as { kind?: unknown }).kind === 'combine'
-          ? encodeResponse({ kind: 'combine', resultCid: merged.cid, reason: '' })
+          ? encodeResponse({ kind: 'combine', resultCid: merged.cid, reason: '', attestation: 'signed-by-nobody' })
           : encodeResponse({ kind: 'block', bytes: null }),
       ),
     )
@@ -1045,8 +1054,32 @@ describe('MR-05 — every way a combine can fail resolves null, and none of them
     await expectNull((network) =>
       recordingNode(network, 'w0', (body) =>
         (body as { kind?: unknown }).kind === 'combine'
-          ? encodeResponse({ kind: 'combine', resultCid: merged.cid, reason: '' })
+          ? encodeResponse({ kind: 'combine', resultCid: merged.cid, reason: '', attestation: 'signed-by-nobody' })
           : encodeResponse({ kind: 'block', bytes: other.bytes }),
+      ),
+    )
+  })
+
+  it('(h) resolves null when the reply carries an attestation that does not parse', async () => {
+    // VER-08/09/10. A broken statement is a broken **frame**, so it lands in the same
+    // place as a peer talking nonsense: the requestor routes around it. The rejected
+    // alternative is the quiet one — parse it to the sentinel, accept the reply, and
+    // record an unsigned combine that nobody can tell from an honest unenrolled peer's.
+    const merged = await canonicalCid(fabricCombiner([partial('alpha'), partial('beta')]))
+    if (!merged.ok) throw new Error('fixture will not canonicalise')
+    await expectNull((network) =>
+      recordingNode(network, 'w0', (body) =>
+        (body as { kind?: unknown }).kind === 'combine'
+          ? {
+              kind: 'combine',
+              found: true,
+              resultCid: merged.cid,
+              reason: '',
+              // Structured, and missing its certificate. Hand-built rather than sent
+              // through `encodeResponse`, because the encoder cannot produce this.
+              attestation: { signature: 'f'.repeat(128) },
+            }
+          : encodeResponse({ kind: 'block', bytes: merged.bytes }),
       ),
     )
   })
@@ -1059,11 +1092,11 @@ describe('MR-05 — every way a combine can fail resolves null, and none of them
       // `CombineTask.inputCids` are strings and become CIDs on the wire. A malformed
       // one inside `executeReduce`'s level would otherwise take down the whole level's
       // `Promise.all` rather than costing one attempt.
-      const cid = await remoteCombineDispatch({ rpc: clientRpc, blockstore: new MemoryBlockstore() })(
+      const product = await remoteCombineDispatch({ rpc: clientRpc, blockstore: new MemoryBlockstore() })(
         { nodeId: 'tree-node-a', inputCids: ['not-a-cid', 'also-not-a-cid'], level: 1 },
         'w0',
       )
-      expect(cid).toBeNull()
+      expect(product).toBeNull()
       expect(peer.bodies).toEqual([])
     } finally {
       clientRpc.close()
@@ -1092,7 +1125,7 @@ class RefusingStore extends MemoryBlockstore {
 function honestCombiner(network: MemoryNetwork, id: string, merged: { cid: CID; bytes: Uint8Array<ArrayBuffer> }) {
   return recordingNode(network, id, (body) =>
     (body as { kind?: unknown }).kind === 'combine'
-      ? encodeResponse({ kind: 'combine', resultCid: merged.cid, reason: '' })
+      ? encodeResponse({ kind: 'combine', resultCid: merged.cid, reason: '', attestation: 'signed-by-nobody' })
       : encodeResponse({ kind: 'block', bytes: merged.bytes }),
   )
 }
@@ -1111,7 +1144,7 @@ describe('MR-05 — a store this node could not write to is not an executor that
     try {
       const dispatch = remoteCombineDispatch({ rpc: clientRpc, blockstore: store })
       const thrown = await dispatch(combineTask([aCid, bCid]), 'w0').then(
-        (cid) => ({ kind: 'resolved' as const, cid }),
+        (product) => ({ kind: 'resolved' as const, product }),
         (error: unknown) => ({ kind: 'threw' as const, error }),
       )
 

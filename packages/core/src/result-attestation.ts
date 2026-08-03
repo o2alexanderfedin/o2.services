@@ -167,9 +167,8 @@ export function resultChallenge(work: ResultWork, nodeKey: PublicKeyHex): Uint8A
  * the verified one. Two modules with two encodings to keep canonical is the failure
  * mode; one file that is the authority on what this fabric signs is the fix.
  *
- * `combineChallenge` has **no caller in this plan** and is consumed by Plan 19-16,
- * which builds the combine wire. It is here now because adding it later would have
- * meant a second module.
+ * Plan 19-16 built the combine wire and is its caller: {@link signCombine} produces the
+ * statement at `serveAgent`'s combine branch, {@link verifyCombineAttestation} checks it.
  *
  * **`inputCids` are encoded in the order they were merged, and are NEVER sorted.** A
  * combine's output depends on input order, so a sorted encoding would sign a claim
@@ -312,6 +311,34 @@ export function signResult(signer: ResultSigner, work: ResultWork): ResultAttest
 }
 
 /**
+ * Sign one merge as the node named by `signer.certificate` — the aggregation's half.
+ *
+ * `signResult`'s shape exactly, over {@link combineChallenge} instead. The two are
+ * separate functions rather than one taking a purpose, because the *thing signed* is
+ * different in kind: `exec` signs a task's identity and its output, a combine signs a
+ * **sequence** of inputs and the value they merged to. Collapsing them into one function
+ * with a switch would put the merge-order rule and the partition-index rule in the same
+ * body, where a later edit could apply either to the wrong one.
+ *
+ * **`inputCids` in merge order, never sorted.** {@link combineChallenge} states the
+ * reason at the encoding; it is repeated at every entry point because sorting is the
+ * reflex.
+ */
+export function signCombine(
+  signer: ResultSigner,
+  inputCids: readonly CID[],
+  resultCid: CID,
+): ResultAttestation {
+  const nodeKey = signingKeyOf(signer)
+  // Above any `try`, per `enrollment.ts:244-250`.
+  const challenge = combineChallenge(inputCids, resultCid, nodeKey)
+  return {
+    certificate: signer.certificate,
+    signature: toHex(ed25519.sign(challenge, signer.nodeSeed)),
+  }
+}
+
+/**
  * Why an attestation was not accepted. One name per question, never one kind for all.
  *
  * Phase 6's standing rule is that every exclusion is named, and the cost of ignoring it
@@ -384,6 +411,67 @@ export function verifyResultAttestation(
   trustedIssuers: ReadonlySet<PublicKeyHex>,
   now: number,
 ): AttestationResult {
+  return checkAttested(
+    attested,
+    (nodeKey) => resultChallenge(work, nodeKey),
+    trustedIssuers,
+    now,
+    (nodeKey) =>
+      `node ${nodeKey} did not sign this output for partition ${work.partitionIndex} of ${work.inputCid.toString()}`,
+  )
+}
+
+/**
+ * Check a **combine** attestation — the aggregation's half of the third leg.
+ *
+ * Everything {@link verifyResultAttestation}'s docblock says applies here unchanged: the
+ * three questions in the same order, the same three named refusals, offline against
+ * pinned issuers, and the work supplied by the caller rather than read off the
+ * attestation.
+ *
+ * **What the caller supplies is the merge it believes happened**, and that is where the
+ * order rule bites: pass the input CIDs in the order this combine merged them. A caller
+ * that sorted them first would be asking whether a merge it invented was signed, and the
+ * honest answer to that is no.
+ *
+ * What a pass establishes: a node this verifier's provider certified performed *this*
+ * merge over *these* partials and produced *that* result. What it does not establish is
+ * that the result is arithmetically right — that is `executeReduce`'s redundancy and its
+ * `disagreements` arm, exactly as a signed `exec` result is not a correct one.
+ */
+export function verifyCombineAttestation(
+  attested: AttestedResult,
+  inputCids: readonly CID[],
+  resultCid: CID,
+  trustedIssuers: ReadonlySet<PublicKeyHex>,
+  now: number,
+): AttestationResult {
+  return checkAttested(
+    attested,
+    (nodeKey) => combineChallenge(inputCids, resultCid, nodeKey),
+    trustedIssuers,
+    now,
+    (nodeKey) =>
+      `node ${nodeKey} did not sign ${resultCid.toString()} as the merge of ${inputCids.length} named inputs in that order`,
+  )
+}
+
+/**
+ * The three questions, asked once for both verbs.
+ *
+ * Factored so there is **one** place that decides the order the module's docblock argues
+ * for, rather than two copies of it that a later edit could take apart. What varies
+ * between the verbs is exactly two things — which challenge the signature is checked
+ * against, and how the failure describes the work — so both are arguments and nothing
+ * else is.
+ */
+function checkAttested(
+  attested: AttestedResult,
+  challengeFor: (nodeKey: PublicKeyHex) => Uint8Array<ArrayBuffer>,
+  trustedIssuers: ReadonlySet<PublicKeyHex>,
+  now: number,
+  describeMismatch: (nodeKey: PublicKeyHex) => string,
+): AttestationResult {
   if (attested === 'signed-by-nobody') {
     return {
       ok: false,
@@ -408,7 +496,7 @@ export function verifyResultAttestation(
   const nodeKey = attested.certificate.nodeKey
   // Above the `try`, not inside it — a challenge this package cannot encode is a codec
   // defect here, not a peer that forged a signature.
-  const challenge = resultChallenge(work, nodeKey)
+  const challenge = challengeFor(nodeKey)
 
   let valid = false
   try {
@@ -420,7 +508,7 @@ export function verifyResultAttestation(
     return {
       ok: false,
       failure: { kind: 'bad-result-signature', nodeKey },
-      reason: `node ${nodeKey} did not sign this output for partition ${work.partitionIndex} of ${work.inputCid.toString()}`,
+      reason: describeMismatch(nodeKey),
     }
   }
 

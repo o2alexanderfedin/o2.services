@@ -1,8 +1,11 @@
+import { ed25519 } from '@noble/curves/ed25519.js'
 import { CID } from 'multiformats/cid'
 import { describe, expect, it } from 'vitest'
 import { MemoryBlockstore } from './blockstore/memory.ts'
 import { canonicalCid, decodeCanonical, encodeCanonical } from './canonical/encode.ts'
 import type { CanonicalValue } from './canonical/encode.ts'
+import { toHex } from './capability.ts'
+import { EnrollmentAuthority, requestEnrollment } from './enrollment.ts'
 import {
   DEFAULT_FANOUT,
   MAX_COMBINE_INPUTS,
@@ -15,6 +18,8 @@ import {
   rendezvousRank,
 } from './reduce.ts'
 import type { Combiner, ReduceContribution } from './reduce.ts'
+import { signCombine, verifyCombineAttestation } from './result-attestation.ts'
+import type { ResultSigner } from './result-attestation.ts'
 
 /**
  * MR-02 … MR-07.
@@ -539,7 +544,7 @@ describe('MR-03 / criterion 5 — the aggregation is verified even when the maps
         const forged = await canonicalCid({ counts: { tampered: 1 }, rows: 999 })
         if (!forged.ok) return null
         await store.put(forged.bytes)
-        return forged.cid
+        return { cid: forged.cid, attestation: 'signed-by-nobody' }
       },
     })
 
@@ -571,6 +576,194 @@ describe('MR-03 / criterion 5 — the aggregation is verified even when the maps
     expect(outcome.rootCid).not.toBeNull()
     expect(outcome.minReplicas).toBe(2)
     expect(outcome.disagreements).toEqual([])
+  })
+})
+
+describe('VER-08/09/10 — what a combine produced and what its producer signed travel together', () => {
+  const provider = new Uint8Array(32).fill(90)
+  const alice = new Uint8Array(32).fill(91)
+  const NOW = 1_800_000_000_000
+  const PINNED: ReadonlySet<string> = new Set([toHex(ed25519.getPublicKey(provider))])
+
+  /** A node this fixture's provider certified, holding its own seed. */
+  function enrolled(seed: number): ResultSigner {
+    const nodeSeed = new Uint8Array(32).fill(seed)
+    const issued = new EnrollmentAuthority({
+      providerPrivateKey: provider,
+      maxIssuedPerWindow: 'issues-without-an-aggregate-budget',
+      issuance: 'remembers-only-within-this-process',
+    }).enrol(
+      requestEnrollment(nodeSeed, alice, {
+        operatorId: `op-${seed}`,
+        discoverability: 'via-relay',
+        relayIds: ['relay-1'],
+      }),
+      NOW,
+    )
+    if (!issued.ok) throw new Error('fixture failed to enrol')
+    return { nodeSeed, certificate: issued.certificate }
+  }
+
+  it('records the accepted replica’s attestation against that tree node', async () => {
+    const store = new MemoryBlockstore()
+    const { contributions } = await storePartials(store, 4)
+    const tree = deriveReduceTree(contributions)
+    const live = new Set(['n1', 'n2'])
+    const honest = localDispatch({
+      blockstore: store,
+      combiner: fabricCombiner,
+      decode: decodeCanonical,
+      liveNodes: () => live,
+    })
+    const signer = enrolled(11)
+
+    const outcome = await executeReduce({
+      tree,
+      executors: [...live],
+      // Every executor here signs with one identity, which is enough to establish that
+      // the statement survives the dispatch. Who signed which replica is
+      // `combine-signature.node.test.ts`'s question, across real processes.
+      dispatch: async (task, executorId) => {
+        const product = await honest(task, executorId)
+        if (product === null) return null
+        return {
+          cid: product.cid,
+          attestation: signCombine(
+            signer,
+            task.inputCids.map((cid) => CID.parse(cid)),
+            product.cid,
+          ),
+        }
+      },
+    })
+
+    expect(outcome.ok).toBe(true)
+    expect(outcome.attestations.size).toBe(outcome.combines)
+    expect(outcome.attestations.size).toBeGreaterThan(0)
+
+    // Not merely "an attestation is present": the one recorded must verify against the
+    // inputs that combine actually merged and the CID it actually produced, using
+    // nothing but the provider's public key. A map filled with the wrong node's
+    // statement satisfies a size assertion and fails this one.
+    for (const node of tree.nodes) {
+      const attested = outcome.attestations.get(node.id)
+      expect(attested).toBeDefined()
+      if (attested === undefined) continue
+      const inputCids = node.children.map((child) => {
+        const leaf = tree.leaves.find((candidate) => candidate.id === child)
+        if (leaf === undefined) throw new Error('this fixture is one level deep')
+        return CID.parse(leaf.cid)
+      })
+      const resultCid = CID.parse(outcome.rootCid as string)
+      expect(verifyCombineAttestation(attested, inputCids, resultCid, PINNED, NOW).ok).toBe(true)
+    }
+  })
+
+  it('says the requestor’s own combiner signs nothing, by name', async () => {
+    // Asserted directly so that nobody later hands `localDispatch` a signing key. A
+    // signature the requestor made for itself proves nothing to the requestor.
+    const store = new MemoryBlockstore()
+    const { contributions } = await storePartials(store, 4)
+    const live = new Set(['n1', 'n2'])
+    const outcome = await executeReduce({
+      tree: deriveReduceTree(contributions),
+      executors: [...live],
+      dispatch: localDispatch({
+        blockstore: store,
+        combiner: fabricCombiner,
+        decode: decodeCanonical,
+        liveNodes: () => live,
+      }),
+    })
+
+    expect(outcome.attestations.size).toBeGreaterThan(0)
+    for (const attested of outcome.attestations.values()) {
+      expect(attested).toBe('signed-by-nobody')
+    }
+  })
+
+  it('records nothing for a combine whose replicas disagreed', async () => {
+    // A signature beside a combine with no agreed answer invites a later reader to pick
+    // a winner out of the signatures, which `verify.ts` forbids. `executedBy` is
+    // deliberately still filled — it answers a different question, and this case pins
+    // that the two maps disagree here on purpose.
+    const store = new MemoryBlockstore()
+    const { contributions } = await storePartials(store, 4)
+    const tree = deriveReduceTree(contributions)
+    const live = new Set(['n1', 'n2', 'n3'])
+    const signer = enrolled(12)
+    const honest = localDispatch({
+      blockstore: store,
+      combiner: fabricCombiner,
+      decode: decodeCanonical,
+      liveNodes: () => live,
+    })
+    const liar = rendezvousRank(tree.nodes[0]!.id, [...live])[1] as string
+
+    const outcome = await executeReduce({
+      tree,
+      executors: [...live],
+      redundancy: 2,
+      dispatch: async (task, executorId) => {
+        if (executorId !== liar) {
+          const product = await honest(task, executorId)
+          if (product === null) return null
+          return {
+            cid: product.cid,
+            attestation: signCombine(signer, task.inputCids.map((cid) => CID.parse(cid)), product.cid),
+          }
+        }
+        const forged = await canonicalCid({ counts: { tampered: 1 }, rows: 999 })
+        if (!forged.ok) return null
+        await store.put(forged.bytes)
+        return { cid: forged.cid, attestation: signCombine(signer, task.inputCids.map((cid) => CID.parse(cid)), forged.cid) }
+      },
+    })
+
+    expect(outcome.disagreements.length).toBeGreaterThan(0)
+    for (const disagreement of outcome.disagreements) {
+      expect(outcome.attestations.has(disagreement.nodeId)).toBe(false)
+      // Still recorded as executed. The two maps answer different questions and this is
+      // the one place they part company.
+      expect(outcome.executedBy.has(disagreement.nodeId)).toBe(true)
+    }
+  })
+
+  it('still reads a null as a dead executor, and an unsigned answer as an ordinary one', async () => {
+    // The distinction a widened return type is most likely to flatten. `null` means the
+    // executor is gone; a product carrying the sentinel is a live node that holds no
+    // certificate. Reading the second as the first would walk the ranking past every
+    // unenrolled node in the fabric.
+    const store = new MemoryBlockstore()
+    const { contributions } = await storePartials(store, 4)
+    const tree = deriveReduceTree(contributions)
+    const executors = ['n1', 'n2', 'n3']
+    const asked: string[] = []
+    const honest = localDispatch({
+      blockstore: store,
+      combiner: fabricCombiner,
+      decode: decodeCanonical,
+      liveNodes: () => new Set(executors),
+    })
+    const gone = rendezvousRank(tree.nodes[0]!.id, executors)[0] as string
+
+    const outcome = await executeReduce({
+      tree,
+      executors,
+      dispatch: async (task, executorId) => {
+        asked.push(executorId)
+        if (executorId === gone) return null
+        return honest(task, executorId)
+      },
+    })
+
+    // The first-ranked node answered `null` and the walk continued past it.
+    expect(asked[0]).toBe(gone)
+    expect(outcome.ok).toBe(true)
+    expect(outcome.recomputes).toBeGreaterThan(0)
+    for (const executor of outcome.executedBy.values()) expect(executor).not.toBe(gone)
+    // And the unsigned answers that followed were accepted as results, not skipped.
+    expect(outcome.attestations.size).toBe(outcome.combines)
   })
 })
 

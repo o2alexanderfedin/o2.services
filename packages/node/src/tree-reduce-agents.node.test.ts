@@ -983,23 +983,23 @@ describe('MR-07 — two replicas dedupe, and a duplicate from a fresh process co
     expect(first.inputCids.length).toBeGreaterThan(1)
 
     const beforeFirst = probe.size
-    const firstCid = await dispatch(first, spawned[0]?.peerId as string)
-    expect(firstCid).not.toBeNull()
+    const firstProduct = await dispatch(first, spawned[0]?.peerId as string)
+    expect(firstProduct).not.toBeNull()
     expect(probe.size - beforeFirst).toBe(1)
 
     const beforeDuplicate = probe.size
-    const duplicateCid = await dispatch(first, ninth.peerId)
-    expect(duplicateCid).not.toBeNull()
+    const duplicateProduct = await dispatch(first, ninth.peerId)
+    expect(duplicateProduct).not.toBeNull()
     // One block, two independent producers, one entry.
-    expect((duplicateCid as CID).toString()).toBe((firstCid as CID).toString())
+    expect(duplicateProduct?.cid.toString()).toBe(firstProduct?.cid.toString())
     expect(probe.size - beforeDuplicate).toBe(0)
 
     const beforeSecond = probe.size
-    const secondCid = await dispatch(second, ninth.peerId)
-    expect(secondCid).not.toBeNull()
+    const secondProduct = await dispatch(second, ninth.peerId)
+    expect(secondProduct).not.toBeNull()
     // A different task over a disjoint set of leaves, hence a different CID — the store
     // that did not grow for a second copy of one block does grow for a different one.
-    expect((secondCid as CID).toString()).not.toBe((firstCid as CID).toString())
+    expect(secondProduct?.cid.toString()).not.toBe(firstProduct?.cid.toString())
     expect(probe.size - beforeSecond).toBe(1)
 
     // Step 3 — only now stop everything, then read the eight original directories.

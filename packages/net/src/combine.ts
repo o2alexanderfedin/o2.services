@@ -58,7 +58,7 @@
  */
 
 import { CID } from 'multiformats/cid'
-import type { Blockstore, CombineDispatch } from '@o2/core'
+import type { Blockstore, CombineDispatch, CombineProduct } from '@o2/core'
 import { blockCid } from './block.ts'
 import { encodeRequest, parseResponse } from './protocol.ts'
 import type { RpcEndpoint } from './rpc.ts'
@@ -110,9 +110,21 @@ export class LocalStoreWriteFailed extends Error {
   }
 }
 
-/** A `CombineDispatch` that runs one combine on a peer and retrieves its result. */
+/**
+ * A `CombineDispatch` that runs one combine on a peer and retrieves its result.
+ *
+ * **It carries the peer's attestation home and does not check it**, which is a placement
+ * decision rather than an omission. This module holds no trust anchors and has no
+ * business acquiring any: a trust decision made here would be made once, invisibly, for
+ * every caller, where the whole point of `verifyCombineAttestation` taking its
+ * `trustedIssuers` as an argument is that trust in this design is **per verifier and
+ * pinned**. What this module does check is the *bytes*, against the CID the peer
+ * claimed — content addressing, which it already did and still does. The two questions
+ * are orthogonal: one asks whether the answer is what was named, the other who computed
+ * it.
+ */
 export function remoteCombineDispatch(options: RemoteCombineOptions): CombineDispatch {
-  return async (task, executorId): Promise<CID | null> => {
+  return async (task, executorId): Promise<CombineProduct | null> => {
     // The body is wrapped, which covers the RPC rejection *and* an unparseable input
     // CID string. The `CID.parse` calls are deliberately inside the try and not
     // before it: `CombineTask.inputCids` are strings that came from `resolved` inside
@@ -187,7 +199,7 @@ export function remoteCombineDispatch(options: RemoteCombineOptions): CombineDis
       } catch (cause) {
         throw new LocalStoreWriteFailed(task.nodeId, response.resultCid.toString(), cause)
       }
-      return response.resultCid
+      return { cid: response.resultCid, attestation: response.attestation }
     } catch (cause) {
       if (cause instanceof LocalStoreWriteFailed) throw cause
       return null
