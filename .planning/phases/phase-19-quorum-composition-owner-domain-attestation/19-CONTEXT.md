@@ -192,7 +192,9 @@ and nothing global has to be agreed by anyone.
 
 **Do not introduce**: a shared revocation list, a global reputation score, a consensus round, an
 append-only shared log, or any structure requiring nodes to agree on one view of the world. If a
-plan seems to need one, the answer is a shorter certificate lifetime.
+plan seems to need one, re-read the attack-radius list above — the answer is almost always that
+the threat does not warrant the machinery. It is **not** "a shorter certificate lifetime"; this
+sentence used to say that and was superseded by the owner correction three paragraphs above.
 
 ### Claude's Discretion
 
