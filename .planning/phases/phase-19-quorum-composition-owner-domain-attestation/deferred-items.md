@@ -111,3 +111,56 @@ connection. Making a redundant job travel it is a design question, not a test fi
 connection while the certificates still name the shared relay — which is what rule 2 reads. It
 is the recorded Phase 3 shape: *once connected, the peers are indistinguishable*, and the relay
 drops out. The three fabrics then run in 8-11 s in isolation.
+
+---
+
+## 4. Every `--discover` run of `bin/bench.ts` loses its first iteration to a 30 s stall
+
+**Found during:** 19-10, while measuring what the driver's new attestation line would read.
+
+**What was measured**, twice, on `node bin/bench.ts --quick --discover` in a temporary `cwd`
+on a quiet host (1-minute load ≈ 5–9 of 8 cores), read out of `.planning/bench/raw.json`:
+
+| rung | per-iteration makespan, in order (ms) | `complete` | `incomplete` |
+|---|---|---|---|
+| real transport, 1 node | **30 044**, 106, 71, 55, 144, 134 | f, f, f, f, t, t | 3 of 5 |
+| real transport, 2 nodes | **30 048**, 109, 258, 285, 263, 223 | f, f, f, t, t, t | 2 of 5 |
+
+The first iteration of each real rung takes **exactly `rpcTimeoutMs` (30 000 ms)** and comes
+back with a shard that never agreed; iterations 2-3 complete the work in ~100-300 ms but are
+still marked incomplete; the rest complete. So a `--discover` run publishes `incomplete: 3`
+and `incomplete: 2` where a default run publishes `0` — the figure the driver's own docblock
+recorded on 2026-07-31 from a default `--quick` run.
+
+**Same signature as deferred item 3, on a rig with no relay in it.** Exactly `rpcTimeoutMs`,
+once, on the first request after a rig is built, then normal service. Item 3 saw it over
+`/p2p-circuit`; this is loopback TCP with `admit: rpcAdmission(requestor.rpc)` supplied — the
+offer probe is the first RPC the requestor makes to a worker it has just dialled, and it is
+the obvious suspect, unverified.
+
+**A second, separate stall in the same runs, and it is larger.** Every real-transport
+iteration reports `reduce.ok === false` with `reduceMs: 0`, and each rung spends far longer
+than its makespans account for: the 2-node rung took 151 s of wall clock for 31.2 s of
+measured jobs on one run and 91 s on another. That gap is the failing reduce leg being
+retried, and it is what makes `bench-attestation.node.test.ts` a ~163 s spec rather than a
+~15 s one. `.planning/BENCHMARK-RESULTS.md`'s `unmet` list already records that an em dash in
+the reduce table means *"that rung produced no reduce at all"*; nobody has measured why on the
+`--discover` arm.
+
+**Why it was left.** 19-10's declared files are the driver's printing and a spec that reads
+it. Both stalls are **pre-existing** — nothing in this plan touches execution, placement,
+dialling or the reduce leg, and the first was reproduced before the attestation line existed.
+Chasing either is a design question about the discover arm, not a printing task, and fixing it
+inside this plan would have meant changing what the benchmark measures on the way past.
+
+**What 19-10 did instead.** Took the receipt off each rung's **first completed run** — the
+same population `@o2/bench`'s `measure` computes `makespan` over — and made the printed line
+say which population it came from, so a reading taken off a stalled iteration is
+distinguishable from a fabric whose nodes genuinely sign nothing. Without that, both real
+rungs read the named absence and criterion 3's CLI half would have scored PARTIAL for a reason
+that has nothing to do with attestation.
+
+**What it would take.** Instrument the first `rpcAdmission` offer of a freshly built rig with
+timestamps and read where the 30 s goes; separately, run `reduceJob` against a `--discover`
+rig and read `reduced.outcome`'s failure. Both are readings, not fixes, and either could be
+taken in an afternoon by a plan that owns this driver.
