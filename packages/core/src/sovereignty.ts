@@ -67,12 +67,21 @@ export interface NodeDescriptor {
    * The provider-signed certificate that qualified this node, or the statement that
    * this descriptor carries none.
    *
-   * **What it buys.** `operatorId` is the unit of quorum diversity and
-   * `discoverability` is what makes a member backbone-anchored, so this one field is
-   * what carries VER-03, VER-04 and VER-08…VER-10 onto the dispatch path.
+   * **What it buys.** `operatorId` is the unit of quorum diversity and `relayIds`
+   * with `discoverability` are what the shared-dependency analysis reads, so this one
+   * field is what carries VER-04 and VER-08…VER-10 onto the dispatch path.
    * `composeQuorum`, `attestationReceipt` and `resolveReplicaSets` all take
    * `NodeCertificate[]`, and until this field existed there was no point on the path a
    * job actually runs where any of them could be called at all.
+   *
+   * **VER-03 was listed here until 2026-08-03 and is not carried by this field.** The
+   * sentence said `discoverability` *"is what makes a member backbone-anchored"*, and
+   * that reading was retracted by owner ruling on that date: `backbone-anchored`
+   * describes the **replica**, not the node — at least one copy of a result pinned
+   * somewhere durable. That is a storage fact about an output, not a discovery fact
+   * about a node, and no field on a `NodeCertificate` states it. See `quorum.ts`'s
+   * header for the retraction in full and for why the check cannot live at
+   * composition time.
    *
    * **Required, and the absence is a statement rather than a default.** A hook or fact
    * whose absence matters is a value the call site writes, never an omission the type
