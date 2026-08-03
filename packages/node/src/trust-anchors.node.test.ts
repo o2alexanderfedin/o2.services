@@ -396,6 +396,55 @@ describe('the production call site is still there', () => {
   }
 })
 
+/**
+ * The same two files, for the **third** signing leg — VER-08 / VER-09 / VER-10.
+ *
+ * Deliberately the identical population as {@link GUARDED_CONSTRUCTION_SITES} and
+ * deliberately a separate constant. Leg 1 (the code a node runs is signed by its
+ * publisher) and leg 3 (the result a node returns is signed by the node) are composed at
+ * the same two construction sites, and the value of holding them apart is that a future
+ * file could acquire one leg without the other and the failure would name which.
+ *
+ * **Why leg 3 gets leg 1's treatment rather than a behavioural test alone.** Plan 19-13
+ * built `attestResults` and Plan 19-14 carried its statement to a reader, and for one
+ * wave the wrapper was exported and composed **nowhere** — its own module docblock said
+ * so and gave the date it ended. A wrapper that exists and is not composed measures
+ * nothing, which is the *built, not wired* condition this milestone exists to remove.
+ * `guardModuleProvenance` learned that in Phase 14 and this is the same lesson applied
+ * one leg over: leg 1 without leg 3 is a fabric that knows what code ran and cannot say
+ * who ran it.
+ */
+const SIGNING_CONSTRUCTION_SITES: readonly string[] = [
+  'packages/node/src/fabric-node.ts',
+  'packages/browser/src/browser-node.ts',
+]
+
+describe('both factories sign what their executor produced', () => {
+  for (const file of SIGNING_CONSTRUCTION_SITES) {
+    it(`${file} composes attestResults`, () => {
+      // Through `stripped`, exactly as leg 1's assertion above is, and that is the whole
+      // property worth having here. Both files talk about this wrapper in prose — one of
+      // them for four comment paragraphs — and a raw-text scan would be satisfied by the
+      // sentence that says the composition is coming rather than by the composition. That
+      // is not a hypothetical: `fabric-node.ts` carried exactly such a sentence, naming
+      // this plan by number, for the whole of the preceding wave.
+      expect(stripped(file)).toContain('attestResults(')
+    })
+  }
+
+  it('is not satisfied by a comment that merely names the wrapper', () => {
+    // `stripped`'s purpose, shown working rather than assumed — the pair the OPT_OUT
+    // mutation block already keeps for itself, applied to this matcher. Without the
+    // second line an over-eager stripper and a wired repository are the same reading.
+    expect(stripComments('// composed via attestResults(executor, attestor)')).not.toContain(
+      'attestResults(',
+    )
+    expect(stripComments('const signing = attestResults(executor, attestor)')).toContain(
+      'attestResults(',
+    )
+  })
+})
+
 describe('the two binaries have not drifted apart', () => {
   /**
    * The `--trust-anchor` default expression, extracted from a binary's stripped source.
