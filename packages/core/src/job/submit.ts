@@ -76,6 +76,68 @@ export interface JobSpec {
    */
   readonly redundancy: number
   /**
+   * VER-03 / VER-04. What this caller wants when a public shard asked for
+   * verification and the candidate set cannot compose a valid quorum.
+   *
+   * **Two named choices, and neither of them is "off".** A caller that does not much
+   * care still writes one down, which is the whole reason this is required rather
+   * than optional with a default — see the last section below.
+   *
+   * ## `'runs-at-available-redundancy'` — what degrading actually does
+   *
+   * The shard runs at whatever redundancy the eligible set yields, it is reported
+   * `degraded` on its `ShardResult`, and its receipt reports the weaker attestation
+   * strength. **The job does not fail.** A caller on this arm gets an answer plus an
+   * accurate statement of how well it was checked.
+   *
+   * ## Why that is the default answer to an uncomposable quorum
+   *
+   * Phase 12 retired `not-enough-executors` precisely to stop a shard below its
+   * requested redundancy from failing a whole job: it is placed at what is available
+   * and marked degraded instead. A candidate set too concentrated to verify is the
+   * same condition one step further out — and it is a condition the *caller does not
+   * control*. Turning it into a refusal would put a refusal in front of the thing it
+   * is about, which is the shape the retracted anchor rule had.
+   *
+   * ## Why degrading here is not silent
+   *
+   * Criterion 1's load-bearing word is *silently*, not *accepted*.
+   * `classifyAttestation` labels a one-operator quorum `owner-attested`, and a
+   * multi-certificate one-operator quorum `owner-domain`, rather than `independent` —
+   * so the weaker outcome is named by construction, and `degraded` says so a second
+   * time on the shard. Nothing about this arm hides anything; it reports a weaker
+   * result as weaker.
+   *
+   * ## When to ask for `'refuses-the-shard'`
+   *
+   * Only when a weaker answer is worse to this caller than no answer at all — a
+   * caller that genuinely requires independent verification and would rather have
+   * nothing than something it cannot show to a third party. A caller that would go on
+   * to use a degraded result anyway and asks for refusal has chosen to fail jobs it
+   * would have accepted.
+   *
+   * ## Nothing reads this field yet
+   *
+   * Stated rather than left to be discovered. **Plan 19-06 is where an uncomposable
+   * quorum starts consulting it**; until then both arms travel the submission path
+   * identically and no branch anywhere tests them. That scheduled arrival is this
+   * phase's established shape — Plans 19-13 and 19-14 each landed a type and its
+   * fan-out one wave ahead of the code that read it.
+   *
+   * ## Required rather than optional, and the reason is measured
+   *
+   * `.planning/PROJECT.md`'s Key Decision **"An optional hook with a silent default is
+   * a hole"**, and here the hole has a specific shape this phase has already fallen
+   * into twice. Plans 19-01 and 19-13 each made a field optional and omitted it, and
+   * each observed **`tsc --noEmit` exit 0 while the behavioural assertion failed**. An
+   * optional strictness field would let every existing call site mean *degrade*
+   * without ever having said so — a whole tree of callers holding a position none of
+   * them stated. Note also that this belongs on `JobSpec` and not on `SubmitOptions`:
+   * that object is optional *as a whole*, so a required property inside it would still
+   * be omittable by omitting the object, which is the same defect one level down.
+   */
+  readonly onQuorumShortfall: 'runs-at-available-redundancy' | 'refuses-the-shard'
+  /**
    * Consulted before a shard is placed on a node — SCHED-02, SCHED-03.
    *
    * **Present** means every shard is placed by `planWithOffers`: sample `d`

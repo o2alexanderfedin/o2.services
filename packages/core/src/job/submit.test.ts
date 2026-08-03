@@ -10,7 +10,7 @@ import type { Admission, AdmissionControl, Offer } from '../placement.ts'
 import { publicNodes } from '../sovereignty.ts'
 import type { NodeDescriptor } from '../sovereignty.ts'
 import { submitJob } from './submit.ts'
-import type { ShardSpec } from './submit.ts'
+import type { JobSpec, ShardSpec } from './submit.ts'
 import { executeVerified } from './verify.ts'
 
 const MODULE_CID = CID.parse('bafyreidykglsfhoixmivffc5uwhcgshx4j465xwqntbmu43nb2dzqwfvae')
@@ -221,6 +221,7 @@ describe('submitJob — sharding and content addressing (MR-01, DATA-01)', () =>
         executors,
         nodes: publicNodes(executors),
         redundancy: 2,
+        onQuorumShortfall: 'runs-at-available-redundancy',
       },
       store,
     )
@@ -248,6 +249,7 @@ describe('submitJob — sharding and content addressing (MR-01, DATA-01)', () =>
         executors,
         nodes: publicNodes(executors),
         redundancy: 2,
+        onQuorumShortfall: 'runs-at-available-redundancy',
       },
       store,
     )
@@ -269,6 +271,7 @@ describe('submitJob — sharding and content addressing (MR-01, DATA-01)', () =>
         executors,
         nodes: publicNodes(executors),
         redundancy: 1,
+        onQuorumShortfall: 'runs-at-available-redundancy',
       },
       store,
     )
@@ -286,6 +289,7 @@ describe('submitJob — sharding and content addressing (MR-01, DATA-01)', () =>
         executors,
         nodes: publicNodes(executors),
         redundancy: 2,
+        onQuorumShortfall: 'runs-at-available-redundancy',
       },
       store,
     )
@@ -311,6 +315,7 @@ describe('submitJob — sharding and content addressing (MR-01, DATA-01)', () =>
         executors,
         nodes: publicNodes(executors),
         redundancy: 2,
+        onQuorumShortfall: 'runs-at-available-redundancy',
       },
       store,
     )
@@ -334,6 +339,7 @@ describe('submitJob — sharding and content addressing (MR-01, DATA-01)', () =>
           executors,
           nodes: publicNodes(executors),
           redundancy: 2,
+          onQuorumShortfall: 'runs-at-available-redundancy',
         },
         store,
       ),
@@ -346,6 +352,7 @@ describe('submitJob — sharding and content addressing (MR-01, DATA-01)', () =>
         executors,
         nodes: publicNodes(executors),
         redundancy: 2,
+        onQuorumShortfall: 'runs-at-available-redundancy',
       },
       store,
     )
@@ -370,6 +377,7 @@ describe('submitJob — sharding and content addressing (MR-01, DATA-01)', () =>
         executors,
         nodes: publicNodes(executors),
         redundancy: 2,
+        onQuorumShortfall: 'runs-at-available-redundancy',
       },
       store,
     )
@@ -385,7 +393,14 @@ describe('submitJob — input validation', () => {
   it('refuses a job with no shards', async () => {
     const executors = [honest('a')]
     const r = await submitJob(
-      { moduleCid: MODULE_CID, shards: [], executors, nodes: publicNodes(executors), redundancy: 1 },
+      {
+        moduleCid: MODULE_CID,
+        shards: [],
+        executors,
+        nodes: publicNodes(executors),
+        redundancy: 1,
+        onQuorumShortfall: 'runs-at-available-redundancy',
+      },
       new MemoryBlockstore(),
     )
     expect(r.ok).toBe(false)
@@ -401,6 +416,7 @@ describe('submitJob — input validation', () => {
         executors,
         nodes: publicNodes(executors),
         redundancy: 0,
+        onQuorumShortfall: 'runs-at-available-redundancy',
       },
       new MemoryBlockstore(),
     )
@@ -417,6 +433,7 @@ describe('submitJob — input validation', () => {
         executors,
         nodes: publicNodes(executors),
         redundancy: 3,
+        onQuorumShortfall: 'runs-at-available-redundancy',
       },
       new MemoryBlockstore(),
     )
@@ -442,6 +459,7 @@ describe('submitJob — input validation', () => {
         executors,
         nodes: publicNodes(executors),
         redundancy: 1,
+        onQuorumShortfall: 'runs-at-available-redundancy',
       },
       new MemoryBlockstore(),
     )
@@ -475,6 +493,7 @@ describe('DATA-03/DATA-04 — sovereignty wired onto submitJob', () => {
         executors,
         nodes,
         redundancy: 1,
+        onQuorumShortfall: 'runs-at-available-redundancy',
       },
       store,
     )
@@ -518,6 +537,7 @@ describe('DATA-03/DATA-04 — sovereignty wired onto submitJob', () => {
         executors,
         nodes,
         redundancy: 1,
+        onQuorumShortfall: 'runs-at-available-redundancy',
       },
       store,
     )
@@ -547,6 +567,7 @@ describe('DATA-03/DATA-04 — sovereignty wired onto submitJob', () => {
         executors,
         nodes,
         redundancy: 2,
+        onQuorumShortfall: 'runs-at-available-redundancy',
       },
       store,
     )
@@ -570,6 +591,7 @@ describe('DATA-03/DATA-04 — sovereignty wired onto submitJob', () => {
         executors,
         nodes: publicNodes(executors),
         redundancy: 1,
+        onQuorumShortfall: 'runs-at-available-redundancy',
       },
       new MemoryBlockstore(),
     )
@@ -588,6 +610,7 @@ describe('DATA-03/DATA-04 — sovereignty wired onto submitJob', () => {
         executors,
         nodes: [],
         redundancy: 1,
+        onQuorumShortfall: 'runs-at-available-redundancy',
       },
       new MemoryBlockstore(),
     )
@@ -642,6 +665,7 @@ describe('DET-03/DATA-08 — the signed module record reaches every task submitJ
         executors,
         nodes: publicNodes(executors),
         redundancy: 1,
+        onQuorumShortfall: 'runs-at-available-redundancy',
       },
       new MemoryBlockstore(),
     )
@@ -665,6 +689,7 @@ describe('DET-03/DATA-08 — the signed module record reaches every task submitJ
         executors: [rec.executor],
         nodes,
         redundancy: 1,
+        onQuorumShortfall: 'runs-at-available-redundancy',
       },
       new MemoryBlockstore(),
     )
@@ -684,6 +709,7 @@ describe('DET-03/DATA-08 — the signed module record reaches every task submitJ
         executors,
         nodes: publicNodes(executors),
         redundancy: 1,
+        onQuorumShortfall: 'runs-at-available-redundancy',
       },
       new MemoryBlockstore(),
     )
@@ -756,6 +782,7 @@ describe('SCHED-03 — submitJob places by offers when it is given a way to ask'
         executors,
         nodes,
         redundancy: 1,
+        onQuorumShortfall: 'runs-at-available-redundancy',
         admit: stub.admit,
       },
       new MemoryBlockstore(),
@@ -788,6 +815,7 @@ describe('SCHED-03 — submitJob places by offers when it is given a way to ask'
         executors,
         nodes,
         redundancy: 1,
+        onQuorumShortfall: 'runs-at-available-redundancy',
         admit: stub.admit,
       },
       new MemoryBlockstore(),
@@ -809,6 +837,7 @@ describe('SCHED-03 — submitJob places by offers when it is given a way to ask'
         executors,
         nodes: publicNodes(executors),
         redundancy: 1,
+        onQuorumShortfall: 'runs-at-available-redundancy',
       },
       new MemoryBlockstore(),
     )
@@ -832,6 +861,7 @@ describe('SCHED-03 — submitJob places by offers when it is given a way to ask'
         executors,
         nodes,
         redundancy: 1,
+        onQuorumShortfall: 'runs-at-available-redundancy',
         admit: stub.admit,
       },
       new MemoryBlockstore(),
@@ -870,6 +900,7 @@ describe('SCHED-03 — submitJob places by offers when it is given a way to ask'
         executors,
         nodes,
         redundancy: 1,
+        onQuorumShortfall: 'runs-at-available-redundancy',
         admit: stub.admit,
       },
       new MemoryBlockstore(),
@@ -900,12 +931,12 @@ describe('SCHED-03 — submitJob places by offers when it is given a way to ask'
 
     // Arm A — no `admit`, so `planPlacement`.
     const viaPlan = await submitJob(
-      { moduleCid: MODULE_CID, shards, executors, nodes, redundancy: 1 },
+      { moduleCid: MODULE_CID, shards, executors, nodes, redundancy: 1, onQuorumShortfall: 'runs-at-available-redundancy' },
       new MemoryBlockstore(),
     )
     // Arm B — same fixture, an `admit` supplied, so `planWithOffers`.
     const viaOffers = await submitJob(
-      { moduleCid: MODULE_CID, shards, executors, nodes, redundancy: 1, admit: accepting.admit },
+      { moduleCid: MODULE_CID, shards, executors, nodes, redundancy: 1, onQuorumShortfall: 'runs-at-available-redundancy', admit: accepting.admit },
       new MemoryBlockstore(),
     )
 
@@ -938,6 +969,7 @@ describe('SCHED-03 — submitJob places by offers when it is given a way to ask'
         executors,
         nodes: publicNodes(executors),
         redundancy: 1,
+        onQuorumShortfall: 'runs-at-available-redundancy',
         admit: (offer: Offer): Admission => capacity.would(offer),
       },
       new MemoryBlockstore(),
@@ -999,6 +1031,7 @@ describe('SCHED-02 — the no-offer arm places exactly as it did before this pha
         executors: nodes.map((n) => honest(n.nodeId)),
         nodes,
         redundancy: 1,
+        onQuorumShortfall: 'runs-at-available-redundancy',
       },
       new MemoryBlockstore(),
     )
@@ -1027,6 +1060,7 @@ describe('SCHED-02 — the no-offer arm places exactly as it did before this pha
         executors: nodes.map((n) => honest(n.nodeId)),
         nodes,
         redundancy: 1,
+        onQuorumShortfall: 'runs-at-available-redundancy',
       },
       new MemoryBlockstore(),
     )
@@ -1038,6 +1072,95 @@ describe('SCHED-02 — the no-offer arm places exactly as it did before this pha
     )
     // One shard each, in order — the round-robin the nudge reproduces.
     expect(chosen).toStrictEqual(['w0', 'w1', 'w2', 'w3'])
+  })
+})
+
+/**
+ * VER-03 / VER-04 — the strictness dial, proved to be a dial and proved to be required.
+ *
+ * **These cases are deliberately thin, and the thinness is the honest part.** Nothing
+ * reads `onQuorumShortfall` yet: Plan 19-06 is where an uncomposable quorum starts
+ * consulting it. So the only claims available here are that the two arms are
+ * distinguishable *as values* and survive the submission path unchanged, and that the
+ * field cannot be left out. Restating 19-06's behavioural cases here would be a second
+ * file claiming a proof it does not carry.
+ *
+ * The omission case is the one this whole plan exists for. It cannot be exercised at
+ * runtime — "a spec without the dial fails `tsc --noEmit`" is a fact about the type
+ * checker, not about the program — so `@ts-expect-error` is what turns it into
+ * something every `npx tsc --noEmit` re-verifies. The same instrument
+ * `agent-contract.test.ts` uses on `AgentOptions`' eight required hooks, for the same
+ * reason and against the same recorded defect: Plans 19-01 and 19-13 each made a field
+ * optional and omitted it, and each watched `tsc --noEmit` exit 0 while the behaviour
+ * they were asserting was wrong. If this field is ever widened back to optional, the
+ * omission stops being an error and the suppression becomes an "Unused
+ * '@ts-expect-error' directive" error — so the guard fails in the direction that
+ * matters instead of quietly agreeing with whatever the type allows.
+ */
+describe('VER-03/VER-04 — a job cannot be submitted without saying what an uncomposable quorum should do', () => {
+  const dialNodes: readonly NodeDescriptor[] = [
+    { nodeId: 'd-a', ownerId: 'public', canExecuteSovereign: true, load: 0, certificate: 'carries-no-certificate' },
+    { nodeId: 'd-b', ownerId: 'public', canExecuteSovereign: true, load: 0, certificate: 'carries-no-certificate' },
+  ]
+
+  /**
+   * The two specs differ in exactly one property. No arm is a parameter default here —
+   * every caller of this helper passes one, which is the same discipline the tree is
+   * held to.
+   */
+  function specWith(onQuorumShortfall: JobSpec['onQuorumShortfall']): JobSpec {
+    return {
+      moduleCid: MODULE_CID,
+      shards: [{ value: { n: 1 }, label: 'public' }],
+      executors: dialNodes.map((n) => honest(n.nodeId)),
+      nodes: dialNodes,
+      redundancy: 2,
+      onQuorumShortfall,
+    }
+  }
+
+  it('carries the degrade arm through submission unchanged', async () => {
+    const spec = specWith('runs-at-available-redundancy')
+    expect(spec.onQuorumShortfall).toBe('runs-at-available-redundancy')
+    const r = await submitJob(spec, new MemoryBlockstore())
+    expect(r.ok).toBe(true)
+    if (!r.ok) return
+    // Stated as an unchanged reading rather than a new one: this plan adds no
+    // behaviour, so a shard that agreed at full redundancy before the dial existed
+    // still does.
+    expect(r.job.shards[0]?.verification.status).toBe('agreed')
+    expect(r.job.shards[0]?.degraded).toBe(false)
+  })
+
+  it('carries the refuse arm through submission unchanged, because nothing reads it yet', async () => {
+    const spec = specWith('refuses-the-shard')
+    expect(spec.onQuorumShortfall).toBe('refuses-the-shard')
+    const r = await submitJob(spec, new MemoryBlockstore())
+    expect(r.ok).toBe(true)
+    if (!r.ok) return
+    // The same reading as the degrade arm above, and that identity is the claim:
+    // until Plan 19-06 wires it, the arms are values the path carries and nothing
+    // branches on. A divergence here would mean this plan changed behaviour it said
+    // it would not.
+    expect(r.job.shards[0]?.verification.status).toBe('agreed')
+    expect(r.job.shards[0]?.degraded).toBe(false)
+  })
+
+  it('holds the two arms apart as values', () => {
+    expect(specWith('runs-at-available-redundancy').onQuorumShortfall).not.toBe(
+      specWith('refuses-the-shard').onQuorumShortfall,
+    )
+  })
+
+  it('fails to compile with onQuorumShortfall omitted', async () => {
+    const full = specWith('runs-at-available-redundancy')
+    const { onQuorumShortfall: _unused, ...rest } = full
+    // @ts-expect-error VER-03 — onQuorumShortfall is required; omitting it must fail `tsc --noEmit`, naming 'onQuorumShortfall'.
+    const r = await submitJob(rest, new MemoryBlockstore())
+    // The submission still runs: nothing reads the field, so the omission is a
+    // compile-time refusal and nothing else. The runtime assertion is here only so
+    // the case is a test rather than a comment.
+    expect(r.ok).toBe(true)
   })
 })
 
@@ -1056,6 +1179,7 @@ async function firstAsked(nodes: readonly NodeDescriptor[]): Promise<string | un
       executors,
       nodes,
       redundancy: 1,
+      onQuorumShortfall: 'runs-at-available-redundancy',
       admit: (offer: Offer): Admission => {
         first ??= offer.nodeId
         return { accepted: true, capacity: 'states-no-capacity' }
