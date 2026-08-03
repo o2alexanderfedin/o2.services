@@ -101,6 +101,16 @@ function jobWith(shards: readonly ShardResult[]): JobResult {
     moduleCid: FIXED_CID,
     shards,
     complete: shards.every((s) => s.verification.status === 'agreed'),
+    // The map half's receipt, which these fixtures state rather than omit. It is the
+    // named absence for the same reason every `agreeing` entry below is the unsigned
+    // sentinel: nothing enrolled the nodes this fixture stands for. The aggregation's
+    // own claim is a different one and is `reduceJob`'s, never a restatement of this.
+    attestation: {
+      kind: 'holds-no-verified-attestation',
+      reason: 'this fixture stands for a job whose executors hold no identity',
+      agreeing: shards.length,
+      verified: 0,
+    },
     grossFuel: 0,
     usefulFuel: 0,
     verificationMultiplier: 1,
@@ -120,6 +130,12 @@ function agreed(partitionIndex: number, output: CanonicalValue): ShardResult {
     inputCid: FIXED_CID,
     degraded: false,
     rejections: [],
+    attestation: {
+      kind: 'holds-no-verified-attestation',
+      reason: 'the executor this fixture stands for signs nothing',
+      agreeing: 1,
+      verified: 0,
+    },
     verification: {
       status: 'agreed',
       resultCid: FIXED_CID,
@@ -143,6 +159,12 @@ function insufficient(partitionIndex: number): ShardResult {
     degraded: true,
     // Empty for the same reason as `agreed` above: no offer was made here.
     rejections: [],
+    attestation: {
+      kind: 'holds-no-verified-attestation',
+      reason: 'this shard is insufficient rather than agreed, so there is no agreement to attest',
+      agreeing: 0,
+      verified: 0,
+    },
     verification: { status: 'insufficient', reason: 'nobody answered', failures: [] },
   }
 }

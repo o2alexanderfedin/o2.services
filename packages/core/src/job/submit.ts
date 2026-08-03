@@ -19,14 +19,19 @@
 import type { CID } from 'multiformats/cid'
 import { canonicalCid } from '../canonical/encode.ts'
 import type { CanonicalValue } from '../canonical/encode.ts'
+import type { NodeCertificate } from '../enrollment.ts'
 import type { NameRecord } from '../naming.ts'
 import { planWithOffers } from '../placement.ts'
 import type { AdmissionControl, Rejection } from '../placement.ts'
 import type { Blockstore, Executor, Task } from '../ports.ts'
+import { attestationRank, attestationReceipt } from '../quorum.ts'
+import type { AttestationReceipt } from '../quorum.ts'
+import { verifyResultAttestation } from '../result-attestation.ts'
+import type { ResultWork } from '../result-attestation.ts'
 import { planPlacement } from '../sovereignty.ts'
 import type { NodeDescriptor, OwnerId, Placement, PlacementRequest } from '../sovereignty.ts'
 import { executeVerified } from './verify.ts'
-import type { VerificationResult } from './verify.ts'
+import type { AgreeingReplica, VerificationResult } from './verify.ts'
 
 /** One shard's input, carrying the sovereignty label that constrains where it may run. */
 export type ShardSpec =
@@ -183,6 +188,64 @@ export interface JobSpec {
   readonly admit?: AdmissionControl
 }
 
+/**
+ * The named statement that this requestor holds no verified signed statement about
+ * who produced a result — VER-08, VER-09, VER-10.
+ *
+ * **A statement, never a default.** It says something specific and true: *this
+ * requestor cannot account, from signatures it checked, for who ran this shard.* That
+ * is a fact about the requestor's own knowledge, not about the nodes — every node in
+ * this fabric has equal functionality, and a node reporting `'signed-by-nobody'` is an
+ * ordinary node whose executor holds no identity. Reading it as a weak strength would
+ * be the conflation this whole phase exists to end, one level down: `owner-attested`
+ * over one verified replica of three *sounds stronger* than the truth, which is that
+ * two of them are unaccounted for.
+ *
+ * **It carries its counts because the label alone cannot be acted on.** `agreeing` is
+ * how many replicas matched, `verified` how many of those produced a signature that
+ * checked out. `0 of 2` and `1 of 2` are different situations with different remedies,
+ * and a bare literal would make them the same word.
+ */
+export interface NoVerifiedAttestation {
+  readonly kind: 'holds-no-verified-attestation'
+  /** Why, in this module's own words, naming each replica that was not counted. */
+  readonly reason: string
+  /** Replicas whose outputs matched. `0` when the shard never agreed. */
+  readonly agreeing: number
+  /** Of those, how many carried a signature over this result that this requestor checked. */
+  readonly verified: number
+}
+
+/**
+ * What a result is attested by, or the named statement that nothing was.
+ *
+ * **Derived from checked signatures, never declared.** `quorum.ts`'s own doc gives the
+ * reason: *a caller that could declare a result independently verified would eventually
+ * declare one that was not.* So the receipt arm here is built by
+ * `attestationReceipt(...)` over certificates whose holders' signatures over **this
+ * task and this output** verified, and there is no path by which a caller supplies one.
+ *
+ * **It reads the AGREEING set, not the placed set.** A node that was placed and then
+ * failed attested nothing, and counting it would report redundancy the result does not
+ * have.
+ *
+ * **What a signature does not say.** It says a certified node computed this output. It
+ * says nothing about whether the output is *correct* — correctness is `executeVerified`'s
+ * N-version comparison, and a signature on a wrong answer is a signed wrong answer,
+ * signed just as convincingly as a right one. Somebody will read "results are signed
+ * now" and propose reducing redundancy; attribution tells you whom to stop trusting
+ * *after* you know the answer was wrong, and the only thing here that tells you it was
+ * wrong is a second independent execution.
+ *
+ * **This is the map half's receipt and it is NOT the aggregate's.** `submitJob` does not
+ * reduce; `reduceJob` is a separate entry point whose aggregation carries its own claim,
+ * verified from combine signatures. The two are not one restated — `PROJECT.md`'s split
+ * means a sovereign map is `owner-attested` by construction while the aggregation over
+ * it can be redundant, so they routinely differ. `reduce.ts`'s own header already writes
+ * that split down. Do not unify them.
+ */
+export type ShardAttestation = AttestationReceipt | NoVerifiedAttestation
+
 export interface ShardResult {
   readonly partitionIndex: number
   readonly inputCid: CID
@@ -190,12 +253,27 @@ export interface ShardResult {
   /**
    * True when this shard's achieved redundancy is below `JobSpec.redundancy`.
    *
-   * A degraded shard that nonetheless `agreed` has NOT been verified at the
-   * requested strength — it is owner-attested, not independently confirmed. See
-   * `sovereignty.ts`'s `Placement.degraded` for why this is reported rather than
+   * This field used to say in prose that a degraded shard which nonetheless agreed *"is
+   * owner-attested, not independently confirmed"*. {@link ShardResult.attestation} now
+   * says so as a **value**, so the prose is gone rather than kept beside it.
+   *
+   * **The two are not the same test, and neither can be inferred from the other.**
+   * `degraded` compares the redundancy achieved against what was **asked for**; the
+   * receipt reports what was **established**. A shard can be undegraded and still
+   * `owner-domain` — full redundancy across one owner's own nodes is exactly that.
+   *
+   * See `sovereignty.ts`'s `Placement.degraded` for why this is reported rather than
    * silently tolerated.
    */
   readonly degraded: boolean
+  /**
+   * How strongly this shard's result is attested, or the named absence.
+   *
+   * See {@link ShardAttestation}. Required rather than optional: an omitted receipt read
+   * as "attested" would make an unsigned result indistinguishable from a signed one at
+   * the exact point the distinction is the product.
+   */
+  readonly attestation: ShardAttestation
   /**
    * The refusals collected on the way to placing this shard, in order, each in the
    * refusing node's own words — SCHED-03.
@@ -215,6 +293,16 @@ export interface ShardResult {
 export interface JobResult {
   readonly moduleCid: CID
   readonly shards: readonly ShardResult[]
+  /**
+   * The **weakest** of this job's shard receipts, or the named absence if any shard
+   * carries one.
+   *
+   * A job is no stronger than its weakest shard: a caller shown `independent` for a job
+   * one of whose shards ran once would be told the stronger guarantee on the strength of
+   * the weaker one. The comparison goes through `attestationRank` rather than through a
+   * remembered string order, which is what that function exists for.
+   */
+  readonly attestation: ShardAttestation
   /** True only if every shard reached `agreed` at its full requested redundancy. */
   readonly complete: boolean
   /** Node-seconds spent including redundant work. */
@@ -272,6 +360,160 @@ function requestFor(shard: ShardSpec, shardId: string, redundancy: number): Plac
     : { shardId, label: shard.label, redundancy }
 }
 
+/** A shard that produced no agreement produced nothing to attest. */
+function noAgreementToAttest(status: string): NoVerifiedAttestation {
+  return {
+    kind: 'holds-no-verified-attestation',
+    reason: `this shard is ${status} rather than agreed, so there is no agreement to attest`,
+    agreeing: 0,
+    verified: 0,
+  }
+}
+
+/**
+ * Build a shard's receipt from the replicas that agreed **and proved it**.
+ *
+ * Four questions per agreeing replica, each with its own name when the answer is no.
+ * They are separate because a reader told only "not counted" would go looking at the
+ * signature when the real answer is that this requestor holds no certificate for the
+ * node at all.
+ *
+ * 1. **Does this requestor hold a certificate for that node?** The trust anchor is the
+ *    descriptor's own `certificate` field, and deliberately **not** a `trustedIssuers`
+ *    argument on `submitJob`. The pinned-issuer decision was already made, and already
+ *    applied, where the certificate entered — `discoverCandidates`, which verifies
+ *    against `trustedIssuers` at the discovery seam. Threading a second issuer set in
+ *    here would create *a second place the same decision is made*, which can disagree
+ *    with the first with nothing able to catch the disagreement — the same argument that
+ *    rejected a parallel `nodeId → certificate` map. It also keeps four production
+ *    submitters unchanged, which is the argument that rejected threading certificates
+ *    through `JobSpec`.
+ * 2. **Did the executor sign anything?** `'signed-by-nobody'` is a truthful statement by
+ *    an executor nobody enrolled, not a signature that failed. A replica that signs
+ *    nothing has said nothing, and that is not misconduct.
+ * 3. **Is the certificate presented the one this node was discovered under?** It looks
+ *    redundant beside question 4 and is not: without it a node could answer under some
+ *    *other* certificate of its own, and the receipt would report an operator — or a
+ *    user key — that this requestor never placed anything with.
+ *
+ *    Compared on `nodeKey` rather than on the whole certificate, because byte equality
+ *    is wrong in one real case: a node that **re-enrolled** between discovery and
+ *    execution answers under a fresher certificate with a later `issuedAt`, and a shard
+ *    would fall to the named absence though nothing dishonest happened. Pinning *which
+ *    node* and then verifying the presented certificate on its own terms accepts the
+ *    fresher one and still refuses a substituted one.
+ *
+ *    **The issuer half is carried by the pinned set below, not by a second comparison
+ *    here.** `verifyResultAttestation` is handed exactly the descriptor's own issuer, so
+ *    a certificate from any other provider is refused by name as `untrusted-issuer`. An
+ *    `issuer !== issuer` test beside it would be a branch nothing could reach, and this
+ *    module's neighbours record what a check that cannot fire costs: it reads as a
+ *    guarantee while guarding nothing. Widening that set — to every issuer this
+ *    requestor knows, say — is what would make such a comparison live again, and is
+ *    exactly the change that must not be made quietly.
+ * 4. **Does the signature check out over THIS work?** The challenge is rebuilt from the
+ *    caller's own task and from `verification.resultCid` — never from anything the
+ *    attestation supplies, or it would verify against itself every time. `resultCid` is
+ *    the right output to rebuild with because every agreeing replica hashed to it; that
+ *    is what agreement means, so no shard output is re-hashed here.
+ *
+ * A **partial** verification returns the named absence rather than a receipt over
+ * whatever happened to check out. A receipt over the subset would overstate or
+ * understate, and which of the two would depend on an accident.
+ *
+ * The transferable half survives this local shortcut: the attestation carries the whole
+ * certificate on the wire, so a third party holding only the provider's public key can
+ * check the same statement without any of this requestor's descriptors. The shortcut is
+ * about what *this* requestor already knows, not about what the artifact contains.
+ */
+function receiptFor(
+  agreeing: readonly AgreeingReplica[],
+  work: ResultWork,
+  descriptors: ReadonlyMap<string, NodeDescriptor>,
+  now: number,
+): ShardAttestation {
+  const verified: NodeCertificate[] = []
+  const unaccounted: string[] = []
+
+  for (const replica of agreeing) {
+    const descriptor = descriptors.get(replica.nodeId)
+    if (descriptor === undefined) {
+      unaccounted.push(`${replica.nodeId}: this requestor holds no descriptor for it`)
+      continue
+    }
+    if (descriptor.certificate === 'carries-no-certificate') {
+      unaccounted.push(`${replica.nodeId}: this requestor holds no certificate for it`)
+      continue
+    }
+    if (replica.attestation === 'signed-by-nobody') {
+      unaccounted.push(`${replica.nodeId}: the executor stated that it signs nothing`)
+      continue
+    }
+    if (replica.attestation.certificate.nodeKey !== descriptor.certificate.nodeKey) {
+      unaccounted.push(
+        `${replica.nodeId}: answered under node key ${replica.attestation.certificate.nodeKey}, ` +
+          `which is not the ${descriptor.certificate.nodeKey} it was discovered under`,
+      )
+      continue
+    }
+    const checked = verifyResultAttestation(
+      replica.attestation,
+      work,
+      new Set([descriptor.certificate.issuer]),
+      now,
+    )
+    if (!checked.ok) {
+      unaccounted.push(`${replica.nodeId}: ${checked.reason}`)
+      continue
+    }
+    verified.push(checked.certificate)
+  }
+
+  if (unaccounted.length > 0 || verified.length === 0) {
+    return {
+      kind: 'holds-no-verified-attestation',
+      reason:
+        verified.length === 0
+          ? `no agreeing replica produced a signed statement this requestor could check — ${unaccounted.join('; ')}`
+          : `only ${verified.length} of ${agreeing.length} agreeing replicas produced a signed ` +
+            'statement this requestor could check, and a strength over that subset would state ' +
+            `something this requestor cannot account for — ${unaccounted.join('; ')}`,
+      agreeing: agreeing.length,
+      verified: verified.length,
+    }
+  }
+
+  // `attestationReceipt` reports `replicas` from `agreeing.length` and does not dedupe,
+  // so two entries for one node would report redundancy the result does not have. The
+  // invariant belongs here and not in `quorum.ts`: that module is a pure report over
+  // whatever it is handed, and a dedupe inside it would silently repair an assembly bug
+  // instead of failing on one. Unreachable through `executeVerified`, which produces one
+  // entry per executor and whose executors are keyed by node id one function up — which
+  // is why this throws rather than returning a value: it is a defect in this module's own
+  // assembly, not a verdict about anything a peer sent, the same call `NotEncodableError`
+  // and `WrongSigningKeyError` already make in this package.
+  if (new Set(verified.map((certificate) => certificate.nodeKey)).size !== verified.length) {
+    throw new Error(
+      'two agreeing replicas of one shard verified under the same node key — a receipt built ' +
+        'from this set would report redundancy the result does not have',
+    )
+  }
+
+  return attestationReceipt(verified)
+}
+
+/** A job is no stronger than its weakest shard. */
+function jobAttestationOf(shards: readonly ShardResult[]): ShardAttestation {
+  const absent = shards.find((shard) => 'kind' in shard.attestation)
+  if (absent !== undefined) return absent.attestation
+  return shards.reduce((weakest, shard) => {
+    if ('kind' in weakest.attestation || 'kind' in shard.attestation) return weakest
+    return attestationRank(shard.attestation.strength) < attestationRank(weakest.attestation.strength)
+      ? shard
+      : weakest
+  }, shards[0] as ShardResult).attestation
+}
+
 /**
  * Submit a job: shard it, place each shard, execute redundantly, verify, return CIDs.
  *
@@ -303,6 +545,11 @@ export async function submitJob(
   }
 
   const execByNodeId = new Map(spec.executors.map((e) => [e.nodeId, e] as const))
+  // Beside it, and for the receipt rather than for placement: the descriptor is where
+  // this requestor's certificate for a node lives, and therefore where the question
+  // "did the node that answered me answer under the certificate I discovered it with?"
+  // is settled. See {@link receiptFor}.
+  const descriptorByNodeId = new Map(spec.nodes.map((n) => [n.nodeId, n] as const))
   for (const executor of spec.executors) {
     if (!spec.nodes.some((n) => n.nodeId === executor.nodeId)) {
       return { ok: false, error: { kind: 'missing-node-descriptor', nodeId: executor.nodeId } }
@@ -319,6 +566,20 @@ export async function submitJob(
   }
 
   const partitionCount = spec.shards.length
+
+  // One instant for the whole job, so two shards cannot disagree about whether a
+  // certificate had expired.
+  //
+  // **This module reads the wall clock, once, and nothing else about it.** It is the
+  // first read of a platform clock in `packages/core/src`, and it is deliberate rather
+  // than incidental: deciding whether a certificate's validity window is open is the
+  // *requestor's* call about its own willingness to count a statement, which is the same
+  // call `peer-verifier.ts` makes with `Date.now()` directly. The alternatives were both
+  // worse. A clock on `SubmitOptions` would be omittable by omitting the object — the
+  // required-field-inside-an-optional-object defect, one level down. A clock on `JobSpec`
+  // would be a ninety-four-site fan-out for a value every one of them would fill with
+  // this same expression.
+  const now = Date.now()
 
   // Persist every shard input as a block first, so a task is addressed entirely
   // by CID and could be re-dispatched to any node without resending the payload.
@@ -419,6 +680,7 @@ export async function submitJob(
           verification: { status: 'insufficient', reason: placement.reason, failures: [] },
           degraded: false,
           rejections,
+          attestation: noAgreementToAttest('unplaceable'),
         }
       }
 
@@ -454,7 +716,25 @@ export async function submitJob(
         const out = await canonicalCid(verification.output)
         if (out.ok) await blockstore.put(out.bytes)
       }
-      return { partitionIndex, inputCid, verification, degraded: placement.degraded, rejections }
+      // The receipt, built from the agreeing replicas' checked signatures. `resultCid` is
+      // the output every one of them hashed to — that is what agreement means — so the
+      // challenge is rebuilt from this requestor's own task and that CID, and nothing the
+      // attestations carry is used to say what they are about.
+      const attestation =
+        verification.status === 'agreed'
+          ? receiptFor(
+              verification.agreeing,
+              {
+                moduleCid: spec.moduleCid,
+                inputCid,
+                partitionIndex,
+                outputCid: verification.resultCid,
+              },
+              descriptorByNodeId,
+              now,
+            )
+          : noAgreementToAttest(verification.status)
+      return { partitionIndex, inputCid, verification, degraded: placement.degraded, rejections, attestation }
     }),
   )
 
@@ -472,6 +752,7 @@ export async function submitJob(
     job: {
       moduleCid: spec.moduleCid,
       shards,
+      attestation: jobAttestationOf(shards),
       complete: shards.every((s) => s.verification.status === 'agreed' && !s.degraded),
       grossFuel: gross,
       usefulFuel: useful,
