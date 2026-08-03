@@ -685,7 +685,7 @@ Criterion 6 needs no plan — it landed on `develop` as `351bde1` before this ph
 **Criterion 5 exists because Phase 17 measured its own rate limit and found what it does not buy.** The burst limit is real and fully proven — a stated threshold read out of the refusal the peer received, `limit: 5 / windowMs: 3_600_000` on the wire. But AUTH-04's text asks that mass fake-node creation be *"measurably costly"*, and Phase 17's verification established two things that defeat it. The limit is keyed on `userKey`, which is **one `ed25519.keygen()`** — so twenty distinct user keys all enrol unslowed, and removing the rate guard entirely leaves that test green. And the budget is per provider **process**: a second provider defeats it without needing a second user key at all, asserted across two spawned providers.
 
 It lands here rather than in Phase 17 because the remedy is a design decision this phase is already making — what scarce thing an identity must present. This phase owns AUTH-05 and the attestation-strength machinery, so the natural candidates (a provider-issued invitation chained to an owner key, a persistent cross-process budget, or proof-of-work) all sit beside work already scheduled here. **AUTH-04 stays open until then**; Phase 17 records the rate-limiting half as measured and the cost half as not, in those words.
-**Plans:** 17 plans, 7 waves
+**Plans:** 18 plans, 8 waves
 
 Plans:
 - [ ] 19-01-PLAN.md — the certificate seam: `NodeDescriptor` carries the certificate discovery already held, or names its absence; `discoverCandidates` reports replica sets
@@ -705,10 +705,12 @@ Plans:
 - [ ] 19-15-PLAN.md — wired: both factories sign both verbs from one identity, and a signature verifies across a real process boundary
 - [ ] 19-16-PLAN.md — the aggregation is signed too: the combining node signs what it merged and what it produced, and `serveAgent` grows the one hook both verbs reach their key through
 - [ ] 19-17-PLAN.md — two receipts, because there are two claims: the aggregation's own strength, verified from combine signatures and printed beside the map job's
+- [ ] 19-18-PLAN.md — the strictness dial: every submitter states what it wants when verification cannot be composed, and not choosing stops being expressible
 
 <!-- Plan number is NOT wave order in this phase, and has not been since 19-04 was scheduled
-     after 19-05. Waves are: 1 = 01, 02, 03, 13; 2 = 05, 14; 3 = 06, 16; 4 = 08, 10, 15;
-     5 = 04, 09; 6 = 07, 11, 17; 7 = 12. Every plan's frontmatter carries its own `wave`, and
+     after 19-05. Waves are: 1 = 01, 02, 03, 13; 2 = 05, 14; 3 = 18; 4 = 06, 16;
+     5 = 08, 10, 15; 6 = 04, 09; 7 = 07, 11, 17; 8 = 12. Every plan's frontmatter carries its
+     own `wave`, and
      that is the authority — this list is ordered by number so a reader can find a plan, not by
      when it runs. Machine-checked at planning time: every `depends_on` resolves to a strictly
      earlier wave, and no two plans in one wave share a `files_modified` entry. -->
@@ -788,7 +790,30 @@ Plans:
      trusting or running another. **But every fixture in this repository and the demo are
      single-provider, so that recovery is an argument and not a reading.** Both sentences belong
      in AUTH-04's row. *Unmeasured is not met* applies to a mitigation exactly as it applies to
-     a mechanism, and "mitigated by design" is not a phrase this row may use. -->
+     a mechanism, and "mitigated by design" is not a phrase this row may use.
+
+     THE QUORUM IS THE DEFAULT AND IT IS OPTIONAL — owner ruling 2026-08-03, taken after 19-06
+     and 19-08 were written and requiring both to be replanned. A public shard at redundancy >= 2
+     whose candidate set cannot compose a valid quorum **degrades**: it runs at whatever
+     redundancy is available, is marked degraded, and its receipt reports the weaker strength.
+     **It does not fail the job.** Phase 12 already retired `not-enough-executors` for the same
+     reason, and criterion 1's load-bearing word is *silently* — `classifyAttestation` labels a
+     one-operator agreement `owner-attested` or `owner-domain` and never `independent`, so the
+     weaker outcome is named by construction. The exception is caller-set: Plan 19-18 puts a
+     **required two-armed dial** on `JobSpec`, and a caller that would rather have nothing than a
+     weaker answer takes the strict arm. Required rather than optional because this phase has
+     twice measured the alternative — Plans 19-01 and 19-13 each planted "make it optional and
+     omit it" and each saw `tsc --noEmit` exit 0 while the behavioural assertion failed. The
+     fan-out across every submitter is the point, not the cost.
+
+     THIS IS THE RETRACTED ANCHOR RULE'S SHAPE, AND IT IS WHY BOTH WERE CAUGHT THE SAME WEEK.
+     That defect turned a repair into a refusal and put the refusal before the thing it was
+     about. A candidate set too concentrated to verify is a condition the caller does not
+     control; the answer is to report what was achieved, not to kill the job — unless the caller
+     said in advance that a weaker answer is useless to them. Plan 19-08 now measures the same
+     over-concentrated fabric on **both** arms of the dial over one live fixture, because two
+     fabrics behaving differently proves nothing about a dial and one fabric submitted twice
+     does. -->
 
 ### Phase 20: Single Job Path, Ledger & Churn Resilience
 **Goal**: `submitJob` becomes the one job path — lease renewal, speculation, and coverage accounting live inside it, not in a second uncalled implementation — and the peer ledger records real cross-node outcomes instead of discarding them
