@@ -42,7 +42,7 @@ function honest(nodeId: string, fuelUsed = 100): Executor {
   return {
     nodeId,
     async execute(t: Task): Promise<ExecutionOutcome> {
-      return { ok: true, output: { shard: t.partitionIndex, of: t.partitionCount, sum: 42 }, fuelUsed }
+      return { ok: true, output: { shard: t.partitionIndex, of: t.partitionCount, sum: 42 }, fuelUsed, attestation: 'signed-by-nobody' }
     },
   }
 }
@@ -52,7 +52,7 @@ function liar(nodeId: string, sum: number): Executor {
   return {
     nodeId,
     async execute(t: Task): Promise<ExecutionOutcome> {
-      return { ok: true, output: { shard: t.partitionIndex, of: t.partitionCount, sum }, fuelUsed: 100 }
+      return { ok: true, output: { shard: t.partitionIndex, of: t.partitionCount, sum }, fuelUsed: 100, attestation: 'signed-by-nobody' }
     },
   }
 }
@@ -82,7 +82,7 @@ function nanProducer(nodeId: string): Executor {
   return {
     nodeId,
     async execute(): Promise<ExecutionOutcome> {
-      return { ok: true, output: { mean: Number.NaN } as CanonicalValue, fuelUsed: 100 }
+      return { ok: true, output: { mean: Number.NaN } as CanonicalValue, fuelUsed: 100, attestation: 'signed-by-nobody' }
     },
   }
 }
@@ -136,7 +136,7 @@ describe('what an agreement claims', () => {
       nodeId,
       async execute(t: Task): Promise<ExecutionOutcome> {
         seen.push({ nodeId, task: t })
-        return { ok: true, output: { sum: 42 }, fuelUsed: 100 }
+        return { ok: true, output: { sum: 42 }, fuelUsed: 100, attestation: 'signed-by-nobody' }
       },
     })
 

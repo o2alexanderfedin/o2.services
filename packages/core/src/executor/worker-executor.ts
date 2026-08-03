@@ -134,6 +134,10 @@ export class WorkerExecutor implements Executor {
           ok: true,
           output: decodeCanonical(response.outputBytes),
           fuelUsed: response.fuelUsed,
+          // Unsigned by construction — see `WasmExecutor`. This executor holds a thread
+          // factory and a deadline, not an identity, and the thread on the other side
+          // of `WorkerTaskResponse` holds even less.
+          attestation: 'signed-by-nobody',
         })
       } catch (cause) {
         waiting.resolve({

@@ -227,7 +227,7 @@ function countingExecutor(): { executor: Executor; count: () => number } {
       nodeId: 'w0',
       async execute(): Promise<ExecutionOutcome> {
         executed += 1
-        return { ok: true, output: null, fuelUsed: 1 }
+        return { ok: true, output: null, fuelUsed: 1, attestation: 'signed-by-nobody' }
       },
     },
     count: () => executed,

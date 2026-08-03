@@ -148,7 +148,7 @@ async function fabric(refusal: string | null = null): Promise<Fabric> {
     nodeId: 'w0',
     async execute() {
       executed += 1
-      return { ok: true, output: null, fuelUsed: 1 }
+      return { ok: true, output: null, fuelUsed: 1, attestation: 'signed-by-nobody' }
     },
   }
 

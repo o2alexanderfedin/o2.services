@@ -24,6 +24,7 @@ function honest(nodeId: string): Executor {
         ok: true,
         output: { shard: task.partitionIndex, of: task.partitionCount, sum: task.partitionIndex * 10 },
         fuelUsed: 100,
+        attestation: 'signed-by-nobody',
       }
     },
   }
@@ -38,6 +39,7 @@ function liar(nodeId: string): Executor {
         ok: true,
         output: { shard: task.partitionIndex, of: task.partitionCount, sum: 999 },
         fuelUsed: 100,
+        attestation: 'signed-by-nobody',
       }
     },
   }
@@ -67,7 +69,7 @@ function nanProducer(nodeId: string): Executor {
   return {
     nodeId,
     async execute(): Promise<ExecutionOutcome> {
-      return { ok: true, output: { mean: Number.NaN } as CanonicalValue, fuelUsed: 100 }
+      return { ok: true, output: { mean: Number.NaN } as CanonicalValue, fuelUsed: 100, attestation: 'signed-by-nobody' }
     },
   }
 }
@@ -172,13 +174,13 @@ describe('what is compared covers (task, output) only (VER-05)', () => {
     const first: Executor = {
       nodeId: '12D3KooWHPSVMPEezVCXvka2ahwT26JGL8EBr61LpGEU3ujHQM9Q',
       async execute(t) {
-        return { ok: true, output: { shard: t.partitionIndex, sum: 7 }, fuelUsed: 5 }
+        return { ok: true, output: { shard: t.partitionIndex, sum: 7 }, fuelUsed: 5, attestation: 'signed-by-nobody' }
       },
     }
     const second: Executor = {
       nodeId: 'a-node-whose-id-shares-nothing-with-the-first',
       async execute(t) {
-        return { ok: true, output: { shard: t.partitionIndex, sum: 7 }, fuelUsed: 5 }
+        return { ok: true, output: { shard: t.partitionIndex, sum: 7 }, fuelUsed: 5, attestation: 'signed-by-nobody' }
       },
     }
 
@@ -194,13 +196,13 @@ describe('what is compared covers (task, output) only (VER-05)', () => {
     const slow: Executor = {
       nodeId: 'slow',
       async execute(t) {
-        return { ok: true, output: { shard: t.partitionIndex, of: t.partitionCount, sum: 0 }, fuelUsed: 99999 }
+        return { ok: true, output: { shard: t.partitionIndex, of: t.partitionCount, sum: 0 }, fuelUsed: 99999, attestation: 'signed-by-nobody' }
       },
     }
     const fast: Executor = {
       nodeId: 'fast',
       async execute(t) {
-        return { ok: true, output: { shard: t.partitionIndex, of: t.partitionCount, sum: 0 }, fuelUsed: 1 }
+        return { ok: true, output: { shard: t.partitionIndex, of: t.partitionCount, sum: 0 }, fuelUsed: 1, attestation: 'signed-by-nobody' }
       },
     }
     const r = await executeVerified(task, [slow, fast])
@@ -503,7 +505,7 @@ describe('DATA-03/DATA-04 — sovereignty wired onto submitJob', () => {
       nodeId: 'replica-1',
       async execute(task: Task): Promise<ExecutionOutcome> {
         replicaCalls += 1
-        return { ok: true, output: { shard: task.partitionIndex, of: task.partitionCount, sum: 0 }, fuelUsed: 1 }
+        return { ok: true, output: { shard: task.partitionIndex, of: task.partitionCount, sum: 0 }, fuelUsed: 1, attestation: 'signed-by-nobody' }
       },
     }
     const executors = [honest('alice-1'), replicaExecutor]
@@ -612,7 +614,7 @@ describe('DET-03/DATA-08 — the signed module record reaches every task submitJ
         nodeId,
         async execute(task: Task): Promise<ExecutionOutcome> {
           captured = task
-          return { ok: true, output: { shard: task.partitionIndex }, fuelUsed: 1 }
+          return { ok: true, output: { shard: task.partitionIndex }, fuelUsed: 1, attestation: 'signed-by-nobody' }
         },
       },
       seen: () => captured,

@@ -35,7 +35,7 @@ const NOW = 1_800_000_000_000
 const LATER = NOW + 60_000
 
 /** The one outcome the inner executor ever produces, by identity. */
-const INNER_OUTCOME: ExecutionOutcome = { ok: true, output: {}, fuelUsed: 0 }
+const INNER_OUTCOME: ExecutionOutcome = { ok: true, output: {}, fuelUsed: 0, attestation: 'signed-by-nobody' }
 
 interface CountingExecutor extends Executor {
   /** How many times `execute` actually ran. The whole point of this file. */

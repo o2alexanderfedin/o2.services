@@ -361,7 +361,7 @@ describe('a whole job across nodes', () => {
       const liar: Executor = {
         nodeId: 'liar',
         async execute() {
-          return { ok: true, output: { p: new Uint8Array([9, 9, 9, 9]) }, fuelUsed: 1 }
+          return { ok: true, output: { p: new Uint8Array([9, 9, 9, 9]) }, fuelUsed: 1, attestation: 'signed-by-nobody' }
         },
       }
 
@@ -470,7 +470,7 @@ describe('protocol validation', () => {
       nodeId: 'w0',
       async execute() {
         executed += 1
-        return { ok: true, output: null, fuelUsed: 1 }
+        return { ok: true, output: null, fuelUsed: 1, attestation: 'signed-by-nobody' }
       },
     }
 
@@ -524,7 +524,7 @@ describe('AUTH-03 — a task is refused before the module is instantiated', () =
       nodeId: 'w0',
       async execute() {
         executed += 1
-        return { ok: true, output: null, fuelUsed: 1 }
+        return { ok: true, output: null, fuelUsed: 1, attestation: 'signed-by-nobody' }
       },
     }
 

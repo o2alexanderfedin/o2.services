@@ -736,7 +736,7 @@ describe('MR-06 — a combine reply is a plain body, with no egress hold to give
     const succeeds: Executor = {
       nodeId: 'w0',
       async execute() {
-        return { ok: true, output: { done: true }, fuelUsed: 1 }
+        return { ok: true, output: { done: true }, fuelUsed: 1, attestation: 'signed-by-nobody' }
       },
     }
     serveAgent({
@@ -1010,7 +1010,7 @@ describe('MR-05 — every way a combine can fail resolves null, and none of them
   it('(d) resolves null on a reply of a different kind', async () => {
     await expectNull((network) =>
       recordingNode(network, 'w0', () =>
-        encodeResponse({ kind: 'exec', outcome: { ok: true, output: null, fuelUsed: 0 } }),
+        encodeResponse({ kind: 'exec', outcome: { ok: true, output: null, fuelUsed: 0, attestation: 'signed-by-nobody' } }),
       ),
     )
   })

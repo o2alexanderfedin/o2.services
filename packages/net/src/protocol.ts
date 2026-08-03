@@ -981,7 +981,9 @@ export function parseResponse(body: CanonicalValue): AgentResponse | null {
         if (output === undefined || typeof fuelUsed !== 'number' || !Number.isFinite(fuelUsed)) {
           return null
         }
-        return { kind: 'exec', outcome: { ok: true, output, fuelUsed } }
+        // Task 3 of Plan 19-13 replaces this with a field-by-field parse of the
+        // attestation. Until then every frame parses to the sentinel.
+        return { kind: 'exec', outcome: { ok: true, output, fuelUsed, attestation: 'signed-by-nobody' } }
       }
       if (record['ok'] !== false) return null
       const reason = record['reason']

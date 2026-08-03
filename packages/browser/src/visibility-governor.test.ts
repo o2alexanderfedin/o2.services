@@ -154,7 +154,7 @@ describe('BROW-03 — a job spanning a visibility change', () => {
         started += 1
         // Background the tab midway through the job.
         if (started === 2) visibility.set(true)
-        return { ok: true, output: { i: task.partitionIndex }, fuelUsed: 1 }
+        return { ok: true, output: { i: task.partitionIndex }, fuelUsed: 1, attestation: 'signed-by-nobody' }
       },
     }
 
@@ -190,7 +190,7 @@ describe('GovernedExecutor', () => {
     const inner: Executor = {
       nodeId: 'node-a',
       async execute() {
-        return { ok: true, output: null, fuelUsed: 1 }
+        return { ok: true, output: null, fuelUsed: 1, attestation: 'signed-by-nobody' }
       },
     }
     const governed = new GovernedExecutor(inner, governor)
@@ -223,7 +223,7 @@ describe('GovernedExecutor — concurrency cannot bypass the cap', () => {
         peak = Math.max(peak, concurrent)
         await Promise.resolve()
         concurrent -= 1
-        return { ok: true, output: { i: task.partitionIndex }, fuelUsed: 1 }
+        return { ok: true, output: { i: task.partitionIndex }, fuelUsed: 1, attestation: 'signed-by-nobody' }
       },
     }
     const governed = new GovernedExecutor(inner, governor)
@@ -267,7 +267,7 @@ describe('GovernedExecutor — concurrency cannot bypass the cap', () => {
         peak = Math.max(peak, concurrent)
         await new Promise((r) => setTimeout(r, 5))
         concurrent -= 1
-        return { ok: true, output: { i: task.partitionIndex }, fuelUsed: 1 }
+        return { ok: true, output: { i: task.partitionIndex }, fuelUsed: 1, attestation: 'signed-by-nobody' }
       },
     }
 

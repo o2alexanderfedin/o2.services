@@ -31,8 +31,21 @@ import type { CID } from 'multiformats/cid'
 import { canonicalCid } from '../canonical/encode.ts'
 import type { CanonicalValue } from '../canonical/encode.ts'
 import type { Executor, Task } from '../ports.ts'
+import type { AttestedResult } from '../result-attestation.ts'
 
-/** What one executor's run of a task came to. */
+/**
+ * What one executor's run of a task came to.
+ *
+ * `attestation` is what the node itself said about the output — a signature checkable
+ * against its provider-issued certificate, or `'signed-by-nobody'`. It is carried here
+ * and **is not yet exposed on `VerificationResult`**: that is Plan 19-14, which makes
+ * `agreed`'s `agreeing` carry certificates rather than the node-id strings it holds
+ * today. Until then this field is one wave from being read by anything.
+ *
+ * It is deliberately outside the compared value. `resultCid` is what replicas are
+ * compared on (VER-05); two honest replicas of one shard produce the same `resultCid`
+ * and different attestations, and always will, because the signer is in the challenge.
+ */
 export type Receipt =
   | {
       ok: true
@@ -40,6 +53,7 @@ export type Receipt =
       resultCid: CID
       output: CanonicalValue
       fuelUsed: number
+      attestation: AttestedResult
     }
   | { ok: false; nodeId: string; reason: string }
 
@@ -79,6 +93,7 @@ async function runOne(executor: Executor, task: Task): Promise<Receipt> {
     resultCid: hashed.cid,
     output: outcome.output,
     fuelUsed: outcome.fuelUsed,
+    attestation: outcome.attestation,
   }
 }
 

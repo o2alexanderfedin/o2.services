@@ -85,6 +85,10 @@ export type { NodeSovereignty } from './executor/sovereignty-guard.ts'
 export { describeModuleRefusal, guardModuleProvenance } from './executor/module-provenance.ts'
 export type { ModuleProvenance, ModuleRefusal } from './executor/module-provenance.ts'
 
+// Leg 3's wrapper, beside leg 1's above. Composed nowhere until Plan 19-15.
+export { attestResults } from './executor/attesting-executor.ts'
+export type { ResultAttestor } from './executor/attesting-executor.ts'
+
 // Power-of-d placement with rejection and re-pick — SCHED-02, SCHED-03, SCHED-05.
 export {
   DEFAULT_D,

@@ -31,7 +31,7 @@ function watched(): { executor: Executor; count: () => number } {
     nodeId: 'w0',
     async execute(): Promise<ExecutionOutcome> {
       calls += 1
-      return { ok: true, output: null, fuelUsed: 1 }
+      return { ok: true, output: null, fuelUsed: 1, attestation: 'signed-by-nobody' }
     },
   }
   return { executor, count: () => calls }
@@ -47,7 +47,7 @@ describe('guardSovereignty — DATA-09 refusal before instantiation', () => {
     const outcome = await guarded.execute(task)
 
     expect(count()).toBe(1)
-    expect(outcome).toEqual({ ok: true, output: null, fuelUsed: 1 })
+    expect(outcome).toEqual({ ok: true, output: null, fuelUsed: 1, attestation: 'signed-by-nobody' })
   })
 
   it('refuses a sovereign task for its own owner when not cleared to execute it', async () => {
@@ -91,7 +91,7 @@ describe('guardSovereignty — DATA-09 refusal before instantiation', () => {
     const outcome = await guarded.execute(task)
 
     expect(count()).toBe(1)
-    expect(outcome).toEqual({ ok: true, output: null, fuelUsed: 1 })
+    expect(outcome).toEqual({ ok: true, output: null, fuelUsed: 1, attestation: 'signed-by-nobody' })
   })
 
   it('always calls inner.execute unchanged for a task with no label at all', async () => {
@@ -103,7 +103,7 @@ describe('guardSovereignty — DATA-09 refusal before instantiation', () => {
     const outcome = await guarded.execute(baseTask as Task)
 
     expect(count()).toBe(1)
-    expect(outcome).toEqual({ ok: true, output: null, fuelUsed: 1 })
+    expect(outcome).toEqual({ ok: true, output: null, fuelUsed: 1, attestation: 'signed-by-nobody' })
   })
 
   it('passes the inner executor\'s nodeId through unchanged', () => {
