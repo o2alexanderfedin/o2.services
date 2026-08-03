@@ -349,7 +349,46 @@ into a refusal and put the refusal before the thing it was about*. A candidate s
 to verify is a condition the caller does not control; the answer is to report what was achieved,
 not to kill the job — unless the caller said in advance that a weaker answer is useless to them.
 
-### A working-tree revert can eat another agent's in-progress edits — near-miss, 2026-08-03
+### `git stash` on a path you do not own is destructive — incident, 2026-08-03, RESOLVED
+
+**The cause is named, and it is a command whose name does not sound dangerous.** The 19-16
+executor, diagnosing a `requirements-ledger` failure caused by another agent's unstaged file, ran:
+
+```
+git stash push --keep-index -- packages/core/src/job/submit.ts
+```
+
+That **reverted the file to `HEAD`**, destroying roughly 250 lines of the concurrent 19-06
+executor's in-progress work. `git stash pop` then refused, because they had already begun
+re-typing. It never wrote to their file — and that is the point: **stash is a write.**
+
+**Resolved with nothing lost.** Verified rather than assumed: `HEAD`'s `submit.ts` is **1004
+lines against the stash's 743**; every distinctive argument from the destroyed copy is present in
+the rewrite; `tsc --noEmit` exit 0 and `submit.test.ts` exit 0. The 30 sorted-diff lines unique to
+the stash were all earlier drafts of prose and expressions that were rewritten. A copy is
+preserved outside git, and the stash entry was dropped — a dangling stash on a shared tree is its
+own hazard, since anyone may `pop` it onto unrelated work.
+
+**Two rules, and the second is the one nobody had written down:**
+
+1. **Never `git stash` a path you do not own** — it is destructive despite the word. The
+   diagnosis it served here was answerable from the guard's own output without touching the file
+   at all.
+2. **`git add` immediately after each edit group.** Staged content lives in the index, where a
+   working-tree revert cannot reach it. The standing constraints already recorded — never
+   `git add -A`, never `git checkout --` a file you did not write, never switch branches, restore
+   by `cp` + `cmp` — protect *other* agents from you. **This one protects you from them.**
+
+**The near-miss was caught by arithmetic, not by an error.** Nothing failed and nothing warned;
+the only signal was `git diff HEAD --stat` reading **19 insertions where ~290 were expected**.
+
+Worth copying from the same pair: when `tsc` went red for the *other* plan's fan-out, attribution
+was **measured** at each step (`grep -c` → 48, 2, 0) rather than assumed; and an inherited failing
+case was proved pre-existing with `git show HEAD:` over the agent's own copy before anything was
+touched. The 19-16 executor also **reported the incident in full, unprompted, and preserved two
+snapshots** — which is why it cost an hour of verification rather than a day of archaeology.
+
+### (superseded heading — see above)
 
 **This nearly cost ~290 lines and it was caught by arithmetic, not by an error.** Two executors
 were running plans 19-06 and 19-16 on this one checkout. Mid-session, `packages/core/src/job/submit.ts`
