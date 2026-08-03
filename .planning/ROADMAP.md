@@ -657,7 +657,7 @@ Criterion 6 needs no plan — it landed on `develop` as `351bde1` before this ph
 **Criterion 5 exists because Phase 17 measured its own rate limit and found what it does not buy.** The burst limit is real and fully proven — a stated threshold read out of the refusal the peer received, `limit: 5 / windowMs: 3_600_000` on the wire. But AUTH-04's text asks that mass fake-node creation be *"measurably costly"*, and Phase 17's verification established two things that defeat it. The limit is keyed on `userKey`, which is **one `ed25519.keygen()`** — so twenty distinct user keys all enrol unslowed, and removing the rate guard entirely leaves that test green. And the budget is per provider **process**: a second provider defeats it without needing a second user key at all, asserted across two spawned providers.
 
 It lands here rather than in Phase 17 because the remedy is a design decision this phase is already making — what scarce thing an identity must present. This phase owns AUTH-05 and the attestation-strength machinery, so the natural candidates (a provider-issued invitation chained to an owner key, a persistent cross-process budget, or proof-of-work) all sit beside work already scheduled here. **AUTH-04 stays open until then**; Phase 17 records the rate-limiting half as measured and the cost half as not, in those words.
-**Plans:** 15 plans, 6 waves
+**Plans:** 17 plans, 7 waves
 
 Plans:
 - [ ] 19-01-PLAN.md — the certificate seam: `NodeDescriptor` carries the certificate discovery already held, or names its absence; `discoverCandidates` reports replica sets
@@ -674,13 +674,16 @@ Plans:
 - [ ] 19-12-PLAN.md — the ledger: one mutation entry per instrument, and requirement rows moved only as far as what landed supports
 - [ ] 19-13-PLAN.md — the third signing leg: a result a node signs with its certified key, the wrapper that produces it, and the wire that carries it
 - [ ] 19-14-PLAN.md — the agreeing set carries what each replica signed rather than a list of node ids the requestor chose
-- [ ] 19-15-PLAN.md — wired: both factories sign, the composition guard that already holds leg 1 now holds leg 3, and a signature verifies across a real process boundary
+- [ ] 19-15-PLAN.md — wired: both factories sign both verbs from one identity, and a signature verifies across a real process boundary
+- [ ] 19-16-PLAN.md — the aggregation is signed too: the combining node signs what it merged and what it produced, and `serveAgent` grows the one hook both verbs reach their key through
+- [ ] 19-17-PLAN.md — two receipts, because there are two claims: the aggregation's own strength, verified from combine signatures and printed beside the map job's
 
 <!-- Plan number is NOT wave order in this phase, and has not been since 19-04 was scheduled
-     after 19-05. Waves are: 1 = 01, 02, 03, 13; 2 = 05, 14; 3 = 06, 15; 4 = 04, 08, 09, 10;
-     5 = 07, 11; 6 = 12. Every plan's frontmatter carries its own `wave`, and that is the
-     authority — this list is ordered by number so a reader can find a plan, not by when it
-     runs. -->
+     after 19-05. Waves are: 1 = 01, 02, 03, 13; 2 = 05, 14; 3 = 06, 16; 4 = 08, 10, 15;
+     5 = 04, 09; 6 = 07, 11, 17; 7 = 12. Every plan's frontmatter carries its own `wave`, and
+     that is the authority — this list is ordered by number so a reader can find a plan, not by
+     when it runs. Machine-checked at planning time: every `depends_on` resolves to a strictly
+     earlier wave, and no two plans in one wave share a `files_modified` entry. -->
 
 <!-- PLANNED 2026-08-02. Three things a verifier should know before scoring this phase, all
      of them decided at planning time rather than left to be discovered.
@@ -730,12 +733,34 @@ Plans:
      (Phase 17, `verifyCertificate` against `trustedIssuers`). The result a node returns was
      signed by nobody — agreement was attested by transport authentication only, which is not
      transferable, and `VerificationResult.agreeing` carried plain node-id strings. Plans 19-13,
-     19-14 and 19-15 add the leg, and Plan 19-06 makes a certificate count toward a receipt only
-     when that node's signature over *this* result verifies. A receipt built without it is the
-     submitter's word about itself, so VER-08/09/10 may not be ticked on one — recorded in Plan
-     19-12's disposition. Certificate lifetimes are explicitly **not** part of any of this: the
-     owner corrected an earlier draft that called for short ones, because the attack radius does
-     not justify them. No renewal machinery is planned and none may be added. -->
+     19-14 and 19-15 add the leg for `exec`, and Plan 19-06 makes a certificate count toward a
+     receipt only when that node's signature over *this* result verifies. A receipt built
+     without it is the submitter's word about itself, so VER-08/09/10 may not be ticked on one —
+     recorded in Plan 19-12's disposition. Certificate lifetimes are explicitly **not** part of
+     any of this: the owner corrected an earlier draft that called for short ones, because the
+     attack radius does not justify them. No renewal machinery is planned and none may be added.
+
+     AND THE LEG COVERS THE COMBINE VERB TOO — owner decision 2026-08-02, taken after the first
+     three plans were written. Signing `exec` alone would have left a map/reduce job ending with
+     signed map results feeding an **unsigned aggregation**, which is precisely the half
+     `PROJECT.md` calls the verified one: *the owner's contribution is trusted; the aggregation
+     over contributions is verified*. `ReduceOutcome.executedBy` is a map of peer-id strings —
+     the combine verb's exact analogue of the defect being fixed for `exec`. Plan 19-16 has the
+     combining node sign the input set it merged, in merge order, and the result it produced;
+     Plan 19-17 verifies those signatures inside `reduceJob` and reports the aggregation's own
+     strength beside the map job's. **Two receipts, never one restated**: a sovereign map is
+     owner-attested by construction while the aggregation over it can be redundant, so they
+     routinely differ, and VER-08/09/10 may not be ticked on half the claim.
+
+     THE ISSUANCE BUDGET OPENS A DENIAL OF SERVICE, AND THE OWNER ACCEPTED IT AS A TRADE.
+     `serveAgent` serves enrolment unauthenticated, so anyone able to dial a provider can burn
+     its whole window at one `ed25519.keygen()` per attempt — where before the aggregate budget
+     they could burn only their own user key's window. No mitigation machinery is built: the
+     answer is that trust is per-verifier and pinned, so a burned provider is routed around by
+     trusting or running another. **But every fixture in this repository and the demo are
+     single-provider, so that recovery is an argument and not a reading.** Both sentences belong
+     in AUTH-04's row. *Unmeasured is not met* applies to a mitigation exactly as it applies to
+     a mechanism, and "mitigated by design" is not a phrase this row may use. -->
 
 ### Phase 20: Single Job Path, Ledger & Churn Resilience
 **Goal**: `submitJob` becomes the one job path — lease renewal, speculation, and coverage accounting live inside it, not in a second uncalled implementation — and the peer ledger records real cross-node outcomes instead of discarding them
