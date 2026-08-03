@@ -402,10 +402,15 @@ function parseEnrollmentRequest(value: CanonicalValue | undefined): EnrollmentRe
  * Encode an issuance outcome — a certificate, or the refusal that explains its absence.
  *
  * Each refusal arm carries the discriminant plus that kind's own fields and nothing
- * else, so a reader of the frame learns which of the three events happened and the one
+ * else, so a reader of the frame learns which of the four events happened and the one
  * value that identifies it. The `rate-limited` arm carries its `limit` and `windowMs`
  * deliberately: AUTH-04 asks for a *stated* threshold, and a threshold readable only
  * from the provider's source is not stated to the peer that hit it.
+ *
+ * `issuance-budget-exhausted` carries the same three numbers for the same reason and
+ * **no key of any kind**, because it is a statement about the provider rather than about
+ * whoever asked. Copying the `rate-limited` arm and leaving its `userKey` in would put a
+ * blameless requester's key on a frame that is not about them.
  */
 function enrollmentResultToValue(result: EnrollmentResult): CanonicalValue {
   if (result.ok) {
@@ -418,6 +423,17 @@ function enrollmentResultToValue(result: EnrollmentResult): CanonicalValue {
   }
   if (refusal.kind === 'bad-owner-proof') {
     return { ...base, refusal: { kind: refusal.kind, userKey: refusal.userKey } }
+  }
+  if (refusal.kind === 'issuance-budget-exhausted') {
+    return {
+      ...base,
+      refusal: {
+        kind: refusal.kind,
+        limit: refusal.limit,
+        windowMs: refusal.windowMs,
+        retryAfterMs: refusal.retryAfterMs,
+      },
+    }
   }
   return {
     ...base,
@@ -441,6 +457,13 @@ function enrollmentResultToValue(result: EnrollmentResult): CanonicalValue {
  * node was not certified, and a caller acting on half of one would report the wrong
  * cause. A refusal that names the wrong thing is a defect even when the request
  * correctly failed.
+ *
+ * **This function is the reader `tsc` cannot find.** Adding a kind to
+ * `EnrollmentRefusal` breaks the encoder above — it destructures fields per arm — and
+ * leaves this one compiling perfectly while returning `null` for the new kind. The
+ * provider refuses correctly, the frame is well formed, and the peer reads nothing. That
+ * is the whole of 19-CONTEXT.md's *"`tsc` finds construction sites, not reader sites"*,
+ * in the one file a plan that said "no wire change" did not open.
  */
 function parseEnrollmentRefusal(value: CanonicalValue | undefined): EnrollmentRefusal | null {
   const record = value === undefined ? null : asRecord(value)
@@ -455,6 +478,15 @@ function parseEnrollmentRefusal(value: CanonicalValue | undefined): EnrollmentRe
     const userKey = record['userKey']
     if (typeof userKey !== 'string') return null
     return { kind, userKey }
+  }
+  if (kind === 'issuance-budget-exhausted') {
+    const limit = asFiniteNumber(record['limit'])
+    const windowMs = asFiniteNumber(record['windowMs'])
+    const retryAfterMs = asFiniteNumber(record['retryAfterMs'])
+    if (limit === null || windowMs === null || retryAfterMs === null) return null
+    // No key is read, and none is carried. A peer that received one anyway is talking
+    // about somebody the provider had no business naming here.
+    return { kind, limit, windowMs, retryAfterMs }
   }
   if (kind !== 'rate-limited') return null
   const userKey = record['userKey']
