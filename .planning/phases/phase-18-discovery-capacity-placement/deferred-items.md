@@ -67,3 +67,30 @@ in this phase owns.
 **What would close it:** either give the probe a distinguishable "docker present but did not
 answer in time" refusal, or serialise this file the way the `e2e` and `perf` projects already
 serialise (`fileParallelism: false`) so it never competes with the rest of the node project.
+
+### Re-measured during 18-12, and **the "passes in isolation" half no longer holds**
+
+**Measured 2026-08-02, on a quiet host.** The heading above is now wrong in its second clause
+and is left standing so the change is findable rather than edited away.
+
+| run | load at start | result |
+|---|---|---|
+| full `--project node` | 5.34 | **7 failed** \| 1778 passed \| 2 skipped, 128 files, 707 s |
+| `lift.node.test.ts` **alone** | 4.39 | **12 failed** \| 87 passed, 850 s |
+
+Isolation made it **worse**, not better — the opposite of 18-01's reading, and taken with
+`docker info` succeeding immediately beforehand. The failure mode has moved too: 10 of the 12
+are `Error: Test timed out in 60000ms`, not the `expected 'docker-unavailable' to be …`
+assertion 18-01 recorded. The file has also grown from 73 tests to 99 since that reading, and
+alone it now takes 850 s against the config table's 217.1 s.
+
+**Still not this plan's, and demonstrably not this plan's doing.** `lift.node.test.ts` imports
+only node builtins, vitest and `./lift.ts`; nothing under `tools/` references any file 18-12
+touched, and all four of those files are tests or ledger data — `git diff HEAD~3 HEAD` names no
+production file at all. Every other one of the 128 node files passed.
+
+**What this changes about the recommendation.** Serialising the file would no longer be enough,
+because contention is no longer the whole story: something makes these docker invocations hang
+for a full 60 s apiece on an idle machine. The probe's inability to tell a *slow* docker from an
+*absent* one is now the primary finding rather than a secondary one, and whoever picks this up
+should re-measure before trusting either the 18-01 reading or this one.
