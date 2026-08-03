@@ -1,6 +1,15 @@
 import { ed25519 } from '@noble/curves/ed25519.js'
-import { MemoryBlockstore, SignedNameResolver, delegate, signName, toHex } from '@o2/core'
-import type { CanonicalValue, NameRecord } from '@o2/core'
+import {
+  EnrollmentAuthority,
+  MemoryBlockstore,
+  SignedNameResolver,
+  delegate,
+  requestEnrollment,
+  signName,
+  signResult,
+  toHex,
+} from '@o2/core'
+import type { AttestedResult, CanonicalValue, NameRecord, ResultAttestation } from '@o2/core'
 import { describe, expect, it } from 'vitest'
 // Test-only relative import, the same one `distributed.test.ts` documents: `@o2/core`'s
 // export map exposes only its public entry, and adding a fixtures export would modify
@@ -284,4 +293,123 @@ describe('the offer answer states the node’s room, or states that it states no
     expect(parseResponse(frame({ slots: undefined }))).toBeNull()
     expect(parseResponse(frame({ inFlight: undefined }))).toBeNull()
   })
+})
+
+/**
+ * VER-08/09/10 — the attestation crosses the exec reply, or the frame is refused.
+ *
+ * The subject is the crossing, not the signature: `result-attestation.test.ts` owns what
+ * a signature is worth. What matters here is that a certificate survives **byte-exact**,
+ * because one that did not would fail verification as `bad-signature` — an accusation
+ * against an honest peer for a defect in this encoder.
+ */
+describe('what a node said about its own result survives the wire', () => {
+  const provider = keypair(31)
+  const nodeSeed = new Uint8Array(32).fill(32)
+  const userSeed = new Uint8Array(32).fill(33)
+
+  const issued = new EnrollmentAuthority({ providerPrivateKey: provider.priv }).enrol(
+    requestEnrollment(nodeSeed, userSeed, {
+      operatorId: 'acme-ops',
+      discoverability: 'via-relay',
+      // Two, so an encoder that dropped or reordered the list has something to drop.
+      relayIds: ['relay-b', 'relay-a'],
+    }),
+    NOW,
+  )
+  if (!issued.ok) throw new Error('fixture failed to enrol')
+
+  const attestation: ResultAttestation = signResult(
+    { nodeSeed, certificate: issued.certificate },
+    { moduleCid, inputCid: moduleCid, partitionIndex: 2, outputCid: moduleCid },
+  )
+
+  const reply = (outcomeAttestation: AttestedResult) =>
+    ({
+      kind: 'exec',
+      outcome: { ok: true, output: { rows: 3 }, fuelUsed: 12, attestation: outcomeAttestation },
+    }) as const
+
+  it('round-trips an attestation exactly, certificate field by certificate field', () => {
+    const parsed = parseResponse(encodeResponse(reply(attestation)))
+
+    // Whole-value equality first: this is the assertion that names a dropped field.
+    expect(parsed).toStrictEqual(reply(attestation))
+
+    // …and then read out, so a failure says *which* field went rather than only that
+    // two objects differ. `relayIds` is the one worth naming: `payloadOf` sorts it when
+    // it signs, so a drop here would surface downstream as an unexplainable
+    // `bad-signature` against a node that did nothing wrong.
+    expect(parsed).not.toBeNull()
+    if (parsed === null || parsed.kind !== 'exec' || !parsed.outcome.ok) return
+    const carried = parsed.outcome.attestation
+    expect(carried).not.toBe('signed-by-nobody')
+    if (carried === 'signed-by-nobody') return
+    expect(carried.signature).toBe(attestation.signature)
+    expect(carried.certificate.relayIds).toEqual(issued.certificate.relayIds)
+    expect(carried.certificate.issuer).toBe(provider.pub)
+    expect(carried.certificate).toStrictEqual(issued.certificate)
+  })
+
+  it('carries the sentinel as an ordinary answer, not as an error', () => {
+    // A node that signs nothing is a truthful state. A parser that refused this would
+    // make every unenrolled peer look like a broken one.
+    expect(parseResponse(encodeResponse(reply('signed-by-nobody')))).toStrictEqual(
+      reply('signed-by-nobody'),
+    )
+  })
+
+  it('refuses a malformed attestation rather than quietly downgrading it', () => {
+    const frame = (value: CanonicalValue): CanonicalValue =>
+      ({ kind: 'exec', ok: true, output: { rows: 3 }, fuelUsed: 12, attestation: value }) as CanonicalValue
+
+    // The control: the same frame with a well-formed attestation parses.
+    expect(parseResponse(frame(encodeResponseAttestation(attestation)))).not.toBeNull()
+
+    // A string that is not the sentinel, a number, an array, and an absence. Each would
+    // be read as "unsigned" by a lenient parser, and the requestor would build a weaker
+    // receipt without ever learning the frame was broken — a quiet answer, which is
+    // worse than a refusal.
+    expect(parseResponse(frame('an-attestation-shaped-string'))).toBeNull()
+    expect(parseResponse(frame(7))).toBeNull()
+    expect(parseResponse(frame([1, 2, 3]))).toBeNull()
+    expect(parseResponse({ kind: 'exec', ok: true, output: { rows: 3 }, fuelUsed: 12 })).toBeNull()
+  })
+
+  it('refuses an attestation whose certificate is not a well-formed certificate', () => {
+    const encoded = encodeResponseAttestation(attestation) as { [k: string]: CanonicalValue }
+    const certificate = encoded['certificate'] as { [k: string]: CanonicalValue }
+
+    const corrupt = (extra: Record<string, unknown>): CanonicalValue =>
+      ({
+        kind: 'exec',
+        ok: true,
+        output: { rows: 3 },
+        fuelUsed: 12,
+        attestation: { certificate: { ...certificate, ...extra }, signature: attestation.signature },
+      }) as CanonicalValue
+
+    expect(parseResponse(corrupt({}))).not.toBeNull() // the control
+    expect(parseResponse(corrupt({ relayIds: undefined }))).toBeNull()
+    expect(parseResponse(corrupt({ relayIds: [7] }))).toBeNull()
+    expect(parseResponse(corrupt({ nodeKey: 42 }))).toBeNull()
+    expect(parseResponse(corrupt({ discoverability: 'sometimes' }))).toBeNull()
+    expect(parseResponse(corrupt({ expiresAt: 'never' }))).toBeNull()
+    // …and a signature that is not a string, on the attestation itself.
+    expect(
+      parseResponse({
+        kind: 'exec',
+        ok: true,
+        output: { rows: 3 },
+        fuelUsed: 12,
+        attestation: { certificate, signature: 9 },
+      } as CanonicalValue),
+    ).toBeNull()
+  })
+
+  /** Reach the encoded attestation without exporting the private helper. */
+  function encodeResponseAttestation(value: AttestedResult): CanonicalValue {
+    const encoded = encodeResponse(reply(value)) as { readonly [k: string]: CanonicalValue }
+    return encoded['attestation'] as CanonicalValue
+  }
 })

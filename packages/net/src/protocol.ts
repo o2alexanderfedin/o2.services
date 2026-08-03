@@ -63,6 +63,7 @@
 import { CID } from 'multiformats/cid'
 import { MAX_COMBINE_INPUTS, START_FAILURES, isStartBrowserLabel } from '@o2/core'
 import type {
+  AttestedResult,
   CanonicalValue,
   CapabilityRecord,
   Delegation,
@@ -290,6 +291,64 @@ export function parseCertificate(value: CanonicalValue | undefined): NodeCertifi
     issuer,
     signature,
   }
+}
+
+/**
+ * Encode what a node said about the result it is returning — VER-08/09/10.
+ *
+ * The sentinel crosses as **the type's own literal**, not as a `found:`-style
+ * discriminant like `offer` and `records` use. Those model a value that is nested *or
+ * absent*; `'signed-by-nobody'` is neither — it is a first-class named state meaning
+ * *this node signs nothing*, which is a truthful answer from an unenrolled peer and not
+ * an error. Spelling it the same way on the wire and in the type is what keeps a reader
+ * of a frame and a reader of `ports.ts` looking at one word.
+ *
+ * **What this costs the wire:** 612 DAG-CBOR bytes per attested exec reply, measured
+ * 2026-08-03 against a real certificate from this repository's own `EnrollmentAuthority`
+ * — three 64-char hex keys and two 128-char hex signatures, stored as text because they
+ * are strings in the certificate the provider signed. Against NET-08's inbound ceiling
+ * and the browser tier's 16 KiB per-message WebRTC bound that is under 4% of one
+ * message. It is the price of the statement being self-contained, and the alternative —
+ * a bare node key the requestor resolves to a certificate out of band — is not checkable
+ * by the third party this whole leg exists for.
+ */
+function attestationToValue(attestation: AttestedResult): CanonicalValue {
+  return attestation === 'signed-by-nobody'
+    ? 'signed-by-nobody'
+    : {
+        certificate: certificateToValue(attestation.certificate),
+        signature: attestation.signature,
+      }
+}
+
+/**
+ * Parse an attestation off an exec reply, or refuse the frame.
+ *
+ * **A malformed attestation returns `null`, and `parseResponse` turns that into a
+ * refused frame rather than degrading to the sentinel.** That choice needs writing down
+ * because the other option looks safer and is not. A frame that parsed to "unsigned"
+ * would report a peer's *protocol error* as an *unenrolled peer*: the requestor would
+ * accept the reply, build a weaker receipt, and never learn the frame was broken. The
+ * quiet answer is the worse one. `RemoteExecutor` already renders a `null` parse as
+ * `malformed response from <node>`, which is the honest one.
+ *
+ * The certificate goes through the exported `parseCertificate`, so the wire and the disk
+ * path share one validator and neither can drift into being the lenient one. Nothing
+ * here judges whether the certificate is *valid* — that is
+ * `verifyResultAttestation`'s, against pinned issuers — and keeping the two apart stops a
+ * caller reading "parsed" as "trusted".
+ *
+ * A field added to `ResultAttestation` without being parsed here fails to compile,
+ * because the returned literal must satisfy the declared return type.
+ */
+function parseAttestation(value: CanonicalValue | undefined): AttestedResult | null {
+  if (value === 'signed-by-nobody') return 'signed-by-nobody' satisfies AttestedResult
+  const record = value === undefined ? null : asRecord(value)
+  if (record === null) return null
+  const certificate = parseCertificate(record['certificate'])
+  const signature = record['signature']
+  if (certificate === null || typeof signature !== 'string') return null
+  return { certificate, signature }
 }
 
 function enrollmentRequestToValue(request: EnrollmentRequest): CanonicalValue {
@@ -898,6 +957,7 @@ export function encodeResponse(response: AgentResponse): CanonicalValue {
             ok: true,
             output: response.outcome.output,
             fuelUsed: response.outcome.fuelUsed,
+            attestation: attestationToValue(response.outcome.attestation),
           }
         : { kind: 'exec', ok: false, reason: response.outcome.reason }
   }
@@ -981,9 +1041,12 @@ export function parseResponse(body: CanonicalValue): AgentResponse | null {
         if (output === undefined || typeof fuelUsed !== 'number' || !Number.isFinite(fuelUsed)) {
           return null
         }
-        // Task 3 of Plan 19-13 replaces this with a field-by-field parse of the
-        // attestation. Until then every frame parses to the sentinel.
-        return { kind: 'exec', outcome: { ok: true, output, fuelUsed, attestation: 'signed-by-nobody' } }
+        // Refused, never downgraded. A frame whose attestation does not parse is a
+        // protocol error, and reporting it as an honest peer that holds no certificate
+        // would hand the requestor a weaker receipt with nothing to indicate why.
+        const attestation = parseAttestation(record['attestation'])
+        if (attestation === null) return null
+        return { kind: 'exec', outcome: { ok: true, output, fuelUsed, attestation } }
       }
       if (record['ok'] !== false) return null
       const reason = record['reason']
