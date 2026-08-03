@@ -178,6 +178,45 @@ describe('MR-06 — a combine reply says what happened, or is refused', () => {
     expect(parsed).toEqual({ kind: 'combine', resultCid, reason: '', attestation })
   })
 
+  it('gives a refusal nowhere to put a signature, whatever it is handed', () => {
+    // **The property "a refusal carries no attestation" is structural, not a check**, and
+    // that was measured rather than assumed. Planting a `serveAgent` that signs *before*
+    // its refusal branches — a statement about a combine it never ran — left every case
+    // in `combine.test.ts` green, because the refusal arm has no `attestation` key on the
+    // wire at all and the parse supplies the sentinel on the far side. So the encoder is
+    // where the property lives and this is the reading that holds it: hand the refusal
+    // arm a real attestation and the frame still has three keys.
+    const encoded = encodeResponse({
+      kind: 'combine',
+      resultCid: null,
+      reason: 'input not held',
+      attestation: {
+        certificate: {
+          nodeKey: 'a'.repeat(64),
+          userKey: 'b'.repeat(64),
+          operatorId: 'operator-one',
+          discoverability: 'via-relay',
+          relayIds: [],
+          issuedAt: 1,
+          expiresAt: 2,
+          issuer: 'c'.repeat(64),
+          signature: 'd'.repeat(128),
+        },
+        signature: 'e'.repeat(128),
+      },
+    })
+    // Fires on **addition**, which is the direction a signature on a refusal would
+    // arrive from.
+    expect(Object.keys(encoded as object).sort()).toEqual(['found', 'kind', 'reason'])
+    // And the far side reads the sentinel rather than an absence it has to interpret.
+    expect(parseResponse(encoded)).toEqual({
+      kind: 'combine',
+      resultCid: null,
+      reason: 'input not held',
+      attestation: 'signed-by-nobody',
+    })
+  })
+
   it('refuses a corrupt reply rather than degrading it to the null arm', () => {
     // Folding this into `{resultCid: null}` would let a peer turn a corrupt answer
     // into an indistinguishable "I could not", which the requestor would count as an

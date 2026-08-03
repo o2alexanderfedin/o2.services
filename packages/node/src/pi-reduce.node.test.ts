@@ -88,6 +88,7 @@ const SENTINELS = {
   ledger: 'keeps-no-ledger',
   reservations: 'relays-for-nobody',
   onDispatch: 'reports-no-dispatch',
+  attest: 'signs-nothing',
   enroll: 'issues-no-certificates',
 } as const
 

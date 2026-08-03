@@ -111,6 +111,21 @@ describe('production serveAgent call sites state every hook explicitly', () => {
     // 13-VERIFICATION-2.md recorded what a composition an inspection can confirm is
     // worth when the behaviour has never run.
     expect(occurrences(FABRIC_NODE, "'accepts-every-offer'")).toBe(0)
+    // VER-08 / VER-09 / VER-10 — a burn-down with a date, and 1 is the correct reading
+    // today. Plan 19-15 composes a real signer here and this goes to 0, the way
+    // `'serves-no-records'` and `'accepts-every-offer'` already have. Paired with the
+    // hook's presence, because a 0 alone is also what deleting the `attest:` line
+    // produces — and *that* deletion no longer compiles, which is the stronger guard
+    // `agent-contract.test.ts` holds.
+    //
+    // **This `it`'s title says "four sentinels" and is not renamed to five.** Two
+    // mutation-ledger entries key their `signature` on the titles in this file, and the
+    // ledger's own docblock records the cost of renaming one: `B1` and `B2` named a test
+    // that had been renamed four commits earlier and every run stayed green because
+    // nothing compared the signature to anything. A number in a title is worth less than
+    // a guard that still fires.
+    expect(occurrences(FABRIC_NODE, "'signs-nothing'")).toBe(1)
+    expect(occurrences(FABRIC_NODE, 'attest:')).toBe(1)
   })
 
   it('browser-node.ts: real onDispatch, real admission, four sentinels', () => {
@@ -178,6 +193,13 @@ describe('production serveAgent call sites state every hook explicitly', () => {
     // number this node would refuse a requestor with has never been read. WIRE-03,
     // Phase 19.
     expect(occurrences(BROWSER_NODE, "'accepts-every-offer'")).toBe(0)
+    // VER-08 / VER-09 / VER-10, and **the same count as `fabric-node.ts` deliberately**.
+    // Signing is not a capability a tier confers: an enrolled tab signs on identical
+    // terms to any other node. If this row ever diverges from the `FABRIC_NODE` row
+    // above without a stated reason, something has started keying on node kind. Plan
+    // 19-15 takes both to 0 in one pass.
+    expect(occurrences(BROWSER_NODE, "'signs-nothing'")).toBe(1)
+    expect(occurrences(BROWSER_NODE, 'attest:')).toBe(1)
   })
 
   it('browser-node.ts hands its authorizer the identical arguments fabric-node.ts hands its own', () => {
@@ -255,6 +277,14 @@ describe('production serveAgent call sites state every hook explicitly', () => {
     expect(occurrences(BENCH, "'reports-no-dispatch'")).toBe(2)
     // AUTH-01. Two, one per call site — a benchmark driver signs nothing.
     expect(occurrences(BENCH, "'issues-no-certificates'")).toBe(2)
+    // VER-08 / VER-09 / VER-10. **Two is the permanent correct value here**, exactly as
+    // `'dispatches-unauthenticated'` is below and unlike the two node factories, which
+    // burn theirs to 0 in Plan 19-15. Nothing enrolled this driver's endpoints: a node
+    // signs with a *provider-issued* certificate and there is no provider in this rig,
+    // so a signature made here would verify against no trust anchor any reader holds
+    // while adding an Ed25519 sign per combine to a published scaling curve.
+    expect(occurrences(BENCH, "'signs-nothing'")).toBe(2)
+    expect(occurrences(BENCH, 'attest:')).toBe(2)
   })
 
   it('bench/src/perf-workload.ts: the third production serveAgent file', () => {
@@ -281,6 +311,9 @@ describe('production serveAgent call sites state every hook explicitly', () => {
     // fact, because a zero above is also what deleting a call site produces.
     expect(occurrences(PERF_WORKLOAD, "'accepts-every-offer'")).toBe(0)
     expect(occurrences(PERF_WORKLOAD, 'new LocalCapacity(')).toBe(2)
+    // VER-08 / VER-09 / VER-10 — permanent, on the same ground as `bin/bench.ts` above.
+    expect(occurrences(PERF_WORKLOAD, "'signs-nothing'")).toBe(2)
+    expect(occurrences(PERF_WORKLOAD, 'attest:')).toBe(2)
   })
 })
 

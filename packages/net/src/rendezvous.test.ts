@@ -38,6 +38,7 @@ function node(
     ledger: 'keeps-no-ledger',
     reservations,
     onDispatch: 'reports-no-dispatch',
+    attest: 'signs-nothing',
   })
   return rpc
 }

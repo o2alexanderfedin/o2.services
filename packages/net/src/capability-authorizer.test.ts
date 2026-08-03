@@ -291,6 +291,7 @@ function fabric(options: {
     ledger: 'keeps-no-ledger',
     reservations: 'relays-for-nobody',
     onDispatch: 'reports-no-dispatch',
+    attest: 'signs-nothing',
   })
 
   const callerRpc = new RpcEndpoint(network.connect('caller'), { timeoutMs: RPC_BUDGET_MS })

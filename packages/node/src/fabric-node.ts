@@ -1601,6 +1601,22 @@ export class FabricNode {
       reservations: () => node.reservedPeerIds,
       ledger: 'keeps-no-ledger',
       onDispatch: 'reports-no-dispatch',
+      // VER-08 / VER-09 / VER-10 — the node's own signing identity, for **both** verbs.
+      //
+      // **The sentinel here is a burn-down and it has a date.** Plan 19-15 replaces it
+      // with a real signer built from this node's seed and the certificate it holds,
+      // composing `attestResults` around `executor` in the same pass so that `exec` and
+      // `combine` sign under one identity. Until then this node answers combines
+      // unsigned, truthfully and by name: the sentinel below reaches a peer as
+      // `signed-by-nobody` on the reply rather than as an omission.
+      //
+      // A per-node setting, not a node kind — see this hook's own doc in `agent.ts`.
+      // When 19-15 lands, this literal leaves this file and
+      // `serve-agent-hooks.node.test.ts`'s count for it goes to 0, exactly as the record
+      // and capacity sentinels already have. (Those two are described rather than
+      // written out, deliberately: that instrument counts raw text across this whole
+      // file, comments included, and cannot tell a construction from a mention.)
+      attest: 'signs-nothing',
     })
 
     return node

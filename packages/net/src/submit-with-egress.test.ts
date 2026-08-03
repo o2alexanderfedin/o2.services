@@ -90,6 +90,7 @@ function buildFabric(nodeId: string): Fabric {
     ledger: 'keeps-no-ledger',
     reservations: 'relays-for-nobody',
     onDispatch: 'reports-no-dispatch',
+    attest: 'signs-nothing',
   })
 
   const guard = new EgressGuard(network.connect(nodeId), OWNER_ID)
@@ -114,6 +115,7 @@ function buildFabric(nodeId: string): Fabric {
     ledger: 'keeps-no-ledger',
     reservations: 'relays-for-nobody',
     onDispatch: 'reports-no-dispatch',
+    attest: 'signs-nothing',
   })
 
   const requestorRpc = new RpcEndpoint(network.connect(`requestor-${nodeId}`), { timeoutMs: 5_000 })

@@ -139,6 +139,7 @@ async function fabricOf(options: {
       ledger: 'keeps-no-ledger',
       reservations: 'relays-for-nobody',
       onDispatch: 'reports-no-dispatch',
+      attest: 'signs-nothing',
     })
     nodes.push({ nodeKey, peerId, rpc, records })
   }

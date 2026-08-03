@@ -87,6 +87,7 @@ async function fabricOf(nodeCount: number, module = MODULE_WRITES_PARTITION): Pr
     ledger: 'keeps-no-ledger',
     reservations: 'relays-for-nobody',
     onDispatch: 'reports-no-dispatch',
+    attest: 'signs-nothing',
   })
 
   const endpoints = new Map<string, RpcEndpoint>()
@@ -110,6 +111,7 @@ async function fabricOf(nodeCount: number, module = MODULE_WRITES_PARTITION): Pr
       ledger: 'keeps-no-ledger',
       reservations: 'relays-for-nobody',
       onDispatch: 'reports-no-dispatch',
+      attest: 'signs-nothing',
     })
     endpoints.set(nodeId, rpc)
     nodes.push({

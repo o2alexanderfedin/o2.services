@@ -1,4 +1,6 @@
+import { ed25519 } from '@noble/curves/ed25519.js'
 import {
+  EnrollmentAuthority,
   LocalCapacity,
   MAX_PARTIAL_BYTES,
   MemoryBlockstore,
@@ -8,8 +10,11 @@ import {
   encodeCanonical,
   executeReduce,
   fabricCombiner,
+  requestEnrollment,
+  toHex,
+  verifyCombineAttestation,
 } from '@o2/core'
-import type { Blockstore, CanonicalValue, Executor } from '@o2/core'
+import type { Blockstore, CanonicalValue, Executor, ResultSigner } from '@o2/core'
 import { CID } from 'multiformats/cid'
 import { describe, expect, it } from 'vitest'
 import { RpcBlockSource, serveAgent } from './agent.ts'
@@ -46,6 +51,7 @@ const SENTINELS = {
   ledger: 'keeps-no-ledger',
   reservations: 'relays-for-nobody',
   onDispatch: 'reports-no-dispatch',
+  attest: 'signs-nothing',
   enroll: 'issues-no-certificates',
 } as const
 
@@ -686,6 +692,268 @@ describe('SCHED-06 — the combine branch takes an admission slot, and gives it 
       expect(ok.reason).toBe('')
       expect(ok.resultCid).not.toBeNull()
     } finally {
+      node.close()
+    }
+  })
+})
+
+/**
+ * VER-08 / VER-09 / VER-10 — the aggregation is signed by whoever performed it.
+ *
+ * `PROJECT.md` states the project's split as *the owner's contribution is trusted; the
+ * aggregation over contributions is verified*. Plan 19-13 signed `exec` results, which
+ * left a map/reduce job ending with signed map results feeding an unsigned aggregation —
+ * precisely the half claimed to be the verified one. This describe is the other half.
+ *
+ * What these cases establish is that the **combining node** makes the statement and that
+ * it is bound to what it actually merged. What they do not establish is anything about
+ * whether the merge is arithmetically right: a signature on a wrong aggregate is a signed
+ * wrong aggregate. That remains `executeReduce`'s redundancy and its `disagreements` arm.
+ */
+describe('VER-08/09/10 — a combining node signs what it merged and what it produced', () => {
+  const provider = new Uint8Array(32).fill(70)
+  const alice = new Uint8Array(32).fill(71)
+  const NOW = 1_800_000_000_000
+  const PINNED: ReadonlySet<string> = new Set([toHex(ed25519.getPublicKey(provider))])
+  /** A provider nobody in this fixture trusts — the uncertified-signer arm. */
+  const stranger = new Uint8Array(32).fill(72)
+
+  /** A node certified by `issuer`, holding its own seed. */
+  function enrolled(seed: number, issuer: Uint8Array = provider): ResultSigner {
+    const nodeSeed = new Uint8Array(32).fill(seed)
+    const issued = new EnrollmentAuthority({
+      providerPrivateKey: issuer,
+      maxIssuedPerWindow: 'issues-without-an-aggregate-budget',
+      issuance: 'remembers-only-within-this-process',
+    }).enrol(
+      requestEnrollment(nodeSeed, alice, {
+        operatorId: `op-${seed}`,
+        discoverability: 'via-relay',
+        relayIds: ['relay-1'],
+      }),
+      NOW,
+    )
+    if (!issued.ok) throw new Error('fixture failed to enrol')
+    return { nodeSeed, certificate: issued.certificate }
+  }
+
+  /**
+   * A node holding a real signing identity, and three partials to merge.
+   *
+   * `askCombine` takes its input CIDs in the order the caller gives them and does not
+   * reorder — which is the whole point of the order case below.
+   */
+  async function signingNode(options: { readonly attest: ResultSigner; readonly capacity?: LocalCapacity }) {
+    const network = new MemoryNetwork()
+    const store = new MemoryBlockstore()
+    const aCid = await putValue(store, partial('alpha'))
+    const bCid = await putValue(store, partial('beta'))
+    const cCid = await putValue(store, partial('gamma'))
+
+    const serverRpc = new RpcEndpoint(network.connect('w0'), { timeoutMs: 5_000 })
+    serveAgent({
+      ...SENTINELS,
+      rpc: serverRpc,
+      executor: inertExecutor('w0'),
+      blockstore: store,
+      attest: options.attest,
+      ...(options.capacity === undefined ? {} : { capacity: options.capacity }),
+    })
+
+    const client = new RpcEndpoint(network.connect('client'), { timeoutMs: 5_000 })
+    const askCombine = async (inputCids: readonly CID[], combineId = 'tree-node-a') =>
+      parseResponse(
+        await client.request('w0', encodeRequest({ kind: 'combine', combineId, inputCids, level: 1 })),
+      )
+
+    return {
+      cids: { a: aCid, b: bCid, c: cCid },
+      askCombine,
+      close: () => {
+        client.close()
+        serverRpc.close()
+      },
+    }
+  }
+
+  it('produces a statement that checks out against those inputs, in that order, and that result', async () => {
+    const signer = enrolled(21)
+    const node = await signingNode({ attest: signer })
+    try {
+      // **The frame's order is deliberately the descending one.** `fabricCombiner` is
+      // commutative for this shape, so the result CID is the same whichever way round
+      // the inputs arrive — which means the *only* thing that can distinguish a
+      // merge-order challenge from a sorted one is the challenge itself. A frame whose
+      // order already happened to be sorted would make the two indistinguishable and the
+      // order case below would prove nothing.
+      const [first, second] =
+        node.cids.a.toString() < node.cids.b.toString()
+          ? ([node.cids.b, node.cids.a] as const)
+          : ([node.cids.a, node.cids.b] as const)
+      const ordered = [first, second]
+      expect(ordered.map((cid) => cid.toString())).not.toEqual(
+        [...ordered].map((cid) => cid.toString()).sort(),
+      )
+
+      const reply = await node.askCombine(ordered)
+      expect(reply?.kind).toBe('combine')
+      if (reply?.kind !== 'combine' || reply.resultCid === null) throw new Error('no result cid')
+
+      // A stranger's check: pinned issuer key, the inputs this requestor asked for, the
+      // CID it was told. Nothing taken from the connection, and no peer id anywhere.
+      const checked = verifyCombineAttestation(reply.attestation, ordered, reply.resultCid, PINNED, NOW)
+      expect(checked.ok).toBe(true)
+      if (!checked.ok) return
+      expect(checked.certificate.nodeKey).toBe(signer.certificate.nodeKey)
+
+      // **The order is signed, not the set.** Reversed, the same two CIDs produce the
+      // same aggregate and a statement that does not stand for it — which is what stops
+      // a reordered input list verifying against a result it did not produce.
+      const reversed = verifyCombineAttestation(
+        reply.attestation,
+        [...ordered].reverse(),
+        reply.resultCid,
+        PINNED,
+        NOW,
+      )
+      expect(reversed.ok).toBe(false)
+      if (reversed.ok) return
+      expect(reversed.failure.kind).toBe('bad-result-signature')
+    } finally {
+      node.close()
+    }
+  })
+
+  it('does not stand for a combine over a different input set asked under the same combineId', async () => {
+    // `combineId` and `level` are deliberately outside the challenge, for the reason
+    // `agent.ts`' slot key already records: `combineId` is the tree node's derived id and
+    // therefore a *requestor's claim* about where in a tree this sits, so keying on it
+    // would let one peer present the same merge under any number of names. The input set
+    // is the work's identity. This case is the consequence — one name, two merges, two
+    // statements that do not substitute for each other.
+    const node = await signingNode({ attest: enrolled(22) })
+    try {
+      const ab = [node.cids.a, node.cids.b]
+      const ac = [node.cids.a, node.cids.c]
+      const first = await node.askCombine(ab, 'the-same-name')
+      const second = await node.askCombine(ac, 'the-same-name')
+      if (first?.kind !== 'combine' || first.resultCid === null) throw new Error('no result cid')
+      if (second?.kind !== 'combine' || second.resultCid === null) throw new Error('no result cid')
+
+      // Each stands for its own merge…
+      expect(verifyCombineAttestation(first.attestation, ab, first.resultCid, PINNED, NOW).ok).toBe(true)
+      expect(verifyCombineAttestation(second.attestation, ac, second.resultCid, PINNED, NOW).ok).toBe(true)
+      // …and for nothing else, despite both having been asked for under one name.
+      const crossed = verifyCombineAttestation(first.attestation, ac, second.resultCid, PINNED, NOW)
+      expect(crossed.ok).toBe(false)
+      if (crossed.ok) return
+      expect(crossed.failure.kind).toBe('bad-result-signature')
+    } finally {
+      node.close()
+    }
+  })
+
+  it('refuses a signer whose certificate no trusted provider issued, by name', async () => {
+    // `untrusted-issuer` and **not** a bad signature, because the signature is fine —
+    // this node signed correctly with a key its own provider certified, and the only
+    // problem is that this verifier never pinned that provider. A refusal naming the
+    // wrong thing sends a reader to look at cryptography when the answer is their own
+    // trust configuration.
+    const node = await signingNode({ attest: enrolled(23, stranger) })
+    try {
+      const inputs = [node.cids.a, node.cids.b]
+      const reply = await node.askCombine(inputs)
+      if (reply?.kind !== 'combine' || reply.resultCid === null) throw new Error('no result cid')
+
+      const checked = verifyCombineAttestation(reply.attestation, inputs, reply.resultCid, PINNED, NOW)
+      expect(checked.ok).toBe(false)
+      if (checked.ok) return
+      expect(checked.failure.kind).toBe('untrusted-certificate')
+      if (checked.failure.kind !== 'untrusted-certificate') return
+      expect(checked.failure.failure.kind).toBe('untrusted-issuer')
+    } finally {
+      node.close()
+    }
+  })
+
+  it('signs nothing on a refusal — over-committed, and unauthorized', async () => {
+    // A node that signed before its refusal checks would be making a statement about a
+    // combine it never ran. The sentinel here is the truthful reading of a reply that
+    // produced no result, and it is what the parse supplies on the `found: false` arm.
+    const capacity = new LocalCapacity({ nodeId: 'w0', maxConcurrent: 1 })
+    const busy = await signingNode({ attest: enrolled(24), capacity })
+    try {
+      const held = capacity.offer({ shardId: 'held-by-this-test', nodeId: 'w0' })
+      expect(held.accepted).toBe(true)
+      const refused = await busy.askCombine([busy.cids.a, busy.cids.b])
+      if (refused?.kind !== 'combine') throw new Error('expected a combine reply')
+      expect(refused.resultCid).toBeNull()
+      expect(refused.reason).toBe('over-committed: 1 of 1 slots in use')
+      expect(refused.attestation).toBe('signed-by-nobody')
+    } finally {
+      busy.close()
+    }
+
+    const network = new MemoryNetwork()
+    const store = new MemoryBlockstore()
+    const aCid = await putValue(store, partial('alpha'))
+    const bCid = await putValue(store, partial('beta'))
+    const serverRpc = new RpcEndpoint(network.connect('w1'), { timeoutMs: 5_000 })
+    serveAgent({
+      ...SENTINELS,
+      rpc: serverRpc,
+      executor: inertExecutor('w1'),
+      blockstore: store,
+      attest: enrolled(25),
+      authorize: () => 'this node combines for nobody today',
+    })
+    const client = new RpcEndpoint(network.connect('client'), { timeoutMs: 5_000 })
+    try {
+      const refused = parseResponse(
+        await client.request(
+          'w1',
+          encodeRequest({ kind: 'combine', combineId: 'tree-node-a', inputCids: [aCid, bCid], level: 1 }),
+        ),
+      )
+      if (refused?.kind !== 'combine') throw new Error('expected a combine reply')
+      expect(refused.resultCid).toBeNull()
+      expect(refused.reason).toContain('unauthorized: ')
+      expect(refused.attestation).toBe('signed-by-nobody')
+    } finally {
+      client.close()
+      serverRpc.close()
+    }
+  })
+
+  it('states the sentinel when the node holds no identity, rather than omitting the field', async () => {
+    // The two benchmark rigs pass this permanently, and every node does until Plan 19-15
+    // gives the two factories real signers. It must be distinguishable from a signed
+    // reply by reading one field, not by the field's absence.
+    const node = await signingNode({ attest: enrolled(26) })
+    const plain = await combineFabric({ workers: 1 })
+    try {
+      const a = partial('alpha')
+      const b = partial('beta')
+      const aCid = await putValue(plain.originStore, a)
+      const bCid = await putValue(plain.originStore, b)
+      const reply = await plain.askCombine('w0', [aCid, bCid])
+      if (reply?.kind !== 'combine') throw new Error('expected a combine reply')
+      expect(reply.resultCid).not.toBeNull()
+      expect(reply.attestation).toBe('signed-by-nobody')
+      // And the same verifier refuses it by the name reserved for exactly this — not as
+      // a bad signature, because there is no signature and the peer said so.
+      const checked = verifyCombineAttestation(
+        reply.attestation,
+        [aCid, bCid],
+        reply.resultCid as CID,
+        PINNED,
+        NOW,
+      )
+      expect(checked.ok).toBe(false)
+      if (checked.ok) return
+      expect(checked.failure.kind).toBe('not-attested')
+    } finally {
+      plain.close()
       node.close()
     }
   })

@@ -168,6 +168,7 @@ async function fabric(refusal: string | null = null): Promise<Fabric> {
     ledger: 'keeps-no-ledger',
     reservations: 'relays-for-nobody',
     onDispatch: 'reports-no-dispatch',
+    attest: 'signs-nothing',
   })
 
   const requestorRpc = new RpcEndpoint(network.connect('requestor'), { timeoutMs: RPC_TIMEOUT_MS })

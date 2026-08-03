@@ -1203,6 +1203,17 @@ export class BrowserNode {
         node.servedFor.set(from, (node.servedFor.get(from) ?? 0) + 1)
         node.#announce()
       },
+      // VER-08 / VER-09 / VER-10 — the node's own signing identity, for **both** verbs.
+      //
+      // **The sentinel here is a burn-down with a date, and it is the same count as
+      // `fabric-node.ts`'s deliberately.** Plan 19-15 replaces both with real signers in
+      // one pass. Signing is not a capability a tier confers: a tab that has been
+      // enrolled signs on identical terms to any other node, and if this row ever
+      // diverges from the Node factory's without a stated reason, something has started
+      // keying on node kind — the failure Phases 16 and 17 each shipped once.
+      //
+      // Until 19-15 this tab answers combines unsigned, truthfully and by name.
+      attest: 'signs-nothing',
     })
     return node
   }

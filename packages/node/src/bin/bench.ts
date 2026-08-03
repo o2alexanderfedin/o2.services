@@ -476,6 +476,19 @@ async function memoryFabric(nodes: number): Promise<Fabric> {
     ledger: 'keeps-no-ledger',
     reservations: 'relays-for-nobody',
     onDispatch: 'reports-no-dispatch',
+    // VER-08 / VER-09 / VER-10. **The permanent, correct value at both of this driver's
+    // `serveAgent` sites, not a burn-down** — the same disposition this driver's
+    // capability-chain sentinel has below, and stated for the same reason a reader
+    // comparing this file with the two node factories would otherwise read it as
+    // unfinished work. (That sentinel is described rather than quoted: the guard over
+    // this file counts raw text, comments included.)
+    //
+    // Nothing enrolled these endpoints. A node signs with a **provider-issued**
+    // certificate, and this rig has no provider in it; a node signing for itself with a
+    // key nobody vouched for produces a statement that verifies against no trust anchor
+    // any reader holds, so it proves exactly nothing while adding an Ed25519 sign per
+    // combine to a published scaling curve. The sentinel is the truthful answer.
+    attest: 'signs-nothing',
   })
 
   const endpoints: RpcEndpoint[] = []
@@ -515,6 +528,9 @@ async function memoryFabric(nodes: number): Promise<Fabric> {
       ledger: 'keeps-no-ledger',
       reservations: 'relays-for-nobody',
       onDispatch: 'reports-no-dispatch',
+      // VER-08 / VER-09 / VER-10 — permanent here too, and for the reason stated in full
+      // at the requestor endpoint above: nothing enrolled these workers.
+      attest: 'signs-nothing',
     })
     endpoints.push(rpc)
   }

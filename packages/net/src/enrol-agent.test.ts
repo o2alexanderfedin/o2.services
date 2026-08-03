@@ -68,6 +68,7 @@ function buildFabric(options: { readonly issues: boolean }): {
     ledger: 'keeps-no-ledger',
     reservations: 'relays-for-nobody',
     onDispatch: 'reports-no-dispatch',
+    attest: 'signs-nothing',
   })
 
   // A short budget, so the unreachable behaviour below does not wait out

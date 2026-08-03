@@ -104,6 +104,7 @@ async function fabricOf(options: { workers: number; maxConcurrent?: number }): P
     ledger: 'keeps-no-ledger',
     reservations: 'relays-for-nobody',
     onDispatch: 'reports-no-dispatch',
+    attest: 'signs-nothing',
   })
 
   // One dataset block, held by every worker. This is the CID the requestor queries.
@@ -157,6 +158,7 @@ async function fabricOf(options: { workers: number; maxConcurrent?: number }): P
       ledger: 'keeps-no-ledger',
       reservations: 'relays-for-nobody',
       onDispatch: 'reports-no-dispatch',
+      attest: 'signs-nothing',
     })
 
     index.provide(inputCid, nodeKey)

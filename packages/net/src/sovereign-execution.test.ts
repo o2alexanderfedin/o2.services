@@ -129,6 +129,7 @@ async function ownerFabric(options: { module: Uint8Array<ArrayBuffer>; ownerNode
     ledger: 'keeps-no-ledger',
     reservations: 'relays-for-nobody',
     onDispatch: 'reports-no-dispatch',
+    attest: 'signs-nothing',
   })
 
   const certificates: NodeCertificate[] = []
@@ -190,6 +191,7 @@ async function ownerFabric(options: { module: Uint8Array<ArrayBuffer>; ownerNode
       ledger: 'keeps-no-ledger',
       reservations: 'relays-for-nobody',
       onDispatch: 'reports-no-dispatch',
+      attest: 'signs-nothing',
     })
 
     index.provide(inputCid, nodeId)
@@ -226,6 +228,7 @@ async function ownerFabric(options: { module: Uint8Array<ArrayBuffer>; ownerNode
     ledger: 'keeps-no-ledger',
     reservations: 'relays-for-nobody',
     onDispatch: 'reports-no-dispatch',
+    attest: 'signs-nothing',
   })
   index.provide(inputCid, foreignKey)
   index.publish({
@@ -627,6 +630,7 @@ describe('a hold survives an exec that never took one', () => {
       ledger: 'keeps-no-ledger',
       reservations: 'relays-for-nobody',
       onDispatch: 'reports-no-dispatch',
+      attest: 'signs-nothing',
     })
 
     const clientRpc = new RpcEndpoint(network.connect('client'), { timeoutMs: 5_000 })

@@ -120,6 +120,7 @@ function servingNode(nodeId: string, faulty: Faulty = {}): Node {
     ledger: 'keeps-no-ledger',
     reservations: 'relays-for-nobody',
     onDispatch: 'reports-no-dispatch',
+    attest: 'signs-nothing',
   })
   return {
     nodeId,

@@ -161,6 +161,7 @@ async function fabricOf(options: {
       ledger: 'keeps-no-ledger',
       reservations: 'relays-for-nobody',
       onDispatch: 'reports-no-dispatch',
+      attest: 'signs-nothing',
     })
     peers.push({ nodeKey, rpc, store, index, records })
   }
@@ -309,6 +310,7 @@ describe('SCHED-01 — providers unions across peers, because each answers only 
         ledger: 'keeps-no-ledger',
         reservations: 'relays-for-nobody',
         onDispatch: 'reports-no-dispatch',
+        attest: 'signs-nothing',
       })
       held.push(watched)
       serving.push(rpc)
@@ -389,6 +391,7 @@ describe('SCHED-01 — providers unions across peers, because each answers only 
       ledger: 'keeps-no-ledger',
       reservations: 'relays-for-nobody',
       onDispatch: 'reports-no-dispatch',
+      attest: 'signs-nothing',
     })
 
     const requestorRpc = new RpcEndpoint(network.connect('requestor'), {
@@ -537,6 +540,7 @@ describe('DATA-05 — a provider answer is not a side channel around an egress r
       ledger: 'keeps-no-ledger',
       reservations: 'relays-for-nobody',
       onDispatch: 'reports-no-dispatch',
+      attest: 'signs-nothing',
     })
 
     const requestorRpc = new RpcEndpoint(network.connect('requestor'), { timeoutMs: 5_000 })

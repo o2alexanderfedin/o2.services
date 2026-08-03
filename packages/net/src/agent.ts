@@ -10,8 +10,16 @@
  */
 
 import type { CID } from 'multiformats/cid'
-import { MAX_PARTIAL_BYTES, canonicalCid, decodeCanonical, encodeCanonical, fabricCombiner } from '@o2/core'
+import {
+  MAX_PARTIAL_BYTES,
+  canonicalCid,
+  decodeCanonical,
+  encodeCanonical,
+  fabricCombiner,
+  signCombine,
+} from '@o2/core'
 import type {
+  AttestedResult,
   Blockstore,
   CanonicalValue,
   Delegation,
@@ -19,6 +27,7 @@ import type {
   Executor,
   LocalCapacity,
   RecordIndex,
+  ResultAttestor,
   StartOutcomeLedger,
   Task,
 } from '@o2/core'
@@ -266,6 +275,48 @@ export interface AgentOptions {
    * provider that was misconfigured would look exactly like a provider that was down.
    */
   readonly enroll: EnrollmentAuthority | 'issues-no-certificates'
+  /**
+   * VER-08 / VER-09 / VER-10. The node's own signing identity — its seed and the
+   * provider-signed certificate naming that seed's public half — or the named statement
+   * that this node signs nothing.
+   *
+   * **This is a per-node setting, not a node kind**, on exactly the terms `enroll` above
+   * states: every node built anywhere in this repository has identical code and identical
+   * capability regardless of whether it is passed. A node that signs and a node that does
+   * not are the same node with different configuration, and the only difference between
+   * nodes in this fabric is discovery.
+   *
+   * **One hook, both verbs, and that is the decision rather than a convenience.**
+   * `PROJECT.md` states the project's split as *the owner's contribution is trusted; the
+   * aggregation over contributions is verified*. A node that signed its map results and
+   * not the aggregation over them would satisfy the letter of the third signing leg and
+   * none of its point — and **two independent ways to acquire a signing key is precisely
+   * how that happens**, because one of them gets wired and the other is forgotten. So a
+   * node declares its identity here, once.
+   *
+   * The two verbs then reach it by different routes, and that is **a structural fact of
+   * this codebase rather than a preference**: `exec` runs through an `Executor`, so it
+   * signs through `@o2/core`'s `attestResults` wrapper composed around that executor; a
+   * combine runs through no executor at all — `serveAgent` performs it itself in
+   * `combineAdmitted` — so its signer has to be here. Do not "unify" these into one path;
+   * there is no port a combine passes through to be wrapped at.
+   *
+   * Pass `'signs-nothing'` to state that this node signs nothing. That is the truthful
+   * answer from a node nobody enrolled, it reaches a peer as the named
+   * `'signed-by-nobody'` on the reply rather than as silence, and it is what the two
+   * benchmark rigs pass permanently, because neither holds a certificate and a node
+   * nobody certified signing for itself proves nothing to anybody.
+   *
+   * Required rather than optional, for `.planning/PROJECT.md`'s Key Decision **"An
+   * optional hook with a silent default is a hole"**. Here the hole is the narrowest and
+   * quietest of the nine: a node that omitted this would answer every combine unsigned,
+   * every frame would still be well-formed, every existing assertion would stay green,
+   * and the aggregation would simply stop being checkable by anybody — which is the one
+   * property this leg exists to provide. This phase measured twice that the type checker
+   * alone does not catch that: an optional field leaves `tsc --noEmit` at exit 0 while
+   * the behavioural assertion fails.
+   */
+  readonly attest: ResultAttestor
 }
 
 /**
@@ -567,7 +618,32 @@ async function combineAdmitted(
   // entry. It writes to this node's own local tier and nowhere else — the requestor
   // fetches it back deliberately, by CID, from this peer (`remoteCombineDispatch`).
   await options.blockstore.put(hashed.bytes)
-  return { kind: 'combine', resultCid: hashed.cid, reason: '', attestation: 'signed-by-nobody' }
+  // VER-08 / VER-09 / VER-10 — the aggregation's half of the third signing leg, and the
+  // only path in this function that produces one. Every arm above returned
+  // `resultCid: null` with the sentinel, because a combine this node refused is not a
+  // merge it can make a statement about.
+  //
+  // **The inputs are signed in the order they were merged. They are NEVER sorted.** A
+  // combine's output is a function of its input *sequence*, so a sorted challenge would
+  // let a reordered input list verify against a result that list did not produce. The
+  // reflex to sort comes from `payloadOf` in `enrollment.ts`, which sorts `relayIds` —
+  // correct there because a relay set is a **set**, and wrong here because this is a
+  // sequence. `combineChallenge` carries the same warning at the encoding.
+  //
+  // **`combineId` and `level` are deliberately not signed.** `agent.ts`' slot key records
+  // the reason and it is the same one: `combineId` is the *tree node's* derived id and
+  // therefore a requestor's claim about where in a tree this sits, so keying on it would
+  // let one peer present the same merge under any number of names. The input set is the
+  // work's identity, and `hashed.cid` — already computed above, so signing costs no
+  // second hash — is the answer.
+  //
+  // A signature costs one Ed25519 sign over a challenge whose size does not depend on
+  // the partials, only on how many were named.
+  const attestation: AttestedResult =
+    options.attest === 'signs-nothing'
+      ? 'signed-by-nobody'
+      : signCombine(options.attest, request.inputCids, hashed.cid)
+  return { kind: 'combine', resultCid: hashed.cid, reason: '', attestation }
 }
 
 /**

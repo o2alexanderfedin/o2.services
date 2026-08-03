@@ -58,6 +58,7 @@ async function twoNodeFabric(options: { readonly workers: number } = { workers: 
     ledger: 'keeps-no-ledger',
     reservations: 'relays-for-nobody',
     onDispatch: 'reports-no-dispatch',
+    attest: 'signs-nothing',
   })
 
   const workers: { id: string; rpc: RpcEndpoint; store: FetchingBlockstore }[] = []
@@ -82,6 +83,7 @@ async function twoNodeFabric(options: { readonly workers: number } = { workers: 
       ledger: 'keeps-no-ledger',
       reservations: 'relays-for-nobody',
       onDispatch: 'reports-no-dispatch',
+      attest: 'signs-nothing',
     })
     workers.push({ id, rpc, store })
   }
@@ -489,6 +491,7 @@ describe('protocol validation', () => {
       ledger: 'keeps-no-ledger',
       reservations: 'relays-for-nobody',
       onDispatch: 'reports-no-dispatch',
+      attest: 'signs-nothing',
     })
 
     const callerRpc = new RpcEndpoint(network.connect('caller'), { timeoutMs: 5_000 })
@@ -544,6 +547,7 @@ describe('AUTH-03 — a task is refused before the module is instantiated', () =
       ledger: 'keeps-no-ledger',
       reservations: 'relays-for-nobody',
       onDispatch: 'reports-no-dispatch',
+      attest: 'signs-nothing',
     })
 
     const callerRpc = new RpcEndpoint(network.connect('caller'), { timeoutMs: 5_000 })
@@ -590,6 +594,7 @@ describe('AUTH-03 — a task is refused before the module is instantiated', () =
       ledger: 'keeps-no-ledger',
       reservations: 'relays-for-nobody',
       onDispatch: 'reports-no-dispatch',
+      attest: 'signs-nothing',
     })
 
     const callerRpc = new RpcEndpoint(network.connect('caller'), { timeoutMs: 5_000 })
