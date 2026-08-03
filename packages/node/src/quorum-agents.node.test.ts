@@ -65,6 +65,10 @@
  * added here — this plan's declared files are two test files, and a production binary's
  * argv surface is not something a measurement plan should widen on its way past.
  *
+ * A second thing was measured while building that fabric and is recorded at
+ * `standUpBehindOneRelay`: routing the **job** over the circuit does not work, and this
+ * repository already knew. The relay is a signalling channel, not a data path.
+ *
  * ## Distinguishability, the same instrument Plan 18-11 used
  *
  * Every engineered outcome below is read **after** an assertion that the requestor reached
@@ -105,7 +109,7 @@ import type {
   ShardResult,
 } from '@o2/core'
 import { SEED_BYTES, peerIdForNodeKey } from '@o2/libp2p'
-import { discoverCandidates } from '@o2/net'
+import { discoverCandidates, encodeRequest, parseResponse } from '@o2/net'
 import type { CID } from 'multiformats/cid'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 // Test-only relative import — see the note in packages/net/src/distributed.test.ts.
@@ -121,6 +125,16 @@ const ANNOUNCE_BUDGET_MS = 60_000
 const PROCESS_TEST_TIMEOUT = 300_000
 /** How long a verdict may take to settle after a dial. */
 const VERDICT_DEADLINE_MS = 30_000
+/**
+ * The same verdict, over a circuit.
+ *
+ * Longer because every step is one hop further: the peer gate's `records` request travels
+ * relay-in and relay-out, and the reservation itself has to be granted before the dial that
+ * carries it can even be attempted. Stated as its own constant rather than by raising
+ * `VERDICT_DEADLINE_MS` for everybody — a budget raised for one case and applied to all is
+ * how a file stops noticing that the direct case got slower.
+ */
+const RELAYED_VERDICT_DEADLINE_MS = 60_000
 
 /** Seed 66 — see the census in the header. */
 const publisher = (() => {
@@ -218,14 +232,65 @@ async function stopAgent(agent: Agent): Promise<void> {
  * Defined locally rather than imported. Importing a helper from another `.test.ts`
  * re-registers that file's whole suite — see the note in
  * `certificate-verification.node.test.ts`.
+ *
+ * **`what` may be a thunk, and every caller here that has state worth reporting passes
+ * one.** `reservation-exhaustion.node.test.ts` records why: a template literal built at the
+ * call site reports the state *before* the waiting started, which is empty every time, so
+ * it looks like a diagnostic and carries nothing. Evaluated at the throw, it carries what
+ * actually arrived.
  */
-async function until(predicate: () => boolean, timeoutMs: number, what: string): Promise<void> {
+async function until(
+  predicate: () => boolean,
+  timeoutMs: number,
+  what: string | (() => string),
+): Promise<void> {
   const deadline = Date.now() + timeoutMs
   while (Date.now() < deadline) {
     if (predicate()) return
     await new Promise((r) => setTimeout(r, 20))
   }
-  throw new Error(`timed out waiting for ${what}`)
+  throw new Error(`timed out waiting for ${typeof what === 'function' ? what() : what}`)
+}
+
+/**
+ * Poll one peer's own `providers` answer until it names itself as a holder of this block.
+ *
+ * **A precondition, and it names which node failed.** `RpcRecordIndex.providers` asks every
+ * peer concurrently and *swallows* a transport error — *"a peer that could not be reached
+ * contributes nothing to a union"* — so a single unanswered request lands as
+ * `providers: 2` with nothing anywhere saying which of the three was silent. That is
+ * exactly what the first relayed run of this file reported, and it is unreadable as a
+ * failure. Asked node by node, the same condition names the node and carries its last
+ * answer.
+ *
+ * Polled rather than read once, because a node behind a relay is reachable only once its
+ * reservation is granted and the requestor's own circuit dial has completed, and neither is
+ * instantaneous. A sleep would be a guess about those; this is a reading of the node's own
+ * answer.
+ */
+async function untilAdvertises(
+  requestor: FabricNode,
+  peer: { readonly peerId: string; readonly nodeKey: string },
+  cid: CID,
+  timeoutMs: number,
+): Promise<void> {
+  const deadline = Date.now() + timeoutMs
+  let last: unknown = 'the peer was never asked'
+  while (Date.now() < deadline) {
+    try {
+      const reply = parseResponse(
+        await requestor.rpc.request(peer.peerId, encodeRequest({ kind: 'providers', cid })),
+      )
+      last = reply
+      if (reply?.kind === 'providers' && reply.nodeKeys.includes(peer.nodeKey)) return
+    } catch (cause) {
+      last = cause instanceof Error ? cause.message : String(cause)
+    }
+    await new Promise((r) => setTimeout(r, 100))
+  }
+  throw new Error(
+    `${peer.peerId} never advertised ${cid.toString()}; its last answer was ${JSON.stringify(last)}`,
+  )
 }
 
 /** `bin/agent.ts` refuses to create a user key — see that flag's comment. */
@@ -332,8 +397,18 @@ async function standUp(operatorIds: readonly [string, string, string]): Promise<
   }
 }
 
-/** Everything `discoverCandidates` needs, over the verified set. */
-function candidateOptions(fixture: Fixture) {
+/**
+ * Everything `discoverCandidates` needs, over the verified set.
+ *
+ * Structural in its parameter rather than typed to `Fixture`, because both stand-ups below
+ * hand it the same two things — an in-process requestor and a spawned provider's issuer key
+ * — and a second copy of this function for the relayed fixture would be a second place the
+ * pinned-issuer decision is made.
+ */
+function candidateOptions(fixture: {
+  readonly requestor: FabricNode
+  readonly provider: { readonly issuerKey: string | null }
+}) {
   return {
     rpc: fixture.requestor.rpc,
     peers: () => fixture.requestor.verifiedPeers,
@@ -353,7 +428,7 @@ function candidateOptions(fixture: Fixture) {
  */
 function expectAllThreeQualified(
   found: { executors: readonly { nodeId: string }[]; excluded: readonly unknown[]; providers: number },
-  expected: readonly Agent[],
+  expected: readonly { peerId: string }[],
 ): void {
   expect(found.providers).toBe(expected.length)
   expect(found.excluded).toStrictEqual([])
@@ -399,11 +474,23 @@ describe('criterion 1 — three operators, a quorum whose independence is read o
     const fixture = await standUp(['x-ops', 'y-ops', 'z-ops'])
     const { executors, requestor } = fixture
 
+    // **Membership, never a count.** A count of three is satisfiable by the wrong three
+    // peers, and fabric B below is where that actually happened: the requestor is connected
+    // to the relay as well as to the executors, so `verifiedPeers.length === 3` was reached
+    // with only two executors in the list and discovery then asked two nodes instead of
+    // three. The count read as a precondition and guarded nothing.
     await until(
-      () => requestor.verifiedPeers.length === 3,
+      () => executors.every((agent) => requestor.verifiedPeers.includes(agent.peerId)),
       VERDICT_DEADLINE_MS,
-      `three verified peers, saw ${requestor.verifiedPeers.length}`,
+      () => `all three agents verified; the verified set was ${JSON.stringify(requestor.verifiedPeers)}`,
     )
+
+    // Each node asked on its own, before the union below. `RpcRecordIndex.providers` asks
+    // every peer concurrently and swallows a transport error, so one silent peer lands as a
+    // provider count one short with nothing naming which. See `untilAdvertises`.
+    for (const agent of executors) {
+      await untilAdvertises(requestor, agent, fixture.inputCid, VERDICT_DEADLINE_MS)
+    }
 
     const found = await discoverCandidates({ inputCid: fixture.inputCid }, candidateOptions(fixture))
     expectAllThreeQualified(found, executors)
@@ -476,5 +563,433 @@ describe('criterion 1 — three operators, a quorum whose independence is read o
     expect(attestation.strength).toBe('independent')
     expect(attestation.description).toBe(describeAttestation('independent'))
     expect(result.job.attestation).toStrictEqual(attestation)
+  }, PROCESS_TEST_TIMEOUT)
+})
+
+/**
+ * Fabric A — three processes, one operator, submitted three times over ONE live fixture.
+ *
+ * **Both dial arms run over the same live agents, and that is the whole design.** Two
+ * fabrics behaving differently would prove that two fabrics behave differently; one fabric
+ * submitted twice, differing in exactly one field of one object, proves that the dial is
+ * what decided. The `submitOver` closure below exists so the two calls cannot drift: every
+ * other argument comes from the same variables, so there is no second place for a
+ * difference to hide.
+ *
+ * The redundancy-1 control is the third submission, and it is what makes the other two a
+ * reading rather than an observation about this fabric. Without it, "the shard degraded"
+ * could be anything about three one-operator agents; with it, the same three agents run a
+ * job that neither degrades nor is refused **on either arm**, because no quorum was
+ * attempted and so there was nothing to fall short of.
+ */
+describe('criterion 1 engineered — one operator: degraded by default, refused on request', () => {
+  it('degrades to owner-domain on the default dial, is refused in the composer’s words on the strict one, and leaves a redundancy-1 job untouched by either', async () => {
+    // The engineered condition, and the only thing that differs from the case above.
+    const fixture = await standUp(['one-ops', 'one-ops', 'one-ops'])
+    const { executors, requestor } = fixture
+
+    // **Membership, never a count.** A count of three is satisfiable by the wrong three
+    // peers, and fabric B below is where that actually happened: the requestor is connected
+    // to the relay as well as to the executors, so `verifiedPeers.length === 3` was reached
+    // with only two executors in the list and discovery then asked two nodes instead of
+    // three. The count read as a precondition and guarded nothing.
+    await until(
+      () => executors.every((agent) => requestor.verifiedPeers.includes(agent.peerId)),
+      VERDICT_DEADLINE_MS,
+      () => `all three agents verified; the verified set was ${JSON.stringify(requestor.verifiedPeers)}`,
+    )
+
+    // Each node asked on its own, before the union below. `RpcRecordIndex.providers` asks
+    // every peer concurrently and swallows a transport error, so one silent peer lands as a
+    // provider count one short with nothing naming which. See `untilAdvertises`.
+    for (const agent of executors) {
+      await untilAdvertises(requestor, agent, fixture.inputCid, VERDICT_DEADLINE_MS)
+    }
+
+    // ---- The requestor reached and qualified every one of them. --------------------
+    // Read before any outcome, so no refusal below can be confused with an outage.
+    const found = await discoverCandidates({ inputCid: fixture.inputCid }, candidateOptions(fixture))
+    expectAllThreeQualified(found, executors)
+
+    // And the concentration is a fact about what a provider signed, not about the spawn
+    // arguments: three qualified candidates, one operator id among them.
+    const operators = new Set(
+      found.nodes.map((node) => certificateOf(found.nodes, node.nodeId).operatorId),
+    )
+    expect([...operators]).toStrictEqual(['one-ops'])
+
+    // One object, one varying field. See this describe's doc.
+    const submitOver = async (
+      redundancy: number,
+      onQuorumShortfall: 'runs-at-available-redundancy' | 'refuses-the-shard',
+    ) =>
+      submitJob(
+        {
+          moduleCid: fixture.moduleCid,
+          moduleRecord: fixture.moduleRecord,
+          shards: [{ value: SHARD_VALUE, label: 'public' }],
+          executors: found.executors,
+          nodes: found.nodes,
+          redundancy,
+          onQuorumShortfall,
+        },
+        requestor.store,
+      )
+
+    const shardOf = (result: Awaited<ReturnType<typeof submitOver>>): ShardResult => {
+      if (!result.ok) throw new Error(`submitJob refused the whole job: ${JSON.stringify(result.error)}`)
+      const shard = result.job.shards[0]
+      if (shard === undefined) throw new Error('expected one shard')
+      return shard
+    }
+
+    // ---- A-degrade: the default arm. ----------------------------------------------
+    const degradeRun = await submitOver(2, 'runs-at-available-redundancy')
+    const degraded = shardOf(degradeRun)
+
+    // The composer noticed, and its own words are on the shard. A caller that can read
+    // this can tell an over-concentrated fabric from any other degradation, which is the
+    // whole reason degrading here is defensible rather than silent.
+    expect(degraded.quorum.kind).toBe('not-composed')
+    if (degraded.quorum.kind !== 'not-composed') return
+    expect(degraded.quorum.refusal.kind).toBe('insufficient-operators')
+    if (degraded.quorum.refusal.kind !== 'insufficient-operators') return
+    expect(degraded.quorum.refusal.wanted).toBe(2)
+    expect(degraded.quorum.refusal.distinctOperators).toBe(1)
+    expect(degraded.quorum.reason).toBe('quorum of 2 needs 2 distinct operators, found 1')
+
+    // It ran anyway, at the redundancy that was available.
+    expect(degraded.verification.status).toBe('agreed')
+    expect(agreeingIds(degraded)).toHaveLength(2)
+
+    // **`degraded` is true at FULL redundancy.** Two replicas were asked for and two ran,
+    // so the pre-19-06 reading of this flag — "achieved redundancy is below what was
+    // asked" — would have been `false`, and a caller filtering on it would have accepted a
+    // shard that failed to get the independence it asked for.
+    expect(degraded.degraded).toBe(true)
+    expect(degradeRun.ok && degradeRun.job.complete).toBe(false)
+
+    // And the receipt names the weaker outcome rather than the stronger one. This is
+    // criterion 1's load-bearing word: a labelled weaker result is not a silent one.
+    const degradedAttestation = degraded.attestation
+    if ('kind' in degradedAttestation) {
+      throw new Error(`expected a receipt, got the named absence: ${degradedAttestation.reason}`)
+    }
+    expect(degradedAttestation.strength).toBe('owner-domain')
+    expect(degradedAttestation.strength).not.toBe('independent')
+    expect(degradedAttestation.description).toBe(describeAttestation('owner-domain'))
+    expect(degradedAttestation.replicas).toBe(2)
+    expect([...degradedAttestation.operators]).toStrictEqual(['one-ops'])
+
+    // ---- A-refuse: the strict arm, over the SAME live agents. ----------------------
+    const refuseRun = await submitOver(2, 'refuses-the-shard')
+    const refused = shardOf(refuseRun)
+
+    expect(refused.verification.status).toBe('insufficient')
+    if (refused.verification.status !== 'insufficient') return
+    // The composer's own words reached the requestor through the job result — the same
+    // string the degrade arm carried on `quorum`, so the two arms are demonstrably reading
+    // one refusal rather than composing two.
+    expect(refused.verification.reason).toBe(degraded.quorum.reason)
+    expect(refused.quorum).toStrictEqual(degraded.quorum)
+    expect(refuseRun.ok && refuseRun.job.complete).toBe(false)
+    // Nothing ran, so there is nothing to attest and the receipt says exactly that rather
+    // than reporting a strength over an empty set.
+    expect('kind' in refused.attestation && refused.attestation.kind).toBe(
+      'holds-no-verified-attestation',
+    )
+
+    // ---- The control: redundancy 1, on BOTH arms. ---------------------------------
+    // The dial is read where a shortfall happened and nowhere else, and this is the
+    // assertion that says so: the same fabric, the same three one-operator agents, and
+    // both arms produce the identical undegraded `owner-attested` answer because no quorum
+    // was attempted at all.
+    for (const arm of ['runs-at-available-redundancy', 'refuses-the-shard'] as const) {
+      const controlRun = await submitOver(1, arm)
+      const control = shardOf(controlRun)
+      expect(control.quorum.kind, arm).toBe('not-attempted')
+      if (control.quorum.kind !== 'not-attempted') return
+      expect(control.quorum.reason, arm).toBe(
+        'redundancy 1 asks for no verification, so there is no quorum to compose',
+      )
+      expect(control.verification.status, arm).toBe('agreed')
+      expect(control.degraded, arm).toBe(false)
+      expect(controlRun.ok && controlRun.job.complete, arm).toBe(true)
+      const controlAttestation = control.attestation
+      if ('kind' in controlAttestation) {
+        throw new Error(`expected a receipt on ${arm}, got: ${controlAttestation.reason}`)
+      }
+      expect(controlAttestation.strength, arm).toBe('owner-attested')
+      expect(controlAttestation.replicas, arm).toBe(1)
+    }
+  }, PROCESS_TEST_TIMEOUT)
+})
+
+/**
+ * Fabric B — three distinct operators, one relay between all of them and the world.
+ *
+ * **This is the case that carries rule 2.** The three-operator case above satisfies
+ * "no two members share a relay" incidentally, because three spawned agents are seeds;
+ * deleting rule 2 from `composeQuorum` leaves it green. Here the operators are deliberately
+ * distinct — `ra-ops`, `rb-ops`, `rc-ops` — so rule 1 is satisfied and **only** rule 2 can
+ * fire. Asserting the refusal *kind* rather than merely that something degraded is what
+ * separates the two: `insufficient-operators` would degrade this shard too, and would mean
+ * the fixture was built wrong.
+ *
+ * ## Why the executors are in-process, and what that costs
+ *
+ * `bin/agent.ts` cannot produce a `via-relay` node — the full measurement is in this file's
+ * header. So these three are `FabricNode`s started `listen: []` with one `relayAddrs`
+ * entry, which is the construction `relayed-job.node.test.ts` uses and the topology a
+ * browser peer has no way to avoid. **Their provider is a real spawned process**, so
+ * `operatorId`, `discoverability` and `relayIds` are all still statements a provider signed
+ * about a node rather than fixture fields — which is the property the criterion is about.
+ * What is lost is that the executors are not separate operating-system processes.
+ *
+ * The relay is a single point of failure over which a redundancy of two is not a
+ * redundancy: lose it and every member of the quorum goes at once. That is what eclipse
+ * resistance means here, and it is the whole of what survives the anchor rule's retraction.
+ */
+interface RelayedFixture {
+  readonly provider: Agent
+  readonly relay: FabricNode
+  readonly executors: readonly FabricNode[]
+  readonly requestor: FabricNode
+  readonly inputCid: CID
+  readonly moduleCid: CID
+  readonly moduleRecord: NameRecord
+}
+
+/**
+ * One spawned provider, one in-process relay, and three `via-relay` executors that hold a
+ * reservation on it and bind nothing of their own.
+ *
+ * `listen: []` plus one `relayAddrs` entry is the entire mechanism: `fabric-node.ts:1057`
+ * turns that into a listen list of `['/p2p-circuit']`, `:1067` reads `canRelay` off it as
+ * false, and `:611-612` therefore signs `discoverability: 'via-relay'` with the relay's peer
+ * id into `relayIds`. Nothing here is engineered beyond the relay address; the certificate
+ * is a provider's statement about a node that genuinely binds nothing, and each node's
+ * `circuitAddrs` is awaited so the reservation is a granted fact rather than a request.
+ *
+ * ## The executors dial the requestor, and that is the architecture rather than a shortcut
+ *
+ * **The relay is a signalling channel for registration and discovery, not a data path** —
+ * this repository's recorded Phase 3 decision, restated in `CLAUDE.md` against libp2p's own
+ * measured defaults: 2 minutes and 128 KiB per relayed connection. *"Once connected, the
+ * peers are indistinguishable"*, and the relay drops out. So the connection a job travels
+ * over is a direct one, opened here by the side that cannot be dialled — the same direction
+ * a browser peer opens after WebRTC signalling completes.
+ *
+ * **Routing the job over the circuit instead was tried and measured**, because it is the
+ * obvious first arrangement: with the requestor holding its own reservation and dialling
+ * three `/p2p-circuit` addresses, one peer's every first request stalled for the full 30 s
+ * RPC timeout — a 33 s peer-gate verdict, a 30 s discovery, a 30 s submit, and a shard that
+ * came back with **one** replica of the two it placed. `relayed-job.node.test.ts` already
+ * records the same wall: *"a full redundant job over relayed connections is NOT verified
+ * here. Attempting it surfaced a design problem that needs a fix rather than a test."* This
+ * file does not re-open that; it measures what rule 2 reads, which is the **discovery**
+ * graph the certificates name, not the socket the bytes took.
+ *
+ * The requestor therefore needs no reservation and no `circuitRelayTransport`: it listens on
+ * TCP and is dialled.
+ */
+async function standUpBehindOneRelay(): Promise<RelayedFixture> {
+  const encoded = await canonicalCid(SHARD_VALUE)
+  if (!encoded.ok) throw new Error('fixture value is not encodable')
+
+  const relay = await FabricNode.start({
+    listen: ['/ip4/127.0.0.1/tcp/0/ws'],
+    maxReservations: 8,
+    trustAnchors: [publisher.pub],
+  })
+  nodes.push(relay)
+  const relayAddr = relay.browserDialableAddrs[0]
+  if (relayAddr === undefined) throw new Error('the relay published no browser-dialable address')
+
+  const provider = await spawnAgent('p', ['--issues-certificates'])
+  if (provider.issuerKey === null) throw new Error('the provider announced no issuer key')
+
+  const executors: FabricNode[] = []
+  for (const [name, fill, operatorId] of [
+    ['ra', 0xba, 'ra-ops'],
+    ['rb', 0xbb, 'rb-ops'],
+    ['rc', 0xbc, 'rc-ops'],
+  ] as const) {
+    const node = await FabricNode.start({
+      blockstoreDir: join(workdir, name),
+      // No listen address of its own — the browser's situation exactly, and the only
+      // construction in this repository that yields a `via-relay` certificate.
+      listen: [],
+      relayAddrs: [relayAddr],
+      rpcTimeoutMs: 30_000,
+      trustAnchors: [publisher.pub],
+      trustedIssuers: [provider.issuerKey],
+      enrollment: {
+        userPrivateKey: new Uint8Array(SEED_BYTES).fill(fill),
+        operatorId,
+        providerAddr: provider.multiaddrs[0] as string,
+      },
+    })
+    nodes.push(node)
+    // Seeded after start rather than before, because unlike the spawned fixture this is
+    // the same process that owns the store — there is no second opener to race.
+    await node.store.put(encoded.bytes)
+    await node.store.put(MODULE_WRITES_PARTITION)
+    executors.push(node)
+  }
+
+  for (const node of executors) {
+    await until(
+      () => node.circuitAddrs.length > 0,
+      RELAYED_VERDICT_DEADLINE_MS,
+      `${node.peerId} to hold a circuit address; relay failures were ${JSON.stringify(node.relayFailures)}`,
+    )
+  }
+
+  const requestor = await FabricNode.start({
+    blockstoreDir: join(workdir, 'requestor'),
+    listen: ['/ip4/127.0.0.1/tcp/0'],
+    rpcTimeoutMs: 20_000,
+    trustAnchors: [publisher.pub],
+    trustedIssuers: [provider.issuerKey],
+  })
+  nodes.push(requestor)
+
+  // Inward, one dial per executor — the opposite direction from the spawned fixtures, and
+  // the only direction available: a node that binds nothing cannot be dialled directly.
+  const requestorAddr = requestor.multiaddrs.find(
+    (ma) => ma.includes('/tcp/') && !ma.includes('/p2p-circuit'),
+  )
+  if (requestorAddr === undefined) throw new Error('the requestor bound no direct address')
+  for (const node of executors) await node.dial(requestorAddr)
+
+  const moduleCid = await requestor.store.put(MODULE_WRITES_PARTITION)
+  await requestor.store.put(encoded.bytes)
+
+  return {
+    provider,
+    relay,
+    executors,
+    requestor,
+    inputCid: encoded.cid,
+    moduleCid,
+    moduleRecord: recordFor('quorum-agents-writes-partition', moduleCid),
+  }
+}
+
+describe('criterion 1 engineered — one relay: caught by rule 2 and named by its relay', () => {
+  it('refuses for the shared relay and not for the operators, degrades under the default dial, and names the relay in the composer’s words', async () => {
+    const fixture = await standUpBehindOneRelay()
+    const { relay, executors, requestor } = fixture
+
+    // Membership, for the reason recorded at the spawned fixtures' wait — and this is the
+    // fixture that taught it. The requestor holds a reservation on the relay, so the relay
+    // is a connected peer of its own, and a count reached three before the third executor's
+    // records round trip had landed.
+    await until(
+      () => executors.every((node) => requestor.verifiedPeers.includes(node.peerId)),
+      RELAYED_VERDICT_DEADLINE_MS,
+      () =>
+        `all three relayed peers verified; the verified set was ` +
+        `${JSON.stringify(requestor.verifiedPeers)} and the relay is ${relay.peerId}`,
+    )
+
+    // Node by node, and this is the fixture that made it necessary — see `untilAdvertises`.
+    for (const node of executors) {
+      await untilAdvertises(requestor, node, fixture.inputCid, RELAYED_VERDICT_DEADLINE_MS)
+    }
+
+    // ---- The requestor reached and qualified every one of them. --------------------
+    const found = await discoverCandidates({ inputCid: fixture.inputCid }, candidateOptions(fixture))
+    expectAllThreeQualified(
+      found,
+      executors.map((node) => ({ peerId: node.peerId })),
+    )
+
+    // ---- The fixture is engineered for rule 2 and against rule 1. ------------------
+    // Three distinct operators, so `insufficient-operators` cannot fire; one shared relay
+    // named on every certificate, so `shared-relay-dependency` is the only thing left.
+    // Both read off what the provider process signed.
+    const certificates = found.nodes.map((node) => certificateOf(found.nodes, node.nodeId))
+    expect(new Set(certificates.map((c) => c.operatorId)).size).toBe(3)
+    for (const certificate of certificates) {
+      expect(certificate.discoverability).toBe('via-relay')
+      expect(certificate.relayIds).toStrictEqual([relay.peerId])
+    }
+
+    // One object, one varying field — fabric A's construction, for fabric A's reason.
+    const submitOver = async (
+      onQuorumShortfall: 'runs-at-available-redundancy' | 'refuses-the-shard',
+    ) =>
+      submitJob(
+        {
+          moduleCid: fixture.moduleCid,
+          moduleRecord: fixture.moduleRecord,
+          shards: [{ value: SHARD_VALUE, label: 'public' }],
+          executors: found.executors,
+          nodes: found.nodes,
+          redundancy: 2,
+          onQuorumShortfall,
+        },
+        requestor.store,
+      )
+
+    const shardOf = (result: Awaited<ReturnType<typeof submitOver>>): ShardResult => {
+      if (!result.ok) throw new Error(`submitJob refused the whole job: ${JSON.stringify(result.error)}`)
+      const shard = result.job.shards[0]
+      if (shard === undefined) throw new Error('expected one shard')
+      return shard
+    }
+
+    // ---- B-degrade: the default arm. ----------------------------------------------
+    const degradeRun = await submitOver('runs-at-available-redundancy')
+    const degraded = shardOf(degradeRun)
+
+    expect(degraded.quorum.kind).toBe('not-composed')
+    if (degraded.quorum.kind !== 'not-composed') return
+    // The kind, not merely that something happened. This is the assertion that fails if
+    // the fixture is built with one shared `--operator-id` — the single most likely way to
+    // get it wrong — because the reason would then be `insufficient-operators`.
+    expect(degraded.quorum.refusal.kind).toBe('shared-relay-dependency')
+    if (degraded.quorum.refusal.kind !== 'shared-relay-dependency') return
+    expect(degraded.quorum.refusal.relayId).toBe(relay.peerId)
+    expect(degraded.quorum.reason).toBe(
+      `every member of the quorum is discoverable only through relay ${relay.peerId}; ` +
+        'its failure would lose the whole quorum',
+    )
+    expect(degraded.degraded).toBe(true)
+
+    // The shard ran anyway — that is what degrading means — and the receipt reports the
+    // strength it actually got rather than the one it asked for.
+    expect(degraded.verification.status).toBe('agreed')
+    expect(agreeingIds(degraded)).toHaveLength(2)
+    const degradedAttestation = degraded.attestation
+    if ('kind' in degradedAttestation) {
+      throw new Error(`expected a receipt, got the named absence: ${degradedAttestation.reason}`)
+    }
+    expect(degradedAttestation.replicas).toBe(2)
+    // **And the receipt honestly reads `independent` on a shard that is `degraded`.** Two
+    // separate operators did agree, which is exactly what that label claims; what this
+    // fabric lacks is *path* independence, and `degraded` plus the composer's reason are
+    // what carry that. `ShardResult.degraded`'s doc says the two are different tests and
+    // that neither can be inferred from the other — asserted here rather than assumed,
+    // because the pairing looks like a contradiction until it is read.
+    expect(new Set(degradedAttestation.operators).size).toBe(2)
+    expect(degradedAttestation.strength).toBe('independent')
+    // The receipt also names the shared relay itself, so a reader holding only the receipt
+    // can see the dependency the composer refused on.
+    expect(degradedAttestation.sharedRelay).toBe(relay.peerId)
+    expect(degradeRun.ok && degradeRun.job.complete).toBe(false)
+
+    // ---- B-refuse: the strict arm, over the SAME live nodes. -----------------------
+    const refuseRun = await submitOver('refuses-the-shard')
+    const refused = shardOf(refuseRun)
+
+    expect(refused.verification.status).toBe('insufficient')
+    if (refused.verification.status !== 'insufficient') return
+    expect(refused.verification.reason).toBe(degraded.quorum.reason)
+    expect(refused.verification.reason).toContain(relay.peerId)
+    expect(refused.quorum).toStrictEqual(degraded.quorum)
+    expect(refuseRun.ok && refuseRun.job.complete).toBe(false)
   }, PROCESS_TEST_TIMEOUT)
 })
