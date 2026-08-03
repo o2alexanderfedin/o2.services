@@ -471,3 +471,229 @@ staged, edited or reverted. `.planning/STATE.md` was not touched and no criterio
 `refactor(…)` gate: nothing needed cleaning after green. Both gates were observed, not
 assumed — the RED run returned **5 failed | 16 passed** before any implementation existed, and
 each of the five failures is named above or in the deviations.
+
+---
+
+# Correction — 2026-08-03: the anchor rule is retracted
+
+**Everything above is left as written.** The plan was executed faithfully, the measurements in
+it are real and were re-checked here, and the finding it reported about rules 2 and 3 is
+correct. What was wrong was the *instruction*, and the error is the owner's rather than the
+executor's. This section is appended rather than folded in, because a summary rewritten to
+match a later ruling stops being evidence of what was found.
+
+| Commit | What |
+|---|---|
+| `0314208` | `fix(19-02)` — the rule and its refusal kind removed, rule 2 moved back onto the member set |
+| `b1fc0ae` | `docs(19-01)` — the same premise removed from `NodeDescriptor.certificate`'s docblock |
+
+## 1. What was removed
+
+Rule 3 in `composeQuorum` (`const anchor = ordered.find((c) => c.discoverability === 'seed')`),
+its refusal kind `no-direct-discovery-path` carrying `relayDependent`, and the four spec cases
+that asserted it.
+
+**It keys on node kind, which `STATE.md:479-480` forbids** — *"the only legitimate use is
+shared-dependency analysis over the discovery graph"*, and rule 2 already **is** that analysis.
+Naming the refusal for a missing *path* rather than a missing *node class* was careful and did
+not change what the predicate read. The counter-example sat three lines above the rule in this
+repository's own record: an iPhone dialled at its `/p2p-circuit/webrtc` address ran half of a
+2×-redundant job in Phase 3. A relay-discovered peer has already held a verification slot here.
+
+The correct reading, owner ruling 2026-08-03: **`backbone-anchored` describes the replica, not
+the node** — at least one copy of the result pinned somewhere durable, so the verification
+outlives the nodes that produced it. Three tabs behind one relay are a perfectly good quorum
+provided one of them pins its result.
+
+`classifyAttestation(members)` on the ok arm is **untouched**. That half of 19-02 was correct,
+is unrelated to the rule, and its mutation was re-planted and re-observed here (M5 below).
+
+## 2. Where rule 2 ended up, and the measurement that decided it
+
+**Back on the member set, where it was before 19-02.** Not because the old position was old,
+but because the pool position is *strictly weaker* and the difference is exactly what VER-09
+exists to refuse.
+
+19-02's reasoning — that rule 3 made a post-hoc rule-2 check dead code — was correct, and the
+premise is now gone. But the move was not merely unnecessary; it left a hole, and the hole was
+**observed rather than argued**. With rule 3 deleted and rule 2 still on the pool
+(`sharedRelay(distinct)`), the run returned exit **1**, **2 failed | 19 passed**, both with the
+signature `expected true to be false` — that is, `result.ok === true`:
+
+```
+× refuses a quorum whose own members share a relay the wider pool does not
+× refuses a one-member quorum that hangs off a single relay
+```
+
+The fixture is a pool on `relay-1`, `relay-1`, `relay-2`. `sharedRelay` over the pool is `null`
+— the paths really are independent across all three — so rule 2 asked of the pool passes, and
+the two members drawn at `size: 2` **both hang off relay-1**. That composition reports a
+redundancy of two against a single point of failure.
+
+The general statement: members are a subset of the pool, so a relay common to every candidate is
+common to every member — **pool-refusal implies member-refusal, and the converse fails**. The
+member set is also what the caller receives and what the failure domain is a property of.
+
+**The side effect 19-02 recorded was rule 3's, not the move's.** `requireIndependentPaths: false`
+composes a single-relay fixture again, and it would have done so wherever rule 2 sat: rule 3 was
+deliberately not conditioned on the flag, which is what left the flag deciding *which refusal
+spoke* rather than whether one did. It is wanted — it is the flag's documented purpose and it is
+public API — and the reworked case now asserts both halves rather than the one assertion it
+carried before 19-02.
+
+**One consequence worth flagging for 19-06 and 19-12 rather than leaving to be found.** At
+`size: 1` a lone relay-discovered node is refused by rule 2, because a quorum of one has exactly
+the failure domain of its only member. This is pre-19-02 behaviour, restored rather than
+invented, and it is genuine shared-dependency analysis. But it is the one place where rule 2's
+verdict correlates perfectly with `discoverability`, and anybody auditing the cardinal rule will
+stop on it. It is recorded here so that the answer is on file before the question is asked.
+
+## 3. Where the anchor requirement belongs — finding, not implementation
+
+**It cannot live in `composeQuorum`, and nothing was built on a guess.**
+
+`composeQuorum` runs *before* execution over `NodeCertificate[]`. Durability of a result is a
+fact that only exists *after* execution, and the certificate type was re-read field by field
+(`enrollment.ts:100-124`): `nodeKey`, `userKey`, `operatorId`, `discoverability`, `relayIds`,
+`issuedAt`, `expiresAt`, `issuer`, `signature`. **Nothing states whether a node pins durably**,
+and no node-level durability advertisement exists anywhere in `packages/*/src`.
+
+The three candidates named for investigation, each checked:
+
+| Candidate | Verdict |
+|---|---|
+| A durability claim on `CapabilityRecord` | **Structurally plausible, and wrong.** It is the right *shape* — node-signed, re-signable locally, meaningful only bolted to a provider-signed certificate, already carrying `features` and `sovereignFor`. Two things kill it. First, it is a **claim**, and `discovery.ts` records owner ruling **D1** rejecting exactly this shape for provider records: *"a node that evicts a block still reads as a provider until something retracts the announcement."* A node that claims durable pinning and then evicts reads as an anchor on identical terms. Second, and worse, it answers the wrong question — a capability record states what a node *can* do, while VER-03 is about **one specific replica of one specific result**. A node able to pin, that did not pin this output, satisfies the claim and not the requirement. Also note `composeQuorum` does not take capability records at all, so this would not reach it without a further type change |
+| `attestationReceipt` | **The right place to _report_ it, the wrong place to _establish_ it.** It takes `agreeing: readonly NodeCertificate[]` and derives every field from certificates, so it cannot answer a storage question either. It is nonetheless the natural surface — it already exists to be *"a receipt a reader can act on without knowing how the quorum was built"*, and it already carries `sharedRelay`, a fact of exactly this kind. An `anchored` field belongs beside it, but the receipt must **receive** the fact, not derive it |
+| The point the result is pinned / provided | **Where it belongs.** The result is already content-addressed: `ResultWork.outputCid` is *"`canonicalCid` of the output the node produced — the answer being attested"* (`result-attestation.ts:89-101`). So the anchor is a statement about a CID that already exists, and the repository already holds both halves of the machinery — `providers(cid)` answered **at ask time from a node's own store** (`SelfRecordIndex`, per ruling D1, i.e. an observation rather than an announcement), and `SovereignCids` / `FsSovereignCids` as the worked precedent for durability done honestly, where `add` resolves only once the append is flushed so *"a node that recorded a CID and then lost power comes back still refusing it"* |
+
+**Proposed shape, for whoever owns VER-03 next.** A post-execution check over a completed job:
+for each verified shard, at least one agreeing replica's `outputCid` is held by a node whose
+store is durable, established by **asking** rather than by reading a claim, and surfaced as an
+`anchored` field on the receipt. It is a property of a finished result, not a precondition on a
+quorum — and when it is unmet the remedy is to **pin another copy**, never to refuse the
+composition. That distinction is the whole of what 19-02 got wrong: it turned a repair into a
+refusal, and put the refusal before the thing it was about.
+
+## 4. Anything else on the wrong premise
+
+**`packages/core/src/sovereignty.ts` — `NodeDescriptor.certificate`'s docblock, from 19-01, not
+19-02.** It read *"`discoverability` is what makes a member backbone-anchored"* and listed VER-03
+among the requirements the field carries onto the dispatch path. **This is where the rule came
+from** — 19-02 implemented what this sentence asserted. Corrected in `b1fc0ae`: the field still
+genuinely carries VER-04 and VER-08…VER-10, and VER-03 is struck with the reason recorded in
+place. Comment only; no behaviour changed, and `sovereignty.test.ts` was run alongside.
+
+**Nothing else.** `no-direct-discovery-path` was referenced only in `quorum.ts` and
+`quorum.test.ts` — confirmed by grep across the tree and by `tsc --noEmit` exit **0** after
+removal, which is the load-bearing reading that no other module consumed the kind. The
+**mutation ledger holds no entry for `packages/core/src/quorum.ts`** (`grep` exit **1**), so
+nothing needed re-aiming: 19-02 flagged its three mutations for 19-12 to encode and they were
+never added. Of those three, M1 and M2 keyed on the deleted `anchor` line and are now void —
+**19-12 must not encode them**; M3 (the `strength` constant) is live and re-proved below.
+
+## 5. Verification — every command, exit code read directly
+
+`EXIT=$?` on the line immediately after each command, no pipe between them. The single piped run
+early on is reported as the runner's own summary line and was re-taken unpiped.
+
+| Command | Exit | Reading |
+|---|---|---|
+| `vitest run --project node …/quorum.test.ts` (baseline, before any edit) | **0** | 1 file, **21 passed** |
+| same (RED, new spec against unchanged source) | **1** | **5 failed \| 16 passed (21)** |
+| same (**stage A** — rule 3 deleted, rule 2 left on the pool) | **1** | **2 failed \| 19 passed (21)** — the hole, quoted in §2 |
+| same (**stage B** — rule 2 moved onto the members) | **0** | 1 file, **21 passed** |
+| `tsc --noEmit` | **0** | no output — and the reading that nothing else used the deleted kind |
+| same spec — mutation 1 | **1** | **6 failed \| 15 passed (21)** |
+| same spec — mutation 2 | **1** | **2 failed \| 19 passed (21)** |
+| same spec — mutation 3 | **1** | **1 failed \| 20 passed (21)** |
+| same spec — mutation 4 | **1** | **1 failed \| 20 passed (21)** |
+| same spec — mutation 5 | **1** | **1 failed \| 20 passed (21)** |
+| `vitest run --project node …/quorum.test.ts …/sovereignty.test.ts` (final) | **0** | 2 files, **30 passed** |
+| `tsc --noEmit` (final, every mutation restored) | **0** | no output |
+| the six cheap guards, against the staged index | **0** | 6 files, **156 passed** — re-run by the hook on both commits |
+
+Only the two projects' worth of files touched were run, always `--project node`. The full suite
+was never run and `npm run test:node` was never run. `quorum.test.ts` also matches the `browser`
+project's include; that project was deliberately not run. **No failure looked like a timeout or
+a flake**, and nothing here is reported as unresolved under load. Load average was 18.43 on 8
+cores at the start; **no duration is recorded and no timeout was added or tuned.**
+
+## 6. Every mutation, planted and observed
+
+Each `find` string was confirmed to occur **exactly once** by `grep -Fc` before planting. Each
+was restored by `cp` from a snapshot taken while green and verified by `cmp` exit **0**;
+`git checkout --` was never used.
+
+| # | Mutation | Predicted | Observed | Held |
+|---|---|---|---|---|
+| 1 | the node-kind rule reinstated — `if (!members.some((c) => c.discoverability === 'seed')) return refuse(…)` | the two counter-example cases refuse | exit **1**, **6 failed \| 15 passed** | ✅ |
+| 2 | rule 2 back on the pool — `sharedRelay(members)` → `sharedRelay(distinct)` | the two member-set cases compose | exit **1**, **2 failed \| 19 passed** | ✅ |
+| 3 | the dependency-count preference dropped from the sort | the ordering case picks the shared-relay pair | exit **1**, **1 failed \| 20 passed** | ✅ |
+| 4 | the waiver ignored — `rules.requireIndependentPaths ?? true` → `true` | the waived half refuses | exit **1**, **1 failed \| 20 passed** | ✅ |
+| 5 | 19-02's M3 re-planted — `classifyAttestation(members)` → `'independent'` | the size-1 strength reading names both values | exit **1**, **1 failed \| 20 passed** | ✅ |
+
+**Mutation 1 is the one that matters**, because it is the deleted rule coming back. Six cases
+see it, and the two written for the retraction name it exactly:
+
+```
+× does not disqualify relay-discovered peers from the slots of a quorum
+      AssertionError: expected false to be true
+× composes a quorum no member of which can be dialled cold
+      AssertionError: expected false to be true
+```
+
+**Mutation 5 came back verbatim as 19-02 recorded it** — `expected 'independent' to be
+'owner-attested'`, naming both values — which is the cross-check that the untouched half of
+19-02 is still guarded by the case it was built with.
+
+## 7. A proof that could not fail, said out loud
+
+The ordering case as first written (`prefers the fewest discovery dependencies when filling the
+slots`) **passed under mutation 3 and was therefore proving nothing.** Its fixture named the
+zero-dependency node `n1`, which sorts first by node key *and* by dependency count, so removing
+the dependency-count term from the comparator left the answer identical. It was rewritten before
+being committed: the seed is now `z9`, so the two orderings genuinely disagree, and two slots
+are asked of three candidates so that the preference decides whether the members share relay-1
+at all. Mutation 3 reddens it only after that change.
+
+Recorded because it is the same class of defect this correction is about — a check that reads as
+load-bearing and cannot fail — and because it was caught by planting, not by reading.
+
+## 8. What is deliberately not touched
+
+- **`.planning/REQUIREMENTS.md`.** VER-03's row still reads *"Built, not wired"*, which now
+  over-claims: after this change VER-03 has **no implementation at all**. That is the honest
+  state and 19-12 owns row verdicts. Note also that VER-03's own requirement text still says
+  *"anchored on a **backbone node**"* — the wording that produced this error. Correcting it is an
+  owner decision, not this correction's, and weakening it here would have hidden the finding.
+- **`.planning/ROADMAP.md`** criterion text, and **`.planning/STATE.md`**.
+- **`packages/core/src/job/verify.ts` and the `agreeing` type**, which plan 19-14 holds in this
+  shared tree. Neither was read for edit nor staged.
+
+## Self-Check: PASSED
+
+Both commits found in `git log --oneline`, and neither deleted a tracked file (`git diff
+--diff-filter=D` empty for each):
+
+```
+FOUND  0314208  fix(19-02): a seed requirement is a node class, not a discovery-graph rule
+FOUND  b1fc0ae  docs(19-01): VER-03 is not carried by a certificate field
+```
+
+Files claimed modified, off disk: `packages/core/src/quorum.ts`, `packages/core/src/quorum.test.ts`,
+`packages/core/src/sovereignty.ts`.
+
+**One claim in this section was written wrong and is corrected rather than quietly fixed**, since
+that is the discipline this whole correction is about. It first read that `no-direct-discovery-path`
+*"matches only this planning directory's prose, never `packages/`"*. Checked, and false: it still
+occurs twice under `packages/` — `quorum.ts:23` and `quorum.test.ts:179` — in the two retraction
+docblocks that name what was removed, which is deliberate. The claim that is true and was the one
+worth making: it occurs **nowhere as a type member or a value**, verified by grepping
+`kind: 'no-direct-discovery-path'`, `kind === 'no-direct-discovery-path'` and
+`toBe('no-direct-discovery-path')` across `packages/` for `grep` exit **1**, and corroborated by
+`tsc --noEmit` exit **0**.
+
+Every path was staged explicitly; `git add -A` was never used, `git checkout --` was never used,
+`git clean` was never run, and no branch was created or switched. The other agent's in-flight
+files were never staged, edited or reverted, and `git status --porcelain` was read before each
+commit.
