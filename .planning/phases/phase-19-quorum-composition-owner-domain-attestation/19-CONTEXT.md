@@ -18,21 +18,28 @@ phase is wrong on two counts**, and both change what the plans must contain.
 <decisions>
 ## Implementation Decisions
 
-### The backbone-anchored replica — VER-03 needs BUILDING, not wiring
+### ~~The backbone-anchored replica — VER-03 needs BUILDING, not wiring~~ — VOID 2026-08-03
 
-- **`composeQuorum` does not implement it today.** It sorts candidates by `relayIds.length`
-  ascending (`packages/core/src/quorum.ts:140-142`) and refuses on a *shared* relay via
-  `sharedRelay` (`:169`). **Nothing requires a member that is backbone-anchored.** There is no
-  `backbone` symbol anywhere in `packages/*/src` — the only occurrences are prose in
-  `libp2p/src/constants.ts:13,85`, `fabric-node.ts:34` and `sovereignty.ts:46`.
-- **Decision: derive it from `discoverability`, not from a new certificate field.** A node whose
-  `discoverability` is `seed` is the backbone marker the fabric already understands, and
-  `composeQuorum` gains a rule requiring at least one such member.
-- **Why this shape and not an explicit `backbone` field.** The project's cardinal rule is that
-  **all nodes have equal functionality and the only difference is discovery.** Backbone-anchored
-  is therefore a statement about *discovery*, which the certificate already carries. A new
-  explicit field would mint a second concept beside `discoverability` and would read as a node
-  tier — the one thing a decision here is forbidden to introduce.
+**This whole section is void. Do not implement anything in it.** It said to derive the anchor
+rule from `discoverability === 'seed'`, that was built in plan 19-02, and it was **retracted in
+`0314208` for keying on node kind.** The full account is in the RETRACTED item under *"Two
+consequences measured during wave 1"* below; the short version is that `STATE.md:479-480` permits
+discovery data **only** for shared-dependency analysis, which is what `sharedRelay` already does.
+
+**VER-03 was reworded by owner ruling 2026-08-03 and is now satisfiable without new machinery.**
+Its rationale clause always read *"so eclipsing a quorum requires a backbone compromise"* — the
+requirement is **eclipse resistance**, and `composeQuorum`'s rule 2 over the **chosen member set**
+delivers exactly that. "Anchored on a backbone node" was mechanism wording from before the
+cardinal rule existed. See `REQUIREMENTS.md`'s VER-03 entry and `ROADMAP.md`'s criterion 1 comment.
+
+**What survives from the original section, and is still true:** `composeQuorum` sorts candidates
+by `relayIds.length` ascending (`packages/core/src/quorum.ts:140-142`) and refuses on a shared
+relay via `sharedRelay`. There is no `backbone` symbol anywhere in `packages/*/src` — and after
+this ruling there should not be one.
+
+**Left visible rather than deleted**, because the error is the instructive part: I proposed this
+derivation *believing* a discovery-derived rule was the safe choice that avoided minting a node
+class, and had the constraint exactly backwards.
 
 ### `composeQuorum` has a latent defect aimed straight at criterion 2
 
@@ -117,10 +124,10 @@ The gate belongs at the composition site: quorum composition applies to `label =
 
 ### Criterion 4 — the relay answers rendezvous; tabs keep the sentinel
 
-- **`browser-node.ts:1187` supplies `reservations: 'relays-for-nobody'` — a named absence.**
-  `FabricNode` supplies a real thunk (`fabric-node.ts:1589`). So **a tab cannot answer another
+- **`browser-node.ts:1201` supplies `reservations: 'relays-for-nobody'` — a named absence.**
+  `FabricNode` supplies a real thunk (`fabric-node.ts:1601`). So **a tab cannot answer another
   tab's rendezvous**, and criterion 4's phrase *"the wired `index`/`reservations` hooks"* is
-  half-true: `index` is genuinely wired (`browser-node.ts:1164`, byte-identical to the Node
+  half-true: `index` is genuinely wired (`browser-node.ts:1178`, byte-identical to the Node
   tier's), `reservations` is not.
 - **Decision: two tabs discover each other by both asking the relay**, which is a `FabricNode`
   holding a real thunk. No browser-tier protocol change. This matches the recorded constraint
