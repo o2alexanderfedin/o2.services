@@ -52,6 +52,14 @@ export { submitJob } from './job/submit.ts'
 export type {
   JobResult,
   JobSpec,
+  // VER-09, VER-10. Added by Plan 19-10 because a display site outside this package
+  // cannot name what it is rendering without them: `bin/bench.ts` prints a rung's
+  // strength and the demo UI (19-11) renders the same value. 19-06 defined all three
+  // and deliberately left the barrel alone — that file was under concurrent edit — and
+  // 19-CONTEXT.md records the handoff. Types only: nothing new is *callable* from here.
+  NoVerifiedAttestation,
+  ShardAttestation,
+  ShardQuorum,
   ShardResult,
   ShardSpec,
   SubmitError,

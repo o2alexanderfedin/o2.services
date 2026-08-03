@@ -44,6 +44,7 @@ import type {
   Executor,
   NameRecord,
   NodeDescriptor,
+  ShardAttestation,
   Task,
 } from '@o2/core'
 import type { CID } from 'multiformats/cid'
@@ -744,6 +745,116 @@ async function realFabric(nodes: number): Promise<Fabric> {
   }
 }
 
+/**
+ * A rung produced no job at all, so there is nothing of its to describe — WIRE-01's
+ * named absence rather than a `null` a printer would render as a blank.
+ *
+ * Distinct from {@link ShardAttestation}'s own absence arm, and the difference is the
+ * whole reason it is a separate value: that one says *jobs ran and nothing about who ran
+ * them could be checked*, this one says *no job ran*. A rung that threw is reported by
+ * the `excluded:` path instead; this covers the narrower case where every iteration came
+ * back a submit error.
+ */
+type NoJobToAttest = 'no-run-of-this-rung-returned-a-job'
+
+/**
+ * One rung's receipt, with the population it was read off.
+ *
+ * **The population is carried, not assumed, and this is the whole of why this type
+ * exists.** A run whose shards did not all agree carries the named absence *because it
+ * failed*, not because nothing signed — `jobAttestationOf` takes the weakest shard, and
+ * one `insufficient` shard collapses the job's receipt. Measured on the `--discover` arm
+ * on 2026-08-03: **the first iteration of both real rungs stalls exactly `rpcTimeoutMs`
+ * and comes back incomplete**, while later iterations of the same rung complete. A
+ * reading taken off iteration 1 would therefore have reported *"nothing was established"*
+ * for a rig that establishes something on every subsequent run — a reading that is
+ * neither wrong nor useful, and one no reader could have told apart from a fabric whose
+ * nodes genuinely sign nothing.
+ *
+ * So the receipt is taken off the rung's **first completed run**, which is exactly the
+ * population `@o2/bench`'s `measure` computes `makespan` over — *"an incomplete run never
+ * enters makespan statistics"*, its own words. Following that rule rather than inventing
+ * one is what keeps this from being a filter chosen because of the answer it gave: the
+ * `incomplete` column beside these curves already publishes how many runs were dropped,
+ * so a reader can see the size of the population this reading came from.
+ *
+ * And when **no** run completed, that is said in the line rather than hidden by falling
+ * back silently — a rung that never completed a job has no completed run to attest, and
+ * the reading it does have is worth strictly less.
+ */
+interface RungAttestation {
+  readonly attestation: ShardAttestation
+  /** `Observation.complete` of the run this was taken off — every shard agreed, undegraded. */
+  readonly fromCompletedRun: boolean
+}
+
+/**
+ * How strongly one rung's result was attested — VER-09, VER-10, criterion 3's CLI half.
+ *
+ * ## Three things this line is, each of which it would be easy to get wrong
+ *
+ * **The value is the job's, not this driver's.** Every field below is read off
+ * `JobResult.attestation`, which `submitJob` builds from signatures it checked. A driver
+ * that derived the label from `config.redundancy` would print the right answer on this
+ * rig for the wrong reason, and would go on printing it after the mechanism underneath
+ * broke — which is exactly the substitution `discover-arm.node.test.ts` plants against.
+ *
+ * **The sentence is the kernel's, not a new string.** `attestationReceipt` fills
+ * `description` from `describeAttestation`, so this printer copies rather than composes.
+ * The demo UI renders the same field, and one source of the words is the only thing that
+ * stops the two surfaces describing one result differently.
+ *
+ * **A rung that established nothing says so, in words, and never a label.** *"We cannot
+ * say"* and *"one node said so"* are different statements, and keeping them different is
+ * the whole of VER-10. The named absence therefore prints as `none established` — a phrase
+ * no reader can mistake for a strength — with the two counts that decide what to do
+ * about it (`agreeing` matched, `verified` of those proved it) and the kernel's own
+ * reason after the dash.
+ *
+ * ## Why every memory rung reads that absence, and why that is honest
+ *
+ * `memoryFabric` builds its descriptors with `publicNodes`, which carries no certificate
+ * by construction, and nothing enrolled its endpoints. So this requestor holds no
+ * certificate for any replica and can account for none of them. That is a true statement
+ * about the rig, not a gap in this line — and printing the weakest *label* there instead
+ * would be the failure that looks most like success.
+ *
+ * The same is true of **every rung of a default run**: certificates reach a descriptor
+ * only through the `--discover` arm. The report's `unmet` list says so where a reader of
+ * the published table will find it.
+ */
+function attestationReading(held: RungAttestation | NoJobToAttest): {
+  population: string
+  reading: string
+} {
+  if (held === 'no-run-of-this-rung-returned-a-job') {
+    return {
+      population: 'no job returned',
+      reading:
+        'none established (agreeing 0, verified 0) — no iteration of this rung returned a job, ' +
+        'so there was nothing to attest',
+    }
+  }
+  const population = held.fromCompletedRun
+    ? 'first completed run'
+    : 'no run of this rung completed; first job it returned'
+  const { attestation } = held
+  if ('kind' in attestation) {
+    return {
+      population,
+      reading:
+        `none established (agreeing ${attestation.agreeing}, verified ${attestation.verified}) — ` +
+        attestation.reason,
+    }
+  }
+  return {
+    population,
+    reading:
+      `${attestation.strength} (replicas ${attestation.replicas},` +
+      ` operators ${attestation.operators.length}) — ${attestation.description}`,
+  }
+}
+
 /** Build a runner that reuses one fabric per node count across all iterations. */
 function runnerFor(build: (nodes: number) => Promise<Fabric>): {
   run: JobRunner
@@ -754,11 +865,26 @@ function runnerFor(build: (nodes: number) => Promise<Fabric>): {
    * point itself, not only from a test harness that constructs its own guard.
    */
   egressTotals: () => { entries: number; bytes: number }
+  /**
+   * How strongly the first job this rung completed was attested — VER-09, VER-10.
+   *
+   * Surfaced beside the observations rather than re-derived, and the alternative is
+   * worth naming because it is the obvious one: submitting an extra job to read a
+   * receipt off would change what the rung measures, and a benchmark whose
+   * configuration moved between runs has rows that cannot be compared.
+   *
+   * The **first** completed job and not the last, because they are the same reading —
+   * the rig is built once per node count and every iteration runs against it — and
+   * first is the one a reader can locate in the output above the line. See
+   * {@link RungAttestation} for why the *completed* population and not every run.
+   */
+  attestationFor: (nodes: number) => RungAttestation | NoJobToAttest
   dispose: () => Promise<void>
 } {
   const fabrics = new Map<number, Fabric>()
   let egressEntries = 0
   let egressBytes = 0
+  const attestations = new Map<number, RungAttestation>()
 
   const run: JobRunner = async (config, codeCache) => {
     let fabric = fabrics.get(config.nodes)
@@ -878,6 +1004,21 @@ function runnerFor(build: (nodes: number) => Promise<Fabric>): {
     // no aggregate is a complete **map** with a failed **aggregation**; `reduce.ok`
     // records that, and `bench-reduce.node.test.ts` guards this expression by shape.
     const complete = result.ok && result.job.complete
+
+    // VER-09 / VER-10. Recorded here rather than at the submit above, so that the
+    // population this reading comes from is literally `Observation.complete` and cannot
+    // drift from the population `makespan` is summarised over. A completed run replaces
+    // a partial one and never the reverse, and nothing replaces a completed one — so
+    // this is *the first completed run*, with the rung's first job as the weaker
+    // fallback when no run of it completed. Strictly after the makespan bracket closed;
+    // a `Map` read and a field copy either way.
+    if (result.ok) {
+      const held = attestations.get(config.nodes)
+      if (held === undefined || (complete && !held.fromCompletedRun)) {
+        attestations.set(config.nodes, { attestation: result.job.attestation, fromCompletedRun: complete })
+      }
+    }
+
     // Useful node-seconds = gross ÷ redundancy, because every replica of a shard
     // does the identical work and exactly one of them is the answer. Stated rather
     // than derived from a field, since the job's own "useful" figure is in fuel.
@@ -902,6 +1043,7 @@ function runnerFor(build: (nodes: number) => Promise<Fabric>): {
   return {
     run,
     egressTotals: () => ({ entries: egressEntries, bytes: egressBytes }),
+    attestationFor: (nodes) => attestations.get(nodes) ?? 'no-run-of-this-rung-returned-a-job',
     dispose: async () => {
       for (const fabric of fabrics.values()) await fabric.close()
       fabrics.clear()
@@ -981,6 +1123,20 @@ async function main(): Promise<void> {
 
   process.stdout.write(`o2 benchmark — ${QUICK ? 'quick' : 'full'} run, ${RUNS} iterations\n`)
 
+  /**
+   * The per-rung attestation readings, in the order they were printed.
+   *
+   * Carried into the report so a reader of `.planning/bench/raw.json` sees what a reader
+   * of the terminal saw. Deliberately **not** folded into `unmet`: this is a measurement
+   * of each rung, and `unmet` is the list of things this run did not establish.
+   */
+  const attested: { config: string; population: string; reading: string }[] = []
+  const sayAttestation = (config: string, held: RungAttestation | NoJobToAttest): void => {
+    const { population, reading } = attestationReading(held)
+    process.stdout.write(`    attestation (${population}): ${reading}\n`)
+    attested.push({ config, population, reading })
+  }
+
   const memory = runnerFor(memoryFabric)
   const memoryResults: SweepResult[] = []
   for (const nodes of LADDER) {
@@ -992,6 +1148,12 @@ async function main(): Promise<void> {
         { runs: RUNS },
       ),
     )
+    // After the rung's runs, never before: the reading belongs to a job that happened.
+    // **The sweep's shape is unchanged by this line** — same ladders, same iteration
+    // counts, same rungs, same redundancy — because a benchmark whose configuration
+    // moved between runs has rows that cannot be compared with the ones already
+    // published.
+    sayAttestation(`memory transport, ${nodes} nodes`, memory.attestationFor(nodes))
   }
   const memoryEgress = memory.egressTotals()
   process.stdout.write(
@@ -1012,6 +1174,7 @@ async function main(): Promise<void> {
           { runs: RUNS },
         ),
       )
+      sayAttestation(`real transport, ${nodes} nodes`, real.attestationFor(nodes))
     } catch (cause) {
       // Published as excluded, never silently dropped — the methodology commits to
       // this. A rung that vanishes between plan and results is indistinguishable
@@ -1042,6 +1205,7 @@ async function main(): Promise<void> {
     { nodes: 4, shards: SHARDS, redundancy: 2, transport: 'memory', skew: 'skewed' },
     { runs: RUNS },
   )
+  sayAttestation('skewed configuration, memory transport, 4 nodes', skewRunner.attestationFor(4))
   await skewRunner.dispose()
 
   process.stdout.write('  single-threaded baseline…\n')
@@ -1058,6 +1222,12 @@ async function main(): Promise<void> {
     realTransport: realResults,
     connectivity: connectivityTax(memoryResults, realResults),
     crossover: costCrossover(baselineSummary, memoryResults),
+    /**
+     * VER-09 / VER-10 — how strongly each rung's result was attested, per rung, in the
+     * same words the terminal printed. Read off `JobResult`, never derived from the rung's
+     * configuration.
+     */
+    attestation: attested,
     unmet: [
       '**No parallel speedup is measurable here, by construction.** Every node in both' +
         ' curves runs inside one OS process on one JavaScript event loop — the memory' +
@@ -1080,6 +1250,19 @@ async function main(): Promise<void> {
         ' independent executors, and one node cannot supply them. Its verification tax of' +
         ' 1.0 is therefore a property of the system, not a cheaper configuration — the' +
         ' same reason a sovereign shard with one owner node is owner-attested.',
+      '**A default run of this driver establishes no attestation strength on any rung,' +
+        ' and the `attestation` readings above will all say so.** That is a property of' +
+        ' the rigs rather than of the fabric, and it is measured rather than assumed: a' +
+        ' descriptor carries a certificate only where one was discovered, discovery runs' +
+        ' only under `--discover`, and `memoryFabric` builds its descriptors with' +
+        ' `publicNodes`, which carries none by construction — so on a default run this' +
+        ' requestor holds no certificate for any replica and can account for none of them.' +
+        ' The labelled readings — a one-replica rung reading `owner-attested`, a' +
+        ' two-operator rung reading `independent` — are available only on a `--discover`' +
+        ' run, whose numbers must not be published beside these ones for the reason stated' +
+        ' at that flag. What is therefore **unmeasured here** is the attestation of the' +
+        ' configuration these curves were taken under; what is measured is that it was not' +
+        ' established, which is a different and weaker statement.',
       'Speculation and churn taxes are 1.0 and 0 because `submitJob` neither speculates' +
         ' nor re-dispatches and no node was killed during these runs. They are identities,' +
         ' not measurements.',
