@@ -641,7 +641,7 @@ Criterion 6 needs no plan — it landed on `develop` as `351bde1` before this ph
 **Mode:** mvp
 **Depends on**: Phase 18, Phase 17
 **Requirements**: AUTH-05, NET-06, VER-03, VER-04, VER-08, VER-09, VER-10, WIRE-03
-**Research**: None — `composeQuorum`, `attestationReceipt`, and `resolveReplicaSets` exist and are unit-verified in Phase 6; the gap is that nothing on the production dispatch path calls them, and no test has ever put two tabs on a static bundle without a harness dialing for them
+**Research**: None — but *"the gap"* is three different gaps, and calling them one is what this line got wrong. **Corrected in place 2026-08-03 by plan 19-03**; the superseded sentence and the measurements that refute it are in the dated note below the criteria. `attestationReceipt` and `resolveReplicaSets` exist, are unit-verified in Phase 6, and are indeed only *uncalled* on the production dispatch path. `composeQuorum` is not in that state: VER-03's anchored replica is **unimplemented rather than unwired**, and its ok arm returns `strength: 'independent'` unconditionally while never calling `classifyAttestation`, so wiring it as it stood would have reported every quorum `independent`. And no test had ever put two tabs on a static bundle without a harness dialing for them — that one is closed by 19-03
 **Constraints** (recorded 2026-07-28 by Phase 13, before criterion 2's plan is written):
   - Raw sovereign data does not move between nodes, including two nodes the same owner controls — `EgressGuard.send` refuses any frame carrying a registered sovereign payload rather than forwarding it (Plan 13-04). Criterion 2 below is therefore reachable only if the owner has already placed the input on both of their live nodes; the fabric will not fetch it onto the second one. See the **Raw sovereign data does not move between nodes** row in `.planning/PROJECT.md`'s Key Decisions
   - **CORRECTED 2026-08-02 — this bullet previously said two things that are false, and both would have misdirected the WIRE-03 planner.** It read: *"`BrowserNode` composes the identical `EgressGuard` and `registerSovereignInputs` wiring `FabricNode` does, but no sovereign job has ever run in a browser, so the refusal branch is compiled and never executed."* (1) **`registerSovereignInputs` does not exist in this repository** — zero definitions, zero calls. The name was retired; the real symbols are `takeSovereignHold` and `withholdingFrom`, both exported at `packages/net/src/index.ts:77`, and `packages/net/src/capability-authorizer.ts:20-25` already records this verbatim. The planning documents inherited a name the source had dropped — the same failure this bullet's neighbour below documents for a different sentence. (2) **"No sovereign job has ever run in a browser" is refuted**: `packages/node/src/browser-capability.e2e.test.ts` dispatches three `label:'sovereign'` tasks (`:280-281`) to a live tab started with `canExecuteSovereign: true` (`:213`) and asserts the third is *accepted and executed* (`:349-353`)
@@ -679,7 +679,42 @@ Criterion 6 needs no plan — it landed on `develop` as `351bde1` before this ph
 
   2. Several node certificates chaining to one owner's user key resolve, through `bin/agent.ts`, as a single discoverable replica set; a sovereignty-pinned task with two or more of that owner's nodes live executes on two of them, the outputs are compared, and the receipt reports the agreement as owner-domain, not independent-operator
   3. The same task with only one of that owner's nodes live executes once, and the resulting receipt reads owner-attested rather than verified, wherever it is displayed — CLI output, demo UI, or job result
-  4. Two browser peers opened against the static demo bundle — no seed process running, no `/bootstrap.json`, nothing dialed by a test harness — discover each other via the wired `index`/`reservations` hooks and complete a job together, proving browser peers participate in routing as full peers rather than only through backbone-served fallback. Run on **one host** under Playwright multi-browser (`chromium`, `firefox`, `webkit`), each peer in its own isolated context, against a locally-started relay — see the browser-tier testing standard in Constraints above; the result is a one-host result and is labelled as one
+  4. Two browser peers opened against the static demo bundle — no seed process running, no `/bootstrap.json`, nothing dialed by a test harness — discover each other via the `index` hook each of them serves and the `reservations` answer the relay gives, and complete a job together, proving browser peers participate in routing as full peers rather than only through backbone-served fallback. Run on **one host** under Playwright multi-browser (`chromium`, `firefox`, `webkit`), each peer in its own isolated context, against a locally-started relay — see the browser-tier testing standard in Constraints above; the result is a one-host result and is labelled as one
+
+<!-- CRITERION 4's HOOK PHRASING CORRECTED 2026-08-03 BY PLAN 19-03, AND THE CORRECTION WAS
+     ITSELF CORRECTED BY OWNER RULING THE SAME DAY. The property is unchanged and the bar is
+     not lowered. This is a factual correction to a statement about the source, not a criterion
+     adjusted so a phase can close — RULING A above is explicit that a criterion is not
+     rewritten to let a phase close, and no other criterion text in this entry is touched.
+
+     WHAT IT USED TO SAY. *"discover each other via the wired `index`/`reservations` hooks"*.
+     That reads as though both hooks were wired on both tiers, and one of them is not.
+
+     WHAT WAS MEASURED. `index` is wired on both tiers and identically: `index: records` at
+     `browser-node.ts:1178` and `fabric-node.ts:1578`, each built by the same `ownRecords(
+     certificate, identity, sovereignty.canExecuteSovereign, store, withholdingFrom(
+     egressDisposition))` call over its own tier's store. `reservations` is wired on the Node
+     tier only — a real thunk over the reservation store at `fabric-node.ts:1601` — while the
+     browser tier supplies the **named absence** `'relays-for-nobody'` at `browser-node.ts:1201`.
+
+     WHY NOT SIMPLY NAME `index` ALONE. `19-CONTEXT.md` proposed exactly that, and the owner
+     ruled on 2026-08-03 that it **understates** the criterion. Both hooks are load-bearing;
+     they are just load-bearing on different nodes. The rendezvous answer that introduces two
+     tabs comes from the relay's `reservations` thunk, and each tab's own `index` hook is what
+     makes it a full routing peer rather than a client of one — which is precisely the clause
+     *"as full peers rather than only through backbone-served fallback"*. Dropping the second
+     name would have left that clause resting on nothing.
+
+     WHAT THE ASYMMETRY IS AND IS NOT. It is a statement about what each node *knows*, not
+     about what either is permitted to do. A tab holds no reservations of its own, so a tab
+     answering `reservations` would be reporting on peers it learned from a relay — a different
+     claim than the hook makes. **This is not a node-class decision** and must not be read as
+     one; giving the browser tier a real `reservations` thunk is deferred by decision, and if a
+     later phase wants it, it is a protocol question about what the hook asserts.
+
+     MEASURED, not argued from construction: `packages/node/src/static-rendezvous.e2e.test.ts`
+     takes both readings on the built bundle with no origin to ask and no harness dial. -->
+
   5. **Enrolling a node costs an attacker something they cannot mint for free**, and the cost is measured: creating the N-th fake identity is demonstrably more expensive than creating the first. Routed here by owner ruling 2026-08-01 from Phase 17's AUTH-04, whose rate-limiting half is proven and whose cost half is not
 
 **Criterion 5 exists because Phase 17 measured its own rate limit and found what it does not buy.** The burst limit is real and fully proven — a stated threshold read out of the refusal the peer received, `limit: 5 / windowMs: 3_600_000` on the wire. But AUTH-04's text asks that mass fake-node creation be *"measurably costly"*, and Phase 17's verification established two things that defeat it. The limit is keyed on `userKey`, which is **one `ed25519.keygen()`** — so twenty distinct user keys all enrol unslowed, and removing the rate guard entirely leaves that test green. And the budget is per provider **process**: a second provider defeats it without needing a second user key at all, asserted across two spawned providers.
@@ -725,6 +760,10 @@ Plans:
      shape `discovery-agents.node.test.ts` already uses for Phase 18's criteria 1 and 2.
      Plans 19-08 and 19-09 take that shape and say so in their own headers. Recorded here
      the way Phase 18 recorded its own at line 592, rather than left for verification.
+     Re-measured 2026-08-03 by plan 19-03, whose own task list carried this substitution as a
+     third correction to make: still zero hits for all three symbols, and `process.stdout.write`
+     still occurs exactly once in the file, at `:601`. Nothing was added — the record was
+     already correct, and duplicating it would have made one measurement look like two.
 
      THE `Research: None` LINE ABOVE IS WRONG ON TWO COUNTS, both measured 2026-08-02.
      VER-03's backbone-anchored replica is **unimplemented**, not unwired — `composeQuorum`
