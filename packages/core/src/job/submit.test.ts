@@ -1590,3 +1590,240 @@ describe('VER-08/VER-09/VER-10 — every shard says how strongly it was attested
     expect(r.job.attestation).toMatchObject({ strength: 'owner-attested' })
   })
 })
+
+/**
+ * VER-03 / VER-04 — the quorum on the submission path, and the dial that decides what
+ * an uncomposable one costs.
+ *
+ * **The same one-operator fabric appears in two of these cases and produces opposite
+ * outcomes.** That is the point: the only thing that differs between them is
+ * `onQuorumShortfall`, so nothing else can be what decided.
+ */
+describe('VER-03/VER-04 — a public shard wanting verification gets a composed quorum, or the caller’s answer', () => {
+  it('composes across two operators on independent paths, and the shard is not degraded', async () => {
+    const a = enrol('a', 'op-a', ['relay-a'])
+    const b = enrol('b', 'op-b', ['relay-b'])
+    const r = await submitJob(
+      {
+        moduleCid: MODULE_CID,
+        shards: [{ value: { n: 1 }, label: 'public' }],
+        executors: [signing(a), signing(b)],
+        nodes: [descriptorFor(a), descriptorFor(b)],
+        redundancy: 2,
+        onQuorumShortfall: 'runs-at-available-redundancy',
+      },
+      new MemoryBlockstore(),
+    )
+
+    expect(r.ok).toBe(true)
+    if (!r.ok) return
+    const shard = r.job.shards[0] as ShardResult
+    expect(shard.quorum).toMatchObject({ kind: 'composed' })
+    if (shard.quorum.kind === 'composed') {
+      expect([...shard.quorum.operators].sort()).toStrictEqual(['op-a', 'op-b'])
+    }
+    expect(shard.degraded).toBe(false)
+    expect(shard.attestation).toMatchObject({ strength: 'independent' })
+  })
+
+  it('degrades by default when one operator holds every candidate, and carries the composer’s reason', async () => {
+    const one = enrol('bob-1', 'op-bob', ['relay-1'])
+    const two = enrol('bob-2', 'op-bob', ['relay-2'])
+    const r = await submitJob(
+      {
+        moduleCid: MODULE_CID,
+        shards: [{ value: { n: 1 }, label: 'public' }],
+        executors: [signing(one), signing(two)],
+        nodes: [descriptorFor(one), descriptorFor(two)],
+        redundancy: 2,
+        onQuorumShortfall: 'runs-at-available-redundancy',
+      },
+      new MemoryBlockstore(),
+    )
+
+    expect(r.ok).toBe(true)
+    if (!r.ok) return
+    const shard = r.job.shards[0] as ShardResult
+    // The job runs. Phase 12 retired failing a job for a redundancy it could not get,
+    // and a candidate set too concentrated to verify is that condition one step out.
+    expect(shard.verification.status).toBe('agreed')
+    expect(shard.degraded).toBe(true)
+    // Not `independent`, which is what makes degrading defensible: the weaker outcome
+    // is named by construction.
+    expect(shard.attestation).toMatchObject({ strength: 'owner-domain', replicas: 2 })
+    expect(shard.quorum).toMatchObject({ kind: 'not-composed', refusal: { kind: 'insufficient-operators' } })
+    if (shard.quorum.kind === 'not-composed') {
+      // The composer's own words, not a reason this module composed. Without them a
+      // caller cannot tell an over-concentrated fabric from any other degradation.
+      expect(shard.quorum.reason).toBe(
+        'quorum of 2 needs 2 distinct operators, found 1',
+      )
+    }
+  })
+
+  it('refuses the same shard on the same fabric when the caller asked for refusal', async () => {
+    const one = enrol('bob-1', 'op-bob', ['relay-1'])
+    const two = enrol('bob-2', 'op-bob', ['relay-2'])
+    const r = await submitJob(
+      {
+        moduleCid: MODULE_CID,
+        shards: [{ value: { n: 1 }, label: 'public' }],
+        executors: [signing(one), signing(two)],
+        nodes: [descriptorFor(one), descriptorFor(two)],
+        redundancy: 2,
+        onQuorumShortfall: 'refuses-the-shard',
+      },
+      new MemoryBlockstore(),
+    )
+
+    expect(r.ok).toBe(true)
+    if (!r.ok) return
+    const shard = r.job.shards[0] as ShardResult
+    expect(shard.verification.status).toBe('insufficient')
+    if (shard.verification.status === 'insufficient') {
+      expect(shard.verification.reason).toBe('quorum of 2 needs 2 distinct operators, found 1')
+    }
+    expect(shard.attestation).toMatchObject({ kind: 'holds-no-verified-attestation' })
+    expect(r.job.complete).toBe(false)
+  })
+
+  it('degrades when every member depends on one relay, and names the relay', async () => {
+    const a = enrol('a', 'op-a', ['relay-shared'])
+    const b = enrol('b', 'op-b', ['relay-shared'])
+    const r = await submitJob(
+      {
+        moduleCid: MODULE_CID,
+        shards: [{ value: { n: 1 }, label: 'public' }],
+        executors: [signing(a), signing(b)],
+        nodes: [descriptorFor(a), descriptorFor(b)],
+        redundancy: 2,
+        onQuorumShortfall: 'runs-at-available-redundancy',
+      },
+      new MemoryBlockstore(),
+    )
+
+    expect(r.ok).toBe(true)
+    if (!r.ok) return
+    const shard = r.job.shards[0] as ShardResult
+    expect(shard.verification.status).toBe('agreed')
+    expect(shard.degraded).toBe(true)
+    expect(shard.quorum).toMatchObject({
+      kind: 'not-composed',
+      refusal: { kind: 'shared-relay-dependency', relayId: 'relay-shared' },
+    })
+    if (shard.quorum.kind === 'not-composed') {
+      expect(shard.quorum.reason).toContain('relay-shared')
+    }
+    // The receipt reports what the run established — two operators did agree — and the
+    // shared dependency is visible on it too rather than inferred from the refusal.
+    expect(shard.attestation).toMatchObject({ strength: 'independent', sharedRelay: 'relay-shared' })
+  })
+
+  it('attempts no quorum at redundancy 1, because there is no verification to compose one for', async () => {
+    const a = enrol('a', 'op-a', ['relay-a'])
+    const r = await submitJob(
+      {
+        moduleCid: MODULE_CID,
+        shards: [{ value: { n: 1 }, label: 'public' }],
+        executors: [signing(a)],
+        nodes: [descriptorFor(a)],
+        redundancy: 1,
+        onQuorumShortfall: 'refuses-the-shard',
+      },
+      new MemoryBlockstore(),
+    )
+
+    expect(r.ok).toBe(true)
+    if (!r.ok) return
+    const shard = r.job.shards[0] as ShardResult
+    // The strict arm is deliberate: a dial consulted where nothing was attempted would
+    // refuse a shard that had no shortfall.
+    expect(shard.verification.status).toBe('agreed')
+    expect(shard.quorum).toMatchObject({ kind: 'not-attempted' })
+    if (shard.quorum.kind === 'not-attempted') expect(shard.quorum.reason).toContain('redundancy 1')
+    expect(shard.attestation).toMatchObject({ strength: 'owner-attested' })
+  })
+
+  it('attempts no quorum for a sovereign shard, which is why owner-domain is reachable at all', async () => {
+    // One owner, two of her own nodes. `composeQuorum` holds one certificate per
+    // operator by construction, so handing it this shard would refuse it with
+    // `insufficient-operators` — correctly, and uselessly, because one operator is the
+    // whole point of a sovereign shard. The strict arm is what makes this case bite: if
+    // the shard reached the composer it would come back refused rather than agreed.
+    const one = enrol('carol-1', 'op-carol', ['relay-1'])
+    const two = enrol('carol-2', 'op-carol', ['relay-2'])
+    const r = await submitJob(
+      {
+        moduleCid: MODULE_CID,
+        shards: [{ value: { n: 1 }, label: 'sovereign', ownerId: 'carol' }],
+        executors: [signing(one), signing(two)],
+        nodes: [descriptorFor(one, 'carol'), descriptorFor(two, 'carol')],
+        redundancy: 2,
+        onQuorumShortfall: 'refuses-the-shard',
+      },
+      new MemoryBlockstore(),
+    )
+
+    expect(r.ok).toBe(true)
+    if (!r.ok) return
+    const shard = r.job.shards[0] as ShardResult
+    expect(shard.verification.status).toBe('agreed')
+    expect(shard.quorum).toMatchObject({ kind: 'not-attempted' })
+    if (shard.quorum.kind === 'not-attempted') expect(shard.quorum.reason).toContain('sovereign')
+    expect(shard.attestation).toMatchObject({ strength: 'owner-domain', replicas: 2 })
+    expect(shard.degraded).toBe(false)
+  })
+
+  it('attempts no quorum when a candidate carries no certificate, and the job still runs', async () => {
+    // A requestor holding no certificates cannot compose anything, and refusing its job
+    // would break every caller that builds descriptors through `publicNodes`. It is not
+    // a silent degradation: the receipt says the named absence on every shard.
+    const a = enrol('a', 'op-a', ['relay-a'])
+    const r = await submitJob(
+      {
+        moduleCid: MODULE_CID,
+        shards: [{ value: { n: 1 }, label: 'public' }],
+        executors: [signing(a), honest('bare')],
+        nodes: [
+          descriptorFor(a),
+          { nodeId: 'bare', ownerId: 'public', canExecuteSovereign: true, load: 0, certificate: 'carries-no-certificate' },
+        ],
+        redundancy: 2,
+        onQuorumShortfall: 'refuses-the-shard',
+      },
+      new MemoryBlockstore(),
+    )
+
+    expect(r.ok).toBe(true)
+    if (!r.ok) return
+    const shard = r.job.shards[0] as ShardResult
+    expect(shard.verification.status).toBe('agreed')
+    expect(shard.quorum).toMatchObject({ kind: 'not-attempted' })
+    if (shard.quorum.kind === 'not-attempted') expect(shard.quorum.reason).toContain('certificate')
+    expect(shard.attestation).toMatchObject({ kind: 'holds-no-verified-attestation' })
+  })
+
+  it('does not pre-declare a strength: a composed quorum whose second member cannot be checked reads the absence', async () => {
+    const a = enrol('a', 'op-a', ['relay-a'])
+    const b = enrol('b', 'op-b', ['relay-b'])
+    const r = await submitJob(
+      {
+        moduleCid: MODULE_CID,
+        shards: [{ value: { n: 1 }, label: 'public' }],
+        executors: [signing(a), signingSomethingElse(b)],
+        nodes: [descriptorFor(a), descriptorFor(b)],
+        redundancy: 2,
+        onQuorumShortfall: 'runs-at-available-redundancy',
+      },
+      new MemoryBlockstore(),
+    )
+
+    expect(r.ok).toBe(true)
+    if (!r.ok) return
+    const shard = r.job.shards[0] as ShardResult
+    // The gate says who was ASKED; the receipt says who ANSWERED and signed. Taking the
+    // strength from `QuorumResult.strength` would report `independent` here.
+    expect(shard.quorum).toMatchObject({ kind: 'composed' })
+    expect(shard.attestation).toMatchObject({ kind: 'holds-no-verified-attestation', verified: 1 })
+  })
+})
