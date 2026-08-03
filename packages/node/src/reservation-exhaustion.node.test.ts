@@ -132,14 +132,28 @@ async function startAgent(name: string, extra: readonly string[]): Promise<Start
   return { ...parsed, child, stderr, stdout: out }
 }
 
-/** Wait for `probe` to hold, polling. A sleep would be a guess about a retry loop. */
-async function until(probe: () => boolean, timeoutMs: number, what: string): Promise<void> {
+/**
+ * Wait for `probe` to hold, polling. A sleep would be a guess about a retry loop.
+ *
+ * **`detail` is a thunk, and that is the whole point of it rather than a style choice.**
+ * The evidence a timeout needs is what the process said *during* the wait, so a string
+ * built at the call site reports the state before the waiting started — which is empty,
+ * every time. This file shipped exactly that: case C passed `` `… stderr was ${c.stderr()}` ``,
+ * a template literal evaluated on entry, so it appeared to carry a diagnostic and carried
+ * a snapshot of nothing. Evaluated here, at the throw, it carries what actually arrived.
+ */
+async function until(
+  probe: () => boolean,
+  timeoutMs: number,
+  what: string,
+  detail?: () => string,
+): Promise<void> {
   const deadline = Date.now() + timeoutMs
   while (Date.now() < deadline) {
     if (probe()) return
     await new Promise((r) => setTimeout(r, 50))
   }
-  throw new Error(`timed out waiting for ${what}`)
+  throw new Error(`timed out waiting for ${what}${detail === undefined ? '' : `; ${detail()}`}`)
 }
 
 beforeEach(async () => {
@@ -211,7 +225,14 @@ describe('NET-05 criterion 4 — a full seed refuses a real joiner by name', () 
     // "the relay was not there" by the fact that B reached it: the seed granted A through
     // the very same address, in this run.
     const b = await startAgent('b', ['--relay-addr', relayAddr])
-    await until(() => b.stderr().includes('at-capacity'), REFUSAL_BUDGET_MS, 'b to be refused by name')
+    await until(
+      () => b.stderr().includes('at-capacity'),
+      REFUSAL_BUDGET_MS,
+      'b to be refused by name',
+      // The file's own deliverable was the one wait that reported nothing on failure,
+      // while C's reported a snapshot taken before the wait. Both now name what arrived.
+      () => `b's stderr was ${JSON.stringify(b.stderr())}`,
+    )
     expect(b.stderr()).toContain('relay reservation at-capacity: RESERVATION_REFUSED')
     // Named refusal, not an outage: nothing about B's report says unreachable.
     expect(b.stderr()).not.toContain('unreachable')
@@ -230,7 +251,8 @@ describe('NET-05 criterion 4 — a full seed refuses a real joiner by name', () 
     await until(
       () => c.stderr().includes('unreachable:'),
       REFUSAL_BUDGET_MS,
-      `c to name its unreachable relay; stderr was ${c.stderr()}`,
+      'c to name its unreachable relay',
+      () => `c's stderr was ${JSON.stringify(c.stderr())}`,
     )
     expect(c.stderr()).toContain('relay /ip4/127.0.0.1/tcp/1/ws unreachable:')
     // The other half of the distinction: C says unreachable and never says at-capacity.
