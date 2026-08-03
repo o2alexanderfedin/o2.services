@@ -37,8 +37,13 @@
  * candidate selection as **unmeasured** because there was no production caller to gate;
  * there is one now, and the `verifiedPeers` thunk below is it.
  *
- * **Quorum membership and relay use remain unmeasured.** Neither is gated on the
- * verified set, and nothing in this file reads them.
+ * **Quorum membership is measured now, and relay use only partly — both one file over.**
+ * `quorum-agents.node.test.ts` reads quorum composition over this same fixture shape:
+ * spawned `bin/agent.ts` agents, provider-signed certificates, the production submit path.
+ * Relay use it reads over in-process `FabricNode`s instead, because `bin/agent.ts` binds a
+ * port unconditionally and so can never produce a `via-relay` node; that file's header
+ * carries the measurement and what it costs. Neither is gated on the verified set, and
+ * nothing in *this* file reads either.
  *
  * ## Budget
  *
