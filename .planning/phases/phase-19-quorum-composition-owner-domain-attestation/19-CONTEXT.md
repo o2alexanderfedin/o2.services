@@ -233,20 +233,42 @@ this exposure acceptable is an argument, not a reading. Say so in the plan and i
 
 ### Two consequences measured during wave 1 — read before planning 19-06 or touching the challenges
 
-**1. A quorum cannot be composed from browser tabs alone, and that is VER-03 working.** Plan 19-02
-implemented the anchor rule as `discoverability === 'seed'`. A browser tab cannot bind a listening
-socket, so it is never seed-discoverable — therefore **a candidate set drawn purely from tabs, all
-`via-relay`, is refused with `no-direct-discovery-path`.**
+**1. RETRACTED 2026-08-03 — the anchor rule as built is WRONG and must be undone.** This entry
+used to say a quorum cannot be composed from browser tabs alone, and that this was VER-03 working.
+**Both halves were false**, the derivation that produced them was mine, and the error is instructive
+enough to leave visible rather than delete.
 
-This does **not** contradict *all nodes have equal functionality; the only difference is
-discovery*. It is a statement about discovery, which is exactly why the rule was derived from
-`discoverability` rather than from a minted field. Tabs compute, hold blocks, serve records and
-take quorum slots on identical terms — what a quorum additionally needs is **one member reachable
-without relay mediation**, which is what "backbone-anchored" means and what VER-03 asks for.
+Plan 19-02 implemented the anchor rule as `discoverability === 'seed'`, so an all-`via-relay`
+candidate set was refused with `no-direct-discovery-path`.
 
-The consequence to design around rather than rediscover: **a fabric of only browser visitors can
-have its work verified, but cannot form the verifying quorum by itself.** Any tabs-behind-one-relay
-fixture must include an anchored member. This binds 19-06's wiring and criterion 4's rig.
+**It violates this project's cardinal rule, stated at `STATE.md:479-480`:**
+
+> **If a decision keys on node kind, it is wrong** — the only legitimate use is shared-dependency
+> analysis over the discovery graph.
+
+`discoverability === 'seed'` **is** keying on node kind. And shared-dependency analysis is already
+what rule 2 does, correctly, by asking whether members share a relay. The seed requirement is not
+that analysis; it is a node class wearing a discovery field's clothes.
+
+**A measured counter-example already existed, three lines above that rule.** In Phase 3 an iPhone
+was dialled at its `/p2p-circuit/webrtc` address and **ran half of a 2×-redundant job**. A
+relay-discovered peer has already taken a verification slot in this fabric. *"Once connected, the
+peers are indistinguishable"* is a recorded, proven decision — the relay is a **signalling channel
+for registration and discovery, not a data path**, and it drops out once peers connect.
+
+**The correct reading, owner ruling 2026-08-03: `backbone-anchored` describes the REPLICA, not the
+node.** `CLAUDE.md`'s table says *"≥1 replica backbone-anchored"* — the noun is *replica*. A quorum
+is anchored when **at least one copy of its result is pinned somewhere durable**, so the
+verification survives the nodes that produced it going away. That is a **storage** property. It has
+nothing to do with who can be dialled cold, and three tabs behind one relay compose a perfectly
+good quorum provided one of them pins its result durably.
+
+**What this implies structurally, and it may not be resolvable inside `composeQuorum`.** That
+function runs *before* execution and takes `NodeCertificate[]`; durability of a result is a fact
+*after* execution, and **no field on `NodeCertificate` states whether a node pins durably.** So the
+anchor check may not belong at composition time at all — it may belong where the result is
+recorded. Whoever fixes this must decide that and say which, rather than forcing a durability
+question into a type that cannot answer it.
 
 19-02 also found that **rule 3 implies rule 2 over any chosen member set** — `sharedRelay` returns
 `null` the moment it sees a seed, so a rule-2 check placed after rule 3 is dead code and
