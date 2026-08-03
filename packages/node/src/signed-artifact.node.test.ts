@@ -308,7 +308,7 @@ describe('DET-03/DATA-08 — signed artifact resolution across a real bin/agent.
     if (shard?.verification.status !== 'agreed') return
     // The agreeing node is the spawned process, not the submitter. Without this the
     // whole file would be compatible with the job having quietly run in-process.
-    expect(shard.verification.agreeing).toEqual([agent.peerId])
+    expect(shard.verification.agreeing.map((e) => e.nodeId)).toEqual([agent.peerId])
 
     // The positive reading of the instrument every refusal below relies on.
     expect(await blockNames(agent.dir)).toContain(moduleCid.toString())

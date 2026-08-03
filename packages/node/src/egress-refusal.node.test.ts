@@ -358,7 +358,7 @@ describe('DATA-05 — the refusal across two real bin/agent.ts processes', () =>
     const controlShard = control.job.shards[0]
     expect(controlShard?.verification.status).toBe('agreed')
     if (controlShard?.verification.status !== 'agreed') return
-    expect(controlShard.verification.agreeing).toEqual([alice.peerId])
+    expect(controlShard.verification.agreeing.map((e) => e.nodeId)).toEqual([alice.peerId])
     expect(control.job.complete).toBe(true)
   }, 120_000)
 })

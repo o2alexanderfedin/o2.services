@@ -487,8 +487,13 @@ const api: TabApi = {
       complete: result.job.complete,
       found: bits !== null,
       statuses,
+      // Node ids, projected off the entries. `TabColouringRun.agreeing` is declared
+      // `readonly string[][]` and stays that way: what a tab reports to a page is peer
+      // ids, and the attestation each entry now carries is for a receipt, not a roster.
       agreeing: result.job.shards.map((shard) =>
-        shard.verification.status === 'agreed' ? [...shard.verification.agreeing] : [],
+        shard.verification.status === 'agreed'
+          ? shard.verification.agreeing.map((replica) => replica.nodeId)
+          : [],
       ),
       verificationMultiplier: result.job.verificationMultiplier,
       elapsedMs: performance.now() - started,
@@ -704,8 +709,9 @@ const api: TabApi = {
       partitions: result.job.shards.map((s) =>
         s.verification.status === 'agreed' ? partitionOf(s.verification.output) : -1,
       ),
+      // Node ids, as above. `TabJobReport.agreeing` is unchanged.
       agreeing: result.job.shards.map((s) =>
-        s.verification.status === 'agreed' ? [...s.verification.agreeing] : [],
+        s.verification.status === 'agreed' ? s.verification.agreeing.map((replica) => replica.nodeId) : [],
       ),
       replicas: result.job.shards.map((s) =>
         s.verification.status === 'agreed' ? s.verification.replicas : 0,

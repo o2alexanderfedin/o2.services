@@ -27,8 +27,9 @@
  * `packages/node/src/fabric-node.ts` and `packages/browser/src/browser-node.ts` — the two
  * sites that already compose `guardModuleProvenance` — and
  * `packages/node/src/trust-anchors.node.test.ts:366-394` gains the textual guard that
- * leg 1 already has there. Plan 19-14 makes `VerificationResult.agreeing` carry the
- * attestation, which is the first thing that reads one.
+ * leg 1 already has there. Plan 19-14 has landed: `VerificationResult`'s `agreeing`
+ * entries carry an attestation each, so a reader for one exists — and until 19-15
+ * composes this wrapper, every entry that reader sees reports the sentinel.
  *
  * A wrapper exported and never composed is exactly the *built, not wired* condition this
  * milestone exists to remove. It is acceptable here for one wave only, and only because

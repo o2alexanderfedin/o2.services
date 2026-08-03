@@ -243,7 +243,7 @@ describe('DATA-03/DATA-04 — sovereignty-pinned placement across real bin/agent
     if (shard?.verification.status === 'agreed') {
       // Never one of the two idle foreign processes, despite them being the
       // "cheaper" choice by every load signal a naive scheduler would react to.
-      expect(shard.verification.agreeing).toEqual([alice.peerId])
+      expect(shard.verification.agreeing.map((e) => e.nodeId)).toEqual([alice.peerId])
     }
   }, 120_000)
 })
@@ -388,7 +388,7 @@ describe('SCHED-05 — sovereignty survives the offer loop, across real processe
     const [shard] = result.job.shards
     expect(shard?.verification.status).toBe('agreed')
     if (shard?.verification.status !== 'agreed') return
-    expect(shard.verification.agreeing).toEqual([alice.peerId])
+    expect(shard.verification.agreeing.map((e) => e.nodeId)).toEqual([alice.peerId])
 
     // Read from bob's own side rather than from the requestor's account of itself.
     await Promise.all(bobs.map((b) => stopAgent(b)))

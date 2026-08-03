@@ -327,7 +327,7 @@ describe('the rule: relaying and executing are the same node', () => {
     for (const shard of result.job.shards) {
       expect(shard.verification.status).toBe('agreed')
       if (shard.verification.status !== 'agreed') continue
-      expect(shard.verification.agreeing).toEqual([both.peerId])
+      expect(shard.verification.agreeing.map((e) => e.nodeId)).toEqual([both.peerId])
     }
 
     // And it was relaying throughout — not "relayed once, then became a worker".
@@ -382,7 +382,7 @@ describe('the rule: relaying and executing are the same node', () => {
     for (const shard of result.job.shards) {
       expect(shard.verification.status).toBe('agreed')
       if (shard.verification.status !== 'agreed') continue
-      expect(shard.verification.agreeing).toEqual([guest.peerId])
+      expect(shard.verification.agreeing.map((e) => e.nodeId)).toEqual([guest.peerId])
     }
   }, 90_000)
 })

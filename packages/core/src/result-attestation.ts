@@ -10,11 +10,13 @@
  *
  * ## What this buys
  *
- * Agreement is attested today by **transport authentication only**. Noise proves that
- * peer X sent this frame, but that proof is not transferable: the submitter cannot show
- * it to anybody. `VerificationResult`'s `agreed` arm carries
- * `agreeing: readonly string[]` — plain node-id **strings** (`job/verify.ts:85-95`) —
- * and a receipt built on those is worth exactly the submitter's own word about itself.
+ * Agreement was attested by **transport authentication only**. Noise proves that peer X
+ * sent this frame, but that proof is not transferable: the submitter cannot show it to
+ * anybody. `VerificationResult`'s `agreed` arm carried `agreeing: readonly string[]` —
+ * plain node-id **strings** — and a receipt built on those is worth exactly the
+ * submitter's own word about itself. Plan 19-14 replaced that array with
+ * `AgreeingReplica`, so each entry now carries an {@link AttestedResult}; this file is
+ * what those entries are checked with.
  *
  * A `ResultAttestation` replaces that with a statement a stranger can check. A third
  * party holding **only the provider's public key** can establish: this output came from

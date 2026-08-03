@@ -427,7 +427,7 @@ describe('criterion 1 — a job placed from a CID, with no executor list', () =>
       expect(shard.verification.status).toBe('agreed')
       if (shard.verification.status !== 'agreed') continue
       expect(shard.verification.agreeing.length).toBeGreaterThan(0)
-      for (const nodeId of shard.verification.agreeing) {
+      for (const { nodeId } of shard.verification.agreeing) {
         expect(discovered.has(nodeId)).toBe(true)
       }
     }
@@ -525,7 +525,7 @@ describe('criterion 2 — sample, refuse, re-pick, complete', () => {
     expect(shard.verification.status).toBe('agreed')
     expect(result.job.complete).toBe(true)
     if (shard.verification.status !== 'agreed') return
-    expect(shard.verification.agreeing).not.toContain(busy.peerId)
+    expect(shard.verification.agreeing.map((e) => e.nodeId)).not.toContain(busy.peerId)
 
     // ---- The precondition still held WHILE the placement ran. -------------------
     // Read after rather than assumed. `MODULE_NEVER_RETURNS` is ended by the node's own
