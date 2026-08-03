@@ -61,10 +61,26 @@ import { describeAttestation } from '@o2/core'
  * That spread is the arm's, not this file's: **the first iteration of each real rung
  * stalls exactly `rpcTimeoutMs` (30 s) and comes back incomplete**, and every rung's
  * reduce leg fails and is retried. Both were measured while writing this file and neither
- * is caused by it — see `19-10-SUMMARY.md`, which files them rather than chasing them.
+ * is caused by it — deferred item 4 in this phase's `deferred-items.md` files them rather
+ * than chasing them.
  *
  * **This file reads labels and counts, never durations.** The numbers above are what the
  * wait costs, recorded so the next reader can price it; nothing here asserts on one.
+ *
+ * ## The one thing about it that is genuinely host-dependent, and what is done about it
+ *
+ * A rung has a strength to report only if one of its six iterations **completed** a job.
+ * On a quiet host both real rungs do. Inside a full `--project node` run, one of three
+ * observed on 2026-08-03 had the 1-node rung complete none of the six — it printed
+ * *"none established (agreeing 0, verified 0) — this shard is insufficient rather than
+ * agreed"*, which is the correct reading of a rung that established nothing, and is a
+ * statement about the stall above rather than about attestation.
+ *
+ * So a spawn whose real rungs did not read off a completed run is discarded and taken
+ * again, at most once. **That retries an observation and never an assertion** — a rung
+ * that completed a job and printed the wrong label is kept, and fails. See
+ * {@link MAX_ATTEMPTS}, where the line is argued, and {@link everyRealRungCompleted},
+ * where it is drawn.
  *
  * ## Why `cwd` is a temporary directory
  *
@@ -103,20 +119,45 @@ const BENCH = fileURLToPath(new URL('./bin/bench.ts', import.meta.url))
 const REPO = fileURLToPath(new URL('../../..', import.meta.url))
 
 /**
- * How long the driver gets to reach the last rung this file reads.
+ * How long one spawn gets to reach the last rung this file reads.
  *
- * Measured at 153 s and 213 s on a quiet host (table above). This is headroom for a
- * contended one, not an estimate of the mechanism, and it is a ceiling only reached when
- * a rung stops producing a reading — which is the failure this file is for.
+ * Measured at 153 s and 213 s on a quiet host, and 131-163 s inside a full node run
+ * (table above). This is headroom for a contended host, not an estimate of the
+ * mechanism, and it is a ceiling only reached when a rung stops producing a reading —
+ * which is the failure this file is for.
  */
-const READINGS_BUDGET_MS = 480_000
+const READINGS_BUDGET_MS = 420_000
+
+/**
+ * How many times the driver may be run to obtain the observation.
+ *
+ * **This retries an observation, never an assertion, and the distinction is the whole
+ * justification.** What the cases below check — that the CLI prints the strength its
+ * `JobResult` carries — does not depend on the host. What *is* host-dependent is whether
+ * a rung completes a job at all, and deferred item 4 measures why: on the `--discover`
+ * arm the first iteration of each real rung stalls exactly `rpcTimeoutMs`, and under full
+ * suite contention that can take **every** iteration of a rung with it. Observed
+ * 2026-08-03 in one full node run of three: the 1-node rung reported *"this shard is
+ * insufficient rather than agreed"* — no job of that rung completed, so there was
+ * genuinely nothing to attest and the driver said so correctly.
+ *
+ * A spawn whose real rungs did not all read off a completed run is therefore discarded
+ * and taken again. It is **not** discarded for reading the wrong label: a rung that
+ * completed a job and printed the wrong strength is kept and fails, which is the case
+ * this file exists for. That is the line between acquiring an observation and shopping
+ * for one, and it is drawn in {@link everyRealRungCompleted}.
+ *
+ * Two, not more: a third attempt buys little against a defect this size and turns a
+ * failure into a fifteen-minute one.
+ */
+const MAX_ATTEMPTS = 2
 
 /**
  * Per-case budget, carried by **every** case rather than by a hook — see {@link readings}
  * for why the wait is not in `beforeAll`. Whichever case runs first pays it; the rest
- * resolve immediately and never come near it.
+ * resolve immediately and never come near it. Covers {@link MAX_ATTEMPTS} spawns.
  */
-const SPAWN_TIMEOUT_MS = 540_000
+const SPAWN_TIMEOUT_MS = 900_000
 
 type BenchProcess = ChildProcessByStdio<Writable, Readable, Readable>
 
@@ -139,6 +180,9 @@ interface RungReading {
 
 /** The rungs this file waits for. The last one decides the wall clock. */
 const AWAITED: readonly string[] = ['real/1', 'real/2']
+
+/** `attestationReading`'s own word for a receipt taken off a run that completed. */
+const COMPLETED_RUN = 'first completed run'
 
 const keyOf = (transport: string, nodes: number): string => `${transport}/${String(nodes)}`
 
@@ -181,7 +225,10 @@ async function stopBench(): Promise<void> {
  * spawn site that hands over the wrong thing is the defect that guard exists to stop
  * spreading, and it reads sources rather than behaviour.
  */
-async function readAttestationLines(): Promise<void> {
+async function spawnAndRead(): Promise<{
+  readings: readonly RungReading[]
+  headings: readonly string[]
+}> {
   const spawned: BenchProcess = spawn(process.execPath, [BENCH, '--quick', '--discover'], {
     cwd: workdir,
     stdio: ['pipe', 'pipe', 'pipe'],
@@ -258,8 +305,52 @@ async function readAttestationLines(): Promise<void> {
     })
   })
 
-  collected = gathered
-  headings = seenHeadings
+  return { readings: gathered, headings: seenHeadings }
+}
+
+/**
+ * The condition a spawn must meet to be kept — see {@link MAX_ATTEMPTS}.
+ *
+ * **A rung that completed a job is kept whatever it printed.** This asks only whether
+ * there was a completed job to read a receipt off, which is the driver-stall condition
+ * deferred item 4 describes, and it deliberately does not look at the strength: a rung
+ * that ran and printed the wrong label must fail, not be spawned again until it agrees.
+ */
+function everyRealRungCompleted(found: readonly RungReading[]): boolean {
+  return AWAITED.every((key) =>
+    found.some((r) => keyOf(r.transport, r.nodes) === key && r.population === COMPLETED_RUN),
+  )
+}
+
+/** Every attempt's real-rung readings, so a double failure reports both. */
+const attemptLog: string[] = []
+
+/** Run the driver until its real rungs have a completed job to attest, or give up. */
+async function readAttestationLines(): Promise<void> {
+  let lastFailure: unknown = null
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    try {
+      const outcome = await spawnAndRead()
+      collected = outcome.readings
+      headings = outcome.headings
+      attemptLog.push(
+        `attempt ${String(attempt)}: ` +
+          outcome.readings
+            .filter((r) => r.transport === 'real')
+            .map((r) => `${keyOf(r.transport, r.nodes)} (${r.population}) ${r.reading}`)
+            .join(' | '),
+      )
+      await stopBench()
+      if (everyRealRungCompleted(outcome.readings)) return
+    } catch (cause) {
+      lastFailure = cause
+      attemptLog.push(`attempt ${String(attempt)}: ${cause instanceof Error ? cause.message : String(cause)}`)
+      await stopBench()
+    }
+  }
+  // Nothing usable at all — the rungs never spoke. A spawn that spoke but did not
+  // complete is left to the cases below, whose failures name the reading.
+  if (collected.length === 0) throw lastFailure ?? new Error(attemptLog.join('\n'))
 }
 
 /** The reading for one rung, or a failure that names which rung is missing. */
@@ -283,7 +374,11 @@ function strengthOf(transport: 'memory' | 'real', nodes: number): {
 } {
   const { reading } = rung(transport, nodes)
   const hit = STRENGTH.exec(reading)
-  if (hit === null) throw new Error(`${keyOf(transport, nodes)} reported no strength: ${reading}`)
+  if (hit === null) {
+    throw new Error(
+      `${keyOf(transport, nodes)} reported no strength: ${reading}\n${attemptLog.join('\n')}`,
+    )
+  }
   return {
     strength: hit[1] ?? '',
     replicas: Number(hit[2]),
@@ -364,7 +459,7 @@ describe('the driver says how strongly each rung was attested', () => {
     // Off a run that completed every shard, which is the population `measure` computes
     // `makespan` over. A reading off a partial run would carry the absence *because the
     // run failed*, which is a true statement about nothing this case is asking.
-    expect(rung('real', 1).population).toBe('first completed run')
+    expect(rung('real', 1).population, attemptLog.join('\n')).toBe(COMPLETED_RUN)
   }, SPAWN_TIMEOUT_MS)
 
   it('reads independent off the two-operator rung, which is what makes it a distinction', async () => {
@@ -374,7 +469,7 @@ describe('the driver says how strongly each rung was attested', () => {
     expect(two.replicas).toBe(2)
     expect(two.operators).toBe(2)
     expect(two.description).toBe(describeAttestation('independent'))
-    expect(rung('real', 2).population).toBe('first completed run')
+    expect(rung('real', 2).population, attemptLog.join('\n')).toBe(COMPLETED_RUN)
 
     // Asserted as a pair and deliberately here rather than in a fourth case: either
     // reading alone passes against a driver that prints one constant, and it is the two
