@@ -94,3 +94,39 @@ because contention is no longer the whole story: something makes these docker in
 for a full 60 s apiece on an idle machine. The probe's inability to tell a *slow* docker from an
 *absent* one is now the primary finding rather than a secondary one, and whoever picks this up
 should re-measure before trusting either the 18-01 reading or this one.
+
+---
+
+## 3. No guard reads a `file:line` citation in `REQUIREMENTS.md`, and the cheap one would read green
+
+**Found during:** the F-2 follow-up fix on 2026-08-03.
+
+**What went wrong first.** `a5a70c7` corrected four ledger rows; `548e119`, three commits later
+in the same plan, inserted fifteen comment lines into `fabric-node.ts` and sixteen into
+`browser-node.ts`. Every coordinate written below those points was stale before the plan closed.
+Sweeping the rest of the file found the same rot in citations written earlier and by other
+plans: **22 of the 27 `fabric-node.ts` / `browser-node.ts` coordinates in the ledger pointed at
+the wrong line**, one of them out by 117. Every claim was true; only the coordinates had moved.
+
+**Why a guard is wanted.** `requirements-ledger.node.test.ts` already parses these rows and
+already holds their *sentences* against the tree. It reads no coordinate, so this whole class is
+unguarded, and it is a class this repository keeps producing — a citation is a claim with an
+expiry date in the same way a call-site comment is.
+
+**The cheap version was measured rather than assumed, and it fails.** The tractable check is
+"a cited line must not be a comment or blank", since a drifted coordinate usually lands in the
+comment block that displaced it. Run against the 22 known-wrong coordinates before they were
+fixed, it flags **16 and reads green on 6** — including `SCHED-04`'s `fabric-node.ts:1460`
+(landed on `createThread: workerThread,`) and `AUTH-01`'s `fabric-node.ts:1077` (landed on a
+`Math.max(…)`). It also needs four exemptions up front, for the citations that deliberately name
+prose inside a comment. A guard that misses six of twenty-two while carrying an exemption list is
+the failure mode this repository keeps rediscovering: it reads green and it retires the question.
+
+**What a real one needs, and why it is not a line to slip into this diff.** To say *"the cited
+line shows what the row names"* the check must first extract what the row names, and the rows
+name things in at least six shapes — a constructor call, a property in an object literal, a
+method declaration, prose inside a comment, a `describe` title, and a string inside a data table.
+An extractor over English rows is a research task with its own measurement, and the alternative —
+re-shaping the citation syntax so it carries the text it points at, which is how
+`vocabulary.node.test.ts` solved the same problem for its exemptions — is a rewrite of every
+citation in the ledger. Either is a plan, not an addition to a documentation fix.
