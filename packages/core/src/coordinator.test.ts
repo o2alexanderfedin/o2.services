@@ -34,6 +34,9 @@ const node = (nodeId: string, ownerId = 'alice'): NodeDescriptor => ({
   ownerId,
   canExecuteSovereign: true,
   load: 0,
+  // Nothing in this file reads it. Stated because the type requires it to be stated:
+  // a descriptor with no certificate says so, it does not leave the key off.
+  certificate: 'carries-no-certificate',
 })
 
 const publicWork = (count: number): ShardWork[] =>

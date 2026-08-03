@@ -457,11 +457,11 @@ describe('DATA-03/DATA-04 — sovereignty wired onto submitJob', () => {
     // scheduler that treats sovereignty as a preference, not a filter, moves
     // the shard here.
     const nodes: readonly NodeDescriptor[] = [
-      { nodeId: 'alice-1', ownerId: 'alice', canExecuteSovereign: true, load: 1 },
-      { nodeId: 'bob-1', ownerId: 'bob', canExecuteSovereign: true, load: 0 },
-      { nodeId: 'bob-2', ownerId: 'bob', canExecuteSovereign: true, load: 0 },
-      { nodeId: 'bob-3', ownerId: 'bob', canExecuteSovereign: true, load: 0 },
-      { nodeId: 'bob-4', ownerId: 'bob', canExecuteSovereign: true, load: 0 },
+      { nodeId: 'alice-1', ownerId: 'alice', canExecuteSovereign: true, load: 1, certificate: 'carries-no-certificate' },
+      { nodeId: 'bob-1', ownerId: 'bob', canExecuteSovereign: true, load: 0, certificate: 'carries-no-certificate' },
+      { nodeId: 'bob-2', ownerId: 'bob', canExecuteSovereign: true, load: 0, certificate: 'carries-no-certificate' },
+      { nodeId: 'bob-3', ownerId: 'bob', canExecuteSovereign: true, load: 0, certificate: 'carries-no-certificate' },
+      { nodeId: 'bob-4', ownerId: 'bob', canExecuteSovereign: true, load: 0, certificate: 'carries-no-certificate' },
     ]
     const executors = nodes.map((n) => honest(n.nodeId))
     const store = new MemoryBlockstore()
@@ -495,8 +495,8 @@ describe('DATA-03/DATA-04 — sovereignty wired onto submitJob', () => {
     // could answer a block request for it — it is excluded purely by
     // `canExecuteSovereign`, never because it lacks the data.
     const nodes: readonly NodeDescriptor[] = [
-      { nodeId: 'alice-1', ownerId: 'alice', canExecuteSovereign: true, load: 0.9 },
-      { nodeId: 'replica-1', ownerId: 'alice', canExecuteSovereign: false, load: 0 },
+      { nodeId: 'alice-1', ownerId: 'alice', canExecuteSovereign: true, load: 0.9, certificate: 'carries-no-certificate' },
+      { nodeId: 'replica-1', ownerId: 'alice', canExecuteSovereign: false, load: 0, certificate: 'carries-no-certificate' },
     ]
     let replicaCalls = 0
     const replicaExecutor: Executor = {
@@ -533,7 +533,7 @@ describe('DATA-03/DATA-04 — sovereignty wired onto submitJob', () => {
 
   it('reports a degraded, agreed shard rather than an error when redundancy exceeds the owner’s live node count', async () => {
     const nodes: readonly NodeDescriptor[] = [
-      { nodeId: 'alice-1', ownerId: 'alice', canExecuteSovereign: true, load: 0 },
+      { nodeId: 'alice-1', ownerId: 'alice', canExecuteSovereign: true, load: 0, certificate: 'carries-no-certificate' },
     ]
     const executors = [honest('alice-1')]
     const store = new MemoryBlockstore()
@@ -653,7 +653,7 @@ describe('DET-03/DATA-08 — the signed module record reaches every task submitJ
     // is the exact place a field gets added to one arm and forgotten on the other.
     const rec = recording('alice-1')
     const nodes: readonly NodeDescriptor[] = [
-      { nodeId: 'alice-1', ownerId: 'alice', canExecuteSovereign: true, load: 0 },
+      { nodeId: 'alice-1', ownerId: 'alice', canExecuteSovereign: true, load: 0, certificate: 'carries-no-certificate' },
     ]
     const r = await submitJob(
       {
@@ -853,10 +853,10 @@ describe('SCHED-03 — submitJob places by offers when it is given a way to ask'
     // The load ordering is doing everything it can to relocate: the owner's only node
     // is fully loaded AND refuses, while three foreign nodes are completely idle.
     const nodes: readonly NodeDescriptor[] = [
-      { nodeId: 'alice-1', ownerId: 'alice', canExecuteSovereign: true, load: 1 },
-      { nodeId: 'bob-1', ownerId: 'bob', canExecuteSovereign: true, load: 0 },
-      { nodeId: 'bob-2', ownerId: 'bob', canExecuteSovereign: true, load: 0 },
-      { nodeId: 'bob-3', ownerId: 'bob', canExecuteSovereign: true, load: 0 },
+      { nodeId: 'alice-1', ownerId: 'alice', canExecuteSovereign: true, load: 1, certificate: 'carries-no-certificate' },
+      { nodeId: 'bob-1', ownerId: 'bob', canExecuteSovereign: true, load: 0, certificate: 'carries-no-certificate' },
+      { nodeId: 'bob-2', ownerId: 'bob', canExecuteSovereign: true, load: 0, certificate: 'carries-no-certificate' },
+      { nodeId: 'bob-3', ownerId: 'bob', canExecuteSovereign: true, load: 0, certificate: 'carries-no-certificate' },
     ]
     const executors = nodes.map((n) => honest(n.nodeId))
     const stub = refusing(new Set(['alice-1']), () => 'owner node is full')
@@ -887,10 +887,10 @@ describe('SCHED-03 — submitJob places by offers when it is given a way to ask'
     // Exactly one eligible node, three cheaper foreign ones. If cost were scored
     // before sovereignty on either arm, a foreign node would win on every load signal.
     const nodes: readonly NodeDescriptor[] = [
-      { nodeId: 'alice-1', ownerId: 'alice', canExecuteSovereign: true, load: 0.9 },
-      { nodeId: 'bob-1', ownerId: 'bob', canExecuteSovereign: true, load: 0 },
-      { nodeId: 'bob-2', ownerId: 'bob', canExecuteSovereign: true, load: 0 },
-      { nodeId: 'bob-3', ownerId: 'bob', canExecuteSovereign: true, load: 0 },
+      { nodeId: 'alice-1', ownerId: 'alice', canExecuteSovereign: true, load: 0.9, certificate: 'carries-no-certificate' },
+      { nodeId: 'bob-1', ownerId: 'bob', canExecuteSovereign: true, load: 0, certificate: 'carries-no-certificate' },
+      { nodeId: 'bob-2', ownerId: 'bob', canExecuteSovereign: true, load: 0, certificate: 'carries-no-certificate' },
+      { nodeId: 'bob-3', ownerId: 'bob', canExecuteSovereign: true, load: 0, certificate: 'carries-no-certificate' },
     ]
     const executors = nodes.map((n) => honest(n.nodeId))
     const shards: readonly ShardSpec[] = [{ value: { n: 1 }, label: 'sovereign', ownerId: 'alice' }]
@@ -984,11 +984,11 @@ describe('SCHED-02 — the no-offer arm places exactly as it did before this pha
     // Five nodes with distinct loads. Ordering returns `n-idle` every time; sampling
     // two of five by rendezvous rank returns it only when it happens to be drawn.
     const nodes: readonly NodeDescriptor[] = [
-      { nodeId: 'n-idle', ownerId: 'public', canExecuteSovereign: true, load: 0 },
-      { nodeId: 'n-b', ownerId: 'public', canExecuteSovereign: true, load: 0.2 },
-      { nodeId: 'n-c', ownerId: 'public', canExecuteSovereign: true, load: 0.4 },
-      { nodeId: 'n-d', ownerId: 'public', canExecuteSovereign: true, load: 0.6 },
-      { nodeId: 'n-e', ownerId: 'public', canExecuteSovereign: true, load: 0.8 },
+      { nodeId: 'n-idle', ownerId: 'public', canExecuteSovereign: true, load: 0, certificate: 'carries-no-certificate' },
+      { nodeId: 'n-b', ownerId: 'public', canExecuteSovereign: true, load: 0.2, certificate: 'carries-no-certificate' },
+      { nodeId: 'n-c', ownerId: 'public', canExecuteSovereign: true, load: 0.4, certificate: 'carries-no-certificate' },
+      { nodeId: 'n-d', ownerId: 'public', canExecuteSovereign: true, load: 0.6, certificate: 'carries-no-certificate' },
+      { nodeId: 'n-e', ownerId: 'public', canExecuteSovereign: true, load: 0.8, certificate: 'carries-no-certificate' },
     ]
     const r = await submitJob(
       {
@@ -1016,6 +1016,7 @@ describe('SCHED-02 — the no-offer arm places exactly as it did before this pha
       ownerId: 'public',
       canExecuteSovereign: true,
       load: 0,
+      certificate: 'carries-no-certificate',
     }))
     const r = await submitJob(
       {

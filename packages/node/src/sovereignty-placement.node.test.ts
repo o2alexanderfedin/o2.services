@@ -219,9 +219,9 @@ describe('DATA-03/DATA-04 — sovereignty-pinned placement across real bin/agent
     // clearance. A scheduler that let load override ownership would pick a bob
     // node here every time.
     const nodesDescriptor: readonly NodeDescriptor[] = [
-      { nodeId: alice.peerId, ownerId: 'alice', canExecuteSovereign: true, load: 1 },
-      { nodeId: bob1.peerId, ownerId: 'bob', canExecuteSovereign: true, load: 0 },
-      { nodeId: bob2.peerId, ownerId: 'bob', canExecuteSovereign: true, load: 0 },
+      { nodeId: alice.peerId, ownerId: 'alice', canExecuteSovereign: true, load: 1, certificate: 'carries-no-certificate' },
+      { nodeId: bob1.peerId, ownerId: 'bob', canExecuteSovereign: true, load: 0, certificate: 'carries-no-certificate' },
+      { nodeId: bob2.peerId, ownerId: 'bob', canExecuteSovereign: true, load: 0, certificate: 'carries-no-certificate' },
     ]
 
     const result = await submitJob(
@@ -335,9 +335,9 @@ async function standUpForOffers(aliceArgs: readonly string[] = []): Promise<Offe
     // Alice saturated, both of bob's idle — the arrangement a scheduler that treats
     // sovereignty as a preference rather than a filter would react to.
     descriptors: [
-      { nodeId: alice.peerId, ownerId: 'alice', canExecuteSovereign: true, load: 1 },
-      { nodeId: bob1.peerId, ownerId: 'bob', canExecuteSovereign: true, load: 0 },
-      { nodeId: bob2.peerId, ownerId: 'bob', canExecuteSovereign: true, load: 0 },
+      { nodeId: alice.peerId, ownerId: 'alice', canExecuteSovereign: true, load: 1, certificate: 'carries-no-certificate' },
+      { nodeId: bob1.peerId, ownerId: 'bob', canExecuteSovereign: true, load: 0, certificate: 'carries-no-certificate' },
+      { nodeId: bob2.peerId, ownerId: 'bob', canExecuteSovereign: true, load: 0, certificate: 'carries-no-certificate' },
     ],
   }
 }

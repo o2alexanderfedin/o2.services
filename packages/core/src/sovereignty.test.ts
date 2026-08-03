@@ -16,6 +16,10 @@ const owner = (nodeId: string, load: number): NodeDescriptor => ({
   ownerId: 'alice',
   canExecuteSovereign: true,
   load,
+  // Eligibility is decided by owner and clearance alone; no branch here reads this.
+  // It is written anyway, because a required field is what stops "no certificate"
+  // being confused with "the builder forgot".
+  certificate: 'carries-no-certificate',
 })
 
 const foreign = (nodeId: string, load: number): NodeDescriptor => ({
@@ -23,6 +27,7 @@ const foreign = (nodeId: string, load: number): NodeDescriptor => ({
   ownerId: 'bob',
   canExecuteSovereign: true,
   load,
+  certificate: 'carries-no-certificate',
 })
 
 const sovereignShard: PlacementRequest = {
@@ -117,6 +122,7 @@ describe('DATA-09 — an encrypted replica serves availability, not execution', 
       ownerId: 'alice',
       canExecuteSovereign: false,
       load: 0,
+      certificate: 'carries-no-certificate',
     }
 
     const idle = planPlacement([sovereignShard], [replica, owner('alice-1', 0.99)])

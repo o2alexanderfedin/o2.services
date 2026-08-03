@@ -125,7 +125,15 @@ function buildFabric(nodeId: string): Fabric {
     guard,
     local,
     executors: [new RemoteExecutor(nodeId, requestorRpc, 'dispatches-unauthenticated')],
-    nodes: [{ nodeId, ownerId: OWNER_ID, canExecuteSovereign: true, load: 0 }],
+    nodes: [
+      {
+        nodeId,
+        ownerId: OWNER_ID,
+        canExecuteSovereign: true,
+        load: 0,
+        certificate: 'carries-no-certificate',
+      },
+    ],
     close() {
       seedRpc.close()
       requestorRpc.close()
@@ -287,7 +295,15 @@ function scratchGuard(nodeId: string): EgressGuard {
 }
 
 function soleOwnerNode(nodeId: string): readonly NodeDescriptor[] {
-  return [{ nodeId, ownerId: OWNER_ID, canExecuteSovereign: true, load: 0 }]
+  return [
+    {
+      nodeId,
+      ownerId: OWNER_ID,
+      canExecuteSovereign: true,
+      load: 0,
+      certificate: 'carries-no-certificate',
+    },
+  ]
 }
 
 describe('submitJobWithEgress — a submitter does not serve the row it submitted (DATA-10)', () => {

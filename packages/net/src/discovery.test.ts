@@ -184,6 +184,9 @@ const descriptorsOf = (
     ownerId: executor.certificate.userKey,
     canExecuteSovereign: false,
     load: 0,
+    // The parameter type here is the user key alone, not a whole certificate, so this
+    // helper has nothing to carry. `discoverCandidates` is the producer that does.
+    certificate: 'carries-no-certificate',
   }))
 
 describe('criterion 1 — a requestor with no peer list runs a job', () => {

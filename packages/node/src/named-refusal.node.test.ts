@@ -156,7 +156,7 @@ describe('criterion 6 — the refusal is named, and it arrives long before the b
 
     const executors = [new RemoteExecutor(alice.peerId, submitter.rpc, chainSupplierFor(alice.peerId))]
     const descriptors: readonly NodeDescriptor[] = [
-      { nodeId: alice.peerId, ownerId: 'alice', canExecuteSovereign: true, load: 0 },
+      { nodeId: alice.peerId, ownerId: 'alice', canExecuteSovereign: true, load: 0, certificate: 'carries-no-certificate' },
     ]
 
     const started = performance.now()

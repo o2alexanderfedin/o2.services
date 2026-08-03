@@ -112,7 +112,13 @@ async function fabricOf(nodeCount: number, module = MODULE_WRITES_PARTITION): Pr
       onDispatch: 'reports-no-dispatch',
     })
     endpoints.set(nodeId, rpc)
-    nodes.push({ nodeId, ownerId: 'alice', canExecuteSovereign: true, load: 0 })
+    nodes.push({
+      nodeId,
+      ownerId: 'alice',
+      canExecuteSovereign: true,
+      load: 0,
+      certificate: 'carries-no-certificate',
+    })
   }
 
   const requestorStore = new MemoryBlockstore()
@@ -576,6 +582,7 @@ describe('NET-09 — classifying a refusal this node made, against every other f
       ownerId: 'alice',
       canExecuteSovereign: true,
       load: 0,
+      certificate: 'carries-no-certificate',
     }))
     let attempts = 0
     const outcome = await runResilient({

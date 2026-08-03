@@ -156,8 +156,8 @@ describe('DATA-05 — the tap refuses the leaking frame, so the shard fails wher
     // the other way, ownership is the *only* thing left that can exclude the
     // idle node. Do not "fix" this descriptor.
     const descriptors: readonly NodeDescriptor[] = [
-      { nodeId: alice.peerId, ownerId: 'alice', canExecuteSovereign: true, load: 1 },
-      { nodeId: other.peerId, ownerId: 'bob', canExecuteSovereign: true, load: 0 },
+      { nodeId: alice.peerId, ownerId: 'alice', canExecuteSovereign: true, load: 1, certificate: 'carries-no-certificate' },
+      { nodeId: other.peerId, ownerId: 'bob', canExecuteSovereign: true, load: 0, certificate: 'carries-no-certificate' },
     ]
 
     const result = await submitJobWithEgress(
@@ -277,7 +277,7 @@ describe("DATA-06 — every job's manifest is reachable from its own result meta
         moduleCid,
         shards: [{ value: CLEAN_ROW, label: 'sovereign', ownerId: 'alice' }],
         executors,
-        nodes: [{ nodeId: alice.peerId, ownerId: 'alice', canExecuteSovereign: true, load: 0 }],
+        nodes: [{ nodeId: alice.peerId, ownerId: 'alice', canExecuteSovereign: true, load: 0, certificate: 'carries-no-certificate' }],
         redundancy: 1,
       },
       requestor.store,
@@ -348,7 +348,7 @@ describe("DATA-06 — every job's manifest is reachable from its own result meta
         moduleCid,
         shards: [{ value: PUSHDOWN_ROW, label: 'sovereign', ownerId: 'alice' }],
         executors,
-        nodes: [{ nodeId: alice.peerId, ownerId: 'alice', canExecuteSovereign: true, load: 0 }],
+        nodes: [{ nodeId: alice.peerId, ownerId: 'alice', canExecuteSovereign: true, load: 0, certificate: 'carries-no-certificate' }],
         redundancy: 1,
       },
       requestor.store,

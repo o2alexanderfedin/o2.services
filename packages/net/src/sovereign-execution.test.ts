@@ -267,6 +267,11 @@ const sovereignDescriptors = (
     ownerId,
     canExecuteSovereign: true,
     load: 0,
+    // This helper is handed node keys, not records, so it has no certificate to pass
+    // on and says so. `discoverCandidates` is the producer that does carry one; the
+    // difference between the two is what this file's fixture stands in for, and
+    // closing it means widening this signature rather than guessing a value here.
+    certificate: 'carries-no-certificate',
   }))
 
 describe('criterion 6 — an owner’s own nodes verify each other', () => {
@@ -529,7 +534,15 @@ describe('Phase 12 — sovereignty wired onto submitJob', () => {
           // pattern the falsification test above proves the tap can catch.
           shards: [{ value: SOVEREIGN_ROW, label: 'sovereign', ownerId: fabric.aliceUserKey }],
           executors,
-          nodes: [{ nodeId: owned.nodeId, ownerId: fabric.aliceUserKey, canExecuteSovereign: true, load: 0 }],
+          nodes: [
+            {
+              nodeId: owned.nodeId,
+              ownerId: fabric.aliceUserKey,
+              canExecuteSovereign: true,
+              load: 0,
+              certificate: 'carries-no-certificate',
+            },
+          ],
           redundancy: 1,
         },
         // SEED's own store — the node's `RpcBlockSource` fetches from `[SEED]`,
