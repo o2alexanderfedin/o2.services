@@ -1,9 +1,26 @@
 ---
 phase: 18-discovery-capacity-placement
 verified: 2026-08-02T23:54:55Z
-status: gaps_found
-score: 7/9 criteria verified
+status: human_needed
+score: >-
+  8/9 criteria verified (7/9 on the 2026-08-02 initial pass; criterion 3 closed and
+  criterion 2b's instrument re-armed by plans 18-12/18-13 — see the amendment)
 verifier: independent pass, goal-backward
+re_verification:
+  verified: 2026-08-03T02:06:28Z
+  previous_status: gaps_found
+  previous_score: 7/9
+  gaps_closed:
+    - "G-1 — criterion 2b's absence-instrument cannot fail (closed: the replacement inverts, proved by planting ledger entry M36)"
+    - "G-2 — criterion 3's browser half has no peer-side reading (closed: a Node peer reads the tab's slots 8 → 2 off the wire; divergence proved by M37)"
+  gaps_remaining: []
+  regressions: []
+  new_findings:
+    - "F-1 — `admit: rpcAdmission(...)` at `bin/bench.ts:723` is guarded by nothing; deleting it leaves the whole suite green"
+    - "F-2 — the four corrected ledger rows cite `fabric-node.ts`/`browser-node.ts` line numbers that 18-13's own later commit shifted by +15/+16"
+    - "F-3 — `tools/aot/lift.node.test.ts` re-measured contradicts `deferred-items.md` item 2; out of this phase's scope"
+# CLOSED 2026-08-03 by plans 18-12/18-13. Retained verbatim as the first pass's record —
+# see `re_verification.gaps_closed` and the Amendment for current state.
 gaps:
   - criterion: "2b — a node at its execution slot limit refuses an `exec` request with a stated reason naming the limit, and the requestor re-picks"
     status: failed
@@ -66,6 +83,20 @@ gaps:
         capacity before and after `window.o2.setDutyCycle(...)`, mirroring
         `duty-cycle.node.test.ts:87-104`. Blocked on browser-to-Node-peer transport in
         the `e2e` project, which today is tab-to-tab only.
+human_verification:
+  - test: >-
+      Owner decision, not a test: Phase 18 has no remaining actionable work, and criterion
+      2b stands at PARTIAL by design. ROADMAP RULING A accepts that PARTIAL in advance and
+      in the same breath forbids the phase closing on it — "the phase is NOT allowed to
+      close on it", citing the Phase 17 precedent where the phase "stayed uncounted at
+      1/3". A verifier cannot resolve that on its own authority.
+    expected: >-
+      Either the phase is marked complete at 8/9 with criterion 2b carried to Phase 20
+      criterion 1 (WIRE-04), or it stays open until WIRE-04 lands. Both are consistent
+      with the evidence; only the owner can choose.
+    why_human: >-
+      RULING A is an owner ruling. Every automated reading this phase admits of has been
+      taken and passes; what is left is a scheduling judgement about phase closure.
 deferred:
   - item: "The exec-stage re-pick itself (criterion 2b clause 2)"
     addressed_in: "Phase 20 criterion 1 (WIRE-04)"
@@ -363,3 +394,295 @@ None. Every criterion was checkable programmatically, and the browser tier was e
 ---
 *Verified: 2026-08-02T23:54:55Z*
 *Verifier: Claude (gsd-verifier), independent pass*
+
+---
+
+## Amendment — 2026-08-03: both gaps closed, and this verification's verdict changes
+
+**Status: `gaps_found` → `human_needed`. Score: 7/9 → 8/9.** Everything above is the record
+of the 2026-08-02 initial pass and is left standing. Nothing in it is retracted: G-1 and G-2
+were real when they were written, and the two gap-closure plans closed them. What changes is
+criterion 3 (PARTIAL → **MET**), criterion 2b (FAILED → **PARTIAL**), and W-1 (closed).
+
+Criterion text in `.planning/ROADMAP.md` was **not** amended — re-read at `:493-637` and
+compared against what the first pass verified against. Both criteria are word-for-word the
+same. This amendment scores against the same contract.
+
+### Re-verified criteria
+
+| # | 2026-08-02 | 2026-08-03 | Why it moved |
+|---|---|---|---|
+| 2b | FAILED | **PARTIAL** | The instrument gap is closed. Clause 2 is still absent, correctly — it is WIRE-04 / Phase 20 criterion 1's. |
+| 3 | PARTIAL | **MET** | A Node peer now reads a live tab's advertised slot count off the wire, before and after one `setDutyCycle` call. |
+| 1, 2, 2c, 2d, 4, 5, 6 | VERIFIED | **VERIFIED** | Re-run, no regression. Detail below. |
+
+**Score: 8/9 criteria.** Criterion 2b is the one that is not met, and by RULING A it may not
+be closed here.
+
+### Verified myself, not taken from the summaries
+
+Four claims were checked against the tree and the running suite rather than read.
+
+#### 1. The old criterion-2b assertion was a tautology, not merely weak — CONFIRMED
+
+`executeVerified` (`packages/core/src/job/verify.ts:115-161`) returns `status: 'agreed'`
+only after `answered.length === 0` has already returned `insufficient`, and it sets
+`agreeing: answered.map(...)` where `answered ⊆ receipts` and `receipts.length ===
+executors.length`. In that fixture `executors` is `placement.nodeIds`, whose length is
+`redundancy` — 1. So on the `'agreed'` branch `agreeing.length` is **exactly 1**, and the
+`if (shard.verification.status !== 'agreed') return` three lines above
+(`88ab88f:discovery-agents.node.test.ts:507`) had already excluded the only other value the
+type admits. `expect(shard.verification.agreeing).toHaveLength(1)` could not be false.
+18-12's sharper reading is right: not "weak", **vacuous by construction**.
+
+#### 2. The replacement genuinely inverts — CONFIRMED BY PLANTING, not by reading
+
+Ran the ledger arm myself:
+
+```
+npm run test:mutations -- --only=M36,M37
+```
+```
+  M36  packages/core/src/job/submit.ts … caught (8.0s)
+  M37  packages/browser/src/browser-node.ts … caught (3.4s)
+
+id   mark  status  seconds  detail
+M36  PASS  caught     8.0s  exit 1 with the recorded signature
+M37  PASS  caught     3.4s  exit 1 with the recorded signature
+
+git status --porcelain is empty — the tree is as it was found.
+```
+`MUTATION_ARM_EXIT=0`, captured on the line immediately after the command.
+
+The planted-run logs, read directly rather than inferred from the verdict:
+
+| | M36 | M37 |
+|---|---|---|
+| mutation | a re-pick loop added to `submitJob` after `executeVerified` | `capacity:` handed a second `LocalCapacity` built without the governor |
+| run | `Test Files 1 failed (1)` / `Tests 1 failed \| 1 passed (2)` | `Test Files 1 failed (1)` / `Tests 1 failed \| 5 passed (6)` |
+| the failing case | `re-picks past a node genuinely at its slot limit, on the production submit path` | `sees the slot count fall from 8 to 2, off the wire` |
+| the assertion | `AssertionError: expected 'agreed' to be 'insufficient'` | `AssertionError: expected { slots: 8, inFlight: +0 } to deeply equal { slots: 2, inFlight: +0 }` |
+
+M36 is the answer to G-1: **the tripwire RULING A asked for now fires.** The new reading is
+taken on a shard whose *selected* executor refuses at exec — the node accepts the offer, is
+saturated inside the `admit` callback (which awaits `untilFull` so the node says so itself
+before the callback returns), and then refuses the dispatch. The shard ends `insufficient`
+with the victim named in `verification.failures` and a reason containing `over-committed`,
+and the victim is asserted **absent** from `rejections`, because `submit.ts:341` fills that
+from the placement stage only. Given a re-pick the shard would reach a free second executor
+and stop being `insufficient` — which is precisely what M36 demonstrates.
+
+Two non-vacuity guards I checked rather than assumed: the failure names the victim (a shard
+never placed on the saturated node would also be `insufficient`, for an unrelated reason),
+and the shard uses a **separate** `EXEC_STAGE_VALUE`, because the slot key is
+`inputCid:partitionIndex` and reusing `SHARD_VALUE` would meet the DUPLICATE branch, which
+is a different claim. The old tautological line was **deleted**, not left beside the new one.
+
+#### 3. G-2's reading is off the wire, not out of the page — CONFIRMED
+
+This was the claim most worth falsifying, because a `page.evaluate` reading would only prove
+the setter ran, which 18-09 had already proved. Read `duty-cycle-tab.e2e.test.ts:246-308`:
+
+```ts
+async function offerToTab(tabPeerId, shardId) {
+  const reply = parseResponse(await peer.rpc.request(tabPeerId, encodeRequest({ kind: 'offer', shardId })))
+  ...
+  return reply.capacity
+}
+```
+
+The reading is taken on the **`offer` response the Node peer received**. `peer` is a second
+`FabricNode` started in `beforeAll` with **no** `maxReservations`, so it is not a relay and
+holds no reservation for the tab; the tab dials its `/ws` listener itself. The case asserts
+the path before it asserts the capacity: connections to the peer are non-`limited`, carry no
+`p2p-circuit` hop, and include a `/ws` address — the transport's own answer, which matters
+because `.planning/PROJECT.md` fixes a relayed circuit as a signalling channel that may not
+carry work. Both values are read, not only the capped one, so a tab capped since startup
+would fail.
+
+M37 settles it independently of my reading of the source: the mutation changes only
+`packages/browser/src/browser-node.ts`, code that runs **in the browser process**, and it
+turns exactly one case red — the peer's. All five in-page cases stay green, and the in-page
+`window.o2.capacity()` corroboration inside the same case is stated last, deliberately. That
+divergence is the whole content of the gap, and it is now measured. **G-2 closed;
+criterion 3 MET.**
+
+#### 4. The ledger blind spot was structural — CONFIRMED, and the widening does not weaken
+
+`requirements-ledger.node.test.ts`'s two claim-checking cases iterated `BUILT_NOT_WIRED`, so
+correcting a row to *Partial* removed it from the guard's population — **the act of fixing a
+row was the act of exempting it.** Both cases now iterate `ROWS`, which is strictly wider;
+nothing that was checked before is unchecked now.
+
+`WITHOUT_A_CHECKABLE_CLAIM` went 2 → 17, and it is **not** a way to make a red guard green.
+The case that consumes it asserts **exact set equality**:
+
+```ts
+expect(unchecked.toSorted()).toEqual([...WITHOUT_A_CHECKABLE_CLAIM].toSorted())
+```
+
+so padding the list with a row that *does* carry a bindable claim turns that case red, and
+being in the list exempts a row from nothing — the two claim cases read every row regardless.
+The one narrowing (`row.unsuppliedHooks.length === 0` added to the `unchecked` filter) is
+legitimate: the hook case at `:596-605` iterates `ROWS` and reads exactly those rows.
+
+That the widening is functional rather than decorative I checked directly. **SCHED-03 is a
+*Partial* row carrying a live, bindable claim** — *"`runResilient` has no production
+caller"*. `runResilient` is declared at `coordinator.ts:304`, re-exported at
+`core/src/index.ts:192`, and every other occurrence in production
+(`churn.ts:4,74`, `combine.ts:32`, `worker-executor.ts:39`, `bench.ts:867`,
+`mutation-ledger.ts:307`) is prose in a comment with no call parenthesis. The claim is true
+today and reddens the day it stops being. Under the old scope that row was not read at all.
+
+The fourth stale row, **NET-06**, is real and nobody had reported it: at `a06720e` it said
+`discoverCandidates` had no production caller while `bin/bench.ts:680` calls it. Verified.
+
+The four corrected rows were checked against the tree, not against each other:
+
+| Row | Claim | Verified |
+|---|---|---|
+| SCHED-03 | `runResilient` has no production caller; offer-stage re-pick is wired via `submit.ts:340` ← `bench.ts:723` | Holds — both confirmed |
+| SCHED-04 | all three legs have a production path; marker held low deliberately | Holds — `fabric-node.ts:985/1153/1181/1475`, `browser-node.ts:677/1007/1012/1063`, `agent.ts:682`, `demo/main.ts:596` |
+| SCHED-05 | `eligibleNodes` called by **both** placers; open leg is that no entry point labels a shard `sovereign` | Holds — `sovereignty.ts:130,169`, `placement.ts:231`, `bench.ts:455` |
+| NET-06 | serving half wired both tiers; reading half reaches production behind a flag | Holds — `fabric-node.ts:1566`, `browser-node.ts:1164` |
+
+#### 5. Nothing was ticked — CONFIRMED
+
+The `.planning/REQUIREMENTS.md` diff over `a06720e..29bbfe4` is 12 content lines: the header
+paragraph (2) and four traceability rows (10). **No checkbox line is among them.** SCHED-03,
+SCHED-04 and SCHED-05 remain `[ ]` at `:247`, `:248`, `:250`. The single `[ ]` occurring in
+the diff is prose inside SCHED-04's cell — *"the box is left `[ ]` only because no
+re-verification has run"* — not a checkbox.
+
+The three-edits rule (`STATE.md:208`) held. Counted independently against the table:
+*Built, not wired* = **14**, *Partial* = **18**, matching the header's new `14 + 18 + 1` and
+the `UNREACHED.length` of 32 the guard's own floor records. SCHED-05 moved category
+(*Built, not wired* → *Partial*), which is what moved both figures; no box moved, because
+nothing was ticked. `acceptance-traceability.node.test.ts` was run and passes.
+
+### Commands run (real output, exit captured on the following line)
+
+The tree was clean before and after every one of these; nothing was committed, reverted, or
+`git add`ed, and no branch was switched. `git status --porcelain` was empty at start, after
+the mutation run (the runner's own check and mine), and at finish.
+
+| Command | Result | Exit | Load at start |
+|---|---|---|---|
+| `npm run test:mutations -- --only=M36,M37` | both `caught` with recorded signature; tree restored | 0 | 4.09 |
+| `npx vitest run --project node` × 5 guard files | `Test Files 5 passed (5)` / `Tests 161 passed (161)` | 0 | 4.98 |
+| `npx vitest run --project node` × 8 phase files | `Test Files 8 passed (8)` / `Tests 48 passed (48)`, 20.22 s | 0 | 4.51 |
+| `npx vitest run --project e2e duty-cycle-tab.e2e.test.ts` | `Test Files 1 passed (1)` / `Tests 6 passed (6)` | 0 | 9.30 |
+| `npx vitest run --project node` × 6 kernel files | `Test Files 6 passed (6)` / `Tests 112 passed (112)` | 0 | 5.53 |
+| `npx vitest run --project node` × 2 admission files | `Test Files 2 passed (2)` / `Tests 13 passed (13)` | 0 | — |
+
+**22 files, 340 tests, all passing, plus 2 mutation arms caught.** Every invocation used
+`--project`; no bare-path run was made. The guard count rose 159 → 161, which is the widened
+ledger's two extra cases.
+
+The e2e file went 5 → 6 tests and the five pre-existing in-page cases still pass, so adding
+a second Node-tier `FabricNode` to that fixture regressed nothing.
+
+### W-1 closed
+
+`discover-arm.node.test.ts` spawns `bin/bench.ts --quick --discover` with `cwd` in a
+temporary directory, reads `--discover: 1 of 1 workers qualified from 1 providers` off its
+stdout, and kills the driver once the arm has spoken — it reads a **count**, never a
+duration, so it is contention-independent. `serve-agent-hooks.node.test.ts:347`'s
+source-text count is kept as the cheap half of a pair rather than as the only holder. The
+arm the first pass had to run by hand is now in CI.
+
+### W-2 closed
+
+`fabric-node.ts:1207-1221` and `browser-node.ts:793-808` each now name the other tier, the
+platform reason, and the test that measures its disposition, and each says **do not make
+them agree**. Comment-only on both sides — verified against `git show 548e119`: no
+executable line changed.
+
+### New findings this pass
+
+**F-1 — `admit: rpcAdmission(requestor.rpc)` at `bin/bench.ts:723` is guarded by nothing.**
+Recorded, not fixed; tracked for a later phase. 18-13 planted its deletion and the run stayed
+green, and I confirmed the structural reason independently rather than taking the report's
+word: `serve-agent-hooks.node.test.ts` pins eleven separate strings in that file with
+`occurrences(BENCH, …)` — `'serves-unauthenticated'`, `new LocalCapacity(`,
+`await discoverCandidates(` and eight more — and **`admit` is not among them**. Every other
+`rpcAdmission` reference in the suite constructs its own. Deleting the line moves `submitJob`
+from `planWithOffers` to `planPlacement`, and on a rig where nothing refuses the two place
+identically and print identically. This matters more than it looks: `Fabric.admit` is the
+wiring that let **SCHED-02 stop being *Built, not wired***, and it is the sole production
+caller behind that row's "runnable entry point" claim. The file states the finding in its own
+docblock (`discover-arm.node.test.ts:54-63`), which is the right place for it.
+
+**F-2 — three of the four corrected ledger rows now cite line numbers that 18-13's own
+later commit shifted.** `a5a70c7` wrote the rows; `548e119`, three commits later in the same
+plan, inserted 15 comment lines at `fabric-node.ts:1207` and 16 at `browser-node.ts:793`.
+Every citation *below* those points is off by exactly that much — SCHED-03's
+`fabric-node.ts:1573` is now `:1588`, SCHED-04's `:1460` is now `:1475` and
+`browser-node.ts:996` is now `:1012`, NET-06's `fabric-node.ts:1551` is now `:1566`.
+Citations *above* the insertion points (`:985`, `:1153`, `:1178`, `:1181`, `browser-node.ts:677`,
+`sovereignty.ts:130/169`, `placement.ts:231`, `submit.ts:340/341/389`, `bench.ts:455/680/723`)
+were all checked and are **exact**. The claims are true; only the coordinates drifted, inside
+the very plan that was correcting stale coordinates. Documentary, not behavioural.
+
+**F-3 — `tools/aot/lift.node.test.ts` contradicts `deferred-items.md` item 2, and the
+contradiction is recorded rather than chased.** 18-12 re-measured it alone on a quiet host
+and it failed **worse** than in the suite: 12 failures against 7, ten of them
+`Test timed out in 60000ms` rather than the recorded assertion failure, and 850 s against the
+config table's 217.1 s. That falsifies item 2's "passes in isolation". 18-13's later full run
+had it pass. Intermittent, and `tools/aot` is Phase 21's — out of this phase's scope. Worth
+recording that 18-12's own full node-project run was therefore **not green** (7 failed / 1778
+passed), all failures in that one file, none of them reachable from anything this phase
+touched.
+
+**F-4 (Info) — Phase 18 is `Mode: mvp` in `.planning/ROADMAP.md:495`, but its goal is not a
+User Story.** MVP-mode verification expects `As a …, I want to …, so that …`; this goal is a
+capability statement. Both passes scored against the nine Success Criteria instead, which is
+the roadmap contract and is what the score is over. Flagged so it is not mistaken for an
+oversight; no action taken here.
+
+### Anti-patterns
+
+Nine files were touched across 18-12 and 18-13
+(`discovery-agents.node.test.ts`, `duty-cycle-tab.e2e.test.ts`, `mutation-guard.node.test.ts`,
+`mutation-ledger.ts`, `browser-node.ts`, `discover-arm.node.test.ts`, `fabric-node.ts`,
+`requirements-ledger.node.test.ts`, `serve-agent-hooks.node.test.ts`). Scanned each:
+**zero `TBD` / `FIXME` / `XXX`, zero `TODO` / `HACK` / `PLACEHOLDER`, zero
+"not yet implemented".** No debt-marker gate finding.
+
+18-12's claim that it changed **no production file** holds: `git diff 88ab88f a06720e --
+packages/core packages/browser packages/net packages/libp2p` is empty, and its four files are
+two tests, one test-of-tests and the ledger data. 18-13's two production-file edits are
+comment-only.
+
+### Why this is `human_needed` and not `passed`
+
+No automated gap remains. Both G-1 and G-2 are closed, W-1 and W-2 are closed, every
+criterion this phase can prove is proved, and 340 tests plus two planted mutations back it.
+
+What stops a `passed` verdict is criterion 2b, and the reason is a ruling rather than a
+finding. RULING A (`.planning/ROADMAP.md:607-621`) accepts 2b at PARTIAL in advance **and**
+states: *"The criterion text is NOT amended, and the phase is NOT allowed to close on it …
+A criterion is not rewritten to let a phase close."* It cites Phase 17, which "stayed
+uncounted at 1/3" on exactly this shape. The behaviour — an exec-stage re-pick — is Phase 20
+criterion 1's (WIRE-04) and remains correctly `deferred`, not a gap. Only the *instrument*
+was ever Phase 18's, and it is now armed and demonstrated to fire.
+
+So the remaining question is not "is anything missing" but "may Phase 18 be marked complete
+at 8/9 with 2b carried" — a scheduling judgement under an owner ruling, which a verifier may
+not make for itself. That is the single escalation item in the frontmatter.
+
+### Unchanged by this amendment
+
+- **The exec-stage re-pick** — WIRE-04, Phase 20 criterion 1. Deferred, as before, not
+  counted as a gap.
+- **The entry-point substitution on criterion 1** — `bin/bench.ts --discover` rather than
+  `bin/agent.ts`, made at planning time and written into the ROADMAP. Recorded as Info, as
+  before; W-1's closure means it is now executed by CI as well as by hand.
+- **`STATE.md`'s stale `## Current Position` prose (I-2)** — hand-maintained, not edited.
+- **`deferred-items.md` item 1 (`SLOW_NODE_SPECS`)** — `slow-specs.node.test.ts` re-run and
+  passes. Out of scope, as before.
+
+---
+*Amended: 2026-08-03T02:06:28Z*
+*Verifier: Claude (gsd-verifier), independent re-verification after gap closure*
+*Working tree: left clean; nothing committed, nothing reverted, no branch switched*
