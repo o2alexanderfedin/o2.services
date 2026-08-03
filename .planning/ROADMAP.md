@@ -666,6 +666,46 @@ It lands here rather than in Phase 17 because the remedy is a design decision th
 **Research**: None — `runResilient`'s lease/speculation/coverage machinery exists and is unit-verified in Phase 7; the gap is that nothing calls it, so `submitJob` is the only reachable job path and it does neither. `ledger` (made explicit in Phase 11) is supplied by no node in production
 **Success Criteria** (what must be TRUE):
   1. `submitJob` is the only function a caller uses to run a job through `bin/agent.ts` — it performs lease renewal, speculation, and coverage accounting internally; `runResilient` no longer exists as a separate, uncalled entry point, either merged in or removed
+
+<!-- CRITERION 1 CARRIES PHASE 18's CRITERION 2b, AND A TRIPWIRE IS ALREADY ARMED FOR IT.
+     Recorded 2026-08-02 by owner ruling applying RULING A: Phase 18 verified 8/9 and stays
+     UNCOUNTED, with 2b's second clause — *"and the requestor re-picks"* — carried here rather
+     than lowered. Same treatment as Phase 16 criterion 3 → criterion 6 below, and Phase 17
+     criterion 2 → Phase 18 criterion 2d.
+
+     WHAT IS ALREADY TRUE. The refusal half is closed and measured (SCHED-06): a node at its
+     execution slot limit refuses an `exec` request naming the limit. What is absent is the
+     re-pick, because `submitJob` calls `executeVerified` exactly once per shard.
+
+     WHAT WILL FIRE WHEN YOU ADD THE RETRY. `packages/node/src/discovery-agents.node.test.ts`
+     asserts the shard ends `insufficient` with the refusal in `verification.failures`, taken
+     on a shard whose SELECTED executor refuses at exec. Adding a re-pick makes that shard
+     reach a second executor and stop being `insufficient`, so **the test goes red and that is
+     correct** — it is the scheduled clause arriving, not a regression. Update the assertion
+     to require the re-pick rather than its absence, and Phase 18 criterion 2b becomes MET.
+     Mutation-ledger entry M36 is exactly this defect planted deliberately; read it first, it
+     shows you the shape.
+
+     WHY THIS NOTE EXISTS AT ALL. The instrument that was supposed to hold this clause for
+     Phase 18 was a TAUTOLOGY — `expect(shard.verification.agreeing).toHaveLength(1)`, where
+     `agreeing ⊆ placement.nodeIds` whose length is `redundancy` = 1, under a
+     `status === 'agreed'` narrowing that excludes 0. It could not fail, so the clause would
+     have survived as a sentence in a summary, which is precisely what RULING A was written to
+     prevent. It was caught by an independent verification pass and re-armed in plan 18-12.
+     A scheduled clause is only scheduled if something red arrives to collect it. -->
+
+<!-- ALSO INHERITED HERE, AND NOT YET SCHEDULED TO A CRITERION: `admit:` at
+     `packages/node/src/bin/bench.ts:723` can be deleted with the entire suite staying green.
+     Deleting it moves `submitJob` from `planWithOffers` to `planPlacement`, and on a rig where
+     nothing refuses the two place identically. That line is the SOLE production caller behind
+     SCHED-02's "reachable from a runnable entry point" claim, so the requirement rests on a
+     wire nothing is watching. Confirmed structurally in Phase 18's re-verification:
+     `serve-agent-hooks.node.test.ts` pins eleven strings in that file and `admit` is not among
+     them. Closing it needs a rig where a node actually refuses — 18-12's re-armed criterion-2b
+     instrument, which saturates a node between the offer answer and the dispatch, is the
+     nearest existing shape. This phase merges the job paths and is therefore the phase most
+     likely to move that line; whoever does, give it a guard first. -->
+
   2. Killing 30% of participating node processes mid-job, run through `bin/agent.ts`, still produces the correct final result, with re-dispatches visible in the job's history output
   3. A straggler task is duplicated speculatively during a live run, the first correct result wins, and the job's reported cost accounting includes the speculation multiplier
   4. A cross-owner job run with some owners' nodes offline returns a coverage report (`covered: X/Y`) alongside its result, rather than presenting a silently partial aggregate as complete
