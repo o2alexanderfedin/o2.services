@@ -289,6 +289,25 @@ that instead of the binding claim it used to make.
 applies** — nobody has re-read it yet. Do not repeat the binding claim in any new challenge; state
 what the field actually buys.
 
+### `tsc` finds construction sites, not reader sites — measured twice, carry it into every fan-out
+
+Nearly every remaining plan in this phase is a type fan-out driven by `tsc --noEmit`. **Two
+executors have now measured, independently, that a `tsc` worklist is not the whole worklist:**
+
+- 19-13: three `toEqual` sites in `sovereignty-guard.test.ts` **compile clean and fail at
+  runtime**. A grep would have found them.
+- 19-14: `tsc` enumerated **4 of 34** readers of the field it changed. Its own plan carried the
+  instruction *"never a grep"*, and that instruction is false.
+
+The rule: **adding a required field breaks every site that CONSTRUCTS the type, and `tsc` will
+list those. It does not list sites that READ the value, compare it with `toEqual`, or destructure
+it loosely.** Run a grep for the symbol alongside the type-check and reconcile the two lists.
+
+**This correction was already recorded in 19-13's summary one wave before 19-14 repeated the
+mistake.** That is Phase 14's recorded lesson happening again — *corrections do not propagate
+between sibling plans; a correction living in a SUMMARY reaches nobody.* It is written here
+because this file is what the next executor is handed.
+
 ### Claude's Discretion
 
 - Plan sequencing, wave structure, and how many plans to split this into.
