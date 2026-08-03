@@ -555,9 +555,18 @@ describe('AUTH-04 — the issuance history belongs to the host, not to the autho
 
   it('records synchronously, which is why the serving branch takes no capacity slot', () => {
     // `agent.ts` records that `enrol` is fully synchronous and that this is *why* the
-    // enrol branch takes no capacity slot. An `await` in the port would invalidate that
-    // recorded argument in a file this plan does not open — so the write is asserted
-    // visible on the line after the call, with no `await` anywhere in this case.
+    // enrol branch takes no capacity slot. So the write is asserted visible on the line
+    // after the call, with no `await` anywhere in this case.
+    //
+    // **Which mutation actually holds that argument was measured, because the obvious
+    // one does not.** Giving `IssuanceLedger.record` a `Promise<void>` return type leaves
+    // `agent.ts` compiling perfectly — `enrol` still returns a value, and the write is
+    // merely a floating promise; the only `tsc` complaint is against a hand-written
+    // ledger like the one above. What the compiler *does* refuse is `enrol` itself
+    // becoming `async`: `agent.ts:724` then reports `{ kind: 'enrol'; result:
+    // Promise<EnrollmentResult> }` is not an `AgentResponse`. The signature is the
+    // compile-time guard; this case is the runtime one, and a port that awaited inside
+    // would be caught here rather than there.
     const ledger = testLedger()
     const auth = new EnrollmentAuthority({
       ...providerOptions,
