@@ -42,11 +42,26 @@ import { describe, expect, it } from 'vitest'
  * a symbol that does not exist is silently not a claim, and a claim about one that does
  * is always checked.
  *
+ * **Which rows are read, and which are owed a reason.** Every row is read. A row whose
+ * verdict says a mechanism is *not fully reached* — `Built, not wired` or `Partial` — is
+ * additionally *owed*: it must yield at least one of the three shapes, or be named in
+ * `WITHOUT_A_CHECKABLE_CLAIM` below. Until 2026-08-02 the reading was scoped to the
+ * *Built, not wired* rows alone, which meant correcting a row to *Partial* removed it
+ * from the guard. `NET-06` was corrected that way and its replacement sentence was
+ * itself false for a day. **The marker decides what a row owes; it never decides what
+ * gets read.**
+ *
  * **What this cannot say.** It reads call syntax, not reachability. A symbol called only
  * from dead code counts as called, and a symbol reached through a dynamic dispatch this
  * regex cannot see counts as uncalled. Both errors are in the safe direction for the
  * defect being guarded — the failure being prevented is a row claiming *no* caller while
  * an obvious one exists, and an obvious one is exactly what a regex finds.
+ *
+ * It also cannot tell an asserted claim from a **quoted and refuted** one. A row that
+ * reproduces the false sentence it is correcting has that sentence read back as its own,
+ * and goes red for saying the right thing. Found while writing this file's own
+ * correction to `NET-06`; the rule for row authors is to paraphrase what a row disowns,
+ * which those rows now say in line.
  *
  * ## The working tree, not the index — deliberately
  *
@@ -208,6 +223,8 @@ const UNSUPPLIED_HOOK = new RegExp(String.raw`no node supplies serveAgent.s \`(\
 
 interface Row {
   readonly id: string
+  /** The leading verdict of the status cell — `Done`, `Partial`, `Built, not wired`, … */
+  readonly verdict: string
   readonly builtNotWired: boolean
   readonly noCaller: readonly string[]
   readonly onlyThrough: readonly (readonly [string, string])[]
@@ -247,6 +264,7 @@ function parseRows(markdown: string): Row[] {
 
     rows.push({
       id,
+      verdict: verdict(cell),
       builtNotWired: cell.includes('Built, not wired'),
       noCaller: [...noCaller],
       onlyThrough,
@@ -260,23 +278,88 @@ const ROWS = parseRows(LEDGER_SOURCE)
 const BUILT_NOT_WIRED = ROWS.filter((row) => row.builtNotWired)
 
 /**
- * Rows marked *Built, not wired* whose reason names no checkable symbol, with the reason
- * each is allowed to.
+ * The verdicts that assert something is *not* fully reached.
+ *
+ * A row carrying one of these owes the reader a reason, and the reason is what this file
+ * checks. A `Done` row asserts no absence and is therefore owed nothing — it is still read
+ * by the claim checks below, because a `Done` row that happens to name an uncalled symbol
+ * is a contradiction worth catching, but it is not required to name one.
+ */
+const UNREACHED_VERDICTS: readonly string[] = ['Built, not wired', 'Partial']
+
+/** Every row whose verdict says a mechanism is not fully reached. */
+const UNREACHED = ROWS.filter((row) => UNREACHED_VERDICTS.includes(row.verdict))
+
+/**
+ * ## The rule this list encodes
+ *
+ * **A row that says a mechanism is not fully reached is either read by this file or
+ * named here.** Nothing in between. The three shapes above are the whole of what can be
+ * read; a row whose reason is written in concepts, pronouns, dates or file paths names
+ * no exported symbol, and no call-site search can hold it. Such a row is not forbidden —
+ * several of them are saying something a call-site search could not express — but it
+ * must appear here, because **an id in this list is a promise to re-read that row by
+ * hand.** A row that is neither parsed nor listed is a claim nobody checks and nobody
+ * knows nobody checks, which is the failure this file exists to prevent.
  *
  * Held as a pinned set rather than waived by a wildcard, so that quietly rephrasing a
- * row until its claim stops parsing fails here instead of passing everywhere. Adding an
- * id is a deliberate act that has to be argued for in this comment.
+ * row until its claim stops parsing fails here instead of passing everywhere.
  *
- * - `MR-02` makes no caller claim at all. Its reason is that the aggregation was
- *   measured over public shards, so nothing distinguished a map that moved data from
- *   one that did not — a statement about what an experiment covered, which no call-site
- *   search can hold.
- * - `SCHED-05` writes its claim as *"the sovereignty gate runs inside `placeWithOffers`,
- *   reachable only through `runResilient`"*. The subject is "the sovereignty gate", a
- *   concept rather than an exported symbol, so the `is reachable only through` pattern
- *   has nothing to bind. The `runResilient` half is held by six other rows.
+ * ## Why the list grew from two to seventeen on 2026-08-02
+ *
+ * It did not grow. It was **two-thirds hidden**, and the hiding had a mechanism: the
+ * claim checks below used to iterate the *Built, not wired* rows only, so a row moved to
+ * *Partial* left the guard's population entirely. Correcting a row was therefore the act
+ * that exempted it — silently, and in the direction of looking more checked.
+ *
+ * That is not hypothetical. `NET-06` was moved to *Partial* on 2026-08-01 and its
+ * replacement sentence called `discoverCandidates` callerless; `bin/bench.ts:680` calls
+ * it, and this file read green over that for a day because the row was no longer
+ * *Built, not wired*. `SCHED-03` and `SCHED-04` went stale the same way. Widening the
+ * population to every row is what found them, and the seventeen below are what the old
+ * scope was concealing.
+ *
+ * ## The entries, by the reason each cannot be read
+ *
+ * - **A statement about what an experiment covered.** `MR-02` — the aggregation was
+ *   measured over public shards, so nothing distinguished a map that moved data from one
+ *   that did not. `AOT-03` and `BENCH-06` — a cross-machine half descoped and unmeasured.
+ *   No call-site search can hold "this was never tried".
+ * - **A statement about which entry point, not which caller.** `NET-06`, `SCHED-05`,
+ *   `AOT-05`, `MR-03`…`MR-07`. The symbol has callers and the row says so; what is open
+ *   is that the caller is behind a flag, or is a test rather than a page, or is one of
+ *   two merge paths. `SCHED-05` is the clearest: `eligibleNodes` is called by both
+ *   placers, and the open leg is that no entry point ever labels a shard `sovereign` —
+ *   a claim about an *argument value*, which this file does not read.
+ * - **A statement about a tier or a configuration.** `AUTH-02`, `AUTH-03`, `AUTH-04`,
+ *   `NET-03`, `AOT-04`, `SCHED-04`. Both tiers construct the mechanism; what differs is
+ *   a host requirement, a measurement not yet taken, or — for `SCHED-04` — nothing at
+ *   all, the row stating in words that its marker is conservative rather than
+ *   descriptive. A row that reports no absence has no absence to name.
+ *
+ * `BROW-02` is deliberately **not** here: its reason is that no node supplies
+ * `serveAgent`'s `ledger` hook, which the third shape reads. It is checked, just not by
+ * the caller shapes.
  */
-const WITHOUT_A_CHECKABLE_CLAIM: readonly string[] = ['SCHED-05', 'MR-02']
+const WITHOUT_A_CHECKABLE_CLAIM: readonly string[] = [
+  'AUTH-02',
+  'AUTH-03',
+  'AUTH-04',
+  'NET-03',
+  'NET-06',
+  'SCHED-04',
+  'SCHED-05',
+  'MR-02',
+  'MR-03',
+  'MR-04',
+  'MR-05',
+  'MR-06',
+  'MR-07',
+  'BENCH-06',
+  'AOT-03',
+  'AOT-04',
+  'AOT-05',
+]
 
 // ---------------------------------------------------------------------------
 // serveAgent hooks
@@ -453,11 +536,12 @@ describe('the corpus and the ledger were really read', () => {
   it('extracted claims from the rows rather than matching nothing', () => {
     expect(ROWS.length).toBeGreaterThan(60) // 76 on 2026-08-01
     expect(BUILT_NOT_WIRED.length).toBeGreaterThan(5)
-    const claims = BUILT_NOT_WIRED.reduce(
-      (total, row) => total + row.noCaller.length + row.onlyThrough.length,
-      0,
-    )
-    expect(claims).toBeGreaterThan(10) // 15 on 2026-08-01
+    // Counted over every row, because that is the population the checks below read.
+    // Counting it over `BUILT_NOT_WIRED` while checking `ROWS` would leave the widening
+    // itself unguarded — a floor that cannot see the rows it was widened to reach.
+    const claims = ROWS.reduce((total, row) => total + row.noCaller.length + row.onlyThrough.length, 0)
+    expect(claims).toBeGreaterThan(10) // 14 on 2026-08-02, of which 1 is on a Partial row
+    expect(UNREACHED.length).toBeGreaterThan(BUILT_NOT_WIRED.length) // 32 vs 14
   })
 })
 
@@ -466,9 +550,14 @@ describe('the corpus and the ledger were really read', () => {
 // ---------------------------------------------------------------------------
 
 describe('a row claiming nothing calls a mechanism is right about it', () => {
+  // Every row, not the *Built, not wired* ones only. Scoping these two to that marker
+  // meant that correcting a row to *Partial* dropped it out of the guard — so the act of
+  // fixing a row was the act of exempting it, and `NET-06` sat wrong for a day inside a
+  // file written to catch exactly that. A row asserts what it asserts whatever its
+  // marker; the marker decides what is *owed*, never what is *read*.
   it('has no row naming a symbol that has since acquired a production caller', () => {
     const broken: string[] = []
-    for (const row of BUILT_NOT_WIRED) {
+    for (const row of ROWS) {
       for (const symbol of row.noCaller) {
         const callers = callSites(symbol)
         if (callers.length > 0) broken.push(`${row.id}: ${symbol} is called by ${callers.join(', ')}`)
@@ -479,7 +568,7 @@ describe('a row claiming nothing calls a mechanism is right about it', () => {
 
   it('has no row claiming a path is the only one when another path exists', () => {
     const broken: string[] = []
-    for (const row of BUILT_NOT_WIRED) {
+    for (const row of ROWS) {
       for (const [subject, gate] of row.onlyThrough) {
         const elsewhere = callSites(subject).filter((path) => join(ROOT, path) !== EXPORTED.get(gate))
         if (elsewhere.length > 0) {
@@ -490,9 +579,13 @@ describe('a row claiming nothing calls a mechanism is right about it', () => {
     expect(broken).toEqual([])
   })
 
-  it('leaves every Built-not-wired row either checkable or recorded as not', () => {
-    const unchecked = BUILT_NOT_WIRED.filter(
-      (row) => row.noCaller.length === 0 && row.onlyThrough.length === 0,
+  it('leaves every unreached row either checkable or recorded as not', () => {
+    // `unsuppliedHooks` counts as checkable: `BROW-02` names no symbol but does name a
+    // hook, and the hook shape below reads it. Omitting it here would list a row as
+    // unread while another case in this same file reads it.
+    const unchecked = UNREACHED.filter(
+      (row) =>
+        row.noCaller.length === 0 && row.onlyThrough.length === 0 && row.unsuppliedHooks.length === 0,
     ).map((row) => row.id)
     expect(unchecked.toSorted()).toEqual([...WITHOUT_A_CHECKABLE_CLAIM].toSorted())
   })
