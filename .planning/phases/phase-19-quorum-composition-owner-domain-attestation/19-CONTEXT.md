@@ -231,6 +231,42 @@ repository and the demo itself are **single-provider**. So the multi-provider re
 this exposure acceptable is an argument, not a reading. Say so in the plan and in the ledger row
 — *unmeasured is not met* applies to the mitigation as much as to the mechanism.
 
+### Two consequences measured during wave 1 — read before planning 19-06 or touching the challenges
+
+**1. A quorum cannot be composed from browser tabs alone, and that is VER-03 working.** Plan 19-02
+implemented the anchor rule as `discoverability === 'seed'`. A browser tab cannot bind a listening
+socket, so it is never seed-discoverable — therefore **a candidate set drawn purely from tabs, all
+`via-relay`, is refused with `no-direct-discovery-path`.**
+
+This does **not** contradict *all nodes have equal functionality; the only difference is
+discovery*. It is a statement about discovery, which is exactly why the rule was derived from
+`discoverability` rather than from a minted field. Tabs compute, hold blocks, serve records and
+take quorum slots on identical terms — what a quorum additionally needs is **one member reachable
+without relay mediation**, which is what "backbone-anchored" means and what VER-03 asks for.
+
+The consequence to design around rather than rediscover: **a fabric of only browser visitors can
+have its work verified, but cannot form the verifying quorum by itself.** Any tabs-behind-one-relay
+fixture must include an anchored member. This binds 19-06's wiring and criterion 4's rig.
+
+19-02 also found that **rule 3 implies rule 2 over any chosen member set** — `sharedRelay` returns
+`null` the moment it sees a seed, so a rule-2 check placed after rule 3 is dead code and
+`shared-relay-dependency` would have become unreachable. Rule 2 therefore runs on the **candidate
+pool**, ahead of rule 3. A side effect worth knowing: `requireIndependentPaths: false` no longer
+lets a single-relay fixture compose; the flag now decides *which refusal speaks*.
+
+**2. `nodeKey` inside a challenge does NOT bind a statement to its signer.** Plan 19-13 measured
+this: deleting `nodeKey` from `resultChallenge` left all fourteen cases green — **including the one
+presenting node A's signature under node B's certificate.** Ed25519 verification under
+`certificate.nodeKey` already does that work, and the challenge field adds nothing to it.
+
+The field was kept, because it does buy something real and narrower: **two replicas of one shard
+sign different bytes**, so their attestations cannot be confused or swapped. The docblock now says
+that instead of the binding claim it used to make.
+
+**`possessionChallenge` carries `nodeKey` under the same conditions and the same correction
+applies** — nobody has re-read it yet. Do not repeat the binding claim in any new challenge; state
+what the field actually buys.
+
 ### Claude's Discretion
 
 - Plan sequencing, wave structure, and how many plans to split this into.
