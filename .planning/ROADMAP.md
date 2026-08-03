@@ -657,21 +657,30 @@ Criterion 6 needs no plan — it landed on `develop` as `351bde1` before this ph
 **Criterion 5 exists because Phase 17 measured its own rate limit and found what it does not buy.** The burst limit is real and fully proven — a stated threshold read out of the refusal the peer received, `limit: 5 / windowMs: 3_600_000` on the wire. But AUTH-04's text asks that mass fake-node creation be *"measurably costly"*, and Phase 17's verification established two things that defeat it. The limit is keyed on `userKey`, which is **one `ed25519.keygen()`** — so twenty distinct user keys all enrol unslowed, and removing the rate guard entirely leaves that test green. And the budget is per provider **process**: a second provider defeats it without needing a second user key at all, asserted across two spawned providers.
 
 It lands here rather than in Phase 17 because the remedy is a design decision this phase is already making — what scarce thing an identity must present. This phase owns AUTH-05 and the attestation-strength machinery, so the natural candidates (a provider-issued invitation chained to an owner key, a persistent cross-process budget, or proof-of-work) all sit beside work already scheduled here. **AUTH-04 stays open until then**; Phase 17 records the rate-limiting half as measured and the cost half as not, in those words.
-**Plans:** 12 plans, 6 waves
+**Plans:** 15 plans, 6 waves
 
 Plans:
 - [ ] 19-01-PLAN.md — the certificate seam: `NodeDescriptor` carries the certificate discovery already held, or names its absence; `discoverCandidates` reports replica sets
 - [ ] 19-02-PLAN.md — `composeQuorum` gains the backbone anchor VER-03 never had, and reports the strength its members support instead of the constant it always declared
 - [ ] 19-03-PLAN.md — criterion 4: three browser peers on the static bundle, three engines, one relay, nothing dialled by the harness; plus this entry's three recorded corrections
 - [ ] 19-04-PLAN.md — WIRE-03: the two refusals a tab has never executed — the egress refusal on the browser submitter path, and the `exec` refusal at the slot limit
-- [ ] 19-05-PLAN.md — criterion 5, mechanism half: **opens with a blocking owner decision** on what scarce thing an identity must present; then the invitation, its spend record, and its wire form
+- [ ] 19-05-PLAN.md — criterion 5, mechanism half: a second budget on the one quantity an attacker cannot rotate — the provider's own aggregate issuance — and an issuance ledger the host owns rather than the authority's heap
 - [ ] 19-06-PLAN.md — `submitJob` composes the quorum for public shards at redundancy ≥ 2 and emits the attestation receipt on every shard and every job
-- [ ] 19-07-PLAN.md — criterion 5, cost half: the spend record on both tiers, the flags, and the N-th identity measured across real processes and across a provider restart
+- [ ] 19-07-PLAN.md — criterion 5, cost half: the durable issuance record on both tiers, the flag, and the budget that a provider restart does not hand back, measured across real processes
 - [ ] 19-08-PLAN.md — criterion 1 across real `bin/agent.ts` processes, with two engineered fabrics — one operator, and no anchor — each refused in the composer's own words
 - [ ] 19-09-PLAN.md — criterion 2 and AUTH-05: a node's owner id becomes its enrolled user key, and two of one owner's nodes agree as `owner-domain`
 - [ ] 19-10-PLAN.md — criterion 3 on the CLI: `bin/bench.ts` prints the receipt, and three readings are taken off the spawned driver's own stdout
 - [ ] 19-11-PLAN.md — criterion 3 in the demo UI, and the page's unconditional claim that every cube ran twice on different nodes is corrected
 - [ ] 19-12-PLAN.md — the ledger: one mutation entry per instrument, and requirement rows moved only as far as what landed supports
+- [ ] 19-13-PLAN.md — the third signing leg: a result a node signs with its certified key, the wrapper that produces it, and the wire that carries it
+- [ ] 19-14-PLAN.md — the agreeing set carries what each replica signed rather than a list of node ids the requestor chose
+- [ ] 19-15-PLAN.md — wired: both factories sign, the composition guard that already holds leg 1 now holds leg 3, and a signature verifies across a real process boundary
+
+<!-- Plan number is NOT wave order in this phase, and has not been since 19-04 was scheduled
+     after 19-05. Waves are: 1 = 01, 02, 03, 13; 2 = 05, 14; 3 = 06, 15; 4 = 04, 08, 09, 10;
+     5 = 07, 11; 6 = 12. Every plan's frontmatter carries its own `wave`, and that is the
+     authority — this list is ordered by number so a reader can find a plan, not by when it
+     runs. -->
 
 <!-- PLANNED 2026-08-02. Three things a verifier should know before scoring this phase, all
      of them decided at planning time rather than left to be discovered.
@@ -693,12 +702,40 @@ Plans:
      every quorum report `independent` including a size-1 one. Plan 19-02 fixes both; plan
      19-03 corrects this line in place.
 
-     CRITERION 5 CARRIES A BLOCKING DECISION. Plan 19-05 opens by asking the owner which of
-     the three candidates named above the fabric will use, because all three change what
-     nodes must present each other and this project sends protocol decisions to the owner —
-     as it did for the `PeerVerifier` re-ask, the offer/exec reservation, and the combine
-     bound. Plans 19-05 and 19-07 are written against the invitation option; a different
-     choice means replanning both rather than adapting them. -->
+     CRITERION 5's MECHANISM WAS DECIDED BY THE OWNER ON 2026-08-02, AND IT IS NONE OF THE
+     THREE CANDIDATES NAMED ABOVE AS THEY WERE FRAMED. Plan 19-05 originally opened with a
+     blocking decision between an invitation chain, a persistent budget and proof-of-work. The
+     ruling: the scarce thing an identity must present *already exists* — a provider-issued
+     certificate an attacker cannot mint, because `verifyCertificate` refuses an untrusted
+     issuer. What is not scarce is **issuance**. So the mechanism is a persistent, cross-process
+     **aggregate** issuance budget — how many certificates one provider will sign per window,
+     held where a restart cannot clear it — and nothing else. A budget keyed on any request
+     field is one the attacker rotates around, which is Phase 17's finding restated rather than
+     fixed. Plans 19-05 and 19-07 were replanned against it; the invitation, proof-of-work and a
+     larger rate limit are all off the table. The full ruling is in `19-CONTEXT.md` under
+     *"The signing triangle"*.
+
+     WHAT THAT MECHANISM IS, SO A VERIFIER SCORES THE EVIDENCE RATHER THAN THE WORDING. It is a
+     **bound made durable, not a per-identity price**: the N-th identity is *refused* inside the
+     window, and the refusal survives a provider restart. Criterion 5's phrase *"demonstrably
+     more expensive than the first"* can be read as requiring a rising price, and nothing in this
+     phase delivers one — no such price exists in this design and none was built. If a verifier
+     takes that reading, PARTIAL is the honest score and RULING A applies unchanged: a criterion
+     is not rewritten to let a phase close. Plan 19-07's own test file states the reading in its
+     header so the dispute surfaces at planning time rather than at verification.
+
+     THE PHASE ALSO ADDS THE THIRD SIGNING LEG, AND CRITERIA 2 AND 3 NOW DEPEND ON IT. Two legs
+     existed: the code a node runs is signed by its publisher (Phase 14, `guardModuleProvenance`
+     against pinned `trustAnchors`), and the node's certificate is signed by its provider
+     (Phase 17, `verifyCertificate` against `trustedIssuers`). The result a node returns was
+     signed by nobody — agreement was attested by transport authentication only, which is not
+     transferable, and `VerificationResult.agreeing` carried plain node-id strings. Plans 19-13,
+     19-14 and 19-15 add the leg, and Plan 19-06 makes a certificate count toward a receipt only
+     when that node's signature over *this* result verifies. A receipt built without it is the
+     submitter's word about itself, so VER-08/09/10 may not be ticked on one — recorded in Plan
+     19-12's disposition. Certificate lifetimes are explicitly **not** part of any of this: the
+     owner corrected an earlier draft that called for short ones, because the attack radius does
+     not justify them. No renewal machinery is planned and none may be added. -->
 
 ### Phase 20: Single Job Path, Ledger & Churn Resilience
 **Goal**: `submitJob` becomes the one job path — lease renewal, speculation, and coverage accounting live inside it, not in a second uncalled implementation — and the peer ledger records real cross-node outcomes instead of discarding them
