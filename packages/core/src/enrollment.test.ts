@@ -8,7 +8,7 @@ import {
   resolveReplicaSets,
   verifyCertificate,
 } from './enrollment.ts'
-import type { NodeCertificate } from './enrollment.ts'
+import type { IssuanceBudget, NodeCertificate } from './enrollment.ts'
 
 /** AUTH-01, AUTH-02, AUTH-04, AUTH-05. */
 
@@ -22,11 +22,17 @@ const rogue = keypair(41)
 const alice = keypair(42)
 const NOW = 1_800_000_000_000
 
-function authority(overrides: { maxPerWindow?: number; windowMs?: number } = {}) {
+function authority(
+  overrides: { maxPerWindow?: number; windowMs?: number; maxIssuedPerWindow?: IssuanceBudget } = {},
+) {
   return new EnrollmentAuthority({
     providerPrivateKey: provider.priv,
     maxPerWindow: overrides.maxPerWindow ?? 3,
     windowMs: overrides.windowMs ?? 60_000,
+    // Every case built on this helper is about the per-user window, so the default is
+    // the named absence of an aggregate budget — written out rather than omitted,
+    // which is the whole point of the option being required.
+    maxIssuedPerWindow: overrides.maxIssuedPerWindow ?? 'issues-without-an-aggregate-budget',
   })
 }
 
@@ -230,7 +236,11 @@ describe('AUTH-02 — verification is offline', () => {
   })
 
   it('refuses an expired or not-yet-valid certificate', () => {
-    const auth = new EnrollmentAuthority({ providerPrivateKey: provider.priv, certificateLifetimeMs: 1_000 })
+    const auth = new EnrollmentAuthority({
+      providerPrivateKey: provider.priv,
+      certificateLifetimeMs: 1_000,
+      maxIssuedPerWindow: 'issues-without-an-aggregate-budget',
+    })
     const { result } = enrol(auth, 7)
     expect(result.ok).toBe(true)
     if (!result.ok) return
@@ -281,6 +291,124 @@ describe('AUTH-04 — enrollment is rate-limited per user key', () => {
 
     expect(auth.issuedWithin(alice.pub, NOW)).toBe(1)
     expect(auth.issuedWithin(bob.pub, NOW)).toBe(1)
+  })
+})
+
+/**
+ * The second budget, on the one quantity an attacker cannot rotate.
+ *
+ * Phase 17 measured the per-user window and published what it does not buy: the limiter
+ * keys on `userKey`, a fresh user key is one `ed25519.keygen()`, and twenty requests
+ * under twenty distinct user keys all succeed with **no deletion turning that assertion
+ * red** (`enrollment.node.test.ts`, *"rate-limiting is measured; cost is unmeasured"*).
+ * That exact population is what the first case below runs, against an authority that
+ * states an aggregate budget — and then again against one that states it has none, so
+ * the two configurations are shown to differ rather than assumed to.
+ *
+ * What this bounds is **issuance per provider per window**, not the price of an
+ * identity. See `enrollment.ts`'s header for what that does and does not buy.
+ */
+describe('AUTH-04 — a provider signs a stated number of certificates per window', () => {
+  /**
+   * One enrolment under a **freshly generated** user key, which is the attacker's move.
+   *
+   * Seeds are derived from `which` so a failure names the request it was, and the two
+   * ranges are disjoint from every other fixture key in this file.
+   */
+  function underFreshUser(auth: EnrollmentAuthority, which: number, at: number = NOW) {
+    const node = keypair(100 + which)
+    const user = keypair(150 + which)
+    return {
+      userKey: user.pub,
+      result: auth.enrol(
+        requestEnrollment(node.priv, user.priv, {
+          operatorId: `op-${which}`,
+          discoverability: 'seed',
+          relayIds: [],
+        }),
+        at,
+      ),
+    }
+  }
+
+  it('refuses past its stated number however many free keygens the requester mints', () => {
+    // `maxPerWindow: 3` never binds here: every request names a different user key and
+    // spends one of that key's three. The only thing that can refuse is the aggregate.
+    const budgeted = authority({ maxPerWindow: 3, maxIssuedPerWindow: 5 })
+    const outcomes = Array.from({ length: 20 }, (_, i) => underFreshUser(budgeted, i).result)
+
+    expect(outcomes.filter((o) => o.ok)).toHaveLength(5)
+    expect(budgeted.issuedToAnybodyWithin(NOW)).toBe(5)
+    for (const outcome of outcomes.filter((o) => !o.ok)) {
+      if (outcome.ok) continue
+      expect(outcome.refusal.kind).toBe('issuance-budget-exhausted')
+    }
+
+    // The control, in the same run: the identical twenty against an authority that
+    // states it has no aggregate budget. Without this the first half would be equally
+    // well explained by twenty requests that were never going to succeed.
+    const unbudgeted = authority({ maxPerWindow: 3 })
+    const same = Array.from({ length: 20 }, (_, i) => underFreshUser(unbudgeted, i).result)
+    expect(same.filter((o) => o.ok)).toHaveLength(20)
+    expect(unbudgeted.issuedToAnybodyWithin(NOW)).toBe(20)
+  })
+
+  it('names the provider’s own budget and says nothing about the requester', () => {
+    const auth = authority({ maxIssuedPerWindow: 1 })
+    expect(underFreshUser(auth, 0).result.ok).toBe(true)
+
+    const second = underFreshUser(auth, 1)
+    expect(second.result.ok).toBe(false)
+    if (second.result.ok) return
+
+    // Asserted by name, not by `ok === false`. A refusal that named the requester
+    // would send an operator looking at a user key that is not the problem — this
+    // requester did nothing wrong and has a different next action from a rate-limited
+    // one: find another provider, rather than wait.
+    expect(second.result.refusal.kind).toBe('issuance-budget-exhausted')
+    if (second.result.refusal.kind !== 'issuance-budget-exhausted') return
+    expect(second.result.refusal.limit).toBe(1)
+    expect(second.result.refusal.windowMs).toBe(60_000)
+    expect(second.result.refusal.retryAfterMs).toBeGreaterThan(0)
+
+    // Nothing about the requester, in the refusal or in the sentence beside it.
+    expect(Object.keys(second.result.refusal)).not.toContain('userKey')
+    expect(Object.keys(second.result.refusal)).not.toContain('nodeKey')
+    expect(second.result.reason).not.toContain(second.userKey)
+  })
+
+  it('tells a requester their own window is full before it tells them the provider’s is', () => {
+    // Both budgets bind at once. Which reason is reported is the whole of this case:
+    // the more specific true statement about *this* request wins.
+    const auth = authority({ maxPerWindow: 2, maxIssuedPerWindow: 2 })
+    expect(enrol(auth, 120).result.ok).toBe(true)
+    expect(enrol(auth, 121).result.ok).toBe(true)
+    expect(auth.issuedWithin(alice.pub, NOW)).toBe(2)
+    expect(auth.issuedToAnybodyWithin(NOW)).toBe(2)
+
+    const hers = enrol(auth, 122).result
+    expect(hers.ok).toBe(false)
+    if (hers.ok) return
+    expect(hers.refusal.kind).toBe('rate-limited')
+
+    // And a stranger, whose own window is empty, meets the aggregate instead — which
+    // is what shows the ordering is an ordering rather than the aggregate being
+    // unreachable.
+    const stranger = underFreshUser(auth, 7).result
+    expect(stranger.ok).toBe(false)
+    if (stranger.ok) return
+    expect(stranger.refusal.kind).toBe('issuance-budget-exhausted')
+  })
+
+  it('slides the aggregate window rather than closing the provider forever', () => {
+    const auth = authority({ maxPerWindow: 3, maxIssuedPerWindow: 2, windowMs: 60_000 })
+    expect(underFreshUser(auth, 10).result.ok).toBe(true)
+    expect(underFreshUser(auth, 11).result.ok).toBe(true)
+    expect(underFreshUser(auth, 12).result.ok).toBe(false)
+
+    // Past the window, the earlier issuances no longer count against the provider.
+    expect(underFreshUser(auth, 13, NOW + 60_001).result.ok).toBe(true)
+    expect(auth.issuedToAnybodyWithin(NOW + 60_001)).toBe(1)
   })
 })
 
