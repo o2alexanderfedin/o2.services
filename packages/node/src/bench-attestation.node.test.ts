@@ -111,7 +111,11 @@ const REPO = fileURLToPath(new URL('../../..', import.meta.url))
  */
 const READINGS_BUDGET_MS = 480_000
 
-/** Per-hook budget: one spawn, the wait above, one teardown. */
+/**
+ * Per-case budget, carried by **every** case rather than by a hook — see {@link readings}
+ * for why the wait is not in `beforeAll`. Whichever case runs first pays it; the rest
+ * resolve immediately and never come near it.
+ */
 const SPAWN_TIMEOUT_MS = 540_000
 
 type BenchProcess = ChildProcessByStdio<Writable, Readable, Readable>
@@ -140,7 +144,7 @@ const keyOf = (transport: string, nodes: number): string => `${transport}/${Stri
 
 let workdir: string
 let child: BenchProcess | null = null
-let readings: readonly RungReading[] = []
+let collected: readonly RungReading[] = []
 /** The headings in the order they were printed — the sweep's shape, as the driver reports it. */
 let headings: readonly string[] = []
 
@@ -184,7 +188,7 @@ async function readAttestationLines(): Promise<void> {
   })
   child = spawned
 
-  const collected: RungReading[] = []
+  const gathered: RungReading[] = []
   const seenHeadings: string[] = []
 
   await new Promise<void>((resolve, reject) => {
@@ -198,7 +202,7 @@ async function readAttestationLines(): Promise<void> {
         reject(
           new Error(
             `not every awaited rung spoke within budget. Collected ` +
-              `${collected.map((r) => keyOf(r.transport, r.nodes)).join(', ')}` +
+              `${gathered.map((r) => keyOf(r.transport, r.nodes)).join(', ')}` +
               `\nstdout:\n${stdout}\nstderr:\n${stderr}`,
           ),
         ),
@@ -230,14 +234,14 @@ async function readAttestationLines(): Promise<void> {
         }
         const attested = ATTESTATION.exec(line)
         if (attested === null || pending === null) continue
-        collected.push({
+        gathered.push({
           transport: pending.transport,
           nodes: pending.nodes,
           population: attested[1] ?? '',
           reading: attested[2] ?? '',
         })
         pending = null
-        if (AWAITED.every((key) => collected.some((r) => keyOf(r.transport, r.nodes) === key))) {
+        if (AWAITED.every((key) => gathered.some((r) => keyOf(r.transport, r.nodes) === key))) {
           clearTimeout(timer)
           resolve()
           return
@@ -254,17 +258,17 @@ async function readAttestationLines(): Promise<void> {
     })
   })
 
-  readings = collected
+  collected = gathered
   headings = seenHeadings
 }
 
 /** The reading for one rung, or a failure that names which rung is missing. */
 function rung(transport: 'memory' | 'real', nodes: number): RungReading {
-  const found = readings.find((r) => r.transport === transport && r.nodes === nodes)
+  const found = collected.find((r) => r.transport === transport && r.nodes === nodes)
   if (found === undefined) {
     throw new Error(
       `no attestation line for ${keyOf(transport, nodes)}; the driver printed ` +
-        `${readings.map((r) => keyOf(r.transport, r.nodes)).join(', ')}`,
+        `${collected.map((r) => keyOf(r.transport, r.nodes)).join(', ')}`,
     )
   }
   return found
@@ -289,12 +293,33 @@ function strengthOf(transport: 'memory' | 'real', nodes: number): {
 }
 
 let before = ''
+let inFlight: Promise<void> | null = null
+
+/**
+ * One spawn, shared by every case — awaited **inside** each `it` and deliberately not
+ * done in `beforeAll`.
+ *
+ * `beforeAll` is where this obviously belongs and it is the wrong place, for a reason
+ * measured here on 2026-08-03 rather than reasoned about: **`--reporter=json` attributes
+ * no hook time to a file.** With the spawn in `beforeAll` this file's `endTime -
+ * startTime` read **235 ms** against a wall clock of **154 s**, so the run that
+ * `MEASURED_NODE_SPANS` is derived from would have recorded it as one of the fastest
+ * files in the project and `test:unit` would have kept running it — a 20× regression of
+ * the fast inner loop, invisible to the instrument that exists to prevent exactly that.
+ *
+ * Awaiting a memoised promise inside each case puts the wait where the reporter can see
+ * it, without making any case depend on running first: whichever runs first pays, and
+ * the rest resolve immediately. Every case therefore carries the spawn budget.
+ */
+async function readings(): Promise<void> {
+  inFlight ??= readAttestationLines()
+  await inFlight
+}
 
 beforeAll(async () => {
   workdir = await mkdtemp(join(tmpdir(), 'o2-bench-attestation-'))
   before = repoStatus()
-  await readAttestationLines()
-}, SPAWN_TIMEOUT_MS)
+})
 
 afterAll(async () => {
   await stopBench()
@@ -302,7 +327,8 @@ afterAll(async () => {
 }, 60_000)
 
 describe('the driver says how strongly each rung was attested', () => {
-  it('reports the named absence for a rung whose descriptors carry no certificate', () => {
+  it('reports the named absence for a rung whose descriptors carry no certificate', async () => {
+    await readings()
     // Every memory rung, not one: three chances for a constant to show itself, and the
     // 2- and 4-node rungs run at redundancy 2, so a driver deriving the label from
     // `config.redundancy` would print a *different* wrong answer here than at 1 node.
@@ -321,9 +347,10 @@ describe('the driver says how strongly each rung was attested', () => {
         expect(reading).not.toContain(describeAttestation(strength))
       }
     }
-  })
+  }, SPAWN_TIMEOUT_MS)
 
-  it('reads owner-attested off the one-replica rung — criterion 3’s CLI half', () => {
+  it('reads owner-attested off the one-replica rung — criterion 3’s CLI half', async () => {
+    await readings()
     const one = strengthOf('real', 1)
     expect(one.strength).toBe('owner-attested')
     // Read from the rung's construction and not transcribed: `redundancy: Math.min(2,
@@ -338,9 +365,10 @@ describe('the driver says how strongly each rung was attested', () => {
     // `makespan` over. A reading off a partial run would carry the absence *because the
     // run failed*, which is a true statement about nothing this case is asking.
     expect(rung('real', 1).population).toBe('first completed run')
-  })
+  }, SPAWN_TIMEOUT_MS)
 
-  it('reads independent off the two-operator rung, which is what makes it a distinction', () => {
+  it('reads independent off the two-operator rung, which is what makes it a distinction', async () => {
+    await readings()
     const two = strengthOf('real', 2)
     expect(two.strength).toBe('independent')
     expect(two.replicas).toBe(2)
@@ -354,9 +382,10 @@ describe('the driver says how strongly each rung was attested', () => {
     // to be.
     expect([strengthOf('real', 1).strength, two.strength]).toEqual(['owner-attested', 'independent'])
     expect(describeAttestation('owner-attested')).not.toBe(describeAttestation('independent'))
-  })
+  }, SPAWN_TIMEOUT_MS)
 
   it('did not move the sweep, and wrote nothing into the repository', async () => {
+    await readings()
     // The rungs, in order, up to the last one this file waits for: `LADDER` is [1, 2, 4]
     // and `REAL_LADDER` is [1, 2] under `--quick`. Plan 19-10 adds a printed line and
     // changes no ladder, iteration count, rung or redundancy — a benchmark whose
@@ -367,5 +396,5 @@ describe('the driver says how strongly each rung was attested', () => {
     // Written where it was told to, and nowhere else.
     expect((await stat(join(workdir, '.planning', 'bench'))).isDirectory()).toBe(true)
     expect(repoStatus()).toBe(before)
-  })
+  }, SPAWN_TIMEOUT_MS)
 })
