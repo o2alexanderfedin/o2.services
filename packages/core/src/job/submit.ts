@@ -24,8 +24,8 @@ import type { NameRecord } from '../naming.ts'
 import { planWithOffers } from '../placement.ts'
 import type { AdmissionControl, Rejection } from '../placement.ts'
 import type { Blockstore, Executor, Task } from '../ports.ts'
-import { attestationRank, attestationReceipt } from '../quorum.ts'
-import type { AttestationReceipt } from '../quorum.ts'
+import { attestationRank, attestationReceipt, composeQuorum } from '../quorum.ts'
+import type { AttestationReceipt, QuorumRefusal } from '../quorum.ts'
 import { verifyResultAttestation } from '../result-attestation.ts'
 import type { ResultWork } from '../result-attestation.ts'
 import { planPlacement } from '../sovereignty.ts'
@@ -246,26 +246,84 @@ export interface NoVerifiedAttestation {
  */
 export type ShardAttestation = AttestationReceipt | NoVerifiedAttestation
 
+/**
+ * What the verification quorum came to for one shard — VER-03, VER-04.
+ *
+ * Three arms, because *why no quorum was attempted* is as much a fact about a result as
+ * a refusal is, and a caller told only "not composed" could not tell a sovereign shard
+ * from an over-concentrated candidate set.
+ *
+ * **A composed quorum does not pre-declare a strength, and this is worth its own line.**
+ * `operators` here are the operators that were **asked**; {@link ShardAttestation}
+ * reports who **answered and signed**. A quorum of two operators whose second member
+ * returned nothing verifiable reads the named absence, not `independent` — that is the
+ * correct answer rather than a defect in this gate, and reading a strength off
+ * `QuorumResult.strength` instead would be the exact conflation this phase exists to end.
+ */
+export type ShardQuorum =
+  /** Composed. These are the operators whose nodes were asked, and the pool placement got. */
+  | { readonly kind: 'composed'; readonly operators: readonly string[] }
+  /**
+   * Attempted and refused, in the composer's own words.
+   *
+   * Carried onto the shard rather than dropped, because **degrading is defensible only
+   * because it is not silent** — a caller that can read `insufficient-operators` or
+   * `shared-relay-dependency` can tell an over-concentrated fabric from any other
+   * degradation, and one that cannot, cannot.
+   */
+  | { readonly kind: 'not-composed'; readonly refusal: QuorumRefusal; readonly reason: string }
+  /** No quorum was attempted. One of the gate's three conditions did not hold, and this says which. */
+  | { readonly kind: 'not-attempted'; readonly reason: string }
+
+/** One shard's quorum decision, and what placement is handed because of it. */
+interface ShardGate {
+  readonly quorum: ShardQuorum
+  /** The pool placement receives — the quorum's members, or the full candidate set. */
+  readonly pool: readonly NodeDescriptor[]
+  /** True when this shard runs but did not get the independence it asked for. */
+  readonly degraded: boolean
+  /** The composer's reason, when the caller asked for refusal rather than a weaker answer. */
+  readonly refusal: string | null
+}
+
 export interface ShardResult {
   readonly partitionIndex: number
   readonly inputCid: CID
   readonly verification: VerificationResult
   /**
-   * True when this shard's achieved redundancy is below `JobSpec.redundancy`.
+   * True when this shard did not get everything it asked for — in **redundancy**, or in
+   * **independence**.
    *
-   * This field used to say in prose that a degraded shard which nonetheless agreed *"is
-   * owner-attested, not independently confirmed"*. {@link ShardResult.attestation} now
-   * says so as a **value**, so the prose is gone rather than kept beside it.
+   * It covered only the first until Plan 19-06, when it read *"achieved redundancy is
+   * below `JobSpec.redundancy`"*. **A quorum shortfall can occur at full redundancy** —
+   * two nodes of one operator are two replicas and no quorum — so the narrower reading
+   * would have been `false` on a shard that failed to get the verification it asked for,
+   * and a caller filtering on this field would have accepted that shard silently. The
+   * alternative, considered and rejected: leave this field alone and rely on the receipt.
+   * It loses on both counts — the owner ruling says such a shard is *marked degraded*,
+   * and a caller filtering on `degraded` is precisely who must not be told nothing.
    *
-   * **The two are not the same test, and neither can be inferred from the other.**
-   * `degraded` compares the redundancy achieved against what was **asked for**; the
-   * receipt reports what was **established**. A shard can be undegraded and still
-   * `owner-domain` — full redundancy across one owner's own nodes is exactly that.
+   * **The receipt says which of the two happened**, and the two are different tests:
+   * `degraded` compares what was **asked for** against what was achieved, while
+   * {@link ShardResult.attestation} reports what was **established**. A shard can be
+   * undegraded and still `owner-domain` — full redundancy across one owner's own nodes is
+   * exactly that — so neither field can be inferred from the other. This field also used
+   * to say in prose that a degraded shard which agreed *"is owner-attested, not
+   * independently confirmed"*; the receipt now says so as a value, so the prose is gone
+   * rather than kept beside it. {@link ShardResult.quorum} carries the composer's own
+   * words when the shortfall was a quorum's.
    *
    * See `sovereignty.ts`'s `Placement.degraded` for why this is reported rather than
    * silently tolerated.
    */
   readonly degraded: boolean
+  /**
+   * What the verification quorum came to for this shard — VER-03, VER-04.
+   *
+   * Present on every shard, including those no quorum was attempted for. See
+   * {@link ShardQuorum}.
+   */
+  readonly quorum: ShardQuorum
   /**
    * How strongly this shard's result is attested, or the named absence.
    *
@@ -624,6 +682,128 @@ export async function submitJob(
   // :11-14. What differs is only how an already-eligible set is narrowed to a
   // choice. They are alternatives and are never composed; `JobSpec.admit`'s doc
   // carries the line that makes composing them lose the re-pick.
+  //
+  // ── The quorum gate — VER-03, VER-04 ──────────────────────────────────────────────
+  //
+  // It sits HERE, above the arm selection, so both arms receive the same narrowed pool
+  // and neither can drift from the other. It narrows an already-eligible set by a
+  // constraint placement has no way to express; it does not re-derive who *could* run a
+  // shard, so this module's standing rule at :11-14 is intact. And it is applied
+  // **before** the load preference, never after: a hard constraint applied after a
+  // preference is not a constraint, a shape this repository has recorded twice — NET-08's
+  // cap after the loop and 16-06's bound below the fetch.
+  //
+  // A quorum is composed for a shard only when all three of these hold, and each is
+  // written out because each will look like an escape hatch to somebody who does not
+  // know why it is there:
+  //
+  //   1. **`label: 'public'`.** A sovereign shard runs on one owner's own nodes and
+  //      therefore has one operator, so `composeQuorum` — which holds one certificate
+  //      per operator by construction — would refuse it with `insufficient-operators`,
+  //      correctly and uselessly. This is `PROJECT.md`'s split expressed in a branch
+  //      rather than in prose: public data gets N-version redundancy across operators,
+  //      sovereign data is owner-attested with the aggregation over it verified. Remove
+  //      this condition and `owner-domain` becomes unreachable, which is the single most
+  //      likely way to get this whole thing wrong.
+  //   2. **`redundancy >= 2`.** At redundancy 1 there is no verification — VER-06 makes
+  //      it a dial reaching 1, off — and so no quorum to compose. This is the ruling's
+  //      first opt-out, and it yields `owner-attested`.
+  //   3. **Every candidate carries a certificate.** A requestor holding none cannot
+  //      compose anything, and refusing its job would break every caller that builds its
+  //      descriptors through `publicNodes`. This is the condition most in need of its
+  //      argument written down, so: it is **not** a silent degradation, because the
+  //      receipt reports the named absence on every shard of such a job — a caller that
+  //      supplies no certificates gets a result that says no attestation was established.
+  //      `submitJob` runs in the requestor's own process and a requestor that supplies
+  //      nothing bounds only its own claim, which is the same argument `JobSpec.admit`'s
+  //      doc already makes for itself.
+  //
+  // The composition itself is job-level because its input is: the candidate pool is the
+  // same for every shard, so `composeQuorum` would return the same answer per shard.
+  // Computed once and applied per shard by label.
+  const certificated = candidateNodes.flatMap((node) =>
+    node.certificate === 'carries-no-certificate' ? [] : [node.certificate],
+  )
+  const composition =
+    candidateNodes.length > 0 && certificated.length === candidateNodes.length && spec.redundancy >= 2
+      ? composeQuorum(certificated, { size: spec.redundancy })
+      : null
+  // The members' descriptors, in the pool's own order. One array, shared by every shard
+  // that composes, which is what lets the offer arm group by pool identity below.
+  const quorumPool: readonly NodeDescriptor[] =
+    composition !== null && composition.ok
+      ? ((keys) =>
+          candidateNodes.filter(
+            (node) => node.certificate !== 'carries-no-certificate' && keys.has(node.certificate.nodeKey),
+          ))(new Set(composition.members.map((member) => member.nodeKey)))
+      : candidateNodes
+
+  const gates = spec.shards.map((shard): ShardGate => {
+    if (shard.label !== 'public') {
+      return {
+        quorum: {
+          kind: 'not-attempted',
+          reason:
+            'a sovereign shard runs on its owner’s own nodes, which is one operator — the ' +
+            'composer would refuse it correctly and uselessly, so it is never handed one',
+        },
+        pool: candidateNodes,
+        degraded: false,
+        refusal: null,
+      }
+    }
+    if (spec.redundancy < 2) {
+      return {
+        quorum: {
+          kind: 'not-attempted',
+          reason: 'redundancy 1 asks for no verification, so there is no quorum to compose',
+        },
+        pool: candidateNodes,
+        degraded: false,
+        refusal: null,
+      }
+    }
+    if (composition === null) {
+      return {
+        quorum: {
+          kind: 'not-attempted',
+          reason:
+            'this requestor holds no certificate for at least one candidate, so it has nothing ' +
+            'to compose a quorum from — the receipt reports the named absence rather than a strength',
+        },
+        pool: candidateNodes,
+        degraded: false,
+        refusal: null,
+      }
+    }
+    if (composition.ok) {
+      // The narrowing costs the offer arm its re-pick **on this shard**: with the pool
+      // equal to the quorum, a member that refuses leaves nothing to re-pick onto and the
+      // shard comes back unplaceable naming the refusal. That is a worse liveness answer
+      // and a strictly better correctness one, and the trade is written here rather than
+      // discovered later. If a later phase wants both, the mechanism is a larger quorum
+      // with a chosen subset — a new decision, not a widening of this one. Note what the
+      // cost is not: a shard that degraded keeps the full eligible pool and therefore
+      // keeps its re-pick, so the liveness is paid by exactly the callers who got the
+      // stronger guarantee.
+      return {
+        quorum: { kind: 'composed', operators: composition.operators },
+        pool: quorumPool,
+        degraded: false,
+        refusal: null,
+      }
+    }
+    // Composition was attempted and refused, so there is a shortfall and the dial is
+    // consulted — here and only here. It is not read where no quorum was attempted,
+    // because there was nothing to fall short of.
+    return {
+      quorum: { kind: 'not-composed', refusal: composition.refusal, reason: composition.reason },
+      pool: candidateNodes,
+      degraded: spec.onQuorumShortfall === 'runs-at-available-redundancy',
+      refusal: spec.onQuorumShortfall === 'refuses-the-shard' ? composition.reason : null,
+    }
+  })
+
   const shardPlacements: Placement[] = []
   // One empty list per shard. On the no-offer arm that is what survives, and it is a
   // truthful reading rather than a default: no offer was made, so nothing refused.
@@ -637,9 +817,16 @@ export async function submitJob(
     // already-eligible nodes.
     const dispatchCount = new Map<string, number>()
     for (let i = 0; i < partitionCount; i++) {
+      const gate = gates[i] as ShardGate
+      if (gate.refusal !== null) {
+        // The caller's stated preference, in the composer's own words. Nothing else
+        // licenses a refusal here.
+        shardPlacements.push({ shardId: String(i), status: 'unplaceable', reason: gate.refusal })
+        continue
+      }
       const shard = spec.shards[i] as ShardSpec
       const request = requestFor(shard, String(i), spec.redundancy)
-      const nodesForShard = candidateNodes.map((n) => ({
+      const nodesForShard = gate.pool.map((n) => ({
         ...n,
         load: n.load + (dispatchCount.get(n.nodeId) ?? 0),
       }))
@@ -659,10 +846,50 @@ export async function submitJob(
     // tests. There is no `dispatchCount` nudge here either: the offer arm's spread
     // comes from the per-shard rendezvous ranking and from the headroom each node
     // published, both of which are better information than a local tally.
-    const requests = spec.shards.map((shard, i) => requestFor(shard, String(i), spec.redundancy))
-    const offered = await planWithOffers(requests, candidateNodes, { admit: spec.admit })
-    shardRejections = offered.map((placement) => placement.rejections)
-    for (const placement of offered) shardPlacements.push(placement)
+    //
+    // **Grouped by pool, because `planWithOffers` takes one pool for a whole job and
+    // keeps its cross-shard headroom tally inside a single call.** A per-shard pool
+    // therefore cannot be expressed by narrowing its argument. There are at most two
+    // distinct pools in any job — the composed quorum, and the full candidate set every
+    // sovereign or degraded shard keeps — so the requests are grouped by the array they
+    // were handed and each group makes one call. **With one pool this is the single call
+    // it replaces, in shard order, byte for byte**, which is every job that composes
+    // nothing and every all-public job that does. With two, a node's published headroom
+    // is tallied within each group and not across them; that is recorded here rather than
+    // found later, and the alternative — one call per shard — would lose the tally
+    // altogether, which is a bound `18-04` measured and this module inherits.
+    const byPool = new Map<readonly NodeDescriptor[], number[]>()
+    for (let i = 0; i < partitionCount; i++) {
+      const gate = gates[i] as ShardGate
+      if (gate.refusal !== null) continue
+      const group = byPool.get(gate.pool)
+      if (group === undefined) byPool.set(gate.pool, [i])
+      else group.push(i)
+    }
+
+    const placedByShard = new Map<number, Placement>()
+    const rejectionsByShard: (readonly Rejection[])[] = spec.shards.map(() => [])
+    for (const [pool, indices] of byPool) {
+      const requests = indices.map((i) =>
+        requestFor(spec.shards[i] as ShardSpec, String(i), spec.redundancy),
+      )
+      const offered = await planWithOffers(requests, pool, { admit: spec.admit })
+      for (const [k, shardIndex] of indices.entries()) {
+        const placement = offered[k]
+        if (placement === undefined) continue
+        placedByShard.set(shardIndex, placement)
+        rejectionsByShard[shardIndex] = placement.rejections
+      }
+    }
+    for (let i = 0; i < partitionCount; i++) {
+      const gate = gates[i] as ShardGate
+      shardPlacements.push(
+        gate.refusal !== null
+          ? { shardId: String(i), status: 'unplaceable', reason: gate.refusal }
+          : (placedByShard.get(i) as Placement),
+      )
+    }
+    shardRejections = rejectionsByShard
   }
 
   const shards = await Promise.all(
@@ -678,7 +905,11 @@ export async function submitJob(
           // beside it, so "nobody would take it" is distinguishable from "there was
           // nobody".
           verification: { status: 'insufficient', reason: placement.reason, failures: [] },
+          // A shard that never ran has no result to describe, so this stays what it has
+          // always been on this arm. The record of *why* is on `quorum` beside it, in the
+          // composer's own words when a caller asked for refusal.
           degraded: false,
+          quorum: (gates[partitionIndex] as ShardGate).quorum,
           rejections,
           attestation: noAgreementToAttest('unplaceable'),
         }
@@ -734,7 +965,18 @@ export async function submitJob(
               now,
             )
           : noAgreementToAttest(verification.status)
-      return { partitionIndex, inputCid, verification, degraded: placement.degraded, rejections, attestation }
+      const gate = gates[partitionIndex] as ShardGate
+      return {
+        partitionIndex,
+        inputCid,
+        verification,
+        // Either shortfall degrades the shard: fewer replicas than asked for, or the
+        // independence a composed quorum would have given it.
+        degraded: placement.degraded || gate.degraded,
+        quorum: gate.quorum,
+        rejections,
+        attestation,
+      }
     }),
   )
 

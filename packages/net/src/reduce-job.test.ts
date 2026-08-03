@@ -136,6 +136,12 @@ function agreed(partitionIndex: number, output: CanonicalValue): ShardResult {
       agreeing: 1,
       verified: 0,
     },
+    // These fixtures stand for shards of a job whose caller supplied no certificates,
+    // which is the condition under which no quorum is attempted at all.
+    quorum: {
+      kind: 'not-attempted',
+      reason: 'this fixture holds no certificate for any candidate',
+    },
     verification: {
       status: 'agreed',
       resultCid: FIXED_CID,
@@ -164,6 +170,10 @@ function insufficient(partitionIndex: number): ShardResult {
       reason: 'this shard is insufficient rather than agreed, so there is no agreement to attest',
       agreeing: 0,
       verified: 0,
+    },
+    quorum: {
+      kind: 'not-attempted',
+      reason: 'this fixture holds no certificate for any candidate',
     },
     verification: { status: 'insufficient', reason: 'nobody answered', failures: [] },
   }
