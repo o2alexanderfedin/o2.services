@@ -326,24 +326,29 @@ const UNREACHED = ROWS.filter((row) => UNREACHED_VERDICTS.includes(row.verdict))
  *   that did not. `AOT-03` and `BENCH-06` — a cross-machine half descoped and unmeasured.
  *   No call-site search can hold "this was never tried".
  * - **A statement about which entry point, not which caller.** `NET-06`, `SCHED-05`,
- *   `AOT-05`, `MR-03`…`MR-07`, and since 2026-08-03 `VER-08` and `AUTH-05`. The symbol
- *   has callers and the row says so; what is open is that the caller is behind a flag,
- *   or is a test rather than a page, or is one of two merge paths. `SCHED-05` is the
- *   clearest: `eligibleNodes` is called by both placers, and the open leg is that no
- *   entry point ever labels a shard `sovereign` — a claim about an *argument value*,
- *   which this file does not read. `VER-08` and `AUTH-05` joined for exactly that
- *   reason and by exactly that route: both carried a checkable claim — *`attestResults`
- *   has no production caller* — until Plan 19-15 composed that wrapper at both node
- *   factories and made the claim false. Correcting each row left it saying only what it
- *   had always also said, which is an argument-value claim: nothing labels a shard
- *   `sovereign` against a real owner's node set, and nothing puts a user key into
- *   `PlacementRequest.ownerId`. **A row losing its checkable claim by being *satisfied*
- *   must be added here in the same commit**, or this file reports it unread — which is
- *   the correct behaviour and the reason these two are written down rather than waived.
- *   `VER-09` and `VER-10` went the other way in the same commit and are deliberately
- *   *not* here: their remaining absence is the display half, and it is expressible as a
- *   call-site fact — `describeAttestation` renders the three labels for a human and
- *   nothing calls it.
+ *   `AOT-05`, `MR-03`…`MR-07`. The symbol has callers and the row says so; what is open
+ *   is that the caller is behind a flag, or is a test rather than a page, or is one of
+ *   two merge paths. `SCHED-05` is the clearest: `eligibleNodes` is called by both
+ *   placers, and the open leg is that no entry point ever labels a shard `sovereign` — a
+ *   claim about an *argument value*, which this file does not read.
+ *
+ *   **`VER-08` and `AUTH-05` were here for one day and are not any more, which is the
+ *   whole lifecycle this list is supposed to have.** Both carried a checkable claim —
+ *   *`attestResults` has no production caller* — until Plan 19-15 composed that wrapper
+ *   at both node factories and made it false; correcting each row on 2026-08-03 left it
+ *   saying only the argument-value claim it had always also said, so both were added
+ *   here in the same commit. Plan 19-09 then satisfied that claim too — a sovereign
+ *   shard pinned to a real owner's user key, placed on a discovered replica set of two
+ *   `bin/agent.ts` processes — so both rows are now `Done`, are no longer *unreached*,
+ *   and dropping out of this list is the assertion below noticing. **A row losing its
+ *   checkable claim by being *satisfied* must be added here in the same commit, and
+ *   removed in the same commit as the tick.** Neither direction can pass silently: the
+ *   check is a set equality.
+ *
+ *   `VER-09` and `VER-10` went the other way in the same 19-15 commit and are
+ *   deliberately *not* here: their remaining absence is the display half, and it is
+ *   expressible as a call-site fact — `describeAttestation` renders the three labels for
+ *   a human and nothing calls it.
  * - **A statement about a tier or a configuration.** `AUTH-02`, `AUTH-03`, `AUTH-04`,
  *   `NET-03`, `AOT-04`, `SCHED-04`. Both tiers construct the mechanism; what differs is
  *   a host requirement, a measurement not yet taken, or — for `SCHED-04` — nothing at
@@ -358,12 +363,10 @@ const WITHOUT_A_CHECKABLE_CLAIM: readonly string[] = [
   'AUTH-02',
   'AUTH-03',
   'AUTH-04',
-  'AUTH-05',
   'NET-03',
   'NET-06',
   'SCHED-04',
   'SCHED-05',
-  'VER-08',
   'MR-02',
   'MR-03',
   'MR-04',
