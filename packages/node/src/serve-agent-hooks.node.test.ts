@@ -192,15 +192,18 @@ describe('production serveAgent call sites state every hook explicitly', () => {
     expect(occurrences(BROWSER_NODE, "'issues-no-certificates'")).toBe(1)
     // The real callback is supplied, not the sentinel.
     expect(occurrences(BROWSER_NODE, "'reports-no-dispatch'")).toBe(0)
-    // SCHED-06, same burn-down as `fabric-node.ts` above. This factory's admission
-    // wiring is **unmeasured, not met**, and this count is not allowed to stand in for
-    // running it. The reason is no longer the one that stood here — *"`BrowserNode.start`
-    // needs a real `indexedDB` and a relay to dial, so it runs in neither vitest
-    // project"* was false, and the `e2e` project now starts this factory against a live
-    // tab in `browser-capability.e2e.test.ts`. What is still missing is narrower and is
-    // the whole of it: nothing drives an *over-committed* dispatch through a tab, so the
+    // SCHED-06, same burn-down as `fabric-node.ts` above, and this count is still not
+    // allowed to stand in for running it — but as of Plan 19-04 something does run it.
+    // `packages/node/src/tab-refusals.e2e.test.ts` dispatches concurrently at a tab's own
+    // declared limit and reads the refusal off the requestor's reply:
+    // `over-committed: 1 of 1 slots in use` at `maxConcurrentTasks: 1`, and `2 of 2` at
+    // `2`, so the figure is shown tracking the option. That retires the sentence that
+    // stood here — *"nothing drives an over-committed dispatch through a tab, so the
     // number this node would refuse a requestor with has never been read. WIRE-03,
-    // Phase 19.
+    // Phase 19"* — which was true when written and is not now. Retired rather than
+    // deleted, because the sentence it had itself replaced (*"needs a real `indexedDB`
+    // and a relay to dial, so it runs in neither vitest project"*) was false and kept
+    // four items deferred across four plans, and this row is where a reader goes looking.
     expect(occurrences(BROWSER_NODE, "'accepts-every-offer'")).toBe(0)
     // VER-08 / VER-09 / VER-10, and **the same count as `fabric-node.ts` deliberately**.
     // Signing is not a capability a tier confers: an enrolled tab signs on identical

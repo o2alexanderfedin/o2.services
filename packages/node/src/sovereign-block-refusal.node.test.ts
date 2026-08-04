@@ -50,13 +50,22 @@ import type { FabricNodeOptions } from './fabric-node.ts'
  *    this change, and it passes *because* the gap is real, not despite it. The
  *    `submitJob` call-site scan at the bottom of this file is what makes a **new**
  *    production submit path fail loudly rather than quietly inherit the gap.
- * 3. It does **not** prove the browser tier's submitter path — WIRE-03, Phase 19. The
- *    reason recorded here until 2026-07-31, that `BrowserNode.start` *"needs a real
- *    `indexedDB` and a relay, so it runs in neither vitest project"*, was false: the
- *    `e2e` project starts that factory against a live tab
- *    (`packages/node/src/browser-capability.e2e.test.ts`). What is genuinely unproven is
- *    the **submitter** half in a tab — that file dispatches *to* a browser node and
- *    reads what it serves, which is the other direction.
+ * 3. It does **not** prove the browser tier's submitter path — **and that is no longer
+ *    an open gap; it is a statement about this file's scope.** Closed by
+ *    `packages/node/src/tab-refusals.e2e.test.ts` (WIRE-03, Plan 19-04), which has a real
+ *    tab submit a sovereign shard through `window.o2`, then has a Node peer ask that tab
+ *    for the row and read `egress refused: <cid> on <tab peer id>` off the reply, with the
+ *    tab's own `providers` answer withholding the same CID and a public block from the
+ *    same store served to the same peer in the same run. Two earlier accounts of why the
+ *    browser tier could not be reached are left visible rather than deleted, because both
+ *    were inherited by several plans: *"`BrowserNode.start` needs a real `indexedDB` and a
+ *    relay, so it runs in neither vitest project"* was false and was retired on
+ *    2026-07-31; *"what is genuinely unproven is the **submitter** half in a tab — that
+ *    file dispatches *to* a browser node and reads what it serves, which is the other
+ *    direction"* was true, named the gap exactly, and is what 19-04 closed. **The route
+ *    that closes it is DATA-10's blockstore-put registration, not this file's job-scoped
+ *    hold** — see point (1) — so what a tab refuses at rest and what this file measures
+ *    during a job remain two mechanisms with two lifetimes.
  *
  * What would close (1) and (2) together: registering at a boundary the node owns rather
  * than at one entry point — the submitting node's blockstore-put of a shard labelled

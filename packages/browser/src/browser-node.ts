@@ -1267,17 +1267,45 @@ export class BrowserNode {
       // *an over-committed node just says no, and the requestor resamples*; only
       // the half that resamples had shipped.
       //
-      // **Unmeasured on this factory, and that is the honest report.** The reason is
-      // no longer the one that stood here — "needs a real `indexedDB` and a relay to
-      // dial, so it runs in neither vitest project" was retired by
-      // `start-unwind.browser.test.ts`, which starts this factory to success in three
-      // engines. What is missing now is narrower and is the whole of it: nothing
-      // drives a *refusal* through this hook, so the number this node would answer
-      // an over-committed requestor with has never been read. The behaviour is proved
-      // on `FabricNode` (`packages/node/src/admission.node.test.ts`) and only
-      // *composed* here. A grep confirming this line does not stand in for running it
-      // — that is exactly the substitution 13-VERIFICATION-2.md recorded the cost of.
-      // WIRE-03, Phase 19 builds the harness that would measure it.
+      // **Measured on this factory since Plan 19-04 (WIRE-03), and the reading is a
+      // number.** `packages/node/src/tab-refusals.e2e.test.ts` starts a tab through
+      // `window.o2` with `maxConcurrentTasks: 1`, has a Node-tier peer dispatch two
+      // `exec` requests concurrently over the connection the tab opened, and reads the
+      // second one's own reply frame: `over-committed: 1 of 1 slots in use`. The same
+      // construction at `maxConcurrentTasks: 2` answers `over-committed: 2 of 2 slots
+      // in use`, which is what says the figure tracks this option rather than the
+      // order two requests happened to arrive in — and, because a refusal naming
+      // `2 of 2` states its own occupancy, it is also the evidence that two tasks ran
+      // at once in one tab. Planting this hook's own named opt-out on this line turns
+      // both cases red; the sovereign-egress case in the same file stays green.
+      //
+      // (The opt-out is described rather than written out, deliberately, and this
+      // paragraph tripped over it on first draft — `serve-agent-hooks.node.test.ts`
+      // requires **zero** occurrences of that literal in this file and counts raw text
+      // across the whole of it, comments included. Same rule the `authorize:` block below
+      // and `browser-node-contract.node.test.ts` already write down for their own
+      // matchers: the instrument cannot tell a construction from a mention, so this file
+      // does not put the text where it would be counted.)
+      //
+      // **Two claims that stood here are retired rather than deleted, because the
+      // second is the shape this milestone exists to remove.** The first was *"needs a
+      // real `indexedDB` and a relay to dial, so it runs in neither vitest project"* —
+      // false, and retired earlier by `start-unwind.browser.test.ts`, which starts this
+      // factory to success in three engines, and by `browser-capability.e2e.test.ts`,
+      // which starts it against a live tab with no relay at all. The second replaced it
+      // and was true when written: *"nothing drives a refusal through this hook, so the
+      // number this node would answer an over-committed requestor with has never been
+      // read"*. It is false now. Both are left visible because one false sentence about
+      // testability kept four items deferred across four plans, and a reader deciding
+      // whether some other hook here is reachable needs the history rather than a clean
+      // line that tells them nothing.
+      //
+      // What is still true and is a different claim: the *bound* — that no more than
+      // `slots` tasks ever ran at once — is falsifiable only from a counter around the
+      // executor, and on this tier that is {@link BrowserNode.executorPeakInFlight},
+      // which no e2e case reads. `admission.node.test.ts` reads its Node-tier twin.
+      // What the file above measures is the refusal and its wording, which is what a
+      // requestor is actually told.
       capacity: admission,
       ledger: 'keeps-no-ledger',
       reservations: 'relays-for-nobody',
