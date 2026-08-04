@@ -873,8 +873,8 @@ Plans:
 **Goal**: `submitJob` becomes the one job path — lease renewal, speculation, and coverage accounting live inside it, not in a second uncalled implementation — and the peer ledger records real cross-node outcomes instead of discarding them
 **Mode:** mvp
 **Depends on**: Phase 18, Phase 19
-**Requirements**: WIRE-04, CHURN-01, CHURN-02, CHURN-03, CHURN-04, CHURN-05, CHURN-06, BROW-02
-**Research**: None — `runResilient`'s lease/speculation/coverage machinery exists and is unit-verified in Phase 7; the gap is that nothing calls it, so `submitJob` is the only reachable job path and it does neither. `ledger` (made explicit in Phase 11) is supplied by no node in production
+**Requirements**: WIRE-04, CHURN-01, CHURN-02, CHURN-03, CHURN-04, CHURN-05, CHURN-06, BROW-02, AUTH-04
+**Research**: Mostly none — `runResilient`'s speculation and coverage machinery exists and is unit-verified in Phase 7; the gap is that nothing calls it. **Corrected 2026-08-04: this is FALSE of lease renewal, which criterion 1 names first.** `LeaseTable.renew`, `shouldRenew` and `RENEW_AT` have no caller anywhere outside `lease.test.ts`, and `runResilient` never renews — so renewal must be BUILT, not wired, and is prioritised accordingly by owner ruling. The hard constraint on that build: an unconditional renew is a longer timeout wearing a lease's clothes, so a renewal must be granted only on evidence that the holder is still working, so `submitJob` is the only reachable job path and it does neither. `ledger` (made explicit in Phase 11) is supplied by no node in production
 **Success Criteria** (what must be TRUE):
   1. `submitJob` is the only function a caller uses to run a job through `bin/agent.ts` — it performs lease renewal, speculation, and coverage accounting internally; `runResilient` no longer exists as a separate, uncalled entry point, either merged in or removed
 
@@ -922,6 +922,60 @@ Plans:
   4. A cross-owner job run with some owners' nodes offline returns a coverage report (`covered: X/Y`) alongside its result, rather than presenting a silently partial aggregate as complete
   5. The browser demo's peer activity ledger, viewed across two or more connected tabs, shows merged counts contributed by every connected peer — not zero — because every node now supplies `serveAgent`'s `ledger` hook and reported outcomes are recorded rather than discarded
   6. **A combine result arriving from a recovered node *after* `executeReduce` has already collected its `wanted` replicas is received and discarded harmlessly** — an unsolicited late duplicate, not one the test asked for. Routed here by owner ruling 2026-07-31 from Phase 16's criterion 3, which scored PARTIAL for this clause alone
+  7. A coordinator writes a checkpoint during a live job run through `bin/agent.ts`, and a SECOND requestor — given nothing but that checkpoint's CID — finishes only the outstanding shards and returns the same answer the first would have
+
+<!-- CRITERION 7 ADDED 2026-08-04 BY OWNER RULING, and the reason is a scoring gap rather than
+     a scope increase.
+
+     CHURN-03 was on this phase's `Requirements:` line and on NONE of its criteria. This project
+     counts over criteria and never over requirements — "a requirement can outlive the phase that
+     opened it; a criterion cannot" — so the work planned for CHURN-03 in plan 20-11 would have
+     been built and then never scored by any verifier. That is the exact "built, not wired"
+     condition this milestone exists to eliminate, reappearing in the ledger instead of the code.
+
+     WHAT IS ALREADY TRUE: `checkpoint.ts` is complete and imported by nothing — `coordinator.ts`
+     does not even import it. So this is a wiring criterion, not a build one.
+
+     WHY "A SECOND REQUESTOR" AND NOT "RESUMES": a resume by the same process proves only that a
+     value survived in memory. Handing a different requestor nothing but a CID is what makes the
+     checkpoint a durable artifact rather than a variable, and it is the only reading that cannot
+     be satisfied by the original job's state. -->
+
+  8. Enrolment's cost is bounded by admission, not by a counter: a node that cannot present a provider-issued certificate cannot join the fabric, advertise itself, or be dialled by another node — so an identity that was never issued buys nothing, and the N-th identity costs an attacker a provider's willingness to sign it
+
+<!-- CRITERION 8 ADDED 2026-08-04 BY OWNER RULING, replacing a stalled criterion in Phase 19.
+
+     PHASE 19's CRITERION 5 read "enrolment costs something unmintable, and the N-th identity
+     costs more than the first". It verified PARTIAL twice: the unmintable half is delivered and
+     measured across real processes including restart and two-provider recovery, but the N-th
+     identity is REFUSED inside the issuance window rather than PRICED. Measured comparatively:
+     a provider's cost to refuse over an attacker's cost to mint a fresh identity is ~3.0, and
+     over a replay ~1397 — so an attacker burns the window at roughly a third of what refusing
+     costs, and the denial then applies to every honest node for the rest of the window at no
+     further cost.
+
+     THE OWNER'S RULING, 2026-08-04, and it relocates the guard rather than lowering the bar:
+     *"The lifecycle of the node in the network starts from connecting to the relay. If the node
+     that connects in can authenticate itself with certificate issued by provider, then it gets
+     in to advertise itself in the network and connect to nodes. If it cannot authenticate — it
+     cannot join the network and connect to other nodes."*
+
+     WHY THAT ANSWERS THE COST CLAUSE RATHER THAN DUCKING IT. A price only deters when the thing
+     bought is worth something. Under this ruling an unissued identity is worth NOTHING — it
+     cannot join, advertise or be reached — so the cost of the N-th identity is not CPU, it is a
+     provider's signature, which is exactly the unmintable thing the first half of the criterion
+     already secured. The counter stops being the defence and becomes an accounting detail.
+
+     WHAT THIS DOES NOT EXCUSE. Enrolment itself is still served unauthenticated — it must be,
+     since it is how a node gets its first certificate — so a provider can still be made to spend
+     CPU refusing. What changes is that the attacker gains no foothold for it. That residual is
+     to be measured and pinned, not argued away.
+
+     THE MEASURED MITIGATION THAT DOES NOT WORK, recorded so it is not re-tried: a capacity slot
+     on the `enrol` branch served 8 of 8 concurrent enrolments, because `enrol` is synchronous so
+     the bound never binds; in a rig where an `exec` held the shared table it served 0 of 8. It
+     bounds the wrong verb. -->
+
 **Plans**: TBD
 
 **Criterion 6 exists because Phase 16 could measure half of its own criterion 3 and said so.** The dedupe property is fully established there across nine real `bin/agent.ts` processes — probe-store deltas `+1/+0/+1`, a ninth fresh process returning the identical CID, two holders at redundancy 2 — but *"arriving late"* is not, because `executeReduce` stops at `wanted` replicas and **has no channel on which a late result could be received at all**. The duplicate in Phase 16's test is therefore solicited by the test, and `tree-reduce-agents.node.test.ts` says so about itself rather than letting the reading pass for more than it is.
