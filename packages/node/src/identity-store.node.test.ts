@@ -316,11 +316,14 @@ describe('AUTH-01 — identity generation does not require a secure context', ()
    * **The stripper here was a line-prefix filter with the mirror-image bugs**, replaced
    * 2026-08-04 by the shared tokenizer. It dropped any line whose first non-space
    * character began `*`, `//` or `/*`, which is wrong in both directions at once: it kept
-   * a trailing `// …` comment on a line of code — so a `subtle` named in one counted as a
-   * use — and it deleted whole lines of *code* that merely began with a multiplication or
-   * a division, or with a string opening `'//…'`. The last of those is why it also
-   * produced a false red on this file's own subject matter. The tokenizer removes comment
-   * text wherever it starts and preserves string literals, so both directions go away.
+   * a trailing `// …` comment on a line of code — so a `subtle` named in one would count
+   * as a use, a false red — and it deleted whole *code* lines that merely began with a
+   * `*` or a `/`, which is a false green.
+   *
+   * **Neither direction was live, and that is measured rather than assumed.** Across the
+   * three files this block reads, the `subtle` counts are identical under both stripper
+   * and filter — 0, 0 and 5 — so the replacement changes no verdict here today. What it
+   * removes is the standing possibility, in a file whose whole claim is a zero count.
    *
    * **The limit of this instrument, stated: the insecure-context case is unmeasured.**
    * The grep proves these two files do not name `subtle`. It cannot prove anything about
