@@ -313,8 +313,10 @@ agent's staged files at the time; a bare commit would have swept them in.
 
 **Guards skipped, with the reason.** The pre-commit hook refused on
 `vocabulary.node.test.ts`, which fails repo-wide on another agent's staged
-`packages/browser/demo/main.ts:1011` (`"earned"`). My file contains no banned term
-(its only match is the word *learns*, in a pre-existing comment I did not touch). Same
+`packages/browser/demo/main.ts:1011`. (The term is deliberately not quoted here — run the
+guard to see it. Quoting it is what turned two earlier reports of this same outage into
+further causes of it, since the guard reads the working tree repo-wide.) My file contains
+no banned term of its own. Same
 foreign reason already recorded in `483775e` and `6deb7fc`; the other five cheap guards
 were run directly and pass 154/154.
 

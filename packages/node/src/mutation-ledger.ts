@@ -1500,13 +1500,35 @@ export const MUTATIONS: readonly Mutation[] = [
       'the arms rather than being budgeted for. This plant is what shows the old check could not ' +
       'see the failure that matters: the planted CID prefix is IDENTICAL and only the node suffix ' +
       'differs, so a distinctness check is blind to it by construction. Measured: shard `s3` ran on ' +
-      '`n2` intact and on `n3` after `n2` left, red on a one-token difference. The same plant ' +
+      '`n2` intact and on `n3` after `n2` left, red on a single differing suffix. The same plant ' +
       'against the pre-fix file exited 0 and passed.',
     file: 'packages/net/src/churn.ts',
     find: 'return { ok: true, resultCid: encoded.cid.toString() }',
     replace: 'return { ok: true, resultCid: `${encoded.cid.toString()}-ran-on-${nodeId}` }',
     caughtBy: ['packages/net/src/churn.test.ts'],
     signature: 'completes every shard with 30% of the fabric killed, answering what the whole fabric answered',
+    signatureSource: 'test-title',
+  },
+  {
+    id: 'M65',
+    why:
+      'NET-06 / defect 32 — `planDials` decided "already connected, skip" from ' +
+      '`libp2p.getPeers()`, which counts a peer whose ONLY connection is a limited relay ' +
+      'circuit. A relayed circuit is 2 min / 128 KiB of signalling channel that PROJECT.md ' +
+      'says may not carry a job, so a pair that dialled in the same moment and lost ICE was ' +
+      'skipped by every later round — measured `dialed: []`, `failed: []` on both sides, in ' +
+      'two independent constructions, after a forced race that came out 4 of 4 rather than ' +
+      'the 1 in 3 it was filed as. This plants the skip back. It is worth pinning because ' +
+      'the repair is nearly invisible: libp2p already re-dials past a limited connection on ' +
+      'every `dialProtocol`, so the pair sometimes recovers by accident and always recovers ' +
+      'at the relay’s 120 s duration limit — which means a weaker `planDials` looks fine on ' +
+      'any reading that waits. The guard does not wait: it constructs the state with a bare ' +
+      '`/p2p-circuit` dial and reads the round immediately.',
+    file: 'packages/browser/src/dial-plan.ts',
+    find: '  const carries = new Set(round.held.filter((h) => h.carriesWork).map((h) => h.peer))',
+    replace: '  const carries = new Set(round.held.map((h) => h.peer))',
+    caughtBy: ['packages/browser/src/dial-plan.test.ts'],
+    signature: 'dials it again, and says the dial is an upgrade rather than first contact',
     signatureSource: 'test-title',
   },
   {
