@@ -157,6 +157,12 @@ interface Handshake {
   readonly issuerKey: string | null
   readonly peers: string[]
   readonly dutyCycle: number
+  /**
+   * NET-05's grant side, read off `bin/agent.ts`'s own handshake line rather than
+   * inferred. `[]` is a statement that no relay granted, not the absence of one — see
+   * that binary's module comment. Named here because this file now reads it.
+   */
+  readonly relays: string[]
 }
 
 interface Agent extends Handshake {
@@ -722,6 +728,90 @@ describe('criterion 1 engineered — one operator: degraded by default, refused 
       expect(controlAttestation.strength, arm).toBe('owner-attested')
       expect(controlAttestation.replicas, arm).toBe(1)
     }
+  }, PROCESS_TEST_TIMEOUT)
+})
+
+/**
+ * Fabric B's precondition, measured on its own before anything is built on it.
+ *
+ * Until 2026-08-04 `bin/agent.ts` declared `port` with `default: '0'` and passed
+ * `listen: ['/ip4/127.0.0.1/tcp/${port}']` unconditionally, so **no argv could empty that
+ * array**: `canRelay` was always true, every spawned agent signed `discoverability: 'seed'`
+ * with `relayIds: []`, and rule 2 had no across-process reading anywhere. That is the whole
+ * of what `19-VERIFICATION.md` scored criterion 1 PARTIAL for.
+ *
+ * The mechanism is one distinction: **`--port` no longer has a default**, so *not passed* is
+ * different from *passed as `0`*, and the listen list can be built conditionally. Both
+ * halves are read here because only the pair is a measurement — the first alone would not
+ * show that the old behaviour survived, and the second alone would not show anything new.
+ *
+ * **This is a binding choice, not a node kind.** The two agents below differ in what they
+ * *did* — one bound a socket, one did not — and in nothing they *can do*. Both execute
+ * tasks, serve blocks and answer records; `bin/agent.ts` carries that sentence at every flag
+ * it declares, and `STATE.md`'s cardinal rule is that a decision keying on node kind is
+ * wrong. This phase already retracted one rule (`0314208`) for being exactly that.
+ */
+describe('criterion 1’s precondition — `bin/agent.ts` can produce a node that binds nothing', () => {
+  it('signs via-relay naming its relay when --port is not passed, and seed when --port 0 is', async () => {
+    const relay = await FabricNode.start({
+      listen: ['/ip4/127.0.0.1/tcp/0/ws'],
+      maxReservations: 8,
+      trustAnchors: [publisher.pub],
+    })
+    nodes.push(relay)
+    const relayAddr = relay.browserDialableAddrs[0]
+    if (relayAddr === undefined) throw new Error('the relay published no browser-dialable address')
+
+    const provider = await spawnAgent('p', ['--issues-certificates', '--max-issued-per-window', '64'])
+    if (provider.issuerKey === null) throw new Error('the provider announced no issuer key')
+
+    // One closure, one varying argument. The two agents below differ in exactly the flag
+    // under test and in nothing else, so what differs in their certificates is what that
+    // flag decided — the construction fabric A already uses for its two dial arms.
+    const enrol = async (
+      name: string,
+      fill: number,
+      port: readonly string[],
+    ): Promise<Agent> =>
+      spawnAgent(name, [
+        '--provider-addr',
+        provider.multiaddrs[0] as string,
+        '--user-key',
+        await writeUserKey(name, fill),
+        '--operator-id',
+        `${name}-ops`,
+        '--relay-addr',
+        relayAddr,
+        ...port,
+      ])
+
+    // ---- No `--port`: the node binds nothing. --------------------------------------
+    // Read off the certificate a provider **process** signed, not off the spawn args, and
+    // off the handshake line's own `relays` field, which reports circuits that were
+    // granted rather than relays that were asked.
+    const unbound = await enrol('unbound', 0xbd, [])
+    expect(unbound.certificate?.discoverability).toBe('via-relay')
+    expect(unbound.certificate?.relayIds).toStrictEqual([relay.peerId])
+    expect(unbound.relays.length).toBeGreaterThan(0)
+    for (const address of unbound.relays) expect(address).toContain('/p2p-circuit')
+    // The claim the certificate rests on: every address this process holds is one the
+    // relay granted. `canRelay` is a predicate over exactly this list.
+    expect(unbound.multiaddrs.filter((ma) => !ma.includes('/p2p-circuit'))).toStrictEqual([])
+
+    // ---- `--port 0`: unchanged, and this is the regression guard. -------------------
+    // Every pre-existing spawn site of this binary either passes no `--relay-addr` at all
+    // (so the listen list is what it always was) or is this shape. Asserted rather than
+    // assumed: fourteen executors in this phase found a proof in their own plan that could
+    // not fail, and "nothing else changed" is the easiest such claim to make.
+    const seed = await enrol('seeded', 0xbe, ['--port', '0'])
+    expect(seed.certificate?.discoverability).toBe('seed')
+    expect(seed.certificate?.relayIds).toStrictEqual([])
+    expect(seed.multiaddrs.some((ma) => ma.includes('/tcp/') && !ma.includes('/p2p-circuit'))).toBe(
+      true,
+    )
+    // It asked for a circuit too, and got one — so the difference above is the binding and
+    // not the relay having refused one of them.
+    expect(seed.relays.length).toBeGreaterThan(0)
   }, PROCESS_TEST_TIMEOUT)
 })
 
