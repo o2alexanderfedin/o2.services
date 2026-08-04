@@ -143,6 +143,14 @@ async function spawnAgent(dir: string, extraArgs: readonly string[] = []): Promi
  * The refusals this file is about are readable only from outside: an enroller the provider
  * turned away writes to stderr and leaves, and the exit code is what separates *"your
  * command line is wrong"* from *"somebody else said no"*.
+ *
+ * **A handshake line is rejected immediately rather than waited out**, and that is not
+ * tidiness. Every plant this file is armed against — the aggregate check removed, the
+ * durable record made forgetful — turns a refusal into a *successful* enrolment, so the
+ * child announces and then serves for ever. Without this arm the reading is the announce
+ * budget expiring, sixty seconds later, under a message that names no cause; with it the
+ * failure is immediate and says the enroller was certified when it should have been
+ * refused. A check whose failure mode is a timeout is a check somebody calls a flake.
  */
 async function spawnUntilExit(dir: string, extraArgs: readonly string[]): Promise<Departure> {
   const child = launch(dir, extraArgs)
@@ -153,15 +161,27 @@ async function spawnUntilExit(dir: string, extraArgs: readonly string[]): Promis
     }, ANNOUNCE_BUDGET_MS)
     let stderr = ''
     let stdout = ''
+    const done = (outcome: Departure | Error): void => {
+      clearTimeout(timer)
+      if (outcome instanceof Error) {
+        child.kill('SIGKILL')
+        reject(outcome)
+      } else resolve(outcome)
+    }
     child.stderr.on('data', (chunk: Buffer) => {
       stderr += chunk.toString()
     })
     child.stdout.on('data', (chunk: Buffer) => {
       stdout += chunk.toString()
+      if (!stdout.includes('\n')) return
+      done(
+        new Error(
+          `agent in ${dir} announced instead of leaving — it was certified where a refusal was expected: ${stdout.slice(0, stdout.indexOf('\n'))}`,
+        ),
+      )
     })
     child.on('exit', (code) => {
-      clearTimeout(timer)
-      resolve({ code, stderr, stdout })
+      done({ code, stderr, stdout })
     })
   })
 }
