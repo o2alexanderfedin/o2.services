@@ -164,3 +164,40 @@ that has nothing to do with attestation.
 timestamps and read where the 30 s goes; separately, run `reduceJob` against a `--discover`
 rig and read `reduced.outcome`'s failure. Both are readings, not fixes, and either could be
 taken in an afternoon by a plan that owns this driver.
+
+---
+
+## 5. Nothing an operator can run mints a capability chain, so the sovereign discovery path is spec-only
+
+**Found during:** 19-09, closing AUTH-05's consuming half.
+
+**What was measured.** `CandidateOptions.dispatch` was a bare `CapabilitySupplier` handed to
+every `RemoteExecutor` `discoverCandidates` builds. A chain's audience is one node's key —
+`verifyChain` refuses another's with `wrong-audience`, and `RemoteExecutor`'s own docblock says
+so — therefore one supplier could authorise at most one candidate in a set. Since both node
+factories install `authorizeCapability`, and it refuses every sovereign task without a valid
+chain whether or not an owner key is pinned, **discovery could place no authenticated sovereign
+shard at all**. `tsc` was clean and every test was green over that, because every caller in the
+repository passes `'dispatches-unauthenticated'` and a public task returns `[]`.
+
+19-09 fixed the seam — `dispatch` is now `(nodeId) => CapabilitySupplier` — and
+`owner-domain-agents.node.test.ts` reddens to one agreeing replica when the per-node mint is
+reverted to a shared one. So the *mechanism* is closed.
+
+**What is still open, and it is the older finding underneath it.** `remote-executor.ts` already
+records that *"every non-test `new RemoteExecutor(` site in the repository dispatches public
+work"*, and that is still true of `discoverCandidates`' callers: `bin/bench.ts --discover`
+passes the sentinel, and so does every other production site. So the requestor half of AUTH-03
+remains **entry-point-unreachable** — `delegate` is called only from specs — and Phase 22's
+reachability guard will find it. What changed is that a caller who wanted to mint one now can;
+what did not change is that no runnable entry point does.
+
+**Why it was left.** 19-09's declared files are a binary, a spec and two comments. The three
+options `remote-executor.ts` already weighed are unchanged: giving `bin/bench.ts` a sovereign
+leg alters what the benchmark measures, the demo has no owner private key to root a chain at,
+and inventing a fourth entry point is a phase, not a plan.
+
+**What it would take.** An entry point that holds an owner's private key and labels a shard
+`sovereign` — which is the same missing piece `SCHED-05`'s ledger row names, from the placement
+side rather than the dispatch side. The two are one gap seen from two ends and should close
+together.
