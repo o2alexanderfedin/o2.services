@@ -280,9 +280,22 @@ describe('DATA-03/DATA-04 — sovereignty-pinned placement across real bin/agent
  * **The owner id here is the operator label `'alice'` and the descriptors are built by this
  * file.** A discovery-derived descriptor carries `certificate.userKey` as its `ownerId`
  * instead (Plan 18-05), so a sovereign job placed from `discoverCandidates` needs its
- * shard's `ownerId` to be that user key. **This file does not exercise that path** —
- * unifying the two is AUTH-05 / Phase 19's, and changing this fixture to a hex key would
- * hide the seam rather than close it.
+ * shard's `ownerId` to be that user key. **This file still does not exercise that path,
+ * and now says where it is exercised instead**:
+ * `packages/node/src/owner-domain-agents.node.test.ts`, added by Plan 19-09, which
+ * discovers its candidates, pins its shard to the owner's user key, and reads the receipt
+ * two of that owner's processes signed.
+ *
+ * The unification that made that possible landed in `bin/agent.ts` on 2026-08-03: an
+ * enrolling process derives `sovereignty.ownerId` from `--user-key`, and a `--owner-id`
+ * that disagrees is exit 2 naming both values. **These agents are unaffected, and that is
+ * why the fixture below is unchanged.** None of them enrols — alice is spawned with
+ * `--owner-id alice` and no `--provider-addr` — so the derivation never runs and the
+ * operator label is still exactly what a node with no certificate is cleared for. Changing
+ * this fixture to a hex key would delete the reading rather than modernise it: the point
+ * here is that placement narrows a sovereign shard before load is consulted, which is true
+ * of any owner id at all, and an unenrolled node cleared by label is a shape a real
+ * deployment still has.
  */
 
 interface OfferFixture {

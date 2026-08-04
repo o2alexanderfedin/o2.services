@@ -64,7 +64,7 @@
 import { readFile } from 'node:fs/promises'
 import { parseArgs } from 'node:util'
 import { KERNEL_TRUST_ANCHOR } from '@o2/demo'
-import { SEED_BYTES, parseKeyHex } from '@o2/libp2p'
+import { SEED_BYTES, identityFromSeed, parseKeyHex } from '@o2/libp2p'
 import { FabricNode } from '../fabric-node.ts'
 import { armOrphanLeash } from '../orphan-leash.ts'
 import { ReservationWatcher } from '../reservation-watch.ts'
@@ -79,6 +79,34 @@ const { values } = parseArgs({
     // `--owner-id` entirely keeps the safe default (cleared for nobody) — this
     // is a per-node clearance flag, not a node kind: every agent process built by
     // this binary has identical capability regardless of whether it is passed.
+    //
+    // ## AUTH-05 — this flag and `--user-key` name ONE value, and the collision was real
+    //
+    // An enrolling process derives its owner id from `--user-key` (see the check below
+    // `readUserSeed`), and this flag survives for a process that does **not** enrol. Both
+    // halves matter, so both are written down.
+    //
+    // The collision that made it necessary: `OwnerId` is an opaque string
+    // (`core/src/sovereignty.ts`), and *two different kinds of string flowed into that one
+    // field from two directions*. A discovery-derived descriptor sets
+    // `ownerId = certificate.userKey` — a 64-character hex ed25519 key
+    // (`net/src/discover-candidates.ts`) — while this flag took whatever an operator
+    // typed. A `PlacementRequest.ownerId` holding an operator label therefore matched no
+    // discovery-derived descriptor, and a sovereign shard came back `unplaceable` **with
+    // nothing anywhere obviously wrong**. `net/src/sovereign-execution.test.ts` dodged it
+    // by making its owner id *be* a hex key; a real deployment could not.
+    //
+    // **A disagreement between the two is exit 2, never a precedence rule.** Letting
+    // either win would produce a node that starts, serves, and is cleared for an identity
+    // the fabric will never ask about — the same silent stall, moved one step earlier and
+    // made harder to see. `--owner-id` passed *equal* to the derived key is accepted, so
+    // every spawn that already does the right thing keeps working unchanged.
+    //
+    // **What this does NOT unify, and it is the honest limit.** A *requestor* choosing
+    // which owner to pin a shard to still passes whatever string it holds; if that string
+    // is not a user key the shard is still unplaceable, correctly. What is closed is that
+    // a node's own clearance can no longer disagree with the certificate a provider signed
+    // about it.
     'owner-id': { type: 'string' },
     // AUTH-03's pinned trust anchor (`NodeSovereignty.ownerKey`): the ed25519 public
     // key, hex-encoded, that a capability chain naming `--owner-id` must be rooted at.
@@ -105,6 +133,23 @@ const { values } = parseArgs({
     // each re-litigation would touch a file two other plans hold open. The instruction is
     // therefore carried forward rather than discharged: whichever phase touches this file
     // next **with no other plan behind it** should do the fold.
+    //
+    // **Phase 19 carries it forward once more, and this time the successor is named.**
+    // Plan 19-09 (which added the owner-id derivation below) added no flag at all and
+    // still declined the fold, because **Plan 19-07 touches this same file after it** —
+    // wave 7, `depends_on: ["05", "09", "15"]` — for AUTH-04's durable issuance ledger.
+    // Doing the fold here would have handed that plan a rewritten `parseArgs` object to
+    // rebase onto for no benefit it asks for. 19-07 is the phase's **last** touch of this
+    // binary and therefore the plan with nothing behind it.
+    //
+    // **This flag is deliberately NOT derived the way `--owner-id` now is.** It would be
+    // tempting: when a node enrols, the natural root for a capability chain naming its
+    // owner *is* that owner's user key, whose public half this binary now derives anyway.
+    // But defaulting it would silently pin every already-enrolling agent to an owner key
+    // it was never given, turning `authorizeCapability`'s "no pinned owner key" refusal —
+    // the safe default — into an acceptance nobody asked for. A clearance may be derived
+    // from a signed statement; a trust anchor is configuration, and the operator supplies
+    // it.
     'owner-key': { type: 'string' },
     'can-execute-sovereign': { type: 'boolean', default: false },
     // DET-03/DATA-08's per-node build authority (`FabricNodeOptions.trustAnchors`),
@@ -159,6 +204,13 @@ const { values } = parseArgs({
     //
     // **A path is not a secret, but the file it names is.** Only the bytes are sensitive
     // and they never reach argv.
+    //
+    // **AUTH-05: the public half of this file is also this node's owner id.** The
+    // certificate carries it as `NodeCertificate.userKey`, `ownRecords` publishes it as
+    // the `sovereignFor` entry a sovereign discovery query is matched against, and — since
+    // Plan 19-09 — `FabricNodeOptions.sovereignty.ownerId` is derived from it here rather
+    // than typed separately into `--owner-id`. One value, three readers, no way for them
+    // to disagree. See `--owner-id` above for the collision that made this necessary.
     'user-key': { type: 'string' },
     // AUTH-01: who runs this hardware. Required whenever `--provider-addr` is given and
     // deliberately without a default, because it is signed into the certificate as
@@ -303,7 +355,7 @@ const { values } = parseArgs({
 })
 
 const USAGE =
-  'usage: agent.ts --dir <blockstore-dir> [--port <n>] [--owner-id <id> [--owner-key <hex>] [--can-execute-sovereign]] [--trust-anchor <hex> ...] [--issues-certificates] [--provider-addr <multiaddr> --user-key <path> --operator-id <id>] [--trusted-issuer <hex> ...] [--peer-addr <multiaddr> ...] [--max-concurrent-tasks <n>] [--duty-cycle <n>] [--relay-addr <multiaddr> ...]\n'
+  'usage: agent.ts --dir <blockstore-dir> [--port <n>] [--owner-id <id — the enrolled user key when --user-key is given> [--owner-key <hex>] [--can-execute-sovereign]] [--trust-anchor <hex> ...] [--issues-certificates] [--provider-addr <multiaddr> --user-key <path> --operator-id <id>] [--trusted-issuer <hex> ...] [--peer-addr <multiaddr> ...] [--max-concurrent-tasks <n>] [--duty-cycle <n>] [--relay-addr <multiaddr> ...]\n'
 
 /**
  * The one exit-2 path, extended rather than duplicated.
@@ -407,6 +459,57 @@ const enrollment =
         providerAddr: values['provider-addr'],
       }
 
+/**
+ * AUTH-05 — this process's owner id, derived from the user key it enrols under.
+ *
+ * `identityFromSeed` is the repository's one seed→public-key derivation, and its own doc
+ * pins the property that makes it the right call here: `nodeKey` is
+ * `toHex(ed25519.getPublicKey(seed))`, *byte for byte* what `requestEnrollment` computes
+ * when it fills `NodeCertificate.userKey` from this same private key. So the value below
+ * cannot disagree with the value the provider signs — not because two places were kept in
+ * step, but because there is one derivation. (It is applied to the **user** seed rather
+ * than the node seed; the function is named for its usual subject, not for its only one.
+ * Deriving it a second way here — through `@noble/curves`, which is not a declared
+ * dependency of this package — would be the second source of truth this repository keeps
+ * refusing to create.)
+ *
+ * `undefined` for a process that does not enrol, which is what leaves `--owner-id` as the
+ * only way to clear such a node — see that flag's doc.
+ */
+const enrolledOwnerId =
+  enrollment === undefined ? undefined : (await identityFromSeed(enrollment.userPrivateKey)).nodeKey
+
+/**
+ * A passed `--owner-id` that disagrees with the enrolled user key is exit 2.
+ *
+ * **Not a precedence rule, and the choice is the whole point of the check.** Whichever
+ * value won, the loser's operator would get a node that starts, serves every peer, and is
+ * cleared for an identity nothing in the fabric will ever ask about: a sovereign shard
+ * pinned to the real owner comes back `unplaceable`, with nothing failing and nothing
+ * logged. That is precisely the silent stall AUTH-05 exists to close, relocated from
+ * discovery time to configuration time and made *harder* to see rather than easier.
+ *
+ * Both values are named, because an operator who mistyped one of two 64-character hex
+ * strings needs to be shown which two strings were compared.
+ *
+ * Equal values are accepted, deliberately, so a caller that already passes the correct hex
+ * key keeps working — this check refuses a disagreement, never a repetition.
+ */
+if (
+  enrolledOwnerId !== undefined &&
+  values['owner-id'] !== undefined &&
+  values['owner-id'] !== enrolledOwnerId
+) {
+  refuse(
+    `--owner-id ${values['owner-id']} disagrees with the user key --user-key derives, ` +
+      `${enrolledOwnerId}; they are one value (AUTH-05) and a node cleared for an owner ` +
+      'the fabric will never ask about is refused rather than started',
+  )
+}
+
+/** The enrolled user key when there is one, the operator's label when there is not. */
+const ownerId = enrolledOwnerId ?? values['owner-id']
+
 // Resolved once so the line printed below reports what was actually pinned rather
 // than re-deriving it and risking the two disagreeing.
 const trustAnchors = values['trust-anchor'] ?? [KERNEL_TRUST_ANCHOR]
@@ -474,11 +577,18 @@ node = await FabricNode.start({
   // Both keys or neither: a watcher with no relay to watch reports nothing, and a relay
   // with no watcher is the silence NET-05 exists to end.
   ...(watcher === undefined ? {} : { relayAddrs, reservationWatcher: watcher }),
-  ...(values['owner-id'] === undefined
+  // AUTH-05: `ownerId` above, not `values['owner-id']` — an enrolling process is cleared
+  // for the user key its certificate names, which is the identity a sovereign discovery
+  // query and a discovery-derived `NodeDescriptor` both ask about. A process that enrols
+  // and passes no clearance flags therefore reaches this key with
+  // `canExecuteSovereign: false` and no `ownerKey`, which refuses every sovereign task
+  // exactly as it did before — the safe default is unchanged, only the identity it is
+  // stated *about* is now the true one rather than the empty string.
+  ...(ownerId === undefined
     ? {}
     : {
         sovereignty: {
-          ownerId: values['owner-id'],
+          ownerId,
           // Same conditional-spread idiom as the enclosing one, and required for the
           // same reason: `exactOptionalPropertyTypes` makes an absent key and an
           // explicit `undefined` different types, and `NodeSovereignty.ownerKey` is

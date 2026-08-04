@@ -43,21 +43,33 @@
  * honest limit of what a candidate set covers — stated here because a caller would
  * otherwise assume the answer is global.
  *
- * ## The sovereign seam, named rather than discovered
+ * ## The sovereign seam — closed 2026-08-03, and left described rather than deleted
  *
  * For a sovereign query, `ExecutorQuery.sovereignFor` is a `PublicKeyHex`, and the
  * descriptor this module builds sets `ownerId` to `certificate.userKey` — also a
  * `PublicKeyHex`. So a `PlacementRequest.ownerId` must be that **user key** for
  * `eligibleNodes` to match it. But `OwnerId` is an opaque string
- * (`sovereignty.ts:27`), so an operator label typed into `--owner-id` will not match
- * one and the shard comes back `unplaceable` with nothing obviously wrong.
+ * (`sovereignty.ts:27`), so an operator label typed into `--owner-id` did not match one
+ * and the shard came back `unplaceable` with nothing obviously wrong.
  *
- * That tension is already recorded in `fabric-node.ts`, and
- * `net/src/sovereign-execution.test.ts` dodges it by making the owner id *be* a hex
- * key. **Plan 19-09 owns unifying the two**, and it is the plan to read rather than the
- * phase in general — the naming half is discharged here, by the descriptor now carrying
- * the certificate the user key was read off, so a reader can see both spellings of the
- * same node side by side instead of inferring one from the other.
+ * **The half that produced that stall is closed.** Plan 19-09 made a serving node's own
+ * clearance the public half of the user key it enrols under: `bin/agent.ts` derives
+ * `FabricNodeOptions.sovereignty.ownerId` from `--user-key` and refuses, exit 2 naming
+ * both values, if a passed `--owner-id` disagrees with it. So a node can no longer be
+ * cleared for an identity its own certificate does not name, and
+ * `packages/node/src/owner-domain-agents.node.test.ts` runs a sovereign shard across two
+ * such processes from a descriptor this function built.
+ *
+ * **What is deliberately NOT closed, and it is the seam's honest remainder.** A
+ * *requestor* choosing which owner to pin a shard to still passes whatever string it
+ * holds; if that string is not a user key, `eligibleNodes` matches nothing and the shard
+ * is `unplaceable` — correctly, and the same way it would be for any owner with no live
+ * node. `OwnerId` stays opaque because it must: a requestor may pin work to an owner it
+ * knows by some other name entirely.
+ *
+ * The naming half was discharged one wave earlier, by the descriptor now carrying the
+ * certificate the user key was read off, so a reader sees both spellings of the same node
+ * side by side instead of inferring one from the other.
  *
  * ## `requiredFeatures` is deliberately left to the caller, and callers pass none
  *
