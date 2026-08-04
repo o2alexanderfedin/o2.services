@@ -79,7 +79,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { performance } from 'node:perf_hooks'
 import { sha256 } from '@o2/core'
-import { describeKeyFailure, screenElf, translationCid } from '@o2/aot'
+import { describeKey, describeKeyFailure, screenElf, translationCid } from '@o2/aot'
 import type {
   ElfFacts,
   ElfRefusal,
@@ -1280,9 +1280,22 @@ export function describeLift(artifact: LiftedArtifact): string {
   // is precisely a reproducibility defect — detectable only because both are printed.
   // One of them alone is not half the measurement; it is none of it.
   //
-  // Not a second rendering of the key. `describeKey` exists for that and would repeat
-  // the target, the toolchain and the feature set, all three of which are already on the
-  // lines around this one.
+  // The key itself, above the CID that names it, and rendered by `describeKey` rather
+  // than restated here.
+  //
+  // 21-02 declined this on the grounds that `describeKey` would only repeat the target,
+  // the toolchain and the feature set from the lines around it. That is three of the
+  // four fields it renders. The fourth is `inputDigest`, and **nothing else in this
+  // string prints it** — so an operator holding two different key CIDs could not tell
+  // whether the inputs differed, which is the first question a key mismatch raises.
+  //
+  // It is also `artifact.translation.key`, the key `translationCid` returned, not the
+  // fields this artifact happens to carry. Those are not the same object:
+  // `normaliseFeatures` sorts and de-duplicates, so this line shows the feature set that
+  // was *hashed* while `needs …` above shows the order the artifact reported. A
+  // disagreement between the two lines is a normalisation defect, and it is legible only
+  // because both are printed — the same reason the two CIDs below are both printed.
+  lines.push(`  key as hashed: ${describeKey(artifact.translation.key)}`)
   lines.push(`  translation key cid: ${artifact.translation.keyCid.toString()}`)
   lines.push(`  artifact cid: ${artifact.translation.artifactCid.toString()}`)
   for (const [tool, version] of Object.entries(artifact.toolchain).sort(([a], [b]) => a.localeCompare(b))) {

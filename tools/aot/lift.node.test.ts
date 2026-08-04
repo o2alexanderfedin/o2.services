@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import { MemoryBlockstore } from '@o2/core'
-import { describeKeyFailure, translationCid } from '@o2/aot'
+import { describeKey, describeKeyFailure, translationCid } from '@o2/aot'
 import type { TranslationRecord } from '@o2/aot'
 import {
   CROSS_MACHINE_BLIND_SPOT,
@@ -853,6 +853,52 @@ describe('a rendered lift carries its reservations in the same string as its num
     // it and this one does not.
     expect(rendered).toContain(`translation key cid: ${artifact.translation.keyCid.toString()}`)
     expect(rendered).toContain(`artifact cid: ${artifact.translation.artifactCid.toString()}`)
+  })
+
+  it('prints the input digest, the one key field no other line carried', () => {
+    // The gap this closes. Until 2026-08-04 the rendering showed the key's *CID* and
+    // none of the four fields hashed into it, so an operator holding two different key
+    // CIDs could not tell whether the *inputs* differed — the first question a key
+    // mismatch raises, and the only one of the four that no other line answers. Target,
+    // toolchain and feature set were already on the lines around it; `inputDigest` was
+    // on none of them, which is why 21-02's reason for leaving `describeKey` uncalled
+    // held for three fields out of four.
+    //
+    // Read off the artifact rather than written as a literal, so the fixture and the
+    // claim cannot drift apart.
+    expect(artifact.inputDigest).not.toBe('')
+    expect(rendered).toContain(`input ${artifact.inputDigest}`)
+    // …and rendered *by* `describeKey`, so the tree holds one rendering of a key rather
+    // than two that can disagree. Label and value together, for the reason the case
+    // above gives about the two CIDs.
+    expect(rendered).toContain(`key as hashed: ${describeKey(artifact.translation.key)}`)
+  })
+
+  it('renders the key that was hashed, not the fields the artifact happens to carry', async () => {
+    // These are two different objects, and the difference is observable. `translationKeyOf`
+    // hands `requiredFeatures` over in the artifact's own order and `translationCid`
+    // sorts and de-duplicates it, so the `needs` line shows what was *reported* and the
+    // `key as hashed` line shows what was *hashed*. A `describeLift` that rendered its
+    // own fields instead of `artifact.translation.key` would print the raw order twice,
+    // and the gap between reported and hashed — a normalisation defect — would be
+    // invisible in the one string an operator keeps.
+    const base: Omit<LiftedArtifact, 'translation'> = {
+      ...RENDERED_ARTIFACT_BASE,
+      requiredFeatures: ['simd128', 'bulk-memory', 'simd128'],
+    }
+    const unsorted = describeLift({ ...base, translation: await translationRecordFor(base) })
+
+    // Reported: the artifact's order, duplicate intact.
+    expect(unsorted).toContain('needs simd128 bulk-memory simd128')
+    // Hashed: sorted and de-duplicated. Asserted as the tail of `describeKey`'s own
+    // rendering so this cannot pass on the reported line above.
+    expect(unsorted).toContain('· needs bulk-memory simd128')
+    // Asserted first in spirit: the fixture really does distinguish the two orderings.
+    // Both assertions above would pass on a single-feature artifact without saying
+    // anything, and `RENDERED_ARTIFACT_BASE` is exactly such an artifact.
+    expect(base.requiredFeatures.join(' ')).not.toBe(
+      [...new Set(base.requiredFeatures)].sort().join(' '),
+    )
   })
 
   it('never claims cross-machine reproducibility', () => {

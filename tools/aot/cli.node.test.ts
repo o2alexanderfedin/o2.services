@@ -652,19 +652,57 @@ describe('the command a person types names what it produced, and refuses a borro
       })
       borrowedTagExists = true
 
-      const digests = execFileSync(
-        'docker',
-        ['image', 'inspect', BORROWED_TAG, '--format', '{{join .RepoDigests "\\n"}}'],
-        { encoding: 'utf8', timeout: 60_000 },
-      )
-        .split('\n')
-        .map((line) => line.trim())
-        .filter((line) => line.includes('@sha256:'))
+      const repoDigestsOf = (tag: string): string[] =>
+        execFileSync('docker', ['image', 'inspect', tag, '--format', '{{join .RepoDigests "\\n"}}'], {
+          encoding: 'utf8',
+          timeout: 60_000,
+        })
+          .split('\n')
+          .map((line) => line.trim())
+          .filter((line) => line.includes('@sha256:'))
+
+      const digests = repoDigestsOf(BORROWED_TAG)
 
       // The half the plan assumed, and it holds: the origin's digest survives the tag.
       expect(digests.some((digest) => digest.startsWith('ghcr.io/yomaytk/elfconv@'))).toBe(true)
       // The half it did not, and this is the finding.
       expect(digests.some((digest) => digest.startsWith('o2-local/elfconv@'))).toBe(true)
+
+      /**
+       * **Why this stays a measured negative instead of being hardened, re-measured
+       * 2026-08-04 on Docker Server 29.4.0.**
+       *
+       * The obvious repair is to require that *every* `RepoDigests` entry agree with the
+       * wanted repository rather than *any*. Measured against this same tag, that is
+       * worse than what it would replace, and the two assertions below are the reason.
+       *
+       * `RepoDigests` is a property of the image **ID**, not of the reference handed to
+       * `image inspect`. So while a borrowed tag exists anywhere on the host, the
+       * *canonical* name answers with the very same list — asserted rather than argued,
+       * by `toEqual` on the two readings. The two calls are therefore indistinguishable
+       * from this data, and **no predicate over it can refuse the borrowed name while
+       * admitting the real one**, because both are being shown identical bytes.
+       *
+       * An `every` rule consequently refuses `ghcr.io/yomaytk/elfconv:arm64` itself on
+       * any host where somebody has ever run `docker tag` — trading a recorded name that
+       * is merely *unportable* for a false refusal of the correct image, whose cause is a
+       * tag the operator may not know exists and which no longer appears in what they
+       * asked about. That is the strictly worse trade, so the refusal is left as it is
+       * and the criterion's re-tag clause is recorded as not met by this route.
+       *
+       * **If either assertion below ever fails, that is the good news** — it means this
+       * Docker stopped copying the digest across image IDs, and the refusal the criterion
+       * asks for becomes reachable again.
+       */
+      const canonicalDigests = repoDigestsOf(ELFCONV_IMAGE_TAG)
+      expect(canonicalDigests).toEqual(digests)
+
+      const canonicalRepository = ELFCONV_IMAGE_TAG.slice(0, ELFCONV_IMAGE_TAG.lastIndexOf(':'))
+      // What the shipped rule decides for the canonical image: accept, correctly.
+      expect(canonicalDigests.some((digest) => digest.startsWith(`${canonicalRepository}@`))).toBe(true)
+      // What an `every` rule would decide for the same image: refuse it. The false
+      // refusal, measured rather than predicted.
+      expect(canonicalDigests.every((digest) => digest.startsWith(`${canonicalRepository}@`))).toBe(false)
 
       // …and the consequence, measured through the program rather than deduced from the
       // rule. `image o2-local/elfconv@sha256:` on stderr is the driver's own progress
