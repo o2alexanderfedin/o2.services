@@ -286,8 +286,8 @@ describe('AUTH-02 — criterion 2, with both provider processes dead', () => {
     // production flags only — no test-only branch in the binary. The literal
     // `issuer === nodeKey` shape is measured at the wire in
     // `packages/net/src/enrol-protocol.test.ts`.
-    const p1 = await spawnAgent('p1', ['--issues-certificates'])
-    const p2 = await spawnAgent('p2', ['--issues-certificates'])
+    const p1 = await spawnAgent('p1', ['--issues-certificates', '--max-issued-per-window', '64'])
+    const p2 = await spawnAgent('p2', ['--issues-certificates', '--max-issued-per-window', '64'])
     expect(p1.issuerKey).not.toBeNull()
     expect(p2.issuerKey).not.toBeNull()
     expect(p1.issuerKey).not.toBe(p2.issuerKey)
@@ -390,7 +390,7 @@ describe('AUTH-02 — --trusted-issuer measured through two spawned processes', 
   it('a spawned agent given --trusted-issuer refuses an unverifiable peer as a block source, and an identical one without it does not', async () => {
     // A real issuer key to pin, obtained from a provider process rather than invented, so
     // the value on the command line is the shape production uses.
-    const p1 = await spawnAgent('p1', ['--issues-certificates'])
+    const p1 = await spawnAgent('p1', ['--issues-certificates', '--max-issued-per-window', '64'])
     await stopAgentNow(p1)
 
     const g = await spawnAgent('g', ['--trusted-issuer', p1.issuerKey as string])

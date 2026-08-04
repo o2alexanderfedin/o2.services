@@ -341,10 +341,17 @@ describe('AUTH-04 — a provider states its budget or does not start', () => {
    */
   it('exits 2 naming the flag and the value when the budget is not a whole number', async () => {
     for (const bad of ['plenty', '0', '2.5', '-1']) {
+      // `--flag=value` rather than `--flag value`, and only because of `-1`. **Measured
+      // 2026-08-03**: `parseArgs` refuses the separated form for a value beginning with a
+      // dash — `ERR_PARSE_ARGS_INVALID_OPTION_VALUE: Option '--max-issued-per-window'
+      // argument is ambiguous` — and that is exit **1** from the parser, before this
+      // binary's own validator has seen anything. Written as `=` so all four values reach
+      // the check this case exists to prove, rather than three of them proving it and the
+      // fourth proving something about Node. The same is true of every string flag on this
+      // binary and is not specific to this one.
       const departure = await spawnUntilExit(join(workdir, `bad-${bad}`), [
         '--issues-certificates',
-        '--max-issued-per-window',
-        bad,
+        `--max-issued-per-window=${bad}`,
       ])
       expect(departure.code, `--max-issued-per-window ${bad}`).toBe(2)
       expect(departure.stderr).toContain('--max-issued-per-window')

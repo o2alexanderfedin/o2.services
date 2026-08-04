@@ -345,7 +345,7 @@ describe('AUTH-02 — a spawned agent dials a peer and accepts it', () => {
     if (!input.ok) throw new Error('fixture not encodable')
     await aStore.put(input.bytes)
 
-    const p = await spawnAgent('p', ['--issues-certificates'])
+    const p = await spawnAgent('p', ['--issues-certificates', '--max-issued-per-window', '64'])
     expect(p.issuerKey).not.toBeNull()
 
     const a = await spawnAgent('a', [

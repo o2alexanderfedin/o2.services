@@ -262,8 +262,8 @@ async function standUp(holderArgs: readonly string[] = []): Promise<Fixture> {
   }
 
   const [p, p2] = await Promise.all([
-    spawnAgent('p', ['--issues-certificates']),
-    spawnAgent('p2', ['--issues-certificates']),
+    spawnAgent('p', ['--issues-certificates', '--max-issued-per-window', '64']),
+    spawnAgent('p2', ['--issues-certificates', '--max-issued-per-window', '64']),
   ])
   if (p.issuerKey === null || p2.issuerKey === null) throw new Error('a provider announced no issuer key')
   expect(p.issuerKey).not.toBe(p2.issuerKey)

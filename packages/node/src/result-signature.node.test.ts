@@ -316,7 +316,7 @@ async function standUp(): Promise<Fixture> {
     await store.put(MODULE_WRITES_PARTITION)
   }
 
-  const provider = await spawnAgent('p', ['--issues-certificates'])
+  const provider = await spawnAgent('p', ['--issues-certificates', '--max-issued-per-window', '64'])
   const providerKey = provider.issuerKey
   if (providerKey === null) throw new Error('the provider announced no issuer key')
 

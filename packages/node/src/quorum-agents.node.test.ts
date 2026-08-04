@@ -338,7 +338,7 @@ async function standUp(operatorIds: readonly [string, string, string]): Promise<
     await store.put(MODULE_WRITES_PARTITION)
   }
 
-  const provider = await spawnAgent('p', ['--issues-certificates'])
+  const provider = await spawnAgent('p', ['--issues-certificates', '--max-issued-per-window', '64'])
   if (provider.issuerKey === null) throw new Error('the provider announced no issuer key')
 
   const enrol = async (name: string, fill: number, operatorId: string): Promise<Agent> =>
@@ -806,7 +806,7 @@ async function standUpBehindOneRelay(): Promise<RelayedFixture> {
   const relayAddr = relay.browserDialableAddrs[0]
   if (relayAddr === undefined) throw new Error('the relay published no browser-dialable address')
 
-  const provider = await spawnAgent('p', ['--issues-certificates'])
+  const provider = await spawnAgent('p', ['--issues-certificates', '--max-issued-per-window', '64'])
   if (provider.issuerKey === null) throw new Error('the provider announced no issuer key')
 
   const executors: FabricNode[] = []

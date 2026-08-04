@@ -52,6 +52,22 @@
  * Public keys — `--owner-key`, `--trust-anchor`, `--trusted-issuer` — are fine on a
  * command line and are passed as hex.
  *
+ * **Policy numbers are not key material and go on argv as values.**
+ * `--max-issued-per-window`, `--max-concurrent-tasks` and `--duty-cycle` are all of that
+ * kind. The distinction is worth stating because the file rule above is easy to extend by
+ * analogy into a config file nobody needs: what makes `--user-key` a path is that its
+ * contents are a secret, and a provider's issuance budget is the opposite — every refusal
+ * carries the limit onto the wire, so the peer that met it can read the threshold.
+ *
+ * ## Two things a provider must state, and a third it may not
+ *
+ * `--issues-certificates` and `--max-issued-per-window` travel together or the process
+ * exits 2. There is **no switch here for the library's no-aggregate-budget opt-out**, the
+ * same posture `--trust-anchor` takes for DET-03's: a shipped binary should not carry one.
+ * And there is deliberately **no certificate-lifetime flag** — the owner's 2026-08-02
+ * correction rules lifetimes out of the cost argument, so `certificateLifetimeMs` keeps
+ * its default and revocation stays non-renewal on the certificate's own clock.
+ *
  * ## This process stops when the process that spawned it goes away
  *
  * On POSIX a child does not die with its parent, and `SIGKILL` runs no handler, so no
@@ -119,28 +135,39 @@ const { values } = parseArgs({
     // Where the owner's private half actually comes from is Phase 17's concern; this
     // phase pins only the public half, by configuration.
     //
-    // Flag collision, recorded rather than resolved (14-CONTEXT.md Risk 3): Phase 14
-    // proposed a `--trust-anchor` flag on this same binary and it landed above. Phase
-    // 15 does not depend on Phase 14 and must not block on it, so this is a third flag
-    // rather than a refactor. Whichever phase touches this block next should fold all
-    // three into one flags object rather than accreting a fourth.
+    // ## The flag fold, examined at last and declined — do not carry it forward again
     //
-    // **Phase 18 accreted instead, and the reason is recorded here rather than left to
-    // look like an oversight.** Three plans in Phase 18 each add a flag to this same
-    // `parseArgs` object, in three different waves: 18-01's `--peer-addr` and
-    // `--max-concurrent-tasks`, 18-08's `--duty-cycle`, and 18-11's `--relay-addr`. A
-    // refactor landed in wave 1 would be re-litigated twice before the phase ended, and
-    // each re-litigation would touch a file two other plans hold open. The instruction is
-    // therefore carried forward rather than discharged: whichever phase touches this file
-    // next **with no other plan behind it** should do the fold.
+    // 14-CONTEXT.md Risk 3 recorded a collision: Phase 14 proposed `--trust-anchor` on this
+    // binary while Phase 15 was adding `--owner-key`, neither could block on the other, and
+    // the note said *"whichever phase touches this block next should fold all three into
+    // one flags object rather than accreting a fourth."* Phase 18 carried it forward
+    // (three plans, three waves, one file), and 19-09 carried it forward once more naming
+    // Plan 19-07 as the successor with nothing behind it.
     //
-    // **Phase 19 carries it forward once more, and this time the successor is named.**
-    // Plan 19-09 (which added the owner-id derivation below) added no flag at all and
-    // still declined the fold, because **Plan 19-07 touches this same file after it** —
-    // wave 7, `depends_on: ["05", "09", "15"]` — for AUTH-04's durable issuance ledger.
-    // Doing the fold here would have handed that plan a rewritten `parseArgs` object to
-    // rebase onto for no benefit it asks for. 19-07 is the phase's **last** touch of this
-    // binary and therefore the plan with nothing behind it.
+    // **19-07 is that plan, it looked, and the instruction is discharged as declined.**
+    // Three measurements, each checkable:
+    //
+    //   1. `parseArgs`'s `options` **is** one flags object, and has been since the first
+    //      flag. The instruction's literal words are already satisfied by the shape of the
+    //      call; what it wanted was never written down by any of the three phases that
+    //      passed it on.
+    //   2. The one concrete fold consistent with the wording — a compound value flag
+    //      grouping several settings — is refused twice **by this file, by name**:
+    //      `--trust-anchor` and `--trusted-issuer` are both repeatable rather than
+    //      comma-separated *"because a comma-split string would be a parser nobody asked
+    //      for"*. A fold that reintroduced that parser to satisfy a note would be
+    //      overturning a recorded decision to close an unrecorded one.
+    //   3. The flags the note names are not one subject. This file already states that
+    //      `--trust-anchor` and `--trusted-issuer` must not be conflated — *"a module and
+    //      a peer are different subjects"* — and the three that genuinely are one subject
+    //      (`--owner-id`, `--owner-key`, `--can-execute-sovereign`) **are already folded**,
+    //      into the single `sovereignty` object at the `FabricNode.start` call below.
+    //
+    // So the fold is done where it is coherent and refused where it is not. What is left
+    // is sixteen flags in one `options` object — counted, 2026-08-03 — each documented at
+    // its own key, which is the shape a reader wants when they are looking for one of them.
+    // If a future phase wants a different structure it should say which structure and why,
+    // rather than inheriting a sentence.
     //
     // **This flag is deliberately NOT derived the way `--owner-id` now is.** It would be
     // tempting: when a node enrols, the natural root for a capability chain naming its
@@ -329,6 +356,48 @@ const { values } = parseArgs({
     // as every other one does, and anyone who writes "the provider node" in prose is
     // recreating the class `fabric-node.ts` records as deleted.
     'issues-certificates': { type: 'boolean', default: false },
+    // AUTH-04's cost clause: how many certificates this provider will sign per window, to
+    // anybody. Five things about it, and each decides behaviour.
+    //
+    // **What it is for.** Phase 17 measured that the per-user rate limit buys no cost at
+    // all: it is keyed on `userKey`, a fresh user key is one `ed25519.keygen()`, and twenty
+    // requests under twenty distinct user keys all succeeded unslowed with the guard in
+    // place. This is the bound on a quantity no request field can rotate around, and since
+    // the record lives under `--dir` (`fs-issuance.ts`) it is a bound a restart does not
+    // hand back.
+    //
+    // **A value on argv, not a file, and saying so is what stops the analogy.**
+    // `--user-key` names a file because argv is world-readable in `ps` and a private key
+    // on a command line is a private key everybody has. This is a **policy number**, not
+    // credential material — publishing it discloses nothing an operator would not tell a
+    // peer anyway, since every refusal carries the limit onto the wire so the peer that
+    // hit it can read the threshold. So the file rule does not apply here, and a config
+    // file for it would be machinery nobody needs.
+    //
+    // **Required alongside `--issues-certificates`, and there is no way to opt out.** The
+    // standing rule on this binary is that a half-configured enrolment is refused rather
+    // than defaulted, because the fields become part of a statement a provider signs — and
+    // a provider silently signing an unbounded number of certificates is precisely the
+    // state this flag exists to end. The library's opt-out
+    // (`'issues-without-an-aggregate-budget'`) stays reachable for callers that must state
+    // it, and this binary carries no switch for it, exactly as it carries none for
+    // `--trust-anchor`'s.
+    //
+    // **The operator trade, which is real and is not mitigated here.** A small budget
+    // starves honest enrolment as readily as an attacker's — `serveAgent` serves enrolment
+    // unauthenticated, so anyone who can dial this process can spend its window. The answer
+    // is another provider: trust is pinned per verifier, so several coexist by
+    // construction and nothing global has to recover. That answer is an argument rather
+    // than a measurement; `enrollment-cost.node.test.ts` says so in its own header.
+    //
+    // **A per-node configuration, not a node kind.** Every agent process built by this
+    // binary has identical capability whatever this is set to — the same sentence every
+    // other flag here carries. A provider at 3 serves exactly the requests a provider at
+    // 3 000 does.
+    //
+    // `type: 'string'` because `parseArgs` has no integer type; the parse and the range
+    // check are the validator below.
+    'max-issued-per-window': { type: 'string' },
     // NET-05, the joining node's side. Repeatable.
     //
     // **This is not `--peer-addr`.** That flag establishes ongoing peering with a node
@@ -355,7 +424,7 @@ const { values } = parseArgs({
 })
 
 const USAGE =
-  'usage: agent.ts --dir <blockstore-dir> [--port <n>] [--owner-id <id — the enrolled user key when --user-key is given> [--owner-key <hex>] [--can-execute-sovereign]] [--trust-anchor <hex> ...] [--issues-certificates] [--provider-addr <multiaddr> --user-key <path> --operator-id <id>] [--trusted-issuer <hex> ...] [--peer-addr <multiaddr> ...] [--max-concurrent-tasks <n>] [--duty-cycle <n>] [--relay-addr <multiaddr> ...]\n'
+  'usage: agent.ts --dir <blockstore-dir> [--port <n>] [--owner-id <id — the enrolled user key when --user-key is given> [--owner-key <hex>] [--can-execute-sovereign]] [--trust-anchor <hex> ...] [--issues-certificates --max-issued-per-window <n>] [--provider-addr <multiaddr> --user-key <path> --operator-id <id>] [--trusted-issuer <hex> ...] [--peer-addr <multiaddr> ...] [--max-concurrent-tasks <n>] [--duty-cycle <n>] [--relay-addr <multiaddr> ...]\n'
 
 /**
  * The one exit-2 path, extended rather than duplicated.
@@ -379,6 +448,34 @@ if (values.dir === undefined) refuse('--dir is required')
 if (values['provider-addr'] !== undefined) {
   if (values['user-key'] === undefined) refuse('--provider-addr requires --user-key <path>')
   if (values['operator-id'] === undefined) refuse('--provider-addr requires --operator-id <id>')
+}
+
+// AUTH-04: the two halves of a provider's configuration travel together or the process
+// does not start, which is `--provider-addr`'s rule applied to the other side of the same
+// exchange. A provider with no stated budget is the unbounded issuance criterion 5 exists
+// to end, and a budget on a process that issues nothing is a policy about nothing — so
+// both directions are refused rather than one of them silently ignored.
+if (values['issues-certificates'] && values['max-issued-per-window'] === undefined) {
+  refuse('--issues-certificates requires --max-issued-per-window <n>')
+}
+if (!values['issues-certificates'] && values['max-issued-per-window'] !== undefined) {
+  refuse(
+    `--max-issued-per-window ${values['max-issued-per-window']} was given to a process that issues no certificates; add --issues-certificates or drop it`,
+  )
+}
+
+// Refused here rather than clamped, for `--max-concurrent-tasks`'s recorded reason: the
+// binary and `EnrollmentAuthority` must not disagree about which values exist. Without it
+// `Number('plenty')` reaches the authority as `NaN`, every `issued.length >= NaN`
+// comparison is `false`, and the provider signs without limit — with nothing anywhere
+// reporting that the input was never a number. Zero is rejected with the rest: a provider
+// that would sign nothing is better refused at the command line than left answering every
+// peer with a refusal nobody configured.
+if (values['max-issued-per-window'] !== undefined) {
+  const budget = Number(values['max-issued-per-window'])
+  if (!Number.isInteger(budget) || budget < 1) {
+    refuse(`--max-issued-per-window ${values['max-issued-per-window']} is not an integer of at least 1`)
+  }
 }
 
 // `fromHex` does not validate and does not throw — it zero-fills. A mistyped
@@ -589,10 +686,17 @@ node = await FabricNode.start({
   trustAnchors,
   // AUTH-04: absence is "this process issues no certificates", and presence carries the
   // aggregate budget, because `FabricNodeOptions` cannot express a provider that never
-  // stated one. `exactOptionalPropertyTypes` makes an absent key and an explicit
+  // stated one. Validated above, so `Number` here cannot produce anything the authority
+  // would misread; and `exactOptionalPropertyTypes` makes an absent key and an explicit
   // `undefined` different types, so a non-provider adds no key at all.
+  //
+  // No `certificateLifetimeMs` beside it, and the omission is a decision rather than an
+  // oversight — the owner's 2026-08-02 correction rules certificate lifetimes out of this
+  // argument, so a knob for the neighbouring option would invite exactly the renewal
+  // tuning that correction forbids. Revocation here is non-renewal on the certificate's
+  // own clock, not a shorter clock and not a list.
   ...(values['issues-certificates']
-    ? { issuesCertificates: 'issues-without-an-aggregate-budget' as const }
+    ? { issuesCertificates: Number(values['max-issued-per-window']) }
     : {}),
   // The same conditional-spread idiom as `sovereignty` below, and required for the same
   // reason: `exactOptionalPropertyTypes` makes an absent key and an explicit `undefined`
@@ -630,6 +734,34 @@ node = await FabricNode.start({
           canExecuteSovereign: values['can-execute-sovereign'],
         },
       }),
+  // AUTH-04 — **somebody else's answer is not this operator's mistake.**
+  //
+  // A node whose enrolment the provider refused — because that provider has signed its
+  // stated number of certificates for the window — was configured perfectly well. So it
+  // leaves with **exit 1** and the provider's own words, and never through `refuse`, which
+  // is exit 2 *and prints the usage line*. Telling an operator whose provider is merely
+  // busy that their command line is wrong is the failure this branch exists to prevent,
+  // and it is the same distinction `--relay-addr` already draws between a malformed input
+  // and a relay that answered no.
+  //
+  // **It is still fatal, and that is deliberate rather than an omission.** The plan for
+  // this work asked for a started node with `certificate: null` on the handshake line
+  // instead. That would overturn `FabricNodeOptions.enrollment`'s recorded contract
+  // (17-CONTEXT.md decision 9): a node told to enrol, unable to, and running anyway is a
+  // node whose identity claim is absent — the shape `.planning/PROJECT.md` records as a
+  // hole — and every caller of that option, in this binary and out of it, currently relies
+  // on "enrol or do not start". Changing it is a decision about the library's contract and
+  // does not belong inside a flag addition. What the plan's sentence was *for* — that an
+  // exhausted provider is not a misconfigured node — is delivered here by the exit code
+  // and by the absence of the usage line, and both are asserted in
+  // `enrollment-cost.node.test.ts`.
+  //
+  // Nothing needs stopping on this path: `FabricNode.start`'s own `undo` stack releases
+  // everything it acquired before it rejected, which is the guarantee that lets this be one
+  // line rather than a shutdown sequence.
+}).catch((cause: unknown): never => {
+  process.stderr.write(`agent.ts: ${cause instanceof Error ? cause.message : String(cause)}\n`)
+  process.exit(1)
 })
 
 // AUTH-02: the peers this process was told to reach, dialled **after** `FabricNode.start`

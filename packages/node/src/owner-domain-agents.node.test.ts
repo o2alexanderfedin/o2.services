@@ -371,7 +371,7 @@ async function standUp(): Promise<Fixture> {
   const foreignStore = await FsBlockstore.open(join(workdir, 'n3'))
   await foreignStore.put(encoded.bytes)
 
-  const provider = await spawnAgent('p', ['--issues-certificates'])
+  const provider = await spawnAgent('p', ['--issues-certificates', '--max-issued-per-window', '64'])
   const providerKey = provider.issuerKey
   if (providerKey === null) throw new Error('the provider announced no issuer key')
 
