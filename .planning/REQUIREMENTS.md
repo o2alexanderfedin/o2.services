@@ -32,9 +32,13 @@ So the ledger now distinguishes three states:
 | `[ ]` + **Built, not wired** | Mechanism exists and is unit-verified; nothing calls it |
 | `[ ]` + **Partial** | One leg reaches production, another does not |
 
-**The 31 unchecked boxes are 8 + 22 + 1**, and the three markers are not one label:
-8 are *Built, not wired*, 22 are *Partial*, and VER-02 alone is *Not started*.
-**Four rows crossed from the first bucket to the second on 2026-08-03** — VER-03,
+**The 31 unchecked boxes are 7 + 23 + 1**, and the three markers are not one label:
+7 are *Built, not wired*, 23 are *Partial*, and VER-02 alone is *Not started*.
+**AOT-02 crossed from the first bucket to the second on 2026-08-04**, and unlike the
+four below it, that one *was* because new work landed: Plan 21-01 gave `translationCid`
+a production caller in `tools/aot/lift.ts`, so "nothing calls it" stopped being true of
+it the moment the commit went in — which is how the ledger guard found it.
+**Four rows crossed the same way on 2026-08-03** — VER-03,
 VER-04, VER-09 and VER-10 — and not one of them because new work landed in that
 commit. *Built, not wired* means **nothing calls it**, and by the end of Phase 19
 `composeQuorum`, `attestationReceipt` and `classifyAttestation` each had a production
@@ -435,7 +439,7 @@ and the two end-to-end paths nothing exercises.
 | 5 — Tree-reduce | MR-02 … MR-07 | `executeReduce` on the aggregation path, replacing the demo's linear scan — the aggregation path is wired (Phase 16); the demo replacement is WIRE-02, Phase 22 |
 | 6 — Discovery & enrollment | AUTH-01, AUTH-02, AUTH-04, AUTH-05, SCHED-01, SCHED-02, SCHED-03, SCHED-05, NET-06, VER-03, VER-04, VER-08, VER-09, VER-10 | **Partly landed 2026-08-01, and the row above it said otherwise for a day.** Done: `serveAgent`'s `index` and `capacity` hooks are supplied by both factories, and `requestEnrollment` issues a real node identity before `start()` returns (AUTH-01 `[x]`; AUTH-02, AUTH-04, SCHED-03, NET-06 now *Partial*). Outstanding: `discoverExecutors` replacing the static list — which is also the *reading* half of NET-06 and the re-pick half of SCHED-03 — a `PeerVerifier` on the browser tier, and `composeQuorum` / `attestationReceipt` on the verification path |
 | 7 — Churn | CHURN-01 … CHURN-06 | one job entry point that leases, speculates and accounts for coverage |
-| 10 — AOT | AOT-02 | `translationCid` called by the lift pipeline; the CLI emitting the CID |
+| 10 — AOT | AOT-02 | ~~`translationCid` called by the lift pipeline~~ **landed 2026-08-04, Plan 21-01** — every successful lift now carries a `TranslationRecord` the pipeline built, and one it cannot name is a named failure. Outstanding: the CLI emitting that CID, and taking the `--image`/`--docker` argv that makes the re-tag refusal reachable from it |
 | Partials | NET-05, SCHED-04, BROW-02, AOT-04 | `ReservationWatcher` installed; the governor on both tiers and runtime-adjustable; a ledger that is actually supplied; a production node able to construct a `WasiExecutor` |
 
 Each row's evidence — the symbol with no caller, at `file:line` — is in the traceability
@@ -689,7 +693,7 @@ criteria.
 | DEMO-03 | Phase 9 — Public Demo, Consent UX & Disclosure Gate | Done |
 | DEMO-04 | Phase 9 — Public Demo, Consent UX & Disclosure Gate | Done |
 | AOT-01 | Phase 10 — elfconv AOT Native→WASM Pipeline | Done |
-| AOT-02 | Phase 21 — AOT Translation Signing & Runtime | **Built, not wired** — translationCid is never called by the lift pipeline; the CLI emits no CID and builds no TranslationRecord |
+| AOT-02 | Phase 21 — AOT Translation Signing & Runtime | **Partial** — this row previously said the lift pipeline made no such call and built no record, and both halves of that became false on 2026-08-04 (Plan 21-01). Paraphrased rather than quoted, because a row that reproduces the sentence it is correcting has that sentence read back as its own claim. `tools/aot/lift.ts` calls `translationCid` on every successful lift, `LiftedArtifact.translation` is a **required** field so no lift returns bytes without a `TranslationRecord` over input digest, toolchain versions, target and feature set, and a lift the key refuses is a named failure — `unnameable` — rather than a success with `'unknown'` hashed into its identity. Coverage runs both ways with no container: six flips move the emitted CID and nine fields leave it still, and same-host repeatability now asserts the emitted CID rather than only its three ingredients. **Outstanding, and the reason this is not Done:** `describeKey` has no production caller, so the key is built and never shown to an operator; the CLI takes no `--image`/`--docker`, so the re-tag refusal cannot be reached by pointing it at anything (Plan 21-02); and the emitted CID has never been compared across two genuinely different inputs end to end (Plan 21-04). The refusal also covers *blank* and only blank — a toolchain entry reading the literal `unknown`, which the container writes itself when `WASI_VERSION_FULL` is unset, is still hashed into the key |
 | AOT-03 | Phase 10 — elfconv AOT Native→WASM Pipeline | Partial — the one-host half is established: repeated lifts in separate spawned toolchain processes are byte-identical. Cross-machine **descoped 2026-07-28 and unmeasured — not met**; `CROSS_MACHINE_BLIND_SPOT` stays on every artifact |
 | AOT-04 | Phase 21 — AOT Translation Signing & Runtime | **Partial** — port conformance is proved through the @o2/aot barrel; no production node constructs a WasiExecutor, so a translated artifact dispatched to a running node fails at instantiate |
 | AOT-05 | Phase 10 — elfconv AOT Native→WASM Pipeline | **Partial** — loadArtifact is exported and e2e-measured, but the demo loads its kernel from bundled base64 — the loader is not on the page’s own module path |
