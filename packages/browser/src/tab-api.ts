@@ -103,6 +103,55 @@ export interface TabConnection {
   readonly limited: boolean
 }
 
+/**
+ * A peer this tab holds a connection to, and whether that connection can carry a job —
+ * defect 32.
+ *
+ * The reading {@link TabApi.peers} cannot give. That one is `libp2p.getPeers()`, which
+ * counts a peer reachable over nothing but a `limited` relay circuit as connected —
+ * and a relayed circuit is 2 minutes and 128 KiB of signalling channel that this
+ * project's constraints say may not carry a job. The two are different questions and a
+ * surface that has only the first cannot say that a pair is connected and unusable.
+ */
+export interface TabHeldPeer {
+  readonly peer: string
+  /**
+   * True when at least one open, unlimited connection to this peer exists.
+   *
+   * A positive test rather than "no limited connection": an upgraded pair routinely
+   * keeps its signalling circuit open beside the WebRTC connection.
+   */
+  readonly carriesWork: boolean
+}
+
+/** What one discovery round did, and what it left behind — see {@link TabApi.connectDiscoveredPeers}. */
+export interface TabDiscoveryRound {
+  /** Whether any directory answered at all. False on a static host with no peers yet. */
+  readonly asked: boolean
+  /** Peer ids reached by a dial this round made. */
+  readonly dialed: string[]
+  /** Addresses whose dial threw. A simultaneous mutual dial lands here on both sides. */
+  readonly failed: string[]
+  /**
+   * The addresses among `dialed`/`failed` that were re-dials of a peer this tab already
+   * held over a relayed circuit — defect 32's repair, counted so a caller can tell a
+   * round that introduced somebody from one that was trying to rescue a stuck pair.
+   */
+  readonly upgrades: string[]
+  /**
+   * Peers this tab holds **only** over a relayed circuit as the round ended: connected,
+   * counted by `computePeers()` because the RPC protocol negotiates over a limited
+   * connection, and unable to carry the work.
+   */
+  readonly relayedOnly: string[]
+  /**
+   * The subset of `relayedOnly` this tab has stopped trying to upgrade, having spent its
+   * whole retry budget on them. The honest end state: *this pair is connected and cannot
+   * run your job, and I am no longer trying to fix it.*
+   */
+  readonly stalled: string[]
+}
+
 /** BROW-03 — what the visibility governor is doing right now. */
 export interface TabGovernorState {
   readonly hidden: boolean
@@ -414,8 +463,16 @@ export interface TabApi {
    * Returns nothing dialled on a static host, where there is no origin to ask. That
    * is a real limitation of the static tier rather than a failure, and the caller
    * can tell the difference from `asked`.
+   *
+   * **"Peers already connected are skipped" now means already reachable over a
+   * connection that can carry a job** — defect 32. A pair that dialled each other in the
+   * same moment can end up holding nothing but a relayed circuit, which `libp2p.getPeers()`
+   * reports as connected; a round that skipped every connected peer therefore never
+   * retried the upgrade, and the pair sat unusable until the relay's own duration limit
+   * tore the circuit down. Such a peer is dialled again, a bounded number of times, and
+   * then reported through `relayedOnly` and `stalled`.
    */
-  connectDiscoveredPeers(): Promise<{ asked: boolean; dialed: string[]; failed: string[] }>
+  connectDiscoveredPeers(): Promise<TabDiscoveryRound>
   /**
    * The connected peers that will actually execute a task.
    *
@@ -436,6 +493,15 @@ export interface TabApi {
   waitForWebrtcAddr(timeoutMs: number): Promise<string[]>
   dial(address: string): Promise<string>
   peers(): string[]
+  /**
+   * The same set as {@link peers}, with the one fact `peers` cannot carry: whether the
+   * connection this tab holds to each of them can carry a job — defect 32.
+   *
+   * Readable without running a discovery round, deliberately. The state it describes is
+   * reached by a race and left by a relay's duration limit, so a caller that could only
+   * learn about it as a side effect of dialling would be told about it late or not at all.
+   */
+  heldPeers(): TabHeldPeer[]
   connectionsTo(peerId: string): TabConnection[]
   putModule(bytes: number[]): Promise<string>
   storedBlocks(): Promise<number>

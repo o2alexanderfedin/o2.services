@@ -463,8 +463,23 @@
           // kind of node they could be instead.
           const computing = computePeers.length + 1
           const spare = connected - computePeers.length
+          // Defect 32. A pair that dialled each other in the same moment can end up
+          // holding nothing but a relayed circuit — 2 min / 128 KiB, a signalling
+          // channel this project says may not carry a job. That peer still answers an
+          // offer, because the RPC protocol negotiates over a limited connection, so it
+          // is counted above and the page said "2 nodes computing" about a pair that
+          // could not run the work. Saying so is the whole of the repair that a retry
+          // cannot make: NET-05's lesson this phase was that a condition nobody reports
+          // is a condition nobody can act on.
+          const relayed =
+            found.relayedOnly.length > 0
+              ? ` · ${found.relayedOnly.length} peer(s) reachable only through the relay, which` +
+                ' cannot carry a job' +
+                (found.stalled.length > 0 ? ' — no longer retrying a direct connection' : '')
+              : ''
           const detail =
             (spare > 0 ? ` · ${spare} further connection(s) that do not compute` : '') +
+            relayed +
             (found.dialed.length > 0 ? ` · just dialled ${found.dialed.length}` : '')
 
           if (!found.asked) {

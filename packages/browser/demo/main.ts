@@ -73,9 +73,15 @@ import {
   readConsent,
   revokeConsent,
 } from '@o2/browser'
-import type { GrantedConsent, TabApi, TabConsentState } from '@o2/browser'
+import type {
+  GrantedConsent,
+  TabApi,
+  TabConsentState,
+  TabDiscoveryRound,
+  TabHeldPeer,
+} from '@o2/browser'
 import { createTaskWorker } from '../src/worker-factory.ts'
-import { planDials } from '../src/dial-plan.ts'
+import { DialPlanner } from '../src/dial-plan.ts'
 import * as pid from '@libp2p/peer-id'
 
 let node: BrowserNode | null = null
@@ -144,9 +150,17 @@ function noteOutcome(cause: StartFailure | null): void {
 }
 
 /** The round in flight, so a second caller joins it instead of starting another. */
-let discoveryRound: Promise<{ asked: boolean; dialed: string[]; failed: string[] }> | null = null
+let discoveryRound: Promise<TabDiscoveryRound> | null = null
 
-async function runDiscoveryRound(): Promise<{ asked: boolean; dialed: string[]; failed: string[] }> {
+/**
+ * The upgrade budget for peers this tab holds over a relay circuit only — defect 32.
+ *
+ * Module-level and replaced in {@link TabApi.stop}, so a tab that restarts does not
+ * inherit the verdicts of a run whose connections no longer exist.
+ */
+let planner = new DialPlanner()
+
+async function runDiscoveryRound(): Promise<TabDiscoveryRound> {
   const n = required()
   const candidates: string[] = []
   let asked = false
@@ -179,26 +193,48 @@ async function runDiscoveryRound(): Promise<{ asked: boolean; dialed: string[]; 
   candidates.push(...reserved.addrs)
 
   // Every rule about *which* candidates are worth a dial — this tab's own entry, a
-  // peer already connected, one peer offered twice, and the budget that bounds the
-  // round's wall clock — lives in `planDials`, where a test can reach it without a
+  // peer already reachable, one peer offered twice, the budget that bounds the round's
+  // wall clock, and how many times a relayed-only pair is re-dialled before this tab
+  // gives up and says so — lives in `DialPlanner`, where a test can reach it without a
   // relay and a real node. What is left here is the I/O.
+  //
+  // `n.heldPeers`, **not** `n.transport.peers`, and that is the whole of defect 32: the
+  // second is `libp2p.getPeers()`, which counts a peer reachable over nothing but a
+  // limited relay circuit as connected, so a round skipped exactly the peers that most
+  // needed dialling again.
   const dialed: string[] = []
   const failed: string[] = []
-  for (const address of planDials({
+  const upgrades: string[] = []
+  for (const { address, purpose } of planner.plan({
     candidates,
     self: n.peerId,
-    connected: n.transport.peers,
+    held: n.heldPeers,
   })) {
+    if (purpose === 'upgrade') upgrades.push(address)
     try {
       dialed.push(await n.dial(address))
     } catch {
       // A peer whose reservation has lapsed, or that closed its tab between the
       // directory's answer and this dial. Expected, and not worth failing the round.
+      //
+      // A simultaneous mutual dial lands here too, on **both** sides at once — measured
+      // four times out of four on firefox↔webkit — and it is the entry point to the state
+      // the two fields below exist to report.
       failed.push(address)
     }
   }
+  // Read after the dials, so both fields describe how the round left this tab rather
+  // than how it found it.
+  const held = n.heldPeers
   if (dialed.length > 0) notify()
-  return { asked, dialed, failed }
+  return {
+    asked,
+    dialed,
+    failed,
+    upgrades,
+    relayedOnly: held.filter((peer) => !peer.carriesWork).map((peer) => peer.peer),
+    stalled: [...planner.stalled(held)],
+  }
 }
 
 /**
@@ -775,6 +811,10 @@ const api: TabApi = {
     return [...required().transport.peers]
   },
 
+  heldPeers(): TabHeldPeer[] {
+    return required().heldPeers.map((held) => ({ ...held }))
+  },
+
   connectionsTo(peerId) {
     const { peerIdFromString } = pid
     return required()
@@ -966,6 +1006,10 @@ const api: TabApi = {
   async stop() {
     if (node !== null) await node.stop()
     node = null
+    // Defect 32: the upgrade budget is about connections this node held. A restarted
+    // tab has none of them, so carrying the counts across would let a fresh run inherit
+    // a verdict — "given up on this peer" — that nothing in it justifies.
+    planner = new DialPlanner()
     notify()
   },
 }

@@ -79,6 +79,7 @@ import {
 import type { EnrolOutcome, SovereignCids } from '@o2/net'
 import { createLibp2p } from 'libp2p'
 import type { Libp2p } from '@libp2p/interface'
+import type { HeldPeer } from './dial-plan.ts'
 import { IdbBlockstore } from './idb-blockstore.ts'
 import { IdbIdentityStore } from './idb-identity-store.ts'
 import { IdbIssuance } from './idb-issuance.ts'
@@ -1431,6 +1432,49 @@ export class BrowserNode {
 
   get circuitAddrs(): readonly string[] {
     return this.multiaddrs.filter((ma) => ma.includes('/p2p-circuit'))
+  }
+
+  /**
+   * Every peer this tab holds an open connection to, and whether that connection can
+   * carry a job — defect 32.
+   *
+   * ## Why this exists beside `transport.peers`
+   *
+   * `transport.peers` is `libp2p.getPeers()`, which is *"every peer with at least one
+   * connection"* and says nothing about what those connections can do. A relayed circuit
+   * is `limited` — 2 minutes and 128 KiB, verified defaults — and `PROJECT.md` records
+   * that the relay is a signalling channel that may not carry a job. So a pair whose only
+   * connection is a circuit is **connected and unusable**, and every reading built on
+   * `transport.peers` alone reports it as fine. Measured: a firefox↔webkit pair holding
+   * nothing but a circuit answered each other's `offer`, so `computePeers()` counted it,
+   * because the RPC protocol is registered `runOnLimitedConnection: true`.
+   *
+   * ## Why `carriesWork` is a positive test
+   *
+   * A pair that upgraded successfully routinely keeps the signalling circuit open beside
+   * the WebRTC connection — measured, three connections with two of them limited. The
+   * question is therefore whether a usable connection is *present*, never whether an
+   * unusable one is absent.
+   *
+   * ## What it is not
+   *
+   * It is not a peer classification and nothing branches on node kind here: a peer is
+   * described by the connection this tab holds to it, which is a fact about this tab's
+   * own socket table. The same peer is `carriesWork: true` from one tab and `false` from
+   * another in the same instant, and both are right.
+   */
+  get heldPeers(): readonly HeldPeer[] {
+    const carries = new Map<string, boolean>()
+    for (const connection of this.libp2p.getConnections()) {
+      // A closing connection can still appear here — the `close` event may not have been
+      // processed in this tick — and counting one as usable would report a pair as fine
+      // at exactly the moment it stopped being so. libp2p's own dialler filters on the
+      // same field for the same reason.
+      if (connection.status !== 'open') continue
+      const peer = connection.remotePeer.toString()
+      carries.set(peer, (carries.get(peer) ?? false) || connection.limits === undefined)
+    }
+    return [...carries].map(([peer, carriesWork]) => ({ peer, carriesWork }))
   }
 
   async dial(address: string): Promise<string> {
