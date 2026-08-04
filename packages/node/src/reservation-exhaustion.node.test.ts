@@ -123,9 +123,24 @@ interface AgentHandshake {
   readonly relays: string[]
 }
 
-/** Spawn an agent and read its one-line handshake, by name. */
+/**
+ * Spawn an agent and read its one-line handshake, by name.
+ *
+ * **`--port 0` is stated rather than left to a default, and every case below depends on
+ * it.** Until 2026-08-04 `bin/agent.ts` gave `--port` a default of `'0'`, so an agent
+ * given `--relay-addr` bound a real address *and* asked for a circuit; Plan 19-19 removed
+ * that default so that omitting `--port` alongside `--relay-addr` now produces a node that
+ * binds **nothing** — the browser's topology, which quorum rule 2 needs a process to be
+ * able to express.
+ *
+ * This file wants the old behaviour, and not incidentally: cases B and C assert that a node
+ * refused by a full relay, and a node whose relay is not there, each *started anyway* and is
+ * *still serving directly*. A node binding nothing would announce a handshake carrying no
+ * dialable address at all, and both of those sentences would quietly stop being true while
+ * the assertions stayed green. So the binding is now said out loud here.
+ */
 async function startAgent(name: string, extra: readonly string[]): Promise<Started & AgentHandshake> {
-  const { child, stderr } = launch(AGENT, ['--dir', join(workdir, name), ...extra])
+  const { child, stderr } = launch(AGENT, ['--dir', join(workdir, name), '--port', '0', ...extra])
   const out = await waitForStdout(child, stderr, '\n', `agent ${name}`)
   const line = out.slice(0, out.indexOf('\n'))
   const parsed = JSON.parse(line) as AgentHandshake

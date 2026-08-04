@@ -6,11 +6,15 @@
  *
  *   { "peerId": "12D3Koo…", "multiaddrs": ["/ip4/127.0.0.1/tcp/54321/p2p/12D3Koo…"],
  *     "trustAnchors": ["…"], "nodeKey": "…", "certificate": null, "issuerKey": null,
- *     "peers": [], "dutyCycle": 1 }
+ *     "peers": [], "dutyCycle": 1, "relays": [] }
  *
  * The handshake is deliberately a single line on stdout rather than a fixed port or
  * a discovery service: the OS assigns the port, so parallel runs cannot collide,
  * and the parent learns the address without polling.
+ *
+ * A node started with no `--port` and one or more `--relay-addr` binds nothing, so its
+ * `multiaddrs` are `/p2p-circuit` addresses alone and `relays` is what makes it reachable.
+ * See `--port` below for why that case exists and why it is a route rather than a class.
  *
  * This exists so "two processes" means two real ones. Three nodes inside one Vitest
  * process share a heap, an event loop, and a module registry — which is enough to
@@ -88,7 +92,32 @@ import { ReservationWatcher } from '../reservation-watch.ts'
 const { values } = parseArgs({
   options: {
     dir: { type: 'string' },
-    port: { type: 'string', default: '0' },
+    // The TCP port this node binds, and **deliberately without a default** — which is
+    // the whole mechanism rather than a tidy-up.
+    //
+    // It carried `default: '0'` until 2026-08-04, and that default was load-bearing in the
+    // wrong direction: with it, `values.port` is `'0'` whether an operator typed `--port 0`
+    // or typed nothing, the listen list below could not be written conditionally, and so
+    // **no argv could produce a node that binds nothing**. `canRelay`
+    // (`fabric-node.ts:1083`) is a predicate over exactly that list, so every process this
+    // binary ever started enrolled `discoverability: 'seed'` with `relayIds: []`. Phase
+    // 19's criterion 1 asks that a quorum whose members all hang off one relay be refused
+    // *through this binary*, and that reading did not exist — `19-VERIFICATION.md` scored
+    // the criterion PARTIAL for it, and the assertion that was standing in for it could not
+    // fail at the type level.
+    //
+    // Dropping the default costs nothing anywhere else: `undefined` and no `--relay-addr`
+    // reaches the same `/ip4/127.0.0.1/tcp/0` it always did — see the `listen` expression
+    // below, which states all three cases in one place.
+    //
+    // **Not a node kind.** A node that binds nothing has identical capability to one that
+    // binds a port: it executes tasks, serves blocks, answers records and attests results
+    // for every peer that reaches it, and nothing anywhere branches on the choice. It is
+    // reachable by a different route, which is a fact about routes. `STATE.md`'s cardinal
+    // rule is that a decision keying on node kind is wrong, and this phase already
+    // retracted a quorum rule (`0314208`) for being exactly that — the same sentence every
+    // other flag in this block carries, and it is meant literally here too.
+    port: { type: 'string' },
     // DATA-09's serving-side clearance (`FabricNodeOptions.sovereignty`), exposed
     // here so a test can spawn a real agent process already cleared for a given
     // owner rather than reaching in and mutating a running node. Omitting
@@ -406,12 +435,28 @@ const { values } = parseArgs({
     // listen becomes dialable at all — the browser's situation, reproduced here in a
     // process a test can spawn. Two flags, deliberately, because they are two mechanisms.
     //
-    // **This node still relays for others, and `--relay-addr` does not change that.** It
-    // is worth saying because the opposite is easy to assume: `canRelay` is derived from
-    // the listen list, this binary always passes `--port` (default `0`), so an agent given
-    // a relay address binds a real address of its own *and* asks for a circuit. It is a
-    // relay client and a relay server at once. A node that bound nothing would be the
-    // browser case, and this binary has no way to produce one.
+    // **Whether this node still relays for others depends on `--port`, and only on it.**
+    // `canRelay` is derived from the listen list, so:
+    //
+    //   - `--relay-addr X --port 0` (or any port) — binds a real address of its own *and*
+    //     asks X for a circuit. A relay client and a relay server at once, and its
+    //     certificate says `discoverability: 'seed'` with `relayIds: []`, because a
+    //     directly dialable node depends on no relay to be found. **This is what every
+    //     invocation did before 2026-08-04**, when `--port` still had a default.
+    //   - `--relay-addr X` with no `--port` — binds **nothing**. The listen list is
+    //     `['/p2p-circuit']` alone, `canRelay` is false, this node carries no stranger's
+    //     handshake, and it enrols `discoverability: 'via-relay'` with X's peer id in
+    //     `relayIds`. That is the browser's topology, and this binary now produces it —
+    //     the sentence that stood here, *"this binary has no way to produce one"*, was
+    //     true when it was written and is why quorum rule 2 had no across-process reading
+    //     at all until Plan 19-19.
+    //
+    // The distinction is a **binding choice, not a node kind**: both processes execute
+    // tasks, serve blocks, answer records and attest results identically, and nothing
+    // branches on which one this is. What differs is how a peer reaches it.
+    //
+    // Measured at `quorum-agents.node.test.ts`, which reads both arms off the
+    // certificates a provider **process** signed rather than off the spawn arguments.
     //
     // Every outcome is reported by name and **none is fatal** — the same disposition
     // `--duty-cycle`'s SIGHUP re-read takes, and the opposite of `--provider-addr`'s. A
@@ -680,9 +725,46 @@ watcher?.onFailure((failure) => {
   process.stderr.write(`agent.ts: relay reservation ${failure.kind}: ${failure.status}\n`)
 })
 
+/**
+ * The addresses this process asks libp2p to bind, stated as one expression because the
+ * three cases have to be readable together.
+ *
+ * | `--port` | `--relay-addr` | binds | `canRelay` | certificate |
+ * |---|---|---|---|---|
+ * | given | either | that port | true | `seed`, `relayIds: []` |
+ * | absent | absent | `tcp/0` | true | `seed`, `relayIds: []` |
+ * | absent | given | **nothing** | false | `via-relay`, the relay named |
+ *
+ * The first two rows are what this binary has always done — the middle row is the old
+ * `default: '0'` restated where it can be seen beside the case it used to exclude, and it
+ * is why dropping that default changed no existing invocation.
+ *
+ * **The third row is keyed on `--port` being absent, not on `--relay-addr` being present**,
+ * which is why the default had to go: `parseArgs` cannot otherwise tell *not passed* from
+ * *passed as `0`*, and an operator who wants a relayed node that is also directly dialable
+ * must still be able to say so. Every pre-existing spawn site of this binary that passes
+ * `--relay-addr` therefore states `--port 0` — three call sites, all in
+ * `reservation-exhaustion.node.test.ts`, all of which are about a node that is still
+ * serving directly when its relay refuses it.
+ *
+ * `[]` rather than an omitted key, deliberately. `FabricNode.start` reads
+ * `options.listen ?? (viaRelay ? [] : [...])`, so omitting it would produce the same
+ * addresses by way of a default stated in another file; passing `[]` makes this binary's
+ * own choice legible where the flags that decided it are.
+ *
+ * **Not a node kind** — see `--port`'s and `--relay-addr`'s docs above. This expression
+ * chooses a route, never a class, and every capability is identical on all three rows.
+ */
+const listen =
+  values.port !== undefined
+    ? [`/ip4/127.0.0.1/tcp/${values.port}`]
+    : relayAddrs.length === 0
+      ? ['/ip4/127.0.0.1/tcp/0']
+      : []
+
 node = await FabricNode.start({
   blockstoreDir: values.dir,
-  listen: [`/ip4/127.0.0.1/tcp/${values.port}`],
+  listen,
   trustAnchors,
   // AUTH-04: absence is "this process issues no certificates", and presence carries the
   // aggregate budget, because `FabricNodeOptions` cannot express a provider that never
