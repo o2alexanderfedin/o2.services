@@ -352,9 +352,13 @@ it looks like ceremony.
   After committing, read `git show --stat` and confirm only your own files are in it.
 - **`git add` immediately after each edit group** — staged content lives where another agent's
   working-tree revert cannot reach it.
-- **But `git add` only *between* test runs, never *during* one.**
-  `packages/node/src/discover-arm.node.test.ts` snapshots `git status --porcelain` around
-  itself; moving the index mid-run turns it red for reasons unrelated to any code.
+- **But `git add` only *between* test runs, never *during* one.** At least two specs snapshot
+  `git status --porcelain` around themselves and assert it is unchanged —
+  `packages/node/src/discover-arm.node.test.ts` and
+  `packages/node/src/bench-attestation.node.test.ts` — so moving the index mid-run turns them
+  red for reasons unrelated to any code. **With concurrent agents this is not self-discipline
+  but a shared hazard**: one agent staging a file has reddened another agent's sweep. If either
+  spec fails, check what the index was doing before you look at the code.
 - **Never `git stash` a path you do not own.** It is a write despite the word — it reverted
   ~250 lines of a concurrent agent's in-progress work. Likewise never `git checkout --` a file
   you did not write. Restore a planted mutation with `cp` + `cmp`.

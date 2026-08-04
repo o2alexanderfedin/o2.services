@@ -1490,6 +1490,26 @@ export const MUTATIONS: readonly Mutation[] = [
     signatureSource: 'test-title',
   },
   {
+    id: 'M64',
+    why:
+      'CHURN. The case this pins used to check that eight shard CIDs were **distinct**, which is a ' +
+      'weaker claim than it reads as: distinct is not the same as correct, and an answer that ' +
+      'depended on which node produced it would satisfy it every time. So the reading is now an ' +
+      'equality between two arms of ONE fabric — the same job answered with 0% killed and then with ' +
+      '30% killed, shard for shard — and the machine, the load and the I/O weather cancel between ' +
+      'the arms rather than being budgeted for. This plant is what shows the old check could not ' +
+      'see the failure that matters: the planted CID prefix is IDENTICAL and only the node suffix ' +
+      'differs, so a distinctness check is blind to it by construction. Measured: shard `s3` ran on ' +
+      '`n2` intact and on `n3` after `n2` left, red on a one-token difference. The same plant ' +
+      'against the pre-fix file exited 0 and passed.',
+    file: 'packages/net/src/churn.ts',
+    find: 'return { ok: true, resultCid: encoded.cid.toString() }',
+    replace: 'return { ok: true, resultCid: `${encoded.cid.toString()}-ran-on-${nodeId}` }',
+    caughtBy: ['packages/net/src/churn.test.ts'],
+    signature: 'completes every shard with 30% of the fabric killed, answering what the whole fabric answered',
+    signatureSource: 'test-title',
+  },
+  {
     id: 'P1',
     why:
       'SCHED-06 on the **fourth** production `serveAgent` file, and the entry exists because ' +
