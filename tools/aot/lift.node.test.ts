@@ -830,6 +830,31 @@ describe('a rendered lift carries its reservations in the same string as its num
     for (const spot of artifact.blindSpots) expect(rendered).toContain(spot.note)
   })
 
+  it('carries the name of what it produced in the same string as the reservations', () => {
+    // Inside the one string, not written beside it by `main`. The reason is the reason
+    // `describeLift` returns a string at all: a name printed next to the reservations is
+    // a name that gets separated from them the first time somebody quotes either one.
+    // A `main` that emitted the CID with its own `process.stdout.write` would satisfy
+    // "the operator sees the CID" and would not satisfy this.
+    expect(rendered).toContain(artifact.translation.keyCid.toString())
+    expect(rendered).toContain(artifact.translation.artifactCid.toString())
+  })
+
+  it('labels the key and the artifact, so neither CID can be read as the other', () => {
+    // Asserted first, because every assertion under it is vacuous if the two are the
+    // same string. They differ by construction rather than by arrangement:
+    // `RENDERED_ARTIFACT.bytes` is not the encoding of its own key.
+    expect(artifact.translation.keyCid.toString()).not.toBe(
+      artifact.translation.artifactCid.toString(),
+    )
+    // Label *and* value together. The mutation this phase plants — print the artifact
+    // CID where the key CID belongs — leaves both strings present in the rendering and
+    // only swaps which label each one wears, so an assertion on presence alone survives
+    // it and this one does not.
+    expect(rendered).toContain(`translation key cid: ${artifact.translation.keyCid.toString()}`)
+    expect(rendered).toContain(`artifact cid: ${artifact.translation.artifactCid.toString()}`)
+  })
+
   it('never claims cross-machine reproducibility', () => {
     // The one sentence this project must not accidentally write. Two lifts agreeing
     // on one host is not evidence about a second host.
