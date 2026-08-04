@@ -900,15 +900,30 @@ describe('MR-05 / MR-06 — a combine node SIGKILLed mid-reduce is repaired else
 /**
  * **Criterion 3 — MEASURED.** Same blocker, same removal in 16-05.
  *
- * And a second, independent limit that is **not** the blocker and survives it: the ROADMAP
- * wording is *"a duplicate combine result **arriving late** from a recovered node is
- * discarded harmlessly"*, and `executeReduce` has **no late-arrival channel** — it walks
- * the ranking, stops at `wanted` replicas, and there is no production path on which a
- * result arriving after that can be received at all. So the *"arriving late"* clause can
- * only be reported, never measured, and unmeasured is not met. The duplicate below is
- * **staged by the test**. What *is* measured, and it is a real property, is the dedupe:
- * same inputs → same bytes → same CID → no second entry. Building a late-arrival handler
- * is new machinery no criterion asks for.
+ * And a second limit that is **not** the blocker and survives it — **corrected 2026-08-04
+ * by Plan 20-03, because the sentence this paragraph carried was true of one function and
+ * false of the layer beneath it.** It read: *"`executeReduce` has **no late-arrival
+ * channel** — it walks the ranking, stops at `wanted` replicas, and there is no production
+ * path on which a result arriving after that can be received at all."*
+ *
+ * The first clause is true and stays true: `executeReduce` breaks out of the ranking walk
+ * at `wanted` replicas and has nothing to do with a result that arrives afterwards. **The
+ * second clause is false.** `packages/net/src/rpc.ts` — search `late or duplicate reply` —
+ * is `if (entry === undefined) return`, and a reply whose pending entry the timeout has
+ * already deleted is received there, decoded, and dropped. That line is the production
+ * path, it predates this phase, and nothing in Phase 16 had to be built for it.
+ *
+ * So the *"arriving late"* clause never needed a handler; it needed a **producer**, and
+ * Phase 16 had none because it had no recovery path. `late-combine.node.test.ts` is that
+ * producer — SIGSTOP the ranked-first process, let the requestor's `rpcTimeoutMs` elapse,
+ * let the walk take its replicas elsewhere, SIGCONT — and it **counts** the arrival on the
+ * requestor's transport rather than assuming it, with the no-SIGCONT control proved able
+ * to fail. Criterion 6 is measured there.
+ *
+ * **This file's own reading is unchanged and the duplicate below is still staged by this
+ * test.** What it measures is the dedupe across real processes: same inputs → same bytes →
+ * same CID → no second entry. That is a different claim from the arrival, it was met here,
+ * and 20-03 deliberately does not re-state it.
  */
 describe('MR-07 — two replicas dedupe, and a duplicate from a fresh process costs nothing', () => {
   it('holds the root in exactly two directories, and a ninth process re-answering adds no entry', async () => {
