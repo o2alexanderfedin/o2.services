@@ -694,15 +694,30 @@ const api: TabApi = {
       signer: options.moduleRecord.signer,
       signature: options.moduleRecord.signature,
     }
+    // DATA-10, WIRE-03 — the shard label is the caller's, defaulting to public.
+    //
+    // **A page may submit owner-pinned data, and the reason is not a concession.**
+    // Sovereignty is a property of the data and of whose it is, never of what kind of node
+    // holds it. A tab is the owner's own device, which makes it the least surprising place
+    // in this fabric for owner-pinned data to live rather than a privileged one. The
+    // hardcoded `label: 'public' as const` that stood here was not a decision anybody took
+    // about tabs — it was the only shape the surface above could express.
+    //
+    // Rebuilt per shard rather than spread, so the `sovereign` arm carries an `ownerId`
+    // that `TabApi.runJob` already made inseparable from the label. `submitJob` refuses a
+    // sovereign shard with no owner by name (`shard-missing-owner`), and this expression
+    // has no way to produce one.
+    const shards = Array.from({ length: options.shards }, (_unused, i) =>
+      options.sovereign === undefined
+        ? { value: { a: i }, label: 'public' as const }
+        : { value: { a: i }, label: 'sovereign' as const, ownerId: options.sovereign.ownerId },
+    )
     // `submitJobWithEgress`, not bare `submitJob` — see `runColouring` above for why.
     const result = await submitJobWithEgress(
       {
         moduleCid: CID.parse(options.moduleCid),
         moduleRecord,
-        shards: Array.from({ length: options.shards }, (_unused, i) => ({
-          value: { a: i },
-          label: 'public' as const,
-        })),
+        shards,
         executors,
         nodes: publicNodes(executors),
         redundancy: options.redundancy,
@@ -713,6 +728,21 @@ const api: TabApi = {
       },
       n.store,
       [n.egress],
+      // DATA-10's at-rest half, and **this is an addition rather than a duplicate — the
+      // page's submit path did not supply it, checked before adding it.** Two registrations
+      // that could disagree would be worse than the gap, so: `submitJobWithEgress` takes a
+      // *job-scoped* hold on every sovereign shard's bytes and gives it back in a `finally`
+      // (the third argument above), which is the payload-scanning guard and is a different
+      // mechanism with a different lifetime. This fourth argument passes straight through
+      // to `submitJob`, which records the CID at the **blockstore-put** — the line that
+      // makes this tab hold the row — on a set that outlives the job and the page. Without
+      // it a tab that submitted an owner's row served it to the next peer that asked, which
+      // is exactly what `tab-refusals.e2e.test.ts` read before this line existed.
+      //
+      // `runColouring` above deliberately does not get this: every cube it submits is
+      // `label: 'public'`, so there is nothing for the set to record and handing it one
+      // would suggest otherwise.
+      { sovereignCids: n.sovereignCids },
     )
     if (!result.ok) throw new Error(`submit failed: ${JSON.stringify(result.error)}`)
     // Exactly one guard was supplied above, so exactly one manifest comes back.

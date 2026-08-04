@@ -74,7 +74,7 @@ import {
   serveAgent,
   withholdingFrom,
 } from '@o2/net'
-import type { EnrolOutcome } from '@o2/net'
+import type { EnrolOutcome, SovereignCids } from '@o2/net'
 import { createLibp2p } from 'libp2p'
 import type { Libp2p } from '@libp2p/interface'
 import { IdbBlockstore } from './idb-blockstore.ts'
@@ -508,6 +508,31 @@ export class BrowserNode {
   /** IndexedDB plus network fallback — what the executor reads from. */
   readonly blockstore: FetchingBlockstore
   readonly store: IdbBlockstore
+  /**
+   * This tab's durable sovereign-CID set — DATA-10.
+   *
+   * Exposed for the reason `FabricNode.sovereignCids` is, and the reason is the same
+   * sentence one tier over: a submitter has to hand it to its own job. `submitJob`'s
+   * blockstore-put is where this node comes to hold the row, the put writes into *this*
+   * node's {@link store}, so it is *this* node's set that has to record it. A page that
+   * omits it holds the row unguarded the moment its job's holds are given back — which
+   * is the whole of the at-rest gap, and is why the option exists rather than being
+   * inferred from the shard label alone.
+   *
+   * **No `'forgets-sovereignty-between-jobs'` arm here, and the asymmetry with the Node
+   * tier is a storage fact rather than a capability.** That tier answers the sentinel for
+   * a node started with no `blockstoreDir`: there is nowhere durable to record anything,
+   * and saying so beats a set that quietly evaporates on exit. A tab has no such state —
+   * `IdbSovereignCids.open` runs unconditionally in `start`, because an origin that cannot
+   * open IndexedDB cannot host a `BrowserNode` at all. So the absence has no spelling
+   * here, which is the right shape: it is not a thing a tab can be without.
+   *
+   * What it does **not** promise, stated because the honest limit belongs at the field a
+   * caller reads: IndexedDB is evicted silently under storage pressure, so a tab that
+   * loses this database comes back not knowing a row was sovereign.
+   * `idb-sovereign-cids.ts` records that at length, including that it is unmeasured.
+   */
+  readonly sovereignCids: SovereignCids
   /** Where this tab's seed, provider key and certificate live across reloads — AUTH-01. */
   readonly identityStore: IdbIdentityStore
   /**
@@ -602,6 +627,7 @@ export class BrowserNode {
     egress: EgressGuard
     blockstore: FetchingBlockstore
     store: IdbBlockstore
+    sovereignCids: SovereignCids
     identityStore: IdbIdentityStore
     certificate: NodeCertificate | null
     executor: GovernedExecutor
@@ -617,6 +643,7 @@ export class BrowserNode {
     this.egress = parts.egress
     this.blockstore = parts.blockstore
     this.store = parts.store
+    this.sovereignCids = parts.sovereignCids
     this.identityStore = parts.identityStore
     this.certificate = parts.certificate
     this.executor = parts.executor
@@ -1140,6 +1167,7 @@ export class BrowserNode {
       egress,
       blockstore,
       store,
+      sovereignCids,
       identityStore,
       certificate,
       executor,
