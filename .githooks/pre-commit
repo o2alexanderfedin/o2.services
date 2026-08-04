@@ -106,12 +106,39 @@ if [ ! -x "$REPO_ROOT/node_modules/.bin/vitest" ]; then
   exit 0
 fi
 
-# Only worth running when something they read is staged. `--diff-filter=ACMR`
-# leaves out deletions, whose content cannot be scanned.
+# Run whenever anything is staged. `--diff-filter=ACMR` leaves out deletions, whose
+# content cannot be scanned.
+#
+# ## This used to filter, and the filter was a hole
+#
+# It read:
+#
+#     RELEVANT=$(printf '%s\n' "$STAGED" | grep -E '(\.ts$|^\.planning/.*\.md$|^\.github/)')
+#
+# — on the reasoning that the guards are "only worth running when something they read
+# is staged." But that reasoning is false about these guards specifically: as the
+# comment above records, `vocabulary` and `disclosure-gate` build their corpus from
+# `git ls-files`, i.e. **every tracked file**. So the population a guard *checks* was
+# strictly larger than the population that *triggered* it, and the gap was exploitable
+# by accident.
+#
+# Measured, 2026-08-03: a banned term was committed into `CLAUDE.md` — a root-level
+# `.md`, matching none of those three patterns — and the commit sailed through with no
+# guard run at all. It then refused **every subsequent commit** by an agent working on
+# `.ts` files, who had to reach for `O2_SKIP_GUARDS=1` to land work that was not the
+# cause. The author of a violation was the one person the guard could not stop, and the
+# cost fell on somebody else.
+#
+# This is the same shape as the ledger-guard defect found in Phase 18, where rows moved
+# out of the checked population the moment they were edited: **the act of touching a
+# thing exempted it.** Whenever a guard's corpus and its trigger are written in two
+# places, they drift, and the drift always favours the writer.
+#
+# The cost of not filtering is one vitest process — well under a second, and it is
+# already paid on every `.ts` commit, which is nearly all of them.
 STAGED=$(git diff --cached --name-only --diff-filter=ACMR)
-RELEVANT=$(printf '%s\n' "$STAGED" | grep -E '(\.ts$|^\.planning/.*\.md$|^\.github/)')
 
-if [ -z "$RELEVANT" ]; then
+if [ -z "$STAGED" ]; then
   exit 0
 fi
 
