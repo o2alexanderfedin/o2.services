@@ -369,11 +369,26 @@ it looks like ceremony.
   *failing* vitest run report success more than once.
 - **Run vitest by project** — `npx vitest run --project node|browser|e2e|perf`. A bare path
   fans out across all four.
-- **Never write a measured span you did not measure**, and state the host load when you took
-  it. Note `--reporter=json` attributes **no hook time**, so a spawn in `beforeAll` makes a
-  slow file look instant — a 154 s file once reported 235 ms.
+- **Prefer a comparative reading to an absolute one.** An absolute threshold silently encodes
+  the machine, the load and the I/O weather of the day it was written, and then fails
+  somewhere else for reasons that have nothing to do with the code. A ratio taken *within one
+  run* cancels all three. So: measure the thing against a calibration workload in the same
+  run and assert on the ratio; compare a file against its own earlier reading; compare arm A
+  against arm B of the same fixture. Reserve absolutes for the cases where nothing else is
+  available, and say what they were sited against.
+- **Measure the process, not the machine.** System load average counts machine-wide runnable
+  *and* I/O-blocked threads and says nothing about whether *your* process got CPU — this host
+  has shown load 33 while a CPU-bound process still held 95% of a core. Use
+  `/usr/bin/time -p <cmd>` and record `real`/`user`/`sys` plus the derived `(user+sys)/real`.
+  That ratio is a *comparability key*, not a verdict: for a spawn- or network-heavy spec
+  `real` legitimately exceeds CPU time because the process is waiting, not starving.
+- **Never write a measured span you did not measure**, and record the conditions beside it.
+  Note `--reporter=json` attributes **no hook time**, so a spawn in `beforeAll` makes a slow
+  file look instant — a 154 s file once reported 235 ms.
 - **Attribute a failure by measurement, not by plausibility.** "Passes in isolation" is a
-  claim to verify, not a diagnosis; one recorded instance of it was simply false.
+  claim to verify, not a diagnosis; one recorded instance of it was simply false. Two
+  hypotheses about a single defect have died here despite each having arithmetic that fit —
+  a number that agrees with a theory is not the theory's proof.
 
 ### Proofs
 
