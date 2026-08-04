@@ -346,6 +346,22 @@ const SHARDS = 8
  */
 const MAP_REDUNDANCY = 2
 
+/**
+ * What this file tells `reduceJob` it checks combine signatures against — nothing.
+ *
+ * **A truthful statement about this rig rather than a convenience.** Nothing here enrols:
+ * no provider is spawned, no agent is given an `enrollment` option, so every `FabricNode`
+ * resolves `certificate === null` and hands `serveAgent` the `'signs-nothing'` sentinel.
+ * There is no combine signature in this fabric to check against anything.
+ *
+ * An issuer set would be the wrong answer rather than a stricter one: it would say this
+ * requestor checked signatures and found none, which is a different claim from *this
+ * requestor checks none*, and the aggregate receipt would report the two identically. A
+ * named constant rather than five copies of this paragraph, and the literal is in the
+ * name so each call site still reads what it chose.
+ */
+const CHECKS_NO_COMBINE_SIGNATURES = 'checks-no-combine-signatures' as const
+
 interface Fabric {
   readonly agents: readonly Agent[]
   readonly submitter: FabricNode
@@ -595,6 +611,7 @@ describe('AUTH-03 / 16-05 — a real bin/agent.ts process answers a combine', ()
       executors: executorIds,
       blockstore: submitter.store,
       project,
+      trustedIssuers: CHECKS_NO_COMBINE_SIGNATURES,
     })
 
     expect(result.ok).toBe(true)
@@ -649,6 +666,7 @@ describe('MR-04…MR-07 — eight bin/agent.ts processes walk one derived tree',
       executors: executorIds,
       blockstore: submitter.store,
       project,
+      trustedIssuers: CHECKS_NO_COMBINE_SIGNATURES,
     })
 
     expect(result.ok).toBe(true)
@@ -750,6 +768,7 @@ describe('MR-05 / MR-06 — a combine node SIGKILLed mid-reduce is repaired else
       executors: executorIds,
       blockstore: submitter.store,
       project,
+      trustedIssuers: CHECKS_NO_COMBINE_SIGNATURES,
     })
     expect(healthy.ok).toBe(true)
     if (!healthy.ok) return
@@ -851,6 +870,7 @@ describe('MR-05 / MR-06 — a combine node SIGKILLed mid-reduce is repaired else
       executors: executorIds,
       blockstore: submitter.store,
       project,
+      trustedIssuers: CHECKS_NO_COMBINE_SIGNATURES,
     })
     expect(second.ok).toBe(true)
     if (!second.ok) return
@@ -903,6 +923,7 @@ describe('MR-07 — two replicas dedupe, and a duplicate from a fresh process co
       blockstore: submitter.store,
       project,
       redundancy: 2,
+      trustedIssuers: CHECKS_NO_COMBINE_SIGNATURES,
     })
     expect(result.ok).toBe(true)
     if (!result.ok) return

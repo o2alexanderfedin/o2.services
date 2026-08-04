@@ -60,6 +60,7 @@ import {
   serveAgent,
   submitJobWithEgress,
 } from '@o2/net'
+import type { CombineTrustAnchors } from '@o2/net'
 import { peerIdForNodeKey } from '@o2/libp2p'
 import {
   NODE_LADDER,
@@ -424,6 +425,22 @@ interface Fabric {
    * `MemoryNetwork` and an offer probe there would be measuring the harness.
    */
   readonly admit?: AdmissionControl
+  /**
+   * The issuers this rig's requestor accepts a **combine** certificate from — VER-08,
+   * VER-09, VER-10.
+   *
+   * **The same set the rig already pins, resolved once, never a second copy.** On a
+   * `--discover` rig it is `{provider.issuerKey}`, which is literally the value handed to
+   * `discoverCandidates` and to the requestor `FabricNode`'s own `trustedIssuers`; a
+   * second set assembled here could disagree with those with nothing able to catch it,
+   * which is the argument `submitJob` uses for taking no issuer option at all.
+   *
+   * On every rig that pins nothing — the memory transport always, and a default-arm real
+   * rig — this is the no-checking literal. That is the truthful reading: no provider
+   * process exists, no node is enrolled, and there is no signature to check. Required
+   * rather than optional for the reason {@link CombineTrustAnchors} records.
+   */
+  readonly combineIssuers: CombineTrustAnchors
   close(): Promise<void>
 }
 
@@ -555,6 +572,11 @@ async function memoryFabric(nodes: number): Promise<Fabric> {
     moduleRecord: FIXTURE_RECORD,
     guard: requestorGuard,
     rpc: callerRpc,
+    // Nothing on this transport enrols under any flag — every worker above passes
+    // `attest: 'signs-nothing'` permanently — so there is no combine signature here to
+    // check. The literal states that; an empty issuer set would claim this requestor
+    // checked and found none, which is a different and false thing to print.
+    combineIssuers: 'checks-no-combine-signatures',
     async close() {
       callerRpc.close()
       for (const rpc of endpoints) rpc.close()
@@ -745,6 +767,15 @@ async function realFabric(nodes: number): Promise<Fabric> {
     // `submitJob`'s `spec.admit === undefined` branch still selects `planPlacement` and
     // the published curve is placed the way it always was.
     ...(DISCOVER ? { admit: rpcAdmission(requestor.rpc) } : {}),
+    // VER-08/09/10 — the same issuer the requestor `FabricNode` above pins and the same
+    // one `discoverCandidates` was handed, read off the one `provider` this function
+    // started, rather than assembled a second time. A default run has no provider and no
+    // enrolled worker, so it states that it checks nothing — which is why the aggregate
+    // receipt on the published curve reads the named absence, truthfully.
+    combineIssuers:
+      provider?.issuerKey == null
+        ? 'checks-no-combine-signatures'
+        : new Set([provider.issuerKey]),
     async close() {
       for (const node of [...started, requestor]) await node.stop()
       await rm(root, { recursive: true, force: true })
@@ -984,6 +1015,9 @@ function runnerFor(build: (nodes: number) => Promise<Fabric>): {
         blockstore: fabric.blockstore,
         project,
         redundancy: config.redundancy,
+        // VER-08/09/10 — the rig's own pinned issuers, resolved once at rig construction
+        // and carried, never re-derived here. See {@link Fabric.combineIssuers}.
+        trustedIssuers: fabric.combineIssuers,
       })
       const reduceMs = performance.now() - reduceStarted
       // **Both**, and the conjunction is the point: `reduceJob` documents on its own

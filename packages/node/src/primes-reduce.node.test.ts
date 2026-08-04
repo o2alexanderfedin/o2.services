@@ -301,6 +301,12 @@ async function countPrimes(
     blockstore: fabric.originStore,
     project: projectPrimeCount,
     redundancy: REDUNDANCY,
+    // Nothing in this fixture enrols, so every agent here holds no certificate and its
+    // factory resolves `attest` to the sentinel. The no-checking literal is the truthful
+    // statement of that; an issuer set would say this requestor checked signatures and
+    // found none, which is a different and false claim about the run. This file measures
+    // arithmetic across processes, not attestation.
+    trustedIssuers: 'checks-no-combine-signatures',
   })
 
   expect(result.ok).toBe(true)
