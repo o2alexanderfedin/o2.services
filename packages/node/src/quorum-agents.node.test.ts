@@ -25,45 +25,40 @@
  *
  * | case | operators | relays | reddens on rule 1 | reddens on rule 2 |
  * |---|---|---|---|---|
+ * | the binding precondition | — | one | no — reads no quorum | no |
  * | three operators (below) | 3 distinct | none — three seeds | **yes** | **no** |
  * | fabric A — one operator | 1 | none — three seeds | **yes** | no |
  * | fabric B — one relay | 3 distinct | one, shared | no | **yes** |
  *
- * The first case **cannot redden on rule 2**: three `bin/agent.ts` processes are all
- * `discoverability: 'seed'`, `sharedRelay` answers `null` the moment it sees a seed, and
- * so the "no two members share a relay" assertion is satisfied incidentally rather than by
- * the rule. Deleting rule 2 from `composeQuorum` leaves it green. Fabric B is the case
- * that carries that claim, and it is the reason fabric B exists at all.
+ * The three-operator case **cannot redden on rule 2**: those `bin/agent.ts` processes are
+ * given no `--relay-addr`, so they are all `discoverability: 'seed'`, `sharedRelay` answers
+ * `null` the moment it sees a seed, and the "no two members share a relay" assertion is
+ * satisfied incidentally rather than by the rule. Deleting rule 2 from `composeQuorum`
+ * leaves it green. Fabric B is the case that carries that claim, and it is the reason
+ * fabric B exists at all. **That has not changed and is not expected to** — what changed is
+ * which tier fabric B is built at.
  *
- * ## Why fabric B is NOT built from `bin/agent.ts` processes — measured, not chosen
+ * ## Fabric B IS built from `bin/agent.ts` processes, since 2026-08-04
  *
- * The plan for this file said fabric B's agents would be spawned *"with `--relay-addr`
- * pointing at one relay and no `--port`, so each is `via-relay`"*. **That is not
- * possible**, and the binary says so about itself:
+ * It was not, until then, and the reason was a real limit rather than a preference: the
+ * binary declared `port: { type: 'string', default: '0' }` and passed
+ * `listen: ['/ip4/127.0.0.1/tcp/${port}']` unconditionally, so **no argv could empty that
+ * array**. `canRelay` (`fabric-node.ts:1083`) is a predicate over exactly that list and
+ * `:627-628` derives `discoverability`/`relayIds` from it, so every spawned agent was
+ * `seed` with `relayIds: []` whatever `--relay-addr` it was given — and the only fabric
+ * that could redden on rule 2 was three in-process `FabricNode`s. `19-VERIFICATION.md`
+ * scored criterion 1 **PARTIAL** for precisely that: the criterion names `bin/agent.ts` as
+ * the entry point and half of it held one tier below.
  *
- * - `bin/agent.ts` declares `port: { type: 'string', default: '0' }` and passes
- *   `listen: ['/ip4/127.0.0.1/tcp/${port}']` **unconditionally** to `FabricNode.start`.
- *   There is no argv that makes that array empty.
- * - `fabric-node.ts:1067` derives `canRelay` from that list, and `:611-612` derives the
- *   certificate's `discoverability`/`relayIds` from `canRelay`. A spawned agent is
- *   therefore **always** `seed` with `relayIds: []`, whatever `--relay-addr` it was given.
- * - `--relay-addr`'s own docblock states the consequence in as many words: *"an agent given
- *   a relay address binds a real address of its own **and** asks for a circuit … A node
- *   that bound nothing would be the browser case, and **this binary has no way to produce
- *   one**."*
+ * Plan 19-19 dropped `--port`'s default, so *not passed* is distinguishable from *passed as
+ * `0`* and the listen list became conditional. An agent given `--relay-addr` and no
+ * `--port` now binds nothing, enrols `via-relay`, and names its relay in the certificate a
+ * provider process signed about it. The `describe` immediately above fabric B reads that
+ * property on its own, against a `--port 0` control, before anything is built on it.
  *
- * So fabric B's three executors are in-process `FabricNode`s started `listen: []` with one
- * `relayAddrs` entry — the browser's topology, driven from the Node tier, the same
- * construction `relayed-job.node.test.ts` uses. **Their provider is still a real spawned
- * process and their certificates are still provider-signed**, so `operatorId`,
- * `discoverability` and `relayIds` are all statements a provider process signed rather than
- * fixture fields. What is lost is only that fabric B's *executors* are not separate
- * processes.
- *
- * **The honest reading: rule 2 across real `bin/agent.ts` processes is unmeasurable until
- * that binary can produce a node that binds nothing.** That is one flag, deliberately not
- * added here — this plan's declared files are two test files, and a production binary's
- * argv surface is not something a measurement plan should widen on its way past.
+ * **What this buys, stated as the reading it is:** deleting rule 2 from `composeQuorum` now
+ * reddens a fabric whose executors are four separate operating-system processes, not one
+ * heap. Ledger entry `M40` records the observed text.
  *
  * A second thing was measured while building that fabric and is recorded at
  * `standUpBehindOneRelay`: routing the **job** over the circuit does not work, and this
@@ -370,9 +365,11 @@ async function standUp(operatorIds: readonly [string, string, string]): Promise<
   ] as const) {
     expect(agent.certificate?.issuer).toBe(provider.issuerKey)
     expect(agent.certificate?.operatorId).toBe(operatorId)
-    // The measurement the header's fabric-B section rests on: `--port` defaults to `'0'`,
-    // so every spawned agent binds an address of its own and is a `seed` with no relay
-    // dependency. This is why the three-operator case below cannot redden on rule 2.
+    // Why the three-operator case below cannot redden on rule 2, read rather than assumed.
+    // These agents are given no `--relay-addr`, so `bin/agent.ts` binds them
+    // `/ip4/127.0.0.1/tcp/0` — the middle row of that binary's `listen` table, unchanged by
+    // Plan 19-19's removal of `--port`'s default — `canRelay` is true, and each is a `seed`
+    // with no relay dependency for `sharedRelay` to find.
     expect(agent.certificate?.discoverability).toBe('seed')
     expect(agent.certificate?.relayIds).toStrictEqual([])
   }
@@ -826,15 +823,14 @@ describe('criterion 1’s precondition — `bin/agent.ts` can produce a node tha
  * separates the two: `insufficient-operators` would degrade this shard too, and would mean
  * the fixture was built wrong.
  *
- * ## Why the executors are in-process, and what that costs
+ * ## The executors are spawned `bin/agent.ts` processes, and that is criterion 1's clause
  *
- * `bin/agent.ts` cannot produce a `via-relay` node — the full measurement is in this file's
- * header. So these three are `FabricNode`s started `listen: []` with one `relayAddrs`
- * entry, which is the construction `relayed-job.node.test.ts` uses and the topology a
- * browser peer has no way to avoid. **Their provider is a real spawned process**, so
- * `operatorId`, `discoverability` and `relayIds` are all still statements a provider signed
- * about a node rather than fixture fields — which is the property the criterion is about.
- * What is lost is that the executors are not separate operating-system processes.
+ * They were in-process `FabricNode`s until 2026-08-04, because the binary could not produce
+ * a node that binds nothing — this file's header carries that measurement and what closed
+ * it. They are now four separate operating-system processes (a provider and three agents),
+ * each of which generated its own identity key, dialled a provider process, and was handed
+ * a certificate naming the `--operator-id` and the `discoverability` **that provider**
+ * decided. Nothing about the topology below is a fixture field.
  *
  * The relay is a single point of failure over which a redundancy of two is not a
  * redundancy: lose it and every member of the quorum goes at once. That is what eclipse
@@ -843,7 +839,7 @@ describe('criterion 1’s precondition — `bin/agent.ts` can produce a node tha
 interface RelayedFixture {
   readonly provider: Agent
   readonly relay: FabricNode
-  readonly executors: readonly FabricNode[]
+  readonly executors: readonly Agent[]
   readonly requestor: FabricNode
   readonly inputCid: CID
   readonly moduleCid: CID
@@ -851,15 +847,33 @@ interface RelayedFixture {
 }
 
 /**
- * One spawned provider, one in-process relay, and three `via-relay` executors that hold a
- * reservation on it and bind nothing of their own.
+ * One in-process relay, one spawned provider, one in-process requestor, and three spawned
+ * `bin/agent.ts` processes that hold a reservation on the relay and bind nothing of their
+ * own.
  *
- * `listen: []` plus one `relayAddrs` entry is the entire mechanism: `fabric-node.ts:1057`
- * turns that into a listen list of `['/p2p-circuit']`, `:1067` reads `canRelay` off it as
- * false, and `:611-612` therefore signs `discoverability: 'via-relay'` with the relay's peer
- * id into `relayIds`. Nothing here is engineered beyond the relay address; the certificate
- * is a provider's statement about a node that genuinely binds nothing, and each node's
- * `circuitAddrs` is awaited so the reservation is a granted fact rather than a request.
+ * `--relay-addr <relay>` with **no `--port`** is the entire mechanism, and it lives in the
+ * binary rather than here: `bin/agent.ts` passes `listen: []`, `fabric-node.ts:1072-1076`
+ * turns that plus a relay into a listen list of `['/p2p-circuit']` alone, `:1083` reads
+ * `canRelay` off it as false, and `:627-628` therefore signs `discoverability: 'via-relay'`
+ * with the relay's peer id in `relayIds`. Nothing here is engineered beyond the relay
+ * address; the certificate is one process's statement about another that genuinely binds
+ * nothing. Each agent's own handshake line carries `relays`, written after `bin/agent.ts`
+ * has settled the reservation question, so a granted circuit is read rather than waited for.
+ *
+ * ## Why the requestor is stood up BEFORE the agents
+ *
+ * A node that binds nothing cannot be dialled directly, so the dial has to run the other
+ * way — and the only way a spawned agent dials anything is `--peer-addr`, which it takes at
+ * startup. So the requestor must exist first, and its address is an argument to the spawn.
+ * That also makes the peering a *precondition* rather than a hope: `bin/agent.ts` dials
+ * every `--peer-addr` before it writes its handshake line and exits 2 if any of them fails,
+ * so an agent that announced has already reached the requestor.
+ *
+ * The three-agent count is the minimum the case needs: two of three behind one relay is a
+ * different fabric from all three behind it, and rule 2 is asked of the **members** rather
+ * than the pool (`quorum.ts:200-215`). Four processes plus two in-process nodes is inside
+ * this repository's established budget — `discovery-agents.node.test.ts` runs seven
+ * children, `tree-reduce-agents.node.test.ts` nine.
  *
  * ## The executors dial the requestor, and that is the architecture rather than a shortcut
  *
@@ -874,11 +888,17 @@ interface RelayedFixture {
  * obvious first arrangement: with the requestor holding its own reservation and dialling
  * three `/p2p-circuit` addresses, one peer's every first request stalled for the full 30 s
  * RPC timeout — a 33 s peer-gate verdict, a 30 s discovery, a 30 s submit, and a shard that
- * came back with **one** replica of the two it placed. `relayed-job.node.test.ts` already
- * records the same wall: *"a full redundant job over relayed connections is NOT verified
- * here. Attempting it surfaced a design problem that needs a fix rather than a test."* This
- * file does not re-open that; it measures what rule 2 reads, which is the **discovery**
- * graph the certificates name, not the socket the bytes took.
+ * came back with **one** replica of the two it placed. Raising the relay's
+ * `maxReservations` from 8 to 32 changed nothing. `relayed-job.node.test.ts` records the
+ * same wall: *"a full redundant job over relayed connections is NOT verified here.
+ * Attempting it surfaced a design problem that needs a fix rather than a test."*
+ *
+ * **So do not "fix" this fixture by pointing the job at the circuit.** What comes off the
+ * relay here is the *certificate's* `relayIds` — a statement about how each node is
+ * **discovered** — and that is exactly what rule 2 reads. The socket the bytes travel is a
+ * separate question this file does not re-open. A reader who routes the job over the
+ * circuit will see it stall at exactly `rpcTimeoutMs` and conclude the fabric is broken; it
+ * is not, and the stall is deferred item 3.
  *
  * The requestor therefore needs no reservation and no `circuitRelayTransport`: it listens on
  * TCP and is dialled.
@@ -886,6 +906,15 @@ interface RelayedFixture {
 async function standUpBehindOneRelay(): Promise<RelayedFixture> {
   const encoded = await canonicalCid(SHARD_VALUE)
   if (!encoded.ok) throw new Error('fixture value is not encodable')
+
+  const names = ['ra', 'rb', 'rc'] as const
+  // Before the spawn, exactly as `standUp` does and for its reason: discovery answers "who
+  // holds this block", and seeding a directory afterwards races the agent's own open of it.
+  for (const name of names) {
+    const store = await FsBlockstore.open(join(workdir, name))
+    await store.put(encoded.bytes)
+    await store.put(MODULE_WRITES_PARTITION)
+  }
 
   const relay = await FabricNode.start({
     listen: ['/ip4/127.0.0.1/tcp/0/ws'],
@@ -899,43 +928,6 @@ async function standUpBehindOneRelay(): Promise<RelayedFixture> {
   const provider = await spawnAgent('p', ['--issues-certificates', '--max-issued-per-window', '64'])
   if (provider.issuerKey === null) throw new Error('the provider announced no issuer key')
 
-  const executors: FabricNode[] = []
-  for (const [name, fill, operatorId] of [
-    ['ra', 0xba, 'ra-ops'],
-    ['rb', 0xbb, 'rb-ops'],
-    ['rc', 0xbc, 'rc-ops'],
-  ] as const) {
-    const node = await FabricNode.start({
-      blockstoreDir: join(workdir, name),
-      // No listen address of its own — the browser's situation exactly, and the only
-      // construction in this repository that yields a `via-relay` certificate.
-      listen: [],
-      relayAddrs: [relayAddr],
-      rpcTimeoutMs: 30_000,
-      trustAnchors: [publisher.pub],
-      trustedIssuers: [provider.issuerKey],
-      enrollment: {
-        userPrivateKey: new Uint8Array(SEED_BYTES).fill(fill),
-        operatorId,
-        providerAddr: provider.multiaddrs[0] as string,
-      },
-    })
-    nodes.push(node)
-    // Seeded after start rather than before, because unlike the spawned fixture this is
-    // the same process that owns the store — there is no second opener to race.
-    await node.store.put(encoded.bytes)
-    await node.store.put(MODULE_WRITES_PARTITION)
-    executors.push(node)
-  }
-
-  for (const node of executors) {
-    await until(
-      () => node.circuitAddrs.length > 0,
-      RELAYED_VERDICT_DEADLINE_MS,
-      `${node.peerId} to hold a circuit address; relay failures were ${JSON.stringify(node.relayFailures)}`,
-    )
-  }
-
   const requestor = await FabricNode.start({
     blockstoreDir: join(workdir, 'requestor'),
     listen: ['/ip4/127.0.0.1/tcp/0'],
@@ -945,13 +937,47 @@ async function standUpBehindOneRelay(): Promise<RelayedFixture> {
   })
   nodes.push(requestor)
 
-  // Inward, one dial per executor — the opposite direction from the spawned fixtures, and
-  // the only direction available: a node that binds nothing cannot be dialled directly.
+  // Inward, one dial per executor, and the direction is forced: a node that binds nothing
+  // cannot be dialled directly, so it must do the dialling. `--peer-addr` is that flag, and
+  // it is deliberately not `--provider-addr` — see both docblocks in `bin/agent.ts`.
   const requestorAddr = requestor.multiaddrs.find(
     (ma) => ma.includes('/tcp/') && !ma.includes('/p2p-circuit'),
   )
   if (requestorAddr === undefined) throw new Error('the requestor bound no direct address')
-  for (const node of executors) await node.dial(requestorAddr)
+
+  const executors: Agent[] = []
+  for (const [name, fill, operatorId] of [
+    ['ra', 0xba, 'ra-ops'],
+    ['rb', 0xbb, 'rb-ops'],
+    ['rc', 0xbc, 'rc-ops'],
+  ] as const) {
+    const agent = await spawnAgent(name, [
+      '--provider-addr',
+      provider.multiaddrs[0] as string,
+      '--user-key',
+      await writeUserKey(name, fill),
+      '--operator-id',
+      operatorId,
+      // The two flags that make this a `via-relay` node, and the absence that makes them
+      // work: no `--port`, so `bin/agent.ts` binds nothing at all.
+      '--relay-addr',
+      relayAddr,
+      '--peer-addr',
+      requestorAddr,
+    ])
+    // No `--trusted-issuer`, matching `standUp` and for the same reason: what this fixture
+    // reads is the certificate the PROVIDER signed about each agent, and an agent's own
+    // pinning decides only whom it would fetch blocks from — which it never needs to, since
+    // its store was seeded above.
+    executors.push(agent)
+  }
+
+  // Read, not waited for. `bin/agent.ts` settles the reservation question before it
+  // announces, so a handshake line carrying circuits is a granted fact — and one carrying
+  // none is a fixture that did not stand up, said here rather than three assertions later.
+  for (const agent of executors) {
+    expect(agent.relays.length, `${agent.name} holds no circuit; it announced ${JSON.stringify(agent)}`).toBeGreaterThan(0)
+  }
 
   const moduleCid = await requestor.store.put(MODULE_WRITES_PARTITION)
   await requestor.store.put(encoded.bytes)

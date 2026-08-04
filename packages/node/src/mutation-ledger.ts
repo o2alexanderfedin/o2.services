@@ -1003,12 +1003,18 @@ export const MUTATIONS: readonly Mutation[] = [
     id: 'M40',
     why:
       'VER-03, the rule deleted outright rather than moved, and the entry that says which case ' +
-      'carries the claim. Plan 19-08 stood up three fabrics across real `bin/agent.ts` processes ' +
-      'and planted this: **only the one-relay fabric went red — 1 failed, 2 passed.** The other ' +
-      'two are spawned agents, which `bin/agent.ts` can only ever make `seed` with `relayIds: []`, ' +
-      'so `sharedRelay` answers `null` on sight of one and their relay assertions are incidental. ' +
-      'A reader who takes the three-operator fabric as evidence for rule 2 has taken a green that ' +
-      'could not have gone red.',
+      'carries the claim — **re-measured across real processes on 2026-08-04, which is the ' +
+      'whole of what Plan 19-19 was for.** Planted against the whole file: 1 failed, 3 passed, ' +
+      'and the one that failed is the one-relay fabric, whose three executors are now spawned ' +
+      '`bin/agent.ts` processes given `--relay-addr` and no `--port`. Before 19-19 that same ' +
+      'plant reddened only an IN-PROCESS fixture (19-08 recorded 1 failed, 2 passed), because ' +
+      'the binary bound a port unconditionally and could make nothing but a `seed` with ' +
+      '`relayIds: []`; `19-VERIFICATION.md` scored criterion 1 PARTIAL for exactly that, since ' +
+      'the criterion names `bin/agent.ts` as the entry point. The other three cases still ' +
+      'CANNOT redden here and that is by construction, not by luck: their agents are given no ' +
+      'relay at all, so `sharedRelay` answers `null` on sight of a seed. A reader who takes the ' +
+      'three-operator fabric as evidence for rule 2 has taken a green that could not have gone ' +
+      'red.',
     file: 'packages/core/src/quorum.ts',
     find: '  if (requireIndependentPaths) {',
     replace: '  if (false as boolean) {',

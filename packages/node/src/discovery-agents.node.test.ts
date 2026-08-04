@@ -37,13 +37,15 @@
  * candidate selection as **unmeasured** because there was no production caller to gate;
  * there is one now, and the `verifiedPeers` thunk below is it.
  *
- * **Quorum membership is measured now, and relay use only partly — both one file over.**
- * `quorum-agents.node.test.ts` reads quorum composition over this same fixture shape:
- * spawned `bin/agent.ts` agents, provider-signed certificates, the production submit path.
- * Relay use it reads over in-process `FabricNode`s instead, because `bin/agent.ts` binds a
- * port unconditionally and so can never produce a `via-relay` node; that file's header
- * carries the measurement and what it costs. Neither is gated on the verified set, and
- * nothing in *this* file reads either.
+ * **Quorum membership is measured one file over.** `quorum-agents.node.test.ts` reads
+ * quorum composition over this same fixture shape: spawned `bin/agent.ts` agents,
+ * provider-signed certificates, the production submit path. It reads relay use the same way
+ * — **since 2026-08-04**, when Plan 19-19 removed `--port`'s default so that an agent given
+ * `--relay-addr` and no `--port` binds nothing and enrols `via-relay`. Until then that half
+ * ran over in-process `FabricNode`s, because the binary bound a port unconditionally; the
+ * sentence that stood here said so, and it is recorded rather than deleted because it was
+ * true when written. Neither reading is gated on the verified set, and nothing in *this*
+ * file reads either.
  *
  * ## Budget
  *
