@@ -491,6 +491,27 @@ async function memoryFabric(nodes: number): Promise<Fabric> {
     // node id and the executor's cannot drift — the pattern `FabricNode.start`
     // documents beside its own construction.
     capacity: new LocalCapacity({ nodeId: 'requestor', maxConcurrent: DECLARED_ADMISSION_LIMIT }),
+    // BROW-02 — **the permanent, correct value at both of this driver's memory-rig
+    // endpoints, not a burn-down**, and Plan 20-02 read each site rather than deciding
+    // from the file name. The rule it applied: a site that stands up a *node* supplies a
+    // real ledger; a site that stands up a *measurement fixture* states the opt-out and
+    // says why. This is a fixture — an endpoint on `MemoryNetwork` inside one process,
+    // built here because the rig has no `FabricNode` to inherit from.
+    //
+    // The reason is honesty about the population, not cost. BROW-02 counts **visitors**
+    // whose node failed to start, and this rig's N endpoints are one process start, not
+    // N visitors. Filing a `started` row per endpoint would put manufactured population
+    // into a metric whose whole value is that its `n` is real — the failure
+    // `mergeOverlapping`'s docblock calls *"a rate whose sample size is a fiction"*.
+    //
+    // **This is not the divergence the admission sentinel caused, and the difference is
+    // measurable rather than asserted.** That one changed behaviour on the *measured*
+    // path — a slot taken and released per `exec` — so the memory curve and the real
+    // curve were measured under different node behaviour. This hook is reached only by a
+    // `report` frame, and this driver sends none: it dispatches `exec`, `block` and
+    // `combine`. So the two curves stay comparable, and what a reader must not conclude
+    // is the converse — **the published benchmark numbers say nothing about BROW-02**,
+    // because these endpoints are fixtures rather than visitors and always were.
     ledger: 'keeps-no-ledger',
     reservations: 'relays-for-nobody',
     onDispatch: 'reports-no-dispatch',
@@ -543,6 +564,16 @@ async function memoryFabric(nodes: number): Promise<Fabric> {
       // across these workers would refuse the second replica of every shard, and this
       // rig would measure a fabric that cannot verify anything.
       capacity: new LocalCapacity({ nodeId: id, maxConcurrent: DECLARED_ADMISSION_LIMIT }),
+      // BROW-02 — a fixture worker, on the reasoning stated in full at the requestor
+      // endpoint above: this rig's N endpoints are one process start and not N visitors,
+      // so a `started` row per worker would be population invented for a metric whose
+      // only value is that its sample size is real.
+      //
+      // **This driver's `--real` arm is the other half of the fact and is deliberately
+      // different.** Those nodes come from `FabricNode.start`, so as of Plan 20-02 each
+      // holds a real ledger with its own row — a node stood up, not a fixture. The two
+      // arms therefore answer a `report` frame differently, which is correct and is
+      // stated here rather than left for somebody to "tidy" into agreement.
       ledger: 'keeps-no-ledger',
       reservations: 'relays-for-nobody',
       onDispatch: 'reports-no-dispatch',

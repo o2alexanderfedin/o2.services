@@ -355,14 +355,23 @@ const UNREACHED = ROWS.filter((row) => UNREACHED_VERDICTS.includes(row.verdict))
  *   all, the row stating in words that its marker is conservative rather than
  *   descriptive. A row that reports no absence has no absence to name.
  *
- * `BROW-02` is deliberately **not** here: its reason is that no node supplies
- * `serveAgent`'s `ledger` hook, which the third shape reads. It is checked, just not by
- * the caller shapes.
+ * `BROW-02` **was** deliberately not here, on the stated ground that its reason was the
+ * hook shape: no node supplied `serveAgent`'s `ledger` hook, and the third shape read
+ * that. Plan 20-02 satisfied it — both node factories now build a real
+ * `StartOutcomeLedger` and record their own start row into it — so the row lost its only
+ * checkable claim **by being satisfied**, which is the direction this list's own rule
+ * says must be recorded in the same commit. Its remaining absence is a measurement not
+ * yet taken (a tab showing counts it could only have learned from a peer, Plan 20-06),
+ * which puts it in the tier-or-configuration bucket beside `AUTH-02` and `SCHED-04`
+ * rather than in any of the three call-site shapes. Left visible rather than rewritten,
+ * because a reader who finds only the new sentence cannot tell a row that never had a
+ * claim from one that closed the claim it had.
  */
 const WITHOUT_A_CHECKABLE_CLAIM: readonly string[] = [
   'AUTH-02',
   'AUTH-03',
   'AUTH-04',
+  'BROW-02',
   'NET-03',
   'NET-06',
   'SCHED-04',
@@ -546,9 +555,22 @@ describe('the corpus and the ledger were really read', () => {
     expect(hookSuppliers('capacity')).toContain('packages/node/src/fabric-node.ts')
     expect(hookSuppliers('capacity')).toContain('packages/browser/src/browser-node.ts')
     expect(hookSuppliers('index')).toContain('packages/node/src/fabric-node.ts')
-    // `ledger: 'keeps-no-ledger'` is a named absence at every call site, so the same
-    // machinery must report it unsupplied — the negative control for the same reader.
-    expect(hookSuppliers('ledger')).toEqual([])
+    // The negative control, and Plan 20-02 made it **sharper** rather than deleting it.
+    //
+    // It used to read `hookSuppliers('ledger')).toEqual([])` — a named absence at every
+    // production call site. Both node factories now supply a real `StartOutcomeLedger`,
+    // so that reading is gone, and an empty-result control taken over some *other* hook
+    // would be a different reader on a different string.
+    //
+    // What replaces it is a **comparative reading of the same hook inside one run**: the
+    // two node factories supply it, the two benchmark rigs state the named opt-out, and
+    // the reader has to tell them apart. A reader that stopped discriminating breaks both
+    // halves at once — reporting the rigs as suppliers, or the factories as not — which
+    // an equality against `[]` on some unrelated hook could not have caught.
+    expect(hookSuppliers('ledger')).toContain('packages/node/src/fabric-node.ts')
+    expect(hookSuppliers('ledger')).toContain('packages/browser/src/browser-node.ts')
+    expect(hookSuppliers('ledger')).not.toContain('packages/node/src/bin/bench.ts')
+    expect(hookSuppliers('ledger')).not.toContain('packages/bench/src/perf-workload.ts')
   })
 
   it('extracted claims from the rows rather than matching nothing', () => {

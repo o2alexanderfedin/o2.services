@@ -40,9 +40,11 @@ import {
   LocalCapacity,
   SelfRecordIndex,
   SignedNameResolver,
+  StartOutcomeLedger,
   attestResults,
   guardModuleProvenance,
   guardSovereignty,
+  isStartBrowserLabel,
   publishCapabilities,
   requestEnrollment,
 } from '@o2/core'
@@ -55,6 +57,8 @@ import type {
   PublicKeyHex,
   ResultAttestor,
   SelfRecordIndexOptions,
+  StartOutcome,
+  StartReport,
 } from '@o2/core'
 import {
   Libp2pTransport,
@@ -80,6 +84,7 @@ import {
 import type { EnrolOutcome, SovereignCids } from '@o2/net'
 import { createLibp2p } from 'libp2p'
 import type { Libp2p } from '@libp2p/interface'
+import { currentBrowserLabel } from './browser-id.ts'
 import type { HeldPeer } from './dial-plan.ts'
 import { IdbBlockstore } from './idb-blockstore.ts'
 import { IdbIdentityStore } from './idb-identity-store.ts'
@@ -503,6 +508,64 @@ function ownRecords(
   })
 }
 
+/**
+ * This tab's own start outcome, or the named statement that it has none to report —
+ * BROW-02.
+ *
+ * ## Why a node records a row about itself at all
+ *
+ * `serveAgent`'s report branch records only what a **peer** told it, so without this a
+ * node asked for its counts hands the asker back the asker's own row. `mergeOverlapping`
+ * takes the maximum per `(browser, result)` key, so a merged report across two tabs reads
+ * 1 and across twenty tabs reads 1 — a metric that cannot exceed the local reading
+ * whatever the fabric does. The arithmetic is worked through in
+ * `.planning/phases/phase-20-single-job-path-ledger-churn-resilience/20-CONTEXT.md`.
+ *
+ * ## Why the sentinel arm is reachable rather than ceremony
+ *
+ * A label this build cannot file is not a row: `parseCounts` drops it at the wire, so
+ * filing it locally would give this tab a report a peer can never corroborate, with the
+ * two readings disagreeing and nothing saying which is wrong. **This tier is where that
+ * arm is genuinely reachable**: `currentBrowserLabel()` derives its answer from a
+ * user-agent string this build has never seen, and `browserLabel` composes
+ * `${family} ${major}` with no bound on the major — while `isStartBrowserLabel`'s pattern
+ * admits at most four digits. A five-digit major is therefore a label this tab can produce
+ * and no peer can file, and the honest answer to that is that this tab has nothing to
+ * report rather than a row that evaporates one hop away.
+ *
+ * A node reaching this function **started** — there is no path through `#compose` that
+ * arrives here otherwise — so the result arm is not a value a caller chooses. That is why
+ * it is derived here rather than taken as a `BrowserNodeOptions` field; see the plan
+ * summary for the measured fan-out a required field would have carried.
+ *
+ * `fabric-node.ts` holds the byte-identical function over its own label, which is the
+ * standing rule that file's module comment states in the imperative: all nodes have equal
+ * functionality, and a browser label and `'other'` are two values of one field rather than
+ * two kinds of node.
+ */
+function ownStartOutcome(label: string): StartOutcome | 'reports-no-start-outcome' {
+  return isStartBrowserLabel(label)
+    ? { browser: label, result: { kind: 'started' } }
+    : 'reports-no-start-outcome'
+}
+
+/**
+ * A ledger holding this tab's own row, ready for `serveAgent`'s hook — BROW-02.
+ *
+ * The argument is a **required union with a named sentinel** and never an optional: an
+ * omitted outcome would let this line mean "report nothing" without anything having said
+ * so, which is the hole `.planning/PROJECT.md`'s Key Decision *"an optional hook with a
+ * silent default is a hole"* names and which this repository has twice measured as
+ * `tsc --noEmit` exit 0 beside a failing behavioural assertion.
+ *
+ * `fabric-node.ts` holds the byte-identical function.
+ */
+function ownStartLedger(outcome: StartOutcome | 'reports-no-start-outcome'): StartOutcomeLedger {
+  const held = new StartOutcomeLedger()
+  if (outcome !== 'reports-no-start-outcome') held.record(outcome)
+  return held
+}
+
 export class BrowserNode {
   readonly libp2p: Libp2p
   readonly transport: Libp2pTransport
@@ -681,6 +744,7 @@ export class BrowserNode {
     worker: WorkerExecutor
     admission: LocalCapacity
     counter: CountingExecutor
+    startLedger: StartOutcomeLedger
   }) {
     this.libp2p = parts.libp2p
     this.transport = parts.transport
@@ -698,6 +762,37 @@ export class BrowserNode {
     this.worker = parts.worker
     this.admission = parts.admission
     this.#counter = parts.counter
+    this.#startLedger = parts.startLedger
+  }
+
+  /**
+   * BROW-02 — what this tab has been told about start outcomes, its own row included.
+   *
+   * Private, and the reading is {@link startReport}. A public field would hand a page
+   * `record` and `mergeOverlapping`, so reading what a peer said would be one property
+   * access away from writing it — and this ledger is unauthenticated wire input, which is
+   * the one thing that must not also be locally writable by whoever renders it.
+   */
+  readonly #startLedger: StartOutcomeLedger
+
+  /**
+   * What this tab has been told about start outcomes, its own row included — BROW-02.
+   *
+   * Readable without a round trip, which is the whole reason it is here: a page that
+   * already holds this node can render what its peers reported to it without asking the
+   * fabric for something the fabric just told it.
+   *
+   * **Reading cannot mutate.** `report()` computes a fresh {@link StartReport} — plain
+   * data with no methods and no reference back to the ledger — so a page holding one
+   * cannot add a row, and two calls a second apart are two independent snapshots rather
+   * than two views of one object.
+   *
+   * A tab that has been told nothing still reports **one**: its own start, recorded at
+   * construction. Identical to the Node tier's reading, on identical terms — the only
+   * difference between nodes is discovery.
+   */
+  get startReport(): StartReport {
+    return this.#startLedger.report()
   }
 
   /**
@@ -1281,6 +1376,20 @@ export class BrowserNode {
         yieldSlice: (): Promise<void> => Promise.resolve(),
       },
     })
+    // BROW-02 — this tab's own serve-side ledger, holding this tab's own row.
+    //
+    // **Both halves are needed and neither is sufficient.** Handing `serveAgent` a real
+    // ledger stops the report branch answering `counts: []`; recording this tab's own
+    // outcome into it is what lets a peer that asks learn something it did not itself
+    // supply. Without the second, `serveAgent` holds only what peers told it, a peer
+    // asking is handed back its own row, and `mergeOverlapping`'s maximum-per-key makes
+    // every merged report read 1 however many tabs are open.
+    //
+    // The argument is stated rather than defaulted: `ownStartOutcome` returns a required
+    // union whose other arm is a named sentinel, so a tab with nothing fileable to report
+    // says so by name rather than by an absent row.
+    const startLedger = ownStartLedger(ownStartOutcome(currentBrowserLabel()))
+
     const node = new BrowserNode({
       libp2p,
       transport,
@@ -1298,6 +1407,7 @@ export class BrowserNode {
       worker,
       admission,
       counter,
+      startLedger,
     })
     serveAgent({
       rpc,
@@ -1429,7 +1539,24 @@ export class BrowserNode {
       // What the file above measures is the refusal and its wording, which is what a
       // requestor is actually told.
       capacity: admission,
-      ledger: 'keeps-no-ledger',
+      // BROW-02. **The named opt-out is gone from this file**, because there is no longer
+      // a tab this factory can build that has been told nothing: every node holds a ledger
+      // and every node's own start is the first row in it. See the construction above for
+      // why the own row is the load-bearing half.
+      //
+      // (The opt-out literal is described rather than written out, deliberately, and this
+      // paragraph tripped over it on first draft. `serve-agent-hooks.node.test.ts` counts
+      // raw text across the whole of this file, comments included, and now requires
+      // **zero** occurrences of it here — the same rule the `capacity:` block above and
+      // `browser-node-contract.node.test.ts` already write down for their own matchers:
+      // the instrument cannot tell a construction from a mention.)
+      //
+      // A per-node holding, not a node kind: `fabric-node.ts` passes the identically named
+      // value derived by the identical pair of functions over its own label, and that
+      // guard counts both. Any node may hold one, on the same terms as any other — the
+      // only difference between nodes is discovery. If this row ever diverges from the
+      // Node factory's without a stated reason, something has started keying on node kind.
+      ledger: startLedger,
       reservations: 'relays-for-nobody',
       onDispatch: (from) => {
         node.servedFor.set(from, (node.servedFor.get(from) ?? 0) + 1)
