@@ -57,19 +57,18 @@ import { FsBlockstore } from './fs-blockstore.ts'
  *
  * **What changed in Phase 19, and why these numbers did not.** `EnrollmentAuthority` now
  * carries a second budget — `maxIssuedPerWindow`, an aggregate on a quantity no request
- * field can rotate around — and a host-supplied issuance ledger both budgets read. Both
- * options are **required unions with named sentinels**, and `fabric-node.ts` writes the
- * sentinels: this tier states that it has neither an aggregate budget nor a durable
- * history. So every reading below is unchanged, and unchanged **for a reason a reader can
- * see at the construction site** rather than because nothing exists. Plan 19-07 is where
- * this tier takes both for real, and the cross-process measurement belongs to it.
+ * field can rotate around — and a host-supplied issuance ledger both budgets read. The
+ * aggregate bound never binds in this file, so every reading below is a reading about the
+ * **per-user** limiter and is unchanged. The aggregate one is measured where it is the
+ * subject: `enrollment-cost.node.test.ts`.
  *
- * **The stated threshold is a threshold per provider *uptime*, not per wall-clock window.**
- * The agents spawned here take `issuance: 'remembers-only-within-this-process'` through
- * `FabricNode`, so a provider process that restarts forgets every issuance it made. The
- * burst measurement is valid — a burst against one running provider is genuinely refused
- * past the limit — and this is the limit's actual scope rather than something a reader
- * should have to infer.
+ * **The stated threshold is per provider per window, and it now survives a restart.** Plan
+ * 19-07 gave this tier a durable record under the provider's own `--dir` (`FsIssuance`),
+ * so a provider process that stops and starts again on the same directory resumes with
+ * everything it has already signed. What that changes for *this* file is only the
+ * explanation of the third measurement below: a second provider on a second directory
+ * still has its own budget, and that is because it is a second **provider**, not because
+ * the first one forgot.
  *
  * **Nothing here measures verification.** Criterion 2 lives in
  * `certificate-verification.node.test.ts`, where both provider processes are killed before
@@ -575,15 +574,20 @@ describe('AUTH-04 — criterion 3, the burst through the production request path
 
   /**
    * The limit's real scope, asserted rather than left for a reader to infer: it is a
-   * threshold per provider *uptime*.
+   * threshold per **provider**, and a provider is a directory.
    *
-   * The same user key that was refused above is accepted immediately by a **second**
-   * provider process, because this tier takes `issuance:
-   * 'remembers-only-within-this-process'` and a process that restarts starts with an
-   * empty history. That the threshold survives a provider restart is **unmeasured and
-   * false on this configuration**, and this is the reading that says so. The port that
-   * would make it true exists; supplying a durable implementation of it is Plan 19-07's,
-   * and the restart is the reading that plan has to take.
+   * The same user key that was refused above is accepted immediately by a second provider
+   * process — and since Plan 19-07 that is no longer because the record is per *process*.
+   * `FsIssuance` keys the record on the provider's own `--dir`, and these two spawns are
+   * given different directories by `spawnAgent`, so they are two providers with two
+   * signing keys and two budgets. That is correct rather than a hole: a peer that pinned
+   * the first one's issuer takes nothing from the second, because `verifyCertificate`
+   * refuses `untrusted-issuer`.
+   *
+   * **The reading this file no longer takes** is the one that used to be recorded here as
+   * unmeasured: a provider stopped and restarted on the *same* directory. That is
+   * `enrollment-cost.node.test.ts`'s, where it is the load-bearing measurement rather than
+   * a side note.
    */
   it('a second provider process has a fresh budget for the same user key', async () => {
     const first = await spawnAgent('scope-provider-1', ['--issues-certificates'])

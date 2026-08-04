@@ -605,7 +605,14 @@ async function realFabric(nodes: number): Promise<Fabric> {
       rpcTimeoutMs: 30_000,
       maxConcurrentTasks: DECLARED_ADMISSION_LIMIT,
       trustAnchors: [BENCH_TRUST_ANCHOR],
-      issuesCertificates: true,
+      // AUTH-04: stated rather than defaulted, because `FabricNodeOptions` has no way to
+      // leave it unsaid. The sentinel is the right answer *here* and would not be on a
+      // deployed provider: this one certifies the `nodes` this same function is about to
+      // start, its whole population is known to the line above, and a bound sized to the
+      // sweep would be a number the benchmark had to keep in step with its own `--nodes`.
+      // Nothing adversarial can reach it — it is dialled only by the processes this
+      // driver spawns.
+      issuesCertificates: 'issues-without-an-aggregate-budget',
     })
   }
   const providerAddr = provider === undefined ? undefined : dialableAddr(provider)

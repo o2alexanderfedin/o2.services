@@ -587,7 +587,13 @@ node = await FabricNode.start({
   blockstoreDir: values.dir,
   listen: [`/ip4/127.0.0.1/tcp/${values.port}`],
   trustAnchors,
-  issuesCertificates: values['issues-certificates'],
+  // AUTH-04: absence is "this process issues no certificates", and presence carries the
+  // aggregate budget, because `FabricNodeOptions` cannot express a provider that never
+  // stated one. `exactOptionalPropertyTypes` makes an absent key and an explicit
+  // `undefined` different types, so a non-provider adds no key at all.
+  ...(values['issues-certificates']
+    ? { issuesCertificates: 'issues-without-an-aggregate-budget' as const }
+    : {}),
   // The same conditional-spread idiom as `sovereignty` below, and required for the same
   // reason: `exactOptionalPropertyTypes` makes an absent key and an explicit `undefined`
   // different types. An absent flag must add no key at all.

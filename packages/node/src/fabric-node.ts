@@ -86,6 +86,7 @@ import { tcp } from '@libp2p/tcp'
 import { webSockets } from '@libp2p/websockets'
 import { multiaddr } from '@multiformats/multiaddr'
 import {
+  DEFAULT_ISSUANCE_WINDOW_MS,
   DEFAULT_MAX_CONCURRENT_TASKS,
   DutyCycleGovernor,
   EnrollmentAuthority,
@@ -103,6 +104,7 @@ import {
 import type {
   Blockstore,
   Executor,
+  IssuanceBudget,
   NodeCertificate,
   NodeSovereignty,
   PublicKeyHex,
@@ -126,6 +128,7 @@ import type { EnrolOutcome } from '@o2/net'
 import { createLibp2p } from 'libp2p'
 import type { Libp2p } from '@libp2p/interface'
 import { FsBlockstore } from './fs-blockstore.ts'
+import { FsIssuance } from './fs-issuance.ts'
 import { FsSovereignCids } from './sovereign-cids.ts'
 import type { SovereignCids } from '@o2/net'
 import {
@@ -191,8 +194,8 @@ export interface FabricNodeOptions {
    */
   readonly sovereignty?: NodeSovereignty
   /**
-   * Whether this process holds a provider signing key and answers enrollment requests —
-   * AUTH-01, AUTH-04.
+   * Whether this process holds a provider signing key and answers enrollment requests, and
+   * **how many certificates it will sign per window if it does** — AUTH-01, AUTH-04.
    *
    * A **per-node setting, not a node kind.** Every `FabricNode` has the identical
    * executor, transport, relay capability and protocol surface regardless of it — exactly
@@ -203,18 +206,31 @@ export interface FabricNodeOptions {
    * Nothing anywhere branches on it except the two lines that build the authority and hand
    * it to `serveAgent`.
    *
-   * **The key is generated on-device and is never passed in.** There is no option here
-   * that accepts key material, and Plan 17-05's `--issues-certificates` is a boolean for
-   * the same reason: argv is world-readable in `ps`, so a key on a command line is a key
-   * every account on the host has read. It is written to `.provider.key`, a **different
-   * file from `.identity.key`**, so `issuerKey !== nodeKey` always holds and a
-   * provider-signed certificate is never confusable with a self-signed one.
+   * **It carries the budget rather than sitting beside it, and that is the whole shape of
+   * it.** It used to be a `boolean`. A separate optional `maxIssuedPerWindow` beside it
+   * would have left the one mechanism that bounds an attacker switched off whenever a
+   * caller forgot the second field, with `tsc --noEmit` at exit 0 — the failure
+   * `IssuanceBudget`'s own docblock records this phase measuring twice. Folded in, *a
+   * provider with no stated budget is not a state this type can express*: a caller either
+   * names a number or writes `'issues-without-an-aggregate-budget'` and thereby says so.
+   * Absence still means "does not issue at all", which is the safe default and is the one
+   * omission that selects nothing dangerous.
    *
-   * A process given no `blockstoreDir` has nowhere to persist it and gets a fresh provider
-   * key per start — the same deployment choice `blockstoreDir`'s own doc frames above, and
-   * not a different kind of node.
+   * **The key is generated on-device and is never passed in.** There is no option here
+   * that accepts key material, and `bin/agent.ts`'s `--issues-certificates` is a boolean
+   * for the same reason: argv is world-readable in `ps`, so a key on a command line is a
+   * key every account on the host has read. (The *budget* is a policy number rather than
+   * key material, so it does reach argv, as `--max-issued-per-window`.) The key is written
+   * to `.provider.key`, a **different file from `.identity.key`**, so `issuerKey !==
+   * nodeKey` always holds and a provider-signed certificate is never confusable with a
+   * self-signed one.
+   *
+   * A process given no `blockstoreDir` has nowhere to persist the key and gets a fresh one
+   * per start — the same deployment choice `blockstoreDir`'s own doc frames above, and not
+   * a different kind of node. It also has nowhere to persist the *issuance record*, and
+   * says so by name at the construction site rather than by omission.
    */
-  readonly issuesCertificates?: boolean
+  readonly issuesCertificates?: IssuanceBudget
   /**
    * The provider to enrol with, and the user this node belongs to — AUTH-01.
    *
@@ -1294,31 +1310,51 @@ export class FabricNode {
     // holds; and generated on-device, because no option in this phase accepts key material
     // and argv is world-readable in `ps` (17-CONTEXT.md decision 6).
     //
-    // The two *optional* issuance numbers are left exactly as `enrollment.ts` declares
-    // them. Cited rather than restated: nothing in this phase's criteria asks for other
-    // numbers, a knob nobody sets is a knob that drifts from the tests, and a value copied
-    // into a comment is a value that can disagree with its source.
+    // The two *optional* issuance numbers — `maxPerWindow` and `windowMs` — are left
+    // exactly as `enrollment.ts` declares them. Cited rather than restated: nothing in
+    // this phase's criteria asks for other numbers, a knob nobody sets is a knob that
+    // drifts from the tests, and a value copied into a comment is a value that can
+    // disagree with its source. `certificateLifetimeMs` is left alone for a stronger
+    // reason — the owner's 2026-08-02 correction rules certificate lifetimes out of the
+    // cost argument entirely, so a knob here would invite exactly the tuning it forbids.
     //
-    // The two **required** ones are written out below as named sentinels, and both say
-    // the same thing: this tier does not yet have what the option is for. Neither is
-    // omitted, because an omission would be indistinguishable from a decision — and for
-    // `issuance` specifically, defaulting it to the in-process history is *precisely* the
-    // per-process budget Phase 17 measured as defeated, with nothing anywhere failing.
+    // **AUTH-04, and this is the line that turns the mechanism on in production.** Both
+    // required options carried a named sentinel for one wave; both now carry the real
+    // thing.
     //
-    // **Plan 19-07 is where each gets its durable form on this tier** — a ledger over
-    // `<dir>/`, beside `.provider.key`, and an aggregate number to go with it. Until then
-    // this node states that it has neither, which is a reading a host can take rather
-    // than an absence a reader has to infer.
+    //   - the **budget** comes from the caller, because `FabricNodeOptions` cannot express
+    //     a provider that never stated one (see `issuesCertificates`). There is no default
+    //     here and there must not be: a defaulted budget is a policy nobody chose.
+    //   - the **history** is a file under this node's own `<dir>`, beside `.identity.key`
+    //     and `.provider.key`, carrying exactly the authority the filesystem permissions
+    //     there already carry. `FsIssuance`'s header has the argument for why it is not a
+    //     wire frame; the short form is that `serveAgent` serves enrolment
+    //     unauthenticated.
+    //
+    // **A node with no `blockstoreDir` says so by name rather than falling back quietly.**
+    // It has nowhere durable to write, exactly as it has nowhere to persist its identity
+    // seed or its sovereign-CID set, and the sentinel is what makes that a reading rather
+    // than an absence a reader has to infer — the identical shape `sovereignCids` uses a
+    // few lines below. Reaching that arm reproduces Phase 17's measured defect exactly,
+    // which is why it has to be asked for rather than arrived at.
     const authority =
-      options.issuesCertificates !== true
+      options.issuesCertificates === undefined
         ? null
         : new EnrollmentAuthority({
             providerPrivateKey:
               options.blockstoreDir === undefined
                 ? generateSeed()
                 : await loadOrCreateSeed(options.blockstoreDir, PROVIDER_FILE),
-            maxIssuedPerWindow: 'issues-without-an-aggregate-budget',
-            issuance: 'remembers-only-within-this-process',
+            maxIssuedPerWindow: options.issuesCertificates,
+            issuance:
+              options.blockstoreDir === undefined
+                ? ('remembers-only-within-this-process' as const)
+                : // The retained window is `enrollment.ts`'s own default, read from the
+                  // module the authority defaults from rather than restated here, so the
+                  // record cannot compact past a bound the authority still consults.
+                  await FsIssuance.open(options.blockstoreDir, {
+                    retainMs: DEFAULT_ISSUANCE_WINDOW_MS,
+                  }),
           })
 
     // AUTH-01 — the enrollment round trip, over the fabric's own protocol, before this

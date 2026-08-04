@@ -276,6 +276,10 @@ export type {
 
 // Enrollment and node identity — AUTH-01, AUTH-02, AUTH-04, AUTH-05.
 export {
+  // The one window both budgets are measured over, read by a durable ledger's compaction
+  // as well as by the authority — see `IssuanceLedger` for why a host that guessed it
+  // would widen a budget with nothing failing.
+  DEFAULT_ISSUANCE_WINDOW_MS,
   EnrollmentAuthority,
   possessionChallenge,
   requestEnrollment,

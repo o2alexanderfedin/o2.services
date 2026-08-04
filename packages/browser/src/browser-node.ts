@@ -32,6 +32,7 @@ import { webRTC } from '@libp2p/webrtc'
 import { webSockets } from '@libp2p/websockets'
 import { multiaddr } from '@multiformats/multiaddr'
 import {
+  DEFAULT_ISSUANCE_WINDOW_MS,
   DEFAULT_MAX_CONCURRENT_TASKS,
   EnrollmentAuthority,
   DutyCycleGovernor,
@@ -47,6 +48,7 @@ import {
 import type {
   Blockstore,
   Executor,
+  IssuanceBudget,
   NodeCertificate,
   NodeSovereignty,
   PublicKeyHex,
@@ -79,6 +81,7 @@ import { createLibp2p } from 'libp2p'
 import type { Libp2p } from '@libp2p/interface'
 import { IdbBlockstore } from './idb-blockstore.ts'
 import { IdbIdentityStore } from './idb-identity-store.ts'
+import { IdbIssuance } from './idb-issuance.ts'
 import { IdbSovereignCids } from './idb-sovereign-cids.ts'
 import { VisibilityGovernor } from './visibility-governor.ts'
 import { browserWorkerExecutor } from './worker-executor.ts'
@@ -231,19 +234,23 @@ export interface BrowserNodeOptions {
     readonly providerAddr: string
   }
   /**
-   * Whether this tab holds a provider signing key and answers enrollment requests —
-   * AUTH-01.
+   * Whether this tab holds a provider signing key and answers enrollment requests, and
+   * **how many certificates it will sign per window if it does** — AUTH-01, AUTH-04.
    *
-   * Mirrors `FabricNodeOptions.issuesCertificates`. Defaults to `false`: a node that
-   * signed certificates because nobody said otherwise would be a trust root by accident.
+   * Mirrors `FabricNodeOptions.issuesCertificates`, including the reason it carries the
+   * budget rather than sitting beside a second optional field: a provider that never
+   * stated a bound is not a state this type can express. Absence means "does not issue at
+   * all", which is the safe default — a node that signed certificates because nobody said
+   * otherwise would be a trust root by accident.
    *
    * There is no browser-shaped reason for this to be here rather than absent, and that
    * is the point — issuing needs a signing key and a durable place to keep it, and this
-   * tier now has both (`idb-identity-store.ts`). Leaving it off would have left one
-   * capability a `FabricNode` has and a `BrowserNode` cannot, which is the shape this
-   * plan exists to delete.
+   * tier now has both (`idb-identity-store.ts` for the key, `idb-issuance.ts` for the
+   * record the budget is spent against). Leaving it off would have left one capability a
+   * `FabricNode` has and a `BrowserNode` cannot, which is the shape this option exists to
+   * delete.
    */
-  readonly issuesCertificates?: boolean
+  readonly issuesCertificates?: IssuanceBudget
   readonly rpcTimeoutMs?: number
   /**
    * Tasks this tab will run at once before it refuses an `exec` request with its
@@ -931,7 +938,7 @@ export class BrowserNode {
     // than at every start, for the reason the seed is: a trust root whose key changed
     // silently would invalidate every certificate it had ever signed.
     let authority: EnrollmentAuthority | null = null
-    if (options.issuesCertificates === true) {
+    if (options.issuesCertificates !== undefined) {
       const existing = await identityStore.loadProviderSeed()
       let providerPrivateKey: Uint8Array<ArrayBuffer>
       if (existing !== null) {
@@ -940,20 +947,38 @@ export class BrowserNode {
         providerPrivateKey = generateSeed()
         await identityStore.saveProviderSeed(providerPrivateKey)
       }
-      // Both required issuance options are written out as named sentinels, and both say
-      // the same thing: this tier does not yet have what the option is for. Omitting
-      // either would be indistinguishable from a decision — and for `issuance`
-      // specifically, a default of the in-process history is *precisely* the per-process
-      // budget Phase 17 measured as defeated, with nothing anywhere failing.
+      // AUTH-04, and this is the line that turns the mechanism on for a tab. Both required
+      // issuance options carried a named sentinel for one wave; both now carry the real
+      // thing, and they are the **same** two things `fabric-node.ts` passes.
       //
-      // **Plan 19-07 is where each gets its durable form on this tier** — a ledger over
-      // `identityStore`, which already persists the provider seed beside it, and an
-      // aggregate number to go with it. A tab's storage is evictable, so what "durable"
-      // means here is 19-07's question and not this line's.
+      //   - the **budget** comes from the caller, because `BrowserNodeOptions` cannot
+      //     express a provider that never stated one. No default, deliberately.
+      //   - the **history** is an IndexedDB database of this tab's own, named by suffix
+      //     from the blockstore's exactly as the identity store and the sovereign-CID set
+      //     are, so one origin can hold several independent nodes.
+      //
+      // **The one asymmetry with the Node tier, and it is bounded and stated rather than
+      // mentioned.** `record` is synchronous because `enrol` is, and IndexedDB has no
+      // synchronous API, so a tab's write is durable one turn later where a file's append
+      // has already returned. Because a write is scheduled on *every* `record` rather than
+      // batched, what is not yet durable is what was recorded since the last turn — one,
+      // for a tab answering one enrolment frame at a time. `idb-issuance.ts` carries the
+      // argument and `idb-issuance.browser.test.ts` asserts the count.
+      //
+      // That is a platform fact of the same kind as a blockstore on IndexedDB, and it is
+      // **not** a capability difference: this tab's running budget is exact from the
+      // instant it signs, and only what a reload would recover lags.
+      const issuance = await IdbIssuance.open(`${blockstoreName}-issuance`, {
+        // `enrollment.ts`'s own default, read from the module the authority defaults from
+        // rather than restated here, so the record cannot compact past a bound the
+        // authority still consults.
+        retainMs: DEFAULT_ISSUANCE_WINDOW_MS,
+      })
+      undo.push(() => issuance.close())
       authority = new EnrollmentAuthority({
         providerPrivateKey,
-        maxIssuedPerWindow: 'issues-without-an-aggregate-budget',
-        issuance: 'remembers-only-within-this-process',
+        maxIssuedPerWindow: options.issuesCertificates,
+        issuance,
       })
     }
 

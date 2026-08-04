@@ -261,7 +261,7 @@ describe('AUTH-02 — a peer with a pinned issuer’s certificate is verified, o
    * measures is that no *future* one was added.
    */
   it('verifies a peer’s certificate with the provider stopped, and lists it as verified', async () => {
-    const p1 = await start({ blockstoreDir: join(workdir, 'p1'), issuesCertificates: true })
+    const p1 = await start({ blockstoreDir: join(workdir, 'p1'), issuesCertificates: 'issues-without-an-aggregate-budget' })
     const a = await start({
       blockstoreDir: join(workdir, 'a'),
       enrollment: {
@@ -292,8 +292,8 @@ describe('AUTH-02 — a peer with a pinned issuer’s certificate is verified, o
    * and not as an empty list.
    */
   it('refuses a certificate from an unpinned issuer by name, and excludes only that peer', async () => {
-    const p1 = await start({ blockstoreDir: join(workdir, 'p1'), issuesCertificates: true })
-    const p2 = await start({ blockstoreDir: join(workdir, 'p2'), issuesCertificates: true })
+    const p1 = await start({ blockstoreDir: join(workdir, 'p1'), issuesCertificates: 'issues-without-an-aggregate-budget' })
+    const p2 = await start({ blockstoreDir: join(workdir, 'p2'), issuesCertificates: 'issues-without-an-aggregate-budget' })
     const a = await start({
       blockstoreDir: join(workdir, 'a'),
       enrollment: { userPrivateKey: USER_SEED, operatorId: 'harbour-ops', providerAddr: addrOf(p1) },
@@ -332,7 +332,7 @@ describe('AUTH-02 — a peer with a pinned issuer’s certificate is verified, o
    * `no-records`, which is exactly why that adapter is not used.
    */
   it('tells a peer that answered “no records” apart from one it could not ask at all', async () => {
-    const p1 = await start({ blockstoreDir: join(workdir, 'p1'), issuesCertificates: true })
+    const p1 = await start({ blockstoreDir: join(workdir, 'p1'), issuesCertificates: 'issues-without-an-aggregate-budget' })
     // A perfectly healthy node that never enrolled — it passes the `'serves-no-records'`
     // sentinel and answers `records: null`.
     const silent = await start({ blockstoreDir: join(workdir, 'silent') })
