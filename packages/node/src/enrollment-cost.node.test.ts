@@ -51,10 +51,17 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
  * rest of it — `serveAgent` serves enrolment unauthenticated, so anyone who can dial can
  * spend it. The architectural answer is the one the whole design rests on: trust is
  * **pinned per verifier**, so a starved provider is routed around by trusting or running
- * another, and nothing global has to recover because nothing global was ever agreed. That
- * answer is an argument and not a reading — every fixture in this repository is
- * single-provider — except for the one half measured below, which is that a second
- * provider is genuinely a second issuer that a peer pinning the first refuses by name.
+ * another, and nothing global has to recover because nothing global was ever agreed.
+ *
+ * **That answer was an argument until this file, and half of it is now a reading.** Every
+ * other fixture in this repository is single-provider; the last section below runs a
+ * second one, and both halves of the trade are asserted together. A node turned away by
+ * the exhausted provider *is* certified by the second — so recovery is real and costs one
+ * more provider — **and** the certificate it comes back with is refused `untrusted-issuer`
+ * by a peer that pinned only the first. Routing around a starved provider is therefore not
+ * free: the peers who are to accept the newcomer have to have pinned the provider it went
+ * to. What remains unmeasured is the operational half — nothing here shows an operator
+ * discovering that a provider is starved, or a fabric re-pinning at scale.
  *
  * ## No wall-clock claim appears anywhere in this file
  *
