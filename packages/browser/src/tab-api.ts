@@ -402,6 +402,38 @@ export interface TabApi {
     shards: number
     redundancy: number
     includeSelf?: boolean
+    /**
+     * Submit this job's shards as **owner-pinned data** rather than public — DATA-10,
+     * WIRE-03. Omitted means public, which is what every shard submitted from a page
+     * was until this field existed.
+     *
+     * **One field, not two.** The label and the owner id arrive together or not at
+     * all, because a sovereign shard with no owner is not a state this fabric has —
+     * `submitJob` refuses it by name (`shard-missing-owner`), and a pair of loose
+     * optionals is a way to spell a refusal rather than a job. Two spellings of one
+     * fact are two things that can disagree; this is the shape that cannot.
+     *
+     * **Why a page may submit owner-pinned data at all**, since the question reads at
+     * first like a tier being handed a capability: sovereignty is a property of the
+     * data and of whose it is, never of what kind of node holds it. A tab is the
+     * owner's own device and is therefore the most natural place for owner-pinned data
+     * to live — the least surprising submitter in the fabric, not a privileged one. A
+     * `FabricNode` submitting the same shard through `submitJobWithEgress` gets exactly
+     * this treatment and has since Phase 13.1.
+     *
+     * **What supplying it does, mechanically.** The page hands its node's
+     * `sovereignCids` to `submitJob`, so the shard's canonical bytes are recorded at the
+     * **blockstore-put** — the line that makes this tab hold the row — and the tab
+     * refuses to serve that block afterwards and withholds it from its own `providers`
+     * answer. Recorded at the put rather than at this call site, so a submitter is
+     * covered by having submitted rather than by having remembered.
+     *
+     * **Harness-facing, like the report this returns.** {@link TabColouringRun} — the
+     * visitor-facing surface — gains nothing, which is the same exception
+     * {@link TabJobReport.failures} already declares for itself: the demo runs a public
+     * colouring search over one shared input block, and there is no owner in it.
+     */
+    sovereign?: { readonly ownerId: string }
   }): Promise<TabJobReport>
   stop(): Promise<void>
 }
