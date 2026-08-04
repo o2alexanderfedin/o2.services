@@ -146,7 +146,20 @@ criterion 3's browser half.
   claim. Closing it needs a rig where a node actually refuses.
 - **`tools/aot/lift.node.test.ts` failed WORSE alone on a quiet host** (12 failures, ten
   60 s timeouts, 850 s against the config's recorded 217 s) than under suite load, so
-  `deferred-items.md` item 2's *"passes in isolation"* diagnosis is false. Phase 21 owns it.
+  `deferred-items.md` item 2's *"passes in isolation"* diagnosis is false. **CLOSED 2026-08-04.**
+  Measured in both conditions before anything was changed, and the file was green 99/99 in each:
+  alone at load 5.9 it ran 216.83 s, and under twelve CPU burners at load 102 it ran 284.29 s —
+  but **92.6% of that wall clock is one integration `beforeAll` the per-case reporter attributes
+  to nothing**, and the cases themselves moved only 9.7%. The real cause is an unbounded retry:
+  bounded in count, unbounded in time. `despiteAFullProcessTable` retries four times, an attempt's
+  duration is a budget the caller chose, and 4 × 20 000 ms plus backoffs is 81 500 ms of driver
+  budget inside a 60 000 ms case — so the framework always fired first, always at exactly
+  60 000 ms, always with nothing to say. **The recorded diagnosis had read 60 000 ms as evidence
+  that docker hangs for a minute; 60 000 is that file's own `vi.setConfig({ testTimeout })`.** A
+  duration equal to a timeout is evidence of the timeout. The absolute bound is now comparative —
+  two arms of one case, 400 ms against 2 000 ms of budget, reading the difference so spawn cost
+  cancels algebraically — and it reds below 800 ms or above 3 200 ms against a worst measured
+  drift of ~300 ms.
 - **23 of ~45 ledger citations had outrun the tree**, nine of them introduced by the very
   plan written to correct drift. A blanket offset would have been wrong twice over — one
   citation was out by 117, and five were already exact. A cheap guard was **measured and

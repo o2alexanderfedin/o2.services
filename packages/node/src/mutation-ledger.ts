@@ -1471,6 +1471,25 @@ export const MUTATIONS: readonly Mutation[] = [
     signatureSource: 'test-title',
   },
   {
+    id: 'M63',
+    why:
+      'AOT-01. The bound this replaced was absolute — `expect(elapsed).toBeLessThan(8_000)` — and ' +
+      'an absolute encodes the machine, the load and the I/O weather of the day it was written. ' +
+      'The claim is "the caller\'s timeout reached `resolveImage`", so the case now asks twice in ' +
+      'one run, with a 400 ms budget and a 2 000 ms budget, and reads the difference: spawn cost ' +
+      'cancels algebraically and only the driver\'s response to the request survives. This plant is ' +
+      'the reason the timing half is kept at all — it spends a fixed budget while still *reporting* ' +
+      'the caller\'s, so the classification assertion and both message assertions pass untouched and ' +
+      'nothing but the difference sees it. Measured: `asking for 1600 ms more budget bought 0 ms ' +
+      'more wall clock (403 ms → 403 ms): expected 0 to be greater than 800`, red in 813 ms.',
+    file: 'tools/aot/lift.ts',
+    find: '[\'image\', \'inspect\', image, \'--format\', \'{{join .RepoDigests "\\\\n"}}\'],\n    timeoutMs,',
+    replace: '[\'image\', \'inspect\', image, \'--format\', \'{{join .RepoDigests "\\\\n"}}\'],\n    400,',
+    caughtBy: ['tools/aot/lift.node.test.ts'],
+    signature: 'gives up on a wedged inspect in the time it was given, not in a hardcoded minute',
+    signatureSource: 'test-title',
+  },
+  {
     id: 'P1',
     why:
       'SCHED-06 on the **fourth** production `serveAgent` file, and the entry exists because ' +
