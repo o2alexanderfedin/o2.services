@@ -204,16 +204,30 @@ held.record(outcome)           1
 
 **`npx vitest run --project browser packages/browser/src/` → exit 0.** 39 files, 399 tests.
 
-**`npx vitest run --project node` → EXIT=1**, read from `$?` on the line immediately after the command, no pipe and no trailing `tail`.
+**`npx vitest run --project node` → EXIT=1**, read from `$?` on the line immediately after the command, no pipe and no trailing `tail`. Four full runs were taken across the session; the last is the reported one.
 
 ```
- Test Files  1 failed | 140 passed (141)
-      Tests  1 failed | 2023 passed | 2 skipped (2026)
-   Duration  224.95s
+ Test Files  2 failed | 139 passed (141)
+      Tests  2 failed | 2023 passed | 1 skipped (2026)
+   Duration  240.86s
 ```
-`/usr/bin/time -p`: `real 225.84`, `user 236.27`, `sys 35.46` — `(user+sys)/real = 1.203`, i.e. genuinely parallel and sharing the host with three other executors.
+`/usr/bin/time -p`: `real 241.90`, `user 237.36`, `sys 37.20` — `(user+sys)/real = 1.135`, i.e. genuinely parallel and sharing the host with three other executors. The cleanest of the four runs read `1 failed | 140 passed (141)` / `1 failed | 2023 passed | 2 skipped`, `real 225.84 / user 236.27 / sys 35.46`.
 
-**The single failure is not this plan's, attributed by measurement rather than by plausibility:**
+**Neither failure is this plan's, attributed by measurement rather than by plausibility.**
+
+### `bench-attestation.node.test.ts` — the index-snapshot spec, and it is in my blast radius
+
+This is one of the two specs that snapshot `git status --porcelain` around themselves, and I edited `bin/bench.ts`, so `CLAUDE.md`'s rule applies directly: *"if it fails, check what the index was doing before you look at the code."* I did, three times, and **its own diff names the cause every time — a different agent's files each time:**
+
+| Run | Delta between the before and after snapshots |
+|---|---|
+| 1 | `?? .planning/phases/phase-22-reachability-guard/` |
+| 2 | `20-03-SUMMARY.md` moving out of the index, `20-01-SUMMARY.md` appearing |
+| 4 | ` M packages/browser/demo/index.html`, ` M packages/browser/demo/main.ts`, ` M packages/browser/src/tab-api.ts` — 20-06 starting on the demo |
+
+Not one of those paths is mine, and all of mine are committed. It runs **green** whenever the tree is not moving: exit 0 on its own (`real 188.13 / user 6.81 / sys 1.27`, spawn-bound), and exit 0 again beside `discover-arm.node.test.ts`, the other index-snapshot spec — 2 files, 5 tests. That is corroboration rather than only an absence, because this spec **spawns the driver**, so it exercises my `bin/bench.ts` edit end to end.
+
+### `discovery-agents.node.test.ts` — 20-01's armed tripwire, arriving on schedule
 
 `packages/node/src/discovery-agents.node.test.ts > criterion 2 — sample, refuse, re-pick, complete > re-picks past a node genuinely at its slot limit, on the production submit path` — `AssertionError: expected 'agreed' to be 'insufficient'`.
 
@@ -221,10 +235,14 @@ held.record(outcome)           1
 - `git log -- packages/core/src/job/submit.ts` shows `e68455a feat(20-01): a shard that lost its executor is placed again, under a lease` landing during this run.
 - 20-CONTEXT.md predicts it verbatim: *"A tripwire is already armed… **Adding the re-pick makes that test go RED, and that is CORRECT** — it is the scheduled clause arriving, not a regression. 20-04 rewrites the assertion."*
 
-**Two further failures appeared in an earlier full run and cleared on the final one. Both were attributed by their own output, not by "passes in isolation":**
+### A third failure appeared once and cleared
 
-- `bench-attestation.node.test.ts` — the `git status --porcelain` snapshot spec, and squarely in my blast radius since I edited `bin/bench.ts`. Its diff **named the cause**: the only delta between the before and after snapshots was `?? .planning/phases/phase-22-reachability-guard/`, a directory another agent created mid-run. It then ran green in isolation (exit 0, 4 passed, `real 188.13 / user 6.81 / sys 1.27` — spawn-bound), *and* it exercises my `bin/bench.ts` edit by spawning the driver, so it is corroboration rather than only an absence.
-- `enrollment-dos.node.test.ts` — `expected 0.8371757679983127 to be greater than 1.5`, an **absolute** cost-ratio floor read during a 292-second whole-suite run with three other executors on the host. Attributed structurally, not by re-running: that spec calls `serveAgent` directly with the named opt-out at both its sites, builds no `FabricNode`, and imports nothing I touched.
+`enrollment-dos.node.test.ts` — `expected 0.8371757679983127 to be greater than 1.5`, an **absolute** cost-ratio floor read during a 292-second whole-suite run with three other executors on the host. Attributed structurally rather than by re-running, because *"passes in isolation"* is a claim to verify and not a diagnosis: that spec calls `serveAgent` directly with the named opt-out at both its sites, builds no `FabricNode`, and imports nothing I touched. It has read green on every run since.
+
+### Per-package readings, all green
+
+`npx vitest run --project node packages/net/` → exit 0, 25 files, 310 tests.
+`npx vitest run --project node packages/core/` → exit 0, 30 files, 516 tests.
 
 **Every spec that actually reads my changed files, run together → exit 0**, 9 files, 228 tests: `start-report.test.ts`, `protocol.test.ts`, `agent-contract.test.ts`, `serve-agent-hooks.node.test.ts`, `requirements-ledger.node.test.ts`, `mutation-guard.node.test.ts`, `fabric-node.node.test.ts`, `browser-node-contract.node.test.ts`, `purity.node.test.ts`.
 
@@ -232,6 +250,8 @@ held.record(outcome)           1
 
 - Every commit used explicit paths. At the time of committing, three other agents had staged work in the index (`packages/core/src/job/submit.ts`, `packages/net/src/reduce-job.test.ts`, `tools/aot/*`); a bare `git commit` would have swept all of it.
 - `tsc --noEmit` and the mutation guard both reported another agent's mid-edit `packages/core/src/job/submit.ts` — including a raw parse error (`Identifier 'gate' has already been declared`) that failed `fabric-node.node.test.ts` at transform time, and `M36`/`M45` ledger drift. **20-CONTEXT.md predicted exactly this**: *"that is not a surprise to diagnose; it is the scheduled arrival."* Nothing outside my file list was touched.
+- The pre-commit guard refused three attempts on findings that were **not mine** — `M36`/`M45` drift and the unchecked-arm equality, all in `packages/core/src/job/submit.ts` and `packages/node/src/mutation-ledger.ts` while 20-01 was mid-edit. This is `#39` from 20-CONTEXT.md: *"a repo-wide guard blocks every agent when any one has an in-flight violation."* I waited it out rather than reaching for the escape hatch: **`O2_SKIP_GUARDS=1` was never set**, and every commit here passed the guards on their own terms.
+- The summary commit was blocked for ~11 minutes by another agent's stalled `git commit` holding `.git/index.lock` (pid 37742, `STAT SN`, its guard subprocess already exited, committing 20-03's summary — which had in fact already landed as `ae13a4b`). I did **not** remove the lock file and did **not** kill the process; I waited, running real verification work between polls.
 
 ## What this does and does not close
 
