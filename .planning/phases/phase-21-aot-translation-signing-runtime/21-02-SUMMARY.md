@@ -161,10 +161,27 @@ comparable as a speed claim and are not offered as one**: ~93 % of that wall clo
 integration `beforeAll` waiting on Docker, and three other agents were running suites
 throughout.
 
-`npx tsc --noEmit` on the whole tree: **0 errors in any file this plan owns.** The run
-also reported errors in `packages/core/src/job/submit.ts` and (on an earlier run)
-`packages/net/src/reduce-job.test.ts` — both another agent's mid-edit files, both
-untouched here, and the second set had already cleared by the next run.
+`npx tsc --noEmit` on the whole tree: **0 errors in any file this plan owns**, and after
+the commits below, **0 errors in the whole tree, exit 0**. Two intermediate runs reported
+errors in `packages/core/src/job/submit.ts` and `packages/net/src/reduce-job.test.ts` —
+both another agent's mid-edit files, both untouched here, both cleared by a later run
+without anything on this side changing. Re-run before diagnosing; that is what it is for.
+
+### The whole node project, and the three failures that are not this plan's
+
+`npx vitest run --project node` after the commits: **2021 passed, 2 skipped, 3 failed,
+exit 1** — `real 290.34 s`, `user 238.66`, `sys 37.97`, ratio **1.22**. All 141 test files
+ran; **`tools/aot`'s three files are green inside that run**, and every one of the three
+failures is another agent's in-flight work in this shared checkout:
+
+| file | what it said | why it is not this plan's |
+|---|---|---|
+| `bench-attestation.node.test.ts` | `expected '?? .planning/phases/phase-20-single-j…' to be '?? .planning/phases/phase-20-single-j…'` | the `git status --porcelain` sweep CLAUDE.md names as a shared hazard, tripped by an untracked file appearing under **phase-20**'s directory mid-run |
+| `discovery-agents.node.test.ts` | `expected 'agreed' to be 'insufficient'` | plan 20-0x's placement work |
+| `late-combine.node.test.ts` | `expected 1500 to be greater than 4569.14…` | a file that did not exist when this plan started — it was `??` in `git status` throughout |
+
+Nothing in `packages/` or `demo/` names `describeLift`, `parseAotArgs` or `aot/cli`
+(measured by `grep -rln`), so this plan has no reverse dependencies outside `tools/aot`.
 
 ### The load correlation 21-01 recorded — did not reproduce
 
