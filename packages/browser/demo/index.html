@@ -125,8 +125,10 @@
       <p class="note">
         Colour every whole number from 1 to N red or blue so that no three numbers
         with a² + b² = c² end up the same colour. The search is split into
-        independent cubes and spread across this tab and every peer it can reach;
-        each cube is run twice, on different nodes, and the two must agree.
+        independent cubes and spread across this tab and every peer it can reach.
+        With a peer connected, every cube is run on two of them and the two must
+        agree; alone, this tab runs each cube once. The report below says which
+        happened, and how far that goes.
       </p>
       <p class="note">
         N climbs until the fabric cannot settle a rung. Each cube fixes the colours
@@ -319,6 +321,49 @@
       // stops where the fabric stops rather than where a number would look good.
       const LADDER = [300, 400, 500, 600]
 
+      const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`
+
+      // VER-09/VER-10, criterion 3 — how strongly the answer was attested, in the
+      // kernel's own words.
+      //
+      // **The page composes no sentence of its own here, and that is the whole
+      // design.** `description` is the string `attestationReceipt` filled from
+      // `describeAttestation`, carried onto `JobResult` and passed through
+      // `runColouring` untouched. `bin/bench.ts` prints the same field for the same
+      // reason, so the CLI and this page cannot come to describe one result
+      // differently — there is one source of the words and neither surface holds a
+      // copy. Nothing below is derived from `redundancy`, from `agreeing.length`, or
+      // from anything this page believes about its own topology.
+      //
+      // **What stood here before was a claim the page could not check.** The line
+      // read `Verification cost N× — each cube ran twice, on different nodes, and the
+      // two had to agree`, unconditionally, on every settled run. At `redundancy: 1`
+      // — a lone visitor, which is every visitor who opens this page first — it was
+      // simply false, and it was printed directly above a placement list showing one
+      // node per cube. The cost figure is measured and stays; the claim about how the
+      // work was placed is now the kernel's.
+      //
+      // **The absence arm is a statement, not a blank and not a weaker label.** A
+      // visitor told less than the truth and a visitor told something untrue are
+      // different failures, and only the first is acceptable. So it says how many
+      // replicas agreed, how many of those this tab could actually check, and the
+      // kernel's own reason naming each replica it could not — never a strength over
+      // whatever happened to check out.
+      const attestationLines = (attestation) =>
+        'kind' in attestation
+          ? [
+              'How strongly was it checked: nothing established. ' +
+                `${plural(attestation.agreeing, 'replica')} agreed on the least-attested ` +
+                `cube, and ${attestation.verified} of those produced a signed statement ` +
+                'this tab could check.',
+              attestation.reason,
+            ]
+          : [
+              `How strongly was it checked: ${attestation.description}`,
+              `Established over ${plural(attestation.replicas, 'replica')} from ` +
+                `${plural(attestation.operators.length, 'operator')}.`,
+            ]
+
       $('run').addEventListener('click', async () => {
         $('run').disabled = true
         // Refreshed rather than reused: a device may have joined since the last
@@ -367,10 +412,10 @@
         if (best !== null) {
           lines.push('')
           lines.push(`Best settled: n = ${best.n}, every cube agreed: ${best.complete}`)
-          lines.push(
-            `Verification cost ${best.verificationMultiplier.toFixed(2)}× — each cube ran twice, ` +
-              'on different nodes, and the two had to agree.',
-          )
+          // VER-06. Gross fuel over useful fuel — measured, correct at any redundancy,
+          // and the half of the old line that was never in doubt.
+          lines.push(`Verification cost ${best.verificationMultiplier.toFixed(2)}×.`)
+          lines.push(...attestationLines(best.attestation))
           lines.push('')
           lines.push('Where the last rung ran:')
           lines.push(

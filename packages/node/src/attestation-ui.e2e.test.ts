@@ -69,13 +69,26 @@ import { FabricNode } from './fabric-node.ts'
  * **What the extra build costs — measured, so the optimisation nobody has taken can be
  * decided on a number.** This is the **third** spec in the `e2e` project to run
  * `vite build`; `built-bundle.e2e.test.ts` and `static-rendezvous.e2e.test.ts` are the
- * other two, and the project sets `fileParallelism: false`, so the three are serial. This
- * one measured **1.94 s** on 2026-08-03, against a whole-file wall clock of ~16 s. Sharing
- * one build across the three specs would therefore save about two seconds and would cost a
- * real coupling — a spec that no longer builds cannot fail when the sources break the
- * bundle, which is the single property `built-bundle.e2e.test.ts` exists for. On this
- * number it is not worth doing, and the number is here so the next reader does not have to
- * guess at it.
+ * other two, and the project sets `fileParallelism: false`, so the three are serial.
+ *
+ * Two readings of this file's build on 2026-08-03, both printed by the first case:
+ * **1943 ms** cold and **943 ms** warm, against a whole-file wall clock of **15.61 s
+ * real, 24.43 s user, 2.07 s sys** — a `(user+sys)/real` ratio of **1.70**, i.e. the
+ * process held more CPU than wall clock and was not starved. The figures come from
+ * `/usr/bin/time -p` around the run rather than from the machine's load average, which
+ * counts I/O-blocked threads and says nothing about whether *this* process got CPU. The
+ * ratio is recorded as a comparability key: a later reading taken at a similar ratio can
+ * be compared with this one, and one taken at a very different ratio cannot.
+ *
+ * So sharing one build across the three specs would save about one second and would cost
+ * a real coupling — a spec that no longer builds cannot fail when the sources break the
+ * bundle, which is the single property `built-bundle.e2e.test.ts` exists for. On these
+ * numbers it is not worth doing, and they are here so the next reader does not guess.
+ *
+ * **No `MEASURED_NODE_SPANS` entry, and that is not an omission.**
+ * `slow-specs.node.test.ts` builds its population with
+ * `.filter((path) => !/\.(browser|e2e|perf)\.test\.ts$/.test(path))`, so that table covers
+ * the `node` project alone and this file is outside its jurisdiction by construction.
  *
  * ## No relay, and the peer is a `FabricNode` — both deliberate
  *
