@@ -550,26 +550,29 @@ export const MUTATIONS: readonly Mutation[] = [
     signature: 'records a copy that fails after the winner is picked as a failure of that shard',
     signatureSource: 'test-title',
   },
-  {
-    id: 'M19',
-    why:
-      'BROW-05. The demo panel may not present an aggregate that cannot exist. Restoring ' +
-      'this line puts a peer count back beside a report whose every production call site ' +
-      "opts out of the ledger that would fill it — the rendered panel read `no start " +
-      "outcomes reported` on one line and `peers answering: 2 of 2 asked` on the next, " +
-      'which is a tally of contributors that has none. It is a restoration rather than a ' +
-      'deletion because the defect was text that was there, not text that was missing.',
-    file: 'packages/browser/demo/index.html',
-    find: '        showReportOnly(report.text)\n',
-    replace:
-      '        showReportOnly(\n' +
-      '          `${report.text}\\n  peers answering: ${report.reached} of ${report.asked} asked`,\n' +
-      '        )\n',
-    caughtBy: ['packages/node/src/two-tabs.e2e.test.ts'],
-    project: 'e2e',
-    signature: 'renders no peer aggregate beside a report that can only hold this tab',
-    signatureSource: 'test-title',
-  },
+  // `M19` stood here and is gone, deleted by Phase 20 plan 06 on 2026-08-04. It pinned
+  // the **absence** of a peer count beside the start-outcome panel, and its `why` rested
+  // on a premise that is now false in the tree: *"a report whose every production call
+  // site opts out of the ledger that would fill it"*. Plan 20-02 gave both node factories
+  // a real `StartOutcomeLedger` holding their own row, so a peer answers with something
+  // it observed, the merged panel carries browser families the reading tab is not, and
+  // `peers answering: N of M asked` beside those rows is a truthful tally of the peers
+  // whose rows are in them rather than a tally of contributors that has none. The lie was
+  // the juxtaposition and the juxtaposition has stopped being one — `demo/index.html`'s
+  // `refreshReport` quotes the removed sentence at the line so the history is not lost.
+  //
+  // **Deleted rather than left drifting, and not deleted silently.** Its `find` —
+  // `showReportOnly(report.text)` — no longer occurs, so the pre-commit guard refused the
+  // commit that changed the render; an entry that cannot be planted guards nothing.
+  //
+  // **What replaces it, measured and handed to plan 20-13**, which owns this file: the
+  // inverse defect is now `peers: () => running.transport.peers` in `demo/main.ts`'s
+  // `startReport`, replaced by `peers: () => []`. That renders the local ledger instead
+  // of the merged one — the page still shows a plausible report, `reached` and `asked`
+  // both read 0, and every foreign family row disappears. It is invisible to any
+  // single-tab reading, which is why its `caughtBy` is the three-engine
+  // `peer-ledger.e2e.test.ts` and not this file's older two-tab sibling. The observed
+  // failure text is recorded in `20-06-SUMMARY.md`.
   {
     id: 'B1',
     why:

@@ -7,7 +7,7 @@
  * error surfaces as a timeout.
  */
 
-import type { ShardAttestation } from '@o2/core'
+import type { BrowserTally, ShardAttestation } from '@o2/core'
 import type { EgressManifest } from '@o2/net'
 
 /**
@@ -213,6 +213,33 @@ export interface TabStartReport {
   readonly text: string
   readonly reported: number
   readonly failed: number
+  /**
+   * The merged tallies, one row per browser family — BROW-02's cross-node reading.
+   *
+   * **Structure rather than prose, and the reason is what the criterion actually
+   * asserts.** The load-bearing reading is a *family this tab is not*: a chromium tab
+   * whose merged report carries a `firefox 130` row cannot have produced that row,
+   * because there is no expression in the page that would. A count above 1 is
+   * satisfiable by an accident, a double-record, or a fixture that opened one page
+   * twice; a foreign family label is not. With only {@link TabStartReport.text} on this
+   * interface a spec could assert that family only by regexing
+   * `describeStartReport`'s output — which would make the criterion depend on a
+   * formatting decision that is free to change and that nothing would then re-check.
+   *
+   * `StartReport.byBrowser`, passed straight through. Not recomputed, not re-sorted and
+   * not filtered here, for the reason {@link TabColouringRun.attestation} gives one
+   * interface over: a report that composed its own second opinion about one population
+   * is a thing that can disagree with the first, and the day the two disagree is the
+   * day a reader is shown whichever one the page happened to build.
+   *
+   * **This does not replace the screen reading, and adding it is not a way around
+   * one.** The criterion says the ledger is *viewed*, and a returned object is not a
+   * view. `peer-ledger.e2e.test.ts` takes its reading off the rendered element and uses
+   * this field only as the cross-check that the screen and the object agree — the right
+   * value read from the wrong object being the divergence class mutation-ledger entry
+   * `M37` records against this very tier.
+   */
+  readonly byBrowser: readonly BrowserTally[]
 }
 
 /** DEMO-01/DEMO-02 — one run of the colouring search across the fabric. */
@@ -319,6 +346,16 @@ export interface TabApi {
    * BROW-02. Publish this tab's start outcome and read back what peers know.
    *
    * Publishes only when the visitor allowed it; otherwise it asks without telling.
+   * **Declining to report is not declining to see**: a visitor who opted out still
+   * asks every peer, still merges every answer, and still transmits no outcome of
+   * their own — which is the only arrangement in which an opt-out means what it says.
+   *
+   * What comes back is a *merged* view and no longer only this tab's own row. Every
+   * node holds a start-outcome ledger with its own row in it from the moment it starts
+   * — `browser-node.ts` and `fabric-node.ts` do it on identical terms, because the only
+   * difference between nodes in this fabric is discovery — so a peer answers with
+   * something it observed rather than with an empty list, and the merge can carry a
+   * browser family the asking tab is not.
    */
   startReport(): Promise<TabStartReport>
   /**

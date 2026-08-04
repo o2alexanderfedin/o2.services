@@ -576,10 +576,24 @@ const api: TabApi = {
         text: describeStartReport(report),
         reported: report.reported,
         failed: report.failed,
+        // One row at most, and it is this tab's own. Carried on the same field as the
+        // merged arm below rather than omitted, so a caller reads one shape and can
+        // tell the two apart by `asked` — which is the honest discriminator, because
+        // "nobody was asked" and "everybody was asked and none answered" are different
+        // findings and only the second is the cliff.
+        byBrowser: report.byBrowser,
       }
     }
 
     const { describeStartReport } = await import('@o2/core')
+    // Every connected peer's counts merged into a view that already holds this tab's
+    // own row — BROW-02's cross-node reading. A peer answers out of a ledger it has
+    // held since it started (`browser-node.ts` and `fabric-node.ts` each build one and
+    // record their own row into it, on identical terms), so what comes back can name a
+    // browser family this tab is not. There is no expression here that could produce
+    // such a row, which is exactly why it is the reading criterion 5 rests on;
+    // `peer-ledger.e2e.test.ts` takes it off the rendered element rather than off this
+    // object, because the criterion says *viewed*.
     const result = await publishStartOutcome({
       rpc: running.rpc,
       peers: () => running.transport.peers,
@@ -595,6 +609,11 @@ const api: TabApi = {
       text: describeStartReport(result.report),
       reported: result.report.reported,
       failed: result.report.failed,
+      // `StartReport.byBrowser` straight through. Not recomputed from `text`, not
+      // re-sorted, and not filtered to the families this page recognises — a peer that
+      // named a family this build has never heard of is a finding, and dropping it here
+      // would delete the finding at the one place a person looks.
+      byBrowser: result.report.byBrowser,
     }
   },
 
