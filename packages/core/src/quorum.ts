@@ -49,9 +49,20 @@
  * owner ruling D1 on why provider records are computed at ask time rather than
  * announced: *a node that evicts a block still reads as a provider until something
  * retracts the announcement.* A node that claimed durable pinning and then evicted
- * would read as an anchor on identical terms. VER-03 is therefore **unimplemented**,
- * deliberately, and belongs where a result is pinned rather than where a quorum is
- * chosen.
+ * would read as an anchor on identical terms. **VER-03's durability half is therefore
+ * unimplemented**, deliberately, and belongs where a result is pinned rather than where
+ * a quorum is chosen.
+ *
+ * **Read that sentence as scoped, because an earlier draft of it was not, and the
+ * overstatement governed a decision.** It said flatly *"VER-03 is therefore
+ * unimplemented"*, and an executor reading it declined to tick the requirement at all.
+ * VER-03's wording in `REQUIREMENTS.md` is *"no verification quorum rests on a single
+ * shared reachability dependency, so eclipsing a quorum requires compromising more than
+ * one of them"* — eclipse resistance — and that half **is** implemented, below, as rule
+ * 2. Two halves, one open and one closed; neither sentence may stand in for both. This
+ * phase has already retracted one rule that entered the tree as proposal → docblock →
+ * implementation, and a comment governing a scoring decision is the same failure wearing
+ * different clothes.
  *
  * ## Attestation strength is a label, not a footnote
  *
