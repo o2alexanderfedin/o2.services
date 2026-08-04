@@ -60,6 +60,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [ ] **Phase 21: AOT Translation Signing & Runtime** - `translationCid` is called by the lift pipeline and a production node constructs a real `WasiExecutor`
 - [ ] **Phase 22: Reachability Guard** - A guard test fails when an exported capability has no path from a runnable entry point — the class of defect this milestone exists to fix
 - [ ] **Phase 23: Multi-Process Benchmark Driver** - The harness spawns N real operating-system processes instead of N nodes on one event loop, so a parallel speedup is measurable at all
+- [ ] **Phase 24: Certificate-Gated Admission** - The front door is locked: a node that cannot present a provider-issued certificate cannot reserve a circuit, be advertised, or be dialled. Scheduled later by owner ruling 2026-08-04; the open door is a KNOWN and accepted state until this phase runs
 
 ## Phase Details
 
@@ -941,40 +942,6 @@ Plans:
      checkpoint a durable artifact rather than a variable, and it is the only reading that cannot
      be satisfied by the original job's state. -->
 
-  8. Enrolment's cost is bounded by admission, not by a counter: a node that cannot present a provider-issued certificate cannot join the fabric, advertise itself, or be dialled by another node — so an identity that was never issued buys nothing, and the N-th identity costs an attacker a provider's willingness to sign it
-
-<!-- CRITERION 8 ADDED 2026-08-04 BY OWNER RULING, replacing a stalled criterion in Phase 19.
-
-     PHASE 19's CRITERION 5 read "enrolment costs something unmintable, and the N-th identity
-     costs more than the first". It verified PARTIAL twice: the unmintable half is delivered and
-     measured across real processes including restart and two-provider recovery, but the N-th
-     identity is REFUSED inside the issuance window rather than PRICED. Measured comparatively:
-     a provider's cost to refuse over an attacker's cost to mint a fresh identity is ~3.0, and
-     over a replay ~1397 — so an attacker burns the window at roughly a third of what refusing
-     costs, and the denial then applies to every honest node for the rest of the window at no
-     further cost.
-
-     THE OWNER'S RULING, 2026-08-04, and it relocates the guard rather than lowering the bar:
-     *"The lifecycle of the node in the network starts from connecting to the relay. If the node
-     that connects in can authenticate itself with certificate issued by provider, then it gets
-     in to advertise itself in the network and connect to nodes. If it cannot authenticate — it
-     cannot join the network and connect to other nodes."*
-
-     WHY THAT ANSWERS THE COST CLAUSE RATHER THAN DUCKING IT. A price only deters when the thing
-     bought is worth something. Under this ruling an unissued identity is worth NOTHING — it
-     cannot join, advertise or be reached — so the cost of the N-th identity is not CPU, it is a
-     provider's signature, which is exactly the unmintable thing the first half of the criterion
-     already secured. The counter stops being the defence and becomes an accounting detail.
-
-     WHAT THIS DOES NOT EXCUSE. Enrolment itself is still served unauthenticated — it must be,
-     since it is how a node gets its first certificate — so a provider can still be made to spend
-     CPU refusing. What changes is that the attacker gains no foothold for it. That residual is
-     to be measured and pinned, not argued away.
-
-     THE MEASURED MITIGATION THAT DOES NOT WORK, recorded so it is not re-tried: a capacity slot
-     on the `enrol` branch served 8 of 8 concurrent enrolments, because `enrol` is synchronous so
-     the bound never binds; in a rig where an `exec` held the shared table it served 0 of 8. It
-     bounds the wrong verb. -->
 
 **Plans**: TBD
 
@@ -1113,6 +1080,96 @@ It lands **here** rather than in Phase 15 for one reason: this phase already rew
 **Trap to avoid.** The COST crossover published at ~570× measures the guest ABI on a trivial fixture, not the fabric. Criterion 2 requires a fixture that does non-trivial work, or the new curve reproduces the old one's real problem with more processes.
 
 ## Requirement Coverage
+
+### Phase 24: Certificate-Gated Admission
+**Goal**: The network's front door is locked — a node that cannot present a provider-issued certificate cannot reserve a circuit, be advertised, or be dialled, so an identity that was never issued buys nothing
+**Mode:** mvp
+**Depends on**: Phase 19 (which opened the clause), and see the scheduling note below on Phase 22
+**Requirements**: AUTH-02, AUTH-04
+**Research**: Done 2026-08-04, read-only pass, recorded in `phase-24-certificate-gated-admission/24-CONTEXT.md`
+**Success Criteria** (what must be TRUE):
+  8. Enrolment's cost is bounded by admission, not by a counter: a node that cannot present a provider-issued certificate cannot join the fabric, advertise itself, or be dialled by another node — so an identity that was never issued buys nothing, and the N-th identity costs an attacker a provider's willingness to sign it
+
+<!-- CRITERION 8 ADDED 2026-08-04 BY OWNER RULING, replacing a stalled criterion in Phase 19.
+
+     PHASE 19's CRITERION 5 read "enrolment costs something unmintable, and the N-th identity
+     costs more than the first". It verified PARTIAL twice: the unmintable half is delivered and
+     measured across real processes including restart and two-provider recovery, but the N-th
+     identity is REFUSED inside the issuance window rather than PRICED. Measured comparatively:
+     a provider's cost to refuse over an attacker's cost to mint a fresh identity is ~3.0, and
+     over a replay ~1397 — so an attacker burns the window at roughly a third of what refusing
+     costs, and the denial then applies to every honest node for the rest of the window at no
+     further cost.
+
+     THE OWNER'S RULING, 2026-08-04, and it relocates the guard rather than lowering the bar:
+     *"The lifecycle of the node in the network starts from connecting to the relay. If the node
+     that connects in can authenticate itself with certificate issued by provider, then it gets
+     in to advertise itself in the network and connect to nodes. If it cannot authenticate — it
+     cannot join the network and connect to other nodes."*
+
+     WHY THAT ANSWERS THE COST CLAUSE RATHER THAN DUCKING IT. A price only deters when the thing
+     bought is worth something. Under this ruling an unissued identity is worth NOTHING — it
+     cannot join, advertise or be reached — so the cost of the N-th identity is not CPU, it is a
+     provider's signature, which is exactly the unmintable thing the first half of the criterion
+     already secured. The counter stops being the defence and becomes an accounting detail.
+
+     WHAT THIS DOES NOT EXCUSE. Enrolment itself is still served unauthenticated — it must be,
+     since it is how a node gets its first certificate — so a provider can still be made to spend
+     CPU refusing. What changes is that the attacker gains no foothold for it. That residual is
+     to be measured and pinned, not argued away.
+
+     THE MEASURED MITIGATION THAT DOES NOT WORK, recorded so it is not re-tried: a capacity slot
+     on the `enrol` branch served 8 of 8 concurrent enrolments, because `enrol` is synchronous so
+     the bound never binds; in a rig where an `exec` held the shared table it served 0 of 8. It
+     bounds the wrong verb. -->
+
+<!-- SCHEDULED LATER BY OWNER RULING 2026-08-04, and the state it leaves in place is KNOWN AND
+     ACCEPTED rather than undiscovered. Owner: *"yes, I know. Plan it for later."*
+
+     THE STATE, so the next reader does not file it as a fresh emergency and repeat the
+     investigation. The relay authenticates NOTHING: `circuitRelayServer` is constructed with
+     capacity limits only, no ACL and no gater, so a joining peer presents a Noise handshake and
+     nothing else. `SeedServer` publishes every reservation holder to every arriving browser
+     without a filter, and the `reservations`, `records` and `providers` answers are served to
+     anyone. **Every certificate check in the repository gates SELECTION — which peer I choose to
+     fetch from or dispatch to — and none gates ADMISSION.** The fabric admits everyone and
+     filters late. `peer-gate.node.test.ts` already recorded gating relay use as "UNMEASURED, not
+     descoped"; this phase is what measures it.
+
+     TWO FACTS THAT MAKE THE SELECTION GATES WEAKER THAN THEY LOOK. `PeerVerifier` FAILS OPEN —
+     pinned nobody means trust everybody — and its own header records that not one `FabricNode`
+     in this repository configures an anchor. And `SeedServerOptions` has no `trustedIssuers`
+     field at all, so the front door cannot be asked to check even if somebody wanted it to;
+     `--trust-anchor` on `bin/seed.ts` is module provenance (DET-03), a different thing wearing a
+     similar name.
+
+     WHY THIS CRITERION IS THE ANSWER TO PHASE 19's CRITERION 5 rather than a replacement for it.
+     19's criterion 5 verified PARTIAL twice: the unmintable half is delivered, but the N-th
+     identity is REFUSED inside an issuance window rather than PRICED, and an attacker burns that
+     window at roughly a third of what refusing costs. A price only deters when the thing bought
+     is worth something — and under gated admission an unissued identity is worth NOTHING, so the
+     cost of the N-th identity is a provider's signature, which is the unmintable thing the first
+     half already secured. Same carry-forward pattern as 18's 2b -> 20's criterion 1, 16's
+     criterion 3 -> 20's criterion 6, and 17's criterion 2 -> 18's 2d.
+
+     WHAT IS NOT EXCUSED BY IT. Enrolment stays unauthenticated because it must be — it is how a
+     node gets its first certificate — so a provider can still be made to spend CPU refusing. That
+     residual is to be measured and pinned, not argued away. And the mitigation everyone reaches
+     for does NOT work, measured: a capacity slot on the `enrol` branch served 8 of 8 concurrent
+     enrolments because `enrol` is synchronous so the bound never binds; in a rig where an `exec`
+     held the shared table it served 0 of 8. It bounds the wrong verb.
+
+     A TOPOLOGY REQUIREMENT THIS PHASE CREATES. Enrolment is a DIRECT dial on both tiers and does
+     not route through a reservation, so gating the reservation still leaves a tab able to enrol —
+     because for a browser tab the provider and the relay are the SAME node at the SAME address.
+     That resolution is available today and fails the moment a deployment separates them. The
+     requirement must be stated, not assumed.
+
+     SCHEDULING NOTE FOR THE OWNER. Phase 22 currently "runs last because it verifies what all
+     eleven other phases claim to have wired". A reachability guard that runs BEFORE admission is
+     gated passes over a fabric with an open door. Whether that matters depends on what WIRE-02
+     actually claims, and it is an owner decision rather than a planner's. -->
+
 
 ### v1.0 (Phases 1-10)
 
