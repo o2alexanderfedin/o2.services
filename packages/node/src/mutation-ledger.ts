@@ -923,43 +923,17 @@ export const MUTATIONS: readonly Mutation[] = [
     signature: 'discards an answer from an ask that a disconnect and reconnect superseded',
     signatureSource: 'test-title',
   },
-  {
-    id: 'M36',
-    why:
-      'SCHED-06 / WIRE-04 — this entry pins an **absence**, which is the unusual thing ' +
-      'about it. `submitJob` calls `executeVerified` once per shard and nothing retries a ' +
-      'selected executor that refuses at exec; that is correct for now, because the re-pick ' +
-      'is Phase 20 criterion 1’s. RULING A accepted criterion 2b as PARTIAL on one stated ' +
-      'condition — that the absence be held by a reading which turns red the day the retry ' +
-      'lands, rather than by a sentence in a summary. The reading that claimed to do that ' +
-      'was `expect(shard.verification.agreeing).toHaveLength(1)`, and it could not: ' +
-      '`agreeing` is a subset of `placement.nodeIds`, whose length IS `redundancy` — 1 in ' +
-      'that fixture — so it was confined to `{0,1}` and the `agreed` narrowing above it ' +
-      'excluded 0. **Planting the retry is therefore the only way to know the replacement ' +
-      'is not the same kind of ornament**, and the mutation is deliberately the shape ' +
-      'WIRE-04 would take: dispatch to a candidate the placement did not choose. With it ' +
-      'planted the shard reaches a free second executor and stops being `insufficient`, ' +
-      'which is exactly the inversion the ruling asked for. When WIRE-04 really lands, this ' +
-      'entry is the thing to delete — not the assertion, which by then has a behaviour to ' +
-      'describe.',
-    file: 'packages/core/src/job/submit.ts',
-    find: '      const verification = await executeVerified(task, selectedExecutors)',
-    replace:
-      '      let verification = await executeVerified(task, selectedExecutors)\n' +
-      "      if (verification.status === 'insufficient') {\n" +
-      '        const chosen = new Set(placement.nodeIds)\n' +
-      '        for (const alt of spec.executors.filter((e) => !chosen.has(e.nodeId))) {\n' +
-      '          const retry = await executeVerified(task, [alt])\n' +
-      "          if (retry.status === 'agreed') {\n" +
-      '            verification = retry\n' +
-      '            break\n' +
-      '          }\n' +
-      '        }\n' +
-      '      }',
-    caughtBy: ['packages/node/src/discovery-agents.node.test.ts'],
-    signature: "expected 'agreed' to be 'insufficient'",
-    signatureSource: 'rendered-at-runtime',
-  },
+  // `M36` stood here and is gone, deleted by Phase 20 plan 01 on 2026-08-04 exactly as
+  // its own `why` instructed: *"When WIRE-04 really lands, this entry is the thing to
+  // delete — not the assertion, which by then has a behaviour to describe."* It pinned an
+  // **absence** — that `submitJob` called `executeVerified` once per shard and nothing
+  // retried a selected executor that refused at exec — and the absence is closed: the
+  // generation loop is `submit.ts`'s, and `W1` through `W5` below are the five defects
+  // planted into it and watched go red. The assertion `M36` protected, in
+  // `discovery-agents.node.test.ts`, is the armed tripwire this plan deliberately turned
+  // red and does **not** repair; plan 20-04 rewrites it to require the re-pick. An entry
+  // deleted with no note in its place reads as an entry that was never there, which is
+  // the failure this whole file exists to prevent, so the note stays.
   {
     id: 'M37',
     why:
@@ -1142,13 +1116,29 @@ export const MUTATIONS: readonly Mutation[] = [
       'and it is stated rather than hidden**: the only text recorded on the run that observed it ' +
       'is `expected false to be true`, which a flake could also produce, and the summary did not ' +
       'say which of the two degrading fabrics spoke. The cheap layer still holds the `find`; ' +
-      'closing the rest is a matter of re-planting and pasting the FAIL line.',
+      'closing the rest is a matter of re-planting and pasting the FAIL line. ' +
+      '**Both were done on 2026-08-04 by Phase 20 plan 01, and the entry moved for a reason ' +
+      'that plan did not predict.** That plan’s interface block named `M36` as the one entry its ' +
+      'edit would redden; this one reddened too, because the generation loop necessarily rewrites ' +
+      'the `degraded` expression — it now reads the replicas that ANSWERED rather than the ones ' +
+      'that were placed, so a shard topped up to full redundancy across two generations is ' +
+      'correctly not degraded. The mutation is unchanged in substance: drop the `gate.degraded` ' +
+      'term and a shard whose quorum was refused at full redundancy reports clean. Re-planted ' +
+      'against the new expression and re-measured: **2 failed, 2 passed** in ' +
+      '`quorum-agents.node.test.ts`, and the FAIL line is now pasted in below, which upgrades ' +
+      'this entry out of the weak-signature class it spent a phase in.',
     file: 'packages/core/src/job/submit.ts',
-    find: '        degraded: placement.degraded || gate.degraded,',
-    replace: '        degraded: placement.degraded,',
+    find:
+      '        degraded:\n' +
+      '          gate.degraded ||\n' +
+      "          (settled.status === 'agreed' ? settled.replicas < spec.redundancy : placementDegraded),",
+    replace:
+      '        degraded:\n' +
+      "          (settled.status === 'agreed' ? settled.replicas < spec.redundancy : placementDegraded),",
     caughtBy: ['packages/node/src/quorum-agents.node.test.ts'],
-    signature: 'expected false to be true',
-    signatureSource: 'rendered-at-runtime',
+    signature:
+      'degrades to owner-domain on the default dial, is refused in the composer’s words on the strict one, and leaves a redundancy-1 job untouched by either',
+    signatureSource: 'test-title',
   },
   {
     id: 'M46',
@@ -1683,6 +1673,166 @@ export const MUTATIONS: readonly Mutation[] = [
     // be a guard that stops matching when somebody resizes a terminal.
     signature: "to deeply equal [ 'exec' ]",
     signatureSource: 'rendered-at-runtime',
+  },
+  // ── W1…W5 — the generation loop, Phase 20 plan 01, measured 2026-08-04 ────────────
+  //
+  // Five defects planted into `job/submit.ts`'s new generation loop and watched go red
+  // against `packages/core/src/job/submit.test.ts`. They replace `M36`, which pinned the
+  // **absence** of this loop and whose own `why` named its deletion as the correct end.
+  //
+  // **A sixth was planted and left the file GREEN**, and it is recorded in `W3` rather
+  // than dropped, because a plant that cannot fail is the finding. Substituting
+  // `spec.nodes` for the gate's own pool in the re-placement — the obvious "eligibility
+  // was widened" mutation — changes nothing observable: both placers call `eligibleNodes`
+  // as their first act on whatever pool they are handed, so the sovereignty gate re-runs
+  // inside the placer and refuses the foreign nodes regardless. Measured across the whole
+  // of `packages/core/src`: **30 files, 516 tests, zero failures.** The claim that
+  // sovereignty survives re-dispatch is therefore carried by `sovereignty.ts`, not by
+  // this loop, and `W3` plants the mutation that *can* fail instead.
+  {
+    id: 'W1',
+    why:
+      'WIRE-04 — the whole of it. `submitJob` called `executeVerified` exactly once per shard ' +
+      'until Phase 20, so a node that answered the offer while free and then refused the ' +
+      'dispatch ended that shard and nothing tried anyone else. This plants that behaviour back: ' +
+      'the loop runs its first generation and returns it unchanged. It is the entry that says ' +
+      'the loop is a loop rather than dead code wrapped around a single pass, and it is the one ' +
+      'to check first if any of the four below are ever weakened — a re-dispatch that never ' +
+      'happens satisfies every assertion about *what* a re-dispatch may do.',
+    file: 'packages/core/src/job/submit.ts',
+    find: '        // How much is still missing. A shard that agreed at 1 of 2 needs one more',
+    replace:
+      '        break\n' +
+      '        // How much is still missing. A shard that agreed at 1 of 2 needs one more',
+    caughtBy: ['packages/core/src/job/submit.test.ts'],
+    // Measured: 5 failed, 62 passed. The first FAIL line's title, which vitest echoes
+    // verbatim; its rendered assertion was `expected 'insufficient' to be 'agreed'`.
+    signature:
+      're-places a refused shard onto an untried node, and says so beside a control that never had to',
+    signatureSource: 'test-title',
+  },
+  {
+    id: 'W2',
+    why:
+      'The **second** re-dispatch trigger, which is the common one and not the loud one. ' +
+      '`executeVerified` returns `insufficient` only when *every* executor failed; at ' +
+      'redundancy 2 with one executor dead it returns `agreed` with `replicas: 1` — a shard that ' +
+      'silently got half the verification it asked for. This plants the version that looks ' +
+      'finished: trigger on `insufficient` alone. **What makes this entry worth its own line is ' +
+      'which case it reddens.** Measured: 1 failed, 66 passed — the top-up case goes red and the ' +
+      'refused-then-re-placed case stays GREEN, because at redundancy 1 the only shortfall ' +
+      'expressible is `insufficient` and that case satisfies the first trigger incidentally. So ' +
+      'the top-up case, and only it, carries this claim.',
+    file: 'packages/core/src/job/submit.ts',
+    find:
+      "          if (verification.status === 'agreed' && verification.replicas >= spec.redundancy) {",
+    replace: "          if (verification.status === 'agreed') {",
+    caughtBy: ['packages/core/src/job/submit.test.ts'],
+    // Rendered assertion on that run: `expected 1 to be 2` — the replicas the top-up
+    // reached against the redundancy the job asked for.
+    signature:
+      'tops up a shard that agreed below its redundancy, and reaches full redundancy across two generations',
+    signatureSource: 'test-title',
+  },
+  {
+    id: 'W3',
+    why:
+      'DATA-03/DATA-04 across generations, planted at the level where it can actually fail. The ' +
+      'tempting mutation — hand the re-placement `spec.nodes` instead of the gate’s pool — leaves ' +
+      'the tree green, because `planPlacement` and `placeWithOffers` both call `eligibleNodes` ' +
+      'first on whatever pool they are given; widening a placer’s *input* cannot widen its ' +
+      'output. So the mutation that has to be planted is the one that skips the placer ' +
+      'altogether and dispatches to any untried executor, which is the shape a re-dispatch ' +
+      'written for liveness alone would naturally take. Measured: 2 failed, 65 passed — a ' +
+      'sovereign shard whose owner has exactly one node, which fails, reaches `agreed` on a ' +
+      'foreign owner’s node instead of stopping, and a public job’s receipt reads `independent` ' +
+      'where the fixture placed one operator. **Note what this does not say**: it does not say ' +
+      'the loop enforces sovereignty. `sovereignty.ts` does. What it says is that the loop still ' +
+      'goes through a placer at all.',
+    file: 'packages/core/src/job/submit.ts',
+    find:
+      '        const again = await placeAgain(\n' +
+      '          requestFor(shard, shardId, wanted),\n' +
+      '          gate.pool,\n' +
+      '          new Set(attempted),\n' +
+      '          spec.admit,\n' +
+      '        )',
+    replace:
+      '        const untried = spec.executors.filter((e) => !new Set(attempted).has(e.nodeId))\n' +
+      '        const again = untried.length === 0\n' +
+      '          ? ({ placed: false, rejections: [] } as const)\n' +
+      '          : ({ placed: true, nodeIds: untried.slice(0, wanted).map((e) => e.nodeId), rejections: [], degraded: false } as const)',
+    caughtBy: ['packages/core/src/job/submit.test.ts'],
+    // Rendered assertion: `expected 'agreed' to be 'insufficient'` — the sovereign shard
+    // that should have stalled instead completed, somewhere it may never run.
+    signature:
+      'keeps a sovereign shard on its owner’s nodes across generations, and stops rather than leaving them',
+    signatureSource: 'test-title',
+  },
+  {
+    id: 'W4',
+    why:
+      'CHURN-04’s bound, and where it lives. The loop keeps no counter of its own: it stops ' +
+      'because `LeaseTable.grant` returns null once `DEFAULT_MAX_GENERATIONS` is spent, which is ' +
+      'also what records the `abandoned` event that explains the stop. This plants a fabricated ' +
+      'lease over the null, which is exactly what a loop that "handled" the null defensively ' +
+      'would look like. Measured on a five-node fixture where every node fails: the shard walks ' +
+      'all **five** instead of stopping at three — `expected 5 to be 3` — so the reading is a ' +
+      'count and not "it terminated". A hardcoded counter of 3 would pass that count and fail ' +
+      'the `abandoned` assertion beside it, which is what says the bound lives in the table.',
+    file: 'packages/core/src/job/submit.ts',
+    find:
+      '        const lease = leases.grant(shardId, holderId, clock.now())\n' +
+      '        if (lease === null) {\n' +
+      "          ending = 'generations-spent'\n" +
+      '          break\n' +
+      '        }',
+    replace:
+      '        const lease = leases.grant(shardId, holderId, clock.now()) ?? {\n' +
+      '          taskId: shardId,\n' +
+      '          nodeId: holderId,\n' +
+      '          grantedAt: clock.now(),\n' +
+      '          expiresAt: clock.now() + 30_000,\n' +
+      '          generation: generations + 1,\n' +
+      '        }',
+    caughtBy: ['packages/core/src/job/submit.test.ts'],
+    signature: 'stops at the generation cap, naming every node that failed it, with the lease abandoned',
+    signatureSource: 'test-title',
+  },
+  {
+    id: 'W5',
+    why:
+      'CHURN-04, and the difference between a lease and a longer timeout. A renewal granted on a ' +
+      'timer alone makes the bound unbounded; renewal here is conditional on the holder answering ' +
+      'a probe on **this task’s own capacity slot key** with `LocalCapacity`’s duplicate refusal. ' +
+      'This plants the unconditional form by deleting the evidence check, which is the single ' +
+      'most plausible simplification anyone will propose against this file. ' +
+      '**Two things this entry records that the plan it came from did not predict.** First, the ' +
+      'mutation does not merely fail — it makes the run *non-terminating*: every wait in the ' +
+      'renewal fixture is a microtask, so a lease renewed forever never yields to the macrotask ' +
+      'queue and no vitest timeout can fire. The fixture therefore gives its virtual clock a ' +
+      'horizon and refuses to pass it, which turns a hang into a named failure. Second, planting ' +
+      'this found a real defect in the honest code: the wake-up instant was computed forward from ' +
+      '`grantedAt`, and since `LeaseTable.renew` holds `grantedAt` fixed while pushing `expiresAt` ' +
+      'out, the renewal point overtook the current instant once elapsed time passed twice the ' +
+      'lease — after which a working holder’s lease lapsed anyway. Measuring back from the ' +
+      'deadline fixes it. The mutation reddened the *wrong arm* until it was fixed, which is how ' +
+      'it was found.',
+    file: 'packages/core/src/job/submit.ts',
+    find:
+      '    if (!(await probeHolder(probe, lease.nodeId))) {\n' +
+      '      // No evidence. **Not** a renewal, and not an expiry either — the holder keeps the\n' +
+      '      // rest of its lease, which is the window in which a node that had just finished\n' +
+      '      // and released its slot still answers in time.\n' +
+      '      renewable = false\n' +
+      '      continue\n' +
+      '    }\n\n',
+    replace: '',
+    caughtBy: ['packages/core/src/job/submit.test.ts'],
+    // Rendered on the observed run: `Error: the lease clock passed 300000ms of virtual
+    // time — this dispatch is not bounded by its lease`.
+    signature: 'renews a lease only against evidence the holder is still working — one fixture, both arms',
+    signatureSource: 'test-title',
   },
 ]
 

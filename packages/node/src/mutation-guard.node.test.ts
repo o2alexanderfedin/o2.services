@@ -411,10 +411,21 @@ describe('the signature check applies to most of the ledger, not to a corner of 
       // `to deeply equal [ 'exec' ]` is an authorization step appearing on the enrol
       // branch. Neither string exists in any source file, so `test-title` would also have
       // been a false declaration.
+      // Two left this arm on 2026-08-04 by Phase 20 plan 01, in opposite directions and
+      // for opposite reasons. `M36` is **gone from the ledger entirely**: it pinned the
+      // absence of a re-dispatch on the production submit path, that absence is closed,
+      // and its own `why` named its deletion as the correct end. `M45` **moved into the
+      // checked arm**: its entry had recorded its own signature as the weakest here —
+      // `expected false to be true`, which a flake could also render — and said in as
+      // many words that closing it was "a matter of re-planting and pasting the FAIL
+      // line". Re-planting it against the rewritten `degraded` expression was forced
+      // anyway, so the FAIL line was pasted and the entry now keys on a title. That is
+      // the direction this case exists to encourage, and it is recorded here because a
+      // name leaving this list silently is the same defect as one arriving silently.
       [
         'E1', 'E2',
-        'M1', 'M11', 'M12', 'M2a', 'M20', 'M22', 'M27', 'M3a', 'M30', 'M32', 'M36', 'M37',
-        'M4', 'M40', 'M42', 'M43', 'M44', 'M45', 'M5', 'M51', 'M7', 'M9',
+        'M1', 'M11', 'M12', 'M2a', 'M20', 'M22', 'M27', 'M3a', 'M30', 'M32', 'M37',
+        'M4', 'M40', 'M42', 'M43', 'M44', 'M5', 'M51', 'M7', 'M9',
       ].sort(),
     )
   })
