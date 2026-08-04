@@ -385,14 +385,6 @@ const EXEMPT: readonly Exemption[] = [
       'the proof is a compile failure, not a runtime outcome: omitting a `serveAgent` hook must fail `tsc --noEmit` naming the property, and no runnable title can assert that — the directives are checked by the type-checker, and vitest never sees them. Its runtime companion, serve-agent-hooks.node.test.ts, counts opt-out sentinels at production call sites, which is a different criterion of the same requirement',
   },
   {
-    id: 'BROW-02',
-    waives: 'named-in-a-test-title',
-    evidence:
-      'docblocks of browser-id.test.ts (segmentation axis), start-probe.test.ts (cause of failure), start-outcome.test.ts (the ledger), start-report.test.ts (over a real endpoint)',
-    reason:
-      'the requirement is split across four files, each covering one leg of it, and no single describe owns the whole claim — a title naming BROW-02 in any one of them would assert more than that file checks',
-  },
-  {
     id: 'BENCH-01',
     waives: 'named-in-a-test-title',
     evidence:
