@@ -63,23 +63,37 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
  *    with `new Set()` inside the arm. Discovery qualifies nobody, the driver throws
  *    *"--discover found no candidates"*, and the child exits before printing.
  *
- * **The `admit:` line at `bin/bench.ts:723` is not on that list, and its absence is a
- * finding rather than an omission.** 18-13 planned it as this file's inversion proof; it
- * was planted and the run stayed **green**. Deleting it cannot redden any out-of-process
- * reading of *this* workload — it moves `submitJob` from `planWithOffers` to
- * `planPlacement`, and on a rig where no node ever refuses, the two place identically and
- * print identically. The offer traffic it removes shows up only in the real-transport
- * egress manifest, printed after the whole sweep this file declines to wait for.
+ * **The `admit:` line is not on that list, and its absence is a finding rather than an
+ * omission.** 18-13 planned it as this file's inversion proof; it was planted and the run
+ * stayed **green**. Deleting it cannot redden any out-of-process reading of *this*
+ * workload — it moves `submitJob` from `planWithOffers` to `planPlacement`, and on a rig
+ * where no node ever refuses, the two place identically and print identically. The offer
+ * traffic it removes shows up only in the real-transport egress manifest, printed after
+ * the whole sweep this file declines to wait for. That half is unchanged and is why the
+ * guard below lives in another file rather than in this one.
  *
- * **Nothing else covers it either**, checked rather than assumed: no spec names
- * `rpcAdmission` together with this driver, and the two mutation-ledger entries on
- * `bin/bench.ts` (`B1`, `B2`) are keyed on its `LocalCapacity` construction sites, not on
- * this line. `discovery-agents.node.test.ts` reddens on `submitJob` ignoring `spec.admit`
- * — the kernel's half of the same wiring — but it builds its own rig and would not notice
- * this driver dropping the argument. So SCHED-02's *entry point* leg rests on the
- * source-text count in `serve-agent-hooks.node.test.ts` and on this file's proof that the
- * arm around it really runs. Closing it needs a reading of the offer traffic, which needs
- * the sweep this file must not wait for; it is named here so the next reader inherits it.
+ * **CLOSED 2026-08-03 by Plan 19-17 — defect #31.** What this paragraph used to say next
+ * was that *nothing else covers it either*, and that SCHED-02's entry-point leg therefore
+ * rested on *"the source-text count in `serve-agent-hooks.node.test.ts`"*. **Both halves
+ * were measured and the second was false**: `serve-agent-hooks.node.test.ts` names
+ * neither `rpcAdmission` nor `admit:` anywhere, so that leg rested on nothing at all. The
+ * first half was true, and measured the same way — with the expression deleted from
+ * `bin/bench.ts`, `tsc --noEmit` exits 0 (`Fabric.admit` is optional, so its absence is
+ * legal), all six cheap guards pass including `requirements-ledger.node.test.ts`, and
+ * **this file passes**.
+ *
+ * The guard is now `bench-reduce.node.test.ts`'s call-site requirement *"the discover rig
+ * supplies admit, and the job spec passes it on"*, which matches the whole
+ * `...(DISCOVER ? … : {})` spread — so it also holds the *absent, not `undefined`* half
+ * that keeps the default curve on `planPlacement`. Read that entry for why the reading is
+ * textual: the paragraph above is the reason, and it is the same one recorded here.
+ * `discovery-agents.node.test.ts` remains the behavioural half — it reddens on `submitJob`
+ * ignoring `spec.admit` — and the two are not substitutes: behaviour proves the mechanism,
+ * the source guard proves this entry point still composes it.
+ *
+ * The line number this paragraph used to carry (`bin/bench.ts:723`) is deliberately gone.
+ * It was already 16 lines stale when Plan 19-10 measured it, and a guard that is keyed on
+ * text does not need one.
  */
 
 const BENCH = fileURLToPath(new URL('./bin/bench.ts', import.meta.url))

@@ -163,8 +163,18 @@ type BenchProcess = ChildProcessByStdio<Writable, Readable, Readable>
 
 /** `  real transport, 2 node(s)…` — the rung headings the driver has always printed. */
 const HEADING = /^(memory|real) transport, (\d+) node\(s\)…$/
-/** `    attestation (first completed run): …` — the line Plan 19-10 added. */
-const ATTESTATION = /^attestation \(([^)]+)\): (.+)$/
+/**
+ * `    map attestation (first completed run): …` — the line Plan 19-10 added.
+ *
+ * **The `map ` prefix arrived with Plan 19-17** and is load-bearing rather than cosmetic.
+ * That plan put a second receipt on this stream — the *aggregation's* — and the two are
+ * claims about different things that routinely differ, so each line now names which claim
+ * it carries. This pattern matches the map half **only**: `^` is what keeps
+ * `aggregate attestation (…)` out of the readings below, and dropping the anchor or the
+ * word would silently start feeding this file's three strength assertions from the wrong
+ * receipt.
+ */
+const ATTESTATION = /^map attestation \(([^)]+)\): (.+)$/
 /** A strength, its counts, and the kernel's sentence. */
 const STRENGTH = /^(owner-attested|owner-domain|independent) \(replicas (\d+), operators (\d+)\) — (.+)$/
 /** The named absence, with the two counts that decide what to do about it. */

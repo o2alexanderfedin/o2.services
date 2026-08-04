@@ -3,13 +3,25 @@ import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 
 /**
- * `bin/bench.ts`'s reduce leg, and the artifact it produces — MR-03, MR-04, MR-05.
+ * `bin/bench.ts`'s reduce leg, and the artifact it produces — MR-03, MR-04, MR-05,
+ * VER-08/09/10, and SCHED-02's entry point.
  *
  * **What this is.** Two guards in the idiom `bench-egress.node.test.ts` established:
  * a call-site shape guard over the driver's source, and a published-artifact guard
  * over `.planning/BENCHMARK-RESULTS.md`. Both read one file, require the shapes that
  * carry a property to be present, and are proved able to report their absence by
  * planting.
+ *
+ * **Why SCHED-02's `admit:` is guarded from here — defect #31, closed 2026-08-03.** That
+ * expression was carried as an open defect from Phase 18: *`admit:` at `bin/bench.ts` is
+ * guarded by nothing*, and deleting it left the entire suite green while
+ * `REQUIREMENTS.md`'s SCHED-02 row rested on it for the claim that `planWithOffers` has a
+ * production caller **from a runnable entry point**. A ledger row asserting reachability
+ * on the strength of one expression no test would miss is the *built, not wired*
+ * condition this milestone exists to remove, hiding inside the file that is supposed to
+ * demonstrate the opposite. It is guarded here rather than anywhere else because this
+ * file already owns the call-site shapes of this driver and already knows how to prove
+ * that it can report their absence.
  *
  * **What this is not.** Behavioural. It runs no benchmark, for a fact about the file
  * rather than for effort: `bin/bench.ts` drives its ladders from a top-level `main()`
@@ -166,6 +178,87 @@ const REQUIREMENTS: readonly CallSiteRequirement[] = [
     // that was deleted, so the fragment below has to invoke it.
     satisfying: '  counts: { [`partition-${partitionOf(output)}`]: 1 },\n',
   },
+  {
+    name: 'the reduce is told what this rig checks combine signatures against',
+    patterns: [/readonly\s+combineIssuers\s*:\s*CombineTrustAnchors/, /trustedIssuers\s*:\s*fabric\.combineIssuers/],
+    reason:
+      'VER-08/09/10. `reduceJob`’s trust anchors are a required union with a named sentinel, so a ' +
+      'driver cannot reach an aggregate receipt without having said what it checks against — but ' +
+      '`checks-no-combine-signatures` is a legal value, and a rig that quietly passed it on the ' +
+      '`--discover` arm would print the named absence forever while every other check here stayed ' +
+      'green. Both halves are required: the field on Fabric, resolved once from the one provider ' +
+      'this driver starts, and the supply at the call. A second issuer set assembled at the call ' +
+      'instead would be a second place one trust decision is made, able to disagree with the set ' +
+      '`discoverCandidates` was handed with nothing able to catch the disagreement.',
+    satisfying:
+      '  readonly combineIssuers: CombineTrustAnchors\n' +
+      '        trustedIssuers: fabric.combineIssuers,\n',
+  },
+  {
+    name: 'the aggregate reading is read off the reduce result, never derived',
+    patterns: [/aggregate\s*=\s*reduced\.aggregateAttestation/],
+    reason:
+      'A driver that derived the aggregation’s strength from `config.redundancy` would print the ' +
+      'right answer on this rig for the wrong reason, and would go on printing it after the ' +
+      'mechanism underneath broke. This is the same substitution Plan 19-10 guarded for the map ' +
+      'half; the aggregation needs its own, because the two receipts are different values and a ' +
+      'guard on one says nothing about the other.',
+    satisfying: '      if (reduced.ok) aggregate = reduced.aggregateAttestation\n',
+  },
+  {
+    name: 'both receipts reach stdout, each naming the claim it is about',
+    patterns: [/map attestation \(/, /aggregate attestation \(/],
+    reason:
+      'Criterion 3 is that the receipt reads its strength *wherever it is displayed*, and after ' +
+      'Plan 19-17 two receipts about two claims cross this stream. Both halves are required and ' +
+      'they fail differently: dropping the aggregate line is the "built, not wired" condition ' +
+      'arriving in its newest place, and dropping the word `map` from the other is worse than it ' +
+      'looks — a reduced sovereign job prints `owner-attested` for its map and can print ' +
+      '`independent` for its aggregation, so an unlabelled pair reads as a contradiction rather ' +
+      'than as the split PROJECT.md describes.',
+    satisfying:
+      '    process.stdout.write(`    map attestation (${population}): ${reading}`)\n' +
+      '    process.stdout.write(`    aggregate attestation (${population}): ${aggregate}`)\n',
+  },
+  {
+    name: 'the discover rig supplies admit, and the job spec passes it on',
+    patterns: [
+      /\.\.\.\(\s*DISCOVER\s*\?\s*\{\s*admit:\s*rpcAdmission\(requestor\.rpc\)\s*\}\s*:\s*\{\}\s*\)/,
+      /\.\.\.\(\s*fabric\.admit === undefined \? \{\} : \{ admit: fabric\.admit \}\)/,
+    ],
+    reason:
+      'DEFECT #31, carried from Phase 18 and closed here. `bin/bench.ts` holds the ONLY production ' +
+      'call of `rpcAdmission` in this repository — every other is a spec — so REQUIREMENTS.md’s ' +
+      'SCHED-02 row rests on these two expressions for its claim that `planWithOffers` has a ' +
+      'caller from a runnable entry point. Deleting either of them left the entire suite green. ' +
+      'Both halves are required because they fail differently and neither implies the other: a rig ' +
+      'that stopped supplying `admit` leaves `submitJob` on `planPlacement` with the spec still ' +
+      'looking wired, and a spec that stopped passing it leaves the rig building an admission ' +
+      'control nothing consumes.\n' +
+      '\n' +
+      'The patterns match the WHOLE spread, not the bare `admit:`, and that is the second half of ' +
+      'the property: on the default arm the key must be ABSENT rather than `undefined`, because ' +
+      '`submitJob` branches on `spec.admit === undefined` to choose between `planPlacement` and ' +
+      '`planWithOffers`. An unconditional `admit` would place the published curve differently from ' +
+      'every number already published beside it, and would satisfy a bare `admit:` pattern ' +
+      'perfectly.\n' +
+      '\n' +
+      'WHY TEXTUAL AND NOT BEHAVIOURAL, since `--discover` is off by default and no default-path ' +
+      'run reaches this expression at all. The only run that does is `bin/bench.ts --quick ' +
+      '--discover`, whose readings arrive minutes in — `bench-attestation.node.test.ts` measures ' +
+      '163 s to reach its own — and nothing that driver prints changes when `admit` is removed, ' +
+      'because a healthy rig refuses no offer and the `rejections` it would populate are not on ' +
+      'this driver’s output at all. So a behavioural reading here would have to be invented ' +
+      'before it could be taken. What a source guard cannot do is say the call *works*: that is ' +
+      '`discovery-agents.node.test.ts`, which measures `planWithOffers` + `rpcAdmission` across ' +
+      'real processes and derives the first-probed node by calling `sampleCandidates` rather than ' +
+      'by re-implementing its rule. Behaviour proves the mechanism; this proves the entry point ' +
+      'still composes it — the same division `trust-anchors.node.test.ts` records for signing legs ' +
+      '1 and 3, which is the pattern this entry follows rather than invents.',
+    satisfying:
+      '    ...(DISCOVER ? { admit: rpcAdmission(requestor.rpc) } : {}),\n' +
+      '        ...(fabric.admit === undefined ? {} : { admit: fabric.admit }),\n',
+  },
 ]
 
 /** The names of the requirements `source` does not satisfy, in declaration order. */
@@ -260,6 +353,12 @@ describe('the call site guard can report absence — proved by planting, not ass
       ' * and derived new Set(reduced.outcome.executedBy.values()).size from the outcome.',
       ' * Fabric carried readonly rpc: RpcEndpoint, supplied as rpc: callerRpc and rpc: requestor.rpc.',
       ' * The projection called partitionOf(output) to decode the guest’s bytes.',
+      ' * Fabric carried readonly combineIssuers: CombineTrustAnchors, supplied as',
+      ' * trustedIssuers: fabric.combineIssuers, and the rung took',
+      ' * if (reduced.ok) aggregate = reduced.aggregateAttestation.',
+      ' * It printed a map attestation (population) line and an aggregate attestation (population) one.',
+      ' * The discover rig carried ...(DISCOVER ? { admit: rpcAdmission(requestor.rpc) } : {}) and the',
+      ' * spec carried ...(fabric.admit === undefined ? {} : { admit: fabric.admit }).',
       ' */',
       '// const complete = result.ok && result.job.complete',
       'const theCallSitesThemselvesAreGone = true',

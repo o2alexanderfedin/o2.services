@@ -60,7 +60,7 @@ import {
   serveAgent,
   submitJobWithEgress,
 } from '@o2/net'
-import type { CombineTrustAnchors } from '@o2/net'
+import type { AggregateAttestation, CombineTrustAnchors } from '@o2/net'
 import { peerIdForNodeKey } from '@o2/libp2p'
 import {
   NODE_LADDER,
@@ -820,8 +820,29 @@ type NoJobToAttest = 'no-run-of-this-rung-returned-a-job'
  * back silently — a rung that never completed a job has no completed run to attest, and
  * the reading it does have is worth strictly less.
  */
+/**
+ * This rung reduced nothing, so there is no aggregation of its to describe.
+ *
+ * **A different statement from an aggregation nobody attested, and they must not share a
+ * rendering.** *No aggregation happened* and *the aggregation was not attested* lead a
+ * reader to different places — the first to the reduce leg, the second to enrolment — so
+ * a rung carrying this prints **no aggregate line at all** rather than an em dash or a
+ * "none established" that a reader would take for the second. Same distinction
+ * {@link NoJobToAttest} draws one level up, for the same reason.
+ */
+type NoReduceToAttest = 'no-reduce-ran-on-this-rung'
+
 interface RungAttestation {
   readonly attestation: ShardAttestation
+  /**
+   * How strongly this rung's **aggregation** was attested — VER-08, VER-09, VER-10.
+   *
+   * Recorded on the same record as the map half and in the same statement, so the two
+   * cannot come off different runs: a reader comparing them is comparing two claims about
+   * **one** job, and a pair assembled from two runs would let a rung print a map receipt
+   * from iteration 5 beside an aggregate receipt from iteration 1 with nothing saying so.
+   */
+  readonly aggregate: AggregateAttestation | NoReduceToAttest
   /** `Observation.complete` of the run this was taken off — every shard agreed, undegraded. */
   readonly fromCompletedRun: boolean
 }
@@ -891,6 +912,52 @@ function attestationReading(held: RungAttestation | NoJobToAttest): {
       `${attestation.strength} (replicas ${attestation.replicas},` +
       ` operators ${attestation.operators.length}) — ${attestation.description}`,
   }
+}
+
+/**
+ * How strongly one rung's **aggregation** was attested — VER-08, VER-09, VER-10.
+ *
+ * ## Why this is a second line and not a second field on the first one
+ *
+ * `PROJECT.md` splits the verification claim, and the split is not a formality: a
+ * sovereign map is `owner-attested` by construction — pinning data to one owner removes
+ * the second independent executor — while the aggregation *over* those contributions can
+ * be redundant, because a combine reads only content-addressed partials and is runnable
+ * anywhere. So the two receipts **routinely differ**, and printing one for both would
+ * make the stronger-sounding claim about the weaker half.
+ *
+ * **Which is why both lines carry a name for the claim they are about.** The failure mode
+ * is specific and it is a reading failure rather than a computation one: a reduced
+ * sovereign job prints `owner-attested` for its map and can print `independent` for its
+ * aggregation, and an unlabelled pair reads as a *contradiction* — one number that
+ * changed — rather than as the split it is. `map attestation` and `aggregate attestation`
+ * are the two names; neither line may lose its word.
+ *
+ * `null` when this rung reduced nothing. See {@link NoReduceToAttest}: the caller prints
+ * no line at all rather than a placeholder, because *no aggregation happened* and *the
+ * aggregation was not attested* are different statements.
+ */
+function aggregateReading(held: RungAttestation | NoJobToAttest): string | null {
+  if (held === 'no-run-of-this-rung-returned-a-job') return null
+  const { aggregate } = held
+  if (aggregate === 'no-reduce-ran-on-this-rung') return null
+  if ('kind' in aggregate) {
+    // `combines` and `verified` are **combine** counts, not replica counts — the map
+    // line's two numbers are `agreeing`/`verified` replicas, and printing both pairs
+    // under one word would be the conflation this pair of lines exists to prevent. So
+    // this one names its unit.
+    return (
+      `none established (combines ${aggregate.combines}, verified ${aggregate.verified}) — ` +
+      aggregate.reason
+    )
+  }
+  // The kernel's own sentence, copied rather than composed — `attestationReceipt` filled
+  // `description` from `describeAttestation`, and one source of the words is what stops
+  // the map line and this line describing one strength differently.
+  return (
+    `${aggregate.strength} (replicas ${aggregate.replicas},` +
+    ` operators ${aggregate.operators.length}) — ${aggregate.description}`
+  )
 }
 
 /** Build a runner that reuses one fabric per node count across all iterations. */
@@ -999,6 +1066,11 @@ function runnerFor(build: (nodes: number) => Promise<Fabric>): {
       recomputes: 0,
       combineExecutors: 0,
     }
+    // VER-08/09/10 — the aggregation's own receipt. Starts as the named absence of a
+    // *reduce*, not of an attestation: on any path where no reduce is attempted this is
+    // what survives, and it prints nothing at all rather than a "none established" a
+    // reader would take for an unattested aggregation.
+    let aggregate: AggregateAttestation | NoReduceToAttest = 'no-reduce-ran-on-this-rung'
     if (result.ok) {
       const reduceStarted = performance.now()
       const reduced = await reduceJob(result.job, {
@@ -1020,6 +1092,14 @@ function runnerFor(build: (nodes: number) => Promise<Fabric>): {
         trustedIssuers: fabric.combineIssuers,
       })
       const reduceMs = performance.now() - reduceStarted
+      // **`reduced.ok` alone here, and deliberately not the conjunction below.** The two
+      // fields answer different questions: `reduce` is a *timing*, and timing a reduce
+      // whose combines failed would publish a number for an aggregation that did not
+      // happen; this is a *receipt*, and a reduce that ran and had a combine fail has a
+      // receipt worth printing — it names the step that could not be accounted for, which
+      // is exactly the reading an operator acts on. Using the conjunction here would hide
+      // the reduce's most informative receipt behind its least informative one.
+      if (reduced.ok) aggregate = reduced.aggregateAttestation
       // **Both**, and the conjunction is the point: `reduceJob` documents on its own
       // type that `ok` means only *a reduce could be attempted*, so a run where every
       // combine failed is `{ok: true}` with `outcome.ok === false`. Treating that as a
@@ -1053,10 +1133,20 @@ function runnerFor(build: (nodes: number) => Promise<Fabric>): {
     // this is *the first completed run*, with the rung's first job as the weaker
     // fallback when no run of it completed. Strictly after the makespan bracket closed;
     // a `Map` read and a field copy either way.
+    //
+    // **Both receipts are recorded in one statement**, so the pair a reader compares is
+    // always one job's. Recording the aggregate separately — even under the identical
+    // rule — would let a rung print a map receipt from one iteration beside an aggregate
+    // receipt from another the moment the two rules ever came apart, and nothing in the
+    // output would say so.
     if (result.ok) {
       const held = attestations.get(config.nodes)
       if (held === undefined || (complete && !held.fromCompletedRun)) {
-        attestations.set(config.nodes, { attestation: result.job.attestation, fromCompletedRun: complete })
+        attestations.set(config.nodes, {
+          attestation: result.job.attestation,
+          aggregate,
+          fromCompletedRun: complete,
+        })
       }
     }
 
@@ -1171,11 +1261,29 @@ async function main(): Promise<void> {
    * of the terminal saw. Deliberately **not** folded into `unmet`: this is a measurement
    * of each rung, and `unmet` is the list of things this run did not establish.
    */
-  const attested: { config: string; population: string; reading: string }[] = []
+  const attested: {
+    config: string
+    population: string
+    reading: string
+    /** The aggregation's own reading, or absent when this rung reduced nothing. */
+    aggregate?: string
+  }[] = []
   const sayAttestation = (config: string, held: RungAttestation | NoJobToAttest): void => {
     const { population, reading } = attestationReading(held)
-    process.stdout.write(`    attestation (${population}): ${reading}\n`)
-    attested.push({ config, population, reading })
+    // **`map` is not decoration.** Two receipts about two claims cross this stream, and a
+    // reader who cannot tell which is which reads a sovereign job's `owner-attested` map
+    // beside an `independent` aggregation as a contradiction rather than as the split
+    // `PROJECT.md` describes. See {@link aggregateReading}.
+    process.stdout.write(`    map attestation (${population}): ${reading}\n`)
+    const aggregate = aggregateReading(held)
+    if (aggregate !== null) {
+      process.stdout.write(`    aggregate attestation (${population}): ${aggregate}\n`)
+    }
+    // Absent, not `undefined` and not a placeholder string: `exactOptionalPropertyTypes`
+    // makes those different, and a reader of `raw.json` must be able to tell *this rung
+    // reduced nothing* from *this rung's aggregation was not attested* by the presence of
+    // the key alone, exactly as the terminal reader tells them by the presence of a line.
+    attested.push({ config, population, reading, ...(aggregate === null ? {} : { aggregate }) })
   }
 
   const memory = runnerFor(memoryFabric)
@@ -1264,9 +1372,15 @@ async function main(): Promise<void> {
     connectivity: connectivityTax(memoryResults, realResults),
     crossover: costCrossover(baselineSummary, memoryResults),
     /**
-     * VER-09 / VER-10 — how strongly each rung's result was attested, per rung, in the
-     * same words the terminal printed. Read off `JobResult`, never derived from the rung's
-     * configuration.
+     * VER-08 / VER-09 / VER-10 — how strongly each rung was attested, per rung, in the
+     * same words the terminal printed.
+     *
+     * **Two claims per rung, and `aggregate` is absent rather than empty when a rung
+     * reduced nothing.** `reading` is the map half, read off `JobResult.attestation`;
+     * `aggregate` is the aggregation's own, read off `ReduceJobResult`. Neither is
+     * derived from the rung's configuration, and neither stands in for the other — see
+     * {@link aggregateReading} for why a reader who could not tell them apart would read
+     * the project's own split as a contradiction.
      */
     attestation: attested,
     unmet: [
@@ -1304,6 +1418,15 @@ async function main(): Promise<void> {
         ' at that flag. What is therefore **unmeasured here** is the attestation of the' +
         ' configuration these curves were taken under; what is measured is that it was not' +
         ' established, which is a different and weaker statement.',
+      '**The `aggregate attestation` lines say the same thing on a default run, for a' +
+        ' second and independent reason.** A default rig pins no issuer at all — no' +
+        ' provider process is started and no worker enrols — so it hands `reduceJob` the' +
+        ' `checks-no-combine-signatures` literal and the aggregate receipt is the named' +
+        ' absence by construction. That is truthful rather than degraded: a combine' +
+        ' signed by nobody is what a fabric of unenrolled nodes produces. The two' +
+        ' receipts are printed separately because they are claims about different things' +
+        ' — this rig’s map half and its aggregation half can differ, and on a' +
+        ' `--discover` run they do.',
       'Speculation and churn taxes are 1.0 and 0 because `submitJob` neither speculates' +
         ' nor re-dispatches and no node was killed during these runs. They are identities,' +
         ' not measurements.',
