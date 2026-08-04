@@ -324,9 +324,22 @@ describe('NET-06 — three engines on one static bundle, nothing dialled by the 
    * contention** — see the recorded note in `19-03-SUMMARY.md`. A simultaneous mutual
    * dial between firefox and webkit lost ICE on one run of three and left the pair
    * holding a *limited* circuit and no `/webrtc` connection; the same code succeeded on
-   * the next two runs, producing duplicate connections both times. A later round cannot
-   * repair it, because `planDials` (`dial-plan.ts:66`) skips a peer already in
-   * `n.transport.peers` and a limited circuit puts it there.
+   * the next two runs, producing duplicate connections both times.
+   *
+   * **Amended 2026-08-04 — the second half of that paragraph is fixed and the first half
+   * got worse.** It used to end *"a later round cannot repair it, because `planDials`
+   * skips a peer already in `n.transport.peers` and a limited circuit puts it there"*.
+   * That was read off the source and has since been measured, as defect 32: the skip was
+   * real, and `planDials` now takes `heldPeers` — connected **and able to carry work** —
+   * so a relayed-only peer is dialled again and named. The flake itself is *not* 1-in-3;
+   * forced, it was 4 out of 4. `relay-latch.e2e.test.ts` carries the whole reading and
+   * the two facts this file's reasoning did not have: the pair recovers on its own when
+   * the relay's duration limit drops the circuit, and firefox's re-dial to webkit times
+   * out while webkit ends up holding a `/webrtc` connection firefox does not have.
+   *
+   * None of that changes what this case does. Sequential rounds remain the right choice
+   * here for the reason below — an exact reading beats a raced one — and this file's
+   * assertions were re-run unchanged and green against the fix.
    *
    * ## So the anti-vacuity reading is made exact instead of merely non-zero
    *
