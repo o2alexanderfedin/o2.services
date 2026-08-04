@@ -106,7 +106,9 @@ import type {
  * measured on 2026-08-01, and none of them is load-sensitive:
  *
  * 1. **The only wall-clock assertion.** 64 samples across load 10 → 64: worst 702 ms
- *    against an 8 000 ms bound. See {@link TIMER_BEAT_A_HARDCODED_MINUTE_MS}.
+ *    against the 8 000 ms bound it then had. That bound is gone — the assertion is a
+ *    difference between two arms of the same case now, which cancels load rather than
+ *    surviving it. See {@link WEDGE_BUDGET_SHORT_MS}.
  * 2. **This budget.** The two slowest unskipped cases — the deliberate timeouts, which
  *    the paragraph above sizes this constant against — measured **5 519 ms and
  *    5 499 ms at load average 55–56**, against the ~5.4 s they take on an idle host.
@@ -120,8 +122,62 @@ import type {
  * to pass, which converts a green run into a silent one. That is a worse failure than
  * the flake it would be replacing, and unlike the flake it would never be noticed. The
  * gate goes in when a bound is measured to fail under load, and no bound here is.
+ *
+ * ## What the ten `60000ms` timeouts actually were — measured 2026-08-03
+ *
+ * `.planning/phases/phase-18-…/deferred-items.md` recorded this file, run **alone on a
+ * quiet host**, as `12 failed | 87 passed, 850 s`, ten of the twelve reading
+ * `Error: Test timed out in 60000ms`, and read that as *"something makes these docker
+ * invocations hang for a full 60 s apiece on an idle machine."*
+ *
+ * **That reading was false, and 60 000 was the tell: it is this constant.** Nothing hung
+ * for sixty seconds. The framework killed each case at its own budget and reported its
+ * own budget back — a measurement of the budget and of nothing else. A duration that
+ * equals a timeout is evidence of the timeout.
+ *
+ * What was really there is the defect the first paragraph of this docblock says was
+ * fixed, returned one level up. {@link despiteAFullProcessTable} was added on 2026-08-02
+ * and retries `docker-not-answering`. Four attempts of {@link METADATA_BUDGET_MS} plus
+ * the backoffs was **81 500 ms of driver budget inside a 60 000 ms case** — two timers
+ * armed for the same instant again, and vitest's is still armed first. Eleven call sites
+ * handed the wrapper a budget that large, and ten of them could actually spend it; the
+ * eleventh is `/nonexistent/definitely-not-docker`, which fails `ENOENT` in about a
+ * millisecond and is not retried. **Ten. That is the recorded count, exactly.**
+ *
+ * Reproduced rather than inferred, because a count that agrees with a theory is not the
+ * theory's proof. One stub was changed to `exec sleep 25` — a single attempt that misses
+ * its own 20 s budget — and the case died with `Error: Test timed out in 60000ms` at
+ * **60 013 ms**. The identical plant with the retry disabled failed at **20 016 ms** with
+ * `expected 'docker-not-answering' to be 'image-digest-foreign'`: the driver's own named
+ * answer, in a third of the wall clock. The retry did not make this file flaky. It made
+ * the file's flake *unreadable*, and tripled what each instance cost — which is where
+ * 850 s came from: ~250 s of real work plus ten framework kills of 60 s each.
+ *
+ * The fix is {@link RETRY_ENVELOPE_SHARE}: the wrapper now reports before the framework
+ * can, and says what it measured while doing so.
+ *
+ * ## And what this file costs when nothing is wrong
+ *
+ * Two whole-file runs on 2026-08-03, both **99 passed, exit 0**, timed with
+ * `/usr/bin/time -p` because system load average says nothing about whether *this*
+ * process got a core:
+ *
+ * | condition | `real` | `user` | `sys` | `(user+sys)/real` | Σ case spans |
+ * |---|---|---|---|---|---|
+ * | alone, host at 1-min load 5.9 | 216.83 s | 2.31 s | 0.69 s | **0.0138** | 15.96 s |
+ * | under 12 CPU burners + 6 fork loops, load 40 → 102 | 284.29 s | 2.69 s | 0.74 s | **0.0121** | 17.51 s |
+ *
+ * Both ratios are near zero, which is the comparability key for a spec that spends its
+ * life in `spawn`: it is waiting, not starving. Two things follow. Load moved the
+ * **cases** by 9.7 % (15.96 s → 17.51 s summed) and the **wall clock** by 31 %, because
+ * 93 % of this file's wall clock is the integration `beforeAll` — three real container
+ * runs the per-case reporter attributes to nothing at all. And the worst single stub case
+ * went 211 ms → 337 ms at load 102, against the 20 000 ms budget it was handed. The
+ * budgets were never it, again.
  */
-vi.setConfig({ testTimeout: 60_000 })
+const CASE_BUDGET_MS = 60_000
+
+vi.setConfig({ testTimeout: CASE_BUDGET_MS })
 
 /**
  * What the cases that are *about classification* hand `resolveImage`.
@@ -155,6 +211,13 @@ vi.setConfig({ testTimeout: 60_000 })
  * measurably is at that exact load. What fires instead is the *other* path — see
  * {@link despiteAFullProcessTable} — and it fires in about a millisecond. The two
  * populations do not overlap, which is why the driver no longer gives them one name.
+ *
+ * **Confirmed a third time on 2026-08-03, at load 102**, which is past every band above:
+ * the slowest case handed this budget measured **337 ms**, 59× under it. The number was
+ * never the problem and is unchanged. What changed is what happens when it *is* spent —
+ * see {@link RETRY_ENVELOPE_SHARE}. Four attempts of this budget do not fit inside
+ * {@link CASE_BUDGET_MS}, so the wrapper now stops on its own measurement rather than
+ * letting the framework stop it on nothing.
  */
 const METADATA_BUDGET_MS = 20_000
 
@@ -180,34 +243,53 @@ const METADATA_BUDGET_MS = 20_000
 const TIMEOUT_CASE_BUDGET_MS = 5_000
 
 /**
- * The bound on "the caller's 400 ms reached `resolveImage`", sited between two
- * populations rather than by arithmetic.
+ * The two budgets the wedged-inspect case asks for, so its claim can be read as a
+ * **difference** rather than as a threshold.
  *
- * The value is unchanged. What was missing was a reason: the comment justified it as
- * "twenty times the requested timeout", which names one end by multiplication and the
- * other not at all — and this was the file's only wall-clock assertion, so it was also
- * the whole of its exposure to machine load.
+ * This was `TIMER_BEAT_A_HARDCODED_MINUTE_MS = 8_000` and a single
+ * `expect(elapsed).toBeLessThan(8_000)` — the file's only wall-clock assertion, and
+ * therefore the whole of its exposure to machine load. It was well sited: measured
+ * 2026-08-01 across 64 replays, the passing population ran p50 404 ms / max 418 ms at
+ * load 10 and p50 440 ms / max 702 ms at load 64, against a failing population at
+ * ~60 000 ms. Two orders of magnitude between them and no arithmetic choice inside the
+ * gap changes an answer.
  *
- * | population | elapsed |
- * |---|---|
- * | **fails**: `resolveImage` given a hardcoded `60_000` while the caller asked for 400 ms — the defect this case exists to catch | **~60 000 ms** |
- * | **passes**: the fix, load average 9.5–10.6, 20 samples | p50 404 ms · p90 408 ms · **max 418 ms** |
- * | **passes**: the fix, load average 41.4, 20 samples | p50 416 ms · p90 523 ms · **max 540 ms** |
- * | **passes**: the fix, load average 59.8 → 64.5, 24 samples | p50 440 ms · p90 555 ms · **max 702 ms** |
+ * It is replaced anyway, because a well-sited absolute is still an absolute: 8 000 ms
+ * encodes *this* machine's spawn cost on *that* day, and the same reading somewhere
+ * slower is either a false red or — worse — a bound so generous it stopped saying
+ * anything. The claim being made has a comparative form that needs no siting at all.
  *
- * Measured 2026-08-01 by replaying this exact case — same stub, same ELF, same
- * `timeoutMs: 400`, same `Date.now()` bracket — 64 times across the three bands. All 64
- * returned `docker-unavailable`, the classification this case asserts. 8 000 sits 11×
- * above the worst passing sample and 8.5× below the failing one, and the gap between
- * the two populations is two orders of magnitude, so no arithmetic choice inside it
- * changes which side anything lands on.
+ * The claim is *"the caller's timeout reached `resolveImage`"*. So ask twice in the same
+ * run, with two budgets, and read the **difference**:
  *
- * **The load dependence is the point.** Going from load 10 to load 64 — well past the
- * ~45 at which this file was reported failing — moved the worst sample from 418 ms to
- * 702 ms. That is 284 ms of drift against 7 298 ms of headroom. See
- * {@link METADATA_BUDGET_MS} for why the budgets were never what failed here.
+ *     elapsed(LONG) − elapsed(SHORT)  ≈  LONG − SHORT
+ *
+ * Spawn overhead, machine speed and the I/O weather of the day all appear in both terms
+ * and **cancel exactly** — algebraically, not approximately, which is the property a
+ * ratio of raw elapsed times would not have. What survives is only the driver's response
+ * to what it was asked for.
+ *
+ * **What makes it fail.** A driver that stops honouring the caller's budget — the
+ * hardcoded `60_000` this case was written against — makes both arms cost the same, so
+ * the difference collapses toward zero and lands under
+ * {@link WEDGE_DIFFERENCE_FLOOR} × 1 600 ms = 800 ms. Planted and watched: with
+ * `resolveImage` given a fixed budget instead of the caller's, both arms ran to the
+ * stub's own `sleep` and the case went red. The other direction is bounded too — a
+ * driver that spends more than {@link WEDGE_DIFFERENCE_CEILING} × the extra budget it
+ * was handed is overshooting and also fails.
+ *
+ * **What it costs to be wrong by accident.** The two arms differ by 1 600 ms of
+ * requested budget. The worst *drift* ever measured on this host, load 10 → 102, is
+ * ~300 ms — so an accidental red needs the jitter between two arms taken seconds apart
+ * to exceed five times the worst drift on record.
  */
-const TIMER_BEAT_A_HARDCODED_MINUTE_MS = 8_000
+const WEDGE_BUDGET_SHORT_MS = 400
+/** 5× the short arm, so the requested difference dominates every drift measured here. */
+const WEDGE_BUDGET_LONG_MS = 2_000
+/** Below this share of the requested difference, the driver is not tracking the request. */
+const WEDGE_DIFFERENCE_FLOOR = 0.5
+/** Above this share, it is spending more than it was asked for. */
+const WEDGE_DIFFERENCE_CEILING = 2
 
 const FIXTURES = fileURLToPath(new URL('./fixtures/', import.meta.url))
 
@@ -1010,6 +1092,80 @@ const HOST_SPAWN_ATTEMPTS = 4
 const HOST_SPAWN_BACKOFF_MS = 250
 
 /**
+ * How much of {@link CASE_BUDGET_MS} {@link despiteAFullProcessTable} may spend before
+ * it stops asking and reports what it measured.
+ *
+ * **This is the fix for the ten `60000ms` timeouts.** The wrapper bounded its retries by
+ * a *count* and not by a *duration*, and the duration of one attempt is a budget the
+ * caller chose: four attempts of {@link METADATA_BUDGET_MS} plus the backoffs is 81 500 ms
+ * of driver budget inside a 60 000 ms case. So the framework was always the one to fire,
+ * always at 60 000 ms, and always with nothing to say — while the driver's own named
+ * refusal, produced twice on the way there, was thrown away. See the module docblock for
+ * the reproduction.
+ *
+ * A share rather than a millisecond count, because the thing it must fit inside is
+ * {@link CASE_BUDGET_MS} and nothing else. Raise or lower the framework budget and this
+ * follows it; the two can no longer be armed for the same instant by arithmetic that
+ * happened somewhere else.
+ *
+ * **What a half buys, and what it forbids.** The wrapper will not *start* an attempt
+ * that — judged by the worst attempt it has already seen in this same run — could not
+ * finish inside 30 000 ms, and it abandons an attempt still running at 30 000 ms. So the
+ * cheap failures keep every retry they had: `host-cannot-spawn` costs about a
+ * millisecond, so all four attempts and 1 500 ms of backoff fit with 28 s to spare, and
+ * a `docker-not-answering` against {@link TIMEOUT_CASE_BUDGET_MS} costs 5 s, so all four
+ * fit in 21.5 s. Only the expensive one is truncated — an attempt that has just spent
+ * 20 s of a 60 s case did not fail to *start*, it failed to *answer*, and asking a
+ * swamped daemon the same question three more times spends the case's whole budget on
+ * hope. That case now reports at ~20 s carrying the driver's diagnosis and its own
+ * measurement.
+ *
+ * **What would make this the wrong number.** A legitimate attempt sequence that needs
+ * more than half a case. The largest legitimate spend in this file is 5.4 s — the two
+ * deliberate-timeout cases, measured 5 218 ms and 5 224 ms alone and 5 360 ms and
+ * 5 325 ms at load 102 — which is 5.5× under the envelope. If a case is ever added that
+ * legitimately needs more, this share is what it has to argue with, and that argument
+ * will be about a number that is stated rather than one that is implied by a literal.
+ */
+const RETRY_ENVELOPE_SHARE = 0.5
+
+/** What {@link despiteAFullProcessTable} is allowed to do, and inside what. */
+interface RetryLimits {
+  /**
+   * Whether a daemon that did not answer is transient here.
+   *
+   * `true` everywhere except the case whose **subject** is a wedged inspect: it stubs a
+   * sleep against a 400 ms budget on purpose, so `docker-not-answering` is the result it
+   * is asserting, and retrying it turns the expected answer into a report about the host.
+   * Measured, not foreseen — widening the retry did exactly that on the first run.
+   */
+  readonly retryUnansweredDaemon?: boolean
+  /**
+   * The framework budget the wrapper must report inside of. Defaults to
+   * {@link CASE_BUDGET_MS}; injectable only so the contract cases below can prove the
+   * deadline in milliseconds instead of in minutes.
+   */
+  readonly caseBudgetMs?: number
+}
+
+/**
+ * `work`, or `null` once `ms` has passed — whichever happens first.
+ *
+ * The abandoned promise is not left dangling. `Promise.race` attaches its own handlers
+ * to both inputs immediately, so a late settle — a late *rejection* included — is
+ * delivered to a race that has already resolved, and is therefore handled. Nothing is
+ * leaked by walking away from the driver either: it kills its own child at its own
+ * budget, which is the timer this wrapper exists to stop overrunning.
+ */
+function within<T>(work: Promise<T>, ms: number): Promise<T | null> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const expiry = new Promise<null>((resolve) => {
+    timer = setTimeout(() => resolve(null), ms)
+  })
+  return Promise.race([work, expiry]).finally(() => clearTimeout(timer))
+}
+
+/**
  * Run `attempt` until the host actually manages to create the process.
  *
  * **This is not a retry-until-green.** It retries exactly one condition —
@@ -1030,26 +1186,48 @@ const HOST_SPAWN_BACKOFF_MS = 250
  *
  * `elapsedMs` is the final attempt's alone, never the sum, so a case that bounds how
  * long the driver took still bounds the driver rather than the retries.
+ *
+ * **And it must report before the framework does.** Bounding the retries by a count and
+ * not by a duration is what produced ten `Error: Test timed out in 60000ms` on a quiet
+ * host — see {@link RETRY_ENVELOPE_SHARE}, and the module docblock for the reproduction.
+ * Every exit from this function is now either the caller's answer or a thrown sentence
+ * naming a number this run measured. Nothing here returns quietly and nothing here waits
+ * for vitest to end it.
  */
 async function despiteAFullProcessTable<T extends Attempted>(
   attempt: () => Promise<T>,
-  /**
-   * Whether a daemon that did not answer is transient here.
-   *
-   * `true` everywhere except the two cases whose **subject** is a wedged inspect: they
-   * stub `exec sleep 30` against a 400 ms budget on purpose, so `docker-not-answering` is
-   * the result they are asserting, and retrying it four times turns the expected answer
-   * into "the host refused to create a process 4 times running". Measured, not foreseen —
-   * widening the retry did exactly that on the first run.
-   */
-  retryUnansweredDaemon = true,
+  limits: RetryLimits = {},
 ): Promise<{ readonly result: T; readonly elapsedMs: number; readonly attempts: number }> {
+  const retryUnansweredDaemon = limits.retryUnansweredDaemon ?? true
+  const caseBudgetMs = limits.caseBudgetMs ?? CASE_BUDGET_MS
+  const envelopeMs = Math.round(caseBudgetMs * RETRY_ENVELOPE_SHARE)
+  const deadline = Date.now() + envelopeMs
+  /** Every attempt's cost, so the report is a measurement rather than an adjective. */
+  const spent: number[] = []
   let result: T | undefined
   let elapsedMs = 0
+  const envelope = `the ${envelopeMs} ms this wrapper may spend inside a ${caseBudgetMs} ms case`
+  const measured = (): string => `attempts so far: ${spent.join(' ms, ')} ms`
+  const diagnosis = (): string =>
+    result !== undefined && !result.ok ? describeLiftFailure(result.failure) : 'no result'
+
   for (let n = 1; n <= HOST_SPAWN_ATTEMPTS; n++) {
     const started = Date.now()
-    result = await attempt()
+    const settled = await within(attempt(), Math.max(deadline - started, 1))
     elapsedMs = Date.now() - started
+    spent.push(elapsedMs)
+    if (settled === null) {
+      // One attempt outlived the whole envelope, so the budget handed to the driver is
+      // not smaller than the framework's — the defect the module docblock's first
+      // paragraph describes, one level up. Reported here, at half the case budget, with
+      // the number in it; left to vitest it arrives at 60 000 ms saying nothing.
+      throw new Error(
+        `one attempt was still running ${elapsedMs} ms in, past ${envelope}, so the ` +
+          `driver's own answer never arrived and this case never ran. The budget it was ` +
+          `handed is not smaller than the framework's. ${measured()}`,
+      )
+    }
+    result = settled
     // Both transient conditions, and the second was added on 2026-08-02 against a
     // reproduced failure: on a whole-suite run this wrapper returned immediately on a
     // swamped daemon, and the two timeout cases went red with `docker-unavailable` where
@@ -1062,16 +1240,28 @@ async function despiteAFullProcessTable<T extends Attempted>(
     if (!transient) {
       return { result, elapsedMs, attempts: n }
     }
-    if (n < HOST_SPAWN_ATTEMPTS) {
-      await new Promise((resolve) => setTimeout(resolve, HOST_SPAWN_BACKOFF_MS * n))
+    if (n === HOST_SPAWN_ATTEMPTS) break
+    const backoff = HOST_SPAWN_BACKOFF_MS * n
+    // Judged against the worst attempt *this run* has already produced, so the decision
+    // is comparative and self-calibrating: a millisecond-cheap `EAGAIN` keeps all four
+    // attempts on any host, and a twenty-second non-answer buys none — on the same host,
+    // in the same wrapper, with no number written down about either.
+    const worst = Math.max(...spent)
+    if (Date.now() + backoff + worst > deadline) {
+      throw new Error(
+        `an answer that cost ${elapsedMs} ms leaves no room for another attempt inside ` +
+          `${envelope}, so this case never ran: ${diagnosis()}. ${measured()}`,
+      )
     }
+    await new Promise((resolve) => setTimeout(resolve, backoff))
   }
   // Loud, never a skip and never a pass. A host that could not fork four times running
   // has a problem worth reporting, and the driver already wrote the diagnosis.
-  throw new Error(
-    `the host refused to create a process ${HOST_SPAWN_ATTEMPTS} times running, so this case ` +
-      `never ran: ${result !== undefined && !result.ok ? describeLiftFailure(result.failure) : 'no result'}`,
-  )
+  const exhausted =
+    result !== undefined && !result.ok && result.failure.kind === 'host-cannot-spawn'
+      ? `the host refused to create a process ${HOST_SPAWN_ATTEMPTS} times running`
+      : `the daemon did not answer ${HOST_SPAWN_ATTEMPTS} times running`
+  throw new Error(`${exhausted}, so this case never ran: ${diagnosis()}. ${measured()}`)
 }
 
 /**
@@ -1168,7 +1358,12 @@ describe('an image whose digests name another repository is refused, never run',
   it('starts no container — the foreign digest never reaches docker run', async () => {
     const docker = stubDocker(emitDigests(FOREIGN_DIGESTS))
     const { result: outcome } = await despiteAFullProcessTable(() =>
-      liftElf(stubElfPath, { docker: docker.path }),
+      // `timeoutMs` is not optional here, and its absence was the sharpest instance of
+      // the defect in the module docblock: with no budget, `liftElf` caps the inspect at
+      // `IMAGE_RESOLVE_CAP_MS`, which is 60 000 ms — the same instant as this file's own
+      // `CASE_BUDGET_MS`. One timer against an identical timer, and the framework's is
+      // armed first, so a single slow inspect killed the case with nothing to report.
+      liftElf(stubElfPath, { docker: docker.path, timeoutMs: METADATA_BUDGET_MS }),
     )
     expect(outcome.ok).toBe(false)
     if (outcome.ok) return
@@ -1299,19 +1494,34 @@ describe('the caller’s timeout bounds image resolution too', () => {
   it('gives up on a wedged inspect in the time it was given, not in a hardcoded minute', async () => {
     // `liftElf` passed a literal 60_000 to `resolveImage`, so `timeoutMs` did not
     // reach it at all.
+    //
     // `exec` for the reason given in the block above: a forked sleep holds the stdio
-    // pipes open past the SIGKILL and `run()` resolves on `close`.
-    const docker = stubDocker('exec sleep 30')
-    // `elapsedMs` is the final attempt's, not the sum, so the bound below still bounds
-    // the driver rather than any retry that preceded it.
-    const { result: outcome, elapsedMs: elapsed } = await despiteAFullProcessTable(
-      () => liftElf(stubElfPath, { docker: docker.path, timeoutMs: 400 }),
-      // The wedged inspect is this case's subject, not an obstacle to it.
-      false,
-    )
+    // pipes open past the SIGKILL and `run()` resolves on `close`. The sleep is **8 s
+    // and not 30**, and the number is load-bearing in the other direction from the one
+    // it looks like: it is 4× the longest budget asked for below, so the driver's timer
+    // still ends both arms — and it is small enough that a driver which *ignored* the
+    // caller's budget runs into the stub's own exit and fails an assertion, instead of
+    // running into this file's 60 000 ms and being killed by the framework with nothing
+    // to say. A plant that reds by timeout is not a plant anybody can read.
+    const docker = stubDocker('exec sleep 8')
 
-    expect(outcome.ok).toBe(false)
-    if (outcome.ok) return
+    /** One wedged inspect, and what the caller's budget cost in wall clock. */
+    const wedged = async (
+      budgetMs: number,
+    ): Promise<{ readonly failure: LiftFailure; readonly elapsedMs: number }> => {
+      const { result: outcome, elapsedMs } = await despiteAFullProcessTable(
+        () => liftElf(stubElfPath, { docker: docker.path, timeoutMs: budgetMs }),
+        // The wedged inspect is this case's subject, not an obstacle to it.
+        { retryUnansweredDaemon: false },
+      )
+      expect(outcome.ok, 'a wedged inspect must not resolve').toBe(false)
+      if (outcome.ok) throw new Error('a wedged inspect resolved')
+      return { failure: outcome.failure, elapsedMs }
+    }
+
+    const short = await wedged(WEDGE_BUDGET_SHORT_MS)
+    const long = await wedged(WEDGE_BUDGET_LONG_MS)
+
     // Not `image-absent`: the image was never reported missing, the daemon just never
     // answered, and telling someone to pull six gigabytes they already have would
     // send them to the same wedged daemon.
@@ -1319,9 +1529,27 @@ describe('the caller’s timeout bounds image resolution too', () => {
     // And not `docker-unavailable` either, since 2026-08-02. That kind means `docker`
     // could not be run at all; this one means it ran and the answer never came, which is
     // transient and is retried rather than reported as a broken installation.
-    expect(outcome.failure.kind).toBe('docker-not-answering')
-    expect(describeLiftFailure(outcome.failure)).toContain('did not answer within 400 ms')
-    expect(elapsed).toBeLessThan(TIMER_BEAT_A_HARDCODED_MINUTE_MS)
+    for (const { failure } of [short, long]) expect(failure.kind).toBe('docker-not-answering')
+    // Each arm names its own number, which is the non-timing half of the same claim: a
+    // driver using a budget of its own would print that one here.
+    expect(describeLiftFailure(short.failure)).toContain(
+      `did not answer within ${WEDGE_BUDGET_SHORT_MS} ms`,
+    )
+    expect(describeLiftFailure(long.failure)).toContain(
+      `did not answer within ${WEDGE_BUDGET_LONG_MS} ms`,
+    )
+
+    // The comparative half. Both arms paid the same spawn cost on the same host seconds
+    // apart, so it cancels in the difference and what is left is the driver's response
+    // to what it was asked for. See {@link WEDGE_BUDGET_SHORT_MS} for what breaks it.
+    const requested = WEDGE_BUDGET_LONG_MS - WEDGE_BUDGET_SHORT_MS
+    const observed = long.elapsedMs - short.elapsedMs
+    expect(
+      observed,
+      `asking for ${requested} ms more budget bought ${observed} ms more wall clock ` +
+        `(${short.elapsedMs} ms → ${long.elapsedMs} ms)`,
+    ).toBeGreaterThan(requested * WEDGE_DIFFERENCE_FLOOR)
+    expect(observed).toBeLessThan(requested * WEDGE_DIFFERENCE_CEILING)
   })
 
   it('does not hand a twenty-minute lift budget to a metadata read', async () => {
@@ -1515,20 +1743,46 @@ describe('the driver fails by name, and fails early', () => {
   })
 
   it('describes every failure it can produce, so none renders as [object Object]', () => {
-    const every = [
-      { kind: 'input-unreadable', path: 'a', detail: 'b' },
-      { kind: 'refused-by-screen', reason: { kind: 'not-aarch64', machine: 62 } },
-      { kind: 'docker-unavailable', detail: 'x' },
-      { kind: 'host-cannot-spawn', command: '/usr/bin/docker', code: 'EAGAIN', detail: 'x' },
-      { kind: 'image-absent', image: 'i', detail: 'd' },
-      { kind: 'image-has-no-digest', image: 'i' },
-      {
+    /**
+     * Keyed by kind, and the key set is the assertion.
+     *
+     * This was an array, with a closing comment that read *"`describeLiftFailure` has no
+     * `default:` arm, so this count and `tsc` between them make an unnamed failure
+     * impossible to add quietly."* **That was false and it had already failed.** The
+     * missing `default:` obliges *the renderer* to handle every arm of the union; it
+     * says nothing whatever about whether this list names every arm, and a `Set` of the
+     * kinds present can only count what somebody remembered to write. `LiftFailure` grew
+     * `docker-not-answering` on 2026-08-02 and the array never learned about it — so the
+     * one kind at the centre of this file's own timeout defect was the one arm the
+     * completeness case did not cover, for a day, while reading green.
+     *
+     * A mapped type over `LiftFailure['kind']` is the same claim made where it can be
+     * checked: leave a kind out and this does not compile. That is a guard, whereas a
+     * count of what is present is a tautology.
+     */
+    const every: { readonly [K in LiftFailure['kind']]: Extract<LiftFailure, { kind: K }> } = {
+      'input-unreadable': { kind: 'input-unreadable', path: 'a', detail: 'b' },
+      'refused-by-screen': {
+        kind: 'refused-by-screen',
+        reason: { kind: 'not-aarch64', machine: 62 },
+      },
+      'docker-unavailable': { kind: 'docker-unavailable', detail: 'x' },
+      'docker-not-answering': { kind: 'docker-not-answering', detail: 'x', afterMs: 400 },
+      'host-cannot-spawn': {
+        kind: 'host-cannot-spawn',
+        command: '/usr/bin/docker',
+        code: 'EAGAIN',
+        detail: 'x',
+      },
+      'image-absent': { kind: 'image-absent', image: 'i', detail: 'd' },
+      'image-has-no-digest': { kind: 'image-has-no-digest', image: 'i' },
+      'image-digest-foreign': {
         kind: 'image-digest-foreign',
         image: 'i:t',
         repository: 'i',
         digests: ['other@sha256:00'],
       },
-      {
+      'toolchain-failed': {
         kind: 'toolchain-failed',
         exitCode: 134,
         signal: null,
@@ -1537,20 +1791,26 @@ describe('the driver fails by name, and fails early', () => {
         stdout: '',
         stderr: '',
       },
-      { kind: 'timed-out', afterMs: 1_200_000 },
-      { kind: 'no-artifact', detail: 'ENOENT', stdout: '', stderr: '' },
-      { kind: 'features-unreadable', reason: { kind: 'no-target-features-section' } },
-      { kind: 'provenance-unreadable', path: '/tmp/o2-lift-x/meta.txt', detail: 'ENOENT' },
-    ] as const
-    for (const failure of every) {
-      const text = describeLiftFailure(failure)
-      expect(text.length).toBeGreaterThan(10)
-      expect(text).not.toContain('[object')
+      'timed-out': { kind: 'timed-out', afterMs: 1_200_000 },
+      'no-artifact': { kind: 'no-artifact', detail: 'ENOENT', stdout: '', stderr: '' },
+      'features-unreadable': {
+        kind: 'features-unreadable',
+        reason: { kind: 'no-target-features-section' },
+      },
+      'provenance-unreadable': {
+        kind: 'provenance-unreadable',
+        path: '/tmp/o2-lift-x/meta.txt',
+        detail: 'ENOENT',
+      },
     }
-    // The list is the assertion, so a list that fell behind the union is a test that
-    // passes while covering less. `describeLiftFailure` has no `default:` arm, so this
-    // count and `tsc` between them make an unnamed failure impossible to add quietly.
-    expect(new Set(every.map((failure) => failure.kind)).size).toBe(every.length)
+    for (const [key, failure] of Object.entries(every)) {
+      const text = describeLiftFailure(failure)
+      expect(text.length, `${key} rendered as nothing`).toBeGreaterThan(10)
+      expect(text, `${key} rendered a raw object`).not.toContain('[object')
+      // Each entry must be the failure its key names, or the mapped type would be
+      // satisfied by thirteen copies of one arm.
+      expect(failure.kind).toBe(key)
+    }
   })
 })
 
@@ -1732,6 +1992,9 @@ describe('retrying a host that would not fork retries nothing else', () => {
   })
 
   it('gives up loudly rather than skipping when the host never finds room', async () => {
+    // Also the anti-vacuity case for the envelope below: this failure costs about a
+    // millisecond, and a wrapper that had started truncating *cheap* retries would fail
+    // here on the attempt count rather than quietly protecting less than it says.
     let calls = 0
     await expect(
       despiteAFullProcessTable(() => {
@@ -1739,6 +2002,71 @@ describe('retrying a host that would not fork retries nothing else', () => {
         return Promise.resolve(hostFull)
       }),
     ).rejects.toThrow(/refused to create a process 4 times/)
+    expect(calls).toBe(HOST_SPAWN_ATTEMPTS)
+  })
+
+  /**
+   * The half that was missing, and that cost this file ten `60000ms` timeouts.
+   *
+   * The wrapper bounded its retries by a count and not by a duration, and an attempt's
+   * duration is a budget the caller chose — four attempts of {@link METADATA_BUDGET_MS}
+   * is 81 500 ms of driver budget inside a {@link CASE_BUDGET_MS} case. So the framework
+   * killed the case first, every time, and reported its own budget: a number that says
+   * only that the number exists. Both arms below are proved at ~1/30th scale, against an
+   * injected `caseBudgetMs`, so the guard costs under two seconds rather than a minute.
+   */
+  const daemonSilent: Attempted = {
+    ok: false,
+    failure: { kind: 'docker-not-answering', detail: 'x', afterMs: 700 },
+  }
+
+  it('stops asking once the answer it got would not fit again, and names what it measured', async () => {
+    // 2 000 ms of case ⇒ a 1 000 ms envelope. One 700 ms answer, and 700 + 250 of
+    // backoff + another 700 is 1 650 — so there is no room, and the wrapper says so
+    // rather than starting an attempt the framework would have to end.
+    let calls = 0
+    await expect(
+      despiteAFullProcessTable(
+        () => {
+          calls += 1
+          return new Promise<Attempted>((resolve) => {
+            setTimeout(() => resolve(daemonSilent), 700).unref()
+          })
+        },
+        { caseBudgetMs: 2_000 },
+      ),
+    ).rejects.toThrow(/leaves no room for another attempt inside the 1000 ms/)
+    expect(calls).toBe(1)
+  })
+
+  it('reports it itself when one attempt outlives the whole envelope', async () => {
+    // The sharpest form: a single attempt whose budget is not smaller than the
+    // framework's. Nothing about it is retryable and nothing about it is the wrapper's
+    // to wait out — the only useful act is to say so, with the measurement, before
+    // vitest says nothing with a bigger one.
+    await expect(
+      despiteAFullProcessTable(
+        () =>
+          new Promise<Attempted>((resolve) => {
+            setTimeout(() => resolve(daemonSilent), 30_000).unref()
+          }),
+        { caseBudgetMs: 600 },
+      ),
+    ).rejects.toThrow(/still running \d+ ms in, past the 300 ms/)
+  })
+
+  it('spends every attempt on a silent daemon that answers cheaply', async () => {
+    // Anti-vacuity for both arms above, on the condition they truncate. The retry of
+    // `docker-not-answering` was added 2026-08-02 against a reproduced failure, and the
+    // envelope must not have quietly repealed it: the same failure that buys no retry at
+    // 700 ms buys all four when it costs nothing, on the same wrapper in the same run.
+    let calls = 0
+    await expect(
+      despiteAFullProcessTable(() => {
+        calls += 1
+        return Promise.resolve(daemonSilent)
+      }),
+    ).rejects.toThrow(/did not answer 4 times running/)
     expect(calls).toBe(HOST_SPAWN_ATTEMPTS)
   })
 })
