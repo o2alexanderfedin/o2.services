@@ -44,17 +44,27 @@ import { FabricNode } from './fabric-node.ts'
  * `reservations: 'relays-for-nobody'` — a **named absence, not an omission** — so tabs
  * do not answer each other's rendezvous and none of them is ever asked. **They both ask
  * the relay**, which is a `FabricNode` holding a real thunk over its own reservation
- * store (`fabric-node.ts:1601`). `findReservedPeers` (`net/src/rendezvous.ts:76`) turns
+ * store (`fabric-node.ts:1695`). `findReservedPeers` (`net/src/rendezvous.ts:76`) turns
  * each reported holder into `/p2p/<relay>/p2p-circuit/webrtc/p2p/<holder>` and the tab
  * dials that. The relay carries the SDP exchange and then drops out; the job runs over
  * direct WebRTC, which is why the `limited` reading below is not decoration — a relayed
  * circuit is 2 minutes and 128 KiB and `PROJECT.md` records that it may not carry a job.
  *
  * The other hook criterion 4 names is `index`, and it is genuinely wired on both tiers
- * (`browser-node.ts:1178`, byte-identical to `fabric-node.ts:1578`) — that is what makes
+ * (`browser-node.ts:1337`, byte-identical to `fabric-node.ts:1672`) — that is what makes
  * each of these tabs a full routing peer rather than a client of one. The rendezvous
  * answer and the routing hook are two different hooks on two different nodes, and the
  * roadmap's phrasing was corrected accordingly on 2026-08-03.
+ *
+ * **`index` is wired here, and it is NOT read here — the distinction is W3 of
+ * `19-VERIFICATION.md` and it is worth keeping straight.** Nothing in this file asks a tab
+ * for `records` or `providers`: discovery is `findReservedPeers` alone, `computePeers` sends
+ * an `offer`, and these tabs are unenrolled so `demo/main.ts`'s `peerCertificate` returns
+ * before asking. The paragraph above is therefore a reading of *construction*, which is what
+ * it says and all it says. The hook is read off a **live tab over the real wire** by a
+ * sibling file from this same phase — `tab-refusals.e2e.test.ts:371,377` — which is where
+ * criterion 4's `index` clause is actually measured. Four line citations in this header had
+ * drifted and were re-checked against the tree on 2026-08-04.
  *
  * ## One host. Three engines. Not three machines.
  *

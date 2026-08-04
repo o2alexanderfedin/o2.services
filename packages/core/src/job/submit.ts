@@ -121,13 +121,27 @@ export interface JobSpec {
    * to use a degraded result anyway and asks for refusal has chosen to fail jobs it
    * would have accepted.
    *
-   * ## Nothing reads this field yet
+   * ## Where this field is read, and what it decides
    *
-   * Stated rather than left to be discovered. **Plan 19-06 is where an uncomposable
-   * quorum starts consulting it**; until then both arms travel the submission path
-   * identically and no branch anywhere tests them. That scheduled arrival is this
-   * phase's established shape — Plans 19-13 and 19-14 each landed a type and its
-   * fan-out one wave ahead of the code that read it.
+   * **`:802-803` of this file, and nowhere else** — confirmed by grep, which finds
+   * exactly three occurrences of the name: this declaration and those two lines. They
+   * sit on the arm reached only when composition was *attempted and refused*, so the
+   * dial is consulted where there is a shortfall and never where no quorum was asked
+   * for. `'runs-at-available-redundancy'` sets `degraded: true` and leaves `refusal`
+   * null, so the shard is placed on the full eligible pool and reports the weaker
+   * outcome; `'refuses-the-shard'` carries the composer's own `reason` into `refusal`,
+   * and the shard comes back `insufficient` with that same sentence. Both arms are read
+   * off one live fixture in `packages/node/src/quorum-agents.node.test.ts`, which
+   * asserts the two strings **equal** rather than merely both present.
+   *
+   * **It was scheduled, and it arrived.** This paragraph read *"Nothing reads this field
+   * yet"* from wave 3, when 19-18 landed the field, until wave 4, when 19-06 landed the
+   * reader 670 lines below — and it was not updated, which `19-VERIFICATION.md` filed as
+   * W1. The argument it made was correct and is kept rather than deleted: a type landing
+   * one wave ahead of the code that reads it is this phase's established shape, and
+   * Plans 19-13 and 19-14 did the same. What was missing is the other end of it. A
+   * scheduled arrival has to be recorded when it arrives, or the note that made it
+   * legible becomes the thing that misleads.
    *
    * ## Required rather than optional, and the reason is measured
    *
