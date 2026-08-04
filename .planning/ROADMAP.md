@@ -640,7 +640,7 @@ Criterion 6 needs no plan — it landed on `develop` as `351bde1` before this ph
 **Goal**: Verification quorums compose under anti-affinity with a backbone-anchored replica, owner-domain agreement is labelled distinctly from independent-operator agreement, and two browser tabs on a static bundle find each other with nothing dialed by a harness
 **Mode:** mvp
 **Depends on**: Phase 18, Phase 17
-**Requirements**: AUTH-05, NET-06, VER-03, VER-04, VER-08, VER-09, VER-10, WIRE-03
+**Requirements**: AUTH-04, AUTH-05, NET-06, VER-03, VER-04, VER-08, VER-09, VER-10, WIRE-03
 **Research**: None — but *"the gap"* is three different gaps, and calling them one is what this line got wrong. **Corrected in place 2026-08-03 by plan 19-03**; the superseded sentence and the measurements that refute it are in the dated note below the criteria. `attestationReceipt` and `resolveReplicaSets` exist, are unit-verified in Phase 6, and are indeed only *uncalled* on the production dispatch path. `composeQuorum` is not in that state: VER-03's anchored replica is **unimplemented rather than unwired**, and its ok arm returns `strength: 'independent'` unconditionally while never calling `classifyAttestation`, so wiring it as it stood would have reported every quorum `independent`. And no test had ever put two tabs on a static bundle without a harness dialing for them — that one is closed by 19-03
 **Constraints** (recorded 2026-07-28 by Phase 13, before criterion 2's plan is written):
   - Raw sovereign data does not move between nodes, including two nodes the same owner controls — `EgressGuard.send` refuses any frame carrying a registered sovereign payload rather than forwarding it (Plan 13-04). Criterion 2 below is therefore reachable only if the owner has already placed the input on both of their live nodes; the fabric will not fetch it onto the second one. See the **Raw sovereign data does not move between nodes** row in `.planning/PROJECT.md`'s Key Decisions
@@ -691,11 +691,13 @@ Criterion 6 needs no plan — it landed on `develop` as `351bde1` before this ph
      That reads as though both hooks were wired on both tiers, and one of them is not.
 
      WHAT WAS MEASURED. `index` is wired on both tiers and identically: `index: records` at
-     `browser-node.ts:1178` and `fabric-node.ts:1578`, each built by the same `ownRecords(
+     `browser-node.ts:1337` and `fabric-node.ts:1672`, each built by the same `ownRecords(
      certificate, identity, sovereignty.canExecuteSovereign, store, withholdingFrom(
      egressDisposition))` call over its own tier's store. `reservations` is wired on the Node
-     tier only — a real thunk over the reservation store at `fabric-node.ts:1601` — while the
-     browser tier supplies the **named absence** `'relays-for-nobody'` at `browser-node.ts:1201`.
+     tier only — a real thunk over the reservation store at `fabric-node.ts:1695` — while the
+     browser tier supplies the **named absence** `'relays-for-nobody'` at `browser-node.ts:1388`.
+     (Line citations corrected 2026-08-04, verification warning W2 — the wiring is exactly as
+     described; only the numbers had drifted.)
 
      WHY NOT SIMPLY NAME `index` ALONE. `19-CONTEXT.md` proposed exactly that, and the owner
      ruled on 2026-08-03 that it **understates** the criterion. Both hooks are load-bearing;
@@ -713,7 +715,15 @@ Criterion 6 needs no plan — it landed on `develop` as `351bde1` before this ph
      later phase wants it, it is a protocol question about what the hook asserts.
 
      MEASURED, not argued from construction: `packages/node/src/static-rendezvous.e2e.test.ts`
-     takes both readings on the built bundle with no origin to ask and no harness dial. -->
+     takes the `reservations` reading on the built bundle with no origin to ask and no harness
+     dial, and `tab-refusals.e2e.test.ts:371,377` takes the `index` reading off a live tab over
+     the wire.
+
+     CORRECTED 2026-08-04 (verification warning W3). This read "takes both readings", which was
+     false: that file issues no `records` or `providers` request anywhere — discovery is
+     `findReservedPeers` alone, `computePeers` sends an `offer`, and its tabs are unenrolled so
+     `peerCertificate` returns before asking. The CLAUSE STILL HOLDS and criterion 4 remains
+     MET; only the sentence naming which file takes which reading was wrong. -->
 
   5. **Enrolling a node costs an attacker something they cannot mint for free**, and the cost is measured: creating the N-th fake identity is demonstrably more expensive than creating the first. Routed here by owner ruling 2026-08-01 from Phase 17's AUTH-04, whose rate-limiting half is proven and whose cost half is not
 
