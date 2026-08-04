@@ -13,13 +13,60 @@
  * re-derives "who could run this"; it only narrows the executor pool to the
  * nodes the placement plan actually chose.
  *
- * Pure module: the blockstore and executors arrive as ports.
+ * ## A shard gets more than one generation — WIRE-04, CHURN-01, CHURN-04
+ *
+ * Until Phase 20 this module called `executeVerified` **exactly once per shard**. A
+ * node that answered the offer while free and then refused the dispatch, or died
+ * between the two, ended that shard and nothing tried anyone else. It now runs a
+ * *generation loop*: place, grant a lease, dispatch, and — where the outcome fell
+ * short — place again over the same eligibility gate with every already-attempted
+ * node removed.
+ *
+ * **Two triggers, not one.** `executeVerified` returns `insufficient` only when
+ * *every* executor failed. At redundancy 2 with one executor dead it returns `agreed`
+ * with `replicas: 1` — a shard that silently got less redundancy than it asked for.
+ * Both are re-dispatch triggers, and treating only `insufficient` as one is the
+ * version of this that looks finished and leaves the more common case unrepaired.
+ *
+ * **The bound is distinct nodes, not failure kinds.** `Executor` flattens every
+ * failure to `{nodeId, reason}` — `verify.ts`'s header says the flattening is
+ * deliberate — so this module has no `node`/`task` distinction to police and does
+ * **not** parse reason strings for policy. It counts distinct nodes instead, capped by
+ * `DEFAULT_MAX_GENERATIONS`, whose docblock argues exactly this: *"A task that has
+ * failed on three independently-chosen nodes is far more likely to be a bad task than
+ * three unlucky nodes."* **What that costs**, stated rather than left to be found: a
+ * shard whose module traps burns up to three nodes instead of being given up on after
+ * the first classified task failure. That is a liveness cost bounded by 3, and it is
+ * the honest price of not string-matching. The sharp distinction, if a later phase
+ * wants it, is a failure kind on `ExecutionOutcome` — a new decision, not a widening
+ * of this one.
+ *
+ * **The lease is what makes the retry bounded and legible rather than a loop with a
+ * counter.** Every grant, renewal, expiry, surrender and abandonment is an event on
+ * {@link JobResult.leaseHistory}; `lease.ts`'s own header gives the reason — *"A
+ * scheduler that quietly retried would produce correct answers and inexplicable
+ * bills."*
+ *
+ * **A dispatch that answers nothing is bounded by its lease, and that is a behaviour
+ * change with a cost.** Before this, `submitJob` awaited `executeVerified` forever. It
+ * now stops waiting at `DEFAULT_LEASE_MS` and moves the shard, so a *genuinely slow*
+ * workload — every replica taking longer than a lease — is now re-dispatched and, after
+ * three generations, abandoned, where before it would eventually have completed. That
+ * is CHURN-04's deadline doing what it is for (`lease.ts`: *"the only safe response to
+ * 'I cannot tell' is to wait a bounded time"*), and `DEFAULT_LEASE_MS` is the dial. The
+ * escape from it is evidence, not a longer timer — see {@link JobSpec.admit}.
+ *
+ * Pure module: the blockstore and executors arrive as ports, and so do the clock and
+ * the timer the lease deadline needs — see {@link SubmitOptions.clock}.
  */
 
 import type { CID } from 'multiformats/cid'
 import { canonicalCid } from '../canonical/encode.ts'
 import type { CanonicalValue } from '../canonical/encode.ts'
 import type { NodeCertificate } from '../enrollment.ts'
+import type { Sleep } from '../governor.ts'
+import { DEFAULT_MAX_GENERATIONS, LeaseTable, RENEW_AT, shouldRenew } from '../lease.ts'
+import type { Lease, LeaseEvent } from '../lease.ts'
 import type { NameRecord } from '../naming.ts'
 import { planWithOffers } from '../placement.ts'
 import type { AdmissionControl, Rejection } from '../placement.ts'
@@ -187,6 +234,46 @@ export interface JobSpec {
    * twice. This is written down because "compose them" is the obvious next idea and it
    * silently removes the re-pick.
    *
+   * **The generation loop did not break this, and that is worth stating rather than
+   * assuming.** Each generation runs *one* placer over a *narrowed candidate list* —
+   * the same arm it ran the first time, chosen by this same field — and never one
+   * placer over the other's output. A shard placed by `planPlacement` is re-placed by
+   * `planPlacement`; a shard placed by `planWithOffers` is re-placed by
+   * `planWithOffers`. Narrowing a placer's input can only shrink an already-eligible
+   * set; composing two placers would have removed the re-pick, which is the thing the
+   * paragraph above forbids.
+   *
+   * ## Lease renewal, and why it is asymmetric on this field — CHURN-04
+   *
+   * A dispatch still outstanding when `shouldRenew` is true has its lease renewed
+   * **iff the holder itself says the task is still in flight**. This field is how a
+   * requestor asks a node anything, so it is the whole evidence channel and there is
+   * deliberately no second hook beside it.
+   *
+   * *The evidence, and it needs no protocol change.* `serveAgent`'s `exec` branch keys
+   * its capacity slot on `` `${task.inputCid}:${task.partitionIndex}` `` (`net/src/agent.ts`,
+   * search `const slotKey`), and `LocalCapacity` refuses a second claim on a held key
+   * with `` `${offer.shardId} is already in flight here` `` (`placement.ts`, search
+   * `is already in flight here`). So a requestor that offers the **same slot key** to
+   * the node currently holding the lease and is refused *as a duplicate* has positive
+   * evidence that node is still running that exact task. Any other answer — accepted,
+   * over-committed, unreachable, or a throw — is not evidence, and the lease is left to
+   * lapse.
+   *
+   * *An unconditional renew is forbidden.* A renewal granted on a timer alone is a
+   * longer timeout wearing a lease's clothes: it makes the bound unbounded, and
+   * presenting it as CHURN-04 would be dishonest. The rule is therefore stated as a
+   * *biconditional* — renewed only against evidence — and the difference between the
+   * two is measurable, which is the point: `submit.test.ts`'s renewal pair runs one
+   * fixture with the holder present and with the holder gone, and requires the two to
+   * differ in the lease **history**, not merely in the outcome.
+   *
+   * *The asymmetry.* Where this field is **absent** there is no probe, so there is no
+   * evidence a requestor could obtain, so nothing is renewed and the lease lapses on
+   * time. That is a stated behaviour and not a default: a caller that supplies no way
+   * to ask a node anything has, by that choice, no way to learn that a silent node is
+   * merely slow. Read the module header for what a lapse costs a genuinely slow job.
+   *
    * ## Why optional here is not a hole
    *
    * In the terms `moduleRecord`'s doc above already uses on this same interface:
@@ -304,10 +391,63 @@ interface ShardGate {
   readonly refusal: string | null
 }
 
+/**
+ * Why a shard's generation loop stopped — WIRE-04, CHURN-01.
+ *
+ * Three of these are the loop's only exits and the fourth is a shard that never entered
+ * it. They are a **named value rather than something a reader infers** because the
+ * three endings are otherwise distinguishable only by cross-referencing a verification
+ * status against a lease history, and a caller asking "did this stop because it
+ * succeeded, because it ran out of nodes, or because it ran out of tries?" is asking
+ * one question, not three.
+ *
+ * `'disagreed'` is an ending and **not** a re-dispatch trigger. Disagreement is the one
+ * event this whole verification mechanism exists to surface (`verify.ts`: *"Disagreement
+ * is surfaced, never majority-voted away"*), and re-running a shard until the replicas
+ * happen to agree would be majority-vote-by-attrition.
+ */
+export type ShardEnding =
+  /** It agreed at the redundancy it asked for. */
+  | 'agreed'
+  /** Replicas produced different results. Retrying would hide the event, so it does not. */
+  | 'disagreed'
+  /** Placement had nobody left it had not already attempted. */
+  | 'no-untried-node'
+  /** The lease table refused a further grant: `DEFAULT_MAX_GENERATIONS` is spent. */
+  | 'generations-spent'
+  /** The first placement never placed it, so no generation ever ran. */
+  | 'never-placed'
+
 export interface ShardResult {
   readonly partitionIndex: number
   readonly inputCid: CID
   readonly verification: VerificationResult
+  /**
+   * Every node this shard was dispatched to, in order, across every generation —
+   * CHURN-01's *"visible in the job history rather than hidden"*, per shard.
+   *
+   * **The set ASKED, never the set that answered.** {@link VerificationResult} reports
+   * who agreed; this reports who was tried, and the difference between the two is the
+   * whole record of a re-dispatch. It is also the reading that catches a widened
+   * eligibility gate: a reason string stays plausible while a sovereign shard lands on
+   * a foreign node, and a node id in this list does not.
+   *
+   * A node appears at most once: every generation places over a candidate list with
+   * every already-attempted node removed, because placement is deterministic and a
+   * re-dispatch handed the same pool would pick the node that just failed, every time.
+   */
+  readonly attempted: readonly string[]
+  /**
+   * Dispatch generations this shard used. `1` is a shard that never had to retry, `0`
+   * a shard that was never placed.
+   *
+   * Bounded by `DEFAULT_MAX_GENERATIONS` through the lease table, which is what makes
+   * `generations - 1` the shard's own re-dispatch count and `JobResult.redispatches`
+   * the sum of them.
+   */
+  readonly generations: number
+  /** Why the generation loop stopped. See {@link ShardEnding}. */
+  readonly ending: ShardEnding
   /**
    * True when this shard did not get everything it asked for — in **redundancy**, or in
    * **independence**.
@@ -330,6 +470,16 @@ export interface ShardResult {
    * independently confirmed"*; the receipt now says so as a value, so the prose is gone
    * rather than kept beside it. {@link ShardResult.quorum} carries the composer's own
    * words when the shortfall was a quorum's.
+   *
+   * **The redundancy half is now read off the replicas that ANSWERED, not off the
+   * placement.** It was `placement.degraded` — `chosen.length < redundancy` — until
+   * Phase 20, and that was measurably the wrong test: a shard placed on two nodes one of
+   * which then failed came back `agreed` with `replicas: 1` and `degraded: false`, so a
+   * caller filtering on this field accepted a shard that got half the verification it
+   * asked for. That is the same silent under-replication the generation loop tops up,
+   * and reporting it correctly is what makes the top-up's success visible — a topped-up
+   * shard reaches full redundancy across two generations and is *not* degraded, which no
+   * placement-shaped test could express.
    *
    * See `sovereignty.ts`'s `Placement.degraded` for why this is reported rather than
    * silently tolerated.
@@ -404,6 +554,31 @@ export interface JobResult {
    * of verification is always visible rather than discovered later (VER-06).
    */
   readonly verificationMultiplier: number
+  /**
+   * Dispatches beyond the first, summed over every shard — CHURN-01.
+   *
+   * `0` says this job never had to retry anything. It is the figure `Observation.
+   * redispatches` publishes as the literal `0` at `bin/bench.ts` and at
+   * `perf-workload.ts`, each with a comment saying why; this is where a real one comes
+   * from.
+   *
+   * Read off `LeaseTable.redispatches`, so it counts *generations beyond the first* and
+   * not attempts: a shard placed on two nodes in one generation spent one dispatch by
+   * this measure, because one lease was granted. That is the quantity CHURN-01 asks to
+   * be visible — how many times the scheduler had to go back and place again.
+   */
+  readonly redispatches: number
+  /**
+   * Every lease event this job produced, in order — CHURN-01, CHURN-04.
+   *
+   * Carried rather than summarised, because a count says *that* a job retried and this
+   * says *why*: `expired` is a holder that went silent, `surrendered` is one that
+   * answered with a failure, `renewed` is one that proved it was still working, and
+   * `abandoned` is a shard that used its last generation. A reader can tell a job that
+   * retried and succeeded from a job that never had to without inference, and can tell
+   * *which kind* of trouble it had without guessing from a reason string.
+   */
+  readonly leaseHistory: readonly LeaseEvent[]
 }
 
 export type SubmitError =
@@ -578,6 +753,335 @@ function receiptFor(
   return attestationReceipt(verified)
 }
 
+/**
+ * The capacity slot key a serving node reserves for this task.
+ *
+ * Transcribed from `net/src/agent.ts`'s exec branch — search `const slotKey` — and it
+ * has to be **derived the same way there and here** or the renewal probe asks about a
+ * unit of work no node is holding. That branch's own comment gives the derivation's
+ * reason: an `exec` request carries no shard id, so `inputCid` plus `partitionIndex` is
+ * the task's identity, and it is well defined because `submitJob` content-addresses
+ * every shard input.
+ *
+ * This is a **wire vocabulary** shared with `@o2/net`, not an internal name. It is here
+ * rather than imported because `packages/core` may not depend on `packages/net`.
+ */
+function capacitySlotKey(inputCid: CID, partitionIndex: number): string {
+  return `${inputCid.toString()}:${partitionIndex}`
+}
+
+/**
+ * The exact refusal a node gives for a second claim on a key it is already holding.
+ *
+ * Transcribed from `placement.ts`'s `LocalCapacity.#decide` — search
+ * `is already in flight here` — which composes it in one place precisely so a second
+ * construction cannot drift from it. This is the second construction, and the drift it
+ * could suffer is guarded rather than promised: `submit.test.ts`'s renewal pair drives a
+ * **real `LocalCapacity`** rather than a stub, so a change to that string turns the
+ * evidence arm red here instead of silently making every renewal unreachable.
+ *
+ * Compared for equality against a string this module composed from its own slot key,
+ * never sniffed as a substring of whatever a node said. A requestor that accepted any
+ * refusal mentioning "in flight" would accept a refusal about a *different* shard.
+ */
+function inFlightRefusal(slotKey: string): string {
+  return `${slotKey} is already in flight here`
+}
+
+/** The default account of time: the platform's, with a wait that cannot outlive the job. */
+const platformClock: JobClock = {
+  now: () => Date.now(),
+  sleep: (ms: number) =>
+    new Promise<void>((resolve) => {
+      const timer: unknown = setTimeout(resolve, ms)
+      // Node returns a `Timeout` object with `unref`; a browser returns a number and has
+      // none. An abandoned wait must not be the reason a process stays alive, and this
+      // is the only place in this module that could become one.
+      if (typeof timer === 'object' && timer !== null && 'unref' in timer) {
+        ;(timer as { unref: () => void }).unref()
+      }
+    }),
+}
+
+/**
+ * Fold two generations of one shard into the single result that shard actually got.
+ *
+ * **Verified together, not reported as two agreements.** A shard that ran once at
+ * `replicas: 1` and was topped up once more at `replicas: 1` did not get two answers; it
+ * got one answer confirmed by two nodes, and saying otherwise would report a redundancy
+ * nobody established. So the replicas are unioned, the fuel is summed across every
+ * generation — the honest cost, including the generations that produced nothing — and
+ * the *comparison* is redone over the union.
+ *
+ * **Which means a top-up can discover a disagreement**, and it must. Two generations
+ * whose results hash differently are exactly the event `verify.ts` refuses to vote away,
+ * arriving one generation later than usual. Grouping by `resultCid` across generations is
+ * what makes that reachable at all; taking the second generation's answer because it is
+ * newer would be majority-vote-by-recency.
+ *
+ * `usefulFuel` is the first agreeing generation's, because the answer is that generation's
+ * answer — every later replica recomputed the same bytes.
+ */
+function mergeVerifications(first: VerificationResult, second: VerificationResult): VerificationResult {
+  const nodesByCid = new Map<string, string[]>()
+  const agreeing: AgreeingReplica[] = []
+  const failures: { nodeId: string; reason: string }[] = []
+  const reasons: string[] = []
+  let winner: { resultCid: CID; output: CanonicalValue; usefulFuel: number } | null = null
+  let grossFuel = 0
+
+  for (const generation of [first, second]) {
+    if (generation.status === 'agreed') {
+      grossFuel += generation.grossFuel
+      if (winner === null) {
+        winner = {
+          resultCid: generation.resultCid,
+          output: generation.output,
+          usefulFuel: generation.usefulFuel,
+        }
+      }
+      const key = generation.resultCid.toString()
+      nodesByCid.set(key, [
+        ...(nodesByCid.get(key) ?? []),
+        ...generation.agreeing.map((replica) => replica.nodeId),
+      ])
+      agreeing.push(...generation.agreeing)
+      continue
+    }
+    failures.push(...generation.failures)
+    if (generation.status === 'disagreed') {
+      for (const partition of generation.partitions) {
+        nodesByCid.set(partition.resultCid, [
+          ...(nodesByCid.get(partition.resultCid) ?? []),
+          ...partition.nodes,
+        ])
+      }
+      continue
+    }
+    reasons.push(generation.reason)
+  }
+
+  if (nodesByCid.size > 1) {
+    return {
+      status: 'disagreed',
+      partitions: [...nodesByCid].map(([resultCid, nodes]) => ({ resultCid, nodes })),
+      failures,
+    }
+  }
+  if (winner === null) {
+    return {
+      status: 'insufficient',
+      // Every generation's reason, in order, because "nobody answered" three times over
+      // three different node sets is three facts and a caller reading one of them would
+      // be told about a third of what happened.
+      reason: reasons.join('; then '),
+      failures,
+    }
+  }
+  return {
+    status: 'agreed',
+    resultCid: winner.resultCid,
+    output: winner.output,
+    agreeing,
+    replicas: agreeing.length,
+    grossFuel,
+    usefulFuel: winner.usefulFuel,
+  }
+}
+
+/** What one generation's placement produced, or the refusals that stopped it. */
+type Regeneration =
+  | {
+      readonly placed: true
+      readonly nodeIds: readonly string[]
+      readonly rejections: readonly Rejection[]
+      readonly degraded: boolean
+    }
+  | { readonly placed: false; readonly rejections: readonly Rejection[] }
+
+/**
+ * Place one shard again, over the same eligibility gate minus every node already tried.
+ *
+ * **The narrowing happens before placement, never after**, and the reason is
+ * `coordinator.ts`'s `runShard`, whose loop this borrows its reasoning from: placement is
+ * deterministic rendezvous ranking, so a re-dispatch handed the same pool picks the node
+ * that just failed, every time, until the generations run out.
+ *
+ * **Eligibility cannot widen here, and it is worth being exact about why.** Narrowing a
+ * placer's input can only shrink what comes out, and both placers call `eligibleNodes`
+ * as their first act on whatever they are handed — `planPlacement` at `sovereignty.ts`,
+ * `placeWithOffers` at `placement.ts`, the same exported function, which is exported
+ * *"so that there is exactly one of it"*. So a sovereign shard's second generation lands
+ * on its owner's nodes or nowhere, and that guarantee is structural rather than
+ * something this loop maintains by care. (Measured, and stated because it changes what a
+ * plant here can prove: substituting `spec.nodes` for the gate's pool does **not** leak a
+ * sovereign shard, because the gate re-runs inside the placer. What it *would* widen is
+ * the quorum pool, which is this module's own narrowing and has no second enforcement.)
+ *
+ * **The two arms stay apart.** The arm is chosen by `admit` exactly as it was for the
+ * first generation, so a job never mixes them — see {@link JobSpec.admit}.
+ */
+async function placeAgain(
+  request: PlacementRequest,
+  pool: readonly NodeDescriptor[],
+  tried: ReadonlySet<string>,
+  admit: AdmissionControl | undefined,
+): Promise<Regeneration> {
+  const remaining = pool.filter((node) => !tried.has(node.nodeId))
+  if (remaining.length === 0) return { placed: false, rejections: [] }
+
+  if (admit === undefined) {
+    // No `dispatchCount` nudge here, and that is a real difference from the first
+    // generation rather than an omission: the nudge spreads a *job's* shards across a
+    // node set inside one pass, and a re-dispatch is a single shard placed on its own
+    // after that pass has finished. Reconstructing the tally would spread a retry
+    // against a count that no longer describes anything in flight.
+    const plan = planPlacement([request], remaining)
+    const placement = plan.placements[0] as Placement
+    return placement.status === 'placed'
+      ? { placed: true, nodeIds: placement.nodeIds, rejections: [], degraded: placement.degraded }
+      : { placed: false, rejections: [] }
+  }
+
+  // One call, one request. `planWithOffers` keeps its cross-shard headroom tally inside
+  // a single call, so **a second generation's tally is separate from the first's** — a
+  // node this job has already filled looks empty again to this call. That is the bound
+  // 18-04 measured, and it is inherited rather than repaired here: the authoritative
+  // limit is the serving node's own `LocalCapacity` on the `exec` branch, which is
+  // unaffected by what any requestor tallies. Threading one tally across generations
+  // would mean holding a placement-time structure open across a dispatch, which is a
+  // different mechanism and a new decision.
+  const offered = await planWithOffers([request], remaining, { admit })
+  const placement = offered[0]
+  if (placement === undefined) return { placed: false, rejections: [] }
+  return placement.status === 'placed'
+    ? {
+        placed: true,
+        nodeIds: placement.nodeIds,
+        rejections: placement.rejections,
+        degraded: placement.degraded,
+      }
+    : { placed: false, rejections: placement.rejections }
+}
+
+/** A dispatch answered, or its lease ran out with the holder still silent. */
+type Dispatched =
+  | { readonly kind: 'answered'; readonly verification: VerificationResult }
+  | { readonly kind: 'lapsed' }
+
+/** Distinguishes the deadline firing from a dispatch that resolved to anything at all. */
+const LEASE_TICK: unique symbol = Symbol('lease-tick')
+
+/**
+ * Run one generation under its lease, renewing only against evidence — CHURN-04.
+ *
+ * ## Failure is a fact, silence is a deadline
+ *
+ * The distinction is `coordinator.ts`'s and it is preserved here. A dispatch that
+ * *reports* — agreed, disagreed, or every executor failed — is observed, and the caller
+ * acts on it immediately. Silence is not observed; it is indistinguishable from
+ * slowness, and the only safe answer to "I cannot tell" is to wait a bounded time. The
+ * bound is the lease.
+ *
+ * ## The renewal, and what makes it a lease rather than a longer timeout
+ *
+ * At `RENEW_AT` — two-thirds of the span, leaving a full third for a late answer to
+ * still arrive — the requestor asks the holder about **this task's own slot key**. Only
+ * the duplicate refusal counts as evidence, because only it means *this node is running
+ * this exact task right now*. An acceptance means the slot is free, which is a node that
+ * is not working on it; an over-commit refusal names a different condition; an
+ * unreachable answer or a throw is silence with extra steps. A single probe decides it:
+ * a holder that cannot show it is working is left the remaining third of its lease to
+ * answer for real, and then the lease lapses.
+ *
+ * Nothing is cancelled on a lapse. The abandoned dispatch may still resolve, and it will
+ * resolve to the same bytes any re-dispatch produces — `lease.ts`'s invariant, that
+ * liveness changes who computes a task and when, never what the answer is. Its result is
+ * simply not the one this shard reports.
+ */
+async function dispatchUnderLease(
+  run: () => Promise<VerificationResult>,
+  granted: Lease,
+  leases: LeaseTable,
+  clock: JobClock,
+  probe: ((nodeId: string) => Promise<boolean>) | null,
+): Promise<Dispatched> {
+  // Handled at creation, so abandoning this promise on a lapse can never surface as an
+  // unhandled rejection. `executeVerified` converts a throwing executor into a named
+  // failure itself; this covers the port breaking in a way that one does not.
+  const pending: Promise<VerificationResult> = run().then(
+    (verification) => verification,
+    (cause): VerificationResult => ({
+      status: 'insufficient',
+      reason: `the dispatch itself threw: ${cause instanceof Error ? cause.message : String(cause)}`,
+      failures: [],
+    }),
+  )
+
+  let lease = granted
+  /** Cleared once this generation has been refused a renewal. It is never restored. */
+  let renewable = probe !== null
+
+  for (;;) {
+    const at = clock.now()
+    if (at >= lease.expiresAt) return { kind: 'lapsed' }
+
+    // The renewal point, measured **back from the deadline** rather than forward from
+    // the grant — `expiresAt - leaseMs × (1 - RENEW_AT)`, which is the instant at which
+    // a third of a fresh lease is left. On a lease that has never been renewed the two
+    // are the same expression, since `expiresAt = grantedAt + leaseMs`.
+    //
+    // They diverge on a renewed one, and the forward form is wrong there. `LeaseTable.
+    // renew` keeps `grantedAt` fixed and pushes `expiresAt` out, so the *span* grows by
+    // a whole lease every renewal and `grantedAt + span × RENEW_AT` grows with it: after
+    // the elapsed time passes `2 × leaseMs` the forward renewal point falls **behind
+    // the current instant**, this loop waits to the deadline instead of asking for
+    // evidence, and a holder that was working right up to the deadline has its lease
+    // lapse anyway. Found by planting, not by reading — the unconditional-renew mutation
+    // reddened the *wrong* arm of `submit.test.ts`'s renewal pair and this arithmetic
+    // was why. `shouldRenew` remains the authority on whether a renewal is due; this
+    // only decides when to wake up and ask.
+    const renewPoint = lease.expiresAt - leases.leaseMs * (1 - RENEW_AT)
+    // Wake at the renewal point while renewal is still possible, and at the deadline
+    // once it is not. Two wakes rather than a poll: the only two instants at which
+    // anything can be decided are the one where evidence is asked for and the one where
+    // the deadline bites. Clamped into `(at, expiresAt]` so a renewal point already in
+    // the past asks immediately rather than sleeping through it.
+    const wakeAt = renewable ? Math.min(Math.max(renewPoint, at), lease.expiresAt) : lease.expiresAt
+    const raced = await Promise.race<VerificationResult | typeof LEASE_TICK>([
+      pending,
+      clock.sleep(Math.max(1, Math.ceil(wakeAt - at))).then(() => LEASE_TICK),
+    ])
+    if (raced !== LEASE_TICK) return { kind: 'answered', verification: raced }
+
+    const woke = clock.now()
+    if (woke >= lease.expiresAt) return { kind: 'lapsed' }
+    // A `Sleep` port may return early; `shouldRenew` is the authority on whether this is
+    // the renewal point, not the arithmetic that chose when to wake.
+    if (!renewable || !shouldRenew(lease, woke)) continue
+
+    if (!(await probeHolder(probe, lease.nodeId))) {
+      // No evidence. **Not** a renewal, and not an expiry either — the holder keeps the
+      // rest of its lease, which is the window in which a node that had just finished
+      // and released its slot still answers in time.
+      renewable = false
+      continue
+    }
+
+    const renewed = leases.renew(lease.taskId, lease.nodeId, woke)
+    if (renewed === null) return { kind: 'lapsed' }
+    lease = renewed
+  }
+}
+
+/** Ask the holder about this task's slot key. Any answer that is not the duplicate refusal is not evidence. */
+async function probeHolder(
+  probe: ((nodeId: string) => Promise<boolean>) | null,
+  nodeId: string,
+): Promise<boolean> {
+  return probe === null ? false : probe(nodeId)
+}
+
 /** A job is no stronger than its weakest shard. */
 function jobAttestationOf(shards: readonly ShardResult[]): ShardAttestation {
   const absent = shards.find((shard) => 'kind' in shard.attestation)
@@ -596,7 +1100,44 @@ function jobAttestationOf(shards: readonly ShardResult[]): ShardAttestation {
  * Shards run concurrently — they share no state by construction, which is the
  * whole reason the partition is the unit of parallelism.
  */
+/**
+ * The clock and the timer the lease deadline runs on — CHURN-04.
+ *
+ * **Both together or neither**, which is why they are one object rather than two
+ * fields: a reading of "now" and a way to wait until later are two halves of one
+ * account of time, and a fixture that replaced only one of them would be measuring a
+ * virtual deadline against a real clock. Supplying this replaces both.
+ *
+ * **This is not the clock the certificate check uses**, and the two are deliberately
+ * separate reads of different questions. `submitJob` asks `Date.now()` once, for
+ * whether a certificate's validity window is open — a point in time judged against
+ * fixed instants somebody else minted. This one measures *elapsed* time against a
+ * deadline this module granted, which is a different question and needs a different
+ * answer in a test: a fixture that advanced the lease clock by thirty seconds must not
+ * thereby expire the certificates it enrolled.
+ *
+ * Optional, and the default is not a policy: `Date.now` and `setTimeout`. Nothing about
+ * the job's behaviour changes with it — it is the platform, supplied so a churn
+ * reading can be a deterministic sequence of events rather than a race against a real
+ * clock, the same discipline `coordinator.ts` and `EnrollmentAuthority` already use.
+ */
+export interface JobClock {
+  /** Reads the requestor's own clock, in milliseconds. */
+  readonly now: () => number
+  /** Resolves after at least `ms`. */
+  readonly sleep: Sleep
+}
+
 export interface SubmitOptions {
+  /**
+   * The clock and timer the lease deadline runs on. See {@link JobClock}.
+   *
+   * Omit outside a test. The default sleeps on an **unref'd** `setTimeout` where the
+   * platform has one, so a wait this module abandoned — the ordinary case, since a
+   * dispatch that answers wins its race — cannot hold a Node process open past the job
+   * it belonged to.
+   */
+  readonly clock?: JobClock
   /**
    * Where to record that a shard's bytes are sovereign — DATA-10's at-rest half.
    *
@@ -656,6 +1197,20 @@ export async function submitJob(
   // would be a ninety-four-site fan-out for a value every one of them would fill with
   // this same expression.
   const now = Date.now()
+
+  // The lease clock is a **separate read of a different question** — elapsed time
+  // against a deadline this module granted, not a point judged against certificate
+  // windows somebody else minted. See {@link JobClock}.
+  const clock = options?.clock ?? platformClock
+
+  // One table for the whole job, because the bound it enforces is per task and its
+  // history is the job's. `DEFAULT_MAX_GENERATIONS` is named rather than defaulted into:
+  // it is the policy this loop runs on, `submit.test.ts` asserts the attempt count
+  // against that same exported constant, and a cap reached by omission is a cap nobody
+  // stated. `runResilient` sizes its own table to the node pool instead, deliberately —
+  // there the pool is the real bound and the table is a backstop; here the table IS the
+  // bound, for the reason `DEFAULT_MAX_GENERATIONS`' docblock gives.
+  const leases = new LeaseTable({ maxGenerations: DEFAULT_MAX_GENERATIONS })
 
   // Persist every shard input as a block first, so a task is addressed entirely
   // by CID and could be re-dispatched to any node without resending the payload.
@@ -923,6 +1478,13 @@ export async function submitJob(
           // beside it, so "nobody would take it" is distinguishable from "there was
           // nobody".
           verification: { status: 'insufficient', reason: placement.reason, failures: [] },
+          // Nothing was ever asked, so nothing was attempted and no generation ran. `0`
+          // here is a measured count, not a placeholder: a shard that was never placed
+          // is a different fact from one that was placed and failed everywhere, and
+          // `ending` names which of the two this is.
+          attempted: [],
+          generations: 0,
+          ending: 'never-placed',
           // A shard that never ran has no result to describe, so this stays what it has
           // always been on this arm. The record of *why* is on `quorum` beside it, in the
           // composer's own words when a caller asked for refusal.
@@ -934,7 +1496,6 @@ export async function submitJob(
       }
 
       const shard = spec.shards[partitionIndex] as ShardSpec
-      const selectedExecutors = placement.nodeIds.map((nodeId) => execByNodeId.get(nodeId) as Executor)
       // Built once and spread into both branches. Never `moduleRecord: spec.moduleRecord`
       // inline — see `requestFor` above for why an explicit `undefined` is a different
       // thing here from an omitted field; downstream, `encodeRequest` would put the
@@ -959,10 +1520,138 @@ export async function submitJob(
               label: shard.label,
               ...provenance,
             }
-      const verification = await executeVerified(task, selectedExecutors)
+      // ── The generation loop — WIRE-04, CHURN-01, CHURN-04 ────────────────────────
+      //
+      // One shard, one task id, one lease at a time. Each pass places (the first pass
+      // is the job-level placement above, already done), grants a lease, dispatches
+      // under it, and decides whether there is anything left to try.
+      //
+      // The loop has exactly three exits and each is named on `ending`:
+      //   - the shard agreed at the redundancy it asked for, or disagreed;
+      //   - `placeAgain` found no untried eligible node;
+      //   - `leases.grant` returned null — the generations are spent, or the task is
+      //     already complete.
+      // Nothing else ends it. In particular no counter is kept here: the bound lives in
+      // the lease table, which is also where it is *recorded*, so "why did this shard
+      // stop" is answered by the same structure that stopped it.
+      const gate = gates[partitionIndex] as ShardGate
+      const shardId = String(partitionIndex)
+      const slotKey = capacitySlotKey(inputCid, partitionIndex)
+      // The evidence channel, or the stated absence of one. `spec.admit` is the only way
+      // this requestor can ask a node anything; with none supplied there is nothing to
+      // probe with and a lease can only lapse. See {@link JobSpec.admit}.
+      const askNode = spec.admit
+      const probe: ((nodeId: string) => Promise<boolean>) | null =
+        askNode === undefined
+          ? null
+          : async (nodeId: string): Promise<boolean> => {
+              try {
+                const answer = await askNode({ shardId: slotKey, nodeId })
+                return !answer.accepted && answer.reason === inFlightRefusal(slotKey)
+              } catch {
+                // A probe that threw told this requestor nothing. Silence with extra
+                // steps is still silence, and it is not evidence of work in progress.
+                return false
+              }
+            }
+
+      const attempted: string[] = []
+      const collectedRejections: Rejection[] = [...rejections]
+      let verification: VerificationResult | null = null
+      let generations = 0
+      let placementDegraded = placement.degraded
+      let nodeIds: readonly string[] = placement.nodeIds
+      let ending: ShardEnding = 'no-untried-node'
+
+      for (;;) {
+        // The lease names one holder, and it is the generation's first node. `LeaseTable`
+        // models one holder per task by construction — granting over a live lease would
+        // put two nodes on one task with neither told — so at redundancy > 1 the lease is
+        // the *generation's* deadline held in the name of the node the probe will ask
+        // about. That is stated rather than papered over: it is a per-generation
+        // deadline, not a per-replica one.
+        const holderId = nodeIds[0] as string
+        const lease = leases.grant(shardId, holderId, clock.now())
+        if (lease === null) {
+          ending = 'generations-spent'
+          break
+        }
+        generations += 1
+        attempted.push(...nodeIds)
+
+        const executors = nodeIds.map((nodeId) => execByNodeId.get(nodeId) as Executor)
+        const dispatched = await dispatchUnderLease(
+          () => executeVerified(task, executors),
+          lease,
+          leases,
+          clock,
+          probe,
+        )
+
+        if (dispatched.kind === 'answered') {
+          verification =
+            verification === null
+              ? dispatched.verification
+              : mergeVerifications(verification, dispatched.verification)
+          if (verification.status === 'disagreed') {
+            leases.complete(shardId, holderId, clock.now())
+            ending = 'disagreed'
+            break
+          }
+          if (verification.status === 'agreed' && verification.replicas >= spec.redundancy) {
+            leases.complete(shardId, holderId, clock.now())
+            ending = 'agreed'
+            break
+          }
+          // Observed failure, or an agreement short of the redundancy asked for. Either
+          // way the information is already in hand, so the lease is given back now rather
+          // than spending its full duration on it — `lease.ts`'s own argument for
+          // `surrender`. It still consumes the generation.
+          leases.surrender(shardId, holderId, clock.now())
+        } else {
+          // Silence, bounded. Reap **this task only**: a global sweep from inside one
+          // shard's loop would expire a sibling's live lease and its perfectly good
+          // completion would then be refused as stale.
+          leases.reap(clock.now(), shardId)
+        }
+
+        // How much is still missing. A shard that agreed at 1 of 2 needs one more
+        // replica, not two: asking for the full redundancy again would place a second
+        // complete copy and report a verification tax nobody spent.
+        const wanted =
+          verification !== null && verification.status === 'agreed'
+            ? spec.redundancy - verification.replicas
+            : spec.redundancy
+        const again = await placeAgain(
+          requestFor(shard, shardId, wanted),
+          gate.pool,
+          new Set(attempted),
+          spec.admit,
+        )
+        collectedRejections.push(...again.rejections)
+        if (!again.placed) {
+          ending = 'no-untried-node'
+          break
+        }
+        nodeIds = again.nodeIds
+        placementDegraded = placementDegraded || again.degraded
+      }
+
+      // A shard whose every generation lapsed or was refused a grant produced no
+      // verification at all. It is `insufficient` for the reason the loop stopped, which
+      // is a statement about the fabric rather than about any node.
+      const settled: VerificationResult = verification ?? {
+        status: 'insufficient',
+        reason:
+          ending === 'generations-spent'
+            ? `${shardId} used all ${DEFAULT_MAX_GENERATIONS} of its dispatch generations without an answer`
+            : `no node answered for ${shardId} and none is left untried`,
+        failures: [],
+      }
+
       // Persist an agreed result so it is retrievable by CID like any other block.
-      if (verification.status === 'agreed') {
-        const out = await canonicalCid(verification.output)
+      if (settled.status === 'agreed') {
+        const out = await canonicalCid(settled.output)
         if (out.ok) await blockstore.put(out.bytes)
       }
       // The receipt, built from the agreeing replicas' checked signatures. `resultCid` is
@@ -970,29 +1659,37 @@ export async function submitJob(
       // challenge is rebuilt from this requestor's own task and that CID, and nothing the
       // attestations carry is used to say what they are about.
       const attestation =
-        verification.status === 'agreed'
+        settled.status === 'agreed'
           ? receiptFor(
-              verification.agreeing,
+              settled.agreeing,
               {
                 moduleCid: spec.moduleCid,
                 inputCid,
                 partitionIndex,
-                outputCid: verification.resultCid,
+                outputCid: settled.resultCid,
               },
               descriptorByNodeId,
               now,
             )
-          : noAgreementToAttest(verification.status)
-      const gate = gates[partitionIndex] as ShardGate
+          : noAgreementToAttest(settled.status)
       return {
         partitionIndex,
         inputCid,
-        verification,
+        verification: settled,
+        attempted,
+        generations,
+        ending,
         // Either shortfall degrades the shard: fewer replicas than asked for, or the
-        // independence a composed quorum would have given it.
-        degraded: placement.degraded || gate.degraded,
+        // independence a composed quorum would have given it. The redundancy half is
+        // read off the replicas that ANSWERED — see {@link ShardResult.degraded} — so a
+        // shard topped up to full redundancy across two generations is not degraded,
+        // and one that agreed at half the redundancy it asked for is, which the
+        // placement-shaped test it replaced got wrong in exactly that case.
+        degraded:
+          gate.degraded ||
+          (settled.status === 'agreed' ? settled.replicas < spec.redundancy : placementDegraded),
         quorum: gate.quorum,
-        rejections,
+        rejections: collectedRejections,
         attestation,
       }
     }),
@@ -1017,6 +1714,8 @@ export async function submitJob(
       grossFuel: gross,
       usefulFuel: useful,
       verificationMultiplier: useful === 0 ? 0 : gross / useful,
+      redispatches: leases.redispatches,
+      leaseHistory: leases.history,
     },
   }
 }

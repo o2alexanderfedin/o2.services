@@ -127,6 +127,14 @@ function jobWith(shards: readonly ShardResult[]): JobResult {
     grossFuel: 0,
     usefulFuel: 0,
     verificationMultiplier: 1,
+    // A fixture job that never had to retry anything, stated rather than omitted: these
+    // literals stand for the *output* of a submission, and `submitJob` reports both of
+    // these on every job since Phase 20 gave a shard a second generation. `reduceJob`
+    // reads neither — it consumes `shards` and `attestation` — so the honest value here
+    // is the one a job with no churn produces, which is zero re-dispatches over a
+    // history whose only events would be the grants and completions of a clean run.
+    redispatches: 0,
+    leaseHistory: [],
   }
 }
 
@@ -143,6 +151,14 @@ function agreed(partitionIndex: number, output: CanonicalValue): ShardResult {
     inputCid: FIXED_CID,
     degraded: false,
     rejections: [],
+    // One generation, one node, no re-dispatch — the shape of a shard that agreed the
+    // first time it was asked. `'w0'` is the same node `verification.agreeing` names
+    // below, because the set attempted and the set that answered coincide exactly when
+    // nothing failed, and inventing a second name here would describe a retry this
+    // fixture did not have.
+    attempted: ['w0'],
+    generations: 1,
+    ending: 'agreed',
     attestation: {
       kind: 'holds-no-verified-attestation',
       reason: 'the executor this fixture stands for signs nothing',
@@ -178,6 +194,12 @@ function insufficient(partitionIndex: number): ShardResult {
     degraded: true,
     // Empty for the same reason as `agreed` above: no offer was made here.
     rejections: [],
+    // A shard nobody would take, so nothing was ever attempted and no generation ran.
+    // `'never-placed'` rather than `'no-untried-node'`: this fixture stands for the
+    // unplaceable arm, which is reached before the generation loop is entered at all.
+    attempted: [],
+    generations: 0,
+    ending: 'never-placed',
     attestation: {
       kind: 'holds-no-verified-attestation',
       reason: 'this shard is insufficient rather than agreed, so there is no agreement to attest',
