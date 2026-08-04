@@ -4,6 +4,9 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
+import { MemoryBlockstore } from '@o2/core'
+import { describeKeyFailure, translationCid } from '@o2/aot'
+import type { TranslationRecord } from '@o2/aot'
 import {
   CROSS_MACHINE_BLIND_SPOT,
   DEFAULT_TIMEOUT_MS,
@@ -25,6 +28,7 @@ import {
   resolveImage,
   scanStream,
   scanToolchainOutput,
+  translationKeyOf,
   unidentifiedIn,
   verdictOf,
 } from './lift.ts'
@@ -714,11 +718,20 @@ describe('the verdict admits only what has been both explained and measured', ()
  * One rendering fixture, varied by spreading over it.
  *
  * Held at module scope rather than inside the block below, so the blocks that need a
- * different {@link UndecodedProbe} change one field instead of restating a
- * seventeen-field literal — three copies of which would drift the moment
- * `LiftedArtifact` grows a field, and drift in a *fixture* is invisible.
+ * different {@link UndecodedProbe} change one field instead of restating the whole
+ * literal — three copies of which would drift the moment `LiftedArtifact` grows a
+ * field, and drift in a *fixture* is invisible.
+ *
+ * **The field count that used to be in this sentence is gone.** It read
+ * "seventeen-field" while `LiftedArtifact` declared sixteen, which is the same class of
+ * defect the sentence is warning about: a number in a comment that no test reads, left
+ * behind by the field that moved it. The argument does not need the number.
+ *
+ * Split in two because {@link translationRecordFor} is `async` and the whole artifact
+ * cannot exist until it has answered. See that function for why this is not a
+ * `beforeAll`.
  */
-const RENDERED_ARTIFACT: LiftedArtifact = {
+const RENDERED_ARTIFACT_BASE: Omit<LiftedArtifact, 'translation'> = {
   bytes: new Uint8Array(bytes(WASM_HEADER, REAL_SECTION)),
   verdict: 'reservations',
   target: LIFT_TARGET,
@@ -747,6 +760,47 @@ const RENDERED_ARTIFACT: LiftedArtifact = {
   durationMs: 95_000,
   stdout: '',
   stderr: '',
+}
+
+/**
+ * The `TranslationRecord` an artifact would be given, computed rather than pinned.
+ *
+ * A literal CID written down here would be a second conformance vector with none of
+ * `CONFORMANCE_CID`'s documented discipline behind it — `cache-key.test.ts` already
+ * holds one, and its docblock says changing it "is not a test edit". Two of those, one
+ * of them undocumented, is how a pinned value quietly becomes a value somebody updates
+ * to match the code.
+ *
+ * `artifactCid` comes from a real {@link MemoryBlockstore} rather than from the
+ * driver's own hashing, so the fixture's own name is checked against the thing that
+ * answers `blockstore.get` rather than against the thing that produced it.
+ */
+async function translationRecordFor(
+  artifact: Omit<LiftedArtifact, 'translation'>,
+): Promise<TranslationRecord> {
+  const named = await translationCid(translationKeyOf(artifact))
+  if (!named.ok) throw new Error(describeKeyFailure(named.failure))
+  const artifactCid = await new MemoryBlockstore().put(new Uint8Array(artifact.bytes))
+  return { keyCid: named.cid, key: named.key, artifactCid }
+}
+
+/**
+ * Built at module scope with top-level await, and **deliberately not in a `beforeAll`.**
+ *
+ * The reason is mechanical rather than stylistic. `describeLift(artifact)` is called in
+ * the *describe body* immediately below, which executes during collection — before any
+ * `beforeAll` hook runs. A `translation` populated in a hook is `undefined` there, and
+ * the assertions Plan 21-02 adds read `artifact.translation.keyCid.toString()`, so the
+ * file would throw at collection and take every case in it down rather than failing one.
+ * `translationCid` is `async` and `sha256.digest` returns an awaitable, so there is no
+ * synchronous route either.
+ *
+ * Top-level await was **verified to run in this runner**, not assumed: the file is ESM
+ * (`tsconfig.json` sets `module: "esnext"`) and vitest evaluates it as a module.
+ */
+const RENDERED_ARTIFACT: LiftedArtifact = {
+  ...RENDERED_ARTIFACT_BASE,
+  translation: await translationRecordFor(RENDERED_ARTIFACT_BASE),
 }
 
 describe('a rendered lift carries its reservations in the same string as its numbers', () => {
@@ -1579,17 +1633,32 @@ describe('an artifact the driver cannot provenance is not returned', () => {
     expect(describeLift(outcome.artifact)).toContain('provenance incomplete')
   })
 
-  it('reports an empty value as unidentified, not as a version', async () => {
-    // `clang=` is what `printf 'clang=%s\n' "$(clang-16 --version)"` writes when the
-    // command says nothing. It reached the cache key as `''` and was reported by
-    // `translationCid` as a blank *key* field rather than as absent provenance.
+  it('stops on an empty value rather than returning an artifact it cannot name', async () => {
+    /**
+     * **This case asserted `ok: true` until the pipeline started naming its output.**
+     *
+     * `clang=` is what `printf 'clang=%s\n' "$(clang-16 --version)"` writes when the
+     * command says nothing, and `parseMeta` keeps it as `''`. The claim it was written
+     * for — that an empty value is unidentified rather than a version — is unchanged and
+     * is held directly by the `unidentifiedIn` cases above. What changed is what the
+     * *driver* does with it: `liftElf` now calls `translationCid`, which refuses a blank
+     * version, so this lift has no name and is not returned.
+     *
+     * That is the outcome `LiftedArtifact.unidentifiedTools`' own doc was already written
+     * against — it keeps `''` and `'unknown'` spelled differently in the record
+     * *because* one of them is refused and the other is not. The refusal was simply
+     * unreachable while nothing in the pipeline asked for a name.
+     */
     const docker = stubDockerProducing(wasmPath, 'clang=')
     const { result: outcome } = await despiteAFullProcessTable(() =>
       liftElf(stubElfPath, { docker: docker.path, timeoutMs: METADATA_BUDGET_MS }),
     )
-    expect(outcome.ok, outcome.ok ? '' : describeLiftFailure(outcome.failure)).toBe(true)
-    if (!outcome.ok) return
-    expect(outcome.artifact.unidentifiedTools).toContain('clang')
+    expect(outcome.ok).toBe(false)
+    if (outcome.ok) return
+    expect(outcome.failure).toEqual({
+      kind: 'unnameable',
+      reason: { kind: 'blank-version', tool: 'clang' },
+    })
   })
 })
 
@@ -1630,6 +1699,217 @@ describe('a stub lift completes, so the harness the refusals invert is known to 
     // The container was actually asked to run, which the assertions above cannot show:
     // a driver that fabricated an artifact would satisfy all of them.
     expect(docker.invocations().some((line) => line.startsWith('run '))).toBe(true)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// The name the pipeline gives what it produced — AOT-02.
+// ---------------------------------------------------------------------------
+
+/** The emitted key's CID as a string, so a sweep can compare two of them. */
+const cidOf = async (artifact: LiftedArtifact): Promise<string> => {
+  const named = await translationCid(translationKeyOf(artifact))
+  expect(named.ok, named.ok ? '' : describeKeyFailure(named.failure)).toBe(true)
+  if (!named.ok) throw new Error(describeKeyFailure(named.failure))
+  return named.cid.toString()
+}
+
+/**
+ * `translationKeyOf` maps four fields, and the sweep runs in both directions.
+ *
+ * Extracted from the call site rather than inlined there, and the reason is what makes
+ * this block possible at all: the roadmap criterion is about *the emitted* CID, and a
+ * pipeline that silently dropped `requiredFeatures` from the key would pass every
+ * assertion `cache-key.test.ts` makes about `translationCid` in isolation. Extracted,
+ * the coverage claim is measurable with no container anywhere in it; inlined, the only
+ * probe is a full lift per field, which nobody will run — the one lift ever timed was
+ * measured at 95 s.
+ *
+ * **Both directions, because one of them alone is not a measurement.** That a covered
+ * field moves the CID says the key is not empty; that an uncovered one does not is what
+ * says the key is a *key* rather than a hash of the build log. A key that moved with
+ * `durationMs` would never match twice on any host, and every assertion in the first
+ * half would still pass.
+ */
+describe('the name covers what changed the bytes, and nothing that did not', () => {
+  it('maps exactly the four fields the criterion names', () => {
+    // Field by field, because the CID sweep below would also pass for a function that
+    // hashed the whole artifact — every flip would move that CID too.
+    const key = translationKeyOf(RENDERED_ARTIFACT)
+    expect(key.inputDigest).toBe(RENDERED_ARTIFACT.inputDigest)
+    expect(key.target).toBe(RENDERED_ARTIFACT.target)
+    expect(key.toolchain).toEqual(RENDERED_ARTIFACT.toolchain)
+    expect(key.features).toEqual(RENDERED_ARTIFACT.requiredFeatures)
+    // …and nothing else. A fifth key would be a field the criterion does not name,
+    // silently entering the identity of every translation.
+    expect(Object.keys(key).sort()).toEqual(['features', 'inputDigest', 'target', 'toolchain'])
+  })
+
+  it('moves when the input digest moves', async () => {
+    expect(await cidOf({ ...RENDERED_ARTIFACT, inputDigest: 'ff00' })).not.toBe(
+      await cidOf(RENDERED_ARTIFACT),
+    )
+  })
+
+  it('moves when the target moves', async () => {
+    // The cast exists because `target` is a literal type. The claim under test is about
+    // the key's coverage, not about whether this driver can emit a second target — it
+    // cannot, deliberately, and `LIFT_TARGET`'s own doc says why.
+    expect(
+      await cidOf({ ...RENDERED_ARTIFACT, target: 'aarch64-wasi32-other' as typeof LIFT_TARGET }),
+    ).not.toBe(await cidOf(RENDERED_ARTIFACT))
+  })
+
+  it('moves when any toolchain version moves', async () => {
+    const baseline = await cidOf(RENDERED_ARTIFACT)
+    // Every entry that is present, one at a time. A key built from a hardcoded subset
+    // would pass for whichever entries it happened to include.
+    for (const tool of Object.keys(RENDERED_ARTIFACT.toolchain)) {
+      const moved = {
+        ...RENDERED_ARTIFACT,
+        toolchain: { ...RENDERED_ARTIFACT.toolchain, [tool]: 'something-else' },
+      }
+      expect(await cidOf(moved), `${tool} did not move the key`).not.toBe(baseline)
+    }
+  })
+
+  it('moves when a toolchain entry is added', async () => {
+    // Not the same claim as changing one. A key built by reading six known names would
+    // hold still here while the toolchain that ran genuinely differed.
+    const moved = {
+      ...RENDERED_ARTIFACT,
+      toolchain: { ...RENDERED_ARTIFACT.toolchain, 'wasi-sdk': '20.0' },
+    }
+    expect(await cidOf(moved)).not.toBe(await cidOf(RENDERED_ARTIFACT))
+  })
+
+  it('moves when the required feature set moves', async () => {
+    // The mutation "drop `requiredFeatures` from `translationKeyOf`" fires exactly here
+    // and nowhere else in the repository.
+    expect(await cidOf({ ...RENDERED_ARTIFACT, requiredFeatures: ['simd128'] })).not.toBe(
+      await cidOf(RENDERED_ARTIFACT),
+    )
+  })
+
+  it('holds still for everything the container did not decide', async () => {
+    const baseline = await cidOf(RENDERED_ARTIFACT)
+    const irrelevant: readonly Partial<LiftedArtifact>[] = [
+      { durationMs: 1 },
+      { stdout: 'INFO: something' },
+      { stderr: 'a warning nobody parsed' },
+      { findings: [] },
+      { unparsed: [{ stream: 'stdout', text: '[Bug] something new' }] },
+      { declaredFeatures: [] },
+      { unidentifiedTools: ['wasmedge'] },
+      { undecoded: PROBE_COUNTED_ONLY },
+      { blindSpots: [CROSS_MACHINE_BLIND_SPOT] },
+    ]
+    for (const change of irrelevant) {
+      const [field] = Object.keys(change)
+      expect(await cidOf({ ...RENDERED_ARTIFACT, ...change }), `${field} moved the key`).toBe(
+        baseline,
+      )
+    }
+  })
+})
+
+describe('a lift the pipeline cannot name is a failure, not a success called unknown', () => {
+  it('emits the key CID a caller recomputes from the artifact it was handed', async () => {
+    const docker = stubLift()
+    const { result: outcome } = await despiteAFullProcessTable(() =>
+      liftElf(stubElfPath, { docker: docker.path, timeoutMs: METADATA_BUDGET_MS }),
+    )
+    expect(outcome.ok, outcome.ok ? '' : describeLiftFailure(outcome.failure)).toBe(true)
+    if (!outcome.ok) return
+
+    // Recomputed here from the artifact's own fields, so this fails for a pipeline that
+    // named a *different* key than the one its artifact describes — a stale digest, a
+    // toolchain read before the last entry was added.
+    expect(outcome.artifact.translation.keyCid.toString()).toBe(await cidOf(outcome.artifact))
+    // And the key travels with the CID, so a mismatch can be read rather than guessed.
+    expect(outcome.artifact.translation.key).toEqual(translationKeyOf(outcome.artifact))
+  })
+
+  it('names the artifact by the CID a blockstore would answer to', async () => {
+    const docker = stubLift()
+    const { result: outcome } = await despiteAFullProcessTable(() =>
+      liftElf(stubElfPath, { docker: docker.path, timeoutMs: METADATA_BUDGET_MS }),
+    )
+    expect(outcome.ok, outcome.ok ? '' : describeLiftFailure(outcome.failure)).toBe(true)
+    if (!outcome.ok) return
+
+    // A real `MemoryBlockstore`, not a recomputation of the same two lines. `put`
+    // returns the CID `get` answers to, and `FsBlockstore.put` computes it identically —
+    // the codec is dag-cbor even though the payload is a WASM binary. The mutation "use
+    // `raw` because the bytes are opaque" produces a well-formed CID that no
+    // `blockstore.get` in this repository ever answers, and fires here; nothing else
+    // would notice until an agent failed to resolve an artifact. Plan 21-05 is the
+    // end-to-end version, where a spawned agent has to actually find it by this name.
+    const stored = await new MemoryBlockstore().put(new Uint8Array(outcome.artifact.bytes))
+    expect(outcome.artifact.translation.artifactCid.toString()).toBe(stored.toString())
+  })
+
+  it('refuses a lift whose toolchain reported a blank version', async () => {
+    // `clang=` is what the container writes when `clang-16 --version` says nothing.
+    // `parseMeta` trims, so it arrives as `''` rather than `undefined`, the `?? 'unknown'`
+    // fallback does not fire, and `translationCid` refuses it. Driven through `liftElf`
+    // rather than through `translationCid` directly: the criterion is about the pipeline.
+    const docker = stubLift({ meta: { clang: '' } })
+    const { result: outcome } = await despiteAFullProcessTable(() =>
+      liftElf(stubElfPath, { docker: docker.path, timeoutMs: METADATA_BUDGET_MS }),
+    )
+    // The mutation "report the blank version as a silent `'unknown'`" turns this
+    // `ok: false` into an `ok: true`, and the assertion fires.
+    expect(outcome.ok).toBe(false)
+    if (outcome.ok) return
+    expect(outcome.failure).toEqual({
+      kind: 'unnameable',
+      reason: { kind: 'blank-version', tool: 'clang' },
+    })
+  })
+
+  it('says which tool was blank, in the codec’s own words', async () => {
+    const text = describeLiftFailure({
+      kind: 'unnameable',
+      reason: { kind: 'blank-version', tool: 'clang' },
+    })
+    expect(text).toContain('clang')
+    expect(text).not.toContain('[object')
+    // Delegated to `describeKeyFailure` rather than restated, so the two cannot drift
+    // into two different accounts of one refusal.
+    expect(text).toContain(describeKeyFailure({ kind: 'blank-version', tool: 'clang' }))
+  })
+
+  it('names a lift whose toolchain said the word "unknown" — the limit of the refusal', async () => {
+    /**
+     * Anti-vacuity for the refusal above, and a **measured limit rather than a green.**
+     *
+     * The refusal covers *blank* and only blank, because that is all `translationCid`
+     * can see. `'unknown'` is a version as far as it is concerned, so this lift is named
+     * and the string goes into the key — and the container writes exactly that string
+     * itself, twice: `${WASI_VERSION_FULL:-unknown}` and
+     * `git rev-parse HEAD || echo unknown`. Without this case the refusal above would
+     * pass just as well if every partial lift had become unnameable, so it is needed;
+     * with it, the hole is written down instead of implied.
+     *
+     * `unidentifiedTools` does **not** report it either — `unidentifiedIn` asks whether
+     * the value is empty, and this one is not. So an artifact can claim full provenance
+     * while carrying a toolchain entry that identifies nothing. That is the failure
+     * `provenance-unreadable`'s own doc calls "the one wrong value `translationCid`
+     * cannot catch", reached through the *partial* branch rather than the wholesale one.
+     * Closing it is not this plan's to do — it would move the line between the two halves
+     * of the provenance split — but it is not fixed by anything here and must not read
+     * as if it were.
+     */
+    const docker = stubLift({ meta: { wasmedge: 'unknown' } })
+    const { result: outcome } = await despiteAFullProcessTable(() =>
+      liftElf(stubElfPath, { docker: docker.path, timeoutMs: METADATA_BUDGET_MS }),
+    )
+    expect(outcome.ok, outcome.ok ? '' : describeLiftFailure(outcome.failure)).toBe(true)
+    if (!outcome.ok) return
+    expect(outcome.artifact.toolchain['wasmedge']).toBe('unknown')
+    expect(outcome.artifact.unidentifiedTools).toEqual([])
+    expect(outcome.artifact.translation.keyCid.toString()).toBe(await cidOf(outcome.artifact))
   })
 })
 
@@ -1769,6 +2049,7 @@ describe('the driver fails by name, and fails early', () => {
         path: '/tmp/o2-lift-x/meta.txt',
         detail: 'ENOENT',
       },
+      unnameable: { kind: 'unnameable', reason: { kind: 'blank-version', tool: 'clang' } },
     }
     for (const [key, failure] of Object.entries(every)) {
       const text = describeLiftFailure(failure)
@@ -2255,6 +2536,14 @@ describe('a real binary goes through the real toolchain', () => {
       expect(two.inputDigest).toBe(one.inputDigest)
       expect(two.toolchain).toEqual(one.toolchain)
       expect(two.requiredFeatures).toEqual(one.requiredFeatures)
+      // The **emitted** CID, not only its ingredients. Without this line the repeat half
+      // of the roadmap criterion is asserted of the three fields above and never of the
+      // name the pipeline actually produced — and the mutation "seed the key with
+      // something the container did not determine", a timestamp or a work-directory
+      // name, fires here and nowhere else in the repository.
+      expect(two.translation.keyCid.equals(one.translation.keyCid)).toBe(true)
+      // Same bytes, so the same artifact name too.
+      expect(two.translation.artifactCid.equals(one.translation.artifactCid)).toBe(true)
     },
     INTEGRATION_TIMEOUT_MS,
   )
