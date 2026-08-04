@@ -115,16 +115,31 @@ export interface CandidateOptions {
    */
   readonly peerIdFor: (nodeKey: PublicKeyHex) => string | null
   /**
-   * AUTH-03's chain supplier, or `'dispatches-unauthenticated'`. Handed to every
-   * executor built here.
+   * AUTH-03's chain supplier, **selected per candidate**, or
+   * `'dispatches-unauthenticated'`.
    *
    * A **supplier**, not an array: one `RemoteExecutor` serves every shard of a job and
    * shards may name different owners, so the chain is selected per task. This mirrors
    * `RemoteExecutor`'s third constructor parameter exactly, and it is required for the
    * reason that parameter is required — an optional hook with a silent default would
    * mean a candidate built without one dispatches unauthenticated and nothing fails.
+   *
+   * **A function OF THE NODE ID that returns that supplier, and until 2026-08-03 it was
+   * the bare supplier — which made every sovereign candidate this helper built
+   * undispatchable.** The reason is `RemoteExecutor`'s own: *"the audience a chain must
+   * end at is `this` remote node's key: a chain minted for node A is refused at node B
+   * with `wrong-audience`"*. One supplier shared across a whole candidate set can name at
+   * most one audience, so every other candidate it built was refused — and because a
+   * public task returns `[]` and every caller in the repository passed the sentinel, a
+   * `tsc`-clean, test-green fabric had **no path at all** by which discovery could place
+   * an authenticated sovereign shard. Found while closing AUTH-05, whose whole claim is
+   * that the scheduler can target an owner's replica set.
+   *
+   * A caller with one chain for everybody writes `() => supplier` and loses nothing; a
+   * caller minting per-node chains — which is every sovereign caller, by construction —
+   * can now express one. The sentinel arm is unchanged, so no existing call site moved.
    */
-  readonly dispatch: CapabilitySupplier | 'dispatches-unauthenticated'
+  readonly dispatch: ((nodeId: string) => CapabilitySupplier) | 'dispatches-unauthenticated'
 }
 
 export interface CandidateSet {
@@ -195,7 +210,17 @@ export async function discoverCandidates(
       undialable.push(executor.nodeKey)
       continue
     }
-    executors.push(new RemoteExecutor(peerId, options.rpc, options.dispatch))
+    // The chain is minted for **this** peer id, which is the same id the executor
+    // dispatches to and the same id the descriptor below is keyed on — so a chain can
+    // never end at an audience other than the node it is sent to. See
+    // `CandidateOptions.dispatch` for why the per-node indirection exists at all.
+    executors.push(
+      new RemoteExecutor(
+        peerId,
+        options.rpc,
+        options.dispatch === 'dispatches-unauthenticated' ? options.dispatch : options.dispatch(peerId),
+      ),
+    )
     nodes.push({
       // The SAME id on both, and it is the transport's — building the descriptor on
       // the node key while the executor is keyed on the peer id is the exact
