@@ -40,7 +40,7 @@ import { FabricNode } from './fabric-node.ts'
  *
  * ## The mechanism, stated so nobody looks for a missing one
  *
- * A tab holds no reservations of its own. `browser-node.ts:1201` supplies
+ * A tab holds no reservations of its own. `browser-node.ts`'s `serveAgent` call supplies
  * `reservations: 'relays-for-nobody'` — a **named absence, not an omission** — so tabs
  * do not answer each other's rendezvous and none of them is ever asked. **They both ask
  * the relay**, which is a `FabricNode` holding a real thunk over its own reservation
@@ -51,7 +51,7 @@ import { FabricNode } from './fabric-node.ts'
  * circuit is 2 minutes and 128 KiB and `PROJECT.md` records that it may not carry a job.
  *
  * The other hook criterion 4 names is `index`, and it is genuinely wired on both tiers
- * (`browser-node.ts:1337`, byte-identical to `fabric-node.ts:1672`) — that is what makes
+ * (each tier's `serveAgent` call passes a byte-identical `index: records`) — that is what makes
  * each of these tabs a full routing peer rather than a client of one. The rendezvous
  * answer and the routing hook are two different hooks on two different nodes, and the
  * roadmap's phrasing was corrected accordingly on 2026-08-03.

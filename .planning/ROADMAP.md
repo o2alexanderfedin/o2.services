@@ -690,14 +690,19 @@ Criterion 6 needs no plan — it landed on `develop` as `351bde1` before this ph
      WHAT IT USED TO SAY. *"discover each other via the wired `index`/`reservations` hooks"*.
      That reads as though both hooks were wired on both tiers, and one of them is not.
 
-     WHAT WAS MEASURED. `index` is wired on both tiers and identically: `index: records` at
-     `browser-node.ts:1337` and `fabric-node.ts:1672`, each built by the same `ownRecords(
-     certificate, identity, sovereignty.canExecuteSovereign, store, withholdingFrom(
-     egressDisposition))` call over its own tier's store. `reservations` is wired on the Node
-     tier only — a real thunk over the reservation store at `fabric-node.ts:1695` — while the
-     browser tier supplies the **named absence** `'relays-for-nobody'` at `browser-node.ts:1388`.
-     (Line citations corrected 2026-08-04, verification warning W2 — the wiring is exactly as
-     described; only the numbers had drifted.)
+     WHAT WAS MEASURED. `index` is wired on both tiers and identically: each tier's
+     `serveAgent` call passes `index: records`, built by the same `ownRecords(certificate,
+     identity, sovereignty.canExecuteSovereign, store, withholdingFrom(egressDisposition))`
+     call over its own tier's store. `reservations` is wired on the Node tier only — a real
+     thunk over the reservation store, `reservations: () => node.reservedPeerIds` — while the
+     browser tier supplies the **named absence** `reservations: 'relays-for-nobody'`.
+
+     CITED BY SYMBOL, NOT BY LINE, and that is the correction rather than the numbers.
+     Warning W2 flagged four drifted line citations on 2026-08-04; they were corrected, and a
+     commit later the same day moved every one of them again by one line (W9). Three rounds of
+     chasing the same four numbers is enough evidence: a line number is an ABSOLUTE reference
+     into a file that keeps changing, and it rots silently while reading like evidence. A
+     grep-able symbol survives every edit that does not change the thing being cited.
 
      WHY NOT SIMPLY NAME `index` ALONE. `19-CONTEXT.md` proposed exactly that, and the owner
      ruled on 2026-08-03 that it **understates** the criterion. Both hooks are load-bearing;

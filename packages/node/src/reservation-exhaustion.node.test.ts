@@ -124,6 +124,27 @@ interface AgentHandshake {
 }
 
 /**
+ * The half of "still serving directly" that this file used to assert nowhere.
+ *
+ * **Verification warning W10, 2026-08-04.** Both surviving cases claimed a node refused by a
+ * relay, or unable to reach one, *"still serves every peer that can reach it directly"* — and
+ * asserted only `relays === []` and `exitCode === null`. Neither reads a dialable address,
+ * though `multiaddrs` has been on the handshake since the file was written. The docblock at the
+ * head of this file names that exact failure mode, twelve lines above the assertions that missed
+ * it, which is why it survived: **the claim was made in prose and checked nowhere.**
+ *
+ * Proved rather than argued: with `bin/agent.ts` planted to bind nothing, this file exited **0,
+ * 1 passed** — a node serving no one satisfied every assertion about it serving directly.
+ *
+ * A `/p2p-circuit` address is excluded deliberately. It is exactly what these two nodes do not
+ * have, and counting one would make the check pass for the node it exists to catch.
+ */
+function expectStillServingDirectly(node: AgentHandshake, label: string): void {
+  const direct = node.multiaddrs.filter((address) => !address.includes('/p2p-circuit'))
+  expect(direct, `${label} announced no non-circuit address: ${JSON.stringify(node.multiaddrs)}`).not.toHaveLength(0)
+}
+
+/**
  * Spawn an agent and read its one-line handshake, by name.
  *
  * **`--port 0` is stated rather than left to a default, and every case below depends on
@@ -255,6 +276,7 @@ describe('NET-05 criterion 4 — a full seed refuses a real joiner by name', () 
     // can reach it directly, which is why it announced a handshake at all.
     expect(b.relays).toStrictEqual([])
     expect(b.child.exitCode).toBeNull()
+    expectStillServingDirectly(b, 'b')
 
     // ---- C: the relay is not there. ---------------------------------------------
     // Port 1 is never listening. Before this plan this case did not produce a named
@@ -276,5 +298,6 @@ describe('NET-05 criterion 4 — a full seed refuses a real joiner by name', () 
     // Not fatal. It announced, so it is serving.
     expect(c.child.exitCode).toBeNull()
     expect(c.peerId).not.toBe('')
+    expectStillServingDirectly(c, 'c')
   }, PROCESS_TEST_TIMEOUT)
 })

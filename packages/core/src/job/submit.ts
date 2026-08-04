@@ -123,8 +123,12 @@ export interface JobSpec {
    *
    * ## Where this field is read, and what it decides
    *
-   * **`:802-803` of this file, and nowhere else** — confirmed by grep, which finds
-   * exactly three occurrences of the name: this declaration and those two lines. They
+   * **On the `degraded` / `refusal` pair of this file's shard result, and nowhere else** —
+   * confirmed by grep, which finds exactly three occurrences of the name: this declaration
+   * and those two. (Cited by symbol rather than by line: this paragraph gave `:802-803`
+   * when its own +14-line edit had already moved the readers to `:816-817`, and a later
+   * commit moved them again. A line number is an absolute reference to a file that keeps
+   * changing; a symbol is not.) They
    * sit on the arm reached only when composition was *attempted and refused*, so the
    * dial is consulted where there is a shortfall and never where no quorum was asked
    * for. `'runs-at-available-redundancy'` sets `degraded: true` and leaves `refusal`
