@@ -111,9 +111,10 @@ this host's load on the day it was written.
 
 **Process cost, not machine load.** `/usr/bin/time -p` on the three-file verification run:
 `real 11.61`, `user 45.01`, `sys 7.30` → `(user+sys)/real = 4.51`, three files in parallel.
-On the whole `--project node` run: `real 256.40`, `user 234.56`, `sys 36.28` →
-`(user+sys)/real = 1.06`, with three other agents running their own suites on this host
-throughout — the ratio is a comparability key, not a verdict.
+On the whole `--project node` run: `real 240.75`, `user 233.45`, `sys 36.27` →
+`(user+sys)/real = 1.12` (the earlier of the two full runs read `256.40 / 234.56 / 36.28`,
+i.e. `1.06`), with other agents running their own suites on this host throughout — the ratio
+is a comparability key, not a verdict.
 
 ## Every plant, and the text observed
 
@@ -240,27 +241,35 @@ returns only the two files this plan touched.
 |---|---|
 | `npx tsc --noEmit` | **exit 0** |
 | `npx vitest run --project node late-combine + tree-reduce-agents + net/rpc.test` | **exit 0** — 3 files, 15 tests |
-| `npx vitest run --project node` (full) | **exit 1** — 141 files, 2021 tests, 5 failed, **none in this plan's files** |
+| `npx vitest run --project node` (full, final) | **exit 1** — 141 files, 2026 tests, **1** failed, **not in this plan's files** |
 
-### The five failures in the full run, attributed by measurement
+`real 240.75`, `user 233.45`, `sys 36.27` → `(user+sys)/real = 1.12`, with concurrent agents
+on the host.
 
-None is in `late-combine.node.test.ts`, `tree-reduce-agents.node.test.ts` or `rpc.test.ts`,
-all three of which passed.
+### The one failure in the final run, and the three that had cleared by then
 
-1. **`bench-attestation.node.test.ts` — "did not move the sweep, and wrote nothing into the
-   repository".** This is one of the two specs that snapshot `git status --porcelain` around
-   themselves. The diff **names the cause**: `+ ?? .planning/phases/phase-20-…/20-02-SUMMARY.md`
-   — a concurrent agent created its summary mid-run. Attributed by the assertion's own output,
-   not by plausibility.
-2. **`discovery-agents.node.test.ts` — "re-picks past a node genuinely at its slot limit"**,
-   `expected 'agreed' to be 'insufficient'`. This is **the armed tripwire 20-CONTEXT.md
-   predicts by name**: *"Adding the re-pick makes that test go RED, and that is CORRECT — it
-   is the scheduled clause arriving, not a regression. 20-04 rewrites the assertion."* 20-01
-   has landed the re-pick; 20-04 owns the assertion.
-3–5. **`mutation-guard.node.test.ts` — M45 and the two aggregate arms**, all naming
-   `packages/core/src/job/submit.ts`, a concurrent agent's in-flight file. M36 was red earlier
-   in this session for the same reason and has since been repaired by its owner. 20-CONTEXT.md
-   records this drift as the scheduled arrival of WIRE-04.
+`late-combine.node.test.ts`, `tree-reduce-agents.node.test.ts` and `rpc.test.ts` all passed;
+`grep -c` for those three names over the failure output returns **0**.
+
+**Still red: `discovery-agents.node.test.ts` — "re-picks past a node genuinely at its slot
+limit"**, `expected 'agreed' to be 'insufficient'`. This is **the armed tripwire
+20-CONTEXT.md predicts by name**: *"Adding the re-pick makes that test go RED, and that is
+CORRECT — it is the scheduled clause arriving, not a regression. 20-04 rewrites the
+assertion."* 20-01 has landed the re-pick; 20-04 owns the assertion. Not this plan's.
+
+**Cleared between the two full runs taken here**, both recorded because the earlier reading
+is what the commits in this plan were made against:
+
+- **`bench-attestation.node.test.ts` — "did not move the sweep, and wrote nothing into the
+  repository"** was red on the first run. It is one of the two specs that snapshot
+  `git status --porcelain` around themselves, and its diff **named the cause**:
+  `+ ?? .planning/phases/phase-20-…/20-02-SUMMARY.md` — a concurrent agent created its summary
+  mid-run. Attributed by the assertion's own output, not by plausibility. Green on the final
+  run.
+- **`mutation-guard.node.test.ts` — M36, then M45 and two aggregate arms**, all naming
+  `packages/core/src/job/submit.ts`, a concurrent agent's in-flight file. 20-CONTEXT.md
+  records M36's drift as the scheduled arrival of WIRE-04. Repaired by its owner during this
+  session; green on the final run.
 
 ### `O2_SKIP_GUARDS=1` was used — stated loudly
 
