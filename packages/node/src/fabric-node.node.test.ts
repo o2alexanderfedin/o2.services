@@ -312,17 +312,19 @@ describe("DATA-09 and AUTH-03's serving half — three node shapes, four dispatc
     const moduleCid = await submitter.store.put(MODULE_WRITES_PARTITION)
     // AOT-04. The WASI counterpart of the module above, over the identical input:
     // `0x80` is DAG-CBOR for the empty array, and `wasi-echo` copies stdin to stdout,
-    // so a run that reaches the executor comes back `ok: true` with that same value.
+    // so a run that reaches the executor produces that same value.
     //
-    // **Why it is in this block and not one of its own.** The native assertions here
-    // are green for a router composed *outside* `guardSovereignty` as well as inside
-    // it: the guard returns before `inner.execute` (`sovereignty-guard.ts`), and the
-    // native arm carries the guard in either composition. So a mis-composition —
-    // `new AbiExecutor({ native: <guarded>, wasi: <unguarded> })` — leaves every
-    // pre-existing case below green while every sovereign WASI task walks past the
-    // gate. The WASI dispatches at 2b and 3b are the only observation in this
-    // repository that separates the two compositions, and they sit beside their
-    // native counterparts so the next reader of this block can see that.
+    // **Why these dispatches are in this block and not one of their own.** Every
+    // pre-existing assertion here is green for a router composed *outside*
+    // `guardSovereignty` as well as inside it. `guardSovereignty` returns before
+    // `inner.execute` (`sovereignty-guard.ts`), so a mis-composition —
+    // `new AbiExecutor({ native: <guarded>, wasi: <unguarded> })` — leaves the native
+    // arm guarded, every native case below green, and every sovereign WASI task
+    // walking past the gate. 2b is the reading that goes red on that composition, and
+    // 3b/3c are its controls: without them, "the WASI task was refused" is equally
+    // well explained by a node that cannot run a WASI module at all. The three sit
+    // beside their native counterparts so the next reader of this block can see which
+    // assertion is carrying which claim.
     const wasiCid = await submitter.store.put(wasiEcho)
     const inputCid = await submitter.store.put(new Uint8Array([0x80]))
 
@@ -398,15 +400,45 @@ describe("DATA-09 and AUTH-03's serving half — three node shapes, four dispatc
     ).execute(sovereignTask)
     expect(accepted.ok).toBe(true)
 
-    // 3b. And the control that makes 2b mean something: without this, "the WASI task
-    // was refused" is equally well explained by a node that cannot run WASI at all.
-    // The cleared node runs it and returns the echoed value.
-    const acceptedWasi = await new RemoteExecutor(
+    // 3b. The control that makes 2b mean something: without it, "the WASI task was
+    // refused" is equally well explained by a node that cannot run a WASI module at
+    // all, whatever its clearance.
+    //
+    // **It cannot be the same shape as case 3, and the reason is a measurement rather
+    // than a workaround.** `wasi-echo` returns its input, and this task's input is the
+    // sovereign payload — so the reply body carries that payload off the node, and
+    // DATA-06's egress tap refuses it by name. That is the tap doing exactly its job,
+    // and a fixture chosen to slip past it would be a worse test. Measured here rather
+    // than asserted from the source: `egress refused: <inputCid> on <peerId>`.
+    //
+    // And it is a *stronger* reading than `ok: true` would have been. The tap runs on
+    // the reply body, after execution. A refusal naming the sovereign input CID means
+    // the body contained that value — which it can only do if the WASI module ran and
+    // echoed it. A run that had failed at instantiate would have come back
+    // `instantiation failed: … wasi_snapshot_preview1 …`, which contains no sovereign
+    // byte and would have egressed cleanly.
+    const overTheWire = await new RemoteExecutor(
       clearedNode.peerId,
       submitter.rpc,
       chainSupplierFor(clearedNode.peerId),
     ).execute(sovereignWasiTask)
+    expect(overTheWire.ok).toBe(false)
+    if (overTheWire.ok) return
+    expect(overTheWire.reason.startsWith('egress refused: ')).toBe(true)
+    expect(overTheWire.reason).toContain(inputCid.toString())
+    // The discrimination that carries the whole case: this is **not** the refusal 2b
+    // got. Clearance passed on this node, and a different gate answered.
+    expect(overTheWire.reason).not.toContain('sovereignty')
+
+    // 3c. And the value itself, read through `clearedNode.executor` — the same object
+    // `serveAgent` was handed, so this is the serving path with the wire removed. No
+    // reply frame leaves the node, so nothing egresses and the tap has nothing to
+    // refuse; what is left is the sovereignty gate and the router beneath it, which is
+    // exactly the pair under test.
+    const acceptedWasi = await clearedNode.executor.execute(sovereignWasiTask)
     expect(acceptedWasi.ok).toBe(true)
+    if (!acceptedWasi.ok) return
+    expect(acceptedWasi.output).toEqual([])
 
     // 4. The control that makes assertion 3 mean something. Same node, same task, one
     // argument changed: no chain. Without this reading, "the cleared node accepts" is
@@ -534,10 +566,14 @@ describe('AOT-04 — a node from the ordinary factory runs a WASI command module
    * run a translated artifact is not a property of how it was started.
    *
    * **The single-line deletion that turns this red is the `wasi:` argument of the
-   * `new AbiExecutor({ … })` literal in `fabric-node.ts`.** Delete it and the dispatch
-   * comes back `{ok: false, reason: 'instantiation failed: … wasi_snapshot_preview1 …'}`,
-   * because the native arm does not supply that namespace and `WebAssembly.instantiate`
-   * says so.
+   * `new AbiExecutor({ … })` literal in `fabric-node.ts`.** Planted and measured on
+   * 2026-08-04, not predicted: pointing that argument at the native arm turns three
+   * cases in this file red, and this one comes back
+   *
+   *   `instantiation failed: WebAssembly.instantiate(): Import #0 "wasi_snapshot_preview1": module is not an object or function`
+   *
+   * — relayed verbatim from the killable thread, because the native arm does not
+   * supply that namespace and `WebAssembly.instantiate` says which one it wanted.
    *
    * **What this does not establish.** `wasi-echo` is a hand-written fixture compiled
    * from `.wat` in this repository, not an artifact `elfconv` produced. So this proves

@@ -31,6 +31,7 @@ import { identify, identifyPush } from '@libp2p/identify'
 import { webRTC } from '@libp2p/webrtc'
 import { webSockets } from '@libp2p/websockets'
 import { multiaddr } from '@multiformats/multiaddr'
+import { AbiExecutor, WasiExecutor } from '@o2/aot'
 import {
   DEFAULT_ISSUANCE_WINDOW_MS,
   DEFAULT_MAX_CONCURRENT_TASKS,
@@ -1075,27 +1076,31 @@ export class BrowserNode {
     // in flight, which is precisely not what "how many tasks is this tab running at
     // once" means. Inside, it counts tasks actually running.
     //
-    // DET-03/DATA-08: `provenance` is the **innermost** layer, with nothing between it
-    // and the executor that reaches `WebAssembly.instantiate`. That is what makes
-    // "refused before instantiation" true by construction rather than by inspecting
-    // whatever happens to be layered above it this month — the same argument
-    // `fabric-node.ts` gives at its own composition, and the same ordering.
+    // DET-03/DATA-08: `provenance` is the **innermost guard**, with no other guard
+    // between it and the executor that reaches `WebAssembly.instantiate`. That is what
+    // makes "refused before instantiation" true by construction rather than by
+    // inspecting whatever happens to be layered above it this month — the same argument
+    // `fabric-node.ts` gives at its own composition, and the same ordering. AOT-04's
+    // `AbiExecutor` sits beneath it and is not a guard: it compiles the module to
+    // decide which host object it meets and never instantiates one, so it refuses
+    // nothing and there is still nothing between `provenance` and instantiation that
+    // could answer ahead of it.
     //
     // Sovereignty stays **outside** it, also mirroring `fabric-node.ts`: a tab that may
     // not decrypt an owner's data should say *that*, whatever module was named. The
     // clearance answer is about this node; the provenance answer is about the
     // dispatcher's record and would bury it.
     //
-    // **It wraps `worker`, and `worker` is the only arm there is.** 14-04's plan
-    // described this line as a null-coalescing pair whose second arm built a main-thread
-    // executor directly, and instructed that the guard wrap the pair as a whole so
-    // neither arm escaped. That expression no longer exists: `createWorker` became
-    // required and the main-thread fallback was deleted outright (see
-    // `BrowserNodeOptions.createWorker`), so there is exactly one executor here and it is
-    // the one that resolves. The instruction's *point* — guard the executor that reaches
-    // instantiation rather than something sitting near it — is what this line satisfies;
-    // there is no second arm left to miss. Were a fallback ever reintroduced, the guard
-    // would have to move to the whole expression rather than to one branch of it.
+    // **It wraps the router, and the router's two arms are both inside it.** 14-04's
+    // plan described this line as a null-coalescing pair whose second arm built a
+    // main-thread executor directly, and instructed that the guard wrap the pair as a
+    // whole so neither arm escaped. That expression no longer exists: `createWorker`
+    // became required and the main-thread fallback was deleted outright (see
+    // `BrowserNodeOptions.createWorker`). AOT-04 has since put a second arm back — the
+    // WASI executor — and the instruction's *point* is what decided where it went:
+    // guard the thing that reaches instantiation rather than something sitting near it,
+    // which here means wrapping the router rather than one of the executors under it.
+    // Neither arm escapes, and a third would not either.
     //
     // The wording above avoids spelling that construction out, and deliberately:
     // `browser-node-contract.node.test.ts` counts the constructor call as raw text across
@@ -1103,7 +1108,46 @@ export class BrowserNode {
     // *constructions*, not zero mentions" — the intent is right and the instrument cannot
     // tell the two apart, so this file does not put the text where it would be counted.
     // The same rule `trust-anchors.node.test.ts` writes down for its own matchers.
-    const counter = new CountingExecutor(guardSovereignty(provenance(worker), sovereignty))
+    // AOT-04 — this tab runs both ABIs, and **the artifact chooses, never the node**.
+    // Composed for the reason every line in this block is: a `BrowserNode` that could
+    // not run a translated artifact while a `FabricNode` could would be a difference in
+    // capability between node kinds, which is the one thing this project does not
+    // permit. `fabric-node.ts` builds the byte-identical expression over its own two
+    // values, and its comment carries the full argument for the wrap order.
+    //
+    // **Innermost, so nothing outside these parentheses changes.** The sovereignty
+    // gate, the provenance guard and the duty-cycle governor apply to a translated
+    // artifact exactly as they do to a source-compiled one. The router compiles to
+    // decide and never instantiates, so `provenance` is still the last guard before
+    // the executor that reaches `WebAssembly.instantiate`.
+    //
+    // **The asymmetry is within one node, not between kinds.** `worker` is the
+    // killable thread, so a native module runs there while a WASI module runs inline
+    // on this tab's main thread — which means BROW-04's wall-clock deadline bounds the
+    // native arm and **does not bound the WASI arm**. Both are the same node with the
+    // same capability; what differs is which artifact is running, which is the same
+    // rule as everywhere else in this composition. Said in those words because "the
+    // browser handles WASI differently" read out of context is exactly the sentence
+    // this project deletes classes over — `fabric-node.ts` carries the identical bound
+    // and the identical gap, from the identical cause: `WorkerExecutor` posts to a
+    // thread running `@o2/core`'s `runTask`, and `@o2/core` may declare no dependency
+    // on any other `@o2` package at all, so the killable path cannot reach
+    // `WasiExecutor` from where it stands. Closing it is a change to the kernel's
+    // dependency shape, not to this line.
+    //
+    // A line comment in these two files must not contain the two characters that open
+    // a block comment. Several source-scanning guards strip comments with a
+    // non-greedy `/[*] … [*]/` regex, so one of those sequences inside a `//` comment
+    // swallows the file from there to the next block-comment terminator. Measured on
+    // 2026-08-04: writing the glob form of "any o2 package" here turned
+    // `trust-anchors`, `requirements-ledger` and `mutation-guard` red at once, each
+    // reporting that a composition present three lines away was absent.
+    const abi = new AbiExecutor({
+      blockstore,
+      native: worker,
+      wasi: new WasiExecutor({ nodeId, blockstore }),
+    })
+    const counter = new CountingExecutor(guardSovereignty(provenance(abi), sovereignty))
     // SCHED-04 — the user's cap, composed **over** the visibility governor rather than
     // replacing it. `environment: governor` is what makes `dutyCycle` return the lower of
     // the two, so BROW-03's background throttle still binds at any user cap and the user's

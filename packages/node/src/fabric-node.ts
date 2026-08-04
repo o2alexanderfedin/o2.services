@@ -85,6 +85,7 @@ import { ping } from '@libp2p/ping'
 import { tcp } from '@libp2p/tcp'
 import { webSockets } from '@libp2p/websockets'
 import { multiaddr } from '@multiformats/multiaddr'
+import { AbiExecutor, WasiExecutor } from '@o2/aot'
 import {
   DEFAULT_ISSUANCE_WINDOW_MS,
   DEFAULT_MAX_CONCURRENT_TASKS,
@@ -1510,6 +1511,60 @@ export class FabricNode {
       createThread: workerThread,
       ...(options.taskDeadlineMs === undefined ? {} : { deadlineMs: options.taskDeadlineMs }),
     })
+
+    // AOT-04 — this node runs both ABIs, and **the artifact chooses, never the node**.
+    // There is no `--wasi` flag on `bin/agent.ts`, no second factory and no option: a
+    // node's capability is not a property of how it was started. The module's own
+    // declared import namespace decides which host object it meets, and
+    // `WebAssembly.instantiate` remains the sandbox either way — routing wrongly costs
+    // one honest instantiation failure naming the missing import and cannot produce a
+    // wrong result. `abi-router.ts` carries the full argument.
+    //
+    // **Innermost, deliberately.** Everything outside these parentheses is unchanged,
+    // so the sovereignty gate and the provenance guard apply to a translated artifact
+    // exactly as they do to a source-compiled one. That is half of what "the same
+    // admission and verification path" means, and composing the router *outside*
+    // either of them would quietly exempt translated work from a guard this project
+    // treats as unconditional. `fabric-node.node.test.ts`'s DATA-09 block dispatches a
+    // sovereign WASI task for precisely that reading — the native assertions beside it
+    // cannot tell the two compositions apart, because `guardSovereignty` returns
+    // before `inner.execute` and the native arm stays guarded either way.
+    //
+    // The router compiles to decide and never instantiates, so "refused before
+    // instantiation" is untouched: provenance is still the last guard before the
+    // executor that reaches `WebAssembly.instantiate`, and the router sits beneath it.
+    //
+    // **The asymmetry here is within one node, not between kinds.** `compute` is the
+    // killable thread (BROW-04/SCHED-06), so a native module runs there and a WASI
+    // module runs inline on this thread — which means the per-task wall-clock deadline
+    // bounds the native arm and **does not bound the WASI arm**. Stated rather than
+    // discovered: a WASI guest that never returns holds this thread, and nothing here
+    // can interrupt it. It cannot be fixed at this line — `WorkerExecutor` posts to a
+    // thread running `@o2/core`'s `runTask`, and `@o2/core` may declare no dependency
+    // on any other `@o2` package at all (`purity.node.test.ts`), so the killable path
+    // cannot reach
+    // `WasiExecutor` from where it stands. Closing it means moving the ABI choice into
+    // `runTask`, which is a change to the kernel's dependency shape and not to this
+    // composition. **`browser-node.ts` carries the identical bound and the identical
+    // gap**, so this is one node's asymmetry between two artifacts, not a difference
+    // in capability between a tab and a server.
+    //
+    // **Reachability, recorded here so Phase 22 does not rediscover it as a finding.**
+    // The router is reachable from `bin/agent.ts` (through this factory) and from the
+    // browser demo (through `BrowserNode.start`). It is deliberately **not** reachable
+    // from `bin/bench.ts`, which constructs `WasmExecutor` directly at three sites
+    // because that benchmark measures the native ABI on purpose. That is a decision.
+    // What is **not** established is that no *other* construction path can yield a
+    // node running one ABI and not the other: `task-worker.ts`,
+    // `task-executor.worker.ts` and those three bench sites all still build bare
+    // native executors, and this comment is a note rather than a guard. A
+    // source-scanning check in `purity.node.test.ts`'s style would be the guard.
+    const abi = new AbiExecutor({
+      blockstore,
+      native: compute,
+      wasi: new WasiExecutor({ nodeId: libp2p.peerId.toString(), blockstore }),
+    })
+
     // SCHED-06 + SCHED-04. The counter sits **inside** the governor, which is a change
     // from this tier's previous order and brings it into line with `browser-node.ts`.
     //
@@ -1520,8 +1575,10 @@ export class FabricNode {
     // actually about.
     //
     // Everything inside is unchanged and the order still matters: sovereignty outside
-    // provenance, provenance innermost against `compute`.
-    const counter = new CountingExecutor(guardSovereignty(provenance(compute), sovereignty))
+    // provenance, provenance innermost — now against the ABI router rather than
+    // directly against `compute`, with the router delegating to `compute` or to the
+    // WASI executor. No guard moved and none was added between them.
+    const counter = new CountingExecutor(guardSovereignty(provenance(abi), sovereignty))
     const executor = new GovernedExecutor(counter, governor)
 
     // VER-08 / VER-09 / VER-10 — this node's signing identity, resolved **once**, on one

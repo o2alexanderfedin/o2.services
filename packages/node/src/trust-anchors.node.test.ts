@@ -609,6 +609,16 @@ const CONSTRUCTS_WASI_EXECUTOR = /new\s+WasiExecutor\(/
  * `packages/browser/src/task-executor.worker.ts` is deliberately absent for a different
  * reason: it `put`s bytes it was handed into a fresh `MemoryBlockstore` and executes the
  * CID that produces, so it resolves nothing from anywhere.
+ *
+ * **A fourth entry landed on 2026-08-04, and it is the first one that resolves without
+ * executing.** AOT-04's `packages/aot/src/abi-router.ts` reads the module block to decide
+ * which of two executors an artifact meets, then hands the task on. It resolves and never
+ * instantiates, which is why it is a census entry and not a guard: it produces no refusal
+ * of its own, and the executor it delegates to reads the same block and reports the same
+ * words. That is asserted directly — `abi-router.test.ts` drives every reason
+ * `WasmExecutor` returns through the router and compares each against a real one over the
+ * same blocks — because a resolver added *ahead* of the existing ones is exactly the shape
+ * that could have changed a refusal string nothing asserts on.
  */
 const CENSUS: readonly CensusEntry[] = [
   {
@@ -623,8 +633,13 @@ const CENSUS: readonly CensusEntry[] = [
   },
   {
     file: 'packages/aot/src/wasi-executor.ts',
-    guardedAt: 'none — no production caller exists; Phase 21 is scheduled to give it one',
-    reason: 'a second Executor implementation with its own resolution, reachable today only from tests and from two build-time tools under tools/aot/',
+    guardedAt: 'packages/node/src/fabric-node.ts, packages/browser/src/browser-node.ts (21-03) — through the ABI router, inside the same guardModuleProvenance and guardSovereignty wrappers the native executor sits inside',
+    reason: 'a second Executor implementation with its own resolution; Phase 21 gave it the production caller this entry used to record the absence of, and it is now composed on both tiers',
+  },
+  {
+    file: 'packages/aot/src/abi-router.ts',
+    guardedAt: 'packages/node/src/fabric-node.ts, packages/browser/src/browser-node.ts (21-03)',
+    reason: 'resolves the module block to choose which of two executors an artifact meets, then delegates; it never instantiates and never produces a refusal of its own, so both arms are inside the same guards the executor it replaced sat inside',
   },
 ]
 
@@ -652,8 +667,39 @@ const WASI_TOOL_SITES: readonly PathExemption[] = [
   },
 ]
 
+/**
+ * The production factories that may build a `WasiExecutor`, and what each must compose.
+ *
+ * Separate from {@link WASI_TOOL_SITES} deliberately, because the two are permitted for
+ * opposite reasons. A tool is exempt because *nobody can dispatch to it*; a node factory
+ * is the exact opposite — a stranger can dispatch to it, which is why its entry carries a
+ * composition to check rather than a reason to accept.
+ *
+ * `composes` is the router construction, not the executor's: AOT-04 puts both ABIs behind
+ * one delegate, so a factory that built a `WasiExecutor` and reached it by some other
+ * route would be a second serving path with its own guards to get wrong.
+ */
+const GUARDED_NODE_FACTORIES: readonly {
+  readonly file: string
+  readonly composes: string
+  readonly reason: string
+}[] = [
+  {
+    file: 'packages/node/src/fabric-node.ts',
+    composes: 'new AbiExecutor(',
+    reason:
+      'AOT-04 — the Node tier serving factory; the WASI arm sits inside the same guardModuleProvenance and guardSovereignty wrappers the killable-thread executor sits inside, because the router they wrap is what delegates to both',
+  },
+  {
+    file: 'packages/browser/src/browser-node.ts',
+    composes: 'new AbiExecutor(',
+    reason:
+      'AOT-04 — the browser tier, composed identically. All nodes have equal functionality, so a tab that could not run a translated artifact while a server could would be a node class',
+  },
+]
+
 describe('the files that resolve a module CID are the census, and nothing else', () => {
-  it('names exactly three resolvers, each recording what guards it', () => {
+  it('names exactly four resolvers, each recording what guards it', () => {
     const resolvers = REPO.scanned.filter((file) => RESOLVES_MODULE_CID.test(stripped(file))).sort()
 
     expect(resolvers).toEqual(CENSUS.map((entry) => entry.file).sort())
@@ -667,13 +713,13 @@ describe('the files that resolve a module CID are the census, and nothing else',
     }
   })
 
-  it('can tell a fourth resolver from the three it knows about', () => {
+  it('can tell an undeclared resolver from the ones it knows about', () => {
     // The census is an enumeration, and an enumeration nobody can watch failing is a
     // sentence. Planted through the same matcher the walk uses.
     //
     // **Assembled from fragments, and this one was learned the hard way.** Written
     // whole, the resolution call is a plain string in this file's own source, so this
-    // file matches its own census query and reports itself as a fourth resolver. It did
+    // file matches its own census query and reports itself as an extra resolver. It did
     // exactly that — but only after being committed, because the walk reads
     // `git ls-files` and an untracked file is not in the population. A green run before
     // the commit and a red one after is the whole hazard, and it is the same rule
@@ -688,20 +734,28 @@ describe('the files that resolve a module CID are the census, and nothing else',
   it('does not name either census matcher in its own source, so it cannot report itself', () => {
     // The regression the case above documents, turned into a standing assertion rather
     // than a comment: this file is inside its own jurisdiction, and a future edit that
-    // spells either matched text out whole would make the census read four resolvers or
-    // an extra WasiExecutor construction — a failure that looks like a real finding and
-    // is not.
+    // spells either matched text out whole would make the census read an extra resolver
+    // or an extra WasiExecutor construction — a failure that looks like a real finding
+    // and is not.
     const self = stripped('packages/node/src/trust-anchors.node.test.ts')
     expect(RESOLVES_MODULE_CID.test(self)).toBe(false)
     expect(CONSTRUCTS_WASI_EXECUTOR.test(self)).toBe(false)
     expect(self.includes(OPT_OUT)).toBe(false)
   })
 
-  it('constructs no WasiExecutor outside a test or a declared build-time tool', () => {
-    // When Phase 21 gives `WasiExecutor` a production caller, this fails — and that is
-    // the point. The fix is to compose `guardModuleProvenance` at that construction site
-    // and update the census entry above, not to add a path here: this array is for
-    // hand-run tools with no dispatcher, and a serving node is neither.
+  it('constructs a WasiExecutor only in a test, a declared build-time tool, or a guarded node factory', () => {
+    // **This assertion fired on 2026-08-04, exactly as it was written to.** Its previous
+    // form required the list to be empty and said: *"When Phase 21 gives `WasiExecutor` a
+    // production caller, this fails — and that is the point. The fix is to compose
+    // `guardModuleProvenance` at that construction site and update the census entry
+    // above, not to add a path here."* AOT-04 gave it two production callers, both node
+    // factories, and both compose the guard — so what changed is the shape of the
+    // permitted answer, not the strictness. `WASI_TOOL_SITES` is untouched and still
+    // means what it meant: hand-run drivers with no dispatcher.
+    //
+    // The exemption a serving node gets is **conditional on the guard being composed in
+    // the same file**, checked below rather than asserted in prose. An unguarded factory
+    // would still fail this case, which is the property the empty list used to carry.
     const declared = new Set(WASI_TOOL_SITES.map((entry) => entry.path))
     const constructions = REPO.scanned.filter(
       (file) =>
@@ -710,7 +764,19 @@ describe('the files that resolve a module CID are the census, and nothing else',
         CONSTRUCTS_WASI_EXECUTOR.test(stripped(file)),
     )
 
-    expect(constructions).toEqual([])
+    expect(constructions.sort()).toEqual(GUARDED_NODE_FACTORIES.map((e) => e.file).sort())
+
+    for (const entry of GUARDED_NODE_FACTORIES) {
+      const source = stripped(entry.file)
+      // The guard is composed in the same file that builds the executor. Not a proof
+      // that it wraps *this* executor — `mutation-ledger.ts`'s M27 and M28 exist because
+      // a textual census cannot tell a composed guard from a decorative one, and they
+      // are planted against a dispatch that can. This is the weaker check, stated as
+      // weaker.
+      expect(source).toContain('guardModuleProvenance(')
+      expect(source).toContain(entry.composes)
+      expect(entry.reason.length).toBeGreaterThan(20)
+    }
   })
 
   it('declares each build-time WasiExecutor tool with a reason, and none that has gone stale', () => {

@@ -724,10 +724,16 @@ export const MUTATIONS: readonly Mutation[] = [
       'guard here leaves every symbol in place and every anchor still declared, and the node ' +
       'silently runs modules nobody vouched for. Measured with it unwrapped: four of the five ' +
       'cross-process cases turn `insufficient` into `agreed`, and the accepted case stays ' +
-      'green — a wiring proof made only of successes would not have moved at all.',
+      'green — a wiring proof made only of successes would not have moved at all. ' +
+      'AOT-04 moved the find text from `provenance(compute)` to `provenance(abi)` on ' +
+      '2026-08-04: the guard did not move and neither did the wrap order, but what it now ' +
+      'wraps is the ABI router rather than the killable-thread executor directly, so the ' +
+      'unwrapping this entry plants exempts a translated artifact as well as a ' +
+      'source-compiled one. The measured counts above were taken before that change and ' +
+      'are left as taken.',
     file: 'packages/node/src/fabric-node.ts',
-    find: 'provenance(compute)',
-    replace: 'compute',
+    find: 'provenance(abi)',
+    replace: 'abi',
     caughtBy: ['packages/node/src/signed-artifact.node.test.ts'],
     signature: "expected 'agreed' to be 'insufficient'",
     signatureSource: 'rendered-at-runtime',
@@ -745,10 +751,14 @@ export const MUTATIONS: readonly Mutation[] = [
       'tree of 2026-07-31 and expired**: 19-15 added the `attestResults` composition cases ' +
       'and the file now carries 26. The mutation has not been re-planted against them, so ' +
       'what this entry claims is the insensitivity and not a number; the number is struck ' +
-      'rather than renumbered, because renumbering it would report a reading nobody took.',
+      'rather than renumbered, because renumbering it would report a reading nobody took. ' +
+      'AOT-04 moved the find text from `provenance(worker)` to `provenance(abi)` on ' +
+      '2026-08-04, for the reason M27 records at its own line: the guard now wraps the ABI ' +
+      'router rather than the worker executor directly, and the two tiers still spell it ' +
+      'identically.',
     file: 'packages/browser/src/browser-node.ts',
-    find: 'provenance(worker)',
-    replace: 'worker',
+    find: 'provenance(abi)',
+    replace: 'abi',
     caughtBy: ['packages/node/src/two-tabs.e2e.test.ts'],
     project: 'e2e',
     signature: 'refuses a job whose record no tab pinned',
