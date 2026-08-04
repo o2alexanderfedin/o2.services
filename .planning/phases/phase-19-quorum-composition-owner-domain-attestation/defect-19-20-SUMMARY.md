@@ -224,9 +224,17 @@ changes the signed shape of every certificate in the repository.
 
 Both re-run before being diagnosed, per CONVENTIONS.
 
-1. `packages/browser/demo/main.ts:1011` — `"earned"`, a banned term, in a comment beginning
+1. `packages/browser/demo/main.ts:1011` — a banned term in a comment beginning
    *"Defect 32: the upgrade budget…"*. Another agent's **staged** edit, in a tree this agent
-   is forbidden to touch. It fails `vocabulary.node.test.ts` repo-wide.
+   is forbidden to touch. It fails `vocabulary.node.test.ts` repo-wide. Run that guard to see
+   which term; it is deliberately not written out here, and the reason is the next paragraph.
+
+   **A report of a banned term must not contain one.** Two drafts of this line did — the first
+   quoting the term, the second naming its stem — and each thereby became a SECOND cause of the
+   block it was describing. The guard reads the working tree repo-wide, so a document explaining
+   the outage kept the outage alive. The standing rule ("read `BANNED` from the guard; never
+   enumerate it in prose") exists for exactly this, and was broken twice inside the paragraph
+   reporting it.
 2. `packages/net/src/churn.test.ts:303` — `expected 'dispatch to n2 failed: rpc to n2 timed
    out after 400ms' to contain 'unknown peer'`. Another agent's file, explicitly excluded
    from this brief. **It passed when re-run in isolation**, so it is intermittent as well as
