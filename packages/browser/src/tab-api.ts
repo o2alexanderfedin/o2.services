@@ -7,6 +7,7 @@
  * error surfaces as a timeout.
  */
 
+import type { ShardAttestation } from '@o2/core'
 import type { EgressManifest } from '@o2/net'
 
 /**
@@ -62,8 +63,32 @@ export interface TabJobReport {
    * **The one field this phase adds to a returned report shape, and the exception is
    * named rather than left quiet:** {@link TabColouringRun} — the visitor-facing report
    * — is untouched. This is the harness-facing one.
+   *
+   * **That exception was itself excepted, and this is where to read why.** The sentence
+   * above was written when the only thing a returned report had gained was a diagnosis
+   * a harness needed. {@link TabColouringRun.attestation} broke the rule deliberately —
+   * criterion 3 requires the receipt to read `owner-attested` *wherever a result is
+   * displayed* and it names the demo UI, which is what that report is rendered into. The
+   * rule stands for everything else; the one surface the criterion names moved, and both
+   * docs say so rather than leaving a reader to notice a rule quietly stop applying.
    */
   readonly failures: readonly { readonly nodeId: string; readonly reason: string }[]
+  /**
+   * How strongly this job's answer was attested — VER-09, VER-10.
+   *
+   * **`JobResult.attestation`, passed through.** Not recomputed, not derived from
+   * `replicas`, not derived from `agreeing.length`, and not composed into a sentence
+   * here: this is the value `submitJob` produced and the same union the kernel carries.
+   * A report that computed its own would be a second opinion about one result, and the
+   * day the two disagree is the day a visitor is told the stronger one.
+   *
+   * The absence arm is a **statement**, not a blank: it says this tab holds no signed
+   * statement it could check about who produced the answer, and carries how many
+   * replicas agreed against how many of those were verified. See `NoVerifiedAttestation`
+   * in `@o2/core` — `0 of 2` and `1 of 2` are different situations with different
+   * remedies.
+   */
+  readonly attestation: ShardAttestation
 }
 
 /** How this tab is actually connected to a peer, right now. */
@@ -161,6 +186,24 @@ export interface TabColouringRun {
    * (`EgressManifest` lives in `@o2/net`, which `@o2/core` may not depend on).
    */
   readonly egress: EgressManifest
+  /**
+   * How strongly this run's answer was attested — VER-09, VER-10, criterion 3.
+   *
+   * **This report had been held stable on purpose, and this field is the stated
+   * exception.** {@link TabJobReport.failures} records the rule — *the visitor-facing
+   * report is untouched* — and it was the right rule for a diagnosis a harness wanted.
+   * It is the wrong rule for this value, because criterion 3's requirement is that the
+   * receipt reads `owner-attested` rather than `verified` **wherever it is displayed**,
+   * and it names the demo UI by name. This report *is* the demo UI's input. Leaving it
+   * out would have satisfied the letter of a convention by leaving the criterion open on
+   * the one surface a person actually looks at.
+   *
+   * The same union {@link TabJobReport.attestation} carries, and the same passthrough:
+   * `JobResult.attestation`, unmodified. The page renders its `description` — the
+   * kernel's own sentence — and composes none of its own, which is the only arrangement
+   * in which the CLI and this page cannot come to describe one result differently.
+   */
+  readonly attestation: ShardAttestation
 }
 
 /**
@@ -297,6 +340,51 @@ export interface TabApi {
      * A starting value only; {@link TabApi.setDutyCycle} moves it on a running tab.
      */
     dutyCycle?: number
+    /**
+     * Enrol with a provider on the way up, and hold the certificate it signs — AUTH-01.
+     *
+     * Straight through to `BrowserNodeOptions.enrollment`, which carries the long form of
+     * every field. `userPrivateKey` crosses as `number[]` rather than as a `Uint8Array`
+     * for {@link TabNameRecord}'s reason one field over: Playwright serialises
+     * `page.evaluate` arguments as JSON, so a typed array arrives on the page side as a
+     * plain `{"0":…}` object and `ed25519.getPublicKey` would derive a key from nothing.
+     * The conversion happens at the implementation, which is the one place that knows
+     * both sides. It is the **private** half, and it has to be: `EnrollmentAuthority.enrol`
+     * refuses by name as `bad-owner-proof` without a signature over its challenge, and a
+     * public key cannot sign.
+     *
+     * ## Why this is on the page's contract when `sovereignty` deliberately is not
+     *
+     * `packages/browser/src/capability-harness.ts` records the rule this appears to
+     * break — it exists *"rather than a third option on `window.o2`"* because adding
+     * `BrowserNodeOptions.sovereignty` here *"would put node configuration on the page's
+     * own contract to serve a test"*. That rule stands, and this field is not a
+     * counter-example to it; the two options differ in what they change.
+     *
+     * `sovereignty` pins the owner a node will accept work **for**. It decides which
+     * dispatches a node takes, it is meaningful only to whoever operates the node, and no
+     * visitor-facing surface reports it. `enrollment` decides whether this node's
+     * statements about its own results **can be checked by anybody else** — and criterion
+     * 3 requires this page to display exactly that, in the kernel's words, on every run.
+     * A surface obliged to say how strongly an answer was attested, with no way to be
+     * given an identity to attest with, can only ever display the absence. That is a gap
+     * in the contract rather than a test's convenience.
+     *
+     * ## What omitting it means, and it is not a lesser node
+     *
+     * Nobody asked this tab to enrol. It executes tasks, holds blocks, serves peers and
+     * takes verification slots on exactly the terms an enrolled one does — the only thing
+     * it cannot do is produce a signed statement a third party could check, so every
+     * receipt naming it reads the named absence. That is a fact about what this tab was
+     * handed, not about what kind of node it is. Every visitor path omits it today:
+     * {@link TabApi.autoStart} does not pass it and deliberately grows no parameter for
+     * it, for the same reason it grows none for `trustAnchors`.
+     */
+    enrollment?: {
+      userPrivateKey: number[]
+      operatorId: string
+      providerAddr: string
+    }
   }): Promise<string>
   /**
    * Join using whatever the page's own origin says to dial.
