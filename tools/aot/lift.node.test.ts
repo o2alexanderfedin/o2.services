@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process'
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -35,6 +35,18 @@ import type {
   LiftedArtifact,
   UndecodedProbe,
 } from './lift.ts'
+import {
+  ACCEPTABLE_ARTIFACT,
+  FOREIGN_DIGESTS,
+  MATCHING_DIGEST,
+  cleanupStubs,
+  emitDigests,
+  stubDir,
+  stubDocker,
+  stubLift,
+  writeAcceptableElf,
+} from './stubs.ts'
+import type { StubDocker } from './stubs.ts'
 
 /**
  * AOT-01 — the toolchain runs, and nothing it says about itself is taken on trust.
@@ -862,8 +874,7 @@ describe('a probe that counted call sites and recovered no addresses is not a cl
  */
 describe('the probe says which of three things stopped it', () => {
   const probeDir = (files: Readonly<Record<string, string>>): string => {
-    const dir = mkdtempSync(join(tmpdir(), 'o2-probe-'))
-    stubDirs.push(dir)
+    const dir = stubDir('o2-probe-')
     for (const [name, content] of Object.entries(files)) writeFileSync(join(dir, name), content)
     return dir
   }
@@ -1017,53 +1028,12 @@ describe('provenance that could not be read is refused, not defaulted', () => {
 // A `docker` that is a shell script, so the driver's decisions are testable.
 // ---------------------------------------------------------------------------
 
-/**
- * A stub `docker` on `PATH`-free disk, plus a log of everything it was asked to do.
- *
- * `liftElf` and `resolveImage` both already take the executable's path, so the seam
- * exists and nothing needs mocking. The *log* is the point. Every behaviour tested
- * through this stub is something the driver must not do — resolve to somebody else's
- * digest, start a container after refusing, leave one running after a timeout — and
- * none of those is observable from a return value. A driver that refused an image and
- * then ran it anyway satisfies every assertion about its `LiftFailure`.
- */
-interface StubDocker {
-  readonly path: string
-  /** One line per invocation, argv space-joined, in the order they happened. */
-  readonly invocations: () => readonly string[]
-}
-
-const stubDirs: string[] = []
-
-/**
- * `body` is `sh`, appended after the logging prologue, with `$1` as the subcommand.
- *
- * The prologue flattens newlines out of the argv before logging, because one of the
- * arguments the driver passes to `docker run` is a twenty-line shell script — logged
- * raw it would turn a single invocation into twenty log lines and every count
- * assertion below would be measuring the wrong thing.
- */
-function stubDocker(body: string): StubDocker {
-  const dir = mkdtempSync(join(tmpdir(), 'o2-stub-docker-'))
-  stubDirs.push(dir)
-  const log = join(dir, 'invocations.log')
-  const path = join(dir, 'docker')
-  writeFileSync(
-    path,
-    `#!/bin/sh\nprintf '%s\\n' "$(printf '%s ' "$@" | tr '\\n' ' ')" >> '${log}'\n${body}\n`,
-    { mode: 0o755 },
-  )
-  return {
-    path,
-    invocations: () =>
-      existsSync(log)
-        ? readFileSync(log, 'utf8')
-            .split('\n')
-            .map((line) => line.trim())
-            .filter((line) => line !== '')
-        : [],
-  }
-}
+// `stubDocker`, `stubLift`, `acceptableElf`, the digest fixtures and the temporary
+// directories they all make now live in `./stubs.ts`, unchanged. They moved because
+// `cli.node.test.ts` has to drive the same harness one level up — the CLI spawned as a
+// program against a `docker` that answers with somebody else's digest — and the
+// alternative to moving them is a second copy of a shell script that has been corrected
+// four times. Nothing below is asserted differently for having been imported.
 
 /**
  * Anything with the shape both `resolveImage` and `liftElf` return.
@@ -1264,59 +1234,18 @@ async function despiteAFullProcessTable<T extends Attempted>(
   throw new Error(`${exhausted}, so this case never ran: ${diagnosis()}. ${measured()}`)
 }
 
-/**
- * The smallest byte string `screenElf` accepts, built here rather than committed.
- *
- * These tests have to get *past* the pre-screen to observe what the driver does
- * next, and the only real AArch64 static ELF around is the 659 KB one the integration
- * block compiles inside the image — unavailable exactly when Docker is, and not
- * something to check in. So: 192 bytes of ELF64 little-endian `ET_EXEC` for machine
- * 183, no program headers to be refused as dynamic, and a two-entry section table
- * whose second entry is an `SHT_SYMTAB` so the file reads as unstripped. elfconv would
- * make nothing of it; the pre-screen is the only code that ever looks.
- */
-function acceptableElf(): Uint8Array {
-  const file = new Uint8Array(64 + 2 * 64)
-  const view = new DataView(file.buffer)
-  file.set([0x7f, 0x45, 0x4c, 0x46, 2, 1, 1, 0], 0) // \x7fELF, ELFCLASS64, ELFDATA2LSB
-  view.setUint16(16, 2, true) // e_type = ET_EXEC — ET_DYN is refused as position-independent
-  view.setUint16(18, 183, true) // e_machine = EM_AARCH64
-  view.setBigUint64(40, 64n, true) // e_shoff — the section table follows the header
-  view.setUint16(58, 64, true) // e_shentsize
-  view.setUint16(60, 2, true) // e_shnum
-  // e_phnum and e_shstrndx stay 0: no segments to carry PT_INTERP/PT_DYNAMIC, and no
-  // string table, so every section name reads empty. Acceptance turns on the *type*
-  // of section 1, never on its name.
-  view.setUint32(64 + 64 + 4, 2, true) // section 1 sh_type = SHT_SYMTAB ⇒ not stripped
-  return file
-}
-
 let stubElfPath = ''
 
 beforeAll(() => {
-  const dir = mkdtempSync(join(tmpdir(), 'o2-stub-elf-'))
-  stubDirs.push(dir)
-  stubElfPath = join(dir, 'subject')
-  writeFileSync(stubElfPath, acceptableElf())
+  stubElfPath = writeAcceptableElf()
 })
 
+// Every temporary directory `stubs.ts` made, including the ones this file asked it for
+// through `stubDir`. Removing a directory twice is a no-op there, so `cli.node.test.ts`
+// calling this too is safe.
 afterAll(() => {
-  for (const dir of stubDirs) rmSync(dir, { recursive: true, force: true })
+  cleanupStubs()
 })
-
-/** The digest a correctly-tagged local image would carry. */
-const MATCHING_DIGEST =
-  'ghcr.io/yomaytk/elfconv@sha256:22a404f31c9f7bb5c49e3193081d4876718253d86747aae3d30fcfd971f19c05'
-
-/** Two entries from somewhere else entirely — the shape a re-tag leaves behind. */
-const FOREIGN_DIGESTS: readonly string[] = [
-  'docker.io/library/busybox@sha256:1111111111111111111111111111111111111111111111111111111111111111',
-  'ghcr.io/someone-else/elfconv@sha256:2222222222222222222222222222222222222222222222222222222222222222',
-]
-
-/** `printf` that emits each argument on its own line, the way `{{join}}` does. */
-const emitDigests = (digests: readonly string[]): string =>
-  digests.length === 0 ? 'exit 0' : `printf '%s\\n' '${digests.join("' '")}'\nexit 0`
 
 describe('an image whose digests name another repository is refused, never run', () => {
   /**
@@ -1600,9 +1529,7 @@ describe('an artifact the driver cannot provenance is not returned', () => {
   let wasmPath = ''
 
   beforeAll(() => {
-    const dir = mkdtempSync(join(tmpdir(), 'o2-stub-wasm-'))
-    stubDirs.push(dir)
-    wasmPath = join(dir, 'artifact.wasm')
+    wasmPath = join(stubDir('o2-stub-wasm-'), 'artifact.wasm')
     writeFileSync(wasmPath, bytes(WASM_HEADER, REAL_SECTION))
   })
 
@@ -1663,6 +1590,46 @@ describe('an artifact the driver cannot provenance is not returned', () => {
     expect(outcome.ok, outcome.ok ? '' : describeLiftFailure(outcome.failure)).toBe(true)
     if (!outcome.ok) return
     expect(outcome.artifact.unidentifiedTools).toContain('clang')
+  })
+})
+
+/**
+ * The positive control for every refusal above, and the reason the extraction into
+ * `stubs.ts` is more than a move.
+ *
+ * Each stub in this file so far exists to make the driver *stop* — a foreign digest, a
+ * wedged inspect, a missing `meta.txt`. A harness that only ever produces refusals could
+ * be broken in a way no refusal case would notice: a stub that never wrote an artifact at
+ * all would satisfy them, because none of them gets far enough to read one. `stubLift`
+ * imitates the container script's whole successful path instead, and this block is the
+ * one place that reads the result back.
+ */
+describe('a stub lift completes, so the harness the refusals invert is known to work', () => {
+  it('returns the bytes it was given, under a toolchain with nothing missing in it', async () => {
+    const docker = stubLift()
+    const { result: outcome } = await despiteAFullProcessTable(() =>
+      liftElf(stubElfPath, { docker: docker.path, timeoutMs: METADATA_BUDGET_MS }),
+    )
+    expect(outcome.ok, outcome.ok ? '' : describeLiftFailure(outcome.failure)).toBe(true)
+    if (!outcome.ok) return
+
+    const artifact = outcome.artifact
+    // The bytes, not merely a length: the stub `cp`s a staged file rather than emitting
+    // the artifact through `printf`, precisely so this can be an equality.
+    expect(Buffer.from(artifact.bytes).equals(Buffer.from(ACCEPTABLE_ARTIFACT))).toBe(true)
+    // Read out of the fixture's own `target_features` section, never assumed.
+    expect(artifact.requiredFeatures).toEqual(['bulk-memory'])
+    // Neither spelling of an unidentified tool is present. `''` and `'unknown'` reach
+    // `translationCid` as different outcomes, so a stub carrying either would make every
+    // case built on it assert a failure path by accident.
+    for (const [tool, version] of Object.entries(artifact.toolchain)) {
+      expect(version.trim(), `${tool} is blank`).not.toBe('')
+      expect(version, `${tool} did not identify itself`).not.toBe('unknown')
+    }
+    expect(artifact.unidentifiedTools).toEqual([])
+    // The container was actually asked to run, which the assertions above cannot show:
+    // a driver that fabricated an artifact would satisfy all of them.
+    expect(docker.invocations().some((line) => line.startsWith('run '))).toBe(true)
   })
 })
 
@@ -1842,8 +1809,7 @@ const shellQuote = (text: string): string => `'${text.replaceAll("'", `'\\''`)}'
  * 6 of 6 spawns then fail with `EAGAIN` in 0–3 ms.
  */
 function resolveImageUnderProcessLimit(maxProcesses: number | null, docker: string): Attempted {
-  const dir = mkdtempSync(join(tmpdir(), 'o2-nproc-'))
-  stubDirs.push(dir)
+  const dir = stubDir('o2-nproc-')
   const child = join(dir, 'resolve-once.mjs')
   writeFileSync(
     child,
