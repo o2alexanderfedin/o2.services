@@ -572,10 +572,16 @@ async function memoryFabric(nodes: number): Promise<Fabric> {
     moduleRecord: FIXTURE_RECORD,
     guard: requestorGuard,
     rpc: callerRpc,
-    // Nothing on this transport enrols under any flag — every worker above passes
-    // `attest: 'signs-nothing'` permanently — so there is no combine signature here to
-    // check. The literal states that; an empty issuer set would claim this requestor
+    // Nothing on this transport enrols under any flag — both `serveAgent` calls above
+    // pass the no-signing sentinel permanently — so there is no combine signature here
+    // to check. The literal states that; an empty issuer set would claim this requestor
     // checked and found none, which is a different and false thing to print.
+    //
+    // **The sentinel is named in prose rather than quoted, deliberately.**
+    // `serve-agent-hooks.node.test.ts` counts the raw text of that literal in this file
+    // and requires exactly 2 — one per call site — so a comment that quoted it would
+    // read as a third construction and fail that guard. Found the hard way: this comment
+    // did quote it, and the count read 3.
     combineIssuers: 'checks-no-combine-signatures',
     async close() {
       callerRpc.close()
