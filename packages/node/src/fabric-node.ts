@@ -765,15 +765,23 @@ const OWN_START_FAMILY: BrowserFamily = 'other'
  * whatever the fabric does. The arithmetic is worked through in
  * `.planning/phases/phase-20-single-job-path-ledger-churn-resilience/20-CONTEXT.md`.
  *
- * ## Why the sentinel arm is reachable rather than ceremony
+ * ## Why the sentinel arm is a guard and no longer a reachable state
  *
  * A label this build cannot file is not a row: `parseCounts` drops it at the wire, so
  * filing it locally would give this node a report a peer can never corroborate, with the
  * two readings disagreeing and nothing saying which is wrong. A node whose own label is
- * outside the coarse range therefore has **nothing to report**, and says so by name. That
- * is reachable on the browser tier, where the label is derived from a user-agent string
- * this build has never seen; it is unreachable on this tier only because
- * {@link OWN_START_FAMILY} is a constant the type checker has already accepted.
+ * outside the coarse range therefore has **nothing to report**, and says so by name.
+ *
+ * No node reaches that state now, on either tier, and the tiers arrive at the same place by
+ * different routes — which is the standing rule holding rather than breaking. Here
+ * {@link OWN_START_FAMILY} is a constant the type checker has already accepted. On the
+ * browser tier the label is derived from a user-agent string this build has never seen, and
+ * `browserLabel` used to interpolate the major unbounded while `isStartBrowserLabel`
+ * admitted four digits — so a five-digit visitor started and reported nothing whatever.
+ * That composer is now bounded by `MAX_BROWSER_MAJOR`, the ceiling the predicate is derived
+ * from. The arm stays because the parameter is a `string` and this predicate is where the
+ * range is enforced; it is defensive, and saying so is cheaper than claiming a reach it
+ * does not have.
  *
  * A node reaching this function **started** — there is no path through `#compose` that
  * arrives here otherwise — so the result arm is not a value a caller chooses. That is why

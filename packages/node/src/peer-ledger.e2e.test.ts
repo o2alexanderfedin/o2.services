@@ -53,7 +53,7 @@ import { FabricNode } from './fabric-node.ts'
  * | `chromium` | chromium | its own | reporting **on** | contributor, and a reading surface |
  * | `firefox` | firefox | its own | reporting **on** | contributor, and the second reading surface |
  * | `webkit` | webkit | its own | reporting **on** | contributor |
- * | `sentinel` | chromium | major forced to five digits | reporting **on** | the control: a peer that answers and holds no row of its own |
+ * | `coarsened` | chromium | major forced to five digits | reporting **on** | a visitor past the publishable range, counted under its family alone |
  * | `declining` | chromium | `Edg/` appended | reporting **off** | the opt-out, and the breach recorded below |
  *
  * The last two are `browser.newContext()` on the already-launched chromium rather than two
@@ -74,9 +74,10 @@ import { FabricNode } from './fabric-node.ts'
  *   `packages/net/src/start-report.test.ts`, in `lifting the deferral does not lift the
  *   bounds it was conditional on`, which pairs a refused row against a truthful one from
  *   the same peer. Nothing here sends a malformed row, so nothing here would notice either
- *   bound being deleted — except {@link SENTINEL_TAB}, which depends on
- *   `isStartBrowserLabel` refusing a five-digit major and is a *use* of the bound rather
- *   than a measurement of it.
+ *   bound being deleted — except {@link COARSENED_TAB}, which depends on `browserLabel`
+ *   dropping a major past `MAX_BROWSER_MAJOR` and is a *use* of that ceiling rather than a
+ *   measurement of it. The measurement is `packages/browser/src/browser-id.test.ts`, in
+ *   `a label this build composes is a label this build can file`.
  * - **Discovery.** That is `static-rendezvous.e2e.test.ts`'s, which reads an exact
  *   anti-vacuity count per round. This file dials nothing from the harness either, and
  *   asserts the mesh only as a precondition — a fixture check, not a claim.
@@ -106,22 +107,31 @@ const ENGINES: readonly { readonly name: string; readonly type: BrowserType }[] 
 ]
 
 /**
- * The tab whose node holds **no row about itself**, and how that state is reached.
+ * The tab whose version is past the range a label may carry, and what it reports anyway.
  *
- * `browser-node.ts`'s `ownStartOutcome` returns `'reports-no-start-outcome'` — a required
- * union with a named sentinel, not an omission — when `isStartBrowserLabel` refuses the
- * label this tab composes. That arm is *reachable in production on this tier and on no
- * other*: `browserLabel` composes `${family} ${major}` with no bound on the major, while
- * `isStartBrowserLabel`'s pattern admits at most four digits. So a five-digit major is a
- * label a real visitor's browser could one day produce and no peer could ever file, and
- * the node's honest answer is that it has nothing to report rather than a row that
- * evaporates one hop away.
+ * **This tab used to be the control for a node that reports nothing, and the reason it no
+ * longer is, is the finding.** `browserLabel` composed `${family} ${major}` with no bound
+ * while `isStartBrowserLabel` admitted four digits, so a five-digit visitor produced a
+ * label no peer could file — and since `ownStartOutcome` runs a node's *own* label through
+ * that same predicate, such a visitor started and then reported nothing whatever. A metric
+ * built to make a blocklist's silence visible was manufacturing silence of its own, on the
+ * only tier where the label is read from an environment rather than declared.
+ *
+ * `browserLabel` is now bounded by `MAX_BROWSER_MAJOR`, the ceiling the predicate is
+ * derived from, and drops a version past it rather than clamping to it. So this tab
+ * composes `chromium` — its family, with no version — which is a label the wire admits and
+ * which is what a version that cannot be *read* has always produced. It is counted.
+ *
+ * The label is also unique in this fixture, and that is what makes the case below say
+ * something: every reading tab carries a version (asserted directly, one case up), the
+ * relay carries `other`, and the declining tab carries `edge 120`. A bare `chromium` on
+ * another tab's screen has exactly one source.
  *
  * Forcing it here is a `userAgent` override and nothing else. No option is passed, no
  * factory is patched, and no code path exists that is not the one a visitor on a
  * five-digit Chrome would take.
  */
-const SENTINEL_TAB = 'sentinel'
+const COARSENED_TAB = 'coarsened'
 
 /** The tab whose visitor allowed compute and refused to be counted — BROW-01. */
 const DECLINING_TAB = 'declining'
@@ -246,8 +256,8 @@ async function openTab(options: {
       return { name: options.name, reason: 'reserved on the relay but produced no /webrtc address' }
 
     // Read from the page rather than from the option: a `userAgent` override Playwright
-    // silently ignored would otherwise be invisible here and would make the sentinel case
-    // pass for the wrong reason.
+    // silently ignored would otherwise be invisible here and would make the coarsened tab's
+    // case pass for the wrong reason.
     const agent = await page.evaluate(() => navigator.userAgent)
     const label = browserLabel(identifyBrowser(agent))
 
@@ -258,11 +268,12 @@ async function openTab(options: {
       page,
       peerId: joined.peerId,
       label,
-      // The two arms that keep a row out of every report in the fabric, and they are
-      // different arms. An unfileable label empties this node's own ledger at
-      // construction; the declining visitor's node holds its row and its *page* sends
-      // `outcome: null`. Only the first of these actually works today — see the case that
-      // records it.
+      // Whether this tab's row is *distinguishable* in somebody else's report — which is
+      // narrower than fileable, and deliberately: `other` is fileable and is also what the
+      // relay contributes, so a tab wearing it could not be told from the Node tier.
+      // Fileability itself is no longer a thing a tab can fail, because `browserLabel` is
+      // bounded by the ceiling `isStartBrowserLabel` is derived from; the pattern is kept
+      // here as the reading that would notice if that stopped being true.
       contributes: label !== 'other' && /^[a-z]+(?: \d{1,4})?$/.test(label),
     }
   } catch (error) {
@@ -362,15 +373,15 @@ beforeAll(async () => {
   }
 
   // The two special tabs' user agents are **derived from the real one**, so nothing here
-  // is a hardcoded string that goes stale the next time Playwright updates. The sentinel
-  // forces a five-digit major; the declining tab prepends the marker `identifyBrowser`
+  // is a hardcoded string that goes stale the next time Playwright updates. The coarsened
+  // tab forces a five-digit major; the declining tab prepends the marker `identifyBrowser`
   // checks before Chrome's, so it lands on a family no other tab in this fixture is.
   const chromiumTab = tabs.find((tab) => tab.name === 'chromium')
   if (chromiumTab !== undefined) {
     const agent = await chromiumTab.page.evaluate(() => navigator.userAgent)
     const special: readonly { name: string; userAgent: string; reporting: boolean }[] = [
       {
-        name: SENTINEL_TAB,
+        name: COARSENED_TAB,
         userAgent: agent.replace(/Chrome\/\d+/, 'Chrome/12345'),
         reporting: true,
       },
@@ -429,7 +440,7 @@ describe('BROW-02 — a tab shows counts it could not have produced', () => {
       'chromium',
       'firefox',
       'webkit',
-      SENTINEL_TAB,
+      COARSENED_TAB,
       DECLINING_TAB,
     ])
     // Five distinct nodes, not one node seen five times. Contexts, not tabs of one
@@ -444,9 +455,11 @@ describe('BROW-02 — a tab shows counts it could not have produced', () => {
     // exactly the vacuity a single-engine fixture cannot escape.
     const reading = ['chromium', 'firefox', 'webkit'].map((name) => tabNamed(name).label)
     expect(new Set(reading).size).toBe(3)
-    // Every one of them is a label the fabric can actually file. A four-digit ceiling
-    // reached in the wild would empty these tabs' ledgers and this file would then be
-    // measuring the sentinel's behaviour on every tab without saying so.
+    // Every one of them carries a version, and that is a precondition rather than a
+    // restatement of the line above. A real engine reaching `MAX_BROWSER_MAJOR` would be
+    // coarsened to its bare family by `browserLabel` — at which point it would collide with
+    // {@link COARSENED_TAB}'s label and that tab's case would be reading its own row while
+    // appearing to read a foreign one. This is what would say so.
     for (const label of reading) expect(label).toMatch(/^(?:chromium|edge|firefox|safari|other) \d{1,4}$/)
   })
 
@@ -525,10 +538,12 @@ describe('BROW-02 — a tab shows counts it could not have produced', () => {
     const panel = panelOf('chromium')
     const summary = /^(\d+) of (\d+) reported starts failed/.exec(panel)
     expect(summary).not.toBeNull()
-    // Four contributors: three engines and the relay. The sentinel holds no row and the
-    // declining tab's row is a defect recorded two cases below, so this is a floor rather
-    // than an equality — the assertion must not silently start passing because the leak
-    // grew.
+    // Four contributors at minimum: three engines and the relay. The coarsened tab is a
+    // fifth and the declining tab's row is a defect recorded two cases below, so this is a
+    // floor rather than an equality — the assertion must not silently start passing because
+    // the leak grew. Kept at four rather than raised to five: a floor is what survives a
+    // row that has not finished propagating when this panel is read, and the coarsened
+    // tab's contribution is asserted where it is the subject rather than here.
     expect(Number(summary?.[2])).toBeGreaterThanOrEqual(4)
 
     // Every rendered rate carries `unreliable` at this sample size, and the summary
@@ -550,48 +565,56 @@ describe('BROW-02 — a tab shows counts it could not have produced', () => {
   }, 120_000)
 
   /**
-   * **The control that isolates the cause: a peer that answers and holds nothing.**
+   * **A visitor past the publishable range is counted, under its family alone.**
    *
-   * The sentinel tab is a node whose label `isStartBrowserLabel` refuses, so
-   * `ownStartOutcome` returns `'reports-no-start-outcome'` and its serve-side ledger starts
-   * empty. It reserves, it connects, it is asked, and it answers — what it does not have is
-   * a row about itself.
+   * This is the end of the composer defect, read in a real browser rather than in a unit
+   * test's table. The tab runs a five-digit Chrome. `browserLabel` drops a major past
+   * `MAX_BROWSER_MAJOR` instead of interpolating it, so the tab composes `chromium`,
+   * `isStartBrowserLabel` accepts it, `ownStartOutcome` files it, and it travels.
    *
-   * Its family is therefore absent from every other tab's screen **while `reached` stays
-   * non-zero**, which is the pair that makes the absence mean something: an absence alone
-   * is equally produced by a tab that never connected, and the case above already showed
-   * that this one did.
+   * Before the bound it composed `chromium 12345`, which that predicate refuses — and
+   * because a node's *own* label goes through the same predicate, this tab started and then
+   * reported nothing at all, on both paths at once: an empty serve-side ledger, and an
+   * `outcome: null` substituted by every peer's `parseRequest`. This case used to assert
+   * that silence as a control. It asserts the row instead, which is the change.
    *
-   * **The one thing this control does not separate, said rather than left to be assumed:**
-   * on this tier a single unfileable label drives *both* arms — the empty own-ledger here,
-   * and the `outcome: null` a peer's `parseRequest` substitutes when this tab's request
-   * arrives. So it shows that a peer's family is absent when the peer held no row, and it
-   * does not tell that apart from the request having been refused. Separating the two needs
-   * a node whose ledger is empty and whose label is fileable, and there is no production
-   * path to one.
+   * **What makes the presence mean something.** A bare `chromium` belongs to no other node
+   * in this fixture — every reading tab carries a version (asserted one case up, and that
+   * assertion exists for this), the relay carries `other`, the declining tab `edge 120`. So
+   * its appearance on another engine's screen has exactly one source: this tab's node
+   * answered with it, over WebRTC, to a browser that is not the one that composed it.
+   *
+   * **What was lost, said rather than left to be noticed.** There is no longer a production
+   * path to `ownStartOutcome`'s `'reports-no-start-outcome'` arm, so nothing here exercises
+   * it and nothing can. It is a guard over a `string` parameter now, kept because the
+   * predicate is where the range is enforced and a composer is not the only caller a
+   * refactor could give it — not because a fixture can reach it.
    */
-  it('a peer that holds no row of its own is absent from every other screen, and still answers', async () => {
-    const sentinel = tabNamed(SENTINEL_TAB)
-    expect(sentinel.label).toBe('chromium 12345')
-    expect(sentinel.contributes).toBe(false)
+  it('a visitor past the publishable range is counted under its family, on every other screen', async () => {
+    const coarsened = tabNamed(COARSENED_TAB)
+    // The version was dropped, not clamped: `chromium 9999` would file a real visitor under
+    // a number no browser ever had, and the merge takes the maximum per key.
+    expect(coarsened.label).toBe('chromium')
+    expect(coarsened.contributes).toBe(true)
+    // Unique in this fixture. Without this the presence assertions below would be equally
+    // satisfied by each reader's own row.
+    expect(tabs.filter((tab) => tab.label === coarsened.label).map((tab) => tab.name)).toEqual([
+      COARSENED_TAB,
+    ])
 
     for (const reader of tabs) {
-      if (reader.name === SENTINEL_TAB) continue
+      if (reader.name === COARSENED_TAB) continue
       expect({ reader: reader.name, shows: familiesOnScreen(panelOf(reader.name)) }).toEqual({
         reader: reader.name,
-        shows: expect.not.arrayContaining([sentinel.label]),
+        shows: expect.arrayContaining([coarsened.label]),
       })
-      // The paired positive: the same screen still carries the other three. An absence on
-      // a screen that shows nothing at all would prove only that the reader was broken.
-      expect(familiesOnScreen(panelOf(reader.name)).length).toBeGreaterThanOrEqual(3)
     }
 
-    // And it answered. Read off the sentinel's own object, because `reached` is not a thing
-    // the panel can be asked for about somebody else.
-    const object = await sentinel.page.evaluate(async () => window.o2.startReport())
+    // And it answered. Read off its own object, because `reached` is not a thing the panel
+    // can be asked for about somebody else.
+    const object = await coarsened.page.evaluate(async () => window.o2.startReport())
     expect(object.reached).toBeGreaterThan(0)
-    // It sees everything it cannot contribute to — the same sentence the opt-out makes,
-    // arrived at from the other direction.
+    // It sees the fabric as well as contributing to it.
     expect(object.byBrowser.map((tally) => tally.browser)).toEqual(
       expect.arrayContaining([tabNamed('firefox').label, tabNamed('webkit').label]),
     )

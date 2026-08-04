@@ -171,6 +171,7 @@ export type {
 // Start outcomes and the blocking metric — BROW-02.
 export {
   BROWSER_FAMILIES,
+  MAX_BROWSER_MAJOR,
   MIN_REPORTS_FOR_RATE,
   START_FAILURES,
   STRUCTURAL_BLIND_SPOT,

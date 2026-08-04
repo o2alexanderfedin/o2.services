@@ -521,17 +521,26 @@ function ownRecords(
  * whatever the fabric does. The arithmetic is worked through in
  * `.planning/phases/phase-20-single-job-path-ledger-churn-resilience/20-CONTEXT.md`.
  *
- * ## Why the sentinel arm is reachable rather than ceremony
+ * ## Why the sentinel arm is a guard and no longer a reachable state
  *
  * A label this build cannot file is not a row: `parseCounts` drops it at the wire, so
  * filing it locally would give this tab a report a peer can never corroborate, with the
- * two readings disagreeing and nothing saying which is wrong. **This tier is where that
- * arm is genuinely reachable**: `currentBrowserLabel()` derives its answer from a
- * user-agent string this build has never seen, and `browserLabel` composes
- * `${family} ${major}` with no bound on the major — while `isStartBrowserLabel`'s pattern
- * admits at most four digits. A five-digit major is therefore a label this tab can produce
- * and no peer can file, and the honest answer to that is that this tab has nothing to
- * report rather than a row that evaporates one hop away.
+ * two readings disagreeing and nothing saying which is wrong. The honest answer to such a
+ * label is that this tab has nothing to report.
+ *
+ * **This tier used to reach that answer, and the reason it did was a defect.**
+ * `currentBrowserLabel()` derives its answer from a user-agent string this build has never
+ * seen, and `browserLabel` interpolated the major unbounded while `isStartBrowserLabel`
+ * admitted four digits — so a five-digit visitor started and reported nothing whatever,
+ * which is the silence BROW-02 exists to expose, produced by the reporter. `browserLabel`
+ * is now bounded by `MAX_BROWSER_MAJOR`, the ceiling that predicate is derived from, and
+ * drops an out-of-range version to the family alone. Every label this tier composes is one
+ * the wire admits.
+ *
+ * The arm stays because the parameter is a `string` and this predicate is where the range
+ * is enforced — a caller other than the one composer is a refactor away, and a guard that
+ * has to be re-derived at that point is a guard that will not be. It is defensive now, and
+ * saying so is cheaper than a fixture pretending to reach it.
  *
  * A node reaching this function **started** — there is no path through `#compose` that
  * arrives here otherwise — so the result arm is not a value a caller chooses. That is why
