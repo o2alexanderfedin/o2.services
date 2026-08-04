@@ -387,3 +387,179 @@ describe('WIRE-03 — a tab does not hand over the sovereign row it submitted', 
     )
   }, 300_000)
 })
+
+/**
+ * SCHED-06 / WIRE-03 — the number an over-committed tab answers with.
+ *
+ * ## What each reading is, and which one carries the criterion
+ *
+ * The criterion is about **what the requestor was told**, so every assertion below is
+ * taken from a dispatch's own reply frame. The page-side readings —
+ * `window.o2.capacity().slots` and `activity().tasksExecuted` — are preconditions and
+ * anti-vacuity checks, never the measurement: a tab that counted correctly and told the
+ * peer nothing would satisfy them and fail the requirement.
+ *
+ * ## Why the refusal cannot be any of the tab's other refusals
+ *
+ * Excluded by construction rather than by hope, because Phase 15 recorded a mutated tab
+ * that still refused — at a different precedence step, naming a different thing — and any
+ * assertion of the form *"the job failed"* passes against that.
+ *
+ * - **`authorize`/AUTH-03** cannot fire: every task below is `label: 'public'`, and
+ *   `authorizeCapability` returns `null` for a public task at its first step, with no
+ *   chain to supply and no owner to be pinned to.
+ * - **`guardSovereignty`/DATA-09** cannot fire, for the same reason: there is no owner.
+ * - **Provenance/DET-03** cannot fire: the module carries a record the tab's own pinned
+ *   anchor signed, and the accepted dispatch in the same pair proves it.
+ * - **The dedupe branch** cannot fire: the exec slot key is `inputCid:partitionIndex`, and
+ *   the two tasks carry deliberately distinct input CIDs. With one shared input the two
+ *   keys would collide and the reply would read `already in flight here` — a real refusal
+ *   naming the wrong thing, which is precisely the failure mode this list exists against.
+ *   If the text assertion ever fails, check these are still distinct before anything else.
+ *
+ * That leaves the capacity hook, and the assertion names its text rather than its kind.
+ *
+ * ## Why the tab is not asked to hold anything open
+ *
+ * `admission.node.test.ts` has two techniques for making saturation certain: sheer
+ * concurrency (its 64-request case) and a slot *declared* by reaching into the node's own
+ * `LocalCapacity` (its re-pick case). The second is unavailable through a tab without
+ * adding a page surface whose only purpose is to occupy a slot, which would be a test-only
+ * path into production admission control. So this uses the first, and the window it needs
+ * is real rather than contrived: the tab starts with a fresh IndexedDB, so the first task
+ * admitted must pull the module **and** its input over the wire and then compile and
+ * instantiate WebAssembly on a worker thread, while the second request was already written
+ * to the same connection in the same tick. The failure direction is the safe one — a pair
+ * that somehow did not overlap reports "expected 1 refusal, got 0" rather than passing.
+ */
+describe('SCHED-06 — a tab at its slot limit refuses, and says which limit', () => {
+  it('admits one of two concurrent dispatches, refuses the other naming its one slot, and admits the refused one once the slot is free', async () => {
+    const tab = await openTab('one-slot', 1)
+    expect(await tab.page.evaluate(() => window.o2.peers())).toContain(peer.peerId)
+
+    // The limit the tab was started with, read back off the tab before anything is
+    // dispatched. `LocalCapacity.slots` is `max(1, floor(maxConcurrent × dutyCycle))` and
+    // the demo starts at a duty cycle of 1, so this is the option arriving unmodified —
+    // asserted rather than assumed, because a factory that had clamped or defaulted it
+    // would make the number in the refusal below true and meaningless.
+    expect(await tab.page.evaluate(() => window.o2.capacity().slots)).toBe(1)
+    expect(await tab.page.evaluate(() => window.o2.activity()?.tasksExecuted)).toBe(0)
+
+    // Held by the peer alone. The tab has a fresh IndexedDB and must pull all three.
+    const moduleCid = await peer.store.put(MODULE_WRITES_PARTITION)
+    const record = signFixture(moduleCid)
+    const firstInput = await peer.store.put(new Uint8Array([0x80])) // dag-cbor []
+    const secondInput = await peer.store.put(new Uint8Array([0x81, 0x00])) // dag-cbor [0]
+    expect(firstInput.toString()).not.toBe(secondInput.toString())
+
+    const taskFor = (inputCid: CID, partitionIndex: number): Task => ({
+      moduleCid,
+      moduleRecord: record,
+      inputCid,
+      partitionIndex,
+      partitionCount: 2,
+      label: 'public',
+    })
+    const first = taskFor(firstInput, 0)
+    const second = taskFor(secondInput, 1)
+
+    const replies = await Promise.all([dispatch(tab.peerId, first), dispatch(tab.peerId, second)])
+
+    // The instrument is alive before an absence is reported: both dispatches came back,
+    // and one of them really ran. A tab that refused both — the shape of every "refuses
+    // everything" regression — fails here rather than passing the refusal assertion.
+    expect(replies.filter((reply) => reply === null)).toEqual([])
+    const admitted = replies.filter((reply) => reply?.kind === 'exec' && reply.outcome.ok)
+    expect(admitted).toHaveLength(1)
+
+    const refusals = replies.filter((reply) => reply?.kind === 'error')
+    expect(refusals).toHaveLength(1)
+    const only = refusals[0]
+    if (only?.kind !== 'error') throw new Error('expected an error reply')
+    // **The text, composed by `LocalCapacity.#decide` inside a browser tab and carried
+    // back over a real WebSocket connection unchanged.** `toBe` and not a substring: the
+    // string is built in exactly one place precisely so it cannot drift, the
+    // `over-committed: ` prefix is part of the wire vocabulary, and the figures in it are
+    // the whole reason this reading exists. No ` at duty cycle …` suffix, because the tab
+    // is running at 1 — which is itself the assertion that this tab was not throttled into
+    // its refusal by something other than the limit under test.
+    expect(only.reason).toBe('over-committed: 1 of 1 slots in use')
+
+    // ---- The slot was given back ---------------------------------------------------
+    //
+    // A limit that never releases is a tab that stops working — indistinguishable from a
+    // healthy one for exactly `slots` tasks and then refusing everything forever, which is
+    // a worse failure than the one SCHED-06 exists to replace. Re-dispatching **the task
+    // that was refused**, rather than a third one, so this also reads that a refusal is a
+    // node condition and not a verdict on the work: the same bytes to the same tab now
+    // succeed, with nothing changed but the moment.
+    const retried = await dispatch(tab.peerId, second)
+    expect(retried?.kind).toBe('exec')
+    if (retried?.kind !== 'exec') return
+    expect(retried.outcome.ok).toBe(true)
+
+    // Page-side, and a precondition rather than the measurement: two tasks ran in this tab
+    // and not three, so the refusal really did stop work rather than delay it.
+    expect(await tab.page.evaluate(() => window.o2.activity()?.tasksExecuted)).toBe(2)
+
+    console.log(`[browser tier] one slot -> ${only.reason}`)
+  }, 300_000)
+
+  it('a tab started with two slots runs two at once and names two, so the figure tracks the limit rather than the arrival order', async () => {
+    // **Without this, the case above is equally satisfied by a tab that refuses whichever
+    // dispatch arrives second, whatever its limit** — every reading there would pass and
+    // nothing would have been proved about the figure the refusal names. So the whole
+    // reading is taken again at a second limit, and it is taken from a *refusal* rather
+    // than from an absence of one: three dispatches against two slots.
+    //
+    // Reading it from a refusal is what removes the vacuity. `over-committed: 2 of 2 slots
+    // in use` states `inFlight === 2` at the instant the third arrived, so the same frame
+    // that carries the number also carries the evidence that two tasks really were running
+    // at once in this tab. An assertion that merely saw two dispatches admitted would be
+    // satisfied by two that never overlapped.
+    //
+    // A second isolated context, so this tab shares no storage, no identity and no
+    // admission state with the first.
+    const tab = await openTab('two-slots', 2)
+    expect(await tab.page.evaluate(() => window.o2.peers())).toContain(peer.peerId)
+    expect(await tab.page.evaluate(() => window.o2.capacity().slots)).toBe(2)
+
+    const moduleCid = await peer.store.put(MODULE_WRITES_PARTITION)
+    const record = signFixture(moduleCid)
+    // The first two are the inputs the one-slot case uses, deliberately: apart from the
+    // third dispatch, the only thing that differs between the two runs is the limit.
+    const inputs = [
+      await peer.store.put(new Uint8Array([0x80])), // dag-cbor []
+      await peer.store.put(new Uint8Array([0x81, 0x00])), // dag-cbor [0]
+      await peer.store.put(new Uint8Array([0x81, 0x01])), // dag-cbor [1]
+    ]
+    expect(new Set(inputs.map((cid) => cid.toString())).size).toBe(3)
+
+    const replies = await Promise.all(
+      inputs.map(async (inputCid, partitionIndex) =>
+        dispatch(tab.peerId, {
+          moduleCid,
+          moduleRecord: record,
+          inputCid,
+          partitionIndex,
+          partitionCount: inputs.length,
+          label: 'public',
+        }),
+      ),
+    )
+
+    expect(replies.filter((reply) => reply === null)).toEqual([])
+    expect(replies.filter((reply) => reply?.kind === 'exec' && reply.outcome.ok)).toHaveLength(2)
+
+    const refusals = replies.filter((reply) => reply?.kind === 'error')
+    expect(refusals).toHaveLength(1)
+    const only = refusals[0]
+    if (only?.kind !== 'error') throw new Error('expected an error reply')
+    // The figure moved with the option, and it moved in both places at once: the
+    // occupancy and the limit. A refusal that fired whatever the limit was would say
+    // `1 of 1` here.
+    expect(only.reason).toBe('over-committed: 2 of 2 slots in use')
+
+    console.log(`[browser tier] two slots -> ${only.reason}`)
+  }, 300_000)
+})
