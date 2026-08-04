@@ -343,11 +343,19 @@ describe('the signature check applies to most of the ledger, not to a corner of 
    * would still pass while checking nothing at all.
    *
    * The floor was the reading taken on 2026-08-01: 26 of the 40 entries carried a test
-   * title, 14 carried assertion or runner output. **Re-measured 2026-08-03 by Plan
-   * 19-12: 45 of 67 carry a title, 22 carry rendered output** — and the old sentence was
-   * already two entries stale when it was read, because 18-12 added `M36` and `M37`
-   * without moving it. It is a floor rather than an equality because new entries should
-   * be free to land in either arm.
+   * title, 14 carried assertion or runner output. Re-measured 2026-08-03 by Plan 19-12:
+   * 45 of 67 carry a title, 22 carry rendered output — and the old sentence was already
+   * two entries stale when it was read, because 18-12 added `M36` and `M37` without
+   * moving it. **Re-measured 2026-08-04 for defects #19/#20: 48 of 72 carry a title, 24
+   * carry rendered output** — `P1`, `P2` and `P3` landed in the checked arm and `E1` and
+   * `E2` in the unchecked one, each justified in the case below.
+   *
+   * It is a floor rather than an equality because new entries should be free to land in
+   * either arm. It is deliberately **not ratcheted to 48** along with the reading: the
+   * number's job is anti-vacuity — to stop somebody re-declaring a drifted signature
+   * `rendered-at-runtime` to make it green — and a floor two thirds of the way up the
+   * ledger already does that. A floor moved to sit exactly on the current count would
+   * start failing for arithmetic rather than for the property it guards.
    */
   it('checks the signature of at least forty-five entries', () => {
     const checked = MUTATIONS.filter((entry) => entry.signatureSource === 'test-title')
@@ -389,7 +397,22 @@ describe('the signature check applies to most of the ledger, not to a corner of 
       // up. `M51`'s signature is a template-literal title assembled per file at run time,
       // so no literal exists to compare against and `test-title` would be a false
       // declaration — the case above rejects exactly that mistake.
+      //
+      // `E1` and `E2` were added 2026-08-04 for defect #20, and the justification is the
+      // `M36`/`M37` one sharpened by what their catching file contains. Both are caught
+      // by `enrollment-dos.node.test.ts`, whose first two cases assert **wall-clock
+      // ratios** — a verification tax and a provider-versus-attacker exchange rate. A
+      // title-keyed signature there would accept a red produced by a timing floor, which
+      // is precisely the red a contended host can produce on its own, and the script
+      // would then report a guard as having fired when what fired was the machine. The
+      // assertion strings pin the exact inversions instead and neither can be rendered by
+      // a slow run: `expected 'issuance-budget-exhausted' to be 'bad-proof-of-possession'`
+      // is a budget check hoisted above the signature verifications, and
+      // `to deeply equal [ 'exec' ]` is an authorization step appearing on the enrol
+      // branch. Neither string exists in any source file, so `test-title` would also have
+      // been a false declaration.
       [
+        'E1', 'E2',
         'M1', 'M11', 'M12', 'M2a', 'M20', 'M22', 'M27', 'M3a', 'M30', 'M32', 'M36', 'M37',
         'M4', 'M40', 'M42', 'M43', 'M44', 'M45', 'M5', 'M51', 'M7', 'M9',
       ].sort(),

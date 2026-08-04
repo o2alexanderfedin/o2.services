@@ -45,7 +45,7 @@
  * and that is not evidence the guard saw anything.
  *
  * A signature is therefore *output*, and most output has no literal in any file. But
- * a large majority of these — 45 of the 67, re-counted 2026-08-03 — are the test's own
+ * a large majority of these — 48 of the 72, re-counted 2026-08-04 — are the test's own
  * title, which vitest echoes verbatim, and a title **is** source text. (This sentence
  * read *"26 of the 40"* until then, and was stale by two before Phase 19 added a line:
  * a count written into prose expires exactly the way a `find` string does, and nothing
@@ -135,6 +135,22 @@ export interface Mutation {
  * by `82220c2` in the meantime, so its `caughtBy` is new. The two `B*` entries are
  * the benchmark driver's admission wiring, whose sentinel reversion is caught by the
  * structural count in `serve-agent-hooks.node.test.ts`.
+ *
+ * The three `P*` entries are `packages/bench/src/perf-workload.ts`, added 2026-08-04 for
+ * defect #19. They are worth a sentence because of what the count was before them:
+ * **sixty-seven entries and not one mention of that file**, against a tracked non-test
+ * source holding two production `serveAgent` call sites and one production
+ * `RemoteExecutor` site. The sites were not wrong — `19-15` and `19-16` ruled that both
+ * keep the `attest` sentinel permanently, because neither holds a certificate — they were
+ * simply somewhere this ledger did not look, which is a different failure and the one
+ * that lets a file drift from its four siblings silently. `P3` in particular records the
+ * one hook where it already had.
+ *
+ * The two `E*` entries are AUTH-04's cost half, added the same day for defect #20. They
+ * pin an exposure the owner **accepted** on 2026-08-02 rather than a guarantee, which
+ * makes them the only entries here whose correct end is deletion: when a price at the
+ * enrolment frame is ruled in, they and their readings go, and nothing about them may be
+ * loosened in the meantime to keep a suite green.
  *
  * Every `caughtBy` and every `signature` below was measured on 2026-07-29 by
  * planting the mutation and running exactly the listed files under
@@ -1454,6 +1470,149 @@ export const MUTATIONS: readonly Mutation[] = [
     signature: 'states the absence where there is no certificate to carry, rather than omitting it',
     signatureSource: 'test-title',
   },
+  {
+    id: 'P1',
+    why:
+      'SCHED-06 on the **fourth** production `serveAgent` file, and the entry exists because ' +
+      'until it was written this ledger had never once named `packages/bench/src/perf-workload.ts` ' +
+      '— sixty-seven entries, zero mentions, against a file holding two production call sites. ' +
+      'That is the condition defect #19 reports: not that the sites are wrong, but that they sit ' +
+      'somewhere the ledger does not look, so they can drift from the other four with nothing ' +
+      'saying so. `B1` records what the drift costs when it happens, on this rig’s sibling: the ' +
+      'memory-transport curve in `.planning/BENCHMARK-RESULTS.md` was published having been ' +
+      'measured with the sentinel at `bin/bench.ts`’s two call sites while the real-transport ' +
+      'curve admitted, so two curves printed side by side were taken under different node ' +
+      'behaviour. This rig is the one the **perf gate** runs, so the same reversion here moves a ' +
+      'number that fails a build rather than one that is only printed.',
+    file: 'packages/bench/src/perf-workload.ts',
+    find: "capacity: new LocalCapacity({ nodeId: 'requestor', maxConcurrent: GATE_ADMISSION_LIMIT }),",
+    replace: "capacity: 'accepts-every-offer',",
+    caughtBy: ['packages/node/src/serve-agent-hooks.node.test.ts'],
+    signature: 'bench/src/perf-workload.ts: the third production serveAgent file',
+    signatureSource: 'test-title',
+  },
+  {
+    id: 'P2',
+    why:
+      'The same reversion on this rig’s worker loop — `B1`/`B2`’s pairing one file over, and a ' +
+      'pair for the identical reason: the guard that catches both is a count over the whole ' +
+      'file, so a single entry would be satisfied by an instrument that only ever sees one of ' +
+      'the two call sites, and this pair is what proves it sees either. The worker site is also ' +
+      'the one where the sentinel would do real damage: `serveAgent` keys an exec slot on ' +
+      '`inputCid:partitionIndex`, the gate runs at `redundancy: min(2, nodes)`, and a rig that ' +
+      'admitted every offer would let all sixteen shards of every iteration land unbounded on ' +
+      'one node — which the gate would report as a **ratio**, not as a failure.',
+    file: 'packages/bench/src/perf-workload.ts',
+    find: 'capacity: new LocalCapacity({ nodeId: id, maxConcurrent: GATE_ADMISSION_LIMIT }),',
+    replace: "capacity: 'accepts-every-offer',",
+    caughtBy: ['packages/node/src/serve-agent-hooks.node.test.ts'],
+    signature: 'bench/src/perf-workload.ts: the third production serveAgent file',
+    signatureSource: 'test-title',
+  },
+  {
+    id: 'P3',
+    why:
+      'DET-03, and — like `M36` — this entry pins an **absence** rather than a line. The perf ' +
+      'gate wraps neither side of its own ratio in `guardModuleProvenance`, while `bin/bench.ts` ' +
+      'wraps all three of its rigs and says why against its own interest: *"if the fabrics pay ' +
+      'for the check and the baseline does not, every reported speedup is inflated by exactly ' +
+      'the difference."* The two rigs therefore do not measure the same quantity, and nothing ' +
+      'said so until defect #19 went looking. **The absence is not the defect this pins — the ' +
+      'silence is.** Wiring the guard changes what `measureGateLadder` measures, and ' +
+      '`perf-baseline.ts` holds committed wall-clock numbers the gate asserts against, so the ' +
+      'wiring and a re-baseline are one commit or the gate reports a change of workload as a ' +
+      'regression. Planting the wrap is what turns that into a red test at the moment somebody ' +
+      'tries it, instead of a surprise minutes later under `O2_PERF=1`. When the guard really ' +
+      'lands with a retaken baseline, this entry is the thing to delete.',
+    file: 'packages/bench/src/perf-workload.ts',
+    find: "    executor: new WasmExecutor({ nodeId: 'requestor', blockstore: originStore }),",
+    replace:
+      '    executor: guardModuleProvenance(\n' +
+      "      new WasmExecutor({ nodeId: 'requestor', blockstore: originStore }),\n" +
+      '      { resolver: new SignedNameResolver([]), now: () => Date.now() },\n' +
+      '    ),',
+    caughtBy: ['packages/node/src/serve-agent-hooks.node.test.ts'],
+    signature:
+      'bench/src/perf-workload.ts composes no provenance guard where bin/bench.ts composes one at every rig',
+    signatureSource: 'test-title',
+  },
+  {
+    id: 'E1',
+    why:
+      'AUTH-04’s **cost** half, and the entry `19-VERIFICATION.md` asked for by name: *"`M54` ' +
+      'pins the bound; nothing pins what it cost."* `serveAgent` serves `enrol` ' +
+      'unauthenticated, and `enrol` checks possession and consent — two Ed25519 verifications — ' +
+      '**before** either budget is read. That ordering is correct and `enrollment.ts` records ' +
+      'why: the limiter keys on `userKey`, so a cross-user attempt that reached it would consume ' +
+      'the victim’s window. It is also the whole of the CPU exposure, because a provider that ' +
+      'has already decided to refuse pays those two verifications anyway. Hoisting a budget ' +
+      'check above them is the obvious cheap mitigation and is the mutation planted here; it ' +
+      'collapses the measured verification tax from 56–146× to about 1, and the exchange rate ' +
+      'against a fresh identity from 3.0 to 0.02. **The entry pins an accepted exposure, not a ' +
+      'guarantee** — owner decision 2026-08-02 accepted it deliberately — so when a mitigation ' +
+      'is ruled in, delete this entry and its readings rather than loosening them.',
+    file: 'packages/core/src/enrollment.ts',
+    find: '    const challenge = possessionChallenge(request.nodeKey, request.userKey)\n',
+    replace:
+      '    const challenge = possessionChallenge(request.nodeKey, request.userKey)\n' +
+      "    if (this.#maxIssuedPerWindow !== 'issues-without-an-aggregate-budget') {\n" +
+      '      const spent = this.#recentForAnybody(now)\n' +
+      '      if (spent.length >= this.#maxIssuedPerWindow) {\n' +
+      '        return {\n' +
+      '          ok: false,\n' +
+      "          refusal: {\n            kind: 'issuance-budget-exhausted',\n" +
+      '            limit: this.#maxIssuedPerWindow,\n' +
+      '            windowMs: this.#windowMs,\n' +
+      '            retryAfterMs: Math.min(...spent) + this.#windowMs - now,\n' +
+      '          },\n' +
+      '          reason: `this provider has issued ${spent.length} certificates`,\n' +
+      '        }\n' +
+      '      }\n' +
+      '    }\n',
+    caughtBy: ['packages/node/src/enrollment-dos.node.test.ts'],
+    signature: "expected 'issuance-budget-exhausted' to be 'bad-proof-of-possession'",
+    signatureSource: 'rendered-at-runtime',
+  },
+  {
+    id: 'E2',
+    why:
+      'AUTH-04’s cost half at the wire, and the second thing nothing pinned: the `enrol` branch ' +
+      'takes no capacity slot **and consults no authorizer**, so a node sitting at its declared ' +
+      'admission bound refuses seven of eight dispatches by name and serves eight of eight ' +
+      'enrolments in the same instant. Planting an authorization step on that branch is what ' +
+      'proves the reading is a reading — the counted call list goes from `[exec]` to `[exec]` ' +
+      'plus one per enrolment. Like `M36` and `P3` this pins an **absence**, and the absence is ' +
+      'accepted rather than approved: `enrollment.ts`’ header calls the DoS *"accepted ' +
+      'deliberately rather than mitigated"*, and criterion 5’s second clause is an open owner ' +
+      'ruling that this entry deliberately does not settle. **A capacity slot is not the ' +
+      'mitigation**, and that was measured rather than argued from the docblock: planted, eight ' +
+      'concurrent enrolments at `maxConcurrent: 1` with nothing else running were all served, ' +
+      'because `enrol` is synchronous and nothing can interleave around it — while in a rig ' +
+      'where one `exec` held the shared slot, **zero** of eight enrolments got through. The ' +
+      'slot binds only against the wrong verb.',
+    file: 'packages/net/src/agent.ts',
+    find: "      response =\n        options.enroll === 'issues-no-certificates'\n",
+    replace:
+      '      const enrolRefusal =\n' +
+      "        options.authorize === 'serves-unauthenticated'\n" +
+      '          ? null\n' +
+      '          : options.authorize({\n' +
+      "              kind: 'combine',\n" +
+      "              combine: { combineId: 'enrol', inputCids: [], level: 0 },\n" +
+      '              capability: [],\n' +
+      '            })\n' +
+      '      response =\n' +
+      '        enrolRefusal !== null\n' +
+      '          ? { kind: \'error\', reason: `unauthorized: ${enrolRefusal}` }\n' +
+      "          : options.enroll === 'issues-no-certificates'\n",
+    caughtBy: ['packages/node/src/enrollment-dos.node.test.ts'],
+    // Deliberately the right-hand side alone. The observed FAIL line was `expected
+    // [ 'exec', 'combine', 'combine', …(6) ] to deeply equal [ 'exec' ]`, and the left
+    // half is vitest's width-dependent truncation — a signature keyed on `…(6)` would
+    // be a guard that stops matching when somebody resizes a terminal.
+    signature: "to deeply equal [ 'exec' ]",
+    signatureSource: 'rendered-at-runtime',
+  },
 ]
 
 /** Literal occurrences of `needle` in `text`. `needle` must be non-empty. */
@@ -1480,7 +1639,7 @@ const TITLE_SEPARATOR = ' > '
  *
  * ## What this does not catch, and must not be read as catching
  *
- * - **The whole `rendered-at-runtime` arm.** Twenty-two of these entries carry
+ * - **The whole `rendered-at-runtime` arm.** Twenty-four of these entries carry
  *   assertion or runner output, which exists in no file. Nothing here reads them;
  *   only a planted run can.
  * - **A title that is present but not running.** `it.skip`, a `describe` that no
@@ -1492,7 +1651,7 @@ const TITLE_SEPARATOR = ' > '
  * - **A signature short enough to match by accident.** Length is checked against zero
  *   and nothing else, so a three-character signature would pass here and be worthless.
  *
- * The first bullet is the one worth restating: this check is silent on 22 of the 67
+ * The first bullet is the one worth restating: this check is silent on 24 of the 72
  * entries by construction. A guard that appears to cover a population it cannot is
  * the defect this function exists to close, so its scope is written down rather than
  * left to be inferred from the fact that it passes.

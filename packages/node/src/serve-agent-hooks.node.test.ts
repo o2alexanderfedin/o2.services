@@ -302,6 +302,17 @@ describe('production serveAgent call sites state every hook explicitly', () => {
     // while adding an Ed25519 sign per combine to a published scaling curve.
     expect(occurrences(BENCH, "'signs-nothing'")).toBe(2)
     expect(occurrences(BENCH, 'attest:')).toBe(2)
+    // DATA-05, and **the one `AgentOptions` field no row in this file counted at any
+    // production call site** until defect #19 was investigated. Two, one per site, and
+    // it is a *scope statement* rather than a burn-down: `bench-egress.node.test.ts`'s
+    // second requirement rules that this driver's worker endpoints are deliberately
+    // untapped because the amended criterion promises the **submitting** node's
+    // manifest, and this driver does construct a real `EgressGuard` — it simply hands
+    // it to `submitJobWithEgress` rather than to `serveAgent`. Counting it is what makes
+    // the difference between those two destinations legible; without this row a "we
+    // built the guard right here, pass it in too" tidy moves a published curve's
+    // measured path with nothing anywhere failing.
+    expect(occurrences(BENCH, "'holds-no-registrations'")).toBe(2)
   })
 
   it('bench/src/perf-workload.ts: the third production serveAgent file', () => {
@@ -331,6 +342,56 @@ describe('production serveAgent call sites state every hook explicitly', () => {
     // VER-08 / VER-09 / VER-10 — permanent, on the same ground as `bin/bench.ts` above.
     expect(occurrences(PERF_WORKLOAD, "'signs-nothing'")).toBe(2)
     expect(occurrences(PERF_WORKLOAD, 'attest:')).toBe(2)
+    // DATA-05 — see the `BENCH` row above for why this field was uncounted everywhere
+    // and what counting it buys. Two here as well, and for the same reason: this rig
+    // also builds a real `EgressGuard` over the submitting endpoint's transport and
+    // hands it to `submitJobWithEgress`, not to either `serveAgent`.
+    expect(occurrences(PERF_WORKLOAD, "'holds-no-registrations'")).toBe(2)
+  })
+
+  it('bench/src/perf-workload.ts composes no provenance guard where bin/bench.ts composes one at every rig', () => {
+    // DET-03, and **the divergence defect #19 asked about.** It is recorded here rather
+    // than repaired, deliberately, and the reason is in the last paragraph.
+    //
+    // These two files claim to measure the same shape. `perf-workload.ts`'s own module
+    // comment says so at length — *"this rig reproduces the shape of the driver's memory
+    // rig — same fixture module, same shard count, same declared admission limit, same
+    // redundancy rule, same `measure()`, same `EgressGuard`… and the same
+    // `submitJobWithEgress` call over it"*. Nine hooks over four call sites match
+    // exactly, which is what the rows above establish. **This one does not.**
+    //
+    // `bin/bench.ts` wraps every executor it builds in `guardModuleProvenance`, at all
+    // three rigs, and its header states the reason against its own interest: *"after this
+    // phase there is no production dispatch path that skips the signature check, so a rig
+    // that skipped it would be measuring a path that no longer exists… That is also why
+    // `wasmInProcess` is wrapped. It is the baseline the two fabrics are compared
+    // against; if the fabrics pay for the check and the baseline does not, every reported
+    // speedup is inflated by exactly the difference."* `bench-egress.node.test.ts`'s
+    // seventh requirement pins that wrapping.
+    //
+    // The perf gate wraps **neither side of its own ratio** — not its two `serveAgent`
+    // executors and not `referenceWorkload()`'s. So its `coordinationRatio` is a
+    // fabric-over-local quotient in which neither term pays DET-03, while the published
+    // curve pays it in both. The two rigs' numbers are therefore not the same quantity,
+    // and until this row existed nothing in the repository said so.
+    //
+    // **Why this is not fixed here.** Wrapping them changes what `measureGateLadder`
+    // measures, and `perf-baseline.ts` holds committed wall-clock numbers the gate
+    // asserts against — so the wiring and a full re-baseline are one change, not two, and
+    // the gate is opt-in (`O2_PERF=1`) and minutes long. A patch that wired the guard
+    // without retaking the baseline would turn the gate red for a change of workload and
+    // be read as a regression. This row is what makes that a decision somebody takes on
+    // purpose: wire it and this test goes red, which is the prompt to retake the
+    // baseline in the same commit. Mutation-ledger entry `P3` plants exactly that.
+    //
+    // Relational, not absolute — the positive half is what stops this reading from being
+    // satisfied by `bin/bench.ts` losing its guard too.
+    expect(occurrences(BENCH, 'guardModuleProvenance(')).toBe(1)
+    expect(occurrences(BENCH, 'guarded(new WasmExecutor(')).toBe(3)
+    expect(occurrences(PERF_WORKLOAD, 'guardModuleProvenance')).toBe(0)
+    // The other half of the same fact, because a zero above is equally what deleting
+    // every executor construction in that file would produce.
+    expect(occurrences(PERF_WORKLOAD, 'new WasmExecutor(')).toBe(3)
   })
 })
 
