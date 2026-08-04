@@ -29,6 +29,17 @@
  * one thing here with a test, and the defaulted output path is inside the tested
  * function rather than downstream of it.
  *
+ * ## …and why the sentinel is gone rather than guarded a fourth time
+ *
+ * The paragraph above describes a `-1` used as an index. The correction it prompted was
+ * a guard — `outAt === -1 || …` — which is right and which does not scale: `--image` and
+ * `--docker` would each have needed their own `indexOf`, their own sentinel, and their
+ * own clause in one filter, and the defect only ever showed up when a flag was *absent*,
+ * which is the case a reader checks last. So the parsing is now one left-to-right pass
+ * over {@link VALUE_FLAGS}, collecting consumed indices into a `Set<number>`. There is no
+ * state in it that means "not found", and therefore no value that can be mistaken for a
+ * position.
+ *
  * ## The exit code says what the verdict says
  *
  * `0` clean, `2` translated with reservations, `1` failed. `2` rather than `0`
@@ -61,7 +72,18 @@ const EXIT_CLEAN = 0
 const EXIT_FAILED = 1
 const EXIT_RESERVATIONS = 2
 
-const USAGE = 'usage: npm run aot:lift -- <path-to-aarch64-static-elf> [--out <artifact.wasm>]'
+const USAGE =
+  'usage: npm run aot:lift -- <path-to-aarch64-static-elf> [--out <artifact.wasm>]' +
+  ' [--image <tag>] [--docker <path>]\n' +
+  // Both flags exist so the driver can be pointed at something other than the default,
+  // and both are on argv rather than only on `LiftOptions` because the refusal that
+  // matters is only reachable by *pointing the command at an image*. `--image` is how a
+  // re-tagged local image gets in front of the digest check at all; `--docker` names a
+  // program that is not Docker, which is what makes that refusal measurable on a host
+  // with no elfconv image present.
+  '  --image  the toolchain image to lift with; a tag whose RepoDigests name another\n' +
+  '           repository is refused rather than run under the borrowed name\n' +
+  '  --docker the program to run instead of `docker`'
 
 /**
  * Why the arguments could not be used.
@@ -74,7 +96,16 @@ const USAGE = 'usage: npm run aot:lift -- <path-to-aarch64-static-elf> [--out <a
  */
 export type ArgFailure =
   | { readonly kind: 'no-input' }
-  | { readonly kind: 'missing-out-value' }
+  /**
+   * A value-taking flag with nothing after it. `flag` says which one.
+   *
+   * One kind carrying the flag rather than one kind per flag. Three failures that all
+   * mean "you gave me a flag and no value" is how a reader stops being able to tell
+   * the named failures apart, which is the property the doc above says the naming
+   * exists to provide — and the sentence has to name the flag anyway, so a second kind
+   * would carry no information the field does not.
+   */
+  | { readonly kind: 'missing-flag-value'; readonly flag: string }
   | { readonly kind: 'flag-in-input-position'; readonly argument: string }
 
 /**
@@ -82,56 +113,99 @@ export type ArgFailure =
  *
  * `out` is a resolved path and never `undefined` — see the module comment. A caller
  * that had to apply the default itself is a caller that could skip it.
+ *
+ * `image` and `docker` are the opposite: **absent when the flag was not given**, never
+ * present and `undefined`. `main` spreads them into `LiftOptions`, whose own defaults
+ * (`ELFCONV_IMAGE_TAG`, `'docker'`) are the ones that should apply, and under
+ * `exactOptionalPropertyTypes` an explicit `undefined` is a different value from an
+ * omitted key. Defaulting them here would put a second copy of `lift.ts`'s defaults in
+ * a file whose whole point is that it holds no logic.
  */
 export type AotArgs =
-  | { readonly ok: true; readonly input: string; readonly out: string }
+  | {
+      readonly ok: true
+      readonly input: string
+      readonly out: string
+      readonly image?: string
+      readonly docker?: string
+    }
   | { readonly ok: false; readonly failure: ArgFailure }
 
 export function describeArgFailure(failure: ArgFailure): string {
   switch (failure.kind) {
     case 'no-input':
       return 'no input binary given — there is nothing to lift'
-    case 'missing-out-value':
-      return '--out was given with no path after it'
+    case 'missing-flag-value':
+      return `${failure.flag} was given with no value after it`
     case 'flag-in-input-position':
       return `${failure.argument} is not a path — the input binary comes first, or after --out <path>`
   }
 }
 
 /**
- * `process.argv.slice(2)` into an input path and an output path.
+ * Every flag that takes the argument after it.
  *
- * `--out` may appear on either side of the positional argument, which is the whole
- * reason this is index arithmetic rather than a simple `argv[0]`. Extra positionals
- * are ignored rather than rejected: that was the previous behaviour, one binary per
- * run is the only shape the container driver supports, and turning a tolerated
- * argument into a hard failure is not a bug fix.
+ * A table rather than three `indexOf` calls, so adding a fourth flag is an entry here
+ * and nothing else. The order is the order they are documented in {@link USAGE}.
+ */
+const VALUE_FLAGS = ['--out', '--image', '--docker'] as const
+
+/**
+ * `process.argv.slice(2)` into an input path, an output path, and the two overrides.
+ *
+ * A value-flag may appear on either side of the positional argument, which is the whole
+ * reason this is a pass with a consumed-index set rather than a simple `argv[0]`. Extra
+ * positionals are ignored rather than rejected: that was the previous behaviour, one
+ * binary per run is the only shape the container driver supports, and turning a
+ * tolerated argument into a hard failure is not a bug fix.
+ *
+ * A repeated flag takes its last value. Unspecified before and unspecified now — it is
+ * recorded here only so the next reader does not have to run it to find out.
  *
  * Refuses rather than exits. A parser that calls `process.exit` cannot be asked what
  * it would have decided, and that is precisely how the `-1` bug above stayed invisible
  * through the tool's whole existence.
  */
 export function parseAotArgs(argv: readonly string[]): AotArgs {
-  const outAt = argv.indexOf('--out')
-  const out = outAt === -1 ? undefined : argv[outAt + 1]
-  if (outAt !== -1 && out === undefined) {
-    return { ok: false, failure: { kind: 'missing-out-value' } }
+  const values = new Map<string, string>()
+  // The indices this pass has already accounted for — a flag and the value after it.
+  // Membership, not arithmetic: there is no "absent" index to be confused with `0`.
+  const consumed = new Set<number>()
+
+  for (let index = 0; index < argv.length; index++) {
+    const argument = argv[index]
+    if (argument === undefined || !VALUE_FLAGS.includes(argument as (typeof VALUE_FLAGS)[number])) {
+      continue
+    }
+    const value = argv[index + 1]
+    if (value === undefined) {
+      return { ok: false, failure: { kind: 'missing-flag-value', flag: argument } }
+    }
+    values.set(argument, value)
+    consumed.add(index)
+    consumed.add(index + 1)
+    // Step over the value, so `--out --image x` treats `--image` as `--out`'s value
+    // exactly as the old `argv[outAt + 1]` did, rather than consuming it twice.
+    index++
   }
 
-  // The `outAt === -1` guard is load-bearing. Without it the remaining clauses read
-  // `index !== -1 && index !== 0` whenever `--out` is absent, which is true of every
-  // index except the first — silently discarding the only argument there was.
-  const positional = argv.filter(
-    (_, index) => outAt === -1 || (index !== outAt && index !== outAt + 1),
-  )
-
+  const positional = argv.filter((_, index) => !consumed.has(index))
   const input = positional[0]
   if (input === undefined) return { ok: false, failure: { kind: 'no-input' } }
   if (input.startsWith('-')) {
     return { ok: false, failure: { kind: 'flag-in-input-position', argument: input } }
   }
 
-  return { ok: true, input, out: out ?? `${input}.wasm` }
+  const image = values.get('--image')
+  const docker = values.get('--docker')
+  return {
+    ok: true,
+    input,
+    out: values.get('--out') ?? `${input}.wasm`,
+    // Omitted rather than `undefined` — see {@link AotArgs}.
+    ...(image === undefined ? {} : { image }),
+    ...(docker === undefined ? {} : { docker }),
+  }
 }
 
 async function main(argv: readonly string[]): Promise<number> {
@@ -143,6 +217,11 @@ async function main(argv: readonly string[]): Promise<number> {
 
   const outcome = await liftElf(args.input, {
     onProgress: (note) => process.stderr.write(`  ${note}\n`),
+    // Conditional spread, the idiom `bin/agent.ts` uses for an optional option: under
+    // `exactOptionalPropertyTypes` passing `image: undefined` is not the same as passing
+    // nothing, and only the second lets `liftElf`'s own default apply.
+    ...(args.image === undefined ? {} : { image: args.image }),
+    ...(args.docker === undefined ? {} : { docker: args.docker }),
   })
 
   if (!outcome.ok) {

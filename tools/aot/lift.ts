@@ -1271,6 +1271,20 @@ export function describeLift(artifact: LiftedArtifact): string {
       `${artifact.verdict.toUpperCase()}`,
   )
   lines.push(`  needs ${artifact.requiredFeatures.join(' ') || 'no features'}`)
+  // Two CIDs, labelled, and inside this string rather than printed beside it by `main`.
+  //
+  // They answer two different questions, and the distinction is `cache-key.ts`'s own:
+  // hashing the artifact answers "are these the same bytes", hashing the key answers
+  // "should these be the same bytes". So the key CID names *what should have been
+  // produced* and the artifact CID names *what was*, and the gap between the two answers
+  // is precisely a reproducibility defect — detectable only because both are printed.
+  // One of them alone is not half the measurement; it is none of it.
+  //
+  // Not a second rendering of the key. `describeKey` exists for that and would repeat
+  // the target, the toolchain and the feature set, all three of which are already on the
+  // lines around this one.
+  lines.push(`  translation key cid: ${artifact.translation.keyCid.toString()}`)
+  lines.push(`  artifact cid: ${artifact.translation.artifactCid.toString()}`)
   for (const [tool, version] of Object.entries(artifact.toolchain).sort(([a], [b]) => a.localeCompare(b))) {
     lines.push(`  ${tool}: ${version}`)
   }
