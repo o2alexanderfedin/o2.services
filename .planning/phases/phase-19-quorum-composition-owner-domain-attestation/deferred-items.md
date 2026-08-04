@@ -201,3 +201,51 @@ and inventing a fourth entry point is a phase, not a plan.
 `sovereign` — which is the same missing piece `SCHED-05`'s ledger row names, from the placement
 side rather than the dispatch side. The two are one gap seen from two ends and should close
 together.
+
+---
+
+## 6. `owner-domain` is computed everywhere and displayed nowhere — filed by 19-11
+
+**Measured 2026-08-03, on both display surfaces.** `classifyAttestation`'s middle label is the
+one VER-10's first clause is *about* — *"owner-domain quorum agreement is reported as a
+distinct, weaker claim than independent-operator agreement"* — and after this phase gave the
+label two display sites, **neither of them can ever show it**:
+
+- **The CLI.** 19-10 recorded it: no rung of `bin/bench.ts` produces two nodes under one
+  operator, because every `--discover` worker enrols with a distinct `operatorId`.
+- **The demo UI.** Same shape for a different reason: the page builds one descriptor per
+  executor and every node it can reach is either this tab or a peer with its own identity, so a
+  two-replica cube is either two operators or one unaccounted replica. There is no demo topology
+  that puts two of *one owner's* nodes in a job.
+
+The label is read today only off `ShardResult`, in `packages/node/src/quorum-agents.node.test.ts`.
+So the distinction VER-10 requires is established in a spec and has never been put in front of a
+reader — which is the *built, not wired* condition this milestone exists to remove, one level up
+from the mechanism.
+
+**Not closed here, and the reason is that closing it is a topology change rather than a display
+change.** It needs an entry point that runs two nodes under one `operatorId` and displays the
+result: a second `--discover` worker enrolled under the first's operator on the CLI, or a demo
+peer that shares this tab's operator id. Both alter what an existing surface measures, which is
+the thing a display plan must not do.
+
+**Both VER-09 and VER-10 stay unticked**, and their rows now name this and the sovereign-path
+gap by name rather than by plan number.
+
+## 7. No visitor path enrols, so every real visitor's receipt is the named absence — filed by 19-11
+
+**This is honest rather than broken, and it is filed because it is easy to misread as broken.**
+`TabApi.start` now takes an `enrollment` option and the demo threads it through, but
+`autoStart` — the only thing the page's own Start button calls — passes none, deliberately, for
+the reason it passes no `trustAnchors`: *a page that was found rather than configured must not
+be configurable by whatever found it.* And the demo has no provider to enrol with in any case.
+
+So a visitor opening the published page holds no certificate, has no anchor to check a peer
+against, and reads the named absence on every run — correctly. The label a real visitor sees is
+*"nothing established"*, and `owner-attested` is reachable today only from a harness that supplies
+a provider address.
+
+**What it would take**, and it is a deployment question rather than a code one: a provider a
+visitor could reach, and a decision about whether `/bootstrap.json` may carry its address — which
+is the same *"who may configure a page that was found"* question `autoStart` answers no to today.
+Worth deciding deliberately; not worth deciding inside a display plan.
