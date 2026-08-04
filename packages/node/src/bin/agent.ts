@@ -556,6 +556,33 @@ armOrphanLeash(shutdown)
 const relayAddrs = values['relay-addr'] ?? []
 const watcher = relayAddrs.length === 0 ? undefined : new ReservationWatcher()
 
+/**
+ * NET-05's reporting line, subscribed **here** — before `FabricNode.start` — and the
+ * position is the entire mechanism rather than a detail.
+ *
+ * **This used to sit after the settle loop below, and that cost a defect that looked for
+ * three weeks like a flake.** The relay dial happens *inside* `start`, and `start` then
+ * builds a transport, resolves a certificate, opens a blockstore, spawns a worker thread
+ * and serves an agent before this file regains control. The refusal needs only identify's
+ * round trip plus one HOP round trip to an already-connected relay. So the refusal
+ * routinely arrived, was classified, and was pushed onto the watcher's failure list
+ * *before anything was listening* — and `onFailure` had no replay, so nothing was ever
+ * written. The node then reported the fourth outcome below, which cannot distinguish a
+ * full relay from a silent one: precisely the ambiguity NET-05 exists to remove.
+ *
+ * Measured at roughly one run in five, and **the correlation ran backwards**, which is
+ * what made it look like noise: a contended host *delays* the refusal and the late
+ * subscription wins, while an idle host answers in milliseconds and the subscription
+ * loses. Slower was greener.
+ *
+ * Subscribing here is safe and total. The watcher observes through the `logger` injected
+ * into libp2p, and libp2p does not exist until `start` constructs it, so there is no
+ * window in which a failure can be recorded before this line runs.
+ */
+watcher?.onFailure((failure) => {
+  process.stderr.write(`agent.ts: relay reservation ${failure.kind}: ${failure.status}\n`)
+})
+
 node = await FabricNode.start({
   blockstoreDir: values.dir,
   listen: [`/ip4/127.0.0.1/tcp/${values.port}`],
@@ -677,22 +704,25 @@ for (const address of values['peer-addr'] ?? []) {
  */
 const RELAY_SETTLE_BUDGET_MS = 30_000
 if (watcher !== undefined) {
-  // Subscribed BEFORE the wait below, not after, and that ordering is the whole of the
-  // mechanism rather than a detail. A subscription taken afterwards would be dead code for
-  // the startup refusal — the wait cannot end until the failure has already been recorded,
-  // so a replay of `watcher.failures` would report it first and the subscription would
-  // never fire. Measured: removing the subscription while such a replay existed changed
-  // nothing, and the test still passed. One reporting path, and it is this one.
+  // The reporting subscription is NOT here. It is taken before `start`, and the comment
+  // there says why — a refusal recorded during `start` reached a watcher nobody was
+  // listening to, and the line was silently lost. Two claims that used to stand in this
+  // spot were false and are recorded here so neither is reintroduced:
   //
-  // It also outlives startup, which is the reason to prefer it: libp2p keeps retrying a
-  // reservation for the life of the node, so a relay that fills up an hour from now
-  // refuses this node then, and that refusal is reported by the same line. **That later
-  // case is not measured by any test** — `reservation-exhaustion.node.test.ts` only
-  // exercises the startup one.
-  watcher.onFailure((failure) => {
-    process.stderr.write(`agent.ts: relay reservation ${failure.kind}: ${failure.status}\n`)
-  })
-
+  //   1. *"The wait cannot end until the failure has already been recorded, so a replay
+  //      would report it first and the subscription would never fire."* Inverted. The
+  //      failure is usually recorded long before the wait **starts**, which is exactly
+  //      how it was lost.
+  //   2. *"libp2p keeps retrying a reservation for the life of the node."* Not in
+  //      `@libp2p/circuit-relay-v2@4.2.9` on this configuration: there is exactly one
+  //      attempt, ever. `relay:discover` fires only from `_onPeerIdentify`;
+  //      `RelayDiscovery.startDiscovery()` returns early once `running` is set, and
+  //      `running` clears only on `relay:found-enough-relays`, which a node that never
+  //      succeeds never emits; and the refresh timer is armed only on success. **A single
+  //      lost attempt is permanent**, which is why the whole requirement rested on one
+  //      message being printed once.
+  //
+  // What remains here is the wait, which needs `node` and therefore cannot move.
   const deadline = Date.now() + RELAY_SETTLE_BUDGET_MS
   while (
     Date.now() < deadline &&
