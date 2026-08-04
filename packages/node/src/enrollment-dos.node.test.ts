@@ -38,8 +38,16 @@ import { describe, expect, it } from 'vitest'
  * still has, and this host has been measured holding 95 % of a core at load 33 — so a
  * wall-clock threshold would fire on somebody else's build rather than on a code change.
  * Every figure below is two spans measured microseconds apart and divided, with the arms
- * **interleaved in blocks** so a load spike inflates numerator and denominator together
- * and cancels.
+ * alternating call-by-call and each reading taken as the **fastest** call rather than the
+ * mean or the total. `pairedRatio` states why.
+ *
+ * **A ratio is not automatically load-proof, and this file learned that the expensive
+ * way.** The paragraph here used to claim interleaving made "a load spike inflate
+ * numerator and denominator together and cancel". It does not cancel: a stall is an
+ * absolute number of milliseconds, so it lands on the cheaper arm proportionally harder,
+ * and summing the arms hands one stall unbounded leverage over the smaller total. The
+ * fresh-identity reading below inverted from 3.0 to 0.44 that way. Interleaving is
+ * necessary and it was never sufficient.
  *
  * The one exception is the wire reading, which is a **count** rather than a time: with
  * the node's single admission slot already occupied, seven of eight `exec` dispatches are
@@ -74,34 +82,46 @@ function freshRequest(): EnrollmentRequest {
   })
 }
 
-/** Wall time of `iterations` calls, in ms. */
-function span(iterations: number, work: (index: number) => void): number {
+/** Wall time of exactly one call, in ms. */
+function span(work: (index: number) => void, index: number): number {
   const started = performance.now()
-  for (let index = 0; index < iterations; index += 1) work(index)
+  work(index)
   return performance.now() - started
 }
 
 /**
- * `a ÷ b`, with the two arms interleaved in `rounds` blocks of `iterations` each.
+ * `a ÷ b`, as the **fastest single call** of each across `samples` alternating pairs.
  *
- * Interleaving is what makes the quotient survive a busy host: both arms sample the same
- * instants of machine load. A ratio of two separately-measured totals would not — the
- * first arm could run during somebody else's build and the second after it finished, and
- * the quotient would report that as a property of the code.
+ * Two properties, and the second is the one that was missing:
+ *
+ * **Alternating** so neither arm owns a contiguous stretch of the run. The arms swap
+ * `samples` times inside about a tenth of a second, so a load spike is seen by both.
+ *
+ * **Fastest rather than total**, because a spike seen by both is not a spike that
+ * cancels. Contention is one-sided — it can only add — so the cheapest of `samples`
+ * calls is the closest reading of the work itself, and taking it discards the stalls
+ * instead of averaging them in. That one-sidedness is measured, not assumed, and the
+ * measurement is written out beside `perFreshIdentity` below along with the twenty
+ * trials per estimator that chose this one over the total.
+ *
+ * A denominator can therefore sit at the clock's own resolution when arm `b` is cheap
+ * enough — the replay arm below reads 0.5–0.75 µs, a couple of `performance.now()`
+ * ticks. That direction is safe for every reading here: the true cost is *lower* than
+ * the floor of a sample, so a quotient built on it **understates** the amplification it
+ * claims, and the assertions are all lower bounds.
  */
 function pairedRatio(
-  rounds: number,
-  iterations: number,
+  samples: number,
   a: (index: number) => void,
   b: (index: number) => void,
 ): number {
-  let totalA = 0
-  let totalB = 0
-  for (let round = 0; round < rounds; round += 1) {
-    totalA += span(iterations, (i) => a(round * iterations + i))
-    totalB += span(iterations, (i) => b(round * iterations + i))
+  let fastestA = Number.POSITIVE_INFINITY
+  let fastestB = Number.POSITIVE_INFINITY
+  for (let sample = 0; sample < samples; sample += 1) {
+    fastestA = Math.min(fastestA, span(a, sample))
+    fastestB = Math.min(fastestB, span(b, sample))
   }
-  return totalA / totalB
+  return fastestA / fastestB
 }
 
 /** A provider with a stated aggregate budget and its own in-process history. */
@@ -115,8 +135,14 @@ function authorityWithBudget(
   })
 }
 
-/** Rounds × iterations per timed arm. Six blocks, so one slow block cannot decide a ratio. */
-const ROUNDS = 6
+/**
+ * Calls per timed arm — and therefore the number of chances each arm gets at a clean one.
+ *
+ * Thirty-six is the same total work the file did when it summed six blocks of six, so
+ * this is a change of estimator and not a change of cost. See `pairedRatio` for why the
+ * count matters more than the block size: what buys stability is *how many* independent
+ * chances the minimum has, not how much work each one contains.
+ */
 const SAMPLES = 36
 
 describe('AUTH-04 — what one unauthenticated enrolment attempt costs each side', () => {
@@ -144,18 +170,21 @@ describe('AUTH-04 — what one unauthenticated enrolment attempt costs each side
     expect(shortRefusal.refusal.kind).toBe('bad-proof-of-possession')
 
     const tax = pairedRatio(
-      ROUNDS,
-      SAMPLES / ROUNDS,
+      SAMPLES,
       (i) => void authority.enrol(wellFormed[i]!, NOW),
       (i) => void authority.enrol(shortProof[i]!, NOW),
     )
 
-    // **Observed 56×, 116×, 118× and 146× across four runs on 2026-08-04**, on a host
-    // running three other agents' suites — the spread is the denominator, which is a
-    // handful of microseconds and therefore the arm scheduling noise lands on. The floor
-    // is set five times below the *worst* of those readings rather than near the best,
-    // because the claim is an order of magnitude and not a value: the two arms differ by
-    // exactly two Ed25519 verifications against a length check.
+    // **Observed 102.8×, 114.0× and 106.9× across three runs on 2026-08-04**, on a host
+    // at 1-minute load 191–205 with this process holding under a quarter of a core:
+    // 2.49–2.56 ms for the fastest well-formed refusal, against 22.3–23.9 µs for the
+    // fastest short-proof one. The readings this file used to carry under the summing
+    // estimator were 56×, 116×, 118× and 146×; the spread is an order of magnitude
+    // narrower now, for the reason `pairedRatio` gives.
+    //
+    // The floor stays an order of magnitude below the worst of those, because the claim
+    // is an order of magnitude and not a value: the two arms differ by exactly two
+    // Ed25519 verifications against a length check.
     //
     // **What it pins.** A provider that has already decided to refuse still verifies two
     // signatures first, because possession and consent are checked before either budget
@@ -177,8 +206,7 @@ describe('AUTH-04 — what one unauthenticated enrolment attempt costs each side
     // verifications. Arm B: the attacker minting the next attempt — two key derivations
     // and two signatures, under a user key this provider has never seen.
     const perFreshIdentity = pairedRatio(
-      ROUNDS,
-      SAMPLES / ROUNDS,
+      SAMPLES,
       (i) => void authority.enrol(pool[i]!, NOW),
       () => void sink.push(freshRequest()),
     )
@@ -191,34 +219,67 @@ describe('AUTH-04 — what one unauthenticated enrolment attempt costs each side
     // overestimate of that: a real one holds the encoded frame and pays nothing.
     const replayed = pool[0]!
     const perReplay = pairedRatio(
-      ROUNDS,
-      SAMPLES / ROUNDS,
+      SAMPLES,
       (i) => void authority.enrol(pool[i]!, NOW),
       () => void sink.push({ ...replayed }),
     )
 
-    // **Observed 3.02×, 3.06× and 3.01× across three runs, and 1397× for the replay
-    // arm**, on 2026-08-04, each taken with this file running alone.
+    // **Observed 2.96×, 3.02×, 3.05×, 3.05×, 3.06× and 3.16× — and 3758× to 7501× for
+    // the replay arm — across three full `--project node` runs on 2026-08-04**, at
+    // 1-minute load 6–125 on an 8-core host. Six readings from three runs because the
+    // suite spawns nested vitest processes of its own, so this file executes more than
+    // once per run; the extra executions are the most contended context the project
+    // has, and are kept for exactly that reason.
     //
-    // **CORRECTED 2026-08-04, later the same day.** This comment previously called the
-    // first number *"an algorithmic property rather than a timing"* on the grounds that
-    // it *"did not move in the third significant figure while the host's load moved the
-    // absolute spans by a factor of five."* **That is measurably false, and it was the
-    // defect** — the same shape as a claim asserting its own safety that this repository
-    // has now been wrong about several times. Under a full `--project node` run the
-    // quotient reads **0.44**, a seven-fold move, and the case fails. Run alone it passes
-    // five times out of five. Both arms are sub-millisecond, so whole-suite scheduling
-    // swamps the paired ratio; five runs of a *quiet* host is not evidence of immunity to
-    // a *busy* one, and the third significant figure was stability of the sample, not of
-    // the quantity.
+    // Three further runs of this file alone, at load 191–205 with `/usr/bin/time -p`
+    // reporting `(user+sys)/real` of 0.23–0.29 — a quarter of one core — read 2.97×,
+    // 3.04× and 3.05×. **Nine readings, spanning a thirty-fold range of host load,
+    // inside 2.96–3.16.** Taken under contention on purpose: a reading only ever taken
+    // on a quiet host is a reading whose load-dependence nobody looked for, which is
+    // precisely the defect below.
     //
-    // **The mechanism is not established.** There are two measured facts and no measured
-    // cause. Do not write one in here until it has been measured — that is exactly how
-    // the false claim above got written.
+    // ## The estimator this file used to use, and why it inverted
     //
-    // The repair is to make the two arms comparable *within one run under contention*,
-    // per this project's own rule that a reading be sited against a calibration workload
-    // in the same run. **It is NOT to move either floor** — see below for why.
+    // This reading read **0.44 under a full `--project node` run and 1.44 running
+    // alone** on 2026-08-04, against a floor of 1.5, while a comment three lines up
+    // called it *"an algorithmic property rather than a timing"*. It was a timing, and
+    // the mechanism is now measured rather than asserted:
+    //
+    // 1. **Contention only ever adds.** Four block sizes were timed across host loads
+    //    from 8 to 213, and the *minimum* of each arm barely moves. At load 8 the
+    //    cheapest six-call block worked out at 2.525 ms per refusal and 0.774 ms per
+    //    mint; at loads 138–172 the cheapest **single** call read 2.407–2.507 ms and
+    //    0.756–0.776 ms. (The first pair is derived from a block and the second measured
+    //    directly, which is why they are quoted as two instruments and not one series.)
+    //    Over those same runs the *slowest* single call inflated to 43–51 ms and
+    //    18–20 ms — twenty- and twenty-five-fold. So a stall is an additive excursion,
+    //    never a discount, and the floor of a sample is the arm's own cost.
+    // 2. **An additive stall is not scale-free, so interleaving cannot cancel it.** The
+    //    refusal costs 2.5 ms and the mint 0.77 ms. The same 60 ms stall is a 24× hit on
+    //    one and a 78× hit on the other, so a spike seen by both arms still moves their
+    //    quotient — toward 1, and then past it.
+    // 3. **Summing six blocks gave one stall unbounded leverage.** A block was six mints,
+    //    about 4.7 ms, and the arm totalled about 28 ms. A single 68 ms stall — one was
+    //    caught, at load 60, in a run whose `sumRatio` was 1.337 while its `minRatio` was
+    //    3.312 — more than tripled the denominator on its own.
+    //
+    // Twenty trials of each estimator at load 138–172 settle it:
+    //
+    // | estimator                        | range        | spread |
+    // |----------------------------------|--------------|--------|
+    // | total of 6 blocks of 6 (the old) | 1.09 – 5.11  | 4.69×  |
+    // | total of 12 blocks of 3          | 1.76 – 6.22  | 3.53×  |
+    // | total of 36 single calls         | 1.56 – 4.87  | 3.12×  |
+    // | **fastest of 36 single calls**   | **3.15 – 3.27** | **1.04×** |
+    // | fastest of 72 single calls       | 3.15 – 3.25  | 1.03×  |
+    //
+    // The old estimator's own worst trial, 1.09, is below this floor — the defect
+    // reproduces on demand under load, and is not a rare coincidence of scheduling.
+    // Doubling to 72 samples buys 1 % and costs twice the wall clock, so 36 stands.
+    //
+    // **Neither floor moved, and neither may.** The repair was the estimator, which is
+    // what this project's measurement rule asks for — a comparative reading taken inside
+    // one run — and moving a floor would have destroyed the only thing this file is for.
     //
     // Read them together, because they are the two halves of the accepted exposure:
     //
@@ -237,6 +298,24 @@ describe('AUTH-04 — what one unauthenticated enrolment attempt costs each side
     // outright. Either lands as a red test here, which is the point: criterion 5's second
     // clause is an open owner ruling, and this file's job is to make its current answer
     // a reading rather than an argument.
+    //
+    // ## Both directions planted and watched go red, 2026-08-04
+    //
+    // **Numerator.** `enrollment.ts`' aggregate-budget check hoisted above the two
+    // verifications — mutation-ledger `E1`, named in the sibling case above. Observed:
+    // `AssertionError: expected 0.003615248196637649 to be greater than 1.5`. The sibling
+    // case went red beside it on its ordering control, which is `E1`'s own recorded
+    // signature and is deliberately not quoted here — `E1` declares that signature
+    // `rendered-at-runtime`, and `mutation-guard.node.test.ts` fails any entry whose
+    // signature it can find verbatim in a `caughtBy` file. Writing the observed text into
+    // this comment broke that guard once already; the string belongs in the ledger.
+    //
+    // **Denominator.** A stake of *n* extra Ed25519 signatures charged to `freshRequest`,
+    // which is what a proof-of-work at the frame would look like from here. It takes a
+    // real stake to trip: `n = 3` still passed at 1.85, `n = 5` gave
+    // `expected 1.20071527625726 to be greater than 1.5` and `n = 8` gave `0.8938`. So
+    // this floor fires once minting costs an attacker about **twice** what it costs
+    // today, and not before — the guard is stated, and it is not hair-trigger.
     expect(perFreshIdentity).toBeGreaterThan(1.5)
     expect(perReplay).toBeGreaterThan(50)
   })
