@@ -105,9 +105,14 @@ describe('the ledger is a ledger, not an empty list that passes', () => {
    * to be a deliberate act that also edits this number; leaving the floor behind the
    * count would let the newest entries go quietly, which is the failure this whole
    * block exists to prevent.
+   *
+   * **Raised to 67 on 2026-08-03 by Plan 19-12**, which added twenty-five entries — one
+   * per defect Phase 19 planted and watched go red. It was left at 23 through Phase 18,
+   * which is exactly the slack this docblock warns about: the count had reached 42 while
+   * the floor still described a tree of 23, so nineteen entries could have gone quietly.
    */
-  it('carries at least the twenty-three mutations it was built with', () => {
-    expect(MUTATIONS.length).toBeGreaterThanOrEqual(23)
+  it('carries at least the sixty-seven mutations it was built with', () => {
+    expect(MUTATIONS.length).toBeGreaterThanOrEqual(67)
   })
 
   it('gives every mutation a distinct id', () => {
@@ -337,13 +342,16 @@ describe('the signature check applies to most of the ledger, not to a corner of 
    * `rendered-at-runtime` — and if that happened to every entry, the block above
    * would still pass while checking nothing at all.
    *
-   * The floor is the reading taken on 2026-08-01: 26 of the 40 entries carry a test
-   * title, 14 carry assertion or runner output. It is a floor rather than an
-   * equality because new entries should be free to land in either arm.
+   * The floor was the reading taken on 2026-08-01: 26 of the 40 entries carried a test
+   * title, 14 carried assertion or runner output. **Re-measured 2026-08-03 by Plan
+   * 19-12: 45 of 67 carry a title, 22 carry rendered output** — and the old sentence was
+   * already two entries stale when it was read, because 18-12 added `M36` and `M37`
+   * without moving it. It is a floor rather than an equality because new entries should
+   * be free to land in either arm.
    */
-  it('checks the signature of at least twenty-six entries', () => {
+  it('checks the signature of at least forty-five entries', () => {
     const checked = MUTATIONS.filter((entry) => entry.signatureSource === 'test-title')
-    expect(checked.length).toBeGreaterThanOrEqual(26)
+    expect(checked.length).toBeGreaterThanOrEqual(45)
   })
 
   it('keeps the unchecked arm a minority, and names what is in it', () => {
@@ -365,9 +373,25 @@ describe('the signature check applies to most of the ledger, not to a corner of 
       // answer and the page answer diverge. Neither string exists in any source file, so
       // `test-title` would also have been a false declaration — see the case above that
       // rejects the opposite mistake.
+      //
+      // `M40`, `M42`, `M43`, `M44`, `M45` and `M51` were added by 19-12, and the
+      // justification this case asks for is the same one in five of the six cases: each
+      // catches a defect in `quorum-agents.node.test.ts`, whose three `it`s each carry
+      // dozens of assertions across three spawned-agent fabrics, so a title-keyed
+      // signature would accept a red produced by any of them — including one produced by
+      // contention, which this file has already recorded happening. The assertion strings
+      // pin the exact inversion instead: `expected 'composed' to be 'not-composed'` is
+      // rule 2 gone, `expected 'independent' to be 'owner-domain'` is one operator read as
+      // two, and the `'agreed'`/`'insufficient'` pair is the shortfall dial inverted in
+      // each direction. `M45` is the exception and says so in its own `why`: the run that
+      // observed it recorded `expected false to be true` and nothing sharper, which is the
+      // weakest signature in this ledger and is written down as one rather than dressed
+      // up. `M51`'s signature is a template-literal title assembled per file at run time,
+      // so no literal exists to compare against and `test-title` would be a false
+      // declaration — the case above rejects exactly that mistake.
       [
         'M1', 'M11', 'M12', 'M2a', 'M20', 'M22', 'M27', 'M3a', 'M30', 'M32', 'M36', 'M37',
-        'M4', 'M5', 'M7', 'M9',
+        'M4', 'M40', 'M42', 'M43', 'M44', 'M45', 'M5', 'M51', 'M7', 'M9',
       ].sort(),
     )
   })
