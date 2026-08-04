@@ -110,11 +110,35 @@ import { FabricNode } from './fabric-node.ts'
  * tabs, and `static-rendezvous.e2e.test.ts` does it on this same built bundle across three
  * engines. Neither of them reads a label, and this one reads no transport.
  *
+ * ## The readings are comparative, and the fourth case is the comparison itself
+ *
+ * Owner rule: *prefer a comparative reading to an absolute one* — an absolute threshold
+ * encodes the machine, the load and the I/O weather of the day it was written. Almost
+ * nothing below is absolute. The strength sentences are compared against
+ * `describeAttestation` rather than transcribed, so a change to the kernel's words moves
+ * both sides together; each case asserts the two *other* labels are absent, which is a
+ * comparison among the three within one run; and cases 2 and 3 assert the report names the
+ * peer as unaccounted **and does not name the submitter**, which is the comparison between
+ * what this tab could check and what it could not, taken inside a single job.
+ *
+ * The fourth case makes the cross-case comparison explicit, because it is the one defect
+ * #34 turns on: **a strength appears in exactly the run where no replica went
+ * unaccounted.** What would break it, stated so it is not a ratio that always passes — a
+ * page printing a strength beside an unaccounted replica (plants P3 and P5 both do), or a
+ * page reporting the absence for a run in which everything checked out, which is precisely
+ * what an in-process dispatch through the unsigned executor produced before this plan.
+ *
+ * The absolutes that remain are the per-case timeouts, and they are sited: the whole file
+ * measured **15.61 s real / 24.43 s user / 2.07 s sys** — ratio **1.70** — so each 900 s
+ * case budget is roughly sixty times the observed cost of the entire file, and is there to
+ * turn a hang into a named failure rather than to measure anything.
+ *
  * ## One engine, and the limit is the project's rather than this file's
  *
  * `e2e` specs launch Playwright themselves and every one of them is chromium-only;
- * `static-rendezvous.e2e.test.ts` is the sole multi-engine reading in the repository. This
- * file does not change that and does not claim to.
+ * `static-rendezvous.e2e.test.ts` is the sole multi-engine reading in the repository. So
+ * the engine-against-engine comparison that file can make is **not available here**, and
+ * this file substitutes the run-against-run one above rather than claiming the other.
  *
  * ## Every provider is stopped before any job runs
  *
@@ -356,6 +380,27 @@ function readsNoStrongerLabel(report: string): void {
   expect(report).not.toContain(INDEPENDENT)
 }
 
+/**
+ * Did this report claim a strength, and did it name a replica it could not account for?
+ *
+ * Derived from the rendered text rather than from anything the page was handed, so the
+ * fourth case compares three screens and not three return values.
+ */
+function readingOf(label: string, report: string): {
+  label: string
+  strength: boolean
+  unaccounted: boolean
+} {
+  return {
+    label,
+    strength: [OWNER_ATTESTED, OWNER_DOMAIN, INDEPENDENT].some((line) => report.includes(line)),
+    unaccounted: report.includes('this requestor holds no certificate for it'),
+  }
+}
+
+/** Each case's rendered report, kept for the cross-case comparison at the end. */
+const readings: { label: string; strength: boolean; unaccounted: boolean }[] = []
+
 describe('VER-09/VER-10 criterion 3 — the demo page says how strongly its answer was attested', () => {
   it('reads owner-attested for an enrolled tab that ran every cube by itself', async () => {
     const provider = await startProvider('provider-solo')
@@ -363,6 +408,7 @@ describe('VER-09/VER-10 criterion 3 — the demo page says how strongly its answ
     await startEnrolled(page, 'o2-attestation-solo', provider)
 
     const report = await runTheLadder(page, 420_000)
+    readings.push(readingOf('solo', report))
     process.stderr.write(`[attestation-ui] vite build ${buildMs} ms\n[solo]\n${report}\n`)
 
     // The population the reading came from, said on the page rather than assumed here.
@@ -396,6 +442,7 @@ describe('VER-09/VER-10 criterion 3 — the demo page says how strongly its answ
     expect(dialedId).toBe(peer.node.peerId)
 
     const report = await runTheLadder(page, 600_000)
+    readings.push(readingOf('unenrolled peer', report))
     process.stderr.write(`[unenrolled] peer ${peer.node.peerId}\n${report}\n`)
 
     // Two nodes really computed, so the receipt reports on an agreement rather than on an
@@ -439,6 +486,7 @@ describe('VER-09/VER-10 criterion 3 — the demo page says how strongly its answ
     expect(dialedId).toBe(peer.node.peerId)
 
     const report = await runTheLadder(page, 600_000)
+    readings.push(readingOf('stranger’s provider', report))
     process.stderr.write(`[stranger] peer ${peer.node.peerId}\n${report}\n`)
 
     expect(await page.textContent('#peers')).toContain('2 node(s) computing')
@@ -457,4 +505,43 @@ describe('VER-09/VER-10 criterion 3 — the demo page says how strongly its answ
     expect(report).not.toContain(`${submitterId}: this requestor holds no certificate for it`)
     expect(report).not.toContain(THE_OLD_CLAIM)
   }, 900_000)
+
+  /**
+   * The comparison the three cases exist to support, and the one defect #34 turns on.
+   *
+   * Each case above asks whether one screen said the right thing. This asks the question
+   * a visitor's trust actually rests on: **does a strength appear exactly where nothing
+   * went unaccounted?** It reads no absolute — no count, no threshold, no wall clock —
+   * only three screens against each other, all three produced by the same page, the same
+   * built bundle and the same ladder, differing in one variable each.
+   *
+   * It can fail, which is the point. A page printing a strength beside an unaccounted
+   * replica breaks it — plants P3 and P5 both did — and so does a page reporting the
+   * absence for a run in which everything checked out, which is exactly what the demo did
+   * before this plan, when a self-included job dispatched through the unsigned executor
+   * and the tab could not account for its own replica.
+   */
+  it('claims a strength in exactly the run where no replica went unaccounted', () => {
+    // All three ran. Without this, a suite that skipped two cases would satisfy every
+    // comparison below trivially.
+    expect(readings.map((reading) => reading.label)).toEqual([
+      'solo',
+      'unenrolled peer',
+      'stranger’s provider',
+    ])
+
+    for (const reading of readings) {
+      expect({ label: reading.label, strength: reading.strength }).toEqual({
+        label: reading.label,
+        strength: !reading.unaccounted,
+      })
+    }
+
+    // And the split is the one the topologies predict rather than any split at all: the
+    // solo run is the one that claimed a strength, both peer runs are the ones that did
+    // not. A page with the relation inverted would satisfy the loop above.
+    expect(readings.filter((reading) => reading.strength).map((reading) => reading.label)).toEqual([
+      'solo',
+    ])
+  })
 })
