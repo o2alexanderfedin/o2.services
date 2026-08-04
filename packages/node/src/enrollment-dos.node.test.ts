@@ -198,10 +198,27 @@ describe('AUTH-04 — what one unauthenticated enrolment attempt costs each side
     )
 
     // **Observed 3.02×, 3.06× and 3.01× across three runs, and 1397× for the replay
-    // arm**, on 2026-08-04. The first is the tightest number in this file — both arms are
-    // pure Ed25519 on one engine, so the quotient is an algorithmic property rather than
-    // a timing, and it did not move in the third significant figure while the host's load
-    // moved the absolute spans by a factor of five.
+    // arm**, on 2026-08-04, each taken with this file running alone.
+    //
+    // **CORRECTED 2026-08-04, later the same day.** This comment previously called the
+    // first number *"an algorithmic property rather than a timing"* on the grounds that
+    // it *"did not move in the third significant figure while the host's load moved the
+    // absolute spans by a factor of five."* **That is measurably false, and it was the
+    // defect** — the same shape as a claim asserting its own safety that this repository
+    // has now been wrong about several times. Under a full `--project node` run the
+    // quotient reads **0.44**, a seven-fold move, and the case fails. Run alone it passes
+    // five times out of five. Both arms are sub-millisecond, so whole-suite scheduling
+    // swamps the paired ratio; five runs of a *quiet* host is not evidence of immunity to
+    // a *busy* one, and the third significant figure was stability of the sample, not of
+    // the quantity.
+    //
+    // **The mechanism is not established.** There are two measured facts and no measured
+    // cause. Do not write one in here until it has been measured — that is exactly how
+    // the false claim above got written.
+    //
+    // The repair is to make the two arms comparable *within one run under contention*,
+    // per this project's own rule that a reading be sited against a calibration workload
+    // in the same run. **It is NOT to move either floor** — see below for why.
     //
     // Read them together, because they are the two halves of the accepted exposure:
     //
