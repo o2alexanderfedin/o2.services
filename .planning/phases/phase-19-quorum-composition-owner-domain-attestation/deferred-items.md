@@ -249,3 +249,75 @@ a provider address.
 visitor could reach, and a decision about whether `/bootstrap.json` may carry its address — which
 is the same *"who may configure a page that was found"* question `autoStart` answers no to today.
 Worth deciding deliberately; not worth deciding inside a display plan.
+
+---
+
+## 8. `ROADMAP.md`'s Phase 19 `Requirements:` line omits AUTH-04 — filed by 19-12
+
+**Found during:** 19-12, deciding AUTH-04's disposition.
+
+Criterion 5 of this phase is entirely AUTH-04's cost clause — the owner routed it here by ruling
+on 2026-08-01 — and AUTH-04 does not appear in the phase entry's `Requirements:` line, which
+reads `AUTH-05, NET-06, VER-03, VER-04, VER-08, VER-09, VER-10, WIRE-03`. The traceability row's
+own phase cell had the same error and **was** corrected here (`Phase 17 → Phase 19`), because
+`.planning/REQUIREMENTS.md` is in this plan's declared files.
+
+**Why it was not fixed:** this executor's brief states `No modifications to STATE.md or
+ROADMAP.md` as a success criterion, and the plan it overrides had sanctioned exactly this edit as
+a factual correction of the same kind 19-03 made. The two instructions disagree and the later one
+won; recording the disagreement is the only thing that stops the correction being lost.
+
+**What it is:** adding one id to a list. It amends no criterion text, and RULING A is not in
+play — the criterion already says what it says, and this is the index that fails to point at it.
+
+---
+
+## 9. `guardSovereignty`'s refusal branch has still never fired in a tab — filed by 19-12
+
+**Found during:** 19-12, checking WIRE-03's four unblocked items before ticking it.
+
+Three of the four are closed (19-03, 19-04). The second — *`BrowserNode`'s `guardSovereignty`
+wiring has zero runtime proof*, from `12-VERIFICATION.md` — is **half** closed, and the halves
+are worth separating because "runtime proof" was written before either existed:
+
+- **Admitting**: proven. `browser-capability.e2e.test.ts` dispatches three `label: 'sovereign'`
+  tasks to a tab started `canExecuteSovereign: true` and the third is executed, which it could
+  not be if the guard were mis-composed against that owner.
+- **Refusing**: unproven. Nothing has dispatched a sovereign task to a tab that is *not* cleared
+  for its owner. `tab-refusals.e2e.test.ts` excludes that guard by construction in its own
+  header — every task there is public, so there is no owner for the tab to be pinned to — and it
+  excludes it deliberately, because a refusal naming the wrong thing is the failure mode that
+  file exists to rule out.
+
+**Why WIRE-03 was ticked anyway:** the ROADMAP's 2026-08-02 constraint bullet scopes this
+requirement's content to the two refusals 19-04 executed, in as many words — *"Those two are
+WIRE-03's real content"* — and the requirement's own sentence is about the static-bundle
+rendezvous, which 19-03 measured in three engines. The four items are listed as *unblocked by
+the environment*, not as clauses. This is therefore an unblocked item still open, and it is named
+in WIRE-03's row rather than absorbed by the tick.
+
+**What it would take:** one `e2e` case dispatching a sovereign task to a tab pinned to a
+different owner and reading the refusal *text*, not merely `ok: false` — Phase 15 recorded a
+mutated tab that still refused, at a different precedence step, naming a different thing.
+
+---
+
+## 10. No runnable entry point has been measured reaching the quorum gate — filed by 19-12
+
+**Found during:** 19-12, deciding whether VER-04 could be ticked.
+
+`bin/bench.ts --discover` is the only production submitter that supplies certificated
+descriptors, and on that arm it composes **by construction**: each worker enrols with its own
+`bench-worker-N` operator id and every worker is a seed, so rule 1 and rule 2 both pass at
+redundancy 2. What is read off that binary's stdout is a rung's *receipt* strength
+(`bench-attestation.node.test.ts`), and a shard that failed to compose and degraded would print
+the same `independent` for the same reason — so the reading is one inference short of "the gate
+was reached".
+
+Defect #31 is this repository's own record of what that costs: SCHED-02's entry-point claim rested
+on one expression in this same binary, `tsc` and six guards stayed green when it was deleted, and
+only a call-site requirement written afterwards noticed.
+
+**What it would take:** one assertion in `bench-reduce.node.test.ts`'s family — either a printed
+`quorum` verdict on the `--discover` arm, or a call-site requirement over the expression that
+builds certificated descriptors, of the shape `M57` now holds for `admit:`.
