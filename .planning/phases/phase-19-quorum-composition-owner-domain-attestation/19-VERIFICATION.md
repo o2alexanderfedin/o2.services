@@ -2,10 +2,83 @@
 phase: 19-quorum-composition-owner-domain-attestation
 verified: 2026-08-04T03:46:29Z
 status: gaps_found
-score: 3/5 criteria MET (2 PARTIAL, 0 FAILED)
+score: >-
+  4/5 criteria MET (1 PARTIAL, 0 FAILED) — amended 2026-08-04T08:00:25Z.
+  The 2026-08-04T03:46 initial pass scored 3/5 MET (2 PARTIAL); plan 19-19 closed
+  criterion 1 and its closure was re-executed rather than accepted. See the Amendment.
 verifier: independent goal-backward pass, adversarial stance
-re_verification: false
-runs:
+re_verification:
+  verified: 2026-08-04T08:00:25Z
+  head: 01a168b
+  previous_status: gaps_found
+  previous_score: 3/5 MET, 2 PARTIAL, 0 FAILED
+  criterion_text_unchanged: true # ROADMAP.md:651 and :723 re-read; both word-for-word as first scored
+  gaps_closed:
+    - >-
+      G1 — criterion 1's relay clause now has an across-process reading that CAN fail.
+      Re-derived from source and then re-executed: deleting rule 2 from composeQuorum
+      reddens a fabric of four spawned bin/agent.ts processes at
+      quorum-agents.node.test.ts:1064 with "expected 'composed' to be 'not-composed'",
+      1 failed | 3 passed (4). The regression control was independently proved
+      non-vacuous by planting the plausible wrong implementation.
+  gaps_remaining:
+    - >-
+      G2 — criterion 5's cost clause. Deliberately untouched by 19-19 and confirmed
+      untouched here. Still a bound made durable, not a rising price. Needs an owner
+      ruling or a built per-identity cost.
+  regressions: []
+  new_findings:
+    - "W7 — submit.ts's W1 fix cites :802-803 for a reader its own +14-line edit moved to :816-817"
+    - "W8 — static-rendezvous.e2e.test.ts:43 cites browser-node.ts:1201 for `reservations: 'relays-for-nobody'`; that line is a duty-cycle comment and the hook is at :1389. Wrong when written, and not among the three the same commit corrected, while the sentence that commit added says four citations were re-checked"
+    - "W9 — post-19-19 drift: commit 5e60f2f (defect work, outside 19-19) shifted browser-node.ts +1 above :1337, re-staling the four citations 19-19/1f60045 had just corrected. Not 19-19's error"
+    - "W10 — reservation-exhaustion.node.test.ts's stated claim that a relay-refused node is 'still serving directly' is asserted NOWHERE. Measured: the file stays GREEN under a plant that makes its agents bind nothing"
+    - "W11 — bench-attestation.node.test.ts:478 (criterion 3's CLI two-operator rung) went red once in three full node runs under host contention; its retry gate deliberately does not cover a rung that completed at reduced redundancy"
+    - "Criterion 5's second `missing` bullet — the DoS opened by the aggregate budget — was closed by defect work (483775e), outside 19-19: enrollment-dos.node.test.ts plus ledger entries E1/E2"
+  probes_executed:
+    - mutation: "M40 — quorum.ts `if (requireIndependentPaths) {` -> `if (false as boolean) {`"
+      command: "npx vitest run --project node quorum-agents --reporter=verbose"
+      exit: 1
+      result: "1 failed | 3 passed (4); expected 'composed' to be 'not-composed' at quorum-agents.node.test.ts:1064:34"
+      restored: "cp + cmp, exit 0; git status clean"
+    - mutation: >-
+        UNLEDGERED, planted by this verifier — bin/agent.ts `listen` keyed on --relay-addr
+        being PRESENT rather than --port being ABSENT
+      command: "npx vitest run --project node quorum-agents discovery-agents reservation-exhaustion --reporter=verbose"
+      exit: 1
+      result: >-
+        quorum-agents 1 failed | 3 passed — expected 'via-relay' to be 'seed' at :804:47.
+        discovery-agents 2 passed and reservation-exhaustion 1 passed, i.e. the new
+        precondition case is the ONLY guard in the tree for this production change.
+      restored: "cp + cmp, exit 0; git status clean"
+overrides_applied: 0
+runs: # re-verification runs, 2026-08-04T07:xx–08:00Z, HEAD 01a168b, exit codes read directly
+  - command: "npx tsc --noEmit"
+    exit: 0
+  - command: "npx vitest run --project node"
+    exit: 1
+    result: >-
+      139 files, 7 failed | 1955 passed | 2 skipped (1964), 361.97 s real,
+      (user+sys)/real = 0.777. 6 of the 7 are tools/aot/lift.node.test.ts docker
+      timeouts at ~20 s each; the 7th is bench-attestation.node.test.ts:478 (W11).
+  - command: "npx vitest run --project node (second run)"
+    exit: 0
+    result: "139 files, 1962 passed | 2 skipped, 281.70 s real, (user+sys)/real = 0.974"
+  - command: "npx vitest run --project node --reporter=verbose (third run)"
+    exit: 0
+    result: "139 files, 1962 passed | 2 skipped"
+  - command: "npx vitest run --project browser"
+    exit: 0
+    result: "243 files, 3819 passed, 40.48 s"
+  - command: "npx vitest run --project e2e"
+    exit: 0
+    result: "14 files, 65 passed, 194.75 s"
+  - command: "npx vitest run --project node quorum-agents --reporter=verbose"
+    exit: 0
+    result: "1 file, 4 passed, 10.35 s"
+  - command: "npx vitest run --project node bench-attestation --reporter=verbose"
+    exit: 0
+    result: "1 file, 4 passed (isolated; the full-run failure did not reproduce)"
+initial_pass_runs: # the 2026-08-04T03:46 pass, retained
   - command: "npx tsc --noEmit"
     exit: 0
   - command: "npx vitest run --project node"
@@ -23,10 +96,13 @@ runs:
   - command: "npx vitest run --project e2e"
     exit: 0
     result: "13 files, 62 passed, 106.24 s"
+# G1 CLOSED 2026-08-04 by plan 19-19 (a2c0734, 203e2c3, 499a668, febd107, 096b101), re-executed
+# rather than accepted. Retained verbatim as the first pass's record — see
+# `re_verification.gaps_closed` and the Amendment for current state.
 gaps:
   - criterion: 1
+    status: closed_2026-08-04 # was: partial
     truth: "A verification quorum assembled during a job run through bin/agent.ts rests on no single shared reachability dependency — a run whose members all hang off the same relay is refused rather than silently accepted"
-    status: partial
     reason: >-
       The operator half (rule 1) is measured across three real bin/agent.ts processes on both
       dial arms with a redundancy-1 control. The relay half (rule 2) has NO across-process
@@ -55,7 +131,8 @@ gaps:
       a bound made durable, not a rising price: the N-th identity inside the window is REFUSED,
       and no graduated per-identity cost exists in this design or was built. The phase says so
       itself in three places, and the ROADMAP's own planning note states PARTIAL is the honest
-      score under that reading.
+      score under that reading. UNCHANGED at 2026-08-04T08:00 — re-read at
+      enrollment.ts:507-523 and ROADMAP.md:723; 19-19 deliberately did not touch it.
     artifacts:
       - path: "packages/core/src/enrollment.ts:507-523"
         issue: "the aggregate budget refuses past maxIssuedPerWindow; nothing prices an identity"
@@ -65,30 +142,95 @@ gaps:
         issue: "'nothing in this phase delivers one — no such price exists in this design and none was built'"
     missing:
       - "Either a mechanism that makes the N-th identity cost more than the first (proof-of-work, an escalating stake), or an owner ruling amending criterion 5's second clause to the bound-made-durable reading. RULING A forbids the second being done silently."
-      - "A measured mitigation for the DoS the budget opened: serveAgent answers enrol with no authorization step, so one dialer can burn a provider's whole window at one ed25519.keygen() per attempt. The recovery half is half-measured (a second provider certifies, and a peer pinning only the first refuses untrusted-issuer); the operational half is untested and is pinned by no mutation-ledger entry."
+      - >-
+        CLOSED 2026-08-04 by 483775e (defect work, outside 19-19), re-checked here: the
+        DoS the aggregate budget opened is now measured and pinned —
+        enrollment-dos.node.test.ts (4 cases, in-process over MemoryNetwork) plus ledger
+        entries E1 and E2, the latter pinning the ABSENCE of an authorization step on
+        serveAgent's enrol branch. The operational half (an operator noticing a starved
+        provider) remains untested.
 deferred:
   - item: "Nothing an operator can run mints a capability chain, so the sovereign discovery path is spec-only (deferred-items.md item 5)"
     addressed_in: "Phase 23"
     evidence: "Phase 23 success criterion 5: 'bin/bench.ts gains an opt-in sovereign leg, off by default, that mints a real capability chain and dispatches an owner-labelled shard through it — giving delegate and CapabilitySupplier a traced call path from a runnable entry point'"
 warnings:
   - id: W1
+    status: CLOSED 2026-08-04 by febd107 — but see W7
     where: "packages/core/src/job/submit.ts:124-130"
     what: "A stale docblock heading '## Nothing reads this field yet' on onQuorumShortfall, contradicted by :802-803 in the same file, which is the only place that reads it. 19-18 landed the field in wave 3, 19-06 landed the reader in wave 4, and the doc was never updated."
   - id: W2
+    status: CLOSED 2026-08-04 by 1f60045 and febd107 — but see W8 and W9
     where: ".planning/ROADMAP.md:693-698, .planning/REQUIREMENTS.md:656"
     what: "Line citations for the index/reservations hooks have drifted. ROADMAP cites browser-node.ts:1178/:1201 and fabric-node.ts:1578/:1601; REQUIREMENTS cites fabric-node.ts:1566 and browser-node.ts:1164. Actual: browser-node.ts:1337/:1388, fabric-node.ts:1672/:1695. The wiring exists; only the citations are stale."
   - id: W3
+    status: CLOSED 2026-08-04 by 1f60045 and febd107
     where: "packages/node/src/static-rendezvous.e2e.test.ts"
     what: "Criterion 4 names two hooks. reservations is read (findReservedPeers asks every connected peer; asked: true). index is NOT read anywhere in this file — discovery uses reservations exclusively (demo/main.ts:149-201), computePeers sends an offer (main.ts:743), and the tabs are unenrolled so peerCertificate returns before asking (main.ts:268). The ROADMAP's inline note that this file 'takes both readings' overstates it. The index hook IS read off a live tab in a sibling file from the same phase (tab-refusals.e2e.test.ts:371,377), which is why criterion 4 still scores MET."
   - id: W4
+    status: CLOSED 2026-08-04 by 1f60045 (.planning/ROADMAP.md:643 now reads 'AUTH-04, AUTH-05, NET-06, …')
     where: ".planning/ROADMAP.md:643"
     what: "Phase 19's Requirements line omits AUTH-04, though criterion 5 is entirely AUTH-04's cost clause. Filed as deferred-items.md item 8; the executor was blocked from editing ROADMAP.md. Bookkeeping only."
   - id: W5
+    status: OPEN, carried forward unchanged
     where: "packages/node/src/mutation-ledger.ts:1102 (M45)"
     what: "The ledger's own weakest entry — its only recorded signature is 'expected false to be true', which a flake could produce, and the summary did not record which of two degrading fabrics spoke. Self-declared in the entry's why."
   - id: W6
+    status: PARTLY ANSWERED — M40 was re-executed by this pass; the other six plants were not
     where: ".planning/phases/phase-19-.../19-12-SUMMARY.md:177-199"
     what: "Six planted instruments are deliberately absent from the mutation ledger because no failure text was recorded, and 19-18's optional-onQuorumShortfall plant is unencodable because its runner is tsc. Structurally consistent with problemsWith()'s rules and with Mutation's shape, but this verifier did not re-execute any of the seven plants (source mutation was out of scope for a read-only pass)."
+  - id: W7
+    status: NEW 2026-08-04
+    where: "packages/core/src/job/submit.ts:126"
+    what: >-
+      W1's fix cites '`:802-803` of this file, and nowhere else — confirmed by grep'. The
+      readers are at :816-817. The correction's own commit (febd107) added 28 lines and
+      removed 10 in that same docblock, net +14, so the number it states was true only
+      before its own edit landed. Same class as 18-VERIFICATION.md's F-2, one phase later.
+      One line off the same paragraph — 'the reader 670 lines below' — is also now 658.
+  - id: W8
+    status: NEW 2026-08-04
+    where: "packages/node/src/static-rendezvous.e2e.test.ts:43"
+    what: >-
+      Cites `browser-node.ts:1201` as the site of `reservations: 'relays-for-nobody'`.
+      That line is a duty-cycle comment ('is the whole of that requirement on this tier.');
+      the hook is at :1389 today and was at :1388 when febd107 landed. It was wrong when
+      written, it was NOT one of the three citations febd107 corrected in that header, and
+      the sentence febd107 added six lines below it says 'Four line citations in this
+      header had drifted and were re-checked against the tree on 2026-08-04.'
+  - id: W9
+    status: NEW 2026-08-04 — not 19-19's error
+    where: ".planning/ROADMAP.md:694,698; .planning/REQUIREMENTS.md:656; packages/node/src/static-rendezvous.e2e.test.ts:54"
+    what: >-
+      All four cite browser-node.ts:1337 (index) and :1388 (reservations). Verified correct
+      at febd107 and at 1f60045 by `git show <rev>:packages/browser/src/browser-node.ts`.
+      Commit 5e60f2f — defect work on the same branch, after 19-19 — added one line above
+      :1337, so the hooks are now at :1338 and :1389 and all four citations are off by one.
+      The wiring is unchanged; only the numbers drifted, again, four hours later.
+  - id: W10
+    status: NEW 2026-08-04, MEASURED
+    where: "packages/node/src/reservation-exhaustion.node.test.ts:136-140, :254-257, :275-278"
+    what: >-
+      The docblock 19-19 added states that 'cases B and C assert that a node refused by a
+      full relay, and a node whose relay is not there, each started anyway and is still
+      serving directly', and that a node binding nothing 'would silently stop being' that
+      'while the assertions stayed green'. The diagnosis is exactly right and the file does
+      not close it: B asserts only `relays === []` and `exitCode === null`; C adds
+      `peerId !== ''`. Neither reads a dialable address, though `multiaddrs` is on the
+      handshake type at :122. Proved rather than argued — under a plant that makes every
+      `--relay-addr` agent bind nothing, this file exits 0 with 1 passed.
+  - id: W11
+    status: NEW 2026-08-04, MEASURED
+    where: "packages/node/src/bench-attestation.node.test.ts:478, gate at :329-333"
+    what: >-
+      Criterion 3's CLI two-operator rung failed once in three full `--project node` runs at
+      HEAD — 'expected owner-attested to be independent' — and passed in isolation. The run
+      that failed was the contended one ((user+sys)/real 0.777 against 0.974; 361.97 s
+      against 281.70 s). `everyRealRungCompleted` gates retries on 'a completed run
+      existed', deliberately not on the strength — but it also does not distinguish
+      'completed at the redundancy it asked for' from 'completed at fewer replicas', so a
+      contention-reduced rung is kept and fails on a label that was honest for what it ran.
+      Criterion 3 keeps MET (three surfaces, two of them unaffected), but the CLI leg is
+      load-sensitive and this is where it shows.
 ---
 
 # Phase 19: Quorum Composition & Owner-Domain Attestation — Verification Report
@@ -100,6 +242,10 @@ tabs on a static bundle find each other with nothing dialed by a harness
 **Verified:** 2026-08-04T03:46:29Z (HEAD `fc5a5ad`, branch `feature/bug-fixes-22`, tree clean)
 **Status:** gaps_found
 **Score: 3/5 criteria MET, 2 PARTIAL, 0 FAILED**
+
+> **AMENDED 2026-08-04T08:00:25Z — score is now 4/5. Everything between here and the
+> Amendment is the record of the initial pass and is left standing.** Criterion 1 moved
+> PARTIAL → **MET**; criterion 5 did not move. See [the Amendment](#amendment--2026-08-04-criterion-1-closed-criterion-5-did-not-move).
 
 Scored against the criteria as they read at `.planning/ROADMAP.md:651-722`, including criterion 1's
 first clause as **reworded 2026-08-03 by owner ruling** (`:653-678`) and criterion 4's hook phrasing
@@ -453,3 +599,322 @@ ROADMAP note's *"takes both readings"*.
 _Verified: 2026-08-04T03:46:29Z_
 _Verifier: independent goal-backward pass (gsd-verifier), adversarial stance_
 _No source file was modified by this verification. `git status` clean at HEAD `fc5a5ad` before and after._
+
+---
+
+## Amendment — 2026-08-04: criterion 1 closed, criterion 5 did not move
+
+**Status stays `gaps_found`. Score: 3/5 → 4/5.** Everything above is the record of the
+2026-08-04T03:46 initial pass and is left standing. Nothing in it is retracted: G1 was real
+when it was written, and plan 19-19 closed it. What changes is **criterion 1 (PARTIAL →
+MET)** and the closure of W1–W4. Criterion 5 is unmoved and unmovable without an owner
+decision, which is the escalation at the end of this amendment.
+
+Re-verified at HEAD `01a168b`, branch `feature/phase-18-discovery-capacity-placement`, tree
+clean before and after. All five 19-19 commits and the orchestrator's `1f60045` confirmed
+ancestors of HEAD by `git merge-base --is-ancestor` (exit 0 each).
+
+**The contract is the same contract.** `.planning/ROADMAP.md:651` (criterion 1) and `:723`
+(criterion 5) were re-read and are word-for-word what the initial pass scored against.
+`1f60045` touched only the `Requirements:` line (W4), the W2 citations, and the W3 note —
+never a criterion. This amendment scores against the same text.
+
+### What moved
+
+| # | 2026-08-04T03:46 | 2026-08-04T08:00 | Why it moved |
+|---|---|---|---|
+| 1 | PARTIAL | **MET** | The relay half now has an across-process reading that CAN fail, and this pass made it fail. |
+| 2, 3, 4 | MET | **MET** | Re-run, no regression. Criterion 3 carries a new load-sensitivity warning (W11) that does not change its score. |
+| 5 | PARTIAL | **PARTIAL** | Untouched by design. The cost clause is still a bound, not a price. |
+
+**Score: 4/5 criteria MET, 1 PARTIAL, 0 FAILED.**
+
+---
+
+### Criterion 1 — now MET
+
+The initial pass refused this criterion because the assertion standing in for rule 2 across
+processes *could not fail*. The claim now is that it can. That claim was not accepted; it was
+re-derived from source and then executed.
+
+**1. The production change is real, and the chain is derivable end to end.**
+
+- `packages/node/src/bin/agent.ts:120` — `port: { type: 'string' }`. The `default: '0'` is
+  gone, and the docblock at `:95-119` states why in the terms the initial pass used.
+- `packages/node/src/bin/agent.ts:758-763` — the listen list is now one conditional
+  expression:
+  ```ts
+  const listen =
+    values.port !== undefined
+      ? [`/ip4/127.0.0.1/tcp/${values.port}`]
+      : relayAddrs.length === 0
+        ? ['/ip4/127.0.0.1/tcp/0']
+        : []
+  ```
+  The third row is the new one and it is keyed on `--port` being **absent**, which is the
+  only reason the default had to go.
+- `packages/node/src/fabric-node.ts:1072-1076` — `listen: []` plus one relay yields
+  `['/p2p-circuit']`; `:1083` reads `canRelay` off exactly that list and gets `false`;
+  `:627-628` therefore signs `discoverability: 'via-relay'` with `relayIds:
+  [...relayPeerIds]`, and `relayPeerIds` is filled at `:1240-1249` from the peer id of a
+  **successful** relay dial — so it is non-empty by construction on the arm that reaches it.
+- `packages/core/src/quorum.ts:261-272` — `dependenciesOf` returns `member.relayIds` for a
+  non-seed, so `common` **starts non-empty** and the intersection survives. The initial
+  pass's finding that the reduce began from `[]` no longer describes fabric B.
+
+**2. Fabric B is four separate operating-system processes.**
+`packages/node/src/quorum-agents.node.test.ts:906-994` (`standUpBehindOneRelay`): one spawned
+provider (`:928`) and three spawned agents (`:954-967`) given `--relay-addr` and **no
+`--port`**, plus an in-process relay and an in-process requestor. The three in-process
+`FabricNode.start({ listen: [] })` calls the initial pass found at `:818-832` are gone. The
+requestor is stood up *before* the agents (`:931-946`) because a node binding nothing cannot
+be dialled, and `--peer-addr` is taken at startup — which also makes the peering a
+precondition rather than a hope. Circuits are **read** off each agent's own handshake line
+(`:978-980`), not waited for.
+
+**3. The certificates rule 2 reads carry a relay, and it is asserted before anything is
+built on it.** `:1031-1034`, off `discoverCandidates`' answer rather than off the spawn args:
+
+```ts
+expect(certificate.discoverability).toBe('via-relay')
+expect(certificate.relayIds).toStrictEqual([relay.peerId])
+```
+
+Those two assertions ran and passed in the planted run below (the failure was 30 lines
+later), so the composer was reading provider-signed `via-relay` certificates naming one
+shared relay when it was asked to compose.
+
+**4. The plant. Executed by this verifier, not read from a summary.**
+`M40`'s own mutation, applied literally — `packages/core/src/quorum.ts`, `  if
+(requireIndependentPaths) {` → `  if (false as boolean) {`:
+
+| | |
+|---|---|
+| command | `npx vitest run --project node quorum-agents --reporter=verbose` |
+| exit | **1** (read on the next line, no pipe) |
+| result | `Tests  1 failed \| 3 passed (4)` |
+| failure | `AssertionError: expected 'composed' to be 'not-composed'` at `packages/node/src/quorum-agents.node.test.ts:1064:34` |
+| which case | *"criterion 1 engineered — one relay: caught by rule 2 and named by its relay"* — the spawned fabric |
+| the other three | green, including the three-operator fabric, exactly as the file's header table at `:26-39` predicts |
+| restore | `cp` then `cmp` → exit 0; `git status --porcelain` → empty |
+
+This is the reading the initial pass said did not exist. `M40`'s ledger entry
+(`mutation-ledger.ts:1019-1040`) now records the same text and the same counts, and its
+`why` states in full which cases still cannot redden and why that is by construction. The
+entry is honest.
+
+**5. The regression control is real and is NOT vacuous — proved by a second plant.**
+`quorum-agents.node.test.ts:751-813` reads both arms of one closure whose only varying
+argument is the flag: no `--port` must sign `via-relay` naming the relay (`:790-796`);
+`--port 0` must stay a `seed` with `relayIds: []` (`:803-811`). To test whether that control
+can fail, this verifier planted the plausible wrong implementation the 19-19 executor
+reported — a listen list keyed on `--relay-addr` being **present** rather than `--port`
+being **absent**:
+
+```ts
+const listen =
+  relayAddrs.length > 0 ? [] : [`/ip4/127.0.0.1/tcp/${values.port ?? '0'}`]
+```
+
+| | |
+|---|---|
+| exit | **1** |
+| failure | `AssertionError: expected 'via-relay' to be 'seed'` at `quorum-agents.node.test.ts:804:47` |
+| counts | `Tests  1 failed \| 3 passed (4)` |
+| restore | `cp` then `cmp` → exit 0; tree clean |
+
+The executor's reported signature is confirmed verbatim. **And a second reading came out of
+the same plant, which the executor did not report:** with the plant still in place,
+`discovery-agents.node.test.ts` (2 passed) and `reservation-exhaustion.node.test.ts`
+(1 passed) both stayed **green**, exit 0. The precondition case at `:751-813` is therefore
+the *only* thing in the tree guarding this production change. That is not a defect — it is
+what the case was added for — but it is worth stating that the guard is singular.
+
+**Verdict: MET.** Both halves of criterion 1 are now measured across spawned `bin/agent.ts`
+processes, each on a fabric where the rule under test is the only thing that can produce the
+refusal, and each proved falsifiable by mutation.
+
+**The one substitution that remains, unchanged and previously accepted.** The *requestor* is
+still an in-process `FabricNode`. `bin/agent.ts` submits no job — zero occurrences of
+`submitJob`, `JobSpec` or `executeVerified` — so *"a job run through `bin/agent.ts`"* is
+satisfiable only as *"a job run **across** `bin/agent.ts` processes"*. The file states this
+at `:5-13` rather than leaving it in a planning document, it is the shape
+`discovery-agents.node.test.ts` already uses for Phase 18, and the initial pass accepted it
+for rule 1. It is not a new gap and it is not what held the criterion at PARTIAL.
+
+---
+
+### Criterion 5 — still PARTIAL, and it needs a decision rather than a plan
+
+Re-read at `packages/core/src/enrollment.ts:507-523` and `.planning/ROADMAP.md:723`: unchanged.
+The N-th identity inside the window is **refused**, not **priced**. Nothing in the 19-19 span
+touches it, which is what 19-19 said it would do.
+
+**What did move, from outside 19-19.** The initial pass listed a second `missing` item under
+criterion 5: *"`M54` pins the bound; nothing pins what it cost."* Commit `483775e` (defect
+work) closed that half:
+
+- `packages/node/src/enrollment-dos.node.test.ts` — four cases pricing the exposure as
+  **ratios taken inside one run**, interleaved so a load spike cancels: what a provider pays
+  to refuse a request it was always going to refuse (`:123`); that minting costs the attacker
+  less than refusing costs the provider (`:169`); that a node at its one admission slot
+  refuses seven of eight `exec` dispatches and serves eight of eight `enrol` frames in the
+  same instant (`:307`); and that one dialer can burn a three-certificate window and lock out
+  an honest enroller by name (`:354`).
+- Ledger entries `E1` and `E2` (`mutation-ledger.ts:1600-1676`). `E2` pins an **absence** —
+  planting an authorization step on `serveAgent`'s enrol branch turns the counted call list
+  from `['exec']` into `['exec']` plus one per enrolment — and its `why` records that a
+  capacity slot is *not* the mitigation, measured rather than argued.
+
+The file states in its own header that it builds no mitigation and amends no criterion, and
+that both are an open owner ruling. That is the correct disposition and it is why the score
+does not move.
+
+**ESCALATION — this gap cannot be closed by an executor.** Two mutually exclusive routes,
+and RULING A forbids taking the second silently:
+
+1. **Build a per-identity cost** the N-th enroller pays and the first does not (proof-of-work
+   over the request, an escalating stake), and measure the two side by side the way
+   `enrollment-dos.node.test.ts` already measures ratios.
+2. **Amend criterion 5's second clause** to the bound-made-durable reading, recorded in
+   `ROADMAP.md` the way criterion 1's first clause was on 2026-08-03 — with the reason it is
+   faithful stated in place, and the superseded wording kept.
+
+Until one of those happens, *"the N-th fake identity is demonstrably more expensive than the
+first"* is unmeasured, and unmeasured is not met.
+
+---
+
+### Warnings W1–W4 — closed, and two new ones came out of closing them
+
+| id | verdict |
+|---|---|
+| **W1** | **Closed** by `febd107`. `'## Nothing reads this field yet'` is gone from `packages/core/src/job/submit.ts`; the replacement names the reader and what each arm decides, and keeps the scheduled-arrival argument rather than deleting it. **But see W7.** |
+| **W2** | **Closed** by `1f60045` (ROADMAP) and `febd107` (REQUIREMENTS, static-rendezvous). Each corrected number was checked against the line it named **at the commit that wrote it** — verified here by `git show <rev>:packages/browser/src/browser-node.ts`. **But see W8 and W9.** |
+| **W3** | **Closed** by `1f60045`. `.planning/ROADMAP.md:715-725` now says `static-rendezvous.e2e.test.ts` takes the `reservations` reading and `tab-refusals.e2e.test.ts:371,377` takes the `index` reading, with the superseded *"takes both readings"* recorded in place rather than deleted. `febd107` put the same distinction in the spec's own header at `:59-67`. Both citations re-checked: `:371` is `expect(await askProviders(tab.peerId, sovereignRow.cid)).toEqual([])` and `:377` reads the public row. Correct. |
+| **W4** | **Closed** by `1f60045`. `.planning/ROADMAP.md:643` now reads `**Requirements**: AUTH-04, AUTH-05, NET-06, VER-03, VER-04, VER-08, VER-09, VER-10, WIRE-03`. |
+| **W5** | Open, carried forward unchanged. |
+| **W6** | Partly answered — `M40` was re-executed by this pass and its recorded signature and counts are confirmed. The other six plants of `19-12` were not re-executed. `mutation-guard.node.test.ts` was read and it plants **nothing**: it checks only that every `find` string still matches its source, with the actual planting in an on-demand script. So a ledger entry's *signature* remains a claim until somebody runs it — which is precisely what this pass did for one of them. |
+
+**W7 — the W1 fix cites a line its own edit moved.** `packages/core/src/job/submit.ts:126`
+states *"**`:802-803` of this file, and nowhere else** — confirmed by grep"*. Grep now finds
+the readers at **`:816-817`**. `febd107` added 28 lines and removed 10 in that same docblock
+— net +14 — so `:802-803` was true only until the paragraph asserting it was written. This is
+the same class as `18-VERIFICATION.md`'s F-2, one phase later. (The neighbouring *"the reader
+670 lines below"* is likewise now 658.)
+
+**W8 — one of the four citations that commit says it re-checked is wrong, and was wrong when
+written.** `packages/node/src/static-rendezvous.e2e.test.ts:43` cites
+`browser-node.ts:1201` as the site of `reservations: 'relays-for-nobody'`. At `febd107` that
+line read `// is the whole of that requirement on this tier.` — a duty-cycle comment — and
+the hook was at `:1388`. `febd107` corrected three citations in that header
+(`fabric-node.ts:1601→1695`, `browser-node.ts:1178→1337`, `fabric-node.ts:1578→1672`) and did
+not touch `:1201`, while adding the sentence *"Four line citations in this header had drifted
+and were re-checked against the tree on 2026-08-04."* The hook is at `:1389` today.
+
+**W9 — the corrections were re-staled four hours later, by work outside this phase.** All
+four of `.planning/ROADMAP.md:694`, `:698`, `.planning/REQUIREMENTS.md:656` and
+`static-rendezvous.e2e.test.ts:54` cite `browser-node.ts:1337` (`index: records`) and `:1388`
+(`reservations: 'relays-for-nobody'`). Both were correct at `febd107` and at `1f60045`.
+Commit `5e60f2f` — *"a peer reachable only over a relay is not a peer this tab is done
+with"*, defect work on the same branch — added one line above `:1337`. The hooks are now at
+`:1338` and `:1389`. **Not 19-19's error**, and recorded here only because a reader following
+those numbers today lands one line short. `fabric-node.ts:1672` and `:1695` are still exact.
+
+---
+
+### W10 — `reservation-exhaustion.node.test.ts` does not measure the sentence it now states
+
+This was the fourth thing asked of this pass and it is the one place where the answer is no.
+
+`203e2c3` added a docblock at `packages/node/src/reservation-exhaustion.node.test.ts:126-141`
+stating `--port 0` out loud and explaining why: *"cases B and C assert that a node refused by
+a full relay, and a node whose relay is not there, each started anyway and is still serving
+directly. A node binding nothing would announce a handshake carrying no dialable address at
+all, and both of those sentences would quietly stop being true while the assertions stayed
+green."*
+
+**The diagnosis is exactly right. The file does not close it.** Every spawn goes through one
+helper (`:142-148`), which now passes `--port 0` — so under today's production code the
+sentence is true. What is asserted, though, is only:
+
+- case B (`:256-257`) — `expect(b.relays).toStrictEqual([])` and `expect(b.child.exitCode).toBeNull()`
+- case C (`:275-278`) — the same pair plus `expect(c.peerId).not.toBe('')`
+
+Neither reads a **dialable address**, though `multiaddrs` is on the handshake type this file
+parses at `:122`. Measured rather than argued: with the `--relay-addr`-keyed plant from the
+criterion-1 section in place — which makes exactly these three agents bind nothing — this
+file ran `npx vitest run --project node reservation-exhaustion`, **exit 0, 1 passed**. Its
+own stated failure mode is the one it cannot see.
+
+One line in each case closes it, e.g.
+`expect(b.multiaddrs.some((ma) => ma.includes('/tcp/') && !ma.includes('/p2p-circuit'))).toBe(true)`.
+Not a blocker — no criterion rests on it, the production behaviour is correct today, and the
+binary's own behaviour *is* guarded by `quorum-agents.node.test.ts:803-811`. It is a warning
+because the comment asserting the property and the assertions failing to check it sit twelve
+lines apart.
+
+### W11 — criterion 3's CLI leg is load-sensitive, and the retry gate does not cover the way it fails
+
+`npx vitest run --project node` was run three times at HEAD. The first exited **1**:
+
+```
+Test Files  2 failed | 137 passed (139)
+     Tests  7 failed | 1955 passed | 2 skipped (1964)
+```
+
+Six of the seven are `tools/aot/lift.node.test.ts` docker timeouts at ~20 s each. The seventh
+is `packages/node/src/bench-attestation.node.test.ts:478` —
+`expected 'owner-attested' to be 'independent'` — which is criterion 3's CLI two-operator
+rung. Runs two and three exited **0** (`1962 passed | 2 skipped`), and the file passes in
+isolation (4 passed).
+
+The comparative reading says contention, not regression: the failing run took **361.97 s
+real** at `(user+sys)/real = 0.777`; the green run took **281.70 s** at **0.974**. The host
+was doing other work.
+
+What is worth recording is *why the file's own retry did not absorb it*.
+`everyRealRungCompleted` (`:329-333`) gates a re-spawn on whether each real rung had a
+completed run to attest, and deliberately not on the strength — *"a rung that ran and printed
+the wrong label must fail, not be spawned again until it agrees."* That line is right. But the
+gate does not distinguish **completed at the redundancy it asked for** from **completed at
+fewer replicas**, and a contended `real/2` rung that ran on one node prints `owner-attested`
+honestly and then fails an assertion expecting `independent`. Criterion 3 keeps **MET** — the
+job-result and demo-UI surfaces are unaffected and the CLI leg passes on an uncontended host —
+but the gap between the gate's two categories is where this file will keep flaking.
+
+---
+
+### Test evidence for this amendment (exit codes read directly, no pipes, `EXIT=$?` on the next line)
+
+| Command | Exit | Result |
+|---|---|---|
+| `npx tsc --noEmit` | **0** | no output |
+| `npx vitest run --project node` (run 1) | **1** | 139 files, 7 failed / 1955 passed / 2 skipped; 361.97 s real, ratio 0.777 — see W11 |
+| `npx vitest run --project node` (run 2) | **0** | 139 files, 1962 passed / 2 skipped; 281.70 s real, ratio 0.974 |
+| `npx vitest run --project node --reporter=verbose` (run 3) | **0** | 139 files, 1962 passed / 2 skipped |
+| `npx vitest run --project browser` | **0** | 243 files, 3819 passed, 40.48 s |
+| `npx vitest run --project e2e` | **0** | 14 files, 65 passed, 194.75 s |
+| `npx vitest run --project node quorum-agents --reporter=verbose` | **0** | 1 file, 4 passed, 10.35 s |
+| `npx vitest run --project node bench-attestation --reporter=verbose` | **0** | 1 file, 4 passed (isolated) |
+| **planted** `M40` → `quorum-agents` | **1** | `1 failed \| 3 passed`; `expected 'composed' to be 'not-composed'` at `:1064:34` |
+| **planted** relay-keyed `listen` → `quorum-agents` | **1** | `1 failed \| 3 passed`; `expected 'via-relay' to be 'seed'` at `:804:47` |
+| **planted** relay-keyed `listen` → `discovery-agents reservation-exhaustion` | **0** | 2 files, 3 passed — neither guards the change |
+
+The two skips are both self-declaring and neither is silent: `transport-bounds.node.test.ts`
+skips one case above a host-load threshold and names the number, and
+`elf.real.node.test.ts` skips a case needing a distribution binary this repo did not build.
+
+### Working tree
+
+Both plants were restored with `cp` followed by `cmp` (exit 0 each), never
+`git checkout --`. `git status --porcelain` produced no output before the first plant and
+after the last restore. HEAD unchanged at `01a168b`. **No file in this repository was
+modified by this verification except `19-VERIFICATION.md`.** `STATE.md` and `ROADMAP.md` were
+read and not written.
+
+---
+
+_Amended: 2026-08-04T08:00:25Z_
+_Verifier: independent goal-backward re-verification (gsd-verifier), adversarial stance_
+_Two source mutations planted and restored; every exit code read directly on the line after the command._
