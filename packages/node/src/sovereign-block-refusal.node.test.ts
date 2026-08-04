@@ -8,6 +8,7 @@ import { MemoryNetwork, canonicalCid, decodeCanonical } from '@o2/core'
 import type { CanonicalValue, NodeDescriptor } from '@o2/core'
 import { EgressGuard, RemoteExecutor, parseRequest, submitJobWithEgress } from '@o2/net'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { stripComments } from './strip-comments.ts'
 // Test-only relative import — see the note in packages/net/src/distributed.test.ts.
 import { MODULE_WRITES_PARTITION } from '../../core/src/executor/fixtures.ts'
 import { OWNER_KEY, chainSupplierFor } from './capability-fixture.ts'
@@ -384,21 +385,29 @@ const SUBMIT_CALL_SITES: readonly { readonly file: string; readonly role: string
   },
 ]
 
-/**
- * Strips `//` line comments and block comments before matching.
- *
- * Load-bearing for the same reason `bench-egress.node.test.ts` gives: several of these
- * files *name* bare `submitJob` in their own prose — `submit-with-egress.ts`'s module
- * comment and `bin/bench.ts`'s `runnerFor` doc both do — so a raw-text match could be
- * satisfied by a description of a call site rather than by one.
- *
- * Regex-based, so a comment opener inside a string literal would be treated as opening
- * a comment. The failure direction is the safe one: over-stripping can only hide a real
- * call site, which drops a file out of the found set and fails this scan loudly.
- */
-function stripComments(source: string): string {
-  return source.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/\/\/[^\n]*/g, '')
-}
+// ---------------------------------------------------------------------------
+// Why this scan strips comments, and the claim it used to make about doing so
+// ---------------------------------------------------------------------------
+//
+// Stripping is load-bearing for the reason `bench-egress.node.test.ts` gives: several of
+// these files *name* bare `submitJob` in their own prose — `submit-with-egress.ts`'s
+// module comment and `bin/bench.ts`'s `runnerFor` doc both do — so a raw-text match could
+// be satisfied by a description of a call site rather than by one.
+//
+// **This file used to claim the failure direction was safe: "over-stripping can only hide
+// a real call site, which drops a file out of the found set and fails this scan loudly."
+// That is true for the three pinned files and false in general, which is the half that
+// matters.** `toEqual` on the whole set catches a *disappearance*, so a blinded call site
+// in `submit.ts`, `task-worker.ts` or `submit-with-egress.ts` does fail loudly. But a NEW
+// file whose `submitJob(` is blinded never enters the found set at all: `found` still
+// equals `expected` and the scan passes. Detecting a new call site is the entire purpose
+// of scanning the repository rather than reading three files, so the guard failed OPEN on
+// its own reason for existing.
+//
+// `stripComments` is now the shared tokenizer, which tracks string and template state and
+// so cannot open a comment the source never opened. `strip-comments.node.test.ts` holds
+// the differential against the regex it replaced — its `string-literal form` case is this
+// exact shape — and mutation-ledger entry `S3` plants that regex back here.
 
 /**
  * Every tracked, non-test TypeScript source under `packages/`.
@@ -477,5 +486,21 @@ describe('the scope of the guard — one entry point, not the node — is pinned
     expect(
       /\bsubmitJob\s*\(/.test(stripComments('await submitJobWithEgress(spec, store, [guard])')),
     ).toBe(false)
+
+    // **The case none of the four above could see, and the one this guard failed OPEN
+    // on.** They plant a real call and two ordinary comments, so a stripper that strips
+    // too much satisfies all of them. This plants a call site preceded by a string
+    // literal holding a comment opener — the shape that is live in 18 tracked files.
+    // Under the regex used here until 2026-08-04 the `/*` inside `'/*.ts'` opened a
+    // comment that ran to the closer two lines down, the call vanished, the file never
+    // entered `found`, and `found === expected` still held. A *disappearance* fails
+    // loudly; a NEW call site that was never seen does not fail at all, and finding new
+    // call sites is the whole reason this scan reads the repository instead of three
+    // files. Mutation-ledger entry `S3` plants that regex back and this line reddens.
+    expect(
+      /\bsubmitJob\s*\(/.test(
+        stripComments("const glob = '/*.ts'\nawait submitJob(spec, store)\n/** why the wrapper exists */\n"),
+      ),
+    ).toBe(true)
   })
 })

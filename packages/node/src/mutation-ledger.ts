@@ -45,11 +45,14 @@
  * and that is not evidence the guard saw anything.
  *
  * A signature is therefore *output*, and most output has no literal in any file. But
- * a large majority of these — 48 of the 72, re-counted 2026-08-04 — are the test's own
- * title, which vitest echoes verbatim, and a title **is** source text. (This sentence
- * read *"26 of the 40"* until then, and was stale by two before Phase 19 added a line:
- * a count written into prose expires exactly the way a `find` string does, and nothing
- * reads it.) That is the half the cheap layer
+ * a large majority of these — **60 of the 82**, re-counted 2026-08-04 — are the test's own
+ * title, which vitest echoes verbatim, and a title **is** source text. (This sentence read
+ * *"26 of the 40"* earlier that day, then *"48 of the 72"*, and **the second figure was
+ * already stale by eight when it was written**: the ledger held 78 entries and 56 titles at
+ * the moment it was re-counted. So the sentence warning that a count written into prose
+ * expires exactly the way a `find` string does has now expired twice, in the same file, in
+ * the paragraph that says so. Nothing reads it, which is the whole point — and the right
+ * fix is a derived count, not a third transcription.) That is the half the cheap layer
  * can check, and until 2026-08-01 it did not: `B1` and `B2` named a test that had
  * been renamed from `five sentinels` to `six` four commits earlier, and every
  * ordinary run stayed green because nothing compared the signature to anything.
@@ -1837,6 +1840,122 @@ export const MUTATIONS: readonly Mutation[] = [
     signature: 'renews a lease only against evidence the holder is still working — one fixture, both arms',
     signatureSource: 'test-title',
   },
+  // ---------------------------------------------------------------------------
+  // S1–S4 — the comment stripper, added 2026-08-04 for defect #40
+  // ---------------------------------------------------------------------------
+  //
+  // Six source-scanning guards each carried their own stripper, five of them the same
+  // regex pair. It has no notion of where it is in a file, so a comment opener inside a
+  // string literal opened a comment the source never opened and deleted everything to the
+  // next closer anywhere in the file. `packages/node/src/strip-comments.ts` replaces them
+  // with a tokenizer and keeps that regex beside it, exported as `BLINDABLE`, for exactly
+  // these four entries: each rewrites one guard's import so the guard runs with its old
+  // blindness restored.
+  //
+  // **Why these four and not all six.** `bench-egress` is the one guard whose stated
+  // defence held — every requirement in it is a presence check, so over-stripping fails
+  // loudly there. `identity-store`'s stripper was a different (line-prefix) implementation
+  // and its scan is a `subtle` census with no absence claim resting on the strip. The four
+  // below are the ones that failed OPEN: three assert *absence* and one has a `forbidden`
+  // arm, so for all four a blinded scan reads as a clean result.
+  //
+  // **Each of these needed a new case in its own guard before it could be planted at all,
+  // and that is the finding rather than a detail.** Measured 2026-08-04 across all 314
+  // tracked source files, no guard's found/not-found verdict differs between the two
+  // strippers — the mechanism is live, and nothing a guard currently searches for overlaps
+  // one of the 70 stray openers. So a swap alone reddened nothing. Every planted-pair block
+  // in these files plants an *ordinary* comment, which a stripper that strips too much
+  // satisfies perfectly; none of them planted a comment opener the source never opened,
+  // which is the case that blinds them. Those cases were added with this change, and they
+  // are what the reds below are.
+  {
+    id: 'S1',
+    why:
+      'DET-03’s absence guard, and the clearest instance of the class. `trust-anchors` asserts the ' +
+      'provenance opt-out appears nowhere outside a test — an assertion of the form "this list is ' +
+      'empty", which a blinded scan satisfies perfectly. Its docblock named stripping as dangerous ' +
+      'and pointed at its planted-pair block as the defence; that block plants an ordinary comment ' +
+      'and never a desync, so the defence did not cover the case. With the regex restored, an ' +
+      'opt-out sitting below a string literal containing a comment opener is deleted before `flags` ' +
+      'sees it, the repository reads clean, and the empty result the main assertion produces is a ' +
+      'silence rather than a reading.',
+    file: 'packages/node/src/trust-anchors.node.test.ts',
+    find: "import { stripComments } from './strip-comments.ts'",
+    replace: "import { BLINDABLE as stripComments } from './strip-comments.ts'",
+    caughtBy: ['packages/node/src/trust-anchors.node.test.ts'],
+    // Measured: 1 failed, 26 passed. Rendered assertion on that run:
+    // `AssertionError: expected 0 to be greater than 0`.
+    signature: 'flags it below a line whose string literal merely contains a comment opener',
+    signatureSource: 'test-title',
+  },
+  {
+    id: 'S2',
+    why:
+      'The guard failing open on the exact defect it exists to prevent. `requirements-ledger` checks ' +
+      'that a row reading "X has no production caller" is true, by searching the production corpus ' +
+      'for a call. Blind that search and an obvious caller reads as absent, so a false row PASSES — ' +
+      'and the file whose entire subject is five rows that were false in that direction produced the ' +
+      'blindness with its own instrument. Its docblock claimed "both errors are in the safe ' +
+      'direction"; that sentence is about reachability and never covered the strip. The regex also ' +
+      'carried a `[^:]` special case for `https://`, which is the argument against the approach ' +
+      'rather than a fix for it — it rescued the one input somebody noticed and did nothing for ' +
+      '`a // b`, the same bug one character over.',
+    file: 'packages/node/src/requirements-ledger.node.test.ts',
+    find: "import { stripComments } from './strip-comments.ts'",
+    replace: "import { BLINDABLE as stripComments } from './strip-comments.ts'",
+    caughtBy: ['packages/node/src/requirements-ledger.node.test.ts'],
+    // Measured: 1 failed, 15 passed. Rendered assertion on that run:
+    // `expected 'const a = 1 \n \nconst b = \'https:' to contain '\'https://x\''` — the
+    // string literal truncated at the `//` the `[^:]` hack no longer rescues, because
+    // `BLINDABLE` is the pair without it.
+    signature: 'strips comments, without which every claim would read as violated',
+    signatureSource: 'test-title',
+  },
+  {
+    id: 'S3',
+    why:
+      'DATA-10’s scope scan, and the half its docblock got wrong. It claimed over-stripping "can ' +
+      'only hide a real call site, which drops a file out of the found set and fails this scan ' +
+      'loudly" — true for the three pinned files, because `toEqual` on the whole set catches a ' +
+      // Note the wording: this sentence may not spell the bare call shape, paren included,
+      // because `sovereign-block-refusal.node.test.ts` scans every non-test file under
+      // `packages/` for it and this file is in that population. Strings are preserved by
+      // the stripper — deliberately, that is the defect being fixed — so prose in a string
+      // literal reads exactly like code. Caught by that guard on the first full run.
+      'disappearance. It is false for a NEW file whose bare call is blinded: that file never ' +
+      'enters `found`, `found === expected` still holds, and the scan passes. Detecting a new bare ' +
+      'submit path is the entire reason this scan reads the repository instead of three files, so ' +
+      'the guard failed open on its own purpose.',
+    file: 'packages/node/src/sovereign-block-refusal.node.test.ts',
+    find: "import { stripComments } from './strip-comments.ts'",
+    replace: "import { BLINDABLE as stripComments } from './strip-comments.ts'",
+    caughtBy: ['packages/node/src/sovereign-block-refusal.node.test.ts'],
+    // Measured: 1 failed, 3 passed. Rendered assertion on that run:
+    // `AssertionError: expected false to be true`.
+    signature: 'can report a new call site, and is not satisfied by prose describing one',
+    signatureSource: 'test-title',
+  },
+  {
+    id: 'S4',
+    why:
+      'The `forbidden` arm, which inverts the defence this file inherited verbatim from ' +
+      '`bench-egress.node.test.ts`. A `forbidden` pattern is must-NOT-match, so a scan blinded ' +
+      'before it reaches the line reports the requirement SATISFIED — over-stripping fails open ' +
+      'here, not loudly. The inherited sentence was already false at the moment the field was ' +
+      'introduced, and the field’s own docblock explains why the field is needed without noticing ' +
+      'that it reverses the claim four lines above. Concretely: `const complete = … && reduce.ok` ' +
+      'would couple every published p50/p95/p99 to the reduce having succeeded, and a blinded scan ' +
+      'reports that coupling absent.',
+    file: 'packages/node/src/bench-reduce.node.test.ts',
+    find: "import { stripComments } from './strip-comments.ts'",
+    replace: "import { BLINDABLE as stripComments } from './strip-comments.ts'",
+    caughtBy: ['packages/node/src/bench-reduce.node.test.ts'],
+    // Measured: 1 failed, 18 passed. Rendered assertion on that run:
+    // `AssertionError: expected [] to deeply equal [ Array(1) ]` — the empty list being
+    // the blinded scan reporting the coupling requirement as met.
+    signature: 'reports it even when a string literal above the coupling holds a comment opener',
+    signatureSource: 'test-title',
+  },
 ]
 
 /** Literal occurrences of `needle` in `text`. `needle` must be non-empty. */
@@ -1875,10 +1994,12 @@ const TITLE_SEPARATOR = ' > '
  * - **A signature short enough to match by accident.** Length is checked against zero
  *   and nothing else, so a three-character signature would pass here and be worthless.
  *
- * The first bullet is the one worth restating: this check is silent on 24 of the 72
- * entries by construction. A guard that appears to cover a population it cannot is
- * the defect this function exists to close, so its scope is written down rather than
- * left to be inferred from the fact that it passes.
+ * The first bullet is the one worth restating: this check is silent on **22 of the 82**
+ * entries by construction — the `rendered-at-runtime` half. (It read *"24 of the 72"* until
+ * 2026-08-04, which was wrong in both figures at the moment it was written; see the header
+ * for why this file now has two expired counts on record rather than one.) A guard that
+ * appears to cover a population it cannot is the defect this function exists to close, so
+ * its scope is written down rather than left to be inferred from the fact that it passes.
  */
 function signatureProblems(entry: Mutation, caughtByContent: readonly (string | null)[]): string[] {
   // Both already produce their own, more specific problem above. Reporting a second

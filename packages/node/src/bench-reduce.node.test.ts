@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
+import { stripComments } from './strip-comments.ts'
 
 /**
  * `bin/bench.ts`'s reduce leg, and the artifact it produces — MR-03, MR-04, MR-05,
@@ -32,10 +33,21 @@ import { describe, expect, it } from 'vitest'
  * could drive with a two-rung ladder and one iteration — a restructuring Phase 23 is
  * already scheduled to perform for its own reasons, and the right place for it.
  *
- * **The limit worth naming**, inherited with the idiom: {@link stripComments} is
- * regex-based, so a comment opener inside a string literal would be treated as opening
- * a comment. The failure direction is the safe one — over-stripping can only report a
- * satisfied requirement as unmet, which fails loudly, never the reverse.
+ * **The limit worth naming, and the defence that was inherited without its precondition.**
+ * The stripper here was regex-based until 2026-08-04, so a comment opener inside a string
+ * literal was treated as opening a comment. The sentence that came with it from
+ * `bench-egress.node.test.ts` — *the failure direction is the safe one, over-stripping can
+ * only report a satisfied requirement as unmet, which fails loudly, never the reverse* —
+ * is true only of a presence check, and this file is the sibling that added an absence
+ * one. `forbidden` is a must-NOT-match pattern, so over-stripping makes its requirement
+ * pass **wrongly**: the shape that is supposed to be refused simply is not read. The
+ * inherited defence was already false at the moment the `forbidden` field was introduced,
+ * and the field's own docblock explains why the field is needed without noticing that it
+ * inverts the claim four lines above it.
+ *
+ * {@link stripComments} is now the shared tokenizer, which tracks string and template
+ * state. `strip-comments.node.test.ts` measures it against the regex it replaced, and its
+ * `forbidden-pattern form` case is this file's arm, using this file's real pattern.
  */
 
 const BENCH = 'packages/node/src/bin/bench.ts'
@@ -72,18 +84,14 @@ const RESULTS_DOCUMENT: string = readFileSync(`${ROOT}${RESULTS}`, 'utf8')
 const MEASURED_TREE_DEPTH = 2
 const MEASURED_COMBINES = 5
 
-/**
- * Strips `//` line comments and block comments.
- *
- * The whole reason this guard is worth having. `bin/bench.ts` *names* every identifier
- * below in its own prose — the doc on `Fabric.rpc`, the paragraph on why the projection
- * decodes the output, the comment on why `complete` was deliberately not extended.
- * Match the raw text and a reader could delete every call site, leave the comments
- * describing them, and keep this file green.
- */
-function stripComments(source: string): string {
-  return source.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/\/\/[^\n]*/g, '')
-}
+// Stripping is the whole reason this guard is worth having. `bin/bench.ts` *names* every
+// identifier below in its own prose — the doc on `Fabric.rpc`, the paragraph on why the
+// projection decodes the output, the comment on why `complete` was deliberately not
+// extended. Match the raw text and a reader could delete every call site, leave the
+// comments describing them, and keep this file green.
+//
+// `stripComments` is the shared tokenizer; mutation-ledger entry `S4` plants the regex it
+// replaced back into this file, against the `forbidden` arm specifically.
 
 interface CallSiteRequirement {
   /** Named so whoever broke one knows which call site to open. */
@@ -343,6 +351,29 @@ describe('the call site guard can report absence — proved by planting, not ass
       '    const complete = result.ok && result.job.complete && reduce.ok\n',
     )
     expect(unmetRequirements(coupled)).toEqual(['completeness is NOT coupled to the reduce'])
+  })
+
+  it('reports it even when a string literal above the coupling holds a comment opener', () => {
+    // **The arm that made this file's inherited "the failure direction is the safe one"
+    // claim false.** `forbidden` is a must-NOT-match pattern, so a scan blinded before it
+    // reaches the line reports the requirement SATISFIED — over-stripping fails OPEN here,
+    // not loudly. The case above cannot see that, because it omits the satisfying
+    // fragment and so goes red through the *presence* pattern regardless.
+    //
+    // Here every requirement's satisfying fragment is present, so the presence pattern is
+    // met by the original expression and only the forbidden one is at stake. Under the
+    // regex used here until 2026-08-04, the `/*` inside `'partition/*'` opened a comment
+    // that ran to the closer on the last line, taking the coupled expression with it:
+    // the forbidden pattern matched nothing and this requirement read as MET.
+    // Mutation-ledger entry `S4` plants that regex back and this case reddens.
+    const coupledBelowAnOpener = REQUIREMENTS.map(({ satisfying }) => satisfying)
+      .join('')
+      .concat(
+        "    const shardLabel = 'partition/*'\n",
+        '    const complete = result.ok && result.job.complete && reduce.ok\n',
+        '    /** the closer that bounds the damage */\n',
+      )
+    expect(unmetRequirements(coupledBelowAnOpener)).toEqual(['completeness is NOT coupled to the reduce'])
   })
 
   it('reports every requirement when every identifier appears only inside a comment', () => {

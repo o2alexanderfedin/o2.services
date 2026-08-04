@@ -2,6 +2,7 @@ import { readFileSync, readdirSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
+import { stripComments } from './strip-comments.ts'
 
 /**
  * The ledger's *reasons*, made checkable.
@@ -56,6 +57,14 @@ import { describe, expect, it } from 'vitest'
  * regex cannot see counts as uncalled. Both errors are in the safe direction for the
  * defect being guarded — the failure being prevented is a row claiming *no* caller while
  * an obvious one exists, and an obvious one is exactly what a regex finds.
+ *
+ * **That sentence was read as covering more than it does, and the gap was a live
+ * fail-open.** It is a claim about *reachability*, and it says nothing about the step that
+ * runs before any of it: comment stripping. Until 2026-08-04 the stripper was a regex that
+ * treated a comment opener inside a string literal as opening a comment, deleting
+ * everything to the next closer anywhere in the file — under which an obvious caller reads
+ * as absent and a false "no caller" row PASSES. See {@link CODE} for the measurement and
+ * what replaced it.
  *
  * It also cannot tell an asserted claim from a **quoted and refuted** one. A row that
  * reproduces the false sentence it is correcting has that sentence read back as its own,
@@ -131,22 +140,40 @@ const PRODUCTION: readonly string[] = [...walk(join(ROOT, 'packages')), ...walk(
   .sort()
 
 /**
- * Comments removed before any call-site search.
+ * The production corpus with comments removed, which is what every call-site search reads.
  *
  * Not cosmetic — it is the difference between a measurement and a false negative in the
- * direction that matters. This codebase documents heavily, and the symbols named in
- * these rows are discussed by name in dozens of docblocks: `runResilient` appears in
- * comments in `churn.ts`, `combine.ts`, `worker-executor.ts` and `mutation-ledger.ts`
- * and is called by none of them. Without this step every claim would read as violated
- * and the file would be permanently red, which is how a guard gets deleted.
+ * direction that matters. This codebase documents heavily, and the symbols named in these
+ * rows are discussed by name in dozens of docblocks: `runResilient` appears in comments in
+ * `churn.ts`, `combine.ts`, `worker-executor.ts` and `mutation-ledger.ts` and is called by
+ * none of them. Without this step every claim would read as violated and the file would be
+ * permanently red, which is how a guard gets deleted.
  *
- * The `[^:]` guard before `//` keeps `https://` inside a string literal from truncating
- * the rest of its line.
+ * ## This file's own stripper produced this file's own defect
+ *
+ * Until 2026-08-04 the strip was a regex pair, plus a `[^:]` special case bolted on so that
+ * a `https://` inside a string literal would not truncate the rest of its line. That
+ * special case is the argument against the whole approach rather than a fix for it: it
+ * rescued the one input somebody noticed and did nothing for `'a // b'`, which is the same
+ * bug one character over. Both are deleted now, because {@link stripComments} preserves
+ * string literals outright.
+ *
+ * The docblock here used to say both of this scan's errors were "in the safe direction".
+ * **That was false, and false about this file specifically.** A comment opener inside a
+ * string literal made the old regex open a comment the source never opened and delete
+ * everything to the next closer anywhere in the file — so an obvious caller read as
+ * absent, and a row claiming *"X has no production caller"* PASSED while being false.
+ * That is precisely the defect this file exists to prevent, produced by this file's own
+ * instrument. Measured 2026-08-04: 70 such openers across 18 tracked source files, four of
+ * them inside this corpus.
+ *
+ * What remains true is the narrower claim the sentence was reaching for: this scan reads
+ * call *syntax*, not reachability, so a symbol called only from dead code counts as called
+ * and one reached by dynamic dispatch counts as uncalled. Those two errors are in the safe
+ * direction, because the failure being prevented is a row claiming *no* caller while an
+ * obvious one exists, and an obvious one is exactly what a regex finds. The stripper was
+ * never covered by that argument.
  */
-function stripComments(source: string): string {
-  return source.replaceAll(/\/\*[\s\S]*?\*\//g, ' ').replaceAll(/(^|[^:])\/\/[^\n]*/g, '$1')
-}
-
 const CODE: ReadonlyMap<string, string> = new Map(
   PRODUCTION.map((path) => [path, stripComments(readFileSync(path, 'utf8'))]),
 )
@@ -528,9 +555,16 @@ describe('the corpus and the ledger were really read', () => {
   })
 
   it('strips comments, without which every claim would read as violated', () => {
+    // Unchanged input, and it now passes for a different reason. The `'https://x'` arm
+    // used to be carried by a `[^:]` special case written for this one string; strings
+    // are preserved outright now, so the arm measures the property rather than the patch.
+    // The comparative reading — this input under the regex that was here before — is in
+    // `strip-comments.node.test.ts`, which requires the two to disagree.
     const stripped = stripComments("const a = 1 // runResilient(x)\n/* runResilient(y) */\nconst b = 'https://x'")
     expect(stripped).not.toContain('runResilient')
     expect(stripped).toContain("'https://x'")
+    // The case the special case never covered, and the reason it was the wrong shape of fix.
+    expect(stripComments("const divider = 'a // b'")).toContain("'a // b'")
   })
 
   it('finds callers of symbols that are wired, so an empty result means something', () => {

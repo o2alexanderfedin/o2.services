@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
+import { stripComments } from './strip-comments.ts'
 
 /**
  * `bin/bench.ts`'s egress leg, held by something other than the type-checker.
@@ -26,11 +27,19 @@ import { describe, expect, it } from 'vitest'
  * green result here as "the wiring is still written down", never as "the manifest
  * was measured".
  *
- * **The limit worth naming.** {@link stripComments} is regex-based, so a comment
- * opener inside a string literal would be treated as opening a comment. Confirmed
- * absent from `bin/bench.ts`, and the failure direction is the safe one:
- * over-stripping can only report a satisfied requirement as unmet, which fails
- * loudly, never the reverse.
+ * **The limit worth naming, and the sentence that should not have been copied.** This
+ * file's stripper was regex-based until 2026-08-04, so a comment opener inside a string
+ * literal was treated as opening a comment. The limit was stated here together with a
+ * defence — *the failure direction is the safe one: over-stripping can only report a
+ * satisfied requirement as unmet, which fails loudly, never the reverse* — and that
+ * defence is sound **here**, because every requirement below is a `patterns` conjunction
+ * and therefore a presence check.
+ *
+ * It was then copied verbatim into four sibling guards where it is false, three of which
+ * assert *absence* and so fail OPEN under over-stripping. A true sentence about this file
+ * became a false one about `trust-anchors`, `requirements-ledger` and
+ * `sovereign-block-refusal` by being carried across with the code. {@link stripComments}
+ * is now shared, and `strip-comments.node.test.ts` measures it against what it replaced.
  */
 
 const BENCH = 'packages/node/src/bin/bench.ts'
@@ -42,20 +51,19 @@ const BENCH = 'packages/node/src/bin/bench.ts'
  */
 const BENCH_SOURCE: string = readFileSync(fileURLToPath(new URL('./bin/bench.ts', import.meta.url)), 'utf8')
 
-/**
- * Strips `//` line comments and block comments.
- *
- * Not decoration — it is the whole reason this guard is worth having.
- * `bin/bench.ts` *names* every identifier below in its own prose: the doc comment
- * on `Fabric.guard`, the paragraph explaining why `memoryFabric` builds its own
- * tap, and `runnerFor`'s doc naming `submitJobWithEgress` against "the bare
- * `submitJob` this driver used to call". Match the raw text and a reader could
- * delete all four call sites, leave the comments describing them, and keep this
- * file green — a guard satisfied by a description of the thing it guards.
- */
-function stripComments(source: string): string {
-  return source.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/\/\/[^\n]*/g, '')
-}
+// Stripping is not decoration — it is the whole reason this guard is worth having.
+// `bin/bench.ts` *names* every identifier below in its own prose: the doc comment on
+// `Fabric.guard`, the paragraph explaining why `memoryFabric` builds its own tap, and
+// `runnerFor`'s doc naming `submitJobWithEgress` against "the bare `submitJob` this driver
+// used to call". Match the raw text and a reader could delete all four call sites, leave
+// the comments describing them, and keep this file green — a guard satisfied by a
+// description of the thing it guards.
+//
+// `stripComments` is the shared tokenizer. Of the five guards that carried the regex it
+// replaced, this one is the only one whose "the failure direction is the safe one" claim
+// held: every requirement here is a `patterns` conjunction, i.e. a presence check, so
+// over-stripping reports a satisfied requirement as unmet and fails loudly. The claim was
+// copied verbatim into four siblings where it was false — see `strip-comments.ts`.
 
 interface CallSiteRequirement {
   /**

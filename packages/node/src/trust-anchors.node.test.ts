@@ -6,6 +6,7 @@ import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { KERNEL_TRUST_ANCHOR } from '@o2/demo'
 import { describe, expect, it } from 'vitest'
+import { stripComments } from './strip-comments.ts'
 
 /**
  * The one string that turns DET-03 off, kept where it can only turn it off on purpose.
@@ -55,29 +56,31 @@ const ROOT = fileURLToPath(new URL('../../..', import.meta.url))
  */
 const OPT_OUT = 'runs-unsigned' + '-artifacts'
 
-/**
- * Strips `//` line comments and block comments. Copied verbatim from
- * `bench-egress.node.test.ts`, along with its caveat: this is regex-based, so a comment
- * opener inside a string literal would be treated as opening a comment.
- *
- * **Stripping is required.** `bin/agent.ts` has to be able to state in prose that it
- * carries no switch for the opt-out, and `fabric-node.ts`'s option doc has to explain
- * what the value does. A raw-text scan would make those sentences indistinguishable
- * from uses, and a rule that fires on its own documentation is a rule that gets deleted
- * the first time it fires wrongly. This is also why `.planning/` is out of jurisdiction
- * below: every plan and summary in this phase names the literal repeatedly, and none of
- * them was ever passed to a constructor.
- *
- * **Stripping is also dangerous.** A stripper that ate too much would report a clean
- * repository for entirely the wrong reason, and the empty result this file's main
- * assertion produces would be a silence rather than a reading. That is why the mutation
- * block below plants the same text twice — once commented, once not — and requires the
- * second to be flagged. Without that pair, an over-eager stripper and a clean tree are
- * the same observation.
- */
-function stripComments(source: string): string {
-  return source.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/\/\/[^\n]*/g, '')
-}
+// ---------------------------------------------------------------------------
+// Why this file strips comments, and why the stripping is itself a hazard
+// ---------------------------------------------------------------------------
+//
+// **Stripping is required.** `bin/agent.ts` has to be able to state in prose that it
+// carries no switch for the opt-out, and `fabric-node.ts`'s option doc has to explain
+// what the value does. A raw-text scan would make those sentences indistinguishable from
+// uses, and a rule that fires on its own documentation is a rule that gets deleted the
+// first time it fires wrongly. This is also why `.planning/` is out of jurisdiction
+// below: every plan and summary in this phase names the literal repeatedly, and none of
+// them was ever passed to a constructor.
+//
+// **Stripping is also dangerous, and this file's stated defence did not cover the case.**
+// A stripper that ate too much reports a clean repository for entirely the wrong reason,
+// and the empty result this file's main assertion produces is then a silence rather than
+// a reading. The defence this file claimed was the mutation block below, which plants the
+// same text twice — once commented, once not — and requires the second to be flagged.
+// That plants an *ordinary* comment. It never plants the case that actually blinds the
+// scan: a comment opener inside a string literal, which the regex used here until
+// 2026-08-04 read as opening a comment, deleting everything to the next closer anywhere
+// in the file. So this guard failed OPEN, and its own planted pair could not see it.
+//
+// `stripComments` is now the shared tokenizer, which tracks string and template state.
+// `strip-comments.node.test.ts` holds the differential against the regex it replaced, and
+// mutation-ledger entry `S1` plants that regex back into this file and records the red.
 
 /**
  * Extensions a value can actually be passed from.
@@ -359,6 +362,22 @@ describe('the checker can fail — proved by planting, not assumed', () => {
   it('leaves a similar-but-different string alone', () => {
     expect(flags(PRODUCTION, "const mode = 'runs-signed-artifacts'")).toEqual([])
     expect(flags(PRODUCTION, "const mode = 'runs-unsigned'")).toEqual([])
+  })
+
+  it('flags it below a line whose string literal merely contains a comment opener', () => {
+    // **The case this block did not cover until 2026-08-04, and the reason the guard
+    // failed OPEN.** Every planted pair above plants an *ordinary* comment, so all of
+    // them are satisfied by a stripper that strips too much — which is precisely the
+    // reading the block above claims to rule out. None of them plants a comment opener
+    // that the source never opened.
+    //
+    // Under the regex this file used until then, the `/*` inside `'/*.ts'` opened a
+    // comment, and everything to the next closer — the `*/` two lines down — was deleted
+    // before `flags` ever saw it. The opt-out then appeared nowhere, the repository read
+    // clean, and the empty result the main assertion produces was a silence.
+    //
+    // Mutation-ledger entry `S1` plants that regex back and this is the case that reddens.
+    expect(flags(PRODUCTION, `const glob = '/*.ts'\n${PLANTED}\n/** a real docblock */\n`).length).toBeGreaterThan(0)
   })
 })
 
