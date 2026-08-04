@@ -163,41 +163,76 @@ const taskFor = (fabric: Fabric) => (shard: ShardWork): Task => ({
 })
 
 describe('CHURN-01 — nodes that actually go away, mid-run', () => {
-  it('completes every shard with 30% of the fabric killed', async () => {
+  it('completes every shard with 30% of the fabric killed, answering what the whole fabric answered', async () => {
     const fabric = await fabricOf(10)
     try {
       const time = realTime()
-      // Three of ten leave the fabric outright — the machine is gone, which is what
-      // a closed laptop looks like: the dial fails rather than hanging. Not a flag
-      // the dispatcher consults; the requestor finds out by asking.
-      const dead = ['n2', 'n5', 'n8']
-      for (const nodeId of dead) {
-        fabric.endpoints.get(nodeId)?.close()
-        fabric.network.disconnect(nodeId)
-      }
-
-      // Every peer the dispatcher actually asked, in order. Recording this is what
-      // lets the attribution below be stated as a positive — see the comment there.
-      const attempted: string[] = []
       const inner = remoteDispatch({
         rpc: fabric.requestorRpc,
         blockstore: fabric.requestorStore,
         taskFor: taskFor(fabric),
       })
 
-      const outcome = await runResilient({
-        work,
-        nodes: fabric.nodes,
-        now: time.now,
-        dispatch: async (shard, nodeId, lease) => {
-          attempted.push(nodeId)
-          return inner(shard, nodeId, lease)
-        },
-      })
+      /**
+       * One whole job, recording every peer the dispatcher actually asked, in order.
+       *
+       * Recording `attempted` is what lets the attribution below be stated as a
+       * positive — see the comment there.
+       */
+      const runOnce = async (attempted: string[]) =>
+        runResilient({
+          work,
+          nodes: fabric.nodes,
+          now: time.now,
+          dispatch: async (shard, nodeId, lease) => {
+            attempted.push(nodeId)
+            return inner(shard, nodeId, lease)
+          },
+        })
+
+      // --- Control arm: the same ten nodes, nothing killed. ------------------
+      //
+      // Run first, on the same fabric, in the same process, so the only difference
+      // between the two arms is the killing. That is the whole point of it being
+      // here rather than of a number written down on the day this was authored:
+      // an absolute expectation encodes the machine, the load and the I/O weather
+      // it was taken on, and a reading taken *within one run* cancels all three.
+      const controlAttempted: string[] = []
+      const control = await runOnce(controlAttempted)
+      expect(control.ok).toBe(true)
+      expect(control.results.size).toBe(SHARD_COUNT)
+
+      // --- Treatment arm: three of ten leave the fabric outright. ------------
+      //
+      // The machine is gone, which is what a closed laptop looks like: the dial
+      // fails rather than hanging. Not a flag the dispatcher consults; the
+      // requestor finds out by asking. Guard (e) below is what holds that
+      // sentence to account — without it, a fabric whose departures were
+      // discovered by waiting out a clock would pass this case unchanged, just
+      // slower, which is exactly how a comment outruns its tree.
+      const dead = ['n2', 'n5', 'n8']
+      for (const nodeId of dead) {
+        fabric.endpoints.get(nodeId)?.close()
+        fabric.network.disconnect(nodeId)
+      }
+
+      const attempted: string[] = []
+      const outcome = await runOnce(attempted)
 
       expect(outcome.ok).toBe(true)
       expect(outcome.failed).toEqual([])
       expect(outcome.results.size).toBe(SHARD_COUNT)
+
+      // The comparison this case is actually about, and the reason the control arm
+      // is run at all: **killing 30% of the fabric changed nothing about the
+      // answer.** Not "eight distinct CIDs came back" — a re-dispatch that carried
+      // some other shard's `partitionIndex` also produces eight distinct CIDs, and
+      // the line below this one would have shrugged at it. Eight CIDs equal, shard
+      // for shard, to what the intact fabric computed is a statement no arithmetic
+      // over the treatment arm alone can make.
+      const byShard = (o: typeof control): [string, string][] =>
+        [...o.results].sort(([a], [b]) => a.localeCompare(b))
+      expect(byShard(outcome)).toEqual(byShard(control))
 
       // Every shard produced a *distinct* CID, because the fixture writes its
       // partition index — so a mis-routed re-dispatch would show up as a collision.
@@ -217,6 +252,18 @@ describe('CHURN-01 — nodes that actually go away, mid-run', () => {
       // separate it from the injected departures. Widening the timeout only makes the
       // wrong assertion fail less often.
       //
+      // **That mechanism is now measured rather than asserted** (defect 13, 2026-08-03),
+      // because it had been carried for two phases as a plausible story nobody had put
+      // a number on. Measured inside this file, in the `node` project, timing every
+      // dispatch: the slowest live dispatch in this case is 8.9–21.3 ms over eight runs
+      // on a quiet host, and 14.0–44.4 ms over eight runs beside 24 CPU spinners that
+      // cut this process's own `(user+sys)/real` from 0.63 to 0.34. Against the 400 ms
+      // budget that is 19x of headroom quiet and **9x** under a load that halves the
+      // process's CPU share — so the story is true and it is nine times away, not on a
+      // knife edge. It is also demonstrably reachable rather than theoretical: driving
+      // the same fixture at a 1 ms budget produces 7–14 live-node timeouts, and this
+      // case still passes, which is precisely what (a)–(d) are for.
+      //
       // Stated as what the case actually means, it needs no clock and no threshold:
       //
       //   (a) every failure names a peer this run really dispatched to, so a failure
@@ -225,11 +272,25 @@ describe('CHURN-01 — nodes that actually go away, mid-run', () => {
       //       a departure is attributed rather than silently retried past;
       //   (c) the run did ask at least one departed node, so (b) is not vacuous;
       //   (d) every failure is a `'node'` condition, so a departure is never filed as
-      //       a fault in the task — the distinction `churn.ts` exists to draw.
+      //       a fault in the task — the distinction `churn.ts` exists to draw;
+      //   (e) every departed node's own failure is a *refused send* naming a peer that
+      //       is not there, never an expired clock — the sentence at the top of this
+      //       case, held to account.
       //
-      // A live node timing out satisfies all four, because it was attempted and it is
-      // a node condition. A regression that named the wrong peer, dropped a departed
-      // node's attribution, or refiled a departure as `'task'` still fails.
+      // A live node timing out satisfies all five, because it was attempted, it is a
+      // node condition, and (e) quantifies over the departed nodes rather than over
+      // every failure — the same trap the old assertion fell into, kept out by hand.
+      // A regression that named the wrong peer, dropped a departed node's attribution,
+      // refiled a departure as `'task'`, or started discovering departures by waiting
+      // out a budget instead of by being refused, still fails.
+      //
+      // (e) cannot be made flaky by a slow host, and that is why it is phrased on the
+      // transport's refusal rather than on a duration: `MemoryNetwork.route` throws
+      // `unknown peer` *synchronously* for a peer that has been disconnected, so no
+      // amount of contention converts a departure's dial failure into a timeout. The
+      // string is `TransportError`'s own, from `core/src/transport/memory.ts` — if it
+      // is ever reworded this guard must be updated deliberately, which is the point:
+      // what is pinned here is the mechanism, not the timing.
       const nodeFailures = outcome.shards.flatMap((s) => s.failures)
       const failedIds = new Set(nodeFailures.map((f) => f.nodeId))
       const deadAttempted = [...new Set(attempted)].filter((id) => dead.includes(id))
@@ -238,6 +299,10 @@ describe('CHURN-01 — nodes that actually go away, mid-run', () => {
       for (const nodeId of deadAttempted) expect(failedIds).toContain(nodeId) //          (b)
       expect(deadAttempted.length).toBeGreaterThan(0) //                                  (c)
       expect(nodeFailures.every((f) => f.kind === 'node')).toBe(true) //                  (d)
+      for (const nodeId of deadAttempted) {
+        const why = nodeFailures.filter((f) => f.nodeId === nodeId).map((f) => f.reason)
+        expect(why.join(' | ')).toContain('unknown peer') //                              (e)
+      }
     } finally {
       fabric.close()
     }
