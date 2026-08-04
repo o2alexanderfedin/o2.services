@@ -379,7 +379,7 @@ it looks like ceremony.
 
 - **A proof that cannot fail is not a proof.** Plant the mutation, *watch* it go red, restore,
   and record the observed text. If a plant leaves the file green, say so and name which case
-  actually carries the claim — a green you did not earn is worse than a gap you reported.
+  actually carries the claim — a green you did not watch fail is worse than a gap you reported.
 - **A comment is not a specification.** Rules here have entered the tree as
   proposal → docblock → implementation, and been retracted. When a comment and a requirement
   disagree, the requirement wins and the comment gets fixed.
