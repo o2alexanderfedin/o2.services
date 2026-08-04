@@ -561,6 +561,41 @@ export class BrowserNode {
    * satisfies the port everywhere one is wanted.
    */
   readonly executor: GovernedExecutor
+  /**
+   * The same executor, with this tab's signature over whatever it returns — VER-08.
+   *
+   * **The outermost layer, and the one `serveAgent` serves from.** {@link executor} is
+   * the layer beneath it, typed concretely because BROW-04's always-visible surface reads
+   * `executed` and `dutyCycle` off it; this field is that stack with the signing wrapper
+   * on top, typed as the port because a caller composing a job wants an `Executor` and
+   * nothing more. Both names reach the same worker, the same counter and the same
+   * governor — the counter still increments, because the wrapper delegates.
+   *
+   * ## Why it is exposed rather than left private to the factory
+   *
+   * Plan 19-15 composed the wrapper and handed it only to `serveAgent`, which made every
+   * result that *left* this tab signed and every result dispatched to it **in-process**
+   * unsigned. That reading was stated at the composition below and it was truthful: a
+   * node's signed statement to itself establishes nothing it did not already hold.
+   *
+   * It is the wrong shape for the receipt, and Plan 19-11 measured why. A page composing
+   * its own job puts its own executor in the list — `demo/main.ts` does it on every run,
+   * not only on `includeSelf` — so an unsigned self-replica made `receiptFor` report the
+   * named absence for **every** job the demo has ever submitted, including one this tab
+   * ran entirely by itself. The receipt's audience is not this tab. It is whoever is
+   * shown the answer, and for them *"a node this provider enrolled computed this, once,
+   * and it was not independently verified"* is a real statement where *"this requestor
+   * cannot account for who ran it"* is a false one about a job the requestor ran itself.
+   *
+   * **Nothing here is special-cased into a label.** A self-dispatch through this field
+   * produces a signed outcome on exactly the terms a peer's does, is verified by
+   * `receiptFor` on exactly the terms a peer's is, and is refused on the same terms if the
+   * signature or the certificate does not check out. A tab nobody enrolled composes this
+   * field too and it is then the identity — `attestResults` returns its argument for a
+   * node holding no identity — so such a tab's self-replica stays unaccounted and its
+   * receipt stays the named absence. The strength follows what was established.
+   */
+  readonly signingExecutor: Executor
   readonly governor: VisibilityGovernor
   /**
    * The user's cap — SCHED-04. Distinct from {@link governor}, which stays the
@@ -638,6 +673,7 @@ export class BrowserNode {
     identityStore: IdbIdentityStore
     certificate: NodeCertificate | null
     executor: GovernedExecutor
+    signingExecutor: Executor
     governor: VisibilityGovernor
     capGovernor: DutyCycleGovernor
     worker: WorkerExecutor
@@ -654,6 +690,7 @@ export class BrowserNode {
     this.identityStore = parts.identityStore
     this.certificate = parts.certificate
     this.executor = parts.executor
+    this.signingExecutor = parts.signingExecutor
     this.governor = parts.governor
     this.#capGovernor = parts.capGovernor
     this.worker = parts.worker
@@ -1121,12 +1158,26 @@ export class BrowserNode {
     // says an answer is right, and this is written at the line because somebody will read
     // "results are signed now" and propose reducing redundancy.
     //
-    // `executor` — not this — is what `BrowserNode` holds, because that field must stay
-    // exactly a `GovernedExecutor` for BROW-04's surface, which is also why the counter
-    // sits where it does. So a page dispatching to its own node in-process
-    // (`demo/main.ts`'s `includeSelf`) gets the unsigned outcome, and that is the
-    // truthful reading: nothing left the tab, and a node's signed statement to itself
-    // establishes nothing it did not already hold.
+    // `executor` — not this — is what `BrowserNode.executor` holds, because that field
+    // must stay exactly a `GovernedExecutor` for BROW-04's surface, which is also why the
+    // counter sits where it does.
+    //
+    // **What followed that sentence was retracted by Plan 19-11 and is left visible,
+    // because the reasoning was sound and the scope was not.** It read: a page dispatching
+    // to its own node in-process gets the unsigned outcome, *"and that is the truthful
+    // reading: nothing left the tab, and a node's signed statement to itself establishes
+    // nothing it did not already hold."* True of what the **tab** learns; false of what
+    // the **receipt** reports, and the receipt is shown to somebody who was not here. The
+    // measured consequence was that every job the demo page has ever submitted carried a
+    // self-replica, so `receiptFor` reported the named absence on all of them — including
+    // a job one enrolled tab ran entirely by itself, which is `owner-attested` and is
+    // exactly the label criterion 3 asks this surface to display.
+    //
+    // So this value is now also held on the class, as `signingExecutor`, and a page
+    // composing a job uses that. `BrowserNode.executor`'s type is untouched, no branch was
+    // added, and a tab holding no identity is unaffected — `attestResults` returns its
+    // argument for one, so its self-replica stays unaccounted and its receipt stays the
+    // named absence. See the field for the full account.
     const signing = attestResults(executor, attestor)
     // SCHED-06 — this tab's own admission control, handed to `serveAgent` below.
     //
@@ -1196,6 +1247,7 @@ export class BrowserNode {
       identityStore,
       certificate,
       executor,
+      signingExecutor: signing,
       governor,
       capGovernor,
       worker,

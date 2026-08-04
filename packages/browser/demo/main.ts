@@ -32,10 +32,18 @@
  * a third party I was here".
  */
 
-import { publicNodes } from '@o2/core'
-import type { CanonicalValue, StartFailure, StartOutcome } from '@o2/core'
+import { verifyCertificate } from '@o2/core'
+import type {
+  CanonicalValue,
+  NodeCertificate,
+  NodeDescriptor,
+  StartFailure,
+  StartOutcome,
+} from '@o2/core'
+import { nodeKeyForPeerId } from '@o2/libp2p'
 import {
   RemoteExecutor,
+  RpcRecordIndex,
   encodeRequest,
   findReservedPeers,
   parseResponse,
@@ -193,6 +201,137 @@ async function runDiscoveryRound(): Promise<{ asked: boolean; dialed: string[]; 
   return { asked, dialed, failed }
 }
 
+/**
+ * How long this page waits for a peer to hand over its own signed records.
+ *
+ * Far below this page's `rpcTimeoutMs` (60 s, set where it constructs its node), and the
+ * gap is the whole point. This lookup exists to *label* a result; a job that stalled a
+ * minute per peer to improve a caption would be a worse product than no caption, and the
+ * plan this landed under says so in those words. Silence inside the deadline is the same
+ * answer as a refusal — this tab holds no signed statement about that peer — so a
+ * requestor gains nothing by waiting longer.
+ *
+ * Sits beside `DEFAULT_PROBE_TIMEOUT_MS` (2 s, `@o2/net`) in kind rather than in value: an
+ * offer bounds a *placement* decision and is on the critical path of every shard, while
+ * this runs once per peer per job and its answer decides a sentence.
+ */
+const RECORDS_DEADLINE_MS = 5_000
+
+/**
+ * A peer's provider-signed certificate, or the named absence — VER-09, VER-10.
+ *
+ * ## What this is, and what it is not
+ *
+ * It is the **reading** half of the `records` request this tier already *serves*, on
+ * terms byte-identical to the Node tier's (`browser-node.ts`'s `index:` argument against
+ * `fabric-node.ts`'s). NET-06 claims a browser peer participates in routing as a full
+ * peer; a tab that answers records and never asks for one has exercised half of that.
+ *
+ * It is **not** discovery. The peers asked here are the ones already connected and
+ * already chosen to compute; nothing in this function changes who is asked to run
+ * anything, and a peer that answers nothing is still dispatched to. A display concern
+ * that could remove a node from a job would be a node class invented by a caption.
+ *
+ * ## The anchor is this tab's own issuer, because it is the only one this tab has
+ *
+ * Measured rather than assumed: `BrowserNodeOptions` has **no `trustedIssuers` field** —
+ * `FabricNodeOptions` has one and this tier does not — so the pinned-provider set a Node
+ * peer verifies against does not exist here. `TabApi.start`'s `trustAnchors` is a
+ * different namespace entirely: those are *build* authorities, checked by `NameResolver`
+ * against a module's signed record, and using them as certificate issuers would be the
+ * conflation this phase exists to end wearing a new hat.
+ *
+ * What this tab does hold, when it was enrolled, is a certificate naming the provider
+ * that signed it. That provider's key is a real anchor, held before any peer spoke, and
+ * a peer enrolled by the same provider verifies against it offline. A tab enrolled by
+ * nobody has **no** anchor and therefore names nobody — which is the honest answer and
+ * not a degradation, because "I checked nothing" and "I checked and it failed" both mean
+ * this tab cannot vouch for that peer.
+ *
+ * ## Why the check has to be here and not left to `receiptFor`
+ *
+ * `submitJob`'s `receiptFor` verifies a replica's attestation against
+ * **`descriptor.certificate.issuer`** — the issuer named by the descriptor it was handed.
+ * So a certificate taken off the wire and put on a descriptor unverified would supply its
+ * own trust root, and two peers presenting self-issued certificates under two operator ids
+ * would be reported as `independent`. That is precisely a strength the run did not
+ * establish, printed on the surface with the widest audience. The pin has to be applied
+ * where an independently-held key exists, and this is that place.
+ */
+async function peerCertificate(
+  n: BrowserNode,
+  peerId: string,
+): Promise<NodeCertificate | 'carries-no-certificate'> {
+  const held = n.certificate
+  // No anchor. Asking would still return an answer, and accepting it would be accepting
+  // a peer's word for a peer's identity — see this function's last section.
+  if (held === null) return 'carries-no-certificate'
+
+  // Computed offline from the peer id, so the key this tab asks about is the key whose
+  // holder must have dialled as that peer. Asking a peer "what is your node key" and then
+  // believing the answer would leave nothing for the comparison below to catch.
+  const nodeKey = nodeKeyForPeerId(peerId)
+  if (nodeKey === null) return 'carries-no-certificate'
+
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const answered = await Promise.race([
+    // `RpcRecordIndex` already swallows a transport error into `undefined`; the `catch` is
+    // for anything it does not, because the one thing this lookup may never do is throw
+    // into a job. Both arms of the race land on the same named absence.
+    new RpcRecordIndex(n.rpc, () => [peerId]).recordsFor(nodeKey).catch(() => undefined),
+    new Promise<undefined>((resolve) => {
+      timer = setTimeout(() => resolve(undefined), RECORDS_DEADLINE_MS)
+    }),
+  ]).finally(() => {
+    if (timer !== undefined) clearTimeout(timer)
+  })
+  if (answered === undefined) return 'carries-no-certificate'
+
+  // A peer answers `records` from its own `SelfRecordIndex`, which returns nothing for any
+  // key but its own — so a well-behaved peer cannot answer with somebody else's here. This
+  // compares the answer against what was asked anyway, because "a well-behaved peer
+  // cannot" is a statement about the peers that behave.
+  if (answered.certificate.nodeKey !== nodeKey) return 'carries-no-certificate'
+
+  const checked = verifyCertificate(answered.certificate, new Set([held.issuer]), Date.now())
+  return checked.ok ? checked.certificate : 'carries-no-certificate'
+}
+
+/**
+ * The candidate pool for a job this page composes, with signed statements where this tab
+ * holds them — VER-09, VER-10.
+ *
+ * **The shape `publicNodes` produced, with one field answered instead of defaulted.**
+ * `ownerId: 'public'`, `canExecuteSovereign: true` and `load: 0` are carried over
+ * unchanged and deliberately: they are the placeholders that function documents as
+ * harmless for an all-public pool, and moving either of them would change *placement* in a
+ * plan whose subject is a label. `certificate` is the field that stops being a placeholder.
+ *
+ * **The asymmetry between the two arms is not one.** This tab reads its own certificate
+ * out of memory and a peer's off the wire because that is where each one lives, not
+ * because the two are different kinds of node. A peer asking *this* tab gets its answer
+ * over the same request from the same server this tab just read from.
+ */
+async function attestedNodes(
+  n: BrowserNode,
+  executors: readonly { readonly nodeId: string }[],
+): Promise<readonly NodeDescriptor[]> {
+  // Concurrently: one round trip per peer, and asking in sequence would pay their sum for
+  // no benefit — `RpcRecordIndex.providers` gives the same reason for the same shape.
+  return Promise.all(
+    executors.map(async (executor) => ({
+      nodeId: executor.nodeId,
+      ownerId: 'public',
+      canExecuteSovereign: true,
+      load: 0,
+      certificate:
+        executor.nodeId === n.peerId
+          ? (n.certificate ?? 'carries-no-certificate')
+          : await peerCertificate(n, executor.nodeId),
+    })),
+  )
+}
+
 const api: TabApi = {
   onChange(listener) {
     listeners.add(listener)
@@ -277,6 +416,26 @@ const api: TabApi = {
           ? {}
           : { maxConcurrentTasks: options.maxConcurrentTasks }),
         ...(options.dutyCycle === undefined ? {} : { dutyCycle: options.dutyCycle }),
+        // AUTH-01 — straight through, with the `Uint8Array` rebuilt here because that is
+        // the one place that knows both sides of the `page.evaluate` boundary. Playwright
+        // serialises its arguments as JSON, so a typed array arrives as a plain
+        // `{"0":…}` object and `ed25519.getPublicKey` would derive a key from nothing;
+        // `capability-harness.ts` records the same conversion at the same seam.
+        //
+        // **Nothing on a visitor's path supplies this.** `autoStart` passes no
+        // `enrollment` and grows no parameter for one, for the same reason it grows none
+        // for `trustAnchors`: a page that was found rather than configured must not be
+        // configurable by whatever found it. A tab reaching here without it is an
+        // ordinary node whose receipts read the named absence, which is true.
+        ...(options.enrollment === undefined
+          ? {}
+          : {
+              enrollment: {
+                userPrivateKey: new Uint8Array(options.enrollment.userPrivateKey),
+                operatorId: options.enrollment.operatorId,
+                providerAddr: options.enrollment.providerAddr,
+              },
+            }),
         // Aggressive so the throttle is unmistakable in a test rather than marginal.
         backgroundDutyCycle: 0.05,
         // Loopback relay: refused by libp2p's browser defaults, correct to allow here.
@@ -433,7 +592,14 @@ const api: TabApi = {
     }
 
     const executors = [
-      node.executor,
+      // VER-08/VER-09/VER-10 — `signingExecutor`, not `executor`, and the difference is
+      // the whole of what a visitor is told about this run. Both names reach the same
+      // worker, the same counter and the same governor; this one signs what comes back,
+      // so this tab's own replica produces a statement `receiptFor` can check instead of
+      // an unaccounted one that collapses the whole receipt to the named absence. See
+      // `BrowserNode.signingExecutor` for why the field exists and what it does not do —
+      // a tab nobody enrolled composes it too, and its receipt is unchanged.
+      node.signingExecutor,
       // AUTH-03. The sentinel is the correct value here, permanently — not a stub
       // and not a thing to burn down. Every shard this job dispatches is
       // `label: 'public'` (below), a public task has no owner and therefore no root
@@ -456,7 +622,11 @@ const api: TabApi = {
         moduleRecord: KERNEL_RECORD,
         shards: Array.from({ length: options.cubes }, () => ({ value: input, label: 'public' as const })),
         executors,
-        nodes: publicNodes(executors),
+        // VER-09/VER-10 — descriptors this page builds, carrying the certificates it can
+        // account for. `publicNodes(executors)` stood here and answered
+        // `'carries-no-certificate'` for every node unconditionally, which is what made
+        // every receipt this demo has ever produced the named absence.
+        nodes: await attestedNodes(node, executors),
         redundancy: options.redundancy,
         // VER-03/VER-04. A tab fabric is routinely one operator, and routinely behind
         // one relay — which is the topology this demo exists to show, not a degenerate
@@ -509,6 +679,12 @@ const api: TabApi = {
       verificationMultiplier: result.job.verificationMultiplier,
       elapsedMs: performance.now() - started,
       egress: manifest,
+      // `JobResult`'s own, passed through. Not recomputed from `redundancy`, not derived
+      // from `agreeing.length`, and not turned into a sentence here — the page renders
+      // `description`, which `attestationReceipt` filled from `describeAttestation`, so
+      // this surface and the CLI have one source of the words and cannot come to describe
+      // one result differently.
+      attestation: result.job.attestation,
     }
   },
 
@@ -674,7 +850,11 @@ const api: TabApi = {
       // This tab contributes its own compute when asked. With two tabs that is
       // what makes R=2 possible: one tab submits *and* executes, the other
       // executes, and the two must agree.
-      ...(options.includeSelf === true ? [n.executor] : []),
+      //
+      // `signingExecutor` for `runColouring`'s reason: an in-process dispatch through the
+      // unsigned layer left this tab's own replica unaccounted, so a self-included job
+      // reported the named absence however well it had actually gone.
+      ...(options.includeSelf === true ? [n.signingExecutor] : []),
       // AUTH-03, same reasoning as `runColouring` above and equally permanent: every
       // shard below is `label: 'public'`, so there is no owner, no root key, and
       // nothing for a chain to say.
@@ -719,7 +899,9 @@ const api: TabApi = {
         moduleRecord,
         shards,
         executors,
-        nodes: publicNodes(executors),
+        // As `runColouring` above — see that call site for what replaced `publicNodes`
+        // here and why.
+        nodes: await attestedNodes(n, executors),
         redundancy: options.redundancy,
         // VER-03/VER-04 — the same choice and the same reason as `runColouring` above:
         // a tab fabric that refused every shard it could not independently verify would
@@ -776,6 +958,8 @@ const api: TabApi = {
       failures: result.job.shards.flatMap((s) =>
         s.verification.status === 'agreed' ? [] : [...s.verification.failures],
       ),
+      // `JobResult`'s own, as in `runColouring` above.
+      attestation: result.job.attestation,
     }
   },
 
