@@ -383,6 +383,13 @@ export async function measureGateLadder(
         },
         rig.blockstore,
         [rig.guard],
+        {
+          // CHURN-03. A measurement driver keeps no checkpoints: the run is the artefact,
+          // and a resume would make the makespan this file reports a reading over work it
+          // did not do. Stated rather than omitted since 2026-08-05 — see
+          // `SubmitOptions.checkpoints`.
+          checkpoints: 'checkpoints-nothing',
+        },
       )
       const makespanMs = performance.now() - started
 

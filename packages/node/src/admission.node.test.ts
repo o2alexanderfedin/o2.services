@@ -361,6 +361,8 @@ describe('SCHED-06 criterion 1, second clause — the requestor re-picks', () =>
         onQuorumShortfall: 'runs-at-available-redundancy',
       },
       requestor.store,
+      // CHURN-03 — this test asserts nothing about checkpointing.
+      { checkpoints: 'checkpoints-nothing' },
     )
 
     expect(result.ok).toBe(true)

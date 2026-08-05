@@ -224,6 +224,8 @@ describe('SCHED-01 — a data CID and a peer list become dispatchable candidates
           onQuorumShortfall: 'runs-at-available-redundancy',
         },
         new MemoryBlockstore(),
+        // CHURN-03 — this test asserts nothing about checkpointing.
+        { checkpoints: 'checkpoints-nothing' },
       )
       expect(r.ok).toBe(true)
       if (!r.ok) expect(r.error.kind).not.toBe('missing-node-descriptor')

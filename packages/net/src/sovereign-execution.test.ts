@@ -554,6 +554,8 @@ describe('Phase 12 — sovereignty wired onto submitJob', () => {
         // SEED's own store — the node's `RpcBlockSource` fetches from `[SEED]`,
         // so this is where a real requestor's local blockstore corresponds to.
         fabric.seedStore,
+        // CHURN-03 — this test asserts nothing about checkpointing.
+        { checkpoints: 'checkpoints-nothing' },
       )
 
       expect(result.ok).toBe(true)

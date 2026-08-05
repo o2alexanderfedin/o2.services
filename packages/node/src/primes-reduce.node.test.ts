@@ -248,6 +248,8 @@ async function runMap(fabric: Fabric, bound: number, shards: number): Promise<Jo
       onQuorumShortfall: 'runs-at-available-redundancy',
     },
     fabric.originStore,
+    // CHURN-03 — this test asserts nothing about checkpointing.
+    { checkpoints: 'checkpoints-nothing' },
   )
 
   expect(submitted.ok).toBe(true)

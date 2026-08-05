@@ -237,6 +237,8 @@ describe('DATA-03/DATA-04 — sovereignty-pinned placement across real bin/agent
         onQuorumShortfall: 'runs-at-available-redundancy',
       },
       submitter.store,
+      // CHURN-03 — this test asserts nothing about checkpointing.
+      { checkpoints: 'checkpoints-nothing' },
     )
 
     expect(result.ok).toBe(true)
@@ -398,6 +400,8 @@ describe('SCHED-05 — sovereignty survives the offer loop, across real processe
         admit: rpcAdmission(submitter.rpc),
       },
       submitter.store,
+      // CHURN-03 — this test asserts nothing about checkpointing.
+      { checkpoints: 'checkpoints-nothing' },
     )
 
     expect(result.ok).toBe(true)
@@ -458,6 +462,8 @@ describe('SCHED-05 — sovereignty survives the offer loop, across real processe
         admit: rpcAdmission(submitter.rpc),
       },
       submitter.store,
+      // CHURN-03 — this test asserts nothing about checkpointing.
+      { checkpoints: 'checkpoints-nothing' },
     )
 
     expect(result.ok).toBe(true)

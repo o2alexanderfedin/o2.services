@@ -330,6 +330,8 @@ describe('a whole job across nodes', () => {
           onQuorumShortfall: 'runs-at-available-redundancy',
         },
         fabric.originStore,
+        // CHURN-03 — this test asserts nothing about checkpointing.
+        { checkpoints: 'checkpoints-nothing' },
       )
 
       expect(result.ok).toBe(true)
@@ -379,6 +381,8 @@ describe('a whole job across nodes', () => {
           onQuorumShortfall: 'runs-at-available-redundancy',
         },
         fabric.originStore,
+        // CHURN-03 — this test asserts nothing about checkpointing.
+        { checkpoints: 'checkpoints-nothing' },
       )
 
       expect(result.ok).toBe(true)

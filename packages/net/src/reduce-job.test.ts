@@ -297,6 +297,8 @@ describe('MR-04 / MR-05 / MR-07 — eight shards reduce over eight peers that ca
           onQuorumShortfall: 'runs-at-available-redundancy',
         },
         fabric.originStore,
+        // CHURN-03 — this test asserts nothing about checkpointing.
+        { checkpoints: 'checkpoints-nothing' },
       )
       expect(submitted.ok).toBe(true)
       if (!submitted.ok) return

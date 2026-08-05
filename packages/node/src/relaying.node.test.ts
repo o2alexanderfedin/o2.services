@@ -345,6 +345,8 @@ describe('the rule: relaying and executing are the same node', () => {
         onQuorumShortfall: 'runs-at-available-redundancy',
       },
       guest.store,
+      // CHURN-03 — this test asserts nothing about checkpointing.
+      { checkpoints: 'checkpoints-nothing' },
     )
 
     expect(result.ok).toBe(true)
@@ -404,6 +406,8 @@ describe('the rule: relaying and executing are the same node', () => {
         onQuorumShortfall: 'runs-at-available-redundancy',
       },
       host.store,
+      // CHURN-03 — this test asserts nothing about checkpointing.
+      { checkpoints: 'checkpoints-nothing' },
     )
 
     expect(result.ok).toBe(true)

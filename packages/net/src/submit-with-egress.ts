@@ -139,7 +139,11 @@ export async function submitJobWithEgress(
   spec: JobSpec,
   blockstore: Blockstore,
   guards: readonly EgressGuard[],
-  options?: SubmitOptions,
+  // Required for the same reason it is required on `submitJob`, and it has to be required
+  // *here* too or this wrapper reopens the hole that one closed: an omittable bag on the
+  // path every guarded submitter takes would let a submitter reach the fabric without
+  // stating whether it checkpoints. See `SubmitOptions.checkpoints`.
+  options: SubmitOptions,
 ): Promise<SubmitWithEgressResult> {
   // One hold per sovereign *shard* per guard, not per distinct label: a value
   // appearing in two shards takes two holds and gives two back. Holding the values

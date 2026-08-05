@@ -442,6 +442,8 @@ describe('criterion 1 — a job placed from a CID, with no executor list', () =>
         admit: rpcAdmission(requestor.rpc),
       },
       requestor.store,
+      // CHURN-03 — this test asserts nothing about checkpointing.
+      { checkpoints: 'checkpoints-nothing' },
     )
 
     expect(result.ok).toBe(true)
@@ -538,6 +540,8 @@ describe('criterion 2 — sample, refuse, re-pick, complete', () => {
         admit: rpcAdmission(requestor.rpc),
       },
       requestor.store,
+      // CHURN-03 — this test asserts nothing about checkpointing.
+      { checkpoints: 'checkpoints-nothing' },
     )
 
     expect(result.ok).toBe(true)
@@ -678,6 +682,8 @@ describe('criterion 2 — sample, refuse, re-pick, complete', () => {
         admit: admitThenSaturate,
       },
       requestor.store,
+      // CHURN-03 — this test asserts nothing about checkpointing.
+      { checkpoints: 'checkpoints-nothing' },
     )
 
     expect(repicked.ok).toBe(true)
@@ -887,7 +893,10 @@ describe('criterion 2, bounded — a fabric with no free node, and the control t
     // ---- Arm one, the control: every node but the first-placed one is full. -----
     for (const node of found.executors) if (node.nodeId !== spare) await saturate(node.nodeId)
 
-    const control = await submitJob(spec, requestor.store)
+    const control = await submitJob(spec, requestor.store,
+      // CHURN-03 — this test asserts nothing about checkpointing.
+      { checkpoints: 'checkpoints-nothing' },
+    )
     expect(control.ok).toBe(true)
     if (!control.ok) return
     const controlShard = control.job.shards[0]
@@ -906,7 +915,10 @@ describe('criterion 2, bounded — a fabric with no free node, and the control t
     // between the arms is the thing under test.
     await saturate(spare)
 
-    const everyNodeFull = await submitJob(spec, requestor.store)
+    const everyNodeFull = await submitJob(spec, requestor.store,
+      // CHURN-03 — this test asserts nothing about checkpointing.
+      { checkpoints: 'checkpoints-nothing' },
+    )
     expect(everyNodeFull.ok).toBe(true)
     if (!everyNodeFull.ok) return
     const fullShard = everyNodeFull.job.shards[0]

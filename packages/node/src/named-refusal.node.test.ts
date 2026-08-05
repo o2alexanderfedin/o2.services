@@ -172,6 +172,8 @@ describe('criterion 6 — the refusal is named, and it arrives long before the b
         onQuorumShortfall: 'runs-at-available-redundancy',
       },
       submitter.store,
+      // CHURN-03 — this test asserts nothing about checkpointing.
+      { checkpoints: 'checkpoints-nothing' },
     )
     const elapsed = performance.now() - started
 
@@ -228,6 +230,8 @@ describe('criterion 6 — the refusal is named, and it arrives long before the b
         onQuorumShortfall: 'runs-at-available-redundancy',
       },
       submitter.store,
+      // CHURN-03 — this test asserts nothing about checkpointing.
+      { checkpoints: 'checkpoints-nothing' },
     )
     expect(control.ok).toBe(true)
     if (!control.ok) return

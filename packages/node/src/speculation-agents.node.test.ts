@@ -683,7 +683,11 @@ async function runJob(
       admit: rpcAdmission(fabric.requestor.rpc),
     },
     fabric.requestor.store,
-    speculation === undefined ? undefined : { speculation },
+    // CHURN-03 — the arm under test is `speculation`; checkpointing is stated identically
+    // on both sides so it cannot be what the comparison measures.
+    speculation === undefined
+      ? { checkpoints: 'checkpoints-nothing' }
+      : { speculation, checkpoints: 'checkpoints-nothing' },
   )
   expect(result.ok).toBe(true)
   if (!result.ok) throw new Error(`the job was refused: ${JSON.stringify(result.error)}`)

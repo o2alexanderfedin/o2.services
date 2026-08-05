@@ -1163,6 +1163,15 @@ function runnerFor(build: (nodes: number) => Promise<Fabric>): {
       },
       fabric.blockstore,
       [fabric.guard],
+      {
+        // CHURN-03. Same as `perf-workload.ts`: this is a driver whose output is a
+        // reading, and a checkpoint that let a later run skip shards would corrupt the
+        // makespan it exists to measure. **A real sink here is the cheapest place to
+        // close criterion 7's write half** — this process already holds a
+        // `blockstoreDir` that outlives it — but wiring one is a separate ruling and is
+        // not done here. See `SubmitOptions.checkpoints`.
+        checkpoints: 'checkpoints-nothing',
+      },
     )
     const makespanMs = performance.now() - started
 
