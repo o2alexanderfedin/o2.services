@@ -132,13 +132,62 @@
  * the missing direction reachable is a *declared* owner set (`runResilient`'s optional
  * `expectedOwners`), and declaring one is the thing this module refuses.
  *
+ * ## The job outlives the requestor — CHURN-03
+ *
+ * The requestor is a browser tab, and tabs close. So the coordinator is arranged to be
+ * the least important participant: as each shard settles, a small canonical block naming
+ * every answered partition **by result CID** is written to the same blockstore everything
+ * else goes to, and its handle is handed straight out through
+ * {@link SubmitOptions.checkpoints}. A requestor holding that handle can hand it to
+ * another requestor, which resumes by running {@link SubmitOptions.resumeFrom} — the
+ * *same* `submitJob` call with a starting state, not a second entry point.
+ *
+ * **A checkpoint names results; it does not carry them.** `PROJECT.md`'s liveness
+ * invariant is what makes that sound — a result is a pure function of
+ * `(module, input, partition)` and is content-addressed — so a resume is a *lookup*, not
+ * a re-send, and the checkpoint block's size is independent of how big the answers were.
+ * `checkpoint.ts`'s own header states the consequence this module relies on: *"A task that
+ * was in flight when the tab closed is simply outstanding, because its lease expired."*
+ * There is nothing to release and nothing to reconcile.
+ *
+ * **The cadence is one write per shard that answers, and the alternatives are both worse.**
+ * Once at the end is useless: a requestor that departed mid-job wrote nothing, which is the
+ * only case this exists for. A write on a timer would decouple the record from the events
+ * it records and would still lose an unbounded amount between ticks. So: N writes for N
+ * answered shards, serialised through one chain so the `previous` links form a line rather
+ * than a fork, each naming *everything* known at the instant it is composed. **What a crash
+ * between two writes loses** is the shards that answered since the last published handle;
+ * a resume re-runs them, which costs work and never correctness. What each write costs is
+ * one canonical encode and one `blockstore.put` of a block whose size grows by one
+ * `(index, cid)` pair per shard — arithmetic on a path that is otherwise pure, and the
+ * reason the cadence is stated here rather than left to be discovered in a profile.
+ *
+ * **What a checkpoint cannot know, stated rather than left to be found.** It is written
+ * when a shard settles, and {@link ShardResult.disagreed} — a *late* copy that hashed
+ * differently — is only known after **every** shard has settled. So a published handle can
+ * name a shard whose losing copy later disagreed. Two things bound it: that event already
+ * fails {@link JobResult.complete} for the run that observed it, and a resumed job is
+ * **never** `complete` anyway, because a carried shard got zero replicas from *this*
+ * requestor and is therefore degraded. Nobody can read a resumed job as fully verified,
+ * which is the honest reading: this requestor verified the shards it ran and took the rest
+ * on a predecessor's word.
+ *
+ * **The scope line, held.** This is a record written and read back. There is no failover,
+ * no leader election, no registry, and no agreement between two requestors about which of
+ * them owns a job — that shape is shared mutable state requiring consensus, and
+ * `19-CONTEXT.md`'s NO BLOCKCHAIN ruling refuses it. Two requestors resuming the same
+ * checkpoint both finish the job and both get the same answers, because the answers are a
+ * pure function of the inputs; they duplicate work and nothing else.
+ *
  * Pure module: the blockstore and executors arrive as ports, and so do the clock and
  * the timer the lease deadline needs — see {@link SubmitOptions.clock}.
  */
 
-import type { CID } from 'multiformats/cid'
-import { canonicalCid } from '../canonical/encode.ts'
+import { CID } from 'multiformats/cid'
+import { canonicalCid, decodeCanonical } from '../canonical/encode.ts'
 import type { CanonicalValue } from '../canonical/encode.ts'
+import { checkpointOf, recoverCheckpoint, readCheckpoint, writeCheckpoint } from '../checkpoint.ts'
+import type { CheckpointFailure, CompletedShard, JobCheckpoint } from '../checkpoint.ts'
 import { coverageOf } from '../coverage.ts'
 import type { CoverageReport } from '../coverage.ts'
 import type { NodeCertificate } from '../enrollment.ts'
@@ -555,6 +604,20 @@ export type ShardEnding =
   | 'generations-spent'
   /** The first placement never placed it, so no generation ever ran. */
   | 'never-placed'
+  /**
+   * A checkpoint already named this shard's answer, so this requestor never ran it —
+   * CHURN-03.
+   *
+   * **The one ending that is not an outcome of the generation loop**, and it is a
+   * *value* rather than something a reader infers from `generations: 0` plus an empty
+   * `attempted`, because `'never-placed'` reads exactly the same way and means the
+   * opposite: nobody would take it, versus somebody already did it. The shard's
+   * {@link ShardResult.verification} is `agreed` at `replicas: 0` — this requestor
+   * obtained no replica of its own — which is also why such a shard is
+   * {@link ShardResult.degraded} and why a resumed job is never
+   * {@link JobResult.complete}.
+   */
+  | 'carried-from-checkpoint'
 
 export interface ShardResult {
   readonly partitionIndex: number
@@ -858,6 +921,30 @@ export type SubmitError =
    * compile time — this is the runtime backstop for that cast (T-12-01).
    */
   | { kind: 'shard-missing-owner'; partitionIndex: number }
+  /**
+   * Every handle in {@link SubmitOptions.resumeFrom} was unreadable — CHURN-03.
+   *
+   * **Named through `readCheckpoint`'s own failure union rather than flattened to a
+   * sentence**, because the three kinds have three different remedies: `block-missing`
+   * says go and find the block, `undecodable` says the bytes are not a canonical block
+   * at all, and `malformed` names the *field* that made it unusable. A resume that
+   * threw, or one that silently ran the whole job, would both be worse than either —
+   * the first loses the reason, the second loses the record.
+   *
+   * `failure` is the **newest** handle's, since that is the one the caller named; the
+   * `detail` says how many handles were tried in total.
+   */
+  | { kind: 'checkpoint-unreadable'; failure: CheckpointFailure; detail: string }
+  /**
+   * The checkpoint is readable and is a checkpoint of a **different job** — CHURN-03.
+   *
+   * Reachable because `jobId` is derived from the module and the ordered input CIDs (see
+   * {@link jobIdOf}), so this compares the checkpoint's own account of what job it
+   * belongs to against this spec's. Without it a resume against a valid checkpoint of an
+   * unrelated job would skip partitions by index — decoding cleanly, type-checking
+   * cleanly, and returning another job's answers under this job's shard numbers.
+   */
+  | { kind: 'checkpoint-names-another-job'; expected: string; found: string }
 
 export type SubmitResult =
   | { ok: true; job: JobResult }
@@ -1051,6 +1138,308 @@ function capacitySlotKey(inputCid: CID, partitionIndex: number): string {
  */
 function inFlightRefusal(slotKey: string): string {
   return `${slotKey} is already in flight here`
+}
+
+/**
+ * The name a job answers to in its own checkpoints — CHURN-03.
+ *
+ * **Derived, never declared**, and the argument is the one 20-08 made for the owner set:
+ * the standing rule that an optional field with a silent default is a hole governs
+ * *choices the caller must state*, and a job's identity is not a choice — it is a fact
+ * already present in the caller's own input. `PROJECT.md`'s liveness invariant says a
+ * result is a pure function of `(module, input, partition)`, so two submissions of the
+ * same module over the same ordered inputs **are** the same job: they compute the same
+ * answers and either one's checkpoint is a correct account of the other's progress. A
+ * caller-supplied string could disagree between the requestor that departed and the one
+ * that arrived, and the resume would then read a checkpoint of a different job while
+ * everything type-checked.
+ *
+ * Deriving it is also what makes {@link SubmitError} `'checkpoint-names-another-job'`
+ * reachable at all: a declared id would be whatever the resuming caller passed, so the
+ * comparison would be against itself.
+ *
+ * **Redundancy is deliberately not in it.** A shard's answer does not depend on how many
+ * nodes computed it — that is what content addressing means here — so a job re-submitted
+ * at a different redundancy is the same job, and its checkpoint names answers that are
+ * still correct. What *does* change is how well this requestor verified them, and that is
+ * reported on the shard ({@link ShardResult.degraded}, `replicas: 0`) rather than smuggled
+ * into an identity.
+ *
+ * Throws rather than returning an error, and only on an input this function constructs
+ * itself — a record of two strings and an array of strings, which the canonical codec
+ * cannot refuse. Same call {@link receiptFor} makes for its own assembly invariant.
+ */
+async function jobIdOf(moduleCid: CID, inputCids: readonly CID[]): Promise<string> {
+  const encoded = await canonicalCid({
+    module: moduleCid.toString(),
+    inputs: inputCids.map((cid) => cid.toString()),
+  })
+  if (!encoded.ok) {
+    throw new Error(
+      `a job id over ${inputCids.length} content addresses would not canonicalise — ` +
+        `this input is built from strings and cannot be refused: ${JSON.stringify(encoded.error)}`,
+    )
+  }
+  return encoded.cid.toString()
+}
+
+/** Somewhere a checkpoint handle goes the instant it exists. See {@link SubmitOptions.checkpoints}. */
+export interface CheckpointSink {
+  /**
+   * Called with each handle as it is written, oldest first.
+   *
+   * The {@link JobCheckpoint} is handed over beside it because it is already in hand and
+   * a sink that wants to show progress would otherwise have to read the block back to
+   * learn what it just published.
+   *
+   * **Awaited**, so a sink that persists slowly slows the job rather than silently
+   * falling behind it. A handle that has not reached the sink is a handle nobody can
+   * resume from, which makes an un-awaited publish a checkpoint that does not exist.
+   */
+  publish(handle: CID, checkpoint: JobCheckpoint): Promise<void>
+}
+
+/** Records answered shards and publishes a handle per answer. See {@link SubmitOptions.checkpoints}. */
+interface CheckpointLog {
+  record(shard: CompletedShard): Promise<void>
+}
+
+/** The log that writes nothing, for a caller that named no sink. */
+const NO_CHECKPOINTS: CheckpointLog = {
+  record: async (): Promise<void> => {},
+}
+
+/**
+ * One serialised chain of checkpoint writes for one job — CHURN-03.
+ *
+ * **Serialised, and that is not incidental.** Shards run concurrently, so two settling
+ * within one turn would otherwise each compose a checkpoint against the same `previous`
+ * and the chain would *fork* — two handles claiming the same predecessor, one of them
+ * naming work the other does not. `checkpointChain`'s audit walk would then follow one
+ * branch and report a history that omits half the job. Chaining the writes through a
+ * single promise costs the settling shard the duration of one encode and one put, which
+ * is the tail of a dispatch that has already finished.
+ *
+ * Each write names **everything known when it is composed**, not a delta, which is what
+ * makes any single handle a complete view and therefore something a resume can act on
+ * alone. `checkpointOf` sorts and dedupes, so the same knowledge always produces the same
+ * CID.
+ */
+function checkpointLogOf(
+  sink: CheckpointSink,
+  blockstore: Blockstore,
+  job: { readonly jobId: string; readonly moduleCid: string; readonly partitionCount: number },
+  clock: JobClock,
+  carried: readonly CompletedShard[],
+  resumedFrom: CID | null,
+): CheckpointLog {
+  // Seeded with whatever a resume carried, so a *third* requestor reading this run's
+  // newest handle does not re-run the first requestor's work. A checkpoint that named
+  // only what this process computed would lose ground on every hand-off.
+  const completed: CompletedShard[] = [...carried]
+  // Continuous across requestors: this run's first checkpoint names the handle it resumed
+  // from as its predecessor, so `checkpointChain` walks back through the departed
+  // requestor's history rather than stopping at the hand-off.
+  let previous: string | null = resumedFrom === null ? null : resumedFrom.toString()
+  let chain: Promise<void> = Promise.resolve()
+
+  return {
+    record(shard: CompletedShard): Promise<void> {
+      chain = chain.then(async (): Promise<void> => {
+        completed.push(shard)
+        const checkpoint = checkpointOf({
+          jobId: job.jobId,
+          moduleCid: job.moduleCid,
+          partitionCount: job.partitionCount,
+          completed,
+          // `readCheckpoint` refuses an `at` that is not a whole number ≥ 0, so a clock
+          // port that reports a fraction — or a virtual one that ran backwards — would
+          // otherwise produce a block this module could not read back. Clamped here
+          // rather than trusted, for the reason `checkpoint.ts` validates every field it
+          // reads: this is the only place the value is chosen.
+          at: Math.max(0, Math.floor(clock.now())),
+          previous,
+        })
+        const handle = await writeCheckpoint(checkpoint, blockstore)
+        previous = handle.toString()
+        await sink.publish(handle, checkpoint)
+      })
+      return chain
+    },
+  }
+}
+
+/** One shard a checkpoint answered, with the bytes its CID resolved to. */
+interface CarriedShard {
+  readonly resultCid: CID
+  readonly output: CanonicalValue
+}
+
+/** What a resume found, or the named refusal that stopped it. */
+type ResumeState =
+  | {
+      readonly ok: true
+      readonly carried: ReadonlyMap<number, CarriedShard>
+      /** The handle actually used. `null` when the caller asked for no resume. */
+      readonly from: CID | null
+      /** Handles ahead of it whose blocks were unreadable. See `recoverCheckpoint`. */
+      readonly skipped: number
+    }
+  | { readonly ok: false; readonly error: SubmitError }
+
+/**
+ * Read the newest usable handle and turn it into the shards this job may skip — CHURN-03.
+ *
+ * ## Recovery is the point, not a fallback
+ *
+ * The handles arrive newest first and go straight to `recoverCheckpoint`, whose own
+ * docblock gives the reason the signature is a *list*: **a chain cannot be walked
+ * backwards past a block you cannot read**, because the link to the predecessor lives
+ * inside that block. So the newest block being gone is not an error — it is the ordinary
+ * case a coordinator publishes handles for. The job resumes from an older *complete* view
+ * and re-runs whatever the lost checkpoint would have let it skip: work, never
+ * correctness.
+ *
+ * ## A named answer is looked up, and a lookup that fails is a shard to re-run
+ *
+ * `remainingWork` is `checkpoint.ts`'s answer to "what is left", and it reads the
+ * partition indices alone. This function is stricter on purpose: a partition counts as
+ * carried only if its named result block is **present and decodable in this requestor's
+ * blockstore**. A checkpoint whose blocks were garbage-collected names answers nobody can
+ * retrieve, and skipping such a shard would produce a job result whose output nobody
+ * holds. Falling through to a re-run is the same trade the recovery arm makes and the same
+ * one the whole module makes: liveness changes who computes a task and when, never what
+ * the answer is.
+ */
+async function resumeState(
+  handles: readonly CID[] | undefined,
+  blockstore: Blockstore,
+  jobId: string,
+  partitionCount: number,
+): Promise<ResumeState> {
+  if (handles === undefined || handles.length === 0) {
+    return { ok: true, carried: new Map(), from: null, skipped: 0 }
+  }
+
+  const recovered = await recoverCheckpoint(handles, blockstore)
+  if (recovered === null) {
+    // `recoverCheckpoint` reports *how many* it skipped and not *why* each failed, so the
+    // newest handle is read once more to name a failure. One extra lookup, on a path that
+    // is already returning an error, in exchange for a refusal a caller can act on.
+    const newest = await readCheckpoint(handles[0] as CID, blockstore)
+    return {
+      ok: false,
+      error: {
+        kind: 'checkpoint-unreadable',
+        failure: newest.ok
+          ? { kind: 'block-missing', cid: (handles[0] as CID).toString() }
+          : newest.failure,
+        detail:
+          `none of the ${handles.length} handle(s) offered for this resume was readable; ` +
+          `the newest is ${newest.ok ? 'readable now, so the store changed under this read' : newest.reason}`,
+      },
+    }
+  }
+
+  if (recovered.checkpoint.jobId !== jobId) {
+    return {
+      ok: false,
+      error: {
+        kind: 'checkpoint-names-another-job',
+        expected: jobId,
+        found: recovered.checkpoint.jobId,
+      },
+    }
+  }
+
+  const carried = new Map<number, CarriedShard>()
+  for (const shard of recovered.checkpoint.completed) {
+    // A partition outside this job. `readCheckpoint` already refuses one past the
+    // checkpoint's *own* `partitionCount`; this is the comparison against **this job's**,
+    // which is a different number whenever a hand-written block claims a matching id.
+    if (shard.partitionIndex >= partitionCount) continue
+    let resultCid: CID
+    try {
+      resultCid = CID.parse(shard.resultCid)
+    } catch {
+      // The field is a string by `readCheckpoint`'s validation and a CID by nobody's.
+      continue
+    }
+    const bytes = await blockstore.get(resultCid)
+    if (bytes === undefined) continue
+    try {
+      carried.set(shard.partitionIndex, { resultCid, output: decodeCanonical(bytes) })
+    } catch {
+      // Named, present, and not a canonical block. Re-run it.
+      continue
+    }
+  }
+
+  return { ok: true, carried, from: recovered.cid, skipped: recovered.skipped }
+}
+
+/**
+ * What the placement array holds for a shard a checkpoint already answered.
+ *
+ * The placement pass runs over every partition and a carried one has no placement to
+ * record, so it records the reason it has none. Named rather than inlined at the two arms
+ * that write it, so the two cannot drift into saying different things about one condition.
+ */
+const CARRIED_NOT_PLACED =
+  'a checkpoint already named this shard’s answer, so this requestor placed it nowhere'
+
+/** The record of a shard this requestor did not run, in the shape every other shard reports. */
+function carriedResult(
+  partitionIndex: number,
+  inputCid: CID,
+  shard: CarriedShard,
+): ShardResult {
+  return {
+    partitionIndex,
+    inputCid,
+    // `agreed`, because the answer is in hand and retrievable — and at `replicas: 0`,
+    // because **this requestor obtained none**. Reporting the redundancy the predecessor
+    // achieved would be this module asserting a verification it did not perform and
+    // cannot check, which is the conflation `receiptFor`'s doc refuses one level down.
+    verification: {
+      status: 'agreed',
+      resultCid: shard.resultCid,
+      output: shard.output,
+      agreeing: [],
+      replicas: 0,
+      grossFuel: 0,
+      usefulFuel: 0,
+    },
+    // Nothing was asked, nothing was placed, no generation ran, no lease was granted.
+    // Measured zeroes, the same reading the `never-placed` arm takes — and `ending` is
+    // what tells the two apart.
+    attempted: [],
+    generations: 0,
+    ending: 'carried-from-checkpoint',
+    speculated: false,
+    disagreed: false,
+    copies: [],
+    // See {@link ShardEnding} `'carried-from-checkpoint'`: zero replicas is below any
+    // redundancy a caller can ask for, so this is the field's own definition applied
+    // rather than a policy invented here.
+    degraded: true,
+    quorum: {
+      kind: 'not-attempted',
+      reason:
+        'a checkpoint already named this shard’s answer, so this requestor dispatched it ' +
+        'to nobody and composed no quorum for it',
+    },
+    rejections: [],
+    attestation: {
+      kind: 'holds-no-verified-attestation',
+      reason:
+        'this shard’s answer was carried from a checkpoint, so this requestor holds no ' +
+        'signature over it from anybody — the predecessor’s receipt, if it had one, is not ' +
+        'in the checkpoint and a checkpoint could not be trusted to carry one',
+      agreeing: 0,
+      verified: 0,
+    },
+  }
 }
 
 /** The default account of time: the platform's, with a wait that cannot outlive the job. */
@@ -1797,6 +2186,82 @@ export interface SubmitOptions {
    * call this function at all.
    */
   readonly sovereignCids?: { add(cid: string): Promise<void> }
+  /**
+   * Where this job's checkpoint handles go as they are written — CHURN-03.
+   *
+   * A handle is a CID and nothing else; the block it names lives in the same `blockstore`
+   * every shard input and every agreed output goes to. **Reused rather than given its own
+   * store**, because a second store would be a second place the same bytes live, and the
+   * one property that makes a checkpoint cheap is that it is content-addressed like
+   * everything else.
+   *
+   * ## Why the handle leaves through here and not on `JobResult`
+   *
+   * **The case this exists for is the case that never returns a `JobResult`.** A requestor
+   * that departs mid-job never reaches the end of `submitJob`, so a handle carried on the
+   * result would be a handle nobody with a use for it ever sees. It has to escape the
+   * process *as it is written*, which is what makes this a sink and not a field.
+   *
+   * ## Optional here, and the argument is `sovereignCids`'s rather than `onQuorumShortfall`'s
+   *
+   * This was decided and not defaulted, so the reasoning is written down rather than left
+   * to be reconstructed. `JobSpec.onQuorumShortfall` is required because omitting it would
+   * let every existing call site *mean* `degrade` without saying so — a position held by
+   * callers who never stated one. **There is no equivalent position here.** Omitting this
+   * means no block is written and no handle is published; nothing is claimed on the
+   * caller's behalf, and no field of the result changes. It is the absence of a
+   * destination for bytes, not a silent answer to a question.
+   *
+   * {@link SubmitOptions.sovereignCids} is the precedent that fits, and it fits on both
+   * halves. Its argument is that the omission is *real* for a specific caller —
+   * `task-worker.ts` submits into a `MemoryBlockstore` — and that is exactly true here: a
+   * checkpoint written into a store that dies with the process is a checkpoint of nothing.
+   * Requiring such a caller to name a destination it does not have would be requiring it
+   * to state a falsehood.
+   *
+   * **What the type therefore does not hold, measured rather than assumed.** With this
+   * optional, `npx tsc --noEmit` exits **0** while every production submitter omits it —
+   * checked, not predicted, because this repository has recorded that exact reading twice
+   * (Plans 19-01 and 19-13) as the shape of a hole. So nothing in the type system says a
+   * submitter that *should* checkpoint does. The other half of the `sovereignCids`
+   * precedent is what closes that, and it is a **guard, not a type**:
+   * `sovereign-block-refusal.node.test.ts` pins the set of files allowed to pass that
+   * option. The equivalent guard for this one is named in this plan's summary and belongs
+   * to whoever owns that file next; it is not written here because this plan does not own
+   * that file.
+   *
+   * The alternative was `JobSpec.checkpoints: CheckpointSink | 'checkpoints-nothing'` — a
+   * required union with a named sentinel and a five-site fan-out, `onQuorumShortfall`'s
+   * shape. It was rejected on the merits above, **and** it would have been out of reach
+   * regardless: the five sites are not this plan's files, and two of them
+   * (`bin/bench.ts`, `perf-workload.ts`) have their argument lists count-pinned by
+   * `serve-agent-hooks.node.test.ts`. Both halves are recorded so nobody reads the
+   * constraint as the argument.
+   */
+  readonly checkpoints?: CheckpointSink
+  /**
+   * Checkpoint handles to resume from, **newest first** — CHURN-03.
+   *
+   * The ordinary case is one CID: a requestor that departed published a handle, and a
+   * second requestor knowing only that CID and this job's spec runs the shards the
+   * checkpoint does not name. More than one is the recovery case — `recoverCheckpoint`
+   * takes the newest readable handle and says how many it had to skip, because a chain
+   * cannot be walked backwards past a block that is gone.
+   *
+   * **This is not a second job entry point.** WIRE-04's wording is *"without the caller
+   * choosing between two functions"*, and a starting state is not a second function: the
+   * shards this does not carry go down the *same* placement, lease, dispatch, speculation
+   * and coverage path every other shard takes, in the same call. A shard that a resume
+   * skips reports {@link ShardEnding} `'carried-from-checkpoint'` and nothing else about
+   * this module changes.
+   *
+   * A resume against a handle that is not a checkpoint of *this* job is refused by name —
+   * see {@link SubmitError} `'checkpoint-unreadable'` and `'checkpoint-names-another-job'`.
+   * A resume of a job the checkpoint says is finished dispatches nothing, which is a
+   * measured no-op rather than a special case: every partition is carried, so there is
+   * nothing left for the loop to place.
+   */
+  readonly resumeFrom?: readonly CID[]
 }
 
 export async function submitJob(
@@ -1938,6 +2403,32 @@ export async function submitJob(
     }
     inputCids.push(encoded.cid)
   }
+
+  // ── Checkpointing and resume — CHURN-03 ────────────────────────────────────────────
+  //
+  // Here rather than earlier because the job's identity is derived from the *input CIDs*,
+  // which do not exist until the loop above has canonicalised every shard. That ordering
+  // is what makes the id a fact about the job's content rather than about its spelling:
+  // two callers that shard the same data into the same partitions derive the same id
+  // however they built the values. See {@link jobIdOf}.
+  const jobId = await jobIdOf(spec.moduleCid, inputCids)
+  const resumed = await resumeState(options?.resumeFrom, blockstore, jobId, partitionCount)
+  if (!resumed.ok) return { ok: false, error: resumed.error }
+  const carried = resumed.carried
+  const checkpoints: CheckpointLog =
+    options?.checkpoints === undefined
+      ? NO_CHECKPOINTS
+      : checkpointLogOf(
+          options.checkpoints,
+          blockstore,
+          { jobId, moduleCid: spec.moduleCid.toString(), partitionCount },
+          clock,
+          [...carried].map(([partitionIndex, shard]) => ({
+            partitionIndex,
+            resultCid: shard.resultCid.toString(),
+          })),
+          resumed.from,
+        )
 
   // Placement pass — TWO ARRANGEMENTS OF ONE GATE, selected by whether the caller
   // supplied a way to ask a node anything. What the two arms share is the whole of
@@ -2082,6 +2573,16 @@ export async function submitJob(
     // already-eligible nodes.
     const dispatchCount = new Map<string, number>()
     for (let i = 0; i < partitionCount; i++) {
+      // A carried shard is not placed, and therefore takes no `dispatchCount` nudge: it
+      // is not competing for a node, so counting it would spread the shards that *are*
+      // against load nobody is about to apply. This entry is never read — the per-shard
+      // loop below answers a carried partition before it looks at a placement — and it is
+      // still written truthfully rather than left as a hole, because "never read" is a
+      // property of today's control flow and not of the value.
+      if (carried.has(i)) {
+        shardPlacements.push({ shardId: String(i), status: 'unplaceable', reason: CARRIED_NOT_PLACED })
+        continue
+      }
       const gate = gates[i] as ShardGate
       if (gate.refusal !== null) {
         // The caller's stated preference, in the composer's own words. Nothing else
@@ -2126,7 +2627,10 @@ export async function submitJob(
     const byPool = new Map<readonly NodeDescriptor[], number[]>()
     for (let i = 0; i < partitionCount; i++) {
       const gate = gates[i] as ShardGate
-      if (gate.refusal !== null) continue
+      // A carried shard makes **no offer**, which is the reading that distinguishes a
+      // resume from a restart at the wire and not merely in this process: a node is never
+      // asked about a partition somebody else already answered.
+      if (carried.has(i) || gate.refusal !== null) continue
       const group = byPool.get(gate.pool)
       if (group === undefined) byPool.set(gate.pool, [i])
       else group.push(i)
@@ -2149,9 +2653,11 @@ export async function submitJob(
     for (let i = 0; i < partitionCount; i++) {
       const gate = gates[i] as ShardGate
       shardPlacements.push(
-        gate.refusal !== null
-          ? { shardId: String(i), status: 'unplaceable', reason: gate.refusal }
-          : (placedByShard.get(i) as Placement),
+        carried.has(i)
+          ? { shardId: String(i), status: 'unplaceable', reason: CARRIED_NOT_PLACED }
+          : gate.refusal !== null
+            ? { shardId: String(i), status: 'unplaceable', reason: gate.refusal }
+            : (placedByShard.get(i) as Placement),
       )
     }
     shardRejections = rejectionsByShard
@@ -2159,6 +2665,21 @@ export async function submitJob(
 
   const settledShards = await Promise.all(
     inputCids.map(async (inputCid, partitionIndex): Promise<SettledShard> => {
+      // ── The resume, and it is the whole of it — CHURN-03 ──────────────────────────
+      //
+      // Answered **before** the placement is read, because a carried shard has no
+      // placement to read. This is the only branch a resume adds to the dispatch path:
+      // everything below is what a fresh job does, unchanged, over the partitions the
+      // checkpoint did not name. `remainingWork` is not called here and does not need to
+      // be — it enumerates the complement of `completed`, and iterating every partition
+      // and skipping the carried ones **is** that complement, computed once instead of
+      // built into a list and then searched.
+      const already = carried.get(partitionIndex)
+      if (already !== undefined) {
+        const result = carriedResult(partitionIndex, inputCid, already)
+        return { outstanding: [], winnerCid: already.resultCid.toString(), result }
+      }
+
       const placement = shardPlacements[partitionIndex] as Placement
       const rejections = shardRejections[partitionIndex] as readonly Rejection[]
       if (placement.status === 'unplaceable') {
@@ -2393,6 +2914,17 @@ export async function submitJob(
       if (settled.status === 'agreed') {
         const out = await canonicalCid(settled.output)
         if (out.ok) await blockstore.put(out.bytes)
+        // CHURN-03, and the ordering is load-bearing: the block goes in **first**, so a
+        // handle a departed requestor holds can never name a result nobody can retrieve.
+        // The reverse order would publish a promise the store had not yet kept.
+        //
+        // Awaited, so `submitJob` cannot return before every handle has reached the sink.
+        // It serialises against the other shards' writes and not against their dispatches
+        // — see {@link checkpointLogOf}.
+        await checkpoints.record({
+          partitionIndex,
+          resultCid: settled.resultCid.toString(),
+        })
       }
       // The receipt, built from the agreeing replicas' checked signatures. `resultCid` is
       // the output every one of them hashed to — that is what agreement means — so the

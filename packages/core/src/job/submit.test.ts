@@ -3,13 +3,14 @@ import { CID } from 'multiformats/cid'
 import { MemoryBlockstore } from '../blockstore/memory.ts'
 import { canonicalCid } from '../canonical/encode.ts'
 import type { CanonicalValue } from '../canonical/encode.ts'
+import type { JobCheckpoint } from '../checkpoint.ts'
 import { describeCoverage } from '../coverage.ts'
 import type { CoverageReport } from '../coverage.ts'
 import { EnrollmentAuthority, requestEnrollment } from '../enrollment.ts'
 import type { NodeCertificate } from '../enrollment.ts'
 import { DEFAULT_LEASE_MS, DEFAULT_MAX_GENERATIONS } from '../lease.ts'
 import { signName } from '../naming.ts'
-import type { Executor, ExecutionOutcome, Task } from '../ports.ts'
+import type { Blockstore, Executor, ExecutionOutcome, Task } from '../ports.ts'
 import { LocalCapacity } from '../placement.ts'
 import type { Admission, AdmissionControl, Offer } from '../placement.ts'
 import { signResult } from '../result-attestation.ts'
@@ -18,7 +19,15 @@ import { DEFAULT_SPECULATION_FRACTION } from '../speculation.ts'
 import { publicNodes } from '../sovereignty.ts'
 import type { NodeDescriptor } from '../sovereignty.ts'
 import { DEFAULT_SPECULATION_WATCHDOG_MS, submitJob } from './submit.ts'
-import type { JobClock, JobResult, JobSpec, ShardResult, ShardSpec, SubmitOptions } from './submit.ts'
+import type {
+  CheckpointSink,
+  JobClock,
+  JobResult,
+  JobSpec,
+  ShardResult,
+  ShardSpec,
+  SubmitOptions,
+} from './submit.ts'
 import { executeVerified } from './verify.ts'
 
 const MODULE_CID = CID.parse('bafyreidykglsfhoixmivffc5uwhcgshx4j465xwqntbmu43nb2dzqwfvae')
@@ -3473,5 +3482,604 @@ describe('CHURN-05 — the one job path reports how many of its owners contribut
     // It also cannot separate the two halves of `landedForItsOwner`: alice fails the
     // per-owner gate at 9 of 10 as well, so this case says the clause is *consulted*, and
     // the partial-owner case above is what says the gate is per-owner.
+  })
+})
+
+/**
+ * CHURN-03 — the job survives its requestor.
+ *
+ * ## What every case here CANNOT redden on
+ *
+ * - **`checkpoint.ts`'s own arithmetic.** Whether `checkpointOf` sorts and dedupes,
+ *   whether `readCheckpoint` validates each field, what `remainingWork` returns for a
+ *   given `completed` set, and whether `recoverCheckpoint` counts skips correctly are all
+ *   decided in that module and asserted directly in `checkpoint.test.ts`. What this block
+ *   proves is the **composition**: when `submitJob` writes, what it writes, which shards a
+ *   resume declines to run, and what a resume refuses.
+ * - **A requestor process that actually goes away.** Every case here runs in one process
+ *   and models departure by *not carrying anything forward except a CID*. The real
+ *   departure — a spawned fabric, a requestor closed, a second requestor stood up against
+ *   the same live agents — is `packages/node/src/checkpoint-agents.node.test.ts`, and the
+ *   once-in-total dispatch count is that file's reading, not this one's.
+ * - **A lost checkpoint block reappearing.** {@link losing} hides a block from a reader;
+ *   it does not delete it, because `Blockstore` has no `delete` and inventing one for a
+ *   test would be a production change made for a fixture. `churn.test.ts` used a second
+ *   store for the same purpose; a wrapper says which block is lost, which is sharper.
+ *
+ * ## The clock is frozen, and that is what makes a byte comparison possible
+ *
+ * {@link frozenClock} reports the same instant forever, so every checkpoint this block
+ * writes carries `at: 0` and two jobs' blocks are comparable byte for byte. Its `sleep`
+ * resolves on a macrotask, so a settled dispatch always wins the lease race and no case
+ * here depends on how many turns an executor took. Nothing below asserts a duration.
+ */
+describe('CHURN-03 — a departed requestor leaves a record, and a second one finishes from it', () => {
+  /**
+   * A clock that does not move, with a bound on how many times it may be asked to wait.
+   *
+   * `now` is constant so the `at` field of every checkpoint is the same number, which is
+   * what lets the size reading below be a byte comparison rather than an approximation.
+   * `sleep` resolves on a `setTimeout(0)` — a macrotask — so a dispatch that has already
+   * answered wins its race against the lease deadline every time, and the bound turns a
+   * loop that never terminates into a named failure rather than a hang.
+   */
+  function frozenClock(waits: number): JobClock {
+    let slept = 0
+    return {
+      now: (): number => 0,
+      sleep: async (): Promise<void> => {
+        slept += 1
+        if (slept > waits) throw new Error(`this job asked to wait more than ${waits} times`)
+        await new Promise<void>((resolve) => {
+          setTimeout(resolve, 0)
+        })
+      },
+    }
+  }
+
+  /** Every handle this job published, in the order it published them. */
+  function recorder(): { readonly sink: CheckpointSink; readonly handles: CID[]; readonly written: JobCheckpoint[] } {
+    const handles: CID[] = []
+    const written: JobCheckpoint[] = []
+    return {
+      handles,
+      written,
+      sink: {
+        publish: async (handle: CID, checkpoint: JobCheckpoint): Promise<void> => {
+          handles.push(handle)
+          written.push(checkpoint)
+        },
+      },
+    }
+  }
+
+  /** An honest executor that records which partitions it was actually handed. */
+  function counting(nodeId: string, seen: number[]): Executor {
+    return {
+      nodeId,
+      async execute(shardTask: Task): Promise<ExecutionOutcome> {
+        seen.push(shardTask.partitionIndex)
+        return honest(nodeId).execute(shardTask)
+      },
+    }
+  }
+
+  /** An honest executor whose output is `width` bytes of padding — the size axis. */
+  function bulky(nodeId: string, width: number): Executor {
+    return {
+      nodeId,
+      async execute(shardTask: Task): Promise<ExecutionOutcome> {
+        return {
+          ok: true,
+          output: { shard: shardTask.partitionIndex, pad: 'x'.repeat(width) },
+          fuelUsed: 100,
+          attestation: 'signed-by-nobody',
+        }
+      },
+    }
+  }
+
+  /** An honest executor that refuses the partitions named — used to leave work outstanding. */
+  function refusing(nodeId: string, refuses: readonly number[]): Executor {
+    return {
+      nodeId,
+      async execute(shardTask: Task): Promise<ExecutionOutcome> {
+        return refuses.includes(shardTask.partitionIndex)
+          ? { ok: false, reason: `${nodeId} will not run partition ${shardTask.partitionIndex}` }
+          : honest(nodeId).execute(shardTask)
+      },
+    }
+  }
+
+  /**
+   * The same store with one block unreadable — a lost block, stated rather than deleted.
+   *
+   * `has` lies in step with `get`, because a store that admitted holding a block it would
+   * not hand over would be a third condition nothing in production produces.
+   */
+  function losing(inner: Blockstore, lost: CID): Blockstore {
+    const hidden = lost.toString()
+    return {
+      put: (bytes) => inner.put(bytes),
+      get: async (cid) => (cid.toString() === hidden ? undefined : inner.get(cid)),
+      has: async (cid) => (cid.toString() === hidden ? false : inner.has(cid)),
+      get size(): number {
+        return inner.size
+      },
+    }
+  }
+
+  const SHARDS = 8
+  const OUTSTANDING = [4, 5, 6, 7]
+
+  /** The job every case in this block submits, minus whoever is going to run it. */
+  function specOver(executors: readonly Executor[]): JobSpec {
+    return {
+      moduleCid: MODULE_CID,
+      shards: Array.from({ length: SHARDS }, (_, i) => ({
+        value: { churn: 'checkpoint', partition: i } as CanonicalValue,
+        label: 'public' as const,
+      })),
+      executors,
+      nodes: publicNodes(executors),
+      redundancy: 1,
+      onQuorumShortfall: 'runs-at-available-redundancy',
+    }
+  }
+
+  /** Every shard's agreed result CID in shard order, `null` where it did not agree. */
+  function cidsOf(job: JobResult): readonly (string | null)[] {
+    return job.shards.map((shard) =>
+      shard.verification.status === 'agreed' ? shard.verification.resultCid.toString() : null,
+    )
+  }
+
+  it('writes one checkpoint per shard that answers, and none at all for a caller that named no sink', async () => {
+    // THE CADENCE, read as a difference between two stores in one run rather than as an
+    // absolute block count — which would encode this fixture's shard count and its
+    // module. The two jobs are identical apart from the option, so every block either
+    // store holds beyond the other is a checkpoint.
+    const quiet = new MemoryBlockstore()
+    const noSink = await submitJob(specOver([honest('a'), honest('b')]), quiet, {
+      clock: frozenClock(64),
+    })
+    expect(noSink.ok).toBe(true)
+    if (!noSink.ok) return
+    expect(noSink.job.complete).toBe(true)
+
+    const loud = new MemoryBlockstore()
+    const log = recorder()
+    const withSink = await submitJob(specOver([honest('a'), honest('b')]), loud, {
+      clock: frozenClock(64),
+      checkpoints: log.sink,
+    })
+    expect(withSink.ok).toBe(true)
+    if (!withSink.ok) return
+    expect(withSink.job.complete).toBe(true)
+
+    // One handle per shard that answered — the stated cadence, in the caller's hands.
+    expect(log.handles).toHaveLength(SHARDS)
+    // And one block per handle in the store, over and above everything the quiet job
+    // wrote. Both jobs put the same 8 inputs and the same 8 outputs.
+    expect(loud.size - quiet.size).toBe(SHARDS)
+    // The handles are distinct, so the count above is 8 writes and not one block rewritten
+    // 8 times. `checkpointOf` sorts and dedupes, so equal knowledge gives an equal CID —
+    // which means distinct CIDs here say the knowledge grew each time.
+    expect(new Set(log.handles.map((cid) => cid.toString())).size).toBe(SHARDS)
+    // Each names one more shard than the last, and the last names them all.
+    expect(log.written.map((checkpoint) => checkpoint.completed.length)).toEqual([1, 2, 3, 4, 5, 6, 7, 8])
+    expect((log.written[SHARDS - 1] as JobCheckpoint).completed.map((s) => s.partitionIndex)).toEqual([
+      0, 1, 2, 3, 4, 5, 6, 7,
+    ])
+    // A line, not a fork: each checkpoint names its predecessor's handle, and the first
+    // names nothing. This is what `checkpointChain` walks, and a concurrent job that wrote
+    // without serialising would produce two checkpoints claiming the same `previous`.
+    expect((log.written[0] as JobCheckpoint).previous).toBeNull()
+    for (let i = 1; i < SHARDS; i++) {
+      expect((log.written[i] as JobCheckpoint).previous).toBe((log.handles[i - 1] as CID).toString())
+    }
+
+    // WHAT THIS CANNOT REDDEN ON: that the blocks are *checkpoints*. The size difference
+    // would be satisfied by 8 blocks of anything. The cases below read them back.
+  })
+
+  it('names results rather than carrying them — the block is the same size whatever the answers weigh', async () => {
+    // THE "NAMES, DOES NOT CARRY" READING, and it is comparative on purpose: an absolute
+    // byte bound would encode this fixture's shard count, its module CID and its codec.
+    // Two jobs over the SAME inputs — so the same job id — differing only in how much each
+    // shard's answer weighs.
+    const small = new MemoryBlockstore()
+    const smallLog = recorder()
+    const thin = await submitJob(specOver([bulky('a', 8), bulky('b', 8)]), small, {
+      clock: frozenClock(64),
+      checkpoints: smallLog.sink,
+    })
+    const large = new MemoryBlockstore()
+    const largeLog = recorder()
+    const fat = await submitJob(specOver([bulky('a', 8_000), bulky('b', 8_000)]), large, {
+      clock: frozenClock(64),
+      checkpoints: largeLog.sink,
+    })
+
+    expect(thin.ok).toBe(true)
+    expect(fat.ok).toBe(true)
+    if (!thin.ok || !fat.ok) return
+    expect(thin.job.complete).toBe(true)
+    expect(fat.job.complete).toBe(true)
+
+    // ANTI-VACUITY, taken first: the answers really do differ by an order of magnitude.
+    // Without this the equality below is satisfied by two jobs whose outputs were the same
+    // size, which is the shape this reading exists to rule out.
+    const weigh = async (job: JobResult, store: MemoryBlockstore): Promise<number> => {
+      let bytes = 0
+      for (const shard of job.shards) {
+        if (shard.verification.status !== 'agreed') continue
+        bytes += (await store.get(shard.verification.resultCid))?.length ?? 0
+      }
+      return bytes
+    }
+    const thinBytes = await weigh(thin.job, small)
+    const fatBytes = await weigh(fat.job, large)
+    expect(fatBytes).toBeGreaterThan(thinBytes * 10)
+
+    // And the record of them is byte-for-byte the same size. Both jobs ran over the same
+    // ordered inputs, so their job ids are equal-length CIDs; every result CID is a CID;
+    // the clock is frozen so `at` is the same number in both. Nothing left that could
+    // differ except the answers, and the answers are not in there.
+    const lastOf = async (log: ReturnType<typeof recorder>, store: MemoryBlockstore): Promise<number> => {
+      const handle = log.handles[log.handles.length - 1] as CID
+      return ((await store.get(handle)) as Uint8Array).length
+    }
+    expect(await lastOf(largeLog, large)).toBe(await lastOf(smallLog, small))
+
+    // WHAT THIS CANNOT REDDEN ON: a checkpoint that carried a *fixed-size* summary of the
+    // output — a length, say — would also pass. What it rules out is the answer itself
+    // being in there, which is the property a resume's cost depends on.
+  })
+
+  it('resumes from a CID and dispatches ONLY the shards the checkpoint does not name', async () => {
+    // THE LOAD-BEARING CASE. The first requestor answers half the job and refuses the
+    // rest, so its newest handle names exactly {0,1,2,3} — deterministic, rather than
+    // "whatever had settled when we looked".
+    const store = new MemoryBlockstore()
+    const log = recorder()
+    const departed = await submitJob(
+      specOver([refusing('a', OUTSTANDING), refusing('b', OUTSTANDING), refusing('c', OUTSTANDING)]),
+      store,
+      { clock: frozenClock(256), checkpoints: log.sink },
+    )
+    expect(departed.ok).toBe(true)
+    if (!departed.ok) return
+    // The departure it stands in for: half the job answered, half outstanding.
+    expect(departed.job.complete).toBe(false)
+    expect(cidsOf(departed.job).filter((cid) => cid !== null)).toHaveLength(4)
+    const handle = log.handles[log.handles.length - 1] as CID
+    expect((log.written[log.written.length - 1] as JobCheckpoint).completed.map((s) => s.partitionIndex)).toEqual([
+      0, 1, 2, 3,
+    ])
+
+    // The second requestor. It is handed the job spec and ONE CID, and it counts what it
+    // was actually asked to run.
+    const seen: number[] = []
+    const resumed = await submitJob(specOver([counting('d', seen), counting('e', seen)]), store, {
+      clock: frozenClock(64),
+      resumeFrom: [handle],
+    })
+    expect(resumed.ok).toBe(true)
+    if (!resumed.ok) return
+
+    // (1) THE DISPATCH COUNT — asserted instead of the answer, because the answer is
+    // identical whether or not the resume skipped anything. That is the whole reason this
+    // reading exists and it is why a case asserting only the CIDs would be green against a
+    // resume that re-ran the entire job.
+    expect([...new Set(seen)].sort((x, y) => x - y)).toEqual(OUTSTANDING)
+    expect(seen).toHaveLength(OUTSTANDING.length)
+
+    // (2) The carried shards say so BY NAME. `generations: 0` and an empty `attempted`
+    // read exactly the same on a shard nobody would take, so the ending is what
+    // distinguishes "somebody already did this" from "nobody would".
+    for (let i = 0; i < 4; i++) {
+      const shard = resumed.job.shards[i] as ShardResult
+      expect(shard.ending).toBe('carried-from-checkpoint')
+      expect(shard.attempted).toEqual([])
+      expect(shard.generations).toBe(0)
+      expect(shard.verification.status).toBe('agreed')
+    }
+    for (const i of OUTSTANDING) {
+      const shard = resumed.job.shards[i] as ShardResult
+      expect(shard.ending).toBe('agreed')
+      expect(shard.attempted).toHaveLength(1)
+    }
+
+    // (3) The answer is the departed requestor's answer, per shard by CID — a lookup, not
+    // a recomputation. And the four it ran are answers nobody had before.
+    expect(cidsOf(resumed.job).slice(0, 4)).toEqual(cidsOf(departed.job).slice(0, 4))
+    expect(cidsOf(resumed.job).filter((cid) => cid === null)).toEqual([])
+
+    // (4) A resumed job is NOT `complete`, and that is the truthful reading rather than a
+    // defect: this requestor obtained zero replicas of the four it carried, so it cannot
+    // claim the redundancy the job asked for on them. Saying otherwise would assert a
+    // verification nobody in this process performed.
+    expect(resumed.job.complete).toBe(false)
+    for (let i = 0; i < 4; i++) expect((resumed.job.shards[i] as ShardResult).degraded).toBe(true)
+    for (const i of OUTSTANDING) expect((resumed.job.shards[i] as ShardResult).degraded).toBe(false)
+  })
+
+  it('produces the same per-shard answer a single uninterrupted run produces over the same inputs', async () => {
+    // The control, in the same fixture rather than a pinned literal: the identical job,
+    // over the identical inputs, run by one requestor that never went away.
+    const control = await submitJob(specOver([honest('a'), honest('b')]), new MemoryBlockstore(), {
+      clock: frozenClock(64),
+    })
+    expect(control.ok).toBe(true)
+    if (!control.ok) return
+    expect(control.job.complete).toBe(true)
+
+    const store = new MemoryBlockstore()
+    const log = recorder()
+    const departed = await submitJob(
+      specOver([refusing('a', OUTSTANDING), refusing('b', OUTSTANDING), refusing('c', OUTSTANDING)]),
+      store,
+      { clock: frozenClock(256), checkpoints: log.sink },
+    )
+    expect(departed.ok).toBe(true)
+    if (!departed.ok) return
+
+    const resumed = await submitJob(specOver([honest('d'), honest('e')]), store, {
+      clock: frozenClock(64),
+      resumeFrom: [log.handles[log.handles.length - 1] as CID],
+    })
+    expect(resumed.ok).toBe(true)
+    if (!resumed.ok) return
+
+    // Different nodes ran the second half — `d` and `e` never existed for the first
+    // requestor — and the bytes are the same, which is the liveness invariant stated as an
+    // equality: who computes a task and when changes; what the answer is does not.
+    expect(cidsOf(resumed.job)).toEqual(cidsOf(control.job))
+    // ANTI-VACUITY: eight distinct answers, so the equality above is eight readings and
+    // not one repeated.
+    expect(new Set(cidsOf(control.job)).size).toBe(SHARDS)
+  })
+
+  it('recovers to an OLDER handle when the newest checkpoint block is lost, at the cost of work and not of correctness', async () => {
+    const store = new MemoryBlockstore()
+    const log = recorder()
+    const departed = await submitJob(
+      specOver([refusing('a', OUTSTANDING), refusing('b', OUTSTANDING), refusing('c', OUTSTANDING)]),
+      store,
+      { clock: frozenClock(256), checkpoints: log.sink },
+    )
+    expect(departed.ok).toBe(true)
+    if (!departed.ok) return
+    expect(log.handles).toHaveLength(4)
+
+    const newest = log.handles[3] as CID
+    const older = log.handles[2] as CID
+    // The newest names one more shard than the one behind it. That difference is the
+    // ground this case is about losing.
+    expect((log.written[3] as JobCheckpoint).completed).toHaveLength(4)
+    expect((log.written[2] as JobCheckpoint).completed).toHaveLength(3)
+
+    // Both handles are still handed over — a coordinator publishes every handle it wrote,
+    // which is exactly why `recoverCheckpoint` takes a list. The newest block is gone.
+    const seen: number[] = []
+    const resumed = await submitJob(
+      specOver([counting('d', seen), counting('e', seen)]),
+      losing(store, newest),
+      { clock: frozenClock(64), resumeFrom: [newest, older] },
+    )
+    expect(resumed.ok).toBe(true)
+    if (!resumed.ok) return
+
+    // FIVE, not four: the older view is an older *complete* view, so the shard the lost
+    // checkpoint would have let this requestor skip is run again. Work, never correctness.
+    expect(seen).toHaveLength(5)
+    expect(resumed.job.shards.filter((shard) => shard.ending === 'carried-from-checkpoint')).toHaveLength(3)
+    // And the answer still lands: every shard agreed, and the three carried ones are the
+    // departed requestor's own CIDs.
+    expect(cidsOf(resumed.job).filter((cid) => cid === null)).toEqual([])
+    const carriedIndices = resumed.job.shards
+      .filter((shard) => shard.ending === 'carried-from-checkpoint')
+      .map((shard) => shard.partitionIndex)
+    for (const i of carriedIndices) {
+      expect(cidsOf(resumed.job)[i]).toBe(cidsOf(departed.job)[i])
+    }
+    // The re-run shard is the one the lost checkpoint named and the older one does not.
+    const lostGround = (log.written[3] as JobCheckpoint).completed
+      .map((s) => s.partitionIndex)
+      .filter((i) => !carriedIndices.includes(i))
+    expect(lostGround).toHaveLength(1)
+    expect(seen).toContain(lostGround[0])
+  })
+
+  it('resumes a FINISHED job by dispatching nothing at all', async () => {
+    const store = new MemoryBlockstore()
+    const log = recorder()
+    const first = await submitJob(specOver([honest('a'), honest('b')]), store, {
+      clock: frozenClock(64),
+      checkpoints: log.sink,
+    })
+    expect(first.ok).toBe(true)
+    if (!first.ok) return
+    expect(first.job.complete).toBe(true)
+
+    const seen: number[] = []
+    const again = recorder()
+    const resumed = await submitJob(specOver([counting('d', seen), counting('e', seen)]), store, {
+      clock: frozenClock(64),
+      resumeFrom: [log.handles[SHARDS - 1] as CID],
+      checkpoints: again.sink,
+    })
+    expect(resumed.ok).toBe(true)
+    if (!resumed.ok) return
+
+    // Nothing ran, and nothing was written — a checkpoint is published when knowledge
+    // *grows*, and a resume of a finished job learns nothing.
+    expect(seen).toEqual([])
+    expect(again.handles).toEqual([])
+    expect(resumed.job.shards.every((shard) => shard.ending === 'carried-from-checkpoint')).toBe(true)
+    expect(cidsOf(resumed.job)).toEqual(cidsOf(first.job))
+    // Nothing was placed either, so no node was so much as asked about a partition that
+    // was already answered. This is the reading `submit.ts` takes at the offer arm.
+    expect(resumed.job.leaseHistory).toEqual([])
+    expect(resumed.job.redispatches).toBe(0)
+  })
+
+  it('refuses a resume against a CID that is not a checkpoint, BY NAME rather than by exception', async () => {
+    const store = new MemoryBlockstore()
+    // A real block of this very job — a shard input — which decodes fine and is not a
+    // checkpoint. The sharper fixture than a random CID, because it reaches the field
+    // validation rather than stopping at the block lookup.
+    const encoded = await canonicalCid({ churn: 'checkpoint', partition: 0 })
+    expect(encoded.ok).toBe(true)
+    if (!encoded.ok) return
+    await store.put(encoded.bytes)
+
+    const notACheckpoint = await submitJob(specOver([honest('a')]), store, {
+      clock: frozenClock(64),
+      resumeFrom: [encoded.cid],
+    })
+    expect(notACheckpoint.ok).toBe(false)
+    if (notACheckpoint.ok) return
+    expect(notACheckpoint.error.kind).toBe('checkpoint-unreadable')
+    if (notACheckpoint.error.kind !== 'checkpoint-unreadable') return
+    // The FAILURE KIND and the FIELD, not merely that something went wrong: `malformed`
+    // with `jobId` says the block was found and decoded and does not describe a job, which
+    // is a different remedy from a block that is simply absent.
+    expect(notACheckpoint.error.failure.kind).toBe('malformed')
+    if (notACheckpoint.error.failure.kind !== 'malformed') return
+    expect(notACheckpoint.error.failure.field).toBe('jobId')
+    expect(notACheckpoint.error.failure.cid).toBe(encoded.cid.toString())
+
+    // And the other arm of the same union: a handle whose block nobody holds.
+    const absent = await canonicalCid({ nobody: 'wrote this' })
+    expect(absent.ok).toBe(true)
+    if (!absent.ok) return
+    const missing = await submitJob(specOver([honest('a')]), store, {
+      clock: frozenClock(64),
+      resumeFrom: [absent.cid],
+    })
+    expect(missing.ok).toBe(false)
+    if (missing.ok) return
+    expect(missing.error.kind).toBe('checkpoint-unreadable')
+    if (missing.error.kind !== 'checkpoint-unreadable') return
+    expect(missing.error.failure.kind).toBe('block-missing')
+
+    // WHAT THIS CANNOT REDDEN ON: `readCheckpoint`'s field-by-field validation, which
+    // `checkpoint.test.ts` holds. What it says is that `submitJob` carries the union out
+    // instead of throwing, and instead of quietly running the whole job — which is the
+    // failure mode a caller could not tell from success.
+  })
+
+  it('refuses a valid checkpoint that belongs to ANOTHER job, rather than skipping partitions by number', async () => {
+    const store = new MemoryBlockstore()
+    const log = recorder()
+    // A different job over different inputs, but the same shard count — so every partition
+    // index in its checkpoint is in range for the job below, and nothing but the derived
+    // job id can tell the two apart.
+    const otherJob: JobSpec = {
+      ...specOver([honest('a'), honest('b')]),
+      shards: Array.from({ length: SHARDS }, (_, i) => ({
+        value: { somethingElse: 'entirely', partition: i } as CanonicalValue,
+        label: 'public' as const,
+      })),
+    }
+    const other = await submitJob(otherJob, store, { clock: frozenClock(64), checkpoints: log.sink })
+    expect(other.ok).toBe(true)
+    if (!other.ok) return
+    expect(log.handles).toHaveLength(SHARDS)
+
+    const seen: number[] = []
+    const wrong = await submitJob(specOver([counting('d', seen), counting('e', seen)]), store, {
+      clock: frozenClock(64),
+      resumeFrom: [log.handles[SHARDS - 1] as CID],
+    })
+    expect(wrong.ok).toBe(false)
+    if (wrong.ok) return
+    expect(wrong.error.kind).toBe('checkpoint-names-another-job')
+    if (wrong.error.kind !== 'checkpoint-names-another-job') return
+    expect(wrong.error.found).not.toBe(wrong.error.expected)
+    // Nothing ran. The refusal is before placement, so a resume against the wrong job does
+    // not half-run it.
+    expect(seen).toEqual([])
+  })
+
+  it('re-runs a shard whose named result block is gone, instead of reporting an answer nobody holds', async () => {
+    const store = new MemoryBlockstore()
+    const log = recorder()
+    const first = await submitJob(specOver([honest('a'), honest('b')]), store, {
+      clock: frozenClock(64),
+      checkpoints: log.sink,
+    })
+    expect(first.ok).toBe(true)
+    if (!first.ok) return
+
+    // Partition 0's answer is named by the checkpoint and is no longer retrievable. A
+    // resume that trusted the name alone would report a `resultCid` for a block this
+    // requestor cannot hand to anybody.
+    const lost = (first.job.shards[0] as ShardResult).verification
+    expect(lost.status).toBe('agreed')
+    if (lost.status !== 'agreed') return
+
+    const seen: number[] = []
+    const resumed = await submitJob(
+      specOver([counting('d', seen), counting('e', seen)]),
+      losing(store, lost.resultCid),
+      { clock: frozenClock(64), resumeFrom: [log.handles[SHARDS - 1] as CID] },
+    )
+    expect(resumed.ok).toBe(true)
+    if (!resumed.ok) return
+
+    // Exactly the one shard, and it ran for real rather than being carried.
+    expect(seen).toEqual([0])
+    expect((resumed.job.shards[0] as ShardResult).ending).toBe('agreed')
+    for (let i = 1; i < SHARDS; i++) {
+      expect((resumed.job.shards[i] as ShardResult).ending).toBe('carried-from-checkpoint')
+    }
+    // And it produced the same bytes, because it is the same pure function of the same
+    // input. Losing a block costs a recompute and never an answer.
+    expect(cidsOf(resumed.job)).toEqual(cidsOf(first.job))
+  })
+
+  it('carries a resume forward: the resumed run’s checkpoints name what it inherited AND link back to the handle it resumed from', async () => {
+    // A third requestor must not re-run the first requestor's work. That only holds if the
+    // second requestor's checkpoints name what it carried as well as what it ran.
+    const store = new MemoryBlockstore()
+    const firstLog = recorder()
+    const departed = await submitJob(
+      specOver([refusing('a', OUTSTANDING), refusing('b', OUTSTANDING), refusing('c', OUTSTANDING)]),
+      store,
+      { clock: frozenClock(256), checkpoints: firstLog.sink },
+    )
+    expect(departed.ok).toBe(true)
+    if (!departed.ok) return
+    const inherited = firstLog.handles[firstLog.handles.length - 1] as CID
+
+    const secondLog = recorder()
+    const resumed = await submitJob(specOver([honest('d'), honest('e')]), store, {
+      clock: frozenClock(64),
+      resumeFrom: [inherited],
+      checkpoints: secondLog.sink,
+    })
+    expect(resumed.ok).toBe(true)
+    if (!resumed.ok) return
+
+    // Four writes for the four shards it ran, and the first of them already names seven:
+    // the three it inherited plus its own. A log that started from empty would name one.
+    expect(secondLog.handles).toHaveLength(4)
+    expect(secondLog.written.map((checkpoint) => checkpoint.completed.length)).toEqual([5, 6, 7, 8])
+    // The chain crosses the hand-off, which is what `checkpointChain` needs to walk a
+    // job's whole history rather than only the part one requestor saw.
+    expect((secondLog.written[0] as JobCheckpoint).previous).toBe(inherited.toString())
+    // And a third requestor resuming from the newest handle has nothing left to do.
+    const seen: number[] = []
+    const third = await submitJob(specOver([counting('f', seen), counting('g', seen)]), store, {
+      clock: frozenClock(64),
+      resumeFrom: [secondLog.handles[3] as CID],
+    })
+    expect(third.ok).toBe(true)
+    if (!third.ok) return
+    expect(seen).toEqual([])
+    expect(cidsOf(third.job)).toEqual(cidsOf(resumed.job))
   })
 })
