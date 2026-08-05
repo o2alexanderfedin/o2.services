@@ -483,6 +483,38 @@ are in this branch's history, which is what my `depends_on` needed.
 
 ---
 
+## A STATE.md writer corrupted it **while reporting an error** — found, reverted, recorded
+
+`STATE.md` was not updated by this plan, and the reason is a finding rather than an
+omission.
+
+`gsd-sdk query state.advance-plan` was run as the executor's own protocol asks. It printed
+`{"error": "Cannot parse Current Plan or Total Plans in Phase from STATE.md"}` — and **wrote
+to the file anyway**. Measured from the diff: nine frontmatter lines replaced with an older
+snapshot (`status` `executing` → `verifying`; `stopped_at` replaced by a Phase-14-era
+sentence; `last_activity` regressed 2026-08-04 → 2026-07-31; `total_phases` 14 → 24,
+`completed_phases` 6 → 10, `total_plans` 76 → 99, `completed_plans` 72 → 88, `percent`
+**43 → 89**), plus 37 blank lines inserted by a markdown reformatter. Zero prose lines added
+or removed by anybody — checked line by line before touching it, so nothing of another
+agent's was in the delta.
+
+**This is a new data point against `STATE.md`'s own comment block**, which lists three
+writers that have corrupted it and ends *"Each was caught that way and not by the tool
+reporting a failure. **None of them errored.**"* This one errored and corrupted anyway, so
+"it reported an error, therefore it did not write" is not a safe inference either.
+
+**Reverted by `cp` from `git show HEAD:.planning/STATE.md`, `cmp` exit `0`**, and `git
+status` clean for that path. **No `git checkout --`** — the file is shared and the
+prohibition stands even when the delta is provably one's own.
+
+No further state mutator was run. `state.record-metric` is already named in that comment
+block as a corrupter (*"asked for a single metrics row, it also rewrote `status` and
+`stopped_at` … percent 36 to 74"*), and `roadmap.update-plan-progress` has no per-plan
+progress table to update — `ROADMAP.md`'s Phase 20 entry is a checkbox and a details block.
+`requirements.mark-complete` was deliberately not run, for the reason under *Deferred*.
+This matches what 20-01, 20-07 and 21-04 each did: the per-plan commit carries the SUMMARY,
+and `STATE.md` is moved by hand at a wave boundary.
+
 ## Known Stubs
 
 None. Every value on the new field is written from a measured quantity on every path,
