@@ -15,10 +15,10 @@ import type {
   SweepResult,
 } from './harness.ts'
 import { hostCount, isSameMachine, machineLabel, renderMarkdown } from './report.ts'
-import type { Inventory, Machine } from './report.ts'
+import type { Inventory, Machine, Report } from './report.ts'
 import { summarise } from './stats.ts'
 
-/** BENCH-01, BENCH-04, BENCH-05, BENCH-06. */
+/** BENCH-01, BENCH-04, BENCH-05, BENCH-06, BENCH-07. */
 
 const config: RunConfig = {
   nodes: 4,
@@ -26,6 +26,9 @@ const config: RunConfig = {
   redundancy: 2,
   transport: 'memory',
   skew: 'uniform',
+  driver: 'in-process',
+  fixture: 'trivial',
+  leg: 'public',
 }
 
 /** Plausible non-zero defaults, so a test that cares about a reduce figure sets it. */
@@ -72,7 +75,15 @@ describe('the harness obeys the plan it was pre-registered against', () => {
   it('sweeps exactly the ladder', async () => {
     const results = await sweepNodeCount(
       scripted([observation()]),
-      { shards: 4, redundancy: 1, transport: 'memory', skew: 'uniform' },
+      {
+        shards: 4,
+        redundancy: 1,
+        transport: 'memory',
+        skew: 'uniform',
+        driver: 'in-process',
+        fixture: 'trivial',
+        leg: 'public',
+      },
       { runs: 2, separateColdStart: false },
     )
     expect(results.map((r) => r.config.nodes)).toEqual([...NODE_LADDER])
@@ -225,6 +236,165 @@ describe('the connectivity tax compares like with like', () => {
     const taxes = connectivityTax([point(1, 10), point(4, 40)], [point(1, 30)])
     expect(taxes).toHaveLength(1)
     expect(taxes[0]?.nodes).toBe(1)
+  })
+
+  it('refuses two results at one node count rather than keeping the last appended', () => {
+    // The silent failure this replaces: `new Map(real.map(…))` keeps whichever entry
+    // was appended last, so appending a second driver's curve loses a rung and
+    // computes a tax against the survivor with no error anywhere. The two colliding
+    // points carry different p50s deliberately — under the old shape the call would
+    // have returned a tax, and a tax computed from one of two curves nobody chose
+    // between is worse than an exception.
+    expect(() => connectivityTax([point(1, 10)], [point(4, 100), point(4, 900)])).toThrow(
+      /real curve .* 4/,
+    )
+    expect(() => connectivityTax([point(4, 10), point(4, 20)], [point(4, 100)])).toThrow(
+      /memory curve .* 4/,
+    )
+  })
+})
+
+/** A curve point with its provenance overridden, so a heading's derivation is readable. */
+const configured = (base: SweepResult, overrides: Partial<RunConfig>): SweepResult => ({
+  ...base,
+  config: { ...base.config, ...overrides },
+})
+
+/** The single heading line starting with `prefix`, or `undefined` if there is none. */
+const headingLine = (markdown: string, prefix: string): string | undefined =>
+  markdown.split('\n').find((line) => line.startsWith(prefix))
+
+/**
+ * BENCH-07 — provenance is a property of the layout, not of the author remembering.
+ *
+ * Every assertion here reads the **rendered string**. A column present in the header
+ * and absent from the rows, or a heading naming a driver the numbers did not come
+ * from, are both invisible to a test that reads the model.
+ */
+describe('BENCH-07 — every published figure names the driver and fixture it came from', () => {
+  // Built inside a function rather than at describe scope: `machine` is declared
+  // further down this file, so reading it during registration hits its dead zone.
+  const fullReport = (overrides: Partial<Report> = {}): Report => ({
+    title: 'Test run',
+    at: '2026-08-05T12:00:00.000Z',
+    inventory: { machines: [machine('laptop')], nodeCount: 8 } satisfies Inventory,
+    baseline: summarise([10]),
+    memoryTransport: [point(1, 100), point(2, 90)],
+    realTransport: [point(1, 300), point(2, 280)],
+    connectivity: connectivityTax([point(1, 100)], [point(1, 300)]),
+    crossover: costCrossover(summarise([10]), [point(1, 100)]),
+    unmet: [],
+    ...overrides,
+  })
+
+  const multiProcess = [
+    configured(point(1, 40), { driver: 'process-per-node', fixture: 'saturating' }),
+  ]
+
+  it('renders no third section at all for a report from before that driver existed', () => {
+    const markdown = renderMarkdown(fullReport())
+    expect(markdown).not.toContain('process-per-node')
+    // Two makespan sections, not three, and no empty table standing in for one.
+    expect(markdown.split('## Makespan').length - 1).toBe(2)
+  })
+
+  it('names the process-per-node driver in its own makespan heading and on every row', () => {
+    const markdown = renderMarkdown(fullReport({ multiProcess }))
+    expect(markdown).toContain('## Makespan — real transport, process-per-node driver')
+    // The heading and the row are asserted separately on purpose: a driver cell
+    // deleted from the row template leaves the heading assertion passing.
+    expect(markdown).toContain('| 1 | process-per-node | saturating |')
+  })
+
+  it('carries a driver cell and a fixture cell on every makespan row of every curve', () => {
+    const markdown = renderMarkdown(fullReport({ multiProcess }))
+    const rows = markdown
+      .split('\n')
+      .filter((line) => /^\| \d+ \| (in-process|process-per-node) \|/.test(line))
+    // Two memory rungs, two real rungs, one multi-process rung.
+    expect(rows).toHaveLength(5)
+    for (const row of rows) {
+      expect(row).toMatch(/^\| \d+ \| (in-process|process-per-node) \| (trivial|saturating) \|/)
+    }
+  })
+
+  it('keeps the header, the alignment row and every body row on one column count', () => {
+    // A table whose header and body disagree on column count renders as garbage in
+    // every Markdown viewer, and no assertion on the model would see it.
+    const markdown = renderMarkdown(fullReport({ multiProcess }))
+    const start = markdown.indexOf('| nodes | driver | fixture |')
+    expect(start).toBeGreaterThanOrEqual(0)
+    const table = markdown
+      .slice(start)
+      .split('\n')
+      .filter((line) => line.startsWith('|'))
+    const widths = new Set(table.slice(0, 4).map((line) => line.split('|').length))
+    expect([...widths]).toHaveLength(1)
+  })
+
+  it('derives the tax, crossover and memory-reduce headings from the memory curve', () => {
+    const saturating: readonly SweepResult[] = [
+      configured(point(1, 100), { fixture: 'saturating' }),
+      configured(point(2, 90), { fixture: 'saturating' }),
+    ]
+    const a = renderMarkdown(fullReport())
+    const b = renderMarkdown(fullReport({ memoryTransport: saturating }))
+    for (const prefix of [
+      '## Connectivity tax',
+      '## COST crossover',
+      '## Reduce tree — memory transport',
+    ]) {
+      expect(headingLine(a, prefix)).toBeDefined()
+      // A literal in place of the derivation makes these two equal.
+      expect(headingLine(a, prefix)).not.toEqual(headingLine(b, prefix))
+    }
+  })
+
+  it('derives the exclusion and real-reduce headings from the real curve', () => {
+    // A report with no exclusions emits no such section at all, so this one needs one.
+    const excluded = [{ config: 'real transport, 16 nodes', reason: 'a stated reason' }]
+    const spawned: readonly SweepResult[] = [
+      configured(point(1, 300), { driver: 'process-per-node' }),
+      configured(point(2, 280), { driver: 'process-per-node' }),
+    ]
+    const a = renderMarkdown(fullReport({ excluded }))
+    const b = renderMarkdown(fullReport({ excluded, realTransport: spawned }))
+    for (const prefix of ['## Configurations excluded, and why', '## Reduce tree — real transport']) {
+      expect(headingLine(a, prefix)).toBeDefined()
+      expect(headingLine(a, prefix)).not.toEqual(headingLine(b, prefix))
+    }
+  })
+
+  it('falls back to the memory curve for the exclusion heading when every real rung failed', () => {
+    // A rung reaches `excluded` precisely by failing, so the run this heading most
+    // matters in is the one whose `realTransport` is empty.
+    const markdown = renderMarkdown(
+      fullReport({
+        realTransport: [],
+        excluded: [{ config: 'real transport, 16 nodes', reason: 'a stated reason' }],
+      }),
+    )
+    expect(headingLine(markdown, '## Configurations excluded, and why')).toBe(
+      '## Configurations excluded, and why — in-process driver, trivial fixture',
+    )
+  })
+
+  it('says `no runs` rather than interpolating undefined when the curve is empty', () => {
+    const markdown = renderMarkdown(
+      fullReport({
+        memoryTransport: [],
+        realTransport: [],
+        connectivity: [],
+        crossover: costCrossover(summarise([10]), []),
+        excluded: [{ config: 'real transport, 16 nodes', reason: 'a stated reason' }],
+      }),
+    )
+    expect(headingLine(markdown, '## Connectivity tax')).toBe('## Connectivity tax — no runs')
+    expect(headingLine(markdown, '## COST crossover')).toBe('## COST crossover — no runs')
+    expect(headingLine(markdown, '## Configurations excluded, and why')).toBe(
+      '## Configurations excluded, and why — no runs',
+    )
+    expect(markdown).not.toContain('undefined')
   })
 })
 
