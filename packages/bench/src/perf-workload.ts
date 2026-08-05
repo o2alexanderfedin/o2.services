@@ -311,7 +311,28 @@ async function referenceWorkload(): Promise<() => Promise<void>> {
   }
 }
 
-/** The configuration measured at one rung — the driver's, minus the egress tap. */
+/**
+ * The configuration measured at one rung — the driver's, minus the egress tap.
+ *
+ * ## Why all three of `driver`, `fixture` and `leg` say the unremarkable thing
+ *
+ * Plan 23-01 made them **required** on {@link RunConfig}, deliberately: an optional
+ * dimension lets a run mean `in-process` without ever having said so, and the whole point
+ * of publishing a driver alongside a figure is that a reader can tell which one produced
+ * it. Required is the same shape `SubmitOptions.checkpoints` and `AgentOptions.ledger`
+ * took, for the same reason — silence and consent are otherwise indistinguishable.
+ *
+ * So this gate states them rather than inheriting them, and every value here is the
+ * measured truth about this rung rather than a placeholder: it builds its nodes in **this**
+ * process, it runs the trivial kernel fixture, and it labels every shard `'public'`. If any
+ * of those three stops being true, this literal is where the lie would appear first.
+ *
+ * **This file was the one no Phase 23 plan owned.** 23-01 widened the type and correctly
+ * declined to reach outside its own file list; `bin/bench.ts`'s three literals belong to
+ * 23-03. This one belonged to nobody, and it runs under `--project perf`, so **no node-tier
+ * suite would have reported it broken** — a whole-tree `tsc` was the only thing standing
+ * between it and a silent break. Fixed 2026-08-05 rather than left for a plan to adopt.
+ */
 export function gateConfig(nodes: number): RunConfig {
   return {
     nodes,
@@ -321,6 +342,9 @@ export function gateConfig(nodes: number): RunConfig {
     redundancy: Math.min(2, nodes),
     transport: 'memory',
     skew: 'uniform',
+    driver: 'in-process',
+    fixture: 'trivial',
+    leg: 'public',
   }
 }
 
