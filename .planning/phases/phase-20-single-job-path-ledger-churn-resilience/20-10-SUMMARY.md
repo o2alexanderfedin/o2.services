@@ -393,6 +393,15 @@ failure attributed: `vocabulary`, `purity`, `disclosure-gate` green; `mutation-g
 **Not fixed here** — `requirements-ledger.node.test.ts` is nobody's file this wave, and
 narrowing those three cases is a decision about the union rule, not a repair.
 
+**And it cleared on its own, which is recorded so the finding is not overstated.** Once
+20-12 settled its ledger rows, a re-run of the hook's exact six specs read **exit 1 with a
+single failure — `slow-specs`'s file-count drift**, which is 20-13's and which the hook
+reports without blocking; `mutation-guard` and `requirements-ledger` are green again. So
+the block was a *window*, not a permanent state. That does not weaken the finding: the
+window is precisely what defect #39 exists to make survivable, and for these three cases it
+is not — the concurrent writer was refused for the duration and the author of the change
+never was.
+
 ---
 
 ## Runs, read directly
