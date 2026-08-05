@@ -123,7 +123,7 @@ describe('the port probe reads both states, so an absence below means something'
     expect(await isFree(port)).toBe(true)
 
     const node = await FabricNode.start({
-      relayAdmission: 'admits-any-peer', listen: [`/ip4/127.0.0.1/tcp/${port}`], trustAnchors: UNWIND_ANCHORS })
+      relayAdmission: 'admits-any-peer', startReporting: 'reports-its-own-start', listen: [`/ip4/127.0.0.1/tcp/${port}`], trustAnchors: UNWIND_ANCHORS })
     expect(await isFree(port)).toBe(false)
 
     await node.stop()
@@ -137,6 +137,7 @@ describe('a rejected start leaves nothing listening', () => {
 
     const failure = await FabricNode.start({
       relayAdmission: 'admits-any-peer',
+      startReporting: 'reports-its-own-start',
       listen: [`/ip4/127.0.0.1/tcp/${port}`],
       enrollment: UNANSWERED_ENROLLMENT,
       trustAnchors: UNWIND_ANCHORS,
@@ -157,6 +158,7 @@ describe('a rejected start leaves nothing listening', () => {
     const attempt = async (): Promise<unknown> =>
       await FabricNode.start({
         relayAdmission: 'admits-any-peer',
+        startReporting: 'reports-its-own-start',
         listen: [`/ip4/127.0.0.1/tcp/${port}`],
         enrollment: UNANSWERED_ENROLLMENT,
         trustAnchors: UNWIND_ANCHORS,
@@ -187,6 +189,7 @@ describe('a rejected start leaves nothing listening', () => {
     // catch, and a subsumption nobody checks is a deletion.
     const failure = await FabricNode.start({
       relayAdmission: 'admits-any-peer',
+      startReporting: 'reports-its-own-start',
       listen: [`/ip4/127.0.0.1/tcp/${port}`],
       maxConcurrentTasks: 0,
       trustAnchors: UNWIND_ANCHORS,
@@ -207,6 +210,7 @@ describe('a rejected start leaves nothing listening', () => {
 
     const failure = await FabricNode.start({
       relayAdmission: 'admits-any-peer',
+      startReporting: 'reports-its-own-start',
       listen: [`/ip4/127.0.0.1/tcp/${port}`],
       enrollment: UNANSWERED_ENROLLMENT,
       trustAnchors: UNWIND_ANCHORS,

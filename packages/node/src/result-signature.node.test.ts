@@ -346,6 +346,7 @@ async function standUp(): Promise<Fixture> {
 
   const requestor = await FabricNode.start({
     relayAdmission: 'admits-any-peer',
+    startReporting: 'reports-its-own-start',
     blockstoreDir: join(workdir, 'requestor'),
     listen: ['/ip4/127.0.0.1/tcp/0'],
     rpcTimeoutMs: 20_000,
@@ -576,6 +577,7 @@ describe('a node nobody enrolled says so, rather than being unable to answer', (
     // — which is the half a branch would also get right and an omission would not.
     const node = await FabricNode.start({
       relayAdmission: 'admits-any-peer',
+      startReporting: 'reports-its-own-start',
       blockstoreDir: join(workdir, 'unenrolled'),
       listen: ['/ip4/127.0.0.1/tcp/0'],
       trustAnchors: 'runs-unsigned-artifacts',

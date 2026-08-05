@@ -116,6 +116,7 @@ import type {
   SelfRecordIndexOptions,
   StartOutcome,
   StartReport,
+  StartReportingConsent,
 } from '@o2/core'
 import {
   CountingExecutor,
@@ -505,6 +506,48 @@ export interface FabricNodeOptions {
    * whole of that section is about there being one.
    */
   readonly relayAdmission: RelayAdmission
+  /**
+   * Whether this node's own start row may leave this machine — BROW-01.
+   *
+   * **Required, with no `?` and no default**, on the identical ground {@link
+   * FabricNodeOptions.relayAdmission} states one field up: an omitted value would let a
+   * caller publish a fact about the machine they are running on without ever having said
+   * so. The union's two values and what each costs are documented in full at
+   * {@link StartReportingConsent} in `@o2/core`.
+   *
+   * ## Why this tier has the field, when the defect was found in a browser
+   *
+   * BROW-01 was a browser-tier defect: a visitor's decline changed what their page
+   * rendered while their node went on serving the row. This tier had no such contradiction
+   * because it had **no consent concept at all** — and that absence is the same failure
+   * seen from the other side. The standing rule this file's module comment states in the
+   * imperative is that all nodes have equal functionality and only discovery differs; a
+   * visitor who can decline beside an operator who cannot is that rule broken, in the
+   * direction the whole sovereignty claim rests on.
+   *
+   * So the choice exists here on identical terms, `ownStartLedger` below is byte-identical
+   * to `browser-node.ts`'s, and `serve-agent-hooks.node.test.ts` requires it to stay that
+   * way.
+   *
+   * ## What every site in this repository currently states, and why
+   *
+   * `'reports-its-own-start'` — which is what the tree already did before this field
+   * existed, so threading it changed no behaviour anywhere. That is the same move Plan
+   * 24-01 made for `relayAdmission`, and for the same reason: a site that has already
+   * written down what it means does not break when somebody starts choosing differently.
+   * The withholding arm is not decoration — `packages/node/src/start-reporting.node.test.ts`
+   * stands up two real nodes over TCP and reads what each answers a peer that asks.
+   *
+   * **Not reachable from argv, deliberately, and this is a gap with a name.** `bin/agent.ts`
+   * states the open value at its one construction site. An operator who wants the other one
+   * edits that line or builds a `FabricNode` themselves; a flag is a separate decision,
+   * taken alongside whatever else that entry point learns to say.
+   *
+   * Per-node **value**, not a node kind — exactly as `sovereignty`, `trustAnchors` and
+   * `relayAdmission` are. Every `FabricNode` has the identical executor, transport, relay
+   * capability and protocol surface whatever is passed here.
+   */
+  readonly startReporting: StartReportingConsent
   /** Concurrent reservations to accept from others. Defaults to libp2p's 15. */
   readonly maxReservations?: number
   readonly reservationTtlMs?: number
@@ -839,18 +882,47 @@ function ownStartOutcome(label: string): StartOutcome | 'reports-no-start-outcom
 }
 
 /**
- * A ledger holding this node's own row, ready for `serveAgent`'s hook — BROW-02.
+ * A ledger holding this node's own row, ready for `serveAgent`'s hook — BROW-02, BROW-01.
  *
- * The argument is a **required union with a named sentinel** and never an optional: an
- * omitted outcome would let this line mean "report nothing" without anything having said
- * so, which is the hole `.planning/PROJECT.md`'s Key Decision *"an optional hook with a
+ * Both arguments are **required unions with named members** and neither is an optional: an
+ * omitted one would let this line mean "report nothing" without anything having said so,
+ * which is the hole `.planning/PROJECT.md`'s Key Decision *"an optional hook with a
  * silent default is a hole"* names and which this repository has twice measured as
  * `tsc --noEmit` exit 0 beside a failing behavioural assertion.
  *
+ * ## Two refusals, kept apart on purpose
+ *
+ * The body has two guards and they are deliberately not merged into one condition, even
+ * though the ledger they produce is identical. They answer different questions and only
+ * one of them is the owner's:
+ *
+ * - `consent` is **may this row leave at all**. It is whoever started this node answering
+ *   for it, and it is the whole of BROW-01 at this tier.
+ * - `outcome` is **is there a row this build could file**. A label outside the coarse
+ *   range is refused by `parseCounts` at the wire, so filing it locally would give this
+ *   node a reading no peer can corroborate.
+ *
+ * Merging them would make a consenting node whose label is unfileable indistinguishable
+ * from one that withheld, and the next reader would have one condition to re-derive two
+ * meanings from. DATA-10 made the same call for the same reason — a CID-keyed durable set
+ * and a payload-keyed job-scoped guard were kept as two mechanisms rather than one.
+ *
+ * ## Why this tier has the choice at all
+ *
+ * Because the standing rule is that **all nodes have equal functionality and only
+ * discovery differs**, and BROW-01 was found as a browser-tier defect. A tab whose visitor
+ * can decline, beside a server process that cannot, would be that rule broken in the
+ * direction this project's whole claim rests on. The label a node files is a per-node
+ * value — `'other'` here, a visitor's family there — and so is whether it files one.
+ *
  * `browser-node.ts` holds the byte-identical function.
  */
-function ownStartLedger(outcome: StartOutcome | 'reports-no-start-outcome'): StartOutcomeLedger {
+function ownStartLedger(
+  outcome: StartOutcome | 'reports-no-start-outcome',
+  consent: StartReportingConsent,
+): StartOutcomeLedger {
   const held = new StartOutcomeLedger()
+  if (consent === 'withholds-its-own-start') return held
   if (outcome !== 'reports-no-start-outcome') held.record(outcome)
   return held
 }
@@ -1802,10 +1874,16 @@ export class FabricNode {
     // asking is handed back its own row, and `mergeOverlapping`'s maximum-per-key makes
     // every merged report read 1 however many nodes are running.
     //
-    // The argument is stated rather than defaulted: `ownStartOutcome` returns a required
+    // Both arguments are stated rather than defaulted: `ownStartOutcome` returns a required
     // union whose other arm is a named sentinel, so a node with nothing fileable to report
-    // says so by name rather than by an absent row.
-    const startLedger = ownStartLedger(ownStartOutcome(OWN_START_FAMILY))
+    // says so by name rather than by an absent row — and `startReporting` is whoever started
+    // this node answering for it, required on this interface for the same reason.
+    //
+    // BROW-01 — **this is the line the choice has to reach.** One tier over it was found
+    // not reaching it, which made a visitor's opt-out cosmetic; here the choice did not
+    // exist to reach anything, which is the same failure seen from the other side. See
+    // `FabricNodeOptions.startReporting`.
+    const startLedger = ownStartLedger(ownStartOutcome(OWN_START_FAMILY), options.startReporting)
 
     const node = new FabricNode({
       libp2p,

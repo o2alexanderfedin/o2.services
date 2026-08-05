@@ -776,6 +776,15 @@ node = await FabricNode.start({
   // none of them is a published measurement. That is the whole price of the fail-closed
   // answer, and the owner is entitled to see it before ruling.
   relayAdmission: 'admits-any-peer',
+  // BROW-01 — what this process says about *itself* when a peer asks for start counts:
+  // one `other` row, which is the coarsest label the range has and carries no version and
+  // no machine. Open because BROW-02's whole purpose is to make a blocklist's silence
+  // visible, and an agent that withheld its own row would be manufacturing a little of
+  // that silence — while an operator who wants it withheld has a named value to write
+  // here. **No flag yet, and that is the gap**: the choice is an option rather than argv,
+  // so an operator states it by editing this line. Adding `--withholds-start-report`
+  // belongs with whatever else this entry point next learns to say, not smuggled in here.
+  startReporting: 'reports-its-own-start',
   blockstoreDir: values.dir,
   listen,
   trustAnchors,

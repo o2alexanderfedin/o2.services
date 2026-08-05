@@ -399,6 +399,20 @@ describe('production serveAgent call sites state every hook explicitly', () => {
     // record line would still be equal to each other. This is the line that turns a ledger
     // holding only what peers said into one a peer can learn something from.
     expect(fabric).toContain("if (outcome !== 'reports-no-start-outcome') held.record(outcome)")
+    // BROW-01, and it is a **separate line on purpose** rather than a second clause of the
+    // one above. The two refusals answer different questions — *may this row leave at all*
+    // and *is there a row this build could file* — and merging them would make a
+    // consenting node with an unfileable label indistinguishable from one that withheld.
+    // `ownStartLedger`'s docblock in both factories carries the argument; DATA-10 is the
+    // precedent it cites.
+    //
+    // The needle is the **consent** guard, and it is named for the same reason its
+    // neighbour is: two files that both lost it would still be equal to each other, and a
+    // browser tab whose visitor declined would go back to serving that visitor's browser
+    // family to every peer that asked. That is what this line stops, and it stopped it —
+    // planted by reverting this guard alone, `peer-ledger.e2e.test.ts`'s BROW-01 case goes
+    // red naming `edge 120` on a chromium tab's screen.
+    expect(fabric).toContain("if (consent === 'withholds-its-own-start') return held")
   })
 
   it('bin/bench.ts: two call sites, real admission at both, six sentinels twice', () => {

@@ -70,6 +70,7 @@ describe('NET-04 — protocols negotiate over p2p-circuit', () => {
   it('reserves a circuit address for a node that cannot listen', async () => {
     const relay = await FabricNode.start({
       relayAdmission: 'admits-any-peer',
+      startReporting: 'reports-its-own-start',
       maxReservations: 8,
       listen: ['/ip4/127.0.0.1/tcp/0/ws'],
       // DET-03: this file's subject is a job that crosses a relayed connection, and
@@ -85,6 +86,7 @@ describe('NET-04 — protocols negotiate over p2p-circuit', () => {
     const watcher = new ReservationWatcher()
     const node = await FabricNode.start({
       relayAdmission: 'admits-any-peer',
+      startReporting: 'reports-its-own-start',
       blockstoreDir: join(workdir, 'a'),
       // No listen addresses of its own — the browser's situation exactly.
       listen: [],

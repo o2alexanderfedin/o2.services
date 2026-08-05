@@ -7,6 +7,11 @@ import { fileURLToPath } from 'node:url'
 import { chromium, firefox, webkit } from 'playwright'
 import type { Browser, BrowserContext, BrowserType, Page } from 'playwright'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+// The **production** request path, for the same reason `browserLabel` is imported below
+// rather than reimplemented: {@link servedBy} reads what a node hands a peer that asks,
+// and a second hand-rolled `report` frame written here would be a source that could drift
+// from the one every node actually answers.
+import { publishStartOutcome } from '@o2/net'
 // Test-only relative import, the convention `two-tabs.e2e.test.ts` uses one line over for
 // `core/src/executor/fixtures.ts`. This is the **production** classifier — the same
 // function every tab runs against its own `navigator.userAgent` — rather than a second
@@ -54,7 +59,7 @@ import { FabricNode } from './fabric-node.ts'
  * | `firefox` | firefox | its own | reporting **on** | contributor, and the second reading surface |
  * | `webkit` | webkit | its own | reporting **on** | contributor |
  * | `coarsened` | chromium | major forced to five digits | reporting **on** | a visitor past the publishable range, counted under its family alone |
- * | `declining` | chromium | `Edg/` appended | reporting **off** | the opt-out, and the breach recorded below |
+ * | `declining` | chromium | `Edg/` appended | reporting **off** | the opt-out, read on both of its halves — what it still sees, and what it does not send |
  *
  * The last two are `browser.newContext()` on the already-launched chromium rather than two
  * more `browserType.launch()` calls: a context is its own origin storage, its own
@@ -208,6 +213,34 @@ function familiesOnScreen(panel: string): readonly string[] {
 }
 
 /**
+ * The browser families one node hands a peer that asks it for its counts.
+ *
+ * **Read at the egress boundary, not off a screen**, and that is the whole reason this
+ * helper exists beside {@link familiesOnScreen}. BROW-01's promise is about what leaves a
+ * visitor's device; a screen is downstream of that and can be made to look right by
+ * filtering on the way out, which would leave the promise broken and every reading here
+ * green. This asks the node directly, over the relay, through the same
+ * `publishStartOutcome` every node uses.
+ *
+ * Asks with `outcome: null`, so nothing this reading does can put a row where it is
+ * looking for one — the relay tells the tab nothing and merely listens.
+ *
+ * Throws rather than returning empty when the peer did not answer: an unreachable node
+ * and a node that withheld a row are the same empty list, and only one of them is
+ * evidence.
+ */
+async function servedBy(peerId: string): Promise<readonly string[]> {
+  const answer = await publishStartOutcome({
+    rpc: relay.rpc,
+    peers: () => [peerId],
+    outcome: null,
+  })
+  if (answer.reached !== 1)
+    throw new Error(`the relay asked ${peerId} for its counts and got no answer`)
+  return answer.report.byBrowser.map((tally) => tally.browser).sort()
+}
+
+/**
  * Open one tab on the built static bundle and start a node in it.
  *
  * Every step that can fail per-tab is inside the `try`, so a webkit that cannot open a
@@ -345,6 +378,7 @@ beforeAll(async () => {
   // the cases below read it as one more family the browser tabs did not produce.
   relay = await FabricNode.start({
     relayAdmission: 'admits-any-peer',
+    startReporting: 'reports-its-own-start',
     maxReservations: 12,
     listen: ['/ip4/127.0.0.1/tcp/0/ws'],
     trustAnchors: 'runs-unsigned-artifacts',
@@ -540,11 +574,15 @@ describe('BROW-02 — a tab shows counts it could not have produced', () => {
     const summary = /^(\d+) of (\d+) reported starts failed/.exec(panel)
     expect(summary).not.toBeNull()
     // Four contributors at minimum: three engines and the relay. The coarsened tab is a
-    // fifth and the declining tab's row is a defect recorded two cases below, so this is a
-    // floor rather than an equality — the assertion must not silently start passing because
-    // the leak grew. Kept at four rather than raised to five: a floor is what survives a
-    // row that has not finished propagating when this panel is read, and the coarsened
-    // tab's contribution is asserted where it is the subject rather than here.
+    // fifth, and the declining tab is deliberately **not** one — its row reaches nobody,
+    // which is the case two below. Kept at four rather than raised to five: a floor is
+    // what survives a row that has not finished propagating when this panel is read, and
+    // the coarsened tab's contribution is asserted where it is the subject rather than
+    // here.
+    //
+    // **A floor, and therefore not the instrument that would notice the leak coming
+    // back** — five contributors satisfies it and so does six. That reading is the BROW-01
+    // case's, which names the label and reads it off every screen and off the wire.
     expect(Number(summary?.[2])).toBeGreaterThanOrEqual(4)
 
     // Every rendered rate carries `unreliable` at this sample size, and the summary
@@ -654,54 +692,127 @@ describe('BROW-02 — a tab shows counts it could not have produced', () => {
   })
 
   /**
-   * **RECORDS A DEFECT — the other half of the opt-out does not hold, and this is the
-   * reading that says so.**
+   * **The other half of the opt-out — a declining visitor's row does not leave their
+   * device, and this is the reading that says so.**
    *
    * `DISCLOSURE.reporting` promises, in the words a visitor reads before deciding:
    * *"Sends one line — which browser family, and whether the node started or was blocked…
-   * **Off unless you turn it on.**"* This tab turned it off. Its family is on every other
-   * tab's screen anyway.
+   * **Off unless you turn it on.**"* This tab turned it off. Its family is on nobody's
+   * screen, and the node itself hands it to no peer that asks.
    *
-   * ## Why, mechanically
+   * ## What this case used to record, kept because the shape recurs
    *
-   * Two things send that line and only one of them is gated. `demo/main.ts`'s
-   * `startReport` sends `outcome: allowed ? outcome : null`, which honours the choice. But
-   * `browser-node.ts` records this node's own row into its own **serve-side** ledger at
-   * construction — before any peer is contacted, and with no reference to consent, because
-   * `BrowserNodeOptions` carries none — and `serveAgent`'s report branch hands that ledger
-   * to every peer that asks. So the page withholds the line and the node serves it.
+   * Until 2026-08-04 this was titled `RECORDS A DEFECT` and asserted the exact opposite,
+   * because the opposite was true. Two things sent that line and only one of them was
+   * gated: `demo/main.ts`'s `startReport` sent `outcome: allowed ? outcome : null`, which
+   * honoured the choice, while `browser-node.ts` recorded the tab's own row into its
+   * **serve-side** ledger at construction — before any peer was contacted, with no
+   * reference to consent, because `BrowserNodeOptions` carried none — and `serveAgent`'s
+   * report branch handed that ledger to every peer that asked. The page withheld the line
+   * and the node served it. **A consent control that changes only what the local page
+   * renders is the sovereignty claim failing in miniature**, which is why it outranked
+   * every feature open at the time.
    *
-   * ## Why this is asserted rather than merely written down
+   * The measurement that closed it is the one below, run against the unfixed tree:
    *
-   * A defect nothing reads is a defect that gets fixed by accident and re-introduced by
-   * accident. Pinned here, **the fix cannot land unnoticed**: whoever gates the own row on
-   * consent turns this case red, and the red is the notification. Invert it then — the
-   * assertion becomes `expect(families).not.toContain(...)` and the title loses its
-   * prefix — and delete this docblock's first two sections.
+   * ```
+   * [BROW-01] consenting (chromium 151) served: chromium | chromium 151 | firefox 153 | safari 26
+   * [BROW-01] declining  (edge 120) served: chromium | chromium 151 | edge 120 | firefox 153 | safari 26
+   * ```
    *
-   * ## What it is NOT evidence of
+   * The fix is `startReporting`, a **required** option on both node factories, consulted
+   * by `ownStartLedger` at the moment the row would be recorded — not when a report goes
+   * out. `browser-node.ts`'s field docblock carries the argument for that siting; the
+   * short form is that a row which was never recorded cannot be forgotten about at the
+   * next site that reads a ledger.
    *
-   * It is not evidence that the opt-out is unimplemented. The request path is implemented
-   * and correct. What this measures is that the request path's correctness is currently
-   * **unobservable from any screen**, because the ledger path publishes the same line
-   * regardless — which is also why a plant that removes the `allowed ? … : null` gate does
-   * not redden anything in this repository today.
+   * ## Two readings, and why both
    *
-   * Reported to the owner as a BROW-01 finding by Plan 20-06; the fix is a change to
-   * `browser-node.ts`'s construction and to what a page must tell its own node, which is a
-   * decision rather than a repair.
+   * - **Off every screen**, including the declining tab's own. That is the criterion's
+   *   own instrument and it is what a person would check.
+   * - **At the egress boundary**, through {@link servedBy}: the relay asks the declining
+   *   node directly, over the production request path, for the counts it serves. A screen
+   *   is downstream of the promise and could be made to look right by filtering on the way
+   *   out — which is precisely the fix this defect was *not* given. This reading cannot be
+   *   satisfied that way.
+   *
+   * The second is taken **comparatively**, against a consenting tab asked by the same
+   * relay in the same pass, so the two answers differ by the visitor's choice and by
+   * nothing else. Without that pair, an empty answer from the declining node would be
+   * equally explained by a broken relay, a dead tab, or a ledger that stopped holding
+   * anything at all.
+   *
+   * ## Anti-vacuity
+   *
+   * `edge 120` is a label `isStartBrowserLabel` **admits** — asserted here, not assumed —
+   * and it belongs to no other node in this fixture. So its absence is a refusal rather
+   * than a row that could not have travelled anyway, and the consented families asserted
+   * present in the same lists are what says the fixture still works.
+   *
+   * ## Two gates, both required, and this file now sees both
+   *
+   * **A draft of this docblock said the opposite and was falsified by planting it**, which
+   * is recorded here rather than corrected away. It claimed this case says nothing about
+   * the request path and would stay green if `startReport`'s `allowed ? outcome : null`
+   * were deleted. That was the *old* file's true statement — the ledger published the row
+   * regardless, so the request gate was unobservable from any screen. It is no longer.
+   *
+   * The row has exactly two ways out of a node and each needs its own gate:
+   *
+   * | route | what carries it | what shuts it |
+   * |---|---|---|
+   * | this node **answers** a peer | `serveAgent`'s report branch, out of the serve-side ledger | `startReporting`, at the moment the row would be recorded |
+   * | this node **asks** a peer | `publishStartOutcome`'s `outcome` field, which `serveAgent` records into the *peer's* ledger | `demo/main.ts`'s `allowed ? outcome : null` |
+   *
+   * Removing either one puts `edge 120` back on a chromium tab's screen, measured:
+   * deleting the ledger gate reddens this case alone, deleting the request gate reddens
+   * this case **and** the merged-count case above, because the row then propagates through
+   * every peer that the declining tab asked. So neither gate is redundant with the other,
+   * and the one this case is named for is the one that was missing.
+   *
+   * `packages/net/src/start-report.test.ts` measures the request half in the mechanism;
+   * this is the only place both are read together against real browsers.
    */
-  it('RECORDS A DEFECT — a declining visitor’s family reaches every peer anyway (BROW-01)', () => {
+  it('a declining visitor’s row reaches no peer and no screen (BROW-01)', async () => {
     const declining = tabNamed(DECLINING_TAB)
-    // The label is fileable and belongs to no other tab here, so its presence on another
-    // screen has exactly one source: this tab's own node answered with it.
+    // The label is one the wire admits and it belongs to no other node here, so its
+    // absence below is a refusal rather than a row that could not have travelled.
     expect(declining.label).toBe('edge 120')
     expect(declining.contributes).toBe(true)
-    for (const reader of ['chromium', 'firefox', 'webkit']) {
-      expect({ reader, shows: familiesOnScreen(panelOf(reader)) }).toEqual({
-        reader,
-        shows: expect.arrayContaining([declining.label]),
+    expect(tabs.filter((tab) => tab.label === declining.label).map((tab) => tab.name)).toEqual([
+      DECLINING_TAB,
+    ])
+
+    // Every screen in the fixture, the declining tab's own included — it declined to be
+    // counted, not to see, and its own decline is rendered as the blind spot the case
+    // above reads rather than as a tally row.
+    for (const reader of tabs) {
+      const shows = familiesOnScreen(panelOf(reader.name))
+      expect({ reader: reader.name, shows }).toEqual({
+        reader: reader.name,
+        shows: expect.not.arrayContaining([declining.label]),
       })
+      // The other half, because an empty panel satisfies the line above just as well: the
+      // consented families are still on it.
+      expect(shows).toEqual(expect.arrayContaining([tabNamed('firefox').label]))
     }
-  })
+
+    // The same fact read where it happens rather than hops downstream, and read
+    // **comparatively**: the identical request goes to a consenting tab and to the
+    // declining one over the same relay in the same pass.
+    const consenting = tabNamed('chromium')
+    const fromConsenting = await servedBy(consenting.peerId)
+    const fromDeclining = await servedBy(declining.peerId)
+    process.stderr.write(
+      `[BROW-01] consenting (${consenting.label}) served: ${fromConsenting.join(' | ')}\n` +
+        `[BROW-01] declining  (${declining.label}) served: ${fromDeclining.join(' | ')}\n`,
+    )
+    // The positive: a consenting node still hands a peer its own row. Without this the
+    // negative below is satisfied by a ledger that stopped serving anything.
+    expect(fromConsenting).toContain(consenting.label)
+    expect(fromDeclining).not.toContain(declining.label)
+    // And declining to report is not declining to relay what others consented to: the
+    // declining node still answers with the families its peers chose to tell it.
+    expect(fromDeclining).toEqual(expect.arrayContaining([tabNamed('firefox').label]))
+  }, 120_000)
 })

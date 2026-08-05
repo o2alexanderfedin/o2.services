@@ -170,6 +170,7 @@ beforeAll(async () => {
   // browser Worker — is the evidence the default is ample rather than merely convenient.
   submitter = await FabricNode.start({
     relayAdmission: 'admits-any-peer',
+    startReporting: 'reports-its-own-start',
     blockstoreDir: join(workdir, 'submitter'),
     listen: ['/ip4/127.0.0.1/tcp/0/ws'],
     trustAnchors: [publisher.pub],

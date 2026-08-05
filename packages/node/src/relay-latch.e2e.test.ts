@@ -128,6 +128,7 @@ async function openPeer(engine: string, type: BrowserType): Promise<Peer> {
 beforeAll(async () => {
   relay = await FabricNode.start({
     relayAdmission: 'admits-any-peer',
+    startReporting: 'reports-its-own-start',
     maxReservations: 8,
     listen: ['/ip4/127.0.0.1/tcp/0/ws'],
     // DET-03: this node relays and executes nothing — the subject is two tabs.

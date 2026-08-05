@@ -104,6 +104,7 @@ beforeAll(async () => {
   // to satisfy and a `moduleRecord` here would be decoration.
   relay = await FabricNode.start({
     relayAdmission: 'admits-any-peer',
+    startReporting: 'reports-its-own-start',
     maxReservations: 16,
     listen: ['/ip4/127.0.0.1/tcp/0/ws'],
     trustAnchors: 'runs-unsigned-artifacts',
@@ -119,6 +120,7 @@ beforeAll(async () => {
   // substance for the same reason the relay does not.
   peer = await FabricNode.start({
     relayAdmission: 'admits-any-peer',
+    startReporting: 'reports-its-own-start',
     listen: ['/ip4/127.0.0.1/tcp/0/ws'],
     trustAnchors: 'runs-unsigned-artifacts',
   })

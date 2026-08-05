@@ -177,6 +177,7 @@ beforeAll(async () => {
   // value rather than one this file invented.
   provider = await FabricNode.start({
     relayAdmission: 'admits-any-peer',
+    startReporting: 'reports-its-own-start',
     blockstoreDir: join(workdir, 'provider'),
     listen: ['/ip4/127.0.0.1/tcp/0/ws'],
     trustAnchors: [publisher.pub],
@@ -190,6 +191,7 @@ beforeAll(async () => {
   // partitioned.
   gate = await FabricNode.start({
     relayAdmission: 'admits-any-peer',
+    startReporting: 'reports-its-own-start',
     blockstoreDir: join(workdir, 'gate'),
     listen: ['/ip4/127.0.0.1/tcp/0/ws'],
     trustAnchors: [publisher.pub],

@@ -191,6 +191,7 @@ export type {
   StartOutcome,
   StartReport,
   StartReportOptions,
+  StartReportingConsent,
   StartResult,
 } from './start-outcome.ts'
 

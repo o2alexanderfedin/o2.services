@@ -103,6 +103,7 @@ beforeAll(async () => {
   // phase's criterion to decorate this one.
   relay = await FabricNode.start({
     relayAdmission: 'admits-any-peer',
+    startReporting: 'reports-its-own-start',
     maxReservations: 16,
     listen: ['/ip4/127.0.0.1/tcp/0/ws'],
     trustAnchors: [KERNEL_TRUST_ANCHOR],

@@ -231,6 +231,7 @@ beforeAll(async () => {
   // time out and a node that refuses answers immediately.
   peer = await FabricNode.start({
     relayAdmission: 'admits-any-peer',
+    startReporting: 'reports-its-own-start',
     blockstoreDir: join(workdir, 'peer'),
     listen: ['/ip4/127.0.0.1/tcp/0/ws'],
     trustAnchors: [harness.pub],

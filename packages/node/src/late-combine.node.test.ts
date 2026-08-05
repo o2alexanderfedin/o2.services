@@ -373,6 +373,7 @@ async function standUp(agentCount: number): Promise<Fabric> {
 
   const submitter = await FabricNode.start({
     relayAdmission: 'admits-any-peer',
+    startReporting: 'reports-its-own-start',
     blockstoreDir: join(workdir, 'submitter'),
     listen: ['/ip4/127.0.0.1/tcp/0'],
     rpcTimeoutMs: RPC_TIMEOUT_MS,

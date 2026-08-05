@@ -271,6 +271,13 @@ export class SeedServer {
       //
       // Pinning it is a later decision and is deliberately not taken here.
       relayAdmission: 'admits-any-peer',
+      // BROW-01 — open, and on this node the reason is sharper than on the agent. A seed
+      // is what every tab in the fabric reserves on, so it is the one peer a blocked
+      // visitor is most likely to have reached; a seed that withheld its own row would
+      // subtract the single most-connected data point from the metric that exists to show
+      // where visitors are being blocked. Nothing about the machine travels with it: the
+      // row is `other`, the coarsest label the range has.
+      startReporting: 'reports-its-own-start',
       blockstoreDir: options.blockstoreDir,
       listen: [`/ip4/0.0.0.0/tcp/${wsPort}/ws`, '/ip4/0.0.0.0/tcp/0'],
       maxReservations: options.maxReservations ?? 64,

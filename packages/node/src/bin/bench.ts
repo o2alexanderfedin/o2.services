@@ -672,6 +672,11 @@ async function realFabric(nodes: number): Promise<Fabric> {
     await mkdir(providerDir, { recursive: true })
     provider = await FabricNode.start({
       relayAdmission: 'admits-any-peer',
+      // BROW-01 — open, which is what these three nodes did before the field existed, so
+      // the published curves in `.planning/BENCHMARK-RESULTS.md` were measured under this
+      // behaviour and no re-baseline is owed. It costs the measurement nothing either
+      // way: the hook is reached only by a `report` frame and this driver sends none.
+      startReporting: 'reports-its-own-start',
       blockstoreDir: providerDir,
       rpcTimeoutMs: 30_000,
       maxConcurrentTasks: DECLARED_ADMISSION_LIMIT,
@@ -699,6 +704,8 @@ async function realFabric(nodes: number): Promise<Fabric> {
     started.push(
       await FabricNode.start({
         relayAdmission: 'admits-any-peer',
+        // BROW-01 — open, on the ground stated at the provider rig above.
+        startReporting: 'reports-its-own-start',
         blockstoreDir: dir,
         rpcTimeoutMs: 30_000,
         maxConcurrentTasks: DECLARED_ADMISSION_LIMIT,
@@ -729,6 +736,8 @@ async function realFabric(nodes: number): Promise<Fabric> {
   await mkdir(requestorDir, { recursive: true })
   const requestor = await FabricNode.start({
     relayAdmission: 'admits-any-peer',
+    // BROW-01 — open, on the ground stated at the provider rig above.
+    startReporting: 'reports-its-own-start',
     blockstoreDir: requestorDir,
     rpcTimeoutMs: 30_000,
     maxConcurrentTasks: DECLARED_ADMISSION_LIMIT,

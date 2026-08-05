@@ -412,6 +412,7 @@ describe('AUTH-02 — a seed can be told its issuers, separately from its build 
       // the case both arms disagree about.
       const peer = await FabricNode.start({
         relayAdmission: 'admits-any-peer',
+        startReporting: 'reports-its-own-start',
         blockstoreDir: await madeDir('peer'),
         listen: ['/ip4/127.0.0.1/tcp/0'],
         trustAnchors: 'runs-unsigned-artifacts',
