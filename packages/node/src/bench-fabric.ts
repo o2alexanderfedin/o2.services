@@ -124,7 +124,36 @@ export interface Fabric {
    * signature to check.
    */
   readonly combineIssuers: CombineTrustAnchors
+  /**
+   * The configuration the submitting node **ended up with**, and how many connections it
+   * is holding — read off the live node at the moment of the call, never remembered.
+   *
+   * BENCH-07 criterion 3. Optional, and absent on {@link Fabric} implementations with no
+   * libp2p node behind them: `memoryFabric` builds its executors directly and has no node
+   * whose limits could be read, and an absent function is the truthful reading of that
+   * rather than three zeros a reader would take for measurements.
+   *
+   * A function rather than three fields, because the connection count is only meaningful
+   * at a stated moment. The two limits do not move after start; the count does.
+   */
+  readonly submitterReading?: () => SubmitterReading
   close(): Promise<void>
+}
+
+/** What a rig can say about the node the driver itself holds. See {@link Fabric.submitterReading}. */
+export interface SubmitterReading {
+  /** Read off the node's own getter, never restated from the options that built it. */
+  readonly inboundConnectionThreshold: number
+  /** The same. Derived from the reservation limit unless a caller pinned it. */
+  readonly maxIncomingPendingConnections: number
+  /**
+   * `libp2p.getConnections().length` at the moment of the call.
+   *
+   * **The only connection population this rig can measure.** The agents are child processes
+   * and nothing announces their counts, so a caller must record the agents' inbound counts
+   * as *not instrumented* rather than infer them from this one.
+   */
+  readonly connections: number
 }
 
 /**
@@ -257,6 +286,15 @@ const STOP_BUDGET_MS = 10_000
  * started by the same user, on the same host, running the same binary, which is what the
  * existing spawn harnesses do and what keeps a spawned node identical to an in-process one
  * in everything except which process it is.
+ *
+ * ## A spawn that fails stops the process it spawned
+ *
+ * The handshake can reject three ways — the budget elapsed, the line would not parse, or the
+ * child exited before it spoke — and on the first two the child is **still running**. It was
+ * returned to nobody, so nobody can stop it, and it outlives the run. Measured rather than
+ * reasoned about: a rung whose agents dialled inward left **twenty** agent processes resident
+ * on this host and the driver alive on their handles long after it had written its report.
+ * The stop is best-effort, because the failure being reported is the interesting one.
  */
 export async function spawnAgent(
   agentPath: string,
@@ -295,6 +333,11 @@ export async function spawnAgent(
       clearTimeout(timer)
       reject(new Error(`agent in ${dir} exited early with ${String(code)}: ${stderr}`))
     })
+  }).catch(async (cause: unknown): Promise<never> => {
+    // See the header. A child that never announced was handed to nobody, so this is the
+    // only place that still holds it.
+    await stopAgent(child).catch(() => {})
+    throw cause instanceof Error ? cause : new Error(String(cause))
   })
 
   return { child, handshake }
@@ -416,7 +459,14 @@ export async function processFabric(
    * per-host rate limit is only observable against concurrent dials.
    */
   const spawnAll = async (extra: readonly string[]): Promise<void> => {
-    const spawned = await Promise.all(
+    // **`allSettled` and not `all`, and every child registered the instant it exists.**
+    // Measured, not reasoned about: `Promise.all` rejects on the first failure and discards
+    // every value its siblings resolved with, so children that started perfectly well were
+    // never reachable by `undo` — a rung whose sixteen agents dialled inward left twenty
+    // agent processes resident and the driver alive on their handles ten minutes past its
+    // own report. `allSettled` waits for every spawn to settle, so by the time the first
+    // failure is re-thrown, `children` holds every process that exists.
+    const settled = await Promise.allSettled(
       Array.from({ length: nodes }, async (_, i) => {
         const dir = join(root, `node-${i}`)
         await mkdir(dir, { recursive: true })
@@ -426,11 +476,20 @@ export async function processFabric(
           ...extra,
           ...(options.agentArgs ?? []),
         ])
+        children.push(agent.child)
         return { ...agent, dir }
       }),
     )
+    const refused = settled.find((outcome) => outcome.status === 'rejected')
+    if (refused !== undefined && refused.status === 'rejected') {
+      // The first failure, re-thrown as itself so a caller reads which agent refused and
+      // why, rather than an aggregate naming sixteen.
+      throw refused.reason instanceof Error ? refused.reason : new Error(String(refused.reason))
+    }
+    const spawned = settled.flatMap((outcome) =>
+      outcome.status === 'fulfilled' ? [outcome.value] : [],
+    )
     for (const { child, handshake, dir } of spawned) {
-      children.push(child)
       if (child.pid === undefined) throw new Error(`an agent in ${dir} was spawned without a pid`)
       agents.push({
         pid: child.pid,
@@ -544,6 +603,13 @@ export async function processFabric(
       // VER-08/09/10 — this rig pins nothing. No provider process exists, no node is
       // enrolled, and there is no combine signature to check, so it says so.
       combineIssuers: 'checks-no-combine-signatures',
+      // Read at the moment of the call off the live node, so a caller that asks after a
+      // rung is reading that rung's population rather than a remembered one.
+      submitterReading: () => ({
+        inboundConnectionThreshold: held.inboundConnectionThreshold,
+        maxIncomingPendingConnections: held.maxIncomingPendingConnections,
+        connections: held.libp2p.getConnections().length,
+      }),
       agents,
       submitterPeerId: held.peerId,
       async close() {

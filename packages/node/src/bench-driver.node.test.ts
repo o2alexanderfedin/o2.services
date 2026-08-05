@@ -205,20 +205,79 @@ const REQUIREMENTS: readonly DriverRequirement[] = [
       '      process.stdout.write(`  speedup, process-per-node, ${nodes} node(s)…\\n`)\n' +
       '      process.stdout.write(`  speedup, in-process, ${nodes} node(s)…\\n`)\n',
   },
+  {
+    name: 'an excluded rung’s reason is built from the observation, and the stored paragraph is gone',
+    check: (source) =>
+      /\bdescribeExclusion\s*\(/.test(source) &&
+      !source.includes('a documented default, not a property of the fabric'),
+    reason:
+      'BENCH-07 criterion 3 asks for a measurement showing the per-host inbound cap is still the ' +
+      'cause of the excluded rung. What stood in this file asserted that cause for every failure ' +
+      'mode there is: one stored paragraph, naming a specific libp2p limit, attached to whatever ' +
+      'the catch block caught, with nothing read off the error but its message — and naming a ' +
+      'constant the code does not necessarily run at, since the node factory derives that limit ' +
+      'from the reservation limit and the coupling landed after the excluding run. Both halves ' +
+      'are required and neither is sufficient: a file that calls describeExclusion and still ' +
+      'carries the paragraph publishes the paragraph, and a file that dropped the paragraph ' +
+      'without building a reason from the observation publishes nothing at all where a figure ' +
+      'belongs.',
+    satisfying:
+      '        reason: describeExclusion({\n' +
+      '          errorName: cause instanceof Error ? cause.name : typeof cause,\n' +
+      '          message: detail,\n' +
+      '        }),\n',
+    // Planted by ADDITION, because the absence half holds over a source with no code in it —
+    // this is the paragraph itself, restored verbatim from the committed report.
+    breaking:
+      "          '`INBOUND_CONNECTION_THRESHOLD = 5` **per host**, and every node here shares one ' +\n" +
+      "          'host, so beyond ~5 concurrent dials to the requestor the noise handshake is ' +\n" +
+      "          'killed and the failure reads like a network fault. A same-machine artifact of ' +\n" +
+      "          'a documented default, not a property of the fabric.',\n",
+  },
+  {
+    name: 'the disputed rung is attempted one lever at a time, and the block publishes a section',
+    check: (source) =>
+      source.includes(
+        '## The excluded rungs, re-measured — in-process and process-per-node drivers, trivial fixture',
+      ) &&
+      /\bCRITERION_3_ATTEMPTS\b/.test(source) &&
+      /\brunAttempt\s*\(/.test(source) &&
+      /\bcriterionThreeSection\s*\(/.test(source),
+    reason:
+      'Three independent levers could each explain the excluded rung — raise the inbound option, ' +
+      'stagger the joins, or change which side receives the dials — and adopting the spawn ' +
+      'pattern moves the process split AND the dial direction at once. A block that varied two ' +
+      'things could not attribute an outcome to either. The heading literal is matched rather ' +
+      'than the identifiers alone because the property is that the attempts reach the READER: a ' +
+      'factorial that ran and published nothing is a measurement nobody can check, and this ' +
+      'driver has no execution in any suite that would show it running.',
+    satisfying:
+      'const CRITERION_3_ATTEMPTS: readonly Attempt[] = []\n' +
+      'async function runAttempt(attempt: Attempt): Promise<AttemptOutcome> {}\n' +
+      '      criterionThree.push(await runAttempt(attempt))\n' +
+      '    ...criterionThreeSection(criterionThree),\n' +
+      "    '## The excluded rungs, re-measured — in-process and process-per-node drivers, trivial fixture',\n",
+  },
 ]
 
 /**
  * Requirements satisfied by an empty source, and therefore not reported by the
  * comments-only case below.
  *
- * Stated as data rather than left for a reader to work out, because it is the same fact
- * that makes {@link DriverRequirement.breaking} necessary: a requirement asserted as an
- * absence or as a count equality holds vacuously over a source with no code in it. That is
- * a property of the assertion, not a hole in the guard — each of these three is planted by
- * addition instead, and each of those plants is watched below.
+ * A requirement asserted as an absence or as a count equality holds vacuously over a source
+ * with no code in it. That is a property of the assertion, not a hole in the guard — each of
+ * those is planted by **addition** instead, and each of those plants is watched below.
+ *
+ * **Measured by running each check against the empty source, not inferred from
+ * {@link DriverRequirement.breaking}.** The inference was exact while every requirement was
+ * purely a presence or purely an absence, and Plan 23-04 broke that: its first new
+ * requirement is **both** — describeExclusion must appear and the stored paragraph must not
+ * — so it needs a breaking fragment *and* is reported over an empty source, and the proxy
+ * would have put it on the wrong side. A list that says which checks are vacuous is worth
+ * having; one that says which checks were *declared* vacuous is worth nothing.
  */
-const VACUOUS_ON_AN_EMPTY_SOURCE: readonly string[] = REQUIREMENTS.filter(
-  ({ breaking }) => breaking !== undefined,
+const VACUOUS_ON_AN_EMPTY_SOURCE: readonly string[] = REQUIREMENTS.filter(({ check }) =>
+  check(''),
 ).map(({ name }) => name)
 
 /**
@@ -319,14 +378,15 @@ describe('the scan can report an unmet requirement — proved by planting, not a
     // own doc comments, so a raw-text match could be satisfied by prose describing a call
     // site that had been deleted.
     //
-    // It reports five names and not eight, and that is a property of the assertions rather
+    // It reports seven names and not ten, and that is a property of the assertions rather
     // than of the stripper: an absence requirement and a count equality both hold over a
-    // source with no code in it. Those three are listed in
-    // `VACUOUS_ON_AN_EMPTY_SOURCE` and each is planted by addition above.
+    // source with no code in it. Those three are in `VACUOUS_ON_AN_EMPTY_SOURCE`, which is
+    // computed by running each check against the empty source, and each is planted by
+    // addition above.
     const expected = REQUIREMENTS.map(({ name }) => name).filter(
       (name) => !VACUOUS_ON_AN_EMPTY_SOURCE.includes(name),
     )
-    expect(expected.length).toBe(5)
+    expect(expected.length).toBe(7)
     expect(unmetRequirements(commentsOnly)).toEqual(expected)
   })
 

@@ -73,6 +73,7 @@ import {
   connectivityTax,
   costCrossover,
   cpuAttributionViolations,
+  describeExclusion,
   fixtureProvenanceViolations,
   fixtureUniformityViolations,
   measure,
@@ -83,6 +84,7 @@ import {
 import type {
   CpuAttribution,
   DriverKind,
+  ObservedFailure,
   FixtureKind,
   Inventory,
   JobRunner,
@@ -101,7 +103,7 @@ import type {
 import { DEFAULT_BUDGET, buildInput, kernelBytes, readPartial } from '@o2/demo'
 import { MODULE_WRITES_PARTITION } from '../../../core/src/executor/fixtures.ts'
 import { processFabric } from '../bench-fabric.ts'
-import type { Fabric, ProcessFabric } from '../bench-fabric.ts'
+import type { AgentHandle, DialDirection, Fabric, ProcessFabric, SubmitterReading } from '../bench-fabric.ts'
 import { FabricNode } from '../fabric-node.ts'
 
 /**
@@ -757,6 +759,32 @@ function dialableAddr(node: FabricNode): string {
   return addr
 }
 
+/** The two levers `realFabric` exposes for BENCH-07 criterion 3. Both default to what the published curves ran. */
+interface RealFabricOptions {
+  /**
+   * Which side opens the connections. Defaults to `'workers-to-submitter'`, which is what
+   * this rig has always done and what **every published real-transport number was taken
+   * under** — so an existing caller that omits it builds byte-identically to before.
+   *
+   * `Libp2pTransport.send` reaches a peer by peer id and reuses an existing connection
+   * whichever end opened it, so flipping this changes only **which side receives** the
+   * inbound connection, not how a dispatch arrives. That is what makes the direction
+   * separable from the process split — and separating them is the whole of criterion 3,
+   * since adopting the spawn pattern changed both at once and only one of them is what
+   * BENCH-07 is about.
+   */
+  readonly dial?: DialDirection
+  /**
+   * The inbound rate limit pinned on the **submitting** node, or absent to let it derive
+   * its own from the reservation limit.
+   *
+   * The submitting node is the one that receives every dial under
+   * `'workers-to-submitter'`, so it is the only node a cap can be pinned on and be
+   * exercised by that direction.
+   */
+  readonly inboundThreshold?: number
+}
+
 /**
  * N real libp2p nodes over TCP on loopback. Same machine — labelled as such.
  *
@@ -766,206 +794,295 @@ function dialableAddr(node: FabricNode): string {
  * a control that differed in the fixture too would not be a control. Every existing
  * caller omits the argument and therefore builds byte-identically to what it built
  * before.
+ *
+ * ## This function releases what it started when it cannot finish
+ *
+ * Every `FabricNode` below is started before the rig that owns them is returned, so a
+ * throw part-way through construction used to leave them running with nothing holding a
+ * reference able to stop them. The cost was measured rather than reasoned about: a full run
+ * whose 16-node rung threw wrote both report files, printed its closing line and then **did
+ * not exit** — its event loop still holding the leaked nodes' handles — for 11 minutes 40
+ * seconds before it was killed, and the same shape reproduced with a rung that threw
+ * immediately after the requestor started, alive 202 s past its own report.
+ *
+ * The repair is a `try`/`finally` over the whole body with a hand-off flag, and it is
+ * `finally` rather than `catch` for a stated reason: `bench-driver.node.test.ts` requires
+ * every `catch (` in this file to be paired with a `HarnessIntegrityError` re-throw, and a
+ * re-throw here would be a clause that can never fire — this function raises no such error.
+ * A flag set on the last line before the return is what distinguishes a rig that was handed
+ * to a caller, and is therefore that caller's to close, from one that never left.
  */
-async function realFabric(nodes: number, fixture: FixtureKind = 'trivial'): Promise<Fabric> {
+async function realFabric(
+  nodes: number,
+  fixture: FixtureKind = 'trivial',
+  options: RealFabricOptions = {},
+): Promise<Fabric> {
   const root = await mkdtemp(join(tmpdir(), 'o2-bench-'))
   const started: FabricNode[] = []
   const moduleBytes = moduleBytesFor(fixture)
   const moduleRecord = recordFor(fixture)
+  const direction: DialDirection = options.dial ?? 'workers-to-submitter'
+  /**
+   * Whether the rig below reached a caller.
+   *
+   * `false` through the whole of construction, `true` on the line before the return. The
+   * `finally` reads it and releases everything on the way out of a throw; on the success
+   * path it releases nothing, because closing is then the caller's job and doing it here
+   * would tear down the rig it just handed over.
+   */
+  let handedOver = false
+  /**
+   * The provider and the requestor, as each starts — the two nodes `started` does not hold.
+   *
+   * An array rather than two narrowed locals so {@link release} has one thing to walk, and
+   * so a node that has started is releasable from the instant it exists rather than from
+   * the end of the statement that names it.
+   */
+  const extra: FabricNode[] = []
 
-  // ── the --discover arm's provider ──────────────────────────────────────────────────
-  //
-  // Discovery answers with **signed** records, so a node with no certificate is excluded
-  // as `no-records` and a discovering run over the default topology would find nobody.
-  // The plan for this flag did not say so; it was found by reading `resolveCertificate`,
-  // which returns `null` the moment `enrollment` is undefined — which is every node this
-  // driver has ever built.
-  //
-  // So the discover arm needs an issuer, and it gets one that exists ONLY on that arm.
-  // Everything below is skipped entirely by a default run, which is what keeps the
-  // default curve where it was: no provider process, no enrolment round trip, no extra
-  // dial.
-  let provider: FabricNode | undefined
-  if (DISCOVER) {
-    const providerDir = join(root, 'provider')
-    await mkdir(providerDir, { recursive: true })
-    provider = await FabricNode.start({
+  /** Stop everything this call started, in start order, and remove its directory. */
+  const release = async (): Promise<void> => {
+    // Tolerant of a node that has already left, so one failed stop cannot strand the rest —
+    // the same disposition `close()` below takes for the same reason.
+    for (const node of [...started, ...extra]) await node.stop().catch(() => {})
+    await rm(root, { recursive: true, force: true })
+  }
+
+  try {
+    // ── the --discover arm's provider ──────────────────────────────────────────────────
+    //
+    // Discovery answers with **signed** records, so a node with no certificate is excluded
+    // as `no-records` and a discovering run over the default topology would find nobody.
+    // The plan for this flag did not say so; it was found by reading `resolveCertificate`,
+    // which returns `null` the moment `enrollment` is undefined — which is every node this
+    // driver has ever built.
+    //
+    // So the discover arm needs an issuer, and it gets one that exists ONLY on that arm.
+    // Everything below is skipped entirely by a default run, which is what keeps the
+    // default curve where it was: no provider process, no enrolment round trip, no extra
+    // dial.
+    let provider: FabricNode | undefined
+    if (DISCOVER) {
+      const providerDir = join(root, 'provider')
+      await mkdir(providerDir, { recursive: true })
+      provider = await FabricNode.start({
+        relayAdmission: 'admits-any-peer',
+        // BROW-01 — open, which is what these three nodes did before the field existed, so
+        // the published curves in `.planning/BENCHMARK-RESULTS.md` were measured under this
+        // behaviour and no re-baseline is owed. It costs the measurement nothing either
+        // way: the hook is reached only by a `report` frame and this driver sends none.
+        startReporting: 'reports-its-own-start',
+        blockstoreDir: providerDir,
+        rpcTimeoutMs: 30_000,
+        maxConcurrentTasks: DECLARED_ADMISSION_LIMIT,
+        trustAnchors: [BENCH_TRUST_ANCHOR],
+        // AUTH-04: stated rather than defaulted, because `FabricNodeOptions` has no way to
+        // leave it unsaid. The sentinel is the right answer *here* and would not be on a
+        // deployed provider: this one certifies the `nodes` this same function is about to
+        // start, its whole population is known to the line above, and a bound sized to the
+        // sweep would be a number the benchmark had to keep in step with its own `--nodes`.
+        // Nothing adversarial can reach it — it is dialled only by the processes this
+        // driver spawns.
+        issuesCertificates: 'issues-without-an-aggregate-budget',
+      })
+      extra.push(provider)
+    }
+    const providerAddr = provider === undefined ? undefined : dialableAddr(provider)
+
+    for (let i = 0; i < nodes; i++) {
+      const dir = join(root, `node-${i}`)
+      await mkdir(dir, { recursive: true })
+      // `maxConcurrentTasks` is stated, never inherited — see
+      // `DECLARED_ADMISSION_LIMIT`. The requestor below declares the same value for the
+      // same reason: it is a `FabricNode` like any other and serves `exec` requests like
+      // any other, so leaving it on the default would put half the fabric on a limit
+      // this run does not record.
+      started.push(
+        await FabricNode.start({
+          relayAdmission: 'admits-any-peer',
+          // BROW-01 — open, on the ground stated at the provider rig above.
+          startReporting: 'reports-its-own-start',
+          blockstoreDir: dir,
+          rpcTimeoutMs: 30_000,
+          maxConcurrentTasks: DECLARED_ADMISSION_LIMIT,
+          // DET-03 — this rig's nodes go through the node factory rather than
+          // constructing an executor, so they ask for the guard by naming the anchor
+          // instead of composing it. The submitter below states the same value for the
+          // same reason it states the same admission limit: it is a `FabricNode` like
+          // any other and serves `exec` requests like any other.
+          trustAnchors: [BENCH_TRUST_ANCHOR],
+          // Spread rather than a conditional field: `exactOptionalPropertyTypes` makes an
+          // explicit `undefined` different from an absent key, and on the default path this
+          // key must be absent — a worker that enrolled would publish a certificate, which
+          // is a change to what the default rig IS and not only to how fast it runs.
+          ...(providerAddr === undefined
+            ? {}
+            : {
+                enrollment: {
+                  userPrivateKey: BENCH_USER_SEED,
+                  operatorId: `bench-worker-${i}`,
+                  providerAddr,
+                },
+              }),
+        }),
+      )
+    }
+
+    const requestorDir = join(root, 'requestor')
+    await mkdir(requestorDir, { recursive: true })
+    const requestor = await FabricNode.start({
       relayAdmission: 'admits-any-peer',
-      // BROW-01 — open, which is what these three nodes did before the field existed, so
-      // the published curves in `.planning/BENCHMARK-RESULTS.md` were measured under this
-      // behaviour and no re-baseline is owed. It costs the measurement nothing either
-      // way: the hook is reached only by a `report` frame and this driver sends none.
+      // BROW-01 — open, on the ground stated at the provider rig above.
       startReporting: 'reports-its-own-start',
-      blockstoreDir: providerDir,
+      blockstoreDir: requestorDir,
       rpcTimeoutMs: 30_000,
       maxConcurrentTasks: DECLARED_ADMISSION_LIMIT,
       trustAnchors: [BENCH_TRUST_ANCHOR],
-      // AUTH-04: stated rather than defaulted, because `FabricNodeOptions` has no way to
-      // leave it unsaid. The sentinel is the right answer *here* and would not be on a
-      // deployed provider: this one certifies the `nodes` this same function is about to
-      // start, its whole population is known to the line above, and a bound sized to the
-      // sweep would be a number the benchmark had to keep in step with its own `--nodes`.
-      // Nothing adversarial can reach it — it is dialled only by the processes this
-      // driver spawns.
-      issuesCertificates: 'issues-without-an-aggregate-budget',
+      // Pinned only on the discover arm, and absent otherwise for the reason the worker's
+      // `enrollment` spread gives: a node with no `trustedIssuers` answers `verifiedPeers`
+      // with its whole connected set, so setting this on the default path would change what
+      // that reading means there too.
+      ...(provider?.issuerKey == null ? {} : { trustedIssuers: [provider.issuerKey] }),
+      // BENCH-07 criterion 3, and absent unless a caller pinned it — which is every caller
+      // that produced a published figure. This is the node that receives every dial under
+      // the default direction, so it is the only one a pinned cap could be exercised by.
+      ...(options.inboundThreshold === undefined
+        ? {}
+        : { inboundConnectionThreshold: options.inboundThreshold }),
     })
-  }
-  const providerAddr = provider === undefined ? undefined : dialableAddr(provider)
-
-  for (let i = 0; i < nodes; i++) {
-    const dir = join(root, `node-${i}`)
-    await mkdir(dir, { recursive: true })
-    // `maxConcurrentTasks` is stated, never inherited — see
-    // `DECLARED_ADMISSION_LIMIT`. The requestor below declares the same value for the
-    // same reason: it is a `FabricNode` like any other and serves `exec` requests like
-    // any other, so leaving it on the default would put half the fabric on a limit
-    // this run does not record.
-    started.push(
-      await FabricNode.start({
-        relayAdmission: 'admits-any-peer',
-        // BROW-01 — open, on the ground stated at the provider rig above.
-        startReporting: 'reports-its-own-start',
-        blockstoreDir: dir,
-        rpcTimeoutMs: 30_000,
-        maxConcurrentTasks: DECLARED_ADMISSION_LIMIT,
-        // DET-03 — this rig's nodes go through the node factory rather than
-        // constructing an executor, so they ask for the guard by naming the anchor
-        // instead of composing it. The submitter below states the same value for the
-        // same reason it states the same admission limit: it is a `FabricNode` like
-        // any other and serves `exec` requests like any other.
-        trustAnchors: [BENCH_TRUST_ANCHOR],
-        // Spread rather than a conditional field: `exactOptionalPropertyTypes` makes an
-        // explicit `undefined` different from an absent key, and on the default path this
-        // key must be absent — a worker that enrolled would publish a certificate, which
-        // is a change to what the default rig IS and not only to how fast it runs.
-        ...(providerAddr === undefined
-          ? {}
-          : {
-              enrollment: {
-                userPrivateKey: BENCH_USER_SEED,
-                operatorId: `bench-worker-${i}`,
-                providerAddr,
-              },
-            }),
-      }),
+    extra.push(requestor)
+    const moduleCid = sameFixtureCid(
+      'realFabric',
+      await requestor.store.put(moduleBytes),
+      moduleRecord.cid,
     )
-  }
 
-  const requestorDir = join(root, 'requestor')
-  await mkdir(requestorDir, { recursive: true })
-  const requestor = await FabricNode.start({
-    relayAdmission: 'admits-any-peer',
-    // BROW-01 — open, on the ground stated at the provider rig above.
-    startReporting: 'reports-its-own-start',
-    blockstoreDir: requestorDir,
-    rpcTimeoutMs: 30_000,
-    maxConcurrentTasks: DECLARED_ADMISSION_LIMIT,
-    trustAnchors: [BENCH_TRUST_ANCHOR],
-    // Pinned only on the discover arm, and absent otherwise for the reason the worker's
-    // `enrollment` spread gives: a node with no `trustedIssuers` answers `verifiedPeers`
-    // with its whole connected set, so setting this on the default path would change what
-    // that reading means there too.
-    ...(provider?.issuerKey == null ? {} : { trustedIssuers: [provider.issuerKey] }),
-  })
-  const moduleCid = sameFixtureCid(
-    'realFabric',
-    await requestor.store.put(moduleBytes),
-    moduleRecord.cid,
-  )
-
-  // Everyone dials the requestor, so blocks are reachable from every worker.
-  for (const node of started) {
-    await node.libp2p.dial(requestor.libp2p.getMultiaddrs())
-  }
-
-  // AUTH-03, same permanent sentinel and the same reason as the memory-transport
-  // leg above: this driver's shards are all public.
-  let executors: readonly Executor[] = started.map(
-    (node) =>
-      new RemoteExecutor(node.libp2p.peerId.toString(), requestor.rpc, 'dispatches-unauthenticated'),
-  )
-  let descriptors = publicNodes(executors)
-
-  if (DISCOVER) {
-    // The requestor must be able to ask each worker, so it dials them — the default path
-    // only has the workers dialling *it*, which is enough to fetch blocks but leaves the
-    // requestor with no peers of its own to query.
-    for (const node of started) await requestor.libp2p.dial(node.libp2p.getMultiaddrs())
-
-    // **Discovery keys on the module block, not on a shard input, and that is a departure
-    // from the plan worth stating.** The plan says "the workload's input CID"; the shards
-    // do not exist yet. They are produced per-run by `shardInputs(config.skew)` inside
-    // `run`, while `executors` is fixed here, once per node count. Discovering on a CID
-    // that will not exist for another few milliseconds is not possible, and rebuilding the
-    // executor set per iteration would put a discovery round trip inside the timed region
-    // of every run rather than once per rig.
+    // **Which side opens the connections — a parameter since Plan 23-04, defaulting to what
+    // every published number was taken under.**
     //
-    // The module block is a real content CID that real workers really hold, so the
-    // question asked is the same question — *who has this block* — over the one block that
-    // is available at rig-construction time. Each worker is given it here explicitly,
-    // because on the default path a worker holds nothing until it fetches during a run.
-    for (const node of started) await node.store.put(moduleBytes)
-
-    const found = await discoverCandidates(
-      { inputCid: moduleCid },
-      {
-        rpc: requestor.rpc,
-        // `verifiedPeers` and not `transport.peers`: a provider list steers where work
-        // goes, so a peer that has not cleared verification does not get to contribute
-        // one. This is `discover-candidates.ts`'s own recommendation.
-        peers: () => requestor.verifiedPeers,
-        trustedIssuers: new Set(provider?.issuerKey == null ? [] : [provider.issuerKey]),
-        now: () => Date.now(),
-        peerIdFor: peerIdForNodeKey,
-        // The same permanent sentinel as the list above: every shard here is public.
-        dispatch: 'dispatches-unauthenticated',
-      },
-    )
-
-    process.stdout.write(
-      `--discover: ${String(found.executors.length)} of ${String(started.length)} workers` +
-        ` qualified from ${String(found.providers)} providers` +
-        `${found.excluded.length === 0 ? '' : `, ${String(found.excluded.length)} excluded`}\n`,
-    )
-    if (found.executors.length === 0) {
-      throw new Error('--discover found no candidates; refusing to report a curve measured on nothing')
+    // Under `workers-to-submitter` everyone dials the requestor, so blocks are reachable
+    // from every worker and the requestor is the node receiving N connections from one host.
+    // Under `submitter-to-workers` the requestor dials outward instead, which is what the
+    // process-per-node rig does by default. A dispatch arrives identically either way:
+    // `Libp2pTransport.send` reaches a peer by peer id and reuses an existing connection
+    // whichever end opened it, so this switch changes **who accepts** and nothing else.
+    if (direction === 'workers-to-submitter') {
+      for (const node of started) {
+        await node.libp2p.dial(requestor.libp2p.getMultiaddrs())
+      }
+    } else {
+      for (const node of started) {
+        await requestor.libp2p.dial(node.libp2p.getMultiaddrs())
+      }
     }
 
-    executors = found.executors
-    descriptors = found.nodes
-  }
+    // AUTH-03, same permanent sentinel and the same reason as the memory-transport
+    // leg above: this driver's shards are all public.
+    let executors: readonly Executor[] = started.map(
+      (node) =>
+        new RemoteExecutor(node.libp2p.peerId.toString(), requestor.rpc, 'dispatches-unauthenticated'),
+    )
+    let descriptors = publicNodes(executors)
 
-  return {
-    executors,
-    nodes: descriptors,
-    // No cast. The seam's `blockstore` is `Blockstore`, which this store is — the
-    // `as unknown as MemoryBlockstore` that stood here was the cost of a second,
-    // narrower declaration of the same interface in this file.
-    blockstore: requestor.store,
-    moduleCid,
-    moduleRecord,
-    // `FabricNode.start` already wraps its transport in an `EgressGuard` (`egress`)
-    // and builds `rpc` over that wrapper (13-02) — nothing to construct here, only
-    // to surface, exactly the same field `bin/agent.ts`'s own `FabricNode` exposes.
-    guard: requestor.egress,
-    rpc: requestor.rpc,
-    // Set on the discover arm alone. Absent — not `undefined` — on the default arm, so
-    // `submitJob`'s `spec.admit === undefined` branch still selects `planPlacement` and
-    // the published curve is placed the way it always was.
-    ...(DISCOVER ? { admit: rpcAdmission(requestor.rpc) } : {}),
-    // VER-08/09/10 — the same issuer the requestor `FabricNode` above pins and the same
-    // one `discoverCandidates` was handed, read off the one `provider` this function
-    // started, rather than assembled a second time. A default run has no provider and no
-    // enrolled worker, so it states that it checks nothing — which is why the aggregate
-    // receipt on the published curve reads the named absence, truthfully.
-    combineIssuers:
-      provider?.issuerKey == null
-        ? 'checks-no-combine-signatures'
-        : new Set([provider.issuerKey]),
-    async close() {
-      for (const node of [...started, requestor]) await node.stop()
-      await rm(root, { recursive: true, force: true })
-    },
+    if (DISCOVER) {
+      // The requestor must be able to ask each worker, so it dials them — the default path
+      // only has the workers dialling *it*, which is enough to fetch blocks but leaves the
+      // requestor with no peers of its own to query.
+      for (const node of started) await requestor.libp2p.dial(node.libp2p.getMultiaddrs())
+
+      // **Discovery keys on the module block, not on a shard input, and that is a departure
+      // from the plan worth stating.** The plan says "the workload's input CID"; the shards
+      // do not exist yet. They are produced per-run by `shardInputs(config.skew)` inside
+      // `run`, while `executors` is fixed here, once per node count. Discovering on a CID
+      // that will not exist for another few milliseconds is not possible, and rebuilding the
+      // executor set per iteration would put a discovery round trip inside the timed region
+      // of every run rather than once per rig.
+      //
+      // The module block is a real content CID that real workers really hold, so the
+      // question asked is the same question — *who has this block* — over the one block that
+      // is available at rig-construction time. Each worker is given it here explicitly,
+      // because on the default path a worker holds nothing until it fetches during a run.
+      for (const node of started) await node.store.put(moduleBytes)
+
+      const found = await discoverCandidates(
+        { inputCid: moduleCid },
+        {
+          rpc: requestor.rpc,
+          // `verifiedPeers` and not `transport.peers`: a provider list steers where work
+          // goes, so a peer that has not cleared verification does not get to contribute
+          // one. This is `discover-candidates.ts`'s own recommendation.
+          peers: () => requestor.verifiedPeers,
+          trustedIssuers: new Set(provider?.issuerKey == null ? [] : [provider.issuerKey]),
+          now: () => Date.now(),
+          peerIdFor: peerIdForNodeKey,
+          // The same permanent sentinel as the list above: every shard here is public.
+          dispatch: 'dispatches-unauthenticated',
+        },
+      )
+
+      process.stdout.write(
+        `--discover: ${String(found.executors.length)} of ${String(started.length)} workers` +
+          ` qualified from ${String(found.providers)} providers` +
+          `${found.excluded.length === 0 ? '' : `, ${String(found.excluded.length)} excluded`}\n`,
+      )
+      if (found.executors.length === 0) {
+        throw new Error('--discover found no candidates; refusing to report a curve measured on nothing')
+      }
+
+      executors = found.executors
+      descriptors = found.nodes
+    }
+
+    const fabric: Fabric = {
+      executors,
+      nodes: descriptors,
+      // No cast. The seam's `blockstore` is `Blockstore`, which this store is — the
+      // `as unknown as MemoryBlockstore` that stood here was the cost of a second,
+      // narrower declaration of the same interface in this file.
+      blockstore: requestor.store,
+      moduleCid,
+      moduleRecord,
+      // `FabricNode.start` already wraps its transport in an `EgressGuard` (`egress`)
+      // and builds `rpc` over that wrapper (13-02) — nothing to construct here, only
+      // to surface, exactly the same field `bin/agent.ts`'s own `FabricNode` exposes.
+      guard: requestor.egress,
+      rpc: requestor.rpc,
+      // Set on the discover arm alone. Absent — not `undefined` — on the default arm, so
+      // `submitJob`'s `spec.admit === undefined` branch still selects `planPlacement` and
+      // the published curve is placed the way it always was.
+      ...(DISCOVER ? { admit: rpcAdmission(requestor.rpc) } : {}),
+      // VER-08/09/10 — the same issuer the requestor `FabricNode` above pins and the same
+      // one `discoverCandidates` was handed, read off the one `provider` this function
+      // started, rather than assembled a second time. A default run has no provider and no
+      // enrolled worker, so it states that it checks nothing — which is why the aggregate
+      // receipt on the published curve reads the named absence, truthfully.
+      combineIssuers:
+        provider?.issuerKey == null
+          ? 'checks-no-combine-signatures'
+          : new Set([provider.issuerKey]),
+      // BENCH-07 criterion 3 — the two inbound limits this node ended up with, and how many
+      // connections it is holding, read off the live node at the moment of the call. A
+      // caller that published the value it passed instead of the value the node derived
+      // would restate, at the reporting layer, the exact defect the excluded row's stored
+      // paragraph was.
+      submitterReading: () => ({
+        inboundConnectionThreshold: requestor.inboundConnectionThreshold,
+        maxIncomingPendingConnections: requestor.maxIncomingPendingConnections,
+        connections: requestor.libp2p.getConnections().length,
+      }),
+      // `release` and not a second loop of its own. The loop that stood here walked
+      // `[...started, requestor]` and therefore **never stopped the provider** — a
+      // `--discover` run leaked one node per rig, silently, in the same class as the
+      // construction leak the `finally` below repairs. One releaser, walked from one list,
+      // is what makes that a single place to get right.
+      close: release,
+    }
+    // The last line before the hand-off, and the only place this is set. Everything above
+    // may throw; from here on the rig is the caller's and `finally` must not touch it.
+    handedOver = true
+    return fabric
+  } finally {
+    if (!handedOver) await release()
   }
 }
 
@@ -2058,6 +2175,447 @@ function speedupSection(
   ]
 }
 
+// ── BENCH-07 criterion 3 — the excluded rung, attempted one lever at a time ────────────
+
+/**
+ * The inbound rate a pinned attempt runs at.
+ *
+ * **A configuration choice, not a measurement**, and the distinction is the point of the
+ * whole block: this is the value `.planning/BENCHMARK-RESULTS.md`'s stored paragraph *named*
+ * as the cause of the excluded rung. Pinning a node back to it is what turns that name into
+ * something a run can exercise. Nothing here claims a node runs at this figure by default —
+ * what a default node derives is read off the node and published beside every attempt.
+ */
+const PINNED_INBOUND_THRESHOLD = 5
+
+/** Where a pinned cap goes, or the named absence when an attempt pins nothing. */
+type CapPlacement = 'derived-on-every-node' | 'pinned-on-the-receiving-node' | 'pinned-on-every-agent'
+
+/**
+ * One cell of the criterion-3 factorial.
+ *
+ * Every field is a **choice**, and nothing on this type is a reading. What the attempt
+ * observed lives on {@link AttemptOutcome}, which is built from the run.
+ */
+interface Attempt {
+  /** A, B, C… — the letter the published table and the prose both refer to it by. */
+  readonly name: string
+  readonly driver: DriverKind
+  readonly nodes: number
+  readonly dial: DialDirection
+  readonly cap: CapPlacement
+  /** What this cell is in the table to answer. Published beside its outcome. */
+  readonly asks: string
+}
+
+/**
+ * The block, in the order it runs.
+ *
+ * **Criterion 3 names two rungs and the committed run excludes one.** The 8-node
+ * real-transport rung already runs — `n = 19`, `incomplete = 0` in the run stamped
+ * 2026-08-01 — so the 8-node cell here is a **control with a known outcome**, not an
+ * unknown, and the whole factorial sits at 16.
+ *
+ * The three levers are independent and only one of them is what BENCH-07 is about: raise
+ * the option, stagger the joins, or change which side receives the dials. Adopting the
+ * spawn pattern moves the process split **and** the dial direction at once, so the cells
+ * below hold everything but one thing fixed at a time. **Staggering is not exercised**;
+ * every attempt records `stagger: none` and the published section says so.
+ */
+const CRITERION_3_ATTEMPTS: readonly Attempt[] = [
+  {
+    name: 'A8',
+    driver: 'in-process',
+    nodes: 8,
+    dial: 'workers-to-submitter',
+    cap: 'derived-on-every-node',
+    asks: 'the control: whether the rung that already runs still runs against today’s code',
+  },
+  {
+    name: 'A',
+    driver: 'in-process',
+    nodes: 16,
+    dial: 'workers-to-submitter',
+    cap: 'derived-on-every-node',
+    asks: 'the arrangement every published number was taken under — whether the exclusion still reproduces at all',
+  },
+  {
+    name: 'B',
+    driver: 'in-process',
+    nodes: 16,
+    dial: 'workers-to-submitter',
+    cap: 'pinned-on-the-receiving-node',
+    asks: 'the cap pinned back to the value the published exclusion blames, on the node that receives the dials',
+  },
+  {
+    name: 'C',
+    driver: 'in-process',
+    nodes: 16,
+    dial: 'submitter-to-workers',
+    cap: 'derived-on-every-node',
+    asks: 'the dial direction alone, with the process split held at one process',
+  },
+  {
+    name: 'D',
+    driver: 'process-per-node',
+    nodes: 16,
+    dial: 'submitter-to-workers',
+    cap: 'derived-on-every-node',
+    asks: 'this phase’s headline configuration',
+  },
+  {
+    name: 'E',
+    driver: 'process-per-node',
+    nodes: 16,
+    dial: 'submitter-to-workers',
+    cap: 'pinned-on-every-agent',
+    asks: 'the cap pinned on the agents — kept because its failure would inform, not because its success would',
+  },
+  {
+    name: 'F',
+    driver: 'process-per-node',
+    nodes: 16,
+    dial: 'workers-to-submitter',
+    cap: 'derived-on-every-node',
+    asks: 'N processes on one host opening connections to one node, at the derived limit',
+  },
+  {
+    name: 'G',
+    driver: 'process-per-node',
+    nodes: 16,
+    dial: 'workers-to-submitter',
+    cap: 'pinned-on-the-receiving-node',
+    asks: 'the positive control — the attempt that is supposed to fail',
+  },
+]
+
+/** What an attempt turned out to do. Every field here is read off the run. */
+interface AttemptOutcome {
+  readonly attempt: Attempt
+  /** Whether the job completed. The signal — a rung that stands up completes one job. */
+  readonly completed: boolean
+  /**
+   * The published reason, built by `describeExclusion` from what was actually caught, or
+   * `null` where nothing was.
+   */
+  readonly failure: string | null
+  /** The submitting node's own limits and connection count, or a named absence. */
+  readonly submitter: SubmitterReading | 'no-node-survived-to-be-read'
+  /** Each agent's announced threshold, or a named absence on a rig with no agents. */
+  readonly agentThresholds: readonly number[] | 'no-agent-announced-a-limit'
+}
+
+/**
+ * Run one attempt: build the rig it names, put one job through the measured path, close it.
+ *
+ * **One job, not a sweep.** The question is whether the rung stands up at all, and a
+ * completed job answers it; a full `measure` would spend minutes answering it again with
+ * percentiles nobody in this block reads.
+ *
+ * **The job path is `runnerOver`'s**, the same body both published drivers use, so an
+ * attempt cannot succeed or fail on a second copy of the submit logic.
+ *
+ * A failing attempt's partial rig closes itself: `realFabric` releases what it started on
+ * the way out of a throw and `processFabric` has its own `undo`, which is why `held` being
+ * `undefined` after a construction failure is correct rather than a leak. What `finally`
+ * covers is the other case — a rig that was built and whose *job* then failed.
+ */
+async function runAttempt(attempt: Attempt): Promise<AttemptOutcome> {
+  // **This heading must not match `/^ {2}(memory|real) transport, (\d+) node\(s\)…$/`** —
+  // `coverage-agents.node.test.ts` asserts that pattern's matches over a `--quick` run's
+  // stdout are exactly five specific entries. This block does not run under `--quick` at
+  // all, and the heading is still written so it could not collide if it ever did.
+  process.stdout.write(
+    `  criterion 3, attempt ${attempt.name}, ${attempt.driver}, ${String(attempt.nodes)} node(s)…\n`,
+  )
+
+  let held: Fabric | undefined
+  let agents: readonly AgentHandle[] | undefined
+
+  /** Read off the live rig, at the moment of the call, in both the success and failure arms. */
+  const readOff = (): Pick<AttemptOutcome, 'submitter' | 'agentThresholds'> => ({
+    submitter: held?.submitterReading?.() ?? 'no-node-survived-to-be-read',
+    agentThresholds:
+      agents === undefined
+        ? 'no-agent-announced-a-limit'
+        : agents.map((agent) => agent.inboundConnectionThreshold),
+  })
+
+  try {
+    const run = runnerOver(async (count) => {
+      const built =
+        attempt.driver === 'in-process'
+          ? await realFabric(count, 'trivial', {
+              dial: attempt.dial,
+              ...(attempt.cap === 'pinned-on-the-receiving-node'
+                ? { inboundThreshold: PINNED_INBOUND_THRESHOLD }
+                : {}),
+            })
+          : await processFabric(count, moduleBytesFor('trivial'), recordFor('trivial'), {
+              rpcTimeoutMs: 30_000,
+              maxConcurrentTasks: DECLARED_ADMISSION_LIMIT,
+              trustAnchors: [BENCH_TRUST_ANCHOR],
+              dial: attempt.dial,
+              // Under the process driver the node that receives the dials on the
+              // `workers-to-submitter` arm is the one in **this** process, so the cap goes
+              // through a different option — an agent-side flag cannot reach it.
+              ...(attempt.cap === 'pinned-on-every-agent'
+                ? { inboundThreshold: PINNED_INBOUND_THRESHOLD }
+                : {}),
+              ...(attempt.cap === 'pinned-on-the-receiving-node'
+                ? { submitterInboundThreshold: PINNED_INBOUND_THRESHOLD }
+                : {}),
+            })
+      held = built
+      if ('agents' in built) agents = (built as ProcessFabric).agents
+      return built
+    }, newRunnerState())
+
+    const observation = await run(
+      {
+        nodes: attempt.nodes,
+        shards: SHARDS,
+        // `min(2, nodes)` and not 1: attempt A exists to reproduce the arrangement the
+        // published curves were taken under, and that is the redundancy they ran at. A
+        // reproduction at a different replication factor would be a different rung.
+        redundancy: Math.min(2, attempt.nodes),
+        transport: 'real',
+        skew: 'uniform',
+        driver: attempt.driver,
+        fixture: 'trivial',
+        leg: 'public',
+      },
+      'warm',
+    )
+
+    return { attempt, completed: observation.complete, failure: null, ...readOff() }
+  } catch (cause) {
+    // An integrity failure is not an attempt that could not be measured; it is a
+    // measurement that is not of the thing it claims, and it leaves rather than joining a
+    // table. Every catch in this file is paired with this line and
+    // `bench-driver.node.test.ts` counts the two.
+    if (cause instanceof HarnessIntegrityError) throw cause
+    const observed: ObservedFailure = {
+      errorName: cause instanceof Error ? cause.name : typeof cause,
+      message: cause instanceof Error ? cause.message : String(cause),
+      config: configurationOf(attempt, readOff()),
+    }
+    process.stdout.write(`    attempt ${attempt.name} did not complete: ${observed.message}\n`)
+    return { attempt, completed: false, failure: describeExclusion(observed), ...readOff() }
+  } finally {
+    if (held !== undefined) await held.close().catch(() => {})
+  }
+}
+
+/**
+ * The configuration one attempt ran under, as ordered pairs — choices first, then what was
+ * read off the live nodes.
+ *
+ * Ordered rather than a record so two attempts' rendered reasons differ in exactly the pair
+ * those two attempts differ in, which is the reading that makes the table legible.
+ */
+function configurationOf(
+  attempt: Attempt,
+  observed: Pick<AttemptOutcome, 'submitter' | 'agentThresholds'>,
+): readonly (readonly [string, string])[] {
+  const submitter = observed.submitter
+  return [
+    ['driver', attempt.driver],
+    ['dial', attempt.dial],
+    ['cap', attempt.cap],
+    ['nodes', String(attempt.nodes)],
+    ['shards', String(SHARDS)],
+    ['redundancy', String(Math.min(2, attempt.nodes))],
+    ['fixture', 'trivial'],
+    ['admissionLimit', String(DECLARED_ADMISSION_LIMIT)],
+    // Read off the live node, never restated from the option that asked for it.
+    [
+      'observedSubmitterInbound',
+      submitter === 'no-node-survived-to-be-read' ? submitter : String(submitter.inboundConnectionThreshold),
+    ],
+    [
+      'observedSubmitterPending',
+      submitter === 'no-node-survived-to-be-read' ? submitter : String(submitter.maxIncomingPendingConnections),
+    ],
+    [
+      'submitterConnectionsHeld',
+      submitter === 'no-node-survived-to-be-read' ? submitter : String(submitter.connections),
+    ],
+    [
+      'observedAgentInbound',
+      observed.agentThresholds === 'no-agent-announced-a-limit'
+        ? observed.agentThresholds
+        : [...new Set(observed.agentThresholds.map(String))].join('/'),
+    ],
+    // Named rather than exercised. See the published section.
+    ['stagger', 'none'],
+    // Read off the flag rather than asserted: a `--discover` run starts a provider and
+    // enrols every worker, so its rung holds a different population from this one and a
+    // reader comparing the two has to be told which was in force.
+    ['discover', DISCOVER ? 'on' : 'off'],
+  ]
+}
+
+/**
+ * Whether the completed/failed split of `outcomes` falls **exactly** along one lever.
+ *
+ * Returns the partition when no value of that lever appears on both sides, and `null`
+ * otherwise. This is a reading taken from the block rather than a claim written into it:
+ * with two independent levers moving across seven cells, which one the outcomes separate on
+ * is a question the data answers, and a section that named a lever in prose would be
+ * asserting the answer the way the paragraph this whole plan removes asserted a cause.
+ *
+ * `null` is the honest and common result — it says the outcomes do not partition on this
+ * lever, which is a finding rather than a failure to find one.
+ */
+function separatesOn(
+  outcomes: readonly AttemptOutcome[],
+  lever: (attempt: Attempt) => string,
+): string | null {
+  const failed = new Set(outcomes.filter((o) => !o.completed).map((o) => lever(o.attempt)))
+  const passed = new Set(outcomes.filter((o) => o.completed).map((o) => lever(o.attempt)))
+  if (failed.size === 0 || passed.size === 0) return null
+  for (const value of failed) if (passed.has(value)) return null
+  return `${[...failed].join(', ')} on every failure, ${[...passed].join(', ')} on every success`
+}
+
+/**
+ * The criterion-3 section — what the block attempted, what happened, and what it therefore
+ * does and does not establish.
+ *
+ * The heading names both drivers and the fixture, so a later provenance scan finds a driver
+ * in it rather than a phrase that names neither.
+ */
+function criterionThreeSection(outcomes: readonly AttemptOutcome[]): readonly string[] {
+  if (outcomes.length === 0) return []
+  const anyFailed = outcomes.some((outcome) => !outcome.completed)
+  const positiveControl = outcomes.find((outcome) => outcome.attempt.name === 'G')
+  const capOf = (outcome: AttemptOutcome): string => {
+    const submitter = outcome.submitter
+    const agents =
+      outcome.agentThresholds === 'no-agent-announced-a-limit'
+        ? 'no agent'
+        : [...new Set(outcome.agentThresholds.map(String))].join('/')
+    const receiving =
+      submitter === 'no-node-survived-to-be-read'
+        ? 'unread'
+        : `${String(submitter.inboundConnectionThreshold)}/${String(submitter.maxIncomingPendingConnections)}`
+    return `${receiving} (driver’s node), ${agents} (agents)`
+  }
+
+  return [
+    '## The excluded rungs, re-measured — in-process and process-per-node drivers, trivial fixture',
+    '',
+    '**Criterion 3 names two rungs, and the committed run of 2026-08-01 excluded one.** Its',
+    'real-transport curve carries a working 8-node rung at `n = 19` with `incomplete = 0`, and',
+    'the only excluded row is `real transport, 16 nodes`. This phase did not rescue the 8-node',
+    'rung and does not claim to have: it was already running before any of this landed. The',
+    'scope of the criterion is therefore **one** rung, stated here rather than absorbed —  a',
+    'rung that quietly appears between the plan and the results is as unreadable as one that',
+    'quietly vanishes.',
+    '',
+    'So attempt A8 below is a control whose outcome is known, and every other attempt sits at',
+    'the one rung actually in dispute. Each varies **one** thing from its neighbour, because',
+    'three independent levers exist — raise the option, stagger the joins, change which side',
+    'receives the dials — and adopting the spawn pattern moves two of them at once.',
+    '',
+    '| attempt | driver | dial | cap pinned | nodes | job completed | observed inbound/pending | connections held by the driver’s node |',
+    '| --- | --- | --- | --- | --- | --- | --- | --- |',
+    ...outcomes.map((outcome) => {
+      const submitter = outcome.submitter
+      return (
+        `| ${outcome.attempt.name} | ${outcome.attempt.driver} | ${outcome.attempt.dial} |` +
+        ` ${outcome.attempt.cap} | ${String(outcome.attempt.nodes)} |` +
+        ` ${outcome.completed ? 'yes' : '**no**'} | ${capOf(outcome)} |` +
+        ` ${submitter === 'no-node-survived-to-be-read' ? submitter : String(submitter.connections)} |`
+      )
+    }),
+    '',
+    'What each attempt is in the table to answer, and what any of them that failed reported:',
+    '',
+    '| attempt | asks | reported |',
+    '| --- | --- | --- |',
+    ...outcomes.map(
+      (outcome) =>
+        `| ${outcome.attempt.name} | ${outcome.attempt.asks} | ${outcome.failure ?? 'the job completed'} |`,
+    ),
+    '',
+    '**Attempt E is not a control and the table must not be read as though it were.** Under D',
+    'and E the submitting node dials outward, so the agents are the dial targets and each is',
+    'dialled from one host. What that does to a per-second per-host cap is not derived here,',
+    'so E succeeding establishes nothing about the cap. It is kept because it is cheap and',
+    'because its *failure* would have informed: **agent-side cap pinned, exercise not',
+    'established — the agents’ inbound connection counts were not instrumented under this',
+    'direction.**',
+    '',
+    anyFailed
+      ? '**At least one attempt failed, and its error and configuration are in the table above.**' +
+        ' The pair a reader wants is the failing attempt beside its nearest neighbour: the two' +
+        ' reasons differ in exactly the pair the two attempts differ in, which is what makes the' +
+        ' lever legible.'
+      : '',
+    // Which lever the outcomes actually separate on, computed from them. The 8-node control
+    // is excluded from this reading and only from this reading: it is the one attempt at a
+    // rung that is not in dispute, so leaving it in would let a lever appear to separate on
+    // a node count nothing else here varies.
+    ...(anyFailed
+      ? (() => {
+          const disputed = outcomes.filter((outcome) => outcome.attempt.nodes === 16)
+          const readings: [string, string | null][] = [
+            ['dial direction', separatesOn(disputed, (a) => a.dial)],
+            ['driver', separatesOn(disputed, (a) => a.driver)],
+            ['cap placement', separatesOn(disputed, (a) => a.cap)],
+          ]
+          const clean = readings.filter(([, partition]) => partition !== null)
+          return [
+            '',
+            '**Which lever the outcomes separate on, read off the block rather than argued for.**',
+            'Taken across the attempts at the disputed rung alone, since the 8-node control is the',
+            'one cell at a rung nobody disputes:',
+            '',
+            ...readings.map(
+              ([name, partition]) =>
+                `- **${name}** — ${partition ?? 'does not separate them: a value of it appears on both sides'}`,
+            ),
+            '',
+            clean.length === 0
+              ? 'No single lever separates the outcomes, so this block attributes the failure to none of them.'
+              : `Only ${clean
+                  .map(([name]) => name)
+                  .join(' and ')} partitions the outcomes cleanly. **A lever whose value appears on both sides cannot be what separated them**, which is what every entry above reading "does not separate" is saying about itself.`,
+          ]
+        })()
+      : []),
+    ...(anyFailed
+      ? []
+      : ['**No attempt failed, so this block contains no positive control and therefore leaves the' +
+        ' original cause unmeasured.** Attempt G exists to fail — N processes on one host opening' +
+        ' connections to one node whose inbound rate is pinned at the value the published' +
+        ' exclusion names. It completed. Seven successes are not a measurement of a cause, and' +
+        ' this section reports that rather than reporting them as an answer: what the block' +
+        ' establishes is that the rung stands up under every configuration tried, and what it' +
+        ' does **not** establish is why the 2026-08-01 run’s rung did not.']),
+    '',
+    positiveControl === undefined
+      ? '**Attempt G did not run at all**, so the block has no positive control by omission rather' +
+        ' than by outcome.'
+      : `Attempt G — the positive control — ${positiveControl.completed ? 'completed' : 'failed, which is what it exists to do'}.`,
+    '',
+    '**Two levers this block did not exercise, named rather than left unmentioned.**',
+    'Staggering the joins is a real third lever and every attempt above records',
+    '`stagger: none`; naming it is not measuring it. And **the agents’ inbound connection',
+    'counts were not instrumented**: the agents are child processes, nothing announces their',
+    'counts, and the only connection population this rig can read is the driver’s own node’s.',
+    'No attempt’s outcome above is explained by a count nobody read.',
+    '',
+    `Every attempt ran with the discovery arm **${DISCOVER ? 'on' : 'off'}**. A discovering run`,
+    'starts a provider and enrols every worker, so its rung holds a different node population',
+    'from these — stated because a reader comparing the two would otherwise be comparing',
+    'different fabrics.',
+    '',
+  ]
+}
+
 async function main(): Promise<void> {
   const outDir = join(process.cwd(), '.planning', 'bench')
   await mkdir(outDir, { recursive: true })
@@ -2193,12 +2751,31 @@ async function main(): Promise<void> {
       process.stdout.write(`    excluded: ${detail}\n`)
       excluded.push({
         config: `real transport, ${nodes} nodes`,
-        reason:
-          `\`${detail}\` — libp2p caps inbound connections at ` +
-          '`INBOUND_CONNECTION_THRESHOLD = 5` **per host**, and every node here shares one ' +
-          'host, so beyond ~5 concurrent dials to the requestor the noise handshake is ' +
-          'killed and the failure reads like a network fault. A same-machine artifact of ' +
-          'a documented default, not a property of the fabric.',
+        // **Built from the failure that happened.** What stood here was one stored
+        // paragraph asserting that libp2p's per-host inbound cap of five killed the
+        // handshake — attached to every error this catch could ever see, with nothing read
+        // off the error but its message, and naming a constant this code does not
+        // necessarily run at. See `describeExclusion` for the whole of that argument.
+        //
+        // **No `interpretation` is passed, and none can be from here.** The criterion-3
+        // factorial that could supply one runs later in this same `main()`, so any
+        // interpretation written at this call site would be a claim made before its
+        // evidence existed — which is the defect again with a different sentence in it.
+        reason: describeExclusion({
+          errorName: cause instanceof Error ? cause.name : typeof cause,
+          message: detail,
+          config: [
+            ['driver', 'in-process'],
+            ['dial', 'workers-to-submitter'],
+            ['nodes', String(nodes)],
+            ['shards', String(SHARDS)],
+            ['redundancy', String(Math.min(2, nodes))],
+            ['fixture', 'trivial'],
+            ['admissionLimit', String(DECLARED_ADMISSION_LIMIT)],
+            ['discover', DISCOVER ? 'on' : 'off'],
+            ['stagger', 'none'],
+          ],
+        }),
       })
     }
   }
@@ -2398,6 +2975,23 @@ async function main(): Promise<void> {
     await control.dispose()
   }
 
+  // ── BENCH-07 criterion 3 — the one rung the committed run excludes ──────────────────
+  //
+  // **Off the quick path, and the gate is not a preference.** `coverage-agents.node.test.ts`
+  // spawns this driver with `--quick`, waits for the whole run inside a 180 s budget and
+  // asserts it exits 0. This block builds rigs of seventeen nodes eight times; running it
+  // there would redden a guard about coverage rendering for a reason about neither.
+  const criterionThree: AttemptOutcome[] = []
+  if (!QUICK) {
+    for (const attempt of CRITERION_3_ATTEMPTS) {
+      // Each attempt's rig is closed before the next is built — by `runAttempt`'s own
+      // `finally` on the success path, and by the rig's own release on a construction
+      // failure. One failure does not end the block, which is what makes it a factorial
+      // rather than a sequence that stops at its first interesting cell.
+      criterionThree.push(await runAttempt(attempt))
+    }
+  }
+
   process.stdout.write('  skewed configuration, memory transport…\n')
   const skewRunner = runnerFor(memoryFabric)
   const skewed = await measure(
@@ -2465,6 +3059,12 @@ async function main(): Promise<void> {
     processes: processRows,
     /** The serial calibration the derived ideal is computed from. Per-shard, in order. */
     calibrationPerShardMs: perShardMs,
+    /**
+     * BENCH-07 criterion 3 — every attempt at the disputed rung, with what it was configured
+     * to do and what it observed. Rides into `raw.json` beside the section rendered below,
+     * the same shape `attestation` and `speedup` already ride in.
+     */
+    criterionThree,
     unmet: [
       '**No parallel speedup is measurable on the memory-transport curve, by construction' +
         ' — and this entry no longer says that about every in-process rig, because that' +
@@ -2622,6 +3222,7 @@ async function main(): Promise<void> {
     '',
     ...processSection(processRows, logicalCores),
     ...speedupSection(speedupRungs, perShardMs, logicalCores, processRows),
+    ...criterionThreeSection(criterionThree),
   ].join('\n')
 
   await writeFile(join(outDir, 'raw.json'), JSON.stringify({ report, skewed, wasmSummary }, null, 2))
