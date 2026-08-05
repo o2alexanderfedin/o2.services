@@ -39,20 +39,24 @@
  * ## What a `signature` is, and what it is not
  *
  * It is a substring **observed** in the failing run's output, not a prediction. Each
- * one below was read off a real planted run on 2026-07-29 and pasted back. It exists
- * so that "the suite went red" is not accepted on its own: a mutation that trips an
- * unrelated flake, a port collision or an OOM would also produce a non-zero exit,
- * and that is not evidence the guard saw anything.
+ * one below was read off a real planted run — Phase 13.1's ten on 2026-07-29, and every
+ * entry added since on the run its own comment names. It exists so that "the suite went
+ * red" is not accepted on its own: a mutation that trips an unrelated flake, a port
+ * collision or an OOM would also produce a non-zero exit, and that is not evidence the
+ * guard saw anything.
  *
- * A signature is therefore *output*, and most output has no literal in any file. But
- * a large majority of these — **60 of the 82**, re-counted 2026-08-04 — are the test's own
- * title, which vitest echoes verbatim, and a title **is** source text. (This sentence read
- * *"26 of the 40"* earlier that day, then *"48 of the 72"*, and **the second figure was
- * already stale by eight when it was written**: the ledger held 78 entries and 56 titles at
- * the moment it was re-counted. So the sentence warning that a count written into prose
- * expires exactly the way a `find` string does has now expired twice, in the same file, in
- * the paragraph that says so. Nothing reads it, which is the whole point — and the right
- * fix is a derived count, not a third transcription.) That is the half the cheap layer
+ * A signature is therefore *output*, and most output has no literal in any file. But a
+ * large majority of these are the test's own title, which vitest echoes verbatim, and a
+ * title **is** source text. **How large is {@link TITLE_SIGNATURE_COUNT}, which is derived
+ * from the array below rather than written here.** That is deliberate, and it is the fix
+ * for a defect this paragraph committed three times: it read *"26 of the 40"*, then
+ * *"48 of the 72"* — already stale by eight when it was written — then *"60 of the 82"*,
+ * which was stale by three the next day. Each time, the sentence warning that a count
+ * written into prose expires exactly the way a `find` string does was itself the sentence
+ * that had expired, and nothing read it. Its own diagnosis was that *"the right fix is a
+ * derived count, not a third transcription"*; that fix is now taken, here and in
+ * `mutation-guard.node.test.ts`, which reads the derived constants instead of integers
+ * somebody typed. That is the half the cheap layer
  * can check, and until 2026-08-01 it did not: `B1` and `B2` named a test that had
  * been renamed from `five sentinels` to `six` four commits earlier, and every
  * ordinary run stayed green because nothing compared the signature to anything.
@@ -329,7 +333,19 @@ export const MUTATIONS: readonly Mutation[] = [
       "NET-09's classification. A send this node's own bound refused is a `sender` " +
       'failure — the peer was never asked — and every other rejection is `node`. Disabling ' +
       'the branch records a dead peer where there was a live one this node declined to ' +
-      'call, which is the reading `runResilient` retries on.',
+      'call. **This entry read "which is the reading `runResilient` retries on" until ' +
+      '2026-08-05, and that had stopped being true**: Plan 20-12 deleted `runResilient` ' +
+      'under WIRE-04, and 20-12 reported the stale sentence rather than editing a file it ' +
+      'did not own. The distinction survives its old consumer and is narrower than it was. ' +
+      '`remoteDispatch` is the only thing that reads `DispatchOutcome.kind`, and it now has ' +
+      'no production caller at all — `submitJob` gets `ExecutionOutcome` from the `Executor` ' +
+      'port, which flattens every failure to `{nodeId, reason}` by deliberate design, so the ' +
+      'one job path **cannot** see this classification. What the generation loop counts ' +
+      'instead is distinct nodes that failed, bounded by `DEFAULT_MAX_GENERATIONS`; the cost ' +
+      'is that a shard whose module traps burns up to three nodes rather than being given up ' +
+      'on after one classified `task` failure, and that trade is recorded rather than hidden. ' +
+      'The entry stays because the classification is still computed, still correct, and still ' +
+      'the thing a kind on `ExecutionOutcome` would restore — see this phase’s deferred list.',
     file: 'packages/net/src/churn.ts',
     find: "if (cause instanceof RpcFailure && cause.detail.kind === 'send-refused') {",
     replace: "if (false && cause instanceof RpcFailure && cause.detail.kind === 'send-refused') {",
@@ -1629,9 +1645,27 @@ export const MUTATIONS: readonly Mutation[] = [
       'why: the limiter keys on `userKey`, so a cross-user attempt that reached it would consume ' +
       'the victim’s window. It is also the whole of the CPU exposure, because a provider that ' +
       'has already decided to refuse pays those two verifications anyway. Hoisting a budget ' +
-      'check above them is the obvious cheap mitigation and is the mutation planted here; it ' +
-      'collapses the measured verification tax from 56–146× to about 1, and the exchange rate ' +
-      'against a fresh identity from 3.0 to 0.02. **The entry pins an accepted exposure, not a ' +
+      'check above them is the obvious cheap mitigation and is the mutation planted here.\n\n' +
+      '**Corrected 2026-08-05 by re-planting it, and one of the two figures it used to quote ' +
+      'was never observable.** The sentence here read *"it collapses the measured verification ' +
+      'tax from 56–146× to about 1, and the exchange rate against a fresh identity from 3.0 to ' +
+      '0.02."* Three things are wrong with that. (1) `56–146×` was the spread of the ' +
+      '**superseded summing estimator**, which `enrollment-dos.node.test.ts` replaced on ' +
+      '2026-08-04 after measuring it inverting under load; the fastest-of-36 estimator in force ' +
+      'reads 102.8×, 114.0× and 106.9× across three runs, a spread an order of magnitude ' +
+      'narrower. (2) **The tax does not collapse to "about 1" under this plant, because it is ' +
+      'never computed.** Re-executed 2026-08-05: the tax case reddens at its own positive ' +
+      'control — the short-proof arm, which must be refused for `bad-proof-of-possession`, is ' +
+      'refused by the hoisted budget instead — and the run returns before `pairedRatio` is ' +
+      'called at all. So "collapses to about 1" was a prediction wearing a measurement’s ' +
+      'clothes, and it is withdrawn rather than restated. (3) The exchange rate is the half that ' +
+      '**is** observed, and its clean value is a band and not a point: nine readings across a ' +
+      'thirty-fold range of host load sit inside 2.96–3.16. Under the plant it read ' +
+      '**0.011853416149359378** on 2026-08-05 and **0.003615248196637649** on 2026-08-04 — two ' +
+      'orders of magnitude below a floor of 1.5 on both runs, which is what the entry claims; ' +
+      'the ratio between the two planted readings is host, not behaviour, and is why the floor ' +
+      'is an order of magnitude clear rather than tight.\n\n' +
+      '**The entry pins an accepted exposure, not a ' +
       'guarantee** — owner decision 2026-08-02 accepted it deliberately — so when a mitigation ' +
       'is ruled in, delete this entry and its readings rather than loosening them.',
     file: 'packages/core/src/enrollment.ts',
@@ -2042,7 +2076,716 @@ export const MUTATIONS: readonly Mutation[] = [
     signature: 'refuses an absolute or dot-prefixed path',
     signatureSource: 'test-title',
   },
+  // ═══════════════════════════════════════════════════════════════════════════════════
+  // Phase 20 — the single job path, the peer ledger, and churn. Plan 20-13, 2026-08-05.
+  // ═══════════════════════════════════════════════════════════════════════════════════
+  //
+  // Twelve plans planted defects and watched them go red. `W1`…`W5` above are plan 20-01's
+  // and were written at the time; the twenty-seven below are the rest, encoded by the
+  // phase's last plan because it is the plan that owns this file.
+  //
+  // **Every one of the twenty-seven was RE-EXECUTED on 2026-08-05, not transcribed.** Each
+  // was applied, run against its own `caughtBy` files, and restored inside a single shell
+  // invocation, with the restore compared byte-for-byte and the comparison read. All
+  // twenty-seven went red and all twenty-seven produced the signature recorded here in the
+  // run's own output. That is a stronger statement than the ledger normally makes — most
+  // entries here were measured once, by the plan that wrote them — and it is made because
+  // twelve plans of edits sat between the observation and the encoding, so a `find` string
+  // captured mid-phase had every opportunity to have stopped matching.
+  //
+  // ## What is NOT here, and why — the treatment Phase 19 used for six of its own
+  //
+  // **Plans 20-04, 20-05 and 20-06 contributed no entries at all.** Each was required to
+  // record the observed failure text of its plants and none did; all three say so in their
+  // own summaries, against their own interest. An entry invented from a plan's *intent*
+  // would satisfy `problemsWith` perfectly and prove nothing, which is the failure this
+  // whole file exists to prevent. So the plants are named and left unencoded:
+  //
+  // - 20-04's return-first-generation plant and its re-pick plant. Named by this phase's
+  //   own plan as load-bearing; no text survives.
+  // - 20-05's three plants on the re-dispatch reading.
+  // - 20-06's plants, including the one `M19`'s replacement note above points at by name —
+  //   `peers: () => running.transport.peers` in `demo/main.ts`'s `startReport` replaced by
+  //   `peers: () => []`, whose `caughtBy` would have been the three-engine
+  //   `peer-ledger.e2e.test.ts`. That note asks 20-13 to encode it. It is not encoded,
+  //   because the observed text it needs was never captured, and the note above is left
+  //   standing rather than quietly satisfied.
+  //
+  // **20-07's budget plant is omitted for a structural reason rather than a missing one.**
+  // Its recorded red — fifteen duplicates against an allowance of two — required *two*
+  // sites mutated together: the `|| ledger.remaining <= 0` term dropped from the
+  // permanent-stop check, **and** `ledger.request`'s refusal ignored twenty-seven lines
+  // below. `Mutation` encodes one site. Neither half alone was measured, and 20-07 states
+  // that `speculationSpent` stays at 2 under the plant because `SpeculationLedger.request`
+  // refuses to increment past the allowance even when its answer is ignored — so the
+  // single-site forms are, if anything, likely to stay green. Encoding one would be a guess
+  // dressed as a reading.
+  //
+  // **20-11's plants 7 and 8 are omitted for the same reason as 20-04's**: both recorded a
+  // red *count* (`Tests 2 failed | 92 passed` and `Tests 1 failed | 93 passed`) and named
+  // the cases, but neither recorded a signature string, and `problemsWith` rejects an entry
+  // without one for exactly the reason that a count is not a signature.
+  //
+  // **Plants on a spec's own fixture are named, not encoded.** 20-03's A/C/D/E/F, 20-09's
+  // A/B/C, 20-10's 1/1b/2/5, 20-11's B/C1/C2 and 20-02's plant 3 (a `tsc` reading, which
+  // `Mutation.project` admits no entry for) all mutate the measuring instrument rather than
+  // the thing measured. `S1`…`S4` are this file's only entries on test files and each
+  // rewrites one import; that is a deliberate narrow exception, not a precedent for
+  // encoding fixtures.
+  //
+  // ## The greens — plants that left a file passing, which is the more informative result
+  //
+  // - **20-02's plant 7.** The magnitude case sent `count: MAX_REPORTED_COUNT + 1`, so
+  //   raising the constant raised the probe with it and the case stayed green: it could see
+  //   the check deleted and could never see the ceiling *moved*. That matters precisely
+  //   here, because 20-02 lifted a deferral that was conditional on the bound existing. The
+  //   case was re-anchored on an absolute (`BEYOND_ANY_CEILING = 4_000_000_000`) with a
+  //   relational assertion placed **last**, and `L4` below is the entry that can now fail.
+  // - **20-09's plant E, and it is still open.** `submit-with-egress.ts`'s `job: result.job`
+  //   replaced by a rebuild that drops `speculationMultiplier` — the shape a wrapper
+  //   naturally takes. `npx tsc --noEmit` exit **0**, no test in the tree failed, and the
+  //   only thing that moved was the published artifact: `bin/bench.ts --quick` still exited
+  //   0 while the `spec. tax` column went from `1.00×` to an em dash on every rung, because
+  //   `report.ts` renders a non-finite ratio as "unmeasured". **The wrapper's pass-through
+  //   is guarded by a printed table and by nothing executable.** No entry, because no test
+  //   produced a signature; recorded because the absence is the finding.
+  // - **20-10's plant 2.** The requestor's drop-poll deleted while the owner's process is
+  //   still stopped: green, exit 0, the identical `covered: 2/3 owners`. What carries that
+  //   reading is not the poll — a dead process closes its connection on exit and answers no
+  //   provider query — so the poll is a precondition, not the instrument. `O1` and `O6`
+  //   below are what actually hold the denominator.
+  // - **20-11's plant C2.** A carried shard made to report its `inputCid` instead of its
+  //   `resultCid`: **green** against `checkpoint-agents.node.test.ts` and red against
+  //   `submit.test.ts`. The process fixture runs `MODULE_ECHOES_INPUT`, the identity
+  //   function, so on that fabric a shard's result CID *equals* its input CID and the
+  //   corruption is invisible. Two files, one mutation, opposite verdicts — and the reason
+  //   is the fixture's module, not the file's rigour.
+  {
+    id: 'L1',
+    why:
+      'BROW-02, and the half that is easy to build and easy to leave out. `serveAgent` records ' +
+      'only what a **peer** told it, so a node’s own start outcome never enters its own ' +
+      'serve-side ledger. With two tabs A and B that is not a small gap: A publishes to B, B ' +
+      'publishes to A, and when A then asks B it is handed back **its own row** — ' +
+      '`mergeOverlapping` takes the maximum per `(browser, result)` key, so A’s merged report ' +
+      'reads 1 forever, however many tabs are open. Recording the node’s own row at ' +
+      'construction is the whole of the fix and it is one line. Deleting it leaves every symbol ' +
+      'in place, the hook still supplied, a real `StartOutcomeLedger` still built — and the ' +
+      'merged panel can never carry a family the reading tab is not, which is the only reading ' +
+      'criterion 5 accepts.',
+    file: 'packages/node/src/fabric-node.ts',
+    find: "  if (outcome !== 'reports-no-start-outcome') held.record(outcome)\n",
+    replace: '  void outcome\n',
+    caughtBy: ['packages/node/src/serve-agent-hooks.node.test.ts'],
+    // Re-executed 2026-08-05: 2 failed. The second was the cross-tier equality,
+    // `expected [ …(14) ] to deeply equal [ …(14) ]`, which is width-dependent and is
+    // therefore not the signature. 20-02 observed the same pair.
+    signature: 'expected +0 to be 1 // Object.is equality',
+    signatureSource: 'rendered-at-runtime',
+  },
+  {
+    id: 'L2',
+    why:
+      'The hook itself, reverted to the named opt-out — the state every production node was in ' +
+      'until Plan 20-02. It is a separate entry from `L1` because it fails one step earlier and ' +
+      'for a different reason: `L1` is a ledger that is built and never written to, this is a ' +
+      'ledger that is never handed over. Both leave the report branch answering with something ' +
+      'no peer contributed to, and a reader who fixed one would have no reason to look for the ' +
+      'other. `demo/index.html`’s `refreshReport` deferred the serve-side ledger behind the ' +
+      'magnitude bound and the label whitelist, both of which landed; this line is what spends ' +
+      'that deferral, so putting the sentinel back un-spends it silently.',
+    file: 'packages/node/src/fabric-node.ts',
+    find: '      ledger: startLedger,',
+    replace: "      ledger: 'keeps-no-ledger',",
+    caughtBy: ['packages/node/src/serve-agent-hooks.node.test.ts'],
+    signature: 'expected 1 to be +0 // Object.is equality',
+    signatureSource: 'rendered-at-runtime',
+  },
+  {
+    id: 'L3',
+    why:
+      'BROW-02 at the wire. The two entries above are structural counts over a source file; this ' +
+      'is the behaviour they exist to protect, and it is the only one of the three that a peer ' +
+      'could observe. The report branch answering `counts: []` is what shipped for two ' +
+      'milestones — every node opted out of the ledger, so the branch was correct about an empty ' +
+      'one — and the edit that restores it looks like a simplification of a nullish chain rather ' +
+      'than a removal of a feature. What it costs is that `publishStartOutcome` merges nothing, ' +
+      'so every merged panel in the fabric holds only rows the reading node produced itself.',
+    file: 'packages/net/src/agent.ts',
+    find:
+      "      response = { kind: 'report', counts: ledger?.counts() ?? [], declined: ledger?.declined ?? 0 }",
+    replace: "      response = { kind: 'report', counts: [], declined: ledger?.declined ?? 0 }",
+    caughtBy: ['packages/net/src/start-report.test.ts'],
+    // Re-executed 2026-08-05: 7 failed. The signature is the load-bearing one — a family
+    // the asking node has no expression to produce.
+    signature: "expected [ 'chromium 141' ] to include 'firefox 130'",
+    signatureSource: 'rendered-at-runtime',
+  },
+  {
+    id: 'L4',
+    why:
+      'The magnitude bound the demo’s deferral was conditional on. `demo/index.html` deferred ' +
+      'publishing per-peer start outcomes *"behind the magnitude bound and the label ' +
+      'whitelist"*, because a per-peer count is the fingerprint `start-outcome.ts`’s disclosure ' +
+      'promise exists to prevent. Both landed and the deferral was spent — so a **raise** of ' +
+      'this constant re-opens the surface without deleting anything, and reads as a tuning ' +
+      'decision. This is the entry the green recorded above was rewritten to make possible: the ' +
+      'case that used to hold this bound probed at `MAX_REPORTED_COUNT + 1`, so raising the ' +
+      'constant raised the probe and the case could not see it move.',
+    file: 'packages/net/src/protocol.ts',
+    find: 'export const MAX_REPORTED_COUNT = 65_536',
+    replace: 'export const MAX_REPORTED_COUNT = 8_000_000_000',
+    caughtBy: ['packages/net/src/start-report.test.ts'],
+    // The right-hand side alone, on `E2`'s precedent: the observed line was
+    // `expected [ 'safari 18', 'firefox 130', …(1) ] to not include 'safari 18'`, and the
+    // left half is vitest's width-dependent truncation.
+    signature: "to not include 'safari 18'",
+    signatureSource: 'rendered-at-runtime',
+  },
+  {
+    id: 'L5',
+    why:
+      'The other half of the same deferral — the label whitelist. `BROWSER_LABEL` is what keeps ' +
+      'a reported label a coarse family and major version rather than a full user-agent string, ' +
+      'and a full UA string published per peer across the fabric is precisely the fingerprint ' +
+      'the disclosure promise forbids. Weakening the predicate to a bare `typeof value === ' +
+      "'string'` is the shape a *“be liberal in what you accept”* edit leaves behind, and it is " +
+      'invisible to any reading that only sends well-formed labels. Its own entry rather than ' +
+      '`L4`’s, because the two bounds fail independently and a fix to one has never implied a ' +
+      'fix to the other.',
+    file: 'packages/core/src/start-outcome.ts',
+    find: "  return typeof value === 'string' && BROWSER_LABEL.test(value)",
+    replace: "  return typeof value === 'string'",
+    caughtBy: ['packages/net/src/start-report.test.ts'],
+    signature: "to not include 'Mozilla/5.0 (X11; Linux x86_64) Apple",
+    signatureSource: 'rendered-at-runtime',
+  },
+  {
+    id: 'R1',
+    why:
+      'MR-04/MR-07 — criterion 6’s entire mechanism, and it is one line that does nothing. ' +
+      '`tree-reduce-agents.node.test.ts` recorded that *"`executeReduce` has no late-arrival ' +
+      'channel"*, which is true of `executeReduce` and **false of the endpoint underneath it**: ' +
+      'a reply whose pending entry the timeout already deleted is received, decoded, and dropped ' +
+      'here. Phase 16 could not exercise it because it had no way to produce a genuine late ' +
+      'arrival; 20-03 produced one by SIGSTOPping the process holding rank 0 of a combine’s ' +
+      'ranking and resuming it after the requestor had walked on. Throwing instead of returning ' +
+      'is the right plant because `#receive` is subscribed as `void this.#receive(...)`, so the ' +
+      'throw has no caller left and becomes an unhandled rejection — **it therefore reddens only ' +
+      'if the frame actually arrived**, which proves the channel and the discard in one reading. ' +
+      'A plant that made the line drop the frame more loudly would have proved only the discard.',
+    file: 'packages/net/src/rpc.ts',
+    find: '      if (entry === undefined) return // late or duplicate reply',
+    replace: "      if (entry === undefined) throw new Error('late reply')",
+    caughtBy: ['packages/node/src/late-combine.node.test.ts'],
+    signature: "expected [ 'Error: late reply' ] to deeply equal []",
+    signatureSource: 'rendered-at-runtime',
+  },
+  {
+    id: 'D1',
+    why:
+      'CHURN-02 — that duplication happens at all, which is the entry to check first if any of ' +
+      'the two below are ever weakened, on `W1`’s logic: a duplicate that never starts satisfies ' +
+      'every assertion about what a duplicate may do. Truncating the straggler set at the call ' +
+      'site leaves `stragglers`, `speculativeCandidates`, the ledger and the whole watchdog in ' +
+      'place and running. **The plant found a weak case before the recorded reading was taken.** ' +
+      'On its first run *"takes the first answer, and it is the copy’s own bytes"* stayed GREEN, ' +
+      'because with duplication suppressed the holder’s lease simply lapses and the generation ' +
+      'loop re-dispatches onto the same node, which answers the same bytes — every assertion in ' +
+      'that case was satisfied by the slower road. It now also asserts `speculated` and ' +
+      '`generations`, which is what says a **race** decided it rather than a timeout.',
+    file: 'packages/core/src/job/submit.ts',
+    find: '          const slow = stragglers(',
+    replace: '          const slow: never[] = []\n          void stragglers(',
+    caughtBy: ['packages/core/src/job/submit.test.ts'],
+    // Re-executed 2026-08-05: 8 failed, 89 passed. Rendered on that run:
+    // `expected [ 'n00#0', 'n01#1', 'n02#2', …(7) ] to have a length of 11 but got 10`.
+    signature:
+      'duplicates a shard that has fallen behind its peers, onto a node the placement did not choose',
+    signatureSource: 'test-title',
+  },
+  {
+    id: 'D2',
+    why:
+      'CHURN-01/CHURN-02 — **the load-bearing plant of the whole speculation build**, and it is ' +
+      'the defect the deleted `coordinator.ts` actually shipped: break out of the race on first ' +
+      'arrival and drop the copies still in flight. A job that does that is not wrong about its ' +
+      'answer and is wrong about everything else. A losing copy that agrees is never recorded as ' +
+      'having agreed; a losing copy that **disagrees** vanishes, so redundant execution silently ' +
+      'becomes majority-vote-by-race with a sample of one; and a copy that answers with a ' +
+      'failure accrues no failure anywhere, so a peer that reliably fails just after losing a ' +
+      'race is never accounted for. Emptying `outstanding` is the smallest expression of it and ' +
+      'leaves every field, every type and every timer intact.',
+    file: 'packages/core/src/job/submit.ts',
+    find:
+      '          outstanding: [...copies.values()].map((copy) => ({\n' +
+      '            nodeIds: copy.nodeIds,\n' +
+      '            pending: copy.pending,\n' +
+      '          })),',
+    replace: '          outstanding: [],',
+    caughtBy: ['packages/core/src/job/submit.test.ts'],
+    // Re-executed 2026-08-05: 5 failed, 92 passed. Rendered on the signature case:
+    // `expected [] to strictly equal [ { nodeIds: [ 'n01' ], …(1) } ]` — the same text
+    // 20-07 observed. The disagreement case reddens beside it, which is what says
+    // `disagreed` is reachable through a lost copy at all.
+    signature: 'reads a losing copy that agrees, and records it as compared rather than as absent',
+    signatureSource: 'test-title',
+  },
+  {
+    id: 'D3',
+    why:
+      'CHURN-06 — a sovereign shard’s duplicate may only land on its owner’s own nodes, planted ' +
+      'at the level where it can actually fail. Handing `speculativeCandidates` a **wider pool** ' +
+      'cannot fail, for the reason `W3` records: it calls `eligibleNodes` on whatever it is ' +
+      'given, so widening a gate’s *input* cannot widen its output. Bypassing the call ' +
+      'altogether is a different mutation and it is the one a re-dispatch written for liveness ' +
+      'alone would naturally contain — take any untried node in the pool. Carol’s shard, whose ' +
+      'owner has one node and no spare, then acquires a duplicate on a foreign owner’s node. The ' +
+      'breach is named by the field rather than inferred from a reason string, which is what ' +
+      'makes it a reading.',
+    file: 'packages/core/src/job/submit.ts',
+    find:
+      '        const candidates = speculativeCandidates(\n' +
+      '          speculation.request,\n' +
+      '          speculation.pool,\n' +
+      '          speculation.attempted,\n' +
+      '        )',
+    replace:
+      '        const candidates = speculation.pool.filter(\n' +
+      '          (node) => !speculation.attempted.includes(node.nodeId),\n' +
+      '        )',
+    caughtBy: ['packages/core/src/job/submit.test.ts'],
+    // Re-executed 2026-08-05: exactly 1 failed, 96 passed. Rendered:
+    // `expected true to be false // Object.is equality` at `expect(carols.speculated)`.
+    signature: 'scopes a sovereign duplicate to its owner, and starts none where the owner has no spare',
+    signatureSource: 'test-title',
+  },
+  {
+    id: 'X1',
+    why:
+      'CHURN-02’s cost accounting, at the place it is published. `Observation.speculationMultiplier` ' +
+      'was the literal `1` at this site for two milestones, with a comment saying why, and ' +
+      '`harness.ts` averaged that literal into a `spec. tax` column that `report.ts` printed on ' +
+      'every rung of every published sweep. A constant printed as a measurement is worse than a ' +
+      'missing column, and the reversion replaces one expression with a literal, leaving the ' +
+      'column present and plausible. **Measured against the rest of the tree first**: with both reads reverted, ' +
+      '`bench-reduce`, `bench-egress`, `harness.test.ts` and `serve-agent-hooks` ran 66 tests ' +
+      'green — nothing anywhere noticed — which is why the guard this entry names had to be ' +
+      'written before the reads could be trusted.',
+    file: 'packages/node/src/bin/bench.ts',
+    find: '      speculationMultiplier: result.ok ? result.job.speculationMultiplier : 0,',
+    replace: '      speculationMultiplier: 1,',
+    caughtBy: ['packages/node/src/speculation-agents.node.test.ts'],
+    // Re-executed 2026-08-05 as a SINGLE-site plant: 1 failed, 5 passed,
+    // `expected [ Array(1) ] to deeply equal []`. 20-09 reverted both reads at once and
+    // observed both requirement sentences in one diff; the pair is `B1`/`B2`'s shape.
+    signature: 'the speculation multiplier is read from the job',
+    signatureSource: 'test-title',
+  },
+  {
+    id: 'X2',
+    why:
+      'CHURN-01’s figure at the same site, and a separate entry for `B1`/`B2`’s reason: the ' +
+      'guard that catches both reads a list of requirements over the whole file, so a single ' +
+      'entry would be satisfied by an instrument that only ever sees one of the two. This pair ' +
+      'proves it sees either. `redispatches` is the more dangerous of the two to leave written ' +
+      'down, because `churn/task` is the column a reader consults to decide whether churn cost ' +
+      'anything — a hardcoded `0` answers "no" for every fabric ever measured.',
+    file: 'packages/node/src/bin/bench.ts',
+    find: '      redispatches: result.ok ? result.job.redispatches : 0,',
+    replace: '      redispatches: 0,',
+    caughtBy: ['packages/node/src/speculation-agents.node.test.ts'],
+    signature: 'the re-dispatch count is read from the job',
+    signatureSource: 'test-title',
+  },
+  {
+    id: 'O1',
+    why:
+      'CHURN-05 — **the per-owner gate**, and the argument for it is the deleted `coordinator.ts`’s ' +
+      'own, reproduced at the site because this is now the clearest statement of the rule in the ' +
+      'tree. An owner counts as covered when its shards *all* landed, never on its first. The ' +
+      'one-shard rule is the obvious reading of "did this owner contribute", it is right whenever ' +
+      'every owner owes one shard, and it is wrong exactly when coverage matters: an owner who ' +
+      'delivered one of four reads as fully covered and a reader is told the aggregate rests on ' +
+      'evidence it does not have. Two `caughtBy` files rather than one, because 20-08 planted it ' +
+      'against the kernel and 20-10 planted the identical mutation across spawned `bin/agent.ts` ' +
+      'processes — and there the **partial-owner arm alone** carries it: the 3/3 control and the ' +
+      'stopped-owner arm both stay green, because a stopped owner delivers nothing and lands in ' +
+      '`missing` under the shipped rule *and* under the wrong one.',
+    file: 'packages/core/src/job/submit.ts',
+    find: '            .filter(([owner, owed]) => (doneByOwner.get(owner) ?? 0) >= owed)',
+    replace: '            .filter(([owner]) => (doneByOwner.get(owner) ?? 0) >= 1)',
+    caughtBy: [
+      'packages/core/src/job/submit.test.ts',
+      'packages/node/src/coverage-agents.node.test.ts',
+    ],
+    // Re-executed 2026-08-05 against BOTH files in one run: 3 failed. Rendered —
+    // `expected [] to strictly equal [ 'alice' ]` in the kernel, and `expected 2 to be 1`
+    // across processes, at `expect(thin.covered).toBe(1)`.
+    signature: 'refuses to count an owner who delivered one shard of four — the per-owner gate',
+    signatureSource: 'test-title',
+  },
+  {
+    id: 'O2',
+    why:
+      'CHURN-05, and the trap 20-CONTEXT.md predicted would be got wrong. `coverageOf`’s own ' +
+      'comment says *"An empty job is not a complete one — 0 of 0 owners answers nothing"*, so a ' +
+      'bare `CoverageReport` for a job with no owners has `complete: false` and ' +
+      '`describeCoverage` renders `covered: 0/0 owners — PARTIAL (no owners were expected)`. ' +
+      '**Every public job in this repository defines no owners**, so shipping the bare report ' +
+      'would have printed that sentence on every rung of every benchmark sweep. The named union ' +
+      'is what lets a public job say what it is instead of failing a test it was never entered ' +
+      'for, and this plant is what keeps the union load-bearing rather than decorative. The ' +
+      'rendering half was measured separately and is quoted at `O7`, because the run above ' +
+      'short-circuits at the union assertion and never reaches it.',
+    file: 'packages/core/src/job/submit.ts',
+    find: "      ? 'defines-no-owners'",
+    replace: '      ? coverageOf([], [])',
+    caughtBy: ['packages/core/src/job/submit.test.ts'],
+    // Re-executed 2026-08-05: 1 failed, 96 passed. Rendered: `expected { covered: +0,
+    // total: +0, …(3) } to be 'defines-no-owners'`.
+    signature:
+      'says by name that a public job defines no owners, and never renders it as a partial anything',
+    signatureSource: 'test-title',
+  },
+  {
+    id: 'O3',
+    why:
+      'Coverage and completeness are different questions, and the collapse is a one-line ' +
+      '"simplification" that reads as tidying. `complete` asks whether every shard reached ' +
+      'agreement at its redundancy with no copy disagreeing; coverage asks how many owners ' +
+      'contributed. Deriving one from the other makes a job with a disagreeing public shard ' +
+      'report complete, and a degraded-but-agreed shard likewise, because neither moves an ' +
+      'owner out of the covered set. **What this entry also records is that the plan predicted ' +
+      'the wrong case.** 20-08 named the disagreeing-shard case (public, no owners) as the one ' +
+      'that must redden; a public job takes the sentinel arm, so its `complete` is unchanged and ' +
+      'it stays green. What reddens is the cases with owners **and** a non-coverage reason to be ' +
+      'incomplete — including a pre-existing Phase 19 case, which means the tree already held an ' +
+      'independent guard against this collapse.',
+    file: 'packages/core/src/job/submit.ts',
+    find:
+      '      complete: shards.every(\n' +
+      "        (s) => s.verification.status === 'agreed' && !s.degraded && !s.disagreed,\n" +
+      '      ),',
+    replace: "      complete: coverage === 'defines-no-owners' ? true : coverage.complete,",
+    caughtBy: ['packages/core/src/job/submit.test.ts'],
+    // Re-executed 2026-08-05: 8 failed, 89 passed — the three 20-08 recorded plus five
+    // more that have accrued since. Rendered: `expected true to be false`.
+    signature: 'counts an owner whose shard agreed at REDUCED redundancy — the degraded decision, stated',
+    signatureSource: 'test-title',
+  },
+  {
+    id: 'O4',
+    why:
+      'The owner set comes from the job’s own **shards**, never from the owners of its nodes — ' +
+      'the decision that let this phase avoid adding a required `JobSpec` field, and therefore ' +
+      'the decision most worth pinning. A shard is defined for an owner whether or not that ' +
+      'owner has a node up, so an owner with an unplaceable shard is still *expected* and ' +
+      'correctly lands in `missing`. Deriving the set from the candidate pool inverts that in ' +
+      'both directions at once: an owner whose nodes are all offline drops out of the ' +
+      'denominator, so the job reports full coverage of a set it quietly shrank, and an owner ' +
+      'with a node but no shard is added to it, sending somebody to find a node that was there ' +
+      'all along.',
+    file: 'packages/core/src/job/submit.ts',
+    find: '          [...owedByOwner.keys()],',
+    replace: '          [...new Set(candidateNodes.map((node) => node.ownerId))],',
+    caughtBy: ['packages/core/src/job/submit.test.ts'],
+    // Re-executed 2026-08-05: 4 failed, 93 passed. Rendered on the anti-vacuity reading:
+    // `expected 2 to be 1` — a node-derived set reports two owners where the job defines
+    // one. `expected [] to strictly equal [ 'carol' ]` on the disappearing owner.
+    signature: 'derives the owner set from the job’s own shards, never from the owners of its nodes',
+    signatureSource: 'test-title',
+  },
+  {
+    id: 'O5',
+    why:
+      'The clause that makes coverage read the *late* comparison rather than the dispatch. A ' +
+      'shard whose winner agreed and whose losing copy then hashed differently has not landed ' +
+      'for its owner — a disagreement is a failed run, not a run with a footnote — and dropping ' +
+      'the clause counts it. It is worth its own entry because the clause has no other reader: ' +
+      'it was added with speculation, and until the case named below existed **nothing in the ' +
+      'tree held it at all**. Reaching a late disagreement takes the only shape that can produce ' +
+      'one — ten sovereign shards, nine finishing at once so the median clears `MIN_SAMPLES`, ' +
+      'and the tenth held until its duplicate, which lies, has been dispatched.',
+    file: 'packages/core/src/job/submit.ts',
+    find: "  return shard.verification.status === 'agreed' && !shard.disagreed",
+    replace: "  return shard.verification.status === 'agreed'",
+    caughtBy: ['packages/core/src/job/submit.test.ts'],
+    // Re-executed 2026-08-05: exactly 1 failed, 96 passed.
+    // Rendered: `expected 1 to be +0 // Object.is equality`.
+    signature: 'does not count a shard whose losing copy answered DIFFERENTLY, however well it agreed',
+    signatureSource: 'test-title',
+  },
+  {
+    id: 'O6',
+    why:
+      'The named sentinel must not leak onto a job that **does** define owners, which is the ' +
+      'inverse of `O2` and fails in the direction nobody watches. `O2` catches a public job ' +
+      'rendered as a partial; this catches a four-shard, three-owner sovereign job answering ' +
+      '"this job defines no owners" — a coverage report replaced by a confident denial that ' +
+      'there was anything to cover. Widening the emptiness test by one character is the whole ' +
+      'mutation. Caught across real spawned `bin/agent.ts` processes rather than in the kernel, ' +
+      'because the reading that matters is the one an operator sees.',
+    file: 'packages/core/src/job/submit.ts',
+    find: '    owedByOwner.size === 0',
+    replace: '    owedByOwner.size >= 0',
+    caughtBy: ['packages/node/src/coverage-agents.node.test.ts'],
+    // Re-executed 2026-08-05: 1 failed, 1 passed. The signature is the thrown Error's own
+    // text, which is a string literal in the catching file, so this is the checkable arm.
+    signature: 'this job reported the no-owners sentinel; it defines four sovereign shards across ',
+    signatureSource: 'test-title',
+  },
+  {
+    id: 'O7',
+    why:
+      'The display site, and the half of `O2` that a type cannot hold. The union forces every ' +
+      'renderer to decide what a job with no owners says; **`npx tsc --noEmit` exits 0 with this ' +
+      'plant applied**, because rendering a report the caller built by hand is perfectly ' +
+      'well-typed. So the guarantee is behavioural, not structural, and this is the entry that ' +
+      'makes it a reading. The line’s own comment says *"deleting this line does not fail to ' +
+      'compile; it changes what five rungs print"*, and what it prints is quoted in the ' +
+      'signature: the sentence every published benchmark sweep in this repository would have ' +
+      'started carrying. That is an observation off the driver’s own stdout, not a prediction.',
+    file: 'packages/node/src/bin/bench.ts',
+    find: "  if (coverage === 'defines-no-owners') return null",
+    replace:
+      "  if (coverage === 'defines-no-owners')\n" +
+      '    return describeCoverage({ covered: 0, total: 0, complete: false, missing: [], unexpected: [] })',
+    caughtBy: ['packages/node/src/coverage-agents.node.test.ts'],
+    // Re-executed 2026-08-05: 1 failed, 1 passed. Rendered:
+    // `expected 'o2 benchmark — quick run, 6 iteration…' not to match
+    // /covered: \d+\/\d+ owners/`, with the sentence below on every rung of the stdout.
+    signature: 'covered: 0/0 owners — PARTIAL (no owners were expected)',
+    signatureSource: 'test-title',
+  },
+  {
+    id: 'K1',
+    why:
+      'CHURN-03 — the whole of what a resume is for. A second requestor handed nothing but a ' +
+      'CID must dispatch **only** the shards the checkpoint does not name; ignoring what it ' +
+      'carried leaves a resume that is correct in its answer, complete in its report, and pays ' +
+      'for the entire job twice. That is the failure a caller cannot see from the outside, which ' +
+      'is why the reading is a dispatch count and not a result comparison. Two `caughtBy` files ' +
+      'because the same mutation was planted against the kernel and against three spawned ' +
+      '`bin/agent.ts` processes: in the kernel eight dispatches arrive where four are owed, and ' +
+      'across processes the per-partition totals for the carried shards go from 2 to 4.',
+    file: 'packages/core/src/job/submit.ts',
+    find: '  const carried = resumed.carried',
+    replace: '  const carried = new Map<number, CarriedShard>()',
+    caughtBy: [
+      'packages/core/src/job/submit.test.ts',
+      'packages/node/src/checkpoint-agents.node.test.ts',
+    ],
+    // Re-executed 2026-08-05 against both: 6 failed. Rendered in the kernel,
+    // `expected [ +0, 1, 2, 3, 4, 5, 6, 7 ] to deeply equal [ 4, 5, 6, 7 ]`.
+    signature: 'resumes from a CID and dispatches ONLY the shards the checkpoint does not name',
+    signatureSource: 'test-title',
+  },
+  {
+    id: 'K2',
+    why:
+      'Recovery is the point of the handle **list**, not a fallback on it. A requestor departs ' +
+      'having published several handles and the newest block is the one most likely to be ' +
+      'missing, because it is the one that had least time to propagate. Reading only the newest ' +
+      'turns a job that could have resumed at some cost in re-run work into a job that refuses ' +
+      'outright — correctness preserved, liveness thrown away, and the refusal is by name so it ' +
+      'reads like a designed behaviour. `recoverCheckpoint` also reports **how many** it had to ' +
+      'skip, which is the number that says what the recovery cost; a single read cannot report ' +
+      'it at all.',
+    file: 'packages/core/src/job/submit.ts',
+    find: '  const recovered = await recoverCheckpoint(handles, blockstore)',
+    replace:
+      '  const newestOnly = await readCheckpoint(handles[0] as CID, blockstore)\n' +
+      '  const recovered = newestOnly.ok\n' +
+      '    ? { checkpoint: newestOnly.checkpoint, cid: handles[0] as CID, skipped: 0 }\n' +
+      '    : null',
+    caughtBy: ['packages/core/src/job/submit.test.ts'],
+    // Re-executed 2026-08-05: exactly 1 failed, 96 passed. Rendered:
+    // `expected false to be true` — `resumed.ok` is false, the resume refuses rather than
+    // falling back, exactly as 20-11 predicted.
+    signature:
+      'recovers to an OLDER handle when the newest checkpoint block is lost, at the cost of work and not of correctness',
+    signatureSource: 'test-title',
+  },
+  {
+    id: 'K3',
+    why:
+      'A checkpoint **names** results and never carries them, which is what makes it a handle ' +
+      'rather than a copy of the job. Appending the answer to the recorded CID is the shape a ' +
+      '"save a round trip" optimisation takes, and it is invisible to every correctness ' +
+      'assertion — the resume still works, the shards still match, and the only thing that moves ' +
+      'is a block size. **Measured, and the numbers are what the property is worth**: 1 176 ' +
+      'bytes becomes 65 120. The reading is comparative by construction — two jobs over the same ' +
+      'inputs, hence the same derived job id, whose answers differ by an order of magnitude, ' +
+      'with `at` frozen so the blocks are byte-comparable — so no absolute threshold encodes the ' +
+      'host it was taken on.',
+    file: 'packages/core/src/job/submit.ts',
+    find: '          resultCid: settled.resultCid.toString(),',
+    replace: '          resultCid: settled.resultCid.toString() + JSON.stringify(settled.output),',
+    caughtBy: ['packages/core/src/job/submit.test.ts'],
+    // Re-executed 2026-08-05: 6 failed, 91 passed. 20-11 recorded
+    // `expected 65120 to be 1176` on the size-independence case.
+    signature: 'names results rather than carrying them — the block is the same size whatever the answers weigh',
+    signatureSource: 'test-title',
+  },
+  {
+    id: 'K4',
+    why:
+      'The one check that makes a checkpoint a statement about **this** job. `jobIdOf` derives ' +
+      'the id from the module and the input CIDs, so two jobs can differ while their checkpoints ' +
+      'agree on partition count and shape — and a checkpoint from another job then reads as a ' +
+      'set of partitions this job may skip. The result is a job that returns answers it never ' +
+      'computed, from inputs it never saw, reporting `complete`. Disabling the comparison is a ' +
+      'two-character edit and every other validation in `readCheckpoint` still runs, which is what ' +
+      'makes it look safe.',
+    file: 'packages/core/src/job/submit.ts',
+    find: '  if (recovered.checkpoint.jobId !== jobId) {',
+    replace: '  if (false as boolean) {',
+    caughtBy: ['packages/core/src/job/submit.test.ts'],
+    // Re-executed 2026-08-05: exactly 1 failed, 96 passed.
+    // Rendered: `expected true to be false // Object.is equality`.
+    signature: 'refuses a valid checkpoint that belongs to ANOTHER job',
+    signatureSource: 'test-title',
+  },
+  {
+    id: 'K5',
+    why:
+      'A checkpoint names a result **and the block has to still be there**. The two are ' +
+      'different facts and this line is the whole of what keeps them together: a handle that ' +
+      'survives while the block it names is evicted is the ordinary case, not the exotic one, ' +
+      'because a browser tier evicts IndexedDB silently under storage pressure. Carrying the ' +
+      'shard anyway hands the caller an answer nobody holds — a CID that resolves to nothing, ' +
+      'reported as a completed partition. Re-running it is the only correct response and it is ' +
+      'one `continue`.',
+    file: 'packages/core/src/job/submit.ts',
+    find: '    if (bytes === undefined) continue',
+    replace:
+      '    if (bytes === undefined) {\n' +
+      '      carried.set(shard.partitionIndex, { resultCid, output: null })\n' +
+      '      continue\n' +
+      '    }',
+    caughtBy: ['packages/core/src/job/submit.test.ts'],
+    // Re-executed 2026-08-05: exactly 1 failed, 96 passed.
+    // Rendered: `expected [] to deeply equal [ +0 ]` — the partition that should have run.
+    signature: 're-runs a shard whose named result block is gone',
+    signatureSource: 'test-title',
+  },
+  {
+    id: 'K6',
+    why:
+      'The write chain, and why the checkpoints form a chain at all. Each record names its ' +
+      'predecessor, so `checkpointChain` can walk a departed requestor’s history back through ' +
+      'the hand-off. Run the bodies immediately instead of through the promise chain and the ' +
+      'chain **forks**: every shard reads `previous` before any of them has written, so eight ' +
+      'checkpoints all claim `previous: null` and the history becomes eight unrelated leaves. ' +
+      'Nothing throws, every block is well formed, and the corruption is only visible to a ' +
+      'reader that walks the links. It is also the edit a reviewer would call an obvious ' +
+      'de-serialisation win, because the writes really are independent — of each other, and not ' +
+      'of the variable they share.',
+    file: 'packages/core/src/job/submit.ts',
+    find: '      chain = chain.then(async (): Promise<void> => {',
+    replace: '      chain = (async (): Promise<void> => {',
+    caughtBy: ['packages/core/src/job/submit.test.ts'],
+    // Re-executed 2026-08-05: 8 failed, 89 passed. 20-11 recorded
+    // `expected null to be 'bafyreiccjatizolyxoysdzey3tsnhyd2yamb…'` on the link.
+    signature:
+      'writes one checkpoint per shard that answers, and none at all for a caller that named no sink',
+    signatureSource: 'test-title',
+  },
+  {
+    id: 'K7',
+    why:
+      'A refusal has to name **which** failure, and this is the branch that can tell them apart. ' +
+      '`recoverCheckpoint` reports how many handles it skipped and not why each failed, so the ' +
+      'newest is read once more purely to produce a nameable reason — one extra lookup on a path ' +
+      'that is already returning an error. Collapsing it to a constant `block-missing` is the ' +
+      'obvious removal of that "redundant" read, and it turns a malformed block, a block naming ' +
+      'a partition outside the job, and a block that is genuinely absent into one answer. A ' +
+      'caller that would retry on absence and give up on corruption can no longer tell which it ' +
+      'has. Caught across real spawned processes, which is where a caller actually faces the ' +
+      'distinction.',
+    file: 'packages/core/src/job/submit.ts',
+    find:
+      '        failure: newest.ok\n' +
+      "          ? { kind: 'block-missing', cid: (handles[0] as CID).toString() }\n" +
+      '          : newest.failure,',
+    replace: "        failure: { kind: 'block-missing', cid: (handles[0] as CID).toString() },",
+    caughtBy: ['packages/node/src/checkpoint-agents.node.test.ts'],
+    // Re-executed 2026-08-05: 1 failed (the file's one case). The rendered arm rather than
+    // a title, on `M40`'s logic: this file's single `it` carries dozens of assertions
+    // across three spawned agents, so a title-keyed signature would accept a red produced
+    // by any of them, including one produced by load.
+    signature: "expected 'block-missing' to be 'malformed'",
+    signatureSource: 'rendered-at-runtime',
+  },
+  {
+    id: 'J1',
+    why:
+      'CHURN-02’s floor, pinned through the **composition** rather than through the unit. ' +
+      '`stragglers` compares against a median, so with too few completions there is nothing to ' +
+      'compare against and a duplicate would be started on no evidence at all — which is a ' +
+      'timeout wearing a race’s clothes, the same error `W5` guards one function over. The unit ' +
+      'case in `speculation.test.ts` has held the floor since Phase 7; what this adds is that ' +
+      '`submitJob` **feeds it a real `completed` list and omits `minSamples`**, so the default ' +
+      'is the one in force on the production path. Both files redden under one plant and they ' +
+      'are named together here so nobody reads the pair as two independent readings: they share ' +
+      'a mechanism, and only the composition is new.',
+    file: 'packages/core/src/speculation.ts',
+    find: '  if (options.completed.length < minSamples) return []',
+    replace: '  if (false && options.completed.length < minSamples) return []',
+    caughtBy: ['packages/core/src/job/submit.test.ts', 'packages/core/src/speculation.test.ts'],
+    // Re-executed 2026-08-05: 2 files failed, 1 case each.
+    // Rendered on the composition case: `expected 1 to be +0 // Object.is equality`.
+    signature:
+      'duplicates nothing until MIN_SAMPLES shards have finished — one fixture, two arms differing only in how many did',
+    signatureSource: 'test-title',
+  },
+  {
+    id: 'J2',
+    why:
+      'WIRE-04 itself — *"the fabric has exactly one job entry point"* — planted at the barrel ' +
+      'and not against a helper, because a guard proved only against its own helper proves a ' +
+      'helper. **This is the requirement nothing held for thirteen phases**: a complete second ' +
+      'job implementation, `runResilient`, sat exported beside `submitJob` with the whole suite ' +
+      'green, and the requirement’s own wording — *"without the caller choosing between two ' +
+      'functions"* — makes a barrel export that lets a caller bypass `submitJob` the failure ' +
+      'mode rather than a side effect of it. Re-adding an alias is the cheapest possible ' +
+      'regression and the likeliest: it is what a deprecation shim looks like.',
+    file: 'packages/core/src/index.ts',
+    find: "export { submitJob } from './job/submit.ts'",
+    replace:
+      "export { submitJob } from './job/submit.ts'\n" +
+      "export { submitJob as runResilient } from './job/submit.ts'",
+    caughtBy: ['packages/core/src/job/submit.test.ts'],
+    // Re-executed 2026-08-05: exactly 1 failed, 96 passed. Rendered:
+    // `expected [ 'executeReduce', …(5) ] to strictly equal [ 'executeReduce', …(4) ]`,
+    // with `+ "runResilient"` in the printed diff.
+    signature: 'exports submitJob and no second job runner beside it',
+    signatureSource: 'test-title',
+  },
 ]
+
+/**
+ * How many entries declare a signature the cheap layer can check — **derived, never
+ * transcribed.**
+ *
+ * This constant exists because the sentence it replaces expired three times in one file.
+ * The header above read *"26 of the 40"*, then *"48 of the 72"* — already stale by eight
+ * when it was written — then *"60 of the 82"*, which was stale by three the day after. Each
+ * time the paragraph warning that a transcribed count expires was itself the paragraph that
+ * had expired. The file's own diagnosis was that *"the right fix is a derived count, not a
+ * third transcription"*, and this is that fix: prose now names these symbols, and
+ * `mutation-guard.node.test.ts` reads them instead of a number somebody typed.
+ */
+export const TITLE_SIGNATURE_COUNT: number = MUTATIONS.filter(
+  (entry) => entry.signatureSource === 'test-title',
+).length
+
+/**
+ * The complement of {@link TITLE_SIGNATURE_COUNT} — entries whose signature is produced
+ * while the test runs, about which {@link problemsWith} checks nothing at all.
+ */
+export const RENDERED_SIGNATURE_COUNT: number = MUTATIONS.length - TITLE_SIGNATURE_COUNT
 
 /** Literal occurrences of `needle` in `text`. `needle` must be non-empty. */
 export function occurrences(text: string, needle: string): number {
@@ -2068,8 +2811,8 @@ const TITLE_SEPARATOR = ' > '
  *
  * ## What this does not catch, and must not be read as catching
  *
- * - **The whole `rendered-at-runtime` arm.** Twenty-four of these entries carry
- *   assertion or runner output, which exists in no file. Nothing here reads them;
+ * - **The whole `rendered-at-runtime` arm** — {@link RENDERED_SIGNATURE_COUNT} entries
+ *   carrying assertion or runner output, which exists in no file. Nothing here reads them;
  *   only a planted run can.
  * - **A title that is present but not running.** `it.skip`, a `describe` that no
  *   longer wraps it, a title sitting in a comment — all contain the substring. This
@@ -2080,12 +2823,13 @@ const TITLE_SEPARATOR = ' > '
  * - **A signature short enough to match by accident.** Length is checked against zero
  *   and nothing else, so a three-character signature would pass here and be worthless.
  *
- * The first bullet is the one worth restating: this check is silent on **22 of the 82**
- * entries by construction — the `rendered-at-runtime` half. (It read *"24 of the 72"* until
- * 2026-08-04, which was wrong in both figures at the moment it was written; see the header
- * for why this file now has two expired counts on record rather than one.) A guard that
- * appears to cover a population it cannot is the defect this function exists to close, so
- * its scope is written down rather than left to be inferred from the fact that it passes.
+ * The first bullet is the one worth restating: this check is silent on
+ * {@link RENDERED_SIGNATURE_COUNT} of {@link MUTATIONS}`.length` entries by construction —
+ * the `rendered-at-runtime` half. (It read *"24 of the 72"*, then *"22 of the 82"*, each
+ * wrong within a day of being written; see the header for why both numbers are now derived
+ * rather than transcribed a fourth time.) A guard that appears to cover a population it
+ * cannot is the defect this function exists to close, so its scope is written down rather
+ * than left to be inferred from the fact that it passes.
  */
 function signatureProblems(entry: Mutation, caughtByContent: readonly (string | null)[]): string[] {
   // Both already produce their own, more specific problem above. Reporting a second

@@ -3,7 +3,13 @@ import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import { blocking, commitScope, pathFormProblems, trackedPaths } from './commit-scope.ts'
-import { MUTATIONS, occurrences, problemsWith } from './mutation-ledger.ts'
+import {
+  MUTATIONS,
+  RENDERED_SIGNATURE_COUNT,
+  TITLE_SIGNATURE_COUNT,
+  occurrences,
+  problemsWith,
+} from './mutation-ledger.ts'
 import type { Mutation } from './mutation-ledger.ts'
 
 /**
@@ -159,9 +165,19 @@ describe('the ledger is a ledger, not an empty list that passes', () => {
    * per defect Phase 19 planted and watched go red. It was left at 23 through Phase 18,
    * which is exactly the slack this docblock warns about: the count had reached 42 while
    * the floor still described a tree of 23, so nineteen entries could have gone quietly.
+   *
+   * **Raised to 112 on 2026-08-05 by Plan 20-13**, and the slack it is closing is the same
+   * slack again, one phase later. Phase 20 added entries in five separate plans — `W1`…`W5`
+   * as they landed, then twenty-seven at the end — and the floor sat at 67 throughout, so by
+   * the time it was moved the ledger held 112 and **forty-five entries could have gone
+   * quietly**. Plan 20-01 reported the staleness in its own summary rather than fixing a file
+   * it did not own, which is the correct behaviour and is also why the gap was allowed to
+   * reach forty-five: a floor nobody owns is a floor nobody ratchets. Ratcheted to the exact
+   * count here, as 19-12 did, because that is what makes deleting an entry an edit to this
+   * line rather than a silent subtraction.
    */
-  it('carries at least the sixty-seven mutations it was built with', () => {
-    expect(MUTATIONS.length).toBeGreaterThanOrEqual(67)
+  it('carries at least the hundred and twelve mutations it was built with', () => {
+    expect(MUTATIONS.length).toBeGreaterThanOrEqual(112)
   })
 
   it('gives every mutation a distinct id', () => {
@@ -392,23 +408,30 @@ describe('the signature check applies to most of the ledger, not to a corner of 
    * would still pass while checking nothing at all.
    *
    * The floor was the reading taken on 2026-08-01: 26 of the 40 entries carried a test
-   * title, 14 carried assertion or runner output. Re-measured 2026-08-03 by Plan 19-12:
-   * 45 of 67 carry a title, 22 carry rendered output — and the old sentence was already
-   * two entries stale when it was read, because 18-12 added `M36` and `M37` without
-   * moving it. **Re-measured 2026-08-04 for defects #19/#20: 48 of 72 carry a title, 24
-   * carry rendered output** — `P1`, `P2` and `P3` landed in the checked arm and `E1` and
-   * `E2` in the unchecked one, each justified in the case below.
+   * title, 14 carried assertion or runner output. It has been re-measured three times
+   * since, and **every one of those readings was written into prose that then expired** —
+   * 45 of 67 (2026-08-03, already two stale when read), 48 of 72 (2026-08-04), and the
+   * ledger's own header carried the same defect twice more. So the readings are no longer
+   * transcribed here: `TITLE_SIGNATURE_COUNT` and `RENDERED_SIGNATURE_COUNT` are derived
+   * from `MUTATIONS` in the ledger itself, and this case asserts against them. **On
+   * 2026-08-05 they read 83 and 29 of 112**, and that sentence is allowed to go stale
+   * precisely because nothing depends on it.
    *
    * It is a floor rather than an equality because new entries should be free to land in
-   * either arm. It is deliberately **not ratcheted to 48** along with the reading: the
-   * number's job is anti-vacuity — to stop somebody re-declaring a drifted signature
+   * either arm, and it is deliberately **not ratcheted to the current count**: the number's
+   * job is anti-vacuity — to stop somebody re-declaring a drifted signature
    * `rendered-at-runtime` to make it green — and a floor two thirds of the way up the
    * ledger already does that. A floor moved to sit exactly on the current count would
-   * start failing for arithmetic rather than for the property it guards.
+   * start failing for arithmetic rather than for the property it guards. So the rule this
+   * file has always stated is applied literally: **two thirds of the ledger, floor 74 at
+   * 112 entries**, which leaves nine entries of headroom against the 83 measured.
    */
-  it('checks the signature of at least forty-five entries', () => {
-    const checked = MUTATIONS.filter((entry) => entry.signatureSource === 'test-title')
-    expect(checked.length).toBeGreaterThanOrEqual(45)
+  it('checks the signature of at least two thirds of the ledger', () => {
+    expect(TITLE_SIGNATURE_COUNT).toBe(
+      MUTATIONS.filter((entry) => entry.signatureSource === 'test-title').length,
+    )
+    expect(RENDERED_SIGNATURE_COUNT).toBe(MUTATIONS.length - TITLE_SIGNATURE_COUNT)
+    expect(TITLE_SIGNATURE_COUNT).toBeGreaterThanOrEqual(74)
   })
 
   it('keeps the unchecked arm a minority, and names what is in it', () => {
@@ -471,10 +494,48 @@ describe('the signature check applies to most of the ledger, not to a corner of 
       // anyway, so the FAIL line was pasted and the entry now keys on a title. That is
       // the direction this case exists to encourage, and it is recorded here because a
       // name leaving this list silently is the same defect as one arriving silently.
+      //
+      // ── Seven arrived on 2026-08-05 with Phase 20's ledger (Plan 20-13) ────────────
+      //
+      // Twenty of that phase's twenty-seven entries went into the CHECKED arm, which is
+      // the direction this case exists to encourage. These seven did not, and the reason
+      // differs by pair rather than being one reason restated.
+      //
+      // `L1` and `L2` are caught by `serve-agent-hooks.node.test.ts`, whose cases are
+      // structural counts over a source file: each `it` asserts a dozen occurrence counts
+      // and a cross-tier list equality, so a title-keyed signature would accept a red
+      // produced by any hook in the file. The observed strings pin the exact count that
+      // moved — `expected +0 to be 1` is the node's own start row never recorded, and
+      // `expected 1 to be +0` is the `ledger` hook back at its named opt-out — and they are
+      // opposite inversions of the same case title, so a title could not have told them
+      // apart at all. The second failure each plant produced was a width-truncated list
+      // diff (`[ …(14) ]`), which is exactly the shape `E2` records as unusable.
+      //
+      // `L3`, `L4` and `L5` are caught by `start-report.test.ts`, where three separate
+      // cases redden under `L3` and two under each of the others. The signatures name the
+      // specific row that crossed — a foreign browser family arriving, an over-large count
+      // surviving, a full user-agent string surviving — and each is the one assertion in
+      // its file that distinguishes the bound from its neighbour. `L4`'s and `L5`'s are
+      // deliberately the right-hand side of the assertion alone, on `E2`'s precedent: the
+      // left half is vitest's terminal-width truncation and a signature keyed on it would
+      // stop matching when somebody resized a window.
+      //
+      // `R1` and `K7` are the `M40` case. Each is caught by a file whose one or two `it`s
+      // drive real spawned `bin/agent.ts` processes with dozens of assertions apiece, so a
+      // title would accept a red produced by contention — which this repository has already
+      // recorded happening more than once. `R1`'s `expected [ 'Error: late reply' ] to
+      // deeply equal []` can only be rendered by a frame actually arriving after the
+      // requestor stopped waiting, and `K7`'s `expected 'block-missing' to be 'malformed'`
+      // can only be rendered by two distinct checkpoint failures collapsing into one.
+      // Neither string exists in any source file, so `test-title` would also have been a
+      // false declaration — see the case above that rejects exactly that mistake.
       [
         'E1', 'E2',
+        'K7',
+        'L1', 'L2', 'L3', 'L4', 'L5',
         'M1', 'M11', 'M12', 'M2a', 'M20', 'M22', 'M27', 'M3a', 'M30', 'M32', 'M37',
         'M4', 'M40', 'M42', 'M43', 'M44', 'M5', 'M51', 'M7', 'M9',
+        'R1',
       ].sort(),
     )
   })
