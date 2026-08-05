@@ -412,7 +412,27 @@ attributed:
 | `tools/aot/echo-guest.node.test.ts` | foreign — `Hook timed out in 900000ms` in a `beforeAll` that drives a container toolchain. Phase 21's. |
 | `tools/aot/lift.node.test.ts` | foreign — same, `Hook timed out in 900000ms` at `lift.node.test.ts:2477`. Phase 21's, and the single slowest file in the project at a recorded 235 s. |
 
-Final `npx vitest run --project node` — see the closing line of this summary.
+`npx vitest run --project node`, **third and final pass**, taken with this plan's own tree
+fully committed → **exit 1** (read directly on the line after the command),
+`Test Files 7 failed | 143 passed (150)`, `Tests 5 failed | 2133 passed | 18 skipped
+(2156)`, `real 1116.86  user 379.95  sys 104.78`, `(user+sys)/real` = **0.43**. Seven
+files, every one attributed by reading its message rather than by plausibility, and **every
+one re-run**:
+
+| file | attribution | re-run |
+|---|---|---|
+| `slow-specs.node.test.ts` | **real, and handed to 20-13** — the file-count drift below. Not closable here by plan instruction. | still red, correctly |
+| `discover-arm.node.test.ts` | foreign — snapshots `git status --porcelain`, and its diff moved by exactly one character: `MM packages/core/src/job/submit.ts` → `M  packages/core/src/job/submit.ts`. Another agent staged 20-08's file mid-run. **None of mine appeared.** | exit 0 |
+| `two-process.node.test.ts` | foreign — `result.job.complete` false on a 4-shard R=2 job. Four shards give an allowance of zero, so speculation never starts and this plan changed no production job code; `submit.ts` was `MM` and being edited throughout by 20-08. **Attributed by re-running, not by that argument.** | exit 0, 3 passed |
+| `late-combine.node.test.ts` | foreign — `expected 1500 to be greater than 2301.82`, its own load-sited RPC margin against a healthy combine that took 2.3 s on a contended host. Another agent's file, `M` throughout. | exit 0 earlier in this session, 2 passed |
+| `tools/aot/echo-guest.node.test.ts` | foreign — `Hook timed out in 900000ms` in a `beforeAll` driving a container toolchain. Phase 21's. | not re-run; not this phase's |
+| `tools/aot/lift.node.test.ts` | foreign — same, at `lift.node.test.ts:2477`. Phase 21's, and the slowest file in the project at a recorded 235 s. | not re-run; not this phase's |
+| `tools/aot/cli.node.test.ts` | foreign — `Test timed out in 5000ms` on its symlink case, against a recorded file span of 5 663 ms. A 5 s per-case budget on a host at load ~36. Phase 21's. | not re-run; not this phase's |
+
+**Every file this plan wrote, changed, or is read by, run together with a settled index:**
+`speculation-agents`, `discover-arm`, `bench-reduce`, `bench-egress`, `harness.test`,
+`serve-agent-hooks`, `acceptance-traceability` → **exit 0**, `Test Files 7 passed (7)`,
+`Tests 114 passed (114)`.
 
 ---
 
@@ -485,7 +505,20 @@ file itself.
 | `417462a` | `test(20-09)` — `speculation-agents.node.test.ts`, the live fabric case and the BENCH-03 column guard |
 | `5d51215` | `docs(20-09)` — two sentences in the published artifact, no figure moved |
 | `bd3c8e1` | `chore(20-09)` — the dead BENCH-03 exemption its own guard asked to delete |
+| `4c5c181` | `docs(20-09)` — this summary |
 
 Committed with **explicit paths** (`git commit … -- <path>`) and verified with
-`git show --stat`: only my own files landed in each. `O2_SKIP_GUARDS` was not used, and no
-guard reported a foreign finding at any commit.
+`git show --stat`: only my own files landed in each. `O2_SKIP_GUARDS` was not used.
+
+**Defect #39's fix works, confirmed on the summary commit.** `slow-specs`'s file-count
+drift is a real finding against the working tree and against a file this commit does not
+touch, and the hook printed:
+
+```
+⚠️  slow-specs/file-count-drift: 1 finding(s) outside this commit — reported, not blocking.
+   commit scope: 1 path(s). These are real findings against the working tree; somebody
+   else's commit is answerable for them, and this one is not held for it.
+```
+
+then `✅ cheap guards passed` and the commit landed. It reported and did not block, which is
+what that fix promised.
