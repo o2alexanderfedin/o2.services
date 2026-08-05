@@ -39,13 +39,14 @@ import {
   publicNodes,
   signName,
 } from '@o2/core'
+// `AdmissionControl`, `NodeDescriptor` and `CombineTrustAnchors` are no longer named
+// here: they were the member types of this file's own copy of the `Fabric` seam, which
+// now has one home in `../bench-fabric.ts`.
 import type {
-  AdmissionControl,
   CanonicalValue,
   Executor,
   JobResult,
   NameRecord,
-  NodeDescriptor,
   ShardAttestation,
   Task,
 } from '@o2/core'
@@ -62,26 +63,45 @@ import {
   serveAgent,
   submitJobWithEgress,
 } from '@o2/net'
-import type { AggregateAttestation, CombineTrustAnchors } from '@o2/net'
+import type { AggregateAttestation } from '@o2/net'
 import { peerIdForNodeKey } from '@o2/libp2p'
 import {
+  HarnessIntegrityError,
+  MAX_DRIVER_CPU_SHARE,
   NODE_LADDER,
+  assertIntegrity,
   connectivityTax,
   costCrossover,
+  cpuAttributionViolations,
+  fixtureProvenanceViolations,
+  fixtureUniformityViolations,
   measure,
+  processIdentityViolations,
   renderMarkdown,
   summarise,
 } from '@o2/bench'
 import type {
+  CpuAttribution,
+  DriverKind,
+  FixtureKind,
   Inventory,
   JobRunner,
   Machine,
   Observation,
+  ProcessIdentity,
   ReduceObservation,
   RunConfig,
   SweepResult,
 } from '@o2/bench'
+// The saturating fixture, by name across a declared package boundary — the shape the
+// relative import below is being moved away from. That one stays only because the
+// trivial fixture stays. `@o2/demo` is a portable package whose own dependencies are
+// `@o2/core` and `multiformats`, and `packages/node` is in neither `purity`'s
+// `PORTABLE` nor its `DUAL_TARGET` list, so this edge points adapter -> portable.
+import { DEFAULT_BUDGET, buildInput, kernelBytes, readPartial } from '@o2/demo'
 import { MODULE_WRITES_PARTITION } from '../../../core/src/executor/fixtures.ts'
+import { processFabric } from '../bench-fabric.ts'
+import type { Fabric, ProcessFabric } from '../bench-fabric.ts'
 import { FabricNode } from '../fabric-node.ts'
 
 /**
@@ -125,6 +145,27 @@ const LADDER = QUICK ? [1, 2, 4] : NODE_LADDER
 /** Real libp2p nodes are expensive to stand up; the ladder is shorter and declared. */
 const REAL_LADDER = QUICK ? [1, 2] : NODE_LADDER
 /**
+ * The ladder both fixed-redundancy speedup sweeps run — BENCH-07 criterion 2.
+ *
+ * It reaches 8 because the criterion names N=1 and N=8. It stops there rather than at 16
+ * because the process-per-node driver runs `nodes + 1` node processes per rung and this
+ * host reports 8 logical cores, so a 16-node rung is oversubscribed by more than a factor
+ * of two before the driver's own process is counted. The rungs that *are* oversubscribed
+ * are named as such beside the curve, from the observed process count rather than from
+ * the rung's node count.
+ *
+ * **Not run under `--quick`, and this is a declared cost rather than an omission.** Three
+ * specs spawn this driver; `coverage-agents.node.test.ts` spawns it with `--quick`, waits
+ * for the whole run inside 180 s and asserts the exit code is 0. A saturating fixture
+ * across spawned processes is minutes of work by construction, and an integrity failure
+ * on any rung leaves through `main()` by design — so running these sweeps there would
+ * make a guard about coverage rendering fail for reasons about neither. What it costs is
+ * worth stating plainly: **nothing in any suite executes a rung of these sweeps**, which
+ * is already true of every other rung of this driver, whose `main()` runs on import.
+ * These checks fire when a human runs the benchmark, not when a change breaks it.
+ */
+const SPEEDUP_LADDER: readonly number[] = [1, 2, 4, 8]
+/**
  * Shards per job.
  *
  * Raised from 8 to 16 by phase 13.1. 8 was one below a measured cliff: dispatching 12
@@ -137,6 +178,32 @@ const REAL_LADDER = QUICK ? [1, 2] : NODE_LADDER
  * their head against the node ladder.
  */
 const SHARDS = 16
+/**
+ * The bound the saturating fixture searches to, per shard.
+ *
+ * **Measured 2026-08-05 at {@link SHARDS} partitions**, against three acceptance
+ * conditions and nothing else:
+ *
+ * 1. every one of the sixteen shards ends on `budget` — a cube that finds a colouring
+ *    returns early, so shard cost stops being uniform and a ratio across the ladder
+ *    would be measuring the search rather than the fabric;
+ * 2. the encoded input stays under `WIRE_CHUNK_BYTES` (16 384), so the transport regime
+ *    does not change between the two fixtures;
+ * 3. the partition count is a power of two, which the guest's packing rule requires and
+ *    which 16 satisfies.
+ *
+ * The value is what was measured, not what was reasoned out: candidates below this one
+ * were watched returning at least one `found` shard at sixteen partitions, and
+ * candidates above it were watched crossing the wire bound. **No per-shard duration, no
+ * serial total and no expected speedup is written here** — those are runtime quantities,
+ * the run measures them, and a figure in a comment is exactly what this phase exists to
+ * remove. What the fixture cost at eight partitions is not quoted anywhere: `SHARDS` is
+ * sixteen, and a figure taken at another partition count is about another configuration.
+ *
+ * The budget is `DEFAULT_BUDGET`, imported rather than restated, so there is one home
+ * for it and this driver cannot drift from the value the demo tier ships.
+ */
+const SATURATING_N = 600
 /**
  * The admission limit every node in this benchmark runs with — SCHED-06.
  *
@@ -264,9 +331,28 @@ const BENCH_MODULE_NAME = 'o2-bench-fixture-module'
  * has to outlast one run, and nothing here reads how long a run takes.
  */
 const FIXTURE_MODULE_CID: CID = await new MemoryBlockstore().put(MODULE_WRITES_PARTITION)
+/** Vouches for the **trivial** module — `MODULE_WRITES_PARTITION`. */
 const FIXTURE_RECORD: NameRecord = signName(BENCH_SIGNING_SEED, {
   name: BENCH_MODULE_NAME,
   cid: FIXTURE_MODULE_CID,
+  version: 1,
+  expiresAt: Date.now() + 3_600_000,
+})
+
+/** The name the saturating module is published under, distinct from the trivial one. */
+const SATURATING_MODULE_NAME = 'o2-bench-saturating-module'
+const SATURATING_MODULE_CID: CID = await new MemoryBlockstore().put(kernelBytes)
+/**
+ * Vouches for the **saturating** module — `@o2/demo`'s colouring kernel.
+ *
+ * Not optional and not shareable with the record above: `guardModuleProvenance` refuses a
+ * task whose record does not vouch for its module, so a saturating rig handed the trivial
+ * record refuses every shard. Signed by the same seed, so `BENCH_TRUST_ANCHOR` is
+ * unchanged and every rig still pins exactly one value.
+ */
+const SATURATING_RECORD: NameRecord = signName(BENCH_SIGNING_SEED, {
+  name: SATURATING_MODULE_NAME,
+  cid: SATURATING_MODULE_CID,
   version: 1,
   expiresAt: Date.now() + 3_600_000,
 })
@@ -274,15 +360,43 @@ const FIXTURE_RECORD: NameRecord = signName(BENCH_SIGNING_SEED, {
 const BENCH_TRUST_ANCHOR: string = FIXTURE_RECORD.signer
 
 /**
- * Fail loudly if a rig's store addressed the fixture differently from the record.
+ * Each fixture's module CID, **built from the bytes** rather than from the name.
  *
- * Cheap, and it converts a whole-rig silent zero into one named throw at start-up.
+ * `RunConfig.fixture` is filled in by the call site, so every downstream heading, column
+ * and ratio inherits whatever the caller typed. This registry is the other end of that:
+ * `fixtureProvenanceViolations` compares it against the CID the rung's fabric actually
+ * put, which is what makes `fixture: 'saturating'` a fact about bytes rather than a
+ * label. Deriving these entries from the declared names instead would make that
+ * comparison a tautology.
  */
-function sameFixtureCid(rig: string, moduleCid: CID): CID {
-  if (moduleCid.toString() !== FIXTURE_MODULE_CID.toString()) {
+const FIXTURE_CIDS: Readonly<Record<FixtureKind, string>> = {
+  trivial: FIXTURE_MODULE_CID.toString(),
+  saturating: SATURATING_MODULE_CID.toString(),
+}
+
+/** The bytes each fixture dispatches. One home per fixture, read by every rig. */
+function moduleBytesFor(fixture: FixtureKind): Uint8Array<ArrayBuffer> {
+  return fixture === 'saturating' ? kernelBytes : MODULE_WRITES_PARTITION
+}
+
+/** The record that vouches for {@link moduleBytesFor}'s bytes to this rig's nodes. */
+function recordFor(fixture: FixtureKind): NameRecord {
+  return fixture === 'saturating' ? SATURATING_RECORD : FIXTURE_RECORD
+}
+
+/**
+ * Fail loudly if a rig's store addressed its fixture differently from the record.
+ *
+ * Cheap, and it converts a whole-rig silent zero into one named throw at start-up. The
+ * expected CID is an argument rather than a constant, because there are two modules now
+ * and a rig that addressed the saturating one while holding the trivial record would
+ * otherwise get the same silent zero this exists to convert.
+ */
+function sameFixtureCid(rig: string, moduleCid: CID, expected: CID): CID {
+  if (moduleCid.toString() !== expected.toString()) {
     throw new Error(
-      `${rig} addressed the fixture module as ${moduleCid.toString()} but the signed record ` +
-        `names ${FIXTURE_MODULE_CID.toString()} — every shard would be refused as a cid-mismatch`,
+      `${rig} addressed its fixture module as ${moduleCid.toString()} but the signed record ` +
+        `names ${expected.toString()} — every shard would be refused as a cid-mismatch`,
     )
   }
   return moduleCid
@@ -325,8 +439,28 @@ function inventory(nodeCount: number): Inventory {
   return { machines: [machine], nodeCount }
 }
 
-/** The job: `SHARDS` partitions of the fixture module, one input block. */
-async function shardInputs(skew: RunConfig['skew']): Promise<readonly CanonicalValue[]> {
+/**
+ * The job: `SHARDS` partitions of the fixture module, one input block.
+ *
+ * **The saturating arm hands every shard the identical bytes, and that is the kernel's
+ * design rather than a shortcut here.** `@o2/demo`'s job module states it: every shard of
+ * a colouring job receives the same input block, and shards differ only by what
+ * `partition()` tells the guest — which costs zero bytes on the wire. `submitJob` indexes
+ * shards positionally (`shardId` is the partition index, and the admission slot key is
+ * `inputCid:partitionIndex`), so sixteen identical values are sixteen distinct shards.
+ *
+ * `skew` has no meaning on that arm for the same reason: there is one input and the
+ * fixture's cost is a declared budget rather than a payload size. Both saturating sweeps
+ * declare `skew: 'uniform'`, which is what they run.
+ */
+async function shardInputs(
+  skew: RunConfig['skew'],
+  fixture: FixtureKind,
+): Promise<readonly CanonicalValue[]> {
+  if (fixture === 'saturating') {
+    const input = buildInput(SATURATING_N, DEFAULT_BUDGET)
+    return Array.from({ length: SHARDS }, () => input)
+  }
   return Array.from({ length: SHARDS }, (_, i) =>
     // `skewed` gives one partition a much larger input, so the ABI cost — and hence
     // the straggler — is concentrated where the design says it should be handled.
@@ -371,8 +505,27 @@ const project = (output: CanonicalValue): CanonicalValue => ({
   rows: 1,
 })
 
+/**
+ * What one run's executor calls cost, accumulated by {@link timed}.
+ *
+ * **`calls` holds dispatch-to-response intervals and they OVERLAP.** The clock starts
+ * when the driver calls `inner.execute` and stops when the response lands, and
+ * `submitJob` dispatches a generation's shards concurrently — so a sum of these is not a
+ * serial total and the largest of them is not the slowest shard's own duration.
+ * `sum(calls) / max(calls)` is therefore **not** `serialTotal / maxShard` and must not be
+ * published as it, whatever value it takes. The derived ideal comes from
+ * {@link calibratePerShard}, which makes the driver-side clock a per-shard clock by
+ * construction. The array is still carried into `raw.json`, labelled for what it is,
+ * because it is what the node-seconds are made of.
+ */
+interface CostAccumulator {
+  gross: number
+  perNode: Map<string, number>
+  calls: number[]
+}
+
 /** Wraps an executor so every call's wall time is recorded. */
-function timed(inner: Executor, into: { gross: number; perNode: Map<string, number> }): Executor {
+function timed(inner: Executor, into: CostAccumulator): Executor {
   return {
     nodeId: inner.nodeId,
     async execute(task: Task) {
@@ -380,88 +533,41 @@ function timed(inner: Executor, into: { gross: number; perNode: Map<string, numb
       try {
         return await inner.execute(task)
       } finally {
-        const elapsed = (performance.now() - started) / 1000
+        const elapsedMs = performance.now() - started
+        const elapsed = elapsedMs / 1000
         into.gross += elapsed
+        into.calls.push(elapsedMs)
         into.perNode.set(inner.nodeId, (into.perNode.get(inner.nodeId) ?? 0) + elapsed)
       }
     },
   }
 }
 
-interface Fabric {
-  readonly executors: readonly Executor[]
-  /**
-   * The descriptors placement ranks over, correlated with {@link Fabric.executors} by
-   * `nodeId`.
-   *
-   * Carried on the rig rather than derived in `runnerFor`, because the two arms derive it
-   * differently and only the rig knows which arm it is: the default path is
-   * `publicNodes(executors)` exactly as before, while a `--discover` rig uses the
-   * descriptors `discoverCandidates` returned — which carry a real `ownerId` and
-   * `canExecuteSovereign` read off each node's signed capability record, rather than the
-   * public placeholder `publicNodes` synthesises.
-   */
-  readonly nodes: readonly NodeDescriptor[]
-  readonly blockstore: MemoryBlockstore
-  readonly moduleCid: Awaited<ReturnType<MemoryBlockstore['put']>>
-  /**
-   * DET-03: what vouches for {@link Fabric.moduleCid} to this rig's nodes. Attached to
-   * the `JobSpec` in `runnerFor`, so every `Task` `submitJob` builds carries it.
-   */
-  readonly moduleRecord: NameRecord
-  /**
-   * Wraps the requestor's outbound transport — DATA-05/DATA-06's production wiring,
-   * reused here rather than bypassed. The requestor is the only node whose RPC
-   * connection dispatches shards in this rig (every `RemoteExecutor` above is built
-   * over its endpoint), so this is the one guard whose manifest is interesting.
-   */
-  readonly guard: EgressGuard
-  /**
-   * The submitting node's own endpoint — the one every `RemoteExecutor` above is built
-   * over, and the one a combine is dispatched from.
-   *
-   * Surfaced rather than reconstructed, for the same reason {@link Fabric.guard} is:
-   * a second endpoint would be a second peer as far as the workers are concerned, and
-   * the combine nodes fetch their leaves back through *this* one's `serveAgent`.
-   */
-  readonly rpc: RpcEndpoint
-  /**
-   * How placement asks a candidate whether it will take a shard — SCHED-02/SCHED-03.
-   *
-   * Carried on the rig for the same reason {@link Fabric.nodes} is: only the rig knows
-   * which arm it is. **Present only on a `--discover` rig**, and absent — not
-   * `undefined` — otherwise, because `submitJob` branches on `spec.admit === undefined`
-   * to choose between `planPlacement` and `planWithOffers`. The default curve therefore
-   * places exactly as it did before this field existed.
-   *
-   * The memory rig never sets it whatever flags are passed. Its nodes are reached over
-   * `MemoryNetwork` and an offer probe there would be measuring the harness.
-   */
-  readonly admit?: AdmissionControl
-  /**
-   * The issuers this rig's requestor accepts a **combine** certificate from — VER-08,
-   * VER-09, VER-10.
-   *
-   * **The same set the rig already pins, resolved once, never a second copy.** On a
-   * `--discover` rig it is `{provider.issuerKey}`, which is literally the value handed to
-   * `discoverCandidates` and to the requestor `FabricNode`'s own `trustedIssuers`; a
-   * second set assembled here could disagree with those with nothing able to catch it,
-   * which is the argument `submitJob` uses for taking no issuer option at all.
-   *
-   * On every rig that pins nothing — the memory transport always, and a default-arm real
-   * rig — this is the no-checking literal. That is the truthful reading: no provider
-   * process exists, no node is enrolled, and there is no signature to check. Required
-   * rather than optional for the reason {@link CombineTrustAnchors} records.
-   */
-  readonly combineIssuers: CombineTrustAnchors
-  close(): Promise<void>
-}
+/*
+ * The `Fabric` seam is imported from `../bench-fabric.ts` rather than declared here.
+ *
+ * It was declared in this file until Plan 23-03, in a copy whose `blockstore` was
+ * narrowed to `MemoryBlockstore` — which is why `realFabric` ended its return literal
+ * with an `as unknown as MemoryBlockstore` cast over a store that is not one. The copy in
+ * `bench-fabric.ts` widens that member to `Blockstore` and `moduleCid` follows it, so the
+ * cast is deleted below rather than carried. Two declarations of one seam is the "field
+ * with two answers" shape this repository names elsewhere: a rig satisfying one and not
+ * the other would be a compile error nobody could act on.
+ *
+ * Every member's reasoning lives there, beside the declaration, so there is one home for
+ * each. `ProcessFabric` extends it with the spawned agents and the submitting node's peer
+ * id, which is what the identity reading needs.
+ */
 
 /** N nodes on the in-process transport. */
 async function memoryFabric(nodes: number): Promise<Fabric> {
   const network = new MemoryNetwork()
   const originStore = new MemoryBlockstore()
-  const moduleCid = sameFixtureCid('memoryFabric', await originStore.put(MODULE_WRITES_PARTITION))
+  const moduleCid = sameFixtureCid(
+    'memoryFabric',
+    await originStore.put(MODULE_WRITES_PARTITION),
+    FIXTURE_MODULE_CID,
+  )
 
   // The requestor serves blocks, exactly as `FabricNode` does over a real transport.
   // Without this the workers have the module but no shard *inputs*, and every run
@@ -651,10 +757,21 @@ function dialableAddr(node: FabricNode): string {
   return addr
 }
 
-/** N real libp2p nodes over TCP on loopback. Same machine — labelled as such. */
-async function realFabric(nodes: number): Promise<Fabric> {
+/**
+ * N real libp2p nodes over TCP on loopback. Same machine — labelled as such.
+ *
+ * **The fixture is a parameter and defaults to the one the published curves ran.** The
+ * in-process control for the speedup sweep is this rig on the saturating fixture: it
+ * differs from the process-per-node rig in exactly one thing — where the nodes live — and
+ * a control that differed in the fixture too would not be a control. Every existing
+ * caller omits the argument and therefore builds byte-identically to what it built
+ * before.
+ */
+async function realFabric(nodes: number, fixture: FixtureKind = 'trivial'): Promise<Fabric> {
   const root = await mkdtemp(join(tmpdir(), 'o2-bench-'))
   const started: FabricNode[] = []
+  const moduleBytes = moduleBytesFor(fixture)
+  const moduleRecord = recordFor(fixture)
 
   // ── the --discover arm's provider ──────────────────────────────────────────────────
   //
@@ -750,7 +867,11 @@ async function realFabric(nodes: number): Promise<Fabric> {
     // that reading means there too.
     ...(provider?.issuerKey == null ? {} : { trustedIssuers: [provider.issuerKey] }),
   })
-  const moduleCid = sameFixtureCid('realFabric', await requestor.store.put(MODULE_WRITES_PARTITION))
+  const moduleCid = sameFixtureCid(
+    'realFabric',
+    await requestor.store.put(moduleBytes),
+    moduleRecord.cid,
+  )
 
   // Everyone dials the requestor, so blocks are reachable from every worker.
   for (const node of started) {
@@ -783,7 +904,7 @@ async function realFabric(nodes: number): Promise<Fabric> {
     // question asked is the same question — *who has this block* — over the one block that
     // is available at rig-construction time. Each worker is given it here explicitly,
     // because on the default path a worker holds nothing until it fetches during a run.
-    for (const node of started) await node.store.put(MODULE_WRITES_PARTITION)
+    for (const node of started) await node.store.put(moduleBytes)
 
     const found = await discoverCandidates(
       { inputCid: moduleCid },
@@ -817,9 +938,12 @@ async function realFabric(nodes: number): Promise<Fabric> {
   return {
     executors,
     nodes: descriptors,
-    blockstore: requestor.store as unknown as MemoryBlockstore,
+    // No cast. The seam's `blockstore` is `Blockstore`, which this store is — the
+    // `as unknown as MemoryBlockstore` that stood here was the cost of a second,
+    // narrower declaration of the same interface in this file.
+    blockstore: requestor.store,
     moduleCid,
-    moduleRecord: FIXTURE_RECORD,
+    moduleRecord,
     // `FabricNode.start` already wraps its transport in an `EgressGuard` (`egress`)
     // and builds `rpc` over that wrapper (13-02) — nothing to construct here, only
     // to surface, exactly the same field `bin/agent.ts`'s own `FabricNode` exposes.
@@ -1087,47 +1211,77 @@ function coverageReading(held: RungAttestation | NoJobToAttest): string | null {
   return describeCoverage(coverage)
 }
 
-/** Build a runner that reuses one fabric per node count across all iterations. */
-function runnerFor(build: (nodes: number) => Promise<Fabric>): {
-  run: JobRunner
+/**
+ * What one rung reported about the fixture it ran, over and above its makespan.
+ *
+ * Read off the rung's **first measured run** — the first iteration `measure` keeps, i.e.
+ * the first `warm` one, since it treats iteration 0 as a cold start and excludes it from
+ * the population `makespan` is summarised over. Following that rule rather than inventing
+ * one is what keeps this reading from coming off a population the published statistics do
+ * not contain.
+ */
+interface RungReadings {
+  /** One status per shard, as plain strings. Empty on a trivial-fixture rung. */
+  readonly statuses: readonly string[]
+  /** {@link CostAccumulator.calls} — dispatch-to-response intervals, which overlap. */
+  readonly calls: readonly number[]
+  /** `ShardResult.generations` per shard. `1` is a shard that never had to retry. */
+  readonly generations: readonly number[]
+  /** `ShardResult.speculated` per shard — whether a duplicate was started for it. */
+  readonly speculated: readonly boolean[]
+  /** The module CID this rung's fabric was handed, as a string. */
+  readonly moduleCid: string
   /**
-   * Egress recorded across every run this instance has driven so far, read off
-   * `Fabric.guard` via `submitJobWithEgress` rather than the bare `submitJob` this
-   * driver used to call — DATA-05/DATA-06's manifest, reachable from the entry
-   * point itself, not only from a test harness that constructs its own guard.
-   */
-  egressTotals: () => { entries: number; bytes: number }
-  /**
-   * How strongly the first job this rung completed was attested — VER-09, VER-10.
+   * Gross node-seconds accumulated across **every** run of this rung, in milliseconds.
    *
-   * Surfaced beside the observations rather than re-derived, and the alternative is
-   * worth naming because it is the obvious one: submitting an extra job to read a
-   * receipt off would change what the rung measures, and a benchmark whose
-   * configuration moved between runs has rows that cannot be compared.
-   *
-   * The **first** completed job and not the last, because they are the same reading —
-   * the rig is built once per node count and every iteration runs against it — and
-   * first is the one a reader can locate in the output above the line. See
-   * {@link RungAttestation} for why the *completed* population and not every run.
+   * This is the denominator of the driver-CPU share, and it is a **proxy**: gross
+   * node-seconds is wall time inside each executor call, not CPU time, so on a genuine
+   * multi-process run it includes network wait. The denominator is therefore not a CPU
+   * measurement. That much is said and no more — what the share comes to is measured and
+   * published beside each rung.
    */
-  attestationFor: (nodes: number) => RungAttestation | NoJobToAttest
-  dispose: () => Promise<void>
-} {
-  const fabrics = new Map<number, Fabric>()
-  let egressEntries = 0
-  let egressBytes = 0
-  const attestations = new Map<number, RungAttestation>()
+  readonly computeMs: number
+}
 
-  const run: JobRunner = async (config, codeCache) => {
-    let fabric = fabrics.get(config.nodes)
-    if (fabric === undefined) {
-      fabric = await build(config.nodes)
-      fabrics.set(config.nodes, fabric)
-    }
+/** The accumulating form. {@link RungReadings} is what a caller sees. */
+interface MutableRungReadings {
+  statuses: readonly string[]
+  calls: readonly number[]
+  generations: readonly number[]
+  speculated: readonly boolean[]
+  moduleCid: string
+  computeMs: number
+  captured: boolean
+}
 
-    const cost = { gross: 0, perNode: new Map<string, number>() }
+/** Everything a runner accumulates across the runs it drives, shared by both runners. */
+interface RunnerState {
+  egressEntries: number
+  egressBytes: number
+  readonly attestations: Map<number, RungAttestation>
+  readonly readings: Map<number, MutableRungReadings>
+}
+
+function newRunnerState(): RunnerState {
+  return { egressEntries: 0, egressBytes: 0, attestations: new Map(), readings: new Map() }
+}
+
+/**
+ * The measured job path, written once and shared by every driver.
+ *
+ * **One body, deliberately.** The speedup comparison is between two drivers running the
+ * identical job, and a second copy of this function would let the two paths drift with
+ * nothing able to catch it — at which point the ratio is measuring the copy. The drivers
+ * differ only in `acquire`: one caches a fabric per node count, the other holds one at a
+ * time and disposes the previous.
+ */
+function runnerOver(acquire: (nodes: number) => Promise<Fabric>, state: RunnerState): JobRunner {
+  return async (config, codeCache) => {
+    const fabric = await acquire(config.nodes)
+
+    const cost: CostAccumulator = { gross: 0, perNode: new Map<string, number>(), calls: [] }
     const executors = fabric.executors.map((executor) => timed(executor, cost))
-    const shards = await shardInputs(config.skew)
+    const shards = await shardInputs(config.skew, config.fixture)
 
     const started = performance.now()
     const result = await submitJobWithEgress(
@@ -1185,8 +1339,8 @@ function runnerFor(build: (nodes: number) => Promise<Fabric>): {
       // still read defensively rather than asserted, per `noUncheckedIndexedAccess`.
       const manifest = result.manifests[0]
       if (manifest !== undefined) {
-        egressEntries += manifest.entries.length
-        egressBytes += manifest.totalBytes
+        state.egressEntries += manifest.entries.length
+        state.egressBytes += manifest.totalBytes
       }
     }
 
@@ -1212,7 +1366,22 @@ function runnerFor(build: (nodes: number) => Promise<Fabric>): {
     // what survives, and it prints nothing at all rather than a "none established" a
     // reader would take for an unattested aggregation.
     let aggregate: AggregateAttestation | NoReduceToAttest = 'no-reduce-ran-on-this-rung'
-    if (result.ok) {
+    // **The reduce leg runs on the trivial fixture only, and the named absence above is
+    // the truthful reading of a saturating rung rather than a skipped step.** `project`
+    // decodes a `{p: <4 LE bytes>}` output, which is what the trivial module emits; the
+    // colouring kernel emits a packed field and a status byte, so the projection throws on
+    // it. Giving the saturating arm its own projection was measured and rejected rather
+    // than assumed: every one of its sixteen shards ends on the same status with an
+    // all-zero field — that is condition 1 of `SATURATING_N`, so it is the fixture working
+    // — so a projection over the output alone yields sixteen identical leaves, and
+    // `deriveReduceTree` dedupes on contributor and cid. The tree would collapse, and
+    // `treeDepth` would move for a reason with nothing to do with the fabric. The only way
+    // back to distinct leaves is to key on the partition index, which is the substitution
+    // `project`'s own docblock exists to refuse.
+    //
+    // The speedup sweeps ask a makespan question and the reduce table is rendered from
+    // the two trivial curves, which are unaffected.
+    if (result.ok && config.fixture === 'trivial') {
       const reduceStarted = performance.now()
       const reduced = await reduceJob(result.job, {
         rpc: fabric.rpc,
@@ -1281,9 +1450,9 @@ function runnerFor(build: (nodes: number) => Promise<Fabric>): {
     // receipt from another the moment the two rules ever came apart, and nothing in the
     // output would say so.
     if (result.ok) {
-      const held = attestations.get(config.nodes)
+      const held = state.attestations.get(config.nodes)
       if (held === undefined || (complete && !held.fromCompletedRun)) {
-        attestations.set(config.nodes, {
+        state.attestations.set(config.nodes, {
           attestation: result.job.attestation,
           aggregate,
           // CHURN-05, in the same statement as the two receipts and for the same reason.
@@ -1292,6 +1461,44 @@ function runnerFor(build: (nodes: number) => Promise<Fabric>): {
         })
       }
     }
+
+    // The fixture instruments — BENCH-07 criterion 1's third and fourth readings, plus
+    // the two confound vectors criterion 2's ratio is meaningless without.
+    //
+    // Accumulated on **every** run, captured on the **first measured** one. `measure`
+    // treats iteration 0 as a cold start and drops it from the population it summarises
+    // `makespan` over, so the vector is read off the same population the published
+    // figures come from rather than off a run they exclude.
+    const rung = state.readings.get(config.nodes) ?? {
+      statuses: [],
+      calls: [],
+      generations: [],
+      speculated: [],
+      moduleCid: fabric.moduleCid.toString(),
+      computeMs: 0,
+      captured: false,
+    }
+    rung.computeMs += cost.gross * 1000
+    if (!rung.captured && codeCache === 'warm' && result.ok) {
+      rung.captured = true
+      rung.calls = [...cost.calls]
+      rung.generations = result.job.shards.map((shard) => shard.generations)
+      rung.speculated = result.job.shards.map((shard) => shard.speculated)
+      // `readPartial` throws on an output that is not a colouring partial, which is
+      // every output the trivial module produces — so the status vector exists only
+      // where there is a fixture whose statuses mean something. A trivial rung's empty
+      // vector is never handed to `fixtureUniformityViolations`, which reports an empty
+      // vector as an unread instrument, correctly.
+      rung.statuses =
+        config.fixture === 'saturating'
+          ? result.job.shards.map((shard) =>
+              shard.verification.status === 'agreed'
+                ? readPartial(shard.verification.output).status
+                : `did-not-agree:${shard.verification.status}`,
+            )
+          : []
+    }
+    state.readings.set(config.nodes, rung)
 
     // Useful node-seconds = gross ÷ redundancy, because every replica of a shard
     // does the identical work and exactly one of them is the answer. Stated rather
@@ -1331,16 +1538,218 @@ function runnerFor(build: (nodes: number) => Promise<Fabric>): {
       reduce,
     } satisfies Observation
   }
+}
+
+/** The finished readings for one rung, or `undefined` where no run of it was captured. */
+function readingsOf(state: RunnerState, nodes: number): RungReadings | undefined {
+  const held = state.readings.get(nodes)
+  if (held === undefined) return undefined
+  return {
+    statuses: held.statuses,
+    calls: held.calls,
+    generations: held.generations,
+    speculated: held.speculated,
+    moduleCid: held.moduleCid,
+    computeMs: held.computeMs,
+  }
+}
+
+/**
+ * Egress recorded across every run an instance has driven so far, read off
+ * `Fabric.guard` via `submitJobWithEgress` rather than the bare `submitJob` this driver
+ * used to call — DATA-05/DATA-06's manifest, reachable from the entry point itself, not
+ * only from a test harness that constructs its own guard.
+ */
+interface Runner {
+  run: JobRunner
+  egressTotals: () => { entries: number; bytes: number }
+  /**
+   * How strongly the first job this rung completed was attested — VER-09, VER-10.
+   *
+   * Surfaced beside the observations rather than re-derived, and the alternative is
+   * worth naming because it is the obvious one: submitting an extra job to read a
+   * receipt off would change what the rung measures, and a benchmark whose
+   * configuration moved between runs has rows that cannot be compared.
+   *
+   * The **first** completed job and not the last, because they are the same reading —
+   * the rig is built once per node count and every iteration runs against it — and
+   * first is the one a reader can locate in the output above the line. See
+   * {@link RungAttestation} for why the *completed* population and not every run.
+   */
+  attestationFor: (nodes: number) => RungAttestation | NoJobToAttest
+  /** The fixture and confound readings for one rung. See {@link RungReadings}. */
+  readingsFor: (nodes: number) => RungReadings | undefined
+  dispose: () => Promise<void>
+}
+
+/** Build a runner that reuses one fabric per node count across all iterations. */
+function runnerFor(build: (nodes: number) => Promise<Fabric>): Runner {
+  const fabrics = new Map<number, Fabric>()
+  const state = newRunnerState()
+
+  // Left exactly as it was for the memory and real legs: their published numbers were
+  // taken with every rung's fabric still resident, and changing that would change what
+  // those curves are comparable with.
+  const acquire = async (nodes: number): Promise<Fabric> => {
+    let fabric = fabrics.get(nodes)
+    if (fabric === undefined) {
+      fabric = await build(nodes)
+      fabrics.set(nodes, fabric)
+    }
+    return fabric
+  }
 
   return {
-    run,
-    egressTotals: () => ({ entries: egressEntries, bytes: egressBytes }),
-    attestationFor: (nodes) => attestations.get(nodes) ?? 'no-run-of-this-rung-returned-a-job',
+    run: runnerOver(acquire, state),
+    egressTotals: () => ({ entries: state.egressEntries, bytes: state.egressBytes }),
+    attestationFor: (nodes) => state.attestations.get(nodes) ?? 'no-run-of-this-rung-returned-a-job',
+    readingsFor: (nodes) => readingsOf(state, nodes),
     dispose: async () => {
       for (const fabric of fabrics.values()) await fabric.close()
       fabrics.clear()
     },
   }
+}
+
+/** A {@link Runner} that also surfaces the live rig, which the identity readings need. */
+interface ProcessRunner extends Runner {
+  /** The rung's fabric while it is still up, or `undefined` once it was disposed. */
+  fabricFor: (nodes: number) => ProcessFabric | undefined
+}
+
+/**
+ * Build a runner that holds **one** fabric at a time and disposes the previous rung's.
+ *
+ * Beside {@link runnerFor} rather than an option on it, because the difference is
+ * behavioural and it is the whole reason this exists. `runnerFor` caches a fabric per
+ * node count and disposes them all at the end; under a process driver that leaves every
+ * earlier rung's agents resident while the last rung is measured — idle, but each holding
+ * a libp2p node and a heap, and each contending for the CPU being measured. How many that
+ * is at the top of the ladder is a quantity to read off the process table the run
+ * publishes, not one to settle here.
+ */
+function processRunnerFor(build: (nodes: number) => Promise<ProcessFabric>): ProcessRunner {
+  const state = newRunnerState()
+  let held: { nodes: number; fabric: ProcessFabric } | undefined
+
+  const acquire = async (nodes: number): Promise<Fabric> => {
+    if (held !== undefined && held.nodes !== nodes) {
+      await held.fabric.close()
+      held = undefined
+    }
+    if (held === undefined) held = { nodes, fabric: await build(nodes) }
+    return held.fabric
+  }
+
+  return {
+    run: runnerOver(acquire, state),
+    egressTotals: () => ({ entries: state.egressEntries, bytes: state.egressBytes }),
+    attestationFor: (nodes) => state.attestations.get(nodes) ?? 'no-run-of-this-rung-returned-a-job',
+    readingsFor: (nodes) => readingsOf(state, nodes),
+    fabricFor: (nodes) => (held?.nodes === nodes ? held.fabric : undefined),
+    dispose: async () => {
+      if (held !== undefined) await held.fabric.close()
+      held = undefined
+    },
+  }
+}
+
+/**
+ * The four readings, concatenated, and the one place a rung's verdict is acted on.
+ *
+ * **One consumer, and its deletion is one line.** Four inline `if (list.length > 0)
+ * throw` branches would look the same to a source-text guard — which is the only kind of
+ * guard this repository can put over this file, because `main()` runs on import — and a
+ * guard that matches identifiers cannot tell a checker that was called and read from one
+ * that was called and discarded. The property comes from there being exactly one place
+ * that reads all four.
+ *
+ * **The error raised here must not become an excluded row.** An excluded row says *this
+ * configuration could not be measured*; this says *the measurement that came back is not
+ * of the thing it claims*, and the two demand opposite responses. Every `catch` in this
+ * file therefore re-throws it, and `bench-driver.node.test.ts` holds that as a count
+ * equality rather than as a presence pattern, because a presence pattern can only prove
+ * that one catch behaves.
+ *
+ * `identity` and `cpu` are absent on the in-process control: there are no child processes
+ * to identify, and the control's work *is* in the driver by construction, so a ceiling on
+ * the driver's share would be a check on the definition. Its share is measured and
+ * published as a figure instead. Checks 3 and 4 run on **both** drivers — if the control
+ * were quietly handed the trivial module it would produce a fast, flat curve, the ratio
+ * against it would look like a large speedup, and the word `saturating` would be printed
+ * beside it.
+ */
+function gateRung(
+  at: string,
+  observed: {
+    readonly identity?: ProcessIdentity
+    readonly cpu?: CpuAttribution
+    readonly statuses: readonly string[]
+    readonly declared: FixtureKind
+    readonly moduleCid: string
+  },
+): void {
+  const identity =
+    observed.identity === undefined ? [] : processIdentityViolations(observed.identity)
+  const cpu = observed.cpu === undefined ? [] : cpuAttributionViolations(observed.cpu)
+  const uniformity = fixtureUniformityViolations({
+    statuses: observed.statuses,
+    // Sixteen, read from the constant this driver dispatches with. Never eight — that
+    // figure belongs to a partition count this phase does not run.
+    shards: SHARDS,
+    expected: 'budget',
+  })
+  const provenance = fixtureProvenanceViolations({
+    declared: observed.declared,
+    moduleCid: observed.moduleCid,
+    expected: FIXTURE_CIDS,
+  })
+  assertIntegrity(at, [...identity, ...cpu, ...uniformity, ...provenance])
+}
+
+/**
+ * Sixteen per-shard durations, measured **one call in flight at a time**.
+ *
+ * This is where the published ideal bound comes from, and the reason it cannot come from
+ * the measured job is stated on {@link CostAccumulator}: `submitJob` dispatches a
+ * generation concurrently, so `timed`'s intervals overlap and their sum is not a serial
+ * total. Awaiting each call here makes the driver-side clock a per-shard clock by
+ * construction.
+ *
+ * Two properties make it the right instrument. **Exactly one call is in flight at a
+ * time**, so each measurement is that shard's own duration and nothing else's. And
+ * `partitionCount` stays `SHARDS`, so each call is the same work the job's shard does.
+ *
+ * What each measurement includes that a shard's own execution does not: **one RPC round
+ * trip on top of the shard**. No estimate of it is subtracted and no derivation of which
+ * way it moves the quotient is written here. The module block is already resident at the
+ * agent from the rung's measured runs, so this measures compute rather than first fetch.
+ */
+async function calibratePerShard(fabric: ProcessFabric): Promise<readonly number[]> {
+  const executor = fabric.executors[0]
+  if (executor === undefined) {
+    throw new Error(
+      'the 1-node process-per-node rung exposed no executor, so there is nothing to calibrate ' +
+        'against — an empty executor list at that rung is itself an integrity failure',
+    )
+  }
+  const encoded = await canonicalCid(buildInput(SATURATING_N, DEFAULT_BUDGET))
+  if (!encoded.ok) throw new Error('the saturating fixture input is not encodable')
+  await fabric.blockstore.put(encoded.bytes)
+
+  const perShard: number[] = []
+  for (let partitionIndex = 0; partitionIndex < SHARDS; partitionIndex++) {
+    const at = performance.now()
+    await executor.execute({
+      moduleCid: fabric.moduleCid,
+      moduleRecord: SATURATING_RECORD,
+      inputCid: encoded.cid,
+      partitionIndex,
+      partitionCount: SHARDS,
+    })
+    perShard.push(performance.now() - at)
+  }
+  return perShard
 }
 
 /**
@@ -1352,7 +1761,9 @@ function runnerFor(build: (nodes: number) => Promise<Fabric>): {
  */
 async function baseline(runs: number): Promise<readonly number[]> {
   const observations: number[] = []
-  const inputs = await shardInputs('uniform')
+  // The COST denominator and the single-threaded baseline stay defined against the
+  // trivial fixture, which is what every published crossover figure was measured on.
+  const inputs = await shardInputs('uniform', 'trivial')
 
   for (let i = 0; i < runs; i++) {
     const started = performance.now()
@@ -1373,14 +1784,18 @@ async function baseline(runs: number): Promise<readonly number[]> {
 /** Supplementary: the same work in-process through WASM, no fabric. */
 async function wasmInProcess(runs: number): Promise<readonly number[]> {
   const store = new MemoryBlockstore()
-  const moduleCid = sameFixtureCid('wasmInProcess', await store.put(MODULE_WRITES_PARTITION))
+  const moduleCid = sameFixtureCid(
+    'wasmInProcess',
+    await store.put(MODULE_WRITES_PARTITION),
+    FIXTURE_MODULE_CID,
+  )
   // DET-03 — guarded, and this is the leg it would have been most tempting to skip.
   // This baseline exists to be compared against the two fabrics; if they pay for the
   // signature check and it does not, every reported speedup is inflated by exactly the
   // difference. A baseline measuring a cheaper path than the thing it is the baseline
   // for is not a baseline.
   const executor = guarded(new WasmExecutor({ nodeId: 'local', blockstore: store }))
-  const inputs = await shardInputs('uniform')
+  const inputs = await shardInputs('uniform', 'trivial')
 
   const inputCids = []
   for (const value of inputs) {
@@ -1407,6 +1822,233 @@ async function wasmInProcess(runs: number): Promise<readonly number[]> {
     observations.push(performance.now() - started)
   }
   return observations
+}
+
+/** One rung of one speedup sweep, in the terms the report publishes it in. */
+interface SpeedupRung {
+  readonly driver: DriverKind
+  readonly nodes: number
+  readonly p50: number
+  readonly incomplete: number
+  /** `process.cpuUsage()` delta across this rung's measured runs, in milliseconds. */
+  readonly driverCpuMs: number
+  /** Gross node-seconds × 1000. A proxy — see {@link RungReadings.computeMs}. */
+  readonly shardComputeMs: number
+  readonly cpuShare: number
+  /**
+   * The three mechanisms that could have produced a ratio without parallelism.
+   *
+   * `redispatches` and `speculationMultiplier` are read off `SweepResult.cost`, where
+   * they have shipped since 20-01 and 20-07 and are already rendered as `churn/task` and
+   * `spec. tax`; they are surfaced here beside the ratio rather than added. The two
+   * vectors are new: `placeAgain` sits inside an unconditional generation loop bounded
+   * only by `DEFAULT_MAX_GENERATIONS`, and `speculativeCandidates` does not read
+   * redundancy at all, so neither is switched off by `redundancy: 1`.
+   */
+  readonly generations: readonly number[]
+  readonly speculated: readonly boolean[]
+  readonly redispatches: number
+  readonly speculationMultiplier: number
+  /** Dispatch-to-response intervals, which overlap. See {@link CostAccumulator}. */
+  readonly calls: readonly number[]
+}
+
+/** One rung of the process table — what was observed, not what was expected. */
+interface ProcessRow {
+  readonly nodes: number
+  readonly pids: readonly number[]
+  readonly observed: number
+}
+
+function rungOf(
+  driver: DriverKind,
+  nodes: number,
+  measured: SweepResult,
+  readings: RungReadings,
+  driverCpuMs: number,
+): SpeedupRung {
+  return {
+    driver,
+    nodes,
+    p50: measured.makespan.p50,
+    incomplete: measured.incomplete,
+    driverCpuMs,
+    shardComputeMs: readings.computeMs,
+    cpuShare: readings.computeMs > 0 ? driverCpuMs / readings.computeMs : Number.NaN,
+    generations: readings.generations,
+    speculated: readings.speculated,
+    redispatches: measured.cost.churnTax,
+    speculationMultiplier: measured.cost.speculationTax,
+    calls: readings.calls,
+  }
+}
+
+/**
+ * The process table — BENCH-07 criterion 1, rendered where a reader of the published
+ * report will find it.
+ *
+ * Every figure is observed rather than declared: the pid list is what each child
+ * announced on its own handshake line, and the count is what the rig held, not what the
+ * rung asked for. A rung that reached this table passed the identity gate, so the table
+ * is a record of what the gate saw rather than a second check.
+ *
+ * The heading names the driver and the fixture, and both literals are load-bearing: a
+ * later section scan matches on them, and `both drivers` — the phrase this deliberately
+ * does not use — names neither.
+ */
+function processSection(rows: readonly ProcessRow[], logicalCores: number): readonly string[] {
+  if (rows.length === 0) return []
+  return [
+    '## Processes — process-per-node driver, saturating fixture',
+    '',
+    `Observed, per rung. The host reports **${logicalCores} logical cores**. A rung whose`,
+    'observed process count exceeds that is oversubscribed, and a knee there is contention',
+    'rather than coordination.',
+    '',
+    '| nodes | node processes observed | oversubscribed | agent process ids |',
+    '| --- | --- | --- | --- |',
+    ...rows.map(
+      (row) =>
+        `| ${row.nodes} | ${row.observed} | ${row.observed > logicalCores ? 'yes' : 'no'} |` +
+        ` ${row.pids.join(', ')} |`,
+    ),
+    '',
+    'The observed count is `nodes + 1`: the submitting node stays in this driver’s process,',
+    'because it holds the store the module is put into, exposes the guard the egress manifest',
+    'is read off, and owns the endpoint every remote executor is built over. Counting it is',
+    'the honest reading of what the host was asked to run.',
+    '',
+  ]
+}
+
+/**
+ * The speedup comparison — BENCH-07 criterion 2.
+ *
+ * The ratio is published **only** beside the three mechanisms that could have produced it
+ * without parallelism, and beside a bound derived from this run rather than from a
+ * pre-registered figure. Every quantity here is read off the run.
+ */
+function speedupSection(
+  rungs: readonly SpeedupRung[],
+  perShardMs: readonly number[],
+  logicalCores: number,
+  processRows: readonly ProcessRow[],
+): readonly string[] {
+  if (rungs.length === 0) return []
+
+  const at = (driver: DriverKind, nodes: number): SpeedupRung | undefined =>
+    rungs.find((rung) => rung.driver === driver && rung.nodes === nodes)
+  const ladder = [...new Set(rungs.map((rung) => rung.nodes))].sort((a, b) => a - b)
+  const ratio = (rung: SpeedupRung | undefined, base: SpeedupRung | undefined): string =>
+    rung === undefined || base === undefined || rung.p50 <= 0 ? '—' : `${(base.p50 / rung.p50).toFixed(2)}×`
+  const num = (value: number | undefined, digits = 2): string =>
+    value === undefined || !Number.isFinite(value) ? '—' : value.toFixed(digits)
+  const vector = (values: readonly number[] | readonly boolean[]): string =>
+    values.length === 0 ? '—' : `${[...new Set(values.map(String))].sort().join('/')}`
+
+  const processBase = at('process-per-node', 1)
+  const controlBase = at('in-process', 1)
+  const observedIdeal =
+    perShardMs.length === 0
+      ? null
+      : perShardMs.reduce((a, b) => a + b, 0) / Math.max(...perShardMs)
+
+  return [
+    '## Speedup — in-process and process-per-node drivers, fixed redundancy 1, saturating fixture',
+    '',
+    'Two sweeps over one ladder, differing in exactly one thing: whether a node is an',
+    'operating-system process. Redundancy is held at **1** on both, so the ratio does not',
+    'also vary replication — necessary, and by itself not sufficient, which is what the last',
+    'four columns are for.',
+    '',
+    '**Read the control before reading the ratio.** The `in-process` rows are not flat, and',
+    'that is a fact about the rig rather than a defect in it: those nodes are built by',
+    '`FabricNode.start`, which composes a `WorkerExecutor` on its own worker thread, so N',
+    'in-process nodes are N threads on this host’s cores. What the two curves therefore',
+    'compare is **process isolation against threads inside one process** — not parallelism',
+    'against none. Any reading of the process-per-node column that does not carry that',
+    'sentence is overclaiming.',
+    '',
+    'The **driver CPU share** column is this driver’s own `process.cpuUsage()` delta across',
+    'the rung, over the gross node-seconds it dispatched. That denominator is a proxy and',
+    'not a CPU measurement: gross node-seconds is wall time inside each executor call, so on',
+    'a genuine multi-process run it includes network wait. The ceiling the process-per-node',
+    `rungs are judged against is **${MAX_DRIVER_CPU_SHARE}**, declared in the methodology`,
+    'before any of this data existed. The in-process rungs are **not** judged against it —',
+    'their work is in this process by construction — and their share is published so the two',
+    'can be compared. The two being different is the reading; neither crossing a line is.',
+    '',
+    '| nodes | driver | p50 makespan | speedup vs its own 1-node rung | incomplete | driver CPU share | churn/task | spec. tax | generations | speculated |',
+    '| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |',
+    ...ladder.flatMap((nodes) =>
+      (['process-per-node', 'in-process'] as const).flatMap((driver) => {
+        const rung = at(driver, nodes)
+        if (rung === undefined) return []
+        const base = driver === 'process-per-node' ? processBase : controlBase
+        return [
+          `| ${nodes} | ${driver} | ${num(rung.p50, 1)}ms | ${ratio(rung, base)} |` +
+            ` ${rung.incomplete} | ${num(rung.cpuShare, 3)} | ${num(rung.redispatches)} |` +
+            ` ${num(rung.speculationMultiplier)}× | ${vector(rung.generations)} |` +
+            ` ${vector(rung.speculated)} |`,
+        ]
+      }),
+    ),
+    '',
+    '**The three confound readings are the last four columns, and they are published beside',
+    'the ratio rather than after it.** `redispatches` (`churn/task`) and the speculation',
+    'multiplier (`spec. tax`) have been measured per rung since 20-01 and 20-07 and read as',
+    'their identity — `0.00` and `1.00×` — on every rung of the published trivial-fixture',
+    'run. That establishes the instruments were quiet on that fixture. It does **not**',
+    'establish they will be quiet on this one, and the reason is structural: a shard at',
+    'redundancy 1 sits in an unconditional generation loop bounded only by the lease table,',
+    'and the speculation allowance does not read redundancy at all. The `generations` and',
+    '`speculated` columns are the per-shard vectors those two summarise, printed as the',
+    'distinct values observed across the rung’s sixteen shards.',
+    '',
+    '### The coordination ratio, per rung',
+    '',
+    '| nodes | in-process p50 | process-per-node p50 | coordination ratio |',
+    '| --- | --- | --- | --- |',
+    ...ladder.flatMap((nodes) => {
+      const control = at('in-process', nodes)
+      const proc = at('process-per-node', nodes)
+      if (control === undefined || proc === undefined) return []
+      return [
+        `| ${nodes} | ${num(control.p50, 1)}ms | ${num(proc.p50, 1)}ms |` +
+          ` ${proc.p50 > 0 ? `${(control.p50 / proc.p50).toFixed(2)}×` : '—'} |`,
+      ]
+    }),
+    '',
+    'Same fixture, same redundancy, same ladder, same shard count, same job path. A ratio',
+    'near 1 at a rung where the process curve was supposed to fall is the reading that says',
+    'coordination ate the gain. This is **not** the connectivity tax and must not be read as',
+    'one: that figure is computed over the in-process trivial curves at a different',
+    'redundancy, so there is no connectivity tax figure for any rung here.',
+    '',
+    '### The ideal bound, derived from this run',
+    '',
+    observedIdeal === null
+      ? 'No calibration was taken, so no bound is published. A bound is a measurement here,'
+      : `**${observedIdeal.toFixed(2)}×**, computed as sum ÷ max over **${perShardMs.length}**` +
+        ' per-shard durations measured on the 1-node process-per-node fabric with **one call in',
+    observedIdeal === null
+      ? 'and an unmeasured one would be a figure from somewhere else.'
+      : 'flight at a time**, so each measurement is that shard’s own duration and nothing else’s.' +
+        ' Each includes one RPC round trip on top of the shard, and no estimate of that is' +
+        ' subtracted. The block was already resident at the agent from the rung’s measured runs,' +
+        ' so this is compute rather than first fetch. **No pre-registered figure is published' +
+        ' beside it**: the withdrawn one was derived at eight partitions and this run uses' +
+        ' sixteen.',
+    '',
+    `The host reports **${logicalCores} logical cores**. Rungs whose observed node-process`,
+    `count exceeded that: ${
+      processRows
+        .filter((row) => row.observed > logicalCores)
+        .map((row) => String(row.nodes))
+        .join(', ') || 'none'
+    }.`,
+    '',
+  ]
 }
 
 async function main(): Promise<void> {
@@ -1474,7 +2116,20 @@ async function main(): Promise<void> {
     memoryResults.push(
       await measure(
         memory.run,
-        { nodes, shards: SHARDS, redundancy: Math.min(2, nodes), transport: 'memory', skew: 'uniform' },
+        {
+          nodes,
+          shards: SHARDS,
+          redundancy: Math.min(2, nodes),
+          transport: 'memory',
+          skew: 'uniform',
+          // Provenance, and a statement of fact rather than a default: every rung of
+          // this sweep builds its nodes in this process, dispatches the trivial module,
+          // and submits public shards. That is what the published memory curve is, and
+          // what it was before these three fields existed.
+          driver: 'in-process',
+          fixture: 'trivial',
+          leg: 'public',
+        },
         { runs: RUNS },
       ),
     )
@@ -1500,12 +2155,30 @@ async function main(): Promise<void> {
       realResults.push(
         await measure(
           real.run,
-          { nodes, shards: SHARDS, redundancy: Math.min(2, nodes), transport: 'real', skew: 'uniform' },
+          {
+            nodes,
+            shards: SHARDS,
+            redundancy: Math.min(2, nodes),
+            transport: 'real',
+            skew: 'uniform',
+            // In-process, and the word is accurate rather than conservative: this rig
+            // starts N real libp2p nodes with `FabricNode.start` **in this process**,
+            // and dials them over loopback. It is a real transport and a single
+            // process, which is exactly the pair the process-per-node driver separates.
+            driver: 'in-process',
+            fixture: 'trivial',
+            leg: 'public',
+          },
           { runs: RUNS },
         ),
       )
       sayAttestation(`real transport, ${nodes} nodes`, real.attestationFor(nodes))
     } catch (cause) {
+      // An integrity failure leaves before the paragraph below can be attached to it.
+      // Held here even though no rung of this sweep calls the gate today: propagation is
+      // a property of every catch between a raise site and the top, not of the raise
+      // site, and `bench-driver.node.test.ts` counts the two rather than looking for one.
+      if (cause instanceof HarnessIntegrityError) throw cause
       // Published as excluded, never silently dropped — the methodology commits to
       // this. A rung that vanishes between plan and results is indistinguishable
       // from one removed because its number was inconvenient.
@@ -1528,11 +2201,212 @@ async function main(): Promise<void> {
   )
   await real.dispose()
 
+  // ── the fixed-redundancy speedup sweeps, one per driver ────────────────────────────
+  //
+  // Two sweeps over the identical ladder, the identical fixture, the identical shard
+  // count and the identical job path, differing in exactly one thing: whether a node is a
+  // process. A single curve whose shape has to be interpreted is not a finding.
+  const multiProcess: SweepResult[] = []
+  const controlSweep: SweepResult[] = []
+  const speedupRungs: SpeedupRung[] = []
+  const processRows: ProcessRow[] = []
+  let perShardMs: readonly number[] = []
+
+  if (!QUICK) {
+    const proc = processRunnerFor(async (nodes) =>
+      processFabric(nodes, kernelBytes, SATURATING_RECORD, {
+        rpcTimeoutMs: 30_000,
+        maxConcurrentTasks: DECLARED_ADMISSION_LIMIT,
+        trustAnchors: [BENCH_TRUST_ANCHOR],
+      }),
+    )
+    for (const nodes of SPEEDUP_LADDER) {
+      // **This heading must not match `/^ {2}(memory|real) transport, (\d+) node\(s\)…$/`.**
+      // `coverage-agents.node.test.ts` asserts that pattern's matches over a `--quick`
+      // run's stdout are exactly five specific entries, so printing a speedup rung in the
+      // transport form would break an equality assertion in a file about coverage
+      // rendering. Do not tidy this into that shape.
+      process.stdout.write(`  speedup, process-per-node, ${nodes} node(s)…\n`)
+      const cpuBefore = process.cpuUsage()
+      try {
+        const measured = await measure(
+          proc.run,
+          {
+            nodes,
+            shards: SHARDS,
+            // Fixed at 1 across the whole ladder. The published ladders run
+            // `min(2, nodes)`, so a ratio across them varies parallelism *and*
+            // replication. Holding it here removes that one — and is necessary rather
+            // than sufficient, which is why the three confound readings are published
+            // beside the ratio.
+            redundancy: 1,
+            transport: 'real',
+            skew: 'uniform',
+            driver: 'process-per-node',
+            fixture: 'saturating',
+            leg: 'public',
+          },
+          { runs: RUNS },
+        )
+        const spent = process.cpuUsage(cpuBefore)
+        const driverCpuMs = (spent.user + spent.system) / 1000
+        const readings = proc.readingsFor(nodes)
+        const fabric = proc.fabricFor(nodes)
+        if (readings === undefined || fabric === undefined) {
+          throw new Error(
+            `the process-per-node rung at ${nodes} nodes produced no readings and no live rig, ` +
+              'so nothing about it could be checked',
+          )
+        }
+        gateRung(`process-per-node, ${nodes} nodes`, {
+          identity: {
+            expected: nodes,
+            driverPid: process.pid,
+            agents: fabric.agents.map((agent) => ({
+              childPid: agent.pid,
+              announcedPid: agent.announcedPid,
+              peerId: agent.peerId,
+            })),
+            executorNodeIds: fabric.executors.map((executor) => executor.nodeId),
+            submitterPeerId: fabric.submitterPeerId,
+          },
+          cpu: { driverCpuMs, shardComputeMs: readings.computeMs },
+          statuses: readings.statuses,
+          declared: 'saturating',
+          moduleCid: readings.moduleCid,
+        })
+        multiProcess.push(measured)
+        processRows.push({
+          nodes,
+          pids: fabric.agents.map((agent) => agent.pid),
+          // `nodes + 1`: the submitting node stays in this process, because it holds the
+          // store the module is put into, exposes the guard the manifest is read off, and
+          // owns the endpoint every executor is built over. Read off the rig rather than
+          // computed from the rung's node count, which is the whole point of the table.
+          observed: fabric.agents.length + 1,
+        })
+        speedupRungs.push(rungOf('process-per-node', nodes, measured, readings, driverCpuMs))
+        sayAttestation(`speedup, process-per-node, ${nodes} nodes`, proc.attestationFor(nodes))
+
+        if (nodes === 1) {
+          // The only window in which the 1-node fabric is both warm and still up. Nothing
+          // between here and the `measure` above does any work on it — the readings are
+          // map lookups and the gate is pure — so the rig is in the state the rung left
+          // it, with the module block already resident at the agent.
+          perShardMs = await calibratePerShard(fabric)
+        }
+      } catch (cause) {
+        if (cause instanceof HarnessIntegrityError) throw cause
+        const detail = cause instanceof Error ? cause.message : String(cause)
+        const kind = cause instanceof Error ? cause.name : typeof cause
+        process.stdout.write(`    excluded: ${detail}\n`)
+        excluded.push({
+          config: `speedup, process-per-node driver, ${nodes} nodes`,
+          // Derived from the error that was observed, never asserted: its class, its
+          // message, and the configuration in force. Any reading of *why* is a reading a
+          // later measurement has to supply, and saying so is cheaper than a paragraph
+          // that would be attached whatever went wrong.
+          reason:
+            `\`${kind}: ${detail}\` — measured at ${nodes} node process(es) plus this driver's ` +
+            `own node, redundancy 1, ${SHARDS} shards of the saturating fixture, every node ` +
+            `admitting at ${DECLARED_ADMISSION_LIMIT} concurrent tasks. What that error is ` +
+            'about is not interpreted here.',
+        })
+      }
+    }
+    await proc.dispose()
+
+    // The control. Same ladder, same fixture, same redundancy, same job path — built by
+    // the rig whose nodes live in this process.
+    //
+    // **It does not stay flat, and the plan that asked for it predicted that it would.**
+    // The prediction was that N in-process nodes share one JavaScript event loop and
+    // therefore cannot parallelise; that is true of `memoryFabric`, which builds its
+    // executors directly, and **false** of this rig, which builds each node with
+    // `FabricNode.start` — and a `FabricNode` composes a `WorkerExecutor` over
+    // `createThread: workerThread`, so every node's guest runs on **its own worker
+    // thread**. N in-process nodes are N threads on this host's cores.
+    //
+    // Measured rather than reasoned: at two nodes this control halved its own one-node
+    // makespan. So the difference the sweeps below publish is not *parallelism against
+    // none* — it is **process isolation against threads inside one process**, and that is
+    // exactly the reading a single curve could not have produced. A control that refutes
+    // its own rationale is the reason a control is run at all.
+    const control = runnerFor(async (nodes) => realFabric(nodes, 'saturating'))
+    for (const nodes of SPEEDUP_LADDER) {
+      process.stdout.write(`  speedup, in-process, ${nodes} node(s)…\n`)
+      const cpuBefore = process.cpuUsage()
+      try {
+        const measured = await measure(
+          control.run,
+          {
+            nodes,
+            shards: SHARDS,
+            redundancy: 1,
+            transport: 'real',
+            skew: 'uniform',
+            driver: 'in-process',
+            fixture: 'saturating',
+            leg: 'public',
+          },
+          { runs: RUNS },
+        )
+        const spent = process.cpuUsage(cpuBefore)
+        const driverCpuMs = (spent.user + spent.system) / 1000
+        const readings = control.readingsFor(nodes)
+        if (readings === undefined) {
+          throw new Error(
+            `the in-process control rung at ${nodes} nodes produced no readings, so nothing ` +
+              'about it could be checked',
+          )
+        }
+        // Checks 3 and 4 only. There are no child processes to identify, and this rig's
+        // work *is* in the driver by construction, so a ceiling on the driver's share
+        // would be a check on the definition rather than on the run. The share is
+        // measured and published beside the other one; the two being different is the
+        // reading, not that either crosses a line.
+        gateRung(`in-process, ${nodes} nodes`, {
+          statuses: readings.statuses,
+          declared: 'saturating',
+          moduleCid: readings.moduleCid,
+        })
+        controlSweep.push(measured)
+        speedupRungs.push(rungOf('in-process', nodes, measured, readings, driverCpuMs))
+        sayAttestation(`speedup, in-process, ${nodes} nodes`, control.attestationFor(nodes))
+      } catch (cause) {
+        if (cause instanceof HarnessIntegrityError) throw cause
+        const detail = cause instanceof Error ? cause.message : String(cause)
+        const kind = cause instanceof Error ? cause.name : typeof cause
+        process.stdout.write(`    excluded: ${detail}\n`)
+        excluded.push({
+          config: `speedup, in-process driver, ${nodes} nodes`,
+          reason:
+            `\`${kind}: ${detail}\` — measured at ${nodes} node identities inside this ` +
+            `process, redundancy 1, ${SHARDS} shards of the saturating fixture, every node ` +
+            `admitting at ${DECLARED_ADMISSION_LIMIT} concurrent tasks. What that error is ` +
+            'about is not interpreted here.',
+        })
+      }
+    }
+    await control.dispose()
+  }
+
   process.stdout.write('  skewed configuration, memory transport…\n')
   const skewRunner = runnerFor(memoryFabric)
   const skewed = await measure(
     skewRunner.run,
-    { nodes: 4, shards: SHARDS, redundancy: 2, transport: 'memory', skew: 'skewed' },
+    {
+      nodes: 4,
+      shards: SHARDS,
+      redundancy: 2,
+      transport: 'memory',
+      skew: 'skewed',
+      // The same three facts as the memory sweep above; only `skew` differs, which is
+      // the one thing this supplementary reading varies.
+      driver: 'in-process',
+      fixture: 'trivial',
+      leg: 'public',
+    },
     { runs: RUNS },
   )
   sayAttestation('skewed configuration, memory transport, 4 nodes', skewRunner.attestationFor(4))
@@ -1543,6 +2417,9 @@ async function main(): Promise<void> {
   const wasmSummary = summarise((await wasmInProcess(RUNS)).slice(1))
 
   const maxNodes = Math.max(...LADDER)
+  // Read from the host through the same `Machine` the report already publishes, so the
+  // oversubscription statement below and the inventory table cannot disagree.
+  const logicalCores = inventory(maxNodes).machines[0]?.logicalCores ?? 0
   const report = {
     title: 'o2.services — benchmark run',
     at: new Date().toISOString(),
@@ -1550,6 +2427,13 @@ async function main(): Promise<void> {
     baseline: baselineSummary,
     memoryTransport: memoryResults,
     realTransport: realResults,
+    /**
+     * The process-per-node curve, kept apart from `realTransport` rather than appended to
+     * it. `connectivityTax` keys on `config.nodes` and now refuses a repeated count, and
+     * the tax is defined over one configuration per node count per transport — these
+     * rungs vary the driver and the fixture, so they are a different measurement.
+     */
+    multiProcess,
     connectivity: connectivityTax(memoryResults, realResults),
     crossover: costCrossover(baselineSummary, memoryResults),
     /**
@@ -1564,15 +2448,42 @@ async function main(): Promise<void> {
      * the project's own split as a contradiction.
      */
     attestation: attested,
+    /**
+     * Riders: the speedup comparison's inputs, carried into `raw.json` beside the
+     * rendered sections below so a reader of the data sees what a reader of the markdown
+     * saw. `Report` does not declare them, which is the same shape `attestation` already
+     * rides in.
+     */
+    speedup: speedupRungs,
+    processes: processRows,
+    /** The serial calibration the derived ideal is computed from. Per-shard, in order. */
+    calibrationPerShardMs: perShardMs,
     unmet: [
-      '**No parallel speedup is measurable here, by construction.** Every node in both' +
-        ' curves runs inside one OS process on one JavaScript event loop — the memory' +
-        ' transport is in-process by definition, and the real transport creates its' +
-        ' libp2p nodes in the same process and dials them over loopback. So these curves' +
-        ' measure **coordination cost**, not parallelism, and the flat makespan across' +
-        ' the node ladder is the expected consequence rather than a finding about' +
-        ' scaling. Demonstrating speedup needs separate processes or machines and is not' +
-        ' done here.',
+      '**No parallel speedup is measurable on the memory-transport curve, by construction' +
+        ' — and this entry no longer says that about every in-process rig, because that' +
+        ' was measured false.** `memoryFabric` builds its executors directly, so its N' +
+        ' node identities share one OS process *and* one JavaScript event loop, and its' +
+        ' curve measures **coordination cost** rather than parallelism. The real-transport' +
+        ' rig does not: it builds each node with `FabricNode.start`, and a `FabricNode`' +
+        ' composes a `WorkerExecutor` over its own worker thread, so N in-process nodes are' +
+        ' N threads on this host’s cores. The previous wording — *every node in both curves' +
+        ' runs inside one OS process on one JavaScript event loop* — was true of the first' +
+        ' rig and false of the second, and is corrected here rather than carried forward.',
+      '**What the `process-per-node` driver therefore adds is process isolation, not' +
+        ' parallelism where there was none.** Each of its nodes is an operating-system' +
+        ' process, checked by reading the pid the child announced on its own handshake line' +
+        ' against the pid this driver was handed by `spawn`, and by requiring every built' +
+        ' executor to address a node some observed child announced. A rung that failed any' +
+        ' of those readings aborts the run and produces no report at all, so a curve' +
+        ' existing here is itself part of the claim. The in-process control below is run on' +
+        ' the identical fixture, redundancy, ladder and job path precisely so the' +
+        ' difference between the two is the one thing that varied.',
+      '**What the `process-per-node` curve does NOT establish is distinct machines.** Its' +
+        ' processes share one host, one CPU, one memory bus and one scheduler, so a rung' +
+        ' whose observed process count exceeds the logical core count is oversubscribed' +
+        ' and a knee there is contention rather than coordination. The observed process' +
+        ' count and the core count are both published below, per rung, so a reader can' +
+        ' see which rungs those are rather than take a claim about it.',
       '**BENCH-06 (distinct machines) is NOT met.** One machine was available, so every' +
         ' number here is same-machine. The N the ladder counts is N *node identities*, and' +
         ' they share one host — and, per the entry above, one process — so they share a' +
@@ -1702,6 +2613,8 @@ async function main(): Promise<void> {
     'That is a statement about the fixture, and it is why the methodology declared the',
     'fixture bias in advance rather than discovering it here.',
     '',
+    ...processSection(processRows, logicalCores),
+    ...speedupSection(speedupRungs, perShardMs, logicalCores, processRows),
   ].join('\n')
 
   await writeFile(join(outDir, 'raw.json'), JSON.stringify({ report, skewed, wasmSummary }, null, 2))
