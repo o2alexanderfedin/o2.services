@@ -653,7 +653,12 @@ and four plan claims reported as measured false rather than made true.
 
 | Commit | What |
 |---|---|
-| (below) | `feat(20-11)` — checkpointing and resume on the one job path, the derived job id, ten kernel cases, and a departed-requestor process test |
+| `f906d66` | `feat(20-11)` — checkpointing and resume on the one job path, the derived job id, ten kernel cases, and a departed-requestor process test |
+
+`git show --stat f906d66`: `4 files changed, 2631 insertions(+), 8 deletions(-)`, only this
+plan's own. `git diff --diff-filter=D HEAD~1 HEAD` is empty — nothing was deleted. The shared
+index was clean at commit time; a bare `git commit` would still have been wrong and was not
+used.
 
 Committed with **explicit paths** (`git commit … -- <path> <path> <path>`) and verified with
 `git show --stat`. `git commit -F -` was not used.
@@ -704,3 +709,11 @@ which is what `depends_on` needed.
 **`.planning/STATE.md` was not written and no `gsd-sdk query state.*` mutator was run**, per
 the spawn instruction and 20-08's recorded finding that `state.advance-plan` corrupted the
 file *while reporting a parse error*.
+
+## Self-Check: PASSED
+
+- `packages/core/src/job/submit.ts` — FOUND (14 references to `checkpointOf` / `writeCheckpoint` / `readCheckpoint` / `recoverCheckpoint`)
+- `packages/core/src/job/submit.test.ts` — FOUND
+- `packages/node/src/checkpoint-agents.node.test.ts` — FOUND
+- `.planning/phases/phase-20-single-job-path-ledger-churn-resilience/20-11-SUMMARY.md` — FOUND
+- commit `f906d66` — FOUND in `git log`
