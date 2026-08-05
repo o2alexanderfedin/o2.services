@@ -122,7 +122,8 @@ describe('the port probe reads both states, so an absence below means something'
     const port = await freePort()
     expect(await isFree(port)).toBe(true)
 
-    const node = await FabricNode.start({ listen: [`/ip4/127.0.0.1/tcp/${port}`], trustAnchors: UNWIND_ANCHORS })
+    const node = await FabricNode.start({
+      relayAdmission: 'admits-any-peer', listen: [`/ip4/127.0.0.1/tcp/${port}`], trustAnchors: UNWIND_ANCHORS })
     expect(await isFree(port)).toBe(false)
 
     await node.stop()
@@ -135,6 +136,7 @@ describe('a rejected start leaves nothing listening', () => {
     const port = await freePort()
 
     const failure = await FabricNode.start({
+      relayAdmission: 'admits-any-peer',
       listen: [`/ip4/127.0.0.1/tcp/${port}`],
       enrollment: UNANSWERED_ENROLLMENT,
       trustAnchors: UNWIND_ANCHORS,
@@ -154,6 +156,7 @@ describe('a rejected start leaves nothing listening', () => {
     const port = await freePort()
     const attempt = async (): Promise<unknown> =>
       await FabricNode.start({
+        relayAdmission: 'admits-any-peer',
         listen: [`/ip4/127.0.0.1/tcp/${port}`],
         enrollment: UNANSWERED_ENROLLMENT,
         trustAnchors: UNWIND_ANCHORS,
@@ -183,6 +186,7 @@ describe('a rejected start leaves nothing listening', () => {
     // `createLibp2p` has bound. Kept as a case because the wider unwind subsumed that
     // catch, and a subsumption nobody checks is a deletion.
     const failure = await FabricNode.start({
+      relayAdmission: 'admits-any-peer',
       listen: [`/ip4/127.0.0.1/tcp/${port}`],
       maxConcurrentTasks: 0,
       trustAnchors: UNWIND_ANCHORS,
@@ -202,6 +206,7 @@ describe('a rejected start leaves nothing listening', () => {
     const port = await freePort()
 
     const failure = await FabricNode.start({
+      relayAdmission: 'admits-any-peer',
       listen: [`/ip4/127.0.0.1/tcp/${port}`],
       enrollment: UNANSWERED_ENROLLMENT,
       trustAnchors: UNWIND_ANCHORS,

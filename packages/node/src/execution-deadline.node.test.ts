@@ -40,6 +40,7 @@ afterEach(async () => {
 
 async function startNode(name: string, extra: Record<string, unknown> = {}): Promise<FabricNode> {
   const node = await FabricNode.start({
+    relayAdmission: 'admits-any-peer',
     blockstoreDir: join(workdir, name),
     // Port 0: the OS picks a free port, so concurrent runs cannot collide.
     listen: ['/ip4/127.0.0.1/tcp/0'],

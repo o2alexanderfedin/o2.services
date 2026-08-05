@@ -36,6 +36,19 @@ export {
   WIRE_CHUNK_BYTES,
 } from './constants.ts'
 
+// AUTH-02 / AUTH-04 — who a relay admits, stated by the operator and read by nothing yet.
+//
+// Lives here rather than in `@o2/core` or `@o2/net` for two reasons, both measured. It is
+// a statement about a **circuit reservation**, so it belongs beside the four reservation
+// numbers `constants.ts` already owns and its docblock has to cite one of them
+// (`RELAY_MAX_RESERVATION_TTL_MS`) to state the revocation window. And the mechanism that
+// will read it — `ConnectionGater.denyInboundRelayReservation` — is a `@libp2p/interface`
+// type, which `purity.node.test.ts` forbids in `@o2/core` and `@o2/net` outright. Both
+// `@o2/node` and `@o2/browser` depend on this package, so `bin/seed.ts`, `bin/agent.ts`
+// and the browser tier can all name it without `@o2/browser` acquiring `@o2/node`.
+export { ADMITS_ANY_PEER, admitsAnyPeer } from './relay-admission.ts'
+export type { RelayAdmission } from './relay-admission.ts'
+
 // AUTH-01 — one on-device seed, read in two namespaces.
 export {
   SEED_BYTES,

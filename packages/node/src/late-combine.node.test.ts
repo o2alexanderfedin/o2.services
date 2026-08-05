@@ -372,6 +372,7 @@ async function standUp(agentCount: number): Promise<Fabric> {
   const spawned = await Promise.all(Array.from({ length: agentCount }, (_, i) => spawnAgent(`a${i}`)))
 
   const submitter = await FabricNode.start({
+    relayAdmission: 'admits-any-peer',
     blockstoreDir: join(workdir, 'submitter'),
     listen: ['/ip4/127.0.0.1/tcp/0'],
     rpcTimeoutMs: RPC_TIMEOUT_MS,

@@ -150,7 +150,7 @@ import {
   identityFromSeed,
   peerIdForNodeKey,
 } from '@o2/libp2p'
-import type { NodeIdentity } from '@o2/libp2p'
+import type { NodeIdentity, RelayAdmission } from '@o2/libp2p'
 import {
   IDENTITY_FILE,
   PROVIDER_FILE,
@@ -466,6 +466,45 @@ export interface FabricNodeOptions {
   readonly relayAddrs?: readonly string[]
   /** Observes relay reservation outcomes — see NET-05. */
   readonly reservationWatcher?: ReservationWatcher
+  /**
+   * Who this node grants a circuit reservation to — AUTH-02, AUTH-04.
+   *
+   * **Required, with no `?` and no default**, and that is the whole of the design. An
+   * omitted value would let a caller mean *"admit everyone"* without ever having said so,
+   * at the one boundary where the difference between silence and consent is the entire
+   * security claim. `trustAnchors` above is required for the identical reason and states
+   * the argument at length; `.planning/PROJECT.md`'s Key Decision — *an optional hook with
+   * a silent default is a hole* — is the rule both obey.
+   *
+   * The union's three values, and what each admits, are documented in full at
+   * {@link RelayAdmission} in `@o2/libp2p`, together with the deployment requirement a
+   * relay that pins issuers takes on and the reservation-TTL revocation window. That is
+   * also where the **asymmetry with {@link FabricNodeOptions.trustedIssuers}** is argued:
+   * the reservation path never reads an empty set as permission, because `'admits-any-peer'`
+   * carries that meaning instead — so the two mechanisms do not read one value two ways,
+   * they read different types.
+   *
+   * **Nothing reads this yet, and that is a property of this wave rather than an
+   * oversight.** No `connectionGater` is constructed below, `circuitRelayServer`'s
+   * arguments are unchanged, and every construction site in this repository writes
+   * `'admits-any-peer'` — which is exactly what the tree already did. Threading the option
+   * first is what makes arming it cheap: a site that has already stated what it means does
+   * not break when the value starts being consulted.
+   *
+   * Per-node **configuration**, not a node kind. Every `FabricNode` has the identical
+   * executor, transport, relay capability and protocol surface whatever is passed here —
+   * exactly as `sovereignty`, `trustAnchors` and `trustedIssuers` do. It is a value on
+   * *this* node's options describing who *it* admits, and it says nothing about what kind
+   * of thing a peer is.
+   *
+   * A node that binds no listening address relays for nobody — `canRelay` is derived from
+   * the listen list, for the reason the module comment's "why relaying is derived and not
+   * configured" section gives — so on such a node this states a posture that is never
+   * reached. It is still required there, because a field whose presence depended on
+   * another option's value would be a second answer to "does this node relay?" and the
+   * whole of that section is about there being one.
+   */
+  readonly relayAdmission: RelayAdmission
   /** Concurrent reservations to accept from others. Defaults to libp2p's 15. */
   readonly maxReservations?: number
   readonly reservationTtlMs?: number

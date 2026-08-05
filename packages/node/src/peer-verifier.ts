@@ -311,6 +311,24 @@ export class PeerVerifier {
    * request the same call may have just issued — a re-ask in flight leaves the *old*
    * verdict standing, and a peer under re-verification therefore stays excluded until it
    * verifies. Fail-closed is preserved across the retry, not merely at the first ask.
+   *
+   * ## The relay does not share this reading, and the difference is a type
+   *
+   * The first line below is **fail-open**: pinned nobody ⇒ trust everybody. That is
+   * deliberate here and is what makes *"a node with no trust anchors has no verdicts"* true
+   * by construction — see the module comment's "why a node that pins nobody does no work at
+   * all". It is also **confined to this gate, which decides who to *use*.**
+   *
+   * `RelayAdmission` (`@o2/libp2p`) decides who gets *in*, and it never reads an empty set
+   * as permission: an empty set there admits nobody, and the open posture has its own name,
+   * `'admits-any-peer'`. So the two mechanisms do not read one value two ways — they read
+   * **different types**, which is the entire reason that one is a union rather than a set.
+   *
+   * **Do not "fix" this early return to match it.** Flipping it globally breaks every
+   * unpinned node in this repository and re-opens a fabric-wide behaviour that was already
+   * ruled on. The matching half of this paragraph is written at `RelayAdmission`'s own
+   * docblock, because an asymmetry recorded at only one of two lines gets reverted from the
+   * other.
    */
   get verifiedPeers(): readonly string[] {
     if (this.#trustedIssuers.size === 0) return this.#peers()

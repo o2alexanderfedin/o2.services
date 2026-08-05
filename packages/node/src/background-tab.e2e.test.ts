@@ -120,6 +120,7 @@ beforeAll(async () => {
   // satisfy and a record would be decoration the next reader would mistake for a
   // requirement.
   relay = await FabricNode.start({
+    relayAdmission: 'admits-any-peer',
     maxReservations: 16,
     listen: ['/ip4/127.0.0.1/tcp/0/ws'],
     trustAnchors: 'runs-unsigned-artifacts',

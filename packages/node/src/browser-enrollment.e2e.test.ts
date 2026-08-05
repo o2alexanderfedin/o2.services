@@ -176,6 +176,7 @@ beforeAll(async () => {
   // key is persisted under its `blockstoreDir`, so `issuerKey` below is a real pinned
   // value rather than one this file invented.
   provider = await FabricNode.start({
+    relayAdmission: 'admits-any-peer',
     blockstoreDir: join(workdir, 'provider'),
     listen: ['/ip4/127.0.0.1/tcp/0/ws'],
     trustAnchors: [publisher.pub],
@@ -188,6 +189,7 @@ beforeAll(async () => {
   // `--trusted-issuer` does on the command line. This is the node whose block sources
   // partitioned.
   gate = await FabricNode.start({
+    relayAdmission: 'admits-any-peer',
     blockstoreDir: join(workdir, 'gate'),
     listen: ['/ip4/127.0.0.1/tcp/0/ws'],
     trustAnchors: [publisher.pub],

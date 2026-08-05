@@ -102,6 +102,7 @@ beforeAll(async () => {
   // therefore change DEMO-01's own `agreeing` reading, i.e. edit the proof of another
   // phase's criterion to decorate this one.
   relay = await FabricNode.start({
+    relayAdmission: 'admits-any-peer',
     maxReservations: 16,
     listen: ['/ip4/127.0.0.1/tcp/0/ws'],
     trustAnchors: [KERNEL_TRUST_ANCHOR],

@@ -59,6 +59,7 @@ async function relayingNode(): Promise<FabricNode> {
   // point of the field being required: a reader counting this literal learns which
   // tests do not exercise the signed path.
   const node = await FabricNode.start({
+    relayAdmission: 'admits-any-peer',
     listen: ['/ip4/127.0.0.1/tcp/0/ws'],
     trustAnchors: 'runs-unsigned-artifacts',
   })
@@ -78,6 +79,7 @@ async function reservingNode(relay: FabricNode): Promise<FabricNode> {
   if (address === undefined) throw new Error('relay bound no browser-dialable address')
   // DET-03 — see `relayingNode` above.
   const node = await FabricNode.start({
+    relayAdmission: 'admits-any-peer',
     listen: ['/p2p-circuit'],
     relayAddrs: [address],
     trustAnchors: 'runs-unsigned-artifacts',

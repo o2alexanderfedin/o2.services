@@ -220,6 +220,7 @@ async function stopAgentNow(agent: Agent): Promise<void> {
 
 async function startNode(name: string, options: { trustedIssuers?: readonly string[] } = {}): Promise<FabricNode> {
   const node = await FabricNode.start({
+    relayAdmission: 'admits-any-peer',
     blockstoreDir: join(workdir, name),
     listen: ['/ip4/127.0.0.1/tcp/0'],
     rpcTimeoutMs: 10_000,

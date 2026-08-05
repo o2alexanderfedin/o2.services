@@ -375,6 +375,7 @@ async function standUp(operatorIds: readonly [string, string, string]): Promise<
   }
 
   const requestor = await FabricNode.start({
+    relayAdmission: 'admits-any-peer',
     blockstoreDir: join(workdir, 'requestor'),
     listen: ['/ip4/127.0.0.1/tcp/0'],
     rpcTimeoutMs: 20_000,
@@ -751,6 +752,7 @@ describe('criterion 1 engineered — one operator: degraded by default, refused 
 describe('criterion 1’s precondition — `bin/agent.ts` can produce a node that binds nothing', () => {
   it('signs via-relay naming its relay when --port is not passed, and seed when --port 0 is', async () => {
     const relay = await FabricNode.start({
+      relayAdmission: 'admits-any-peer',
       listen: ['/ip4/127.0.0.1/tcp/0/ws'],
       maxReservations: 8,
       trustAnchors: [publisher.pub],
@@ -917,6 +919,7 @@ async function standUpBehindOneRelay(): Promise<RelayedFixture> {
   }
 
   const relay = await FabricNode.start({
+    relayAdmission: 'admits-any-peer',
     listen: ['/ip4/127.0.0.1/tcp/0/ws'],
     maxReservations: 8,
     trustAnchors: [publisher.pub],
@@ -929,6 +932,7 @@ async function standUpBehindOneRelay(): Promise<RelayedFixture> {
   if (provider.issuerKey === null) throw new Error('the provider announced no issuer key')
 
   const requestor = await FabricNode.start({
+    relayAdmission: 'admits-any-peer',
     blockstoreDir: join(workdir, 'requestor'),
     listen: ['/ip4/127.0.0.1/tcp/0'],
     rpcTimeoutMs: 20_000,

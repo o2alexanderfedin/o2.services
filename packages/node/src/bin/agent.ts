@@ -763,6 +763,19 @@ const listen =
       : []
 
 node = await FabricNode.start({
+  // AUTH-02 — who this agent admits if it relays, stated by name.
+  //
+  // **There is no `--admit-any-peer` flag and this is not defaulted for want of one.** It
+  // is the posture every node in this repository has today, written down so that arming
+  // the gate is a change to one value rather than a change to what silence means.
+  //
+  // Whether this binary should instead **refuse to start** when an operator states neither
+  // `--trusted-issuer` nor an explicit open posture is an open owner ruling, deliberately
+  // not decided here. Its cost was measured while this landed: 19 argv-construction sites
+  // across 18 `*.node.test.ts` files spawn this binary, and 3 more spawn `bin/seed.ts`;
+  // none of them is a published measurement. That is the whole price of the fail-closed
+  // answer, and the owner is entitled to see it before ruling.
+  relayAdmission: 'admits-any-peer',
   blockstoreDir: values.dir,
   listen,
   trustAnchors,

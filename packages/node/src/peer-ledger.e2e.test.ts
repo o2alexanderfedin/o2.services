@@ -344,6 +344,7 @@ beforeAll(async () => {
   // That is the Node tier holding a ledger on identical terms, not a special case, and
   // the cases below read it as one more family the browser tabs did not produce.
   relay = await FabricNode.start({
+    relayAdmission: 'admits-any-peer',
     maxReservations: 12,
     listen: ['/ip4/127.0.0.1/tcp/0/ws'],
     trustAnchors: 'runs-unsigned-artifacts',

@@ -660,6 +660,7 @@ async function realFabric(nodes: number): Promise<Fabric> {
     const providerDir = join(root, 'provider')
     await mkdir(providerDir, { recursive: true })
     provider = await FabricNode.start({
+      relayAdmission: 'admits-any-peer',
       blockstoreDir: providerDir,
       rpcTimeoutMs: 30_000,
       maxConcurrentTasks: DECLARED_ADMISSION_LIMIT,
@@ -686,6 +687,7 @@ async function realFabric(nodes: number): Promise<Fabric> {
     // this run does not record.
     started.push(
       await FabricNode.start({
+        relayAdmission: 'admits-any-peer',
         blockstoreDir: dir,
         rpcTimeoutMs: 30_000,
         maxConcurrentTasks: DECLARED_ADMISSION_LIMIT,
@@ -715,6 +717,7 @@ async function realFabric(nodes: number): Promise<Fabric> {
   const requestorDir = join(root, 'requestor')
   await mkdir(requestorDir, { recursive: true })
   const requestor = await FabricNode.start({
+    relayAdmission: 'admits-any-peer',
     blockstoreDir: requestorDir,
     rpcTimeoutMs: 30_000,
     maxConcurrentTasks: DECLARED_ADMISSION_LIMIT,

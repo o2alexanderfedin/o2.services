@@ -103,6 +103,7 @@ beforeAll(async () => {
   // This node relays and executes nothing — nothing dispatches to it, so it has no guard
   // to satisfy and a `moduleRecord` here would be decoration.
   relay = await FabricNode.start({
+    relayAdmission: 'admits-any-peer',
     maxReservations: 16,
     listen: ['/ip4/127.0.0.1/tcp/0/ws'],
     trustAnchors: 'runs-unsigned-artifacts',
@@ -117,6 +118,7 @@ beforeAll(async () => {
   // rather than assumes. It executes nothing either, so it needs no trust anchor of
   // substance for the same reason the relay does not.
   peer = await FabricNode.start({
+    relayAdmission: 'admits-any-peer',
     listen: ['/ip4/127.0.0.1/tcp/0/ws'],
     trustAnchors: 'runs-unsigned-artifacts',
   })
