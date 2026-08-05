@@ -75,6 +75,22 @@ import { readFileSync } from 'node:fs'
  * listed" check is about `vitest.config.ts` and nothing else. Those are already scoped to
  * their own author; wrapping them would add a layer that can only fail open.
  *
+ * **An exemption of that shape must be read off what the check consumes, never off a
+ * belief about who could trigger it — defect #66, 2026-08-05.** Three of
+ * `requirements-ledger`'s cases were exempted here on the stated ground that they "cannot
+ * fire for anybody who did not edit" the ledger or that spec. They can: all three cross the
+ * ledger with a corpus built by walking `packages/`, so any agent who moves a production
+ * symbol fires them. Plan 20-10 did, was refused, and spent three `O2_SKIP_GUARDS=1`
+ * commits — this defect, reproduced by a carve-out taken from its own design test. Before
+ * exempting a check, name the expressions it reaches and check that none of them reads a
+ * corpus. **The population a guard acts on is not the population that pays for it.**
+ *
+ * That fix also settles the shape of the union when the *cause* is a deletion. A symbol a
+ * commit removes is absent from the working tree, so the finding it breaks has no
+ * production path left to name; `requirements-ledger` resolves those against **HEAD**,
+ * which is the base the scope itself is computed against, and turns an unreadable HEAD into
+ * an empty `paths` — unattributed, therefore own, therefore blocking.
+ *
  * ## The residual fail-open, stated
  *
  * **Path-form drift has no symptom.** Every guard today emits repo-relative POSIX with no

@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process'
 import { readFileSync, readdirSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -124,14 +125,63 @@ const LEDGER_SOURCE = readFileSync(join(ROOT, LEDGER), 'utf8')
  * environment did not reach the worker, every row is checked against every caller exactly
  * as before.
  *
- * ## What is deliberately NOT narrowed, and why
+ * ## What is NOT narrowed — rewritten 2026-08-05, defect #66
  *
- * The header arithmetic below, and the "every unreached row is checkable or recorded"
- * set equality, are claims about `.planning/REQUIREMENTS.md` and this file alone. They
- * cannot fire for anybody who did not edit one of those two, so they are already scoped
- * to their own author and wrapping them would add a layer that can only fail open.
+ * This section used to read:
+ *
+ * > *"The header arithmetic below, and the 'every unreached row is checkable or recorded'
+ * > set equality, are claims about `.planning/REQUIREMENTS.md` and this file alone. They
+ * > cannot fire for anybody who did not edit one of those two, so they are already scoped
+ * > to their own author."*
+ *
+ * **The second half of that was false**, and Plan 20-10 measured it on 2026-08-05. It
+ * edited neither `.planning/REQUIREMENTS.md` nor this file, and was refused three times —
+ * on *"collected the exported symbols the claims are matched against"* (`expected
+ * undefined to be '…/packages/core/src/coordinator.ts'`), on *"extracted claims from the
+ * rows rather than matching nothing"* (`expected 5 to be greater than 10`), and on the set
+ * equality itself (seven `CHURN-0…`/`SCHED-03` ids appearing). The cause was Plan 20-12's
+ * staged deletion of a module 20-10 does not touch. The cost was three `O2_SKIP_GUARDS=1`
+ * commits — the exact outcome defect #39 exists to remove, reproduced by an exemption
+ * carved out of #39's own design test.
+ *
+ * **The sentence was written from a belief about who could *trigger* those cases rather
+ * than from a reading of what they *consume*.** {@link EXPORTED} is built by walking
+ * `packages/` and `tools/`, so all three are claims about the ledger **crossed with the
+ * production corpus**, and any agent who moves a production symbol can fire them. That is
+ * the third instance of one shape in this repository — #38, a pre-commit trigger narrower
+ * than the guard's own corpus; #39, a repo-wide corpus against a narrow commit; #66, an
+ * exemption asserted rather than measured. **The population a guard acts on is not the
+ * population that pays for it.**
+ *
+ * All three are partitioned now, and by the union rule alone rather than by a narrower
+ * carve-out: a finding names the ledger, this file, and the production file the symbol
+ * lives in — or *lived in at HEAD*, when the symbol's disappearance is the cause, which is
+ * what {@link headExports} exists for. They still block the agent who caused them; what
+ * changed is only who else they block.
+ *
+ * **What stays unnarrowed, and this half is verified rather than believed.** The header
+ * arithmetic below reads {@link LEDGER_SOURCE} and nothing else — {@link numbers},
+ * {@link V1_BOXES} and {@link VERDICTS} are each a scan of that one string, and no
+ * expression under *"the header states counts that the ledger below it bears out"* reaches
+ * {@link CODE}, {@link EXPORTED}, {@link PRODUCTION} or {@link headExports}. It is
+ * therefore already scoped to its own author, and wrapping it would add a layer that can
+ * only fail open.
  */
 const SCOPE = commitScope()
+
+/**
+ * This file, in the form a commit scope prints it.
+ *
+ * Derived rather than written out. A literal would go stale the moment the file moved,
+ * and a stale attribution path is the residual fail-open of the whole narrowing: it stays
+ * well-formed, matches no commit, and silently makes every finding carrying it foreign.
+ *
+ * It is in the union of all three newly-partitioned findings because this file holds the
+ * other half of each — the probe's expected path, the anti-vacuity floors, and
+ * {@link WITHOUT_A_CHECKABLE_CLAIM}. An agent who edits one of those is answerable for
+ * what it then says.
+ */
+const SPEC = fileURLToPath(import.meta.url).slice(ROOT.length)
 
 // ---------------------------------------------------------------------------
 // The production corpus
@@ -157,16 +207,30 @@ function walk(dir: string, out: string[] = []): string[] {
 }
 
 /**
- * Production TypeScript: everything that is not a spec and not a re-export barrel.
+ * Whether a repo-relative path is production TypeScript: not a spec, not a re-export
+ * barrel, not a declaration file.
  *
  * Barrels are excluded for `vitest.config.ts`'s stated reason — every statement in all
  * eight is `export … from`, so a symbol's appearance in one says only that the package
  * publishes it, never that anything calls it. Counting a barrel as a caller would make
  * every exported symbol look wired and this whole file vacuous.
+ *
+ * **One predicate, used twice on purpose.** {@link PRODUCTION} walks the filesystem and
+ * {@link headExports} scans the HEAD tree, and the two must agree about what counts as
+ * production or the second cannot answer questions about the first. This repository has
+ * already paid for the alternative: defect #38 was a guard whose trigger was written in a
+ * different place from its corpus, and they drifted.
  */
+function isProductionPath(relative: string): boolean {
+  if (!relative.endsWith('.ts') || relative.endsWith('.d.ts')) return false
+  if (relative.endsWith('.test.ts')) return false
+  if (relative.endsWith(`${'/'}index.ts`)) return false
+  return relative.startsWith('packages/') || relative.startsWith('tools/')
+}
+
+/** Production TypeScript on disk, absolute, sorted. */
 const PRODUCTION: readonly string[] = [...walk(join(ROOT, 'packages')), ...walk(join(ROOT, 'tools'))]
-  .filter((path) => !path.endsWith('.test.ts'))
-  .filter((path) => !path.endsWith(`${'/'}index.ts`))
+  .filter((path) => isProductionPath(path.slice(ROOT.length)))
   .sort()
 
 /**
@@ -209,13 +273,22 @@ const CODE: ReadonlyMap<string, string> = new Map(
 )
 
 /**
+ * What an exported value declaration looks like, as one string used from two readers.
+ *
+ * Kept as source rather than as a `RegExp` because {@link EXPORTED} needs `gm` and
+ * {@link headExports} matches one line at a time; a shared `g` instance carries
+ * `lastIndex` between calls and would skip declarations non-deterministically.
+ */
+const DECLARATION = String.raw`^export\s+(?:declare\s+)?(?:abstract\s+)?(?:async\s+)?(?:function|class|const)\s+([A-Za-z_$][\w$]*)`
+
+/**
  * Every exported value symbol, mapped to the file that declares it.
  *
  * Values only. A row naming a type would not be making a claim about calls, and
  * `export type` has no call sites by construction.
  */
 const EXPORTED: ReadonlyMap<string, string> = (() => {
-  const declaration = /^export\s+(?:declare\s+)?(?:abstract\s+)?(?:async\s+)?(?:function|class|const)\s+([A-Za-z_$][\w$]*)/gm
+  const declaration = new RegExp(DECLARATION, 'gm')
   const found = new Map<string, string>()
   for (const [path, source] of CODE) {
     for (const match of source.matchAll(declaration)) {
@@ -224,6 +297,84 @@ const EXPORTED: ReadonlyMap<string, string> = (() => {
     }
   }
   return found
+})()
+
+/**
+ * The same map, taken at HEAD — which is the only place a symbol this commit **deletes**
+ * can still be found.
+ *
+ * ## Why a second corpus exists at all
+ *
+ * This is the mechanism defect #66 turned on. {@link EXPORTED} is the working tree, so a
+ * symbol a commit removes is simply absent from it, and a finding caused by that removal
+ * has no production path to name. Attributing it to the ledger and this file alone would
+ * let the author of the removal through with no red anywhere — the silent fail-open, and
+ * strictly worse than the over-blocking it replaced. Attributing it to nothing at all
+ * leaves it blocking everybody, which is the defect being fixed.
+ *
+ * HEAD is the right pre-image and not an approximation: `.githooks/pre-commit` computes
+ * the scope as `git diff-index --cached … "$BASE"` with `$BASE` = HEAD, so the paths a
+ * scope can contain are exactly the paths that differ between HEAD and the index. A file
+ * this commit deletes is in the scope **and** in this map, and in nothing else.
+ *
+ * ## `null` means attribution refused, not attribution empty
+ *
+ * Every failure to read HEAD returns `null`, and every caller turns `null` into an empty
+ * `paths` array — which {@link Scoped} defines as "could not attribute" and
+ * {@link partition} treats as own. So a broken git, a detached or empty HEAD, or a
+ * `maxBuffer` overrun all block on everything. There is no path through here that widens
+ * what this guard tolerates.
+ *
+ * ## Two stated limits, because a false claim of totality here is the defect this fixes
+ *
+ * The scan is `git grep '^export' HEAD`, matched line by line against
+ * {@link DECLARATION}, so it reads the file **unstripped** — a line beginning `export` at
+ * column zero inside a block comment counts. {@link EXPORTED} strips comments first and
+ * would not. The disagreement can only *add* a candidate declaring file, i.e. widen who
+ * is blocked, never narrow it. And it reads only `packages` and `tools`, which is what
+ * {@link isProductionPath} admits anyway.
+ */
+const headExports: () => ReadonlyMap<string, string> | null = (() => {
+  let cached: ReadonlyMap<string, string> | null | undefined
+  return () => {
+    if (cached !== undefined) return cached
+    let output: string
+    try {
+      // `-z` so the name is NUL-separated from the matched line: a path holding a colon
+      // would otherwise be indistinguishable from the `HEAD:` tree-ish prefix git adds.
+      output = execFileSync('git', ['grep', '-z', '^export', 'HEAD', '--', 'packages', 'tools'], {
+        cwd: ROOT,
+        encoding: 'utf8',
+        maxBuffer: 64 * 1024 * 1024,
+      })
+    } catch {
+      cached = null
+      return cached
+    }
+    const declaration = new RegExp(DECLARATION)
+    const matched: (readonly [string, string])[] = []
+    for (const record of output.split('\n')) {
+      const nul = record.indexOf('\0')
+      if (nul < 0) continue
+      const named = record.slice(0, nul)
+      // The prefix is why this map is checked for path form below rather than trusted:
+      // left on, `HEAD:packages/…` is well-formed to `isLsFilesForm`, matches no commit
+      // scope, and every vanished-symbol finding reads as somebody else's.
+      const path = named.startsWith('HEAD:') ? named.slice('HEAD:'.length) : named
+      if (!isProductionPath(path)) continue
+      matched.push([path, record.slice(nul + 1)])
+    }
+    // Sorted before first-wins, so the tie-break rule is byte-identical to the one
+    // `EXPORTED` gets from iterating the sorted `PRODUCTION`.
+    matched.sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+    const found = new Map<string, string>()
+    for (const [path, line] of matched) {
+      const name = declaration.exec(line)?.[1]
+      if (name !== undefined && !found.has(name)) found.set(name, path)
+    }
+    cached = found
+    return cached
+  }
 })()
 
 /**
@@ -286,6 +437,18 @@ interface Row {
   readonly noCaller: readonly string[]
   readonly onlyThrough: readonly (readonly [string, string])[]
   readonly unsuppliedHooks: readonly string[]
+  /**
+   * Every identifier the claim patterns captured out of this row, **before** the
+   * `EXPORTED` filter — so `which`, `itself` and `ts` are in here beside `submitJob`.
+   *
+   * Kept because the filter throws away exactly the information attribution needs. A row
+   * stops being checkable when a symbol it names leaves {@link EXPORTED}, and the filtered
+   * lists cannot say which symbol that was, so they cannot name the file it left. The
+   * English words cost nothing: {@link declaringPathsAtHead} resolves a candidate against
+   * a map of real export declarations, which is the same self-limiting rule the filter
+   * applies, one step later.
+   */
+  readonly candidates: readonly string[]
 }
 
 function parseRows(markdown: string): Row[] {
@@ -296,12 +459,15 @@ function parseRows(markdown: string): Row[] {
     const [, id, , cell] = match
     if (id === undefined || cell === undefined) continue
 
+    const candidates = new Set<string>()
     const noCaller = new Set<string>()
     for (const pattern of NO_CALLER) {
       pattern.lastIndex = 0
       for (const hit of cell.matchAll(pattern)) {
         for (const candidate of hit.slice(1)) {
-          if (candidate !== undefined && EXPORTED.has(candidate)) noCaller.add(candidate)
+          if (candidate === undefined) continue
+          candidates.add(candidate)
+          if (EXPORTED.has(candidate)) noCaller.add(candidate)
         }
       }
     }
@@ -310,6 +476,8 @@ function parseRows(markdown: string): Row[] {
     ONLY_THROUGH.lastIndex = 0
     for (const hit of cell.matchAll(ONLY_THROUGH)) {
       const [, subject, gate] = hit
+      if (subject !== undefined) candidates.add(subject)
+      if (gate !== undefined) candidates.add(gate)
       if (subject !== undefined && gate !== undefined && EXPORTED.has(subject) && EXPORTED.has(gate)) {
         onlyThrough.push([subject, gate])
       }
@@ -326,9 +494,64 @@ function parseRows(markdown: string): Row[] {
       noCaller: [...noCaller],
       onlyThrough,
       unsuppliedHooks: [...hooks],
+      candidates: [...candidates],
     })
   }
   return rows
+}
+
+/**
+ * The production files that declare the symbols these rows name, **here, now**.
+ *
+ * This is the half of the union that answers *"a row became checkable"*: a symbol that
+ * was not exported and now is has a file on disk, and the agent who exported it is one of
+ * the two people who can resolve the contradiction.
+ */
+function declaringPathsHere(rows: readonly Row[]): string[] {
+  const paths = new Set<string>()
+  for (const row of rows) {
+    for (const candidate of row.candidates) {
+      const declaredIn = EXPORTED.get(candidate)
+      if (declaredIn !== undefined) paths.add(declaredIn.slice(ROOT.length))
+    }
+  }
+  return [...paths]
+}
+
+/**
+ * The production files that declared these rows' symbols **at HEAD** and no longer do.
+ *
+ * The other half of the union, and the one defect #66 was actually about: it answers
+ * *"a row stopped being checkable"*. Deliberately restricted to candidates that are
+ * **not** in {@link EXPORTED} — a symbol that is still exported did not cause the row to
+ * stop parsing, and naming its file would hold an agent who changed nothing relevant.
+ *
+ * `null` is attribution refused, not attribution empty: it propagates from
+ * {@link headExports} and every caller turns it into an empty `paths`, which blocks on
+ * everything. Returning `[]` here instead would be a fail-open with no symptom.
+ */
+function declaringPathsAtHead(rows: readonly Row[]): string[] | null {
+  const head = headExports()
+  if (head === null) return null
+  const paths = new Set<string>()
+  for (const row of rows) {
+    for (const candidate of row.candidates) {
+      if (EXPORTED.has(candidate)) continue
+      const declaredIn = head.get(candidate)
+      if (declaredIn !== undefined) paths.add(declaredIn)
+    }
+  }
+  return [...paths]
+}
+
+/**
+ * The union rule applied to the two halves: this file, the ledger, and every production
+ * path that participates — or an empty array, which means "could not attribute" and
+ * therefore blocks everybody.
+ */
+function attribute(participants: readonly string[] | null): string[] {
+  if (participants === null) return []
+  return [SPEC, LEDGER, ...participants]
 }
 
 const ROWS = parseRows(LEDGER_SOURCE)
@@ -589,6 +812,22 @@ const VERDICTS = (() => {
 // The instrument is alive
 // ---------------------------------------------------------------------------
 
+/**
+ * Symbols whose declaring file is pinned, so an `EXPORTED` that stopped collecting is a
+ * failure here rather than a silent pass everywhere.
+ *
+ * Repo-relative, because that is the form a commit scope is in and these paths are
+ * attributed with. `runResilient` → `packages/core/src/coordinator.ts` stood in the first
+ * slot until 2026-08-05, when Plan 20-12 deleted that module under WIRE-04 and the
+ * reading became `undefined`. Re-sited on `submitJob`, which is the symbol that replaced
+ * it and the one every claim about the job path now has to be read against — a probe
+ * naming a deleted module measures nothing.
+ */
+const EXPORT_PROBES: readonly (readonly [string, string])[] = [
+  ['submitJob', 'packages/core/src/job/submit.ts'],
+  ['LocalCapacity', 'packages/core/src/placement.ts'],
+]
+
 describe('the corpus and the ledger were really read', () => {
   it('reads the ledger from the path the project keeps it at', () => {
     expect(LEDGER_SOURCE).toContain('# Requirements — o2.services P2P Native Cloud')
@@ -608,14 +847,60 @@ describe('the corpus and the ledger were really read', () => {
   })
 
   it('collected the exported symbols the claims are matched against', () => {
-    expect(EXPORTED.size).toBeGreaterThan(200) // 378 on 2026-08-01
-    // `runResilient` → `coordinator.ts` stood in the first slot until 2026-08-05, when
-    // Plan 20-12 deleted that module under WIRE-04 and this reading became `undefined`.
-    // Re-sited on `submitJob`, which is the symbol that replaced it and the one every
-    // claim about the job path now has to be read against — a probe naming a deleted
-    // module measures nothing.
-    expect(EXPORTED.get('submitJob')).toBe(join(ROOT, 'packages/core/src/job/submit.ts'))
-    expect(EXPORTED.get('LocalCapacity')).toBe(join(ROOT, 'packages/core/src/placement.ts'))
+    const findings: { paths: string[]; line: string }[] = []
+    // A corpus collapse names no path and *cannot*: nothing here can say whose absence
+    // took the count under the floor. An empty `paths` is `Scoped`'s "could not
+    // attribute", which `partition` treats as own — so this one blocks everybody, which
+    // is the right answer when the instrument is dead rather than merely disagreeing.
+    if (EXPORTED.size <= 200) {
+      // 378 on 2026-08-01, 458 on 2026-08-05.
+      findings.push({
+        paths: [],
+        line: `EXPORTED holds ${EXPORTED.size} symbols, under the floor of 200 — the corpus collapsed`,
+      })
+    }
+    for (const [symbol, expected] of EXPORT_PROBES) {
+      const declaredIn = EXPORTED.get(symbol)
+      const actual = declaredIn === undefined ? undefined : declaredIn.slice(ROOT.length)
+      if (actual === expected) continue
+      findings.push({
+        // The union. `expected` is where the symbol was when the probe was written, so
+        // the agent deleting or renaming that file holds one half; this file holds the
+        // other, because the expected path is a literal here. `actual` joins when the
+        // symbol merely moved rather than vanished.
+        //
+        // **This is the exact shape of the 2026-08-05 refusal.** The probe then read
+        // `runResilient` → `packages/core/src/coordinator.ts`; that path was in Plan
+        // 20-12's commit, which deleted it, and in nobody else's — yet the case was
+        // unnarrowed and refused 20-10 instead.
+        paths: [SPEC, expected, ...(actual === undefined ? [] : [actual])],
+        line: `${symbol} is declared in ${actual ?? 'no production file at all'}, not in ${expected}`,
+      })
+    }
+    expect(blocking('requirements-ledger/export-probe', findings, SCOPE)).toEqual([])
+  })
+
+  it('reads HEAD too, so a symbol this commit deletes can still be attributed', () => {
+    // The instrument the #66 fix rests on, proved alive from the other side. A HEAD scan
+    // that stopped matching returns an empty map, every "the symbol vanished" finding
+    // then names the ledger and this file only, and the agent who deleted the symbol goes
+    // through with no red anywhere. That failure has no symptom of its own, so it is held
+    // here rather than left to the cases that consume it.
+    const head = headExports()
+    expect(head).not.toBeNull()
+    expect(head?.size ?? 0).toBeGreaterThan(200) // 458 on 2026-08-05
+    // A comparative reading inside one run, not an absolute pin on one symbol. Pinning
+    // `submitJob` to its HEAD path would go red for whoever legitimately moves it — this
+    // file's own defect reproduced one layer down — while a bare size floor would be
+    // satisfied by a map of the wrong thing entirely. Agreement with the working tree
+    // over most of the corpus is the reading that distinguishes those.
+    const agreeing = [...EXPORTED].filter(([name, path]) => head?.get(name) === path.slice(ROOT.length))
+    expect(agreeing.length).toBeGreaterThan(200)
+    // Self-limiting in the same way `EXPORTED.has` is one step earlier: the rows are
+    // English and the claim patterns harvest words out of them, so it is this map that
+    // decides a word is not a symbol and therefore not an attribution.
+    expect(head?.has('itself')).toBe(false)
+    expect(head?.has('which')).toBe(false)
   })
 
   it('strips comments, without which every claim would read as violated', () => {
@@ -672,8 +957,18 @@ describe('the corpus and the ledger were really read', () => {
   })
 
   it('extracted claims from the rows rather than matching nothing', () => {
-    expect(ROWS.length).toBeGreaterThan(60) // 76 on 2026-08-01
-    expect(BUILT_NOT_WIRED.length).toBeGreaterThan(5)
+    const findings: { paths: string[]; line: string }[] = []
+    /**
+     * A floor whose only participants are the ledger it counts and the file the number is
+     * written in. Nothing in the production corpus can move these three: they are counts
+     * of rows and of verdicts, both read out of `LEDGER_SOURCE`.
+     */
+    const ledgerFloor = (actual: number, min: number, what: string): void => {
+      if (actual > min) return
+      findings.push({ paths: [SPEC, LEDGER], line: `${what}: ${actual}, floor ${min}` })
+    }
+    ledgerFloor(ROWS.length, 60, 'rows parsed out of the ledger') // 76 on 2026-08-01
+    ledgerFloor(BUILT_NOT_WIRED.length, 5, 'rows marked Built, not wired')
     // Counted over every row, because that is the population the checks below read.
     // Counting it over `BUILT_NOT_WIRED` while checking `ROWS` would leave the widening
     // itself unguarded — a floor that cannot see the rows it was widened to reach.
@@ -696,8 +991,29 @@ describe('the corpus and the ledger were really read', () => {
     // and the stronger one caught the same event in the same run.
     //
     // It is expected to rise again when 20-13 gives those rows claims a search can read.
-    expect(claims).toBeGreaterThan(3) // 5 on 2026-08-05; 14 on 2026-08-02 before 20-12
-    expect(UNREACHED.length).toBeGreaterThan(BUILT_NOT_WIRED.length) // 32 vs 14
+    if (claims <= 3) {
+      // 5 on 2026-08-05; 14 on 2026-08-02 before 20-12.
+      //
+      // **This is the floor that refused Plan 20-10** — `expected 5 to be greater than
+      // 10`, on a commit that touched neither the ledger nor this file. The count falls
+      // when a symbol a row names leaves `EXPORTED`, and the symbol that left had been
+      // deleted by somebody else in the same working tree. So the union is the ledger
+      // (its sentences are what is counted), this file (the floor is written here) and
+      // the file each vanished symbol was declared in **at HEAD** — which is the only
+      // place a deleted declaration can still be read, and is a path the deleting commit
+      // carries.
+      //
+      // Only the vanished candidates, never the ones still exported: a symbol that is
+      // still there did not lower the count, and naming its file would hold an agent who
+      // changed nothing relevant. `null` from `attribute` means HEAD was unreadable, and
+      // is an empty `paths` — unattributed, therefore own, therefore blocking.
+      findings.push({
+        paths: attribute(declaringPathsAtHead(ROWS)),
+        line: `checkable claims parsed out of the rows: ${claims}, floor 3`,
+      })
+    }
+    ledgerFloor(UNREACHED.length, BUILT_NOT_WIRED.length, 'rows whose verdict says not fully reached') // 32 vs 14
+    expect(blocking('requirements-ledger/claim-floor', findings, SCOPE)).toEqual([])
   })
 })
 
@@ -754,8 +1070,52 @@ describe('a row claiming nothing calls a mechanism is right about it', () => {
     const unchecked = UNREACHED.filter(
       (row) =>
         row.noCaller.length === 0 && row.onlyThrough.length === 0 && row.unsuppliedHooks.length === 0,
-    ).map((row) => row.id)
-    expect(unchecked.toSorted()).toEqual([...WITHOUT_A_CHECKABLE_CLAIM].toSorted())
+    )
+    const uncheckedIds = new Set(unchecked.map((row) => row.id))
+    const recorded = new Set(WITHOUT_A_CHECKABLE_CLAIM)
+    const byId = new Map(ROWS.map((row) => [row.id, row]))
+
+    // Still a set equality, held in both directions — the direction that catches a row
+    // quietly losing its claim, and the direction that catches a list entry outliving the
+    // reason it was added. What changed on 2026-08-05 is only that each half is a
+    // separately attributed finding rather than an array diff, because an array diff can
+    // name no paths and therefore blocks whoever arrives next.
+    const findings: { paths: string[]; line: string }[] = []
+
+    for (const row of unchecked) {
+      if (recorded.has(row.id)) continue
+      // **The refusal Plan 20-10 recorded**: seven ids appeared here because Plan 20-12
+      // had staged the deletion of the module declaring the symbol they name. The union
+      // is the ledger (the row's sentence is one half of the contradiction), this file
+      // (`WITHOUT_A_CHECKABLE_CLAIM` is the other), and the file each of the row's
+      // now-unresolvable symbols was declared in at HEAD — the deleting commit's own path.
+      findings.push({
+        paths: attribute(declaringPathsAtHead([row])),
+        line: `${row.id} is ${row.verdict} and carries no claim this file can read, and is not recorded as such`,
+      })
+    }
+
+    for (const id of WITHOUT_A_CHECKABLE_CLAIM) {
+      if (uncheckedIds.has(id)) continue
+      const row = byId.get(id)
+      const stillUnreached = row !== undefined && UNREACHED_VERDICTS.includes(row.verdict)
+      // Two different causes, so two different unions rather than one loose one. A row
+      // that stopped being *unreached*, or left the ledger, moved because somebody edited
+      // the ledger — no production file participates. A row that is still unreached and
+      // has become checkable moved because a symbol it names **appeared** in `EXPORTED`,
+      // and the agent who exported it is answerable along with the two document authors.
+      findings.push({
+        paths: stillUnreached ? attribute(declaringPathsHere([row])) : [SPEC, LEDGER],
+        line:
+          row === undefined
+            ? `${id} is recorded as carrying no checkable claim, but is not a row in the ledger`
+            : stillUnreached
+              ? `${id} is recorded as carrying no checkable claim, but now carries one`
+              : `${id} is recorded as carrying no checkable claim, but its verdict is now ${row.verdict}`,
+      })
+    }
+
+    expect(blocking('requirements-ledger/unread-row', findings, SCOPE)).toEqual([])
   })
 })
 
@@ -793,7 +1153,12 @@ describe('the paths this guard attributes findings to are paths a commit can mat
    * somebody else's scratch file, which is the very defect being fixed.
    */
   const TRACKED = trackedPaths(ROOT)
-  const ATTRIBUTABLE = [LEDGER, ...PRODUCTION.map((path) => path.slice(ROOT.length))]
+  const ATTRIBUTABLE = [
+    LEDGER,
+    SPEC,
+    ...EXPORT_PROBES.map(([, expected]) => expected),
+    ...PRODUCTION.map((path) => path.slice(ROOT.length)),
+  ]
 
   it('emits repo-relative POSIX paths that git also prints', () => {
     expect(pathFormProblems(ATTRIBUTABLE)).toEqual([])
@@ -801,6 +1166,16 @@ describe('the paths this guard attributes findings to are paths a commit can mat
     // Named markers, so "most of them are tracked" is not the whole reading: these are
     // the two files the positive controls above are stated against.
     expect(TRACKED.has(LEDGER)).toBe(true)
+    // Added 2026-08-05 with defect #66. This file is now in the union of three findings,
+    // and `SPEC` is derived from `import.meta.url` — a resolution that lands one
+    // directory out is still well-formed, still matches no commit, and would silently
+    // drop this file from every one of those unions.
+    expect(TRACKED.has(SPEC)).toBe(true)
+    // The probes' expected paths are attributed with, so a typo in one is not merely a
+    // wrong expectation — it is a finding that names a path no commit can hold.
+    for (const [symbol, expected] of EXPORT_PROBES) {
+      expect(TRACKED.has(expected), `${symbol} expected at ${expected}`).toBe(true)
+    }
     expect(ATTRIBUTABLE).toContain('packages/node/src/fabric-node.ts')
     expect(ATTRIBUTABLE).toContain('packages/browser/src/browser-node.ts')
   })
@@ -812,6 +1187,36 @@ describe('the paths this guard attributes findings to are paths a commit can mat
     expect(callers.length).toBeGreaterThan(0)
     expect(pathFormProblems(callers)).toEqual([])
     expect(callers.filter((path) => TRACKED.has(path))).toEqual(callers)
+  })
+
+  it('strips the tree-ish off the HEAD scan, which git prints and a commit never does', () => {
+    // The #66 attribution path, checked from the same end as the others. `git grep
+    // <pattern> HEAD` names every hit `HEAD:packages/…`, and `isLsFilesForm` has no
+    // opinion about a colon — so a prefix left on would produce a path that passes every
+    // form check, matches no commit scope, and makes every vanished-symbol finding read
+    // as somebody else's.
+    //
+    // **Which assertion carries that, measured rather than assumed.** The strip was
+    // deleted (`const path = named`) and this case went red — on
+    // `expected 0 to be greater than 80`, **not** on either colon filter below. The
+    // filters cannot fire, because `isProductionPath` requires a `packages/` or `tools/`
+    // prefix and `HEAD:packages/…` has neither, so the whole map empties one step
+    // earlier. They are kept as a statement of the form this map must be in, and the
+    // claim is actually carried by the two floors — here and in *"reads HEAD too"*, which
+    // failed in the same run on `expected 0 to be greater than 200`. Saying otherwise
+    // would be a comment that reads like evidence and is not.
+    const head = headExports()
+    expect(head).not.toBeNull()
+    const paths = [...new Set((head === null ? [] : [...head.values()]))]
+    expect(paths.length).toBeGreaterThan(80)
+    expect(pathFormProblems(paths)).toEqual([])
+    expect(paths.filter((path) => path.startsWith('HEAD:'))).toEqual([])
+    expect(paths.filter((path) => path.includes(':'))).toEqual([])
+    // A floor, and it cannot be an equality in either direction: this map's whole purpose
+    // is to hold files that are at HEAD and **not** in the index, which is exactly what a
+    // staged deletion looks like. Requiring every entry to be tracked would make the
+    // instrument red in precisely the case it exists for.
+    expect(paths.filter((path) => TRACKED.has(path)).length).toBeGreaterThan(80)
   })
 })
 
