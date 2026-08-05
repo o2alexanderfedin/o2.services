@@ -6,7 +6,7 @@
  *
  *   { "peerId": "12D3Koo…", "multiaddrs": ["/ip4/127.0.0.1/tcp/54321/p2p/12D3Koo…"],
  *     "trustAnchors": ["…"], "nodeKey": "…", "certificate": null, "issuerKey": null,
- *     "peers": [], "dutyCycle": 1, "relays": [] }
+ *     "peers": [], "dutyCycle": 1, "relays": [], "pid": 12345 }
  *
  * The handshake is deliberately a single line on stdout rather than a fixed port or
  * a discovery service: the OS assigns the port, so parallel runs cannot collide,
@@ -45,7 +45,19 @@
  * asserts anything about the dial's consequences: the line is written after the dials, so
  * a parent that has read it is reading a completed peering rather than an intention.
  *
- * Adding a field is additive for existing parents: each reads only the keys it names.
+ * `pid` is this process's own operating-system process id, and it is here because a parent
+ * that spawned a child and read an address has proved neither that the address belongs to
+ * that child nor that the child is the process now holding it. `child.pid` names a process
+ * the parent started; the handshake names an address somebody is serving; nothing joined
+ * them until this key existed. BENCH-07's first integrity check is exactly that
+ * correspondence — a benchmark that quietly ran its nodes inside the driver's own process
+ * would satisfy both halves separately and fail `handshake.pid === child.pid`. A pid is
+ * public by construction, exactly as the fields above it are: `ps` prints it to every
+ * account on the host.
+ *
+ * Adding a field is additive for existing parents: each reads only the keys it names. That
+ * is why `pid` is one line rather than a protocol change — every reader of this line in
+ * this repository destructures `peerId` and `multiaddrs` and ignores the rest.
  *
  * ## No flag on this binary accepts key material
  *
@@ -991,6 +1003,10 @@ process.stdout.write(
     peers,
     dutyCycle: node.dutyCycle,
     relays: node.circuitAddrs,
+    // BENCH-07 — see the module comment. `process.pid` and never a value passed in or
+    // derived: the claim is that *this* process is the one serving the addresses above it,
+    // and only this process can state that about itself.
+    pid: process.pid,
   })}\n`,
 )
 
