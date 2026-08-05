@@ -332,6 +332,24 @@ describe('BENCH-07 — every published figure names the driver and fixture it ca
     expect([...widths]).toHaveLength(1)
   })
 
+  /**
+   * **The pre-existing occurrence count could not carry this, and was measured
+   * failing to.** `expect(occurrences).toBeGreaterThanOrEqual(3)` on `SAME-MACHINE`
+   * counts the whole document, and with a top-of-page label plus two makespan and two
+   * reduce headings there are five; dropping `${label}` from one makespan heading
+   * leaves four, which clears the floor. Planted on 2026-08-05 and watched staying
+   * **green** — vitest exit 0, 63 passed — which is why this case exists. Adding a
+   * third makespan section makes that floor slacker still, so the reading has to be
+   * per-heading rather than a total.
+   */
+  it('keeps the derived label in every makespan heading, not merely somewhere', () => {
+    const markdown = renderMarkdown(fullReport({ multiProcess }))
+    const headings = markdown.split('\n').filter((line) => line.startsWith('## Makespan'))
+    // Anti-vacuity: a render with no makespan headings would pass the loop in silence.
+    expect(headings).toHaveLength(3)
+    for (const heading of headings) expect(heading).toContain('SAME-MACHINE')
+  })
+
   it('derives the tax, crossover and memory-reduce headings from the memory curve', () => {
     const saturating: readonly SweepResult[] = [
       configured(point(1, 100), { fixture: 'saturating' }),
