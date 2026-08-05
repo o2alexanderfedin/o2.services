@@ -142,6 +142,14 @@ function jobWith(shards: readonly ShardResult[]): JobResult {
     // would be a number nobody measured.
     speculationMultiplier: 1,
     speculationSpent: 0,
+    // A fixture job that defines no owners, and this is the measured reading rather than
+    // a convenient one: `ShardResult` carries no owner — `reduceJob`'s own header says
+    // *"`ShardSpec.ownerId` exists but `JobResult` does not preserve it"* — so a job
+    // assembled from these literals has no sovereign shard to derive an owner from. The
+    // named arm is what `submitJob` reports for exactly that job. A `CoverageReport` of
+    // `0/0` here would render `PARTIAL (no owners were expected)` and would be this
+    // fixture apologising for a question it was never asked.
+    coverage: 'defines-no-owners',
   }
 }
 

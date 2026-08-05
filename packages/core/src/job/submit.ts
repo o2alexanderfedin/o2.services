@@ -107,6 +107,31 @@
  * 'I cannot tell' is to wait a bounded time"*), and `DEFAULT_LEASE_MS` is the dial. The
  * escape from it is evidence, not a longer timer — see {@link JobSpec.admit}.
  *
+ * ## The aggregate carries its denominator — CHURN-05
+ *
+ * A job over ten owners that reached eight of them computed a *different number* from the
+ * one it was asked for, and nothing about the number itself says so. `coverage.ts` exists
+ * to stop the first being presented as the second, and until Phase 20 it had **zero**
+ * production callers. Every job now reports how many of its owners contributed, beside
+ * its result rather than instead of it — see {@link JobResult.coverage}.
+ *
+ * **The owner set is derived from the job's own shards and there is no `JobSpec` field
+ * for it.** A shard is defined for an owner whether or not that owner's nodes are up, so
+ * an owner whose every node is missing still has a shard, is still *expected*, and lands
+ * in `CoverageReport.missing` by name. This is not a contradiction of the standing rule
+ * that an optional field with a silent default is a hole — see {@link JobSpec.admit},
+ * which is such a field and states its asymmetry. That rule governs *choices the caller
+ * must state*; an owner set is a *fact already present in the caller's own input*, and a
+ * required field for it would be a five-site fan-out buying nothing derivation does not.
+ *
+ * **What that derivation costs, measured rather than assumed.** It ties one direction of
+ * coverage to completeness: an owner can only be expected by having a shard, and that
+ * shard is inside {@link JobResult.complete}'s conjunction, so a `complete` job is always
+ * fully covered. The converse fails — a fully covered job can be incomplete — and the two
+ * remain separate fields for that reason and because the remedies differ. What would make
+ * the missing direction reachable is a *declared* owner set (`runResilient`'s optional
+ * `expectedOwners`), and declaring one is the thing this module refuses.
+ *
  * Pure module: the blockstore and executors arrive as ports, and so do the clock and
  * the timer the lease deadline needs — see {@link SubmitOptions.clock}.
  */
@@ -114,6 +139,8 @@
 import type { CID } from 'multiformats/cid'
 import { canonicalCid } from '../canonical/encode.ts'
 import type { CanonicalValue } from '../canonical/encode.ts'
+import { coverageOf } from '../coverage.ts'
+import type { CoverageReport } from '../coverage.ts'
 import type { NodeCertificate } from '../enrollment.ts'
 import type { Sleep } from '../governor.ts'
 import { DEFAULT_MAX_GENERATIONS, LeaseTable, RENEW_AT, shouldRenew } from '../lease.ts'
@@ -661,6 +688,50 @@ export interface ShardResult {
   readonly rejections: readonly Rejection[]
 }
 
+/**
+ * How much of a job's owner set actually contributed — CHURN-05.
+ *
+ * **A named union rather than a bare {@link CoverageReport}**, and this is the decision
+ * most likely to be undone by somebody tidying. `coverageOf` treats an empty owner set as
+ * **not** complete — its own words, *"An empty job is not a complete one — '0 of 0 owners'
+ * answers nothing"* — so a bare report on a public job renders `covered: 0/0 owners —
+ * PARTIAL (no owners were expected)`. That is a correct answer to a question the job was
+ * never entered for, and it would print on every benchmark rung in this repository. So a
+ * job with no sovereign shard says what it is *by name*, the same shape as
+ * `'keeps-no-ledger'`, `'signs-nothing'` and `'carries-no-certificate'`, and a reader has
+ * to have handled that arm before it can reach `describeCoverage` at all.
+ */
+export type JobCoverage = CoverageReport | 'defines-no-owners'
+
+/**
+ * Did this shard put its owner's data into the aggregate? — CHURN-05.
+ *
+ * **`agreed`, and no copy of it that disagreed.** An `insufficient` shard produced
+ * nothing, a `disagreed` one produced two different things and `verify.ts` refuses to pick
+ * between them, and an unplaceable one never ran. The second clause carries 20-07's rule
+ * one level out: a shard whose losing copy hashed differently is a failed run and not a
+ * run with a footnote, so its owner's bytes are not in an aggregate anybody should read.
+ * {@link ShardResult.disagreed} post-dates the sentence in `verify.ts` that this
+ * predicate otherwise transcribes, so the clause is written here rather than left implied.
+ *
+ * **`degraded` deliberately does NOT disqualify**, and the reason is written down because
+ * an unstated answer here would read as an oversight. A shard that agreed at one replica
+ * instead of two *did* read its owner's data and produce a result over it — the owner
+ * contributed. What is weaker is the **verification**, which is a different question with
+ * a different remedy (ask for more replicas, versus go and find the owner's node), and
+ * {@link ShardResult.degraded}, {@link ShardResult.attestation} and
+ * {@link JobResult.complete} each already report it. Folding it in would make `2/3`
+ * ambiguous between *an owner is absent* and *an owner's shard got half the redundancy it
+ * asked for* — the same collapse of two questions into one number that `coverage.ts`
+ * exists to prevent, running the other way. It would also contradict `PROJECT.md`'s own
+ * split: sovereign data is **owner-attested** rather than redundantly executed, so
+ * requiring full redundancy before an owner counts would demand a guarantee this project
+ * does not claim, on exactly the shards coverage is computed over.
+ */
+function landedForItsOwner(shard: ShardResult): boolean {
+  return shard.verification.status === 'agreed' && !shard.disagreed
+}
+
 export interface JobResult {
   readonly moduleCid: CID
   readonly shards: readonly ShardResult[]
@@ -752,6 +823,27 @@ export interface JobResult {
   readonly speculationMultiplier: number
   /** Duplicates this job actually started, out of a job-wide budget it could not exceed. */
   readonly speculationSpent: number
+  /**
+   * Owners this job was defined over, against owners that **fully** delivered — CHURN-05.
+   *
+   * Beside the result rather than instead of it: `covered: 2/3 owners` is the sentence
+   * `describeCoverage` already writes and criterion 4 already asks for, and this is the
+   * value it is written from.
+   *
+   * **An owner counts only when every one of its shards landed.** One of four is not a
+   * contribution — see {@link landedForItsOwner} and the argument reproduced at the site
+   * that computes this.
+   *
+   * **Not {@link JobResult.complete}, and never merged with it.** A caller can be told
+   * this job is incomplete because a shard disagreed, or because an owner is entirely
+   * absent, and those are different remedies: re-run, versus go and find the owner's node.
+   * Deriving either from the other would take a caller's ability to tell them apart.
+   * *(One implication does hold, by construction and not by design: because the owner set
+   * is derived from the job's own shards, a `complete` job is always fully covered. The
+   * converse fails, which is why the pair carries information at all. The module header
+   * records what would make the missing direction reachable.)*
+   */
+  readonly coverage: JobCoverage
 }
 
 export type SubmitError =
@@ -2374,6 +2466,64 @@ export async function submitJob(
     }
   })
 
+  // ── Coverage over owners — CHURN-05 ────────────────────────────────────────────────
+  //
+  // Shards each owner contributed, against shards each owner *owes*. The argument for the
+  // per-owner gate is `coordinator.ts`'s and is reproduced here rather than referenced,
+  // attributed, because a later plan deletes that module and this is the clearest
+  // statement of the rule anywhere in the tree:
+  //
+  //   "Counting an owner as covered the moment any one of their shards lands overstates
+  //   coverage exactly where it matters most: an owner with four shards, three of which
+  //   failed, would be reported as having contributed, and `complete` would be true over
+  //   a quarter of their data. That is the failure `coverage.ts` exists to prevent,
+  //   arriving through the composition rather than through `coverageOf`."
+  //
+  // So the gate is **owed against done, per owner**, and it lives here in the caller.
+  // `coverageOf` is pure set arithmetic over owner ids and has no way to express it; a
+  // set of "owners that appeared" handed to it would already have lost the count.
+  //
+  // Arithmetic over shards already in hand — two map builds and a filter — not a second
+  // pass over anything. It runs after the late copies have been read, because
+  // {@link ShardResult.disagreed} is only known then and it is half of what "landed" means.
+  const owedByOwner = new Map<OwnerId, number>()
+  const doneByOwner = new Map<OwnerId, number>()
+  for (const shard of spec.shards) {
+    // A public shard names no owner and therefore contributes to no owner's count —
+    // neither to the numerator nor to the denominator. It is not an owner called
+    // "public"; it is a shard the question does not apply to.
+    if (shard.label !== 'sovereign') continue
+    owedByOwner.set(shard.ownerId, (owedByOwner.get(shard.ownerId) ?? 0) + 1)
+  }
+  for (const settled of shards) {
+    const shard = spec.shards[settled.partitionIndex] as ShardSpec
+    if (shard.label !== 'sovereign') continue
+    if (!landedForItsOwner(settled)) continue
+    doneByOwner.set(shard.ownerId, (doneByOwner.get(shard.ownerId) ?? 0) + 1)
+  }
+  // The expected set is the owners this job's own shards name — never the owners its
+  // *nodes* belong to. A pool containing a node of some owner who has no shard here says
+  // nothing about what this job was asked for, and counting it would report an owner
+  // missing from a job that never wanted them.
+  //
+  // `unexpected` is carried through rather than dropped, and it is **structurally empty
+  // today**: both sets are derived from `spec.shards[i].ownerId` through the one map
+  // above, so the contributed set is a subset of the expected one by construction. That
+  // is a reason to keep the field, not to remove it — a non-empty `unexpected` here would
+  // mean the derivation and the delivery had come apart, which nothing else in this
+  // module would catch. It becomes genuinely reachable the day the delivered owner is
+  // read from a second source (a `ShardResult` that carried its own owner, or an egress
+  // manifest), and not before.
+  const coverage: JobCoverage =
+    owedByOwner.size === 0
+      ? 'defines-no-owners'
+      : coverageOf(
+          [...owedByOwner.keys()],
+          [...owedByOwner]
+            .filter(([owner, owed]) => (doneByOwner.get(owner) ?? 0) >= owed)
+            .map(([owner]) => owner),
+        )
+
   let gross = 0
   let useful = 0
   for (const s of shards) {
@@ -2402,6 +2552,7 @@ export async function submitJob(
       leaseHistory: leases.history,
       speculationMultiplier: ledger.multiplier,
       speculationSpent: ledger.spent,
+      coverage,
     },
   }
 }

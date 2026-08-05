@@ -3,6 +3,8 @@ import { CID } from 'multiformats/cid'
 import { MemoryBlockstore } from '../blockstore/memory.ts'
 import { canonicalCid } from '../canonical/encode.ts'
 import type { CanonicalValue } from '../canonical/encode.ts'
+import { describeCoverage } from '../coverage.ts'
+import type { CoverageReport } from '../coverage.ts'
 import { EnrollmentAuthority, requestEnrollment } from '../enrollment.ts'
 import type { NodeCertificate } from '../enrollment.ts'
 import { DEFAULT_LEASE_MS, DEFAULT_MAX_GENERATIONS } from '../lease.ts'
@@ -3006,5 +3008,470 @@ describe('VER-03/VER-04 — a public shard wanting verification gets a composed 
     // strength from `QuorumResult.strength` would report `independent` here.
     expect(shard.quorum).toMatchObject({ kind: 'composed' })
     expect(shard.attestation).toMatchObject({ kind: 'holds-no-verified-attestation', verified: 1 })
+  })
+})
+
+/**
+ * CHURN-05 — the aggregate carries its denominator.
+ *
+ * ## What every case here CANNOT redden on
+ *
+ * **None of them can redden on `coverageOf`'s own set arithmetic.** Who is missing, who is
+ * unexpected, and whether an empty expected set counts as complete are all decided inside
+ * `coverage.ts` and are asserted directly in `coverage.test.ts`. What this file proves is
+ * the **composition**: which owners `submitJob` decides were expected, which it decides
+ * delivered, and what it hands a caller for a job that has no owners at all. Every one of
+ * these cases would stay green against a `coverageOf` that had been rewritten to be wrong
+ * in a way that still respected its signature, and that is `coverage.test.ts`'s job.
+ *
+ * None of them can redden on timing either: coverage is arithmetic over shards already
+ * settled, so these cases need no clock, no `sleep` and no held executor.
+ *
+ * ## The shape a caller has to write, written once here
+ *
+ * {@link renderCoverage} is what a display site looks like — the named arm handled first,
+ * `describeCoverage` reachable only past it. It is not a convenience for the assertions:
+ * it is the thing under test in the public-job case, because a union that is present and
+ * then rendered through the partial branch anyway is the defect wearing the fix's clothes.
+ */
+describe('CHURN-05 — the one job path reports how many of its owners contributed', () => {
+  /** A node of `owner`, able to run their sovereign work, idle. */
+  function ownedBy(nodeId: string, ownerId: string): NodeDescriptor {
+    return { nodeId, ownerId, canExecuteSovereign: true, load: 0, certificate: 'carries-no-certificate' }
+  }
+
+  /** The report, or a failure that says the job took the *named* arm instead. */
+  function reportOf(coverage: JobResult['coverage']): CoverageReport {
+    if (coverage === 'defines-no-owners') {
+      throw new Error('this job reported `defines-no-owners`, so there is no report to read')
+    }
+    return coverage
+  }
+
+  /** What a job with no owners says, in the caller's words rather than the report's. */
+  const NO_OWNERS = 'this job defines no owners'
+
+  /**
+   * Every display site's shape: handle the named arm, and only then describe a report.
+   *
+   * A caller that cannot reach `describeCoverage` without having answered "does this job
+   * define owners at all?" is the whole reason the field is a union.
+   */
+  function renderCoverage(coverage: JobResult['coverage']): string {
+    return coverage === 'defines-no-owners' ? NO_OWNERS : describeCoverage(coverage)
+  }
+
+  /**
+   * A node that takes the work and says nothing until `release()`.
+   *
+   * A deferred promise rather than a delay, so "slow" is a fact this fixture states
+   * rather than one it hopes for. **A deliberate local copy of the CHURN-02 block's
+   * `holding`**, whose helpers are private to that block; hoisting them to module scope
+   * would be a larger edit to another plan's work than the one case below is worth, and
+   * this copy answers `honest`'s own bytes so the two cannot describe different jobs.
+   */
+  function held(nodeId: string): { readonly executor: Executor; readonly release: () => void } {
+    let answer: ((outcome: ExecutionOutcome) => void) | null = null
+    let handed: Task | null = null
+    const work = new Promise<ExecutionOutcome>((resolve) => {
+      answer = resolve
+    })
+    return {
+      executor: {
+        nodeId,
+        execute(shardTask: Task): Promise<ExecutionOutcome> {
+          handed = shardTask
+          return work
+        },
+      },
+      release: (): void => {
+        if (answer === null || handed === null) return
+        // Synchronously, and with a literal outcome rather than by awaiting `honest`:
+        // whichever copy resolves first wins, and this fixture needs the straggler to.
+        answer({
+          ok: true,
+          output: { shard: handed.partitionIndex, of: handed.partitionCount, sum: handed.partitionIndex * 10 },
+          fuelUsed: 100,
+          attestation: 'signed-by-nobody',
+        })
+      },
+    }
+  }
+
+  /**
+   * Virtual time with a horizon, so a loop that never terminates is a named failure
+   * rather than a hang no test timeout can reach. Stated as a multiple of
+   * `DEFAULT_LEASE_MS` because it is virtual and encodes no machine.
+   */
+  function virtualClock(horizon: number): JobClock {
+    let t = 0
+    return {
+      now: (): number => t,
+      sleep: async (ms: number): Promise<void> => {
+        t += ms
+        if (t > horizon) {
+          throw new Error(`the clock passed ${horizon}ms of virtual time — this job is not bounded`)
+        }
+        // Drains the microtask queue without measuring wall time — see the CHURN-02
+        // block's header for why both halves are needed.
+        await new Promise<void>((resolve) => {
+          setTimeout(resolve, 0)
+        })
+      },
+    }
+  }
+
+  /** An executor that answers honestly except on the partitions named, which it refuses. */
+  function honestExcept(nodeId: string, refuses: readonly number[]): Executor {
+    return {
+      nodeId,
+      async execute(task: Task): Promise<ExecutionOutcome> {
+        return refuses.includes(task.partitionIndex)
+          ? { ok: false, reason: `${nodeId} could not read partition ${task.partitionIndex}` }
+          : honest(nodeId).execute(task)
+      },
+    }
+  }
+
+  it('names an owner whose nodes are all missing, rather than dropping them from the denominator', async () => {
+    // Carol has a shard and no node. She is *expected* because the job defines work for
+    // her — a shard is defined for an owner whether or not that owner's fabric is up —
+    // which is the whole reason the owner set is derived from the shards and not from
+    // whoever happened to answer.
+    const executors = [honest('alice-1'), honest('bob-1')]
+    const r = await submitJob(
+      {
+        moduleCid: MODULE_CID,
+        shards: [
+          { value: { n: 0 }, label: 'sovereign', ownerId: 'alice' },
+          { value: { n: 1 }, label: 'sovereign', ownerId: 'bob' },
+          { value: { n: 2 }, label: 'sovereign', ownerId: 'carol' },
+        ],
+        executors,
+        nodes: [ownedBy('alice-1', 'alice'), ownedBy('bob-1', 'bob')],
+        redundancy: 1,
+        onQuorumShortfall: 'runs-at-available-redundancy',
+      },
+      new MemoryBlockstore(),
+    )
+
+    expect(r.ok).toBe(true)
+    if (!r.ok) return
+    const report = reportOf(r.job.coverage)
+    // ANTI-VACUITY: the owner by NAME, not merely `covered < total`. An arithmetic-only
+    // reading is satisfied by a miscount that names the wrong owner, and naming the wrong
+    // owner is worse than not naming one — it sends somebody to the wrong node.
+    expect(report.missing).toStrictEqual(['carol'])
+    expect(report.covered).toBe(2)
+    expect(report.total).toBe(3)
+    expect(report.complete).toBe(false)
+    // Criterion 4's own words, taken from `describeCoverage` rather than transcribed —
+    // the discipline `bench-attestation.node.test.ts` applies to `describeAttestation`,
+    // which is what stops an assertion pinning a sentence a later edit changes for good
+    // reason. A structured field can be right while nothing renders it.
+    expect(renderCoverage(r.job.coverage)).toContain('covered: 2/3 owners')
+    expect(renderCoverage(r.job.coverage)).toContain('missing carol')
+    // Carol's shard is the *unplaceable* arm, so this also says coverage reads a shard
+    // that never ran at all, not only one that ran and failed.
+    expect((r.job.shards[2] as ShardResult).ending).toBe('never-placed')
+
+    // WHAT THIS CANNOT REDDEN ON. **Not the per-owner gate.** Carol contributed zero of
+    // one shard, so she lands in `missing` under the per-owner rule and under the wrong
+    // "any one shard counts" rule alike. The case below is the only one that separates
+    // them, and this note is here so the pair is not read as one claim twice.
+  })
+
+  it('refuses to count an owner who delivered one shard of four — the per-owner gate', async () => {
+    // THE case that carries the gate. Alice's first shard agrees and her other three
+    // fail, so every "did this owner appear?" rule reports her covered and only "did this
+    // owner deliver everything they owe?" does not. `coordinator.ts`'s own words for what
+    // the wrong rule costs: `complete` would be true over a quarter of her data.
+    const executors = [honestExcept('alice-1', [1, 2, 3]), honest('bob-1')]
+    const r = await submitJob(
+      {
+        moduleCid: MODULE_CID,
+        shards: [
+          { value: { n: 0 }, label: 'sovereign', ownerId: 'alice' },
+          { value: { n: 1 }, label: 'sovereign', ownerId: 'alice' },
+          { value: { n: 2 }, label: 'sovereign', ownerId: 'alice' },
+          { value: { n: 3 }, label: 'sovereign', ownerId: 'alice' },
+          { value: { n: 4 }, label: 'sovereign', ownerId: 'bob' },
+        ],
+        executors,
+        nodes: [ownedBy('alice-1', 'alice'), ownedBy('bob-1', 'bob')],
+        redundancy: 1,
+        onQuorumShortfall: 'runs-at-available-redundancy',
+      },
+      new MemoryBlockstore(),
+    )
+
+    expect(r.ok).toBe(true)
+    if (!r.ok) return
+    // ANTI-VACUITY, and it is the whole case: one of alice's shards DID agree. Without
+    // this reading "alice is missing" would also be satisfied by a job in which she
+    // delivered nothing, which is the case above.
+    expect((r.job.shards[0] as ShardResult).verification.status).toBe('agreed')
+    expect((r.job.shards[1] as ShardResult).verification.status).toBe('insufficient')
+    const report = reportOf(r.job.coverage)
+    expect(report.missing).toStrictEqual(['alice'])
+    expect(report.covered).toBe(1)
+    expect(report.total).toBe(2)
+    expect(renderCoverage(r.job.coverage)).toContain('covered: 1/2 owners')
+
+    // WHAT THIS CANNOT REDDEN ON. Not the named union — this job has owners, so the
+    // sentinel arm is never taken. Not the derivation source either: every node in the
+    // fixture owns a shard, so a coverage computed over the *nodes* would give the same
+    // two owners. The last case below is the one that separates those.
+  })
+
+  it('says by name that a public job defines no owners, and never renders it as a partial anything', async () => {
+    // Every benchmark rung in this repository is this job. A bare `CoverageReport` here
+    // reads `covered: 0/0 owners — PARTIAL (no owners were expected)`, because
+    // `coverageOf` refuses to call an empty owner set complete — correctly, for a
+    // question this job was never entered for.
+    const executors = [honest('n1'), honest('n2')]
+    const r = await submitJob(
+      {
+        moduleCid: MODULE_CID,
+        shards: [
+          { value: { n: 0 }, label: 'public' },
+          { value: { n: 1 }, label: 'public' },
+        ],
+        executors,
+        nodes: publicNodes(executors),
+        redundancy: 1,
+        onQuorumShortfall: 'runs-at-available-redundancy',
+      },
+      new MemoryBlockstore(),
+    )
+
+    expect(r.ok).toBe(true)
+    if (!r.ok) return
+    // The named arm itself.
+    expect(r.job.coverage).toBe('defines-no-owners')
+    // ANTI-VACUITY: and `describeCoverage` is never reached for it. A union that is
+    // present but rendered through the partial branch anyway is the defect wearing the
+    // fix's clothes, and `PARTIAL` is the word that would appear if it were.
+    const rendered = renderCoverage(r.job.coverage)
+    expect(rendered).toBe(NO_OWNERS)
+    expect(rendered).not.toContain('PARTIAL')
+    expect(rendered).not.toContain('covered:')
+    // The job itself went perfectly well, so nothing else in the result explains an
+    // apology if one appeared.
+    expect(r.job.complete).toBe(true)
+
+    // WHAT THIS CANNOT REDDEN ON. Nothing about the per-owner gate: there are no owners
+    // to gate. It also cannot tell a job that took the named arm because it has no
+    // sovereign shard from one that took it for some other reason — the first case's
+    // three-owner job is what says the arm is not taken unconditionally.
+  })
+
+  it('reports full coverage on a job that is NOT complete, because a public shard disagreed', async () => {
+    // Coverage and completeness are different questions with different remedies, and the
+    // pair of readings is what proves it. Alice delivered everything she owes; a public
+    // shard — which belongs to no owner and therefore touches no coverage — disagreed.
+    // A caller told only "incomplete" would go looking for a missing owner and find none.
+    //
+    // Node ids are chosen so `planPlacement`'s least-loaded-then-by-id ordering puts the
+    // public shard on `p1`/`p2`: every node is at load 0, the public shard is partition 0
+    // so nothing has been nudged yet, and `p*` sorts before `z*`.
+    const executors = [honest('p1'), liar('p2'), honest('z1'), honest('z2')]
+    const r = await submitJob(
+      {
+        moduleCid: MODULE_CID,
+        shards: [
+          { value: { n: 0 }, label: 'public' },
+          { value: { n: 1 }, label: 'sovereign', ownerId: 'alice' },
+        ],
+        executors,
+        nodes: [
+          ownedBy('p1', 'public'),
+          ownedBy('p2', 'public'),
+          ownedBy('z1', 'alice'),
+          ownedBy('z2', 'alice'),
+        ],
+        redundancy: 2,
+        onQuorumShortfall: 'runs-at-available-redundancy',
+      },
+      new MemoryBlockstore(),
+    )
+
+    expect(r.ok).toBe(true)
+    if (!r.ok) return
+    const publicShard = r.job.shards[0] as ShardResult
+    const alices = r.job.shards[1] as ShardResult
+    expect(publicShard.verification.status).toBe('disagreed')
+    expect(alices.verification.status).toBe('agreed')
+    expect(alices.degraded).toBe(false)
+    // Fully covered — alice owed one shard and delivered it.
+    const report = reportOf(r.job.coverage)
+    expect(report.complete).toBe(true)
+    expect(report.covered).toBe(1)
+    expect(report.total).toBe(1)
+    expect(renderCoverage(r.job.coverage)).toContain('covered: 1/1 owners')
+    // And not complete, on the other axis entirely.
+    expect(r.job.complete).toBe(false)
+
+    // WHAT THIS CANNOT REDDEN ON, and it is the half of independence that IS reachable.
+    // The other direction — complete but not fully covered — **cannot be constructed on
+    // this path at all**, and the reason is the plan's own decision not to add a
+    // `JobSpec` owner field: an owner is expected only by having a shard, and that shard
+    // sits inside `complete`'s conjunction, so `complete` implies fully covered. A
+    // *declared* owner set (`runResilient`'s optional `expectedOwners`) is what would make
+    // it reachable, and declaring one is exactly what was refused. Recorded here rather
+    // than faked with a fixture that pretends otherwise.
+  })
+
+  it('counts an owner whose shard agreed at REDUCED redundancy — the degraded decision, stated', async () => {
+    // The `degraded` axis, decided in writing and asserted here so a later change reddens
+    // rather than drifts. Alice's shard agreed at one replica of the two it asked for.
+    // She still contributed: her data was read and reduced. What is weaker is the
+    // *verification*, which `degraded` and `complete` already report, and folding it into
+    // coverage would make `1/1` versus `0/1` answer two questions at once.
+    const executors = [
+      honest('z1'),
+      failing('z2', 'alice’s second node dropped the dispatch'),
+      honest('b1'),
+    ]
+    const r = await submitJob(
+      {
+        moduleCid: MODULE_CID,
+        shards: [{ value: { n: 0 }, label: 'sovereign', ownerId: 'alice' }],
+        executors,
+        nodes: [ownedBy('z1', 'alice'), ownedBy('z2', 'alice'), ownedBy('b1', 'bob')],
+        redundancy: 2,
+        onQuorumShortfall: 'runs-at-available-redundancy',
+      },
+      new MemoryBlockstore(),
+    )
+
+    expect(r.ok).toBe(true)
+    if (!r.ok) return
+    const shard = r.job.shards[0] as ShardResult
+    expect(shard.verification.status).toBe('agreed')
+    if (shard.verification.status === 'agreed') expect(shard.verification.replicas).toBe(1)
+    expect(shard.degraded).toBe(true)
+    // Alice's own two nodes and nobody else's — the top-up had nowhere legal to go, which
+    // is what makes this shard degraded rather than repaired.
+    expect(shard.attempted).toStrictEqual(['z1', 'z2'])
+    expect(shard.ending).toBe('no-untried-node')
+    // THE DECISION: degraded does not disqualify. Change the answer and this line is where
+    // it has to be changed, in the open.
+    const report = reportOf(r.job.coverage)
+    expect(report.complete).toBe(true)
+    expect(report.covered).toBe(1)
+    expect(report.missing).toStrictEqual([])
+    // The second half of the independence pair, by a different mechanism from the case
+    // above: fully covered, and still not complete.
+    expect(r.job.complete).toBe(false)
+
+    // WHAT THIS CANNOT REDDEN ON. Not the per-owner gate — alice owes one shard and
+    // delivered one. Not the named union. It is the only case here that would move if
+    // `landedForItsOwner` grew a `!degraded` clause, which is precisely why it exists.
+  })
+
+  it('derives the owner set from the job’s own shards, never from the owners of its nodes', async () => {
+    // Bob's nodes are in the pool and bob has no shard. He is not missing from anything:
+    // this job never asked for his data. A coverage computed over `spec.nodes` — the
+    // implementation this reading exists to refuse — would report `1/2` and send somebody
+    // to find a node that was there all along.
+    const executors = [honest('z1'), honest('b1'), honest('b2')]
+    const r = await submitJob(
+      {
+        moduleCid: MODULE_CID,
+        shards: [{ value: { n: 0 }, label: 'sovereign', ownerId: 'alice' }],
+        executors,
+        nodes: [ownedBy('z1', 'alice'), ownedBy('b1', 'bob'), ownedBy('b2', 'bob')],
+        redundancy: 1,
+        onQuorumShortfall: 'runs-at-available-redundancy',
+      },
+      new MemoryBlockstore(),
+    )
+
+    expect(r.ok).toBe(true)
+    if (!r.ok) return
+    const report = reportOf(r.job.coverage)
+    expect(report.total).toBe(1)
+    expect(report.covered).toBe(1)
+    expect(report.missing).toStrictEqual([])
+    expect(renderCoverage(r.job.coverage)).toContain('covered: 1/1 owners')
+
+    // WHAT THIS CANNOT REDDEN ON — and one reading deliberately NOT taken. `unexpected`
+    // is not asserted here, because on this path it cannot be anything but empty: the
+    // expected set and the delivered set are both derived from `spec.shards[i].ownerId`
+    // through one map, so the second is a subset of the first by construction. Asserting
+    // `[]` would be transcribing that construction, not measuring it. What would make the
+    // field reachable is a delivered owner read from a *second* source — a `ShardResult`
+    // carrying its own owner, or an egress manifest — and until there is one, `unexpected`
+    // is kept as the tripwire for that day rather than removed as dead.
+  })
+
+  it('does not count a shard whose losing copy answered DIFFERENTLY, however well it agreed', async () => {
+    // **Beyond the plan's six, and here because this executor added the clause it
+    // carries.** `landedForItsOwner` requires `agreed` AND no late disagreement; the
+    // second half post-dates the sentence in `verify.ts` the first half transcribes, and
+    // a clause with no reading is a clause nobody is holding. Speculation is the only
+    // producer of a late disagreement, so this is the only shape that can reach it: ten
+    // sovereign shards (the default fraction's allowance is `floor(shards × 0.1)`, so
+    // fewer than ten cannot speculate at all), nine finishing at once so the median has
+    // more than `MIN_SAMPLES` behind it, and the tenth held until its duplicate — which
+    // lies — has been dispatched.
+    const alices = Array.from({ length: 11 }, (_, i) => `a${String(i).padStart(2, '0')}`)
+    const straggler = held(alices[0] as string)
+    const executors: readonly Executor[] = alices.map((nodeId, i) => {
+      if (i === 0) return straggler.executor
+      if (i !== 1) return honest(nodeId)
+      return {
+        nodeId,
+        async execute(shardTask: Task): Promise<ExecutionOutcome> {
+          // The duplicate of partition 0 lands here. Releasing the straggler first is
+          // what makes IT the winner and this copy the loser, which is the arrangement
+          // under test: a shard that agreed, with a copy that disagreed.
+          if (shardTask.partitionIndex !== 0) return honest(nodeId).execute(shardTask)
+          straggler.release()
+          return liar(nodeId).execute(shardTask)
+        },
+      }
+    })
+    const r = await submitJob(
+      {
+        moduleCid: MODULE_CID,
+        shards: Array.from(
+          { length: 10 },
+          (_, i): ShardSpec => ({ value: { n: i }, label: 'sovereign', ownerId: 'alice' }),
+        ),
+        executors,
+        nodes: alices.map((nodeId) => ownedBy(nodeId, 'alice')),
+        redundancy: 1,
+        onQuorumShortfall: 'runs-at-available-redundancy',
+      },
+      new MemoryBlockstore(),
+      { clock: virtualClock(DEFAULT_LEASE_MS * 10) },
+    )
+
+    expect(r.ok).toBe(true)
+    if (!r.ok) return
+    const slow = r.job.shards[0] as ShardResult
+    // ANTI-VACUITY, and it is the whole case: the shard AGREED. A rule reading
+    // `verification.status` alone counts it, and alice then reads 10 of 10.
+    expect(slow.verification.status).toBe('agreed')
+    expect(slow.speculated).toBe(true)
+    expect(slow.disagreed).toBe(true)
+    expect(r.job.shards.slice(1).every((shard) => shard.verification.status === 'agreed')).toBe(true)
+    // Nine of alice's ten landed, so she did not contribute — the per-owner gate and the
+    // late-disagreement clause reaching the same answer through different halves.
+    const report = reportOf(r.job.coverage)
+    expect(report.covered).toBe(0)
+    expect(report.total).toBe(1)
+    expect(report.missing).toStrictEqual(['alice'])
+    expect(renderCoverage(r.job.coverage)).toContain('covered: 0/1 owners')
+
+    // WHAT THIS CANNOT REDDEN ON. Not the comparison machinery itself — that a losing
+    // copy is read at all, and that its CID is compared the right way round, is 20-07's
+    // claim and `reports a losing copy that answers DIFFERENTLY…` carries it. What is
+    // asserted here is only that coverage consults the answer that comparison produced.
+    // It also cannot separate the two halves of `landedForItsOwner`: alice fails the
+    // per-owner gate at 9 of 10 as well, so this case says the clause is *consulted*, and
+    // the partial-owner case above is what says the gate is per-owner.
   })
 })
