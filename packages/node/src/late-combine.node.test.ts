@@ -162,8 +162,8 @@ import { FabricNode } from './fabric-node.ts'
  * first established, and it measured a floor that barely moved between host loads 8 and
  * 213. **That result does not transfer unexamined**, and it was re-measured rather than
  * cited: those arms were in-process Ed25519, while a combine here is a round trip through
- * an OS process that is itself being starved. Five regimes on 2026-08-04, everything
- * under `/usr/bin/time -p`, four trials of the first, four whole-suite runs, and three or
+ * an OS process that is itself being starved. Seven regimes on 2026-08-04, everything
+ * under `/usr/bin/time -p`, seven trials of the first, four whole-suite runs, and three or
  * four trials of each burner regime:
  *
  * | regime | `(user+sys)/real` | floor | slowest sample |
@@ -173,7 +173,8 @@ import { FabricNode } from './fabric-node.ts'
  * | alone + 12 CPU burners | 0.85 – 1.20 | 36 – 38 ms | 63 – 141 ms |
  * | alone + 24 CPU burners | 0.71 – 0.86 | 40 – 47 ms | 145 – 222 ms |
  * | alone + 48 CPU burners | 0.34 – 0.42 | 36 – 77 ms | 275 – 442 ms |
- * | a `--project node` run on a host saturated by unrelated work | 0.51 | **564 ms** | 1311 ms |
+ * | alone, host saturated by an unrelated LLVM build (load 182) | 0.89 | 59 ms | 100 ms |
+ * | a `--project node` run on that same saturated host | 0.51 | **564 ms** | 1311 ms |
  *
  * Two facts, and they are different facts:
  *
@@ -217,6 +218,14 @@ import { FabricNode } from './fabric-node.ts'
  * other regime measured and jumps to 0.115 on that run, so the combine path inflated
  * several times harder than the fabric around it and there is nothing in the run to
  * divide it by.
+ *
+ * **And past that share the case does not reach this assertion at all**, which is the
+ * honest end of the range: on the same host at load 127, `runMap` failed its own
+ * `job.complete` precondition — the eight-shard map would not finish across four spawned
+ * agents — and a whole `--project node` run at `(user+sys)/real` **0.38** took 1 245 s and
+ * failed 17 files, the entire spawned-process family (`two-process`, `churn-agents`,
+ * `capability-dispatch`, `owner-domain-agents`, this file) at the same `runMap` line. A
+ * fabric that cannot complete a map is not a timing estimator's problem.
  *
  * **So read a red here by the printed distribution.** A floor near 60 ms with a wide
  * spread is this host; a floor several hundred milliseconds with a *narrow* spread, beside
