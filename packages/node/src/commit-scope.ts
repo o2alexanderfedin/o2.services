@@ -213,8 +213,12 @@ export function partition<T extends Scoped>(
   const own: T[] = []
   const foreign: T[] = []
   for (const finding of findings) {
-    const attributed = finding.paths.length > 0 && !finding.paths.some((path) => scope.has(path))
-    if (attributed) foreign.push(finding)
+    // Named for what it means. `paths.length > 0` is the "could not attribute" guard and
+    // `some` is the union rule; a finding is somebody else's only when it was attributed
+    // AND none of the paths it was attributed to is in this commit.
+    const somebodyElses =
+      finding.paths.length > 0 && !finding.paths.some((path) => scope.has(path))
+    if (somebodyElses) foreign.push(finding)
     else own.push(finding)
   }
   return { own, foreign }
