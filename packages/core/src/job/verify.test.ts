@@ -383,6 +383,33 @@ describe('a replica that could not answer is that replica failing, not divergenc
     }
   })
 
+  it('names the replica that refused even when the rest agreed, beside a control that lost nobody', async () => {
+    // The case above reads WHO agreed. This one reads what the node that did not agree
+    // said, and it is a separate claim because the `agreed` arm of `VerificationResult`
+    // had no `failures` field until this was measured. `executeVerified` computed the
+    // array for every dispatch and returned it on two arms of three, so a redundancy-2
+    // dispatch that got one refusal and one answer reported `replicas: 1` and discarded
+    // the refusal — no retry, no merge, nothing but this function.
+    //
+    // **This is the half a `ShardResult`-shaped repair would have missed.** The visible
+    // symptom was a re-picked shard losing its first executor's reason, which lives in
+    // `submitJob`'s generation loop; the loss underneath it is here, and a field
+    // accumulated by that loop would have left this case exactly as broken as it was.
+    const lost = await executeVerified(task, [honest('a'), failing('b', 'refused: module not admitted')])
+    // Same run, same shape, nobody refuses — so the empty array below is a reading and
+    // not a constant that would hold however the field were populated.
+    const control = await executeVerified(task, [honest('a'), honest('b')])
+
+    expect(lost.status).toBe('agreed')
+    expect(control.status).toBe('agreed')
+    if (lost.status !== 'agreed' || control.status !== 'agreed') return
+
+    expect(lost.failures).toEqual([{ nodeId: 'b', reason: 'refused: module not admitted' }])
+    expect(control.failures).toEqual([])
+    // Comparative, within one run: the control kept the replica this one lost.
+    expect(control.replicas).toBe(lost.replicas + 1)
+  })
+
   it('carries each failed node’s own reason, not a shared one', async () => {
     // The reasons are the whole diagnostic value of an insufficient result: "both
     // nodes failed" is not actionable, "one ran out of memory and one was refused

@@ -1645,6 +1645,99 @@ describe('WIRE-04/CHURN-01 — a shard whose executor refuses or dies is placed 
     // the bound and both renewal arms are unreachable on a fixture where nothing fails.
     // Its whole job is to falsify the *other* five, and it is worthless alone.
   })
+
+  /**
+   * The re-pick carries the refusal it moved on from — and the case above cannot see it.
+   *
+   * `re-places a refused shard onto an untried node` asserts `attempted` is `['n1','n2']`
+   * and that `n2` agreed, which says *that* `n1` was asked and did not work out. It does
+   * not read *why*, and until this case was written nothing did: `mergeVerifications`
+   * collected every generation's `failures` and the `agreed` arm of `VerificationResult`
+   * had nowhere to put them, so a re-pick that succeeded reported the success and erased
+   * `n1`'s own words. Phase 6's rule is that every exclusion is named, because *"silent
+   * filtering leaves a requestor unable to tell a dead network from a wrong clock from a
+   * module nobody can run"* — and a retry that hides the reason is that same filtering
+   * arriving one layer up, where a caller is least likely to look because the job
+   * succeeded.
+   *
+   * The reason strings are deliberately distinctive, so finding one in a result means it
+   * *travelled* rather than that it was reconstructed from a node id and a status.
+   */
+  const FIRST_REFUSAL = 'n1 refused: module feature set includes relaxed-simd'
+  const SECOND_REFUSAL = 'n2 refused: clock skew 41s beyond tolerance'
+
+  it('names the refusal it re-picked away from, beside a control that lost nobody', async () => {
+    const build = (first: Executor): JobSpec => {
+      const executors = [first, honest('n2'), honest('n3')]
+      return {
+        moduleCid: MODULE_CID,
+        shards: [{ value: { n: 1 }, label: 'public' }],
+        executors,
+        nodes: publicNodes(executors),
+        redundancy: 1,
+        onQuorumShortfall: 'runs-at-available-redundancy',
+      }
+    }
+    const store = (): Blockstore => new MemoryBlockstore()
+    const opts: SubmitOptions = { checkpoints: 'checkpoints-nothing' }
+
+    const retried = await submitJob(build(failing('n1', FIRST_REFUSAL)), store(), opts)
+    // The control, in the SAME case and the same run: identical but for the refusal, so
+    // the empty array below is a measurement rather than luck. Without it this case
+    // passes against any implementation that puts something in the field.
+    const clean = await submitJob(build(honest('n1')), store(), opts)
+
+    expect(retried.ok && clean.ok).toBe(true)
+    if (!retried.ok || !clean.ok) return
+    const shard = retried.job.shards[0] as ShardResult
+    const control = clean.job.shards[0] as ShardResult
+
+    // The re-pick happened at all — otherwise there is no refusal to have lost.
+    expect(shard.attempted).toStrictEqual(['n1', 'n2'])
+    expect(shard.generations).toBe(control.generations + 1)
+    expect(shard.ending).toBe('agreed')
+
+    expect(shard.verification.status).toBe('agreed')
+    expect(control.verification.status).toBe('agreed')
+    if (shard.verification.status !== 'agreed' || control.verification.status !== 'agreed') return
+    // The claim: not "a failure was recorded" but "n1's own words survived the re-pick".
+    expect(shard.verification.failures).toStrictEqual([{ nodeId: 'n1', reason: FIRST_REFUSAL }])
+    expect(control.verification.failures).toStrictEqual([])
+    // And the answer is still reported — the refusal travels beside it, never over it.
+    expect(shard.verification.agreeing.map((e) => e.nodeId)).toStrictEqual(['n2'])
+  })
+
+  it('unions every generation’s refusals rather than reporting only the most recent', async () => {
+    // Two nodes refuse in turn before the third answers. An implementation that kept only
+    // the latest generation's failures would lose `n1` while looking perfectly correct
+    // about `n2` — which a single-refusal fixture cannot tell apart from the truth.
+    const executors = [failing('n1', FIRST_REFUSAL), failing('n2', SECOND_REFUSAL), honest('n3')]
+    const r = await submitJob(
+      {
+        moduleCid: MODULE_CID,
+        shards: [{ value: { n: 1 }, label: 'public' }],
+        executors,
+        nodes: publicNodes(executors),
+        redundancy: 1,
+        onQuorumShortfall: 'runs-at-available-redundancy',
+      },
+      new MemoryBlockstore(),
+      { checkpoints: 'checkpoints-nothing' },
+    )
+    expect(r.ok).toBe(true)
+    if (!r.ok) return
+    const shard = r.job.shards[0] as ShardResult
+    expect(shard.attempted).toStrictEqual(['n1', 'n2', 'n3'])
+    expect(shard.generations).toBe(3)
+    expect(shard.verification.status).toBe('agreed')
+    if (shard.verification.status !== 'agreed') return
+    // Generation order, earliest first, so a reader follows the refusals in the order the
+    // fabric met them rather than having to sort them against `attempted`.
+    expect(shard.verification.failures).toStrictEqual([
+      { nodeId: 'n1', reason: FIRST_REFUSAL },
+      { nodeId: 'n2', reason: SECOND_REFUSAL },
+    ])
+  })
 })
 
 /**

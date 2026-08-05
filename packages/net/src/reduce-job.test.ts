@@ -201,6 +201,9 @@ function agreed(partitionIndex: number, output: CanonicalValue): ShardResult {
       // every executor in the tree gives until the signing wrapper is composed.
       agreeing: [{ nodeId: 'w0', attestation: 'signed-by-nobody' }],
       replicas: 1,
+      // This fixture stands for a shard whose single executor answered, so nothing
+      // refused. `[]` is the fixture's own statement and not a filler.
+      failures: [],
       grossFuel: 0,
       usefulFuel: 0,
     },

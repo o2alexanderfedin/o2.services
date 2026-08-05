@@ -1459,6 +1459,14 @@ function carriedResult(
       output: shard.output,
       agreeing: [],
       replicas: 0,
+      // Empty because **this requestor asked nobody**, which is the same measured zero
+      // `replicas`, `grossFuel` and `attempted` take here and not a default standing in
+      // for an unknown. A refusal the predecessor met is not in the checkpoint — a
+      // checkpoint carries an answer, not the history that produced it — and inventing
+      // `[]` to mean "there were none" would be this module asserting something about a
+      // run it did not observe, which is the conflation the `replicas: 0` note above
+      // refuses in the same breath.
+      failures: [],
       grossFuel: 0,
       usefulFuel: 0,
     },
@@ -1590,6 +1598,19 @@ function mergeVerifications(first: VerificationResult, second: VerificationResul
     output: winner.output,
     agreeing,
     replicas: agreeing.length,
+    // **Every generation's refusals, carried across the fold.** This function collected
+    // them all along — for the `disagreed` and `insufficient` returns above — and then
+    // dropped them here, which is the defect stated in one line: a shard whose first
+    // executor refused by name and whose re-pick succeeded reported the success and
+    // erased the refusal, so a requestor could see from `ShardResult.attempted` and
+    // `ShardResult.generations` *that* a node had been asked and had not worked out, and
+    // never *why*. A retry that hides the reason is the silent filtering Phase 6 forbids,
+    // arriving one layer up.
+    //
+    // Unioned rather than replaced, for the reason the replicas are: two generations that
+    // each lost a node lost two nodes, and reporting only the last would be a different
+    // claim. Order is generation order, so the earliest refusal reads first.
+    failures,
     grossFuel,
     usefulFuel: winner.usefulFuel,
   }
