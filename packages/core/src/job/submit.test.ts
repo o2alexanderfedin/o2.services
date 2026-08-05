@@ -15,7 +15,7 @@ import { LocalCapacity } from '../placement.ts'
 import type { Admission, AdmissionControl, Offer } from '../placement.ts'
 import { signResult } from '../result-attestation.ts'
 import type { ResultSigner } from '../result-attestation.ts'
-import { DEFAULT_SPECULATION_FRACTION } from '../speculation.ts'
+import { DEFAULT_SPECULATION_FRACTION, MIN_SAMPLES } from '../speculation.ts'
 import { publicNodes } from '../sovereignty.ts'
 import type { NodeDescriptor } from '../sovereignty.ts'
 import { DEFAULT_SPECULATION_WATCHDOG_MS, submitJob } from './submit.ts'
@@ -2085,6 +2085,104 @@ describe('CHURN-02/CHURN-06 — a straggler is duplicated, and the loser is stil
     // WHAT THIS CANNOT REDDEN ON. Nothing about what a duplicate does once started — the
     // race, the comparison and the sovereignty gate are all unreachable here. Its whole
     // job is to falsify the others.
+    //
+    // It also cannot redden on `MIN_SAMPLES`, and that is why the case below exists:
+    // nothing here is slow, so the floor is never the reason nothing was duplicated.
+  })
+
+  /**
+   * The floor `stragglers` applies BEFORE it computes a median at all — closing the row
+   * 20-07 recorded as NOT COVERED, written by 20-12 as the condition of deleting
+   * `coordinator.test.ts` › `does not duplicate before enough shards have finished to
+   * compare against`.
+   *
+   * `stragglers` returns `[]` while `completed.length < MIN_SAMPLES`, however long a task
+   * has been running. `speculation.test.ts` asserts that against `stragglers` directly;
+   * until now **nothing asserted it through `submitJob`**, and the composition is a
+   * different claim — `submit.ts` supplies `completed` and omits `minSamples`, so a caller
+   * that accumulated durations wrongly, or passed a `minSamples` of its own, would be
+   * invisible to the unit case.
+   *
+   * ## Why a PAIR and not a single arm
+   *
+   * `speculationSpent: 0` has three causes and this block already reads two of them: the
+   * allowance was zero (a job under ten shards), and nothing was slow (the control above).
+   * The floor is the third, and no single arm can tell it from the other two. So the two
+   * arms differ in **one integer** — how many shards answer at once — and are identical in
+   * shard count, node count, budget, held span and release instant. The comparison is
+   * taken inside one run, per `CLAUDE.md` § Measurement.
+   */
+  it('duplicates nothing until MIN_SAMPLES shards have finished — one fixture, two arms differing only in how many did', async () => {
+    const TOTAL = 10
+    /** Past every watchdog hop, and short of `DEFAULT_LEASE_MS` so no lease lapses. */
+    const RELEASED_AT = DEFAULT_LEASE_MS * (2 / 3)
+
+    async function run(
+      quick: number,
+    ): Promise<{ readonly job: JobResult; readonly ran: readonly string[] }> {
+      const ran: string[] = []
+      const held: Held[] = []
+      const executors: readonly Executor[] = Array.from({ length: TOTAL }, (_, i) => {
+        if (i < quick) return watched(nodeName(i), ran)
+        const slow = holding(nodeName(i), ran)
+        held.push(slow)
+        return slow.executor
+      })
+      const clock = fixtureClock({
+        horizon: DEFAULT_LEASE_MS * 10,
+        onAdvance: (at) => {
+          if (at >= RELEASED_AT) for (const slow of held) slow.release()
+        },
+      })
+      const r = await submitJob(
+        {
+          moduleCid: MODULE_CID,
+          shards: publicShards(TOTAL),
+          executors,
+          nodes: publicNodes(executors),
+          redundancy: 1,
+          onQuorumShortfall: 'runs-at-available-redundancy',
+        },
+        new MemoryBlockstore(),
+        { clock },
+      )
+      if (!r.ok) throw new Error(`fixture submission failed: ${JSON.stringify(r.error)}`)
+      return { job: r.job, ran }
+    }
+
+    const below = await run(MIN_SAMPLES - 1)
+    const at = await run(MIN_SAMPLES)
+
+    // ── Below the floor: held shards, an unspent budget, and still no duplicate ───────
+    expect(below.job.speculationSpent).toBe(0)
+    expect(below.job.shards.every((shard) => !shard.speculated)).toBe(true)
+    // Read off the executors rather than off the field under test: one dispatch per shard
+    // and not one more. A duplicate started and then lost would still appear here.
+    expect(below.ran).toHaveLength(TOTAL)
+
+    // ── At the floor: the same fixture, one shard more finished, and it duplicates ────
+    expect(at.job.speculationSpent).toBe(allowanceOf(TOTAL))
+    expect(at.job.shards.filter((shard) => shard.speculated)).toHaveLength(allowanceOf(TOTAL))
+    expect(at.ran).toHaveLength(TOTAL + allowanceOf(TOTAL))
+
+    // ── The arms are comparable, stated rather than assumed ──────────────────────────
+    // The budget is the same and is not zero in EITHER arm, so `spent: 0` above is a
+    // statement about the floor and not about the allowance.
+    expect(allowanceOf(TOTAL)).toBeGreaterThan(0)
+    // And both arms hold more shards than the budget could ever duplicate, so neither
+    // reading is the supply of stragglers running out.
+    expect(TOTAL - (MIN_SAMPLES - 1)).toBeGreaterThan(allowanceOf(TOTAL))
+    expect(TOTAL - MIN_SAMPLES).toBeGreaterThan(allowanceOf(TOTAL))
+    // Both jobs finished on their answers, so neither arm is reading a job that failed.
+    expect(below.job.complete).toBe(true)
+    expect(at.job.complete).toBe(true)
+
+    // WHAT THIS CANNOT REDDEN ON. It cannot separate the floor from the *median*: a
+    // threshold computed from a one-sample median would also duplicate nothing in the
+    // `below` arm. `speculation.test.ts` holds the median; what this adds is that
+    // `submitJob` feeds the floor a real `completed` list rather than a constant.
+    // It also says nothing about WHICH shard got the duplicate — the same deliberate
+    // silence the budget case keeps, and for the same reason.
   })
 
   it('scopes a sovereign duplicate to its owner, and starts none where the owner has no spare', async () => {
@@ -4081,5 +4179,111 @@ describe('CHURN-03 — a departed requestor leaves a record, and a second one fi
     if (!third.ok) return
     expect(seen).toEqual([])
     expect(cidsOf(third.job)).toEqual(cidsOf(resumed.job))
+  })
+})
+
+/**
+ * WIRE-04 — the fabric has exactly one job entry point, held as a check.
+ *
+ * ## No test in this repository held this until 2026-08-05, and that is the finding
+ *
+ * `runResilient` was a **complete second job implementation** — its own options type, its
+ * own outcome type, its own placement, lease, speculation and coverage machinery, 25
+ * kernel cases of its own — re-exported from `@o2/core` beside `submitJob` for the whole
+ * of Phases 7 through 20. WIRE-04's wording is that submitting a job gets lease renewal,
+ * speculation and coverage accounting *"without the caller choosing between two
+ * functions"*, and a barrel export is exactly a caller's choice. **Measured before the
+ * deletion: the whole suite was green with it exported** — `npx vitest run --project node`
+ * and `--project browser` both passed. Nothing anywhere read the barrel and objected. So
+ * the requirement's own failure mode was invisible to the test suite for thirteen phases,
+ * and the answer is a guard rather than a note in a summary.
+ *
+ * ## Why the namespace and not the source text
+ *
+ * A grep over `index.ts` reads what the file *looks like*. This reads what it *exports*:
+ * `Object.keys` over a namespace import yields the value bindings and nothing else —
+ * types have already vanished — so a comment naming a deleted symbol cannot register, and
+ * a re-export added by any syntax at all does. The barrel's own header now names
+ * `runResilient` twice in prose, which is precisely the shape a text scan gets wrong.
+ *
+ * ## The predicate, and its honest limit
+ *
+ * "Runs a job" is not decidable from a binding, so this pins a **set**: every exported
+ * callable whose name takes an imperative job-shaped form. A new second entry point
+ * called `runResilient`, `submitWork` or `executeJob` fails here on the day it is added.
+ * One called `fabricate` does not — and that is stated rather than papered over, because
+ * a guard that claims more than it checks is worse than the gap. What backs it up is the
+ * argument on each surviving name below: four of the five are components of the one path
+ * or belong to a different layer, and each says which.
+ */
+describe('WIRE-04 — the barrel offers exactly one way to run a job', () => {
+  /**
+   * The shape a job entry point's name takes. Deliberately wider than `submit`: the
+   * symbol this guard exists because of was called `runResilient`, so a pattern that only
+   * caught `submit*` would have been written by looking at the answer.
+   */
+  const JOB_SHAPED = /^(run|submit|execute|dispatch|perform)[A-Z]/
+
+  /** Exported callables whose name takes that form, sorted. A pure function, so it can be planted against. */
+  function jobShapedExports(namespace: Readonly<Record<string, unknown>>): string[] {
+    return Object.keys(namespace)
+      .filter((name) => JOB_SHAPED.test(name) && typeof namespace[name] === 'function')
+      .sort()
+  }
+
+  /**
+   * The whole set, each with the reason it is not a second job entry point.
+   *
+   * - `submitJob` — **the** entry point. Four production submitters call it.
+   * - `executeVerified` — one shard's replicas, compared. A *component* `submitJob` calls
+   *   once per generation; it takes a task and executors, not a job, and returns no
+   *   `JobResult`. A caller reaching it directly gets no placement, no lease and no
+   *   coverage, which is not a job by this requirement's definition.
+   * - `executeReduce` — the *reduce* half of map/reduce, over partials a job already
+   *   produced. A different phase of the same pipeline, not a rival way to run the map.
+   * - `runTask` / `runTaskAndPost` — the **worker** side: what a node does with one task
+   *   it has been handed. The opposite end of the wire from a requestor submitting a job.
+   */
+  const JOB_SHAPED_EXPORTS: readonly string[] = [
+    'executeReduce',
+    'executeVerified',
+    'runTask',
+    'runTaskAndPost',
+    'submitJob',
+  ]
+
+  it('exports submitJob and no second job runner beside it', async () => {
+    const barrel = (await import('../index.ts')) as unknown as Readonly<Record<string, unknown>>
+
+    // Anti-vacuity: the barrel really was loaded and really does publish a lot. Without
+    // this, an import that resolved to an empty object would satisfy a "no second runner"
+    // reading perfectly.
+    expect(Object.keys(barrel).length).toBeGreaterThan(100)
+    expect(typeof barrel['submitJob']).toBe('function')
+
+    // A set equality, not a `not.toContain('runResilient')`. The regression this exists
+    // for is *a second entry point*, and naming the one that already happened would guard
+    // against history rather than against recurrence.
+    expect(jobShapedExports(barrel)).toStrictEqual([...JOB_SHAPED_EXPORTS])
+  })
+
+  it('reports a second job runner when one is put back — proved by planting, not assumed', async () => {
+    const barrel = (await import('../index.ts')) as unknown as Readonly<Record<string, unknown>>
+
+    // `runResilient` restored to the barrel, which is exactly the state this repository
+    // was in until Plan 20-12 and which the whole suite tolerated.
+    const planted: Record<string, unknown> = { ...barrel, runResilient: () => undefined }
+    expect(jobShapedExports(planted)).toStrictEqual(
+      [...JOB_SHAPED_EXPORTS, 'runResilient'].sort(),
+    )
+    expect(jobShapedExports(planted)).not.toStrictEqual([...JOB_SHAPED_EXPORTS])
+
+    // And the other direction: losing the one entry point is a failure too, not merely
+    // the addition of a second. A barrel exporting no way to run a job satisfies
+    // "exactly one" only if the check counts rather than forbids.
+    const withoutSubmit: Record<string, unknown> = { ...planted }
+    delete withoutSubmit['submitJob']
+    expect(jobShapedExports(withoutSubmit)).not.toContain('submitJob')
+    expect(jobShapedExports(withoutSubmit)).not.toStrictEqual([...JOB_SHAPED_EXPORTS])
   })
 })

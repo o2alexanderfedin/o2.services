@@ -7,10 +7,10 @@ import {
   encodeCanonical,
   fabricCombiner,
   publicNodes,
-  runResilient,
+  submitJob,
 } from '@o2/core'
-import type { Blockstore, CanonicalValue, ShardWork, Task } from '@o2/core'
-import { encodeRequest, parseResponse, remoteDispatch } from '@o2/net'
+import type { Blockstore, CanonicalValue, Task } from '@o2/core'
+import { RemoteExecutor, encodeRequest, parseResponse } from '@o2/net'
 import type { AgentResponse } from '@o2/net'
 import type { CID } from 'multiformats/cid'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -273,14 +273,27 @@ describe('SCHED-06 criterion 1 — 64 concurrent exec requests from two real pee
 })
 
 describe('SCHED-06 criterion 1, second clause — the requestor re-picks', () => {
-  it('re-picks onto a node that did not refuse, on the coordinator path', async () => {
-    // **This is the coordinator path, and it is the only path on which a re-pick is
-    // demonstrable at all.** `runResilient` and `remoteDispatch` have no production
-    // caller; the production `submitJob` path places, runs `executeVerified` once
-    // per selected executor and reports, with no retry, no generation and no
-    // resample. So criterion 1's second clause is *unmeasured on every path that
-    // runs in production*, and this test proves a mechanism rather than a production
-    // behaviour. See 13.1-05-SUMMARY.md, which says so in those words.
+  it('re-picks onto a node that did not refuse, on the production submit path', async () => {
+    // **This ran through `runResilient` until Plan 20-12, and the paragraph here used to
+    // say the re-pick was "unmeasured on every path that runs in production". That
+    // sentence is now false and this is its correction.**
+    //
+    // It was true when it was written: `submitJob` placed, ran `executeVerified` once per
+    // selected executor and reported, with no retry, no generation and no resample, so
+    // the only re-pick in the tree was the coordinator's and this case proved a mechanism
+    // rather than a production behaviour. Plan 20-01 gave `submitJob` a generation loop
+    // and 20-04 read it across spawned `bin/agent.ts` processes; 20-12 then deleted
+    // `runResilient` under WIRE-04. So the driver below is now `submitJob` itself and the
+    // reading is a production behaviour. `13.1-05-SUMMARY.md` still says otherwise and is
+    // a record of what was true then.
+    //
+    // **What this case holds that `discovery-agents.node.test.ts` cannot.** That file
+    // reads the same clause over spawned agent processes and is the criterion's primary
+    // evidence. It cannot read a *node's own* executor counters, because they live inside
+    // a process it does not share. These nodes are in-process `FabricNode`s over real
+    // tcp + noise + yamux, so `executorPeakInFlight` below is a direct reading that the
+    // refusing node never entered its executor at all — the half that says the shard was
+    // refused rather than run twice.
     const [requestor, first, second] = await Promise.all([
       startNode('repick-req'),
       startNode('repick-w1', { maxConcurrentTasks: 1 }),
@@ -309,43 +322,89 @@ describe('SCHED-06 criterion 1, second clause — the requestor re-picks', () =>
     // incoming request meets the over-committed branch and not the dedupe branch.
     // A test that is *usually* saturated is worse than one that says how it made
     // certain, and every other part of this run is real: the refusal is composed by
-    // the node, travels the real wire, is classified by `remoteDispatch`, and the
-    // re-pick is `runResilient`'s own.
+    // the node, travels the real wire, and the re-pick is `submitJob`'s own.
     const held = busy.admission.offer({ shardId: 'held-by-this-test', nodeId: busy.peerId })
     expect(held.accepted).toBe(true)
     expect(busy.admission.inFlight).toBe(1)
 
-    const work: ShardWork[] = [{ shardId: 's0', label: 'public' }]
-    const outcome = await runResilient({
-      work,
-      nodes: publicNodes([{ nodeId: busy.peerId }, { nodeId: free.peerId }]),
-      now: () => Date.now(),
-      dispatch: remoteDispatch({
-        rpc: requestor.rpc,
-        blockstore: requestor.store,
-        taskFor: () => ({ moduleCid, inputCid, partitionIndex: 0, partitionCount: 1, label: 'public' }),
-      }),
-    })
+    // ---- The refusal in the node's own words, read before the job runs. ----------
+    // `runResilient` carried a `kind` and a `reason` per attempt, so this used to be
+    // `shard.failures[0].reason`. `submitJob` has no such field on a shard that ended
+    // `agreed` — `VerificationResult`'s `agreed` arm declares no `failures`, which
+    // 20-01 recorded as an open item — so a shard that recovered structurally cannot
+    // name what refused it. The substitution is a *direct* dispatch of a probe task
+    // over the same wire, which reaches the same `LocalCapacity` branch and does carry
+    // the sentence. Its `inputCid` differs from the job's, so it takes the
+    // over-committed branch rather than the dedupe branch, and it reserves nothing.
+    const probe = await new RemoteExecutor(
+      busy.peerId,
+      requestor.rpc,
+      'dispatches-unauthenticated',
+    ).execute({ moduleCid, inputCid, partitionIndex: 0, partitionCount: 1, label: 'public' })
+    expect(probe.ok).toBe(false)
+    if (!probe.ok) expect(probe.reason).toContain('over-committed: 1 of 1 slots in use')
 
-    expect(outcome.ok).toBe(true)
-    const shard = outcome.shards[0]
-    if (shard === undefined) throw new Error('expected one shard outcome')
+    // ---- The re-pick, on the production submit path. -----------------------------
+    // No `admit`, so no offer is ever made: every refusal this reads is an exec-stage
+    // refusal, and `rejections` being empty below is the proof of it.
+    const executors = [
+      new RemoteExecutor(busy.peerId, requestor.rpc, 'dispatches-unauthenticated'),
+      new RemoteExecutor(free.peerId, requestor.rpc, 'dispatches-unauthenticated'),
+    ]
+    const result = await submitJob(
+      {
+        moduleCid,
+        shards: [{ value: { repick: 1 }, label: 'public' as const }],
+        executors,
+        nodes: publicNodes(executors),
+        redundancy: 1,
+        onQuorumShortfall: 'runs-at-available-redundancy',
+      },
+      requestor.store,
+    )
 
-    // Both nodes were attempted, busy first, and the busy one's refusal is recorded
-    // as a **node** condition — the same task on another node succeeds, which is
-    // exactly what happened next.
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    const shard = result.job.shards[0]
+    if (shard === undefined) throw new Error('expected one shard result')
+
+    // Both nodes were attempted, busy first. `attempted` is the set ASKED in order
+    // across every generation, so the busy node standing first says the placement
+    // chose it and the dispatch reached it — without which the reading is satisfiable
+    // by a shard that never met the saturated node at all.
     expect(shard.attempted).toEqual([busy.peerId, free.peerId])
-    expect(shard.failures).toHaveLength(1)
-    expect(shard.failures[0]?.nodeId).toBe(busy.peerId)
-    expect(shard.failures[0]?.kind).toBe('node')
-    expect(shard.failures[0]?.reason).toContain('over-committed: 1 of 1 slots in use')
+    expect(shard.generations).toBe(2)
+    expect(result.job.redispatches).toBe(1)
 
-    // And the shard completed, on the node that did not refuse.
-    expect(shard.resultCid).not.toBeNull()
-    expect(shard.nodeId).toBe(free.peerId)
+    // The lease trail, substituted for the `failures` field the `agreed` arm does not
+    // have — the same substitution 20-04 made in `discovery-agents.node.test.ts`, and
+    // the strongest true reading this tree supports: the busy node held generation 1
+    // by name and gave it back, and generation 2 went elsewhere and completed. A
+    // re-pick that quietly swapped nodes would leave one `granted` in the trail.
+    const leaseTrail = result.job.leaseHistory.map((event) =>
+      event.kind === 'abandoned' ? `abandoned:${event.taskId}` : `${event.kind}:${event.nodeId}`,
+    )
+    expect(leaseTrail).toStrictEqual([
+      `granted:${busy.peerId}`,
+      `surrendered:${busy.peerId}`,
+      `granted:${free.peerId}`,
+      `completed:${free.peerId}`,
+    ])
+
+    // And the shard completed, on the node that did not refuse — read off the agreeing
+    // replica rather than off `attempted`, so it says who ANSWERED and not who was asked.
+    expect(shard.ending).toBe('agreed')
+    if (shard.verification.status !== 'agreed') throw new Error('expected an agreed shard')
+    expect(shard.verification.agreeing.map((replica) => replica.nodeId)).toEqual([free.peerId])
+    expect(shard.verification.replicas).toBe(1)
+    // No offer was made, so nothing refused one; every refusal above came from `exec`.
+    expect(shard.rejections).toStrictEqual([])
     // The busy node never ran it: its executor was never entered at all.
     expect(busy.executorPeakInFlight).toBe(0)
     expect(free.executorPeakInFlight).toBeGreaterThan(0)
+    // And the saturation still held while the job ran, so the reading above is not a
+    // node that had quietly gone free again.
+    expect(busy.admission.inFlight).toBe(1)
 
     busy.admission.release('held-by-this-test')
   }, 120_000)

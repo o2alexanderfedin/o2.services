@@ -536,21 +536,26 @@ export const MUTATIONS: readonly Mutation[] = [
   {
     id: 'M18',
     why:
-      'CHURN-01. `failures`’ contract is that a shard’s history explains itself. A ' +
-      'speculative copy that answered *with a failure* after the winner was taken fell ' +
-      'between every bucket — not `uncompared`, because it did answer; not in ' +
-      '`failures`, because those were sealed when the winner returned — while still ' +
-      'appearing in `attempted`. `attempted` and `failures` are the raw material any ' +
-      'later exclusion or scoring mechanism reads, so a peer that reliably fails just ' +
-      'after losing a race accrued no recorded failure at all.',
-    file: 'packages/core/src/coordinator.ts',
-    find:
-      "        record({\n          kind: 'failed',\n          nodeId: copy.nodeId,\n" +
-      "          failureKind: failure?.kind ?? 'node',\n" +
-      "          reason: failure?.reason ?? 'copy failed with no reason given',\n        })\n",
-    replace: '',
-    caughtBy: ['packages/core/src/coordinator.test.ts'],
-    signature: 'records a copy that fails after the winner is picked as a failure of that shard',
+      'CHURN-01. A shard’s history has to explain itself. A speculative copy that answered ' +
+      '*with a failure* after the winner was taken fell between every bucket — not ' +
+      '`uncompared`, because it did answer; not in the shard’s failures, because those ' +
+      'were sealed when the winner returned — while still appearing in `attempted`. ' +
+      '`attempted` and the copy record are the raw material any later exclusion or scoring ' +
+      'mechanism reads, so a peer that reliably fails just after losing a race accrued no ' +
+      'recorded failure at all.\n\n' +
+      '**RE-TARGETED by Plan 20-12, not rewritten.** This pinned `coordinator.ts`’s ' +
+      '`LateOutcome` recorder and was caught by `coordinator.test.ts`; 20-12 deleted both ' +
+      'under WIRE-04. The behaviour did not go with them — 20-07 built the same bucket into ' +
+      '`submitJob` as `SpeculativeCopy`’s `failed` arm, with a reason composed from the ' +
+      'refusing node’s own words rather than `executeVerified`’s summary sentence. So the ' +
+      'entry follows its subject to the module that now holds it. The plant is the same ' +
+      'act — remove the arm — and the collapse it produces is the same: a copy that ' +
+      'answered with a failure reads as one that never answered.',
+    file: 'packages/core/src/job/submit.ts',
+    find: "              outcome: 'failed',\n",
+    replace: "              outcome: 'uncompared',\n",
+    caughtBy: ['packages/core/src/job/submit.test.ts'],
+    signature: 'gives a losing copy that answers with a FAILURE its own bucket, neither silent nor agreeing',
     signatureSource: 'test-title',
   },
   // `M19` stood here and is gone, deleted by Phase 20 plan 06 on 2026-08-04. It pinned
@@ -1507,12 +1512,23 @@ export const MUTATIONS: readonly Mutation[] = [
       'see the failure that matters: the planted CID prefix is IDENTICAL and only the node suffix ' +
       'differs, so a distinctness check is blind to it by construction. Measured: shard `s3` ran on ' +
       '`n2` intact and on `n3` after `n2` left, red on a single differing suffix. The same plant ' +
-      'against the pre-fix file exited 0 and passed.',
+      'against the pre-fix file exited 0 and passed.\n\n' +
+      '**Its catcher was re-sited by Plan 20-12, and the reason is worth reading.** The case ' +
+      'named here drove `runResilient` over a `MemoryNetwork` fabric; 20-12 deleted that ' +
+      'function under WIRE-04, and the 30 %-kill claim moved to ' +
+      '`churn-agents.node.test.ts` — which reads it over real spawned processes but through ' +
+      '`submitJob` and `RemoteExecutor`, so it never enters `remoteDispatch` and could not ' +
+      'catch this plant. That left the entry pinning a live line with **no** test able to ' +
+      'redden it, which `problemsWith` reported. Rather than retire it, 20-12 restored the ' +
+      'control at the only layer that still reaches the line: the same task answered by two ' +
+      'nodes, compared to each other and to the CID computed from the output. The argument ' +
+      'above is unchanged — a distinctness check is blind to a per-node suffix and an ' +
+      'equality is not — and it is now made one layer lower.',
     file: 'packages/net/src/churn.ts',
     find: 'return { ok: true, resultCid: encoded.cid.toString() }',
     replace: 'return { ok: true, resultCid: `${encoded.cid.toString()}-ran-on-${nodeId}` }',
     caughtBy: ['packages/net/src/churn.test.ts'],
-    signature: 'completes every shard with 30% of the fabric killed, answering what the whole fabric answered',
+    signature: 'returns the CID of the output and stores the block, identically whichever node answered',
     signatureSource: 'test-title',
   },
   {

@@ -199,20 +199,23 @@ export type {
 export { coverageOf, describeCoverage, withCoverage } from './coverage.ts'
 export type { CoverageReport, CoveredAggregate } from './coverage.ts'
 
-// The resilient run loop where the churn criteria compose — CHURN-01.
-export {
-  DEFAULT_MAX_TASK_FAILURES,
-  DEFAULT_WATCHDOG_MS,
-  runResilient,
-} from './coordinator.ts'
-export type {
-  CoordinatorOptions,
-  CoordinatorOutcome,
-  DispatchOutcome,
-  ShardDispatch,
-  ShardOutcome,
-  ShardWork,
-} from './coordinator.ts'
+// There is no second job entry point here, and that is deliberate — WIRE-04.
+//
+// `./coordinator.ts` used to stand here and export `runResilient`, a whole second job
+// implementation with its own options, its own outcome and its own six types. Plan 20-12
+// deleted it: WIRE-04 asks that submitting a job get lease renewal, speculation and
+// coverage accounting *"without the caller choosing between two functions"*, and a barrel
+// export is exactly a caller's choice. Its machinery now runs inside `submitJob`, which
+// four production submitters actually call.
+//
+// `submitJob` is exported from `./job/submit.ts` below and is the only way to run a job.
+// `job-entry-point.test.ts` holds that as a check rather than as this comment.
+//
+// Where the deleted exports went: `ShardWork`, `DispatchOutcome` and `ShardDispatch` moved
+// to `@o2/net`'s `churn.ts`, the only module that still reads them. `DEFAULT_WATCHDOG_MS`
+// is `DEFAULT_SPECULATION_WATCHDOG_MS` in `./job/submit.ts`. `DEFAULT_MAX_TASK_FAILURES`,
+// `CoordinatorOptions`, `CoordinatorOutcome` and `ShardOutcome` went with the module —
+// see `20-12-SUMMARY.md` for the case-by-case accounting.
 
 // Discovery from a data CID — SCHED-01, NET-06.
 //

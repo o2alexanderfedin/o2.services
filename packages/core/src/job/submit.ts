@@ -13,6 +13,58 @@
  * re-derives "who could run this"; it only narrows the executor pool to the
  * nodes the placement plan actually chose.
  *
+ * ## Three rules inherited verbatim from the deleted `coordinator.ts`
+ *
+ * Plan 20-12 deleted that module — it was a second job implementation nothing called, and
+ * WIRE-04's own wording makes a second entry point the failure mode. But it was also the
+ * only written statement of three rules that are now **this** module's, and a rule whose
+ * only statement lives in a deleted file is a rule about to be re-broken. So they are
+ * moved rather than lost, in `coordinator.ts`'s own words:
+ *
+ * ### Liveness changes who computes a task and when, never what the answer is
+ *
+ * > A node vanishing costs an attempt. A node being slow costs a duplicate. Neither can
+ * > change the bytes, because a result is a pure function of `(module, input, partition)`
+ * > and is content-addressed. That is what lets this loop be aggressive: every recovery
+ * > action it can take is, at worst, wasted work.
+ *
+ * ### Failure is a fact, silence is a deadline
+ *
+ * > The two are handled differently and it matters. A dispatch that reports failure is
+ * > *observed* — the node refused, or its connection died — so the lease is surrendered
+ * > immediately and the task moves on. Silence gets a deadline instead, because silence
+ * > is indistinguishable from slowness and the only safe response to "I cannot tell" is
+ * > to wait a bounded time. Conflating them would either waste a full lease on a node
+ * > known to be gone, or declare a slow node dead on no evidence.
+ *
+ * > **The deadline is the lease, and it is enforced here rather than assumed.** An
+ * > earlier version of that module stated the rule and then never checked `expiresAt`
+ * > anywhere: once speculation became impossible the loop awaited the pending dispatch
+ * > with no timer at all, so a peer that simply never answered hung the shard, and
+ * > `Promise.all` hung the job. Nothing bounded it, because the transport timeout belongs
+ * > to the transport and a caller may not have one.
+ *
+ * ### Disagreement must survive speculation
+ *
+ * > When a duplicate wins, the loser is *not* abandoned unexamined. That was the other
+ * > thing that module got wrong: breaking out of the race on the first arrival meant a
+ * > second copy's answer was never compared, so `disagreed` could not become true on any
+ * > input — timing alone picked which of two different CIDs became the job's answer, and
+ * > the run reported clean. That is majority-vote-by-race, the thing this project has
+ * > explicitly refused.
+ *
+ * > The fix keeps speculation's whole point intact. Waiting for the loser would undo the
+ * > latency saving — the loser is usually the straggler. So the winner returns
+ * > immediately and the outstanding copies are compared **after every shard has
+ * > settled**, which costs nothing because the job was going to wait for its slowest
+ * > shard anyway. A copy that has still not answered by then is reported as uncompared
+ * > rather than as agreeing; you cannot compare an answer that never arrived, and saying
+ * > "no disagreement" about it would be a claim nobody checked.
+ *
+ * All three are implemented below — the surrender-on-failure and sleep-to-the-deadline
+ * arms in `dispatchUnderLease`, and the post-settle comparison in `compareOutstanding` —
+ * and each is planted against in `submit.test.ts`.
+ *
  * ## A shard gets more than one generation — WIRE-04, CHURN-01, CHURN-04
  *
  * Until Phase 20 this module called `executeVerified` **exactly once per shard**. A
@@ -2364,9 +2416,11 @@ export async function submitJob(
   // history is the job's. `DEFAULT_MAX_GENERATIONS` is named rather than defaulted into:
   // it is the policy this loop runs on, `submit.test.ts` asserts the attempt count
   // against that same exported constant, and a cap reached by omission is a cap nobody
-  // stated. `runResilient` sizes its own table to the node pool instead, deliberately —
-  // there the pool is the real bound and the table is a backstop; here the table IS the
-  // bound, for the reason `DEFAULT_MAX_GENERATIONS`' docblock gives.
+  // stated. `runResilient` sized its own table to the node pool instead, deliberately —
+  // there the pool was the real bound and the table a backstop; here the table IS the
+  // bound, for the reason `DEFAULT_MAX_GENERATIONS`' docblock gives. (Past tense since
+  // Plan 20-12: that module is deleted, and this is the contrast that explains the
+  // choice rather than a live alternative.)
   const leases = new LeaseTable({ maxGenerations: DEFAULT_MAX_GENERATIONS })
 
   // Persist every shard input as a block first, so a task is addressed entirely

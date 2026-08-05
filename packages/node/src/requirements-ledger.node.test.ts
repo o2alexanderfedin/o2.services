@@ -425,6 +425,35 @@ const UNREACHED = ROWS.filter((row) => UNREACHED_VERDICTS.includes(row.verdict))
  * claim from one that closed the claim it had.
  */
 const WITHOUT_A_CHECKABLE_CLAIM: readonly string[] = [
+  // ── Added 2026-08-05 by Plan 20-12, by a THIRD route this list had not seen ─────────
+  //
+  // The seven below did not lose their claim by being satisfied and did not lose it by
+  // being rephrased. They lose it because **the symbol they name was deleted**: every one
+  // reads *"`runResilient` has no caller"* or similar, and 20-12 removed `runResilient`
+  // and its module under WIRE-04, which requires exactly one job entry point. `EXPORTED`
+  // no longer holds the name, so `parseRows` drops the claim and the rows fall through to
+  // here — which is this list doing its job, loudly, rather than seven rows going quietly
+  // unread.
+  //
+  // **They are the most misleading rows in the ledger right now, not the least.** The
+  // sentence has been false in its second half since 20-01 and 20-07 (`submitJob` does
+  // re-dispatch and does speculate), 20-08 and 20-11 each recorded that and each declined
+  // to fix a row it did not own, and now the first half is false too. Plan 20-13 owns the
+  // rewrite — `CHURN-01`…`CHURN-06` are on its declared list — and **must delete them from
+  // here in the same commit that gives them a claim again**, which is this list's standing
+  // rule in the direction it was written for.
+  //
+  // `SCHED-03` is NOT on 20-13's declared row list and is handed to it here: its row still
+  // says the exec-stage re-pick lives only in `runResilient`, which 20-04 made false and
+  // 20-12 made unparseable.
+  'CHURN-01',
+  'CHURN-02',
+  'CHURN-03',
+  'CHURN-04',
+  'CHURN-05',
+  'CHURN-06',
+  'SCHED-03',
+  // ── The pre-existing entries ───────────────────────────────────────────────────────
   'AUTH-02',
   'AUTH-03',
   'AUTH-04',
@@ -580,7 +609,12 @@ describe('the corpus and the ledger were really read', () => {
 
   it('collected the exported symbols the claims are matched against', () => {
     expect(EXPORTED.size).toBeGreaterThan(200) // 378 on 2026-08-01
-    expect(EXPORTED.get('runResilient')).toBe(join(ROOT, 'packages/core/src/coordinator.ts'))
+    // `runResilient` → `coordinator.ts` stood in the first slot until 2026-08-05, when
+    // Plan 20-12 deleted that module under WIRE-04 and this reading became `undefined`.
+    // Re-sited on `submitJob`, which is the symbol that replaced it and the one every
+    // claim about the job path now has to be read against — a probe naming a deleted
+    // module measures nothing.
+    expect(EXPORTED.get('submitJob')).toBe(join(ROOT, 'packages/core/src/job/submit.ts'))
     expect(EXPORTED.get('LocalCapacity')).toBe(join(ROOT, 'packages/core/src/placement.ts'))
   })
 
@@ -644,7 +678,25 @@ describe('the corpus and the ledger were really read', () => {
     // Counting it over `BUILT_NOT_WIRED` while checking `ROWS` would leave the widening
     // itself unguarded — a floor that cannot see the rows it was widened to reach.
     const claims = ROWS.reduce((total, row) => total + row.noCaller.length + row.onlyThrough.length, 0)
-    expect(claims).toBeGreaterThan(10) // 14 on 2026-08-02, of which 1 is on a Partial row
+    // **Re-sited 2026-08-05 from `> 10`, and the reason is not that it became
+    // inconvenient.** It was sited against 14 on 2026-08-02. Plan 20-12 deleted
+    // `runResilient` under WIRE-04, and nine of those fourteen claims were sentences
+    // naming it across seven rows — `CHURN-01`…`CHURN-06` and `SCHED-03` — so `EXPORTED`
+    // stopped holding the name and `parseRows` stopped extracting them. **Measured
+    // immediately after the deletion: 5.** Keeping `> 10` would assert a fact about the
+    // ledger that stopped being true, and would stay red until 20-13 rewrites those rows.
+    //
+    // **Lowering it costs nothing this file was relying on**, and that is the part worth
+    // checking rather than asserting. This is an anti-vacuity floor — its case title is
+    // *"rather than matching nothing"* — and the failure mode of a row silently ceasing
+    // to be parsed is held by the **set equality** in *"leaves every unreached row either
+    // checkable or recorded as not"*, which is strictly stronger: it names which rows have
+    // no claim rather than counting how many do. All seven rows above appear there, by
+    // name, with the reason. So what moved here is the weaker of two overlapping guards,
+    // and the stronger one caught the same event in the same run.
+    //
+    // It is expected to rise again when 20-13 gives those rows claims a search can read.
+    expect(claims).toBeGreaterThan(3) // 5 on 2026-08-05; 14 on 2026-08-02 before 20-12
     expect(UNREACHED.length).toBeGreaterThan(BUILT_NOT_WIRED.length) // 32 vs 14
   })
 })

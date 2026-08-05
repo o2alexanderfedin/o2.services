@@ -36,8 +36,12 @@
  * a thread pool or one thread per task, and neither is built here. Re-posting the
  * survivors was considered and rejected: it means retaining every pending task's
  * module and input bytes for its whole deadline window, doubling in-flight memory at
- * up to `DEFAULT_MAX_CONCURRENT_TASKS` tasks, to protect a path (`runResilient`) that
- * currently has no production caller.
+ * up to `DEFAULT_MAX_CONCURRENT_TASKS` tasks, to protect work that `submitJob`'s
+ * generation loop already re-dispatches for free. (Until Plan 20-12 this named
+ * `runResilient` as the path in question and called it callerless; that module is
+ * deleted and the loop is now inside `submitJob`, which four submitters call — so the
+ * trade is no longer "protect a path nobody runs" but "pay memory to avoid a
+ * re-dispatch", and the answer is still no.)
  *
  * The thread is created on first use, so a node that is never asked to compute never
  * spawns one.
