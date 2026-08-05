@@ -12,10 +12,11 @@ import { LocalCapacity } from '../placement.ts'
 import type { Admission, AdmissionControl, Offer } from '../placement.ts'
 import { signResult } from '../result-attestation.ts'
 import type { ResultSigner } from '../result-attestation.ts'
+import { DEFAULT_SPECULATION_FRACTION } from '../speculation.ts'
 import { publicNodes } from '../sovereignty.ts'
 import type { NodeDescriptor } from '../sovereignty.ts'
-import { submitJob } from './submit.ts'
-import type { JobResult, JobSpec, ShardResult, ShardSpec } from './submit.ts'
+import { DEFAULT_SPECULATION_WATCHDOG_MS, submitJob } from './submit.ts'
+import type { JobClock, JobResult, JobSpec, ShardResult, ShardSpec, SubmitOptions } from './submit.ts'
 import { executeVerified } from './verify.ts'
 
 const MODULE_CID = CID.parse('bafyreidykglsfhoixmivffc5uwhcgshx4j465xwqntbmu43nb2dzqwfvae')
@@ -1555,6 +1556,707 @@ describe('WIRE-04/CHURN-01 — a shard whose executor refuses or dies is placed 
     // WHAT THIS CANNOT REDDEN ON. Nothing about the retry policy itself: every trigger,
     // the bound and both renewal arms are unreachable on a fixture where nothing fails.
     // Its whole job is to falsify the *other* five, and it is worthless alone.
+  })
+})
+
+/**
+ * CHURN-02 / CHURN-06 — a straggler is duplicated, and the loser is still read.
+ *
+ * ## Every case here is deterministic, and this is how
+ *
+ * Nothing waits on wall time. The clock is the fixture's — `t` advances **only** when the
+ * module itself sleeps — and slowness is a *deferred promise the fixture releases*, never
+ * a delay. What the sleep additionally does is drain the microtask queue before it
+ * resolves, and that is the load-bearing half: a `setTimeout(0)` fires as soon as the task
+ * queue empties, so it measures no wall time at all, but every promise chain that was
+ * ready has run to completion by the time the sleeper wakes. Without it, whether a losing
+ * copy reads `agreed` or `uncompared` would depend on how many `await`s `executeVerified`
+ * happens to contain — a number nobody has counted and nobody should have to.
+ *
+ * The clock also has a **horizon** and refuses to pass it, for the reason 20-01's renewal
+ * fixture records: a loop that never terminates is not a slow test but a hung one, and a
+ * named failure is worth more than a timeout. It is stated as a multiple of
+ * `DEFAULT_LEASE_MS` because it is virtual time and encodes no machine.
+ *
+ * ## Which node gets the duplicate is derived, never chosen
+ *
+ * `speculativeCandidates` returns `eligibleNodes(request, pool)` minus everyone already
+ * attempted, **in the pool's own order**, and this module takes the first. So the target
+ * is a consequence of the fixture's node order and its sovereignty labels, and every case
+ * below asserts the id that rule produces rather than one picked for the assertion.
+ */
+describe('CHURN-02/CHURN-06 — a straggler is duplicated, and the loser is still read', () => {
+  /** `honest`'s own output, so a released copy answers exactly what a quick one would. */
+  function agreeingOutput(task: Task): CanonicalValue {
+    return { shard: task.partitionIndex, of: task.partitionCount, sum: task.partitionIndex * 10 }
+  }
+
+  /** `liar`'s, so a released copy answers something a comparison must reject. */
+  function divergentOutput(task: Task): CanonicalValue {
+    return { shard: task.partitionIndex, of: task.partitionCount, sum: 999 }
+  }
+
+  /**
+   * Records WHICH node ran WHICH partition.
+   *
+   * The pair and not the node alone: a speculative copy is a *second run of one
+   * partition*, so a bare node list cannot tell a duplicate from an ordinary placement,
+   * and "speculation happened" would be read off the field under test.
+   */
+  function watched(nodeId: string, ran: string[], inner: Executor = honest(nodeId)): Executor {
+    return {
+      nodeId,
+      async execute(task: Task): Promise<ExecutionOutcome> {
+        ran.push(`${nodeId}#${task.partitionIndex}`)
+        return inner.execute(task)
+      },
+    }
+  }
+
+  interface Held {
+    readonly executor: Executor
+    /** Answer now, with `output` over the task this executor was actually handed. */
+    readonly release: () => void
+  }
+
+  /**
+   * An executor that takes the work and then says nothing until the fixture lets it.
+   *
+   * A deferred promise rather than a delay: a delay is a race against whatever else the
+   * run is doing, and every "slow" shard below is slow because it is *held*, which is a
+   * fact the case states rather than one it hopes for.
+   */
+  function holding(
+    nodeId: string,
+    ran: string[],
+    options: {
+      readonly output?: (task: Task) => CanonicalValue
+      /** Answer with a refusal instead of an output — the third thing a late copy can say. */
+      readonly failWith?: string
+      /** Run at the instant the work is handed over — the seam a release can hang on. */
+      readonly onExecute?: () => void
+    } = {},
+  ): Held {
+    let answer: ((outcome: ExecutionOutcome) => void) | null = null
+    let handed: Task | null = null
+    const work = new Promise<ExecutionOutcome>((resolve) => {
+      answer = resolve
+    })
+    return {
+      executor: {
+        nodeId,
+        execute(task: Task): Promise<ExecutionOutcome> {
+          ran.push(`${nodeId}#${task.partitionIndex}`)
+          handed = task
+          options.onExecute?.()
+          return work
+        },
+      },
+      release: (): void => {
+        if (answer === null || handed === null) return
+        answer(
+          options.failWith === undefined
+            ? {
+                ok: true,
+                output: (options.output ?? agreeingOutput)(handed),
+                fuelUsed: 100,
+                attestation: 'signed-by-nobody',
+              }
+            : { ok: false, reason: options.failWith },
+        )
+      },
+    }
+  }
+
+  /** Virtual time, plus a microtask drain. See this block's header for why both. */
+  function fixtureClock(options: {
+    readonly horizon: number
+    /** Called with the new instant on every advance — where a timed release hangs. */
+    readonly onAdvance?: (now: number) => void
+  }): JobClock & { readonly reading: () => number } {
+    let t = 0
+    return {
+      now: (): number => t,
+      reading: (): number => t,
+      sleep: async (ms: number): Promise<void> => {
+        t += ms
+        if (t > options.horizon) {
+          throw new Error(
+            `the clock passed ${options.horizon}ms of virtual time — this job is not bounded`,
+          )
+        }
+        options.onAdvance?.(t)
+        await new Promise<void>((resolve) => {
+          setTimeout(resolve, 0)
+        })
+      },
+    }
+  }
+
+  /** `n00`, `n01`, … — zero-padded so id order and numeric order are the same order. */
+  function nodeName(index: number): string {
+    return `n${String(index).padStart(2, '0')}`
+  }
+
+  /**
+   * `count` public shards over `count` nodes at redundancy 1, one node per shard.
+   *
+   * The one-to-one mapping is `planPlacement`'s `dispatchCount` nudge doing what it
+   * already did, not an arrangement this fixture imposes: every node starts at load 0, the
+   * nudge adds one per placement, so shard `i` takes node `i` in id order.
+   */
+  function publicShards(count: number): readonly ShardSpec[] {
+    return Array.from({ length: count }, (_, i): ShardSpec => ({ value: { n: i }, label: 'public' }))
+  }
+
+  /** The allowance a job of `shards` gets from a fraction — computed, never a literal. */
+  function allowanceOf(shards: number, fraction = DEFAULT_SPECULATION_FRACTION): number {
+    return Math.floor(shards * fraction)
+  }
+
+  it('duplicates a shard that has fallen behind its peers, onto a node the placement did not choose', async () => {
+    // Ten shards so the default fraction yields an allowance at all, and nine of them
+    // finish at once so the median has more than `MIN_SAMPLES` behind it. Only `n00`'s
+    // shard is held.
+    const ran: string[] = []
+    const straggler = holding(nodeName(0), ran)
+    const executors: readonly Executor[] = Array.from({ length: 10 }, (_, i) =>
+      i === 0 ? straggler.executor : watched(nodeName(i), ran),
+    )
+    const clock = fixtureClock({ horizon: DEFAULT_LEASE_MS * 10 })
+    const r = await submitJob(
+      {
+        moduleCid: MODULE_CID,
+        shards: publicShards(10),
+        executors,
+        nodes: publicNodes(executors),
+        redundancy: 1,
+        onQuorumShortfall: 'runs-at-available-redundancy',
+      },
+      new MemoryBlockstore(),
+      { clock },
+    )
+
+    expect(r.ok).toBe(true)
+    if (!r.ok) return
+    const slow = r.job.shards[0] as ShardResult
+    expect(slow.speculated).toBe(true)
+    // The duplicate's node, not merely that one happened. `n00` is running it and every
+    // node is eligible for a public shard, so `speculativeCandidates` yields the pool
+    // minus `n00` and this module takes the first — `n01`.
+    expect(slow.attempted).toStrictEqual([nodeName(0), nodeName(1)])
+    // And it RAN there, read off the executor rather than off the field under test.
+    expect(ran).toContain(`${nodeName(1)}#0`)
+    expect(ran).toContain(`${nodeName(0)}#0`)
+    // One extra dispatch for the whole job, and it is this one.
+    expect(ran).toHaveLength(11)
+    expect(r.job.speculationSpent).toBe(1)
+    expect(r.job.speculationMultiplier).toBeCloseTo(11 / 10, 12)
+    // Nothing else was duplicated — the reading that separates "the tail was fixed" from
+    // "everything was run twice", and the budget was exactly one anyway.
+    expect(r.job.shards.filter((shard) => shard.speculated)).toHaveLength(1)
+    expect(r.job.speculationSpent).toBe(allowanceOf(10))
+
+    // WHAT THIS CANNOT REDDEN ON. Nothing about sovereignty: every shard here is public,
+    // so `eligibleNodes` returns the whole pool and a duplicate cannot land anywhere it
+    // should not have. It also says nothing about the budget — the allowance is 1 and one
+    // duplicate was wanted, so a loop with no budget check at all passes this exactly.
+  })
+
+  it('takes the first answer, and it is the copy’s own bytes', async () => {
+    // The held node would answer `sum: 0`; the rest of the pool answers `sum: 999`. So
+    // the job's own result CID says which of the two copies it came from, rather than
+    // being a value both could have produced.
+    const ran: string[] = []
+    const straggler = holding(nodeName(0), ran)
+    const executors: readonly Executor[] = Array.from({ length: 10 }, (_, i) =>
+      i === 0 ? straggler.executor : watched(nodeName(i), ran, liar(nodeName(i))),
+    )
+    const clock = fixtureClock({ horizon: DEFAULT_LEASE_MS * 10 })
+    const r = await submitJob(
+      {
+        moduleCid: MODULE_CID,
+        shards: publicShards(10),
+        executors,
+        nodes: publicNodes(executors),
+        redundancy: 1,
+        onQuorumShortfall: 'runs-at-available-redundancy',
+      },
+      new MemoryBlockstore(),
+      { clock },
+    )
+
+    expect(r.ok).toBe(true)
+    if (!r.ok) return
+    const slow = r.job.shards[0] as ShardResult
+    expect(slow.verification.status).toBe('agreed')
+    if (slow.verification.status !== 'agreed') return
+    // **This pair is load-bearing and was added after a plant.** Suppressing duplication
+    // entirely left every other assertion below green, because a held node whose lease
+    // lapses is re-dispatched onto exactly the same `n01` and answers exactly the same
+    // bytes — the generation loop reaching the same place by the slower road. One
+    // generation and a duplicate is what says a RACE decided this and not a timeout.
+    expect(slow.speculated).toBe(true)
+    expect(slow.generations).toBe(1)
+    // WHO answered.
+    expect(slow.verification.agreeing.map((replica) => replica.nodeId)).toStrictEqual([nodeName(1)])
+    // And WHAT it answered — the copy's bytes, hashed independently here rather than
+    // read back off the same field. The held node's own answer would be a different CID
+    // and is asserted below to be different, so this is not a value both could give.
+    const copysAnswer = await cidOf(divergentOutput({ ...task, partitionIndex: 0, partitionCount: 10 }))
+    const stragglersAnswer = await cidOf(agreeingOutput({ ...task, partitionIndex: 0, partitionCount: 10 }))
+    expect(slow.verification.resultCid.toString()).toBe(copysAnswer.toString())
+    expect(copysAnswer.toString()).not.toBe(stragglersAnswer.toString())
+
+    // WHAT THIS CANNOT REDDEN ON. It cannot say the loser was *read*: the held node never
+    // answered at all here, so `copies` reports it uncompared and no comparison happened.
+    // The two cases below are the ones that carry that, and only the second of them can.
+  })
+
+  it('reads a losing copy that agrees, and records it as compared rather than as absent', async () => {
+    // The straggler is released the moment its duplicate is handed the work — a node that
+    // was slow rather than gone, finishing just as the copy starts. It is one microtask
+    // ahead of the copy at that point, so it wins the race and the COPY is the loser.
+    const ran: string[] = []
+    const straggler = holding(nodeName(0), ran, {
+      onExecute: () => {
+        // Only the second call is the duplicate's; the first is this node's own.
+        if (ran.filter((entry) => entry.endsWith('#0')).length >= 2) straggler.release()
+      },
+    })
+    const copyRuns: string[] = []
+    const executors: readonly Executor[] = Array.from({ length: 10 }, (_, i) =>
+      i === 0
+        ? straggler.executor
+        : watched(nodeName(i), ran, {
+            nodeId: nodeName(i),
+            async execute(shardTask: Task): Promise<ExecutionOutcome> {
+              if (shardTask.partitionIndex === 0) {
+                copyRuns.push(nodeName(i))
+                straggler.release()
+              }
+              return honest(nodeName(i)).execute(shardTask)
+            },
+          }),
+    )
+    const clock = fixtureClock({ horizon: DEFAULT_LEASE_MS * 10 })
+    const r = await submitJob(
+      {
+        moduleCid: MODULE_CID,
+        shards: publicShards(10),
+        executors,
+        nodes: publicNodes(executors),
+        redundancy: 1,
+        onQuorumShortfall: 'runs-at-available-redundancy',
+      },
+      new MemoryBlockstore(),
+      { clock },
+    )
+
+    expect(r.ok).toBe(true)
+    if (!r.ok) return
+    const slow = r.job.shards[0] as ShardResult
+    expect(slow.speculated).toBe(true)
+    expect(copyRuns).toStrictEqual([nodeName(1)])
+    // The straggler won its own race after all, so the COPY is the outstanding one.
+    expect(slow.verification.status).toBe('agreed')
+    if (slow.verification.status === 'agreed') {
+      expect(slow.verification.agreeing.map((replica) => replica.nodeId)).toStrictEqual([nodeName(0)])
+    }
+    // It was READ. `'agreed'` and not `'uncompared'` is the whole reading: a loop that
+    // dropped its losers would report the latter and every other assertion here would
+    // still hold.
+    expect(slow.copies).toStrictEqual([{ nodeIds: [nodeName(1)], outcome: 'agreed' }])
+    expect(slow.disagreed).toBe(false)
+    expect(r.job.complete).toBe(true)
+
+    // WHAT THIS CANNOT REDDEN ON. **It cannot redden on the comparison itself.** A loop
+    // that compared nothing and hardcoded `'agreed'` passes this case exactly; so does one
+    // that compares CIDs the wrong way round, since both copies answer the same bytes
+    // here. The case below is the one that carries the comparison, and it is the
+    // load-bearing case of this file.
+  })
+
+  it('reports a losing copy that answers DIFFERENTLY, names both CIDs, and fails the job', async () => {
+    // Identical to the case above but for the copy's answer. The straggler answers
+    // `sum: 0`, the copy answers `sum: 999`, and a comparison that happens finds it.
+    const ran: string[] = []
+    const straggler = holding(nodeName(0), ran)
+    const executors: readonly Executor[] = Array.from({ length: 10 }, (_, i) =>
+      i === 0
+        ? straggler.executor
+        : watched(nodeName(i), ran, {
+            nodeId: nodeName(i),
+            async execute(shardTask: Task): Promise<ExecutionOutcome> {
+              if (shardTask.partitionIndex === 0) {
+                straggler.release()
+                return liar(nodeName(i)).execute(shardTask)
+              }
+              return honest(nodeName(i)).execute(shardTask)
+            },
+          }),
+    )
+    const clock = fixtureClock({ horizon: DEFAULT_LEASE_MS * 10 })
+    const r = await submitJob(
+      {
+        moduleCid: MODULE_CID,
+        shards: publicShards(10),
+        executors,
+        nodes: publicNodes(executors),
+        redundancy: 1,
+        onQuorumShortfall: 'runs-at-available-redundancy',
+      },
+      new MemoryBlockstore(),
+      { clock },
+    )
+
+    expect(r.ok).toBe(true)
+    if (!r.ok) return
+    const slow = r.job.shards[0] as ShardResult
+    expect(slow.speculated).toBe(true)
+    expect(slow.disagreed).toBe(true)
+    // ── Anti-vacuity: the job fails, AND the shard names both answers ────────────────
+    // A boolean alone is satisfiable by an unrelated failure, so the pair of CIDs is what
+    // says a comparison took place and what it compared.
+    expect(r.job.complete).toBe(false)
+    expect(slow.verification.status).toBe('agreed')
+    if (slow.verification.status !== 'agreed') return
+    const winner = slow.verification.resultCid.toString()
+    const loser = slow.copies[0]
+    expect(loser?.outcome).toBe('disagreed')
+    if (loser === undefined || loser.outcome !== 'disagreed') return
+    expect(loser.nodeIds).toStrictEqual([nodeName(1)])
+    expect(loser.resultCid).not.toBe(winner)
+    // Both, hashed here rather than read back off the fields under test.
+    const shardTask = { ...task, partitionIndex: 0, partitionCount: 10 }
+    expect(winner).toBe((await cidOf(agreeingOutput(shardTask))).toString())
+    expect(loser.resultCid).toBe((await cidOf(divergentOutput(shardTask))).toString())
+    // The shards that never speculated are untouched by any of this.
+    expect(r.job.shards.slice(1).every((shard) => !shard.disagreed)).toBe(true)
+
+    // WHAT THIS CANNOT REDDEN ON. It cannot distinguish *when* the comparison happened —
+    // a loop that waited for its losers before returning the winner would also pass, at
+    // the cost of the whole latency saving. Nothing here measures latency, deliberately:
+    // an assertion about how long a race saved would encode this machine.
+  })
+
+  it('reports a copy that never answers as uncompared, which is not agreement', async () => {
+    const ran: string[] = []
+    const straggler = holding(nodeName(0), ran)
+    const executors: readonly Executor[] = Array.from({ length: 10 }, (_, i) =>
+      i === 0 ? straggler.executor : watched(nodeName(i), ran),
+    )
+    const clock = fixtureClock({ horizon: DEFAULT_LEASE_MS * 10 })
+    const r = await submitJob(
+      {
+        moduleCid: MODULE_CID,
+        shards: publicShards(10),
+        executors,
+        nodes: publicNodes(executors),
+        redundancy: 1,
+        onQuorumShortfall: 'runs-at-available-redundancy',
+      },
+      new MemoryBlockstore(),
+      // A grace narrow enough that a copy nobody released cannot answer inside it, stated
+      // as a knob rather than left to the default so the window is the case's own.
+      { clock, speculation: { compareGraceMs: DEFAULT_SPECULATION_WATCHDOG_MS } },
+    )
+
+    expect(r.ok).toBe(true)
+    if (!r.ok) return
+    const slow = r.job.shards[0] as ShardResult
+    const left = slow.copies[0]
+    expect(left?.outcome).toBe('uncompared')
+    if (left === undefined || left.outcome !== 'uncompared') return
+    // The held node is the one left over — the duplicate answered and won.
+    expect(left.nodeIds).toStrictEqual([nodeName(0)])
+    expect(left.reason).toContain('had not answered')
+    // Three distinct readings, and the middle one is the point: silence is not agreement.
+    expect(slow.disagreed).toBe(false)
+    expect(left.outcome).not.toBe('agreed')
+    expect(r.job.complete).toBe(true)
+
+    // WHAT THIS CANNOT REDDEN ON. It cannot catch a comparison that is simply never run:
+    // a loop that reported every copy `uncompared` unconditionally passes this case. The
+    // agreeing-loser case above is what says a copy can reach any other verdict.
+  })
+
+  it('gives a losing copy that answers with a FAILURE its own bucket, neither silent nor agreeing', async () => {
+    // The fourth thing a leftover can turn out to be, and the one `coordinator.ts`
+    // recorded as the hole: *"a copy that answered with a failure was neither silent nor
+    // disagreeing, and every reader had to remember to consult a third structure that did
+    // not exist."* Reachable only after another copy has already won, which is what this
+    // fixture arranges — the held node is released with a refusal at a virtual instant the
+    // watchdog's small hops never reach and the comparison window does.
+    const RELEASED_AT = DEFAULT_LEASE_MS / 2
+    const ran: string[] = []
+    const straggler = holding(nodeName(0), ran, { failWith: 'this node gave up on the shard' })
+    const executors: readonly Executor[] = Array.from({ length: 10 }, (_, i) =>
+      i === 0 ? straggler.executor : watched(nodeName(i), ran),
+    )
+    const clock = fixtureClock({
+      horizon: DEFAULT_LEASE_MS * 10,
+      onAdvance: (at) => {
+        if (at >= RELEASED_AT) straggler.release()
+      },
+    })
+    const r = await submitJob(
+      {
+        moduleCid: MODULE_CID,
+        shards: publicShards(10),
+        executors,
+        nodes: publicNodes(executors),
+        redundancy: 1,
+        onQuorumShortfall: 'runs-at-available-redundancy',
+      },
+      new MemoryBlockstore(),
+      // Wide enough that the release instant falls inside the window. Stated against the
+      // lease rather than as a millisecond count: it is virtual time and encodes nothing
+      // about this machine.
+      { clock, speculation: { compareGraceMs: DEFAULT_LEASE_MS } },
+    )
+
+    expect(r.ok).toBe(true)
+    if (!r.ok) return
+    const slow = r.job.shards[0] as ShardResult
+    expect(slow.speculated).toBe(true)
+    const left = slow.copies[0]
+    expect(left?.outcome).toBe('failed')
+    if (left === undefined || left.outcome !== 'failed') return
+    expect(left.nodeIds).toStrictEqual([nodeName(0)])
+    // In the refusing node's own words, carried rather than composed here.
+    expect(left.reason).toContain('this node gave up on the shard')
+    // Not silence and not disagreement — the two neighbouring readings, both denied.
+    expect(slow.disagreed).toBe(false)
+    expect(r.job.complete).toBe(true)
+
+    // WHAT THIS CANNOT REDDEN ON. It cannot separate a copy that failed from one that
+    // failed *and was counted against the shard*: nothing here reads the shard's own
+    // failure list, because `VerificationResult`'s `agreed` arm has no `failures` field to
+    // read — an open question this plan inherited and did not close.
+  })
+
+  it('duplicates nothing before there is a tail — the control', async () => {
+    // The identical shape with nothing held. Without this every reading above could be
+    // describing unconditional duplication: a job that duplicates everything also
+    // completes, also answers, and also lands a copy on a node the placement did not
+    // choose.
+    const ran: string[] = []
+    const executors: readonly Executor[] = Array.from({ length: 10 }, (_, i) =>
+      watched(nodeName(i), ran),
+    )
+    const clock = fixtureClock({ horizon: DEFAULT_LEASE_MS * 10 })
+    const r = await submitJob(
+      {
+        moduleCid: MODULE_CID,
+        shards: publicShards(10),
+        executors,
+        nodes: publicNodes(executors),
+        redundancy: 1,
+        onQuorumShortfall: 'runs-at-available-redundancy',
+      },
+      new MemoryBlockstore(),
+      { clock },
+    )
+
+    expect(r.ok).toBe(true)
+    if (!r.ok) return
+    expect(r.job.speculationSpent).toBe(0)
+    expect(r.job.speculationMultiplier).toBe(1)
+    expect(r.job.shards.every((shard) => !shard.speculated)).toBe(true)
+    expect(r.job.shards.every((shard) => shard.copies.length === 0)).toBe(true)
+    // One dispatch per shard, and no more.
+    expect(ran).toHaveLength(10)
+    // Anti-vacuity: this fixture COULD have duplicated. The budget is not zero, so a
+    // reading of `spent: 0` is a statement about the tail rather than about the allowance.
+    expect(allowanceOf(10)).toBeGreaterThan(0)
+
+    // WHAT THIS CANNOT REDDEN ON. Nothing about what a duplicate does once started — the
+    // race, the comparison and the sovereignty gate are all unreachable here. Its whole
+    // job is to falsify the others.
+  })
+
+  it('scopes a sovereign duplicate to its owner, and starts none where the owner has no spare', async () => {
+    // Two owners in ONE job, so the pair is read in one run against one budget: alice has
+    // a spare node and carol does not. Both their shards are held; five public shards
+    // finish at once and supply the median.
+    const ran: string[] = []
+    const alicesOwn = holding('alice-1', ran)
+    const carolsOnly = holding('carol-1', ran)
+    const nodes: readonly NodeDescriptor[] = [
+      { nodeId: 'alice-1', ownerId: 'alice', canExecuteSovereign: true, load: 0, certificate: 'carries-no-certificate' },
+      { nodeId: 'alice-2', ownerId: 'alice', canExecuteSovereign: true, load: 0, certificate: 'carries-no-certificate' },
+      { nodeId: 'carol-1', ownerId: 'carol', canExecuteSovereign: true, load: 0, certificate: 'carries-no-certificate' },
+      ...['bob-1', 'bob-2', 'bob-3', 'bob-4', 'bob-5'].map(
+        (nodeId): NodeDescriptor => ({
+          nodeId,
+          ownerId: 'bob',
+          canExecuteSovereign: true,
+          load: 0,
+          certificate: 'carries-no-certificate',
+        }),
+      ),
+    ]
+    const executors: readonly Executor[] = [
+      alicesOwn.executor,
+      watched('alice-2', ran),
+      carolsOnly.executor,
+      ...['bob-1', 'bob-2', 'bob-3', 'bob-4', 'bob-5'].map((nodeId) => watched(nodeId, ran)),
+    ]
+    const shards: readonly ShardSpec[] = [
+      { value: { n: 0 }, label: 'sovereign', ownerId: 'alice' },
+      { value: { n: 1 }, label: 'sovereign', ownerId: 'carol' },
+      ...Array.from({ length: 5 }, (_, i): ShardSpec => ({ value: { n: 100 + i }, label: 'public' })),
+    ]
+    const clock = fixtureClock({ horizon: DEFAULT_LEASE_MS * 20 })
+    const r = await submitJob(
+      {
+        moduleCid: MODULE_CID,
+        shards,
+        executors,
+        nodes,
+        redundancy: 1,
+        onQuorumShortfall: 'runs-at-available-redundancy',
+      },
+      new MemoryBlockstore(),
+      // A budget large enough that carol's shard is refused a duplicate by the
+      // ELIGIBILITY gate and not by the allowance. Without this the two refusals are
+      // indistinguishable and the case is vacuous.
+      { clock, speculation: { fraction: 1 } },
+    )
+
+    expect(r.ok).toBe(true)
+    if (!r.ok) return
+
+    // ── Alice: a spare of her own, and the copy went there ───────────────────────────
+    const alices = r.job.shards[0] as ShardResult
+    expect(alices.speculated).toBe(true)
+    expect(alices.attempted).toStrictEqual(['alice-1', 'alice-2'])
+    expect(ran).toContain('alice-2#0')
+
+    // ── Carol: none, so none was started, and nothing foreign was asked ──────────────
+    const carols = r.job.shards[1] as ShardResult
+    expect(carols.speculated).toBe(false)
+    expect(carols.copies).toStrictEqual([])
+    // The anti-vacuity read, and the one that could catch a widened pool: the owner's own
+    // node and nobody else, taken off `attempted` AND off the executors' own record. A
+    // reason string stays perfectly plausible while the shard runs on bob.
+    expect(carols.attempted).toStrictEqual(['carol-1'])
+    expect(ran.filter((entry) => entry.endsWith('#1'))).toStrictEqual(['carol-1#1'])
+    // And it was the GATE that refused, not the budget: one duplicate was spent out of an
+    // allowance of seven.
+    expect(r.job.speculationSpent).toBe(1)
+    expect(allowanceOf(shards.length, 1)).toBeGreaterThan(1)
+
+    // WHAT THESE CANNOT REDDEN ON. Alice's arm cannot catch a widened pool: with every
+    // node at load 0 the order is the pool's own and `alice-2` precedes every `bob-*`, so
+    // a duplicate chosen from the whole node set would land there anyway. **Carol's arm
+    // is the one that can** — and it catches a candidate set built from the job's nodes
+    // instead of from `speculativeCandidates`. It does NOT catch handing
+    // `speculativeCandidates` a wider *pool*: that function calls `eligibleNodes` on
+    // whatever it is given, so widening its input cannot widen its output. That guarantee
+    // is `sovereignty.ts`'s and is asserted there.
+  })
+
+  it('spends no more than the job-wide budget, however many shards are slow', async () => {
+    // Twenty shards, fifteen of them held. Five finish at once and supply the median, so
+    // every one of the fifteen is a straggler by the same rule — and the number that get
+    // a duplicate is the allowance and nothing else.
+    const total = 20
+    const quick = 5
+    const ran: string[] = []
+    const executors: readonly Executor[] = Array.from({ length: total }, (_, i) =>
+      i < quick ? watched(nodeName(i), ran) : holding(nodeName(i), ran).executor,
+    )
+    const clock = fixtureClock({ horizon: DEFAULT_LEASE_MS * 100 })
+    const r = await submitJob(
+      {
+        moduleCid: MODULE_CID,
+        shards: publicShards(total),
+        executors,
+        nodes: publicNodes(executors),
+        redundancy: 1,
+        onQuorumShortfall: 'runs-at-available-redundancy',
+      },
+      new MemoryBlockstore(),
+      { clock },
+    )
+
+    expect(r.ok).toBe(true)
+    if (!r.ok) return
+    // Against the fraction, computed. A literal here would be a number that stops
+    // describing the rule the moment the fraction moves.
+    expect(r.job.speculationSpent).toBe(allowanceOf(total))
+    expect(r.job.shards.filter((shard) => shard.speculated)).toHaveLength(allowanceOf(total))
+    // Anti-vacuity in the other direction: far more shards were slow than were duplicated,
+    // so the bound bit rather than the supply of stragglers running out.
+    expect(total - quick).toBeGreaterThan(allowanceOf(total))
+    expect(r.job.speculationMultiplier).toBeCloseTo((total + allowanceOf(total)) / total, 12)
+
+    // WHAT THIS CANNOT REDDEN ON. It cannot say WHICH shards were duplicated, and that is
+    // deliberate: which straggler ticks first is a fact about the scheduler, and an
+    // assertion on it would be an assertion about microtask order.
+  })
+
+  it('turns off to the identity — the same fixture, one dispatch per shard and a multiplier of 1', async () => {
+    // ONE fixture read twice. The held node answers once virtual time passes `RELEASED_AT`
+    // — which the watchdog's small hops never reach, and which the single sleep-to-the-
+    // deadline of a job that is not watching passes on its first wait. So the difference
+    // between the arms is speculation and nothing else about the fixture.
+    const RELEASED_AT = DEFAULT_LEASE_MS * (2 / 3)
+    async function run(
+      speculation: SubmitOptions['speculation'],
+    ): Promise<{ readonly job: JobResult; readonly ran: readonly string[] }> {
+      const ran: string[] = []
+      const straggler = holding(nodeName(0), ran)
+      const executors: readonly Executor[] = Array.from({ length: 10 }, (_, i) =>
+        i === 0 ? straggler.executor : watched(nodeName(i), ran),
+      )
+      const clock = fixtureClock({
+        horizon: DEFAULT_LEASE_MS * 10,
+        onAdvance: (at) => {
+          if (at >= RELEASED_AT) straggler.release()
+        },
+      })
+      const r = await submitJob(
+        {
+          moduleCid: MODULE_CID,
+          shards: publicShards(10),
+          executors,
+          nodes: publicNodes(executors),
+          redundancy: 1,
+          onQuorumShortfall: 'runs-at-available-redundancy',
+        },
+        new MemoryBlockstore(),
+        speculation === undefined ? { clock } : { clock, speculation },
+      )
+      if (!r.ok) throw new Error(`fixture submission failed: ${JSON.stringify(r.error)}`)
+      return { job: r.job, ran }
+    }
+
+    const on = await run(undefined)
+    const off = await run('duplicates-no-stragglers')
+
+    // ── The off arm: the identity, and nothing extra was dispatched ──────────────────
+    // The PAIR is what distinguishes disabled from idle. A multiplier of 1 alone is also
+    // what a job with no stragglers reports, so it is read beside a dispatch count that
+    // equals the placed count — computed off `attempted`, never written as a literal.
+    expect(off.job.speculationMultiplier).toBe(1)
+    expect(off.job.speculationSpent).toBe(0)
+    const placed = off.job.shards.reduce((n, shard) => n + shard.attempted.length, 0)
+    expect(off.ran).toHaveLength(placed)
+    expect(off.job.shards.every((shard) => !shard.speculated && shard.copies.length === 0)).toBe(true)
+    expect(off.job.complete).toBe(true)
+
+    // ── Comparative, inside one case: the same fixture with it on costs one more ─────
+    expect(on.ran).toHaveLength(off.ran.length + 1)
+    expect(on.job.speculationSpent).toBe(1)
+    expect(on.job.speculationMultiplier).toBeGreaterThan(off.job.speculationMultiplier)
+    expect((on.job.shards[0] as ShardResult).speculated).toBe(true)
+
+    // WHAT THIS CANNOT REDDEN ON. It cannot catch a switch that turns off more than
+    // speculation: both arms answer, so an off arm that had also disabled the lease
+    // deadline would pass. 20-01's renewal pair is what holds the deadline.
   })
 })
 

@@ -47,6 +47,57 @@
  * scheduler that quietly retried would produce correct answers and inexplicable
  * bills."*
  *
+ * ## A straggler is duplicated, and the loser is still read — CHURN-02, CHURN-06
+ *
+ * A job finishes when its *slowest* shard finishes, so one node on a train ruins a
+ * thousand-node job. When a shard has been running far longer than its peers, a second
+ * copy is dispatched to another eligible node while the first is still running, and the
+ * first answer to arrive is the shard's answer. `speculation.ts` carries the pieces —
+ * the median, the budget, the eligibility gate — and this is their first production
+ * caller.
+ *
+ * **Three things `coordinator.ts` got wrong before it got them right.** That module is
+ * deleted in a later plan, so its reasoning is reproduced here rather than referenced,
+ * and quoted where its own sentence is the clearest statement of the rule:
+ *
+ * 1. **Breaking out of the race on the first arrival made `disagreed` impossible on any
+ *    input.** Timing alone picked which of two different CIDs became the answer and the
+ *    run reported clean — *"majority-vote-by-race, the thing this project has explicitly
+ *    refused"*. So the winner returns immediately and the copies still outstanding are
+ *    **registered, never cancelled**, then compared after **every** shard has settled.
+ *    That costs nothing, because the job was going to wait for its slowest shard anyway.
+ *    A copy that still has not answered by then is reported **uncompared**: you cannot
+ *    compare an answer that never arrived, and calling it agreement would be a claim
+ *    nobody checked.
+ * 2. **A flag that stopped speculating was allowed to stop the timer**, leaving the loop
+ *    awaiting a promise that might never settle. The watchdog is therefore
+ *    *unconditional*: `watching` decides only whether a tick may **speculate**, never
+ *    whether there is a deadline. Termination is the lease deadline's job and only its
+ *    job.
+ * 3. **Wrapping each dispatch into its raced form inside the loop** allocated a fresh
+ *    closure and promise per iteration — an out-of-memory crash rather than a slow test,
+ *    and only when a real dispatch is slower than the watchdog, which is exactly when
+ *    speculation is working. Each {@link Copy} is therefore built **once**, at dispatch.
+ *
+ * **Speculation is adaptive, not a fixed timeout.** A shard is a straggler relative to
+ * its *peers*, so the threshold is the median of what has already finished. Early in a
+ * job nothing has finished and nothing is duplicated — correctly, since there is no tail
+ * yet — which is why the loop polls rather than sleeping once for a precomputed instant:
+ * the threshold it checks against does not exist when the shard starts. "Too new to
+ * judge" is the one reason to do nothing that must **not** stop the watching, because the
+ * median moves and elapsed time grows.
+ *
+ * **Speculation is not redundancy and the two must not be confused.** Redundancy is N
+ * executors compared for agreement; speculation is one extra copy of an already-placed
+ * shard because it is slow. A job at redundancy 2 whose straggler is duplicated has
+ * **three dispatches and two replicas**.
+ *
+ * **CHURN-06 is a property of construction.** The duplicate's candidates come from
+ * `speculativeCandidates`, which routes through the same `eligibleNodes` gate every
+ * placer calls, so a sovereign shard's copy lands on its owner's own nodes or the shard
+ * is **not duplicated at all** — and where the owner has no spare node, waiting is the
+ * correct move rather than a failure.
+ *
  * **A dispatch that answers nothing is bounded by its lease, and that is a behaviour
  * change with a cost.** Before this, `submitJob` awaited `executeVerified` forever. It
  * now stops waiting at `DEFAULT_LEASE_MS` and moves the shard, so a *genuinely slow*
@@ -75,6 +126,13 @@ import { attestationRank, attestationReceipt, composeQuorum } from '../quorum.ts
 import type { AttestationReceipt, QuorumRefusal } from '../quorum.ts'
 import { verifyResultAttestation } from '../result-attestation.ts'
 import type { ResultWork } from '../result-attestation.ts'
+import {
+  DEFAULT_SPECULATION_FRACTION,
+  DEFAULT_STRAGGLER_FACTOR,
+  SpeculationLedger,
+  speculativeCandidates,
+  stragglers,
+} from '../speculation.ts'
 import { planPlacement } from '../sovereignty.ts'
 import type { NodeDescriptor, OwnerId, Placement, PlacementRequest } from '../sovereignty.ts'
 import { executeVerified } from './verify.ts'
@@ -392,6 +450,59 @@ interface ShardGate {
 }
 
 /**
+ * How often a running dispatch is re-examined for having become a straggler — CHURN-02.
+ *
+ * Also the floor on how quickly one can be spotted, and the default width of the window
+ * a losing copy gets to answer in once the job has settled. 250 ms is
+ * `coordinator.ts`'s own figure, transcribed rather than imported because that module is
+ * deleted in a later plan.
+ *
+ * **A poll and not a precomputed deadline**, because the threshold a shard is judged
+ * against is the median of what has already *finished* — a quantity that does not exist
+ * when the shard starts and that moves while it runs.
+ */
+export const DEFAULT_SPECULATION_WATCHDOG_MS = 250
+
+/**
+ * What became of a speculative copy once the job had settled — CHURN-02, VER-01.
+ *
+ * **One list per shard rather than one map per outcome**, and the reason is
+ * `coordinator.ts`'s recorded hole: a copy that answered *with a failure* is neither
+ * silent nor disagreeing, and every reader had to remember to consult a third structure
+ * that did not exist. The `'agreed'` arm carries nothing and exists purely so the
+ * enumeration is exhaustive — *"which turns a fifth outcome invented later into a
+ * compile error rather than a silent omission."*
+ *
+ * A copy is any dispatch of a shard that was still outstanding when another one won, so
+ * the *placed* dispatch appears here too when a duplicate beat it. Speculation makes the
+ * two symmetric on purpose: once a second copy is running, which of them is "the
+ * original" is a fact about scheduling and not about the answer.
+ */
+export type SpeculativeCopy =
+  /** It answered, and its result was the winner's result. Nothing more to say. */
+  | { readonly nodeIds: readonly string[]; readonly outcome: 'agreed' }
+  /**
+   * It answered with a **different** result — reported, never resolved.
+   *
+   * Two copies of a deterministic function over content-addressed inputs must agree;
+   * that they did not is a determinism failure or a dishonest node, and it is the most
+   * informative event this system can observe. The differing CID travels with it so the
+   * shard names *both* answers rather than only asserting that they differed.
+   */
+  | { readonly nodeIds: readonly string[]; readonly outcome: 'disagreed'; readonly resultCid: string }
+  /** It answered, and what it said was that it failed. Its own bucket for that reason. */
+  | { readonly nodeIds: readonly string[]; readonly outcome: 'failed'; readonly reason: string }
+  /**
+   * Its answer was not compared, and `reason` says why.
+   *
+   * Deliberately distinct from `'agreed'`. Either it had not answered when the window
+   * closed, or the shard reached no single agreed result for it to be compared against —
+   * both are "nobody checked this", and folding either into agreement would assert
+   * something nobody checked.
+   */
+  | { readonly nodeIds: readonly string[]; readonly outcome: 'uncompared'; readonly reason: string }
+
+/**
  * Why a shard's generation loop stopped — WIRE-04, CHURN-01.
  *
  * Three of these are the loop's only exits and the fourth is a shard that never entered
@@ -435,8 +546,42 @@ export interface ShardResult {
    * A node appears at most once: every generation places over a candidate list with
    * every already-attempted node removed, because placement is deterministic and a
    * re-dispatch handed the same pool would pick the node that just failed, every time.
+   * A speculative duplicate is a dispatch and appears here too, appended at the instant
+   * it was started — which is also what keeps a later generation from re-placing onto it.
    */
   readonly attempted: readonly string[]
+  /**
+   * True when a speculative duplicate was started for this shard — CHURN-02.
+   *
+   * `false` is the ordinary reading and covers three different situations that a caller
+   * usually does not need to distinguish: nothing was slow enough, the job-wide budget
+   * was gone, or there was nowhere legal to duplicate to. {@link ShardResult.copies} and
+   * {@link JobResult.speculationSpent} are where the difference is visible.
+   */
+  readonly speculated: boolean
+  /**
+   * True when a copy of this shard produced a **different** result from the winner.
+   *
+   * **This is the LATE half of disagreement and not the whole of it.** The in-generation
+   * half is `verification.status === 'disagreed'` — replicas of one dispatch that did not
+   * match. A caller asking "did this shard disagree?" has to read both, which is why
+   * {@link JobResult.complete} does. They are separate fields because they are separate
+   * events: one is N replicas compared inside a dispatch, the other is two whole copies
+   * of the shard compared against each other after the job settled.
+   *
+   * Reported, never resolved. First-result-wins picks the winner; the disagreement
+   * travels alongside it.
+   */
+  readonly disagreed: boolean
+  /**
+   * Every copy of this shard that was still outstanding when another one won, and what
+   * became of it. See {@link SpeculativeCopy}.
+   *
+   * `[]` on every shard of every job that speculated nothing, which is most of them —
+   * and it is a truthful reading rather than a default: no second copy was started, so
+   * none was left over to compare.
+   */
+  readonly copies: readonly SpeculativeCopy[]
   /**
    * Dispatch generations this shard used. `1` is a shard that never had to retry, `0`
    * a shard that was never placed.
@@ -529,7 +674,15 @@ export interface JobResult {
    * remembered string order, which is what that function exists for.
    */
   readonly attestation: ShardAttestation
-  /** True only if every shard reached `agreed` at its full requested redundancy. */
+  /**
+   * True only if every shard reached `agreed` at its full requested redundancy, with no
+   * copy of it disagreeing.
+   *
+   * The last clause arrived with speculation. **A disagreement is a failed run, not a run
+   * with a footnote** — the same rule `executeVerified` and `executeReduce` already
+   * apply — so a job whose winner and whose late copy hashed differently is not complete,
+   * however well every individual dispatch went.
+   */
   readonly complete: boolean
   /** Node-seconds spent including redundant work. */
   /**
@@ -579,6 +732,26 @@ export interface JobResult {
    * *which kind* of trouble it had without guessing from a reason string.
    */
   readonly leaseHistory: readonly LeaseEvent[]
+  /**
+   * Measured speculation tax: total dispatches over useful ones — CHURN-02.
+   *
+   * Deliberately the same shape as {@link JobResult.verificationMultiplier} and for the
+   * same reason: *a cost that is not surfaced is a cost that gets discovered later, by
+   * someone else, in a bill.* `1` means speculation cost this job nothing, and it is
+   * reported whether or not speculation was used, so its absence from a job is visible
+   * rather than assumed.
+   *
+   * **`1` alone does not say speculation was off.** A job with no stragglers reports `1`
+   * too. What distinguishes disabled from idle is this figure *together with* the
+   * dispatch count — which is why `submit.test.ts`'s disabled arm asserts both.
+   *
+   * Read off `SpeculationLedger.multiplier`, so it counts *tasks* rather than replicas:
+   * a job of ten shards with one duplicate reads `1.1` whatever its redundancy, because
+   * redundancy is `verificationMultiplier`'s question and not this one.
+   */
+  readonly speculationMultiplier: number
+  /** Duplicates this job actually started, out of a job-wide budget it could not exceed. */
+  readonly speculationSpent: number
 }
 
 export type SubmitError =
@@ -964,13 +1137,105 @@ async function placeAgain(
     : { placed: false, rejections: placement.rejections }
 }
 
-/** A dispatch answered, or its lease ran out with the holder still silent. */
-type Dispatched =
-  | { readonly kind: 'answered'; readonly verification: VerificationResult }
-  | { readonly kind: 'lapsed' }
+/** A copy of one shard still in flight, and its answer in both forms it is read in. */
+interface Copy {
+  /** The nodes this copy ran on. `nodeIds[0]` is the key it is held under. */
+  readonly nodeIds: readonly string[]
+  /** True for a speculative duplicate, false for the generation's placed dispatch. */
+  readonly speculative: boolean
+  /** The dispatch, converted so it can never reject. Read again by the late comparison. */
+  readonly pending: Promise<VerificationResult>
+  /**
+   * The same answer in the form the poll loop races, built **once**, here.
+   *
+   * `coordinator.ts` built this inside the loop and recorded what that cost: a fresh
+   * closure and promise per iteration, *"an out-of-memory crash rather than a slow test,
+   * and only when a real dispatch is slower than the watchdog, which is exactly when
+   * speculation is supposed to be working."* The loop below re-races these same promise
+   * objects; it never re-wraps them.
+   */
+  readonly raced: Promise<Raced>
+}
 
-/** Distinguishes the deadline firing from a dispatch that resolved to anything at all. */
-const LEASE_TICK: unique symbol = Symbol('lease-tick')
+/**
+ * What the poll produced: a copy answered, or the timer fired.
+ *
+ * A discriminated union rather than a sentinel value, because `insufficient` is a
+ * perfectly ordinary dispatch result here and a tick must not be confusable with one.
+ */
+type Raced =
+  | { readonly tick: true }
+  | { readonly tick: false; readonly key: string; readonly verification: VerificationResult }
+
+/** A copy left running when another one won, kept so its answer can still be read. */
+interface OutstandingCopy {
+  readonly nodeIds: readonly string[]
+  readonly pending: Promise<VerificationResult>
+}
+
+/**
+ * A dispatch answered, or its lease ran out with the holder still silent.
+ *
+ * `outstanding` is non-empty only where speculation started a second copy: with one copy
+ * in flight, the copy that answers is the only copy there was. That is why turning
+ * speculation off restores this loop to exactly the two-wake shape Plan 20-01 shipped.
+ */
+type Dispatched =
+  | {
+      readonly kind: 'answered'
+      readonly verification: VerificationResult
+      readonly outstanding: readonly OutstandingCopy[]
+      readonly speculated: boolean
+    }
+  | { readonly kind: 'lapsed'; readonly speculated: boolean }
+
+/** The job-wide speculation state one shard's dispatch needs to consult. */
+interface ShardSpeculation {
+  /** The job-wide budget. Shared, because a per-shard one lets a big job duplicate everything. */
+  readonly ledger: SpeculationLedger
+  /** Durations of shards that have finished, live and job-wide, so the median means something. */
+  readonly completed: readonly number[]
+  /** This shard's placement request, for the one eligibility gate. Redundancy is not read. */
+  readonly request: PlacementRequest
+  /** The candidate pool this shard's generations place over — the gate's, never the job's. */
+  readonly pool: readonly NodeDescriptor[]
+  /**
+   * This shard's own `attempted` list, **mutated** when a duplicate is started.
+   *
+   * Live rather than copied, because the exclusion has to be current *within* a
+   * generation: a duplicate started at one tick must not be a candidate at the next, and
+   * a later generation must not re-place onto it.
+   */
+  readonly attempted: string[]
+  readonly factor: number
+  readonly watchdogMs: number
+}
+
+/** One dispatch of one copy, wrapped once into both the forms this module reads it in. */
+function dispatchCopy(
+  dispatch: (nodeIds: readonly string[]) => Promise<VerificationResult>,
+  nodeIds: readonly string[],
+  speculative: boolean,
+): Copy {
+  // Handled at creation, so abandoning this promise on a lapse can never surface as an
+  // unhandled rejection. `executeVerified` converts a throwing executor into a named
+  // failure itself; this covers the port breaking in a way that one does not.
+  const pending: Promise<VerificationResult> = dispatch(nodeIds).then(
+    (verification) => verification,
+    (cause): VerificationResult => ({
+      status: 'insufficient',
+      reason: `the dispatch itself threw: ${cause instanceof Error ? cause.message : String(cause)}`,
+      failures: [],
+    }),
+  )
+  const key = nodeIds[0] as string
+  return {
+    nodeIds,
+    speculative,
+    pending,
+    raced: pending.then((verification): Raced => ({ tick: false, key, verification })),
+  }
+}
 
 /**
  * Run one generation under its lease, renewing only against evidence — CHURN-04.
@@ -998,33 +1263,56 @@ const LEASE_TICK: unique symbol = Symbol('lease-tick')
  * resolve to the same bytes any re-dispatch produces — `lease.ts`'s invariant, that
  * liveness changes who computes a task and when, never what the answer is. Its result is
  * simply not the one this shard reports.
+ *
+ * ## The race, when there is one — CHURN-02
+ *
+ * A tick may start a **second copy** of this shard on another eligible node while the
+ * first is still running, and from then on the loop races both. The first answer that is
+ * an answer wins and returns; whatever is still running is handed back on `outstanding`,
+ * **never cancelled**, and compared once every shard of the job has settled. A copy that
+ * answers `insufficient` does not win — every executor of that copy failed, which is not
+ * a result — so the loop keeps waiting for its sibling and merges the failures into
+ * whatever finally arrives.
+ *
+ * **The timer is unconditional.** `watching` decides only whether a tick may
+ * *speculate*. An earlier version of `coordinator.ts` used such a flag to drop the
+ * watchdog out of the race entirely, which left the loop awaiting a promise that might
+ * never settle — the flag doing double duty as an optimisation and as a broken
+ * termination argument. Termination is the lease deadline's job and only its job.
  */
 async function dispatchUnderLease(
-  run: () => Promise<VerificationResult>,
+  dispatch: (nodeIds: readonly string[]) => Promise<VerificationResult>,
+  placed: readonly string[],
+  startedAt: number,
   granted: Lease,
   leases: LeaseTable,
   clock: JobClock,
   probe: ((nodeId: string) => Promise<boolean>) | null,
+  speculation: ShardSpeculation | null,
 ): Promise<Dispatched> {
-  // Handled at creation, so abandoning this promise on a lapse can never surface as an
-  // unhandled rejection. `executeVerified` converts a throwing executor into a named
-  // failure itself; this covers the port breaking in a way that one does not.
-  const pending: Promise<VerificationResult> = run().then(
-    (verification) => verification,
-    (cause): VerificationResult => ({
-      status: 'insufficient',
-      reason: `the dispatch itself threw: ${cause instanceof Error ? cause.message : String(cause)}`,
-      failures: [],
-    }),
-  )
+  const first = dispatchCopy(dispatch, placed, false)
+  const copies = new Map<string, Copy>([[first.nodeIds[0] as string, first]])
+  /** Merged across copies of this generation, so a loser's failures are not lost. */
+  let answered: VerificationResult | null = null
+  let speculated = false
 
   let lease = granted
   /** Cleared once this generation has been refused a renewal. It is never restored. */
   let renewable = probe !== null
+  /**
+   * Whether a tick may still start a duplicate for this shard.
+   *
+   * Cleared for the three *permanent* reasons — a duplicate is already running, the
+   * job-wide budget is gone, or there is no eligible node left to duplicate onto — each
+   * permanent because the budget only shrinks and `attempted` only grows. Being **too
+   * new to judge** is the one reason to do nothing that must not clear it: the median
+   * moves and elapsed time grows, so a shard that is not a straggler yet may become one.
+   */
+  let watching = speculation !== null
 
   for (;;) {
     const at = clock.now()
-    if (at >= lease.expiresAt) return { kind: 'lapsed' }
+    if (at >= lease.expiresAt) return { kind: 'lapsed', speculated }
 
     // The renewal point, measured **back from the deadline** rather than forward from
     // the grant — `expiresAt - leaseMs × (1 - RENEW_AT)`, which is the instant at which
@@ -1042,20 +1330,101 @@ async function dispatchUnderLease(
     // was why. `shouldRenew` remains the authority on whether a renewal is due; this
     // only decides when to wake up and ask.
     const renewPoint = lease.expiresAt - leases.leaseMs * (1 - RENEW_AT)
-    // Wake at the renewal point while renewal is still possible, and at the deadline
-    // once it is not. Two wakes rather than a poll: the only two instants at which
-    // anything can be decided are the one where evidence is asked for and the one where
-    // the deadline bites. Clamped into `(at, expiresAt]` so a renewal point already in
-    // the past asks immediately rather than sleeping through it.
-    const wakeAt = renewable ? Math.min(Math.max(renewPoint, at), lease.expiresAt) : lease.expiresAt
-    const raced = await Promise.race<VerificationResult | typeof LEASE_TICK>([
-      pending,
-      clock.sleep(Math.max(1, Math.ceil(wakeAt - at))).then(() => LEASE_TICK),
+    // Wake at the earliest instant at which anything can be decided: the renewal point
+    // while renewal is still possible, the next watchdog tick while a duplicate is still
+    // possible, and the deadline, which is always in the list. With neither of the first
+    // two live this is the two-wake schedule Plan 20-01 shipped, unchanged — a shard that
+    // cannot speculate does not poll. Clamped into `(at, expiresAt]` so an instant
+    // already in the past is asked about immediately rather than slept through.
+    let wakeAt = lease.expiresAt
+    if (renewable) wakeAt = Math.min(wakeAt, Math.max(renewPoint, at))
+    if (watching && speculation !== null) wakeAt = Math.min(wakeAt, at + speculation.watchdogMs)
+    wakeAt = Math.max(wakeAt, at)
+    // The timer is **unconditional** — see the header. `watching` chose how soon to wake,
+    // never whether to. The copies' `raced` promises are re-raced, never re-wrapped.
+    const raced: Raced = await Promise.race<Raced>([
+      ...[...copies.values()].map((copy) => copy.raced),
+      clock.sleep(Math.max(1, Math.ceil(wakeAt - at))).then((): Raced => ({ tick: true })),
     ])
-    if (raced !== LEASE_TICK) return { kind: 'answered', verification: raced }
+
+    if (!raced.tick) {
+      copies.delete(raced.key)
+      answered =
+        answered === null ? raced.verification : mergeVerifications(answered, raced.verification)
+      // First result wins, and the copies still running are **registered, not forgotten**.
+      // `insufficient` is not a result — every executor of that copy failed — so it does
+      // not win a race it has a sibling in; the loop waits for the sibling and the
+      // failures ride along in the merge. With one copy in flight there is no sibling and
+      // this is exactly Plan 20-01's behaviour: the answer, whatever it was, returns.
+      if (raced.verification.status !== 'insufficient' || copies.size === 0) {
+        return {
+          kind: 'answered',
+          verification: answered,
+          outstanding: [...copies.values()].map((copy) => ({
+            nodeIds: copy.nodeIds,
+            pending: copy.pending,
+          })),
+          speculated,
+        }
+      }
+      continue
+    }
 
     const woke = clock.now()
-    if (woke >= lease.expiresAt) return { kind: 'lapsed' }
+    if (woke >= lease.expiresAt) return { kind: 'lapsed', speculated }
+
+    // ── Straggler duplication — CHURN-02, CHURN-06 ────────────────────────────────
+    //
+    // Before the renewal question, because they are different questions about different
+    // things: renewal asks whether *this* holder is still working, duplication asks
+    // whether the shard has fallen behind its peers. A shard can be both — a holder that
+    // proves it is working and is still slower than everything else gets its lease
+    // renewed *and* a second copy started, which is the correct pair of answers.
+    if (speculation !== null && watching) {
+      if (speculation.ledger.duplicated(lease.taskId) || speculation.ledger.remaining <= 0) {
+        watching = false
+      } else {
+        // **The one eligibility gate.** `speculativeCandidates` routes through
+        // `eligibleNodes`, the same function both placers call first, so a sovereign
+        // shard's duplicate can only land on its owner's own executable nodes. The pool
+        // is the *gate's* pool rather than the job's candidate set, so a composed quorum
+        // is not silently widened by a duplicate — the copy may become the answering
+        // replica, and its certificate would then be in the receipt.
+        const candidates = speculativeCandidates(
+          speculation.request,
+          speculation.pool,
+          speculation.attempted,
+        )
+        if (candidates.length === 0) {
+          // Nowhere legal to duplicate to. For a sovereign shard whose owner has no spare
+          // node this is the **correct outcome** and waiting is the only move — CHURN-06
+          // holds here by there being no branch that could do anything else.
+          watching = false
+        } else {
+          const slow = stragglers(
+            [{ taskId: lease.taskId, nodeId: lease.nodeId, startedAt }],
+            woke,
+            { completed: speculation.completed, factor: speculation.factor },
+          )
+          // Too new to judge — no median yet, or not slow enough yet. Keep watching.
+          if (slow.length > 0) {
+            if (!speculation.ledger.request(lease.taskId)) watching = false
+            else {
+              const target = candidates[0] as NodeDescriptor
+              speculated = true
+              speculation.attempted.push(target.nodeId)
+              const copy = dispatchCopy(dispatch, [target.nodeId], true)
+              copies.set(target.nodeId, copy)
+              // The lease is **not** moved. `LeaseTable` models one holder per task, and
+              // a duplicate is a second copy inside one generation rather than a new
+              // generation: the holder is unchanged, and the lease is closed against it
+              // even when the copy is what answered.
+            }
+          }
+        }
+      }
+    }
+
     // A `Sleep` port may return early; `shouldRenew` is the authority on whether this is
     // the renewal point, not the arithmetic that chose when to wake.
     if (!renewable || !shouldRenew(lease, woke)) continue
@@ -1069,9 +1438,143 @@ async function dispatchUnderLease(
     }
 
     const renewed = leases.renew(lease.taskId, lease.nodeId, woke)
-    if (renewed === null) return { kind: 'lapsed' }
+    if (renewed === null) return { kind: 'lapsed', speculated }
     lease = renewed
   }
+}
+
+/** Distinguishes the comparison window closing from a copy that answered inside it. */
+const COMPARE_TICK: unique symbol = Symbol('compare-tick')
+
+/** One shard's leftovers, and the answer they are to be measured against. */
+interface ToCompare {
+  readonly outstanding: readonly OutstandingCopy[]
+  /** The shard's own settled result, or null where it reached no single agreed one. */
+  readonly winnerCid: string | null
+}
+
+/**
+ * A shard that has finished, before the copies it left running have been read.
+ *
+ * The two-stage shape is what the post-settle comparison needs and is not decoration: a
+ * shard cannot report whether a copy disagreed until *every* shard has settled, because
+ * that is when the losers are read, and a shard cannot wait for its own loser without
+ * giving back the latency speculation exists to save.
+ */
+interface SettledShard extends ToCompare {
+  readonly result: ShardResult
+}
+
+/**
+ * Read every copy that lost, once every shard has settled — VER-01, CHURN-02.
+ *
+ * **This is what keeps `disagreed` reachable at all.** Breaking out of a speculative race
+ * on the first arrival and dropping the copies still running is `coordinator.ts`'s
+ * recorded original defect: timing alone then picks which of two different CIDs becomes
+ * the answer and the run reports clean, which is majority-vote-by-race. So the winner
+ * returns immediately — waiting for the loser would undo the whole latency saving, since
+ * the loser is usually the straggler — and the comparison happens here, **after** the last
+ * shard has finished, which costs nothing because the job was going to wait for its
+ * slowest shard anyway. By now the losers have had that whole time to answer.
+ *
+ * **One window for the whole job, not one per copy.** The grace bounds the *comparison*
+ * and never the result, and the question it answers — "have the leftovers arrived yet?" —
+ * is asked once of all of them. A window per copy would multiply a bound that exists to
+ * be a bound.
+ *
+ * A copy whose shard reached no single agreed result is `uncompared` and says so: there
+ * is nothing for it to be compared *against*, which is a different fact from silence and
+ * a different fact again from agreement.
+ */
+async function compareOutstanding(
+  shards: readonly ToCompare[],
+  clock: JobClock,
+  graceMs: number,
+): Promise<readonly (readonly SpeculativeCopy[])[]> {
+  // No leftovers, or none with an answer to be measured against: no window is opened at
+  // all. Every job that speculated nothing takes this branch, which is what keeps the
+  // grace off the path of the jobs it has nothing to say about.
+  if (!shards.some((shard) => shard.winnerCid !== null && shard.outstanding.length > 0)) {
+    return shards.map((shard) =>
+      shard.outstanding.map(
+        (copy): SpeculativeCopy => ({
+          nodeIds: copy.nodeIds,
+          outcome: 'uncompared',
+          reason: 'this shard reached no single agreed result to compare this copy against',
+        }),
+      ),
+    )
+  }
+
+  const graceOver: Promise<typeof COMPARE_TICK> = clock.sleep(graceMs).then(() => COMPARE_TICK)
+  return Promise.all(
+    shards.map(async (shard) =>
+      Promise.all(
+        shard.outstanding.map(async (copy): Promise<SpeculativeCopy> => {
+          if (shard.winnerCid === null) {
+            return {
+              nodeIds: copy.nodeIds,
+              outcome: 'uncompared',
+              reason: 'this shard reached no single agreed result to compare this copy against',
+            }
+          }
+          const settled = await Promise.race<VerificationResult | typeof COMPARE_TICK>([
+            copy.pending,
+            graceOver,
+          ])
+          if (settled === COMPARE_TICK) {
+            // Silence. **Not** evidence of agreement — recording it as agreement would
+            // assert something nobody checked.
+            return {
+              nodeIds: copy.nodeIds,
+              outcome: 'uncompared',
+              reason: `this copy had not answered ${graceMs}ms after the job settled`,
+            }
+          }
+          if (settled.status === 'insufficient') {
+            // It answered, and what it said was that it failed. Neither silence nor
+            // agreement, and its own bucket for that reason.
+            //
+            // **In the failing node's own words where it gave any.** `executeVerified`
+            // composes `'every executor failed'` over the individual refusals, which names
+            // the shape of the outcome and not its cause; a reader handed that sentence
+            // learns nothing it did not already know from the bucket. Found by test, which
+            // asserted the node's own sentence and got the composed one.
+            return {
+              nodeIds: copy.nodeIds,
+              outcome: 'failed',
+              reason:
+                settled.failures.length === 0
+                  ? settled.reason
+                  : settled.failures
+                      .map((failure) => `${failure.nodeId}: ${failure.reason}`)
+                      .join('; '),
+            }
+          }
+          if (settled.status === 'disagreed') {
+            // A copy at redundancy > 1 whose own replicas split. Every distinct answer it
+            // produced is named, because "it disagreed" without the CIDs is the reading
+            // this whole mechanism exists to avoid.
+            return {
+              nodeIds: copy.nodeIds,
+              outcome: 'disagreed',
+              resultCid: settled.partitions.map((partition) => partition.resultCid).join(', '),
+            }
+          }
+          const resultCid = settled.resultCid.toString()
+          // Compared directly rather than through `settleRace`, and the reason is written
+          // down because that function looks like the right tool. It re-derives the winner
+          // from arrival instants and ties break on node id — so on a clock that reports
+          // the same instant for both, it could name the *loser* as the winner, overturning
+          // a decision this module has already taken and already closed a lease against.
+          // The winner is known here; all that is left is whether the loser's bytes match.
+          return resultCid === shard.winnerCid
+            ? { nodeIds: copy.nodeIds, outcome: 'agreed' }
+            : { nodeIds: copy.nodeIds, outcome: 'disagreed', resultCid }
+        }),
+      ),
+    ),
+  )
 }
 
 /** Ask the holder about this task's slot key. Any answer that is not the duplicate refusal is not evidence. */
@@ -1128,7 +1631,60 @@ export interface JobClock {
   readonly sleep: Sleep
 }
 
+/**
+ * The dials on straggler duplication — CHURN-02.
+ *
+ * Every one defaults to the exported constant beside it, and every one is here rather
+ * than on `JobSpec` because they are the *requestor's* cost/latency preferences about
+ * its own job, not facts the fabric needs told. A knob nobody sets drifts from the tests,
+ * so these exist for the measurement 20-09 makes and for the fixtures that prove the
+ * mechanism, not as a configuration surface.
+ */
+export interface SpeculationOptions {
+  /** Extra dispatches allowed, as a fraction of the shard count. `DEFAULT_SPECULATION_FRACTION`. */
+  readonly fraction?: number
+  /** How much slower than the median a shard must be. `DEFAULT_STRAGGLER_FACTOR`. */
+  readonly factor?: number
+  /** Poll interval, and the floor on how fast a straggler can be spotted. */
+  readonly watchdogMs?: number
+  /**
+   * Extra time a losing copy gets to answer once every shard has settled.
+   *
+   * Bounds the **comparison** and never the result: the winner is already decided and
+   * already returned. A copy that misses this window is reported `uncompared`.
+   */
+  readonly compareGraceMs?: number
+}
+
 export interface SubmitOptions {
+  /**
+   * Straggler duplication, or the named statement that this caller wants none — CHURN-02.
+   *
+   * **`'duplicates-no-stragglers'` is a value a caller writes, not an omission**, and the
+   * asymmetry with the omitted case is deliberate. Omitting this leaves the module's own
+   * stated policy in force — the exported constants, which are what
+   * `DEFAULT_MAX_GENERATIONS` is to the generation loop. Writing the literal turns
+   * duplication off entirely, and that arm exists because **a cost that cannot be turned
+   * off cannot be measured**: 20-09 compares a job against itself with and without it,
+   * and a fabric with no off switch has no such comparison to make.
+   *
+   * ## What "on by default" actually costs, measured rather than asserted
+   *
+   * `DEFAULT_SPECULATION_FRACTION` is 0.1 and the budget is `floor(shards × fraction)`,
+   * so **a job of fewer than ten shards has an allowance of zero** and cannot duplicate
+   * anything however slow it gets. Below that threshold the watchdog is not even started,
+   * so such a job's dispatch waits on exactly the two instants the lease loop already had
+   * — the renewal point and the deadline. That is most of the jobs in this repository,
+   * and it is why turning this on changed nothing that was not about speculation.
+   *
+   * Above it, each outstanding dispatch also wakes every `watchdogMs` while a duplicate
+   * is still possible, and stops waking once one has been started, the budget is gone, or
+   * there is nowhere legal left to duplicate to. Waking is not the same as speculating: a
+   * shard must additionally be slower than `factor` × the median of what has finished,
+   * and until `MIN_SAMPLES` shards have finished there is no median and nothing is
+   * duplicated.
+   */
+  readonly speculation?: SpeculationOptions | 'duplicates-no-stragglers'
   /**
    * The clock and timer the lease deadline runs on. See {@link JobClock}.
    *
@@ -1201,7 +1757,51 @@ export async function submitJob(
   // The lease clock is a **separate read of a different question** — elapsed time
   // against a deadline this module granted, not a point judged against certificate
   // windows somebody else minted. See {@link JobClock}.
+  //
+  // **Speculation reads this one, not a third.** It asks the same *kind* of question the
+  // lease asks — how long has this been running, against a span measured in this
+  // process — so a fixture that advances the lease clock advances the straggler
+  // threshold with it, which is the only way the two can be reasoned about together.
+  // The certificate instant above stays a single `Date.now()` read for the whole job:
+  // it judges validity windows somebody else minted, and a job that took a virtual
+  // thirty seconds to duplicate a straggler must not thereby expire the certificates it
+  // enrolled.
   const clock = options?.clock ?? platformClock
+
+  // ── The speculation budget — CHURN-02 ──────────────────────────────────────────────
+  //
+  // **Job-wide and shared across shards**, because a per-shard budget would let a job
+  // with many shards duplicate every one of them and still call each duplicate within
+  // its allowance. `speculation.ts`'s own words: *"the budget is a fraction of the job's
+  // task count, held once for the whole job, and every duplicate spends from it."*
+  //
+  // The off arm is a fraction of zero rather than a second flag: the allowance is
+  // `floor(tasks × fraction)`, so zero refuses every request, and the multiplier is still
+  // the identity `1` — which is what an off arm has to report if it is to be compared
+  // against an on one.
+  const dial: SpeculationOptions =
+    options?.speculation === undefined || options.speculation === 'duplicates-no-stragglers'
+      ? {}
+      : options.speculation
+  const ledger = new SpeculationLedger({
+    tasks: partitionCount,
+    fraction:
+      options?.speculation === 'duplicates-no-stragglers'
+        ? 0
+        : (dial.fraction ?? DEFAULT_SPECULATION_FRACTION),
+  })
+  // A job that could not duplicate anything does not watch for stragglers either. That
+  // is not an optimisation with a behavioural edge: `ledger.request` would refuse every
+  // one of them anyway, and skipping the watchdog keeps every job below the fraction's
+  // threshold — which is most of them — on exactly the wake schedule it had before.
+  const speculationEnabled = ledger.allowance > 0
+  /**
+   * Durations of the shards that have finished, shared so the median means something.
+   *
+   * Job-wide by construction: a shard is a straggler *relative to its peers*, and a
+   * per-shard list would have no peers in it.
+   */
+  const completedDurations: number[] = []
 
   // One table for the whole job, because the bound it enforces is per task and its
   // history is the job's. `DEFAULT_MAX_GENERATIONS` is named rather than defaulted into:
@@ -1465,12 +2065,12 @@ export async function submitJob(
     shardRejections = rejectionsByShard
   }
 
-  const shards = await Promise.all(
-    inputCids.map(async (inputCid, partitionIndex): Promise<ShardResult> => {
+  const settledShards = await Promise.all(
+    inputCids.map(async (inputCid, partitionIndex): Promise<SettledShard> => {
       const placement = shardPlacements[partitionIndex] as Placement
       const rejections = shardRejections[partitionIndex] as readonly Rejection[]
       if (placement.status === 'unplaceable') {
-        return {
+        const unplaceable: ShardResult = {
           partitionIndex,
           inputCid,
           // The reason reaches the caller exactly as an unplaceable shard's always
@@ -1485,6 +2085,11 @@ export async function submitJob(
           attempted: [],
           generations: 0,
           ending: 'never-placed',
+          // Nothing ran, so nothing was slow, so nothing was duplicated. Measured
+          // readings rather than placeholders, in the same spirit as `generations: 0`.
+          speculated: false,
+          disagreed: false,
+          copies: [],
           // A shard that never ran has no result to describe, so this stays what it has
           // always been on this arm. The record of *why* is on `quorum` beside it, in the
           // composer's own words when a caller asked for refusal.
@@ -1493,6 +2098,7 @@ export async function submitJob(
           rejections,
           attestation: noAgreementToAttest('unplaceable'),
         }
+        return { outstanding: [], winnerCid: null, result: unplaceable }
       }
 
       const shard = spec.shards[partitionIndex] as ShardSpec
@@ -1557,11 +2163,38 @@ export async function submitJob(
 
       const attempted: string[] = []
       const collectedRejections: Rejection[] = [...rejections]
+      const outstanding: OutstandingCopy[] = []
       let verification: VerificationResult | null = null
       let generations = 0
+      let speculated = false
       let placementDegraded = placement.degraded
       let nodeIds: readonly string[] = placement.nodeIds
       let ending: ShardEnding = 'no-untried-node'
+
+      // Built once per shard, not per generation and not per poll. The copy of a slow
+      // shard goes through **this same call** with its own executor set, so a speculative
+      // copy of a redundancy-2 shard is verified on exactly the terms anything else is and
+      // no second verification path appears.
+      const runOn = (on: readonly string[]): Promise<VerificationResult> =>
+        executeVerified(
+          task,
+          on.map((nodeId) => execByNodeId.get(nodeId) as Executor),
+        )
+      // The straggler machinery this shard's dispatches consult, or the stated absence of
+      // it. Absent, `dispatchUnderLease` keeps Plan 20-01's two-wake schedule exactly.
+      // `requestFor(…, 1)` because a duplicate is one extra copy — `eligibleNodes`, which
+      // is all `speculativeCandidates` consults, does not read redundancy at all.
+      const speculation: ShardSpeculation | null = speculationEnabled
+        ? {
+            ledger,
+            completed: completedDurations,
+            request: requestFor(shard, shardId, 1),
+            pool: gate.pool,
+            attempted,
+            factor: dial.factor ?? DEFAULT_STRAGGLER_FACTOR,
+            watchdogMs: dial.watchdogMs ?? DEFAULT_SPECULATION_WATCHDOG_MS,
+          }
+        : null
 
       for (;;) {
         // The lease names one holder, and it is the generation's first node. `LeaseTable`
@@ -1579,16 +2212,31 @@ export async function submitJob(
         generations += 1
         attempted.push(...nodeIds)
 
-        const executors = nodeIds.map((nodeId) => execByNodeId.get(nodeId) as Executor)
+        const startedAt = clock.now()
         const dispatched = await dispatchUnderLease(
-          () => executeVerified(task, executors),
+          runOn,
+          nodeIds,
+          startedAt,
           lease,
           leases,
           clock,
           probe,
+          speculation,
         )
+        speculated = speculated || dispatched.speculated
 
         if (dispatched.kind === 'answered') {
+          outstanding.push(...dispatched.outstanding)
+          // What this generation cost, for the median every other shard is judged
+          // against. Only a generation that produced a **result** counts: how long a
+          // dispatch took to fail everywhere says nothing about how long the work takes,
+          // and folding it in would move the straggler threshold with the fabric's
+          // failures rather than with its speed. Clamped to at least 1 because
+          // `stragglers` refuses a threshold that is not above zero, and a clock that has
+          // not advanced would otherwise make every finished shard contribute nothing.
+          if (dispatched.verification.status !== 'insufficient') {
+            completedDurations.push(Math.max(1, clock.now() - startedAt))
+          }
           verification =
             verification === null
               ? dispatched.verification
@@ -1672,13 +2320,20 @@ export async function submitJob(
               now,
             )
           : noAgreementToAttest(settled.status)
-      return {
+      const result: ShardResult = {
         partitionIndex,
         inputCid,
         verification: settled,
         attempted,
         generations,
         ending,
+        speculated,
+        // Filled in below, once every shard has settled and the leftovers have been read.
+        // `false`/`[]` here rather than absent, because a shard result is built in one
+        // expression and patched in one place — which is what stops the two from
+        // drifting apart.
+        disagreed: false,
+        copies: [],
         // Either shortfall degrades the shard: fewer replicas than asked for, or the
         // independence a composed quorum would have given it. The redundancy half is
         // read off the replicas that ANSWERED — see {@link ShardResult.degraded} — so a
@@ -1692,8 +2347,32 @@ export async function submitJob(
         rejections: collectedRejections,
         attestation,
       }
+      // `outstanding` is whatever is still running, handed up so the job can read it once
+      // every shard has settled. Nothing is cancelled — see {@link compareOutstanding}.
+      return {
+        outstanding,
+        winnerCid: settled.status === 'agreed' ? settled.resultCid.toString() : null,
+        result,
+      }
     }),
   )
+
+  // Every shard has finished. Now read the copies that lost — see
+  // {@link compareOutstanding} for why this is where it happens and what it costs.
+  const lateCopies = await compareOutstanding(
+    settledShards,
+    clock,
+    dial.compareGraceMs ?? dial.watchdogMs ?? DEFAULT_SPECULATION_WATCHDOG_MS,
+  )
+  const shards: readonly ShardResult[] = settledShards.map((settled, index) => {
+    const copies = lateCopies[index] as readonly SpeculativeCopy[]
+    if (copies.length === 0) return settled.result
+    return {
+      ...settled.result,
+      copies,
+      disagreed: copies.some((copy) => copy.outcome === 'disagreed'),
+    }
+  })
 
   let gross = 0
   let useful = 0
@@ -1710,12 +2389,19 @@ export async function submitJob(
       moduleCid: spec.moduleCid,
       shards,
       attestation: jobAttestationOf(shards),
-      complete: shards.every((s) => s.verification.status === 'agreed' && !s.degraded),
+      // A disagreement is a failed run, not a run with a footnote — the same rule
+      // `executeVerified` and `executeReduce` apply, and the reason `disagreed` is read
+      // here beside the verification status rather than left for a caller to remember.
+      complete: shards.every(
+        (s) => s.verification.status === 'agreed' && !s.degraded && !s.disagreed,
+      ),
       grossFuel: gross,
       usefulFuel: useful,
       verificationMultiplier: useful === 0 ? 0 : gross / useful,
       redispatches: leases.redispatches,
       leaseHistory: leases.history,
+      speculationMultiplier: ledger.multiplier,
+      speculationSpent: ledger.spent,
     },
   }
 }
