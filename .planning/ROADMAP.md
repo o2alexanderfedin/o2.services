@@ -1137,7 +1137,7 @@ Parallel tracks (config `parallelization: true`):
 **Success Criteria** (what must be TRUE):
   1. A benchmark run at N nodes spawns N operating-system processes, verified by reading the child PIDs, and the published run records them — a run that silently falls back to in-process nodes fails the harness rather than reporting a curve
   2. Makespan at N=1 and N=8 differ on a fixture with enough work to saturate a core, and the ratio is published; a flat curve is a finding, but it must be a finding about the fabric rather than about the harness
-  3. The two real-transport rungs Phase 8 published as excluded (8 and 16 nodes, dying on `INBOUND_CONNECTION_THRESHOLD = 5` per host) either run, or are re-excluded with a measurement showing the per-host inbound cap is still the cause under separate processes
+  3. The real-transport rungs Phase 8 published as excluded either run, or are re-excluded with a measurement showing the per-host inbound cap is still the cause under separate processes. **Corrected 2026-08-05: this is ONE rung, not the two the criterion was written against.** The clause said *"8 and 16 nodes, dying on `INBOUND_CONNECTION_THRESHOLD = 5` per host"*; the committed run (stamped `2026-08-01T06:09:01.272Z`) excludes exactly one row — `real transport, 16 nodes` — and the **8-node rung already runs**, at `n = 19` with `incomplete = 0`. The scope change must be **stated in the published section, not absorbed**: this project's own rule is that a rung which vanishes between plan and results is indistinguishable, to a reader, from one removed because its number was inconvenient. The same rule applies to one that quietly appears
   4. `BENCHMARK-RESULTS.md` states, for every published figure, whether it came from the single-process or the multi-process driver — no figure is silently replaced
   5. **`bin/bench.ts` gains an opt-in sovereign leg, off by default, that mints a real capability chain and dispatches an owner-labelled shard through it** — giving `delegate` and `CapabilitySupplier` a traced call path from a runnable entry point, so Phase 22's guard finds them reachable. The default public curve must be **byte-identical in shape** to a run with the flag absent; if the leg moves the default measurement, it has been built wrong
 
@@ -1149,7 +1149,15 @@ It lands **here** rather than in Phase 15 for one reason: this phase already rew
 
 **What this phase is not.** It does not make a one-host curve a distributed one. BENCH-06 was rewritten on 2026-07-28 to what one host establishes; the distinct-machine claim it used to carry is **descoped and unmeasured — not met, and not transferred to this phase**. A same-host run has one CPU, one V8 and one libc, so it cannot detect divergence between machines whatever the process count. Phase 8's rule that a same-machine run is labelled as such carries forward unchanged, and AOT-03's `CROSS_MACHINE_BLIND_SPOT` is untouched by any of this.
 
-**Trap to avoid.** The COST crossover published at ~570× measures the guest ABI on a trivial fixture, not the fabric. Criterion 2 requires a fixture that does non-trivial work, or the new curve reproduces the old one's real problem with more processes.
+**Trap to avoid.** The COST crossover measures the guest ABI on a trivial fixture, not the fabric. Criterion 2 requires a fixture that does non-trivial work, or the new curve reproduces the old one's real problem with more processes.
+
+**The figure this paragraph used to quote was stale, and by more than an order of magnitude.** It read *"published at ~570×"*. The committed `BENCHMARK-RESULTS.md` publishes **7086.14×**. The old Plan 23-05 asserted `573.16×` — against `BENCHMARK-RESULTS-2026-07-27.md`, **a file that does not exist**. Corrected 2026-08-05. The trap is unchanged and if anything sharper at the real number; only the citation was wrong.
+
+**Plans**: **6 plans, 5 waves** — replanned in full on 2026-08-05 (commit `3dca149`) after the original five were measured against the tree they would actually run on and 21 premises came back false. `23-01` and `23-02` in wave 1 (disjoint files), `23-03` wave 2, `23-04` wave 3, `23-06` wave 4, `23-05` wave 5 with `autonomous: false`.
+
+`23-06` is new and carries criterion 5 — `[BENCH-07, AUTH-03]`. **None of the original five mentioned `AUTH-03`, `delegate` or `CapabilitySupplier` even once**: they were committed 2026-07-29 and criterion 5 was minted by owner ruling on 2026-07-31, so the plan set was never written against this phase's actual scope. That is chronological rather than an oversight in review, and it is why this was a replan and not an amendment.
+
+**`23-05` sits behind `23-06`, not beside it.** A leg that breaks the default run has to be caught before the numbers are taken, not after.
 
 ## Requirement Coverage
 
