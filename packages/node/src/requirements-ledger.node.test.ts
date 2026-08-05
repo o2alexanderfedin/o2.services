@@ -2,6 +2,7 @@ import { readFileSync, readdirSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
+import { blocking, commitScope, pathFormProblems, trackedPaths } from './commit-scope.ts'
 import { stripComments } from './strip-comments.ts'
 
 /**
@@ -102,6 +103,35 @@ const ROOT = fileURLToPath(new URL('../../..', import.meta.url))
 const LEDGER = '.planning/REQUIREMENTS.md'
 
 const LEDGER_SOURCE = readFileSync(join(ROOT, LEDGER), 'utf8')
+
+/**
+ * The commit these findings are judged against, or `NO_COMMIT_SCOPE` outside a commit.
+ *
+ * ## This file is where defect #39 was recorded, so this is where the fix is proved
+ *
+ * `7717ade`: a row here said nothing calls `translationCid`, and a concurrently running
+ * plan had just given it a caller. Both halves of the contradiction are real code, and
+ * exactly two people can resolve it — the one editing the row and the one adding the
+ * caller. Before 2026-08-04 this guard held **neither of them specifically and everybody
+ * generally**: it refused the next commit to arrive, whoever that was, and the recorded
+ * outcome is a planner staging only plan documents reaching for `O2_SKIP_GUARDS=1`.
+ *
+ * So the finding is attributed to the ledger **and** to every caller — the union rule.
+ * Naming only the ledger would let the author of the caller through, which is the naive
+ * narrowing and is a worse defect than the one being fixed, because it is silent.
+ *
+ * Absence is strict. Under `npm test`, under a verifier, or under a hook whose
+ * environment did not reach the worker, every row is checked against every caller exactly
+ * as before.
+ *
+ * ## What is deliberately NOT narrowed, and why
+ *
+ * The header arithmetic below, and the "every unreached row is checkable or recorded"
+ * set equality, are claims about `.planning/REQUIREMENTS.md` and this file alone. They
+ * cannot fire for anybody who did not edit one of those two, so they are already scoped
+ * to their own author and wrapping them would add a layer that can only fail open.
+ */
+const SCOPE = commitScope()
 
 // ---------------------------------------------------------------------------
 // The production corpus
@@ -630,27 +660,39 @@ describe('a row claiming nothing calls a mechanism is right about it', () => {
   // file written to catch exactly that. A row asserts what it asserts whatever its
   // marker; the marker decides what is *owed*, never what is *read*.
   it('has no row naming a symbol that has since acquired a production caller', () => {
-    const broken: string[] = []
+    const broken: { paths: string[]; line: string }[] = []
     for (const row of ROWS) {
       for (const symbol of row.noCaller) {
         const callers = callSites(symbol)
-        if (callers.length > 0) broken.push(`${row.id}: ${symbol} is called by ${callers.join(', ')}`)
+        if (callers.length > 0) {
+          broken.push({
+            // The union, and the whole of the `translationCid` fix: the row is one half
+            // of the contradiction and each caller is the other. Whichever of them this
+            // commit contains, it is held. A `paths: [LEDGER]` here would let the author
+            // of the caller through with no red anywhere — the silent fail-open.
+            paths: [LEDGER, ...callers],
+            line: `${row.id}: ${symbol} is called by ${callers.join(', ')}`,
+          })
+        }
       }
     }
-    expect(broken).toEqual([])
+    expect(blocking('requirements-ledger/no-caller', broken, SCOPE)).toEqual([])
   })
 
   it('has no row claiming a path is the only one when another path exists', () => {
-    const broken: string[] = []
+    const broken: { paths: string[]; line: string }[] = []
     for (const row of ROWS) {
       for (const [subject, gate] of row.onlyThrough) {
         const elsewhere = callSites(subject).filter((path) => join(ROOT, path) !== EXPORTED.get(gate))
         if (elsewhere.length > 0) {
-          broken.push(`${row.id}: ${subject} is reached outside ${gate} by ${elsewhere.join(', ')}`)
+          broken.push({
+            paths: [LEDGER, ...elsewhere],
+            line: `${row.id}: ${subject} is reached outside ${gate} by ${elsewhere.join(', ')}`,
+          })
         }
       }
     }
-    expect(broken).toEqual([])
+    expect(blocking('requirements-ledger/only-through', broken, SCOPE)).toEqual([])
   })
 
   it('leaves every unreached row either checkable or recorded as not', () => {
@@ -667,14 +709,57 @@ describe('a row claiming nothing calls a mechanism is right about it', () => {
 
 describe('a row claiming a serveAgent hook is unsupplied is right about it', () => {
   it('has no row calling a hook unsupplied that a production node supplies', () => {
-    const broken: string[] = []
+    const broken: { paths: string[]; line: string }[] = []
     for (const row of ROWS) {
       for (const hook of row.unsuppliedHooks) {
         const suppliers = hookSuppliers(hook)
-        if (suppliers.length > 0) broken.push(`${row.id}: ${hook} is supplied by ${suppliers.join(', ')}`)
+        if (suppliers.length > 0) {
+          broken.push({
+            paths: [LEDGER, ...suppliers],
+            line: `${row.id}: ${hook} is supplied by ${suppliers.join(', ')}`,
+          })
+        }
       }
     }
-    expect(broken).toEqual([])
+    expect(blocking('requirements-ledger/unsupplied-hook', broken, SCOPE)).toEqual([])
+  })
+})
+
+describe('the paths this guard attributes findings to are paths a commit can match', () => {
+  /**
+   * The residual fail-open of narrowing, checked from this guard's end.
+   *
+   * Every path here is built by `path.slice(ROOT.length)` in {@link callSites} and
+   * {@link hookSuppliers}. That expression is one character away from emitting
+   * `/packages/…`, which is well-formed as a string, matches no commit scope, and would
+   * make **every** row-versus-caller finding foreign — this guard would then pass on a
+   * false ledger row with no output at all. Nothing else in this file would notice.
+   *
+   * Membership is a floor rather than an equality because {@link PRODUCTION} walks the
+   * filesystem rather than the index, so a concurrently-running agent's untracked source
+   * file legitimately appears here. Holding an equality would redden this guard for
+   * somebody else's scratch file, which is the very defect being fixed.
+   */
+  const TRACKED = trackedPaths(ROOT)
+  const ATTRIBUTABLE = [LEDGER, ...PRODUCTION.map((path) => path.slice(ROOT.length))]
+
+  it('emits repo-relative POSIX paths that git also prints', () => {
+    expect(pathFormProblems(ATTRIBUTABLE)).toEqual([])
+    expect(ATTRIBUTABLE.filter((path) => TRACKED.has(path)).length).toBeGreaterThan(80)
+    // Named markers, so "most of them are tracked" is not the whole reading: these are
+    // the two files the positive controls above are stated against.
+    expect(TRACKED.has(LEDGER)).toBe(true)
+    expect(ATTRIBUTABLE).toContain('packages/node/src/fabric-node.ts')
+    expect(ATTRIBUTABLE).toContain('packages/browser/src/browser-node.ts')
+  })
+
+  it('builds the same form from a real call-site search, not merely from the corpus', () => {
+    // The round trip that matters is the one the findings actually use. `submitJob` is
+    // one of the positive controls above and is called from several production files.
+    const callers = callSites('submitJob')
+    expect(callers.length).toBeGreaterThan(0)
+    expect(pathFormProblems(callers)).toEqual([])
+    expect(callers.filter((path) => TRACKED.has(path))).toEqual(callers)
   })
 })
 

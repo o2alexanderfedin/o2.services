@@ -2,6 +2,7 @@ import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
+import { blocking, commitScope, pathFormProblems, trackedPaths } from './commit-scope.ts'
 import { MUTATIONS, occurrences, problemsWith } from './mutation-ledger.ts'
 import type { Mutation } from './mutation-ledger.ts'
 
@@ -33,6 +34,32 @@ import type { Mutation } from './mutation-ledger.ts'
 
 const ROOT = fileURLToPath(new URL('../../..', import.meta.url))
 
+/**
+ * The commit these findings are judged against, or `NO_COMMIT_SCOPE` outside a commit.
+ *
+ * Drift here is the purest instance of defect #39: an entry goes stale the moment
+ * somebody edits the line it pins, and until now that refused every *other* agent's
+ * commit while leaving the author of the edit free. Absence is strict — under `npm test`
+ * or a verifier every entry blocks, as it always did.
+ */
+const SCOPE = commitScope()
+
+/** Where the entries themselves live, and therefore one place any drift can be fixed. */
+const LEDGER = 'packages/node/src/mutation-ledger.ts'
+
+/**
+ * Every path an entry's drift can be attributed to — the union rule, in its clearest form.
+ *
+ * Three parties participate in a drifted entry and any one of them can be the committer:
+ * whoever moved the line in `entry.file`, whoever renamed the test in one of
+ * `entry.caughtBy`, and whoever is editing the ledger row itself. Naming only
+ * `entry.file` would let a rename in a catching file go through unheld, which is exactly
+ * the `B1`/`B2` shape this file already carries a case for.
+ */
+function participantsIn(entry: Mutation): string[] {
+  return [LEDGER, entry.file, ...entry.caughtBy]
+}
+
 /** File text, or `null` when the path is not on disk. */
 function readOrNull(relative: string): string | null {
   const path = join(ROOT, relative)
@@ -42,6 +69,11 @@ function readOrNull(relative: string): string | null {
 /** The `problemsWith` call for one entry, with the disk reads already done. */
 function auditOnDisk(entry: Mutation): string[] {
   return problemsWith(entry, readOrNull(entry.file), entry.caughtBy.map(readOrNull))
+}
+
+/** The same audit, attributed, so a commit is held only for its own drift. */
+function findingsFor(entry: Mutation): { paths: string[]; line: string }[] {
+  return auditOnDisk(entry).map((line) => ({ paths: participantsIn(entry), line }))
 }
 
 /**
@@ -83,7 +115,7 @@ describe('the repository root this ledger resolves against is the real one', () 
 describe('every mutation still describes the source it claims to mutate', () => {
   for (const entry of MUTATIONS) {
     it(`${entry.id} — ${entry.file}`, () => {
-      expect(auditOnDisk(entry)).toEqual([])
+      expect(blocking(`mutation-guard/${entry.id}`, findingsFor(entry), SCOPE)).toEqual([])
     })
   }
 
@@ -91,7 +123,24 @@ describe('every mutation still describes the source it claims to mutate', () => 
     // The per-entry tests above are the readable form. This is the one whose failure
     // message is worth pasting into a report, because a refactor that moves one line
     // usually moves several.
-    expect(MUTATIONS.flatMap(auditOnDisk)).toEqual([])
+    expect(blocking('mutation-guard', MUTATIONS.flatMap(findingsFor), SCOPE)).toEqual([])
+  })
+
+  /**
+   * The residual fail-open of narrowing, checked from this guard's end.
+   *
+   * Unlike every other partitioned guard, these paths are *hand-written* — a ledger entry
+   * names its file as a string somebody typed. So the drift this checks for is not a
+   * refactor of a path-building expression but a typo, and it has the same symptom, which
+   * is none: a `./` prefix on one entry makes that entry permanently foreign and it stops
+   * blocking anybody, silently. The round trip against `git ls-files` is what turns that
+   * into a red.
+   */
+  it('names paths in the form a commit scope can match', () => {
+    const named = MUTATIONS.flatMap(participantsIn)
+    expect(pathFormProblems(named)).toEqual([])
+    const tracked = trackedPaths(ROOT)
+    expect(named.filter((path) => !tracked.has(path))).toEqual([])
   })
 })
 
