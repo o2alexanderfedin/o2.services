@@ -173,6 +173,7 @@ import { FabricNode } from './fabric-node.ts'
  * | alone + 12 CPU burners | 0.85 – 1.20 | 36 – 38 ms | 63 – 141 ms |
  * | alone + 24 CPU burners | 0.71 – 0.86 | 40 – 47 ms | 145 – 222 ms |
  * | alone + 48 CPU burners | 0.34 – 0.42 | 36 – 77 ms | 275 – 442 ms |
+ * | a `--project node` run on a host saturated by unrelated work | 0.51 | **564 ms** | 1311 ms |
  *
  * Two facts, and they are different facts:
  *
@@ -192,9 +193,36 @@ import { FabricNode } from './fabric-node.ts'
  * `--project node` runs — including one at `(user+sys)/real` **0.90**, the share that
  * produced the recorded failures — and 77 ms under a burner load twice past that, on a
  * run where this file alone took 42 s. So the residual margin is **~2.6× in the regime
- * that occurs** and ~2× at a starvation far beyond it. That is the boundary, stated
- * rather than left implicit: a red here means a slower combine, and the first thing to
- * check is whether the printed floor is near 150 or near 60.
+ * that occurs** and ~2× at a starvation far beyond it.
+ *
+ * ### Where this reading stops working, measured rather than left to be discovered
+ *
+ * The last row of the table is a run that **still fails**, and it is written down instead
+ * of being tuned away. One `--project node` run took **754 s** against the 247–341 s of
+ * the other four and read `cold combines [564,658,1045,1152,1176,1311]ms floor 564ms`,
+ * i.e. `expected 1500 to be greater than 5638.8`. The host was checked rather than
+ * guessed at while it ran: a second `vitest` at 58 % of a core and **dozens of unrelated
+ * `clang++` processes at ~45 % each**, 1-minute load average 196 on eight cores. **No
+ * estimator over those six numbers helps**:
+ * their spread is 2.33×, so every sample was uniformly slow and there was no quiet moment
+ * for a minimum to find. The whole fabric was slow with them — `standUp` 4 900 ms against
+ * a usual 750, `map` 2 565 ms against 180 — and `speculation-agents.node.test.ts` went red
+ * in that same run on a wall-clock reading of its own.
+ *
+ * That is the shape of the residual and it is **not** the defect this file was fixed for:
+ * the left side of this comparison is work and the right side is a fixed 1 500 ms of wall
+ * clock, so on a host where a combine genuinely costs 564 ms the headroom genuinely is
+ * 2.7× and no measurement can say otherwise. Calibrating against another same-run span
+ * was tried and does not rescue it — `floor ÷ standUpMs` sits in 0.005–0.031 across every
+ * other regime measured and jumps to 0.115 on that run, so the combine path inflated
+ * several times harder than the fabric around it and there is nothing in the run to
+ * divide it by.
+ *
+ * **So read a red here by the printed distribution.** A floor near 60 ms with a wide
+ * spread is this host; a floor several hundred milliseconds with a *narrow* spread, beside
+ * a `standUp` and `map` that are also multiples of the numbers above, is the host as well
+ * and is visible as such. A floor that has moved while `standUp` and `map` have not is the
+ * combine, and that is the case this assertion exists to catch.
  *
  * ### The defect reproduced on demand, and the repair observed rescuing it
  *
