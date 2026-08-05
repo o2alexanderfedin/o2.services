@@ -476,23 +476,43 @@ today, and **the next test file added anywhere in the node project reddens it.**
 
 | run | result | detail |
 |---|---|---|
-| `npx tsc --noEmit` | **EXIT=1** | **3 errors, all `packages/node/src/speculation-agents.node.test.ts` — `Cannot find name 'PUBLIC_AGENTS'`.** Zero in either of this plan's files. That file is untracked, was created by another agent during this session, and was re-run before diagnosing per CLAUDE.md. Not touched. |
-| `npx vitest run --project node packages/aot packages/node` | **EXIT=1**, 2 failed \| 71 passed (73 files); 2 tests failed \| 898 passed \| 2 skipped | both failures attributed below |
+| `npx tsc --noEmit`, **final** | **EXIT=0** | whole tree |
+| `npx vitest run --project node`, **final and whole** | **EXIT=1**, 2 failed \| **147 passed (149 files)**; 3 tests failed \| **2140 passed** \| 2 skipped; `real 696.93 user 330.57 sys 72.50`, ratio **0.58** | both failing files are other agents'; `aot-dispatch.node.test.ts` is **green inside it** and does not appear in the failure list |
+| `npx vitest run --project node packages/aot packages/node` | **EXIT=1**, 2 failed \| 71 passed (73 files); 2 tests failed \| 898 passed \| 2 skipped | an earlier reading; both failures attributed below |
 | `npx vitest run --project node packages/node/src/aot-dispatch.node.test.ts` | **EXIT=0**, 3 passed | cold and warm |
 | `npx vitest run --project node packages/node/src/slow-specs.node.test.ts` | **EXIT=0**, 9 passed | drift 5 of 5 |
 
 Every exit code was read with `EXIT=$?` on the line immediately after the command, output
 redirected to a file and the file grepped afterwards. No pipe, no trailing `tail`.
 
-### The two failures, attributed by the diff in their own messages
+The 0.58 CPU-time ratio on the whole run is lower than the 1.36 `vitest.config.ts` records
+for its own baseline, and it is a comparability key rather than a verdict: this run
+overlapped three other agents' work, and much of its wall clock is spent waiting on spawned
+child processes rather than being denied CPU.
 
-| file | what it said | the evidence |
-|---|---|---|
-| `bench-attestation.node.test.ts` | `expected ' M packages/bench/src/perf-workload.t…' to be ' M packages/bench/src/perf-workload.t…'` | The `git status --porcelain` sweep. The three lines that moved are `packages/core/src/job/submit.test.ts`, `packages/core/src/job/submit.ts` and `packages/net/src/reduce-job.test.ts`, all going from staged to gone — 20-08 committed them mid-run as `51bed18`. **No file of this plan appears in the diff.** |
-| `speculation-agents.node.test.ts` | `ReferenceError: PUBLIC_AGENTS is not defined` at `standUp` | The same untracked mid-edit file the three `tsc` errors name. It did not exist when this plan started. |
+### Three intermediate readings that cleared on their own, recorded because re-running before diagnosing is the rule that produced them
 
-`packages/aot` is green in that run, and `packages/node/src/aot-dispatch.node.test.ts` is
-green in it.
+**`npx tsc --noEmit` read EXIT=1 twice mid-session**, with three errors, all
+`packages/node/src/speculation-agents.node.test.ts — Cannot find name 'PUBLIC_AGENTS'` and
+**zero in either of this plan's files**. That file is another agent's, was untracked, and did
+not exist when this plan started. It was re-run rather than diagnosed, then re-run again at
+the end and came back **0** with nothing on this side changing. Nothing outside this plan's
+two files was touched.
+
+### The failures in each run, attributed by the diff in their own messages
+
+| run | file | what it said | the evidence |
+|---|---|---|---|
+| final | `acceptance-traceability.node.test.ts` | `"BENCH-03 is now named in a title by packages/node/src/speculation-agents.node.test.ts — delete this exemption"` | **The finding names the causing file, and it is not mine.** |
+| final | `late-combine.node.test.ts` | `expected 1500 to be greater than 7294.76…`, and a second case red | A within-run ratio between a constant `RPC_TIMEOUT_MS` and a measured healthy time. **21-02 and 21-04 both recorded this identical file failing this identical way**, and an agent is live on it now. |
+| earlier | `bench-attestation.node.test.ts` | `expected ' M packages/bench/src/perf-workload.t…' to be ' M packages/bench/src/perf-workload.t…'` | The `git status --porcelain` sweep. The three lines that moved are `packages/core/src/job/submit.test.ts`, `submit.ts` and `packages/net/src/reduce-job.test.ts`, all going from staged to gone — 20-08 committed them mid-run as `51bed18`. **No file of this plan appears in the diff.** It passes in the final run. |
+| earlier | `speculation-agents.node.test.ts` | `ReferenceError: PUBLIC_AGENTS is not defined` | The same untracked mid-edit file the `tsc` errors named. Green in the final run. |
+
+`packages/aot` is green in every run above, and `packages/node/src/aot-dispatch.node.test.ts`
+is green in every run above.
+
+**The final run reports 149 files**, which is exactly the count the drift arithmetic below
+predicts — the two instruments agree.
 
 ## A finding for whoever owns the block path
 
@@ -567,9 +587,10 @@ is now false**, and its owner should know. Every clause of it is measured above.
 - `b0dd390` — FOUND in `git log`; `git show --stat` shows **one file**, in a checkout where three other agents had work staged and unstaged throughout
 - `packages/aot/src/abi-router.ts` — byte-identical to its post-21-03 state; both `cmp` restores exited **0**; `git status --short packages/aot/src/abi-router.ts` empty
 - All three spec-level plants restored, each `cmp`'d to **0**
-- No `git checkout`, `git stash`, `git reset`, `git clean` or `git branch` was run at any point; the one `git add` and the one `git commit` both named this plan's file explicitly
-- `npx tsc --noEmit` — **EXIT=1**, 3 errors, **all in another agent's untracked file**, 0 in this plan's files
+- No `git checkout`, `git stash`, `git reset`, `git clean` or `git branch` was run at any point; every `git add` and every `git commit` named this plan's files explicitly
+- `npx tsc --noEmit` — **EXIT=0** on the whole tree, read directly from `$?`
 - `npx vitest run --project node packages/node/src/aot-dispatch.node.test.ts` — **EXIT=0**, read directly from `$?`
+- `npx vitest run --project node` (whole project) — **EXIT=1**, 147 of 149 files passing; both failing files named above with the evidence that neither is this plan's
 
 ---
 *Phase: phase-21-aot-translation-signing-runtime*
