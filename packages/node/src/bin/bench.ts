@@ -3521,7 +3521,9 @@ async function main(): Promise<void> {
         ' reads. What it nonetheless changes is what the rig IS — every worker starts with a' +
         ' per-node clearance it does not otherwise have, and holds one row it does not' +
         ' otherwise hold — which is exactly why the flag exists, why it is off by default,' +
-        ' and why the configuration table above prints whether it was in force. **What the' +
+        ' and why every configuration row this report renders — each criterion-3 attempt’s,' +
+        ' and each excluded rung’s — carries whether it was in force beside `discover`.' +
+        ' **What the' +
         ' leg does NOT establish is a sovereignty claim about data**: the shard carries an' +
         ' owner label and a verified chain, and its value is a fixture row this driver' +
         ' invented. The egress and coverage machinery is what would make a data claim; this' +

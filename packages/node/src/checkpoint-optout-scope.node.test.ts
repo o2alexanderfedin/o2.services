@@ -80,8 +80,24 @@ const CHECKPOINT_OPTOUTS: readonly {
   },
   {
     file: 'packages/node/src/bin/bench.ts',
-    count: 1,
-    role: 'the CLI measurement driver; its store is an mkdtemp that close() rm -rf s',
+    // **Raised from 1 to 2 by Plan 23-06, and this guard is the reason it was a decision.**
+    // BENCH-07 criterion 5 gave that driver an opt-in `--sovereign` leg — AUTH-03's
+    // requestor half, which had no production caller at all — and the leg dispatches its one
+    // owner-labelled shard through a second `submitJobWithEgress` call. This file reddened
+    // on it, which is precisely what it is for: a second submitter in a file already on the
+    // list is the case `count` exists to catch, and it caught one on its first opportunity.
+    //
+    // Decided, not defaulted: the sentinel is correct at the new site for the *same* reason
+    // it is correct at the measured one and for one more of its own. The store both submits
+    // into is the requestor's, built under `mkdtemp(tmpdir(), 'o2-bench-')` and deleted by
+    // `close()`, so a handle published from either would name a block that no longer exists
+    // by the time anything could resume from it. And the new call is a **one-shard
+    // dispatch-path demonstration** run once per rig, outside every timed region — there is
+    // no partial progress a resume could pick up, because there is no second shard.
+    count: 2,
+    role:
+      'the CLI measurement driver, twice: the measured job path, and the --sovereign leg’s' +
+      ' one-shard dispatch. Both submit into a store that is an mkdtemp close() rm -rf s',
   },
   {
     file: 'packages/browser/demo/main.ts',
