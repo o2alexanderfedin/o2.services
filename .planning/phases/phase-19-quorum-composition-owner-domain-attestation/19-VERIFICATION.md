@@ -1,11 +1,17 @@
 ---
 phase: 19-quorum-composition-owner-domain-attestation
 verified: 2026-08-04T03:46:29Z
-status: gaps_found
+status: human_needed # was gaps_found; criterion 5 is no longer a gap, it is deferred under an owner ruling
 score: >-
-  4/5 criteria MET (1 PARTIAL, 0 FAILED) — amended 2026-08-04T08:00:25Z.
-  The 2026-08-04T03:46 initial pass scored 3/5 MET (2 PARTIAL); plan 19-19 closed
-  criterion 1 and its closure was re-executed rather than accepted. See the Amendment.
+  4/5 criteria MET (1 PARTIAL, 0 FAILED) — UNCHANGED at the third pass, 2026-08-04T19:40Z.
+  The 2026-08-04T03:46 initial pass scored 3/5 MET (2 PARTIAL); plan 19-19 closed criterion 1.
+  The third pass re-measured all four MET criteria against a tree in which submit.ts (+719),
+  fabric-node.ts (+210) and browser-node.ts (+197) had been rewritten under it, and confirmed
+  all four. Criterion 5 does NOT move to MET and the score does NOT read 5/5: the owner ruled
+  on it 2026-08-04 and CARRIED it to Phase 24 criterion 8, which has not run. Under RULING A
+  and the Phase 17 → 18 → 20 precedent — re-confirmed the same day, when Phase 18 closed at
+  9/9 only once WIRE-04 actually LANDED — a carried criterion stays PARTIAL until its
+  destination phase lands. See the Second Amendment.
 verifier: independent goal-backward pass, adversarial stance
 re_verification:
   verified: 2026-08-04T08:00:25Z
@@ -124,7 +130,7 @@ gaps:
       - "Fabric B in quorum-agents.node.test.ts rebuilt from spawned agent processes; nothing else in that file changes (deferred-items.md item 2)"
   - criterion: 5
     truth: "Enrolling a node costs an attacker something they cannot mint for free, and the cost is measured: creating the N-th fake identity is demonstrably more expensive than creating the first"
-    status: partial
+    status: deferred_2026-08-04 # was: partial. Owner ruled and carried it to Phase 24 criterion 8; see `deferred:` below and the Second Amendment. The criterion still scores PARTIAL — deferred is a disposition, not a pass.
     reason: >-
       The unmintable half is delivered and measured — a certificate needs a provider signature
       and verifyCertificate refuses an untrusted issuer across real processes. The cost half is
@@ -150,9 +156,54 @@ gaps:
         serveAgent's enrol branch. The operational half (an operator noticing a starved
         provider) remains untested.
 deferred:
+  # ADDED 2026-08-04 by the third pass. Criterion 5 moved OUT of `gaps:` and into here.
+  # It is NOT counted as met. `deferred` records that the clause has an owner ruling and a
+  # named home, so it is no longer an open escalation an executor could be asked to close.
+  - truth: "Enrolling a node costs an attacker something they cannot mint for free, and the cost is measured: creating the N-th fake identity is demonstrably more expensive than creating the first"
+    addressed_in: "Phase 24 — Certificate-Gated Admission (criterion 8), scheduled after phases 20–23 by owner ruling 2026-08-04"
+    scores_as: "PARTIAL — unchanged. The phase stays at 4/5 and stays UNCOUNTED until Phase 24 lands."
+    evidence: >-
+      Phase 24 success criterion 8: "Enrolment's cost is bounded by admission, not by a counter:
+      a node that cannot present a provider-issued certificate cannot join the fabric, advertise
+      itself, or be dialled by another node — so an identity that was never issued buys nothing,
+      and the N-th identity costs an attacker a provider's willingness to sign it." The final
+      clause is criterion 5's second clause re-expressed, so the match is specific rather than
+      tangential. ROADMAP.md's own note on criterion 8 says it was "ADDED 2026-08-04 BY OWNER
+      RULING" and is "THE ANSWER TO PHASE 19's CRITERION 5". Phase 24 is fully planned —
+      24-01…24-04 plus 24-CONTEXT.md exist on disk.
+    owner_ruling: >-
+      2026-08-04 — "The lifecycle of the node in the network starts from connecting to the relay.
+      If the node that connects in can authenticate itself with certificate issued by provider,
+      then it gets in… If it cannot authenticate — it cannot join the network." And on the
+      scheduling: "yes, I know. Plan it for later."
+    why_not_met: >-
+      RULING A: "The criterion text is NOT amended, and the phase is NOT allowed to close on it."
+      Criterion 5's text at ROADMAP.md is re-read and UNCHANGED, so neither route the previous
+      escalation offered was taken; a third was — relocate the guard, keep the bar. The house
+      precedent is thrice-applied and was re-confirmed on 2026-08-04 while this pass was running:
+      Phase 17 criterion 2 → Phase 18 criterion 2d (17 stayed uncounted at 1/3); Phase 16
+      criterion 3 → Phase 20 criterion 6; Phase 18 criterion 2b → Phase 20 criterion 1, which
+      sat PARTIAL at 8/9 for two days and moved to MET **only when WIRE-04 actually landed**,
+      whereupon Phase 18 was re-verified and closed at 9/9. Phase 24 has not run. Deciding a
+      carry-forward does not raise a score; the destination phase landing does.
   - item: "Nothing an operator can run mints a capability chain, so the sovereign discovery path is spec-only (deferred-items.md item 5)"
     addressed_in: "Phase 23"
     evidence: "Phase 23 success criterion 5: 'bin/bench.ts gains an opt-in sovereign leg, off by default, that mints a real capability chain and dispatches an owner-labelled shard through it — giving delegate and CapabilitySupplier a traced call path from a runnable entry point'"
+human_verification: # ADDED 2026-08-04 by the third pass
+  - test: "Decide whether Phase 19 may be marked COMPLETE at 4/5 with criterion 5 carried to Phase 24."
+    expected: >-
+      A scheduling judgement, not a finding. Every criterion this phase can prove is proved and
+      re-proved. What stops a `passed` verdict is RULING A, which forbids closing on a PARTIAL
+      criterion. Phase 18 sat in exactly this position at 8/9 and its verifier recorded that this
+      "is a scheduling judgement under an owner ruling, which a verifier may not make for itself".
+    why_human: "Only the owner may apply or waive RULING A; a verifier may not."
+  - test: "Arm a tripwire for criterion 5's carry-forward, or rule that none is required."
+    expected: >-
+      Something red must arrive when Phase 24 lands, per the Phase 20 criterion 1 precedent
+      ("A scheduled clause is only scheduled if something red arrives to collect it"). Measured
+      by this pass: none exists. See W12.
+    why_human: "Whether to arm it now or at Phase 24 planning time is a scheduling decision."
+
 warnings:
   - id: W1
     status: CLOSED 2026-08-04 by febd107 — but see W7
@@ -179,7 +230,10 @@ warnings:
     where: ".planning/phases/phase-19-.../19-12-SUMMARY.md:177-199"
     what: "Six planted instruments are deliberately absent from the mutation ledger because no failure text was recorded, and 19-18's optional-onQuorumShortfall plant is unencodable because its runner is tsc. Structurally consistent with problemsWith()'s rules and with Mutation's shape, but this verifier did not re-execute any of the seven plants (source mutation was out of scope for a read-only pass)."
   - id: W7
-    status: NEW 2026-08-04
+    status: >-
+      CLOSED 2026-08-04 by the third pass — the `:802-803` citation is gone; the docblock now
+      cites by symbol and records its own drift. Its checkable claim re-measured TRUE —
+      `onQuorumShortfall` occurs exactly three times in submit.ts.
     where: "packages/core/src/job/submit.ts:126"
     what: >-
       W1's fix cites '`:802-803` of this file, and nowhere else — confirmed by grep'. The
@@ -188,7 +242,10 @@ warnings:
       before its own edit landed. Same class as 18-VERIFICATION.md's F-2, one phase later.
       One line off the same paragraph — 'the reader 670 lines below' — is also now 658.
   - id: W8
-    status: NEW 2026-08-04
+    status: >-
+      CLOSED 2026-08-04 by the third pass — the `browser-node.ts` line citation is gone,
+      replaced by a reference to that file's `serveAgent` call. Hook re-derived by symbol at
+      HEAD and present.
     where: "packages/node/src/static-rendezvous.e2e.test.ts:43"
     what: >-
       Cites `browser-node.ts:1201` as the site of `reservations: 'relays-for-nobody'`.
@@ -198,7 +255,10 @@ warnings:
       the sentence febd107 added six lines below it says 'Four line citations in this
       header had drifted and were re-checked against the tree on 2026-08-04.'
   - id: W9
-    status: NEW 2026-08-04 — not 19-19's error
+    status: >-
+      CLOSED 2026-08-04 by the third pass — all four numeric citations are gone. The ROADMAP
+      note now states the general rule, "CITED BY SYMBOL, NOT BY LINE… Three rounds of chasing
+      the same four numbers is enough evidence."
     where: ".planning/ROADMAP.md:694,698; .planning/REQUIREMENTS.md:656; packages/node/src/static-rendezvous.e2e.test.ts:54"
     what: >-
       All four cite browser-node.ts:1337 (index) and :1388 (reservations). Verified correct
@@ -231,6 +291,36 @@ warnings:
       contention-reduced rung is kept and fails on a label that was honest for what it ran.
       Criterion 3 keeps MET (three surfaces, two of them unaffected), but the CLI leg is
       load-sensitive and this is where it shows.
+  - id: W12
+    status: NEW 2026-08-04, MEASURED — the deferral of criterion 5 has no armed tripwire
+    where: "packages/node/src/peer-gate.node.test.ts (docblock), packages/node/src/seed-server.ts (`SeedServerOptions`)"
+    what: >-
+      The Phase 20 criterion 1 note states the rule for a carried clause: "A scheduled clause is only
+      scheduled if something red arrives to collect it", and it NAMES what will fire. Criterion 5's
+      carry-forward to Phase 24 names nothing. Measured, not argued: the only record of the open front
+      door inside a spec is a DOCBLOCK — peer-gate.node.test.ts's "Gating dispatch candidate selection,
+      quorum membership and relay use is **UNMEASURED**, not descoped" — and "a comment is not a
+      specification". `SeedServerOptions` has no `trustedIssuers` field, so nothing can even be asked
+      to check. No instrument asserts the absence, so nothing goes red when Phase 24 lands.
+      Sharpened by an irony this pass measured: criterion 4's OWN evidence is a live demonstration of
+      the unlocked door — static-rendezvous.e2e.test.ts's three tabs are **unenrolled** (stated in its
+      own header) and still reserve circuits and are advertised to each other by the relay, and
+      reservation-exhaustion.node.test.ts's agents never enrol at all (zero hits for `enrol`,
+      `--provider-addr`, `--issues-certificates`). Phase 24's plan 24-04 lists three NEW spec files in
+      `files_modified` and neither of these two, so the collision is currently unrecorded on both ends.
+  - id: W13
+    status: NEW 2026-08-04, MEASURED TWICE — distinct from W11
+    where: "packages/node/src/bench-attestation.node.test.ts, the `repoStatus()` case"
+    what: >-
+      `repoStatus()` snapshots `git status --porcelain` for the WHOLE repository, `.planning/` included.
+      It failed twice in this pass for reasons unrelated to load and unrelated to Phase 19: once naming
+      `M packages/node/src/peer-verifier.ts` (a concurrent agent's source edit) and once naming
+      `M .planning/phases/phase-18-discovery-capacity-placement/18-VERIFICATION.md` — the Phase 18
+      verifier writing its own report while my sweep ran. Every concurrent verifier reddens this case
+      BY DOING ITS JOB, since producing a VERIFICATION.md is a `.planning/` write. W11 is about
+      contention changing a LABEL; this is about the hygiene assertion having a repository-wide blast
+      radius. Both failures are shared-tree artifacts, not Phase 19 regressions: the three attestation
+      readings passed in the same runs.
 ---
 
 # Phase 19: Quorum Composition & Owner-Domain Attestation — Verification Report
@@ -918,3 +1008,198 @@ read and not written.
 _Amended: 2026-08-04T08:00:25Z_
 _Verifier: independent goal-backward re-verification (gsd-verifier), adversarial stance_
 _Two source mutations planted and restored; every exit code read directly on the line after the command._
+
+---
+
+## Second Amendment — 2026-08-04: the score stays 4/5, and criterion 5 becomes *deferred* rather than *escalated*
+
+**Score: 4/5 criteria MET, 1 PARTIAL, 0 FAILED — UNCHANGED. Status: `gaps_found` → `human_needed`.**
+Everything above is the record of the first two passes and is left standing. Nothing in it is
+retracted except the four statements listed under *"What this pass measured false"* below.
+
+Third independent pass. Re-verified at HEAD `cb01e76`; two commits landed mid-sweep (`03766a2`,
+`3522812`, both verification artifacts of other phases) taking HEAD to `3522812`, and
+`git diff --stat cb01e76 3522812 -- packages/` is **empty**, so every source measurement below
+holds at both. Tree clean before and after. One source mutation planted and restored.
+
+### Why this pass was run at all, and what it found
+
+A phase verified before its dependencies were rewritten is a phase verified against a tree that
+no longer exists. Between the 2026-08-04T08:00 amendment (HEAD `01a168b`) and this pass, Phase 20
+wave 1 and a day of defect work rewrote three of the files criteria 1–4 rest on:
+
+| file | change since `01a168b` |
+|---|---|
+| `packages/core/src/job/submit.ts` | **+719 / −16** — the production caller of `composeQuorum` |
+| `packages/node/src/fabric-node.ts` | **+210 / −3** — the `canRelay` → `discoverability` chain, and the signing leg |
+| `packages/browser/src/browser-node.ts` | **+197 / −17** — the `index` / `reservations` hooks, and the signing leg |
+
+What did **not** change is worth stating first, because it bounds the risk:
+`packages/core/src/quorum.ts`, `packages/node/src/bin/agent.ts`,
+`quorum-agents.node.test.ts`, `owner-domain-agents.node.test.ts`, `bench-attestation.node.test.ts`,
+`enrollment-cost.node.test.ts`, `core/src/enrollment.ts`, `attestation-ui.e2e.test.ts` and
+`tab-refusals.e2e.test.ts` are all **byte-identical** to the tree that scored 4/5.
+
+### Criterion verdicts
+
+| # | 08:00 | now | How it was re-established |
+|---|---|---|---|
+| 1 | MET | **MET** | Behaviour re-run *and* falsifiability re-planted — see below |
+| 2 | MET | **MET** | `owner-domain-agents` green; `ResultAttestor` still composed on both tiers, `'signs-nothing'` named absence intact |
+| 3 | MET | **MET** | All three readings green in isolation **and** in a full uncontended sweep; W11 did not reproduce |
+| 4 | MET | **MET** | `static-rendezvous` 5/5, `tab-refusals` 3/3, `attestation-ui` 4/4; both hooks re-derived by symbol |
+| 5 | PARTIAL | **PARTIAL** | Unmoved and unmovable here. Disposition changes from *escalated* to *deferred* |
+
+**Criterion 1 — the falsifiability survived the rewrite, and that is the finding.** The 08:00
+amendment moved criterion 1 to MET on the strength of a plant. That plant tested `quorum.ts`, but
+the *path* from the composer to the assertion runs through `submitJob`, which has since been
+rewritten around a new `ShardGate` structure. A green assertion on a rewritten path is exactly the
+shape that passes for a new reason. So `M40` was re-planted at this HEAD — `packages/core/src/quorum.ts`,
+`  if (requireIndependentPaths) {` → `  if (false as boolean) {`:
+
+| | |
+|---|---|
+| command | `npx vitest run --project node quorum-agents --reporter=verbose` |
+| exit | **1** (`EXIT=$?` on the next line, no pipe) |
+| result | `Tests  1 failed \| 3 passed (4)` |
+| failure | `expected 'composed' to be 'not-composed'` |
+| which case | *"criterion 1 engineered — one relay: caught by rule 2 and named by its relay"* — the **spawned** fabric |
+| restore | `cp` then `cmp` → exit 0; `git status --porcelain` empty |
+
+Identical signature, identical counts, identical case, on a tree whose composer's caller grew by 719
+lines. `M40`'s ledger entry (`mutation-ledger.ts`, `id: 'M40'`) was read against this run and is
+accurate — including its own statement of which three cases *cannot* redden and why that is by
+construction. The mechanism was re-derived by symbol rather than trusted: `composeQuorum` is still
+called from `submit.ts`; `onQuorumShortfall` still occurs exactly **three** times in that file — the
+declaration and the two readers — which is the checkable claim its own docblock makes.
+
+### Criterion 5 — how it should be recorded now
+
+**It should be recorded as PARTIAL and DEFERRED. The score should read 4/5, not 5/5.**
+
+The previous pass ended with an escalation offering two mutually exclusive routes: build a
+per-identity price, or amend criterion 5's second clause. **Neither was taken.** A third was, and it
+is better than both: the owner ruled on 2026-08-04 that admission is the guard — a node that cannot
+authenticate with a provider-issued certificate does not join — and **carried the clause to Phase 24
+criterion 8**, which is fully planned (`24-01`…`24-04`, `24-CONTEXT.md`) and deliberately scheduled
+after phases 20–23. In the ROADMAP's own words this *"relocates the guard rather than lowering the
+bar"*, and the reasoning is sound: a price only deters when the thing bought is worth something, and
+under gated admission an unissued identity is worth nothing.
+
+**Why that does not make it 5/5.** Criterion 5's text at `.planning/ROADMAP.md` was re-read this pass
+and is **unchanged**, so RULING A applies exactly as written: *"The criterion text is NOT amended, and
+the phase is NOT allowed to close on it… A criterion is not rewritten to let a phase close."* The
+house precedent is thrice-applied, and one instance closed **while this pass was running**:
+
+- Phase 17 criterion 2 → Phase 18 criterion 2d. Criterion 2 still scored PARTIAL; Phase 17 stayed
+  uncounted at 1/3.
+- Phase 16 criterion 3 → Phase 20 criterion 6.
+- Phase 18 criterion 2b → Phase 20 criterion 1. It sat **PARTIAL at 8/9 for two days**, and moved to
+  MET only when WIRE-04 **actually landed** in plan 20-01 and the armed tripwire fired — whereupon
+  Phase 18 was re-verified and closed at 9/9 (commit `3522812`, landed during this sweep).
+
+The pattern is unambiguous: **deciding a carry-forward does not raise a score; the destination phase
+landing does.** Phase 24 has not run. Criterion 5 therefore stays PARTIAL, Phase 19 stays at 4/5, and
+Phase 19 stays UNCOUNTED — and becomes 5/5 by re-verification on the day Phase 24 lands, exactly as
+Phase 18 just did.
+
+**What genuinely changes is the disposition, and it is not cosmetic.** Criterion 5 moves out of
+`gaps:` and into `deferred:`. A gap is something an executor can be dispatched to close; this is not
+one, and leaving it in `gaps:` invites a planner to route work at a phase the owner has explicitly
+scheduled for later. The status moves `gaps_found` → `human_needed` for the same reason Phase 18's
+did: nothing is missing that this phase can supply, and the only open question is *"may Phase 19 be
+marked complete at 4/5 with criterion 5 carried"* — a scheduling judgement under an owner ruling,
+which a verifier may not make for itself.
+
+**What the first half of criterion 5 is worth, re-measured.** The unmintable half is not deferred —
+it is delivered. `enrollment-cost.node.test.ts` passed at this HEAD (3 cases), and the residual the
+ruling says must be *"measured and pinned, not argued away"* is measured:
+`enrollment-dos.node.test.ts` passed 4/4, including the ratio readings and the case proving one
+dialer can burn a three-certificate window and lock out an honest enroller by name.
+
+### What this pass measured false
+
+Four statements in this file, and three outside it. All are documentation; none changes a criterion.
+
+**In this file.** The 08:00 amendment closed criterion 1 but left the initial pass's supporting tables
+standing without a retraction marker, so the file now asserts both a thing and its negation:
+
+1. *Executor-reported limits* table — **"`bin/agent.ts` cannot produce a `via-relay` node, so quorum
+   rule 2 has no across-process reading | Confirmed"**. **FALSE at HEAD.** `agent.ts` declares
+   `port: { type: 'string' }` with **no default**, and builds `listen` conditionally so that
+   `--relay-addr` with no `--port` yields `[]`. Measured: the case *"criterion 1's precondition —
+   `bin/agent.ts` can produce a node that binds nothing"* passes, and `M40` reddens the spawned fabric.
+2. *Requirements coverage* table, VER-03 row — **"it has no across-process reading (criterion 1's
+   gap)"**. FALSE for the same reason.
+3. The criterion 5 **ESCALATION** section — *"Two mutually exclusive routes"*. Now stale: a third
+   route was taken.
+4. **W7, W8 and W9** are recorded as OPEN/NEW. All three are **CLOSED**, re-measured this pass — the
+   line citations they flagged were replaced with grep-able symbols in `submit.ts`, in
+   `static-rendezvous.e2e.test.ts`'s header and in the ROADMAP's criterion 4 note, which now states
+   the general rule rather than another set of numbers.
+
+**Outside this file — reported, not edited, as these are shared and other verifiers are live.**
+
+- **`.planning/REQUIREMENTS.md`, VER-03 row — the serious one.** It states as fact: *"rule 2 has no
+  across-process reading at all"*; that `bin/agent.ts` *"passes `listen: ['/ip4/127.0.0.1/tcp/${port}']`
+  unconditionally and can therefore only ever produce a `seed` with empty `relayIds`"*; and that
+  under `M40` *"only that fabric went red and the two spawned-agent fabrics stayed green"*. **All
+  three are false**, and the third is contradicted by the `M40` ledger entry the row cites, which was
+  updated by 19-19 and is correct. A requirements row and the ledger it cites disagree, and the row
+  is the wrong one. `requirements-ledger.node.test.ts` pins no VER-03 text, so nothing guards it.
+- **`.planning/STATE.md`.** `stopped_at` still reads *"Criterion 5 needs an OWNER RULING… both routes
+  are open"* — the owner ruled, and took a route neither of them was. The open-rulings list further
+  down still carries *"Phase 19 criterion 5 — enrolling must cost something an attacker cannot mint
+  free"* as live. (The stale VER-03 sentences in the same field sit under the `WAS:` marker and are
+  correctly historical.)
+- **`.planning/ROADMAP.md`, Phase 19 entry.** It records **no** carry-forward to Phase 24 — `Phase 24`
+  appears nowhere in it, while criterion 5's rationale paragraph still reads as live Phase 19 work.
+  This is asymmetric with the established convention: Phase 18's own entry names its destination in
+  place (*"WIRE-04 is **Phase 20 criterion 1**, so the work is already scheduled"*). Today the
+  carry-forward is recorded only at the receiving end, in Phase 24's criterion 8 note. A reader who
+  opens Phase 19 to ask why it is uncounted finds an unamended criterion and no explanation.
+  Those two notes also disagree with each other in one phrase — one calls criterion 8
+  *"replacing a stalled criterion in Phase 19"*, the other *"the answer to Phase 19's criterion 5
+  **rather than a replacement for it**"*. The second is the one consistent with RULING A.
+
+### The recorded Phase 19 limits, re-checked
+
+| Recorded limit | Verdict now |
+|---|---|
+| VER-03 has no across-process reading of rule 2, because `bin/agent.ts` cannot produce a via-relay node | **REFUTED** — the `--port` default was removed by plan 19-19 and the listen list is now conditional. This was already superseded by the 08:00 amendment; what this pass adds is that `REQUIREMENTS.md` and this file's own tables never caught up |
+| VER-04's gate is reached by no measured runnable entry point | **STILL TRUE** — `bin/bench.ts`'s only occurrence of `quorum` is a comment; it prints no quorum verdict |
+| VER-09/VER-10 stay unticked because every reading is of a **public** job | **STILL TRUE** — `owner-domain` appears on no display surface. Its only production occurrences are the type, `classifyAttestation`'s return, and `describeAttestation`'s sentence. Both surfaces render the `description` field rather than calling `describeAttestation`, so its "no second production caller" claim also still holds |
+
+### Test evidence (exit codes read directly on the next line, no pipes)
+
+| Command | Exit | Result |
+|---|---|---|
+| `npx tsc --noEmit` | **0** | no output; `real 1.15` |
+| `npx vitest run --project node quorum-agents owner-domain-agents` | **0** | 2 files, **5 passed** |
+| `npx vitest run --project node bench-attestation enrollment-cost reservation-exhaustion` | **1** | 8 tests, 7 passed; the only failure is the `repoStatus()` hygiene case — see W13 |
+| `npx vitest run --project e2e static-rendezvous attestation-ui tab-refusals` | **0** | 3 files, **12 passed** |
+| `npx vitest run --project node enrollment-dos` | **0** | 1 file, **4 passed** |
+| `npx vitest run --project node` (full sweep) | **1** | 143 files, **2058 passed** / 2 skipped; 1 failed — `repoStatus()` again, naming another verifier's `18-VERIFICATION.md`. `real 262.03`, `(user+sys)/real = 1.239` |
+| `npx vitest run --project browser` | **0** | 246 files, **3927 passed** |
+| **planted** `M40` → `quorum-agents` | **1** | `1 failed \| 3 passed`; `expected 'composed' to be 'not-composed'` on the spawned one-relay fabric |
+
+**On the two red exits, read comparatively rather than absolutely.** Both are the same assertion, and
+neither is Phase 19's. The full sweep ran at `(user+sys)/real = 1.239` against the 08:00 pass's
+contended `0.777` and green `0.974`, so this host was *less* loaded than either — and W11's
+load-sensitive `expected 'owner-attested' to be 'independent'` did **not** reproduce, which supports
+the contention diagnosis rather than a regression. The three attestation readings criterion 3 rests
+on passed in every run.
+
+### Working tree
+
+One mutation planted and restored with `cp` then `cmp` (exit 0), never `git checkout --`.
+`git status --porcelain` empty before the plant and after the restore. **No file in this repository
+was modified by this verification except `19-VERIFICATION.md`.** `ROADMAP.md`, `REQUIREMENTS.md` and
+`STATE.md` were read and **not** written — every correction they need is reported above rather than
+applied, because three other verifiers were live in this tree.
+
+---
+
+_Amended: 2026-08-04T19:40:00Z_
+_Verifier: independent goal-backward third pass (gsd-verifier), adversarial stance_
+_Score unchanged at 4/5. Criterion 5 deferred to Phase 24 criterion 8 under owner ruling; deferred is a disposition, not a pass._
