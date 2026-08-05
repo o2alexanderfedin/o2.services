@@ -1237,6 +1237,34 @@ It lands **here** rather than in Phase 15 for one reason: this phase already rew
      That resolution is available today and fails the moment a deployment separates them. The
      requirement must be stated, not assumed.
 
+     CORRECTED 2026-08-05 — the first two clauses hold, the causal one does not, and it is wrong
+     in BOTH directions. Measured against `BrowserNode.#compose`:
+
+       - SEPARATION DOES NOT BREAK ENROLMENT. A denied reservation does not fail the relay-dial
+         loop: the loop asserts only that the DIAL resolved, and nothing in `#compose` reads
+         whether a reservation was granted. The tab proceeds to `resolveCertificate` and enrols
+         over its own plain connection. So the door stays open for enrolment in the SEPARATED
+         topology too — the co-location premise is not load-bearing for this half.
+       - CO-LOCATION IS NOT WHAT MAKES IT WORK, and it is not even guaranteed. `relayAddrs` and
+         `enrollment.providerAddr` are two independent parameters and NOTHING checks they agree.
+         In `demo/main.ts` they come from entirely separate sources — `relayAddrs` from
+         `discoverRelays()` (a `?relay=` query param or the origin's `/o2-info` JSON),
+         `providerAddr` from whatever the host page passes.
+
+     THE ACCURATE FORM IS ALREADY AT THE LINE, in `packages/libp2p/src/relay-admission.ts`:
+     *"A relay that pins issuers must either serve enrolment itself, or name a provider a joining
+     peer can reach without a reservation."* This roadmap is corrected to match the source; the
+     source was right first.
+
+     AND ARMING STILL CLOSES THE DOOR IT AIMS AT, which is the part worth keeping.
+     `BootstrapInfo.peerAddrs` is `[seedAddr, ...node.reservedPeerIds.map(...)]` and `agent.ts`'s
+     `reservations` branch answers from the same thunk, so an unreserved peer is structurally
+     absent from both advertisement surfaces — no filter to add and no `if` to forget.
+
+     UNNAMED BY ANY PLAN, and it belongs in one: in the separated topology a tab whose reservation
+     is refused still completes its relay dial, does not fail `#compose`, enrols against a provider
+     at a different address, then holds a certificate and re-reserves.
+
      SCHEDULING NOTE FOR THE OWNER. Phase 22 currently "runs last because it verifies what all
      eleven other phases claim to have wired". A reachability guard that runs BEFORE admission is
      gated passes over a fabric with an open door. Whether that matters depends on what WIRE-02
