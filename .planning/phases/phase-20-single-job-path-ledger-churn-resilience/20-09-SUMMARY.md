@@ -522,3 +522,12 @@ touch, and the hook printed:
 
 then `✅ cheap guards passed` and the commit landed. It reported and did not block, which is
 what that fix promised.
+
+## Self-Check: PASSED
+
+- `packages/node/src/speculation-agents.node.test.ts` — FOUND
+- `packages/node/src/bin/bench.ts` — FOUND
+- `packages/bench/src/perf-workload.ts` — FOUND
+- `.planning/BENCHMARK-RESULTS.md` — FOUND
+- `.planning/phases/phase-20-single-job-path-ledger-churn-resilience/20-09-SUMMARY.md` — FOUND
+- commits `ca655fc`, `417462a`, `5d51215`, `bd3c8e1`, `4c5c181` — all FOUND in `git log`
