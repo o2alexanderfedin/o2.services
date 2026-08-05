@@ -22,37 +22,41 @@ const SLOW_CUTOFF_MS = 1000
  * `MEASURED_NODE_SPANS`.
  */
 const NODE_MEASUREMENT = {
-  date: '2026-08-03',
+  date: '2026-08-04',
   /**
    * 1-minute load average, sampled every 40 s across the whole run.
    *
-   * **A real peak, polled and not inferred** — the discipline three readings ago
-   * introduced, followed here. Seven samples on 8 cores: 9.60 → **18.47** → 18.31 →
-   * 12.71 → 10.40 → 8.52 → 8.07, with the peak forty to eighty seconds in. The shape is
-   * the usual one, contended early and settling later.
+   * **A real peak, polled and not inferred** — the discipline four readings ago
+   * introduced, followed here. Six samples on 8 cores: 5.76 → **38.60** → 38.60 → 22.56 →
+   * 15.05 → 10.44, with the peak forty to eighty seconds in. The shape is the usual one,
+   * contended early and settling later, and nearly all of that load is *this run's own*:
+   * eight vitest workers plus the child processes the agent specs spawn.
    *
-   * **This one was taken on a quiet host and replaced a contended one** — the run before
-   * it peaked at 59.60 because a second agent was running its own suites throughout. That
-   * is the reverse of the previous replacement and it moves the table in the expensive
-   * direction: a quiet host gives *smaller* spans, so fewer files clear the cut and
-   * `test:unit` keeps more of them. The exclusion count nonetheless went 35 → 35 across a
-   * tree that grew by two files, which is the point the table below makes at length.
+   * **The host was checked for foreign load before the run and again after.** A second
+   * agent's `node all.test.js` was holding a full core when the run was first attempted,
+   * so the run was deferred until it exited (load back to 5.50) — the previous pass
+   * declined to re-baseline for exactly this reason and the reason was right. The only
+   * foreign consumer left was OneDrive's background sync at ~50 % of one core, which is
+   * this host's standing weather rather than an event.
    *
-   * Wall clock came out **248.0 s against the previous 262.6 s**, across a tree that grew
-   * by two files and eleven seconds of new test time at a third of the load. That is
-   * vitest's parallelism absorbing both, and it is the reason `sumOfFileSpansMs` and
-   * `wallClockMs` are both recorded rather than one standing for the other.
+   * **Measure the process, not the machine.** `/usr/bin/time -p` on the run read
+   * `real 237.87  user 282.24  sys 40.29`, i.e. `(user+sys)/real` = **1.36**. That ratio
+   * is a comparability key and not a verdict: this suite spends much of its time waiting
+   * on spawned child processes and on sockets, so a figure near one core is what a healthy
+   * run looks like here. The peak load of 38.60 against a 1.36 CPU-time ratio is the whole
+   * argument for recording both — load average counted runnable *and* I/O-blocked threads
+   * across the machine and would have implied starvation that the process never suffered.
    */
-  load: 9.6,
-  loadAtEnd: 8.07,
-  loadPeak: 18.47,
+  load: 5.76,
+  loadAtEnd: 10.44,
+  loadPeak: 38.6,
   /** Files and tests the `node` project ran, i.e. with no `test:unit` exclusions. */
-  files: 138,
-  tests: 1903,
+  files: 144,
+  tests: 2077,
   /** Sum of per-file spans. Not wall clock — vitest runs files in parallel. */
-  sumOfFileSpansMs: 741_459,
+  sumOfFileSpansMs: 700_048,
   /** Wall clock of that same run, for contrast with the sum above. */
-  wallClockMs: 248_000,
+  wallClockMs: 237_870,
   /**
    * What `npm run test:unit` measured with the derived list below applied.
    *
@@ -66,15 +70,24 @@ const NODE_MEASUREMENT = {
    * field is compared against by hand is what the reporter prints, and it prints the total.
    *
    * `unitWallClockMs` is **one reading of a passing run at a stated load** and is not a
-   * bound: 6.93 s at 1-minute load **5.34**, on a run reporting `103 passed (103)` /
-   * `1596 passed | 1 skipped` and exit 0. Read it as under ten seconds, and read the
+   * bound: 9.53 s at 1-minute load **4.90**, on a run reporting `107 passed (107)` /
+   * `1703 passed | 1 skipped` and exit 0. Read it as under ten seconds, and read the
    * recorded history — 5.96 s at load 5.6, then 9.97 s at load 8.4, then 7.49 s at load
-   * 6.1, then 8.37 s at load 11.7, then 9.25 s at load **58**, now 6.93 s at load 5.3 —
-   * as the reason this object records a load at all rather than a duration on its own.
-   * The 58 and the 5.3 readings together are the strongest evidence the field has
-   * produced: eleven times the load moved the fast loop by under two and a half seconds,
-   * because what `test:unit` excludes is the part that waits on child processes and what
-   * it keeps is CPU-cheap.
+   * 6.1, then 8.37 s at load 11.7, then 9.25 s at load **58**, then 6.93 s at load 5.3,
+   * now 9.53 s at load 4.9 — as the reason this object records a load at all rather than a
+   * duration on its own. The 58 and the 5.3 readings together are the strongest evidence
+   * the field has produced: eleven times the load moved the fast loop by under two and a
+   * half seconds, because what `test:unit` excludes is the part that waits on child
+   * processes and what it keeps is CPU-cheap.
+   *
+   * The current reading is the slowest of the seven at nearly the lowest load, which looks
+   * wrong until the process is measured rather than the machine: `/usr/bin/time -p` read
+   * `real 9.53  user 35.07  sys 6.49`, a `(user+sys)/real` of **4.36**. The fast loop is
+   * saturating four cores, so it is bounded by work and not by waiting — and the work grew,
+   * because this pass added four files to `test:unit` (of the six new specs, only
+   * `late-combine` and `churn-agents` are excluded). Contrast the full run's ratio of 1.36
+   * on the same host: the two projects are limited by different things, which is exactly
+   * why a load average alone would have explained neither.
    *
    * **Durations from red runs are deliberately never recorded here.** A duration measured
    * on a suite that did not pass is not a duration for the suite this field claims to
@@ -83,9 +96,9 @@ const NODE_MEASUREMENT = {
    * `slow-specs.node.test.ts` was still holding the previous run's `unitFiles`. Its 7.97 s
    * is not written down anywhere.
    */
-  unitFiles: 103,
-  unitTests: 1597,
-  unitWallClockMs: 6_930,
+  unitFiles: 107,
+  unitTests: 1704,
+  unitWallClockMs: 9_530,
 } as const
 
 /**
@@ -100,23 +113,35 @@ const NODE_MEASUREMENT = {
  *
  * ## The measurement
  *
- * `vitest run --project node --reporter=json`, **2026-08-03**, 136 files / 1891 tests, on
- * a **green** run — exit 0, 1889 passed, 2 skipped. Sum-of-file-spans 696.4 s against
- * 262.6 s of wall clock, the difference being vitest's own parallelism. Load average
- * polled every 40 s: 13.43 at the start, **59.60 at its peak**, 23.67 at the end — the
- * most contended reading in the history below, because a second agent was running its own
- * suites on the same host throughout.
+ * `vitest run --project node --reporter=json`, **2026-08-04**, 144 files / 2077 tests, on
+ * a **green** run — exit 0, 2075 passed, 2 skipped. Sum-of-file-spans 700.0 s against
+ * 237.9 s of wall clock, the difference being vitest's own parallelism. Load average
+ * polled every 40 s: 5.76 at the start, **38.60 at its peak**, 10.44 at the end, on a host
+ * first checked to be free of other agents' work.
  *
- * The measurement replaced was taken earlier the same day, 135 files / 1890 tests, sum
- * 693.9 s, wall clock 253.0 s, 34 files at or above the cut, load polled 9.16 → 29.14 →
- * 7.25. The tree grew by exactly one file — `owner-domain-agents.node.test.ts` — and the
- * exclusion count went 34 → 35, which sounds like the added file and **is not**: two files
- * crossed *up* (`owner-domain-agents` at 6 405 ms and `churn.test.ts` at exactly 1 000 ms)
- * and one crossed *down* (`node-enrollment`, 1 107 → 904). Nothing about `churn` or
- * `node-enrollment` changed. That is the point the table below makes at length: membership
- * near a millisecond cut is noise, and the list is evidence rather than a decision anyone
- * made. `churn.test.ts` landing on the boundary **exactly** is the sharpest example this
- * history has produced — it read 1 134 ms, then 962, now 1 000.
+ * The measurement replaced covered **138** files / 1903 tests, sum 741.5 s, wall clock
+ * 248.0 s, 35 files at or above the cut. **The tree grew by six files while that table
+ * stood still**, which is what this pass exists to correct: `slow-specs.node.test.ts`
+ * reads the filesystem, counted 144 against a recorded 138, and went red at a drift of 6
+ * against its tolerance of 5. The six are `abi-router.test.ts`,
+ * `churn-agents.node.test.ts`, `enrollment-dos.node.test.ts`, `late-combine.node.test.ts`,
+ * `relay-admission.node.test.ts` and `strip-comments.node.test.ts`. Two of them —
+ * `late-combine` and `churn-agents` — are above the cut, and `late-combine` had been
+ * measured at 8.49 s by the plan that wrote it and handed the span to a later plan that
+ * never took it. **The guard did its job**: nothing here was discovered by anyone noticing,
+ * it was discovered by the count.
+ *
+ * The exclusion count went 35 → **37**, and the arithmetic is not "the two new slow files".
+ * Four crossed *up* — `late-combine` (8 799) and `churn-agents` (3 271), both new, plus
+ * `tools/aot/cli.node.test.ts` (581 → **5 663**) and `packages/net/src/churn.test.ts`
+ * (974 → 1 002) — and two crossed *down*: `named-refusal` (1 019 → 991) and
+ * `combine-signature` (1 012 → 792).
+ *
+ * **`cli.node.test.ts` is the one crossing in this history with a cause, and it is worth
+ * separating from the noise.** It did not drift; it changed, in `c3b747a` and `ddca460`,
+ * which added argv flags and a printed input digest. A tenfold jump with two commits behind
+ * it is a different kind of fact from `churn.test.ts` moving 28 ms, and the two are listed
+ * apart here so nobody reads the table as claiming everything in it is noise.
  *
  * ## A file whose cost the reporter could not see, which is why one exists here at all
  *
@@ -128,9 +153,26 @@ const NODE_MEASUREMENT = {
  * half minutes with nothing anywhere saying so.
  *
  * It was restructured to await a memoised promise inside each case rather than in a hook,
- * which is why it now reads 163.0 s. Anyone adding a slow spec should know the failure
+ * which is why it now reads 158.1 s. Anyone adding a slow spec should know the failure
  * mode: **work done in `beforeAll`/`beforeEach` is invisible to the instrument this table
  * is derived from.**
+ *
+ * **So the two new spawning files were checked against a second instrument rather than
+ * trusted.** `late-combine` and `churn-agents` both spawn agent processes and both carry a
+ * `beforeEach`/`afterEach` pair, which is the shape that produced the 235 ms lie. Each was
+ * run alone under `/usr/bin/time -p` and the wall clock compared with the span the JSON
+ * reporter gave it in the run above:
+ *
+ * | file | JSON span | solo `real` |
+ * |---|---|---|
+ * | `late-combine.node.test.ts` | 8 799 ms | 8.80 s |
+ * | `churn-agents.node.test.ts` | 3 271 ms | 3.75 s |
+ *
+ * Both agree, so neither is hiding cost: their hooks only `mkdtemp` and tear down, and the
+ * spawning happens inside the cases where the reporter can see it. `late-combine`'s 8.80 s
+ * also reproduces the 8.49 s its own plan measured independently. Recording the check
+ * matters more than its result — a span that agrees with a second instrument is evidence,
+ * and a span that was never cross-checked is only an assumption with a number on it.
  *
  * ## An absolute millisecond cut is not reproducible, and this is the evidence
  *
@@ -148,7 +190,8 @@ const NODE_MEASUREMENT = {
  * | 2026-08-03, run 2 | 7.41 → 30.71 → 5.75, polled every 40 s | 40 |
  * | 2026-08-03, run 3 — the table until this one | 9.16 → 29.14 → 7.25, polled every 40 s | 34 |
  * | 2026-08-03, run 4 — the table until this one | 13.43 → 59.60 → 23.67, polled every 40 s | 35 |
- * | 2026-08-03, run 5 — **the table below** | 9.60 → 18.47 → 8.07, polled every 40 s | 35 |
+ * | 2026-08-03, run 5 — the table until this one | 9.60 → 18.47 → 8.07, polled every 40 s | 35 |
+ * | 2026-08-04 — **the table below** | 5.76 → 38.60 → 10.44, polled every 40 s | 37 |
  *
  * The rows make the point repeatedly and in both directions. Between run 2 and run 3 —
  * same host, same load shape, one file added — exactly one file crossed *up*, and it was
@@ -167,12 +210,15 @@ const NODE_MEASUREMENT = {
  * read **974**. Nothing about any of the three changed except that the host was quiet.
  *
  * Membership near the boundary is noise, and `churn.test.ts` is the standing example:
- * 1134 ms, then 962, then **exactly 1000** — the third reading is *on* the cut, which is
- * as close to a coin toss as a threshold can get. **So the list cannot be made to enforce
- * itself by re-timing** — a guard that re-measured would disagree with itself between
- * runs, and the only stable thing to check is structure. That is what
- * `packages/node/src/slow-specs.node.test.ts` does, and why it explicitly does not
- * re-time anything.
+ * 1134 ms, then 962, then **exactly 1000**, then 974, now **1002**. Five readings straddling
+ * the cut, one of them *on* it, which is as close to a coin toss as a threshold can get.
+ * (The file was edited once in that span, in `485130f`, so the last move is not purely
+ * noise — but four of the five readings predate the edit and the spread is the same.)
+ * **So the list cannot be made to enforce itself by re-timing** — a guard that re-measured
+ * would disagree with itself between runs, and the only stable thing to check is structure.
+ * That is what `packages/node/src/slow-specs.node.test.ts` does, and why it explicitly does
+ * not re-time anything — it counts files, which is the one property of the project that a
+ * quiet host and a loaded one agree on.
  *
  * What *is* stable is the shape: a handful of files dominate by more than an order of
  * magnitude, and the marginal ~1 s files barely matter because vitest runs them in
@@ -183,13 +229,13 @@ const NODE_MEASUREMENT = {
  *
  * ## What the cut buys
  *
- * The 35 excluded files are **98.2 %** of the 741.5 s (728.1 s of it). The 103 that remain
- * total **13.3 s of test time**. `lift.node.test.ts` alone is 245.7 s and
- * `bench-attestation.node.test.ts` 222.2 s — 63 % of the suite in two files, and the
+ * The 37 excluded files are **97.8 %** of the 700.0 s (684.6 s of it). The 107 that remain
+ * total **15.4 s of test time**. `lift.node.test.ts` alone is 235.6 s and
+ * `bench-attestation.node.test.ts` 158.1 s — 56 % of the suite in two files, and the
  * single strongest argument for the cut existing at all.
  *
- * The excluded set stayed at 35 while the project grew by two files, one of them above the
- * cut, and the arithmetic is *not* "nothing changed": one file entered and three left (see
+ * The excluded set went 35 → 37 while the project grew by six files, two of them above the
+ * cut, and the arithmetic is *not* "the two new slow files": four entered and two left (see
  * the table above). It is left as measured anyway: pinning entries at their old values
  * would make this table a blend of two runs, and its whole worth is that it is *one* run
  * somebody can reproduce. That rule is why the whole table was retaken to add a single
@@ -201,6 +247,12 @@ const NODE_MEASUREMENT = {
  * visible and a file that crosses it is a one-line diff against a recorded number rather
  * than a rediscovery. Faster files are omitted.
  *
+ * That floor is why only four of this pass's six new files appear below.
+ * `relay-admission.node.test.ts` (225 ms) and `abi-router.test.ts` (20 ms) were measured in
+ * the same run and are simply too fast to list. **They were measured, not skipped** — the
+ * distinction matters, because "not in the table" has to keep meaning "fast" rather than
+ * "nobody looked", which is the failure this whole file was rebuilt to prevent.
+ *
  * ## Mechanism, where it was actually established
  *
  * Filename is not a usable signal and neither is the obvious mechanical proxy:
@@ -211,56 +263,57 @@ const NODE_MEASUREMENT = {
  * The rest are deliberately unannotated rather than guessed at.
  */
 const MEASURED_NODE_SPANS: readonly (readonly [string, number])[] = [
-  ['tools/aot/lift.node.test.ts', 245_713],
-  ['packages/node/src/bench-attestation.node.test.ts', 222_179],
-  ['packages/node/src/discovery-agents.node.test.ts', 32_152],
-  ['packages/node/src/certificate-verification.node.test.ts', 25_712],
-  ['packages/node/src/enrollment.node.test.ts', 24_291],
-  ['packages/node/src/sovereignty-placement.node.test.ts', 21_881],
-  ['packages/node/src/tree-reduce-agents.node.test.ts', 18_147],
-  ['packages/node/src/orphan-leash.node.test.ts', 14_281],
-  ['packages/node/src/peer-gate.node.test.ts', 11_140],
-  ['packages/node/src/peer-dial.node.test.ts', 11_074],
-  ['packages/node/src/enrollment-cost.node.test.ts', 11_039],
-  ['packages/node/src/transport-bounds.node.test.ts', 10_796],
-  ['packages/node/src/quorum-agents.node.test.ts', 10_120],
-  ['packages/node/src/admission.node.test.ts', 8_326],
-  ['packages/node/src/duty-cycle.node.test.ts', 5_125],
-  ['packages/node/src/fabric-node.node.test.ts', 4_463],
-  ['packages/node/src/two-process.node.test.ts', 4_406],
-  ['packages/node/src/discover-arm.node.test.ts', 4_217],
-  ['packages/node/src/reservation-exhaustion.node.test.ts', 4_073],
-  ['packages/node/src/capability-dispatch.node.test.ts', 3_925],
-  ['packages/node/src/owner-domain-agents.node.test.ts', 3_871],
-  ['packages/node/src/node-records.node.test.ts', 3_561],
-  ['packages/node/src/signed-artifact.node.test.ts', 3_523],
-  ['packages/node/src/result-signature.node.test.ts', 3_513],
-  ['packages/node/src/peer-verifier.node.test.ts', 2_919],
-  ['packages/demo/src/kernel.test.ts', 2_371],
-  ['packages/node/src/trust-anchors.node.test.ts', 2_307],
-  ['packages/node/src/execution-deadline.node.test.ts', 2_305],
-  ['packages/node/src/provider-answering.node.test.ts', 2_145],
-  ['packages/node/src/egress-manifest.node.test.ts', 1_993],
-  ['packages/node/src/sovereign-at-rest.node.test.ts', 1_968],
-  ['packages/node/src/egress-refusal.node.test.ts', 1_353],
-  ['packages/node/src/relaying.node.test.ts', 1_214],
-  ['packages/node/src/named-refusal.node.test.ts', 1_019],
-  ['packages/node/src/combine-signature.node.test.ts', 1_012],
+  ['tools/aot/lift.node.test.ts', 235_551],
+  ['packages/node/src/bench-attestation.node.test.ts', 158_119],
+  ['packages/node/src/discovery-agents.node.test.ts', 43_752],
+  ['packages/node/src/enrollment.node.test.ts', 24_921],
+  ['packages/node/src/certificate-verification.node.test.ts', 23_162],
+  ['packages/node/src/peer-dial.node.test.ts', 17_266],
+  ['packages/node/src/orphan-leash.node.test.ts', 15_961],
+  ['packages/node/src/sovereignty-placement.node.test.ts', 15_938],
+  ['packages/node/src/tree-reduce-agents.node.test.ts', 15_751],
+  ['packages/node/src/quorum-agents.node.test.ts', 15_079],
+  ['packages/node/src/enrollment-cost.node.test.ts', 12_607],
+  ['packages/node/src/peer-gate.node.test.ts', 11_450],
+  ['packages/node/src/transport-bounds.node.test.ts', 11_157],
+  ['packages/node/src/late-combine.node.test.ts', 8_799],
+  ['packages/node/src/admission.node.test.ts', 8_444],
+  ['tools/aot/cli.node.test.ts', 5_663],
+  ['packages/node/src/duty-cycle.node.test.ts', 5_241],
+  ['packages/node/src/owner-domain-agents.node.test.ts', 4_483],
+  ['packages/node/src/signed-artifact.node.test.ts', 4_423],
+  ['packages/node/src/reservation-exhaustion.node.test.ts', 4_239],
+  ['packages/node/src/capability-dispatch.node.test.ts', 4_190],
+  ['packages/node/src/two-process.node.test.ts', 3_976],
+  ['packages/node/src/fabric-node.node.test.ts', 3_661],
+  ['packages/node/src/peer-verifier.node.test.ts', 3_516],
+  ['packages/node/src/result-signature.node.test.ts', 3_299],
+  ['packages/node/src/churn-agents.node.test.ts', 3_271],
+  ['packages/node/src/node-records.node.test.ts', 3_268],
+  ['packages/node/src/discover-arm.node.test.ts', 2_617],
+  ['packages/node/src/execution-deadline.node.test.ts', 2_519],
+  ['packages/node/src/sovereign-at-rest.node.test.ts', 1_994],
+  ['packages/node/src/provider-answering.node.test.ts', 1_968],
+  ['packages/demo/src/kernel.test.ts', 1_916],
+  ['packages/node/src/trust-anchors.node.test.ts', 1_667],
+  ['packages/node/src/egress-refusal.node.test.ts', 1_416],
+  ['packages/node/src/egress-manifest.node.test.ts', 1_209],
+  ['packages/node/src/relaying.node.test.ts', 1_148],
+  ['packages/net/src/churn.test.ts', 1_002],
   // ---- below the cut; listed so the boundary is visible, not excluded ----
-  ['packages/net/src/churn.test.ts', 974],
-  ['packages/node/src/node-enrollment.node.test.ts', 965],
-  ['packages/core/src/enrollment.test.ts', 688],
-  ['packages/node/src/disclosure-gate.node.test.ts', 610],
-  ['tools/aot/cli.node.test.ts', 581],
-  ['packages/net/src/discovery.test.ts', 578],
-  ['packages/net/src/provider-merge.test.ts', 536],
-  ['packages/node/src/rendezvous-wire.node.test.ts', 528],
-  ['packages/node/src/sovereign-block-refusal.node.test.ts', 461],
-  ['packages/node/src/fs-blockstore.node.test.ts', 427],
-  ['packages/core/src/job/submit.test.ts', 395],
-  ['packages/aot/src/wasi-real.node.test.ts', 379],
-  ['packages/net/src/discover-candidates.test.ts', 358],
-  ['packages/net/src/sovereign-egress.test.ts', 304],
+  ['packages/node/src/named-refusal.node.test.ts', 991],
+  ['packages/node/src/strip-comments.node.test.ts', 937],
+  ['packages/node/src/disclosure-gate.node.test.ts', 932],
+  ['packages/node/src/enrollment-dos.node.test.ts', 857],
+  ['packages/net/src/discovery.test.ts', 799],
+  ['packages/node/src/combine-signature.node.test.ts', 792],
+  ['packages/node/src/node-enrollment.node.test.ts', 733],
+  ['packages/core/src/enrollment.test.ts', 629],
+  ['packages/net/src/provider-merge.test.ts', 616],
+  ['packages/node/src/rendezvous-wire.node.test.ts', 527],
+  ['packages/node/src/sovereign-block-refusal.node.test.ts', 411],
+  ['packages/core/src/job/submit.test.ts', 409],
+  ['packages/net/src/discover-candidates.test.ts', 322],
 ]
 
 /**
