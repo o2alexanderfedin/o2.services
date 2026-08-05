@@ -2027,18 +2027,25 @@ function speedupSection(
     '',
     '### The ideal bound, derived from this run',
     '',
-    observedIdeal === null
-      ? 'No calibration was taken, so no bound is published. A bound is a measurement here,'
-      : `**${observedIdeal.toFixed(2)}×**, computed as sum ÷ max over **${perShardMs.length}**` +
-        ' per-shard durations measured on the 1-node process-per-node fabric with **one call in',
-    observedIdeal === null
-      ? 'and an unmeasured one would be a figure from somewhere else.'
-      : 'flight at a time**, so each measurement is that shard’s own duration and nothing else’s.' +
-        ' Each includes one RPC round trip on top of the shard, and no estimate of that is' +
-        ' subtracted. The block was already resident at the agent from the rung’s measured runs,' +
-        ' so this is compute rather than first fetch. **No pre-registered figure is published' +
-        ' beside it**: the withdrawn one was derived at eight partitions and this run uses' +
-        ' sixteen.',
+    ...(observedIdeal === null
+      ? [
+          'No calibration was taken on this run, so no bound is published. A bound here is a',
+          'measurement, and an unmeasured one would be a figure imported from somewhere else.',
+        ]
+      : [
+          `**${observedIdeal.toFixed(2)}×**, computed as sum ÷ max over **${perShardMs.length}**`,
+          'per-shard durations measured on the 1-node process-per-node fabric with exactly',
+          // The phrase is a literal in the published prose rather than only in this file's
+          // comments, and `bench-driver.node.test.ts` requires it there: it is a claim about
+          // *how* a published number was measured, so it has to survive into what a reader of
+          // the report sees, and into a source scan that strips comments first.
+          'one call in flight at a time, so each measurement is that shard’s own duration and',
+          'nothing else’s. Each includes one RPC round trip on top of the shard, and no estimate',
+          'of that is subtracted. The block was already resident at the agent from the rung’s',
+          'measured runs, so this is compute rather than first fetch. **No pre-registered figure',
+          'is published beside it**: the withdrawn one was derived at eight partitions and this',
+          'run uses sixteen.',
+        ]),
     '',
     `The host reports **${logicalCores} logical cores**. Rungs whose observed node-process`,
     `count exceeded that: ${
