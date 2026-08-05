@@ -1166,10 +1166,15 @@ function runnerFor(build: (nodes: number) => Promise<Fabric>): {
       {
         // CHURN-03. Same as `perf-workload.ts`: this is a driver whose output is a
         // reading, and a checkpoint that let a later run skip shards would corrupt the
-        // makespan it exists to measure. **A real sink here is the cheapest place to
-        // close criterion 7's write half** — this process already holds a
-        // `blockstoreDir` that outlives it — but wiring one is a separate ruling and is
-        // not done here. See `SubmitOptions.checkpoints`.
+        // makespan it exists to measure.
+        //
+        // **This is *not* the cheapest place to close criterion 7's write half, and the
+        // first version of this comment said it was.** The claim was that this process
+        // holds a `blockstoreDir` that outlives it. It does not: `realFabric` builds the
+        // requestor's store under `mkdtemp(tmpdir(), 'o2-bench-')` and `close()` ends with
+        // `rm(root, { recursive: true, force: true })`, so the directory and every block in
+        // it are deleted when the run ends. A handle published from here would name a block
+        // that no longer exists by the time anything could resume from it.
         checkpoints: 'checkpoints-nothing',
       },
     )

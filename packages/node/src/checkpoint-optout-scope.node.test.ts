@@ -81,12 +81,12 @@ const CHECKPOINT_OPTOUTS: readonly {
   {
     file: 'packages/node/src/bin/bench.ts',
     count: 1,
-    role: 'the CLI measurement driver — and the cheapest place a real sink could go',
+    role: 'the CLI measurement driver; its store is an mkdtemp that close() rm -rf s',
   },
   {
     file: 'packages/browser/demo/main.ts',
     count: 2,
-    role: 'the demo page, twice: runColouring and the sovereign run',
+    role: 'the demo page, twice: runColouring and the sovereign run — the only durable store',
   },
 ]
 
