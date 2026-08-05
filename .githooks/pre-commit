@@ -142,6 +142,56 @@ if [ -z "$STAGED" ]; then
   exit 0
 fi
 
+# ---------------------------------------------------------------------------
+# Whose commit is this — the answer, handed to the guards
+# ---------------------------------------------------------------------------
+#
+# The corpus a guard scans is the whole repository; the commit is a handful of paths.
+# So until now one agent's in-flight edit was a commit outage for every other agent:
+# the concurrent writer was refused, the author of the violation was not, and the only
+# way out was `O2_SKIP_GUARDS=1`. Measured 2026-08-04, `git log --all
+# --grep=O2_SKIP_GUARDS` returns 18. `7717ade` records the canonical instance.
+#
+# `STAGED` above was already computed and was used for nothing but "is anything
+# staged"; the list itself never reached a guard. It does now.
+#
+# ## The list goes through a FILE. Never an environment variable. ##
+#
+# This is the most dangerous available "simplification" in this hook, so it is stated
+# where somebody would make it. Measured on this machine's `/bin/bash` 3.2.57 — which
+# is this file's shebang:
+#
+#     printf 'a.ts\0b.ts\0' > list; V=$(cat list); echo "${#V}"   ->   8
+#
+# Command substitution drops the NUL bytes SILENTLY and yields the single path
+# `a.tsb.ts`. Every finding would then match nothing, read as somebody else's, and the
+# guards would block on nothing at all — a bypass with no symptom, applied to every
+# commit. A file carries the NULs; `$( )` does not.
+#
+# `--diff-filter=ACMRD`, not `ACMR`: measured on git 2.33.0, `ACMR` omits deletions,
+# and a deletion is a violation *cause* — delete a file a ledger entry names and that
+# entry breaks. `--no-renames`: with rename detection on git prints only the
+# destination, so a finding keyed on the old path would read as foreign. `-z`: without
+# it an odd path is C-quoted and matches nothing. `--no-relative`: `diff.relative` in
+# somebody's config would otherwise make these paths relative to the cwd, and every
+# guard emits repo-relative.
+#
+# The empty tree is the base on the initial commit, where `git rev-parse --verify HEAD`
+# fails. An unreadable, empty or malformed file means NO_COMMIT_SCOPE on the reading
+# side, under which every guard blocks on everything — so no failure here can widen
+# what a guard tolerates.
+SCOPE_FILE=$(mktemp "${TMPDIR:-/tmp}/o2-commit-scope.XXXXXX")
+trap 'rm -f "$SCOPE_FILE"' EXIT
+
+BASE=$(git rev-parse --verify --quiet HEAD)
+if [ -z "$BASE" ]; then
+  BASE=$(git hash-object -t tree /dev/null)
+fi
+
+git diff-index --cached --name-only --no-relative --no-renames --diff-filter=ACMRD -z \
+  "$BASE" > "$SCOPE_FILE"
+export O2_COMMIT_PATHS_FILE="$SCOPE_FILE"
+
 echo "🔍 cheap guards (vocabulary, purity, mutation-ledger, disclosure, ledgers)…"
 
 # One vitest invocation, not four: process startup dominates the wall clock here.
