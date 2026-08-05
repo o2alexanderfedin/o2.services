@@ -104,6 +104,21 @@ export interface Report {
   readonly baseline: Summary
   readonly memoryTransport: readonly SweepResult[]
   readonly realTransport: readonly SweepResult[]
+  /**
+   * The process-per-node curve, kept deliberately apart from `realTransport`.
+   *
+   * The obvious alternative — append these rungs to `realTransport` and let the new
+   * `driver` column tell them apart — is the one `connectivityTax` used to collapse
+   * without saying so: it keyed a `Map` on `config.nodes`, so two entries at one node
+   * count became whichever was appended last. That is now a `RangeError`, and this
+   * field is why the error never has to fire on a well-formed report.
+   *
+   * Optional, so a report built before this driver existed still renders. That is the
+   * opposite choice from `RunConfig`'s three provenance fields, and for the opposite
+   * reason: an absent curve is a fact about the run, while an absent provenance field
+   * is a fact about the author.
+   */
+  readonly multiProcess?: readonly SweepResult[]
   readonly connectivity: readonly ConnectivityTax[]
   readonly crossover: Crossover
   /** Requirements this run does **not** satisfy, stated in the report itself. */
@@ -135,15 +150,48 @@ const ms = (n: number): string => {
   return `${n.toFixed(1)}ms`
 }
 
+/**
+ * The driver and fixture a curve's numbers came from, **read off the curve**.
+ *
+ * Never interpolated from a literal at the call site. A heading naming a driver the
+ * numbers did not come from is worse than a heading naming none — it is a provenance
+ * claim that is confidently wrong — and the only defence against it is reading the value
+ * out of the data being rendered. An empty curve says `no runs` rather than reaching
+ * through `undefined` into a template.
+ */
+function provenanceOf(curve: readonly SweepResult[]): string {
+  const config = curve[0]?.config
+  return config === undefined ? 'no runs' : `${config.driver} driver, ${config.fixture} fixture`
+}
+
+/**
+ * Just the driver — for the makespan headings, which already name their fixture in the
+ * table body beneath and their transport in the heading itself.
+ */
+function driverOf(curve: readonly SweepResult[]): string {
+  const config = curve[0]?.config
+  return config === undefined ? 'no runs' : `${config.driver} driver`
+}
+
+/**
+ * One rung per row — BENCH-04, and BENCH-07's provenance columns.
+ *
+ * `driver` and `fixture` sit immediately after `nodes`, before any measured quantity, so
+ * a reader meets the provenance before the number it qualifies. There is deliberately
+ * **no `leg` column**: its value is the same in every published row, and a constant is
+ * not a result — the same status this file already gives the two reduce columns the
+ * sweep never varies. `leg` rides in the raw observations, which is where the check on
+ * it lives.
+ */
 function sweepTable(results: readonly SweepResult[]): string {
   if (results.length === 0) return '_no runs_\n'
   const rows = results.map((point) => {
     const { makespan, cost } = point
-    return `| ${point.config.nodes} | ${ms(makespan.p50)} | ${ms(makespan.p95)} | ${ms(makespan.p99)} | ${makespan.n} | ${point.incomplete} | ${cost.grossNodeSeconds.toFixed(3)} | ${cost.usefulNodeSeconds.toFixed(3)} | ${ratio(cost.verificationTax)} | ${ratio(cost.speculationTax)} | ${cost.churnTax.toFixed(2)} | ${ms(point.coldStartMs ?? Number.NaN)} |`
+    return `| ${point.config.nodes} | ${point.config.driver} | ${point.config.fixture} | ${ms(makespan.p50)} | ${ms(makespan.p95)} | ${ms(makespan.p99)} | ${makespan.n} | ${point.incomplete} | ${cost.grossNodeSeconds.toFixed(3)} | ${cost.usefulNodeSeconds.toFixed(3)} | ${ratio(cost.verificationTax)} | ${ratio(cost.speculationTax)} | ${cost.churnTax.toFixed(2)} | ${ms(point.coldStartMs ?? Number.NaN)} |`
   })
   return [
-    '| nodes | p50 | p95 | p99 | n | incomplete | gross n·s | useful n·s | verif. tax | spec. tax | churn/task | cold start |',
-    '|---|---|---|---|---|---|---|---|---|---|---|---|',
+    '| nodes | driver | fixture | p50 | p95 | p99 | n | incomplete | gross n·s | useful n·s | verif. tax | spec. tax | churn/task | cold start |',
+    '|---|---|---|---|---|---|---|---|---|---|---|---|---|---|',
     ...rows,
     '',
   ].join('\n')
@@ -206,11 +254,19 @@ export function renderMarkdown(report: Report): string {
   }
   out.push('')
 
-  out.push(`## Makespan — memory transport (${label})`, '')
+  out.push(`## Makespan — memory transport, ${driverOf(report.memoryTransport)} (${label})`, '')
   out.push(sweepTable(report.memoryTransport))
 
-  out.push(`## Makespan — real transport (${label})`, '')
+  out.push(`## Makespan — real transport, ${driverOf(report.realTransport)} (${label})`, '')
   out.push(sweepTable(report.realTransport))
+
+  // Emitted only when the curve exists. A report from before this driver existed
+  // renders unchanged apart from its two new columns — no third heading, and no empty
+  // table a reader would take for a measured absence.
+  if (report.multiProcess !== undefined) {
+    out.push(`## Makespan — real transport, ${driverOf(report.multiProcess)} (${label})`, '')
+    out.push(sweepTable(report.multiProcess))
+  }
 
   // Placed adjacent to makespan on purpose: the reduce is a *segment of the same job*,
   // and a reader who finds the two tables side by side can add the columns if they
@@ -218,21 +274,35 @@ export function renderMarkdown(report: Report): string {
   // than at the last shard. A reader given only the sum could not subtract them.
   // Putting these at the bottom of the file would invite reading them as
   // supplementary, which is the one thing they are not.
-  out.push(`## Reduce tree — memory transport (${label})`, '')
+  out.push(
+    `## Reduce tree — memory transport (${label}) — ${provenanceOf(report.memoryTransport)}`,
+    '',
+  )
   out.push(reduceTable(report.memoryTransport))
 
-  out.push(`## Reduce tree — real transport (${label})`, '')
+  out.push(
+    `## Reduce tree — real transport (${label}) — ${provenanceOf(report.realTransport)}`,
+    '',
+  )
   out.push(reduceTable(report.realTransport))
 
   if (report.excluded !== undefined && report.excluded.length > 0) {
-    out.push('## Configurations excluded, and why', '')
+    // The one heading that needs a fallback, and it needs it in the case exclusions
+    // actually arise in: a rung reaches `excluded` precisely by *failing*, so a run
+    // whose every real rung failed has a populated `excluded` and an **empty**
+    // `realTransport`. Reading the memory curve instead is still a derivation and not a
+    // guess — both trivial ladders are swept by the same driver on the same fixture,
+    // within one run. Only when both are empty does the heading say `no runs`.
+    const from =
+      report.realTransport.length > 0 ? report.realTransport : report.memoryTransport
+    out.push(`## Configurations excluded, and why — ${provenanceOf(from)}`, '')
     out.push('| configuration | reason |')
     out.push('|---|---|')
     for (const item of report.excluded) out.push(`| ${item.config} | ${item.reason} |`)
     out.push('')
   }
 
-  out.push('## Connectivity tax', '')
+  out.push(`## Connectivity tax — ${provenanceOf(report.memoryTransport)}`, '')
   if (report.connectivity.length === 0) {
     out.push('_not computed — one of the two curves is missing_', '')
   } else {
@@ -244,7 +314,10 @@ export function renderMarkdown(report: Report): string {
     out.push('')
   }
 
-  out.push('## COST crossover', '')
+  // Derived from the memory curve because `costCrossover(baseline, memoryResults)` is
+  // what the driver computes it over — the heading names the curve the number is
+  // actually defined against, not the one a reader might assume.
+  out.push(`## COST crossover — ${provenanceOf(report.memoryTransport)}`, '')
   out.push(`Single-threaded baseline: ${describe(report.baseline)}`, '')
   if (report.crossover.found) {
     out.push(
