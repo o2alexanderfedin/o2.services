@@ -34,6 +34,7 @@ import {
   SignedNameResolver,
   WasmExecutor,
   canonicalCid,
+  describeCoverage,
   guardModuleProvenance,
   publicNodes,
   signName,
@@ -42,6 +43,7 @@ import type {
   AdmissionControl,
   CanonicalValue,
   Executor,
+  JobResult,
   NameRecord,
   NodeDescriptor,
   ShardAttestation,
@@ -903,6 +905,18 @@ interface RungAttestation {
    * from iteration 5 beside an aggregate receipt from iteration 1 with nothing saying so.
    */
   readonly aggregate: AggregateAttestation | NoReduceToAttest
+  /**
+   * How many of this job's owners contributed — CHURN-05, criterion 4.
+   *
+   * Recorded on the **same record and in the same statement** as the two receipts above,
+   * for that statement's own stated reason: a reader comparing a coverage denominator
+   * against an attestation strength must be comparing two facts about one job.
+   *
+   * Every rung of this driver submits `label: 'public'` shards, so this is the named
+   * sentinel on every rung of every run — which is exactly why it is *carried* rather than
+   * rendered unconditionally. See {@link coverageReading}.
+   */
+  readonly coverage: JobResult['coverage']
   /** `Observation.complete` of the run this was taken off — every shard agreed, undegraded. */
   readonly fromCompletedRun: boolean
 }
@@ -1018,6 +1032,59 @@ function aggregateReading(held: RungAttestation | NoJobToAttest): string | null 
     `${aggregate.strength} (replicas ${aggregate.replicas},` +
     ` operators ${aggregate.operators.length}) — ${aggregate.description}`
   )
+}
+
+/**
+ * How many of one rung's owners contributed — CHURN-05, criterion 4's CLI half.
+ *
+ * ## The decision this function is, written down because it had to be made either way
+ *
+ * **A coverage line is printed only where the job defines owners, so the line's presence
+ * is itself the information.** Every rung of this driver submits `label: 'public'` shards
+ * — `shards.map((value) => ({ value, label: 'public' as const }))` at the one submit site
+ * — so `JobResult.coverage` is the named sentinel on **every rung of every run**, and this
+ * function returns `null` for all of them. That is the decision, not a gap: a line
+ * repeating *"this job defines no owners"* five times per sweep is noise a reader learns
+ * to skip, and a reader who has learned to skip a line cannot be told anything by it.
+ *
+ * **The alternative was to print nothing at all here**, and it was rejected for one
+ * reason: it leaves the CLI with no reader for the failure below, and that failure is the
+ * one 20-08's named union exists to prevent.
+ *
+ * ## What must not happen, and what holds it
+ *
+ * `coverageOf` treats an empty owner set as **not** complete — *"An empty job is not a
+ * complete one — '0 of 0 owners' answers nothing"* — so a bare `CoverageReport` on a
+ * public job renders `covered: 0/0 owners — PARTIAL (no owners were expected)`. Ship that
+ * and **every rung of every published sweep prints PARTIAL**, apologising for a question
+ * it was never entered for. The named arm below is the only thing between this stream and
+ * that sentence, and `packages/node/src/coverage-agents.node.test.ts` reads this driver's
+ * own stdout to say so: no rung prints `PARTIAL`, and no rung prints `covered:`.
+ *
+ * That reading is an *absence*, so it is paired there with a source-text count of this
+ * function's call site — otherwise deleting the renderer would satisfy it. Neither half is
+ * worth much alone; the pair is what makes the silence a measurement.
+ *
+ * ## Where criterion 4's rendered reading actually lives
+ *
+ * Not here. A `covered: 2/3 owners` line off a live cross-owner job with one owner's node
+ * stopped is in `coverage-agents.node.test.ts`, over spawned `bin/agent.ts` processes,
+ * because this driver runs no sovereign shard and therefore has no owner to be missing.
+ * Same division as the speculation columns above: the CLI leg establishes that the surface
+ * is wired, the process fixture establishes what it says when it has something to say.
+ *
+ * `null` when this rung returned no job at all, for {@link aggregateReading}'s reason: a
+ * rung that ran nothing has no coverage, and printing a denominator for it would be a
+ * statement about a job that did not happen.
+ */
+function coverageReading(held: RungAttestation | NoJobToAttest): string | null {
+  if (held === 'no-run-of-this-rung-returned-a-job') return null
+  const { coverage } = held
+  // The named arm, handled before `describeCoverage` is reachable at all — the shape
+  // 20-08 built the union to force on every display site. Deleting this line does not
+  // fail to compile; it changes what five rungs print.
+  if (coverage === 'defines-no-owners') return null
+  return describeCoverage(coverage)
 }
 
 /** Build a runner that reuses one fabric per node count across all iterations. */
@@ -1205,6 +1272,8 @@ function runnerFor(build: (nodes: number) => Promise<Fabric>): {
         attestations.set(config.nodes, {
           attestation: result.job.attestation,
           aggregate,
+          // CHURN-05, in the same statement as the two receipts and for the same reason.
+          coverage: result.job.coverage,
           fromCompletedRun: complete,
         })
       }
@@ -1345,6 +1414,12 @@ async function main(): Promise<void> {
     reading: string
     /** The aggregation's own reading, or absent when this rung reduced nothing. */
     aggregate?: string
+    /**
+     * The owner denominator, or absent when this rung's job defined no owners — which is
+     * every rung of this driver. See {@link coverageReading} for why absence is the
+     * decision rather than the omission.
+     */
+    coverage?: string
   }[] = []
   const sayAttestation = (config: string, held: RungAttestation | NoJobToAttest): void => {
     const { population, reading } = attestationReading(held)
@@ -1357,11 +1432,25 @@ async function main(): Promise<void> {
     if (aggregate !== null) {
       process.stdout.write(`    aggregate attestation (${population}): ${aggregate}\n`)
     }
+    // CHURN-05. Printed only where the job defined owners, so the line's presence is the
+    // information — see {@link coverageReading}, where the decision and its alternative
+    // are argued. On this driver that is never, and the silence is what
+    // `coverage-agents.node.test.ts` reads.
+    const coverage = coverageReading(held)
+    if (coverage !== null) {
+      process.stdout.write(`    owner coverage (${population}): ${coverage}\n`)
+    }
     // Absent, not `undefined` and not a placeholder string: `exactOptionalPropertyTypes`
     // makes those different, and a reader of `raw.json` must be able to tell *this rung
     // reduced nothing* from *this rung's aggregation was not attested* by the presence of
     // the key alone, exactly as the terminal reader tells them by the presence of a line.
-    attested.push({ config, population, reading, ...(aggregate === null ? {} : { aggregate }) })
+    attested.push({
+      config,
+      population,
+      reading,
+      ...(aggregate === null ? {} : { aggregate }),
+      ...(coverage === null ? {} : { coverage }),
+    })
   }
 
   const memory = runnerFor(memoryFabric)
