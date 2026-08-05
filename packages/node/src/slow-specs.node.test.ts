@@ -252,9 +252,21 @@ describe('the recorded measurement still describes this repository', () => {
               paths: [CONFIG_FILE, ...NODE_PROJECT_FILES],
               line:
                 `the node project holds ${NODE_PROJECT_FILES.length} test files, the recorded ` +
-                `measurement covered ${recorded}. Re-measure with ` +
-                `\`npx vitest run --project node --reporter=json --outputFile=…\` and update ` +
-                `MEASURED_NODE_SPANS and NODE_MEASUREMENT in vitest.config.ts.`,
+                `measurement covered ${recorded}. Re-measure by the procedure in ` +
+                `MEASURED_NODE_SPANS's docblock in vitest.config.ts ("So this is the procedure, ` +
+                `and it is not optional"), then update MEASURED_NODE_SPANS and NODE_MEASUREMENT ` +
+                `there. \`--reporter=json\` is step 2 of that procedure and is not sufficient ` +
+                `alone: it stamps a file's startTime at its FIRST CASE, not at file pickup, so ` +
+                `a beforeAll registered above that case is charged to nothing — ` +
+                `start-reporting.node.test.ts reported 143 ms against a real 4 664 ms and ` +
+                `echo-guest.node.test.ts 2 019 ms against 520 986 ms. The ${CUTOFF_MS} ms cutoff ` +
+                `falls inside both gaps, so the reporter alone would keep a node-spawning spec ` +
+                `in test:unit forever. Step 3 is the one that closes it: find every file whose ` +
+                `beforeAll/beforeEach is registered ABOVE its first it/test and does real work ` +
+                `(the test is positional, not "has a hook"), re-run each one alone under ` +
+                `\`/usr/bin/time -p\`, bracket it with a solo trivial spec to subtract the ` +
+                `~1.3–5.4 s boot floor, and let the wall clock win over the reporter. Record the ` +
+                `counts in NODE_MEASUREMENT.hookShadowCandidates / hookShadowDisagreed.`,
             },
           ]
     expect(blocking('slow-specs/file-count-drift', drifted, SCOPE)).toEqual([])

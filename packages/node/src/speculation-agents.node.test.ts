@@ -15,12 +15,14 @@ import {
   median,
   signName,
   speculativeCandidates,
+  stragglers,
   submitJob,
   toHex,
 } from '@o2/core'
 import type {
   CanonicalValue,
   Executor,
+  InFlight,
   JobResult,
   NameRecord,
   NodeDescriptor,
@@ -67,9 +69,11 @@ import { stripComments } from './strip-comments.ts'
  *
  * - an **equality against the off arm of the same fixture in the same run** (the answers,
  *   the placement, the dispatch counts);
- * - a **ratio inside one run** (the speculation multiplier on against off, the frozen
- *   dispatches against `DEFAULT_STRAGGLER_FACTOR` × the median healthy dispatch measured
- *   by this file's own instrument in the same arm);
+ * - a **ratio inside one run** (the speculation multiplier on against off), or a **verdict
+ *   the shipped predicate returns when handed this run's own data** (the frozen dispatches
+ *   are put to `stragglers` itself, at the instant the scheduler acted and with the sample
+ *   it held then — never to a threshold this file computes for itself; see the note at
+ *   section (7), and `#79` for what re-deriving it cost);
  * - a **count of events** (`speculationSpent`, `redispatches`, `copies.length`).
  *
  * Durations are printed on every run and asserted nowhere.
@@ -116,8 +120,11 @@ import { stripComments } from './strip-comments.ts'
  * other two, by measurement and by construction:
  *
  * - **Nothing was slow** is excluded because `SOLO_OWNER`'s node is frozen in the same
- *   instant, by the same signal, as the others, and its measured dispatch duration is
- *   asserted above `DEFAULT_STRAGGLER_FACTOR` × the median healthy dispatch of the same arm.
+ *   instant, by the same signal, as the others, and because the production `stragglers`
+ *   predicate — handed the sample the scheduler held at the instant it dispatched the first
+ *   duplicate — names that shard along with the two that *were* duplicated. The exclusion is
+ *   therefore the scheduler's own verdict on this run rather than a second rule this file
+ *   wrote down and then had to defend against a loaded machine.
  * - **The budget was gone** is excluded because the allowance is {@link ALLOWANCE} — see
  *   {@link SPECULATION_FRACTION} for why that dial is the one production default this
  *   fixture overrides — and the spend is asserted strictly below it, so the ledger
@@ -1177,14 +1184,141 @@ describe('CHURN-02 / criterion 3 — a straggler is duplicated mid-run across re
     if (soloOn.verification.status === 'agreed') {
       expect(soloOn.verification.agreeing.map((e) => e.nodeId)).toEqual([solo.peerId])
     }
-    // All three frozen dispatches cleared the production straggler rule against a median
-    // this file measured in this same arm — so "nothing was slow enough" is excluded for
-    // the solo owner's shard by measurement rather than by argument. With the budget
-    // excluded at (6), what remains is that there was nowhere legal to duplicate to.
-    expect(medianHealthyMs).toBeGreaterThan(0)
-    expect(durationOf(trackedPrimary)).toBeGreaterThan(stragglerThresholdMs)
-    expect(durationOf(pairedCall)).toBeGreaterThan(stragglerThresholdMs)
-    expect(durationOf(soloCall)).toBeGreaterThan(stragglerThresholdMs)
+    // All three frozen dispatches cleared the production straggler rule — so "nothing was
+    // slow enough" is excluded for the solo owner's shard by measurement rather than by
+    // argument. With the budget excluded at (6), what remains is that there was nowhere
+    // legal to duplicate to.
+    //
+    // **This is asked of `stragglers` itself rather than re-derived from a median.** The
+    // three lines here used to read `durationOf(x) > DEFAULT_STRAGGLER_FACTOR *
+    // medianHealthyMs`, and that arithmetic is *not* the production rule even though it is
+    // spelled the same way. It differs in both operands, and both differences push the
+    // same direction:
+    //
+    // - `stragglers` compares **elapsed so far** (`now - startedAt`) against the threshold.
+    //   This compared the **final** duration, which includes everything the dispatch did
+    //   after the thaw.
+    // - `stragglers` takes the median of what had **completed by then**. This took the
+    //   median of every healthy dispatch in the whole arm — a population that includes the
+    //   dispatches running *alongside the duplicates*, which is the most contended stretch
+    //   of the run and does not exist yet at the moment the scheduler judges.
+    //
+    // So the file was holding the fixture to a stricter rule than the code, and the gap
+    // between them widens with load. It went red at `expected 1336.34 to be greater than
+    // 1542.23` under two concurrent full node suites. Against the reading this same case
+    // prints on a quiet host — median healthy 78 ms, threshold 118 ms, frozen dispatches
+    // 720/712/709 ms — the frozen dispatch had moved 1.9× and the healthy median 13.2×.
+    // That asymmetry is not noise and widening a tolerance would not have addressed it: a
+    // SIGSTOPped process is **wait-bound** and spends no CPU, while the healthy dispatches
+    // it is compared against are **CPU-bound**, so contention moves the denominator by an
+    // order of magnitude and the numerator barely at all. A ratio is only load-proof when
+    // both of its spans answer to load the same way, and these two never did.
+    //
+    // **Both instruments, measured side by side in the same runs.** The old bound and the
+    // new one were printed together on this host, quiet and then under eight CPU burners:
+    //
+    // | load avg | whole-arm median | old threshold | frozen solo | **old margin** | judgement median | new threshold | elapsed solo | **new margin** |
+    // |---|---|---|---|---|---|---|---|---|
+    // | 4.5 | 19 ms | 29 ms | 705 ms | **24×** | 19 ms | 29 ms | 249 ms | **8.6×** |
+    // | 9.6 | 542 ms | 813 ms | 829 ms | **1.02×** | 29 ms | 43 ms | 250 ms | **5.8×** |
+    // | 16–27 | — | — | — | — | 40 ms | 60 ms | 247 ms | **4.1×** |
+    //
+    // Doubling the load average took the old margin from 24× to 1.02× — that run finished
+    // **16 ms** from the reported failure — while the new one went 8.6× to 5.8×. The old
+    // numerator barely moved (705 → 829 ms) and its denominator moved 28× (19 → 542 ms),
+    // which is the wait-bound/CPU-bound asymmetry stated above, in figures.
+    //
+    // **Why the elapsed figures barely move: 247–252 ms across every regime above.** That
+    // number is not a property of this host, it is the scheduler's polling tick — the first
+    // sweep at which anything can be judged. The spread *between* the three frozen
+    // dispatches was **2–3 ms in all three regimes** and did not widen with load, which is
+    // what lets one verdict cover all three.
+    //
+    // **Where this one would still fail, stated rather than left to be discovered.** The
+    // threshold does climb with load (29 → 43 → 60 ms) while the elapsed stays pinned to the
+    // tick, so the margin does shrink — 8.6× → 5.8× → 4.1×. It runs out when the median at
+    // judgement passes ~167 ms, which is 4× the worst observed here, against an old bound
+    // that was already inside its own noise at load 9.6. This is a much later cliff and not
+    // the absence of one. What makes the difference qualitative rather than only quantitative
+    // is the public shard's membership below: it is asserted, so if this reconstruction ever
+    // drifts from the sample the scheduler actually judged on, that assertion fails and names
+    // it instead of the solo one failing for a reason that has nothing to do with CHURN-06.
+    //
+    // **What the bound is sited against now: the scheduler's own decision, in this run.**
+    // No number here is written down. `judgedAt` is the instant the scheduler acted, read
+    // off the first duplicate it dispatched; `completedByJudgement` is the sample it had at
+    // that instant; and the predicate is the shipped one. The claim that survives a
+    // different machine is therefore not "these were slower than 118 ms" but "the rule that
+    // duplicated the public shard would have duplicated these three too, on the evidence it
+    // held at the moment it ran" — and if load moves the median, it moves the threshold this
+    // is measured against in the same breath, because the scheduler read the same median.
+    const judgedAt = Math.min(...duplicates.map((d) => d.startedAt))
+    const completedByJudgement = log
+      .filter(
+        (d) =>
+          !frozenIds.has(d.nodeId) && d.settledAt !== null && (d.settledAt as number) <= judgedAt,
+      )
+      .map((d) => (d.settledAt as number) - d.startedAt)
+    const frozenDispatches = [
+      ['public', trackedPrimary],
+      ['paired', pairedCall],
+      ['solo', soloCall],
+    ] as const
+    const inFlightAtJudgement: readonly InFlight[] = frozenDispatches.map(([name, d]) => ({
+      taskId: name,
+      nodeId: d.nodeId,
+      startedAt: d.startedAt,
+    }))
+    // The scheduler could not have judged anything without `MIN_SAMPLES`, so this cannot
+    // fail while the duplication above passed — it is here so that if it ever does, the
+    // report names the sample rather than an empty straggler list.
+    expect(
+      completedByJudgement.length,
+      `only ${completedByJudgement.length} healthy dispatches had completed when the first ` +
+        `duplicate went out, which is under MIN_SAMPLES ${MIN_SAMPLES} — so the reconstruction ` +
+        `below is not the sample the scheduler judged on`,
+    ).toBeGreaterThanOrEqual(MIN_SAMPLES)
+    const judgementReading =
+      `at judgement (+${Math.round(judgedAt - trackedPrimary.startedAt)}ms) the sample was ` +
+      `${completedByJudgement.length} completed healthy dispatches, median ` +
+      `${Math.round(median(completedByJudgement))}ms, threshold ` +
+      `${Math.round(DEFAULT_STRAGGLER_FACTOR * median(completedByJudgement))}ms; elapsed ` +
+      frozenDispatches
+        .map(([name, d]) => `${name} ${Math.round(judgedAt - d.startedAt)}ms`)
+        .join(', ') +
+      `; settled relative to judgement ` +
+      frozenDispatches
+        .map(([name, d]) => `${name} ${Math.round((d.settledAt as number) - judgedAt)}ms`)
+        .join(', ')
+    console.log(`[criterion 3 / straggler rule] ${judgementReading}`)
+    // **`stragglers` takes tasks that are in flight, and cannot check that they are.** It
+    // reads `now - startedAt` and nothing else, so a dispatch that had already answered
+    // would be named on the strength of its start time alone — the elapsed it computes is
+    // then a number about a task that was never a candidate. Found by planting: swapping a
+    // healthy, long-since-settled dispatch in for the solo one left this block **green**,
+    // because that dispatch also started at the top of the job. So the precondition the
+    // predicate assumes is asserted here rather than assumed, and it is half the claim:
+    // the solo shard was *still running* when the scheduler looked, and had been running
+    // long enough to clear the threshold. Either half alone proves nothing.
+    for (const [name, d] of frozenDispatches) {
+      expect(
+        d.settledAt as number,
+        `the ${name} frozen dispatch had already settled when the first duplicate went out, ` +
+          `so it was not in flight to be judged. ${judgementReading}`,
+      ).toBeGreaterThan(judgedAt)
+    }
+    const judgedStragglers = stragglers(inFlightAtJudgement, judgedAt, {
+      completed: completedByJudgement,
+    })
+    // The public shard's membership is near-tautological — the scheduler duplicated it, so
+    // the shipped predicate fed the scheduler's own inputs had better agree — and that is
+    // exactly why it is asserted: it is the check that this reconstruction of `judgedAt` and
+    // of the sample is the one the scheduler used. The solo owner's membership is the claim
+    // that carries CHURN-06, and it is the one that can fail.
+    expect(
+      [...judgedStragglers].map((t) => t.taskId).sort(),
+      `the production straggler rule did not name all three frozen dispatches. ${judgementReading}`,
+    ).toEqual(['paired', 'public', 'solo'])
     // No duplicate, anywhere in the job, landed on a node belonging to a different owner
     // from the shard it copied. Read across every duplicate rather than only the two named
     // above, so a sovereign leak on any shard is caught here.
