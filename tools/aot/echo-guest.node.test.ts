@@ -368,8 +368,19 @@ describe.skipIf(!MEASURABLE)('a guest a translated artifact can finish a job wit
       const helloKey = await recomputeKey(helloGuest)
 
       expect(echoKey.inputDigest).not.toBe(helloKey.inputDigest)
+      // `target` **cannot** differ: both sides read the same imported constant in the
+      // same process, so this line carries no evidence and is not offered as any. It is
+      // here to make the set of covered inputs visible beside the one that moved, and it
+      // is labelled rather than deleted because a reader who found three equalities and
+      // one inequality would otherwise read all four as evidence.
       expect(echoKey.target).toBe(helloKey.target)
+      // `toolchain` is different: the two records are parsed out of two separate CLI
+      // stdouts, so this one can fail and does mean something.
       expect(echoKey.toolchain).toEqual(helloKey.toolchain)
+      // Equal here, measured rather than assumed — if a future guest moved the feature
+      // set too, `inputDigest` would no longer be the *one* input that moved and this
+      // case's whole claim would need restating.
+      expect(echoKey.features).toEqual(helloKey.features)
 
       expect(runOf(echoGuest, 'echo').printedKeyCid).not.toBe(
         runOf(helloGuest, 'hello').printedKeyCid,

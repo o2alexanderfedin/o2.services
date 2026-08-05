@@ -67,6 +67,17 @@ export { ELFCONV_IMAGE_TAG } from './lift.ts'
  * lift, all of which would be innocent. The loops cost four lines and remove that whole
  * class of misdirection.
  *
+ * **And neither loop is exercised by anything in this repository, which is stated rather
+ * than left to be assumed.** `echo-guest.node.test.ts` runs one shard whose input block
+ * is **13 bytes** — measured 2026-08-04 by reading `.length` off
+ * `encodeCanonical({n: 1, tag: 'echo'}).bytes` — so `read` returns the whole block on its
+ * first call and `write` takes all of it in one. Changing `while (put < got)` to
+ * `while (put < got - 1)` was planted against that spec and **left it green**, because a
+ * single full write satisfies both bounds. The loops are correctness for an input nobody
+ * has yet sent; they are not a claim this spec supports. What the spec *does* prove is
+ * that the bytes leaving this guest are the bytes that arrived: flipping one bit of the
+ * last byte was planted and observed red on the value itself.
+ *
  * The buffer is `static` rather than automatic so it lands in `.bss` instead of on the
  * stack: the lifted code's stack discipline is elfconv's, not clang's, and a 64 KiB
  * frame is a thing to not find out about at runtime.
