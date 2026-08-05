@@ -471,7 +471,28 @@ const HAVE_IMAGE = imageIsPresent()
  */
 describe('the command a person types names what it produced, and refuses a borrowed name', () => {
   const CLI = fileURLToPath(new URL('./cli.ts', import.meta.url))
-  const BORROWED_TAG = 'o2-local/elfconv:borrowed'
+  /**
+   * The borrowed name, made unique to this process.
+   *
+   * **The repository half is the subject and is fixed; the tag half is not, and sharing it
+   * was a defect.** A tag is global state inside the Docker daemon, not state inside this
+   * run, so a fixed `:borrowed` is one name that every concurrent run of this suite on the
+   * host writes to and deletes. Two of them interleave as: both `docker tag` (the second
+   * silently succeeding, because tagging is idempotent), both set `borrowedTagExists`, the
+   * first `afterAll` removes the tag, and the second throws
+   * `Error: Command failed: docker rmi o2-local/elfconv:borrowed` — reddening a file for a
+   * reason that has nothing to do with the code it tests. Measured on 2026-08-05 by running
+   * two `--project node` suites at once: one run passed 151/151, the other failed here.
+   * That is the same shape as the `git status` snapshot specs, and this repository already
+   * treats concurrent agents on one host as the normal condition.
+   *
+   * `process.pid` removes the sharing rather than tolerating it, so neither run can see or
+   * delete the other's tag and the `afterAll` keeps its assertion that cleanup did not cost
+   * the host the six gigabytes. Nothing here reads the tag: every assertion in this case is
+   * over `RepoDigests`, which are keyed by **repository** — `o2-local/elfconv@sha256:…` —
+   * and the repository is what makes the name borrowed.
+   */
+  const BORROWED_TAG = `o2-local/elfconv:borrowed-${process.pid}`
   let borrowedTagExists = false
 
   /** The subject: 192 bytes the pre-screen accepts. Nothing here reaches a real lifter. */
