@@ -51,6 +51,8 @@ async function relayingNode(
   options: { maxReservations?: number } = {},
 ): Promise<FabricNode> {
   return FabricNode.start({
+    relayAdmission: 'admits-any-peer',
+    startReporting: 'reports-its-own-start',
     listen: ['/ip4/127.0.0.1/tcp/0/ws'],
     // DET-03: this file's subject is that relaying is derived from the listen list and
     // that a relayed node is not a lesser node — every dispatch here is in-process on
@@ -318,6 +320,8 @@ describe('the rule: relaying and executing are the same node', () => {
     // A peer in the browser's position: no address of its own, reachable only
     // through `both`.
     const guest = await FabricNode.start({
+      relayAdmission: 'admits-any-peer',
+      startReporting: 'reports-its-own-start',
       listen: [],
       relayAddrs: [address],
       rpcTimeoutMs: 30_000,
@@ -364,6 +368,8 @@ describe('the rule: relaying and executing are the same node', () => {
     started.push(host)
 
     const guest = await FabricNode.start({
+      relayAdmission: 'admits-any-peer',
+      startReporting: 'reports-its-own-start',
       listen: [],
       relayAddrs: [host.browserDialableAddrs[0]!],
       rpcTimeoutMs: 30_000,

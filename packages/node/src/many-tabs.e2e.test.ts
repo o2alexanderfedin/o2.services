@@ -43,6 +43,8 @@ beforeAll(async () => {
   // DET-03: relays, executes nothing — the subject is how many tabs can hold a
   // reservation, not provenance. See `background-tab.e2e.test.ts` for the full note.
   relay = await FabricNode.start({
+    relayAdmission: 'admits-any-peer',
+    startReporting: 'reports-its-own-start',
     maxReservations: 32,
     listen: ['/ip4/127.0.0.1/tcp/0/ws'],
     trustAnchors: 'runs-unsigned-artifacts',

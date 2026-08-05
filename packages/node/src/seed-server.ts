@@ -103,6 +103,33 @@ export interface SeedServerOptions {
    * binary above it is what supplies them.
    */
   readonly trustAnchors: FabricNodeOptions['trustAnchors']
+  /**
+   * Provider keys whose certificates this seed accepts from a peer — AUTH-02.
+   *
+   * **A different pinning from {@link SeedServerOptions.trustAnchors} above, and
+   * conflating the two is the mistake this field exists to prevent.** An anchor says whose
+   * *build* records this seed will run a module for (DET-03); an issuer says whose
+   * *enrollment* signature it will believe about a peer (AUTH-02). A module and a peer are
+   * different subjects, and a key pinned for one says nothing about the other — so one
+   * line cannot carry both, and overloading `trustAnchors` would silently make a seed's
+   * build authority into its identity authority.
+   *
+   * Optional, and passed straight through to {@link FabricNodeOptions.trustedIssuers},
+   * where the meaning of omitting it is documented in full: a seed that pins nobody
+   * verifies nobody and treats every connected peer as usable, which is what every node in
+   * this repository did before this option existed. That is a **stated** absence rather
+   * than a safe default, and it is not defaulted here for the same reason `trustAnchors`
+   * is not.
+   *
+   * **This is a selection gate, not an admission one, and the difference matters here more
+   * than anywhere else.** Pinning an issuer changes which peers this seed will fetch a
+   * *block* from. It does **not** decide who may join: this seed keeps granting circuit
+   * reservations to every peer that completes a handshake, and keeps publishing all of
+   * them through `BootstrapInfo.peerAddrs`. Who gets *in* is
+   * {@link FabricNodeOptions.relayAdmission}, which the construction below states as open
+   * and which nothing reads yet.
+   */
+  readonly trustedIssuers?: FabricNodeOptions['trustedIssuers']
   readonly maxReservations?: number
   /**
    * Hostnames the page may be requested by.
@@ -228,11 +255,40 @@ export class SeedServer {
     // listen list rather than from an option, so there is nothing further to switch
     // on.
     const node = await FabricNode.start({
+      // AUTH-02 — **the door this seed holds open, stated by name rather than by
+      // omission.** A seed binds a real listening socket, so it relays, so this value is
+      // the one that will decide who may join through it once something reads it. Nothing
+      // does yet.
+      //
+      // `'admits-any-peer'` is what this process does today and is written here rather
+      // than derived from `trustedIssuers` below, because the two are different questions
+      // and collapsing them would be the mistake that field exists to prevent: pinning an
+      // issuer says whose certificate this node *believes about a peer it is already
+      // talking to*, and this says who is let in at all. A seed that pinned issuers and
+      // silently closed its door would strand every browser tab that had not yet enrolled
+      // — and a relay that pins issuers must serve enrolment itself or name a reachable
+      // provider, which is a deployment requirement stated in full at `RelayAdmission`.
+      //
+      // Pinning it is a later decision and is deliberately not taken here.
+      relayAdmission: 'admits-any-peer',
+      // BROW-01 — open, and on this node the reason is sharper than on the agent. A seed
+      // is what every tab in the fabric reserves on, so it is the one peer a blocked
+      // visitor is most likely to have reached; a seed that withheld its own row would
+      // subtract the single most-connected data point from the metric that exists to show
+      // where visitors are being blocked. Nothing about the machine travels with it: the
+      // row is `other`, the coarsest label the range has.
+      startReporting: 'reports-its-own-start',
       blockstoreDir: options.blockstoreDir,
       listen: [`/ip4/0.0.0.0/tcp/${wsPort}/ws`, '/ip4/0.0.0.0/tcp/0'],
       maxReservations: options.maxReservations ?? 64,
       // Straight through, never defaulted here — see `SeedServerOptions.trustAnchors`.
       trustAnchors: options.trustAnchors,
+      // AUTH-02, straight through and **never merged with the line above**. The
+      // conditional spread is required by `exactOptionalPropertyTypes`, which makes an
+      // absent key and an explicit `undefined` different types — the same idiom
+      // `bin/agent.ts` uses to thread its own `--trusted-issuer`, so a seed that was told
+      // nothing pins nothing rather than pinning an empty set.
+      ...(options.trustedIssuers === undefined ? {} : { trustedIssuers: options.trustedIssuers }),
     })
     undo.push(() => node.stop())
 

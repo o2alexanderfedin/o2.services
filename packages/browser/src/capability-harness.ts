@@ -159,6 +159,14 @@ export function installCapabilityHarness(): void {
         trustAnchors: [...options.trustAnchors],
         sovereignty: options.sovereignty,
         whenSeedIsGone: options.whenSeedIsGone,
+        // BROW-01, and this harness states the open value rather than growing an option
+        // for it. Nothing in the capability fixtures reads a start report, so the row is
+        // never looked at either way; what the choice has to be is *truthful*, and a
+        // harness node is one this file started on purpose rather than a visitor who was
+        // asked. Withholding here would also be the wrong default to normalise — it is a
+        // person's answer, not a test convenience, and `demo/main.ts` is the only site in
+        // this repository that derives it from one.
+        startReporting: 'reports-its-own-start',
         // The `Uint8Array` is rebuilt here — see `HarnessStartOptions.enrollment`.
         ...(options.enrollment === undefined
           ? {}

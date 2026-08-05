@@ -88,13 +88,55 @@
  * ## Packaging, stated because it is a finding and not a design
  *
  * This module imports nothing Node-only: `@libp2p/interface` types, `@o2/core`,
- * `@o2/libp2p` and `@o2/net`, all of which `@o2/browser` already depends on. It lives in
- * `@o2/node` because that is where Plan 17-04 put it, and `@o2/browser` does not depend on
- * `@o2/node` — so the browser tier cannot currently construct one. That is a **packaging**
- * fact, not a capability one, and moving this file to `@o2/net` is a barrel change with no
- * code change. Until that happens, peer verification is measured for the Node tier and
- * UNMEASURED for the browser tier. Nothing here reads what kind of node a peer is; there
- * is no field to branch on.
+ * `@o2/libp2p` and `@o2/net`. It lives in `@o2/node` because that is where Plan 17-04 put
+ * it, and `@o2/browser` does not depend on `@o2/node` — so **the browser tier still cannot
+ * construct one, and browser-tier verification is still UNMEASURED.** That is a
+ * **packaging** fact, not a capability one. Nothing here reads what kind of node a peer is;
+ * there is no field to branch on.
+ *
+ * ### The destination this paragraph used to name is impossible — measured 2026-08-04
+ *
+ * It read: *"moving this file to `@o2/net` is a barrel change with no code change"*. That
+ * is **false**, and it was false for a reason the sentence did not consider: it checked
+ * *"nothing Node-only"*, and `@o2/net`'s bar is stricter than that.
+ *
+ * `purity.node.test.ts` lists `net` in `PORTABLE` and refuses the specifier pattern
+ * `/^@libp2p\//` there outright — *"libp2p modules belong in an adapter package"* — because
+ * the portable tier must also work over the in-process `MemoryNetwork` transport, not
+ * merely in a browser. This module imports `@libp2p/interface`, so the move reddens that
+ * guard by name. Four separate comments in `packages/net` already say the same thing about
+ * the sibling half (`reduce-job.ts`: *"that derivation lives in `@o2/libp2p`, which
+ * `@o2/net` may not import"*; also `discover-candidates.ts`, `capability-authorizer.ts`,
+ * `start-report.test.ts`, the last of which calls the edge *"the wrong direction"*).
+ *
+ * ### The honest destination, and what it actually costs
+ *
+ * **`@o2/libp2p`.** It is the dual-target middle tier — permitted to use libp2p, forbidden
+ * `node:` and `@o2/node` — and *both* `@o2/node` and `@o2/browser` already depend on it, so
+ * it delivers exactly what the move was for without `@o2/browser` acquiring `@o2/node`.
+ * `nodeKeyForPeerId` is already there, so that import becomes relative.
+ *
+ * It is **not** free, and the price is why it was not taken inside Plan 24-01:
+ *
+ *   - `@o2/libp2p` gains a dependency on `@o2/net`, a package edge that does not exist
+ *     today. It is acyclic — nothing under `packages/net/src` imports `@o2/libp2p`, only
+ *     names it in prose — and it is the permitted direction, but it is a new edge and not a
+ *     barrel line.
+ *   - Three `mutation-ledger.ts` entries (`M33`, `M34`, `M35`) are keyed on this file's
+ *     path, and `mutation-guard.node.test.ts` reads each `entry.file` off disk. Moving the
+ *     file without repointing all three reddens that guard. `mutation-ledger.ts` is owned
+ *     by an unexecuted plan in Phase 20 at the time of writing.
+ *
+ * ### The instrument that sees this, which is not `tsc`
+ *
+ * Recorded because the obvious check does not work and somebody will otherwise rely on it.
+ * Planting `import { PeerVerifier } from '@o2/node'` into `browser-node.ts` and running
+ * `npx tsc --noEmit` exits **0** — hoisted `node_modules` resolves the specifier whatever
+ * `packages/browser/package.json` declares. The instrument that refuses it is
+ * `purity.node.test.ts`, which reports *"packages/browser/src/browser-node.ts imports
+ * \"@o2/node\" — a dual-target package must not depend on the Node adapters"*. A
+ * before/after reading taken with `tsc` alone would pass in both directions and establish
+ * nothing.
  */
 
 import { verifyCertificate } from '@o2/core'
@@ -311,6 +353,24 @@ export class PeerVerifier {
    * request the same call may have just issued — a re-ask in flight leaves the *old*
    * verdict standing, and a peer under re-verification therefore stays excluded until it
    * verifies. Fail-closed is preserved across the retry, not merely at the first ask.
+   *
+   * ## The relay does not share this reading, and the difference is a type
+   *
+   * The first line below is **fail-open**: pinned nobody ⇒ trust everybody. That is
+   * deliberate here and is what makes *"a node with no trust anchors has no verdicts"* true
+   * by construction — see the module comment's "why a node that pins nobody does no work at
+   * all". It is also **confined to this gate, which decides who to *use*.**
+   *
+   * `RelayAdmission` (`@o2/libp2p`) decides who gets *in*, and it never reads an empty set
+   * as permission: an empty set there admits nobody, and the open posture has its own name,
+   * `'admits-any-peer'`. So the two mechanisms do not read one value two ways — they read
+   * **different types**, which is the entire reason that one is a union rather than a set.
+   *
+   * **Do not "fix" this early return to match it.** Flipping it globally breaks every
+   * unpinned node in this repository and re-opens a fabric-wide behaviour that was already
+   * ruled on. The matching half of this paragraph is written at `RelayAdmission`'s own
+   * docblock, because an asymmetry recorded at only one of two lines gets reverted from the
+   * other.
    */
   get verifiedPeers(): readonly string[] {
     if (this.#trustedIssuers.size === 0) return this.#peers()

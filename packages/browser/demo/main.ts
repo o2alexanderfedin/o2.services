@@ -18,13 +18,22 @@
  *
  * **Two corrections to what this paragraph used to say, both measurable here.**
  * `start` does not take a `GrantedConsent`: its signature is
- * `start(options: { relayAddrs, blockstoreName, trustAnchors? })` and `requireConsent()`'s
- * return value is discarded below. And `grantConsent` is not the only minter —
- * `requireConsent` goes through `readConsent(store)`, which mints one of its own from a
- * record already on disk (`consent.ts:154`), so a returning visitor starts with
- * `grantConsent` never running. What is true, and what the gate actually rests on, is
- * that `new GrantedConsent(...)` is reachable at two places only, both inside
- * `consent.ts` and both behind a module-private `MINTED` symbol.
+ * `start(options: { relayAddrs, blockstoreName, trustAnchors? })`, and the visitor's
+ * consent reaches the node from `requireConsent()`'s **return value** rather than from a
+ * parameter. And `grantConsent` is not the only minter — `requireConsent` goes through
+ * `readConsent(store)`, which mints one of its own from a record already on disk
+ * (`consent.ts:154`), so a returning visitor starts with `grantConsent` never running.
+ * What is true, and what the gate actually rests on, is that `new GrantedConsent(...)` is
+ * reachable at two places only, both inside `consent.ts` and both behind a module-private
+ * `MINTED` symbol.
+ *
+ * **That return value used to be discarded, and BROW-01 is what it cost.** A visitor's
+ * `reportingAllowed` reached the *request* path — `startReport` sends `outcome: null` for
+ * somebody who declined — and reached nothing else, so the node this function built
+ * recorded that visitor's browser family into the ledger it serves peers and answered
+ * every `report` request with it. The page withheld the line and the node sent it. The
+ * value is now handed to `BrowserNode.start` as `startReporting`, which is a required
+ * option there precisely so that no future call site can build a node without answering.
  *
  * Nothing here touches the network before that call either — not even relay
  * discovery, which fetches `/bootstrap.json`. The requirement names CPU; the owner's
@@ -403,7 +412,12 @@ const api: TabApi = {
   },
 
   async start(options) {
-    requireConsent()
+    // BROW-01 — **the return value is used, and that is the fix.** It is the same
+    // `GrantedConsent` the gate rests on, so the node below is built from the record the
+    // visitor actually answered rather than from module state that a later call could
+    // have moved. `consent` above is assigned from the same read and is what the
+    // *request* path consults; this is the one the node is constructed with.
+    const granted = requireConsent()
     // Probe before attempting, so a missing capability is a fact about this browser
     // rather than an inference from an error message.
     const environment = probeEnvironment()
@@ -433,6 +447,21 @@ const api: TabApi = {
         // There is no value passable through `window.o2` that turns the check off. The
         // parameter is a list of keys or nothing; see `TabApi.start`.
         trustAnchors: options.trustAnchors ?? [KERNEL_TRUST_ANCHOR],
+        // BROW-01 — the visitor's own answer to `DISCLOSURE.reporting`, carried to the one
+        // place that decides whether a row about this device is ever recorded. Written as
+        // a ternary over the two named values rather than passed as a boolean, because the
+        // option is a union whose members say what they do: a reader of this line does not
+        // have to know which way round `true` means.
+        //
+        // **No `options` key for this and there must not be one.** `TabApi.start` takes
+        // relays, a store name and anchors; a parameter here would let whatever called
+        // `window.o2.start` — a harness, a discovered page, an embedding host — answer the
+        // disclosure on the visitor's behalf, which is the whole of what BROW-01 forbids.
+        // The same argument `trustAnchors` above makes about configuration, applied to the
+        // one field where the answer is not the operator's to give.
+        startReporting: granted.reportingAllowed
+          ? 'reports-its-own-start'
+          : 'withholds-its-own-start',
         // AUTH-01, and the reason is the visitor: this page is opened by somebody who did
         // not provision anything, so the first start has no seed and every later one may
         // have lost it to an eviction nobody was told about. Refusing to start would hand

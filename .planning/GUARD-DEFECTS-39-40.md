@@ -1,15 +1,14 @@
-# Guard defects #39 and #40 — investigated 2026-08-04, NOT YET FIXED
+# Guard defects #39 and #40 — investigated 2026-08-04. BOTH FIXED.
 
-Read-only investigation, run while four executors held the tree. The fix is deliberately
-**not applied yet**: editing the pre-commit hook and five guard specs while four agents are
-committing through them could break all four at once, and would make any red they hit
-un-attributable. Apply when the tree is quiet, and **re-measure §4 first** — the "no verdict
-differs today" reading below was taken before Phase 20 wave 1 and Phase 21 wave 2 landed.
+Read-only investigation, run while four executors held the tree. **#40 landed 2026-08-04**
+(`80b4e50`, `285a3eb`): one shared tokenizer in `packages/node/src/strip-comments.ts`, six
+strippers migrated. **#39 landed 2026-08-04** — see *What was applied for #39* at the foot of
+this file for what was built, what was deliberately left alone, and the readings taken.
 
 **Sequence: #40 before #39.** #40 is a correctness defect (guards silently miss), #39 is an
 availability defect (guards block the wrong person). A guard that misses is worse than a guard
-that over-blocks. They also both edit `requirements-ledger.node.test.ts`, so they cannot run in
-parallel.
+that over-blocks. They also both edit `requirements-ledger.node.test.ts`, so they could not run
+in parallel.
 
 ---
 
@@ -176,6 +175,73 @@ Partition **`vocabulary` and `mutation-guard` only**. Those two account for the 
 ambiguity of `requirements-ledger`'s union or `slow-specs`'s file-count drift.
 
 ---
+
+## What was applied for #39, 2026-08-04
+
+The **full** change, not the narrower fallback. Five guards partition; `disclosure-gate` does
+not, and now says why in its own docblock. The fallback (`vocabulary` and `mutation-guard`
+only) was rejected for one reason: the design test *is* `requirements-ledger`'s, so a fix that
+left that guard whole would have been unable to demonstrate the case it exists to close.
+
+- `packages/node/src/commit-scope.ts` — `commitScope()`, `parseCommitScope()`, `partition()`,
+  `blocking()`, `reportForeign()`, `isLsFilesForm()`, `pathFormProblems()`, `trackedPaths()`.
+- `.githooks/pre-commit` — writes the staged paths to a `mktemp` file with
+  `git diff-index --cached --name-only --no-relative --no-renames --diff-filter=ACMRD -z`, and
+  exports `O2_COMMIT_PATHS_FILE`. `--no-relative` was added beyond the design: `diff.relative`
+  in a user's config would otherwise make the paths cwd-relative and every finding foreign.
+- Partitioned: `vocabulary`, `purity`, `mutation-guard`, `requirements-ledger`, `slow-specs`.
+
+### The four properties, as they were measured on this machine rather than assumed
+
+- **NUL concatenation.** `/bin/bash` here is **3.2.57**, not 5.3.9 — this hook's shebang is
+  `#!/bin/bash`. `printf 'a.ts\0b.ts\0' > list; V=$(cat list); echo ${#V}` gives **8**, i.e.
+  `a.tsb.ts`. Confirmed, and the comment sits at the assignment site.
+- **`ACMR` omits deletions, rename detection hides the old path.** Measured on git 2.33.0
+  against a staged delete plus a staged rename: `ACMR` printed `renamed.ts` alone;
+  `ACMRD --no-renames -z` printed `keep.ts`, `new.ts`, `renamed.ts`; with `-M` the old path
+  `new.ts` was absent. `git rev-parse --verify HEAD` fails on an empty repository and
+  `git hash-object -t tree /dev/null` gives `4b825dc…`.
+- **Absence means strict** — five arms, all blocking; see the readings below.
+- **The union rule** — the finding names the ledger *and* every caller. `commit-scope`'s own
+  spec carries a case that **watches the single-path form fail open** rather than forbidding
+  it in prose, so reducing `paths` to `path` is a change somebody has to make against a test
+  that already demonstrates its cost.
+
+### The readings, from the planted `runResilient` case
+
+`runResilient` is `translationCid`'s live equivalent: seven rows (`SCHED-03`, `CHURN-01`…`06`)
+claim it has no production caller. A caller was planted in `packages/node/src/orphan-leash.ts`
+and restored with `cp` + `cmp` immediately after.
+
+| arm | scope | exit | observed |
+|---|---|---|---|
+| the author of the caller | `packages/node/src/orphan-leash.ts` | **1** | all seven rows named, `expected [ …(7) ] to deeply equal []` |
+| the author of the row | `.planning/REQUIREMENTS.md` | **1** | same seven — the union's other half |
+| a planner, plan documents only | `…/21-04-PLAN.md` | **0** | seven printed under `⚠️ requirements-ledger/no-caller … commit scope: 1 path(s)` |
+| no variable set | — | **1** | seven |
+| empty file / `/dev/null` | — | **1** | seven |
+| file absent | — | **1** | seven |
+| newline-separated (the missing `-z`) | — | **1** | fails **closed**, not open |
+
+End-to-end through the real hook with the plant staged: `E2E_ARM_A_HOOK_EXIT=1`, *a cheap
+guard failed — commit refused*. With only this document staged and the plant left unstaged in
+the working tree: exit 0. `process.stderr.write` survives `--silent=true`, as recorded.
+
+### Two things done differently from the design, both stated because they are weaker
+
+- **`slow-specs`'s file-count drift is deliberately over-attributed.** `MEASURED_NODE_SPANS`
+  records ~40 spans for a run that covered 144 files, so nothing here can say *which* files
+  moved the count. The finding therefore names `vitest.config.ts` and the whole node test
+  population. That holds somebody who merely edited an existing spec — but the alternative,
+  naming the config alone, would mean it stops holding the people whose files moved the count,
+  which is not narrowing but switching off. A documentation, plan-document or
+  production-source commit still passes, and those are what the recorded skips were.
+- **The per-guard round trip is a floor, not an equality, wherever the corpus is a filesystem
+  walk.** `purity`, `requirements-ledger` and `slow-specs` read the tree rather than the index,
+  so a concurrent agent's untracked source file legitimately appears in their corpus. An
+  equality would redden those guards for a file that is not this commit's — the defect being
+  fixed, reintroduced by its own check. `mutation-guard`'s paths are hand-typed and
+  `vocabulary`'s come from `git ls-files`, so both of those *are* equalities.
 
 ## Before applying: re-measure
 

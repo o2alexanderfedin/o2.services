@@ -39,9 +39,21 @@ export type { AgentOptions, AuthorizedWork, Authorizer, CombineWork } from './ag
 export { authorizeCapability } from './capability-authorizer.ts'
 export type { CapabilityAuthorizerOptions } from './capability-authorizer.ts'
 
-// Dispatching a shard over RPC with the failure kind preserved — CHURN-01.
+// Dispatching a shard over RPC with the failure kind preserved — CHURN-01, NET-09.
+//
+// `remoteDispatch` has NO production caller: `runResilient` was its only one and Plan
+// 20-12 deleted it, while `submitJob` structurally cannot use it. It is kept because it
+// holds NET-09's `'sender'` classification, which exists nowhere else, and the debt is
+// named with its owner phase in the module's own header. The three types below moved here
+// from `@o2/core`'s deleted `coordinator.ts` in the same plan — this is the only module
+// that still reads them.
 export { remoteDispatch } from './churn.ts'
-export type { RemoteDispatchOptions } from './churn.ts'
+export type {
+  DispatchOutcome,
+  RemoteDispatchOptions,
+  ShardDispatch,
+  ShardWork,
+} from './churn.ts'
 
 // Dispatching a combine over RPC — MR-05, MR-06.
 export { LocalStoreWriteFailed, remoteCombineDispatch } from './combine.ts'

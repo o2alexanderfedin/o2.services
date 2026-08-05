@@ -345,6 +345,8 @@ async function standUp(): Promise<Fixture> {
   expect(provider.child.exitCode !== null || provider.child.signalCode !== null).toBe(true)
 
   const requestor = await FabricNode.start({
+    relayAdmission: 'admits-any-peer',
+    startReporting: 'reports-its-own-start',
     blockstoreDir: join(workdir, 'requestor'),
     listen: ['/ip4/127.0.0.1/tcp/0'],
     rpcTimeoutMs: 20_000,
@@ -574,6 +576,8 @@ describe('a node nobody enrolled says so, rather than being unable to answer', (
     // is that a certificate-less node still runs, still answers, and states what it signs
     // — which is the half a branch would also get right and an omission would not.
     const node = await FabricNode.start({
+      relayAdmission: 'admits-any-peer',
+      startReporting: 'reports-its-own-start',
       blockstoreDir: join(workdir, 'unenrolled'),
       listen: ['/ip4/127.0.0.1/tcp/0'],
       trustAnchors: 'runs-unsigned-artifacts',

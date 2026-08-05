@@ -4,6 +4,7 @@ import { readdir } from 'node:fs/promises'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
+import { blocking, commitScope, pathFormProblems, trackedPaths } from './commit-scope.ts'
 
 /**
  * The portability invariant, enforced structurally.
@@ -16,9 +17,25 @@ import { describe, expect, it } from 'vitest'
  *
  * So the rule is checked rather than remembered: the portable packages may not
  * reference a platform. `@o2/node` exists to hold everything that must.
+ *
+ * ## Scanned across every portable package, blocking on the commit
+ *
+ * The scan is unchanged and stays whole-package. What narrowed on 2026-08-04 is only what
+ * a *commit* is refused for. A forbidden import is an exact, single-path fact — the file
+ * that writes the import is the file that has to unwrite it, and no union applies — so
+ * narrowing here costs nothing and stops this guard holding an agent editing `@o2/node`
+ * for an import somebody else is mid-way through adding to `@o2/core`.
  */
 
 const ROOT = fileURLToPath(new URL('../../..', import.meta.url))
+
+/**
+ * The commit these findings are judged against, or `NO_COMMIT_SCOPE` outside a commit.
+ *
+ * Absence is strict: under `npm test` or a verifier every violation in every portable
+ * package blocks, exactly as before.
+ */
+const SCOPE = commitScope()
 
 /**
  * Packages that must run unchanged in Node, a browser, and a Worker — and must not
@@ -163,24 +180,46 @@ function violationsIn(label: string, source: string, rules: readonly Rule[]): st
   return found
 }
 
+/**
+ * Repo-relative POSIX, which is the form `git ls-files` prints and a commit scope holds.
+ *
+ * `ROOT` carries a trailing slash, so the slice already drops the separator. This is the
+ * one expression the whole narrowing depends on being right, and it is factored out so
+ * that the round-trip case below reads the same code the findings do rather than a copy
+ * of it.
+ */
+function relativeTo(absolute: string): string {
+  return absolute.slice(ROOT.length)
+}
+
+/** The manifest of one package, as a path a commit can name. */
+function manifestPath(pkg: string): string {
+  return `packages/${pkg}/package.json`
+}
+
 describe('portability of @o2/core and @o2/net', () => {
   for (const pkg of PORTABLE) {
     it(`@o2/${pkg} references no platform-specific module`, async () => {
       const files = await sourceFiles(rootsOf(pkg))
       expect(files.length).toBeGreaterThan(0)
 
-      const violations: string[] = []
+      const violations: { paths: string[]; line: string }[] = []
       let specifiers = 0
       for (const file of files) {
         const source = readFileSync(file, 'utf8')
         specifiers += specifiersOf(source).length
-        violations.push(...violationsIn(file.slice(ROOT.length), source, FORBIDDEN))
+        const relative = relativeTo(file)
+        // One path, exactly: an import is written in one file and removed from that same
+        // file. Nothing else participates, so there is no union to take.
+        violations.push(
+          ...violationsIn(relative, source, FORBIDDEN).map((line) => ({ paths: [relative], line })),
+        )
       }
 
       // The file list being non-empty is not the same as the *specifier* list being
       // non-empty, and it is the specifier list the verdict below is computed from.
       expect(specifiers, `${pkg}: read files but extracted no imports`).toBeGreaterThan(0)
-      expect(violations).toEqual([])
+      expect(blocking(`purity/${pkg}`, violations, SCOPE)).toEqual([])
     })
 
     it(`@o2/${pkg} declares no platform-specific dependency`, () => {
@@ -188,10 +227,10 @@ describe('portability of @o2/core and @o2/net', () => {
         readFileSync(join(ROOT, 'packages', pkg, 'package.json'), 'utf8'),
       ) as { dependencies?: Record<string, string> }
 
-      const offending = Object.keys(manifest.dependencies ?? {}).filter((name) =>
-        FORBIDDEN.some(({ pattern }) => pattern.test(name)),
-      )
-      expect(offending).toEqual([])
+      const offending = Object.keys(manifest.dependencies ?? {})
+        .filter((name) => FORBIDDEN.some(({ pattern }) => pattern.test(name)))
+        .map((name) => ({ paths: [manifestPath(pkg)], line: name }))
+      expect(blocking(`purity/${pkg}/manifest`, offending, SCOPE)).toEqual([])
     })
   }
 })
@@ -202,15 +241,21 @@ describe('dual-target packages touch no platform', () => {
       const files = await sourceFiles(rootsOf(pkg))
       expect(files.length).toBeGreaterThan(0)
 
-      const violations: string[] = []
+      const violations: { paths: string[]; line: string }[] = []
       let specifiers = 0
       for (const file of files) {
         const source = readFileSync(file, 'utf8')
         specifiers += specifiersOf(source).length
-        violations.push(...violationsIn(file.slice(ROOT.length), source, NO_PLATFORM))
+        const relative = relativeTo(file)
+        violations.push(
+          ...violationsIn(relative, source, NO_PLATFORM).map((line) => ({
+            paths: [relative],
+            line,
+          })),
+        )
       }
       expect(specifiers, `${pkg}: read files but extracted no imports`).toBeGreaterThan(0)
-      expect(violations).toEqual([])
+      expect(blocking(`purity/${pkg}`, violations, SCOPE)).toEqual([])
     })
   }
 
@@ -242,7 +287,9 @@ describe('the kernel does not depend on its adapters', () => {
     ) as { dependencies?: Record<string, string> }
 
     const deps = Object.keys(manifest.dependencies ?? {})
-    expect(deps.filter((name) => name.startsWith('@o2/'))).toEqual([])
+      .filter((name) => name.startsWith('@o2/'))
+      .map((name) => ({ paths: [manifestPath('core')], line: name }))
+    expect(blocking('purity/core/dependency-direction', deps, SCOPE)).toEqual([])
   })
 
   it('is checked into git, so the Phase 2 claim stays reproducible', () => {
@@ -307,6 +354,28 @@ describe('the scanner can fail — proved against planted source, not assumed', 
     // The other direction. A classifier that flagged everything would also turn the
     // planted cases above green while being useless.
     expect(violationsIn('planted.ts', "import { publicNodes } from '@o2/core'\n", FORBIDDEN)).toEqual([])
+  })
+
+  it('emits repo-relative POSIX paths that a commit scope can match', async () => {
+    // The residual fail-open of narrowing, checked from this guard's end. `relativeTo` is
+    // one character away from emitting `/packages/…`: well-formed as a string, matching
+    // no commit scope, and every violation in every portable package would then read as
+    // somebody else's with no red and no output anywhere.
+    //
+    // A floor rather than an equality on membership, because `sourceFiles` walks the
+    // filesystem rather than the index and a concurrent agent's untracked source file
+    // legitimately appears. An equality would redden this guard for a file that is not
+    // this commit's — which is the defect being fixed, reintroduced by its own check.
+    const tracked = trackedPaths(ROOT)
+    const attributable = [
+      ...(await sourceFiles(rootsOf('core'))).map(relativeTo),
+      ...PORTABLE.map(manifestPath),
+      ...DUAL_TARGET.map(manifestPath),
+    ]
+    expect(pathFormProblems(attributable)).toEqual([])
+    expect(attributable.filter((path) => tracked.has(path)).length).toBeGreaterThan(10)
+    expect(attributable).toContain('packages/core/package.json')
+    expect(attributable.some((path) => path.startsWith('packages/core/src/'))).toBe(true)
   })
 
   it('does not mistake a type annotation for an import', () => {

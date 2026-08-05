@@ -362,12 +362,79 @@ const machine = (hostId: string, roles: Machine['roles'] = ['worker']): Machine 
   runtime: 'node v23.11.0',
 })
 
+/**
+ * The units a label is allowed to name, each mapped to the value it must carry.
+ *
+ * `Inventory` counts two things, so a label may name two things. Singular and plural are
+ * both listed because the label pluralises and a reading that missed `1 host` would let
+ * half the label through unchecked.
+ */
+function countedUnits(inventory: Inventory): ReadonlyMap<string, number> {
+  return new Map([
+    ['node', inventory.nodeCount],
+    ['nodes', inventory.nodeCount],
+    ['host', hostCount(inventory)],
+    ['hosts', hostCount(inventory)],
+  ])
+}
+
+/** Every `<number> <word>` pair a label states, in order. */
+function quantities(label: string): readonly (readonly [number, string])[] {
+  return [...label.matchAll(/(\d+)\s+([A-Za-z]+)/g)].map(
+    (match) => [Number(match[1]), (match[2] as string).toLowerCase()] as const,
+  )
+}
+
 describe('BENCH-06 — the same-machine label is derived, not declared', () => {
   it('labels many nodes on one host as what they are', () => {
     const inventory: Inventory = { machines: [machine('laptop')], nodeCount: 16 }
     expect(isSameMachine(inventory)).toBe(true)
-    expect(machineLabel(inventory)).toContain('SAME-MACHINE')
-    expect(machineLabel(inventory)).toContain('not 16 nodes')
+    expect(machineLabel(inventory)).toBe(
+      'SAME-MACHINE: 16 nodes on 1 host — a node count, not a machine count',
+    )
+  })
+
+  /**
+   * **The reading that would have caught the 2026-08-04 noun swap.**
+   *
+   * The label read `16 processes on 1 host — not 16 nodes` from `677a6d2` (2026-07-26,
+   * the commit that introduced it) until 2026-08-04, while the only quantity anyone had
+   * counted was `nodeCount` — and it went into the published run of 2026-08-01 in five
+   * places. The two assertions that stood here could not catch it: one asked for the
+   * substring `SAME-MACHINE` and the other for `not 16 nodes`, so both were satisfied *by
+   * the falsehood itself* — the second was pinning it.
+   *
+   * So this reads structurally rather than by substring: pull every `<number> <unit>` pair
+   * out of the label and require each unit to be one the inventory actually carries, with
+   * the number it actually holds. A unit nothing counts fails whatever value follows it,
+   * which is the general form of the defect and not a ban on one word; a counted unit
+   * carrying the wrong number fails too. The `— a node count, not a machine count` clause
+   * is deliberately numeral-free: a denial is not a count, and giving it a numeral would
+   * make it indistinguishable here from a claim.
+   */
+  it('names no unit the inventory never counted', () => {
+    const inventories: readonly Inventory[] = [
+      { machines: [machine('laptop')], nodeCount: 16 },
+      { machines: [machine('laptop')], nodeCount: 1 },
+      { machines: [machine('laptop'), machine('phone'), machine('relay', ['relay'])], nodeCount: 3 },
+    ]
+
+    for (const inventory of inventories) {
+      const label = machineLabel(inventory)
+      const counted = countedUnits(inventory)
+      const stated = quantities(label)
+      // Anti-vacuity: a label with no numerals in it would pass the loop below without
+      // ever reading `counted`, so the loop's silence has to mean something first.
+      expect(stated.length).toBeGreaterThan(0)
+
+      const asStated = stated.map(([value, unit]) => `${value} ${unit}`)
+      const asCounted = stated.map(([value, unit]) => {
+        const actual = counted.get(unit)
+        if (actual === undefined) return `${value} ${unit} ← nothing in this run counted ${unit}`
+        return `${actual} ${unit}`
+      })
+      expect(asCounted).toEqual(asStated)
+    }
   })
 
   it('labels genuinely distinct machines as distinct', () => {

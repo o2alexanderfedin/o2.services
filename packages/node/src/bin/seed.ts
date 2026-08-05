@@ -25,6 +25,7 @@
 
 import { parseArgs } from 'node:util'
 import { KERNEL_TRUST_ANCHOR } from '@o2/demo'
+import { parseKeyHex } from '@o2/libp2p'
 import qrcode from 'qrcode-terminal'
 import { armOrphanLeash } from '../orphan-leash.ts'
 import { SeedServer } from '../seed-server.ts'
@@ -48,10 +49,48 @@ const { values } = parseArgs({
     // the very kernel it is serving would make DEMO-01 fail in the field with a refusal
     // nobody could read.
     'trust-anchor': { type: 'string', multiple: true },
+    // AUTH-02 — **a different flag for a different claim, and the separation is the whole
+    // point of it.** `--trust-anchor` above pins whose *build* records this seed will run a
+    // module for (DET-03). This pins whose *enrollment* signature it will believe about a
+    // peer. A module and a peer are different subjects, and a key pinned for one says
+    // nothing about the other, so neither flag may be folded into the other.
+    //
+    // Repeatable, with the identical `multiple: true` shape as `--trust-anchor` and as
+    // `bin/agent.ts`'s flag of the same name: pinning two providers is ordinary
+    // configuration and a comma-separated string would be a parser nobody asked for.
+    //
+    // Omitting it means this seed verifies nobody and treats every connected peer as
+    // usable, which is what every node did before this flag existed. That absence is
+    // stated in `FabricNodeOptions.trustedIssuers`, not defaulted here — which is why
+    // there is no `KERNEL_*` fallback on this line where `--trust-anchor` has one.
+    //
+    // **It gates block sources, not the door.** A seed given this flag still grants a
+    // circuit reservation to every peer that completes a handshake and still publishes all
+    // of them in `/bootstrap.json`. See `RelayAdmission` for who gets in.
+    'trusted-issuer': { type: 'string', multiple: true },
   },
 })
 
 const trustAnchors = values['trust-anchor'] ?? [KERNEL_TRUST_ANCHOR]
+
+/** How this binary refuses a flag it cannot use. Same shape and exit code as `bin/agent.ts`. */
+function refuse(reason: string): never {
+  process.stderr.write(`seed.ts: ${reason}\n`)
+  process.exit(2)
+}
+
+// `fromHex` does not validate and does not throw — it zero-fills. A mistyped
+// `--trusted-issuer` would otherwise produce a seed that refuses every peer as
+// `untrusted-issuer` with nothing anywhere reporting that the input was never hex, because
+// `publicKeyFromRaw` accepts 32 zero bytes as a perfectly good key. This is `bin/agent.ts`'s
+// validator, reached from the other binary rather than reimplemented, and the message names
+// **which** flag and **which** value was rejected so an operator who passed several does not
+// have to guess.
+for (const issuer of values['trusted-issuer'] ?? []) {
+  if (parseKeyHex(issuer) === null) {
+    refuse(`--trusted-issuer ${issuer} is not 64 lowercase hex characters`)
+  }
+}
 
 /**
  * The server, once it exists.
@@ -89,6 +128,10 @@ seed = await SeedServer.start({
   wsPort: Number(values['ws-port']),
   maxReservations: Number(values.reservations),
   trustAnchors,
+  // Absent adds no key at all — `exactOptionalPropertyTypes` makes an omitted key and an
+  // explicit `undefined` different types, and a seed told nothing must pin nothing rather
+  // than pin an empty set.
+  ...(values['trusted-issuer'] === undefined ? {} : { trustedIssuers: values['trusted-issuer'] }),
 })
 
 const line = (text = ''): void => {
@@ -132,6 +175,27 @@ line(
   `  trusts     ${trustAnchors.length} pinned anchor${trustAnchors.length === 1 ? '' : 's'}` +
     `${values['trust-anchor'] === undefined ? ' (the demo default — pass --trust-anchor to replace it)' : ' (from --trust-anchor)'}`,
 )
+// AUTH-02, and **printed as its own line saying its own noun**, because an operator who
+// reads only this banner must not be able to confuse the two pinnings. The line above says
+// what this node will *run*; this one says whose word it takes about *who a peer is*. They
+// are one word apart in the source and a world apart in what they authorise, so the output
+// spells the difference out rather than printing two counts of "trusted keys".
+//
+// The label is deliberately not "trusts": `trust-anchors.node.test.ts` finds the anchor
+// line by searching for that word, and a second line containing it would be found first
+// by half the runs and neither assertion would say which.
+const trustedIssuers = values['trusted-issuer'] ?? []
+line(
+  trustedIssuers.length === 0
+    ? '  issuers    none pinned — every connected peer is treated as usable (pass --trusted-issuer <hex>)'
+    : `  issuers    ${trustedIssuers.length} pinned certificate issuer${trustedIssuers.length === 1 ? '' : 's'} (from --trusted-issuer)`,
+)
+// Sub-decision 1's deployment requirement, said where an operator running the command
+// reads it rather than only in a planning document. It is a no-op today — this node admits
+// every peer and also answers enrolment — and it is printed anyway, because the moment a
+// deployment separates the provider from the relay it becomes the difference between a
+// fabric anyone can join and one nobody new can.
+line('  admits     every peer that completes a handshake (certificate-gated admission is not armed)')
 line()
 line('  Open on another device:')
 line(`    ${seed.joinUrl}`)

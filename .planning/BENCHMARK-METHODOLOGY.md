@@ -145,6 +145,19 @@ included and the network excluded, which is a legitimate thing to measure and is
 a measurement of N nodes. Reporting it as N nodes would be the single most misleading
 thing this project could publish, which is why BENCH-06 exists.
 
+*Appended 2026-08-04, after the 2026-08-01 run.* The rule above is conditional — "a run
+whose 'nodes' **are** processes or tabs" — and the driver that produced
+`BENCHMARK-RESULTS.md` meets neither antecedent: `bin/bench.ts` counts **node identities**
+(`inventory(Math.max(...NODE_LADDER))`) and runs every one of them inside the single
+process that publishes them. It emitted `N processes on 1 host` regardless, so the
+published artifact named a unit nothing had counted while denying the one that had been —
+and its own `unmet` list said so two lines below the label. `machineLabel` now derives
+**`SAME-MACHINE: N nodes on 1 host — a node count, not a machine count`**: the same-machine
+disclosure this section makes mandatory and prominent, over the noun that was actually
+counted, denying the claim BENCH-06 is actually about. The `N processes` form is reserved
+for a driver that counts processes, which is Phase 23's. Only the label was corrected; no
+figure in the published artifact was regenerated, replaced or re-run.
+
 ### 3.4 Cold vs. warm code cache
 
 V8 caches compiled WASM keyed on the resource URL. A run that reuses a warm cache is

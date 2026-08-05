@@ -53,12 +53,16 @@ function buildFull(): BrowserNodeOptions {
   // exactly which files do not exercise the signed path, and this is one of them.
   // `whenSeedIsGone` is stated for the same reason and reads the same way: it is required
   // with no default, so it appears in every literal, and this file constructs no node so
-  // the value is never taken.
+  // the value is never taken. `startReporting` (BROW-01) is the third of the same kind and
+  // the one whose requiredness cost the most to establish: it is what a visitor answered
+  // about whether a row describing their device may leave it, and it is required here so
+  // that no call site anywhere can build a node without having answered.
   return {
     relayAddrs: [],
     createWorker,
     trustAnchors: 'runs-unsigned-artifacts',
     whenSeedIsGone: 'mints-a-new-identity',
+    startReporting: 'reports-its-own-start',
   }
 }
 
@@ -79,6 +83,25 @@ describe('BrowserNodeOptions requires a killable thread — the compile-time pro
     // @ts-expect-error BROW-04/SCHED-06 — createWorker is required; omitting it must fail `tsc --noEmit`, naming 'createWorker'.
     const withoutAThread: BrowserNodeOptions = rest
     expect(withoutAThread.relayAddrs).toEqual([])
+  })
+
+  it('fails to compile with startReporting omitted', () => {
+    // BROW-01. **The guard that stops the defect coming back as a default rather than as
+    // a deletion**, and it is the only kind of guard that can: a field with a default is
+    // written at no call site, so every text count in this repository reads zero for it
+    // and every behavioural test passes on whichever value the default happened to be.
+    //
+    // What the option carries is a visitor's answer to whether one row describing their
+    // device may leave it. It was un-askable for the whole of Phase 20 — the factory
+    // recorded the row at construction with no consent to consult — and
+    // `packages/node/src/peer-ledger.e2e.test.ts` holds the measurement of what that
+    // cost. `packages/node/src/start-reporting.node.test.ts` carries the identical
+    // suppression for `FabricNodeOptions`, because the requiredness is not a property of
+    // a tier.
+    const { startReporting: _unused, ...rest } = buildFull()
+    // @ts-expect-error BROW-01 — startReporting is required; omitting it must fail `tsc --noEmit`, naming 'startReporting'.
+    const withoutAChoice: BrowserNodeOptions = rest
+    expect(withoutAChoice.relayAddrs).toEqual([])
   })
 })
 

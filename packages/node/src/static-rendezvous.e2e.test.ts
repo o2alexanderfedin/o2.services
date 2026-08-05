@@ -223,6 +223,8 @@ beforeAll(async () => {
   // each other. See `background-tab.e2e.test.ts` for the full note on why stating the
   // opt-out is the point of the field being required.
   relay = await FabricNode.start({
+    relayAdmission: 'admits-any-peer',
+    startReporting: 'reports-its-own-start',
     maxReservations: 8,
     listen: ['/ip4/127.0.0.1/tcp/0/ws'],
     trustAnchors: 'runs-unsigned-artifacts',

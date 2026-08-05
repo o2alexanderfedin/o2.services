@@ -22,6 +22,31 @@ import { describe, expect, it } from 'vitest'
  * with extra steps. Building is fine and is deliberately *not* restricted — the
  * artifact has to be buildable and testable. Only the step that makes it public is
  * forbidden, and only a human may take it.
+ *
+ * ## This guard is deliberately NOT narrowed to the commit — the omission is a decision
+ *
+ * On 2026-08-04 the other five cheap guards were given `commit-scope.ts`, so that a
+ * repo-wide finding blocks the commit that caused it rather than whichever agent commits
+ * next. This one was excluded, and the reason is written here because an unexplained
+ * omission reads as an oversight and would be "corrected" by the next person to notice it.
+ *
+ * Two reasons, either sufficient.
+ *
+ * 1. **It would not narrow this guard, it would switch it off.** The finding at
+ *    `TREE.dirs.filter(isUnderDotGithub)` is a *directory* path, and git never stages a
+ *    directory. A `.github/` appearing in somebody else's working tree would therefore be
+ *    permanently outside every commit scope — permanently foreign, permanently
+ *    unblocking. The narrowing has no safe reading here.
+ * 2. **The consequence is permanent and legal, not technical.** Public hosting is public
+ *    disclosure; the EPO and China have no grace period, and what is published there is
+ *    forfeit for good. This is the one guard where "somebody else's problem" is not an
+ *    acceptable verdict, because there is no later commit at which it becomes recoverable.
+ *
+ * The cost of excluding it is close to zero, which is the third reason it is the right
+ * one to exclude: its findings are structurally rare — a workflow file appearing, a
+ * `deploy` script being added — and not the shape of an in-flight edit that another agent
+ * happens to be halfway through. It has never been the guard that produced an
+ * `O2_SKIP_GUARDS` commit.
  */
 
 const ROOT = fileURLToPath(new URL('../../..', import.meta.url))
