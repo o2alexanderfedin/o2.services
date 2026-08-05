@@ -1047,7 +1047,7 @@ Three consequences the planner must price:
 ### Phase 22: Reachability Guard
 **Goal**: A guard test fails when a capability exported from a package barrel has no traced call path from any of the five runnable entry points — the class of defect this milestone exists to fix, made permanent
 **Mode:** mvp
-**Depends on**: Phases 11-21 — runs last because it verifies what all eleven other phases claim to have wired
+**Depends on**: Phases 11-21, **and Phase 24** — runs last because it verifies what every other phase claims to have wired. **Owner ruling 2026-08-05 put Phase 24 ahead of it too** (see the scheduling note in the Phase 24 block): a reachability guard that runs before admission is gated certifies a fabric with an open door. Order is **23 → 24 → 22**. If Phase 24 does not land inside the milestone, Phase 22 runs anyway and its verification says what it could not cover — ordering must not be the mechanism that hides a known gap
 **Requirements**: WIRE-02
 **Research**: None — the pattern to follow is `purity.node.test.ts`, which already enforces a structural property (no forbidden imports in a portable package) against real files rather than a mock. This guard does the same for call-graph reachability instead of import origin
 **Success Criteria** (what must be TRUE):
@@ -1085,7 +1085,15 @@ comment and in the Phase 15 amendment note above; both say *named here*, and bot
 ## Progress
 
 **Execution Order:**
-Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 → 9 → 10 → 11 → 12 → 13 → 14 → 15 → 16 → 17 → 18 → 19 → 20 → 21 → 22
+Phases execute in numeric order **up to 21, and then deliberately not**: 1 → … → 20 → 21 → **23 → 24 → 22**.
+
+**Phase 22 is last by construction, and this line used to say otherwise.** It ended at "→ 22" and
+omitted 23 and 24 entirely, which read as though 22 came before them. Three other places in this
+file and `STATE.md:227` have always said 22 runs last; this line was the odd one out and was
+corrected 2026-08-05 after it misrouted a session. **23 before 22** because Phase 23 criterion 5
+is what gives `delegate` and `CapabilitySupplier` a traced call path — without it Phase 22's
+criterion 1 fails by construction, measured 2026-08-05. **24 before 22** by owner ruling of the
+same date.
 
 Parallel tracks (config `parallelization: true`):
 - Phase 9 (benchmark) runs alongside Phases 7-8 against the dispatch API frozen in Phase 6
@@ -1232,7 +1240,18 @@ It lands **here** rather than in Phase 15 for one reason: this phase already rew
      SCHEDULING NOTE FOR THE OWNER. Phase 22 currently "runs last because it verifies what all
      eleven other phases claim to have wired". A reachability guard that runs BEFORE admission is
      gated passes over a fabric with an open door. Whether that matters depends on what WIRE-02
-     actually claims, and it is an owner decision rather than a planner's. -->
+     actually claims, and it is an owner decision rather than a planner's.
+
+     RULED 2026-08-05: Phase 22 runs AFTER Phase 24. The order is 23 -> 24 -> 22, and Phase 24's
+     waves 2-4 are un-deferred to make that possible. The reasoning the owner took: a guard is
+     worth what it covers, and certifying reachability over a fabric whose admission gate is
+     deliberately unarmed certifies the wrong fabric. Task #51 already records that the deferral
+     has no armed tripwire, so the alternative was to ship two known-open things at once.
+
+     THE ESCAPE HATCH IS PART OF THE RULING, NOT A CAVEAT. If Phase 24 does not land inside this
+     milestone, Phase 22 runs anyway and 22-VERIFICATION.md states plainly that it certified
+     reachability over an ungated fabric. Ordering must never become the mechanism by which a
+     known gap stops being visible. -->
 
 
 ### v1.0 (Phases 1-10)
@@ -1312,7 +1331,10 @@ and `submitJob` into the one job path and wires churn resilience plus the peer l
 (v1.0 Phase 7, plus two partials); Phase 21 finishes the AOT pipeline's two open wiring
 gaps (v1.0 Phase 10); Phase 22 is the reachability guard that would have caught this
 milestone happening in the first place — it runs last because it verifies the other
-eleven phases actually did what they claim.
+phases actually did what they claim. **Last means after 23 and 24, not after 21** — the
+execution order is 23 → 24 → 22, and both of those dependencies are load-bearing rather
+than tidy: Phase 23 criterion 5 is what makes Phase 22 criterion 1 passable at all, and
+Phase 24 is what makes the fabric it certifies a gated one (owner ruling 2026-08-05).
 
 Almost no code here is algorithmically novel — the mechanisms already exist, unit-tested,
 in the v1.0 phase directories. Each v1.1 phase's job is to make a runnable entry point

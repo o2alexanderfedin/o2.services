@@ -224,7 +224,8 @@ processes; the requestor half — `delegate`, `CapabilitySupplier`, `RemoteExecu
 supplier branch — has a production adapter and **zero production callers**, and is Phase
 23 criterion 5 by owner ruling. Mutation-ledger entry **M30** now pins the browser tier's
 authorizer behaviourally.
-Next: Phase 16, then 17, 18, 19, 20, 21, 23, 22. **These run strictly sequentially, not
+Next: **23, then 24, then 22** (owner ruling 2026-08-05 inserted 24 ahead of 22; the line
+previously read "…20, 21, 23, 22" and was right about 22 being last). **These run strictly sequentially, not
 concurrently** — measured 2026-07-31 from their own `files_modified`: `fabric-node.ts` is
 touched by 14/15/17/21, `bin/bench.ts` by 14/15/16/17/23, `browser-node.ts` by 14/15/17/21.
 "Wire What Was Built" means every phase converges on the same construction sites, so the
