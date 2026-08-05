@@ -1,10 +1,11 @@
 ---
 phase: 18-discovery-capacity-placement
 verified: 2026-08-02T23:54:55Z
-status: human_needed
+status: passed
 score: >-
-  8/9 criteria verified (7/9 on the 2026-08-02 initial pass; criterion 3 closed and
-  criterion 2b's instrument re-armed by plans 18-12/18-13 — see the amendment)
+  9/9 criteria verified (7/9 on the 2026-08-02 initial pass; 8/9 on 2026-08-03 after plans
+  18-12/18-13; criterion 2b MET on 2026-08-04 once WIRE-04 landed and plan 20-04 rewrote the
+  absence-instrument into a behaviour — see the second amendment)
 verifier: independent pass, goal-backward
 re_verification:
   verified: 2026-08-03T02:06:28Z
@@ -19,6 +20,35 @@ re_verification:
     - "F-1 — `admit: rpcAdmission(...)` at `bin/bench.ts:723` is guarded by nothing; deleting it leaves the whole suite green"
     - "F-2 — the four corrected ledger rows cite `fabric-node.ts`/`browser-node.ts` line numbers that 18-13's own later commit shifted by +15/+16"
     - "F-3 — `tools/aot/lift.node.test.ts` re-measured contradicts `deferred-items.md` item 2; out of this phase's scope"
+
+re_verification_2:
+  verified: 2026-08-04T19:20:00Z
+  previous_status: human_needed
+  previous_score: 8/9
+  trigger: "WIRE-04 landed in plan 20-01; the armed tripwire fired; plan 20-04 rewrote the case"
+  criteria_moved:
+    - "2b — PARTIAL → MET. The re-pick exists in `submitJob`s generation loop and is measured
+       across real `bin/agent.ts` processes on a shard whose SELECTED executor refused at exec:
+       `attempted === [victim, answering]`, `generations === 2`, `redispatches === 1`, and a lease
+       trail of granted/surrendered/granted/completed. Falsifiability proved by planting a `break`
+       before the re-placement in `job/submit.ts` and watching the file go red with
+       `expected 'insufficient' to be 'agreed'` — the exact inverse of the tripwire."
+  gaps_remaining: []
+  regressions: []
+  findings_closed:
+    - "F-1 — closed by Phase 19 plan 19-17 (defect #31). The expression is now
+       `...(DISCOVER ? { admit: rpcAdmission(requestor.rpc) } : {})` and its guard is
+       `bench-reduce.node.test.ts`s call-site requirement, which carries its own planted-absence case."
+    - "F-3 — closed by commit 3d6806b. The recorded 60000 ms diagnosis was that file's own
+       testTimeout; the real cause was a retry bounded in count and unbounded in time. Bound is now comparative."
+  findings_open:
+    - "F-2 — WORSE, not closed. 46 resolvable `file:line` citations in REQUIREMENTS.md; 28 land on a
+       blank line, a bare delimiter or a comment body, and 5 more on code that is not the construction
+       the row names (offsets 51/138/226, so no blanket fix). Every underlying claim re-derived TRUE by
+       symbol. Documentary only. Not edited — the file is shared and three verifiers are active."
+    - "20-04 must-have 2 — `the re-pick does not erase the first executor's named refusal` is
+       unreachable while `VerificationResult`s `agreed` arm declares no `failures` field. Phase 20's to settle;
+       it does not reduce criterion 2b, which asks for the refusal and the re-pick, not for both in one ShardResult."
 # CLOSED 2026-08-03 by plans 18-12/18-13. Retained verbatim as the first pass's record —
 # see `re_verification.gaps_closed` and the Amendment for current state.
 gaps:
@@ -83,6 +113,8 @@ gaps:
         capacity before and after `window.o2.setDutyCycle(...)`, mirroring
         `duty-cycle.node.test.ts:87-104`. Blocked on browser-to-Node-peer transport in
         the `e2e` project, which today is tab-to-tab only.
+# RESOLVED 2026-08-04: criterion 2b is MET, so the escalation below dissolved rather than
+# being decided. Retained verbatim as the 2026-08-03 record — see the second Amendment.
 human_verification:
   - test: >-
       Owner decision, not a test: Phase 18 has no remaining actionable work, and criterion
@@ -97,6 +129,8 @@ human_verification:
     why_human: >-
       RULING A is an owner ruling. Every automated reading this phase admits of has been
       taken and passes; what is left is a scheduling judgement about phase closure.
+# ARRIVED 2026-08-04: WIRE-04 landed in plan 20-01 and the clause below is now measured in
+# this phase too. Retained verbatim as the record of what was deferred and why.
 deferred:
   - item: "The exec-stage re-pick itself (criterion 2b clause 2)"
     addressed_in: "Phase 20 criterion 1 (WIRE-04)"
@@ -686,3 +720,269 @@ not make for itself. That is the single escalation item in the frontmatter.
 *Amended: 2026-08-03T02:06:28Z*
 *Verifier: Claude (gsd-verifier), independent re-verification after gap closure*
 *Working tree: left clean; nothing committed, nothing reverted, no branch switched*
+
+---
+
+## Amendment — 2026-08-04: criterion 2b is MET, and the score is 9/9
+
+**Status: `human_needed` → `passed`. Score: 8/9 → 9/9.** Everything above is the record of the
+2026-08-02 initial pass and the 2026-08-03 re-verification, and both are left standing. Nothing
+in either is retracted. What changes is criterion 2b (PARTIAL → **MET**), and with it the single
+escalation item, which dissolves rather than being decided.
+
+Criterion text in `.planning/ROADMAP.md` was **not** amended. Re-read against the Phase 18
+Success Criteria block and compared word-for-word with what both earlier passes scored against:
+2b still reads *"A node **at its execution slot limit refuses an `exec` request** with a stated
+reason naming the limit, and the requestor re-picks."* This amendment scores against the same
+contract. Citations below are by **grep-able symbol**, not by line, for the reason recorded in
+finding F-2 of this same amendment.
+
+### Why the bar lifted
+
+RULING A barred the phase from closing on a PARTIAL 2b and named the condition under which the
+clause would arrive: *"the clause turns red the day WIRE-04 lands"*. Phase 20's criterion-1 note
+states the follow-through in the owner's own words — *"Update the assertion to require the
+re-pick rather than its absence, and Phase 18 criterion 2b becomes MET."*
+
+Both halves of that happened. WIRE-04 landed in plan 20-01. The armed tripwire fired
+(`expected 'agreed' to be 'insufficient'`). Plan 20-04 rewrote the case to require the re-pick.
+**20-04 was killed mid-flight by a usage limit and wrote no summary** — its work landed in the
+salvage commit `9acd85f` unreviewed — so this pass is that work's first reader and treats it as
+unreviewed code rather than as a reported result.
+
+### Criterion 2b — MET, both clauses, re-derived from source
+
+| # | 2026-08-02 | 2026-08-03 | 2026-08-04 | Why it moved |
+|---|---|---|---|---|
+| 2b | FAILED | PARTIAL | **MET** | The re-pick exists in `submitJob` and is measured across real processes on a shard whose selected executor refused at exec. |
+| 1, 2, 2c, 2d, 3, 4, 5, 6 | — | VERIFIED | **VERIFIED** | Re-run this pass, no regression. |
+
+**Score: 9/9 criteria.**
+
+#### Clause 1 — the named refusal, on the production submit path
+
+The mechanism, read in production source rather than in a summary. `serveAgent`'s `exec` branch
+(`packages/net/src/agent.ts`, search `const admission = capacity.offer({ shardId: slotKey`)
+calls `capacity.offer(...)` and, when refused, returns `encodeResponse({ kind: 'error', reason:
+admission.reason })` **before** the `try` that reaches the executor — its own comment states
+that ordering as the requirement. The refusal text is composed in exactly one place,
+`LocalCapacity.#decide` (`packages/core/src/placement.ts`, search
+`` `over-committed: ${this.#inFlight.size} of ${slots} slots in use` ``), so the string a
+requestor reads is the node's own words off the wire and it names the limit.
+
+The reading is `discovery-agents.node.test.ts` › *"stops at the generation cap naming every
+refusal, beside a control with one node free"*, taken across real spawned `bin/agent.ts`
+processes (`spawnAgent` → `spawn(process.execPath, [AGENT, …])`) through `submitJob` imported
+from `@o2/core`:
+
+- `expect(fullShard.verification.failures.map((f) => f.nodeId)).toStrictEqual(fullShard.attempted)`
+  — per node, in the order tried, not a count.
+- every `failure.reason` contains `over-committed: 1 of 1 slots in use`.
+- `expect(fullShard.rejections).toStrictEqual([])` — **this is what makes it an exec-stage
+  reading**: the case supplies no `JobSpec.admit`, so no offer was ever made and every refusal it
+  read came from `exec`.
+
+Non-vacuity checked rather than assumed: `failures` cannot be empty, because its node list is
+asserted equal to `attempted`, whose length is separately asserted to be `DEFAULT_MAX_GENERATIONS`
+against the exported constant. The mechanism additionally carries two pre-existing planted
+guards, `M1` (swap `offer()` for `would()` — *"no requestor is ever told `over-committed:`"*) and
+`M2a` (the `'accepts-every-offer'` sentinel).
+
+#### Clause 2 — the re-pick, in production and measured
+
+`packages/core/src/job/submit.ts` now runs a per-shard generation loop (search
+`// ── The generation loop — WIRE-04, CHURN-01, CHURN-04`): grant a lease, dispatch under it,
+and on an observed failure `leases.surrender(...)` then
+`placeAgain(requestFor(shard, shardId, wanted), gate.pool, new Set(attempted), spec.admit)` —
+the same eligibility gate, minus every node already attempted. The loop keeps no counter of its
+own; it stops when `leases.grant` returns null. `executeVerified` is no longer called once per
+shard.
+
+The reading is `discovery-agents.node.test.ts` › *"re-picks past a node genuinely at its slot
+limit, on the production submit path"*. The node accepts the offer while free, is saturated
+inside the `admit` callback — which `await`s `untilFull(...)` so **the node itself says it is
+full** before the callback returns — and then refuses the dispatch. Asserted:
+
+- `expect(repickedShard.attempted[0]).toBe(victim)` — placement chose the node that would refuse,
+  and the dispatch reached it. Without this the reading is satisfiable by a shard that never met
+  the saturated node.
+- `expect(repickedShard.attempted).toStrictEqual([victim, answering])` — exactly two nodes asked,
+  the second is the one whose answer the result carries.
+- `expect(repickedShard.generations).toBe(2)`, `expect(repicked.job.redispatches).toBe(1)`,
+  `expect(repickedShard.ending).toBe('agreed')`, `expect(repickedShard.degraded).toBe(false)`.
+  An exact count, not `toBeGreaterThan(0)` — which a loop that re-dispatched unconditionally
+  would also satisfy.
+- the lease trail `toStrictEqual(['granted:victim', 'surrendered:victim', 'granted:answering',
+  'completed:answering'])`.
+
+**The lease trail is the discriminator I checked rather than took on trust.** A re-pick provoked
+by *silence* would prove nothing about a refusal. In `submit.ts`, `leases.surrender(...)` is
+reachable only on the `dispatched.kind === 'answered'` arm; the lapse arm calls `leases.reap(...)`
+and produces a different event. `surrendered:${victim}` therefore says the victim **answered with
+a failure** — it refused — rather than went quiet. Combined with `untilFull` and with the shard
+carrying `EXEC_STAGE_VALUE`, a slot key distinct from the occupying task's (the node's key is
+`inputCid:partitionIndex`, so a shared key would meet the DUPLICATE branch and be a different
+claim), the refusal being re-picked past is the over-committed one.
+
+#### The new assertion CAN fail — proved by planting, not by reading
+
+The 2026-08-02 pass's finding was that the old instrument was confined at the type level. That
+question is asked again of the replacement, and answered by measurement.
+
+**Structurally:** `attempted` (`attempted.push(...nodeIds)` once per generation), `generations`
+(`generations += 1`), `redispatches` and `leaseHistory` are unbounded accumulators. None is
+confined by `redundancy`. The tautology's shape is gone, not renamed.
+
+**By planting:** `W1`'s mutation was applied by hand to `packages/core/src/job/submit.ts` — a
+`break` inserted immediately before the *"How much is still missing"* comment, which runs the
+first generation and returns it unchanged — and the file was run:
+
+```
+FAIL |node| packages/node/src/discovery-agents.node.test.ts > criterion 2 — sample, refuse,
+     re-pick, complete > re-picks past a node genuinely at its slot limit, on the production
+     submit path
+AssertionError: expected 'insufficient' to be 'agreed'
+FAIL |node| … > criterion 2, bounded … > stops at the generation cap naming every refusal,
+     beside a control with one node free
+AssertionError: expected [ Array(1) ] to have a length of 3 but got 1
+Test Files  1 failed (1)   Tests  2 failed | 1 passed (3)
+```
+
+`PLANTED_EXIT=1`, captured on the line immediately after the command. That failure is the exact
+inverse of the tripwire the phase armed and Phase 20 fired — `expected 'insufficient' to be
+'agreed'` where the tripwire read `expected 'agreed' to be 'insufficient'`. The clause is now
+held by a reading that goes red when the behaviour is removed, which is the property RULING A
+demanded and the 2026-08-02 pass found missing.
+
+Restored from a `cp` backup, `cmp` exit 0, `git status --porcelain` empty. Nothing was staged,
+committed, reverted, stashed or branch-switched.
+
+#### What is NOT claimed, and where 20-04 fell short of its own plan
+
+20-04's plan carries the must-have *"the re-pick does not erase the first executor's named
+refusal from the shard's failures."* **That truth was not met, and the landed test says so in its
+own words** — *"It erases half of it, and the half it erases is the over-committed text."*
+Verified at the type level rather than accepted: `VerificationResult`'s `agreed` arm
+(`packages/core/src/job/verify.ts`, search `export type VerificationResult`) declares
+`resultCid`, `output`, `agreeing`, `replicas`, `grossFuel`, `usefulFuel` — and **no `failures`
+field at all**, while `disagreed` and `insufficient` both have one. So a shard that ends agreed
+has nowhere to carry a previous generation's refusal text. The test substitutes the lease history
+and names the substitution. That is an honest deviation, recorded as a deferral by 20-01, and it
+is **Phase 20's** to settle.
+
+It does not reduce criterion 2b, which asks that the node refuse with a stated reason and that
+the requestor re-pick — not that both appear in one `ShardResult`. Both clauses are measured on
+the production `submitJob` path across real processes, in two sibling cases on one fixture shape,
+because the union type cannot express them in one. Stated plainly rather than papered over.
+
+### The three findings that outlived the phase — current status, measured
+
+**F-1 — `admit:` at `bin/bench.ts` guarded by nothing: CLOSED**, by Phase 19 plan 19-17
+(defect #31), not by anything in Phase 18.
+
+The expression is now conditional and has moved — `...(DISCOVER ? { admit: rpcAdmission(requestor.rpc) } : {})`
+(grep `DISCOVER ? { admit:` in `packages/node/src/bin/bench.ts`; the old coordinate `:723` now
+lands on an unrelated comment). Its guard is `bench-reduce.node.test.ts`'s call-site requirement
+*"the discover rig supplies admit, and the job spec passes it on"*, whose two patterns match the
+**whole spread** rather than a bare `admit:`, so the *absent-not-`undefined`* half is held too.
+Run this pass: 19 passed — and the guard carries its own reddening proof as a first-class case,
+*"reports exactly 'the discover rig supplies admit, and the job spec passes it on' when only that
+call site is gone"*.
+
+One correction to this report's own 2026-08-03 F-1 text, which claimed
+`serve-agent-hooks.node.test.ts` pins eleven strings in `bench.ts` *"and `admit` is not among
+them"*. The first half is true — I re-counted 16 `occurrences(BENCH, …)` pins there. The second
+half understates it: that file names **neither `rpcAdmission` nor `admit:` anywhere**, so
+SCHED-02's runnable-entry-point leg rested on nothing at all rather than on a weak pin.
+`discover-arm.node.test.ts`'s docblock records the same measurement.
+
+**F-2 — ledger citations that outran the tree: STILL OPEN, and worse.** At phase close STATE.md
+recorded *23 of ~45*. Re-measured today against `.planning/REQUIREMENTS.md`: **46 resolvable
+`file:line` citations, of which 28 land on a blank line, a bare delimiter, or a comment body**,
+and at least five more land on code that is demonstrably not the construction the row names:
+
+| Row | Citation | What is there now | Where the named construction actually is |
+|---|---|---|---|
+| SCHED-04 | `fabric-node.ts:985` for `setDutyCycle` | `this.#identity = parts.identity` | `:1123` |
+| SCHED-04 | `fabric-node.ts:1153` for `new DutyCycleGovernor(` | `try {` | `:1291` |
+| SCHED-04 | `fabric-node.ts:1181` for `dutyCycle: governor` | a comment about identity persistence | `:1319` |
+| SCHED-04 | `fabric-node.ts:1475` for `new GovernedExecutor(` | `await FsIssuance.open(` | `:1701` |
+| SCHED-05 | `sovereignty.ts:130` for `eligibleNodes` | `load: 0,` | `:181` |
+
+So **at least 33 of 46 are wrong**, against 23 of ~45 at phase close. The offsets are 51, 138,
+138, 138 and 226 — a blanket correction is still wrong, which is what STATE.md already measured
+when it declined a cheap guard.
+
+**Every underlying claim was re-derived by symbol and every one still holds.** SCHED-04's four
+constructions all exist. SCHED-05's *"both placers call `eligibleNodes` as their first act"* is
+true: `placement.ts` search `let pool = [...eligibleNodes(request, nodes)]` inside
+`placeWithOffers`, and `sovereignty.ts` search `const eligible = eligibleNodes(request, nodes)`
+inside `planPlacement`. This is documentary rot, not a behavioural defect, and it scores against
+nothing here — this pass cited by symbol throughout for exactly this reason. The project's own
+recorded response (ROADMAP: *"CITED BY SYMBOL, NOT BY LINE … a line number is an ABSOLUTE
+reference into a file that keeps changing, and it rots silently while reading like evidence"*)
+is the right one and has not yet been applied to `REQUIREMENTS.md`. Reported, not edited — that
+file is shared and three other verifiers are active.
+
+**F-3 — `tools/aot/lift.node.test.ts` contradicting `deferred-items.md` item 2: CLOSED**, by
+`3d6806b` *("a retry bounded by a count is not bounded, when an attempt costs a budget")*. The
+recorded diagnosis was wrong in the way this report predicted it might be: the 60 000 ms reading
+was that file's own `vi.setConfig({ testTimeout })`, not evidence about docker, and the real
+cause was `despiteAFullProcessTable` spending 4 × 20 000 ms of driver budget inside a 60 000 ms
+case. The bound is now comparative (two arms of one case). Out of Phase 18's scope throughout;
+recorded here only because this report opened the question.
+
+### Commands run (real output, `EXIT` captured on the line immediately after each command)
+
+No pipes and no trailing `tail` on any exit capture. Every invocation used `--project`; no
+bare-path run was made.
+
+| Command | Result | Exit |
+|---|---|---|
+| `npx vitest run --project node …/discovery-agents.node.test.ts` (baseline) | `Test Files 1 passed (1)` / `Tests 3 passed (3)`; `real 32.57 user 75.76 sys 4.17` | 0 |
+| the same, with the re-pick deleted from `submit.ts` (`W1` planted by hand) | `Test Files 1 failed (1)` / `Tests 2 failed \| 1 passed (3)`, `expected 'insufficient' to be 'agreed'` | 1 |
+| `cp` restore, then `cmp` backup against `submit.ts`, then `git status --porcelain` | identical; empty | 0 |
+| `npx vitest run --project node` × 5 — `net/discovery`, `placement`, `sovereign-offers`, `bench-reduce`, `peer-verifier` | `Test Files 5 passed (5)` / `Tests 103 passed (103)` | 0 |
+| `npx vitest run --project node` × 5 — `duty-cycle`, `peer-dial`, `sovereignty-placement`, `reservation-exhaustion`, `discover-arm` | `Test Files 1 failed \| 4 passed (5)` / `Tests 1 failed \| 16 passed (17)` — see the note below | 1 |
+| `npx vitest run --project node …/discover-arm.node.test.ts` alone | `Test Files 1 passed (1)` / `Tests 1 passed (1)` | 0 |
+| `npx vitest run --project e2e …/duty-cycle-tab.e2e.test.ts` | `Test Files 1 passed (1)` / `Tests 6 passed (6)` | 0 |
+| `npx vitest run --project node` × 4 guards — `requirements-ledger`, `acceptance-traceability`, `mutation-guard`, `serve-agent-hooks` | `Test Files 4 passed (4)` / `Tests 180 passed (180)` | 0 |
+| `npx vitest run --project node …/bench-reduce.node.test.ts --reporter=verbose` | 19 passed, including the planted-absence case for `admit` | 0 |
+
+**16 files, 309 tests, plus one defect planted by hand and watched go red.** Load was 3.65 at the
+baseline run and 6.66 at the cross-process batch; ambient CPU was a `cpp2rust` build at 93.8% and
+OneDrive at 66.8%, not a competing suite.
+
+**The one red, attributed by measurement rather than by plausibility.**
+`discover-arm.node.test.ts` failed on `expect(repoStatus()).toBe(before)` with
+`+ M packages/node/src/sovereign-at-rest.node.test.ts`. That file is not Phase 18's, was not
+touched by this pass, and `git status --porcelain` confirmed a concurrent agent modified it
+**during** the batch — `before` was empty and `after` was not. Re-run alone against the now-stable
+tree: green. This is the shared-index hazard the conventions name, not a Phase 18 regression, and
+it is recorded rather than retried into silence.
+
+### Why this is `passed`
+
+Every criterion is met and every one was re-measured this pass. The 2026-08-03 escalation existed
+only because RULING A forbade closing on a PARTIAL 2b; 2b is no longer partial, so the item
+dissolves rather than needing an owner decision. The condition under which it becomes MET was
+written by the owner into Phase 20's criterion-1 note before the work was done, and it has been
+satisfied and independently verified here.
+
+`deferred` in the frontmatter above is now empty in substance: the exec-stage re-pick it carried
+to Phase 20 has arrived, and Phase 20 criterion 1 keeps it for its own scoring.
+
+### Open, and not Phase 18's to close
+
+- **F-2's citation rot** in `.planning/REQUIREMENTS.md` — 33+ of 46 wrong, documentary only,
+  every underlying claim re-derived true by symbol. Recommend converting the rows to symbol
+  citations as the ROADMAP already ruled; not edited here because the file is shared.
+- **20-04's second must-have** — *"the re-pick does not erase the first executor's named
+  refusal"* — is unreachable while `VerificationResult`'s `agreed` arm has no `failures` field.
+  Phase 20's, and its plan should either widen the type or restate the truth.
+- **`STATE.md`'s hand-maintained prose**, unchanged and untouched, as in both earlier passes.
+
+---
+*Amended: 2026-08-04T19:20:00Z*
+*Verifier: Claude (gsd-verifier), independent re-verification after WIRE-04*
+*Working tree: left clean of this pass's own changes; `submit.ts` restored and `cmp`-verified; nothing committed, staged, reverted or branch-switched*
