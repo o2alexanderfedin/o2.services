@@ -13,7 +13,11 @@
  *
  * `size` is synchronous in the port, so it is a counter seeded by scanning the
  * directory in `open()`. That is also what makes the count correct across a
- * restart rather than starting at zero with a full directory.
+ * restart rather than starting at zero with a full directory. Because that scan
+ * counts whatever it finds, the rule it implies has to be stated rather than left
+ * to be rediscovered: **anything written into a blockstore directory that is not a
+ * block must be dot-prefixed.** See `open()` for what it cost to learn that, and
+ * `identity-store.ts` for the files this applies to today.
  */
 
 import { mkdir, readdir, readFile, rename, writeFile } from 'node:fs/promises'
@@ -38,11 +42,22 @@ export class FsBlockstore implements Blockstore {
    *
    * Async because the block count has to be established from what is already
    * there — that is precisely the restart case.
+   *
+   * **This `filter` is not a safety net for leftover temporaries — it *is* the block
+   * counter.** Every entry it keeps becomes part of `size`, so any file sitting in
+   * this directory that is not a block inflates the count by one. Measured, when the
+   * predicate was still `!name.startsWith('.tmp-')` and AUTH-01 put a key beside the
+   * blocks: three blocks plus `.identity.key`, `.provider.key` and `.certificate.json`
+   * read as **6**, and one block plus `.identity.key` read as **2**.
+   *
+   * A block file name is `cid.toString()` — base32-lowercase, which never begins with
+   * a dot — so testing for a leading dot excludes exactly the non-block entries and
+   * subsumes the `.tmp-` case rather than replacing it.
    */
   static async open(dir: string): Promise<FsBlockstore> {
     await mkdir(dir, { recursive: true })
     const entries = await readdir(dir)
-    const blocks = entries.filter((name) => !name.startsWith('.tmp-'))
+    const blocks = entries.filter((name) => !name.startsWith('.'))
     return new FsBlockstore(dir, blocks.length)
   }
 

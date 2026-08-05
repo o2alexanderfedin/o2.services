@@ -1,6 +1,7 @@
 import { MemoryBlockstore, MemoryNetwork, encodeCanonical } from '@o2/core'
 import { describe, expect, it } from 'vitest'
 import { EgressGuard, EgressRefusal } from './egress.ts'
+import type { EgressHold } from './egress.ts'
 import { RpcEndpoint, RpcFailure } from './rpc.ts'
 
 /**
@@ -20,10 +21,19 @@ import { RpcEndpoint, RpcFailure } from './rpc.ts'
 /** A recognisable stand-in for a row of someone's private data. */
 const SOVEREIGN_ROW = new TextEncoder().encode('SSN=078-05-1120;salary=91000')
 
+/** The guard, plus the hold its own registration took — see {@link EgressHold}. */
+interface OwnerNode {
+  readonly guard: EgressGuard
+  readonly rowHold: EgressHold
+}
+
 function ownerNode(network: MemoryNetwork, id: string): EgressGuard {
+  return ownerNodeWithHold(network, id).guard
+}
+
+function ownerNodeWithHold(network: MemoryNetwork, id: string): OwnerNode {
   const guard = new EgressGuard(network.connect(id), 'alice')
-  guard.guard('alice-row', SOVEREIGN_ROW)
-  return guard
+  return { guard, rowHold: guard.guard('alice-row', SOVEREIGN_ROW) }
 }
 
 /**
@@ -198,9 +208,7 @@ describe('DATA-04 — a raw sovereign byte does not reach the wire at all', () =
     const owner = ownerNode(network, 'alice-1')
     coordinator(network)
 
-    // Ten seconds, so an elapsed reading under one second cannot be a timeout.
     const rpc = new RpcEndpoint(owner, { timeoutMs: 10_000 })
-    const started = Date.now()
     try {
       const failure = await rpc.request('coordinator', { row: SOVEREIGN_ROW }).then(
         () => null,
@@ -208,24 +216,153 @@ describe('DATA-04 — a raw sovereign byte does not reach the wire at all', () =
       )
       expect(failure).toBeInstanceOf(RpcFailure)
       const detail = (failure as RpcFailure).detail
+      // "Not a timeout" is asserted by *name*, not by the clock. `rpc.ts` gives the
+      // two mechanisms two structurally different values — `{kind:'send-failed', to,
+      // detail}` at `:213` against `{kind:'timeout', to, afterMs}` at `:188` — so a
+      // reading of `send-failed` is not a timeout that happened to be quick; it is a
+      // value the timeout path cannot construct. That is the whole of the title's
+      // claim, and it is decided by the tag rather than by how long this took.
+      //
+      // There used to be an `elapsed < 1_000` here as well. It was removed rather
+      // than re-sited, because it never discriminated anything: measured on
+      // 2026-08-01, 24 Node samples (1-min load 10.9→11.9 on 8 cores) and 27 browser
+      // samples across chromium/firefox/webkit (load 11.5→29.1) every one read
+      // **0 or 1 ms** — `Date.now()`'s own resolution. A bound cannot be sited
+      // between a population that is indistinguishable from zero and one that never
+      // arrives; the only readings it could ever have separated were noise.
       expect(detail.kind).toBe('send-failed')
       if (detail.kind !== 'send-failed') return
       expect(detail.detail).toContain('alice-row')
-      expect(Date.now() - started).toBeLessThan(1_000)
     } finally {
       rpc.close()
     }
   })
 })
 
-describe('a registration has a lifetime, and the set can be read', () => {
-  it('forgets a released payload, and the set reads empty afterwards', async () => {
+describe('NET-10 — the pre-scan a caller holding a candidate frame can take', () => {
+  it('violationIn names the label and records nothing, however often it is asked', async () => {
+    const network = new MemoryNetwork()
+    const owner = ownerNode(network, 'alice-1')
+    coordinator(network)
+
+    const leaked = encodeCanonical({ rows: [SOVEREIGN_ROW] })
+    expect(leaked.ok).toBe(true)
+    if (!leaked.ok) return
+
+    for (let i = 0; i < 10; i++) expect(owner.violationIn(leaked.bytes)).toBe('alice-row')
+    // A pure query. Ten asks and the tap's record is untouched — otherwise
+    // `serveAgent` asking about a candidate reply would inflate the manifest with
+    // an entry per question rather than per frame.
+    expect(owner.manifest.entries).toEqual([])
+    expect(owner.manifest.violations).toEqual([])
+
+    const aggregate = encodeCanonical({ count: 1, salaryTotal: 91000 })
+    expect(aggregate.ok).toBe(true)
+    if (!aggregate.ok) return
+    expect(owner.violationIn(aggregate.bytes)).toBeNull()
+  })
+
+  it('refuse records exactly one entry, indistinguishable from a send-time refusal', async () => {
+    // Two guards, same registration, same frame: one refuses in advance, the other
+    // is asked to send it. The entries must be the same object shape — same `to`,
+    // same `bytes`, same `violation` — because a reader of the manifest cannot be
+    // asked which code path produced a refusal.
+    const network = new MemoryNetwork()
+    const prescanned = ownerNode(network, 'alice-pre')
+    const sent = ownerNode(network, 'alice-send')
+    coordinator(network)
+
+    const leaked = encodeCanonical({ rows: [SOVEREIGN_ROW] })
+    expect(leaked.ok).toBe(true)
+    if (!leaked.ok) return
+
+    expect(prescanned.refuse('coordinator', leaked.bytes)).toBe('alice-row')
+    await expect(sent.send('coordinator', leaked.bytes)).rejects.toBeInstanceOf(EgressRefusal)
+
+    expect(prescanned.manifest.entries).toEqual(sent.manifest.entries)
+    expect(prescanned.manifest.entries).toHaveLength(1)
+    expect(prescanned.manifest.entries[0]?.violation).toBe('alice-row')
+    expect(prescanned.manifest.entries[0]?.bytes).toBe(leaked.bytes.byteLength)
+    // A refusal raises the count and contributes nothing to the volume — the same
+    // rule `EgressManifest.totalBytes` states, reached by the new producer.
+    expect(prescanned.manifest.totalBytes).toBe(0)
+    expect(prescanned.manifest.violations).toEqual(['alice-row'])
+  })
+
+  it('refuse records nothing at all for a clean frame', async () => {
+    // The half that would double-count. `send` records every frame because it is
+    // the exit and must account for everything that crossed it; `refuse` is asked
+    // about a frame that has not been offered to the exit yet and may never be, so
+    // a clean answer must leave no trace or every reply would be counted twice.
+    const network = new MemoryNetwork()
+    const owner = ownerNode(network, 'alice-1')
+    coordinator(network)
+
+    const aggregate = encodeCanonical({ count: 1, salaryTotal: 91000 })
+    expect(aggregate.ok).toBe(true)
+    if (!aggregate.ok) return
+
+    expect(owner.refuse('coordinator', aggregate.bytes)).toBeNull()
+    expect(owner.manifest.entries).toHaveLength(0)
+
+    await owner.send('coordinator', aggregate.bytes)
+    expect(owner.manifest.entries).toHaveLength(1)
+    expect(owner.manifest.totalBytes).toBe(aggregate.bytes.byteLength)
+  })
+
+  it('a refused candidate followed by a smaller clean frame reads as two entries', async () => {
+    // This is the shape `serveAgent` produces: the candidate reply carried the row
+    // and was refused, and a small named refusal went out in its place. Two
+    // entries, one at zero bytes and one at its own count, is the honest reading —
+    // a refusal happened *and* a frame then left.
     const network = new MemoryNetwork()
     const owner = ownerNode(network, 'alice-1')
     const peer = coordinator(network)
 
+    const leaked = encodeCanonical({ rows: [SOVEREIGN_ROW] })
+    const substitute = encodeCanonical({ ok: false, reason: 'egress refused: alice-row' })
+    expect(leaked.ok && substitute.ok).toBe(true)
+    if (!leaked.ok || !substitute.ok) return
+
+    expect(owner.refuse('coordinator', leaked.bytes)).toBe('alice-row')
+    await owner.send('coordinator', substitute.bytes)
+
+    const manifest = owner.manifest
+    expect(manifest.entries).toHaveLength(2)
+    expect(manifest.violations).toEqual(['alice-row'])
+    expect(manifest.totalBytes).toBe(substitute.bytes.byteLength)
+    // The instrument that reads 0 for a refused frame elsewhere in this file reads
+    // 1 here: the substitute really left.
+    expect(peer.delivered()).toBe(1)
+  })
+
+  it('leaves send refusing on its own — the pre-scan is a fast path, not the guarantee', async () => {
+    // Belt and braces. A caller that pre-scanned and then, for whatever reason,
+    // handed the same frame to the exit anyway is still refused. Plan 13.1-03's
+    // mutation plants against exactly this property from the other side.
+    const network = new MemoryNetwork()
+    const owner = ownerNode(network, 'alice-1')
+    const peer = coordinator(network)
+
+    const leaked = encodeCanonical({ rows: [SOVEREIGN_ROW] })
+    expect(leaked.ok).toBe(true)
+    if (!leaked.ok) return
+
+    expect(owner.refuse('coordinator', leaked.bytes)).toBe('alice-row')
+    await expect(owner.send('coordinator', leaked.bytes)).rejects.toBeInstanceOf(EgressRefusal)
+    expect(peer.delivered()).toBe(0)
+    expect(owner.manifest.entries).toHaveLength(2)
+  })
+})
+
+describe('a registration has a lifetime, and the set can be read', () => {
+  it('forgets a released payload, and the set reads empty afterwards', async () => {
+    const network = new MemoryNetwork()
+    const { guard: owner, rowHold } = ownerNodeWithHold(network, 'alice-1')
+    const peer = coordinator(network)
+
     expect(owner.registrations).toEqual(['alice-row'])
-    owner.release('alice-row')
+    rowHold.release()
     expect(owner.registrations).toEqual([])
 
     // Forwarded, and read off the same counter that reads 0 for a refused frame.
@@ -240,48 +377,55 @@ describe('a registration has a lifetime, and the set can be read', () => {
     // second one's payload guarded, or a node serving two shards of one owner's row
     // unguards itself halfway through.
     const network = new MemoryNetwork()
-    const owner = ownerNode(network, 'alice-1')
+    const { guard: owner, rowHold: first } = ownerNodeWithHold(network, 'alice-1')
     const peer = coordinator(network)
-    owner.guard('alice-row', SOVEREIGN_ROW)
+    const second = owner.guard('alice-row', SOVEREIGN_ROW)
 
-    owner.release('alice-row')
+    first.release()
     await expect(
       owner.send('coordinator', SOVEREIGN_ROW as Uint8Array<ArrayBuffer>),
     ).rejects.toBeInstanceOf(EgressRefusal)
     expect(peer.delivered()).toBe(0)
     expect(owner.registrations).toEqual(['alice-row'])
 
-    owner.release('alice-row')
+    second.release()
     expect(owner.registrations).toEqual([])
     await owner.send('coordinator', SOVEREIGN_ROW as Uint8Array<ArrayBuffer>)
     expect(peer.delivered()).toBe(1)
   })
 
-  it('ignores a release for a label it does not hold', () => {
-    // The serve path releases unconditionally, so a change to registration's own
-    // conditions must not be able to turn a release into a throw inside a `finally`.
+  it('gives back one hold however many times one holder asks', () => {
+    // What replaces "a release for a label it does not hold is a no-op". That was
+    // the licence one exec used to strip another holder's guard under; the property
+    // worth keeping is narrower and is about one holder, not one label: releasing
+    // twice must not reach into somebody else's hold. `serveAgent` releases in a
+    // `finally`, so it must also not throw.
     const network = new MemoryNetwork()
-    const owner = ownerNode(network, 'alice-1')
+    const { guard: owner, rowHold: first } = ownerNodeWithHold(network, 'alice-1')
+    const second = owner.guard('alice-row', SOVEREIGN_ROW)
 
+    first.release()
     expect(() => {
-      owner.release('never-registered')
+      first.release()
     }).not.toThrow()
+    // The second holder still has its hold — this is the assertion the old no-op
+    // case could not make, and the defect it could not see.
     expect(owner.registrations).toEqual(['alice-row'])
 
-    owner.release('alice-row')
-    expect(() => {
-      owner.release('alice-row')
-    }).not.toThrow()
+    second.release()
     expect(owner.registrations).toEqual([])
+    expect(() => {
+      second.release()
+    }).not.toThrow()
   })
 
   it('names what is still held, so a leak is reportable and not a bare number', () => {
     const network = new MemoryNetwork()
-    const owner = ownerNode(network, 'alice-1')
+    const { guard: owner, rowHold } = ownerNodeWithHold(network, 'alice-1')
     owner.guard('alice-dob', new TextEncoder().encode('dob=1970-01-01'))
 
     expect([...owner.registrations].sort()).toEqual(['alice-dob', 'alice-row'])
-    owner.release('alice-row')
+    rowHold.release()
     expect(owner.registrations).toEqual(['alice-dob'])
   })
 })

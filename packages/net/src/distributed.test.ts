@@ -53,10 +53,12 @@ async function twoNodeFabric(options: { readonly workers: number } = { workers: 
     egress: 'holds-no-registrations',
     authorize: 'serves-unauthenticated',
     index: 'serves-no-records',
+    enroll: 'issues-no-certificates',
     capacity: 'accepts-every-offer',
     ledger: 'keeps-no-ledger',
     reservations: 'relays-for-nobody',
     onDispatch: 'reports-no-dispatch',
+    attest: 'signs-nothing',
   })
 
   const workers: { id: string; rpc: RpcEndpoint; store: FetchingBlockstore }[] = []
@@ -76,10 +78,12 @@ async function twoNodeFabric(options: { readonly workers: number } = { workers: 
       egress: 'holds-no-registrations',
       authorize: 'serves-unauthenticated',
       index: 'serves-no-records',
+      enroll: 'issues-no-certificates',
       capacity: 'accepts-every-offer',
       ledger: 'keeps-no-ledger',
       reservations: 'relays-for-nobody',
       onDispatch: 'reports-no-dispatch',
+      attest: 'signs-nothing',
     })
     workers.push({ id, rpc, store })
   }
@@ -267,7 +271,7 @@ describe('RemoteExecutor', () => {
         label: 'public',
       }
 
-      const remote = new RemoteExecutor(worker.id, fabric.originRpc)
+      const remote = new RemoteExecutor(worker.id, fabric.originRpc, 'dispatches-unauthenticated')
       const outcome = await remote.execute(task)
 
       expect(outcome.ok).toBe(true)
@@ -285,7 +289,7 @@ describe('RemoteExecutor', () => {
     const fabric = await twoNodeFabric()
     try {
       const inputCid = await fabric.originStore.put(new Uint8Array([0x80]))
-      const remote = new RemoteExecutor('does-not-exist', fabric.originRpc)
+      const remote = new RemoteExecutor('does-not-exist', fabric.originRpc, 'dispatches-unauthenticated')
       const outcome = await remote.execute({
         moduleCid: fabric.moduleCid,
         inputCid,
@@ -303,7 +307,7 @@ describe('RemoteExecutor', () => {
   it('carries the remote node id, so verification names the right machine', async () => {
     const fabric = await twoNodeFabric({ workers: 1 })
     try {
-      const remote = new RemoteExecutor('w0', fabric.originRpc)
+      const remote = new RemoteExecutor('w0', fabric.originRpc, 'dispatches-unauthenticated')
       expect(remote.nodeId).toBe('w0')
     } finally {
       fabric.close()
@@ -315,7 +319,7 @@ describe('a whole job across nodes', () => {
   it('completes 4 shards at R=2 with every execution remote', async () => {
     const fabric = await twoNodeFabric({ workers: 2 })
     try {
-      const executors = fabric.workers.map((w) => new RemoteExecutor(w.id, fabric.originRpc))
+      const executors = fabric.workers.map((w) => new RemoteExecutor(w.id, fabric.originRpc, 'dispatches-unauthenticated'))
       const result = await submitJob(
         {
           moduleCid: fabric.moduleCid,
@@ -323,6 +327,7 @@ describe('a whole job across nodes', () => {
           executors,
           nodes: publicNodes(executors),
           redundancy: 2,
+          onQuorumShortfall: 'runs-at-available-redundancy',
         },
         fabric.originStore,
       )
@@ -337,7 +342,7 @@ describe('a whole job across nodes', () => {
         expect(shard.verification.status).toBe('agreed')
         if (shard.verification.status !== 'agreed') continue
         expect(shard.verification.replicas).toBe(2)
-        expect([...shard.verification.agreeing].sort()).toEqual(['w0', 'w1'])
+        expect(shard.verification.agreeing.map((e) => e.nodeId).sort()).toEqual(['w0', 'w1'])
       }
 
       // Every worker pulled the module exactly once despite 4 concurrent shards,
@@ -354,12 +359,12 @@ describe('a whole job across nodes', () => {
   it('surfaces disagreement with the dissenting remote node named', async () => {
     const fabric = await twoNodeFabric({ workers: 1 })
     try {
-      const honest = new RemoteExecutor(fabric.workers[0]!.id, fabric.originRpc)
+      const honest = new RemoteExecutor(fabric.workers[0]!.id, fabric.originRpc, 'dispatches-unauthenticated')
       // A liar that is otherwise a perfectly well-behaved Executor.
       const liar: Executor = {
         nodeId: 'liar',
         async execute() {
-          return { ok: true, output: { p: new Uint8Array([9, 9, 9, 9]) }, fuelUsed: 1 }
+          return { ok: true, output: { p: new Uint8Array([9, 9, 9, 9]) }, fuelUsed: 1, attestation: 'signed-by-nobody' }
         },
       }
 
@@ -371,6 +376,7 @@ describe('a whole job across nodes', () => {
           executors,
           nodes: publicNodes(executors),
           redundancy: 2,
+          onQuorumShortfall: 'runs-at-available-redundancy',
         },
         fabric.originStore,
       )
@@ -468,7 +474,7 @@ describe('protocol validation', () => {
       nodeId: 'w0',
       async execute() {
         executed += 1
-        return { ok: true, output: null, fuelUsed: 1 }
+        return { ok: true, output: null, fuelUsed: 1, attestation: 'signed-by-nobody' }
       },
     }
 
@@ -480,10 +486,12 @@ describe('protocol validation', () => {
       egress: 'holds-no-registrations',
       authorize: 'serves-unauthenticated',
       index: 'serves-no-records',
+      enroll: 'issues-no-certificates',
       capacity: 'accepts-every-offer',
       ledger: 'keeps-no-ledger',
       reservations: 'relays-for-nobody',
       onDispatch: 'reports-no-dispatch',
+      attest: 'signs-nothing',
     })
 
     const callerRpc = new RpcEndpoint(network.connect('caller'), { timeoutMs: 5_000 })
@@ -521,7 +529,7 @@ describe('AUTH-03 — a task is refused before the module is instantiated', () =
       nodeId: 'w0',
       async execute() {
         executed += 1
-        return { ok: true, output: null, fuelUsed: 1 }
+        return { ok: true, output: null, fuelUsed: 1, attestation: 'signed-by-nobody' }
       },
     }
 
@@ -534,15 +542,17 @@ describe('AUTH-03 — a task is refused before the module is instantiated', () =
       authorize: ({ capability }) =>
         capability.length === 0 ? 'no capability chain supplied' : null,
       index: 'serves-no-records',
+      enroll: 'issues-no-certificates',
       capacity: 'accepts-every-offer',
       ledger: 'keeps-no-ledger',
       reservations: 'relays-for-nobody',
       onDispatch: 'reports-no-dispatch',
+      attest: 'signs-nothing',
     })
 
     const callerRpc = new RpcEndpoint(network.connect('caller'), { timeoutMs: 5_000 })
     try {
-      const outcome = await new RemoteExecutor('w0', callerRpc).execute({
+      const outcome = await new RemoteExecutor('w0', callerRpc, 'dispatches-unauthenticated').execute({
         moduleCid,
         inputCid,
         partitionIndex: 0,
@@ -579,15 +589,17 @@ describe('AUTH-03 — a task is refused before the module is instantiated', () =
       egress: 'holds-no-registrations',
       authorize: () => null,
       index: 'serves-no-records',
+      enroll: 'issues-no-certificates',
       capacity: 'accepts-every-offer',
       ledger: 'keeps-no-ledger',
       reservations: 'relays-for-nobody',
       onDispatch: 'reports-no-dispatch',
+      attest: 'signs-nothing',
     })
 
     const callerRpc = new RpcEndpoint(network.connect('caller'), { timeoutMs: 5_000 })
     try {
-      const outcome = await new RemoteExecutor('w0', callerRpc).execute({
+      const outcome = await new RemoteExecutor('w0', callerRpc, 'dispatches-unauthenticated').execute({
         moduleCid,
         inputCid,
         partitionIndex: 3,

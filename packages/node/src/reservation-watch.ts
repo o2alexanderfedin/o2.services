@@ -112,9 +112,29 @@ export class ReservationWatcher {
     return this.#failures.some((f) => f.kind === 'at-capacity')
   }
 
-  /** Subscribe to failures as they are reported. Returns an unsubscribe function. */
+  /**
+   * Subscribe to failures. Returns an unsubscribe function.
+   *
+   * **Failures already observed are replayed to the new listener, and that is the point
+   * of this method rather than a convenience.** Without it a subscription taken after a
+   * failure arrived was a lost wakeup: the failure sat in `#failures` and the listener
+   * that existed to report it never fired. `bin/agent.ts` subscribed after
+   * `FabricNode.start`, the relay dial happens inside `start`, and roughly one node in
+   * five was therefore never told a full relay had refused it — reported instead as the
+   * weaker outcome that cannot distinguish a full relay from a silent one, which is the
+   * ambiguity NET-05 exists to remove.
+   *
+   * That call site now subscribes before `start`, so this replay is its belt as well as
+   * its braces; the value of putting it here is that the **next** subscriber cannot
+   * inherit the same defect by being written a few lines too late.
+   *
+   * `nextCapacityRefusal` has always replayed. The asymmetry between the two was the
+   * whole bug, and it is why the in-process spec never flaked while the cross-process one
+   * did.
+   */
   onFailure(listener: (failure: ReservationFailure) => void): () => void {
     this.#listeners.add(listener)
+    for (const failure of [...this.#failures]) listener(failure)
     return () => {
       this.#listeners.delete(listener)
     }

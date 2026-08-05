@@ -27,9 +27,16 @@ export type {
   TabAddresses,
   TabApi,
   TabConsentState,
+  TabDiscoveryRound,
   TabGovernorState,
+  TabHeldPeer,
   TabIsolation,
   TabJobReport,
+  // DET-03/DATA-08: exported because the shape has a caller outside this package. The
+  // e2e harnesses in `packages/node` sign a record and hand it across `page.evaluate`,
+  // and a hand-written object literal there would drift from `runJob`'s parameter
+  // silently — which is exactly what this file's own header says the type exists to stop.
+  TabNameRecord,
   TabStartReport,
 } from './tab-api.ts'
 export { VisibilityGovernor } from './visibility-governor.ts'
@@ -49,9 +56,10 @@ export type { ConsentGap, ConsentRecord, ConsentStore, GrantOptions } from './co
 export { CONSENT_VERSION_NOTE, DISCLOSURE, DISCLOSURE_VERSION } from './disclosure.ts'
 export type { Disclosure, DisclosureLine } from './disclosure.ts'
 
-// Stopping for real — BROW-04.
-export { WorkerExecutor } from './worker-executor.ts'
-export type { WorkerExecutorOptions, WorkerFactory } from './worker-executor.ts'
+// Stopping for real, and bounding an untrusted guest — BROW-04, SCHED-06.
+export { browserWorkerExecutor, WorkerExecutor } from './worker-executor.ts'
+export type { BrowserWorkerExecutorOptions, WorkerFactory } from './worker-executor.ts'
+export { domThread } from './dom-thread.ts'
 
 // The blocking metric — BROW-02.
 export { BROWSER_FAMILIES, browserLabel, currentBrowserLabel, identifyBrowser } from './browser-id.ts'

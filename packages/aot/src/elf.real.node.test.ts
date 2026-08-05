@@ -1,4 +1,5 @@
 import { readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { describeRefusal, EM_AARCH64, screenElf } from './elf.ts'
@@ -18,31 +19,29 @@ import { describeRefusal, EM_AARCH64, screenElf } from './elf.ts'
  * ## Regenerating the fixtures
  *
  * ```sh
- * mkdir -p /tmp/ecvout/elf
- * printf '#include <stdio.h>\nint main(void){ printf("hello\\n"); return 0; }\n' \
- *   > /tmp/ecvout/elf/hello.c
- * docker run --rm -v /tmp/ecvout/elf:/out ghcr.io/yomaytk/elfconv:arm64 'cd /out
- *   gcc -O0 -static -no-pie -o hello_static hello.c
- *   gcc -O0 -static -no-pie -o hello_static_stripped hello.c && strip hello_static_stripped
- *   gcc -O0 -o hello_dynamic hello.c
- *   gcc -O0 -static-pie -o hello_static_pie hello.c
- *   objcopy --strip-all --remove-section=.eh_frame --remove-section=.eh_frame_hdr \
- *     hello_static hello_no_unwind
- *   cp /bin/ls ls_dynamic
- *   chmod -R a+rw /out'
+ * node tools/aot/build-elf-fixtures.mjs
  * ```
  *
- * Note the entrypoint. The image declares `ENTRYPOINT ["/bin/bash","--login","-c"]`,
- * so the script is one argument — the `docker run … bash -lc '…'` form recorded
- * elsewhere in this project makes `bash` the whole command and silently runs nothing
- * at all, exiting 0.
+ * That script replaced a recipe that lived only in this comment, and the replacement is
+ * the point rather than the tidying. These fixtures were built by hand into `/tmp`, `/tmp`
+ * does not survive a reboot, and all eighteen cases across this file and `wasi-real`
+ * silently went inert — reported as deficiency **D21** after they had been reporting green
+ * by reporting nothing for some time. A fixture recipe that is prose is a guard with a
+ * half-life; one that is a script somebody can run is not.
  *
- * Every test skips cleanly when the file is absent. `/tmp` does not survive a reboot,
- * and a suite that fails because a scratch directory was cleaned is a suite people
- * start ignoring. `O2_ELF_FIXTURES` overrides the directory.
+ * The binaries are now committed under `tools/aot/fixtures/elf/`, which is where this
+ * repository already keeps real binary fixtures (`workload-linux`, `lifted-subject.wasm`).
+ *
+ * `O2_ELF_FIXTURES` still overrides the directory. The cases still skip rather than fail
+ * when a file is absent, because one of them — the distribution binary — is deliberately
+ * not committed for licensing reasons, and because a checkout on a non-arm64 host cannot
+ * rebuild these. What is no longer true is that the absence is silent:
+ * `elf-fixtures.node.test.ts` asserts which fixtures must be present, so a fixture that
+ * disappears fails a named test instead of quietly subtracting coverage.
  */
 
-const FIXTURES = process.env['O2_ELF_FIXTURES'] ?? '/tmp/ecvout/elf'
+const FIXTURES =
+  process.env['O2_ELF_FIXTURES'] ?? fileURLToPath(new URL('../../../tools/aot/fixtures/elf/', import.meta.url))
 
 function load(name: string): Uint8Array | undefined {
   try {

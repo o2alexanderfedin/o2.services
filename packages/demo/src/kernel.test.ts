@@ -1,11 +1,39 @@
 import { MemoryBlockstore, WasmExecutor, decodeCanonical, encodeCanonical, publicNodes, submitJob } from '@o2/core'
 import type { CanonicalValue, Executor } from '@o2/core'
 import type { CID } from 'multiformats/cid'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { colourOf, verifyColouring } from './colouring.ts'
 import { COLOURING_BYTES, DEFAULT_BUDGET, MAX_N, answerOf, buildInput, readPartial } from './job.ts'
 import { kernelBytes } from './kernel.ts'
 import { assignmentOrder } from './triples.ts'
+
+/**
+ * Every case here runs a real depth-first search inside a real WASM guest, so what
+ * each one costs is a fact about the host, not about the assertion.
+ *
+ * Set once for the file rather than per case. `vitest.config.ts` listed this file
+ * among the slow specs and described it as carrying a "50 s testTimeout" — it
+ * carried none, and ran on the project default. The browser project's default is
+ * 15 s, and on 2026-07-31, with an unrelated LLVM build saturating the host (load
+ * average 31 on 8 cores), the n=300 cube case exceeded it in Firefox alone while
+ * passing in Chromium and WebKit. Nothing was wrong with the kernel; the machine
+ * was busy.
+ *
+ * A correctness suite that goes red because another process is compiling is not
+ * reporting on the code, and the previous session already spent an investigation
+ * discovering exactly that about this file.
+ *
+ * The figure was then set wrong once before landing, which is worth leaving on the
+ * record because it is the same error twice. 60 s was chosen against the ~25 s the
+ * whole file measures idle across all three engines — the typical case. Hours later
+ * the same LLVM build reached a load average of 130, and the n=300 cube exceeded
+ * 60 s in Firefox. Sizing a bound to the typical case is precisely the mistake the
+ * paragraph above describes.
+ *
+ * 120 s is ~5x the idle whole-file cost, and was verified against the host at that
+ * 16x oversubscription rather than against a quiet one.
+ */
+vi.setConfig({ testTimeout: 120_000 })
 
 /**
  * A bound a *single* cube settles within the shipped budget.
@@ -101,6 +129,40 @@ async function runRaw(
   return { output: state.output, memory }
 }
 
+/**
+ * The engine-portable part of an import/export descriptor: who it is, not what
+ * shape it has.
+ *
+ * `WebAssembly.Module.imports`/`.exports` do not agree across engines. WebKit
+ * implements the JS-API type-reflection member and returns an extra `type` —
+ * `{parameters,results}` for a function, `{minimum,maximum,shared}` for a memory.
+ * Chromium, Firefox and Node do not return it at all. Measured 2026-07-29 on one
+ * host with a two-line synthetic module, all three engines under Playwright:
+ *
+ *   chromium  imports [kind, module, name]         exports [kind, name]
+ *   firefox   imports [kind, module, name]         exports [kind, name]
+ *   webkit    imports [kind, module, name, type]   exports [kind, name, type]
+ *
+ * (`WebAssembly.Function` is `undefined` on all three, so it is not the feature
+ * probe it looks like — the divergence is on the descriptor objects only.)
+ *
+ * A `toEqual` against bare object literals therefore asserted "these four imports
+ * AND this engine does not implement type reflection", which is two claims welded
+ * together, and only the first is this test's business. Projecting to the identity
+ * fields keeps the claim exactly as strong: the array is still compared whole, so
+ * an extra, missing, renamed or reordered import still fails. WebKit's `type`
+ * payload was inspected when this was found and describes the intended ABI
+ * correctly — `[]→i32`, `[i32,i32]→i32`, `[i32,i32]→[]`, `[]→i32`, and a memory of
+ * `minimum === maximum === 4` — so nothing about the module itself was in question.
+ */
+function descriptorIdentity<T extends { name: string; kind: string; module?: string }>(
+  descriptor: T,
+): { name: string; kind: string; module?: string } {
+  return descriptor.module === undefined
+    ? { name: descriptor.name, kind: descriptor.kind }
+    : { module: descriptor.module, name: descriptor.name, kind: descriptor.kind }
+}
+
 describe('the committed module is a well-formed, minimally-privileged guest', () => {
   it('validates', () => {
     expect(WebAssembly.validate(kernelBytes)).toBe(true)
@@ -113,7 +175,7 @@ describe('the committed module is a well-formed, minimally-privileged guest', ()
     // value of checking here is that the failure is named at build time rather than
     // discovered on some node in the field.
     const module = await WebAssembly.compile(kernelBytes)
-    expect(WebAssembly.Module.imports(module)).toEqual([
+    expect(WebAssembly.Module.imports(module).map(descriptorIdentity)).toEqual([
       { module: 'o2', name: 'input_len', kind: 'function' },
       { module: 'o2', name: 'input_read', kind: 'function' },
       { module: 'o2', name: 'output_write', kind: 'function' },
@@ -123,7 +185,7 @@ describe('the committed module is a well-formed, minimally-privileged guest', ()
 
   it('exports run and memory, as the executor requires', async () => {
     const module = await WebAssembly.compile(kernelBytes)
-    expect(WebAssembly.Module.exports(module)).toEqual([
+    expect(WebAssembly.Module.exports(module).map(descriptorIdentity)).toEqual([
       { name: 'memory', kind: 'memory' },
       { name: 'run', kind: 'function' },
     ])
@@ -397,6 +459,7 @@ describe('the whole job, across cubes, at redundancy 2', () => {
         executors,
         nodes: publicNodes(executors),
         redundancy: 2,
+        onQuorumShortfall: 'runs-at-available-redundancy',
       },
       store,
     )
@@ -444,6 +507,7 @@ describe('the whole job, across cubes, at redundancy 2', () => {
         executors,
         nodes: publicNodes(executors),
         redundancy: 1,
+        onQuorumShortfall: 'runs-at-available-redundancy',
       },
       store,
     )

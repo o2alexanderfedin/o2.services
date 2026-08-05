@@ -129,6 +129,31 @@ function sweepTable(results: readonly SweepResult[]): string {
 }
 
 /**
+ * The reduce leg, one row per rung — MR-03, MR-04, MR-05.
+ *
+ * **A configuration whose reduce was never measured renders every cell after `nodes`
+ * as an em dash, and never as its numeric value.** `0 | 0 | 0` would read as "the
+ * reduce ran and did nothing", which is a different claim from "this was not
+ * measured", and only one of them is true. `ms`'s existing em-dash-for-non-finite
+ * behaviour is the precedent this follows; the four counts need the rule stated
+ * explicitly because a count of zero is finite and would otherwise print.
+ */
+function reduceTable(results: readonly SweepResult[]): string {
+  if (results.length === 0) return '_no runs_\n'
+  const rows = results.map((point) => {
+    const { reduce } = point
+    if (reduce.ms.n === 0) return `| ${point.config.nodes} | — | — | — | — | — | — |`
+    return `| ${point.config.nodes} | ${ms(reduce.ms.p50)} | ${ms(reduce.ms.p95)} | ${reduce.treeDepth} | ${reduce.combines} | ${reduce.recomputes} | ${reduce.combineExecutors} |`
+  })
+  return [
+    '| nodes | reduce p50 | reduce p95 | tree depth | combines | recomputes | combine executors |',
+    '|---|---|---|---|---|---|---|',
+    ...rows,
+    '',
+  ].join('\n')
+}
+
+/**
  * Render the report as Markdown fit to publish.
  *
  * Gross and useful node-seconds are adjacent columns in every table — BENCH-04 is a
@@ -165,6 +190,18 @@ export function renderMarkdown(report: Report): string {
 
   out.push(`## Makespan — real transport (${label})`, '')
   out.push(sweepTable(report.realTransport))
+
+  // Placed adjacent to makespan on purpose: the reduce is a *segment of the same job*,
+  // and a reader who finds the two tables side by side can add the columns if they
+  // prefer the other definition of makespan — one that ends at the aggregate rather
+  // than at the last shard. A reader given only the sum could not subtract them.
+  // Putting these at the bottom of the file would invite reading them as
+  // supplementary, which is the one thing they are not.
+  out.push(`## Reduce tree — memory transport (${label})`, '')
+  out.push(reduceTable(report.memoryTransport))
+
+  out.push(`## Reduce tree — real transport (${label})`, '')
+  out.push(reduceTable(report.realTransport))
 
   if (report.excluded !== undefined && report.excluded.length > 0) {
     out.push('## Configurations excluded, and why', '')

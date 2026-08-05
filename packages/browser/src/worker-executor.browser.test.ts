@@ -1,6 +1,6 @@
 import { MemoryBlockstore } from '@o2/core'
 import { describe, expect, it } from 'vitest'
-import { WorkerExecutor } from './worker-executor.ts'
+import { browserWorkerExecutor } from './worker-executor.ts'
 import { PROBE_EMITS_TEN, PROBE_NEVER_RETURNS } from './wasm-probes.ts'
 // Vite's `?worker` suffix bundles the module and its imports into a real Worker.
 // Browser project only — see vitest.config.ts.
@@ -14,6 +14,23 @@ import TaskExecutorWorker from './task-executor.worker.ts?worker'
  * therefore faster than the thing it stands in for, which in this project has
  * already hidden a hang, an unexamined disagreement, and an allocation spin. The
  * spin probe here cannot be faked at all: nothing but killing the thread ends it.
+ *
+ * ## Two budgets per case, and their order is the rule
+ *
+ * Every case here arms two timers: the executor's own `deadlineMs`, and vitest's
+ * `testTimeout` (the trailing argument to `it`). **The framework's must be the larger
+ * one.** Inverted, the executor's timer can never be the one that fires, so a case
+ * that means to observe a deadline — or to be immune to one — instead dies with
+ * `Test timed out`, which names nothing and asserts nothing.
+ *
+ * That inversion was live here on 2026-07-31: four cases paired `deadlineMs: 60_000`
+ * with `}, 30_000)`. It surfaced only when an unrelated LLVM build pushed this host to
+ * a load average of 130 on 8 cores and the work stopped fitting inside 30 s. The pair
+ * at the foot of the file had it right all along — a 30 s deadline inside a 60 s
+ * framework budget — and the four now follow it at 60 s inside 120 s.
+ *
+ * `tools/aot/lift.node.test.ts` carries the same rule and the same scars; its header
+ * records the measurement behind its numbers.
  */
 
 const CANONICAL_INPUT = new Uint8Array([0x0a]) as Uint8Array<ArrayBuffer>
@@ -38,10 +55,23 @@ describe('the probes are real WASM, not bytes we merely believe in', () => {
 describe('a task executes off the main thread', () => {
   it('returns the guest output decoded from canonical bytes', async () => {
     const { store, moduleCid, inputCid } = await seeded(PROBE_EMITS_TEN)
-    const executor = new WorkerExecutor({
+    const executor = browserWorkerExecutor({
       nodeId: 'tab',
       blockstore: store,
       createWorker: () => new TaskExecutorWorker(),
+      // Explicit, and generous, because this test is not about the deadline.
+      //
+      // Left to the default it inherits `DEFAULT_TASK_DEADLINE_MS` (10 s), which
+      // turns "does the guest's output decode" into a measurement of how busy the
+      // machine is. Observed: with an unrelated LLVM build saturating the host —
+      // load average 31 on 8 cores — a guest that emits a single integer took over
+      // 10 s of wall clock, the bound fired exactly as designed, and this assertion
+      // read `expected false to be true` in Chromium and WebKit. The bound was
+      // right and the test was wrong to depend on it.
+      //
+      // The tests that ARE about the deadline set it deliberately short (600 ms,
+      // below) and must keep doing so. This one wants the opposite.
+      deadlineMs: 60_000,
     })
     try {
       const outcome = await executor.execute({
@@ -58,11 +88,11 @@ describe('a task executes off the main thread', () => {
     } finally {
       executor.terminate()
     }
-  }, 30_000)
+  }, 120_000)
 
   it('spawns no thread until it is actually asked to compute', async () => {
     const { store } = await seeded(PROBE_EMITS_TEN)
-    const executor = new WorkerExecutor({
+    const executor = browserWorkerExecutor({
       nodeId: 'tab',
       blockstore: store,
       createWorker: () => new TaskExecutorWorker(),
@@ -74,7 +104,7 @@ describe('a task executes off the main thread', () => {
   it('reports a missing block rather than starting a thread for work it cannot do', async () => {
     const { store, moduleCid } = await seeded(PROBE_EMITS_TEN)
     const absent = await new MemoryBlockstore().put(new Uint8Array([0xff]) as Uint8Array<ArrayBuffer>)
-    const executor = new WorkerExecutor({
+    const executor = browserWorkerExecutor({
       nodeId: 'tab',
       blockstore: store,
       createWorker: () => new TaskExecutorWorker(),
@@ -99,10 +129,13 @@ describe('stopping is termination, not a request to stop', () => {
     // no flag, no duty cycle and no governor can reach it, because the guest never
     // yields. If this resolves, the thread was killed.
     const { store, moduleCid, inputCid } = await seeded(PROBE_NEVER_RETURNS)
-    const executor = new WorkerExecutor({
+    const executor = browserWorkerExecutor({
       nodeId: 'tab',
       blockstore: store,
       createWorker: () => new TaskExecutorWorker(),
+      // Long, deliberately: this case is about Stop, and a deadline firing first
+      // would make it pass for the wrong reason. The deadline has its own case below.
+      deadlineMs: 60_000,
     })
 
     const running = executor.execute({ moduleCid, inputCid, partitionIndex: 0, partitionCount: 1 })
@@ -119,17 +152,20 @@ describe('stopping is termination, not a request to stop', () => {
     expect(outcome.reason).toBe('executor stopped')
     expect(executor.threadAlive).toBe(false)
     expect(executor.terminated).toBe(true)
-  }, 30_000)
+  }, 120_000)
 
   it('leaves the main thread responsive throughout', async () => {
     // If execution were on the main thread, the spin would block this timer and
     // the assertion below would never run. That it does run is the off-main-thread
     // claim, observed rather than asserted.
     const { store, moduleCid, inputCid } = await seeded(PROBE_NEVER_RETURNS)
-    const executor = new WorkerExecutor({
+    const executor = browserWorkerExecutor({
       nodeId: 'tab',
       blockstore: store,
       createWorker: () => new TaskExecutorWorker(),
+      // Same reason as above: the subject is the main thread staying responsive, not
+      // the deadline, so the deadline is put out of reach of this window.
+      deadlineMs: 60_000,
     })
     const running = executor.execute({ moduleCid, inputCid, partitionIndex: 0, partitionCount: 1 })
 
@@ -143,7 +179,7 @@ describe('stopping is termination, not a request to stop', () => {
 
     executor.terminate()
     await running
-  }, 30_000)
+  }, 120_000)
 
   it('really ends the thread, not merely the promise waiting on it', async () => {
     // The trap this test exists to close: rejecting every pending promise makes a
@@ -152,7 +188,7 @@ describe('stopping is termination, not a request to stop', () => {
     // requirement. So this asks the thread itself, directly, past the executor.
     const { store, moduleCid, inputCid } = await seeded(PROBE_EMITS_TEN)
     const workers: Worker[] = []
-    const executor = new WorkerExecutor({
+    const executor = browserWorkerExecutor({
       nodeId: 'tab',
       blockstore: store,
       createWorker: () => {
@@ -160,6 +196,11 @@ describe('stopping is termination, not a request to stop', () => {
         workers.push(worker)
         return worker
       },
+      // Generous for the same reason as the decode test above: this asks whether
+      // `terminate` really kills the thread, and a starved machine tripping the
+      // default 10 s bound first would replace the thread before the question is
+      // put.
+      deadlineMs: 60_000,
     })
 
     await executor.execute({ moduleCid, inputCid, partitionIndex: 0, partitionCount: 1 })
@@ -192,11 +233,11 @@ describe('stopping is termination, not a request to stop', () => {
     // `postMessage` to a terminated worker is a no-op and no message event ever
     // fires again. A thread that is merely idle would still answer this.
     expect(await asksAndWaits(102)).toBe(false)
-  }, 30_000)
+  }, 120_000)
 
   it('refuses further work once stopped, and stays stopped', async () => {
     const { store, moduleCid, inputCid } = await seeded(PROBE_EMITS_TEN)
-    const executor = new WorkerExecutor({
+    const executor = browserWorkerExecutor({
       nodeId: 'tab',
       blockstore: store,
       createWorker: () => new TaskExecutorWorker(),
@@ -216,4 +257,74 @@ describe('stopping is termination, not a request to stop', () => {
     expect(executor.threadAlive).toBe(false)
     expect(executor.started).toBe(0)
   }, 30_000)
+})
+
+describe('BROW-04 / SCHED-06 — a runaway guest is killed by the deadline, not only by Stop', () => {
+  it('fails a real spinning guest on time and computes again on the replacement thread', async () => {
+    // A fake thread cannot prove this. `PROBE_NEVER_RETURNS` is a bare `loop br 0`
+    // in a real Worker: no flag, no duty cycle, no governor and no timer inside that
+    // thread can reach it, because the guest never yields. If the first outcome
+    // arrives at all, the thread was killed — and if the second one succeeds, the
+    // executor built a new one rather than retiring itself.
+    const deadlineMs = 600
+    const spinning = await seeded(PROBE_NEVER_RETURNS)
+    const executor = browserWorkerExecutor({
+      nodeId: 'tab',
+      blockstore: spinning.store,
+      createWorker: () => new TaskExecutorWorker(),
+      deadlineMs,
+    })
+
+    try {
+      const started = performance.now()
+      const outcome = await executor.execute({
+        moduleCid: spinning.moduleCid,
+        inputCid: spinning.inputCid,
+        partitionIndex: 0,
+        partitionCount: 1,
+      })
+      const elapsed = performance.now() - started
+
+      expect(outcome.ok).toBe(false)
+      if (outcome.ok) return
+      expect(outcome.reason).toMatch(/exceeded \d+ms/)
+      // That the deadline fired at all is already causal: `PROBE_NEVER_RETURNS` is a
+      // bare `loop br 0`, so an outcome arriving here at all means the thread was
+      // killed, and had the framework budget been what ended it this case would read
+      // `Test timed out` instead. What the clock adds is *promptness* — BROW-04's
+      // "one click provably drops CPU to zero" is not satisfied by a deadline that
+      // fires eventually — so the bound stays, sited on measurement.
+      //
+      // `deadlineMs * 8` stood here before. Arithmetic on the constant under test is
+      // the same number twice: it cannot fail for the reason it claims. Measured
+      // instead, 2026-08-01, 24 samples over 8 runs across chromium/firefox/webkit,
+      // 1-min load 34.9→60.0 on 8 cores — deliberately taken while three other
+      // suites were running, so this is a loaded population, not a quiet one:
+      // **600.3–618 ms** against a 600 ms deadline, i.e. 0.3–18 ms of overhead.
+      // The other population is the 60 s framework budget on the line below, which
+      // is what a guest that outlives its deadline costs. 3 000 is ~166× the worst
+      // overhead measured and 20× under that budget.
+      expect(elapsed).toBeLessThan(3_000)
+      // Stop was never pressed, so the node is still willing to work.
+      expect(executor.terminated).toBe(false)
+
+      const ordinary = await seeded(PROBE_EMITS_TEN)
+      const next = await browserWorkerExecutor({
+        nodeId: 'tab',
+        blockstore: ordinary.store,
+        createWorker: () => new TaskExecutorWorker(),
+        deadlineMs: 30_000,
+      }).execute({
+        moduleCid: ordinary.moduleCid,
+        inputCid: ordinary.inputCid,
+        partitionIndex: 0,
+        partitionCount: 1,
+      })
+      expect(next.ok).toBe(true)
+      if (!next.ok) return
+      expect(next.output).toBe(10)
+    } finally {
+      executor.terminate()
+    }
+  }, 60_000)
 })

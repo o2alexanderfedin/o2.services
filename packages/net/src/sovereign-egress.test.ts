@@ -13,10 +13,9 @@ import { EgressGuard } from './egress.ts'
 import { RemoteExecutor } from './remote-executor.ts'
 import { RpcEndpoint } from './rpc.ts'
 import { serveAgent } from './agent.ts'
-import { registerSovereignInputs } from './sovereign-egress.ts'
 
 /**
- * `registerSovereignInputs` — proven as a real production caller of
+ * `takeSovereignHold` — proven as a real production caller of
  * `EgressGuard.guard()`, over a genuine `RpcEndpoint`/`serveAgent`/`EgressGuard`
  * fabric. None of these tests calls `guard.guard()` directly: every violation, or
  * lack of one, is a consequence of the wrapper's own decision.
@@ -44,13 +43,15 @@ interface Node {
 const network = new MemoryNetwork()
 
 /**
- * One serving node, wired exactly the way `fabric-node.ts`/`browser-node.ts` will
- * compose it in Plan 13-02: `registerSovereignInputs(guardSovereignty(...), ...)`
- * feeding `serveAgent`, over an `EgressGuard`-wrapped transport.
+ * One serving node, wired exactly the way `fabric-node.ts`/`browser-node.ts` compose
+ * it: `guardSovereignty(...)` feeding `serveAgent`, over an `EgressGuard`-wrapped
+ * transport, with the tap and the local-only tier handed to `serveAgent` as one
+ * option.
  *
  * `executionStore` is what the `WasmExecutor` itself reads module/input bytes from.
- * `registrationStore` is what `registerSovereignInputs` checks before calling
- * `guard.guard()` — separate parameters so behavior 3 below can make them diverge.
+ * `registrationStore` is the local-only tier `takeSovereignHold` checks before
+ * calling `guard.guard()` — separate parameters so behavior 3 below can make them
+ * diverge.
  */
 function servingNode(options: {
   nodeId: string
@@ -66,30 +67,29 @@ function servingNode(options: {
 }): Node {
   const guard = new EgressGuard(network.connect(options.nodeId), OWNER_ID)
   const rpc = new RpcEndpoint(guard, { timeoutMs: 2_000 })
-  const executor = registerSovereignInputs(
-    guardSovereignty(
-      options.inner ??
-        new WasmExecutor({ nodeId: options.nodeId, blockstore: options.executionStore }),
-      {
-        ownerId: OWNER_ID,
-        canExecuteSovereign: options.canExecuteSovereign,
-      },
-    ),
-    { blockstore: options.registrationStore, guard },
+  const executor = guardSovereignty(
+    options.inner ?? new WasmExecutor({ nodeId: options.nodeId, blockstore: options.executionStore }),
+    {
+      ownerId: OWNER_ID,
+      canExecuteSovereign: options.canExecuteSovereign,
+    },
   )
   serveAgent({
     rpc,
     executor,
     blockstore: options.executionStore,
-    // This node's own tap, the one `rpc` is built over — so the registration
-    // `registerSovereignInputs` takes is released once the reply frame has settled.
-    egress: guard,
+    // This node's own tap, the one `rpc` is built over, plus the local-only tier
+    // that says which payloads are sovereign — so the hold the serve path takes is
+    // given back once the reply frame has settled, and only that hold.
+    egress: { guard, sovereignInputs: options.registrationStore, sovereignCids: 'forgets-sovereignty-between-jobs' },
     authorize: 'serves-unauthenticated',
     index: 'serves-no-records',
+    enroll: 'issues-no-certificates',
     capacity: 'accepts-every-offer',
     ledger: 'keeps-no-ledger',
     reservations: 'relays-for-nobody',
     onDispatch: 'reports-no-dispatch',
+    attest: 'signs-nothing',
   })
   return {
     nodeId: options.nodeId,
@@ -100,12 +100,20 @@ function servingNode(options: {
     },
   }
 }
-function requestor(nodeId: string): { readonly rpc: RpcEndpoint; readonly executor: RemoteExecutor } {
-  const rpc = new RpcEndpoint(network.connect(`requestor-${nodeId}`), { timeoutMs: 2_000 })
-  return { rpc, executor: new RemoteExecutor(nodeId, rpc) }
+/**
+ * `timeoutMs` is a per-behavior choice rather than a file-wide constant because the
+ * refusing behavior below measures elapsed wall-clock: its budget is deliberately
+ * long, so an elapsed reading well under it cannot be a timeout wearing a disguise.
+ */
+function requestor(
+  nodeId: string,
+  timeoutMs = 2_000,
+): { readonly rpc: RpcEndpoint; readonly executor: RemoteExecutor } {
+  const rpc = new RpcEndpoint(network.connect(`requestor-${nodeId}`), { timeoutMs })
+  return { rpc, executor: new RemoteExecutor(nodeId, rpc, 'dispatches-unauthenticated') }
 }
 
-describe('registerSovereignInputs — a production caller for EgressGuard.guard()', () => {
+describe('takeSovereignHold — a production caller for EgressGuard.guard()', () => {
   it('registers a sovereign task’s input before it runs, and the tap refuses the leaking reply', async () => {
     const store = new MemoryBlockstore()
     const moduleCid = await store.put(MODULE_ECHOES_INPUT)
@@ -119,7 +127,10 @@ describe('registerSovereignInputs — a production caller for EgressGuard.guard(
       registrationStore: store,
       canExecuteSovereign: true,
     })
-    const { rpc, executor } = requestor('alice-1')
+    // Ten seconds, five times this file's default, so an elapsed reading under one
+    // second cannot be a timeout that happened to fire early. The budget is the
+    // control for the measurement below, not a convenience.
+    const { rpc, executor } = requestor('alice-1', 10_000)
     try {
       const task: Task = {
         moduleCid,
@@ -129,19 +140,45 @@ describe('registerSovereignInputs — a production caller for EgressGuard.guard(
         label: 'sovereign',
         ownerId: OWNER_ID,
       }
+      const started = performance.now()
       const outcome = await executor.execute(task)
+      const elapsed = performance.now() - started
       // The module echoed its input straight back, so the reply frame would have
       // carried the raw row. The tap refused it: the row stayed on the owner's
       // node, and the requestor's dispatch failed as a consequence.
       //
-      // The requestor waits out this endpoint's 2s timeout rather than being told
-      // why, because the refusal happens on the *responding* leg, which `rpc.ts`
-      // swallows by documented design — see `egress.ts`'s own statement of that
-      // cost. The added seconds here are an understood consequence, not a slow
-      // test nobody has looked at.
+      // NET-10: the requestor is *told*, rather than left to time out. `serveAgent`
+      // asks the guard about its candidate reply before handing it to the exit and,
+      // on a hit, substitutes a small `{kind:'exec', outcome:{ok:false}}` that by
+      // construction cannot carry the payload it refuses. `rpc.ts`'s responding leg
+      // still swallows a send failure by documented design, and that cost is still
+      // real for every frame `serveAgent` does not pre-scan — see the scoped
+      // exception in `egress.ts`'s class comment. It no longer applies here.
       expect(outcome.ok).toBe(false)
       if (outcome.ok) return
       expect(outcome.reason).toContain(node.nodeId)
+      // Soft, all three, and for one reason: asserted hard, only the first to fail
+      // reaches the report, and the run that matters here is the *failing* one —
+      // where the reason string and the elapsed figure are two different readings
+      // of the same regression and both belong in the output. This is the idiom
+      // Plan 13.1-01 settled on for paired evidence.
+      //
+      // The wire vocabulary 13.1-CONTEXT.md decision 4 fixes, asserted so it cannot
+      // drift — and deliberately distinct from `over-committed: `, which travels as
+      // `{kind:'error'}` because it wants the opposite retry policy.
+      expect.soft(outcome.reason.startsWith('egress refused: ')).toBe(true)
+      expect.soft(outcome.reason).toContain(inputCid.toString())
+      // The measurement, and both of its populations rather than only the upper one.
+      //
+      // Fast path, measured 2026-08-01: **1.9–9.0 ms** over 51 samples — 24 in Node
+      // (1-min load 10.9→11.9 on 8 cores) and 27 across chromium/firefox/webkit
+      // (load 11.5→29.1). Firefox and WebKit coarsen `performance.now()` to ~1 ms,
+      // so their readings are the integers 2–9; Chromium's are 1.9–3.8.
+      // Upper population: the 10 s budget above, which is what this reads if the
+      // refusal is ever replaced by a wait. 1 s sits two orders of magnitude above
+      // the measured maximum and one below the control, so neither ambient noise on
+      // a contended host nor a coarsened clock can reach it.
+      expect.soft(elapsed).toBeLessThan(1_000)
 
       // Refused *and* recorded — the two halves of the ordering guarantee, both
       // reached without this test ever calling guard.guard().
@@ -159,7 +196,12 @@ describe('registerSovereignInputs — a production caller for EgressGuard.guard(
       node.close()
       rpc.close()
     }
-  })
+    // 30 s, well past the requestor's 10 s budget, and deliberately so: it exists
+    // for the *failing* run, not the passing one. A regression to the old
+    // timeout behaviour must report as the elapsed assertion above carrying its
+    // number, not as an opaque runner timeout that says nothing about what was
+    // measured. Vitest's own 5 s default would have swallowed exactly that.
+  }, 30_000)
 
   it('never registers or touches the guard for a public task', async () => {
     const store = new MemoryBlockstore()
@@ -325,6 +367,63 @@ describe('the registration is released after the reply frame has settled', () =>
 
       // The error exit is an exit. A node that forgot to forget on it would grow
       // its watch list every time a task failed.
+      expect(node.guard.registrations).toEqual([])
+    } finally {
+      node.close()
+      rpc.close()
+    }
+  })
+
+  it('releases when the endpoint closes between the outcome and the frame', async () => {
+    const store = new MemoryBlockstore()
+    const moduleCid = await store.put(MODULE_WRITES_PARTITION)
+    const encoded = encodeCanonical(SOVEREIGN_ROW)
+    if (!encoded.ok) throw new Error('fixture not encodable')
+    const inputCid = await store.put(encoded.bytes)
+
+    // The third exit, and the one with no observable result to assert on: the reply
+    // is never sent, so the only evidence anything happened is what the tap holds
+    // afterwards. `rpc.ts` keeps its `#closed` check *inside* the try for exactly
+    // this reason, and until now that was a comment with nothing behind it — hoist
+    // the check above the try and every dispatch interrupted by a shutdown leaves a
+    // registration scanned against every frame the node sends for the rest of its
+    // life.
+    let server: Node | undefined
+    const heldWhileRunning: string[][] = []
+    const node = servingNode({
+      nodeId: 'alice-6',
+      executionStore: store,
+      registrationStore: store,
+      canExecuteSovereign: true,
+      inner: {
+        nodeId: 'alice-6',
+        async execute() {
+          // Read before closing: the hold is taken before the executor runs, so
+          // this is the only moment it can be observed. Without it "nothing is
+          // registered afterwards" is equally true of a node that registered
+          // nothing at all.
+          heldWhileRunning.push([...(server as Node).guard.registrations])
+          ;(server as Node).close()
+          return { ok: true, output: 0, fuelUsed: 0, attestation: 'signed-by-nobody' }
+        },
+      },
+    })
+    server = node
+
+    // Short, because this requestor is deliberately never answered.
+    const { rpc, executor } = requestor('alice-6', 250)
+    try {
+      const outcome = await executor.execute({
+        moduleCid,
+        inputCid,
+        partitionIndex: 0,
+        partitionCount: 1,
+        label: 'sovereign',
+        ownerId: OWNER_ID,
+      })
+
+      expect(heldWhileRunning).toEqual([[inputCid.toString()]])
+      expect(outcome.ok).toBe(false)
       expect(node.guard.registrations).toEqual([])
     } finally {
       node.close()

@@ -16,6 +16,54 @@
  *      different relays pass; three servers published behind one do not. The rule
  *      reads the actual discovery paths, never a node's category.
  *
+ * ## The third rule that was here, and why it is not — retracted 2026-08-03
+ *
+ * Between 2026-08-02 and 2026-08-03 a rule 3 stood here: at least one member whose
+ * `discoverability` is `'seed'`, refused otherwise with a kind
+ * `no-direct-discovery-path`. It is recorded rather than quietly deleted, because the
+ * derivation that produced it is the kind this file exists to prevent.
+ *
+ * **It keyed on node kind, which `STATE.md:479-480` forbids outright:** *"if a
+ * decision keys on node kind, it is wrong — the only legitimate use is
+ * shared-dependency analysis over the discovery graph."* Rule 2 **is** that analysis.
+ * A seed requirement is not a narrower version of it; it is a node class wearing a
+ * discovery field's clothes, and naming the refusal after a missing *path* did not
+ * change what the predicate read. The counter-example was already in the repository:
+ * a browser peer dialled at its `/p2p-circuit/webrtc` address ran half of a
+ * 2×-redundant job in Phase 3. A relay-discovered peer has held a verification slot
+ * here. The relay is a signalling channel for registration and discovery, not a data
+ * path, and it drops out once the peers connect.
+ *
+ * **What VER-03 actually asks for.** Owner ruling 2026-08-03: `backbone-anchored`
+ * describes the **replica**, not the node. A quorum is anchored when at least one
+ * copy of its result is pinned somewhere durable, so the verification outlives the
+ * nodes that produced it. That is a **storage** property, not a discovery one, and
+ * three tabs behind one relay compose a perfectly good quorum provided one of them
+ * pins its result durably.
+ *
+ * **It cannot be checked here, and nothing below pretends to.** This function runs
+ * *before* execution and takes `NodeCertificate[]`. Durability of a result is a fact
+ * that only exists *after* one, and no field on a certificate says whether a node
+ * pins durably. A precondition on the composer could at best read a *claim*, and this
+ * repository has already ruled against exactly that shape — see `discovery.ts`'s
+ * owner ruling D1 on why provider records are computed at ask time rather than
+ * announced: *a node that evicts a block still reads as a provider until something
+ * retracts the announcement.* A node that claimed durable pinning and then evicted
+ * would read as an anchor on identical terms. **VER-03's durability half is therefore
+ * unimplemented**, deliberately, and belongs where a result is pinned rather than where
+ * a quorum is chosen.
+ *
+ * **Read that sentence as scoped, because an earlier draft of it was not, and the
+ * overstatement governed a decision.** It said flatly *"VER-03 is therefore
+ * unimplemented"*, and an executor reading it declined to tick the requirement at all.
+ * VER-03's wording in `REQUIREMENTS.md` is *"no verification quorum rests on a single
+ * shared reachability dependency, so eclipsing a quorum requires compromising more than
+ * one of them"* — eclipse resistance — and that half **is** implemented, below, as rule
+ * 2. Two halves, one open and one closed; neither sentence may stand in for both. This
+ * phase has already retracted one rule that entered the tree as proposal → docblock →
+ * implementation, and a comment governing a scoring decision is the same failure wearing
+ * different clothes.
+ *
  * ## Attestation strength is a label, not a footnote
  *
  * Sovereign data cannot be verified across operators — pinning it to one owner removes
@@ -78,6 +126,11 @@ export interface QuorumRules {
    * Turn off only when the shared dependency is acceptable — a single-relay test
    * fixture, say. It is on by default because a quorum with a common single point of
    * failure reports redundancy it does not have.
+   *
+   * Between 2026-08-02 and 2026-08-03 this flag was near-inert: a retracted third
+   * rule refused every set it could have waived, so what it decided was which
+   * refusal spoke rather than whether one did. It waives rule 2 again, which is what
+   * its name has always said.
    */
   readonly requireIndependentPaths?: boolean
 }
@@ -136,12 +189,30 @@ export function composeQuorum(
   // Fewest discovery dependencies first — a seed depends on none, so it sorts ahead
   // naturally. This is path diversity, not a preference for a kind of node: a peer
   // discoverable through an otherwise-unused relay sorts ahead of a second peer on a
-  // relay already represented.
+  // relay already represented. A preference, never a requirement — a member set with
+  // no directly dialable node in it composes, and a case asserts that it does.
   const ordered = [...distinct].sort(
     (a, b) => a.relayIds.length - b.relayIds.length || a.nodeKey.localeCompare(b.nodeKey),
   )
+
   const members = ordered.slice(0, rules.size)
 
+  // Rule 2, asked of the members and not of the pool they came from.
+  //
+  // **It sat on the pool between 2026-08-02 and 2026-08-03**, ahead of a third rule
+  // that has since been retracted. That placement was correct while rule 3 stood,
+  // because rule 3 admitted only member sets containing a seed and `sharedRelay`
+  // answers `null` the moment it sees one — so a check standing after it could never
+  // fire again. With rule 3 gone the position is not merely unnecessary, it is a
+  // hole, and the measurement is recorded rather than reasoned: a pool of three on
+  // relay-1, relay-1 and relay-2 has no shared dependency, and the two members drawn
+  // from it at `size: 2` both hang off relay-1. Asked of the pool, that composes and
+  // reports a redundancy of two against a single point of failure.
+  //
+  // The member set is what the caller receives and what the failure domain is a
+  // property of. Pool-refusal implies member-refusal — members are a subset, so a
+  // relay common to every candidate is common to every member — and the converse is
+  // the case above, which is what makes this position strictly the stronger one.
   if (requireIndependentPaths) {
     const shared = sharedRelay(members)
     if (shared !== null) {
@@ -156,7 +227,16 @@ export function composeQuorum(
     ok: true,
     members,
     operators: members.map((member) => member.operatorId),
-    strength: 'independent',
+    // Derived, not declared. This arm returned the literal `'independent'` from
+    // Phase 6 until 2026-08-02 while `classifyAttestation` sat unused two functions
+    // below, written in the same file in the same phase to compute exactly this. The
+    // constant was right in every case the unit tests reached — one node per
+    // operator makes a quorum of two or more genuinely independent — and wrong at
+    // size 1, which is one node reporting that separate operators agreed with each
+    // other, and wrong for any future caller reaching here with a pool the map does
+    // not diversify. A defect that is correct wherever it is looked at is a defect
+    // nothing finds.
+    strength: classifyAttestation(members),
   }
 }
 

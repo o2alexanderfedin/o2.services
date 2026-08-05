@@ -13,21 +13,62 @@ export type { RpcEndpointOptions, RpcError, RpcHandler } from './rpc.ts'
 export { encodeRequest, encodeResponse, parseRequest, parseResponse } from './protocol.ts'
 export type { AgentRequest, AgentResponse } from './protocol.ts'
 
+// AUTH-02 — the one certificate validator, shared by the wire and the disk path. A
+// second, more lenient parser beside it is exactly how a persisted certificate would
+// come to be trusted on terms the wire would have refused.
+export { parseCertificate } from './protocol.ts'
+
+// Enrollment over the fabric's own protocol — AUTH-01, AUTH-04.
+export { enrolOverRpc, UNREACHABLE_PROVIDER } from './enrol-client.ts'
+export type { EnrolOutcome } from './enrol-client.ts'
+
 export { blockCid, FetchingBlockstore } from './block.ts'
 export type { BlockSource } from './block.ts'
 
 export { RemoteExecutor } from './remote-executor.ts'
+// AUTH-03 — what a call site names as its third constructor argument. This barrel
+// is `@o2/net`'s only entry point (`package.json` declares just `"."`), so a type
+// absent from here cannot be named anywhere else, and `isolatedDeclarations` forces
+// every exported function returning one to write the name out.
+export type { CapabilitySupplier } from './remote-executor.ts'
 
 export { RpcBlockSource, serveAgent } from './agent.ts'
-export type { AgentOptions, Authorizer } from './agent.ts'
+export type { AgentOptions, AuthorizedWork, Authorizer, CombineWork } from './agent.ts'
+
+// AUTH-03 — the first real `Authorizer`: a chain verified against a pinned owner key.
+export { authorizeCapability } from './capability-authorizer.ts'
+export type { CapabilityAuthorizerOptions } from './capability-authorizer.ts'
 
 // Dispatching a shard over RPC with the failure kind preserved — CHURN-01.
 export { remoteDispatch } from './churn.ts'
 export type { RemoteDispatchOptions } from './churn.ts'
 
+// Dispatching a combine over RPC — MR-05, MR-06.
+export { LocalStoreWriteFailed, remoteCombineDispatch } from './combine.ts'
+export type { RemoteCombineOptions } from './combine.ts'
+
+// Turning a JobResult into a reduce over connected peers — MR-04…MR-07.
+export { reduceJob } from './reduce-job.ts'
+// VER-08/09/10 — the AGGREGATION's own receipt, which is not the map half's. This barrel
+// is `@o2/net`'s only entry point, so a type absent from here cannot be named anywhere
+// else: `bin/bench.ts` prints both receipts and has to be able to write this one's name.
+export type {
+  AggregateAttestation,
+  CombineTrustAnchors,
+  NoVerifiedAggregation,
+  ReduceJobOptions,
+  ReduceJobResult,
+} from './reduce-job.ts'
+
 // Discovery and admission over RPC — SCHED-01, SCHED-03, NET-06.
 export { DEFAULT_PROBE_TIMEOUT_MS, RpcRecordIndex, rpcAdmission } from './discovery.ts'
 export type { AdmissionOptions } from './discovery.ts'
+
+// SCHED-01's requestor half — a data CID and a peer list become dispatchable
+// candidates. The bridge `discoverExecutors` never had: it answers in node keys and
+// a transport is addressed by peer ids.
+export { discoverCandidates } from './discover-candidates.ts'
+export type { CandidateOptions, CandidateSet } from './discover-candidates.ts'
 
 // DATA-02 — one addressing contract, checked against every Blockstore adapter.
 export { BLOCK_VECTORS, CONFORMANCE_BLOCK_COUNT, checkBlockstoreConformance } from './conformance.ts'
@@ -36,11 +77,14 @@ export type { BlockVector, ConformanceReport } from './conformance.ts'
 // SCHED-04 / BROW-03 — the governor applied to the execution path.
 export { GovernedExecutor } from './governed-executor.ts'
 
+// SCHED-06 — the instrument a node's execution concurrency is read off.
+export { CountingExecutor } from './counting-executor.ts'
+
 // Egress control — DATA-04, DATA-05.
 export { EgressGuard, EgressRefusal } from './egress.ts'
-export type { EgressEntry, EgressManifest } from './egress.ts'
-export { registerSovereignInputs } from './sovereign-egress.ts'
-export type { SovereignEgressOptions } from './sovereign-egress.ts'
+export type { EgressEntry, EgressHold, EgressManifest } from './egress.ts'
+export { takeSovereignHold, withholdingFrom } from './sovereign-egress.ts'
+export type { EgressDisposition, SovereignEgressOptions, SovereignCids } from './sovereign-egress.ts'
 export { sliceManifest, submitJobWithEgress } from './submit-with-egress.ts'
 export type { SubmitWithEgressResult } from './submit-with-egress.ts'
 
@@ -49,5 +93,5 @@ export { DEFAULT_MAX_PEERS, publishStartOutcome } from './start-report.ts'
 export type { PublishOptions, PublishResult } from './start-report.ts'
 
 // Finding browsers that cannot announce themselves — NET-03.
-export { findReservedPeers } from './rendezvous.ts'
+export { findReservedPeers, MAX_RESERVED_PEERS_PER_ANSWER } from './rendezvous.ts'
 export type { Rendezvous, RendezvousOptions } from './rendezvous.ts'

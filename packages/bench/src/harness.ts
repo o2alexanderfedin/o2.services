@@ -55,6 +55,66 @@ export interface RunConfig {
   readonly skew: Skew
 }
 
+/**
+ * The reduce leg of one measured run — MR-03, MR-04, MR-05.
+ *
+ * A segment of the same job as {@link Observation.makespanMs}, timed separately and
+ * never folded into it. §2.1 of `.planning/BENCHMARK-METHODOLOGY.md` defines makespan
+ * to *the last shard's result*; a combine happens after that, so a reduce inside the
+ * makespan bracket would silently redefine the primary metric across every number
+ * published before the reduce existed.
+ */
+export interface ReduceObservation {
+  /**
+   * This run's reduce produced an aggregate.
+   *
+   * It exists so that a failed aggregation can blank the reduce row **without**
+   * touching {@link Observation.complete}, which still means what it has always
+   * meant: every shard agreed. The tempting shortcut is to fold the reduce into
+   * `complete`, and it silently re-samples the primary metric — `makespan` is
+   * summarised over `complete` runs (see `measure` below), so coupling the two would
+   * condition every published p50/p95/p99 on the reduce having succeeded and make
+   * them incomparable with every number published before this field existed. A run
+   * that produced every shard but no aggregate is a complete **map** with a failed
+   * **aggregation**, and that is what this field records.
+   */
+  readonly ok: boolean
+  /** Wall-clock of the reduce alone, from the driver's own `performance.now()` pair. */
+  readonly reduceMs: number
+  /**
+   * `ReduceTree.depth` — read off the reduce result, never written down.
+   *
+   * `deriveReduceTree` decides it from the leaf set and the fanout. Whether this
+   * column varies across a sweep is a **measured** question and no value is written
+   * here: a sweep that holds both the shard count and the fanout fixed will show it
+   * constant, and a column a run shows constant carries no information about a
+   * configuration. The driver's `unmet` list says the same where a reader of
+   * `.planning/BENCHMARK-RESULTS.md` will find it. The alternative that would make
+   * this column carry information — varying the fanout across the sweep — was
+   * considered and rejected, because rungs walking differently-shaped trees have
+   * incomparable reduce timings, which is the only thing the reduce table is for.
+   */
+  readonly treeDepth: number
+  /**
+   * `ReduceOutcome.combines` — combines that produced a result. Read off, never
+   * written down, and subject to the same constant-column caveat as
+   * {@link ReduceObservation.treeDepth}.
+   */
+  readonly combines: number
+  /**
+   * `ReduceOutcome.recomputes` — **failed attempts, not combines re-run.**
+   *
+   * `executeReduce` adds one per attempt that resolved `null` on a combine that
+   * eventually produced a CID, so a value above the combine count is ordinary rather
+   * than impossible. It also reads **0** when every combine failed outright, because
+   * those attempts are discarded — so it is a churn-among-successes figure and not a
+   * health signal for a reduce that failed everywhere.
+   */
+  readonly recomputes: number
+  /** Distinct peer ids in `ReduceOutcome.executedBy` — **distinct**, not the ladder's node count. */
+  readonly combineExecutors: number
+}
+
 /** One measured execution. The raw row that gets published. */
 export interface Observation {
   readonly makespanMs: number
@@ -66,6 +126,14 @@ export interface Observation {
   readonly speculationMultiplier: number
   readonly redispatches: number
   readonly codeCache: CodeCache
+  /**
+   * **Required, deliberately.** An optional group with zero defaults would reproduce
+   * exactly the "identities, not measurements" problem `speculationMultiplier` and
+   * `redispatches` already have to apologise for in the report's `unmet` list. A
+   * required field means a driver that stops measuring the reduce fails `tsc` instead
+   * of publishing zeros.
+   */
+  readonly reduce: ReduceObservation
 }
 
 /** Builds and runs one job. Injected so the harness stays platform-free. */
@@ -91,6 +159,29 @@ export interface CostReport {
   readonly churnTax: number
 }
 
+/**
+ * The reduce leg of one configuration, aggregated.
+ *
+ * Three aggregation rules, each with a reason rather than a preference:
+ *
+ * - `ms` follows makespan's rule **exactly** — completed runs only, cold start
+ *   excluded, and additionally only runs whose reduce produced an aggregate. A reduce
+ *   over a partial leaf set is measuring a different thing, and a reduce that produced
+ *   no aggregate produced no measurement at all.
+ * - `treeDepth`, `combines` and `combineExecutors` are the **max** over included
+ *   observations rather than the mean, because a max makes an outlying run visible
+ *   where a mean would average it away.
+ * - `recomputes` is the **sum**, because it is an event count and a mean of event
+ *   counts across runs answers no question anyone asks.
+ */
+export interface ReduceReport {
+  readonly ms: Summary
+  readonly treeDepth: number
+  readonly combines: number
+  readonly recomputes: number
+  readonly combineExecutors: number
+}
+
 export interface SweepResult {
   readonly config: RunConfig
   /** Over completed runs only, excluding the cold-cache iteration. */
@@ -100,6 +191,11 @@ export interface SweepResult {
   /** Runs that did not complete every shard. Never folded into `makespan`. */
   readonly incomplete: number
   readonly cost: CostReport
+  /**
+   * The reduce segment. `ms.n === 0` means **not measured**, which the report renders
+   * as an em dash and never as a zero — unmeasured is not "ran and did nothing".
+   */
+  readonly reduce: ReduceReport
   /** Every observation, published so a reader can compute anything else. */
   readonly observations: readonly Observation[]
 }
@@ -119,6 +215,38 @@ function costOf(observations: readonly Observation[]): CostReport {
     verificationTax: useful === 0 ? 0 : gross / useful,
     speculationTax: mean(observations.map((o) => o.speculationMultiplier)),
     churnTax: mean(observations.map((o) => o.redispatches)),
+  }
+}
+
+const maxOf = (values: readonly number[]): number =>
+  values.length === 0 ? 0 : values.reduce((max, v) => Math.max(max, v), 0)
+
+/**
+ * Aggregate the reduce leg over the observations whose reduce actually produced one.
+ *
+ * **All three aggregations in this module now use a different population, and that is
+ * deliberate rather than sloppy:**
+ *
+ * - `costOf` is over **every measured** run including failures, since work spent on a
+ *   failed run is still work the fabric spent;
+ * - `makespan` is over **completed** runs, since a run missing a shard measured a
+ *   different thing;
+ * - `reduceOf` is over **completed runs whose reduce also succeeded**, since a reduce
+ *   that did not produce an aggregate produced no measurement at all.
+ *
+ * `reduceOf`'s narrower filter must **not** be pushed up into `complete`. That would
+ * move the makespan *sample* while leaving each individual `makespanMs` measuring the
+ * identical interval — a silent re-sampling of the primary metric, which is exactly
+ * what the methodology's pre-registration forbids doing without a dated amendment.
+ */
+function reduceOf(observations: readonly Observation[]): ReduceReport {
+  const reduces = observations.map((o) => o.reduce)
+  return {
+    ms: summarise(reduces.map((r) => r.reduceMs)),
+    treeDepth: maxOf(reduces.map((r) => r.treeDepth)),
+    combines: maxOf(reduces.map((r) => r.combines)),
+    recomputes: reduces.reduce((sum, r) => sum + r.recomputes, 0),
+    combineExecutors: maxOf(reduces.map((r) => r.combineExecutors)),
   }
 }
 
@@ -163,6 +291,11 @@ export async function measure(
     // Cost is over every measured run including failures: work spent on a run that
     // did not finish is still work the fabric spent.
     cost: costOf(measured),
+    // A third population, narrower than `completed` and deliberately not pushed up
+    // into it — see `reduceOf`. A failed aggregation blanks the reduce row and leaves
+    // the makespan row intact, which is also the more useful reading: a reduce that
+    // could not find an executor says nothing about how long the map took.
+    reduce: reduceOf(completed.filter((o) => o.reduce.ok)),
     observations,
   }
 }

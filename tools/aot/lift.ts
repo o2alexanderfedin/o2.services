@@ -79,8 +79,27 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { performance } from 'node:perf_hooks'
 import { sha256 } from '@o2/core'
-import { screenElf } from '@o2/aot'
-import type { ElfFacts, ElfRefusal, ToolchainVersions } from '@o2/aot'
+import { describeKey, describeKeyFailure, screenElf, translationCid } from '@o2/aot'
+import type {
+  ElfFacts,
+  ElfRefusal,
+  KeyFailure,
+  ToolchainVersions,
+  TranslationKey,
+  TranslationRecord,
+} from '@o2/aot'
+// Reaching into `@o2/net` for a hash looks wrong on sight, so: `blockCid` is not a
+// convenience. It is *the function the fetching path verifies a fetched block with*
+// (`block.ts`, `FetchingBlockstore.#fetchAndVerify`), and `MemoryBlockstore.put` and
+// `FsBlockstore.put` compute the identical two lines. `TranslationRecord.artifactCid`
+// has to be the CID a node looks the artifact up by, so defining a fifth copy of those
+// two lines here is exactly the drift `blockCid`'s own doc warns about — and the copy
+// that drifts produces a well-formed CID that no `blockstore.get` ever answers.
+//
+// Neither import closes a cycle and neither adds a forbidden edge: this file is a
+// build-time driver outside every package's `src`, so `purity.node.test.ts` does not
+// see it, and both packages are portable ones a tool may depend on.
+import { blockCid } from '@o2/net'
 import { readTargetFeatures } from './features.ts'
 import type { DeclaredFeature, FeatureFailure } from './features.ts'
 import { describeFinding, scanToolchainOutput } from './scan.ts'
@@ -188,6 +207,24 @@ export const UNDECODED_ADDRESSES_UNRECOVERED_BLIND_SPOT: LiftBlindSpot = {
 }
 
 /**
+ * The disassembly was produced and this host could not read it back.
+ *
+ * Same `undecoded-unmeasured` class again, and a third note rather than a third reuse
+ * of the first one. {@link UNDECODED_UNMEASURED_BLIND_SPOT} says the bitcode "could not
+ * be disassembled", which is a sentence about the container; this case is reached only
+ * after the container reported the disassembly it wrote, so repeating that sentence
+ * here would carry D07's wrong accusation into the artifact — where it outlives the
+ * failure that produced it, because a blind spot is what gets quoted later.
+ */
+export const UNDECODED_UNREADABLE_BLIND_SPOT: LiftBlindSpot = {
+  kind: 'undecoded-unmeasured',
+  note:
+    'the container disassembled the bitcode and reported its call-site count, and this host ' +
+    'then could not read the addresses it wrote to the bind mount — the untranslated addresses ' +
+    'are unknown for this lift, and the toolchain is not what failed',
+}
+
+/**
  * Addresses the lifter gave up on without saying so.
  *
  * Recovered from `call void @__ecv_warning(…, i64 <address>, …)` in the disassembled
@@ -220,7 +257,31 @@ export type UndecodedProbe =
     }
   /** Call sites counted, no address recovered from any of them. See above. */
   | { readonly kind: 'counted-only'; readonly callSites: number }
-  | { readonly kind: 'not-run'; readonly why: 'no-bitcode' | 'disassembler-failed' }
+  /**
+   * The probe produced no measurement, and `why` says which of three things happened.
+   *
+   * - `no-bitcode` — the container never wrote `undecoded-callsites`, so `llvm-dis-16`
+   *   was never reached or refused the `.bc`.
+   * - `disassembler-failed` — the container wrote `undecoded-probe=failed`, which is
+   *   the *container* saying the disassembler did not run.
+   * - `undecoded-unreadable` — the container said it ran and the host could not read
+   *   what it produced. Added 2026-08-01: this case was reported as
+   *   `disassembler-failed`, and that reading is refuted by the code that reaches it.
+   *   Getting there requires `undecoded-callsites` to be present, and the container
+   *   script writes that key and `/o2/undecoded.txt` in the same `if` branch — so by
+   *   construction the disassembler had already run and succeeded. A failed read of a
+   *   bind-mounted file on the *host* was being stamped with a reason that names a
+   *   tool inside the container, sending whoever read it in to debug something that
+   *   worked. Same family as `host-cannot-spawn`: the operation correctly failed and
+   *   the refusal named the wrong component, which this project counts as a defect on
+   *   its own.
+   */
+  | {
+      readonly kind: 'not-run'
+      readonly why: 'no-bitcode' | 'disassembler-failed' | 'undecoded-unreadable'
+      /** Present only for `undecoded-unreadable`: the host's own read error. */
+      readonly detail?: string
+    }
 
 /**
  * A translated artifact and every reservation attached to it.
@@ -235,6 +296,26 @@ export interface LiftedArtifact {
   readonly target: typeof LIFT_TARGET
   /** Everything whose change could change these bytes, for `translationCid`. */
   readonly toolchain: ToolchainVersions
+  /**
+   * Which keys of {@link toolchain} this lift could not establish, sorted.
+   *
+   * The stated-degraded half of the provenance split — the refusing half is
+   * `provenance-unreadable`. `meta.txt` read, and a tool in it did not name its version:
+   * `clang-16 --version` returning nothing, `WASI_VERSION_FULL` unset, `git rev-parse`
+   * failing in an image built without a `.git`. That is a real and survivable state, and
+   * it was previously spelled `'unknown'` inside the record and nowhere else — a string
+   * among strings, in the one field that is supposed to identify things.
+   *
+   * Required rather than optional, and empty on a fully identified lift, for the reason
+   * `blindSpots` is: a caller that has to know to ask is a caller that will not.
+   *
+   * **The values in {@link toolchain} are deliberately left exactly as they were.** An
+   * absent key stays `'unknown'` and a present-but-empty one stays `''`, because
+   * `translationCid` refuses `''` as `blank-version` and normalising the two together
+   * would either lose that refusal or invent one. This field states the fact; it does
+   * not edit the record the fact is about.
+   */
+  readonly unidentifiedTools: readonly string[]
   /** Multihash of the input, hex — the `inputDigest` half of the translation key. */
   readonly inputDigest: string
   /** Read from the artifact's own `target_features` section, never hardcoded. */
@@ -246,6 +327,20 @@ export interface LiftedArtifact {
   readonly undecoded: UndecodedProbe
   /** Never empty. */
   readonly blindSpots: readonly LiftBlindSpot[]
+  /**
+   * What this artifact is called, and why it should be called that.
+   *
+   * Required for the reason the three fields above it are, and it is the same class of
+   * thing: an artifact that cannot be named cannot be cached, dispatched by name, or
+   * compared against another host's. There is no value of this type that carries the
+   * bytes without a name for them.
+   *
+   * Built by {@link liftElf} from `translationCid`, at the one point where all four of
+   * the key's inputs are already in hand. Before this field existed the driver assembled
+   * those four inputs within twenty lines of each other and named none of them, while
+   * mentioning `translationCid` twice in prose.
+   */
+  readonly translation: TranslationRecord
   readonly elf: ElfFacts
   readonly durationMs: number
   /** Kept whole: a finding is only actionable next to the phase that emitted it. */
@@ -257,7 +352,72 @@ export type LiftFailure =
   | { readonly kind: 'input-unreadable'; readonly path: string; readonly detail: string }
   /** The pre-screen refused it before the container was started. */
   | { readonly kind: 'refused-by-screen'; readonly reason: ElfRefusal }
+  /**
+   * `docker` itself could not be run — not there, or not executable.
+   *
+   * Narrowed: this used to carry every `spawn` failure, including the ones that were
+   * the host refusing to fork. See {@link LiftFailure}'s `host-cannot-spawn` arm.
+   */
   | { readonly kind: 'docker-unavailable'; readonly detail: string }
+  /**
+   * `docker` was reached and did not answer in time — a wedged or merely swamped
+   * daemon, not a missing one.
+   *
+   * **Split out of `docker-unavailable` on 2026-08-02, for the second time this
+   * distinction has had to be made.** The first was `host-cannot-spawn`: a host that
+   * could not fork, described as a host without Docker, sending a reader to check an
+   * installation that was fine. This is the same sentence one step later — the process
+   * started, the daemon was there, and the machine was too busy for the answer to arrive
+   * inside the budget.
+   *
+   * It matters because it is **transient and worth retrying**, which neither of the other
+   * two are. `lift.node.test.ts` retries on it for exactly that reason: its
+   * `despiteAFullProcessTable` wrapper already retried `host-cannot-spawn` and returned
+   * immediately on this, so a whole-suite run on a loaded host turned two cases red with a
+   * verdict that read as a broken installation.
+   */
+  | { readonly kind: 'docker-not-answering'; readonly detail: string; readonly afterMs: number }
+  /**
+   * The host could not create a process. This says nothing about Docker.
+   *
+   * Split out of `docker-unavailable` on 2026-08-01, against a reproduced failure
+   * rather than a suspicion. `lift.node.test.ts` fails intermittently on a loaded
+   * machine — 3 to 6 cases at a time, reported by three separate agents, always in
+   * that one file — and every report read `docker-unavailable` on a host where
+   * Docker was installed and working. Two code paths produced that kind, so the
+   * failure output could not say which fired, and both readings sent the reader
+   * somewhere useless: to `docker --version`, or to a budget that was already 44×
+   * larger than it needed to be.
+   *
+   * Two measured populations settle it, and they do not overlap:
+   *
+   * | population | how long the driver takes to answer |
+   * |---|---|
+   * | spawn refused by the host (`EAGAIN`, `RLIMIT_NPROC` below the live process count, 6/6) | **0–3 ms** |
+   * | spawn that succeeds, load average 42.7 → 54.5, 60/60, `p50` 116 ms `p90` 328 ms | **max 456 ms** |
+   * | the timeout that the *other* path needs before it fires | **5 000 / 20 000 ms** |
+   *
+   * The second row is the refutation. At the load the failures were reported at —
+   * 45–50 on 8 cores — a spawn that works costs 456 ms at worst, which is 11× under
+   * the smallest budget any caller in that file hands to `resolveImage` and 44×
+   * under the largest. For the timeout to have fired, spawning would have had to be
+   * two orders of magnitude worse than it measurably is at that exact load. The
+   * first row is what does fire, and it fires in about a millisecond — so the
+   * driver was reporting "docker could not be run" a millisecond after being asked,
+   * on a machine whose only problem was that it had no room for one more process.
+   *
+   * A refusal that names the wrong thing is a defect even when the operation
+   * correctly fails. Both spawn sites route here now; `ENOENT` and `EACCES` stay in
+   * `docker-unavailable`, because those two really are about `docker`.
+   */
+  | {
+      readonly kind: 'host-cannot-spawn'
+      /** What the host was asked to start, so the message is not about "a process". */
+      readonly command: string
+      /** `EAGAIN`, `EMFILE`, `ENFILE` or `ENOMEM` — see {@link HOST_EXHAUSTION_CODES}. */
+      readonly code: string
+      readonly detail: string
+    }
   /**
    * The image is not present locally.
    *
@@ -310,6 +470,61 @@ export type LiftFailure =
       readonly stderr: string
     }
   | { readonly kind: 'features-unreadable'; readonly reason: FeatureFailure }
+  /**
+   * `meta.txt` could not be read, so this lift has no toolchain provenance at all.
+   *
+   * A refusal rather than a degraded success, and the choice is the finding. The read
+   * was wrapped in `catch { meta = new Map() }` with no comment, which turned one
+   * unread file into all five provenance fields reading `'unknown'` on an artifact
+   * still returned `ok: true` — indistinguishable from a lift whose toolchain genuinely
+   * could not be identified, and emitted as the thing the adjacent comment calls the
+   * cache key.
+   *
+   * Three facts make refusal the right arm rather than a strict one:
+   *
+   * 1. **`'unknown'` defeats the only guard downstream.** `translationCid` refuses a
+   *    `blank-version`, so an *empty* field is caught — but `'unknown'` is not blank.
+   *    Five of them produce a perfectly well-formed CID that names no particular
+   *    toolchain, and it goes on matching after the compiler underneath it changes.
+   *    That is the precise failure `cache-key.ts` says is "worse than no cache".
+   * 2. **It is an anomaly, not a degradation.** `CONTAINER_SCRIPT` writes `/o2/meta.txt`
+   *    unconditionally and *before* it copies `artifact.wasm`, and this point is only
+   *    reached once `artifact.wasm` has been read from that same bind mount. A host
+   *    that read one and not the other has a problem worth stopping for.
+   * 3. **Nothing is lost by stopping.** The bytes are reproducible by re-running; a
+   *    cache entry poisoned under a trusted key is not.
+   *
+   * It also removes a second wrong label the empty map produced: `readUndecoded` read
+   * the missing `undecoded-callsites` as `why: 'no-bitcode'`, reporting a disassembler
+   * result for a file that was never read.
+   *
+   * The *partial* case is deliberately not this. A `meta.txt` that reads but does not
+   * name every tool is a stated-degraded result, carried on the artifact as
+   * {@link LiftedArtifact.unidentifiedTools}.
+   */
+  | { readonly kind: 'provenance-unreadable'; readonly path: string; readonly detail: string }
+  /**
+   * The lift produced bytes and `translationCid` refused to name them.
+   *
+   * **The reachable case is concrete, not hypothetical.** {@link parseMeta} trims, so a
+   * `meta.txt` line reading `clang=` yields `''` rather than `undefined`; the
+   * `?? 'unknown'` fallbacks in {@link liftElf} only ever fired for a key that was
+   * missing entirely, so the empty string reaches `translationCid` and comes back
+   * `{kind:'blank-version', tool:'clang'}`.
+   *
+   * **Why the refusal is right.** A version defaulted to the string `'unknown'` produces
+   * a perfectly good-looking CID that goes on matching after the compiler changed
+   * underneath it — the failure `cache-key.ts` exists to prevent, and the one it calls
+   * worse than no cache. Reporting a *success* here would put exactly that artifact into
+   * a cache under a name claiming it is fine, which is worse than the missing artifact,
+   * because the bytes are reproducible by re-running and a poisoned cache entry is not.
+   *
+   * Note the limit this does **not** reach: `translationCid` sees blank and only blank,
+   * so a `meta.txt` that says `wasi-sdk=unknown` in so many words is still named. The
+   * container writes that string itself when `WASI_VERSION_FULL` is unset, and
+   * {@link unidentifiedIn} does not report it either. See {@link LiftedArtifact.unidentifiedTools}.
+   */
+  | { readonly kind: 'unnameable'; readonly reason: KeyFailure }
 
 export type LiftOutcome =
   | { readonly ok: true; readonly verdict: 'clean'; readonly artifact: LiftedArtifact }
@@ -375,6 +590,16 @@ interface Ran {
   readonly stderr: string
   readonly timedOut: boolean
   readonly spawnError: string | null
+  /**
+   * `error.code` off the failed spawn — `EAGAIN`, `ENOENT`, `EACCES`, …
+   *
+   * Carried beside the message rather than recovered from it. The message is
+   * `spawn <path> EAGAIN`, and `<path>` is a caller-supplied path that may contain
+   * anything, so classifying on the message means substring-matching a string the
+   * caller partly controls — a `docker` under a directory named `EAGAIN` would
+   * classify itself. libuv already puts the errno in its own field; this reads that.
+   */
+  readonly spawnErrorCode: string | null
 }
 
 function run(command: string, args: readonly string[], timeoutMs: number): Promise<Ran> {
@@ -384,6 +609,7 @@ function run(command: string, args: readonly string[], timeoutMs: number): Promi
     let stderr = ''
     let timedOut = false
     let spawnError: string | null = null
+    let spawnErrorCode: string | null = null
 
     const timer = setTimeout(() => {
       timedOut = true
@@ -400,12 +626,57 @@ function run(command: string, args: readonly string[], timeoutMs: number): Promi
     })
     child.on('error', (error: Error) => {
       spawnError = error.message
+      // Structurally, not through `NodeJS.ErrnoException`: this file is the only
+      // place that reads it and a missing `code` is a real possibility rather than
+      // a type-system edge case.
+      const { code } = error as { readonly code?: unknown }
+      spawnErrorCode = typeof code === 'string' ? code : null
     })
     child.on('close', (code, signal) => {
       clearTimeout(timer)
-      resolve({ code, signal, stdout, stderr, timedOut, spawnError })
+      resolve({ code, signal, stdout, stderr, timedOut, spawnError, spawnErrorCode })
     })
   })
+}
+
+/**
+ * The `spawn` errnos that are the *host* running out of room.
+ *
+ * Every one of these says the machine could not make a new process; none of them
+ * says anything at all about the command it was asked to make. `ENOENT` and
+ * `EACCES` are deliberately absent — those two *are* statements about the command
+ * (not there, not executable) and belong in `docker-unavailable`.
+ *
+ * Measured on this host on 2026-08-01. Under `RLIMIT_NPROC` reduced below the live
+ * process count, 6 of 6 spawns of the test's own `#!/bin/sh` stub failed with
+ * `error.code === 'EAGAIN'` and `error.message === 'spawn <path> EAGAIN'`, and each
+ * came back in **0–3 ms**. See {@link LiftFailure}'s `host-cannot-spawn` arm for
+ * why that number is the whole argument.
+ */
+const HOST_EXHAUSTION_CODES: ReadonlySet<string> = new Set(['EAGAIN', 'EMFILE', 'ENFILE', 'ENOMEM'])
+
+/**
+ * Which failure a spawn that never happened is.
+ *
+ * One function, consulted by both spawn sites, because the two used to return the
+ * same `docker-unavailable` from two hand-written literals — and a classification
+ * written twice is a classification that drifts.
+ *
+ * Exported for the reason {@link verdictOf} is: the `EAGAIN` arm fires only on a host
+ * that has run out of process slots, which is not a state a unit test can put the
+ * machine into, so an arm nothing can call directly is an arm no test can show still
+ * fires. The wiring that feeds it — `run()` actually reading `error.code` — is held
+ * separately by a test that reduces `RLIMIT_NPROC` in a child process.
+ */
+export function classifySpawnFailure(
+  command: string,
+  code: string | null,
+  detail: string | null,
+): LiftFailure {
+  const message = detail ?? 'spawn failed with no message'
+  return code !== null && HOST_EXHAUSTION_CODES.has(code)
+    ? { kind: 'host-cannot-spawn', command, code, detail: message }
+    : { kind: 'docker-unavailable', detail: message }
 }
 
 /**
@@ -443,7 +714,10 @@ export async function resolveImage(
     timeoutMs,
   )
   if (inspected.spawnError !== null) {
-    return { ok: false, failure: { kind: 'docker-unavailable', detail: inspected.spawnError } }
+    return {
+      ok: false,
+      failure: classifySpawnFailure(docker, inspected.spawnErrorCode, inspected.spawnError),
+    }
   }
   // A daemon that never answered is not a missing image. Reporting `image-absent`
   // here — which is what a bare non-zero exit check does, because a SIGKILLed client
@@ -453,8 +727,9 @@ export async function resolveImage(
     return {
       ok: false,
       failure: {
-        kind: 'docker-unavailable',
+        kind: 'docker-not-answering',
         detail: `docker image inspect did not answer within ${timeoutMs} ms`,
+        afterMs: timeoutMs,
       },
     }
   }
@@ -495,10 +770,57 @@ function parseMeta(text: string): ReadonlyMap<string, string> {
   return entries
 }
 
+/**
+ * Which of `tools` `meta` does not actually name a version for, sorted.
+ *
+ * Absent *and* blank both count. `parseMeta` keeps a `clang=` line with nothing after
+ * the `=` as an empty string, so `meta.get('clang') ?? 'unknown'` yields `''` — the
+ * `??` only ever fired for a key that was missing entirely. The two spellings reach
+ * `translationCid` as different outcomes (`''` refused as `blank-version`, `'unknown'`
+ * accepted), which is exactly why neither is a sound thing to report by itself.
+ *
+ * Exported so this list can be checked against a `meta.txt` without running a
+ * container, which is the only way the partial case is reachable in a test.
+ */
+export function unidentifiedIn(
+  meta: ReadonlyMap<string, string>,
+  tools: readonly string[],
+): readonly string[] {
+  return tools.filter((tool) => (meta.get(tool) ?? '').trim() === '').sort()
+}
+
 function toHex(bytes: Uint8Array): string {
   let out = ''
   for (const byte of bytes) out += byte.toString(16).padStart(2, '0')
   return out
+}
+
+/**
+ * The four things that could have changed these bytes, and nothing else.
+ *
+ * Pure — no container, no filesystem, no `await`. A separate exported function rather
+ * than four lines inlined at the call site, and the reason is what the roadmap criterion
+ * asks for: it is about *the emitted* CID, i.e. the key **the pipeline builds**, and a
+ * pipeline that silently dropped `requiredFeatures` from the key would pass every
+ * assertion `cache-key.test.ts` makes about `translationCid` in isolation. Extracted,
+ * the coverage claim is measurable by flipping one field of a fixture artifact with no
+ * container anywhere in it; inlined, the only probe is a full lift per field, which
+ * nobody will run.
+ *
+ * `features` is handed over unsorted on purpose. `translationCid` sorts and
+ * de-duplicates it, so two callers cannot disagree by ordering, and doing it twice would
+ * put a second place for that rule to be got wrong.
+ *
+ * No timing figure belongs in this comment. If one ever does, it must be measured on the
+ * host that wrote it and carry the date it was measured.
+ */
+export function translationKeyOf(artifact: Omit<LiftedArtifact, 'translation'>): TranslationKey {
+  return {
+    inputDigest: artifact.inputDigest,
+    target: artifact.target,
+    toolchain: artifact.toolchain,
+    features: artifact.requiredFeatures,
+  }
 }
 
 /**
@@ -563,7 +885,13 @@ export function blindSpotsFor(
   verdict: LiftVerdict,
 ): readonly LiftBlindSpot[] {
   const spots: LiftBlindSpot[] = [CROSS_MACHINE_BLIND_SPOT]
-  if (undecoded.kind === 'not-run') spots.push(UNDECODED_UNMEASURED_BLIND_SPOT)
+  if (undecoded.kind === 'not-run') {
+    spots.push(
+      undecoded.why === 'undecoded-unreadable'
+        ? UNDECODED_UNREADABLE_BLIND_SPOT
+        : UNDECODED_UNMEASURED_BLIND_SPOT,
+    )
+  }
   if (countedWithoutAddresses(undecoded) !== undefined) {
     spots.push(UNDECODED_ADDRESSES_UNRECOVERED_BLIND_SPOT)
   }
@@ -571,7 +899,20 @@ export function blindSpotsFor(
   return spots
 }
 
-async function readUndecoded(workDir: string, meta: ReadonlyMap<string, string>): Promise<UndecodedProbe> {
+/**
+ * The probe's three inputs — two `meta.txt` keys and one file — read into one answer.
+ *
+ * Exported for the reason {@link verdictOf} and {@link classifySpawnFailure} are, and
+ * with a better excuse than either: every arm here is reachable from a plain directory
+ * and none of them is reachable from a stubbed `docker`, because the stub would have to
+ * reproduce the container script's own branch structure to get here at all. A directory
+ * holding a `meta.txt` that counts call sites and no `undecoded.txt` beside it *is* the
+ * `undecoded-unreadable` condition, exactly.
+ */
+export async function readUndecoded(
+  workDir: string,
+  meta: ReadonlyMap<string, string>,
+): Promise<UndecodedProbe> {
   if (meta.get('undecoded-probe') === 'failed') return { kind: 'not-run', why: 'disassembler-failed' }
   const callSitesRaw = meta.get('undecoded-callsites')
   if (callSitesRaw === undefined) return { kind: 'not-run', why: 'no-bitcode' }
@@ -579,8 +920,16 @@ async function readUndecoded(workDir: string, meta: ReadonlyMap<string, string>)
   let text: string
   try {
     text = await readFile(join(workDir, 'undecoded.txt'), 'utf8')
-  } catch {
-    return { kind: 'not-run', why: 'disassembler-failed' }
+  } catch (cause) {
+    // Not `disassembler-failed`. `undecoded-callsites` is present — that is the line
+    // above — and the container writes that key and `/o2/undecoded.txt` in one branch,
+    // so the disassembler demonstrably ran. What failed is this host reading the bind
+    // mount, and the detail is the host's error rather than a guess about the tool.
+    return {
+      kind: 'not-run',
+      why: 'undecoded-unreadable',
+      detail: cause instanceof Error ? cause.message : String(cause),
+    }
   }
   const addresses = text
     .split('\n')
@@ -694,7 +1043,10 @@ export async function liftElf(elfPath: string, options: LiftOptions = {}): Promi
     const durationMs = performance.now() - started
 
     if (ran.spawnError !== null) {
-      return { ok: false, failure: { kind: 'docker-unavailable', detail: ran.spawnError } }
+      return {
+        ok: false,
+        failure: classifySpawnFailure(docker, ran.spawnErrorCode, ran.spawnError),
+      }
     }
     if (ran.timedOut) {
       // Before the `finally` below removes the directory the container is mounted on.
@@ -735,11 +1087,22 @@ export async function liftElf(elfPath: string, options: LiftOptions = {}): Promi
     const features = readTargetFeatures(artifactBytes)
     if (!features.ok) return { ok: false, failure: { kind: 'features-unreadable', reason: features.reason } }
 
+    const metaPath = join(workDir, 'meta.txt')
     let meta: ReadonlyMap<string, string>
     try {
-      meta = parseMeta(await readFile(join(workDir, 'meta.txt'), 'utf8'))
-    } catch {
-      meta = new Map()
+      meta = parseMeta(await readFile(metaPath, 'utf8'))
+    } catch (cause) {
+      // Refused, not defaulted to an empty map. See `provenance-unreadable`: an empty
+      // map here spread `'unknown'` across all five provenance fields of an `ok: true`
+      // artifact, and `'unknown'` is the one wrong value `translationCid` cannot catch.
+      return {
+        ok: false,
+        failure: {
+          kind: 'provenance-unreadable',
+          path: metaPath,
+          detail: cause instanceof Error ? cause.message : String(cause),
+        },
+      }
     }
     const undecoded = await readUndecoded(workDir, meta)
     const verdict = verdictOf(scan.findings, scan.unparsed, undecoded)
@@ -755,27 +1118,56 @@ export async function liftElf(elfPath: string, options: LiftOptions = {}): Promi
       'wasi-sdk': meta.get('wasi-sdk') ?? 'unknown',
       wasmedge: meta.get('wasmedge') ?? 'unknown',
     }
+    // `elfconv-image` is excluded because it does not come from `meta.txt` at all —
+    // `resolveImage` already refused every way it could have been unidentified, and a
+    // lift cannot reach here without a digest for it.
+    const unidentifiedTools = unidentifiedIn(meta, [
+      'elfconv-commit',
+      'elflift-sha256',
+      'clang',
+      'wasi-sdk',
+      'wasmedge',
+    ])
+
+    // Assembled without its name first, because the name is a function of it — and as
+    // one literal rather than two, so the sixteen fields have one place to be wrong in.
+    // Every input `translationCid` wants has been in hand at this point since long
+    // before this call existed; that was the defect. The four of them were built within
+    // twenty lines of each other and none of them was ever named.
+    // `lifted` and not `artifact`: `artifact` is the `Buffer` read off the bind mount a
+    // few lines up, and this is the value built out of it.
+    const lifted: Omit<LiftedArtifact, 'translation'> = {
+      bytes: artifactBytes,
+      verdict,
+      target: LIFT_TARGET,
+      toolchain,
+      unidentifiedTools,
+      inputDigest: toHex(digest.bytes),
+      requiredFeatures: features.features.required,
+      declaredFeatures: features.features.declared,
+      findings: scan.findings,
+      unparsed: scan.unparsed,
+      undecoded,
+      blindSpots: blindSpotsFor(undecoded, verdict),
+      elf: screening.facts,
+      durationMs,
+      stdout: ran.stdout,
+      stderr: ran.stderr,
+    }
+
+    const named = await translationCid(translationKeyOf(lifted))
+    if (!named.ok) return { ok: false, failure: { kind: 'unnameable', reason: named.failure } }
+    // `artifactBytes` is a view over a `Buffer`'s pooled `ArrayBufferLike` and `blockCid`
+    // requires a `Uint8Array<ArrayBuffer>`, so the copy is structural rather than
+    // defensive — and it is what a blockstore would be handed anyway, since both of them
+    // copy on `put`. If its cost is ever worth recording, measure it and write the
+    // measured figure with its date; do not write a derived comparison.
+    const artifactCid = await blockCid(new Uint8Array(artifactBytes))
 
     return {
       ok: true,
       verdict,
-      artifact: {
-        bytes: artifactBytes,
-        verdict,
-        target: LIFT_TARGET,
-        toolchain,
-        inputDigest: toHex(digest.bytes),
-        requiredFeatures: features.features.required,
-        declaredFeatures: features.features.declared,
-        findings: scan.findings,
-        unparsed: scan.unparsed,
-        undecoded,
-        blindSpots: blindSpotsFor(undecoded, verdict),
-        elf: screening.facts,
-        durationMs,
-        stdout: ran.stdout,
-        stderr: ran.stderr,
-      },
+      artifact: { ...lifted, translation: { keyCid: named.cid, key: named.key, artifactCid } },
     }
   } finally {
     if (options.keepWorkDir !== true) await rm(workDir, { recursive: true, force: true })
@@ -790,6 +1182,26 @@ export function describeLiftFailure(failure: LiftFailure): string {
       return `the pre-screen refused this input (${failure.reason.kind}) — no container was started`
     case 'docker-unavailable':
       return `docker could not be run: ${failure.detail}`
+    case 'docker-not-answering':
+      // Says nothing about the installation, for `host-cannot-spawn`'s reason: docker was
+      // found and started. What is unknown is whether the image is there, so the sentence
+      // must not imply it is missing — a reader sent to pull six gigabytes they already
+      // have would wait on the same swamped daemon to do it.
+      return (
+        `docker was reached but did not answer within ${failure.afterMs} ms — the daemon is ` +
+        `wedged or the host is swamped, so nothing here is known about the image or the ` +
+        `lift; retry when the host is quieter: ${failure.detail}`
+      )
+    case 'host-cannot-spawn':
+      // Deliberately says nothing about Docker, and deliberately does not reuse the
+      // words "could not be run" — the whole defect was a reader being sent to check
+      // an installation that was fine. The fix is on the machine, so the machine is
+      // what the sentence is about.
+      return (
+        `this machine could not start a process (${failure.code}) — it is out of process ` +
+        `slots, file descriptors or memory, so ${failure.command} was never reached and ` +
+        `nothing here is known about it; retry when the host is quieter: ${failure.detail}`
+      )
     case 'image-absent':
       return `${failure.image} is not present locally, and this driver does not pull 6 GB on its own: ${failure.detail}`
     case 'image-has-no-digest':
@@ -822,6 +1234,23 @@ export function describeLiftFailure(failure: LiftFailure): string {
       return `elfconv exited 0 and produced no .wasm: ${failure.detail}`
     case 'features-unreadable':
       return `the artifact's feature set could not be read: ${failure.reason.kind}`
+    case 'provenance-unreadable':
+      // Says what was lost rather than only what failed. "meta.txt could not be read"
+      // reads like a missing log file; the artifact being unnameable is the point.
+      return (
+        `the lift produced a .wasm and its toolchain provenance could not be read from ` +
+        `${failure.path} (${failure.detail}) — every version in the translation key would ` +
+        `be "unknown", which is not blank enough for translationCid to refuse and not a ` +
+        `toolchain, so this artifact is unnameable and was not returned`
+      )
+    case 'unnameable':
+      // Delegated to `describeKeyFailure` rather than restated, so the codec's own
+      // wording survives and the two cannot drift into two accounts of one refusal.
+      return (
+        `this lift produced an artifact that cannot be named: ${describeKeyFailure(failure.reason)}` +
+        ` — the bytes are reproducible by re-running, and a cache entry under a name that ` +
+        `identifies no particular toolchain is not`
+      )
   }
 }
 
@@ -842,8 +1271,44 @@ export function describeLift(artifact: LiftedArtifact): string {
       `${artifact.verdict.toUpperCase()}`,
   )
   lines.push(`  needs ${artifact.requiredFeatures.join(' ') || 'no features'}`)
+  // Two CIDs, labelled, and inside this string rather than printed beside it by `main`.
+  //
+  // They answer two different questions, and the distinction is `cache-key.ts`'s own:
+  // hashing the artifact answers "are these the same bytes", hashing the key answers
+  // "should these be the same bytes". So the key CID names *what should have been
+  // produced* and the artifact CID names *what was*, and the gap between the two answers
+  // is precisely a reproducibility defect — detectable only because both are printed.
+  // One of them alone is not half the measurement; it is none of it.
+  //
+  // The key itself, above the CID that names it, and rendered by `describeKey` rather
+  // than restated here.
+  //
+  // 21-02 declined this on the grounds that `describeKey` would only repeat the target,
+  // the toolchain and the feature set from the lines around it. That is three of the
+  // four fields it renders. The fourth is `inputDigest`, and **nothing else in this
+  // string prints it** — so an operator holding two different key CIDs could not tell
+  // whether the inputs differed, which is the first question a key mismatch raises.
+  //
+  // It is also `artifact.translation.key`, the key `translationCid` returned, not the
+  // fields this artifact happens to carry. Those are not the same object:
+  // `normaliseFeatures` sorts and de-duplicates, so this line shows the feature set that
+  // was *hashed* while `needs …` above shows the order the artifact reported. A
+  // disagreement between the two lines is a normalisation defect, and it is legible only
+  // because both are printed — the same reason the two CIDs below are both printed.
+  lines.push(`  key as hashed: ${describeKey(artifact.translation.key)}`)
+  lines.push(`  translation key cid: ${artifact.translation.keyCid.toString()}`)
+  lines.push(`  artifact cid: ${artifact.translation.artifactCid.toString()}`)
   for (const [tool, version] of Object.entries(artifact.toolchain).sort(([a], [b]) => a.localeCompare(b))) {
     lines.push(`  ${tool}: ${version}`)
+  }
+  // Beside the versions rather than after the findings, because this line is about the
+  // lines immediately above it. `unknown` printed among five real versions is a word a
+  // reader skims; naming the fields that are not identified is a sentence.
+  if (artifact.unidentifiedTools.length > 0) {
+    lines.push(
+      `  provenance incomplete: ${artifact.unidentifiedTools.join(', ')} did not report a` +
+        ' version, so the translation key does not distinguish this toolchain from another',
+    )
   }
   for (const finding of artifact.findings) lines.push(`  finding: ${describeFinding(finding)}`)
   for (const line of artifact.unparsed) {

@@ -11,18 +11,22 @@
 // Ports — the kernel's entire contact surface with the outside world.
 export type {
   Blockstore,
+  ComputeThread,
+  ComputeThreadFactory,
   ExecutionOutcome,
   Executor,
   Governor,
   Task,
   Transport,
 } from './ports.ts'
+// NET-09 — the marker a Transport raises when *this* node declined to send.
+export { SendRefused } from './ports.ts'
 
 // Hashing — pure JS, so it works outside a secure context. See hash.ts.
 export { SHA256_CODE, sha256 } from './hash.ts'
 
 // Canonical encoding — DET-05.
-export { canonicalCid, decodeCanonical, encodeCanonical } from './canonical/encode.ts'
+export { NotEncodableError, canonicalCid, decodeCanonical, encodeCanonical } from './canonical/encode.ts'
 export type {
   CanonicalValue,
   EncodeError,
@@ -33,14 +37,35 @@ export type {
 // Execution — DET-06.
 export { MAX_PARTITIONS, TASK_ENTRYPOINT, WasmExecutor } from './executor/wasm.ts'
 export type { WasmExecutorOptions } from './executor/wasm.ts'
+// The cross-thread ABI both tiers speak, and the executor that bounds it.
+export { runTask, runTaskAndPost } from './executor/task-run.ts'
+export type { WorkerTaskRequest, WorkerTaskResponse } from './executor/task-run.ts'
+export { DEFAULT_TASK_DEADLINE_MS, WorkerExecutor } from './executor/worker-executor.ts'
+export type { WorkerExecutorOptions } from './executor/worker-executor.ts'
 
 // Redundant execution and verification — VER-01, VER-02, VER-05, VER-06.
-export { commitmentDigest, executeVerified } from './job/verify.ts'
-export type { Commitment, Receipt, Reveal, VerificationResult } from './job/verify.ts'
+export { executeVerified } from './job/verify.ts'
+export type { AgreeingReplica, Receipt, VerificationResult } from './job/verify.ts'
 
 // Job submission — MR-01, DATA-01, DATA-03, DATA-04.
 export { submitJob } from './job/submit.ts'
-export type { JobResult, JobSpec, ShardResult, ShardSpec, SubmitError, SubmitResult } from './job/submit.ts'
+export type {
+  JobResult,
+  JobSpec,
+  // VER-09, VER-10. Added by Plan 19-10 because a display site outside this package
+  // cannot name what it is rendering without them: `bin/bench.ts` prints a rung's
+  // strength and the demo UI (19-11) renders the same value. 19-06 defined all three
+  // and deliberately left the barrel alone — that file was under concurrent edit — and
+  // 19-CONTEXT.md records the handoff. Types only: nothing new is *callable* from here.
+  NoVerifiedAttestation,
+  ShardAttestation,
+  ShardQuorum,
+  ShardResult,
+  ShardSpec,
+  SubmitError,
+  SubmitOptions,
+  SubmitResult,
+} from './job/submit.ts'
 
 // Adapters.
 export { MemoryBlockstore } from './blockstore/memory.ts'
@@ -64,9 +89,18 @@ export type {
 export { guardSovereignty } from './executor/sovereignty-guard.ts'
 export type { NodeSovereignty } from './executor/sovereignty-guard.ts'
 
+// Serving-side signed-artifact gate — DET-03, DATA-08.
+export { describeModuleRefusal, guardModuleProvenance } from './executor/module-provenance.ts'
+export type { ModuleProvenance, ModuleRefusal } from './executor/module-provenance.ts'
+
+// Leg 3's wrapper, beside leg 1's above. Composed nowhere until Plan 19-15.
+export { attestResults } from './executor/attesting-executor.ts'
+export type { ResultAttestor } from './executor/attesting-executor.ts'
+
 // Power-of-d placement with rejection and re-pick — SCHED-02, SCHED-03, SCHED-05.
 export {
   DEFAULT_D,
+  DEFAULT_MAX_CONCURRENT_TASKS,
   LocalCapacity,
   MAX_D,
   MIN_D,
@@ -78,6 +112,7 @@ export type {
   Admission,
   AdmissionControl,
   CapacityOptions,
+  NodeCapacity,
   Offer,
   OfferedPlacement,
   OfferOptions,
@@ -109,6 +144,7 @@ export {
 export type {
   Discarded,
   InFlight,
+  RaceLoser,
   RaceOutcome,
   SpeculativeAnswer,
   StragglerOptions,
@@ -134,16 +170,20 @@ export type {
 
 // Start outcomes and the blocking metric — BROW-02.
 export {
+  BROWSER_FAMILIES,
+  MAX_BROWSER_MAJOR,
   MIN_REPORTS_FOR_RATE,
   START_FAILURES,
   STRUCTURAL_BLIND_SPOT,
   StartOutcomeLedger,
   describeStartReport,
-  expandCounts,
+  isStartBrowserLabel,
   startReport,
+  startReportFromCounts,
 } from './start-outcome.ts'
 export type {
   BlindSpot,
+  BrowserFamily,
   BrowserTally,
   CauseCount,
   OutcomeCount,
@@ -174,10 +214,16 @@ export type {
 } from './coordinator.ts'
 
 // Discovery from a data CID — SCHED-01, NET-06.
+//
+// `SelfRecordIndex` is the production answer to `providers` — SCHED-01. Every node
+// answers about its own store at ask time, so nothing is announced and nothing goes
+// stale; see its class doc for owner ruling D1 and for where the only correct
+// withholding predicate comes from.
 export {
   discoverExecutors,
   FallbackRecordIndex,
   MemoryRecordIndex,
+  SelfRecordIndex,
   publishCapabilities,
   verifyCapabilityRecord,
 } from './discovery.ts'
@@ -192,6 +238,7 @@ export type {
   IndexSource,
   NodeRecords,
   RecordIndex,
+  SelfRecordIndexOptions,
 } from './discovery.ts'
 
 // Capability chains — AUTH-03, DET-03.
@@ -205,16 +252,23 @@ export type { NameRecord, ResolveFailure, ResolveResult } from './naming.ts'
 // Decomposable tree-reduce — MR-02 through MR-07.
 export {
   DEFAULT_FANOUT,
+  MAX_COMBINE_INPUTS,
   MAX_PARTIAL_BYTES,
+  asFabricPartial,
   deriveReduceTree,
   executeReduce,
+  fabricCombiner,
   localDispatch,
   rendezvousRank,
 } from './reduce.ts'
 export type {
   CombineDispatch,
+  CombineProduct,
   CombineTask,
   Combiner,
+  FabricPartial,
+  ReduceContribution,
+  ReduceLeaf,
   ReduceOutcome,
   ReduceRun,
   ReduceTree,
@@ -223,6 +277,10 @@ export type {
 
 // Enrollment and node identity — AUTH-01, AUTH-02, AUTH-04, AUTH-05.
 export {
+  // The one window both budgets are measured over, read by a durable ledger's compaction
+  // as well as by the authority — see `IssuanceLedger` for why a host that guessed it
+  // would widen a budget with nothing failing.
+  DEFAULT_ISSUANCE_WINDOW_MS,
   EnrollmentAuthority,
   possessionChallenge,
   requestEnrollment,
@@ -236,10 +294,37 @@ export type {
   EnrollmentRefusal,
   EnrollmentRequest,
   EnrollmentResult,
+  // The issuance budget and the port both budgets read. A host supplies the second; how
+  // it makes a write durable is the host's problem, on each tier.
+  IssuanceBudget,
+  IssuanceHistory,
+  IssuanceLedger,
   NodeCertificate,
   Discoverability,
   ReplicaSet,
 } from './enrollment.ts'
+
+// The third signing leg — a result the node that produced it signed. VER-08, VER-09,
+// VER-10. The other two legs are `guardModuleProvenance` (the code) and
+// `verifyCertificate` (the node), both above.
+export {
+  WrongSigningKeyError,
+  combineChallenge,
+  resultChallenge,
+  signCombine,
+  signResult,
+  signingKeyOf,
+  verifyCombineAttestation,
+  verifyResultAttestation,
+} from './result-attestation.ts'
+export type {
+  AttestationRefusal,
+  AttestationResult,
+  AttestedResult,
+  ResultAttestation,
+  ResultSigner,
+  ResultWork,
+} from './result-attestation.ts'
 
 // Quorum composition and attestation strength — VER-03, VER-04, VER-08, VER-09, VER-10.
 export {

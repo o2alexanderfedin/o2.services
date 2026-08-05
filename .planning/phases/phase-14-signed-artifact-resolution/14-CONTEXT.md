@@ -7,14 +7,21 @@ existing `naming.ts` API, and the Phase 12 precedent for how an optional `Task` 
 made non-optional in effect. One asymmetry with Phase 12 is flagged rather than silently
 folded into a decision; see "Risks".
 
+> **Numbers in this document are configuration choices or measurements, not derived claims.
+> Any quantity describing runtime behaviour must be measured before it is written down
+> anywhere, including in a source comment.**
+
 <domain>
 ## Phase Boundary
 
 `signName`/`SignedNameResolver` (`packages/core/src/naming.ts`) are complete and
 unit-verified from Phase 4 and have no production caller. Every module today resolves
-by bare CID at `packages/core/src/executor/wasm.ts:62`
-(`this.#blockstore.get(task.moduleCid)`), inside `WasmExecutor.execute`. This phase
-routes production resolution through a signed `key → CID` mapping before that line runs.
+by bare CID — at `packages/core/src/executor/wasm.ts:62`
+(`this.#blockstore.get(task.moduleCid)`) inside `WasmExecutor.execute`, and at two further
+`blockstore.get(task.moduleCid)` calls in two other `Executor` implementations; see the
+corrected paragraph under "Existing Code Insights" for all three and for which
+construction site guards each. This phase routes production resolution through a signed
+`key → CID` mapping before any of those lines runs.
 
 **In scope:** DET-03, DATA-08 — a production node refuses to instantiate a module whose
 CID did not arrive with a valid signed record; the refusal names the missing/invalid
@@ -38,16 +45,26 @@ records sole authorship, no external contributions accepted. The signing key is 
 Ed25519 keypair held outside the repository (never committed); its public half is the
 one trust anchor a production node is configured with. Concretely, this mirrors the
 existing `FabricNodeOptions.sovereignty?: NodeSovereignty` shape at
-`packages/node/src/fabric-node.ts:107-118` (optional, defaults to the safe value): add
+`packages/node/src/fabric-node.ts:114-129` (optional, defaults to the safe value): add
 `trustAnchors?: readonly PublicKeyHex[]` (from `capability.ts`, already imported by
 `naming.ts`), default `[]`. An empty anchor set means the resolver trusts nobody and
 therefore refuses every signed record — the safe default, and consistent with "resolving
 a bare CID is refused" being the base case rather than an opt-in. Thread it into
 `bin/agent.ts` as a new CLI flag alongside the existing `--owner-id` (see
-`packages/node/src/bin/agent.ts:24-35`), e.g. `--trust-anchor <hex>` (repeatable). This is
+`packages/node/src/bin/agent.ts:22-35`), e.g. `--trust-anchor <hex>` (repeatable). This is
 per-node *configuration*, not per-node *capability* — every agent process remains
 identical; a node simply may or may not have been told which key to trust, exactly as
 `--owner-id` states clearance rather than defining a class of node.
+
+**The field's shape here was superseded during planning; Plan 14-03 Task 1 owns it.**
+This paragraph proposed `trustAnchors?: readonly PublicKeyHex[]` defaulting to `[]`.
+Planning rejected the optional form against `.planning/PROJECT.md`'s Key Decision *"An
+optional hook with a silent default is a hole"*, and rejected `[]` as a binary default
+because a stock agent could then execute nothing at all while its only escape hatch was
+being removed in the same change. Read Plan 14-03 for the shape that shipped and for the
+argument; what survives from here is the reasoning either form rests on — an empty anchor
+set means the resolver trusts nobody, and this is per-node configuration rather than a
+kind of node.
 
 **Tests:** follow `naming.test.ts`'s existing pattern exactly — an ephemeral fixture
 keypair (`keypair(seed)`, `packages/core/src/naming.test.ts:15-18`), `signName` over a
@@ -64,26 +81,32 @@ that resolves whatever CID it is given. A new adapter wraps it — call it
 as `guardSovereignty`.
 
 Where that wrap must land, concretely:
-- **`packages/node/src/fabric-node.ts:345-347`** — the production serving executor.
-  Currently `guardSovereignty(new WasmExecutor(...), ...)`. Compose the new guard here too.
-- **`packages/browser/src/browser-node.ts:228-230`** — same composition, browser tier.
+- **`packages/node/src/fabric-node.ts:376-377`** — the production serving executor.
+  Currently `registerSovereignInputs(guardSovereignty(new WasmExecutor(...), sovereignty),
+  ...)`. Compose the new guard here too.
+- **`packages/browser/src/browser-node.ts:251-258`** — same composition, browser tier,
+  around the whole `worker ?? new WasmExecutor(...)` expression.
 - **`packages/core/src/executor/task-worker.ts:38-42`** (DET-07 Worker loopback) —
   raw `WasmExecutor`, no `guardSovereignty` either today. Out of scope by the same logic
   Phase 12 used for `runResilient`/bench harness primitives: this is a single-process
   loopback slice proving the kernel runs in a Worker, not "the live dispatch path".
-- **`packages/node/src/bin/bench.ts:117,187,298`** — all three fabric builders construct
-  raw `WasmExecutor`s directly and use a bare fixture CID
-  (`MODULE_WRITES_PARTITION`, `packages/core/src/executor/fixtures.ts`) with no signature
-  anywhere. Precedent (Phase 12) is that the benchmark harness measures a different thing
-  and is allowed to stay on the unguarded primitive — **but flag this to the planner
-  explicitly**, don't silently carry it forward; if bench.ts's executors go through
-  `serveAgent`/`RemoteExecutor` (they do, in `memoryFabric`/`realFabric`), the guard could
-  be added cheaply with a fixture-signed record, which would be the more honest
-  benchmark. Claude's discretion.
-- **`packages/browser/demo/main.ts:301` (`runColouring`)** — the actual visitor-facing
+- **`packages/node/src/bin/bench.ts`** — the executor construction sites across the three
+  rigs, all of which reach `WebAssembly.instantiate`. Read the enumeration in Plan 14-03's
+  `<interfaces>` block, which is the current one: `memoryFabric`'s two raw `WasmExecutor`s
+  (`:146`, `:172`), `realFabric`'s two `FabricNode.start` calls (`:209`, `:214`) — those go
+  through the node factory rather than constructing a `WasmExecutor` directly, which the
+  earlier draft of this paragraph got wrong — and `wasmInProcess`'s raw `WasmExecutor`
+  (`:352`). Every rig uses a bare fixture CID (`MODULE_WRITES_PARTITION`,
+  `packages/core/src/executor/fixtures.ts`) with no signature anywhere. Precedent
+  (Phase 12) is that the benchmark harness measures a different thing and is allowed to
+  stay on the unguarded primitive — **but flag this to the planner explicitly**, don't
+  silently carry it forward; if bench.ts's executors go through `serveAgent`/`RemoteExecutor`
+  (they do, in `memoryFabric`/`realFabric`), the guard could be added cheaply with a
+  fixture-signed record, which would be the more honest benchmark. Claude's discretion.
+- **`packages/browser/demo/main.ts:295` (`runColouring`)** — the actual visitor-facing
   demo path. `kernelBytes` (`packages/demo/src/kernel.ts`) is static, bundle-embedded WASM
   with no signature today. **This one cannot be waved through as dev-only** — see Risk 1.
-- **`packages/browser/demo/main.ts:543` (`runJob`)** — takes an arbitrary
+- **`packages/browser/demo/main.ts:541` (`runJob`)** — takes an arbitrary
   `CID.parse(options.moduleCid)` from the caller. Confirmed test/E2E-harness-only: it
   backs `packages/browser/src/tab-api.ts`'s `TabApi.runJob`, driven by Playwright, never
   by a real visitor. Development-only surface; fine to leave resolving a bare CID, since
@@ -100,9 +123,14 @@ time, the way there was for `serveAgent(...)`.
 
 Instead, follow the precedent `12-VERIFICATION.md` (Criterion 2, lines 215-270)
 established for `Task.label`: the port-level field stays **optional** on `Task`
-(`packages/core/src/ports.ts:25-46`) — call it `moduleRecord?: NameRecord` — so the ~65+
-raw `Task` literals in unrelated tests keep compiling. But it is enforced **non-optional
-in effect** at both production construction boundaries, exactly where `Task.label` was:
+(`packages/core/src/ports.ts:25-46`) — call it `moduleRecord?: NameRecord` — so the raw
+`Task` literals in unrelated tests keep compiling. **Do not write a count of those
+literals anywhere, including in a source comment.** An earlier draft of this paragraph
+carried an estimate; nobody measured it, and a number nobody measured is the kind of
+thing that gets quoted downstream as if somebody had. If a figure is wanted, measure it
+and record what command produced it and on what date, otherwise write none. But it is
+enforced **non-optional in effect** at both production construction boundaries, exactly
+where `Task.label` was:
 1. **In-process**: `packages/core/src/job/submit.ts` — wherever it builds a `Task`
    (currently :220-236), require a `NameRecord` for `spec.moduleCid` before dispatch,
    the same way `requestFor` already refuses a broken sovereign shard.
@@ -113,7 +141,7 @@ in effect** at both production construction boundaries, exactly where `Task.labe
    wire extension, it's the second instance of one that already exists once.
 3. **The refusal itself** happens in the new Executor adapter (decision 2), which is what
    makes "before `WebAssembly.instantiate` runs" true — `serveAgent`
-   (`packages/net/src/agent.ts:184-195`) calls `executor.execute(request.task)` only after
+   (`packages/net/src/agent.ts:214-225`) calls `executor.execute(request.task)` only after
    `authorize` passes; the signed-module guard sits inside that `executor`, same position
    as `guardSovereignty`.
 
@@ -157,17 +185,45 @@ if (moduleBytes === undefined) {
   return { ok: false, reason: `module block missing: ${task.moduleCid.toString()}` }
 }
 ```
-This is the *only* place a CID becomes a module's bytes on the whole dispatch path — every
-other file that mentions `moduleCid` (`checkpoint.ts`, `verify.ts`, `task-worker.ts`,
-`wasi-executor.ts`, `worker-executor.ts`, `protocol.ts`) receives or forwards a `Task`,
-none of them independently resolve one.
+**Corrected during plan review — the paragraph that stood here was wrong and the plans no
+longer rest on it.** It said this was the *only* place a CID becomes a module's bytes, and
+named `wasi-executor.ts` and `worker-executor.ts` among files that merely forward a
+`Task`. Both of those resolve independently:
+`packages/browser/src/worker-executor.ts:123` is `await this.#blockstore.get(task.moduleCid)`
+on the main thread before it posts raw bytes to its Worker, and
+`packages/aot/src/wasi-executor.ts:794` is the same call in a second `Executor`
+implementation. `checkpoint.ts`, `verify.ts`, `task-worker.ts` and `protocol.ts` do only
+forward. So there are **three** resolution points, not one, and the structural guarantee
+is carried by composing the guard at each *construction* site rather than by there being a
+single choke point.
+
+**Three is a measurement, not a deduction, and it has an instrument.** It was read by
+grepping `.get(task.moduleCid)` across tracked `.ts`/`.mts`/`.js`/`.mjs` files under
+`packages/` and `tools/`, which matched exactly the three lines cited above and no test
+file. Plan 14-03 Task 3 turns that same grep into `trust-anchors.node.test.ts`'s census,
+so the figure is re-read on every run instead of being trusted from here — which is the
+point, because the paragraph this replaced was a deduction and it was wrong. The three
+sites:
+
+- `packages/node/src/fabric-node.ts` — wrapped by Plan 14-03.
+- `packages/browser/src/browser-node.ts` — wrapped by Plan 14-04, around the whole
+  `worker ?? new WasmExecutor(...)` expression, so the `WorkerExecutor` arm (the one the
+  demo actually ships) is covered rather than only the fallback.
+- `packages/aot/src/wasi-executor.ts` — **no production caller exists**; `new WasiExecutor(`
+  occurs only in `packages/aot/src/*.test.ts`. Phase 21 is scheduled to give it one, which
+  is why Plan 14-03 Task 3 adds a census that fails when a fourth resolver appears or when
+  this one is constructed outside a test.
+
+(`packages/browser/src/task-executor.worker.ts:60` is not a fourth: it `put`s bytes it was
+handed into a fresh `MemoryBlockstore` and executes the CID that produces. It resolves
+nothing from the network.)
 
 ### The adapter pattern to copy
 `packages/core/src/executor/sovereignty-guard.ts` — `guardSovereignty(inner, node)`
 wraps an `Executor`, checks `task.label === 'sovereign'` before calling `inner.execute`,
 refuses with a named reason otherwise. Composed at:
-- `packages/node/src/fabric-node.ts:345-347`
-- `packages/browser/src/browser-node.ts:228-230`
+- `packages/node/src/fabric-node.ts:376-377`
+- `packages/browser/src/browser-node.ts:251-258`
 
 Both compose it with `WasmExecutor` at construction; a new signed-module guard composes
 the same way, at the same two sites.
@@ -253,7 +309,8 @@ message) into `ExecutionOutcome.reason`.
   pipeline to call it.
 - **Discovery of who the build authority even is, for a peer with no static config** —
   never in scope for any phase; `SignedNameResolver` is permanently construction-pinned
-  by design (STATE.md: "the resolver has no method to learn a new anchor").
+  by design (`.planning/STATE.md:380-383`: *"names resolve through signed records from
+  anchors pinned at construction, and the resolver has no method to learn a new one"*).
 - **Signing the benchmark's fixture module** — Claude's discretion in Decision 2; not
   required by any ROADMAP criterion, but flagged as more honest than leaving it bare.
 </deferred>
@@ -284,9 +341,11 @@ consistently prefers, but it means every existing exhaustive switch over `Resolv
 needs a new arm — check `naming.test.ts` and any other consumer for one before assuming
 this is a two-line change.
 
-**3. `bin/agent.ts` gains a fourth per-node configuration flag** (`--owner-id`,
-`--can-execute-sovereign`, now `--trust-anchor`). Not a problem on its own, but the
-planner should check whether a combined flags-object refactor is now worth it rather
-than three more `parseArgs` entries accreting independently — Claude's discretion, not a
-blocker.
+**3. `bin/agent.ts` gains a third per-node configuration flag** — `--owner-id` and
+`--can-execute-sovereign` today, now `--trust-anchor`; the file's `parseArgs` block
+(`packages/node/src/bin/agent.ts:22-35`) holds four options in total, the other two being
+`--dir` and `--port`, which configure the process rather than the node's clearances. Not a
+problem on its own, but the planner should check whether a combined flags-object refactor
+is now worth it rather than more `parseArgs` entries accreting independently — Claude's
+discretion, not a blocker.
 </risks>

@@ -1,16 +1,19 @@
 import { spawn } from 'node:child_process'
 import type { ChildProcessByStdio } from 'node:child_process'
-import type { Readable } from 'node:stream'
+import type { Readable, Writable } from 'node:stream'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { canonicalCid, submitJob } from '@o2/core'
-import type { CanonicalValue, NodeDescriptor } from '@o2/core'
+import { ed25519 } from '@noble/curves/ed25519.js'
+import { canonicalCid, signName, submitJob, toHex } from '@o2/core'
+import type { CanonicalValue, NameRecord, NodeDescriptor } from '@o2/core'
 import { RemoteExecutor } from '@o2/net'
+import type { CID } from 'multiformats/cid'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-// Test-only relative import — see the note in packages/net/src/distributed.test.ts.
+// Test-only relative imports — see the note in packages/net/src/distributed.test.ts.
 import { MODULE_ECHOES_INPUT, MODULE_WRITES_PARTITION } from '../../core/src/executor/fixtures.ts'
+import { OWNER_KEY, chainSupplierFor } from './capability-fixture.ts'
 import { FabricNode } from './fabric-node.ts'
 import { FsBlockstore } from './fs-blockstore.ts'
 
@@ -40,12 +43,61 @@ import { FsBlockstore } from './fs-blockstore.ts'
  * `egress-manifest.node.test.ts` and `packages/net/src/egress.test.ts`, where the
  * guard is a value in the same process. The two halves are deliberately separate and
  * neither is asked to carry the other.
+ *
+ * ## Why this file mints a capability chain, as of Phase 15
+ *
+ * As of AUTH-03 the serving node also verifies a capability chain before it executes
+ * anything. So this test dispatches with a **valid** one, on purpose: the failure it
+ * measures is the egress refusal and nothing else, and alice is spawned with
+ * `--owner-key` so her process has something to verify against.
+ *
+ * That is not tidiness, it is the one change in Phase 15 that would otherwise have
+ * broken this file *silently*. The leaking submission below already expects to fail.
+ * Drop the chain and it still fails — for a completely different reason, an authorize
+ * refusal instead of an egress one — and every assertion around it still holds: the
+ * shard still stalls at alice, there is still exactly one failure, `other` is still
+ * never tried. The suite would stay green while DATA-05's cross-process proof
+ * evaporated. **Measured rather than reasoned:** with the authorizer installed and
+ * before this repair, this file reported exactly one failing assertion, and it was the
+ * control at the bottom (`'insufficient'` where `'agreed'` was expected) — every
+ * assertion about the leaking job passed for the wrong reason, exactly as described.
+ *
+ * The control is therefore load-bearing twice over. See its own comment below.
  */
 
 const AGENT = fileURLToPath(new URL('./bin/agent.ts', import.meta.url))
 
-/** stdin is `ignore`d, so the child's type carries `null` for it. */
-type AgentProcess = ChildProcessByStdio<null, Readable, Readable>
+/**
+ * DET-03 is not this file's subject — the egress refusal is. The record exists so that
+ * subject can still be reached: every executor below is a `RemoteExecutor` aimed at a
+ * spawned `bin/agent.ts`, which pins the demo's anchor by default, so an unsigned job
+ * would be refused for provenance before it could be refused for egress — and this
+ * file's whole point is which refusal arrives.
+ */
+const publisher = (() => {
+  // Seed 53 — distinct from every other fixture key in the repository.
+  const priv = new Uint8Array(32).fill(53)
+  return { priv, pub: toHex(ed25519.getPublicKey(priv)) }
+})()
+
+function recordFor(name: string, moduleCid: CID): NameRecord {
+  return signName(publisher.priv, {
+    name,
+    cid: moduleCid,
+    version: 1,
+    expiresAt: Date.now() + 3_600_000,
+  })
+}
+
+/**
+ * stdin is piped and never written to, so the child's type carries a `Writable` for it.
+ *
+ * The pipe is the point rather than the type: `bin/agent.ts` watches fd 0 and leaves when
+ * it closes, which is what stops a spawned agent outliving a parent that was killed rather
+ * than asked. Handing it `ignore` would put `/dev/null` on fd 0 and silently opt this file
+ * out. See `orphan-leash.node.test.ts`, which demonstrates it and guards this line.
+ */
+type AgentProcess = ChildProcessByStdio<Writable, Readable, Readable>
 
 interface Agent {
   readonly peerId: string
@@ -61,9 +113,13 @@ const nodes: FabricNode[] = []
 /** Spawn an agent process and wait for its one-line address handshake. */
 async function spawnAgent(name: string, extraArgs: readonly string[] = []): Promise<Agent> {
   const dir = join(workdir, name)
-  const child: AgentProcess = spawn(process.execPath, [AGENT, '--dir', dir, ...extraArgs], {
-    stdio: ['ignore', 'pipe', 'pipe'],
-  })
+  const child: AgentProcess = spawn(
+    process.execPath,
+    [AGENT, '--dir', dir, '--trust-anchor', publisher.pub, ...extraArgs],
+    {
+      stdio: ['pipe', 'pipe', 'pipe'],
+    },
+  )
 
   const handshake = await new Promise<{ peerId: string; multiaddrs: string[] }>((resolve, reject) => {
     const timer = setTimeout(() => reject(new Error(`agent ${name} did not announce in time: ${stderr}`)), 30_000)
@@ -97,20 +153,34 @@ async function spawnAgent(name: string, extraArgs: readonly string[] = []): Prom
 /**
  * The submitter, with an RPC budget chosen for this file rather than inherited.
  *
- * Under the refusal the owner's reply frame never leaves her, and her responding leg
- * swallows the send failure by documented design (`packages/net/src/egress.ts`), so
- * the dispatch resolves only when this budget expires. 10 s is the value: the
- * control job at the end of the test runs a full cross-process dispatch — exec
- * request out, module block pulled back over the wire by a child that has never seen
- * it, WASM compiled and run in that child, reply returned — on this identical
- * budget, so it cannot fail for want of time; and one refused dispatch costs one of
- * these rather than the 30 s the two existing spawn tests allow themselves.
+ * **Amended 2026-07-29 by NET-10, because the paragraph that was here described
+ * behaviour that no longer happens.** It read: *"the dispatch resolves only when
+ * this budget expires"*, which was true while the owner's refusal reached the
+ * requestor as nothing at all. It does not now. `serveAgent` asks the tap about its
+ * candidate reply before handing it to the exit and substitutes a small named
+ * refusal, so the refused dispatch resolves immediately with a reason rather than at
+ * this budget's expiry. `rpc.ts`'s responding leg still swallows a send failure by
+ * documented design — that cost is unchanged for every frame `serveAgent` does not
+ * pre-scan; see the scoped exception in `packages/net/src/egress.ts`.
+ *
+ * 10 s stays, and its justification is now only the second half of the original
+ * one: the control job at the end of the test runs a full cross-process dispatch —
+ * exec request out, module block pulled back over the wire by a child that has never
+ * seen it, WASM compiled and run in that child, reply returned — on this identical
+ * budget, so it cannot fail for want of time. Nothing in this file measures
+ * wall-clock, and nothing here should be read as if it did; the wall-clock
+ * measurement, taken against the *unshortened* production default, is
+ * `named-refusal.node.test.ts`'s whole subject.
  */
 async function startSubmitter(): Promise<FabricNode> {
   const node = await FabricNode.start({
     blockstoreDir: join(workdir, 'submitter'),
     listen: ['/ip4/127.0.0.1/tcp/0'],
     rpcTimeoutMs: 10_000,
+    // The same value the spawned agents get, rather than the opt-out — a submitter
+    // declaring a different authority from the nodes it dispatches to would be a lie
+    // in a file nobody would re-read.
+    trustAnchors: [publisher.pub],
   })
   nodes.push(node)
   return node
@@ -149,16 +219,25 @@ beforeEach(async () => {
   workdir = await mkdtemp(join(tmpdir(), 'o2-refusal-'))
 })
 
+/**
+ * Inner 10 s, outer 20 s — and the order is the point.
+ *
+ * `stopAgent` gives a wedged process 10 s before SIGKILL. Vitest's default `hookTimeout`
+ * is also 10 s, so with no explicit budget the two clocks are armed for the same instant
+ * and the framework's fires first: the SIGKILL fallback can never run, and a wedged agent
+ * is reported as an anonymous hook timeout naming no step. A test arms two clocks and the
+ * framework's must be the larger.
+ */
 afterEach(async () => {
   await Promise.all(nodes.splice(0).map((n) => n.stop().catch(() => {})))
   await Promise.all(agents.splice(0).map((a) => stopAgent(a).catch(() => {})))
   await rm(workdir, { recursive: true, force: true })
-})
+}, 20_000)
 
 describe('DATA-05 — the refusal across two real bin/agent.ts processes', () => {
   it('fails a cross-owner job at the owner’s own process, leaves that process alive, and runs a control job through the same two processes afterwards', async () => {
     // The owner-pinned premise, made literal rather than assumed. Inside the
-    // spawned process `registerSovereignInputs` reads the *local* tier only and
+    // spawned process the serve path's `takeSovereignHold` reads the *local* tier only and
     // runs before execution, so an input that is not already on the owner's disk
     // registers nothing and the tap has nothing to watch for — which would make a
     // job that "cleanly" completed prove nothing at all. Writing the canonical
@@ -175,8 +254,12 @@ describe('DATA-05 — the refusal across two real bin/agent.ts processes', () =>
     // deployment passes. The second process is started with no sovereignty
     // arguments at all, the way any node starts before anyone has told it whose
     // data it may touch.
+    // AUTH-03: `--owner-key` is the anchor alice's process judges every chain below
+    // against. Without it she refuses each dispatch for want of a pinned key, before
+    // her tap is ever consulted — see this file's header for why that would have been
+    // invisible.
     const [alice, other] = await Promise.all([
-      spawnAgent('alice', ['--owner-id', 'alice', '--can-execute-sovereign']),
+      spawnAgent('alice', ['--owner-id', 'alice', '--owner-key', OWNER_KEY, '--can-execute-sovereign']),
       spawnAgent('other'),
     ])
     const submitter = await startSubmitter()
@@ -192,16 +275,16 @@ describe('DATA-05 — the refusal across two real bin/agent.ts processes', () =>
     const aggregateCid = await submitter.store.put(MODULE_WRITES_PARTITION)
 
     const executors = [
-      new RemoteExecutor(alice.peerId, submitter.rpc),
-      new RemoteExecutor(other.peerId, submitter.rpc),
+      new RemoteExecutor(alice.peerId, submitter.rpc, chainSupplierFor(alice.peerId)),
+      new RemoteExecutor(other.peerId, submitter.rpc, chainSupplierFor(other.peerId)),
     ]
 
     // Clearance held equal and load pointing the other way, so ownership is the
     // only thing left that can exclude the idle process. A scheduler treating
     // sovereignty as a preference rather than a filter would pick the idle one.
     const descriptors: readonly NodeDescriptor[] = [
-      { nodeId: alice.peerId, ownerId: 'alice', canExecuteSovereign: true, load: 1 },
-      { nodeId: other.peerId, ownerId: 'bob', canExecuteSovereign: true, load: 0 },
+      { nodeId: alice.peerId, ownerId: 'alice', canExecuteSovereign: true, load: 1, certificate: 'carries-no-certificate' },
+      { nodeId: other.peerId, ownerId: 'bob', canExecuteSovereign: true, load: 0, certificate: 'carries-no-certificate' },
     ]
 
     // Bare `submitJob`, not `submitJobWithEgress`. The submitter's own manifest is
@@ -213,10 +296,12 @@ describe('DATA-05 — the refusal across two real bin/agent.ts processes', () =>
     const leaking = await submitJob(
       {
         moduleCid: echoCid,
+        moduleRecord: recordFor('egress-refusal-echo', echoCid),
         shards: [{ value: OWNED_ROW, label: 'sovereign', ownerId: 'alice' }],
         executors,
         nodes: descriptors,
         redundancy: 1,
+        onQuorumShortfall: 'runs-at-available-redundancy',
       },
       submitter.store,
     )
@@ -249,13 +334,23 @@ describe('DATA-05 — the refusal across two real bin/agent.ts processes', () =>
     // the module is the only argument that changes. Four alternative explanations
     // for the failure above die here at once: unreachability, process death,
     // module-fetch failure, and a budget too short to finish in.
+    //
+    // **A fifth, as of Phase 15, and it is the one that makes this control the whole
+    // file's safety net.** This control job is sovereign and reaches `agreed`, which is
+    // only possible if its capability chain verified against the key `--owner-key`
+    // pinned in alice's process. So the failure above cannot be an authorize refusal:
+    // the same executors carrying the same supplier were accepted here, moments later,
+    // by the same process. Without this reading, "alice refused both jobs for want of a
+    // valid chain" would explain the failure above just as well as the egress tap does.
     const control = await submitJob(
       {
         moduleCid: aggregateCid,
+        moduleRecord: recordFor('egress-refusal-aggregate', aggregateCid),
         shards: [{ value: OWNED_ROW, label: 'sovereign', ownerId: 'alice' }],
         executors,
         nodes: descriptors,
         redundancy: 1,
+        onQuorumShortfall: 'runs-at-available-redundancy',
       },
       submitter.store,
     )
@@ -265,7 +360,7 @@ describe('DATA-05 — the refusal across two real bin/agent.ts processes', () =>
     const controlShard = control.job.shards[0]
     expect(controlShard?.verification.status).toBe('agreed')
     if (controlShard?.verification.status !== 'agreed') return
-    expect(controlShard.verification.agreeing).toEqual([alice.peerId])
+    expect(controlShard.verification.agreeing.map((e) => e.nodeId)).toEqual([alice.peerId])
     expect(control.job.complete).toBe(true)
   }, 120_000)
 })

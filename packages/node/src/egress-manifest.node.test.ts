@@ -8,6 +8,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 // Test-only relative import — see the note in fabric-node.node.test.ts /
 // packages/net/src/distributed.test.ts.
 import { MODULE_ECHOES_INPUT, MODULE_WRITES_PARTITION } from '../../core/src/executor/fixtures.ts'
+import { OWNER_KEY, chainSupplierFor } from './capability-fixture.ts'
 import { FabricNode } from './fabric-node.ts'
 import type { FabricNodeOptions } from './fabric-node.ts'
 
@@ -35,11 +36,11 @@ import type { FabricNodeOptions } from './fabric-node.ts'
  *
  * **No test in this file calls `guard.guard()` directly.** That is the entire
  * point of this plan. Every violation, or its documented absence, is a
- * consequence of `registerSovereignInputs` (wired into `FabricNode.start` by
+ * consequence of `takeSovereignHold` (wired into `FabricNode.start` by
  * Plan 13-02) running inside production dispatch — not of a test standing in for
  * an owner's declaration the way `sovereign-execution.test.ts` still does.
  *
- * `registerSovereignInputs` reads from a node's *local-only* blockstore tier
+ * `takeSovereignHold` reads from a node's *local-only* blockstore tier
  * (`store`), never the network-fallback tier — a sovereign input is owner-pinned
  * and must already be resident on the owner's own node before dispatch (see
  * `sovereign-egress.ts`'s doc comment on the silent-skip behavior). Every
@@ -49,6 +50,15 @@ import type { FabricNodeOptions } from './fabric-node.ts'
  * — without that seed, registration is a documented no-op and the tap would have
  * nothing to watch for, which would make a "clean" result meaningless rather
  * than proven.
+ *
+ * As of Phase 15 (AUTH-03) the serving node also verifies a capability chain before it
+ * executes anything, so every sovereign dispatch in this file now carries one and each
+ * alice node is pinned with `ownerKey: OWNER_KEY` to verify it against. The properties
+ * this file measures — the refusal, the manifest, the release arithmetic — are
+ * unchanged by that; the chain is a precondition these tests now have to satisfy, not
+ * something they cover. **Nothing here asserts on a capability refusal**, and this file
+ * should not be read as evidence for AUTH-03. The `requestor` nodes need no owner key:
+ * they submit, they do not serve sovereign work.
  */
 
 let workdir: string
@@ -60,6 +70,12 @@ async function startNode(name: string, extra: Partial<FabricNodeOptions> = {}): 
     // Port 0: the OS picks a free port, so concurrent test runs cannot collide.
     listen: ['/ip4/127.0.0.1/tcp/0'],
     rpcTimeoutMs: 20_000,
+    // DET-03: this file's subject is not provenance, and every dispatch in it is
+    // in-process on the node being configured. Stated rather than defaulted — the
+    // point of the field being required is that a reader counting this literal learns
+    // which tests do not exercise the signed path. No job here carries a
+    // `moduleRecord`: a node running with the opt-out has no guard to satisfy.
+    trustAnchors: 'runs-unsigned-artifacts',
     ...extra,
   })
   running.push(node)
@@ -95,16 +111,20 @@ describe('DATA-05 — the tap refuses the leaking frame, so the shard fails wher
     // sovereignty option at all — the way any node starts, before anyone has
     // told it whose data it may touch.
     //
-    // The requestor gets a shortened RPC budget. Under the refusal alice's reply
-    // frame never leaves her and her responding leg swallows the failure by
-    // documented design (`egress.ts`), so the dispatch resolves only when the
-    // requestor's own timeout fires; this file's 20 s default would make that
-    // wait the bulk of the test. 5 s is the value, and the control job at the
-    // bottom is what shows it is ample rather than merely convenient — that job
-    // runs on this identical budget, through these identical nodes, and
-    // completes in well under a second.
+    // The requestor gets a shortened RPC budget. **Amended 2026-07-29 by NET-10:**
+    // this used to say the dispatch resolved only when the requestor's own timeout
+    // fired, which made the shortened budget load-bearing. It does not now —
+    // `serveAgent` substitutes a small named refusal for a reply that would carry
+    // the registered payload, so the refused dispatch resolves with a reason
+    // instead of at the budget's expiry. 5 s stays because the control job at the
+    // bottom runs on this identical budget through these identical nodes and must
+    // not fail for want of time. Nothing here measures wall-clock; the wall-clock
+    // measurement, against the unshortened production default, is
+    // `named-refusal.node.test.ts`'s subject.
     const [alice, other, requestor] = await Promise.all([
-      startNode('alice', { sovereignty: { ownerId: 'alice', canExecuteSovereign: true } }),
+      startNode('alice', {
+        sovereignty: { ownerId: 'alice', ownerKey: OWNER_KEY, canExecuteSovereign: true },
+      }),
       startNode('other'),
       startNode('requestor', { rpcTimeoutMs: 5_000 }),
     ])
@@ -116,7 +136,7 @@ describe('DATA-05 — the tap refuses the leaking frame, so the shard fails wher
     const moduleCid = await requestor.store.put(MODULE_ECHOES_INPUT)
 
     // Owner-pinned: the row must already be resident on alice's own local store
-    // before dispatch — registerSovereignInputs reads from that local tier only.
+    // before dispatch — takeSovereignHold reads from that local tier only.
     // Computed independently here (not read back off the result below), and the
     // same bytes are what get seeded, so the CID this test asserts against is
     // never trusted from the code under test.
@@ -125,8 +145,8 @@ describe('DATA-05 — the tap refuses the leaking frame, so the shard fails wher
     await alice.store.put(inputCid.bytes)
 
     const executors = [
-      new RemoteExecutor(alice.peerId, requestor.rpc),
-      new RemoteExecutor(other.peerId, requestor.rpc),
+      new RemoteExecutor(alice.peerId, requestor.rpc, chainSupplierFor(alice.peerId)),
+      new RemoteExecutor(other.peerId, requestor.rpc, chainSupplierFor(other.peerId)),
     ]
 
     // Both descriptors say `canExecuteSovereign: true`, and the loads are
@@ -136,8 +156,8 @@ describe('DATA-05 — the tap refuses the leaking frame, so the shard fails wher
     // the other way, ownership is the *only* thing left that can exclude the
     // idle node. Do not "fix" this descriptor.
     const descriptors: readonly NodeDescriptor[] = [
-      { nodeId: alice.peerId, ownerId: 'alice', canExecuteSovereign: true, load: 1 },
-      { nodeId: other.peerId, ownerId: 'bob', canExecuteSovereign: true, load: 0 },
+      { nodeId: alice.peerId, ownerId: 'alice', canExecuteSovereign: true, load: 1, certificate: 'carries-no-certificate' },
+      { nodeId: other.peerId, ownerId: 'bob', canExecuteSovereign: true, load: 0, certificate: 'carries-no-certificate' },
     ]
 
     const result = await submitJobWithEgress(
@@ -147,6 +167,7 @@ describe('DATA-05 — the tap refuses the leaking frame, so the shard fails wher
         executors,
         nodes: descriptors,
         redundancy: 1,
+        onQuorumShortfall: 'runs-at-available-redundancy',
       },
       requestor.store,
       [alice.egress],
@@ -211,6 +232,7 @@ describe('DATA-05 — the tap refuses the leaking frame, so the shard fails wher
         executors,
         nodes: descriptors,
         redundancy: 1,
+        onQuorumShortfall: 'runs-at-available-redundancy',
       },
       requestor.store,
       [alice.egress],
@@ -238,7 +260,9 @@ describe('DATA-05 — the tap refuses the leaking frame, so the shard fails wher
 describe("DATA-06 — every job's manifest is reachable from its own result metadata", () => {
   it('a clean pushdown job reports zero violations and a non-empty manifest — never indistinguishable from an unwired tap', async () => {
     const [alice, requestor] = await Promise.all([
-      startNode('alice', { sovereignty: { ownerId: 'alice', canExecuteSovereign: true } }),
+      startNode('alice', {
+        sovereignty: { ownerId: 'alice', ownerKey: OWNER_KEY, canExecuteSovereign: true },
+      }),
       startNode('requestor'),
     ])
     await requestor.dial(alice.multiaddrs[0]!)
@@ -249,14 +273,15 @@ describe("DATA-06 — every job's manifest is reachable from its own result meta
     if (!inputCid.ok) throw new Error('fixture not encodable')
     await alice.store.put(inputCid.bytes)
 
-    const executors = [new RemoteExecutor(alice.peerId, requestor.rpc)]
+    const executors = [new RemoteExecutor(alice.peerId, requestor.rpc, chainSupplierFor(alice.peerId))]
     const result = await submitJobWithEgress(
       {
         moduleCid,
         shards: [{ value: CLEAN_ROW, label: 'sovereign', ownerId: 'alice' }],
         executors,
-        nodes: [{ nodeId: alice.peerId, ownerId: 'alice', canExecuteSovereign: true, load: 0 }],
+        nodes: [{ nodeId: alice.peerId, ownerId: 'alice', canExecuteSovereign: true, load: 0, certificate: 'carries-no-certificate' }],
         redundancy: 1,
+        onQuorumShortfall: 'runs-at-available-redundancy',
       },
       requestor.store,
       [alice.egress],
@@ -282,7 +307,7 @@ describe("DATA-06 — every job's manifest is reachable from its own result meta
     await requestor.dial(defaultNode.multiaddrs[0]!)
 
     const moduleCid = await requestor.store.put(MODULE_WRITES_PARTITION)
-    const executors = [new RemoteExecutor(defaultNode.peerId, requestor.rpc)]
+    const executors = [new RemoteExecutor(defaultNode.peerId, requestor.rpc, 'dispatches-unauthenticated')]
     const result = await submitJobWithEgress(
       {
         moduleCid,
@@ -290,6 +315,7 @@ describe("DATA-06 — every job's manifest is reachable from its own result meta
         executors,
         nodes: publicNodes(executors),
         redundancy: 1,
+        onQuorumShortfall: 'runs-at-available-redundancy',
       },
       requestor.store,
       [defaultNode.egress],
@@ -307,7 +333,9 @@ describe("DATA-06 — every job's manifest is reachable from its own result meta
 
   it("a pushdown job's manifest reflects only the aggregate that crossed, smaller than the raw sovereign input", async () => {
     const [alice, requestor] = await Promise.all([
-      startNode('alice', { sovereignty: { ownerId: 'alice', canExecuteSovereign: true } }),
+      startNode('alice', {
+        sovereignty: { ownerId: 'alice', ownerKey: OWNER_KEY, canExecuteSovereign: true },
+      }),
       startNode('requestor'),
     ])
     await requestor.dial(alice.multiaddrs[0]!)
@@ -318,14 +346,15 @@ describe("DATA-06 — every job's manifest is reachable from its own result meta
     if (!inputCid.ok) throw new Error('fixture not encodable')
     await alice.store.put(inputCid.bytes)
 
-    const executors = [new RemoteExecutor(alice.peerId, requestor.rpc)]
+    const executors = [new RemoteExecutor(alice.peerId, requestor.rpc, chainSupplierFor(alice.peerId))]
     const result = await submitJobWithEgress(
       {
         moduleCid,
         shards: [{ value: PUSHDOWN_ROW, label: 'sovereign', ownerId: 'alice' }],
         executors,
-        nodes: [{ nodeId: alice.peerId, ownerId: 'alice', canExecuteSovereign: true, load: 0 }],
+        nodes: [{ nodeId: alice.peerId, ownerId: 'alice', canExecuteSovereign: true, load: 0, certificate: 'carries-no-certificate' }],
         redundancy: 1,
+        onQuorumShortfall: 'runs-at-available-redundancy',
       },
       requestor.store,
       [alice.egress],

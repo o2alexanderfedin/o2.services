@@ -22,7 +22,18 @@ describe('DET-07 — the kernel runs inside a Worker', () => {
     const worker = new TaskWorker()
     try {
       const response = await new Promise<WorkerResponse>((resolve, reject) => {
-        const timer = setTimeout(() => reject(new Error('worker timed out')), 20_000)
+        // A diagnostic watchdog, not a property: it exists so a wedged worker says
+        // "worker timed out" instead of dying as a bare vitest timeout that names
+        // nothing. It must therefore stay comfortably *under* the framework budget
+        // below — the same ordering `worker-executor.browser.test.ts` documents in
+        // its header — and comfortably *over* the work, which is four shards at R=2
+        // and measures a couple of seconds on an idle host.
+        //
+        // Was 20 s, and 20 s was not over the work by enough: on 2026-07-31 an
+        // unrelated LLVM build held this host at a load average of 130 on 8 cores and
+        // the job exceeded it in Chromium and WebKit. Nothing was wrong with the
+        // kernel. 60 s inside 120 s keeps both margins wide.
+        const timer = setTimeout(() => reject(new Error('worker timed out')), 60_000)
         worker.addEventListener('message', (event: MessageEvent<WorkerResponse>) => {
           clearTimeout(timer)
           resolve(event.data)
@@ -48,5 +59,5 @@ describe('DET-07 — the kernel runs inside a Worker', () => {
     } finally {
       worker.terminate()
     }
-  }, 30_000)
+  }, 120_000)
 })

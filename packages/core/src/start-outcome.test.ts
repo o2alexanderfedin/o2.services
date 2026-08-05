@@ -1,11 +1,12 @@
 import { describe, expect, it } from 'vitest'
 import {
+  BROWSER_FAMILIES,
   MIN_REPORTS_FOR_RATE,
   START_FAILURES,
   STRUCTURAL_BLIND_SPOT,
   StartOutcomeLedger,
   describeStartReport,
-  expandCounts,
+  isStartBrowserLabel,
   startReport,
 } from './start-outcome.ts'
 import type { StartFailure, StartOutcome } from './start-outcome.ts'
@@ -178,12 +179,128 @@ describe('a ledger merges two different kinds of thing, and knows which', () => 
     expect(declined?.kind === 'declined' && declined.count).toBe(3)
   })
 
-  it('round-trips counts through expansion without loss', () => {
+  it('round-trips counts through a merge without loss', () => {
     const ledger = new StartOutcomeLedger()
     ledger.record({ browser: 'safari 18', result: { kind: 'failed', cause: 'storage-denied' } })
     ledger.record({ browser: 'chromium 141', result: { kind: 'started' } })
     const rebuilt = new StartOutcomeLedger()
-    for (const outcome of expandCounts(ledger.counts())) rebuilt.record(outcome)
+    rebuilt.mergeDisjoint(ledger.counts())
     expect(rebuilt.counts()).toEqual(ledger.counts())
+  })
+})
+
+/**
+ * A count is believed. It is not *materialised*.
+ *
+ * `count` arrives over the wire and nothing bounds its magnitude — `mergeOverlapping`
+ * checks only that it is a positive integer, and takes the largest. Reporting used to
+ * expand each unit into its own object, so a 79-byte reply carrying `count: 1e9`
+ * became an allocation the reading tab could not survive. `MAX_INBOUND_MESSAGE_BYTES`
+ * cannot help: the amplification is entirely post-decode.
+ *
+ * ## Why these are not budgets
+ *
+ * They used to be: `elapsed < 50ms`, twice, with neither population written down.
+ * The measurement that retired them, taken 2026-08-01 — 24 samples per case across
+ * chromium, firefox and webkit (1-min load 39.2→31.1 on 8 cores) and 12 more per
+ * case in Node (load 24.2→21.2):
+ *
+ *   browser   every one of the 48 readings was **0** — `performance.now()` is
+ *             coarsened to ~1 ms in firefox and webkit, and this is two additions
+ *   node      0.006–0.032 ms
+ *
+ * So in two of the three engines the fast path sits *below the resolution of the
+ * clock the assertion used*. There was never a second population to site 50 against:
+ * one end is indistinguishable from zero, and the other end — a `report()` that
+ * expands a count into that many objects — does not produce a slow reading, it
+ * produces a process that never comes back. Nothing can be sited between "0" and
+ * "never", so 50 was separating noise from noise.
+ *
+ * What replaces it is the arithmetic itself. Every magnitude below is chosen so that
+ * *enumerating* it is impossible rather than merely slow — at a billion steps a
+ * second, one row of `1e15` is eleven days — while *adding* it is one instruction and
+ * exact, because the totals stay under `Number.MAX_SAFE_INTEGER`. An implementation
+ * that materialises cannot reach these assertions at all; one that adds reaches them
+ * immediately, on any engine at any load. That is a claim about which operation ran,
+ * and it has no clock in it.
+ */
+describe('a reported count costs what it says, not what it claims', () => {
+  it('sums counts no host could enumerate, because it adds them instead', () => {
+    const ledger = new StartOutcomeLedger()
+    ledger.mergeDisjoint([
+      { browser: 'chromium 141', result: 'started', count: 1e15 },
+      { browser: 'safari 18', result: 'wasm-unavailable', count: 1e15 },
+    ])
+
+    const report = ledger.report()
+
+    // Exact, and the exactness is the evidence: 2e15 is under `MAX_SAFE_INTEGER`, so
+    // a sum is precise — while no loop over 2e15 units returns inside this suite, or
+    // inside this week.
+    expect(report.reported).toBe(2e15)
+    expect(report.failed).toBe(1e15)
+    // And it reached those totals from two rows. One entry per (browser, result) is
+    // what makes the magnitude free.
+    expect(ledger.counts()).toHaveLength(2)
+  })
+
+  it('costs nothing to be told the largest magnitude the wire can carry', () => {
+    const ledger = new StartOutcomeLedger()
+    // The biggest integer a JSON number survives as itself. A peer cannot claim more
+    // without the claim decoding to something else, so this is the top of the hostile
+    // range rather than a sample from the middle of it.
+    ledger.mergeOverlapping([
+      { browser: 'chromium 141', result: 'started', count: Number.MAX_SAFE_INTEGER },
+    ])
+
+    const report = ledger.report()
+
+    // The count is BELIEVED. Inflation is this module's stated, accepted property —
+    // a peer can lie about its own numbers and that is what the docstring says. What
+    // is fixed here is only that the lie is free to hold, not free to make.
+    expect(report.reported).toBe(Number.MAX_SAFE_INTEGER)
+    expect(ledger.counts()).toHaveLength(1)
+  })
+
+  it('agrees with the outcome-by-outcome path, orderings and reliability included', () => {
+    const population: StartOutcome[] = [
+      ...started('chromium 141', 12),
+      ...failed('chromium 141', 'other', 3),
+      ...failed('chromium 141', 'storage-denied', 3),
+      ...failed('chromium 141', 'wasm-unavailable', 7),
+      ...started('safari 18', 4),
+      ...failed('safari 18', 'wasm-unavailable', 5),
+      ...started('firefox 145', 9),
+    ]
+    const ledger = new StartOutcomeLedger()
+    for (const outcome of population) ledger.record(outcome)
+
+    // Pins the fold whole — the browser and cause orderings, the MIN_REPORTS_FOR_RATE
+    // flags and the rate arithmetic — rather than re-asserting each of them and
+    // missing the one that drifted.
+    expect(ledger.report()).toEqual(startReport(population))
+  })
+})
+
+describe('the coarseness the disclosure promise rests on is a check, not a convention', () => {
+  it('accepts a family, with or without a major version', () => {
+    for (const family of BROWSER_FAMILIES) {
+      expect(isStartBrowserLabel(family)).toBe(true)
+      expect(isStartBrowserLabel(`${family} 141`)).toBe(true)
+    }
+  })
+
+  it('refuses anything finer than a family and a major', () => {
+    // Each of these is a label a peer could send. The first is the whole reason
+    // this predicate exists; the rest are the near misses that would slip past a
+    // check written as "starts with a known family".
+    expect(isStartBrowserLabel('Mozilla/5.0 (X11; Linux x86_64) Chrome/141.0.0.0')).toBe(false)
+    expect(isStartBrowserLabel('chromium 141 (X11; Linux x86_64)')).toBe(false)
+    expect(isStartBrowserLabel('chromium 141.0.7390.65')).toBe(false)
+    expect(isStartBrowserLabel('chromium 12345')).toBe(false)
+    expect(isStartBrowserLabel('Chromium 141')).toBe(false)
+    expect(isStartBrowserLabel('')).toBe(false)
+    expect(isStartBrowserLabel('x'.repeat(200))).toBe(false)
+    expect(isStartBrowserLabel(141)).toBe(false)
   })
 })

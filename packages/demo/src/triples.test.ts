@@ -167,6 +167,17 @@ describe('assignmentOrder puts the most constrained values first', () => {
    * This is the order the guest searches in and the order the cube decomposition
    * slices, so it is worth being able to check it by eye.
    */
+  /**
+   * Shards that disagreed about the order would not be solving the same problem, and
+   * their outputs would be reported as node disagreement rather than as the input bug
+   * it would be. This literal is what carries that claim across runtimes: the file has
+   * a bare `.test.ts` suffix, so `vitest.config.ts` runs it in the `node` project and
+   * in Chromium, Firefox and WebKit, and these numbers are asserted in all four.
+   *
+   * Three engines on one host are three independent implementations, not three
+   * machines — the config's own comment forbids the stronger reading and so does this
+   * one.
+   */
   it('reproduces the whole order at n = 30', () => {
     expect(assignmentOrder(30)).toEqual([
       12, 15, 20, 24,
@@ -210,11 +221,7 @@ describe('assignmentOrder puts the most constrained values first', () => {
     }
   })
 
-  it('is a pure function of n, so every node computes the same order', () => {
-    // Shards that disagreed about the order would not be solving the same problem,
-    // and their outputs would be reported as node disagreement rather than as the
-    // input bug it would be.
-    expect(assignmentOrder(204)).toEqual(assignmentOrder(204))
+  it('answers an n that is not a positive integer with an empty order', () => {
     expect(assignmentOrder(0)).toEqual([])
     expect(assignmentOrder(2.5)).toEqual([])
   })

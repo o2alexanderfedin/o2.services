@@ -1,14 +1,15 @@
 {
   "report": {
     "title": "o2.services — benchmark run",
-    "at": "2026-07-27T02:09:08.103Z",
+    "at": "2026-08-01T06:09:01.272Z",
     "inventory": {
       "machines": [
         {
           "hostId": "Alexanders-MacBook-Pro.local",
           "roles": [
             "worker",
-            "requestor"
+            "requestor",
+            "aggregator"
           ],
           "cpuModel": "Apple M1 Pro",
           "physicalCores": 0,
@@ -23,1162 +24,2042 @@
     },
     "baseline": {
       "n": 19,
-      "p50": 0.002207999999882304,
-      "p95": 0.022084000000177184,
-      "p99": 0.022084000000177184,
-      "min": 0.0018330000000332802,
-      "max": 0.022084000000177184,
-      "meanForCostArithmeticOnly": 0.0036644736841911878,
+      "p50": 0.0031669999989389908,
+      "p95": 0.09316699999908451,
+      "p99": 0.09316699999908451,
+      "min": 0.0028750000001309672,
+      "max": 0.09316699999908451,
+      "meanForCostArithmeticOnly": 0.008331157894836475,
       "reliable": true
     },
     "memoryTransport": [
       {
         "config": {
           "nodes": 1,
-          "shards": 8,
+          "shards": 16,
           "redundancy": 1,
           "transport": "memory",
           "skew": "uniform"
         },
         "makespan": {
           "n": 19,
-          "p50": 1.2655419999999822,
-          "p95": 3.7667920000000095,
-          "p99": 3.7667920000000095,
-          "min": 0.7620840000000157,
-          "max": 3.7667920000000095,
-          "meanForCostArithmeticOnly": 1.5294607368421052,
+          "p50": 22.441791999999964,
+          "p95": 29.643916999999988,
+          "p99": 29.643916999999988,
+          "min": 21.832917000000066,
+          "max": 29.643916999999988,
+          "meanForCostArithmeticOnly": 23.66707689473683,
           "reliable": true
         },
-        "coldStartMs": 8.214292,
+        "coldStartMs": 37.80791700000003,
         "incomplete": 0,
         "cost": {
-          "grossNodeSeconds": 0.13282907600000032,
-          "usefulNodeSeconds": 0.13282907600000032,
+          "grossNodeSeconds": 3.883012874,
+          "usefulNodeSeconds": 3.883012874,
           "verificationTax": 1,
           "speculationTax": 1,
           "churnTax": 0
         },
+        "reduce": {
+          "ms": {
+            "n": 19,
+            "p50": 0.8852080000000342,
+            "p95": 3.0272079999999733,
+            "p99": 3.0272079999999733,
+            "min": 0.7459589999999707,
+            "max": 3.0272079999999733,
+            "meanForCostArithmeticOnly": 1.0447235263157764,
+            "reliable": true
+          },
+          "treeDepth": 2,
+          "combines": 5,
+          "recomputes": 0,
+          "combineExecutors": 1
+        },
         "observations": [
           {
-            "makespanMs": 8.214292,
+            "makespanMs": 37.80791700000003,
             "complete": true,
-            "grossNodeSeconds": 0.03012791500000003,
-            "usefulNodeSeconds": 0.03012791500000003,
+            "grossNodeSeconds": 0.2898496680000002,
+            "usefulNodeSeconds": 0.2898496680000002,
             "verificationMultiplier": 1,
             "speculationMultiplier": 1,
             "redispatches": 0,
-            "codeCache": "cold"
+            "codeCache": "cold",
+            "reduce": {
+              "ok": true,
+              "reduceMs": 3.9618750000000205,
+              "treeDepth": 2,
+              "combines": 5,
+              "recomputes": 0,
+              "combineExecutors": 1
+            }
           },
           {
-            "makespanMs": 2.092749999999967,
+            "makespanMs": 25.76916699999998,
             "complete": true,
-            "grossNodeSeconds": 0.009249041000000034,
-            "usefulNodeSeconds": 0.009249041000000034,
+            "grossNodeSeconds": 0.2091904170000002,
+            "usefulNodeSeconds": 0.2091904170000002,
             "verificationMultiplier": 1,
             "speculationMultiplier": 1,
             "redispatches": 0,
-            "codeCache": "warm"
+            "codeCache": "warm",
+            "reduce": {
+              "ok": true,
+              "reduceMs": 3.0272079999999733,
+              "treeDepth": 2,
+              "combines": 5,
+              "recomputes": 0,
+              "combineExecutors": 1
+            }
           },
           {
-            "makespanMs": 1.620207999999991,
+            "makespanMs": 27.77170799999999,
             "complete": true,
-            "grossNodeSeconds": 0.006699579999999968,
-            "usefulNodeSeconds": 0.006699579999999968,
+            "grossNodeSeconds": 0.24686250100000026,
+            "usefulNodeSeconds": 0.24686250100000026,
             "verificationMultiplier": 1,
             "speculationMultiplier": 1,
             "redispatches": 0,
-            "codeCache": "warm"
+            "codeCache": "warm",
+            "reduce": {
+              "ok": true,
+              "reduceMs": 1.346584000000007,
+              "treeDepth": 2,
+              "combines": 5,
+              "recomputes": 0,
+              "combineExecutors": 1
+            }
           },
           {
-            "makespanMs": 1.2655419999999822,
+            "makespanMs": 23.816374999999994,
             "complete": true,
-            "grossNodeSeconds": 0.004918666000000087,
-            "usefulNodeSeconds": 0.004918666000000087,
+            "grossNodeSeconds": 0.20582504000000013,
+            "usefulNodeSeconds": 0.20582504000000013,
             "verificationMultiplier": 1,
             "speculationMultiplier": 1,
             "redispatches": 0,
-            "codeCache": "warm"
+            "codeCache": "warm",
+            "reduce": {
+              "ok": true,
+              "reduceMs": 1.1386249999999336,
+              "treeDepth": 2,
+              "combines": 5,
+              "recomputes": 0,
+              "combineExecutors": 1
+            }
           },
           {
-            "makespanMs": 1.2368340000000444,
+            "makespanMs": 22.331042000000025,
             "complete": true,
-            "grossNodeSeconds": 0.004899875999999949,
-            "usefulNodeSeconds": 0.004899875999999949,
+            "grossNodeSeconds": 0.19195108200000013,
+            "usefulNodeSeconds": 0.19195108200000013,
             "verificationMultiplier": 1,
             "speculationMultiplier": 1,
             "redispatches": 0,
-            "codeCache": "warm"
+            "codeCache": "warm",
+            "reduce": {
+              "ok": true,
+              "reduceMs": 1.0694169999999303,
+              "treeDepth": 2,
+              "combines": 5,
+              "recomputes": 0,
+              "combineExecutors": 1
+            }
           },
           {
-            "makespanMs": 1.233000000000004,
+            "makespanMs": 29.643916999999988,
             "complete": true,
-            "grossNodeSeconds": 0.0052292499999999215,
-            "usefulNodeSeconds": 0.0052292499999999215,
+            "grossNodeSeconds": 0.2788584560000001,
+            "usefulNodeSeconds": 0.2788584560000001,
             "verificationMultiplier": 1,
             "speculationMultiplier": 1,
             "redispatches": 0,
-            "codeCache": "warm"
+            "codeCache": "warm",
+            "reduce": {
+              "ok": true,
+              "reduceMs": 1.3956249999999955,
+              "treeDepth": 2,
+              "combines": 5,
+              "recomputes": 0,
+              "combineExecutors": 1
+            }
           },
           {
-            "makespanMs": 1.4074169999999526,
+            "makespanMs": 25.641457999999943,
             "complete": true,
-            "grossNodeSeconds": 0.005489500000000078,
-            "usefulNodeSeconds": 0.005489500000000078,
+            "grossNodeSeconds": 0.20009883499999984,
+            "usefulNodeSeconds": 0.20009883499999984,
             "verificationMultiplier": 1,
             "speculationMultiplier": 1,
             "redispatches": 0,
-            "codeCache": "warm"
+            "codeCache": "warm",
+            "reduce": {
+              "ok": true,
+              "reduceMs": 0.8852080000000342,
+              "treeDepth": 2,
+              "combines": 5,
+              "recomputes": 0,
+              "combineExecutors": 1
+            }
           },
           {
-            "makespanMs": 2.175625000000025,
+            "makespanMs": 22.434834000000023,
             "complete": true,
-            "grossNodeSeconds": 0.010609917000000052,
-            "usefulNodeSeconds": 0.010609917000000052,
+            "grossNodeSeconds": 0.19395383399999994,
+            "usefulNodeSeconds": 0.19395383399999994,
             "verificationMultiplier": 1,
             "speculationMultiplier": 1,
             "redispatches": 0,
-            "codeCache": "warm"
+            "codeCache": "warm",
+            "reduce": {
+              "ok": true,
+              "reduceMs": 0.8747079999999414,
+              "treeDepth": 2,
+              "combines": 5,
+              "recomputes": 0,
+              "combineExecutors": 1
+            }
           },
           {
-            "makespanMs": 1.562250000000006,
+            "makespanMs": 22.441791999999964,
             "complete": true,
-            "grossNodeSeconds": 0.00662629099999998,
-            "usefulNodeSeconds": 0.00662629099999998,
+            "grossNodeSeconds": 0.19469183400000006,
+            "usefulNodeSeconds": 0.19469183400000006,
             "verificationMultiplier": 1,
             "speculationMultiplier": 1,
             "redispatches": 0,
-            "codeCache": "warm"
+            "codeCache": "warm",
+            "reduce": {
+              "ok": true,
+              "reduceMs": 0.9065829999999551,
+              "treeDepth": 2,
+              "combines": 5,
+              "recomputes": 0,
+              "combineExecutors": 1
+            }
           },
           {
-            "makespanMs": 1.436125000000004,
+            "makespanMs": 23.90924999999993,
             "complete": true,
-            "grossNodeSeconds": 0.006078207999999848,
-            "usefulNodeSeconds": 0.006078207999999848,
+            "grossNodeSeconds": 0.20958679499999974,
+            "usefulNodeSeconds": 0.20958679499999974,
             "verificationMultiplier": 1,
             "speculationMultiplier": 1,
             "redispatches": 0,
-            "codeCache": "warm"
+            "codeCache": "warm",
+            "reduce": {
+              "ok": true,
+              "reduceMs": 0.994666000000052,
+              "treeDepth": 2,
+              "combines": 5,
+              "recomputes": 0,
+              "combineExecutors": 1
+            }
           },
           {
-            "makespanMs": 3.228416999999979,
+            "makespanMs": 24.926459000000023,
             "complete": true,
-            "grossNodeSeconds": 0.013473041999999965,
-            "usefulNodeSeconds": 0.013473041999999965,
+            "grossNodeSeconds": 0.2178514169999997,
+            "usefulNodeSeconds": 0.2178514169999997,
             "verificationMultiplier": 1,
             "speculationMultiplier": 1,
             "redispatches": 0,
-            "codeCache": "warm"
+            "codeCache": "warm",
+            "reduce": {
+              "ok": true,
+              "reduceMs": 0.8264580000000024,
+              "treeDepth": 2,
+              "combines": 5,
+              "recomputes": 0,
+              "combineExecutors": 1
+            }
           },
           {
-            "makespanMs": 3.7667920000000095,
+            "makespanMs": 21.988917000000015,
             "complete": true,
-            "grossNodeSeconds": 0.02472499799999997,
-            "usefulNodeSeconds": 0.02472499799999997,
+            "grossNodeSeconds": 0.18922616500000003,
+            "usefulNodeSeconds": 0.18922616500000003,
             "verificationMultiplier": 1,
             "speculationMultiplier": 1,
             "redispatches": 0,
-            "codeCache": "warm"
+            "codeCache": "warm",
+            "reduce": {
+              "ok": true,
+              "reduceMs": 0.81087500000001,
+              "treeDepth": 2,
+              "combines": 5,
+              "recomputes": 0,
+              "combineExecutors": 1
+            }
           },
           {
-            "makespanMs": 1.2872500000000286,
+            "makespanMs": 22.204665999999975,
             "complete": true,
-            "grossNodeSeconds": 0.006083667000000048,
-            "usefulNodeSeconds": 0.006083667000000048,
+            "grossNodeSeconds": 0.19156646099999985,
+            "usefulNodeSeconds": 0.19156646099999985,
             "verificationMultiplier": 1,
             "speculationMultiplier": 1,
             "redispatches": 0,
-            "codeCache": "warm"
+            "codeCache": "warm",
+            "reduce": {
+              "ok": true,
+              "reduceMs": 0.7883749999999736,
+              "treeDepth": 2,
+              "combines": 5,
+              "recomputes": 0,
+              "combineExecutors": 1
+            }
           },
           {
-            "makespanMs": 1.0660839999999894,
+            "makespanMs": 21.832917000000066,
             "complete": true,
-            "grossNodeSeconds": 0.004781374000000028,
-            "usefulNodeSeconds": 0.004781374000000028,
+            "grossNodeSeconds": 0.187415208,
+            "usefulNodeSeconds": 0.187415208,
             "verificationMultiplier": 1,
             "speculationMultiplier": 1,
             "redispatches": 0,
-            "codeCache": "warm"
+            "codeCache": "warm",
+            "reduce": {
+              "ok": true,
+              "reduceMs": 0.8514999999999873,
+              "treeDepth": 2,
+              "combines": 5,
+              "recomputes": 0,
+              "combineExecutors": 1
+            }
           },
           {
-            "makespanMs": 1.0724589999999807,
+            "makespanMs": 22.21733299999994,
             "complete": true,
-            "grossNodeSeconds": 0.003962999999999966,
-            "usefulNodeSeconds": 0.003962999999999966,
+            "grossNodeSeconds": 0.19144403899999998,
+            "usefulNodeSeconds": 0.19144403899999998,
             "verificationMultiplier": 1,
             "speculationMultiplier": 1,
             "redispatches": 0,
-            "codeCache": "warm"
+            "codeCache": "warm",
+            "reduce": {
+              "ok": true,
+              "reduceMs": 0.8142080000000078,
+              "treeDepth": 2,
+              "combines": 5,
+              "recomputes": 0,
+              "combineExecutors": 1
+            }
           },
           {
-            "makespanMs": 1.1873329999999669,
+            "makespanMs": 21.96550000000002,
             "complete": true,
-            "grossNodeSeconds": 0.00541420800000003,
-            "usefulNodeSeconds": 0.00541420800000003,
+            "grossNodeSeconds": 0.19103016799999997,
+            "usefulNodeSeconds": 0.19103016799999997,
             "verificationMultiplier": 1,
             "speculationMultiplier": 1,
             "redispatches": 0,
-            "codeCache": "warm"
+            "codeCache": "warm",
+            "reduce": {
+              "ok": true,
+              "reduceMs": 0.7948749999999336,
+              "treeDepth": 2,
+              "combines": 5,
+              "recomputes": 0,
+              "combineExecutors": 1
+            }
           },
           {
-            "makespanMs": 0.9572080000000369,
+            "makespanMs": 23.134874999999965,
             "complete": true,
-            "grossNodeSeconds": 0.004170583000000079,
-            "usefulNodeSeconds": 0.004170583000000079,
+            "grossNodeSeconds": 0.19944720699999982,
+            "usefulNodeSeconds": 0.19944720699999982,
             "verificationMultiplier": 1,
             "speculationMultiplier": 1,
             "redispatches": 0,
-            "codeCache": "warm"
+            "codeCache": "warm",
+            "reduce": {
+              "ok": true,
+              "reduceMs": 0.8936660000000529,
+              "treeDepth": 2,
+              "combines": 5,
+              "recomputes": 0,
+              "combineExecutors": 1
+            }
           },
           {
-            "makespanMs": 0.8663339999999948,
+            "makespanMs": 23.272583999999938,
             "complete": true,
-            "grossNodeSeconds": 0.0036583330000000275,
-            "usefulNodeSeconds": 0.0036583330000000275,
+            "grossNodeSeconds": 0.196930294,
+            "usefulNodeSeconds": 0.196930294,
             "verificationMultiplier": 1,
             "speculationMultiplier": 1,
             "redispatches": 0,
-            "codeCache": "warm"
+            "codeCache": "warm",
+            "reduce": {
+              "ok": true,
+              "reduceMs": 0.7951659999999947,
+              "treeDepth": 2,
+              "combines": 5,
+              "recomputes": 0,
+              "combineExecutors": 1
+            }
           },
           {
-            "makespanMs": 0.7620840000000157,
+            "makespanMs": 22.195291999999995,
             "complete": true,
-            "grossNodeSeconds": 0.00315849900000012,
-            "usefulNodeSeconds": 0.00315849900000012,
+            "grossNodeSeconds": 0.19272553799999984,
+            "usefulNodeSeconds": 0.19272553799999984,
             "verificationMultiplier": 1,
             "speculationMultiplier": 1,
             "redispatches": 0,
-            "codeCache": "warm"
+            "codeCache": "warm",
+            "reduce": {
+              "ok": true,
+              "reduceMs": 0.7459589999999707,
+              "treeDepth": 2,
+              "combines": 5,
+              "recomputes": 0,
+              "combineExecutors": 1
+            }
           },
           {
-            "makespanMs": 0.8360420000000204,
+            "makespanMs": 22.176375000000007,
             "complete": true,
-            "grossNodeSeconds": 0.0036010430000001747,
-            "usefulNodeSeconds": 0.0036010430000001747,
+            "grossNodeSeconds": 0.19435758299999983,
+            "usefulNodeSeconds": 0.19435758299999983,
             "verificationMultiplier": 1,
             "speculationMultiplier": 1,
             "redispatches": 0,
-            "codeCache": "warm"
+            "codeCache": "warm",
+            "reduce": {
+              "ok": true,
+              "reduceMs": 0.8900409999999965,
+              "treeDepth": 2,
+              "combines": 5,
+              "recomputes": 0,
+              "combineExecutors": 1
+            }
           }
         ]
       },
       {
         "config": {
           "nodes": 2,
-          "shards": 8,
+          "shards": 16,
           "redundancy": 2,
           "transport": "memory",
           "skew": "uniform"
         },
         "makespan": {
           "n": 19,
-          "p50": 2.0579159999999774,
-          "p95": 4.97625000000005,
-          "p99": 4.97625000000005,
-          "min": 1.4322500000000105,
-          "max": 4.97625000000005,
-          "meanForCostArithmeticOnly": 2.2036336315789526,
+          "p50": 44.64666699999998,
+          "p95": 51.60145800000009,
+          "p99": 51.60145800000009,
+          "min": 43.184166000000005,
+          "max": 51.60145800000009,
+          "meanForCostArithmeticOnly": 45.757991157894764,
           "reliable": true
         },
-        "coldStartMs": 2.426084000000003,
+        "coldStartMs": 52.731457999999975,
         "incomplete": 0,
         "cost": {
-          "grossNodeSeconds": 0.37561407700000066,
-          "usefulNodeSeconds": 0.18780703850000033,
+          "grossNodeSeconds": 14.492535626999999,
+          "usefulNodeSeconds": 7.246267813499999,
           "verificationTax": 2,
           "speculationTax": 1,
           "churnTax": 0
         },
+        "reduce": {
+          "ms": {
+            "n": 19,
+            "p50": 1.2922499999999673,
+            "p95": 3.1802079999999933,
+            "p99": 3.1802079999999933,
+            "min": 1.0745830000000751,
+            "max": 3.1802079999999933,
+            "meanForCostArithmeticOnly": 1.4166843684210597,
+            "reliable": true
+          },
+          "treeDepth": 2,
+          "combines": 5,
+          "recomputes": 0,
+          "combineExecutors": 2
+        },
         "observations": [
           {
-            "makespanMs": 2.426084000000003,
+            "makespanMs": 52.731457999999975,
             "complete": true,
-            "grossNodeSeconds": 0.02590233299999989,
-            "usefulNodeSeconds": 0.012951166499999944,
+            "grossNodeSeconds": 0.7575376269999998,
+            "usefulNodeSeconds": 0.3787688134999999,
             "verificationMultiplier": 2,
             "speculationMultiplier": 1,
             "redispatches": 0,
-            "codeCache": "cold"
+            "codeCache": "cold",
+            "reduce": {
+              "ok": true,
+              "reduceMs": 2.247208999999998,
+              "treeDepth": 2,
+              "combines": 5,
+              "recomputes": 0,
+              "combineExecutors": 2
+            }
           },
           {
-            "makespanMs": 2.0579159999999774,
+            "makespanMs": 44.48254099999997,
             "complete": true,
-            "grossNodeSeconds": 0.01840245499999992,
-            "usefulNodeSeconds": 0.00920122749999996,
+            "grossNodeSeconds": 0.7371545420000004,
+            "usefulNodeSeconds": 0.3685772710000002,
             "verificationMultiplier": 2,
             "speculationMultiplier": 1,
             "redispatches": 0,
-            "codeCache": "warm"
+            "codeCache": "warm",
+            "reduce": {
+              "ok": true,
+              "reduceMs": 1.159667000000013,
+              "treeDepth": 2,
+              "combines": 5,
+              "recomputes": 0,
+              "combineExecutors": 2
+            }
           },
           {
-            "makespanMs": 1.9040410000000065,
+            "makespanMs": 44.657833000000096,
             "complete": true,
-            "grossNodeSeconds": 0.01659725000000003,
-            "usefulNodeSeconds": 0.008298625000000014,
+            "grossNodeSeconds": 0.7505021669999998,
+            "usefulNodeSeconds": 0.3752510834999999,
             "verificationMultiplier": 2,
             "speculationMultiplier": 1,
             "redispatches": 0,
-            "codeCache": "warm"
+            "codeCache": "warm",
+            "reduce": {
+              "ok": true,
+              "reduceMs": 1.3721669999999904,
+              "treeDepth": 2,
+              "combines": 5,
+              "recomputes": 0,
+              "combineExecutors": 2
+            }
           },
           {
-            "makespanMs": 1.790791000000013,
+            "makespanMs": 43.906541999999945,
             "complete": true,
-            "grossNodeSeconds": 0.01430479300000002,
-            "usefulNodeSeconds": 0.00715239650000001,
+            "grossNodeSeconds": 0.7304096660000002,
+            "usefulNodeSeconds": 0.3652048330000001,
             "verificationMultiplier": 2,
             "speculationMultiplier": 1,
             "redispatches": 0,
-            "codeCache": "warm"
+            "codeCache": "warm",
+            "reduce": {
+              "ok": true,
+              "reduceMs": 1.2922499999999673,
+              "treeDepth": 2,
+              "combines": 5,
+              "recomputes": 0,
+              "combineExecutors": 2
+            }
           },
           {
-            "makespanMs": 2.4251670000000445,
+            "makespanMs": 44.26670800000011,
             "complete": true,
-            "grossNodeSeconds": 0.02567199800000003,
-            "usefulNodeSeconds": 0.012835999000000015,
+            "grossNodeSeconds": 0.7291805870000005,
+            "usefulNodeSeconds": 0.3645902935000003,
             "verificationMultiplier": 2,
             "speculationMultiplier": 1,
             "redispatches": 0,
-            "codeCache": "warm"
+            "codeCache": "warm",
+            "reduce": {
+              "ok": true,
+              "reduceMs": 1.3632920000000013,
+              "treeDepth": 2,
+              "combines": 5,
+              "recomputes": 0,
+              "combineExecutors": 2
+            }
           },
           {
-            "makespanMs": 2.0934589999999957,
+            "makespanMs": 43.48616700000002,
             "complete": true,
-            "grossNodeSeconds": 0.018501878999999916,
-            "usefulNodeSeconds": 0.009250939499999958,
+            "grossNodeSeconds": 0.7216791270000003,
+            "usefulNodeSeconds": 0.3608395635000001,
             "verificationMultiplier": 2,
             "speculationMultiplier": 1,
             "redispatches": 0,
-            "codeCache": "warm"
+            "codeCache": "warm",
+            "reduce": {
+              "ok": true,
+              "reduceMs": 1.1681670000000395,
+              "treeDepth": 2,
+              "combines": 5,
+              "recomputes": 0,
+              "combineExecutors": 2
+            }
           },
           {
-            "makespanMs": 2.1633750000000305,
+            "makespanMs": 43.25729200000001,
             "complete": true,
-            "grossNodeSeconds": 0.015082042999999946,
-            "usefulNodeSeconds": 0.007541021499999973,
+            "grossNodeSeconds": 0.7205912049999998,
+            "usefulNodeSeconds": 0.3602956024999999,
             "verificationMultiplier": 2,
             "speculationMultiplier": 1,
             "redispatches": 0,
-            "codeCache": "warm"
+            "codeCache": "warm",
+            "reduce": {
+              "ok": true,
+              "reduceMs": 1.2029170000000704,
+              "treeDepth": 2,
+              "combines": 5,
+              "recomputes": 0,
+              "combineExecutors": 2
+            }
           },
           {
-            "makespanMs": 2.047374999999988,
+            "makespanMs": 44.64666699999998,
             "complete": true,
-            "grossNodeSeconds": 0.018931084000000004,
-            "usefulNodeSeconds": 0.009465542000000002,
+            "grossNodeSeconds": 0.7405172100000001,
+            "usefulNodeSeconds": 0.3702586050000001,
             "verificationMultiplier": 2,
             "speculationMultiplier": 1,
             "redispatches": 0,
-            "codeCache": "warm"
+            "codeCache": "warm",
+            "reduce": {
+              "ok": true,
+              "reduceMs": 1.2247919999999795,
+              "treeDepth": 2,
+              "combines": 5,
+              "recomputes": 0,
+              "combineExecutors": 2
+            }
           },
           {
-            "makespanMs": 2.1865000000000236,
+            "makespanMs": 43.184166000000005,
             "complete": true,
-            "grossNodeSeconds": 0.019448291000000152,
-            "usefulNodeSeconds": 0.009724145500000076,
+            "grossNodeSeconds": 0.7156385850000007,
+            "usefulNodeSeconds": 0.35781929250000033,
             "verificationMultiplier": 2,
             "speculationMultiplier": 1,
             "redispatches": 0,
-            "codeCache": "warm"
+            "codeCache": "warm",
+            "reduce": {
+              "ok": true,
+              "reduceMs": 1.2465420000000904,
+              "treeDepth": 2,
+              "combines": 5,
+              "recomputes": 0,
+              "combineExecutors": 2
+            }
           },
           {
-            "makespanMs": 1.5388750000000186,
+            "makespanMs": 44.45054200000004,
             "complete": true,
-            "grossNodeSeconds": 0.013354540999999928,
-            "usefulNodeSeconds": 0.006677270499999964,
+            "grossNodeSeconds": 0.7467662070000002,
+            "usefulNodeSeconds": 0.3733831035000001,
             "verificationMultiplier": 2,
             "speculationMultiplier": 1,
             "redispatches": 0,
-            "codeCache": "warm"
+            "codeCache": "warm",
+            "reduce": {
+              "ok": true,
+              "reduceMs": 1.3432080000000042,
+              "treeDepth": 2,
+              "combines": 5,
+              "recomputes": 0,
+              "combineExecutors": 2
+            }
           },
           {
-            "makespanMs": 1.4665830000000142,
+            "makespanMs": 46.61383300000011,
             "complete": true,
-            "grossNodeSeconds": 0.012437665000000153,
-            "usefulNodeSeconds": 0.006218832500000077,
+            "grossNodeSeconds": 0.7696442889999991,
+            "usefulNodeSeconds": 0.3848221444999996,
             "verificationMultiplier": 2,
             "speculationMultiplier": 1,
             "redispatches": 0,
-            "codeCache": "warm"
+            "codeCache": "warm",
+            "reduce": {
+              "ok": true,
+              "reduceMs": 1.3240840000000844,
+              "treeDepth": 2,
+              "combines": 5,
+              "recomputes": 0,
+              "combineExecutors": 2
+            }
           },
           {
-            "makespanMs": 1.7223749999999995,
+            "makespanMs": 44.06391600000006,
             "complete": true,
-            "grossNodeSeconds": 0.01500499999999994,
-            "usefulNodeSeconds": 0.00750249999999997,
+            "grossNodeSeconds": 0.7292110409999994,
+            "usefulNodeSeconds": 0.3646055204999997,
             "verificationMultiplier": 2,
             "speculationMultiplier": 1,
             "redispatches": 0,
-            "codeCache": "warm"
+            "codeCache": "warm",
+            "reduce": {
+              "ok": true,
+              "reduceMs": 1.357332999999926,
+              "treeDepth": 2,
+              "combines": 5,
+              "recomputes": 0,
+              "combineExecutors": 2
+            }
           },
           {
-            "makespanMs": 2.321208000000013,
+            "makespanMs": 48.128582999999935,
             "complete": true,
-            "grossNodeSeconds": 0.02100224800000018,
-            "usefulNodeSeconds": 0.01050112400000009,
+            "grossNodeSeconds": 0.7908827930000003,
+            "usefulNodeSeconds": 0.39544139650000015,
             "verificationMultiplier": 2,
             "speculationMultiplier": 1,
             "redispatches": 0,
-            "codeCache": "warm"
+            "codeCache": "warm",
+            "reduce": {
+              "ok": true,
+              "reduceMs": 1.395667000000003,
+              "treeDepth": 2,
+              "combines": 5,
+              "recomputes": 0,
+              "combineExecutors": 2
+            }
           },
           {
-            "makespanMs": 2.0637499999999704,
+            "makespanMs": 51.01749999999993,
             "complete": true,
-            "grossNodeSeconds": 0.017874458000000006,
-            "usefulNodeSeconds": 0.008937229000000003,
+            "grossNodeSeconds": 0.9246344130000002,
+            "usefulNodeSeconds": 0.4623172065000001,
             "verificationMultiplier": 2,
             "speculationMultiplier": 1,
             "redispatches": 0,
-            "codeCache": "warm"
+            "codeCache": "warm",
+            "reduce": {
+              "ok": true,
+              "reduceMs": 1.5000420000001213,
+              "treeDepth": 2,
+              "combines": 5,
+              "recomputes": 0,
+              "combineExecutors": 2
+            }
           },
           {
-            "makespanMs": 2.780708000000004,
+            "makespanMs": 51.60145800000009,
             "complete": true,
-            "grossNodeSeconds": 0.03251454099999995,
-            "usefulNodeSeconds": 0.016257270499999976,
+            "grossNodeSeconds": 0.7786843340000001,
+            "usefulNodeSeconds": 0.3893421670000001,
             "verificationMultiplier": 2,
             "speculationMultiplier": 1,
             "redispatches": 0,
-            "codeCache": "warm"
+            "codeCache": "warm",
+            "reduce": {
+              "ok": true,
+              "reduceMs": 3.1802079999999933,
+              "treeDepth": 2,
+              "combines": 5,
+              "recomputes": 0,
+              "combineExecutors": 2
+            }
           },
           {
-            "makespanMs": 4.97625000000005,
+            "makespanMs": 49.29216700000006,
             "complete": true,
-            "grossNodeSeconds": 0.04918204199999997,
-            "usefulNodeSeconds": 0.024591020999999984,
+            "grossNodeSeconds": 0.8454942100000002,
+            "usefulNodeSeconds": 0.4227471050000001,
             "verificationMultiplier": 2,
             "speculationMultiplier": 1,
             "redispatches": 0,
-            "codeCache": "warm"
+            "codeCache": "warm",
+            "reduce": {
+              "ok": true,
+              "reduceMs": 1.2423329999999169,
+              "treeDepth": 2,
+              "combines": 5,
+              "recomputes": 0,
+              "combineExecutors": 2
+            }
           },
           {
-            "makespanMs": 3.809082999999987,
+            "makespanMs": 44.458624999999984,
             "complete": true,
-            "grossNodeSeconds": 0.028469626000000005,
-            "usefulNodeSeconds": 0.014234813000000002,
+            "grossNodeSeconds": 0.7307360409999998,
+            "usefulNodeSeconds": 0.3653680204999999,
             "verificationMultiplier": 2,
             "speculationMultiplier": 1,
             "redispatches": 0,
-            "codeCache": "warm"
+            "codeCache": "warm",
+            "reduce": {
+              "ok": true,
+              "reduceMs": 1.0745830000000751,
+              "treeDepth": 2,
+              "combines": 5,
+              "recomputes": 0,
+              "combineExecutors": 2
+            }
           },
           {
-            "makespanMs": 1.639332999999965,
+            "makespanMs": 45.542667000000165,
             "complete": true,
-            "grossNodeSeconds": 0.01411808300000024,
-            "usefulNodeSeconds": 0.00705904150000012,
+            "grossNodeSeconds": 0.7864424190000009,
+            "usefulNodeSeconds": 0.39322120950000045,
             "verificationMultiplier": 2,
             "speculationMultiplier": 1,
             "redispatches": 0,
-            "codeCache": "warm"
+            "codeCache": "warm",
+            "reduce": {
+              "ok": true,
+              "reduceMs": 1.1087089999998625,
+              "treeDepth": 2,
+              "combines": 5,
+              "recomputes": 0,
+              "combineExecutors": 2
+            }
           },
           {
-            "makespanMs": 1.4499999999999886,
+            "makespanMs": 47.471457999999984,
             "complete": true,
-            "grossNodeSeconds": 0.0123015410000001,
-            "usefulNodeSeconds": 0.00615077050000005,
+            "grossNodeSeconds": 0.799863125999999,
+            "usefulNodeSeconds": 0.3999315629999995,
             "verificationMultiplier": 2,
             "speculationMultiplier": 1,
             "redispatches": 0,
-            "codeCache": "warm"
+            "codeCache": "warm",
+            "reduce": {
+              "ok": true,
+              "reduceMs": 1.209583000000066,
+              "treeDepth": 2,
+              "combines": 5,
+              "recomputes": 0,
+              "combineExecutors": 2
+            }
           },
           {
-            "makespanMs": 1.4322500000000105,
+            "makespanMs": 44.87316699999997,
             "complete": true,
-            "grossNodeSeconds": 0.01241453900000016,
-            "usefulNodeSeconds": 0.00620726950000008,
+            "grossNodeSeconds": 0.7445036649999998,
+            "usefulNodeSeconds": 0.3722518324999999,
             "verificationMultiplier": 2,
             "speculationMultiplier": 1,
             "redispatches": 0,
-            "codeCache": "warm"
+            "codeCache": "warm",
+            "reduce": {
+              "ok": true,
+              "reduceMs": 2.1514589999999316,
+              "treeDepth": 2,
+              "combines": 5,
+              "recomputes": 0,
+              "combineExecutors": 2
+            }
           }
         ]
       },
       {
         "config": {
           "nodes": 4,
-          "shards": 8,
+          "shards": 16,
           "redundancy": 2,
           "transport": "memory",
           "skew": "uniform"
         },
         "makespan": {
           "n": 19,
-          "p50": 1.6320420000000126,
-          "p95": 3.140083000000004,
-          "p99": 3.140083000000004,
-          "min": 1.4013330000000224,
-          "max": 3.140083000000004,
-          "meanForCostArithmeticOnly": 1.8165395789473713,
+          "p50": 44.54783400000042,
+          "p95": 52.131041000000096,
+          "p99": 52.131041000000096,
+          "min": 43.672458000000006,
+          "max": 52.131041000000096,
+          "meanForCostArithmeticOnly": 45.89041010526318,
           "reliable": true
         },
-        "coldStartMs": 2.639250000000004,
+        "coldStartMs": 52.32662499999992,
         "incomplete": 0,
         "cost": {
-          "grossNodeSeconds": 0.3135884679999994,
-          "usefulNodeSeconds": 0.1567942339999997,
+          "grossNodeSeconds": 14.640113530000002,
+          "usefulNodeSeconds": 7.320056765000001,
           "verificationTax": 2,
           "speculationTax": 1,
           "churnTax": 0
         },
+        "reduce": {
+          "ms": {
+            "n": 19,
+            "p50": 1.2172920000000431,
+            "p95": 1.903874999999971,
+            "p99": 1.903874999999971,
+            "min": 1.0767499999997199,
+            "max": 1.903874999999971,
+            "meanForCostArithmeticOnly": 1.3443596315788982,
+            "reliable": true
+          },
+          "treeDepth": 2,
+          "combines": 5,
+          "recomputes": 0,
+          "combineExecutors": 3
+        },
         "observations": [
           {
-            "makespanMs": 2.639250000000004,
+            "makespanMs": 52.32662499999992,
             "complete": true,
-            "grossNodeSeconds": 0.028757123000000034,
-            "usefulNodeSeconds": 0.014378561500000017,
+            "grossNodeSeconds": 0.901541251000001,
+            "usefulNodeSeconds": 0.4507706255000005,
             "verificationMultiplier": 2,
             "speculationMultiplier": 1,
             "redispatches": 0,
-            "codeCache": "cold"
+            "codeCache": "cold",
+            "reduce": {
+              "ok": true,
+              "reduceMs": 2.172083000000157,
+              "treeDepth": 2,
+              "combines": 5,
+              "recomputes": 0,
+              "combineExecutors": 3
+            }
           },
           {
-            "makespanMs": 1.5902080000000183,
+            "makespanMs": 47.41479099999992,
             "complete": true,
-            "grossNodeSeconds": 0.013259833000000014,
-            "usefulNodeSeconds": 0.006629916500000007,
+            "grossNodeSeconds": 0.788142204999999,
+            "usefulNodeSeconds": 0.3940711024999995,
             "verificationMultiplier": 2,
             "speculationMultiplier": 1,
             "redispatches": 0,
-            "codeCache": "warm"
+            "codeCache": "warm",
+            "reduce": {
+              "ok": true,
+              "reduceMs": 1.2326660000001084,
+              "treeDepth": 2,
+              "combines": 5,
+              "recomputes": 0,
+              "combineExecutors": 3
+            }
           },
           {
-            "makespanMs": 2.614417000000003,
+            "makespanMs": 46.84308299999998,
             "complete": true,
-            "grossNodeSeconds": 0.019183873999999945,
-            "usefulNodeSeconds": 0.009591936999999972,
+            "grossNodeSeconds": 0.7744311249999997,
+            "usefulNodeSeconds": 0.38721556249999983,
             "verificationMultiplier": 2,
             "speculationMultiplier": 1,
             "redispatches": 0,
-            "codeCache": "warm"
+            "codeCache": "warm",
+            "reduce": {
+              "ok": true,
+              "reduceMs": 1.2172920000000431,
+              "treeDepth": 2,
+              "combines": 5,
+              "recomputes": 0,
+              "combineExecutors": 3
+            }
           },
           {
-            "makespanMs": 2.144374999999968,
+            "makespanMs": 44.4334580000002,
             "complete": true,
-            "grossNodeSeconds": 0.019732543999999963,
-            "usefulNodeSeconds": 0.009866271999999982,
+            "grossNodeSeconds": 0.7383695819999996,
+            "usefulNodeSeconds": 0.3691847909999998,
             "verificationMultiplier": 2,
             "speculationMultiplier": 1,
             "redispatches": 0,
-            "codeCache": "warm"
+            "codeCache": "warm",
+            "reduce": {
+              "ok": true,
+              "reduceMs": 1.1827920000000631,
+              "treeDepth": 2,
+              "combines": 5,
+              "recomputes": 0,
+              "combineExecutors": 3
+            }
           },
           {
-            "makespanMs": 3.140083000000004,
+            "makespanMs": 46.16966699999966,
             "complete": true,
-            "grossNodeSeconds": 0.03583100300000007,
-            "usefulNodeSeconds": 0.017915501500000035,
+            "grossNodeSeconds": 0.7754145860000012,
+            "usefulNodeSeconds": 0.3877072930000006,
             "verificationMultiplier": 2,
             "speculationMultiplier": 1,
             "redispatches": 0,
-            "codeCache": "warm"
+            "codeCache": "warm",
+            "reduce": {
+              "ok": true,
+              "reduceMs": 1.8496249999998327,
+              "treeDepth": 2,
+              "combines": 5,
+              "recomputes": 0,
+              "combineExecutors": 3
+            }
           },
           {
-            "makespanMs": 1.6320420000000126,
+            "makespanMs": 48.50470899999982,
             "complete": true,
-            "grossNodeSeconds": 0.014715292000000147,
-            "usefulNodeSeconds": 0.0073576460000000735,
+            "grossNodeSeconds": 0.8264991220000014,
+            "usefulNodeSeconds": 0.4132495610000007,
             "verificationMultiplier": 2,
             "speculationMultiplier": 1,
             "redispatches": 0,
-            "codeCache": "warm"
+            "codeCache": "warm",
+            "reduce": {
+              "ok": true,
+              "reduceMs": 1.1575419999999212,
+              "treeDepth": 2,
+              "combines": 5,
+              "recomputes": 0,
+              "combineExecutors": 3
+            }
           },
           {
-            "makespanMs": 1.4239580000000274,
+            "makespanMs": 44.024875000000065,
             "complete": true,
-            "grossNodeSeconds": 0.012363835000000106,
-            "usefulNodeSeconds": 0.006181917500000053,
+            "grossNodeSeconds": 0.7308219599999994,
+            "usefulNodeSeconds": 0.3654109799999997,
             "verificationMultiplier": 2,
             "speculationMultiplier": 1,
             "redispatches": 0,
-            "codeCache": "warm"
+            "codeCache": "warm",
+            "reduce": {
+              "ok": true,
+              "reduceMs": 1.2128329999995913,
+              "treeDepth": 2,
+              "combines": 5,
+              "recomputes": 0,
+              "combineExecutors": 3
+            }
           },
           {
-            "makespanMs": 1.5135420000000295,
+            "makespanMs": 44.32195899999988,
             "complete": true,
-            "grossNodeSeconds": 0.01286954499999996,
-            "usefulNodeSeconds": 0.00643477249999998,
+            "grossNodeSeconds": 0.7358751219999977,
+            "usefulNodeSeconds": 0.36793756099999886,
             "verificationMultiplier": 2,
             "speculationMultiplier": 1,
             "redispatches": 0,
-            "codeCache": "warm"
+            "codeCache": "warm",
+            "reduce": {
+              "ok": true,
+              "reduceMs": 1.1459170000002814,
+              "treeDepth": 2,
+              "combines": 5,
+              "recomputes": 0,
+              "combineExecutors": 3
+            }
           },
           {
-            "makespanMs": 1.8590839999999957,
+            "makespanMs": 43.672458000000006,
             "complete": true,
-            "grossNodeSeconds": 0.016898580999999864,
-            "usefulNodeSeconds": 0.008449290499999932,
+            "grossNodeSeconds": 0.7197091670000018,
+            "usefulNodeSeconds": 0.3598545835000009,
             "verificationMultiplier": 2,
             "speculationMultiplier": 1,
             "redispatches": 0,
-            "codeCache": "warm"
+            "codeCache": "warm",
+            "reduce": {
+              "ok": true,
+              "reduceMs": 1.283082999999806,
+              "treeDepth": 2,
+              "combines": 5,
+              "recomputes": 0,
+              "combineExecutors": 3
+            }
           },
           {
-            "makespanMs": 1.8792499999999563,
+            "makespanMs": 45.250583000000006,
             "complete": true,
-            "grossNodeSeconds": 0.01682616799999977,
-            "usefulNodeSeconds": 0.008413083999999885,
+            "grossNodeSeconds": 0.7485347920000007,
+            "usefulNodeSeconds": 0.37426739600000036,
             "verificationMultiplier": 2,
             "speculationMultiplier": 1,
             "redispatches": 0,
-            "codeCache": "warm"
+            "codeCache": "warm",
+            "reduce": {
+              "ok": true,
+              "reduceMs": 1.7373339999999189,
+              "treeDepth": 2,
+              "combines": 5,
+              "recomputes": 0,
+              "combineExecutors": 3
+            }
           },
           {
-            "makespanMs": 1.857958999999994,
+            "makespanMs": 48.001958000000286,
             "complete": true,
-            "grossNodeSeconds": 0.01604383299999995,
-            "usefulNodeSeconds": 0.008021916499999974,
+            "grossNodeSeconds": 0.8201889599999994,
+            "usefulNodeSeconds": 0.4100944799999997,
             "verificationMultiplier": 2,
             "speculationMultiplier": 1,
             "redispatches": 0,
-            "codeCache": "warm"
+            "codeCache": "warm",
+            "reduce": {
+              "ok": true,
+              "reduceMs": 1.4257909999996627,
+              "treeDepth": 2,
+              "combines": 5,
+              "recomputes": 0,
+              "combineExecutors": 3
+            }
           },
           {
-            "makespanMs": 1.4276669999999854,
+            "makespanMs": 44.394250000000284,
             "complete": true,
-            "grossNodeSeconds": 0.01266020700000007,
-            "usefulNodeSeconds": 0.006330103500000035,
+            "grossNodeSeconds": 0.745208913999999,
+            "usefulNodeSeconds": 0.3726044569999995,
             "verificationMultiplier": 2,
             "speculationMultiplier": 1,
             "redispatches": 0,
-            "codeCache": "warm"
+            "codeCache": "warm",
+            "reduce": {
+              "ok": true,
+              "reduceMs": 1.331250000000182,
+              "treeDepth": 2,
+              "combines": 5,
+              "recomputes": 0,
+              "combineExecutors": 3
+            }
           },
           {
-            "makespanMs": 1.4684579999999983,
+            "makespanMs": 44.54783400000042,
             "complete": true,
-            "grossNodeSeconds": 0.011915791999999897,
-            "usefulNodeSeconds": 0.005957895999999949,
+            "grossNodeSeconds": 0.7453557130000005,
+            "usefulNodeSeconds": 0.37267785650000024,
             "verificationMultiplier": 2,
             "speculationMultiplier": 1,
             "redispatches": 0,
-            "codeCache": "warm"
+            "codeCache": "warm",
+            "reduce": {
+              "ok": true,
+              "reduceMs": 1.145082999999886,
+              "treeDepth": 2,
+              "combines": 5,
+              "recomputes": 0,
+              "combineExecutors": 3
+            }
           },
           {
-            "makespanMs": 1.4013330000000224,
+            "makespanMs": 44.39737500000001,
             "complete": true,
-            "grossNodeSeconds": 0.01205091800000008,
-            "usefulNodeSeconds": 0.00602545900000004,
+            "grossNodeSeconds": 0.7330608779999986,
+            "usefulNodeSeconds": 0.3665304389999993,
             "verificationMultiplier": 2,
             "speculationMultiplier": 1,
             "redispatches": 0,
-            "codeCache": "warm"
+            "codeCache": "warm",
+            "reduce": {
+              "ok": true,
+              "reduceMs": 1.1223329999997986,
+              "treeDepth": 2,
+              "combines": 5,
+              "recomputes": 0,
+              "combineExecutors": 3
+            }
           },
           {
-            "makespanMs": 1.4375830000000178,
+            "makespanMs": 52.131041000000096,
             "complete": true,
-            "grossNodeSeconds": 0.012224166999999795,
-            "usefulNodeSeconds": 0.006112083499999897,
+            "grossNodeSeconds": 0.9487537500000027,
+            "usefulNodeSeconds": 0.47437687500000136,
             "verificationMultiplier": 2,
             "speculationMultiplier": 1,
             "redispatches": 0,
-            "codeCache": "warm"
+            "codeCache": "warm",
+            "reduce": {
+              "ok": true,
+              "reduceMs": 1.903874999999971,
+              "treeDepth": 2,
+              "combines": 5,
+              "recomputes": 0,
+              "combineExecutors": 3
+            }
           },
           {
-            "makespanMs": 2.171000000000049,
+            "makespanMs": 49.69554199999993,
             "complete": true,
-            "grossNodeSeconds": 0.02350508400000007,
-            "usefulNodeSeconds": 0.011752542000000034,
+            "grossNodeSeconds": 0.8454337480000002,
+            "usefulNodeSeconds": 0.4227168740000001,
             "verificationMultiplier": 2,
             "speculationMultiplier": 1,
             "redispatches": 0,
-            "codeCache": "warm"
+            "codeCache": "warm",
+            "reduce": {
+              "ok": true,
+              "reduceMs": 1.4102500000003602,
+              "treeDepth": 2,
+              "combines": 5,
+              "recomputes": 0,
+              "combineExecutors": 3
+            }
           },
           {
-            "makespanMs": 1.5183329999999842,
+            "makespanMs": 44.35933299999988,
             "complete": true,
-            "grossNodeSeconds": 0.012955375000000116,
-            "usefulNodeSeconds": 0.006477687500000058,
+            "grossNodeSeconds": 0.7319947890000014,
+            "usefulNodeSeconds": 0.3659973945000007,
             "verificationMultiplier": 2,
             "speculationMultiplier": 1,
             "redispatches": 0,
-            "codeCache": "warm"
+            "codeCache": "warm",
+            "reduce": {
+              "ok": true,
+              "reduceMs": 1.0767499999997199,
+              "treeDepth": 2,
+              "combines": 5,
+              "recomputes": 0,
+              "combineExecutors": 3
+            }
           },
           {
-            "makespanMs": 1.5224589999999694,
+            "makespanMs": 43.94570900000008,
             "complete": true,
-            "grossNodeSeconds": 0.01268104399999993,
-            "usefulNodeSeconds": 0.006340521999999965,
+            "grossNodeSeconds": 0.728801622000001,
+            "usefulNodeSeconds": 0.3644008110000005,
             "verificationMultiplier": 2,
             "speculationMultiplier": 1,
             "redispatches": 0,
-            "codeCache": "warm"
+            "codeCache": "warm",
+            "reduce": {
+              "ok": true,
+              "reduceMs": 1.1216249999997672,
+              "treeDepth": 2,
+              "combines": 5,
+              "recomputes": 0,
+              "combineExecutors": 3
+            }
           },
           {
-            "makespanMs": 1.753167000000019,
+            "makespanMs": 44.381374999999935,
             "complete": true,
-            "grossNodeSeconds": 0.01577337499999987,
-            "usefulNodeSeconds": 0.007886687499999935,
+            "grossNodeSeconds": 0.7375791639999998,
+            "usefulNodeSeconds": 0.3687895819999999,
             "verificationMultiplier": 2,
             "speculationMultiplier": 1,
             "redispatches": 0,
-            "codeCache": "warm"
+            "codeCache": "warm",
+            "reduce": {
+              "ok": true,
+              "reduceMs": 1.161167000000205,
+              "treeDepth": 2,
+              "combines": 5,
+              "recomputes": 0,
+              "combineExecutors": 3
+            }
           },
           {
-            "makespanMs": 2.159334000000001,
+            "makespanMs": 45.427791999999954,
             "complete": true,
-            "grossNodeSeconds": 0.022097997999999845,
-            "usefulNodeSeconds": 0.011048998999999922,
+            "grossNodeSeconds": 0.7659383310000005,
+            "usefulNodeSeconds": 0.38296916550000026,
             "verificationMultiplier": 2,
             "speculationMultiplier": 1,
             "redispatches": 0,
-            "codeCache": "warm"
+            "codeCache": "warm",
+            "reduce": {
+              "ok": true,
+              "reduceMs": 1.8256249999999454,
+              "treeDepth": 2,
+              "combines": 5,
+              "recomputes": 0,
+              "combineExecutors": 3
+            }
           }
         ]
       },
       {
         "config": {
           "nodes": 8,
-          "shards": 8,
+          "shards": 16,
           "redundancy": 2,
           "transport": "memory",
           "skew": "uniform"
         },
         "makespan": {
           "n": 19,
-          "p50": 1.3783749999999486,
-          "p95": 4.304957999999999,
-          "p99": 4.304957999999999,
-          "min": 1.283457999999996,
-          "max": 4.304957999999999,
-          "meanForCostArithmeticOnly": 1.7619736842105245,
+          "p50": 45.759250000000065,
+          "p95": 57.615542000000005,
+          "p99": 57.615542000000005,
+          "min": 43.846500000000106,
+          "max": 57.615542000000005,
+          "meanForCostArithmeticOnly": 47.242122789473704,
           "reliable": true
         },
-        "coldStartMs": 1.9150409999999738,
+        "coldStartMs": 49.74420800000007,
         "incomplete": 0,
         "cost": {
-          "grossNodeSeconds": 0.30471938300000084,
-          "usefulNodeSeconds": 0.15235969150000042,
+          "grossNodeSeconds": 15.063543302000003,
+          "usefulNodeSeconds": 7.5317716510000015,
           "verificationTax": 2,
           "speculationTax": 1,
           "churnTax": 0
         },
+        "reduce": {
+          "ms": {
+            "n": 19,
+            "p50": 1.216917000000194,
+            "p95": 2.1433750000001055,
+            "p99": 2.1433750000001055,
+            "min": 1.1279159999999138,
+            "max": 2.1433750000001055,
+            "meanForCostArithmeticOnly": 1.361690578947386,
+            "reliable": true
+          },
+          "treeDepth": 2,
+          "combines": 5,
+          "recomputes": 0,
+          "combineExecutors": 4
+        },
         "observations": [
           {
-            "makespanMs": 1.9150409999999738,
+            "makespanMs": 49.74420800000007,
             "complete": true,
-            "grossNodeSeconds": 0.020128416999999954,
-            "usefulNodeSeconds": 0.010064208499999977,
+            "grossNodeSeconds": 0.8642530820000002,
+            "usefulNodeSeconds": 0.4321265410000001,
             "verificationMultiplier": 2,
             "speculationMultiplier": 1,
             "redispatches": 0,
-            "codeCache": "cold"
+            "codeCache": "cold",
+            "reduce": {
+              "ok": true,
+              "reduceMs": 1.8384590000000571,
+              "treeDepth": 2,
+              "combines": 5,
+              "recomputes": 0,
+              "combineExecutors": 4
+            }
           },
           {
-            "makespanMs": 1.7050419999999917,
+            "makespanMs": 44.864040999999816,
             "complete": true,
-            "grossNodeSeconds": 0.015319792000000006,
-            "usefulNodeSeconds": 0.007659896000000003,
+            "grossNodeSeconds": 0.7463295420000005,
+            "usefulNodeSeconds": 0.37316477100000023,
             "verificationMultiplier": 2,
             "speculationMultiplier": 1,
             "redispatches": 0,
-            "codeCache": "warm"
+            "codeCache": "warm",
+            "reduce": {
+              "ok": true,
+              "reduceMs": 1.298540999999659,
+              "treeDepth": 2,
+              "combines": 5,
+              "recomputes": 0,
+              "combineExecutors": 4
+            }
           },
           {
-            "makespanMs": 1.375082999999961,
+            "makespanMs": 44.41045800000029,
             "complete": true,
-            "grossNodeSeconds": 0.011379248999999958,
-            "usefulNodeSeconds": 0.005689624499999979,
+            "grossNodeSeconds": 0.7407719580000007,
+            "usefulNodeSeconds": 0.37038597900000036,
             "verificationMultiplier": 2,
             "speculationMultiplier": 1,
             "redispatches": 0,
-            "codeCache": "warm"
+            "codeCache": "warm",
+            "reduce": {
+              "ok": true,
+              "reduceMs": 1.1956660000000738,
+              "treeDepth": 2,
+              "combines": 5,
+              "recomputes": 0,
+              "combineExecutors": 4
+            }
           },
           {
-            "makespanMs": 4.304957999999999,
+            "makespanMs": 44.87212499999987,
             "complete": true,
-            "grossNodeSeconds": 0.036773461000000104,
-            "usefulNodeSeconds": 0.018386730500000052,
+            "grossNodeSeconds": 0.7502157059999992,
+            "usefulNodeSeconds": 0.3751078529999996,
             "verificationMultiplier": 2,
             "speculationMultiplier": 1,
             "redispatches": 0,
-            "codeCache": "warm"
+            "codeCache": "warm",
+            "reduce": {
+              "ok": true,
+              "reduceMs": 1.3222909999999501,
+              "treeDepth": 2,
+              "combines": 5,
+              "recomputes": 0,
+              "combineExecutors": 4
+            }
           },
           {
-            "makespanMs": 3.88491700000003,
+            "makespanMs": 46.16837499999974,
             "complete": true,
-            "grossNodeSeconds": 0.04597991900000016,
-            "usefulNodeSeconds": 0.02298995950000008,
+            "grossNodeSeconds": 0.7726864990000005,
+            "usefulNodeSeconds": 0.38634324950000026,
             "verificationMultiplier": 2,
             "speculationMultiplier": 1,
             "redispatches": 0,
-            "codeCache": "warm"
+            "codeCache": "warm",
+            "reduce": {
+              "ok": true,
+              "reduceMs": 1.8397079999999733,
+              "treeDepth": 2,
+              "combines": 5,
+              "recomputes": 0,
+              "combineExecutors": 4
+            }
           },
           {
-            "makespanMs": 1.592708000000016,
+            "makespanMs": 49.618083999999726,
             "complete": true,
-            "grossNodeSeconds": 0.013611541000000043,
-            "usefulNodeSeconds": 0.0068057705000000215,
+            "grossNodeSeconds": 0.8493255019999992,
+            "usefulNodeSeconds": 0.4246627509999996,
             "verificationMultiplier": 2,
             "speculationMultiplier": 1,
             "redispatches": 0,
-            "codeCache": "warm"
+            "codeCache": "warm",
+            "reduce": {
+              "ok": true,
+              "reduceMs": 1.3172500000000582,
+              "treeDepth": 2,
+              "combines": 5,
+              "recomputes": 0,
+              "combineExecutors": 4
+            }
           },
           {
-            "makespanMs": 1.373041999999998,
+            "makespanMs": 44.53358299999991,
             "complete": true,
-            "grossNodeSeconds": 0.01182699999999994,
-            "usefulNodeSeconds": 0.00591349999999997,
+            "grossNodeSeconds": 0.7412777119999991,
+            "usefulNodeSeconds": 0.3706388559999996,
             "verificationMultiplier": 2,
             "speculationMultiplier": 1,
             "redispatches": 0,
-            "codeCache": "warm"
+            "codeCache": "warm",
+            "reduce": {
+              "ok": true,
+              "reduceMs": 1.1628330000003189,
+              "treeDepth": 2,
+              "combines": 5,
+              "recomputes": 0,
+              "combineExecutors": 4
+            }
           },
           {
-            "makespanMs": 1.5553750000000264,
+            "makespanMs": 43.846500000000106,
             "complete": true,
-            "grossNodeSeconds": 0.013678292000000224,
-            "usefulNodeSeconds": 0.006839146000000112,
+            "grossNodeSeconds": 0.7296435839999991,
+            "usefulNodeSeconds": 0.36482179199999953,
             "verificationMultiplier": 2,
             "speculationMultiplier": 1,
             "redispatches": 0,
-            "codeCache": "warm"
+            "codeCache": "warm",
+            "reduce": {
+              "ok": true,
+              "reduceMs": 1.1522500000000946,
+              "treeDepth": 2,
+              "combines": 5,
+              "recomputes": 0,
+              "combineExecutors": 4
+            }
           },
           {
-            "makespanMs": 1.3783749999999486,
+            "makespanMs": 52.8681660000002,
             "complete": true,
-            "grossNodeSeconds": 0.011758915000000116,
-            "usefulNodeSeconds": 0.005879457500000058,
+            "grossNodeSeconds": 0.9478165030000009,
+            "usefulNodeSeconds": 0.47390825150000043,
             "verificationMultiplier": 2,
             "speculationMultiplier": 1,
             "redispatches": 0,
-            "codeCache": "warm"
+            "codeCache": "warm",
+            "reduce": {
+              "ok": true,
+              "reduceMs": 1.211999999999989,
+              "treeDepth": 2,
+              "combines": 5,
+              "recomputes": 0,
+              "combineExecutors": 4
+            }
           },
           {
-            "makespanMs": 1.3532089999999926,
+            "makespanMs": 45.759250000000065,
             "complete": true,
-            "grossNodeSeconds": 0.011345210000000066,
-            "usefulNodeSeconds": 0.005672605000000033,
+            "grossNodeSeconds": 0.757383706999998,
+            "usefulNodeSeconds": 0.378691853499999,
             "verificationMultiplier": 2,
             "speculationMultiplier": 1,
             "redispatches": 0,
-            "codeCache": "warm"
+            "codeCache": "warm",
+            "reduce": {
+              "ok": true,
+              "reduceMs": 1.6752910000000156,
+              "treeDepth": 2,
+              "combines": 5,
+              "recomputes": 0,
+              "combineExecutors": 4
+            }
           },
           {
-            "makespanMs": 1.3652500000000032,
+            "makespanMs": 52.94008299999996,
             "complete": true,
-            "grossNodeSeconds": 0.011856127000000185,
-            "usefulNodeSeconds": 0.0059280635000000925,
+            "grossNodeSeconds": 0.9069303740000006,
+            "usefulNodeSeconds": 0.4534651870000003,
             "verificationMultiplier": 2,
             "speculationMultiplier": 1,
             "redispatches": 0,
-            "codeCache": "warm"
+            "codeCache": "warm",
+            "reduce": {
+              "ok": true,
+              "reduceMs": 1.3220830000000205,
+              "treeDepth": 2,
+              "combines": 5,
+              "recomputes": 0,
+              "combineExecutors": 4
+            }
           },
           {
-            "makespanMs": 1.3887079999999514,
+            "makespanMs": 45.05662499999971,
             "complete": true,
-            "grossNodeSeconds": 0.012214291000000117,
-            "usefulNodeSeconds": 0.006107145500000058,
+            "grossNodeSeconds": 0.7508818719999985,
+            "usefulNodeSeconds": 0.3754409359999992,
             "verificationMultiplier": 2,
             "speculationMultiplier": 1,
             "redispatches": 0,
-            "codeCache": "warm"
+            "codeCache": "warm",
+            "reduce": {
+              "ok": true,
+              "reduceMs": 1.216917000000194,
+              "treeDepth": 2,
+              "combines": 5,
+              "recomputes": 0,
+              "combineExecutors": 4
+            }
           },
           {
-            "makespanMs": 1.359292000000039,
+            "makespanMs": 46.528334000000086,
             "complete": true,
-            "grossNodeSeconds": 0.011370708000000037,
-            "usefulNodeSeconds": 0.005685354000000018,
+            "grossNodeSeconds": 0.7667246270000009,
+            "usefulNodeSeconds": 0.38336231350000044,
             "verificationMultiplier": 2,
             "speculationMultiplier": 1,
             "redispatches": 0,
-            "codeCache": "warm"
+            "codeCache": "warm",
+            "reduce": {
+              "ok": true,
+              "reduceMs": 1.2015419999997903,
+              "treeDepth": 2,
+              "combines": 5,
+              "recomputes": 0,
+              "combineExecutors": 4
+            }
           },
           {
-            "makespanMs": 1.3274170000000254,
+            "makespanMs": 45.81462499999998,
             "complete": true,
-            "grossNodeSeconds": 0.011470706000000065,
-            "usefulNodeSeconds": 0.005735353000000032,
+            "grossNodeSeconds": 0.7638323389999996,
+            "usefulNodeSeconds": 0.3819161694999998,
             "verificationMultiplier": 2,
             "speculationMultiplier": 1,
             "redispatches": 0,
-            "codeCache": "warm"
+            "codeCache": "warm",
+            "reduce": {
+              "ok": true,
+              "reduceMs": 2.1433750000001055,
+              "treeDepth": 2,
+              "combines": 5,
+              "recomputes": 0,
+              "combineExecutors": 4
+            }
           },
           {
-            "makespanMs": 1.3514999999999873,
+            "makespanMs": 49.57837500000005,
             "complete": true,
-            "grossNodeSeconds": 0.01147770699999978,
-            "usefulNodeSeconds": 0.00573885349999989,
+            "grossNodeSeconds": 0.8342981230000018,
+            "usefulNodeSeconds": 0.4171490615000009,
             "verificationMultiplier": 2,
             "speculationMultiplier": 1,
             "redispatches": 0,
-            "codeCache": "warm"
+            "codeCache": "warm",
+            "reduce": {
+              "ok": true,
+              "reduceMs": 1.1858339999998861,
+              "treeDepth": 2,
+              "combines": 5,
+              "recomputes": 0,
+              "combineExecutors": 4
+            }
           },
           {
-            "makespanMs": 1.283457999999996,
+            "makespanMs": 57.615542000000005,
             "complete": true,
-            "grossNodeSeconds": 0.011009376000000029,
-            "usefulNodeSeconds": 0.0055046880000000145,
+            "grossNodeSeconds": 0.9416852100000002,
+            "usefulNodeSeconds": 0.4708426050000001,
             "verificationMultiplier": 2,
             "speculationMultiplier": 1,
             "redispatches": 0,
-            "codeCache": "warm"
+            "codeCache": "warm",
+            "reduce": {
+              "ok": true,
+              "reduceMs": 1.1907500000002074,
+              "treeDepth": 2,
+              "combines": 5,
+              "recomputes": 0,
+              "combineExecutors": 4
+            }
           },
           {
-            "makespanMs": 2.386833000000024,
+            "makespanMs": 45.357834000000366,
             "complete": true,
-            "grossNodeSeconds": 0.025269127000000082,
-            "usefulNodeSeconds": 0.012634563500000041,
+            "grossNodeSeconds": 0.7553245869999999,
+            "usefulNodeSeconds": 0.37766229349999997,
             "verificationMultiplier": 2,
             "speculationMultiplier": 1,
             "redispatches": 0,
-            "codeCache": "warm"
+            "codeCache": "warm",
+            "reduce": {
+              "ok": true,
+              "reduceMs": 1.1279159999999138,
+              "treeDepth": 2,
+              "combines": 5,
+              "recomputes": 0,
+              "combineExecutors": 4
+            }
           },
           {
-            "makespanMs": 1.640957999999955,
+            "makespanMs": 44.61420799999996,
             "complete": true,
-            "grossNodeSeconds": 0.014066000000000032,
-            "usefulNodeSeconds": 0.007033000000000016,
+            "grossNodeSeconds": 0.7442407899999998,
+            "usefulNodeSeconds": 0.3721203949999999,
             "verificationMultiplier": 2,
             "speculationMultiplier": 1,
             "redispatches": 0,
-            "codeCache": "warm"
+            "codeCache": "warm",
+            "reduce": {
+              "ok": true,
+              "reduceMs": 1.1892080000002352,
+              "treeDepth": 2,
+              "combines": 5,
+              "recomputes": 0,
+              "combineExecutors": 4
+            }
           },
           {
-            "makespanMs": 1.5055830000000014,
+            "makespanMs": 45.20904200000041,
             "complete": true,
-            "grossNodeSeconds": 0.012827419000000019,
-            "usefulNodeSeconds": 0.006413709500000009,
+            "grossNodeSeconds": 0.7554893740000024,
+            "usefulNodeSeconds": 0.3777446870000012,
             "verificationMultiplier": 2,
             "speculationMultiplier": 1,
             "redispatches": 0,
-            "codeCache": "warm"
+            "codeCache": "warm",
+            "reduce": {
+              "ok": true,
+              "reduceMs": 1.88287500000024,
+              "treeDepth": 2,
+              "combines": 5,
+              "recomputes": 0,
+              "combineExecutors": 4
+            }
           },
           {
-            "makespanMs": 1.3457920000000172,
+            "makespanMs": 47.94508300000007,
             "complete": true,
-            "grossNodeSeconds": 0.011484542999999917,
-            "usefulNodeSeconds": 0.005742271499999958,
+            "grossNodeSeconds": 0.8086852930000006,
+            "usefulNodeSeconds": 0.4043426465000003,
             "verificationMultiplier": 2,
             "speculationMultiplier": 1,
             "redispatches": 0,
-            "codeCache": "warm"
+            "codeCache": "warm",
+            "reduce": {
+              "ok": true,
+              "reduceMs": 1.2357909999996082,
+              "treeDepth": 2,
+              "combines": 5,
+              "recomputes": 0,
+              "combineExecutors": 4
+            }
           }
         ]
       },
       {
         "config": {
           "nodes": 16,
-          "shards": 8,
+          "shards": 16,
           "redundancy": 2,
           "transport": "memory",
           "skew": "uniform"
         },
         "makespan": {
           "n": 19,
-          "p50": 1.6000000000000227,
-          "p95": 3.971333999999956,
-          "p99": 3.971333999999956,
-          "min": 1.2112919999999576,
-          "max": 3.971333999999956,
-          "meanForCostArithmeticOnly": 1.9338093684210393,
+          "p50": 44.88695800000005,
+          "p95": 51.42558300000019,
+          "p99": 51.42558300000019,
+          "min": 42.323459000000184,
+          "max": 51.42558300000019,
+          "meanForCostArithmeticOnly": 45.78274563157897,
           "reliable": true
         },
-        "coldStartMs": 2.0294159999999692,
+        "coldStartMs": 66.59604200000012,
         "incomplete": 0,
         "cost": {
-          "grossNodeSeconds": 0.3537145809999996,
-          "usefulNodeSeconds": 0.1768572904999998,
+          "grossNodeSeconds": 14.646381878999996,
+          "usefulNodeSeconds": 7.323190939499998,
           "verificationTax": 2,
           "speculationTax": 1,
           "churnTax": 0
         },
+        "reduce": {
+          "ms": {
+            "n": 19,
+            "p50": 1.368083000000297,
+            "p95": 1.9114159999999174,
+            "p99": 1.9114159999999174,
+            "min": 1.2328330000000278,
+            "max": 1.9114159999999174,
+            "meanForCostArithmeticOnly": 1.470967105263059,
+            "reliable": true
+          },
+          "treeDepth": 2,
+          "combines": 5,
+          "recomputes": 0,
+          "combineExecutors": 5
+        },
         "observations": [
           {
-            "makespanMs": 2.0294159999999692,
+            "makespanMs": 66.59604200000012,
             "complete": true,
-            "grossNodeSeconds": 0.02196954199999999,
-            "usefulNodeSeconds": 0.010984770999999996,
+            "grossNodeSeconds": 1.3460328769999994,
+            "usefulNodeSeconds": 0.6730164384999997,
             "verificationMultiplier": 2,
             "speculationMultiplier": 1,
             "redispatches": 0,
-            "codeCache": "cold"
+            "codeCache": "cold",
+            "reduce": {
+              "ok": true,
+              "reduceMs": 2.1644999999998618,
+              "treeDepth": 2,
+              "combines": 5,
+              "recomputes": 0,
+              "combineExecutors": 5
+            }
           },
           {
-            "makespanMs": 3.971333999999956,
+            "makespanMs": 45.76675000000023,
             "complete": true,
-            "grossNodeSeconds": 0.035902417999999964,
-            "usefulNodeSeconds": 0.017951208999999982,
+            "grossNodeSeconds": 0.7609762050000003,
+            "usefulNodeSeconds": 0.38048810250000015,
             "verificationMultiplier": 2,
             "speculationMultiplier": 1,
             "redispatches": 0,
-            "codeCache": "warm"
+            "codeCache": "warm",
+            "reduce": {
+              "ok": true,
+              "reduceMs": 1.3227499999998145,
+              "treeDepth": 2,
+              "combines": 5,
+              "recomputes": 0,
+              "combineExecutors": 5
+            }
           },
           {
-            "makespanMs": 3.6014170000000263,
+            "makespanMs": 50.89345800000001,
             "complete": true,
-            "grossNodeSeconds": 0.04228754199999986,
-            "usefulNodeSeconds": 0.02114377099999993,
+            "grossNodeSeconds": 0.878315835,
+            "usefulNodeSeconds": 0.4391579175,
             "verificationMultiplier": 2,
             "speculationMultiplier": 1,
             "redispatches": 0,
-            "codeCache": "warm"
+            "codeCache": "warm",
+            "reduce": {
+              "ok": true,
+              "reduceMs": 1.339415999999801,
+              "treeDepth": 2,
+              "combines": 5,
+              "recomputes": 0,
+              "combineExecutors": 5
+            }
           },
           {
-            "makespanMs": 1.8844589999999926,
+            "makespanMs": 47.39416600000004,
             "complete": true,
-            "grossNodeSeconds": 0.017105957999999984,
-            "usefulNodeSeconds": 0.008552978999999992,
+            "grossNodeSeconds": 0.7993577509999997,
+            "usefulNodeSeconds": 0.39967887549999986,
             "verificationMultiplier": 2,
             "speculationMultiplier": 1,
             "redispatches": 0,
-            "codeCache": "warm"
+            "codeCache": "warm",
+            "reduce": {
+              "ok": true,
+              "reduceMs": 1.8578339999999116,
+              "treeDepth": 2,
+              "combines": 5,
+              "recomputes": 0,
+              "combineExecutors": 5
+            }
           },
           {
-            "makespanMs": 1.7881249999999795,
+            "makespanMs": 51.42558300000019,
             "complete": true,
-            "grossNodeSeconds": 0.017615541999999946,
-            "usefulNodeSeconds": 0.008807770999999973,
+            "grossNodeSeconds": 0.8759486680000004,
+            "usefulNodeSeconds": 0.4379743340000002,
             "verificationMultiplier": 2,
             "speculationMultiplier": 1,
             "redispatches": 0,
-            "codeCache": "warm"
+            "codeCache": "warm",
+            "reduce": {
+              "ok": true,
+              "reduceMs": 1.368083000000297,
+              "treeDepth": 2,
+              "combines": 5,
+              "recomputes": 0,
+              "combineExecutors": 5
+            }
           },
           {
-            "makespanMs": 1.6863329999999905,
+            "makespanMs": 44.298375000000306,
             "complete": true,
-            "grossNodeSeconds": 0.013804164999999953,
-            "usefulNodeSeconds": 0.006902082499999977,
+            "grossNodeSeconds": 0.7367839570000001,
+            "usefulNodeSeconds": 0.36839197850000005,
             "verificationMultiplier": 2,
             "speculationMultiplier": 1,
             "redispatches": 0,
-            "codeCache": "warm"
+            "codeCache": "warm",
+            "reduce": {
+              "ok": true,
+              "reduceMs": 1.2635419999996884,
+              "treeDepth": 2,
+              "combines": 5,
+              "recomputes": 0,
+              "combineExecutors": 5
+            }
           },
           {
-            "makespanMs": 2.406582999999955,
+            "makespanMs": 43.91270900000018,
             "complete": true,
-            "grossNodeSeconds": 0.024251416999999945,
-            "usefulNodeSeconds": 0.012125708499999973,
+            "grossNodeSeconds": 0.7240577929999992,
+            "usefulNodeSeconds": 0.3620288964999996,
             "verificationMultiplier": 2,
             "speculationMultiplier": 1,
             "redispatches": 0,
-            "codeCache": "warm"
+            "codeCache": "warm",
+            "reduce": {
+              "ok": true,
+              "reduceMs": 1.363416999999572,
+              "treeDepth": 2,
+              "combines": 5,
+              "recomputes": 0,
+              "combineExecutors": 5
+            }
           },
           {
-            "makespanMs": 1.494041999999979,
+            "makespanMs": 44.99091700000008,
             "complete": true,
-            "grossNodeSeconds": 0.012548164999999981,
-            "usefulNodeSeconds": 0.0062740824999999905,
+            "grossNodeSeconds": 0.7489892919999994,
+            "usefulNodeSeconds": 0.3744946459999997,
             "verificationMultiplier": 2,
             "speculationMultiplier": 1,
             "redispatches": 0,
-            "codeCache": "warm"
+            "codeCache": "warm",
+            "reduce": {
+              "ok": true,
+              "reduceMs": 1.77862499999992,
+              "treeDepth": 2,
+              "combines": 5,
+              "recomputes": 0,
+              "combineExecutors": 5
+            }
           },
           {
-            "makespanMs": 1.70799999999997,
+            "makespanMs": 46.57275000000027,
             "complete": true,
-            "grossNodeSeconds": 0.015201458000000114,
-            "usefulNodeSeconds": 0.007600729000000057,
+            "grossNodeSeconds": 0.7871272929999971,
+            "usefulNodeSeconds": 0.39356364649999853,
             "verificationMultiplier": 2,
             "speculationMultiplier": 1,
             "redispatches": 0,
-            "codeCache": "warm"
+            "codeCache": "warm",
+            "reduce": {
+              "ok": true,
+              "reduceMs": 1.6452079999999114,
+              "treeDepth": 2,
+              "combines": 5,
+              "recomputes": 0,
+              "combineExecutors": 5
+            }
           },
           {
-            "makespanMs": 1.5814999999999486,
+            "makespanMs": 42.542875000000095,
             "complete": true,
-            "grossNodeSeconds": 0.014364585000000034,
-            "usefulNodeSeconds": 0.007182292500000017,
+            "grossNodeSeconds": 0.7051331699999991,
+            "usefulNodeSeconds": 0.35256658499999954,
             "verificationMultiplier": 2,
             "speculationMultiplier": 1,
             "redispatches": 0,
-            "codeCache": "warm"
+            "codeCache": "warm",
+            "reduce": {
+              "ok": true,
+              "reduceMs": 1.2927079999999478,
+              "treeDepth": 2,
+              "combines": 5,
+              "recomputes": 0,
+              "combineExecutors": 5
+            }
           },
           {
-            "makespanMs": 1.46141700000004,
+            "makespanMs": 43.38249999999971,
             "complete": true,
-            "grossNodeSeconds": 0.01274337500000007,
-            "usefulNodeSeconds": 0.006371687500000035,
+            "grossNodeSeconds": 0.7222517899999976,
+            "usefulNodeSeconds": 0.3611258949999988,
             "verificationMultiplier": 2,
             "speculationMultiplier": 1,
             "redispatches": 0,
-            "codeCache": "warm"
+            "codeCache": "warm",
+            "reduce": {
+              "ok": true,
+              "reduceMs": 1.3801249999996799,
+              "treeDepth": 2,
+              "combines": 5,
+              "recomputes": 0,
+              "combineExecutors": 5
+            }
           },
           {
-            "makespanMs": 1.541458999999918,
+            "makespanMs": 42.323459000000184,
             "complete": true,
-            "grossNodeSeconds": 0.013410915999999927,
-            "usefulNodeSeconds": 0.006705457999999964,
+            "grossNodeSeconds": 0.7042442950000021,
+            "usefulNodeSeconds": 0.35212214750000104,
             "verificationMultiplier": 2,
             "speculationMultiplier": 1,
             "redispatches": 0,
-            "codeCache": "warm"
+            "codeCache": "warm",
+            "reduce": {
+              "ok": true,
+              "reduceMs": 1.2357089999995878,
+              "treeDepth": 2,
+              "combines": 5,
+              "recomputes": 0,
+              "combineExecutors": 5
+            }
           },
           {
-            "makespanMs": 1.479791999999975,
+            "makespanMs": 44.88695800000005,
             "complete": true,
-            "grossNodeSeconds": 0.013116498999999634,
-            "usefulNodeSeconds": 0.006558249499999817,
+            "grossNodeSeconds": 0.7594902519999995,
+            "usefulNodeSeconds": 0.37974512599999977,
             "verificationMultiplier": 2,
             "speculationMultiplier": 1,
             "redispatches": 0,
-            "codeCache": "warm"
+            "codeCache": "warm",
+            "reduce": {
+              "ok": true,
+              "reduceMs": 1.9114159999999174,
+              "treeDepth": 2,
+              "combines": 5,
+              "recomputes": 0,
+              "combineExecutors": 5
+            }
           },
           {
-            "makespanMs": 1.6324999999999363,
+            "makespanMs": 48.076500000000124,
             "complete": true,
-            "grossNodeSeconds": 0.014504791000000069,
-            "usefulNodeSeconds": 0.0072523955000000345,
+            "grossNodeSeconds": 0.8230772909999986,
+            "usefulNodeSeconds": 0.4115386454999993,
             "verificationMultiplier": 2,
             "speculationMultiplier": 1,
             "redispatches": 0,
-            "codeCache": "warm"
+            "codeCache": "warm",
+            "reduce": {
+              "ok": true,
+              "reduceMs": 1.4877919999998994,
+              "treeDepth": 2,
+              "combines": 5,
+              "recomputes": 0,
+              "combineExecutors": 5
+            }
           },
           {
-            "makespanMs": 3.6402080000000296,
+            "makespanMs": 43.985499999999774,
             "complete": true,
-            "grossNodeSeconds": 0.04840125100000022,
-            "usefulNodeSeconds": 0.02420062550000011,
+            "grossNodeSeconds": 0.7374272900000023,
+            "usefulNodeSeconds": 0.36871364500000114,
             "verificationMultiplier": 2,
             "speculationMultiplier": 1,
             "redispatches": 0,
-            "codeCache": "warm"
+            "codeCache": "warm",
+            "reduce": {
+              "ok": true,
+              "reduceMs": 1.2844590000004246,
+              "treeDepth": 2,
+              "combines": 5,
+              "recomputes": 0,
+              "combineExecutors": 5
+            }
           },
           {
-            "makespanMs": 1.3116250000000491,
+            "makespanMs": 50.797333999999864,
             "complete": true,
-            "grossNodeSeconds": 0.011220000000000029,
-            "usefulNodeSeconds": 0.005610000000000014,
+            "grossNodeSeconds": 0.9100332480000033,
+            "usefulNodeSeconds": 0.45501662400000165,
             "verificationMultiplier": 2,
             "speculationMultiplier": 1,
             "redispatches": 0,
-            "codeCache": "warm"
+            "codeCache": "warm",
+            "reduce": {
+              "ok": true,
+              "reduceMs": 1.61462500000016,
+              "treeDepth": 2,
+              "combines": 5,
+              "recomputes": 0,
+              "combineExecutors": 5
+            }
           },
           {
-            "makespanMs": 1.6000000000000227,
+            "makespanMs": 44.18574999999964,
             "complete": true,
-            "grossNodeSeconds": 0.013594873000000006,
-            "usefulNodeSeconds": 0.006797436500000003,
+            "grossNodeSeconds": 0.7260024580000001,
+            "usefulNodeSeconds": 0.36300122900000004,
             "verificationMultiplier": 2,
             "speculationMultiplier": 1,
             "redispatches": 0,
-            "codeCache": "warm"
+            "codeCache": "warm",
+            "reduce": {
+              "ok": true,
+              "reduceMs": 1.2328330000000278,
+              "treeDepth": 2,
+              "combines": 5,
+              "recomputes": 0,
+              "combineExecutors": 5
+            }
           },
           {
-            "makespanMs": 1.3082500000000437,
+            "makespanMs": 44.37904099999923,
             "complete": true,
-            "grossNodeSeconds": 0.011253293999999985,
-            "usefulNodeSeconds": 0.0056266469999999924,
+            "grossNodeSeconds": 0.7402623349999984,
+            "usefulNodeSeconds": 0.3701311674999992,
             "verificationMultiplier": 2,
             "speculationMultiplier": 1,
             "redispatches": 0,
-            "codeCache": "warm"
+            "codeCache": "warm",
+            "reduce": {
+              "ok": true,
+              "reduceMs": 1.848124999999527,
+              "treeDepth": 2,
+              "combines": 5,
+              "recomputes": 0,
+              "combineExecutors": 5
+            }
           },
           {
-            "makespanMs": 1.2112919999999576,
+            "makespanMs": 47.43066700000054,
             "complete": true,
-            "grossNodeSeconds": 0.010252793000000109,
-            "usefulNodeSeconds": 0.0051263965000000545,
+            "grossNodeSeconds": 0.8007635809999983,
+            "usefulNodeSeconds": 0.40038179049999917,
             "verificationMultiplier": 2,
             "speculationMultiplier": 1,
             "redispatches": 0,
-            "codeCache": "warm"
+            "codeCache": "warm",
+            "reduce": {
+              "ok": true,
+              "reduceMs": 1.425916000000143,
+              "treeDepth": 2,
+              "combines": 5,
+              "recomputes": 0,
+              "combineExecutors": 5
+            }
           },
           {
-            "makespanMs": 1.4340419999999767,
+            "makespanMs": 42.62687499999993,
             "complete": true,
-            "grossNodeSeconds": 0.012135538999999767,
-            "usefulNodeSeconds": 0.006067769499999883,
+            "grossNodeSeconds": 0.7061393750000007,
+            "usefulNodeSeconds": 0.35306968750000034,
             "verificationMultiplier": 2,
             "speculationMultiplier": 1,
             "redispatches": 0,
-            "codeCache": "warm"
+            "codeCache": "warm",
+            "reduce": {
+              "ok": true,
+              "reduceMs": 1.2957919999998921,
+              "treeDepth": 2,
+              "combines": 5,
+              "recomputes": 0,
+              "combineExecutors": 5
+            }
           }
         ]
       }
@@ -1187,690 +2068,1624 @@
       {
         "config": {
           "nodes": 1,
-          "shards": 8,
+          "shards": 16,
           "redundancy": 1,
           "transport": "real",
           "skew": "uniform"
         },
         "makespan": {
           "n": 19,
-          "p50": 10.281791999999996,
-          "p95": 21.637207999999987,
-          "p99": 21.637207999999987,
-          "min": 8.025417000000061,
-          "max": 21.637207999999987,
-          "meanForCostArithmeticOnly": 11.356326789473691,
+          "p50": 38.22108299999945,
+          "p95": 99.5594170000004,
+          "p99": 99.5594170000004,
+          "min": 34.956207999999606,
+          "max": 99.5594170000004,
+          "meanForCostArithmeticOnly": 42.911635999999866,
           "reliable": true
         },
-        "coldStartMs": 48.81129199999998,
+        "coldStartMs": 193.64708400000018,
         "incomplete": 0,
         "cost": {
-          "grossNodeSeconds": 1.3239714120000006,
-          "usefulNodeSeconds": 1.3239714120000006,
+          "grossNodeSeconds": 11.47255628,
+          "usefulNodeSeconds": 11.47255628,
           "verificationTax": 1,
           "speculationTax": 1,
           "churnTax": 0
         },
+        "reduce": {
+          "ms": {
+            "n": 19,
+            "p50": 13.505833999999595,
+            "p95": 24.830708000000413,
+            "p99": 24.830708000000413,
+            "min": 11.571958999999879,
+            "max": 24.830708000000413,
+            "meanForCostArithmeticOnly": 15.009059368420917,
+            "reliable": true
+          },
+          "treeDepth": 2,
+          "combines": 5,
+          "recomputes": 0,
+          "combineExecutors": 1
+        },
         "observations": [
           {
-            "makespanMs": 48.81129199999998,
+            "makespanMs": 193.64708400000018,
             "complete": true,
-            "grossNodeSeconds": 0.24957887399999995,
-            "usefulNodeSeconds": 0.24957887399999995,
+            "grossNodeSeconds": 2.7529238759999983,
+            "usefulNodeSeconds": 2.7529238759999983,
             "verificationMultiplier": 1,
             "speculationMultiplier": 1,
             "redispatches": 0,
-            "codeCache": "cold"
+            "codeCache": "cold",
+            "reduce": {
+              "ok": true,
+              "reduceMs": 47.519249999999374,
+              "treeDepth": 2,
+              "combines": 5,
+              "recomputes": 0,
+              "combineExecutors": 1
+            }
           },
           {
-            "makespanMs": 11.920166999999992,
+            "makespanMs": 39.391082999999526,
             "complete": true,
-            "grossNodeSeconds": 0.08519866700000034,
-            "usefulNodeSeconds": 0.08519866700000034,
+            "grossNodeSeconds": 0.5811362099999988,
+            "usefulNodeSeconds": 0.5811362099999988,
             "verificationMultiplier": 1,
             "speculationMultiplier": 1,
             "redispatches": 0,
-            "codeCache": "warm"
+            "codeCache": "warm",
+            "reduce": {
+              "ok": true,
+              "reduceMs": 15.054916999999477,
+              "treeDepth": 2,
+              "combines": 5,
+              "recomputes": 0,
+              "combineExecutors": 1
+            }
           },
           {
-            "makespanMs": 11.833750000000009,
+            "makespanMs": 40.3345419999996,
             "complete": true,
-            "grossNodeSeconds": 0.07411537699999997,
-            "usefulNodeSeconds": 0.07411537699999997,
+            "grossNodeSeconds": 0.5917628740000008,
+            "usefulNodeSeconds": 0.5917628740000008,
             "verificationMultiplier": 1,
             "speculationMultiplier": 1,
             "redispatches": 0,
-            "codeCache": "warm"
+            "codeCache": "warm",
+            "reduce": {
+              "ok": true,
+              "reduceMs": 14.833833000000595,
+              "treeDepth": 2,
+              "combines": 5,
+              "recomputes": 0,
+              "combineExecutors": 1
+            }
           },
           {
-            "makespanMs": 11.49025000000006,
+            "makespanMs": 40.49541700000009,
             "complete": true,
-            "grossNodeSeconds": 0.07438808399999994,
-            "usefulNodeSeconds": 0.07438808399999994,
+            "grossNodeSeconds": 0.5847904560000023,
+            "usefulNodeSeconds": 0.5847904560000023,
             "verificationMultiplier": 1,
             "speculationMultiplier": 1,
             "redispatches": 0,
-            "codeCache": "warm"
+            "codeCache": "warm",
+            "reduce": {
+              "ok": true,
+              "reduceMs": 14.107291999999688,
+              "treeDepth": 2,
+              "combines": 5,
+              "recomputes": 0,
+              "combineExecutors": 1
+            }
           },
           {
-            "makespanMs": 13.102917000000048,
+            "makespanMs": 38.06462499999998,
             "complete": true,
-            "grossNodeSeconds": 0.07853245800000001,
-            "usefulNodeSeconds": 0.07853245800000001,
+            "grossNodeSeconds": 0.5571459569999979,
+            "usefulNodeSeconds": 0.5571459569999979,
             "verificationMultiplier": 1,
             "speculationMultiplier": 1,
             "redispatches": 0,
-            "codeCache": "warm"
+            "codeCache": "warm",
+            "reduce": {
+              "ok": true,
+              "reduceMs": 13.505833999999595,
+              "treeDepth": 2,
+              "combines": 5,
+              "recomputes": 0,
+              "combineExecutors": 1
+            }
           },
           {
-            "makespanMs": 10.45691700000009,
+            "makespanMs": 38.22108299999945,
             "complete": true,
-            "grossNodeSeconds": 0.06987962599999992,
-            "usefulNodeSeconds": 0.06987962599999992,
+            "grossNodeSeconds": 0.5615023299999984,
+            "usefulNodeSeconds": 0.5615023299999984,
             "verificationMultiplier": 1,
             "speculationMultiplier": 1,
             "redispatches": 0,
-            "codeCache": "warm"
+            "codeCache": "warm",
+            "reduce": {
+              "ok": true,
+              "reduceMs": 15.035374999999476,
+              "treeDepth": 2,
+              "combines": 5,
+              "recomputes": 0,
+              "combineExecutors": 1
+            }
           },
           {
-            "makespanMs": 11.623124999999959,
+            "makespanMs": 41.59450000000015,
             "complete": true,
-            "grossNodeSeconds": 0.07179812700000014,
-            "usefulNodeSeconds": 0.07179812700000014,
+            "grossNodeSeconds": 0.5913359149999988,
+            "usefulNodeSeconds": 0.5913359149999988,
             "verificationMultiplier": 1,
             "speculationMultiplier": 1,
             "redispatches": 0,
-            "codeCache": "warm"
+            "codeCache": "warm",
+            "reduce": {
+              "ok": true,
+              "reduceMs": 12.888333999999304,
+              "treeDepth": 2,
+              "combines": 5,
+              "recomputes": 0,
+              "combineExecutors": 1
+            }
           },
           {
-            "makespanMs": 9.287416000000007,
+            "makespanMs": 37.41600000000017,
             "complete": true,
-            "grossNodeSeconds": 0.06455445899999995,
-            "usefulNodeSeconds": 0.06455445899999995,
+            "grossNodeSeconds": 0.5551936660000001,
+            "usefulNodeSeconds": 0.5551936660000001,
             "verificationMultiplier": 1,
             "speculationMultiplier": 1,
             "redispatches": 0,
-            "codeCache": "warm"
+            "codeCache": "warm",
+            "reduce": {
+              "ok": true,
+              "reduceMs": 12.626792000000023,
+              "treeDepth": 2,
+              "combines": 5,
+              "recomputes": 0,
+              "combineExecutors": 1
+            }
           },
           {
-            "makespanMs": 9.231542000000104,
+            "makespanMs": 37.120082999999795,
             "complete": true,
-            "grossNodeSeconds": 0.059920874000000034,
-            "usefulNodeSeconds": 0.059920874000000034,
+            "grossNodeSeconds": 0.5416877479999993,
+            "usefulNodeSeconds": 0.5416877479999993,
             "verificationMultiplier": 1,
             "speculationMultiplier": 1,
             "redispatches": 0,
-            "codeCache": "warm"
+            "codeCache": "warm",
+            "reduce": {
+              "ok": true,
+              "reduceMs": 13.195458000000144,
+              "treeDepth": 2,
+              "combines": 5,
+              "recomputes": 0,
+              "combineExecutors": 1
+            }
           },
           {
-            "makespanMs": 10.281791999999996,
+            "makespanMs": 41.788917000000765,
             "complete": true,
-            "grossNodeSeconds": 0.060876082,
-            "usefulNodeSeconds": 0.060876082,
+            "grossNodeSeconds": 0.5840639190000002,
+            "usefulNodeSeconds": 0.5840639190000002,
             "verificationMultiplier": 1,
             "speculationMultiplier": 1,
             "redispatches": 0,
-            "codeCache": "warm"
+            "codeCache": "warm",
+            "reduce": {
+              "ok": true,
+              "reduceMs": 13.508665999999721,
+              "treeDepth": 2,
+              "combines": 5,
+              "recomputes": 0,
+              "combineExecutors": 1
+            }
           },
           {
-            "makespanMs": 21.637207999999987,
+            "makespanMs": 37.899499999999534,
             "complete": true,
-            "grossNodeSeconds": 0.149853751,
-            "usefulNodeSeconds": 0.149853751,
+            "grossNodeSeconds": 0.5585454570000021,
+            "usefulNodeSeconds": 0.5585454570000021,
             "verificationMultiplier": 1,
             "speculationMultiplier": 1,
             "redispatches": 0,
-            "codeCache": "warm"
+            "codeCache": "warm",
+            "reduce": {
+              "ok": true,
+              "reduceMs": 23.19354199999998,
+              "treeDepth": 2,
+              "combines": 5,
+              "recomputes": 0,
+              "combineExecutors": 1
+            }
           },
           {
-            "makespanMs": 21.48408399999994,
+            "makespanMs": 42.28929199999948,
             "complete": true,
-            "grossNodeSeconds": 0.06101966600000003,
-            "usefulNodeSeconds": 0.06101966600000003,
+            "grossNodeSeconds": 0.5834621670000013,
+            "usefulNodeSeconds": 0.5834621670000013,
             "verificationMultiplier": 1,
             "speculationMultiplier": 1,
             "redispatches": 0,
-            "codeCache": "warm"
+            "codeCache": "warm",
+            "reduce": {
+              "ok": true,
+              "reduceMs": 13.271834000000126,
+              "treeDepth": 2,
+              "combines": 5,
+              "recomputes": 0,
+              "combineExecutors": 1
+            }
           },
           {
-            "makespanMs": 8.98279100000002,
+            "makespanMs": 99.5594170000004,
             "complete": true,
-            "grossNodeSeconds": 0.0525239170000001,
-            "usefulNodeSeconds": 0.0525239170000001,
+            "grossNodeSeconds": 1.4578764169999994,
+            "usefulNodeSeconds": 1.4578764169999994,
             "verificationMultiplier": 1,
             "speculationMultiplier": 1,
             "redispatches": 0,
-            "codeCache": "warm"
+            "codeCache": "warm",
+            "reduce": {
+              "ok": true,
+              "reduceMs": 24.830708000000413,
+              "treeDepth": 2,
+              "combines": 5,
+              "recomputes": 0,
+              "combineExecutors": 1
+            }
           },
           {
-            "makespanMs": 9.217208000000028,
+            "makespanMs": 38.42937499999971,
             "complete": true,
-            "grossNodeSeconds": 0.05627291400000002,
-            "usefulNodeSeconds": 0.05627291400000002,
+            "grossNodeSeconds": 0.5500275390000006,
+            "usefulNodeSeconds": 0.5500275390000006,
             "verificationMultiplier": 1,
             "speculationMultiplier": 1,
             "redispatches": 0,
-            "codeCache": "warm"
+            "codeCache": "warm",
+            "reduce": {
+              "ok": true,
+              "reduceMs": 13.467375000000175,
+              "treeDepth": 2,
+              "combines": 5,
+              "recomputes": 0,
+              "combineExecutors": 1
+            }
           },
           {
-            "makespanMs": 11.781124999999975,
+            "makespanMs": 37.44408300000032,
             "complete": true,
-            "grossNodeSeconds": 0.08352575000000025,
-            "usefulNodeSeconds": 0.08352575000000025,
+            "grossNodeSeconds": 0.5436350010000005,
+            "usefulNodeSeconds": 0.5436350010000005,
             "verificationMultiplier": 1,
             "speculationMultiplier": 1,
             "redispatches": 0,
-            "codeCache": "warm"
+            "codeCache": "warm",
+            "reduce": {
+              "ok": true,
+              "reduceMs": 22.605458,
+              "treeDepth": 2,
+              "combines": 5,
+              "recomputes": 0,
+              "combineExecutors": 1
+            }
           },
           {
-            "makespanMs": 8.908415999999988,
+            "makespanMs": 62.975124999999935,
             "complete": true,
-            "grossNodeSeconds": 0.04952937400000008,
-            "usefulNodeSeconds": 0.04952937400000008,
+            "grossNodeSeconds": 0.5550732890000009,
+            "usefulNodeSeconds": 0.5550732890000009,
             "verificationMultiplier": 1,
             "speculationMultiplier": 1,
             "redispatches": 0,
-            "codeCache": "warm"
+            "codeCache": "warm",
+            "reduce": {
+              "ok": true,
+              "reduceMs": 14.143583999999464,
+              "treeDepth": 2,
+              "combines": 5,
+              "recomputes": 0,
+              "combineExecutors": 1
+            }
           },
           {
-            "makespanMs": 9.531458999999927,
+            "makespanMs": 35.473291999999674,
             "complete": true,
-            "grossNodeSeconds": 0.060745164000000046,
-            "usefulNodeSeconds": 0.060745164000000046,
+            "grossNodeSeconds": 0.5126710409999996,
+            "usefulNodeSeconds": 0.5126710409999996,
             "verificationMultiplier": 1,
             "speculationMultiplier": 1,
             "redispatches": 0,
-            "codeCache": "warm"
+            "codeCache": "warm",
+            "reduce": {
+              "ok": true,
+              "reduceMs": 11.571958999999879,
+              "treeDepth": 2,
+              "combines": 5,
+              "recomputes": 0,
+              "combineExecutors": 1
+            }
           },
           {
-            "makespanMs": 8.800499999999943,
+            "makespanMs": 35.444916999999805,
             "complete": true,
-            "grossNodeSeconds": 0.06105299900000001,
-            "usefulNodeSeconds": 0.06105299900000001,
+            "grossNodeSeconds": 0.5245788350000002,
+            "usefulNodeSeconds": 0.5245788350000002,
             "verificationMultiplier": 1,
             "speculationMultiplier": 1,
             "redispatches": 0,
-            "codeCache": "warm"
+            "codeCache": "warm",
+            "reduce": {
+              "ok": true,
+              "reduceMs": 11.921957999999904,
+              "treeDepth": 2,
+              "combines": 5,
+              "recomputes": 0,
+              "combineExecutors": 1
+            }
           },
           {
-            "makespanMs": 8.174125000000004,
+            "makespanMs": 34.956207999999606,
             "complete": true,
-            "grossNodeSeconds": 0.05588141599999984,
-            "usefulNodeSeconds": 0.05588141599999984,
+            "grossNodeSeconds": 0.5136492900000003,
+            "usefulNodeSeconds": 0.5136492900000003,
             "verificationMultiplier": 1,
             "speculationMultiplier": 1,
             "redispatches": 0,
-            "codeCache": "warm"
+            "codeCache": "warm",
+            "reduce": {
+              "ok": true,
+              "reduceMs": 12.690833999999995,
+              "treeDepth": 2,
+              "combines": 5,
+              "recomputes": 0,
+              "combineExecutors": 1
+            }
           },
           {
-            "makespanMs": 8.025417000000061,
+            "makespanMs": 36.42362499999945,
             "complete": true,
-            "grossNodeSeconds": 0.05430270700000005,
-            "usefulNodeSeconds": 0.05430270700000005,
+            "grossNodeSeconds": 0.5244181689999987,
+            "usefulNodeSeconds": 0.5244181689999987,
             "verificationMultiplier": 1,
             "speculationMultiplier": 1,
             "redispatches": 0,
-            "codeCache": "warm"
+            "codeCache": "warm",
+            "reduce": {
+              "ok": true,
+              "reduceMs": 12.718374999999469,
+              "treeDepth": 2,
+              "combines": 5,
+              "recomputes": 0,
+              "combineExecutors": 1
+            }
           }
         ]
       },
       {
         "config": {
           "nodes": 2,
-          "shards": 8,
+          "shards": 16,
           "redundancy": 2,
           "transport": "real",
           "skew": "uniform"
         },
         "makespan": {
           "n": 19,
-          "p50": 15.351916999999958,
-          "p95": 22.376500000000078,
-          "p99": 22.376500000000078,
-          "min": 13.760250000000042,
-          "max": 22.376500000000078,
-          "meanForCostArithmeticOnly": 15.701890263157912,
+          "p50": 68.835916,
+          "p95": 79.1758749999999,
+          "p99": 79.1758749999999,
+          "min": 65.230458,
+          "max": 79.1758749999999,
+          "meanForCostArithmeticOnly": 69.84499552631577,
           "reliable": true
         },
-        "coldStartMs": 43.77987499999995,
+        "coldStartMs": 203.1067920000005,
         "incomplete": 0,
         "cost": {
-          "grossNodeSeconds": 4.027391903999999,
-          "usefulNodeSeconds": 2.0136959519999995,
+          "grossNodeSeconds": 39.57089837600001,
+          "usefulNodeSeconds": 19.785449188000005,
           "verificationTax": 2,
           "speculationTax": 1,
           "churnTax": 0
         },
+        "reduce": {
+          "ms": {
+            "n": 19,
+            "p50": 23.296832999999424,
+            "p95": 40.41704200000004,
+            "p99": 40.41704200000004,
+            "min": 22.21995799999968,
+            "max": 40.41704200000004,
+            "meanForCostArithmeticOnly": 25.151037210526212,
+            "reliable": true
+          },
+          "treeDepth": 2,
+          "combines": 5,
+          "recomputes": 0,
+          "combineExecutors": 2
+        },
         "observations": [
           {
-            "makespanMs": 43.77987499999995,
+            "makespanMs": 203.1067920000005,
             "complete": true,
-            "grossNodeSeconds": 0.5145295819999999,
-            "usefulNodeSeconds": 0.25726479099999994,
+            "grossNodeSeconds": 6.042684085999999,
+            "usefulNodeSeconds": 3.0213420429999993,
             "verificationMultiplier": 2,
             "speculationMultiplier": 1,
             "redispatches": 0,
-            "codeCache": "cold"
+            "codeCache": "cold",
+            "reduce": {
+              "ok": true,
+              "reduceMs": 69.94941599999947,
+              "treeDepth": 2,
+              "combines": 5,
+              "recomputes": 0,
+              "combineExecutors": 2
+            }
           },
           {
-            "makespanMs": 14.795875000000024,
+            "makespanMs": 71.91362500000014,
             "complete": true,
-            "grossNodeSeconds": 0.19171904200000003,
-            "usefulNodeSeconds": 0.09585952100000002,
+            "grossNodeSeconds": 2.1507206659999976,
+            "usefulNodeSeconds": 1.0753603329999988,
             "verificationMultiplier": 2,
             "speculationMultiplier": 1,
             "redispatches": 0,
-            "codeCache": "warm"
+            "codeCache": "warm",
+            "reduce": {
+              "ok": true,
+              "reduceMs": 25.28137499999957,
+              "treeDepth": 2,
+              "combines": 5,
+              "recomputes": 0,
+              "combineExecutors": 2
+            }
           },
           {
-            "makespanMs": 16.157082999999943,
+            "makespanMs": 79.1758749999999,
             "complete": true,
-            "grossNodeSeconds": 0.22435849999999988,
-            "usefulNodeSeconds": 0.11217924999999994,
+            "grossNodeSeconds": 2.3888495450000007,
+            "usefulNodeSeconds": 1.1944247725000003,
             "verificationMultiplier": 2,
             "speculationMultiplier": 1,
             "redispatches": 0,
-            "codeCache": "warm"
+            "codeCache": "warm",
+            "reduce": {
+              "ok": true,
+              "reduceMs": 26.17200000000048,
+              "treeDepth": 2,
+              "combines": 5,
+              "recomputes": 0,
+              "combineExecutors": 2
+            }
           },
           {
-            "makespanMs": 15.758375000000001,
+            "makespanMs": 69.86445899999944,
             "complete": true,
-            "grossNodeSeconds": 0.21529887100000009,
-            "usefulNodeSeconds": 0.10764943550000004,
+            "grossNodeSeconds": 2.0908019590000007,
+            "usefulNodeSeconds": 1.0454009795000003,
             "verificationMultiplier": 2,
             "speculationMultiplier": 1,
             "redispatches": 0,
-            "codeCache": "warm"
+            "codeCache": "warm",
+            "reduce": {
+              "ok": true,
+              "reduceMs": 24.60179100000005,
+              "treeDepth": 2,
+              "combines": 5,
+              "recomputes": 0,
+              "combineExecutors": 2
+            }
           },
           {
-            "makespanMs": 15.020917000000054,
+            "makespanMs": 73.67266699999982,
             "complete": true,
-            "grossNodeSeconds": 0.200287166,
-            "usefulNodeSeconds": 0.100143583,
+            "grossNodeSeconds": 2.1704532099999994,
+            "usefulNodeSeconds": 1.0852266049999997,
             "verificationMultiplier": 2,
             "speculationMultiplier": 1,
             "redispatches": 0,
-            "codeCache": "warm"
+            "codeCache": "warm",
+            "reduce": {
+              "ok": true,
+              "reduceMs": 22.776457999999366,
+              "treeDepth": 2,
+              "combines": 5,
+              "recomputes": 0,
+              "combineExecutors": 2
+            }
           },
           {
-            "makespanMs": 14.45150000000001,
+            "makespanMs": 66.4198750000005,
             "complete": true,
-            "grossNodeSeconds": 0.19683508299999963,
-            "usefulNodeSeconds": 0.09841754149999982,
+            "grossNodeSeconds": 1.9988067459999994,
+            "usefulNodeSeconds": 0.9994033729999997,
             "verificationMultiplier": 2,
             "speculationMultiplier": 1,
             "redispatches": 0,
-            "codeCache": "warm"
+            "codeCache": "warm",
+            "reduce": {
+              "ok": true,
+              "reduceMs": 22.229957999999897,
+              "treeDepth": 2,
+              "combines": 5,
+              "recomputes": 0,
+              "combineExecutors": 2
+            }
           },
           {
-            "makespanMs": 15.351916999999958,
+            "makespanMs": 67.50204100000064,
             "complete": true,
-            "grossNodeSeconds": 0.21690362500000024,
-            "usefulNodeSeconds": 0.10845181250000012,
+            "grossNodeSeconds": 2.0047058329999996,
+            "usefulNodeSeconds": 1.0023529164999998,
             "verificationMultiplier": 2,
             "speculationMultiplier": 1,
             "redispatches": 0,
-            "codeCache": "warm"
+            "codeCache": "warm",
+            "reduce": {
+              "ok": true,
+              "reduceMs": 22.21995799999968,
+              "treeDepth": 2,
+              "combines": 5,
+              "recomputes": 0,
+              "combineExecutors": 2
+            }
           },
           {
-            "makespanMs": 15.707041000000004,
+            "makespanMs": 65.230458,
             "complete": true,
-            "grossNodeSeconds": 0.19226925199999995,
-            "usefulNodeSeconds": 0.09613462599999997,
+            "grossNodeSeconds": 1.9708456250000022,
+            "usefulNodeSeconds": 0.9854228125000011,
             "verificationMultiplier": 2,
             "speculationMultiplier": 1,
             "redispatches": 0,
-            "codeCache": "warm"
+            "codeCache": "warm",
+            "reduce": {
+              "ok": true,
+              "reduceMs": 22.437791999999718,
+              "treeDepth": 2,
+              "combines": 5,
+              "recomputes": 0,
+              "combineExecutors": 2
+            }
           },
           {
-            "makespanMs": 15.36808300000007,
+            "makespanMs": 65.78870800000004,
             "complete": true,
-            "grossNodeSeconds": 0.18744454300000007,
-            "usefulNodeSeconds": 0.09372227150000004,
+            "grossNodeSeconds": 1.9579898369999982,
+            "usefulNodeSeconds": 0.9789949184999991,
             "verificationMultiplier": 2,
             "speculationMultiplier": 1,
             "redispatches": 0,
-            "codeCache": "warm"
+            "codeCache": "warm",
+            "reduce": {
+              "ok": true,
+              "reduceMs": 22.76945799999976,
+              "treeDepth": 2,
+              "combines": 5,
+              "recomputes": 0,
+              "combineExecutors": 2
+            }
           },
           {
-            "makespanMs": 16.419208000000026,
+            "makespanMs": 65.84941600000002,
             "complete": true,
-            "grossNodeSeconds": 0.22009116500000006,
-            "usefulNodeSeconds": 0.11004558250000003,
+            "grossNodeSeconds": 1.9821489130000032,
+            "usefulNodeSeconds": 0.9910744565000016,
             "verificationMultiplier": 2,
             "speculationMultiplier": 1,
             "redispatches": 0,
-            "codeCache": "warm"
+            "codeCache": "warm",
+            "reduce": {
+              "ok": true,
+              "reduceMs": 23.010541999999987,
+              "treeDepth": 2,
+              "combines": 5,
+              "recomputes": 0,
+              "combineExecutors": 2
+            }
           },
           {
-            "makespanMs": 22.376500000000078,
+            "makespanMs": 73.79704199999924,
             "complete": true,
-            "grossNodeSeconds": 0.32951250099999974,
-            "usefulNodeSeconds": 0.16475625049999987,
+            "grossNodeSeconds": 2.213283041000003,
+            "usefulNodeSeconds": 1.1066415205000015,
             "verificationMultiplier": 2,
             "speculationMultiplier": 1,
             "redispatches": 0,
-            "codeCache": "warm"
+            "codeCache": "warm",
+            "reduce": {
+              "ok": true,
+              "reduceMs": 24.149665999999343,
+              "treeDepth": 2,
+              "combines": 5,
+              "recomputes": 0,
+              "combineExecutors": 2
+            }
           },
           {
-            "makespanMs": 15.309332999999924,
+            "makespanMs": 67.33058400000027,
             "complete": true,
-            "grossNodeSeconds": 0.1974696249999997,
-            "usefulNodeSeconds": 0.09873481249999985,
+            "grossNodeSeconds": 2.018547665999998,
+            "usefulNodeSeconds": 1.009273832999999,
             "verificationMultiplier": 2,
             "speculationMultiplier": 1,
             "redispatches": 0,
-            "codeCache": "warm"
+            "codeCache": "warm",
+            "reduce": {
+              "ok": true,
+              "reduceMs": 23.296832999999424,
+              "treeDepth": 2,
+              "combines": 5,
+              "recomputes": 0,
+              "combineExecutors": 2
+            }
           },
           {
-            "makespanMs": 16.166625000000067,
+            "makespanMs": 68.87129100000038,
             "complete": true,
-            "grossNodeSeconds": 0.21528191500000002,
-            "usefulNodeSeconds": 0.10764095750000001,
+            "grossNodeSeconds": 2.0698885829999982,
+            "usefulNodeSeconds": 1.0349442914999991,
             "verificationMultiplier": 2,
             "speculationMultiplier": 1,
             "redispatches": 0,
-            "codeCache": "warm"
+            "codeCache": "warm",
+            "reduce": {
+              "ok": true,
+              "reduceMs": 23.531041999999616,
+              "treeDepth": 2,
+              "combines": 5,
+              "recomputes": 0,
+              "combineExecutors": 2
+            }
           },
           {
-            "makespanMs": 14.918249999999944,
+            "makespanMs": 74.83625000000029,
             "complete": true,
-            "grossNodeSeconds": 0.20591200100000037,
-            "usefulNodeSeconds": 0.10295600050000019,
+            "grossNodeSeconds": 2.232528127,
+            "usefulNodeSeconds": 1.1162640635,
             "verificationMultiplier": 2,
             "speculationMultiplier": 1,
             "redispatches": 0,
-            "codeCache": "warm"
+            "codeCache": "warm",
+            "reduce": {
+              "ok": true,
+              "reduceMs": 40.41704200000004,
+              "treeDepth": 2,
+              "combines": 5,
+              "recomputes": 0,
+              "combineExecutors": 2
+            }
           },
           {
-            "makespanMs": 15.539999999999964,
+            "makespanMs": 66.35908399999971,
             "complete": true,
-            "grossNodeSeconds": 0.2203977500000003,
-            "usefulNodeSeconds": 0.11019887500000015,
+            "grossNodeSeconds": 1.9932461669999977,
+            "usefulNodeSeconds": 0.9966230834999988,
             "verificationMultiplier": 2,
             "speculationMultiplier": 1,
             "redispatches": 0,
-            "codeCache": "warm"
+            "codeCache": "warm",
+            "reduce": {
+              "ok": true,
+              "reduceMs": 22.680583000000297,
+              "treeDepth": 2,
+              "combines": 5,
+              "recomputes": 0,
+              "combineExecutors": 2
+            }
           },
           {
-            "makespanMs": 14.557709000000159,
+            "makespanMs": 67.33954199999971,
             "complete": true,
-            "grossNodeSeconds": 0.20765983300000015,
-            "usefulNodeSeconds": 0.10382991650000008,
+            "grossNodeSeconds": 1.9838315389999979,
+            "usefulNodeSeconds": 0.9919157694999989,
             "verificationMultiplier": 2,
             "speculationMultiplier": 1,
             "redispatches": 0,
-            "codeCache": "warm"
+            "codeCache": "warm",
+            "reduce": {
+              "ok": true,
+              "reduceMs": 22.80225000000064,
+              "treeDepth": 2,
+              "combines": 5,
+              "recomputes": 0,
+              "combineExecutors": 2
+            }
           },
           {
-            "makespanMs": 16.326250000000073,
+            "makespanMs": 72.38304100000005,
             "complete": true,
-            "grossNodeSeconds": 0.221769624,
-            "usefulNodeSeconds": 0.110884812,
+            "grossNodeSeconds": 2.0386428330000026,
+            "usefulNodeSeconds": 1.0193214165000013,
             "verificationMultiplier": 2,
             "speculationMultiplier": 1,
             "redispatches": 0,
-            "codeCache": "warm"
+            "codeCache": "warm",
+            "reduce": {
+              "ok": true,
+              "reduceMs": 38.60041699999965,
+              "treeDepth": 2,
+              "combines": 5,
+              "recomputes": 0,
+              "combineExecutors": 2
+            }
           },
           {
-            "makespanMs": 15.307957999999871,
+            "makespanMs": 68.835916,
             "complete": true,
-            "grossNodeSeconds": 0.19693803699999943,
-            "usefulNodeSeconds": 0.09846901849999971,
+            "grossNodeSeconds": 2.0497217910000014,
+            "usefulNodeSeconds": 1.0248608955000007,
             "verificationMultiplier": 2,
             "speculationMultiplier": 1,
             "redispatches": 0,
-            "codeCache": "warm"
+            "codeCache": "warm",
+            "reduce": {
+              "ok": true,
+              "reduceMs": 24.19275000000016,
+              "treeDepth": 2,
+              "combines": 5,
+              "recomputes": 0,
+              "combineExecutors": 2
+            }
           },
           {
-            "makespanMs": 13.760250000000042,
+            "makespanMs": 68.12695799999983,
             "complete": true,
-            "grossNodeSeconds": 0.18900924699999994,
-            "usefulNodeSeconds": 0.09450462349999997,
+            "grossNodeSeconds": 2.0479360440000014,
+            "usefulNodeSeconds": 1.0239680220000007,
             "verificationMultiplier": 2,
             "speculationMultiplier": 1,
             "redispatches": 0,
-            "codeCache": "warm"
+            "codeCache": "warm",
+            "reduce": {
+              "ok": true,
+              "reduceMs": 23.284500000000662,
+              "treeDepth": 2,
+              "combines": 5,
+              "recomputes": 0,
+              "combineExecutors": 2
+            }
           },
           {
-            "makespanMs": 15.04304100000013,
+            "makespanMs": 73.75808299999971,
             "complete": true,
-            "grossNodeSeconds": 0.19823412400000004,
-            "usefulNodeSeconds": 0.09911706200000002,
+            "grossNodeSeconds": 2.207950251000001,
+            "usefulNodeSeconds": 1.1039751255000005,
             "verificationMultiplier": 2,
             "speculationMultiplier": 1,
             "redispatches": 0,
-            "codeCache": "warm"
+            "codeCache": "warm",
+            "reduce": {
+              "ok": true,
+              "reduceMs": 23.41529199999968,
+              "treeDepth": 2,
+              "combines": 5,
+              "recomputes": 0,
+              "combineExecutors": 2
+            }
           }
         ]
       },
       {
         "config": {
           "nodes": 4,
-          "shards": 8,
+          "shards": 16,
           "redundancy": 2,
           "transport": "real",
           "skew": "uniform"
         },
         "makespan": {
           "n": 19,
-          "p50": 15.778999999999996,
-          "p95": 19.428292000000056,
-          "p99": 19.428292000000056,
-          "min": 14.372375000000147,
-          "max": 19.428292000000056,
-          "meanForCostArithmeticOnly": 16.229651421052626,
+          "p50": 67.22670900000048,
+          "p95": 94.0747909999991,
+          "p99": 94.0747909999991,
+          "min": 64.19708300000093,
+          "max": 94.0747909999991,
+          "meanForCostArithmeticOnly": 70.36394278947353,
           "reliable": true
         },
-        "coldStartMs": 42.48933299999999,
+        "coldStartMs": 201.34370800000033,
         "incomplete": 0,
         "cost": {
-          "grossNodeSeconds": 4.0196545399999986,
-          "usefulNodeSeconds": 2.0098272699999993,
+          "grossNodeSeconds": 40.65338270099996,
+          "usefulNodeSeconds": 20.32669135049998,
           "verificationTax": 2,
           "speculationTax": 1,
           "churnTax": 0
         },
+        "reduce": {
+          "ms": {
+            "n": 19,
+            "p50": 23.727249999999913,
+            "p95": 34.63900000000103,
+            "p99": 34.63900000000103,
+            "min": 21.699916999999914,
+            "max": 34.63900000000103,
+            "meanForCostArithmeticOnly": 24.645008684210648,
+            "reliable": true
+          },
+          "treeDepth": 2,
+          "combines": 5,
+          "recomputes": 0,
+          "combineExecutors": 3
+        },
         "observations": [
           {
-            "makespanMs": 42.48933299999999,
+            "makespanMs": 201.34370800000033,
             "complete": true,
-            "grossNodeSeconds": 0.5489832930000003,
-            "usefulNodeSeconds": 0.27449164650000013,
+            "grossNodeSeconds": 6.048412500999995,
+            "usefulNodeSeconds": 3.0242062504999976,
             "verificationMultiplier": 2,
             "speculationMultiplier": 1,
             "redispatches": 0,
-            "codeCache": "cold"
+            "codeCache": "cold",
+            "reduce": {
+              "ok": true,
+              "reduceMs": 76.71491700000115,
+              "treeDepth": 2,
+              "combines": 5,
+              "recomputes": 0,
+              "combineExecutors": 3
+            }
           },
           {
-            "makespanMs": 15.965249999999969,
+            "makespanMs": 80.5672910000012,
             "complete": true,
-            "grossNodeSeconds": 0.22049395800000007,
-            "usefulNodeSeconds": 0.11024697900000004,
+            "grossNodeSeconds": 2.475398164999997,
+            "usefulNodeSeconds": 1.2376990824999985,
             "verificationMultiplier": 2,
             "speculationMultiplier": 1,
             "redispatches": 0,
-            "codeCache": "warm"
+            "codeCache": "warm",
+            "reduce": {
+              "ok": true,
+              "reduceMs": 24.312832999999955,
+              "treeDepth": 2,
+              "combines": 5,
+              "recomputes": 0,
+              "combineExecutors": 3
+            }
           },
           {
-            "makespanMs": 16.06316599999991,
+            "makespanMs": 65.8841250000005,
             "complete": true,
-            "grossNodeSeconds": 0.2117941270000008,
-            "usefulNodeSeconds": 0.1058970635000004,
+            "grossNodeSeconds": 2.011897333999996,
+            "usefulNodeSeconds": 1.005948666999998,
             "verificationMultiplier": 2,
             "speculationMultiplier": 1,
             "redispatches": 0,
-            "codeCache": "warm"
+            "codeCache": "warm",
+            "reduce": {
+              "ok": true,
+              "reduceMs": 26.105916999998954,
+              "treeDepth": 2,
+              "combines": 5,
+              "recomputes": 0,
+              "combineExecutors": 3
+            }
           },
           {
-            "makespanMs": 15.75366699999995,
+            "makespanMs": 70.23216700000012,
             "complete": true,
-            "grossNodeSeconds": 0.20096145999999931,
-            "usefulNodeSeconds": 0.10048072999999966,
+            "grossNodeSeconds": 2.124031703999994,
+            "usefulNodeSeconds": 1.062015851999997,
             "verificationMultiplier": 2,
             "speculationMultiplier": 1,
             "redispatches": 0,
-            "codeCache": "warm"
+            "codeCache": "warm",
+            "reduce": {
+              "ok": true,
+              "reduceMs": 21.699916999999914,
+              "treeDepth": 2,
+              "combines": 5,
+              "recomputes": 0,
+              "combineExecutors": 3
+            }
           },
           {
-            "makespanMs": 15.617416999999932,
+            "makespanMs": 94.0747909999991,
             "complete": true,
-            "grossNodeSeconds": 0.22260641700000017,
-            "usefulNodeSeconds": 0.11130320850000008,
+            "grossNodeSeconds": 2.918383372999997,
+            "usefulNodeSeconds": 1.4591916864999985,
             "verificationMultiplier": 2,
             "speculationMultiplier": 1,
             "redispatches": 0,
-            "codeCache": "warm"
+            "codeCache": "warm",
+            "reduce": {
+              "ok": true,
+              "reduceMs": 23.39429200000086,
+              "treeDepth": 2,
+              "combines": 5,
+              "recomputes": 0,
+              "combineExecutors": 3
+            }
           },
           {
-            "makespanMs": 15.778999999999996,
+            "makespanMs": 69.29679099999885,
             "complete": true,
-            "grossNodeSeconds": 0.22061433300000025,
-            "usefulNodeSeconds": 0.11030716650000012,
+            "grossNodeSeconds": 2.1213340849999986,
+            "usefulNodeSeconds": 1.0606670424999993,
             "verificationMultiplier": 2,
             "speculationMultiplier": 1,
             "redispatches": 0,
-            "codeCache": "warm"
+            "codeCache": "warm",
+            "reduce": {
+              "ok": true,
+              "reduceMs": 25.582290999998804,
+              "treeDepth": 2,
+              "combines": 5,
+              "recomputes": 0,
+              "combineExecutors": 3
+            }
           },
           {
-            "makespanMs": 15.335166000000072,
+            "makespanMs": 69.52304100000038,
             "complete": true,
-            "grossNodeSeconds": 0.205102666,
-            "usefulNodeSeconds": 0.102551333,
+            "grossNodeSeconds": 2.107330121999999,
+            "usefulNodeSeconds": 1.0536650609999996,
             "verificationMultiplier": 2,
             "speculationMultiplier": 1,
             "redispatches": 0,
-            "codeCache": "warm"
+            "codeCache": "warm",
+            "reduce": {
+              "ok": true,
+              "reduceMs": 22.49054100000103,
+              "treeDepth": 2,
+              "combines": 5,
+              "recomputes": 0,
+              "combineExecutors": 3
+            }
           },
           {
-            "makespanMs": 15.772125000000187,
+            "makespanMs": 67.37933299999895,
             "complete": true,
-            "grossNodeSeconds": 0.1979643770000005,
-            "usefulNodeSeconds": 0.09898218850000025,
+            "grossNodeSeconds": 2.0413365439999995,
+            "usefulNodeSeconds": 1.0206682719999998,
             "verificationMultiplier": 2,
             "speculationMultiplier": 1,
             "redispatches": 0,
-            "codeCache": "warm"
+            "codeCache": "warm",
+            "reduce": {
+              "ok": true,
+              "reduceMs": 23.682874999998603,
+              "treeDepth": 2,
+              "combines": 5,
+              "recomputes": 0,
+              "combineExecutors": 3
+            }
           },
           {
-            "makespanMs": 15.653667000000041,
+            "makespanMs": 67.0223330000008,
             "complete": true,
-            "grossNodeSeconds": 0.18951841600000036,
-            "usefulNodeSeconds": 0.09475920800000018,
+            "grossNodeSeconds": 2.059586707999997,
+            "usefulNodeSeconds": 1.0297933539999986,
             "verificationMultiplier": 2,
             "speculationMultiplier": 1,
             "redispatches": 0,
-            "codeCache": "warm"
+            "codeCache": "warm",
+            "reduce": {
+              "ok": true,
+              "reduceMs": 22.65154100000109,
+              "treeDepth": 2,
+              "combines": 5,
+              "recomputes": 0,
+              "combineExecutors": 3
+            }
           },
           {
-            "makespanMs": 18.91012499999988,
+            "makespanMs": 66.09591699999874,
             "complete": true,
-            "grossNodeSeconds": 0.22571487599999998,
-            "usefulNodeSeconds": 0.11285743799999999,
+            "grossNodeSeconds": 2.0040324180000026,
+            "usefulNodeSeconds": 1.0020162090000013,
             "verificationMultiplier": 2,
             "speculationMultiplier": 1,
             "redispatches": 0,
-            "codeCache": "warm"
+            "codeCache": "warm",
+            "reduce": {
+              "ok": true,
+              "reduceMs": 21.85833300000013,
+              "treeDepth": 2,
+              "combines": 5,
+              "recomputes": 0,
+              "combineExecutors": 3
+            }
           },
           {
-            "makespanMs": 17.22745900000018,
+            "makespanMs": 66.28100000000086,
             "complete": true,
-            "grossNodeSeconds": 0.23284683199999978,
-            "usefulNodeSeconds": 0.11642341599999989,
+            "grossNodeSeconds": 2.0210237919999923,
+            "usefulNodeSeconds": 1.0105118959999961,
             "verificationMultiplier": 2,
             "speculationMultiplier": 1,
             "redispatches": 0,
-            "codeCache": "warm"
+            "codeCache": "warm",
+            "reduce": {
+              "ok": true,
+              "reduceMs": 25.3075000000008,
+              "treeDepth": 2,
+              "combines": 5,
+              "recomputes": 0,
+              "combineExecutors": 3
+            }
           },
           {
-            "makespanMs": 15.523999999999887,
+            "makespanMs": 78.94441599999845,
             "complete": true,
-            "grossNodeSeconds": 0.2124811629999999,
-            "usefulNodeSeconds": 0.10624058149999994,
+            "grossNodeSeconds": 2.383865122999998,
+            "usefulNodeSeconds": 1.191932561499999,
             "verificationMultiplier": 2,
             "speculationMultiplier": 1,
             "redispatches": 0,
-            "codeCache": "warm"
+            "codeCache": "warm",
+            "reduce": {
+              "ok": true,
+              "reduceMs": 27.718708000000333,
+              "treeDepth": 2,
+              "combines": 5,
+              "recomputes": 0,
+              "combineExecutors": 3
+            }
           },
           {
-            "makespanMs": 14.372375000000147,
+            "makespanMs": 67.22670900000048,
             "complete": true,
-            "grossNodeSeconds": 0.19045545899999977,
-            "usefulNodeSeconds": 0.09522772949999989,
+            "grossNodeSeconds": 2.023444454999997,
+            "usefulNodeSeconds": 1.0117222274999984,
             "verificationMultiplier": 2,
             "speculationMultiplier": 1,
             "redispatches": 0,
-            "codeCache": "warm"
+            "codeCache": "warm",
+            "reduce": {
+              "ok": true,
+              "reduceMs": 23.727249999999913,
+              "treeDepth": 2,
+              "combines": 5,
+              "recomputes": 0,
+              "combineExecutors": 3
+            }
           },
           {
-            "makespanMs": 18.159124999999904,
+            "makespanMs": 65.30383299999994,
             "complete": true,
-            "grossNodeSeconds": 0.21406983299999977,
-            "usefulNodeSeconds": 0.10703491649999988,
+            "grossNodeSeconds": 1.9874372940000011,
+            "usefulNodeSeconds": 0.9937186470000006,
             "verificationMultiplier": 2,
             "speculationMultiplier": 1,
             "redispatches": 0,
-            "codeCache": "warm"
+            "codeCache": "warm",
+            "reduce": {
+              "ok": true,
+              "reduceMs": 23.863292,
+              "treeDepth": 2,
+              "combines": 5,
+              "recomputes": 0,
+              "combineExecutors": 3
+            }
           },
           {
-            "makespanMs": 19.428292000000056,
+            "makespanMs": 64.19708300000093,
             "complete": true,
-            "grossNodeSeconds": 0.1935960409999998,
-            "usefulNodeSeconds": 0.0967980204999999,
+            "grossNodeSeconds": 1.9453594589999974,
+            "usefulNodeSeconds": 0.9726797294999987,
             "verificationMultiplier": 2,
             "speculationMultiplier": 1,
             "redispatches": 0,
-            "codeCache": "warm"
+            "codeCache": "warm",
+            "reduce": {
+              "ok": true,
+              "reduceMs": 22.562834000000294,
+              "treeDepth": 2,
+              "combines": 5,
+              "recomputes": 0,
+              "combineExecutors": 3
+            }
           },
           {
-            "makespanMs": 15.518166999999949,
+            "makespanMs": 68.21987499999886,
             "complete": true,
-            "grossNodeSeconds": 0.2192371669999998,
-            "usefulNodeSeconds": 0.1096185834999999,
+            "grossNodeSeconds": 2.040101455999998,
+            "usefulNodeSeconds": 1.020050727999999,
             "verificationMultiplier": 2,
             "speculationMultiplier": 1,
             "redispatches": 0,
-            "codeCache": "warm"
+            "codeCache": "warm",
+            "reduce": {
+              "ok": true,
+              "reduceMs": 34.63900000000103,
+              "treeDepth": 2,
+              "combines": 5,
+              "recomputes": 0,
+              "combineExecutors": 3
+            }
           },
           {
-            "makespanMs": 16.618375000000015,
+            "makespanMs": 65.7257499999996,
             "complete": true,
-            "grossNodeSeconds": 0.23354537600000003,
-            "usefulNodeSeconds": 0.11677268800000001,
+            "grossNodeSeconds": 1.9844562089999997,
+            "usefulNodeSeconds": 0.9922281044999999,
             "verificationMultiplier": 2,
             "speculationMultiplier": 1,
             "redispatches": 0,
-            "codeCache": "warm"
+            "codeCache": "warm",
+            "reduce": {
+              "ok": true,
+              "reduceMs": 23.241416000000754,
+              "treeDepth": 2,
+              "combines": 5,
+              "recomputes": 0,
+              "combineExecutors": 3
+            }
           },
           {
-            "makespanMs": 16.13666699999999,
+            "makespanMs": 66.02637499999946,
             "complete": true,
-            "grossNodeSeconds": 0.22678149999999914,
-            "usefulNodeSeconds": 0.11339074999999957,
+            "grossNodeSeconds": 2.020361544999996,
+            "usefulNodeSeconds": 1.010180772499998,
             "verificationMultiplier": 2,
             "speculationMultiplier": 1,
             "redispatches": 0,
-            "codeCache": "warm"
+            "codeCache": "warm",
+            "reduce": {
+              "ok": true,
+              "reduceMs": 22.280125000001135,
+              "treeDepth": 2,
+              "combines": 5,
+              "recomputes": 0,
+              "combineExecutors": 3
+            }
           },
           {
-            "makespanMs": 15.814875000000029,
+            "makespanMs": 67.07120799999939,
             "complete": true,
-            "grossNodeSeconds": 0.21059149800000002,
-            "usefulNodeSeconds": 0.10529574900000001,
+            "grossNodeSeconds": 2.006523458000002,
+            "usefulNodeSeconds": 1.003261729000001,
             "verificationMultiplier": 2,
             "speculationMultiplier": 1,
             "redispatches": 0,
-            "codeCache": "warm"
+            "codeCache": "warm",
+            "reduce": {
+              "ok": true,
+              "reduceMs": 27.427083999999013,
+              "treeDepth": 2,
+              "combines": 5,
+              "recomputes": 0,
+              "combineExecutors": 3
+            }
           },
           {
-            "makespanMs": 14.714458999999806,
+            "makespanMs": 77.84287500000028,
             "complete": true,
-            "grossNodeSeconds": 0.19127904099999957,
-            "usefulNodeSeconds": 0.09563952049999978,
+            "grossNodeSeconds": 2.3774794570000024,
+            "usefulNodeSeconds": 1.1887397285000012,
             "verificationMultiplier": 2,
             "speculationMultiplier": 1,
             "redispatches": 0,
-            "codeCache": "warm"
+            "codeCache": "warm",
+            "reduce": {
+              "ok": true,
+              "reduceMs": 25.709415999999692,
+              "treeDepth": 2,
+              "combines": 5,
+              "recomputes": 0,
+              "combineExecutors": 3
+            }
+          }
+        ]
+      },
+      {
+        "config": {
+          "nodes": 8,
+          "shards": 16,
+          "redundancy": 2,
+          "transport": "real",
+          "skew": "uniform"
+        },
+        "makespan": {
+          "n": 19,
+          "p50": 69.53145799999947,
+          "p95": 122.34587499999907,
+          "p99": 122.34587499999907,
+          "min": 67.30862499999967,
+          "max": 122.34587499999907,
+          "meanForCostArithmeticOnly": 74.93243863157907,
+          "reliable": true
+        },
+        "coldStartMs": 279.52979199999936,
+        "incomplete": 0,
+        "cost": {
+          "grossNodeSeconds": 42.93910440000002,
+          "usefulNodeSeconds": 21.46955220000001,
+          "verificationTax": 2,
+          "speculationTax": 1,
+          "churnTax": 0
+        },
+        "reduce": {
+          "ms": {
+            "n": 19,
+            "p50": 24.121165999998993,
+            "p95": 27.46308300000055,
+            "p99": 27.46308300000055,
+            "min": 22.78937500000029,
+            "max": 27.46308300000055,
+            "meanForCostArithmeticOnly": 24.415420999999984,
+            "reliable": true
+          },
+          "treeDepth": 2,
+          "combines": 5,
+          "recomputes": 0,
+          "combineExecutors": 4
+        },
+        "observations": [
+          {
+            "makespanMs": 279.52979199999936,
+            "complete": true,
+            "grossNodeSeconds": 8.199455625,
+            "usefulNodeSeconds": 4.0997278125,
+            "verificationMultiplier": 2,
+            "speculationMultiplier": 1,
+            "redispatches": 0,
+            "codeCache": "cold",
+            "reduce": {
+              "ok": true,
+              "reduceMs": 74.01741599999878,
+              "treeDepth": 2,
+              "combines": 5,
+              "recomputes": 0,
+              "combineExecutors": 4
+            }
+          },
+          {
+            "makespanMs": 69.83920799999942,
+            "complete": true,
+            "grossNodeSeconds": 2.1353961260000056,
+            "usefulNodeSeconds": 1.0676980630000028,
+            "verificationMultiplier": 2,
+            "speculationMultiplier": 1,
+            "redispatches": 0,
+            "codeCache": "warm",
+            "reduce": {
+              "ok": true,
+              "reduceMs": 23.880999999999403,
+              "treeDepth": 2,
+              "combines": 5,
+              "recomputes": 0,
+              "combineExecutors": 4
+            }
+          },
+          {
+            "makespanMs": 69.87787500000013,
+            "complete": true,
+            "grossNodeSeconds": 2.1371419160000005,
+            "usefulNodeSeconds": 1.0685709580000002,
+            "verificationMultiplier": 2,
+            "speculationMultiplier": 1,
+            "redispatches": 0,
+            "codeCache": "warm",
+            "reduce": {
+              "ok": true,
+              "reduceMs": 23.136083999999755,
+              "treeDepth": 2,
+              "combines": 5,
+              "recomputes": 0,
+              "combineExecutors": 4
+            }
+          },
+          {
+            "makespanMs": 67.65341699999954,
+            "complete": true,
+            "grossNodeSeconds": 2.0479522539999984,
+            "usefulNodeSeconds": 1.0239761269999992,
+            "verificationMultiplier": 2,
+            "speculationMultiplier": 1,
+            "redispatches": 0,
+            "codeCache": "warm",
+            "reduce": {
+              "ok": true,
+              "reduceMs": 23.021457999999257,
+              "treeDepth": 2,
+              "combines": 5,
+              "recomputes": 0,
+              "combineExecutors": 4
+            }
+          },
+          {
+            "makespanMs": 69.09283300000061,
+            "complete": true,
+            "grossNodeSeconds": 2.1189396689999977,
+            "usefulNodeSeconds": 1.0594698344999989,
+            "verificationMultiplier": 2,
+            "speculationMultiplier": 1,
+            "redispatches": 0,
+            "codeCache": "warm",
+            "reduce": {
+              "ok": true,
+              "reduceMs": 24.121165999998993,
+              "treeDepth": 2,
+              "combines": 5,
+              "recomputes": 0,
+              "combineExecutors": 4
+            }
+          },
+          {
+            "makespanMs": 67.94575000000077,
+            "complete": true,
+            "grossNodeSeconds": 2.0640864139999975,
+            "usefulNodeSeconds": 1.0320432069999987,
+            "verificationMultiplier": 2,
+            "speculationMultiplier": 1,
+            "redispatches": 0,
+            "codeCache": "warm",
+            "reduce": {
+              "ok": true,
+              "reduceMs": 24.45783399999891,
+              "treeDepth": 2,
+              "combines": 5,
+              "recomputes": 0,
+              "combineExecutors": 4
+            }
+          },
+          {
+            "makespanMs": 67.8966249999994,
+            "complete": true,
+            "grossNodeSeconds": 2.0492809200000006,
+            "usefulNodeSeconds": 1.0246404600000003,
+            "verificationMultiplier": 2,
+            "speculationMultiplier": 1,
+            "redispatches": 0,
+            "codeCache": "warm",
+            "reduce": {
+              "ok": true,
+              "reduceMs": 27.46308300000055,
+              "treeDepth": 2,
+              "combines": 5,
+              "recomputes": 0,
+              "combineExecutors": 4
+            }
+          },
+          {
+            "makespanMs": 81.68525000000045,
+            "complete": true,
+            "grossNodeSeconds": 2.4003989170000004,
+            "usefulNodeSeconds": 1.2001994585000002,
+            "verificationMultiplier": 2,
+            "speculationMultiplier": 1,
+            "redispatches": 0,
+            "codeCache": "warm",
+            "reduce": {
+              "ok": true,
+              "reduceMs": 24.172625000001062,
+              "treeDepth": 2,
+              "combines": 5,
+              "recomputes": 0,
+              "combineExecutors": 4
+            }
+          },
+          {
+            "makespanMs": 69.05075000000033,
+            "complete": true,
+            "grossNodeSeconds": 2.074527712999996,
+            "usefulNodeSeconds": 1.037263856499998,
+            "verificationMultiplier": 2,
+            "speculationMultiplier": 1,
+            "redispatches": 0,
+            "codeCache": "warm",
+            "reduce": {
+              "ok": true,
+              "reduceMs": 26.845165999999153,
+              "treeDepth": 2,
+              "combines": 5,
+              "recomputes": 0,
+              "combineExecutors": 4
+            }
+          },
+          {
+            "makespanMs": 82.79425000000083,
+            "complete": true,
+            "grossNodeSeconds": 2.527768208000003,
+            "usefulNodeSeconds": 1.2638841040000015,
+            "verificationMultiplier": 2,
+            "speculationMultiplier": 1,
+            "redispatches": 0,
+            "codeCache": "warm",
+            "reduce": {
+              "ok": true,
+              "reduceMs": 25.213208000001032,
+              "treeDepth": 2,
+              "combines": 5,
+              "recomputes": 0,
+              "combineExecutors": 4
+            }
+          },
+          {
+            "makespanMs": 68.43879200000083,
+            "complete": true,
+            "grossNodeSeconds": 2.084538168999995,
+            "usefulNodeSeconds": 1.0422690844999976,
+            "verificationMultiplier": 2,
+            "speculationMultiplier": 1,
+            "redispatches": 0,
+            "codeCache": "warm",
+            "reduce": {
+              "ok": true,
+              "reduceMs": 22.963208000001032,
+              "treeDepth": 2,
+              "combines": 5,
+              "recomputes": 0,
+              "combineExecutors": 4
+            }
+          },
+          {
+            "makespanMs": 70.2059590000008,
+            "complete": true,
+            "grossNodeSeconds": 2.0987460460000005,
+            "usefulNodeSeconds": 1.0493730230000002,
+            "verificationMultiplier": 2,
+            "speculationMultiplier": 1,
+            "redispatches": 0,
+            "codeCache": "warm",
+            "reduce": {
+              "ok": true,
+              "reduceMs": 25.42608399999881,
+              "treeDepth": 2,
+              "combines": 5,
+              "recomputes": 0,
+              "combineExecutors": 4
+            }
+          },
+          {
+            "makespanMs": 69.53145799999947,
+            "complete": true,
+            "grossNodeSeconds": 2.065172042000004,
+            "usefulNodeSeconds": 1.032586021000002,
+            "verificationMultiplier": 2,
+            "speculationMultiplier": 1,
+            "redispatches": 0,
+            "codeCache": "warm",
+            "reduce": {
+              "ok": true,
+              "reduceMs": 24.07904100000087,
+              "treeDepth": 2,
+              "combines": 5,
+              "recomputes": 0,
+              "combineExecutors": 4
+            }
+          },
+          {
+            "makespanMs": 122.34587499999907,
+            "complete": true,
+            "grossNodeSeconds": 3.6618063740000086,
+            "usefulNodeSeconds": 1.8309031870000043,
+            "verificationMultiplier": 2,
+            "speculationMultiplier": 1,
+            "redispatches": 0,
+            "codeCache": "warm",
+            "reduce": {
+              "ok": true,
+              "reduceMs": 25.37354199999936,
+              "treeDepth": 2,
+              "combines": 5,
+              "recomputes": 0,
+              "combineExecutors": 4
+            }
+          },
+          {
+            "makespanMs": 68.65891600000032,
+            "complete": true,
+            "grossNodeSeconds": 2.0313935040000017,
+            "usefulNodeSeconds": 1.0156967520000009,
+            "verificationMultiplier": 2,
+            "speculationMultiplier": 1,
+            "redispatches": 0,
+            "codeCache": "warm",
+            "reduce": {
+              "ok": true,
+              "reduceMs": 24.82366700000057,
+              "treeDepth": 2,
+              "combines": 5,
+              "recomputes": 0,
+              "combineExecutors": 4
+            }
+          },
+          {
+            "makespanMs": 67.66491700000006,
+            "complete": true,
+            "grossNodeSeconds": 2.0682494989999993,
+            "usefulNodeSeconds": 1.0341247494999997,
+            "verificationMultiplier": 2,
+            "speculationMultiplier": 1,
+            "redispatches": 0,
+            "codeCache": "warm",
+            "reduce": {
+              "ok": true,
+              "reduceMs": 24.018958000000566,
+              "treeDepth": 2,
+              "combines": 5,
+              "recomputes": 0,
+              "combineExecutors": 4
+            }
+          },
+          {
+            "makespanMs": 67.30862499999967,
+            "complete": true,
+            "grossNodeSeconds": 2.037437165000005,
+            "usefulNodeSeconds": 1.0187185825000025,
+            "verificationMultiplier": 2,
+            "speculationMultiplier": 1,
+            "redispatches": 0,
+            "codeCache": "warm",
+            "reduce": {
+              "ok": true,
+              "reduceMs": 22.78937500000029,
+              "treeDepth": 2,
+              "combines": 5,
+              "recomputes": 0,
+              "combineExecutors": 4
+            }
+          },
+          {
+            "makespanMs": 88.78362500000003,
+            "complete": true,
+            "grossNodeSeconds": 2.6962221260000048,
+            "usefulNodeSeconds": 1.3481110630000024,
+            "verificationMultiplier": 2,
+            "speculationMultiplier": 1,
+            "redispatches": 0,
+            "codeCache": "warm",
+            "reduce": {
+              "ok": true,
+              "reduceMs": 23.092415999999503,
+              "treeDepth": 2,
+              "combines": 5,
+              "recomputes": 0,
+              "combineExecutors": 4
+            }
+          },
+          {
+            "makespanMs": 71.74641700000029,
+            "complete": true,
+            "grossNodeSeconds": 2.193194377999998,
+            "usefulNodeSeconds": 1.096597188999999,
+            "verificationMultiplier": 2,
+            "speculationMultiplier": 1,
+            "redispatches": 0,
+            "codeCache": "warm",
+            "reduce": {
+              "ok": true,
+              "reduceMs": 25.290458999999828,
+              "treeDepth": 2,
+              "combines": 5,
+              "recomputes": 0,
+              "combineExecutors": 4
+            }
+          },
+          {
+            "makespanMs": 83.19579200000044,
+            "complete": true,
+            "grossNodeSeconds": 2.4468529599999997,
+            "usefulNodeSeconds": 1.2234264799999999,
+            "verificationMultiplier": 2,
+            "speculationMultiplier": 1,
+            "redispatches": 0,
+            "codeCache": "warm",
+            "reduce": {
+              "ok": true,
+              "reduceMs": 23.724625000000742,
+              "treeDepth": 2,
+              "combines": 5,
+              "recomputes": 0,
+              "combineExecutors": 4
+            }
           }
         ]
       }
@@ -1878,28 +3693,34 @@
     "connectivity": [
       {
         "nodes": 1,
-        "memoryP50Ms": 1.2655419999999822,
-        "realP50Ms": 10.281791999999996,
-        "ratio": 8.124417838365018
+        "memoryP50Ms": 22.441791999999964,
+        "realP50Ms": 38.22108299999945,
+        "ratio": 1.7031208113861636
       },
       {
         "nodes": 2,
-        "memoryP50Ms": 2.0579159999999774,
-        "realP50Ms": 15.351916999999958,
-        "ratio": 7.459933738792121
+        "memoryP50Ms": 44.64666699999998,
+        "realP50Ms": 68.835916,
+        "ratio": 1.5417929405570192
       },
       {
         "nodes": 4,
-        "memoryP50Ms": 1.6320420000000126,
-        "realP50Ms": 15.778999999999996,
-        "ratio": 9.668256086546716
+        "memoryP50Ms": 44.54783400000042,
+        "realP50Ms": 67.22670900000048,
+        "ratio": 1.5090904083013295
+      },
+      {
+        "nodes": 8,
+        "memoryP50Ms": 45.759250000000065,
+        "realP50Ms": 69.53145799999947,
+        "ratio": 1.5195060670793201
       }
     ],
     "crossover": {
       "found": false,
       "reason": "no crossover within the measured range (1, 2, 4, 8, 16 nodes)",
-      "baselineP50Ms": 0.002207999999882304,
-      "bestP50Ms": 1.2655419999999822,
+      "baselineP50Ms": 0.0031669999989389908,
+      "bestP50Ms": 22.441791999999964,
       "bestAtNodes": 1
     },
     "unmet": [
@@ -1908,257 +3729,432 @@
       "No hosted relay exists yet, so no WAN browser-tier number is included. The real transport here is libp2p over TCP on loopback.",
       "The WASM fixture does almost no work, so per-task overhead dominates and the COST crossover is worse than it would be for a realistic workload. Declared in the methodology before these runs, not discovered afterwards.",
       "The 1-node rung necessarily runs at redundancy 1: verification needs two independent executors, and one node cannot supply them. Its verification tax of 1.0 is therefore a property of the system, not a cheaper configuration — the same reason a sovereign shard with one owner node is owner-attested.",
-      "Speculation and churn taxes are 1.0 and 0 because `submitJob` neither speculates nor re-dispatches and no node was killed during these runs. They are identities, not measurements."
+      "Speculation and churn taxes are 1.0 and 0 because `submitJob` neither speculates nor re-dispatches and no node was killed during these runs. They are identities, not measurements.",
+      "**The reduce figures are subject to the same one-process, one-event-loop construction as the makespan figures.** `combine executors` counts distinct *node identities*, not distinct machines and not even distinct OS processes, so a value above 1 says the rendezvous ranking spread the combines across identities — not that any of them ran anywhere else. The eight-process evidence for the tree walk lives in `packages/node/src/tree-reduce-agents.node.test.ts`, not here.",
+      "**`tree depth` and `combines` are decided by `deriveReduceTree` from a shard count and a fanout this sweep never varies.** A column the run shows constant across every rung of both transports carries no information about a configuration, and a constant is not a result — the same status `spec. tax` and `churn/task` carry above. The reduce columns expected to carry information are `reduce p50`, `reduce p95`, `recomputes` and `combine executors`; read those. Varying the fanout across the sweep would make the other two informative and was rejected for a stated reason: rungs walking differently-shaped trees have incomparable reduce timings, which is the only thing the reduce table is for.",
+      "**The real-transport reduce refusal that emptied this table on 2026-08-01 has been removed, and the rows below are whatever the run above actually produced.** Recorded rather than deleted, because a reader comparing two dated artifacts must be able to tell a figure that changed from a figure that was replaced. What the previous run published here: every real-transport row an em dash, because `serveAgent`’s combine branch refused outright unless its `authorize` hook was the `serves-unauthenticated` sentinel, and every `FabricNode` supplies a real `authorizeCapability` — so every node in the real-transport rig answered `combine requires a capability chain this build cannot verify`, measured as `combines: 0`, `failed: 5`, `executedBy: 0`, `rootCid: null`. 16-05 routed a combine through `options.authorize` like every other request, so a combine is now admitted or refused by the node’s own authorizer rather than by a branch keyed on whether the node had one. **An em dash in this table therefore no longer means \"refused\"** — it means that rung produced no reduce at all, and the excluded list below is where its reason is named. The two reduce curves are comparable only across rungs both transports measured."
     ],
     "excluded": [
       {
-        "config": "real transport, 8 nodes",
-        "reason": "`read ECONNRESET` — libp2p caps inbound connections at `INBOUND_CONNECTION_THRESHOLD = 5` **per host**, and every node here shares one host, so beyond ~5 concurrent dials to the requestor the noise handshake is killed and the failure reads like a network fault. A same-machine artifact of a documented default, not a property of the fabric."
-      },
-      {
         "config": "real transport, 16 nodes",
-        "reason": "`read ECONNRESET` — libp2p caps inbound connections at `INBOUND_CONNECTION_THRESHOLD = 5` **per host**, and every node here shares one host, so beyond ~5 concurrent dials to the requestor the noise handshake is killed and the failure reads like a network fault. A same-machine artifact of a documented default, not a property of the fabric."
+        "reason": "`connection error 127.0.0.1:54524: connect ECONNRESET 127.0.0.1:54524` — libp2p caps inbound connections at `INBOUND_CONNECTION_THRESHOLD = 5` **per host**, and every node here shares one host, so beyond ~5 concurrent dials to the requestor the noise handshake is killed and the failure reads like a network fault. A same-machine artifact of a documented default, not a property of the fabric."
       }
     ]
   },
   "skewed": {
     "config": {
       "nodes": 4,
-      "shards": 8,
+      "shards": 16,
       "redundancy": 2,
       "transport": "memory",
       "skew": "skewed"
     },
     "makespan": {
       "n": 19,
-      "p50": 1.6081249999999727,
-      "p95": 2.7666670000000977,
-      "p99": 2.7666670000000977,
-      "min": 1.392041000000063,
-      "max": 2.7666670000000977,
-      "meanForCostArithmeticOnly": 1.6939736842105528,
+      "p50": 47.331333000000086,
+      "p95": 64.85420799999883,
+      "p99": 64.85420799999883,
+      "min": 44.511915999999474,
+      "max": 64.85420799999883,
+      "meanForCostArithmeticOnly": 48.586050210526366,
       "reliable": true
     },
-    "coldStartMs": 2.6167910000001484,
+    "coldStartMs": 56.92291699999987,
     "incomplete": 0,
     "cost": {
-      "grossNodeSeconds": 0.2807396239999975,
-      "usefulNodeSeconds": 0.14036981199999876,
+      "grossNodeSeconds": 15.565478750000018,
+      "usefulNodeSeconds": 7.782739375000009,
       "verificationTax": 2,
       "speculationTax": 1,
       "churnTax": 0
     },
+    "reduce": {
+      "ms": {
+        "n": 19,
+        "p50": 1.2410410000011325,
+        "p95": 1.9952499999999418,
+        "p99": 1.9952499999999418,
+        "min": 1.1252089999998134,
+        "max": 1.9952499999999418,
+        "meanForCostArithmeticOnly": 1.380541631579131,
+        "reliable": true
+      },
+      "treeDepth": 2,
+      "combines": 5,
+      "recomputes": 0,
+      "combineExecutors": 3
+    },
     "observations": [
       {
-        "makespanMs": 2.6167910000001484,
+        "makespanMs": 56.92291699999987,
         "complete": true,
-        "grossNodeSeconds": 0.02706704200000036,
-        "usefulNodeSeconds": 0.01353352100000018,
+        "grossNodeSeconds": 1.0444424989999896,
+        "usefulNodeSeconds": 0.5222212494999948,
         "verificationMultiplier": 2,
         "speculationMultiplier": 1,
         "redispatches": 0,
-        "codeCache": "cold"
+        "codeCache": "cold",
+        "reduce": {
+          "ok": true,
+          "reduceMs": 3.207875000000058,
+          "treeDepth": 2,
+          "combines": 5,
+          "recomputes": 0,
+          "combineExecutors": 3
+        }
       },
       {
-        "makespanMs": 2.7666670000000977,
+        "makespanMs": 50.25304099999994,
         "complete": true,
-        "grossNodeSeconds": 0.030787667000000053,
-        "usefulNodeSeconds": 0.015393833500000027,
+        "grossNodeSeconds": 0.800471085000003,
+        "usefulNodeSeconds": 0.4002355425000015,
         "verificationMultiplier": 2,
         "speculationMultiplier": 1,
         "redispatches": 0,
-        "codeCache": "warm"
+        "codeCache": "warm",
+        "reduce": {
+          "ok": true,
+          "reduceMs": 1.2563329999993584,
+          "treeDepth": 2,
+          "combines": 5,
+          "recomputes": 0,
+          "combineExecutors": 3
+        }
       },
       {
-        "makespanMs": 1.7265420000001086,
+        "makespanMs": 45.8653749999994,
         "complete": true,
-        "grossNodeSeconds": 0.014348996999999602,
-        "usefulNodeSeconds": 0.007174498499999801,
+        "grossNodeSeconds": 0.7595016660000004,
+        "usefulNodeSeconds": 0.3797508330000002,
         "verificationMultiplier": 2,
         "speculationMultiplier": 1,
         "redispatches": 0,
-        "codeCache": "warm"
+        "codeCache": "warm",
+        "reduce": {
+          "ok": true,
+          "reduceMs": 1.2266660000004777,
+          "treeDepth": 2,
+          "combines": 5,
+          "recomputes": 0,
+          "combineExecutors": 3
+        }
       },
       {
-        "makespanMs": 1.6578749999998763,
+        "makespanMs": 46.28470799999923,
         "complete": true,
-        "grossNodeSeconds": 0.014209123999999292,
-        "usefulNodeSeconds": 0.007104561999999646,
+        "grossNodeSeconds": 0.7699434580000016,
+        "usefulNodeSeconds": 0.3849717290000008,
         "verificationMultiplier": 2,
         "speculationMultiplier": 1,
         "redispatches": 0,
-        "codeCache": "warm"
+        "codeCache": "warm",
+        "reduce": {
+          "ok": true,
+          "reduceMs": 1.2712919999994483,
+          "treeDepth": 2,
+          "combines": 5,
+          "recomputes": 0,
+          "combineExecutors": 3
+        }
       },
       {
-        "makespanMs": 1.6081249999999727,
+        "makespanMs": 44.511915999999474,
         "complete": true,
-        "grossNodeSeconds": 0.013426877000000559,
-        "usefulNodeSeconds": 0.006713438500000279,
+        "grossNodeSeconds": 0.7410493720000031,
+        "usefulNodeSeconds": 0.37052468600000155,
         "verificationMultiplier": 2,
         "speculationMultiplier": 1,
         "redispatches": 0,
-        "codeCache": "warm"
+        "codeCache": "warm",
+        "reduce": {
+          "ok": true,
+          "reduceMs": 1.155958000001192,
+          "treeDepth": 2,
+          "combines": 5,
+          "recomputes": 0,
+          "combineExecutors": 3
+        }
       },
       {
-        "makespanMs": 1.647333000000117,
+        "makespanMs": 46.2192500000001,
         "complete": true,
-        "grossNodeSeconds": 0.014118917000000009,
-        "usefulNodeSeconds": 0.007059458500000004,
+        "grossNodeSeconds": 0.7882575000000035,
+        "usefulNodeSeconds": 0.39412875000000175,
         "verificationMultiplier": 2,
         "speculationMultiplier": 1,
         "redispatches": 0,
-        "codeCache": "warm"
+        "codeCache": "warm",
+        "reduce": {
+          "ok": true,
+          "reduceMs": 1.7607499999994616,
+          "treeDepth": 2,
+          "combines": 5,
+          "recomputes": 0,
+          "combineExecutors": 3
+        }
       },
       {
-        "makespanMs": 1.6591660000001411,
+        "makespanMs": 48.37841600000138,
         "complete": true,
-        "grossNodeSeconds": 0.013819832999999334,
-        "usefulNodeSeconds": 0.006909916499999667,
+        "grossNodeSeconds": 0.8011673320000026,
+        "usefulNodeSeconds": 0.4005836660000013,
         "verificationMultiplier": 2,
         "speculationMultiplier": 1,
         "redispatches": 0,
-        "codeCache": "warm"
+        "codeCache": "warm",
+        "reduce": {
+          "ok": true,
+          "reduceMs": 1.4954580000012356,
+          "treeDepth": 2,
+          "combines": 5,
+          "recomputes": 0,
+          "combineExecutors": 3
+        }
       },
       {
-        "makespanMs": 1.8701250000001437,
+        "makespanMs": 44.77058299999953,
         "complete": true,
-        "grossNodeSeconds": 0.016087250000000268,
-        "usefulNodeSeconds": 0.008043625000000134,
+        "grossNodeSeconds": 0.7420207079999925,
+        "usefulNodeSeconds": 0.37101035399999627,
         "verificationMultiplier": 2,
         "speculationMultiplier": 1,
         "redispatches": 0,
-        "codeCache": "warm"
+        "codeCache": "warm",
+        "reduce": {
+          "ok": true,
+          "reduceMs": 1.2574170000007143,
+          "treeDepth": 2,
+          "combines": 5,
+          "recomputes": 0,
+          "combineExecutors": 3
+        }
       },
       {
-        "makespanMs": 1.4414589999998952,
+        "makespanMs": 49.61912499999926,
         "complete": true,
-        "grossNodeSeconds": 0.011550334999999905,
-        "usefulNodeSeconds": 0.005775167499999952,
+        "grossNodeSeconds": 0.8018172489999962,
+        "usefulNodeSeconds": 0.4009086244999981,
         "verificationMultiplier": 2,
         "speculationMultiplier": 1,
         "redispatches": 0,
-        "codeCache": "warm"
+        "codeCache": "warm",
+        "reduce": {
+          "ok": true,
+          "reduceMs": 1.2245419999999285,
+          "treeDepth": 2,
+          "combines": 5,
+          "recomputes": 0,
+          "combineExecutors": 3
+        }
       },
       {
-        "makespanMs": 1.392041000000063,
+        "makespanMs": 45.986000000000786,
         "complete": true,
-        "grossNodeSeconds": 0.011570292999999763,
-        "usefulNodeSeconds": 0.0057851464999998815,
+        "grossNodeSeconds": 0.7606452129999963,
+        "usefulNodeSeconds": 0.38032260649999816,
         "verificationMultiplier": 2,
         "speculationMultiplier": 1,
         "redispatches": 0,
-        "codeCache": "warm"
+        "codeCache": "warm",
+        "reduce": {
+          "ok": true,
+          "reduceMs": 1.2252910000006523,
+          "treeDepth": 2,
+          "combines": 5,
+          "recomputes": 0,
+          "combineExecutors": 3
+        }
       },
       {
-        "makespanMs": 1.446083999999928,
+        "makespanMs": 48.39258300000074,
         "complete": true,
-        "grossNodeSeconds": 0.012198624999999992,
-        "usefulNodeSeconds": 0.006099312499999996,
+        "grossNodeSeconds": 0.8255265430000038,
+        "usefulNodeSeconds": 0.4127632715000019,
         "verificationMultiplier": 2,
         "speculationMultiplier": 1,
         "redispatches": 0,
-        "codeCache": "warm"
+        "codeCache": "warm",
+        "reduce": {
+          "ok": true,
+          "reduceMs": 1.154207999999926,
+          "treeDepth": 2,
+          "combines": 5,
+          "recomputes": 0,
+          "combineExecutors": 3
+        }
       },
       {
-        "makespanMs": 1.4571250000001328,
+        "makespanMs": 64.85420799999883,
         "complete": true,
-        "grossNodeSeconds": 0.011999792999999957,
-        "usefulNodeSeconds": 0.005999896499999978,
+        "grossNodeSeconds": 1.250768459000001,
+        "usefulNodeSeconds": 0.6253842295000005,
         "verificationMultiplier": 2,
         "speculationMultiplier": 1,
         "redispatches": 0,
-        "codeCache": "warm"
+        "codeCache": "warm",
+        "reduce": {
+          "ok": true,
+          "reduceMs": 1.2410410000011325,
+          "treeDepth": 2,
+          "combines": 5,
+          "recomputes": 0,
+          "combineExecutors": 3
+        }
       },
       {
-        "makespanMs": 2.6803749999999127,
+        "makespanMs": 47.84283300000061,
         "complete": true,
-        "grossNodeSeconds": 0.02807525299999975,
-        "usefulNodeSeconds": 0.014037626499999876,
+        "grossNodeSeconds": 0.7983262940000077,
+        "usefulNodeSeconds": 0.3991631470000038,
         "verificationMultiplier": 2,
         "speculationMultiplier": 1,
         "redispatches": 0,
-        "codeCache": "warm"
+        "codeCache": "warm",
+        "reduce": {
+          "ok": true,
+          "reduceMs": 1.9645419999997102,
+          "treeDepth": 2,
+          "combines": 5,
+          "recomputes": 0,
+          "combineExecutors": 3
+        }
       },
       {
-        "makespanMs": 1.4828339999999116,
+        "makespanMs": 53.20587499999965,
         "complete": true,
-        "grossNodeSeconds": 0.01235295599999995,
-        "usefulNodeSeconds": 0.006176477999999975,
+        "grossNodeSeconds": 0.9487201660000008,
+        "usefulNodeSeconds": 0.4743600830000004,
         "verificationMultiplier": 2,
         "speculationMultiplier": 1,
         "redispatches": 0,
-        "codeCache": "warm"
+        "codeCache": "warm",
+        "reduce": {
+          "ok": true,
+          "reduceMs": 1.9952499999999418,
+          "treeDepth": 2,
+          "combines": 5,
+          "recomputes": 0,
+          "combineExecutors": 3
+        }
       },
       {
-        "makespanMs": 1.4234579999999823,
+        "makespanMs": 51.346583000000464,
         "complete": true,
-        "grossNodeSeconds": 0.011743375999999897,
-        "usefulNodeSeconds": 0.005871687999999949,
+        "grossNodeSeconds": 0.7887432059999993,
+        "usefulNodeSeconds": 0.3943716029999996,
         "verificationMultiplier": 2,
         "speculationMultiplier": 1,
         "redispatches": 0,
-        "codeCache": "warm"
+        "codeCache": "warm",
+        "reduce": {
+          "ok": true,
+          "reduceMs": 1.219583000000057,
+          "treeDepth": 2,
+          "combines": 5,
+          "recomputes": 0,
+          "combineExecutors": 3
+        }
       },
       {
-        "makespanMs": 1.7007919999998649,
+        "makespanMs": 44.54216700000143,
         "complete": true,
-        "grossNodeSeconds": 0.013366123999999676,
-        "usefulNodeSeconds": 0.006683061999999838,
+        "grossNodeSeconds": 0.7424969189999993,
+        "usefulNodeSeconds": 0.37124845949999963,
         "verificationMultiplier": 2,
         "speculationMultiplier": 1,
         "redispatches": 0,
-        "codeCache": "warm"
+        "codeCache": "warm",
+        "reduce": {
+          "ok": true,
+          "reduceMs": 1.1252089999998134,
+          "treeDepth": 2,
+          "combines": 5,
+          "recomputes": 0,
+          "combineExecutors": 3
+        }
       },
       {
-        "makespanMs": 1.549458000000186,
+        "makespanMs": 47.331333000000086,
         "complete": true,
-        "grossNodeSeconds": 0.012912705000000189,
-        "usefulNodeSeconds": 0.0064563525000000946,
+        "grossNodeSeconds": 0.8034652920000012,
+        "usefulNodeSeconds": 0.4017326460000006,
         "verificationMultiplier": 2,
         "speculationMultiplier": 1,
         "redispatches": 0,
-        "codeCache": "warm"
+        "codeCache": "warm",
+        "reduce": {
+          "ok": true,
+          "reduceMs": 1.4627500000005966,
+          "treeDepth": 2,
+          "combines": 5,
+          "recomputes": 0,
+          "combineExecutors": 3
+        }
       },
       {
-        "makespanMs": 1.4564580000001115,
+        "makespanMs": 46.383083000000624,
         "complete": true,
-        "grossNodeSeconds": 0.011531500000000049,
-        "usefulNodeSeconds": 0.005765750000000024,
+        "grossNodeSeconds": 0.7662454170000002,
+        "usefulNodeSeconds": 0.3831227085000001,
         "verificationMultiplier": 2,
         "speculationMultiplier": 1,
         "redispatches": 0,
-        "codeCache": "warm"
+        "codeCache": "warm",
+        "reduce": {
+          "ok": true,
+          "reduceMs": 1.1795839999995223,
+          "treeDepth": 2,
+          "combines": 5,
+          "recomputes": 0,
+          "combineExecutors": 3
+        }
       },
       {
-        "makespanMs": 1.7334160000000338,
+        "makespanMs": 46.31733299999905,
         "complete": true,
-        "grossNodeSeconds": 0.014841625999999677,
-        "usefulNodeSeconds": 0.007420812999999839,
+        "grossNodeSeconds": 0.7809959559999988,
+        "usefulNodeSeconds": 0.3904979779999994,
         "verificationMultiplier": 2,
         "speculationMultiplier": 1,
         "redispatches": 0,
-        "codeCache": "warm"
+        "codeCache": "warm",
+        "reduce": {
+          "ok": true,
+          "reduceMs": 1.834167000000889,
+          "treeDepth": 2,
+          "combines": 5,
+          "recomputes": 0,
+          "combineExecutors": 3
+        }
       },
       {
-        "makespanMs": 1.486167000000023,
+        "makespanMs": 51.03054200000042,
         "complete": true,
-        "grossNodeSeconds": 0.011798372999999628,
-        "usefulNodeSeconds": 0.005899186499999814,
+        "grossNodeSeconds": 0.8953169150000049,
+        "usefulNodeSeconds": 0.44765845750000244,
         "verificationMultiplier": 2,
         "speculationMultiplier": 1,
         "redispatches": 0,
-        "codeCache": "warm"
+        "codeCache": "warm",
+        "reduce": {
+          "ok": true,
+          "reduceMs": 1.1802499999994325,
+          "treeDepth": 2,
+          "combines": 5,
+          "recomputes": 0,
+          "combineExecutors": 3
+        }
       }
     ]
   },
   "wasmSummary": {
     "n": 19,
-    "p50": 0.6090409999999338,
-    "p95": 0.7857080000001133,
-    "p99": 0.7857080000001133,
-    "min": 0.5215420000001814,
-    "max": 0.7857080000001133,
-    "meanForCostArithmeticOnly": 0.608048157894748,
+    "p50": 20.927875000001222,
+    "p95": 28.02983299999869,
+    "p99": 28.02983299999869,
+    "min": 20.428083999999217,
+    "max": 28.02983299999869,
+    "meanForCostArithmeticOnly": 22.584482578947007,
     "reliable": true
   }
 }

@@ -29,6 +29,17 @@
  * one thing here with a test, and the defaulted output path is inside the tested
  * function rather than downstream of it.
  *
+ * ## …and why the sentinel is gone rather than guarded a fourth time
+ *
+ * The paragraph above describes a `-1` used as an index. The correction it prompted was
+ * a guard — `outAt === -1 || …` — which is right and which does not scale: `--image` and
+ * `--docker` would each have needed their own `indexOf`, their own sentinel, and their
+ * own clause in one filter, and the defect only ever showed up when a flag was *absent*,
+ * which is the case a reader checks last. So the parsing is now one left-to-right pass
+ * over {@link VALUE_FLAGS}, collecting consumed indices into a `Set<number>`. There is no
+ * state in it that means "not found", and therefore no value that can be mistaken for a
+ * position.
+ *
  * ## The exit code says what the verdict says
  *
  * `0` clean, `2` translated with reservations, `1` failed. `2` rather than `0`
@@ -44,6 +55,11 @@
  * a real container lift against the test runner's own argv. The guard below compares
  * `argv[1]` to this module, so importing is inert and invoking is not.
  *
+ * That comparison can also *fail*, which is a third answer and used to be spelled as
+ * the second one — see {@link EntryVerdict}. A guard that answers "no" when it means
+ * "I could not tell" is how this file produced the exit code its own paragraph above
+ * calls the worst available.
+ *
  * Node-only.
  */
 
@@ -56,7 +72,18 @@ const EXIT_CLEAN = 0
 const EXIT_FAILED = 1
 const EXIT_RESERVATIONS = 2
 
-const USAGE = 'usage: npm run aot:lift -- <path-to-aarch64-static-elf> [--out <artifact.wasm>]'
+const USAGE =
+  'usage: npm run aot:lift -- <path-to-aarch64-static-elf> [--out <artifact.wasm>]' +
+  ' [--image <tag>] [--docker <path>]\n' +
+  // Both flags exist so the driver can be pointed at something other than the default,
+  // and both are on argv rather than only on `LiftOptions` because the refusal that
+  // matters is only reachable by *pointing the command at an image*. `--image` is how a
+  // re-tagged local image gets in front of the digest check at all; `--docker` names a
+  // program that is not Docker, which is what makes that refusal measurable on a host
+  // with no elfconv image present.
+  '  --image  the toolchain image to lift with; a tag whose RepoDigests name another\n' +
+  '           repository is refused rather than run under the borrowed name\n' +
+  '  --docker the program to run instead of `docker`'
 
 /**
  * Why the arguments could not be used.
@@ -69,7 +96,16 @@ const USAGE = 'usage: npm run aot:lift -- <path-to-aarch64-static-elf> [--out <a
  */
 export type ArgFailure =
   | { readonly kind: 'no-input' }
-  | { readonly kind: 'missing-out-value' }
+  /**
+   * A value-taking flag with nothing after it. `flag` says which one.
+   *
+   * One kind carrying the flag rather than one kind per flag. Three failures that all
+   * mean "you gave me a flag and no value" is how a reader stops being able to tell
+   * the named failures apart, which is the property the doc above says the naming
+   * exists to provide — and the sentence has to name the flag anyway, so a second kind
+   * would carry no information the field does not.
+   */
+  | { readonly kind: 'missing-flag-value'; readonly flag: string }
   | { readonly kind: 'flag-in-input-position'; readonly argument: string }
 
 /**
@@ -77,56 +113,99 @@ export type ArgFailure =
  *
  * `out` is a resolved path and never `undefined` — see the module comment. A caller
  * that had to apply the default itself is a caller that could skip it.
+ *
+ * `image` and `docker` are the opposite: **absent when the flag was not given**, never
+ * present and `undefined`. `main` spreads them into `LiftOptions`, whose own defaults
+ * (`ELFCONV_IMAGE_TAG`, `'docker'`) are the ones that should apply, and under
+ * `exactOptionalPropertyTypes` an explicit `undefined` is a different value from an
+ * omitted key. Defaulting them here would put a second copy of `lift.ts`'s defaults in
+ * a file whose whole point is that it holds no logic.
  */
 export type AotArgs =
-  | { readonly ok: true; readonly input: string; readonly out: string }
+  | {
+      readonly ok: true
+      readonly input: string
+      readonly out: string
+      readonly image?: string
+      readonly docker?: string
+    }
   | { readonly ok: false; readonly failure: ArgFailure }
 
 export function describeArgFailure(failure: ArgFailure): string {
   switch (failure.kind) {
     case 'no-input':
       return 'no input binary given — there is nothing to lift'
-    case 'missing-out-value':
-      return '--out was given with no path after it'
+    case 'missing-flag-value':
+      return `${failure.flag} was given with no value after it`
     case 'flag-in-input-position':
       return `${failure.argument} is not a path — the input binary comes first, or after --out <path>`
   }
 }
 
 /**
- * `process.argv.slice(2)` into an input path and an output path.
+ * Every flag that takes the argument after it.
  *
- * `--out` may appear on either side of the positional argument, which is the whole
- * reason this is index arithmetic rather than a simple `argv[0]`. Extra positionals
- * are ignored rather than rejected: that was the previous behaviour, one binary per
- * run is the only shape the container driver supports, and turning a tolerated
- * argument into a hard failure is not a bug fix.
+ * A table rather than three `indexOf` calls, so adding a fourth flag is an entry here
+ * and nothing else. The order is the order they are documented in {@link USAGE}.
+ */
+const VALUE_FLAGS = ['--out', '--image', '--docker'] as const
+
+/**
+ * `process.argv.slice(2)` into an input path, an output path, and the two overrides.
+ *
+ * A value-flag may appear on either side of the positional argument, which is the whole
+ * reason this is a pass with a consumed-index set rather than a simple `argv[0]`. Extra
+ * positionals are ignored rather than rejected: that was the previous behaviour, one
+ * binary per run is the only shape the container driver supports, and turning a
+ * tolerated argument into a hard failure is not a bug fix.
+ *
+ * A repeated flag takes its last value. Unspecified before and unspecified now — it is
+ * recorded here only so the next reader does not have to run it to find out.
  *
  * Refuses rather than exits. A parser that calls `process.exit` cannot be asked what
  * it would have decided, and that is precisely how the `-1` bug above stayed invisible
  * through the tool's whole existence.
  */
 export function parseAotArgs(argv: readonly string[]): AotArgs {
-  const outAt = argv.indexOf('--out')
-  const out = outAt === -1 ? undefined : argv[outAt + 1]
-  if (outAt !== -1 && out === undefined) {
-    return { ok: false, failure: { kind: 'missing-out-value' } }
+  const values = new Map<string, string>()
+  // The indices this pass has already accounted for — a flag and the value after it.
+  // Membership, not arithmetic: there is no "absent" index to be confused with `0`.
+  const consumed = new Set<number>()
+
+  for (let index = 0; index < argv.length; index++) {
+    const argument = argv[index]
+    if (argument === undefined || !VALUE_FLAGS.includes(argument as (typeof VALUE_FLAGS)[number])) {
+      continue
+    }
+    const value = argv[index + 1]
+    if (value === undefined) {
+      return { ok: false, failure: { kind: 'missing-flag-value', flag: argument } }
+    }
+    values.set(argument, value)
+    consumed.add(index)
+    consumed.add(index + 1)
+    // Step over the value, so `--out --image x` treats `--image` as `--out`'s value
+    // exactly as the old `argv[outAt + 1]` did, rather than consuming it twice.
+    index++
   }
 
-  // The `outAt === -1` guard is load-bearing. Without it the remaining clauses read
-  // `index !== -1 && index !== 0` whenever `--out` is absent, which is true of every
-  // index except the first — silently discarding the only argument there was.
-  const positional = argv.filter(
-    (_, index) => outAt === -1 || (index !== outAt && index !== outAt + 1),
-  )
-
+  const positional = argv.filter((_, index) => !consumed.has(index))
   const input = positional[0]
   if (input === undefined) return { ok: false, failure: { kind: 'no-input' } }
   if (input.startsWith('-')) {
     return { ok: false, failure: { kind: 'flag-in-input-position', argument: input } }
   }
 
-  return { ok: true, input, out: out ?? `${input}.wasm` }
+  const image = values.get('--image')
+  const docker = values.get('--docker')
+  return {
+    ok: true,
+    input,
+    out: values.get('--out') ?? `${input}.wasm`,
+    // Omitted rather than `undefined` — see {@link AotArgs}.
+    ...(image === undefined ? {} : { image }),
+    ...(docker === undefined ? {} : { docker }),
+  }
 }
 
 async function main(argv: readonly string[]): Promise<number> {
@@ -138,6 +217,11 @@ async function main(argv: readonly string[]): Promise<number> {
 
   const outcome = await liftElf(args.input, {
     onProgress: (note) => process.stderr.write(`  ${note}\n`),
+    // Conditional spread, the idiom `bin/agent.ts` uses for an optional option: under
+    // `exactOptionalPropertyTypes` passing `image: undefined` is not the same as passing
+    // nothing, and only the second lets `liftElf`'s own default apply.
+    ...(args.image === undefined ? {} : { image: args.image }),
+    ...(args.docker === undefined ? {} : { docker: args.docker }),
   })
 
   if (!outcome.ok) {
@@ -156,21 +240,106 @@ async function main(argv: readonly string[]): Promise<number> {
 }
 
 /**
- * True only when this file *is* the program.
+ * Which file this process was actually asked to run.
  *
- * `realpathSync` on both sides because a launcher reached through a symlinked
- * `node_modules/.bin` entry gives an `argv[1]` that spells the same file differently
- * from `import.meta.url`, and the failure mode of getting that wrong is the worst
- * available: the command runs, prints nothing, and exits 0.
+ * Four answers rather than a boolean, and the fourth is the whole point. The guard
+ * was written as `try { … } catch { return false }`, and `false` is the answer that
+ * means "do nothing" — so every way `realpathSync` can fail (a dangling symlink in
+ * `node_modules/.bin`, `ELOOP`, `EACCES` or `ENOTDIR` on a path component, a cwd
+ * unlinked under a relative `argv[1]`) produced exactly the outcome the docblock
+ * below already named as the worst available: the command runs, prints nothing, and
+ * exits 0. The tool whose entire reason for existing is that *elfconv's* exit code
+ * cannot be trusted was emitting an untrustworthy one of its own.
+ *
+ * `undecidable` is not `another-module`. "I compared them and they differ" and "I
+ * could not compare them" are different statements, and only the first justifies
+ * silence.
  */
-function invokedAsCommand(): boolean {
-  const entry = process.argv[1]
-  if (entry === undefined) return false
-  try {
-    return pathToFileURL(realpathSync(entry)).href === import.meta.url
-  } catch {
-    return false
+export type EntryVerdict =
+  /** `argv[1]` names this file, so `main()` is the program. */
+  | { readonly kind: 'this-module' }
+  /** `argv[1]` names something else — this file was imported, and must stay inert. */
+  | { readonly kind: 'another-module'; readonly entry: string }
+  /** No `argv[1]` at all: `node -e`, the REPL, an embedder. Genuinely not a command. */
+  | { readonly kind: 'no-entry' }
+  /** The comparison could not be made. See {@link EntryVerdict}. */
+  | { readonly kind: 'undecidable'; readonly entry: string; readonly detail: string }
+
+export function describeEntryVerdict(verdict: EntryVerdict): string {
+  switch (verdict.kind) {
+    case 'this-module':
+      return 'this file is the program'
+    case 'another-module':
+      return `this file was imported by ${verdict.entry}, so it did nothing`
+    case 'no-entry':
+      return 'there is no entry script, so this file was imported rather than run'
+    case 'undecidable':
+      return (
+        `could not establish whether ${verdict.entry} is this file (${verdict.detail}), so ` +
+        'nothing was lifted and this is not a success — re-run with a path that resolves'
+      )
   }
 }
 
-if (invokedAsCommand()) process.exitCode = await main(process.argv.slice(2))
+/** `null` rather than a throw, so an unrepresentable path is a comparison that failed. */
+function hrefOf(path: string): string | null {
+  try {
+    return pathToFileURL(path).href
+  } catch {
+    return null
+  }
+}
+
+/**
+ * `argv[1]` against this module's URL, without letting a failed syscall mean "no".
+ *
+ * The unresolved comparison runs *first* and is decisive on a match: `import.meta.url`
+ * is already fully resolved, so `argv[1]` spelling it exactly settles the question with
+ * no syscall at all. `realpathSync` is only needed for the case it was introduced for —
+ * a launcher reached through a symlinked `node_modules/.bin` entry, whose `argv[1]`
+ * spells the same file differently — and when it throws, the answer is that there is no
+ * answer.
+ *
+ * `realpath` is a parameter because the arm that matters cannot be provoked from a
+ * real filesystem here: node had to resolve `argv[1]` to load anything at all, so a
+ * path that fails this call is one that succeeded moments earlier. An arm nothing can
+ * call directly is an arm no test can show still fires — the reason `lift.ts` exports
+ * `classifySpawnFailure`.
+ */
+export function classifyEntry(
+  entry: string | undefined,
+  moduleUrl: string,
+  realpath: (path: string) => string = realpathSync,
+): EntryVerdict {
+  if (entry === undefined) return { kind: 'no-entry' }
+  if (hrefOf(entry) === moduleUrl) return { kind: 'this-module' }
+
+  let resolved: string
+  try {
+    resolved = realpath(entry)
+  } catch (cause) {
+    return {
+      kind: 'undecidable',
+      entry,
+      detail: cause instanceof Error ? cause.message : String(cause),
+    }
+  }
+
+  const resolvedHref = hrefOf(resolved)
+  if (resolvedHref === null) {
+    return { kind: 'undecidable', entry, detail: `${resolved} is not expressible as a file URL` }
+  }
+  return resolvedHref === moduleUrl ? { kind: 'this-module' } : { kind: 'another-module', entry }
+}
+
+const invocation = classifyEntry(process.argv[1], import.meta.url)
+if (invocation.kind === 'this-module') {
+  process.exitCode = await main(process.argv.slice(2))
+} else if (invocation.kind === 'undecidable') {
+  // Reported and failed, never run. Running `main()` on a maybe would lift a container
+  // as a side effect of an `import`, which is worse than the defect being fixed; exiting
+  // 0 having established nothing is the defect being fixed. Refusing is the only arm
+  // left, and it is the one that makes the exit code follow the measurement.
+  process.stderr.write(`${describeEntryVerdict(invocation)}\n`)
+  process.exitCode = EXIT_FAILED
+}

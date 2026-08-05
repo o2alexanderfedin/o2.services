@@ -50,6 +50,7 @@ export async function runJobInWorker(request: WorkerRequest): Promise<WorkerResp
         executors,
         nodes: publicNodes(executors),
         redundancy: request.redundancy,
+        onQuorumShortfall: 'runs-at-available-redundancy',
       },
       store,
     )
@@ -66,11 +67,42 @@ export async function runJobInWorker(request: WorkerRequest): Promise<WorkerResp
   }
 }
 
+/**
+ * Run one job and hand the answer to `post`, reporting a failed post as a result.
+ *
+ * The same shape as `runTaskAndPost` in `task-run.ts`, over this module's own
+ * response type, and for the same reason: `runJobInWorker` never rejects, so the
+ * only rejection the entry below could produce was `post` itself throwing on a
+ * response the structured-clone algorithm will not take. Unhandled, that turned a
+ * `DataCloneError` into a worker the caller waits out and concludes is gone.
+ *
+ * The substitute is the `ok: false` arm, holding one string — so whatever the first
+ * response carried that could not cross, this one does not.
+ */
+export async function runJobAndPost(
+  request: WorkerRequest,
+  post: (response: WorkerResponse) => void,
+): Promise<void> {
+  const response = await runJobInWorker(request)
+  try {
+    post(response)
+  } catch (cause) {
+    post({
+      ok: false,
+      error: `the result could not be posted back to the calling thread: ${
+        cause instanceof Error ? cause.message : String(cause)
+      }`,
+    })
+  }
+}
+
 // Worker entry. Guarded so importing this module for its types in a non-worker
 // context is harmless.
 if (typeof self !== 'undefined' && typeof (self as { postMessage?: unknown }).postMessage === 'function') {
   self.addEventListener('message', (event: MessageEvent<WorkerRequest>) => {
-    void runJobInWorker(event.data).then((response) => {
+    // Rejects only if the substitute response cannot be posted either — a worker with
+    // no channel back to the page. Left unhandled deliberately; see `runJobAndPost`.
+    void runJobAndPost(event.data, (response) => {
       self.postMessage(response)
     })
   })

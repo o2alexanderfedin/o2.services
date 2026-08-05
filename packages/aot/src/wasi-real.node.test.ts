@@ -1,4 +1,5 @@
 import { readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
 import { encodeCanonical, MemoryBlockstore } from '@o2/core'
 import { WASI } from '@bjorn3/browser_wasi_shim'
 import { describe, expect, it } from 'vitest'
@@ -42,13 +43,18 @@ import {
  *
  * ## The fixture
  *
- * `/tmp/ecvout/r1/hello.wasm`, produced by the lift recorded in
+ * `tools/aot/fixtures/r1/hello.wasm` — committed, and rebuilt with
+ * `npm run aot:lift -- tools/aot/fixtures/elf/hello_static`. It lived in `/tmp` until
+ * 2026-08-02, which is how this file's five cases went inert (deficiency D21). Produced by
+ * the lift recorded in
  * `tools/aot/lift.node.test.ts`. Skips cleanly when absent, for the same reason the ELF
  * fixtures do: `/tmp` does not survive a reboot and a suite that fails because a
  * scratch directory was cleaned is a suite people learn to ignore.
  */
 
-const ARTIFACT = process.env['O2_LIFTED_WASM'] ?? '/tmp/ecvout/r1/hello.wasm'
+const ARTIFACT =
+  process.env['O2_LIFTED_WASM'] ??
+  fileURLToPath(new URL('../../../tools/aot/fixtures/r1/hello.wasm', import.meta.url))
 
 function load(): Uint8Array<ArrayBuffer> | undefined {
   try {

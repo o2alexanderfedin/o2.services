@@ -93,9 +93,9 @@ export interface ShardWork {
 /**
  * What one dispatch produced.
  *
- * The two failure kinds are the distinction that makes churn recovery work, and
+ * The failure kinds are the distinction that makes churn recovery work, and
  * collapsing them into a single `null` — which an earlier version of this module did —
- * makes the 30%-node-loss criterion unachievable. They warrant opposite policies:
+ * makes the 30%-node-loss criterion unachievable. They warrant different policies:
  *
  * - **`node`** — unreachable, refused, connection died. *Whose* fault is the node's,
  *   so the same task on a different node is expected to succeed. Retry freely; the
@@ -103,13 +103,25 @@ export interface ShardWork {
  * - **`task`** — a reachable node ran the task and it failed: the module trapped, an
  *   input was missing, the output would not encode. Retrying this across the whole
  *   fabric burns every node in turn on work that cannot succeed, so it is capped low.
+ * - **`sender`** — *this* node did not send, by its own decision: its per-peer send
+ *   bound refused. Not the receiver's fault, so blaming it would route a healthy
+ *   peer out of the pool; not the task's fault, so counting it against
+ *   `DEFAULT_MAX_TASK_FAILURES` would condemn a good shard. Retried like `node`,
+ *   because a different peer means a different gate — but *named* differently, and
+ *   therefore assertable. That naming is the whole point: the recorded failure
+ *   attaches the *attempted* `nodeId`, so with only two kinds the record says the
+ *   receiver failed no matter what the reason string says.
  *
  * A rejected promise counts as `node`, because an exception escaping a transport is
  * what an unreachable peer looks like from here.
  */
 export type DispatchOutcome =
   | { readonly ok: true; readonly resultCid: string }
-  | { readonly ok: false; readonly kind: 'node' | 'task'; readonly reason: string }
+  | {
+      readonly ok: false
+      readonly kind: 'node' | 'task' | 'sender'
+      readonly reason: string
+    }
 
 /** Run one shard on one node. */
 export interface ShardDispatch {
@@ -169,7 +181,11 @@ export interface ShardOutcome {
   /** Nodes asked, in order, across every generation and any duplicate. */
   readonly attempted: readonly string[]
   /** Why each attempt failed, so a shard's history explains itself. */
-  readonly failures: readonly { readonly nodeId: string; readonly kind: 'node' | 'task'; readonly reason: string }[]
+  readonly failures: readonly {
+    readonly nodeId: string
+    readonly kind: 'node' | 'task' | 'sender'
+    readonly reason: string
+  }[]
   readonly rejections: readonly Rejection[]
   /** True when a speculative duplicate was started for this shard. */
   readonly speculated: boolean
@@ -219,7 +235,7 @@ const requestFor = (shard: ShardWork, redundancy = 1): PlacementRequest =>
 /** One copy's answer, plus why it failed if it did. */
 interface Attempt {
   readonly answer: SpeculativeAnswer
-  readonly failure: { readonly kind: 'node' | 'task'; readonly reason: string } | null
+  readonly failure: { readonly kind: 'node' | 'task' | 'sender'; readonly reason: string } | null
 }
 
 /** A dispatch that never rejects — an escaping exception is what a dead peer looks like. */
@@ -256,6 +272,27 @@ async function attempt(
  * confused by a `null` answer — which is a perfectly ordinary dispatch result here.
  */
 type Raced = { readonly tick: true } | { readonly tick: false; readonly attempt: Attempt }
+
+/**
+ * What a speculative copy turned out to be, once the winner had already been taken.
+ *
+ * One list per shard rather than one map per outcome. Parallel maps were how the
+ * hole appeared: a copy that answered *with a failure* was neither silent nor
+ * disagreeing, and every reader had to remember to consult a third structure that
+ * did not exist. `'agreed'` is here purely so the merge's enumeration is exhaustive —
+ * it carries nothing — which turns a fifth outcome invented later into a compile
+ * error rather than a silent omission.
+ */
+type LateOutcome =
+  | { readonly kind: 'no-answer'; readonly nodeId: string }
+  | {
+      readonly kind: 'failed'
+      readonly nodeId: string
+      readonly failureKind: 'node' | 'task' | 'sender'
+      readonly reason: string
+    }
+  | { readonly kind: 'disagreed'; readonly nodeId: string }
+  | { readonly kind: 'agreed'; readonly nodeId: string }
 
 /**
  * Run every shard, recovering from failure and slowness, and report both.
@@ -315,7 +352,7 @@ export async function runResilient(options: CoordinatorOptions): Promise<Coordin
 
   const runShard = async (shard: ShardWork): Promise<ShardOutcome> => {
     const attempted: string[] = []
-    const failures: { nodeId: string; kind: 'node' | 'task'; reason: string }[] = []
+    const failures: { nodeId: string; kind: 'node' | 'task' | 'sender'; reason: string }[] = []
     const rejections: Rejection[] = []
     let speculated = false
     let disagreed = false
@@ -447,6 +484,11 @@ export async function runResilient(options: CoordinatorOptions): Promise<Coordin
         pending.delete(answer.nodeId)
         if (failure !== null) {
           failures.push({ nodeId: answer.nodeId, ...failure })
+          // `'sender'` deliberately falls through to the same retry treatment as
+          // `'node'` — a different peer means a different gate, so trying another
+          // node is exactly right. That is a decision, not an omission: this is the
+          // only place `kind` is read for policy, and the value of the third kind
+          // is that the *record* names it, not that it changes what happens next.
           if (failure.kind === 'task') taskFailures += 1
         }
         // First result wins — but the copies still running are *registered*, not
@@ -521,41 +563,59 @@ export async function runResilient(options: CoordinatorOptions): Promise<Coordin
   // Every shard has finished. Now compare the speculative copies that lost, which
   // costs nothing extra: the job was already waiting for its slowest shard, and by
   // now the losers have had that whole time to answer.
-  const lateDisagreements = new Map<string, string[]>()
-  const lateUncompared = new Map<string, string[]>()
+  const lateOutcomes = new Map<string, LateOutcome[]>()
   await Promise.all(
     outstanding.map(async (copy) => {
       const settled = await Promise.race<Raced | null>([
         copy.copy,
         sleep(compareGraceMs).then(() => null),
       ])
-      const answer = settled === null || settled.tick ? null : settled.attempt.answer
-      const record = (into: Map<string, string[]>): void => {
-        const existing = into.get(copy.shardId)
-        if (existing) existing.push(copy.nodeId)
-        else into.set(copy.shardId, [copy.nodeId])
+      const record = (outcome: LateOutcome): void => {
+        const existing = lateOutcomes.get(copy.shardId)
+        if (existing) existing.push(outcome)
+        else lateOutcomes.set(copy.shardId, [outcome])
       }
 
-      if (answer === null || answer.resultCid === null) {
-        // Never answered, or failed. Not evidence of agreement either way — and
-        // recording it as agreement would assert something nobody checked.
-        if (answer === null) record(lateUncompared)
+      if (settled === null || settled.tick) {
+        // Silence. Not evidence of agreement — recording it as agreement would
+        // assert something nobody checked.
+        record({ kind: 'no-answer', nodeId: copy.nodeId })
         return
       }
+
+      const { answer, failure } = settled.attempt
+      if (answer.resultCid === null) {
+        // It answered, and what it said was that it failed. Neither silence nor
+        // agreement, and its own bucket for that reason.
+        ledger.discard(copy.shardId, copy.nodeId, false)
+        record({
+          kind: 'failed',
+          nodeId: copy.nodeId,
+          failureKind: failure?.kind ?? 'node',
+          reason: failure?.reason ?? 'copy failed with no reason given',
+        })
+        return
+      }
+
       const disagrees = answer.resultCid !== copy.winnerCid
       ledger.discard(copy.shardId, copy.nodeId, disagrees)
-      if (disagrees) record(lateDisagreements)
+      record({ kind: disagrees ? 'disagreed' : 'agreed', nodeId: copy.nodeId })
     }),
   )
 
   const shards: ShardOutcome[] = settledShards.map((shard) => {
-    const late = lateDisagreements.get(shard.shardId)
-    const unseen = lateUncompared.get(shard.shardId)
-    if (late === undefined && unseen === undefined) return shard
+    const late = lateOutcomes.get(shard.shardId)
+    if (late === undefined) return shard
     return {
       ...shard,
-      disagreed: shard.disagreed || late !== undefined,
-      uncompared: unseen ?? [],
+      disagreed: shard.disagreed || late.some((outcome) => outcome.kind === 'disagreed'),
+      uncompared: late.filter((o) => o.kind === 'no-answer').map((o) => o.nodeId),
+      failures: [
+        ...shard.failures,
+        ...late
+          .filter((o): o is Extract<LateOutcome, { kind: 'failed' }> => o.kind === 'failed')
+          .map(({ nodeId, failureKind, reason }) => ({ nodeId, kind: failureKind, reason })),
+      ],
     }
   })
 

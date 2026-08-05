@@ -77,7 +77,14 @@ beforeAll(async () => {
   if (address === null || typeof address === 'string') throw new Error('no server port')
   baseUrl = `http://127.0.0.1:${address.port}`
 
-  relay = await FabricNode.start({ maxReservations: 8, listen: ['/ip4/127.0.0.1/tcp/0/ws'] })
+  // DET-03: this node relays and executes nothing — the built bundle is the subject,
+  // not provenance. See `background-tab.e2e.test.ts` for the full note on why stating
+  // the opt-out is the point of the field being required.
+  relay = await FabricNode.start({
+    maxReservations: 8,
+    listen: ['/ip4/127.0.0.1/tcp/0/ws'],
+    trustAnchors: 'runs-unsigned-artifacts',
+  })
   browser = await chromium.launch()
 }, 300_000)
 
@@ -257,12 +264,36 @@ describe('the built bundle on a static host', () => {
     expect(await page.textContent('#state')).toContain('node running')
     expect(relay.capacity.granted).toBeGreaterThanOrEqual(1)
 
-    // BROW-04: the always-visible bar appears with the node and says what it is
-    // doing, including that execution is off the main thread — without which
-    // "stop drops CPU to zero" would be a claim rather than a fact.
+    // BROW-04: the always-visible bar appears with the node and says what it is doing.
     await page.waitForSelector('#bar', { state: 'visible', timeout: 30_000 })
-    expect(await page.textContent('#bar-stats')).not.toContain('ON MAIN THREAD')
-    expect(await page.evaluate(() => window.o2.activity()?.offMainThread)).toBe(true)
+    expect(await page.textContent('#bar-stats')).toContain('of one thread')
+
+    // SCHED-06: and the thread it is doing it on is a real one, emitted by *this*
+    // build.
+    //
+    // What stood here were two assertions on `offMainThread`, which became a constant
+    // `true` the moment `createWorker` was made required — reading a literal and
+    // reporting it as a measurement. They are gone, but deleting them bare would have
+    // left this file with nothing touching the worker at all, and that matters more
+    // now than it did: a mis-emitted worker used to degrade quietly to main-thread
+    // compute, and now kills compute outright, because the fallback that used to
+    // absorb it has been deleted.
+    //
+    // This is the only place that risk can be seen. `colouring-demo.e2e.test.ts`
+    // asserts `tasksExecuted > 0`, but it runs against the Vite **dev** server; this
+    // file is the one that runs `vite build` and serves `dist/`. Whether the production
+    // bundle's `?worker` import survives bundling was, until this line, asserted
+    // nowhere.
+    //
+    // One cube at redundancy 1 with no peers: `runColouring` composes
+    // `executors = [node.executor]` alone, so the whole job runs on this tab's own
+    // worker and needs no second party. `n` is small because the answer does not
+    // matter here — that a task crossed a thread boundary and came back does.
+    const executed = await page.evaluate(async () => {
+      await window.o2.runColouring({ n: 12, cubes: 1, redundancy: 1, peerIds: [] })
+      return window.o2.activity()?.tasksExecuted ?? 0
+    })
+    expect(executed).toBeGreaterThan(0)
 
     // And Stop empties it: the thread ends and the connections close.
     await page.click('#stop')

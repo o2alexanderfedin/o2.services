@@ -52,6 +52,15 @@ async function relayingNode(
 ): Promise<FabricNode> {
   return FabricNode.start({
     listen: ['/ip4/127.0.0.1/tcp/0/ws'],
+    // DET-03: this file's subject is that relaying is derived from the listen list and
+    // that a relayed node is not a lesser node — every dispatch here is in-process on
+    // the node being configured, and provenance is not what is being read. Stated
+    // rather than defaulted, which is the whole point of the field being required: a
+    // reader counting this literal learns which tests do not exercise the signed path.
+    // No job in this file carries a `moduleRecord` either — a node running with the
+    // opt-out has no guard to satisfy, and a record here would be decoration the next
+    // reader would mistake for a requirement.
+    trustAnchors: 'runs-unsigned-artifacts',
     ...options,
   })
 }
@@ -234,6 +243,28 @@ describe('NET-05 — exhaustion is reported by name', () => {
     // And the relay's own view says why, rather than leaving it to be inferred.
     expect(relay.capacity.atCapacity).toBe(true)
     expect(relay.capacity.granted).toBe(1)
+
+    // NET-05's lost wakeup, guarded deterministically and with no race to lose.
+    //
+    // The refusal above is already recorded by the time these lines run, so a listener
+    // subscribed *now* is exactly the case `bin/agent.ts` met in production: it
+    // subscribed after `FabricNode.start`, the relay dial happens inside `start`, and
+    // roughly one node in five was therefore never told it had been refused — reported
+    // instead as the outcome that cannot tell a full relay from a silent one.
+    //
+    // This case is the cheap half of the pair, and the half that cannot flake. The
+    // cross-process reading in `reservation-exhaustion.node.test.ts` is the expensive
+    // half, and it is the one that was ~80% reliable for weeks *because this property
+    // was never asserted anywhere*. `nextCapacityRefusal` has always replayed, which is
+    // precisely why this file stayed green while the other file did not — the asymmetry
+    // between the two methods was the whole defect.
+    //
+    // Reddened by removing the replay loop from `ReservationWatcher.onFailure`: this
+    // reads `[]`.
+    const afterTheFact: string[] = []
+    watcher.onFailure((failure) => afterTheFact.push(failure.kind))
+    expect(afterTheFact).toContain('at-capacity')
+    expect(afterTheFact).toHaveLength(watcher.failures.length)
   }, 60_000)
 
   it('raises the inbound limits alongside reservations, since both bind first', async () => {
@@ -290,6 +321,8 @@ describe('the rule: relaying and executing are the same node', () => {
       listen: [],
       relayAddrs: [address],
       rpcTimeoutMs: 30_000,
+      // DET-03 — see `relayingNode` above.
+      trustAnchors: 'runs-unsigned-artifacts',
     })
     started.push(guest)
     await until(() => both.capacity.granted === 1, 30_000, 'the reservation')
@@ -297,7 +330,7 @@ describe('the rule: relaying and executing are the same node', () => {
     // Only the guest holds the module; the relaying node must pull it over the same
     // connection it is carrying a circuit on.
     const moduleCid = await guest.store.put(MODULE_WRITES_PARTITION)
-    const executors = [new RemoteExecutor(both.peerId, guest.rpc)]
+    const executors = [new RemoteExecutor(both.peerId, guest.rpc, 'dispatches-unauthenticated')]
     const result = await submitJob(
       {
         moduleCid,
@@ -305,6 +338,7 @@ describe('the rule: relaying and executing are the same node', () => {
         executors,
         nodes: publicNodes(executors),
         redundancy: 1,
+        onQuorumShortfall: 'runs-at-available-redundancy',
       },
       guest.store,
     )
@@ -316,7 +350,7 @@ describe('the rule: relaying and executing are the same node', () => {
     for (const shard of result.job.shards) {
       expect(shard.verification.status).toBe('agreed')
       if (shard.verification.status !== 'agreed') continue
-      expect(shard.verification.agreeing).toEqual([both.peerId])
+      expect(shard.verification.agreeing.map((e) => e.nodeId)).toEqual([both.peerId])
     }
 
     // And it was relaying throughout — not "relayed once, then became a worker".
@@ -333,6 +367,9 @@ describe('the rule: relaying and executing are the same node', () => {
       listen: [],
       relayAddrs: [host.browserDialableAddrs[0]!],
       rpcTimeoutMs: 30_000,
+      // DET-03 — see `relayingNode` above. This node does execute, and the job below
+      // carries no record for exactly the reason stated there.
+      trustAnchors: 'runs-unsigned-artifacts',
     })
     started.push(guest)
     await until(() => guest.circuitAddrs.length > 0, 30_000, 'a circuit address')
@@ -350,7 +387,7 @@ describe('the rule: relaying and executing are the same node', () => {
     // dispatched over the connection it opened.
     await until(() => host.transport.peers.includes(guest.peerId), 30_000, 'the peer to appear')
     const moduleCid = await host.store.put(MODULE_WRITES_PARTITION)
-    const executors = [new RemoteExecutor(guest.peerId, host.rpc)]
+    const executors = [new RemoteExecutor(guest.peerId, host.rpc, 'dispatches-unauthenticated')]
     const result = await submitJob(
       {
         moduleCid,
@@ -358,6 +395,7 @@ describe('the rule: relaying and executing are the same node', () => {
         executors,
         nodes: publicNodes(executors),
         redundancy: 1,
+        onQuorumShortfall: 'runs-at-available-redundancy',
       },
       host.store,
     )
@@ -368,7 +406,7 @@ describe('the rule: relaying and executing are the same node', () => {
     for (const shard of result.job.shards) {
       expect(shard.verification.status).toBe('agreed')
       if (shard.verification.status !== 'agreed') continue
-      expect(shard.verification.agreeing).toEqual([guest.peerId])
+      expect(shard.verification.agreeing.map((e) => e.nodeId)).toEqual([guest.peerId])
     }
   }, 90_000)
 })

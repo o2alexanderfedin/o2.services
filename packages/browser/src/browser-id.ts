@@ -22,13 +22,15 @@
  * would just move a cliff onto the wrong row.
  */
 
-/**
- * The families reported. `other` is not a failure — it is an honest label, and a
- * report where `other` grows is itself the finding that this list needs extending.
- */
-export const BROWSER_FAMILIES = ['chromium', 'edge', 'firefox', 'safari', 'other'] as const
+import { MAX_BROWSER_MAJOR } from '@o2/core'
+import type { BrowserFamily } from '@o2/core'
 
-export type BrowserFamily = (typeof BROWSER_FAMILIES)[number]
+// The list lives with the type it constrains, beside the predicate that checks a
+// label arriving from a peer. Held here as well, it would be one of two sources
+// that had to be kept in agreement, and the one that drifted would be the one
+// nobody tested.
+export { BROWSER_FAMILIES } from '@o2/core'
+export type { BrowserFamily } from '@o2/core'
 
 export interface BrowserId {
   readonly family: BrowserFamily
@@ -69,9 +71,39 @@ export function identifyBrowser(userAgent: string): BrowserId {
   return { family: 'other', major: null }
 }
 
-/** The label that travels in a report. One string, so it cannot be re-split wrongly. */
+/**
+ * Whether a major version is one a label may carry.
+ *
+ * The ceiling comes from `@o2/core`, beside the predicate that will judge the label —
+ * the same reason {@link BROWSER_FAMILIES} is imported rather than restated. The other
+ * three conditions are about the type rather than the range: {@link browserLabel} is
+ * public API over `number | null`, and `number` includes `1.5`, `-1`, `NaN` and
+ * `Infinity`, each of which interpolates into something no pattern of digits admits.
+ * `1e21` is the one worth naming: it is an integer, and a template literal renders it
+ * `1e+21`.
+ */
+const publishableMajor = (major: number): boolean =>
+  Number.isInteger(major) && major >= 0 && major <= MAX_BROWSER_MAJOR
+
+/**
+ * The label that travels in a report. One string, so it cannot be re-split wrongly.
+ *
+ * **Every string this returns is one `isStartBrowserLabel` accepts**, and that is the
+ * point of the bound rather than a pleasant side effect. This composer used to interpolate
+ * the major unbounded while the wire pattern admitted four digits, so a visitor on a
+ * five-digit major produced a label no peer could file — and since `ownStartOutcome` runs
+ * a node's *own* label through the same predicate, that visitor's node started and then
+ * reported nothing whatever, its own ledger empty and its request's outcome dropped at
+ * every peer. A metric built to make silence visible was manufacturing silence.
+ *
+ * A version past the range is dropped, not clamped, and the label falls back to the family
+ * alone — which is not a new shape: it is what a version that cannot be *read* has always
+ * produced, and `other` is nothing else. The two say the same true thing, that this build
+ * has a family to report and no version to go with it. Clamping instead would file a real
+ * visitor under a number no browser ever had.
+ */
 export function browserLabel(id: BrowserId): string {
-  return id.major === null ? id.family : `${id.family} ${id.major}`
+  return id.major === null || !publishableMajor(id.major) ? id.family : `${id.family} ${id.major}`
 }
 
 /**

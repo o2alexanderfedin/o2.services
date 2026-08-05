@@ -41,6 +41,7 @@ import { fileURLToPath } from 'node:url'
 import { createServer } from 'vite'
 import type { ViteDevServer } from 'vite'
 import { FabricNode } from './fabric-node.ts'
+import type { FabricNodeOptions } from './fabric-node.ts'
 
 const ROOT = fileURLToPath(new URL('../../..', import.meta.url))
 const PAGE_PATH = '/packages/browser/demo/index.html'
@@ -92,6 +93,16 @@ export interface SeedServerOptions {
   /** TCP port the node listens on for WebSockets. 0 picks a free one. */
   readonly wsPort?: number
   readonly blockstoreDir: string
+  /**
+   * The build authorities this seed's node will run a module for — DET-03, DATA-08.
+   *
+   * Required and passed straight through to {@link FabricNodeOptions.trustAnchors},
+   * where the three values and the reason none of them is a default are documented in
+   * full. A seed executes tasks like any other node — the only difference between
+   * nodes is discovery — so it needs the same anchors any other node needs, and the
+   * binary above it is what supplies them.
+   */
+  readonly trustAnchors: FabricNodeOptions['trustAnchors']
   readonly maxReservations?: number
   /**
    * Hostnames the page may be requested by.
@@ -176,7 +187,35 @@ export class SeedServer {
     this.#wsPort = parts.wsPort
   }
 
+  /**
+   * Stand a seed up, or leave the machine as it was found.
+   *
+   * Same split as `FabricNode.start`, and for the same reason: `#compose` pushes a
+   * release on the line after each acquisition, and this method is the only thing
+   * that knows what to do when one of the later steps says no. A seed that failed
+   * half-way used to strand a whole node holding two bound listeners — the WebSocket
+   * port a browser dials and the plain TCP one another node dials.
+   */
   static async start(options: SeedServerOptions): Promise<SeedServer> {
+    const undo: (() => Promise<void> | void)[] = []
+    try {
+      return await SeedServer.#compose(options, undo)
+    } catch (cause) {
+      for (const release of undo.reverse()) {
+        try {
+          await release()
+        } catch {
+          // Nothing to do about it, and reporting it would report the wrong failure.
+        }
+      }
+      throw cause
+    }
+  }
+
+  static async #compose(
+    options: SeedServerOptions,
+    undo: (() => Promise<void> | void)[],
+  ): Promise<SeedServer> {
     const wsPort = options.wsPort ?? 0
 
     // 0.0.0.0, not loopback: the point is to be reachable from another device.
@@ -192,7 +231,10 @@ export class SeedServer {
       blockstoreDir: options.blockstoreDir,
       listen: [`/ip4/0.0.0.0/tcp/${wsPort}/ws`, '/ip4/0.0.0.0/tcp/0'],
       maxReservations: options.maxReservations ?? 64,
+      // Straight through, never defaulted here — see `SeedServerOptions.trustAnchors`.
+      trustAnchors: options.trustAnchors,
     })
+    undo.push(() => node.stop())
 
     const boundWsPort = readWsPort(node.multiaddrs)
     if (boundWsPort === null) throw new Error('seed node bound no WebSocket port')
@@ -252,6 +294,7 @@ export class SeedServer {
         },
       ],
     })
+    undo.push(() => http.close())
     await http.listen()
 
     const httpPort = http.config.server.port ?? 0
@@ -301,11 +344,26 @@ function readWsPort(multiaddrs: readonly string[]): number | null {
   return null
 }
 
+/**
+ * The port a join URL names, or `null` when it names none this function can read.
+ *
+ * **`null` means two things and the caller cannot tell them apart, which is on purpose
+ * here and would not be elsewhere.** A well-formed URL with no explicit port (`https://
+ * host/`, port defaulted by scheme) and a string that is not a URL at all both answer
+ * `null`. The caller wants "is there a port to reuse", and for that question the two
+ * are the same answer; nothing downstream branches on which it was.
+ *
+ * Recorded rather than left silent because its sibling `readWsPort` above carries a
+ * comment about a bug that shipped once, and a reader arriving from that comment is
+ * entitled to know whether this one hides the same class of mistake. It does not — but
+ * that is a claim worth writing down rather than leaving to be re-derived.
+ */
 function readUrlPort(url: string): number | null {
   try {
     const port = new URL(url).port
     return port === '' ? null : Number(port)
   } catch {
+    // Not a URL. Indistinguishable from "no port" to every caller, by design above.
     return null
   }
 }

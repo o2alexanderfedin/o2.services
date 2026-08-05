@@ -16,6 +16,30 @@ export type { FabricNodeOptions, RelayCapacity } from './fabric-node.ts'
 
 export { FsBlockstore } from './fs-blockstore.ts'
 
+// AUTH-01 — the identity seed and the provider-signed certificate, persisted beside the
+// blocks. The certificate goes through the same parser the wire uses, plus the hex-key
+// narrowing that parser cannot make — see `loadCertificate`.
+export {
+  CERTIFICATE_FILE,
+  IDENTITY_FILE,
+  MalformedSeedFileError,
+  PROVIDER_FILE,
+  hasSeed,
+  loadCertificate,
+  loadOrCreateSeed,
+  saveCertificate,
+} from './identity-store.ts'
+
+// AUTH-02 — one named verdict per peer, computed offline against pinned issuer keys.
+// `verifyCertificate` has been complete since Phase 6 with no production caller; this is
+// that caller. The module imports nothing Node-only and sits here only because
+// `@o2/browser` does not depend on `@o2/node` — see its own comment's packaging note.
+export { PeerVerifier } from './peer-verifier.ts'
+export type { PeerFailure, PeerVerdict, PeerVerifierOptions } from './peer-verifier.ts'
+
+// The Node tier's killable compute thread — SCHED-06, BROW-04's other half.
+export { workerThread } from './worker-thread.ts'
+
 // The libp2p transport and the NET-07 constants now live in @o2/libp2p, shared
 // with @o2/browser. Re-exported so existing importers of @o2/node are unaffected.
 export {

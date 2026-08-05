@@ -36,6 +36,34 @@ const PORTABLE = ['core', 'net', 'bench', 'demo', 'aot']
 const DUAL_TARGET = ['libp2p', 'browser']
 
 /**
+ * Directories under `packages/<pkg>` that this file scans, beyond `src`.
+ *
+ * `packages/browser/demo` is the Vite build root — `vite.config.ts` sets
+ * `root: './demo'`, so `demo/main.ts` is bundled and served to real tabs. It is
+ * shipping browser code by every meaning of the phrase, and until 2026-08-01 nothing
+ * here looked at it: a `node:` import there would have broken the demo build and
+ * passed this file. Scanning `src` alone was an omission, not a scoping decision, so
+ * it is corrected rather than documented.
+ *
+ * `packages/demo` is a different thing despite the name — a package, scanned through
+ * `PORTABLE` like any other.
+ */
+const EXTRA_ROOTS: Readonly<Record<string, readonly string[]>> = {
+  browser: ['demo'],
+}
+
+/** Absolute directories to scan for one package. */
+function rootsOf(pkg: string): string[] {
+  return ['src', ...(EXTRA_ROOTS[pkg] ?? [])].map((dir) => join(ROOT, 'packages', pkg, dir))
+}
+
+/** One import rule: what to match, and why it is refused. */
+interface Rule {
+  readonly pattern: RegExp
+  readonly why: string
+}
+
+/**
  * Import specifiers a portable package may not reference.
  *
  * `node:` covers builtins under the modern prefix. Bare `fs`/`path`-style
@@ -43,7 +71,7 @@ const DUAL_TARGET = ['libp2p', 'browser']
  * stance makes them unusable anyway, and listing them would false-positive on any
  * local module with a similar name.
  */
-const FORBIDDEN: readonly { readonly pattern: RegExp; readonly why: string }[] = [
+const FORBIDDEN: readonly Rule[] = [
   { pattern: /^node:/, why: 'a Node builtin does not exist in a browser' },
   { pattern: /^libp2p$/, why: 'libp2p belongs behind the Transport port, not in the kernel' },
   { pattern: /^@libp2p\//, why: 'libp2p modules belong in an adapter package' },
@@ -52,7 +80,7 @@ const FORBIDDEN: readonly { readonly pattern: RegExp; readonly why: string }[] =
 ]
 
 /** The subset of the above that also applies to the dual-target tier. */
-const NO_PLATFORM: readonly { readonly pattern: RegExp; readonly why: string }[] = [
+const NO_PLATFORM: readonly Rule[] = [
   { pattern: /^node:/, why: 'a Node builtin does not exist in a browser' },
   { pattern: /^@o2\/node$/, why: 'a dual-target package must not depend on the Node adapters' },
 ]
@@ -68,26 +96,45 @@ const NO_PLATFORM: readonly { readonly pattern: RegExp; readonly why: string }[]
  * only mean the committed binary went unchecked, which is a worse trade than the one
  * this rule exists to prevent.
  *
- * Shipping code is unaffected: every non-test file, and every test that runs in the
- * browser, is still scanned.
+ * **This exemption costs no shipping code.** That is a claim about the suffix and
+ * nothing else — it does not say the scan reaches everything the project ships, and
+ * it must not be read as saying so. What the scan reaches is stated by `PORTABLE`,
+ * `DUAL_TARGET` and {@link EXTRA_ROOTS}, and it was wrong for a while: the sentence
+ * that used to sit here read as a universal guarantee while `packages/browser/demo`
+ * — bundled by Vite and served to visitors — was outside every root.
  */
 const NODE_ONLY_SPEC = /\.node\.test\.ts$/
 
-async function sourceFiles(dir: string): Promise<string[]> {
+async function sourceFiles(dirs: readonly string[]): Promise<string[]> {
   const found: string[] = []
-  for (const entry of await readdir(dir, { withFileTypes: true, recursive: true })) {
-    if (!entry.isFile() || !entry.name.endsWith('.ts')) continue
-    if (NODE_ONLY_SPEC.test(entry.name)) continue
-    found.push(join(entry.parentPath, entry.name))
+  for (const dir of dirs) {
+    // `readdir` throws for a root that is not there, and that is the wanted
+    // behaviour: a scanned root that has been moved must fail by name rather than
+    // contribute nothing and let the remaining roots carry an unchanged assertion.
+    for (const entry of await readdir(dir, { withFileTypes: true, recursive: true })) {
+      if (!entry.isFile() || !entry.name.endsWith('.ts')) continue
+      if (NODE_ONLY_SPEC.test(entry.name)) continue
+      found.push(join(entry.parentPath, entry.name))
+    }
   }
   return found
 }
 
-/** Every static import/export specifier in a source file. */
+/**
+ * Every import/export specifier in a source file.
+ *
+ * The optional `(` covers `await import('…')`, which the pattern did not reach until
+ * 2026-08-01. That was a hole rather than a scoping choice: a portable package could
+ * have loaded a Node builtin dynamically and this file would have reported it clean.
+ * Five dynamic imports exist across the scanned roots today — `multiformats/cid` in
+ * `core/src/reduce.ts` and four in `browser/demo/main.ts` — and none of them is
+ * forbidden, so closing the hole changed no verdict. It was found by writing the
+ * instrument check below, which is the argument for having one.
+ */
 function specifiersOf(source: string): string[] {
   const found: string[] = []
-  // Matches `from '…'` in imports and re-exports, plus bare `import '…'`.
-  const pattern = /(?:from|import)\s*['"]([^'"]+)['"]/g
+  // `from '…'` in imports and re-exports, bare `import '…'`, and `import('…')`.
+  const pattern = /(?:from|import)\s*\(?\s*['"]([^'"]+)['"]/g
   for (const match of source.matchAll(pattern)) {
     const specifier = match[1]
     if (specifier !== undefined) found.push(specifier)
@@ -95,24 +142,44 @@ function specifiersOf(source: string): string[] {
   return found
 }
 
+/**
+ * The forbidden imports in one file's source, rendered.
+ *
+ * Split out from the walk for the reason `mutation-ledger.ts` splits `problemsWith`
+ * out of its own scan: every assertion in this file has the form
+ * `expect(violations).toEqual([])`, and a `specifiersOf` that returned nothing —
+ * after a regex edit, or against a syntax its pattern does not reach — would satisfy
+ * all of them at once while reading exactly like a clean repository. A pure function
+ * over a string can be handed a planted violation and required to find it, which is
+ * the only way `[]` means "looked and saw nothing" rather than "did not look".
+ */
+function violationsIn(label: string, source: string, rules: readonly Rule[]): string[] {
+  const found: string[] = []
+  for (const specifier of specifiersOf(source)) {
+    for (const { pattern, why } of rules) {
+      if (pattern.test(specifier)) found.push(`${label} imports "${specifier}" — ${why}`)
+    }
+  }
+  return found
+}
+
 describe('portability of @o2/core and @o2/net', () => {
   for (const pkg of PORTABLE) {
     it(`@o2/${pkg} references no platform-specific module`, async () => {
-      const files = await sourceFiles(join(ROOT, 'packages', pkg, 'src'))
+      const files = await sourceFiles(rootsOf(pkg))
       expect(files.length).toBeGreaterThan(0)
 
       const violations: string[] = []
+      let specifiers = 0
       for (const file of files) {
         const source = readFileSync(file, 'utf8')
-        for (const specifier of specifiersOf(source)) {
-          for (const { pattern, why } of FORBIDDEN) {
-            if (pattern.test(specifier)) {
-              violations.push(`${file.slice(ROOT.length)} imports "${specifier}" — ${why}`)
-            }
-          }
-        }
+        specifiers += specifiersOf(source).length
+        violations.push(...violationsIn(file.slice(ROOT.length), source, FORBIDDEN))
       }
 
+      // The file list being non-empty is not the same as the *specifier* list being
+      // non-empty, and it is the specifier list the verdict below is computed from.
+      expect(specifiers, `${pkg}: read files but extracted no imports`).toBeGreaterThan(0)
       expect(violations).toEqual([])
     })
 
@@ -132,23 +199,28 @@ describe('portability of @o2/core and @o2/net', () => {
 describe('dual-target packages touch no platform', () => {
   for (const pkg of DUAL_TARGET) {
     it(`@o2/${pkg} references no Node builtin`, async () => {
-      const files = await sourceFiles(join(ROOT, 'packages', pkg, 'src'))
+      const files = await sourceFiles(rootsOf(pkg))
       expect(files.length).toBeGreaterThan(0)
 
       const violations: string[] = []
+      let specifiers = 0
       for (const file of files) {
         const source = readFileSync(file, 'utf8')
-        for (const specifier of specifiersOf(source)) {
-          for (const { pattern, why } of NO_PLATFORM) {
-            if (pattern.test(specifier)) {
-              violations.push(`${file.slice(ROOT.length)} imports "${specifier}" — ${why}`)
-            }
-          }
-        }
+        specifiers += specifiersOf(source).length
+        violations.push(...violationsIn(file.slice(ROOT.length), source, NO_PLATFORM))
       }
+      expect(specifiers, `${pkg}: read files but extracted no imports`).toBeGreaterThan(0)
       expect(violations).toEqual([])
     })
   }
+
+  it('scans the demo Vite actually bundles, not only packages/browser/src', async () => {
+    // `EXTRA_ROOTS` is the whole of what puts `demo/main.ts` in jurisdiction, and a
+    // root that quietly stopped resolving would take the file back out while every
+    // assertion above stayed green. So the membership is asserted, not assumed.
+    const files = await sourceFiles(rootsOf('browser'))
+    expect(files.some((file) => file.endsWith('packages/browser/demo/main.ts'))).toBe(true)
+  })
 })
 
 describe('the kernel does not depend on its adapters', () => {
@@ -182,5 +254,66 @@ describe('the kernel does not depend on its adapters', () => {
       encoding: 'utf8',
     }).trim()
     expect(tracked.split('\n').filter((f) => f.endsWith('.ts')).length).toBeGreaterThan(5)
+  })
+})
+
+describe('the scanner can fail — proved against planted source, not assumed', () => {
+  /**
+   * Every verdict in this file is "no violations", and there are three separate ways
+   * to produce that from an instrument that is not working: `specifiersOf`'s regex
+   * could stop matching, the rule list could stop being applied, or the two could be
+   * wired together wrongly. None of them changes what a passing run looks like.
+   *
+   * This is the check `vocabulary.node.test.ts` and `disclosure-gate.node.test.ts`
+   * both carry and this file did not. The gap mattered: this repository has already
+   * shipped a pattern that matched nothing — the disclosure gate's
+   * `wrangler pages deploy` — and every absence assertion built on it passed for as
+   * long as it existed.
+   */
+  it('extracts the specifier forms the repository actually writes', () => {
+    const source = [
+      "import { readFileSync } from 'node:fs'",
+      "import type { Foo } from '@o2/core'",
+      "export { bar } from './local.ts'",
+      "import '@libp2p/peer-id'",
+      'const lazy = await import("node:path")',
+    ].join('\n')
+    expect(specifiersOf(source)).toEqual(['node:fs', '@o2/core', './local.ts', '@libp2p/peer-id', 'node:path'])
+  })
+
+  it('finds a planted Node builtin in a portable package', () => {
+    const violations = violationsIn('planted.ts', "import { readFile } from 'node:fs/promises'\n", FORBIDDEN)
+    expect(violations.length).toBe(1)
+    // The refusal has to name the specifier and the reason. "A violation was found"
+    // would leave a reader grepping for which import, in a package of hundreds.
+    expect(violations[0]).toContain('node:fs/promises')
+    expect(violations[0]).toContain('does not exist in a browser')
+  })
+
+  it('finds a planted libp2p import in a portable package', () => {
+    const violations = violationsIn('planted.ts', "import { tcp } from '@libp2p/tcp'\n", FORBIDDEN)
+    expect(violations.length).toBe(1)
+    expect(violations[0]).toContain('@libp2p/tcp')
+  })
+
+  it('lets the dual-target tier import libp2p while still refusing a builtin', () => {
+    // The two rule lists are different, and a test that only ever drove one of them
+    // would not notice them being swapped.
+    expect(violationsIn('planted.ts', "import { tcp } from '@libp2p/tcp'\n", NO_PLATFORM)).toEqual([])
+    expect(violationsIn('planted.ts', "import { join } from 'node:path'\n", NO_PLATFORM).length).toBe(1)
+  })
+
+  it('reports nothing for source that imports nothing forbidden', () => {
+    // The other direction. A classifier that flagged everything would also turn the
+    // planted cases above green while being useless.
+    expect(violationsIn('planted.ts', "import { publicNodes } from '@o2/core'\n", FORBIDDEN)).toEqual([])
+  })
+
+  it('does not mistake a type annotation for an import', () => {
+    // `packages/browser/demo/main.ts:61` is `let node: BrowserNode | null = null`,
+    // which contains `node:` and is not an import of anything. Newly in jurisdiction
+    // as of the `demo` root, so the false positive it would have caused is written
+    // down here rather than discovered by a confusing red.
+    expect(violationsIn('planted.ts', 'let node: BrowserNode | null = null\n', FORBIDDEN)).toEqual([])
   })
 })

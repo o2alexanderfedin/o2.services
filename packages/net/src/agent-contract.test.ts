@@ -19,7 +19,7 @@ import { RpcEndpoint } from './rpc.ts'
  * agreeing with whatever the type happens to allow.
  */
 
-/** A fully-specified `AgentOptions` — real rpc/executor/blockstore, all seven sentinels. */
+/** A fully-specified `AgentOptions` — real rpc/executor/blockstore, all nine sentinels. */
 function buildFull(): AgentOptions {
   const network = new MemoryNetwork()
   const rpc = new RpcEndpoint(network.connect('agent-contract'), { timeoutMs: 500 })
@@ -36,16 +36,18 @@ function buildFull(): AgentOptions {
     reservations: 'relays-for-nobody',
     ledger: 'keeps-no-ledger',
     onDispatch: 'reports-no-dispatch',
+    enroll: 'issues-no-certificates',
+    attest: 'signs-nothing',
   }
 }
 
-describe('AgentOptions requires all seven hooks — the compile-time proof', () => {
+describe('AgentOptions requires all nine hooks — the compile-time proof', () => {
   it('accepts a fully-specified AgentOptions and does not throw', () => {
     const full = buildFull()
     expect(() => serveAgent(full)).not.toThrow()
   })
 
-  // None of the eight `serveAgent` calls below is ever sent a request, so nothing
+  // None of the ten `serveAgent` calls below is ever sent a request, so nothing
   // throws at runtime regardless of which hook a given case omits — the whole
   // proof lives in whether `tsc` accepts the line without the suppression.
 
@@ -99,6 +101,41 @@ describe('AgentOptions requires all seven hooks — the compile-time proof', () 
     const full = buildFull()
     const { egress: _unused, ...rest } = full
     // @ts-expect-error WIRE-01 — egress is required; omitting it must fail `tsc --noEmit`, naming 'egress'.
+    expect(() => serveAgent(rest)).not.toThrow()
+  })
+
+  it('fails to compile with enroll omitted', () => {
+    // AUTH-01 / AUTH-04. What this omission would cost is specific: a node *told* to
+    // issue certificates that silently issues none. Enrollment against it fails while
+    // the provider looks correctly configured from the outside, and the operator has
+    // nothing to read — which is the "optional hook with a silent default is a hole"
+    // decision applied to the one hook where the absence is indistinguishable from an
+    // unreachable node.
+    const full = buildFull()
+    const { enroll: _unused, ...rest } = full
+    // @ts-expect-error WIRE-01 — enroll is required; omitting it must fail `tsc --noEmit`, naming 'enroll'.
+    expect(() => serveAgent(rest)).not.toThrow()
+  })
+
+  it('fails to compile with attest omitted', () => {
+    // VER-08 / VER-09 / VER-10. The quietest omission of the nine, and the one this
+    // guard is worth the most for. A node that left `attest` out would answer every
+    // combine unsigned: the frames stay well-formed, every existing assertion stays
+    // green, the reduce completes with the right aggregate — and the aggregation over
+    // contributions silently stops being checkable by anybody, which is the one thing
+    // `PROJECT.md` names as the verified half of its own claim.
+    //
+    // It is also the hook that keeps a node from signing one verb and not the other.
+    // `exec` reaches this identity through `attestResults`; a combine reaches it here,
+    // because `serveAgent` runs a combine itself and there is no `Executor` to wrap. One
+    // required hook is what stops those two routes diverging.
+    //
+    // The type checker is the only thing that catches this at a call site: this phase
+    // measured twice that an optional field leaves `tsc --noEmit` at exit 0 while the
+    // behavioural assertion fails.
+    const full = buildFull()
+    const { attest: _unused, ...rest } = full
+    // @ts-expect-error WIRE-01 — attest is required; omitting it must fail `tsc --noEmit`, naming 'attest'.
     expect(() => serveAgent(rest)).not.toThrow()
   })
 })

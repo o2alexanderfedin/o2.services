@@ -51,7 +51,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 13: Egress Manifest Completeness** - `EgressGuard` **refuses** a frame carrying a registered sovereign block rather than recording it afterwards, and a leaking cross-owner job fails from the submitter across two spawned `bin/agent.ts` processes — **3/3 on the amended criteria (`13-VERIFICATION-2.md`, 8 mutations planted by the verifier). Scored 0/3 on the original wording first (`13-VERIFICATION.md`); the criteria were then amended on three owner rulings and the gaps closed. Two follow-ons scheduled to Phase 13.1, not left implicit: NET-10 (the refusal arrives as a timeout, not a named outcome) and DATA-10 (only the executing node registers, so a submitter still serves raw sovereign bytes).**
 - [ ] **Phase 13.1: Node-Side Admission & Transport Bounds** (INSERTED) - A node refuses work it cannot run with a stated reason, and neither side of the wire can be driven past a bound by a peer — three defects measured against the real stack
 - [ ] **Phase 14: Signed Artifact Resolution** - Artifacts resolve only through a signed `key → CID` mapping on the live dispatch path, never a bare CID
-- [ ] **Phase 15: Capability-Chained Dispatch** - A dispatched task carries a capability chain the serving node verifies before `WebAssembly.instantiate`, both ends wired for the first time
+- [ ] **Phase 15: Capability-Chained Dispatch** - A dispatched task carries a capability chain the serving node verifies before `WebAssembly.instantiate` — the serving end wired and verified end to end, the requestor end wired to a required argument every production call site declines (see the amendment note under Phase 15)
 - [ ] **Phase 16: Decomposable Tree-Reduce Wiring** - A live multi-node job merges partials up `executeReduce`'s derived tree, replacing the demo's linear scan
 - [ ] **Phase 17: Node Identity & Enrollment** - A node generates its identity on-device and enrolls through a rate-limited, provider-signed flow that a peer verifies offline
 - [ ] **Phase 18: Discovery, Capacity & Placement** - Nodes discover candidates, sample and select by load, and refuse over-committed work — no static peer list, on a real job
@@ -60,6 +60,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [ ] **Phase 21: AOT Translation Signing & Runtime** - `translationCid` is called by the lift pipeline and a production node constructs a real `WasiExecutor`
 - [ ] **Phase 22: Reachability Guard** - A guard test fails when an exported capability has no path from a runnable entry point — the class of defect this milestone exists to fix
 - [ ] **Phase 23: Multi-Process Benchmark Driver** - The harness spawns N real operating-system processes instead of N nodes on one event loop, so a parallel speedup is measurable at all
+- [ ] **Phase 24: Certificate-Gated Admission** - The front door is locked: a node that cannot present a provider-issued certificate cannot reserve a circuit, be advertised, or be dialled. Scheduled later by owner ruling 2026-08-04; the open door is a KNOWN and accepted state until this phase runs
 
 ## Phase Details
 
@@ -361,10 +362,17 @@ Plans:
   1. A node at its execution slot limit refuses an `exec` request with a **stated reason** naming the limit, and the requestor re-picks — verified by concurrency against the real stack, not by a single-request unit test. Today: 4 peers × 200 concurrent `exec` requests produced 800 simultaneous `executor.execute()` calls and **0 refusals**
   2. `LocalCapacity` is either constructed by both production node factories, or deleted. It may not remain built-and-unwired: today it appears only in two test files while `fabric-node.ts` and `browser-node.ts` both pass the opt-out sentinel
   3. A peer cannot make a node allocate an unbounded buffer: `readMessage` enforces a declared maximum message size and calls `stream.abort()` past it. Today a single **64 MiB** frame was sent over the real transport and accepted
-  4. Dispatching N shards immediately after dial succeeds for N well above 12, or fails with a **stated, sender-attributed** reason. Today N=8 completes and N=12 fails entirely with `MaxEarlyStreamsError: Too many early streams - 11/10`, which calls `muxer.abort()` and tears down the whole connection — including in-limit requests and identify's stream
+  4. Dispatching N shards immediately after dial succeeds for N well above 12, or fails with a **stated, sender-attributed** reason. Today N=8 completes and N=12 fails entirely with `MaxEarlyStreamsError: Too many early streams were opened - 11/10` (quote corrected 2026-07-29 — the original was a paraphrase), which calls `muxer.abort()` and tears down the whole connection — including in-limit requests and identify's stream
   5. A connection torn down by the **sender** exceeding a stream limit is not classified by the coordinator as a **node** failure of the receiver
   6. A sovereignty refusal reaches the requestor as a **named outcome** carrying its reason, not as an RPC timeout. Measured today: `rpc … timed out after 4000ms`, no label, no attribution, against a 30,000 ms default
   7. A node asked for a raw sovereign block refuses, **whether or not it executed a task over that block**. Measured today: a submitting node that never ran the task holds no registration and serves the raw 95 bytes inside a 138-byte frame
+
+**Plans**: 5 plans, one per wave — three of them plant mutations into production source and verify while the mutation is live, so no two may run concurrently. Order 01 → 02 → 03 → 05 → 04.
+  - **01** — Admission on `serveAgent`'s `exec` branch (SCHED-06, criteria 1–2). `LocalCapacity` gains a non-reserving `would` twin and a high-water instrument; the `exec` branch takes a slot keyed on the task's own identity and releases it in a `finally` on every exit; the `offer` branch answers from the same counters and reserves nothing
+  - **02** — Transport bounds (NET-08, NET-09, criteria 3–5). `readMessage` is bounded *during* accumulation against a declared cap and the refusal is counted; a per-peer FIFO send gate with a bounded queue refuses past its depth with a named marker; a third failure kind names a sender's own refusal without misreading a dead receiver as one
+  - **03** — A sovereignty refusal arrives as a named outcome, not as a timeout (NET-10, criterion 6). A pre-send scan on the `exec` and `block` branches, measured against the production 30 s RPC budget left unshortened
+  - **05** — The two production node factories construct their own admission control and thread their transport options; criterion 1 measured against real nodes over TCP at the executor layer, and the benchmark declares the limit and shard count it was run under
+  - **04** — A submitter does not serve the row it submitted (DATA-10, criterion 7): sovereign shard inputs registered on the submitting node's own guard for the job's duration
 
 **Why this phase exists, and why it is inserted rather than appended.**
 
@@ -403,7 +411,7 @@ The apparent ceiling of 256 with one peer is the **sender's** `maxOutboundStream
 **Plans**: TBD
 
 ### Phase 15: Capability-Chained Dispatch
-**Goal**: A task dispatched between two live nodes carries a capability chain rooted at the data owner's key, and the receiving node's `authorize` hook verifies it before `WebAssembly.instantiate` — both ends wired for the first time
+**Goal**: A task dispatched between two live nodes carries a capability chain rooted at the data owner's key, and the receiving node's `authorize` hook verifies it before `WebAssembly.instantiate` — the serving end wired and verified end to end; the requestor end wired to a required constructor argument that every production call site declines, so its supplier branch has no entry-point caller
 **Mode:** mvp
 **Depends on**: Phase 11
 **Requirements**: AUTH-03
@@ -412,7 +420,51 @@ The apparent ceiling of 256 with one peer is the **sender's** `maxOutboundStream
   1. A task dispatched through `bin/agent.ts` between two live nodes carries a capability chain attached by `RemoteExecutor`, and the receiving node's `authorize` hook verifies it before calling `WebAssembly.instantiate`
   2. A task arriving with no capability chain, or one that has expired, is refused before instantiation, and the refusal names the missing or expired link, observable in the node's response
   3. A validly delegated sub-chain (owner → intermediate → executor) is accepted, and a chain with a broken delegation link is refused, proving delegation depth is checked and not merely the chain's presence
-**Plans**: TBD
+**Plans**: 4 plans (01 audience key + authorizer, 02 the dispatching half, 03 both factories wired, 04 the three criteria across two processes)
+
+<!--
+Goal amended 2026-07-31 by Plan 15-04, while the phase was closing rather than after.
+The clause that read "both ends wired for the first time" is false, and shipping a goal
+line the phase's own summary contradicts is the same defect one level up.
+
+What is true. The serving end is wired and verified end to end: `bin/agent.ts` takes
+`--owner-key`, both node factories install `authorizeCapability`, neither says
+`'serves-unauthenticated'` any more, and all three criteria above are demonstrated
+between two real operating-system processes. The requestor end is wired to a **required**
+third constructor argument on `RemoteExecutor` — omitting it is a `tsc --noEmit` error —
+but every one of the five non-test call sites names the sentinel rather than a chain,
+because all five dispatch `label: 'public'` shards, which have no owner and therefore no
+root key. So `delegate`, `CapabilitySupplier` and the supplier branch of
+`RemoteExecutor.execute` end this phase with a production adapter and zero production
+callers. That is the exact shape `.planning/REQUIREMENTS.md` already records AUTH-03 as
+suffering from — "built, not wired" — and it is now named here rather than left for Phase
+22 to discover.
+
+**Owner ruling, 2026-07-31: named is not fixed.** This plan proposed accepting the
+requestor half as entry-point-unreachable. Declined. **The opt-in sovereign leg is Phase 23
+criterion 5**, landing where `bin/bench.ts` is already being rewritten so the most
+contended file in the repository is fought once rather than twice. **AUTH-03 stays open
+until then** — Phase 15 closes its serving half only, and this phase may not tick it.
+
+The option declined, and its real cost, so a later reader does not re-derive it. An opt-in
+sovereign leg on `bin/bench.ts`, off by default, would give `delegate` a traced call path
+without moving the default scaling curve, which stays `label: 'public'`. It was declined
+**in this phase** rather than rejected outright, and the cost is larger than one flag:
+`realFabric`'s worker nodes start with no `sovereignty` configuration at all, so each
+would need an owner id, an owner key and clearance; the requestor would need a per-node
+chain minted against each worker's peer id; and `memoryFabric`'s nodes are raw
+`serveAgent` calls on `authorize: 'serves-unauthenticated'`, so the same leg would prove
+nothing on the memory fabric and the two published curves would stop measuring the same
+thing. `bin/bench.ts` is also the most contended file in the repository — six phases
+modify it. That is a design change needing its own context gathering, not a line in a
+proof plan.
+
+The goal was amended **down to what is true**, rather than the evidence being stretched up
+to the goal. The same standard the Phase 13 entry's amendment note closes on. The
+identical finding is recorded in `packages/net/src/remote-executor.ts`'s class comment and
+under Phase 22 below; if the three ever disagree, the class comment is the one a reader
+hits first and this file is the one an auditor greps.
+-->
 
 ### Phase 16: Decomposable Tree-Reduce Wiring
 **Goal**: A live multi-node job merges its shard partials by walking `executeReduce`'s derived tree, replacing the demo's linear scan
@@ -447,50 +499,455 @@ The apparent ceiling of 256 with one peer is the **sender's** `maxOutboundStream
 **Research**: None — `discoverExecutors`, `placeWithOffers`, and `DutyCycleGovernor` exist and are unit-verified in Phases 1 and 6; the gap is that `discoverExecutors` and the `capacity` hook (made explicit in Phase 11) have no production caller, and the governor is wired on the browser tier only
 **Success Criteria** (what must be TRUE):
   1. A job submitted through `bin/agent.ts` with no static peer list configured finds candidate executors by querying real content-CID providers intersected with capability records — not a hardcoded list — and dispatches successfully
-  2. Placement observed during that run samples multiple candidates and selects the least-loaded; a node made to report itself over capacity refuses the offer with a stated reason, visible in the requestor's re-pick, and the job still completes
+  2. Placement observed during that run samples multiple candidates and selects the least-loaded; a node made to report itself over capacity refuses the offer with a stated reason, visible in the requestor's re-pick, and the job still completes. **The offer refusal is advisory**: the node reports its load and reserves nothing, so this clause is met by an honest answer and does not by itself bound anything
   2b. A node **at its execution slot limit refuses an `exec` request** with a stated reason naming the limit, and the requestor re-picks
+  2c. Placing N shards through `planWithOffers` + `rpcAdmission` **does not over-commit a node past its declared limit**
+  2d. **`bin/agent.ts` gains a flag that makes a spawned agent dial a named peer**, and a spawned node started with it verifies that peer's certificate and *accepts* it — the accepting half of AUTH-02, cross-process. Routed here by owner ruling 2026-08-01 from Phase 17's criterion 2, which scored PARTIAL for this clause alone
+
+<!-- Criterion 2d added 2026-08-01. Phase 17 proved certificate verification is offline the
+     strong way — both provider processes stopped and asserted dead before the verifier exists —
+     and proved the *rejecting* half cross-process with a named `{kind:'untrusted-issuer'}`. It
+     could not prove the *accepting* half through `bin/agent.ts`, and the reason is structural
+     rather than a missing test: that binary parses eleven flags and **none of them dials a
+     peer**. `--provider-addr` dials only a provider, whose handshake carries
+     `certificate: null`, so a spawned verifier can reach nothing but `no-records`.
+
+     It lands here because a dial flag is discovery-shaped and this phase owns discovery — and
+     because until one exists, **no phase can prove any peer-to-peer acceptance cross-process**,
+     not just this one. Phase 17's verifier explicitly declined to defer it to this phase on its
+     own authority, since neither AUTH-02 nor certificate acceptance appeared in these criteria;
+     it is written in now rather than assumed. -->
+
 <!-- Criterion 2b added 2026-07-28. Criterion 2 exercises only the `offer` branch, and
      `serveAgent` consults `capacity` *only* there — the `exec` branch authorizes and then calls
      `await executor.execute(task)` with nothing counting what is in flight. Measured: 4 peers ×
      200 concurrent `exec` requests produced 800 simultaneous `execute()` calls and zero
      refusals. So Phase 18 could pass in full while that defect stayed wide open. Phase 13.1
-     closes it (SCHED-06); this criterion exists so Phase 18 cannot silently pass around it. -->
+     closes it (SCHED-06); this criterion exists so Phase 18 cannot silently pass around it.
+
+     Criterion 2 restated and criterion 2c added 2026-07-29 by Phase 13.1, plan 05. Phase 13.1
+     moved the offer branch from `LocalCapacity.offer` to `LocalCapacity.would`, which reserves
+     nothing — the reservation moved to the `exec` branch, where the slot is released after
+     execution, because an `offer` reservation had no release anywhere on the wire and a demo
+     liveness probe would have leaked one slot per peer per call. So the cross-shard bound the
+     old reserving offer branch incidentally provided is gone, and criterion 2 as originally
+     written could be met in full while a node was handed four shards against one slot. The two
+     candidate replacements, both protocol changes and therefore Phase 18's to choose between:
+     carry a shard id on the `exec` request so an offer reservation can be redeemed, or publish
+     the node's slot count in the `offer` response so a requestor can bound its own placement.
+     `packages/net/src/discovery.test.ts` pins the resulting over-commit as a recorded
+     consequence — four shards landing on one 1-slot node, zero refusals, zero slots taken — and
+     that case is expected to turn red when Phase 18 closes 2c. -->
 
   3. A user-set CPU duty-cycle cap set at runtime on a running node — Node tier and browser tier alike — is honoured immediately, and the node's advertised capacity to `discoverExecutors` drops accordingly, observable in what the requestor is offered next
   4. A relay run via `bin/seed.ts` at reservation capacity reports the exhaustion by name to a joining node attempting to reserve, rather than the joiner failing indistinguishably from a network outage
   5. Under artificial load pressure applied during a live run, a sovereignty-pinned task still lands on its owner even though a lower-cost non-owner node is available, proving the cost heuristic is filtered after the sovereignty constraint rather than scored against it
-**Plans**: TBD
+  6. **A node that enrols *after* a peer has already connected to it is taken by that peer without either side reconnecting** — the re-ask policy, closed ahead of planning on 2026-08-01 by owner ruling
+
+<!-- Criterion 6 added and CLOSED 2026-08-01, before this phase was planned. It is written
+     here rather than left in a summary because the defect lived on the dial path this phase
+     owns, and because the ruling it settles is fabric-wide.
+
+     THE DEFECT. `PeerVerifier` settled a peer's verdict once, on `peer:connect`, and cached
+     it for the life of the connection. A node that enrolled afterwards was excluded by that
+     peer permanently — with a correctly-named refusal the whole time, which is why nothing
+     reported it. Found by 17-06 on its first test failure and deliberately left unfixed
+     under Rule 4: every candidate changed how often nodes re-ask each other across the whole
+     fabric, and that is a protocol decision rather than a bug fix.
+
+     THE RULING — retryable/final split, refreshed lazily on read. Chosen over a timer, a
+     `records-changed` push, and a dial-ordering fix. The split falls out of `PeerFailure`'s
+     own structure, which already separates a fact about a **signed document** from a fact
+     about a **conversation**: `untrusted-issuer`, `bad-signature`, `nodeKey-mismatch` and
+     `unidentifiable-peer` are final for the connection; `no-records`, `unreachable`,
+     `unanswerable-peer`, `expired` and `not-yet-valid` are re-asked. The trigger is
+     `verifiedPeers`, which `RpcBlockSource` already reads per fetch, so no timer and no new
+     wire frame were added — the ceiling is one request per connected peer per retry floor,
+     paid only while something is actually fetching. `expired` and `not-yet-valid` are
+     deliberately retryable despite being `CertificateFailure`s: both are statements about a
+     clock rather than about the document.
+
+     WHY NOT THE OTHERS. A timer costs every node the sweep forever whether or not anything
+     needs a block, and puts a wall-clock bound inside a class that had none — the repo
+     already carries two open flakes of exactly that shape. A `records-changed` push has the
+     best latency but adds a wire frame and lets an *unverified* peer command work on demand,
+     which needs its own bound. Fixing the dial ordering alone closes only the startup race;
+     a node enrolling an hour later stays invisible, and Phases 19 and 20 both reopen the
+     window.
+
+     WHAT IT COST TO GET RIGHT. The first implementation of the anti-race guard was
+     unmeasured, and probing it found a second real defect: the generation counter was
+     per-peer, and `#onDisconnect` deletes the peer's entry — so the ask issued after a
+     reconnect was handed the same number as the one still in flight from before the
+     disconnect, and a stale refusal could overwrite a fresh acceptance. The counter is now
+     monotone across the verifier. Ledger entries M33/M34/M35 pin the three guards, all
+     three planted and caught with their recorded signature. -->
+**Plans:** 13/13 plans executed
+
+Plans:
+- [x] 18-01-PLAN.md — criterion 2d: `--peer-addr` and `--max-concurrent-tasks` on `bin/agent.ts`; AUTH-02's accepting half, cross-process
+- [x] 18-02-PLAN.md — D1 kernel: `SelfRecordIndex` answers `providers` from a node's own store; `RpcRecordIndex.providers` unions across peers
+- [x] 18-03-PLAN.md — D1 wiring: both tiers serve a `SelfRecordIndex`, and never advertise a block their `block` branch would refuse
+- [x] 18-04-PLAN.md — criterion 2c (D2): the offer answer publishes slots and in-flight; `planWithOffers` bounds placement across shards
+- [x] 18-05-PLAN.md — `submitJob` gains an offer arm; `discoverCandidates` turns a data CID into dispatchable candidates
+- [x] 18-06-PLAN.md — criteria 1 and 2 across real `bin/agent.ts` processes, and `bin/bench.ts --discover` as the entry-point call path
+- [x] 18-07-PLAN.md — criterion 3 kernel: a settable duty cycle composed with an environment governor; `LocalCapacity.slots` derived live
+- [x] 18-08-PLAN.md — criterion 3 Node tier: the governor composed, `--duty-cycle`, and a `SIGHUP` re-read of a control file under `--dir`
+- [x] 18-09-PLAN.md — criterion 3 browser tier: the same cap governor over `VisibilityGovernor`, read by a peer off a live tab
+- [x] 18-10-PLAN.md — criterion 5: sovereignty survives the offer loop's re-pick, in the kernel and across real processes
+- [x] 18-11-PLAN.md — criterion 4 / NET-05: `--relay-addr` installs a `ReservationWatcher`; a full `bin/seed.ts` relay refuses a joiner by name
+- [x] 18-12-PLAN.md — gap closure: criterion 2b's absence-instrument re-armed, and criterion 3's browser half read by a peer off the wire
+- [x] 18-13-PLAN.md — gap closure: the stale ledger rows and the guard that could not read them; `--discover` executed; the relay-dial divergence documented on both tiers
+
+Criterion 6 needs no plan — it landed on `develop` as `351bde1` before this phase was planned and needs verification only.
+
+<!-- TWO RULINGS TAKEN AT PLANNING TIME, 2026-08-01. Both are recorded here rather than in a
+     summary because both decide how this phase is *scored*, and a scoring rule that lives
+     only in a summary is one nobody reads at verification time.
+
+     RULING A — criterion 2b is expected to score PARTIAL, and that is accepted in advance.
+     Its second clause, "and the requestor re-picks", is not reachable in this phase. The
+     refusal half is closed (SCHED-06, `agent.ts:729-751`). The re-pick half needs WIRE-04:
+     `submitJob` calls `executeVerified` once per shard with no retry
+     (`core/src/job/submit.ts:267`), and `admission.node.test.ts:273-279` already records
+     that the re-pick belongs to `runResilient` and is "unmeasured on every path that runs in
+     production". WIRE-04 is **Phase 20 criterion 1**, so the work is already scheduled.
+
+     The criterion text is NOT amended, and the phase is NOT allowed to close on it. This
+     follows the ruling made for Phase 17's criterion 2 on 2026-08-01, where the unprovable
+     clause was rescheduled to Phase 18 criterion 2d *and* criterion 2 still scored PARTIAL
+     *and* Phase 17 stayed uncounted at 1/3. A criterion is not rewritten to let a phase
+     close. Plan 18-06 Task 2 therefore asserts the **absence** as a measurement — a direct
+     dispatch refused, and no shard recording a second attempt — so the clause turns red the
+     day WIRE-04 lands instead of surviving as a sentence in a summary.
+
+     RULING B — criterion 3's "user-set at runtime" is satisfied by a control file plus
+     `SIGHUP` on the Node tier, and an in-page setter on the browser tier. No wire frame is
+     added, and the reason is a security one rather than a convenience one: `serveAgent`
+     serves unauthenticated, so a request kind that set a CPU cap would let any peer able to
+     dial this node throttle a machine it does not own. The Node tier re-reads a control file
+     under `--dir`, carrying exactly the authority of the filesystem permissions that already
+     protect `.identity.key` in that same directory.
+
+     This does NOT create a node class. The governor, its coupling to the advertised slot
+     count, and the criterion it satisfies are identical on both tiers; only the control
+     surface differs, because a browser tab has no signals. That is a platform fact of the
+     same kind as "a browser cannot bind a listening socket", not a capability difference —
+     and 18-09 is required to prove the browser tier's cap is read by a *peer*, off a live
+     tab, so the equality is measured rather than asserted. -->
+
 
 ### Phase 19: Quorum Composition & Owner-Domain Attestation
 **Goal**: Verification quorums compose under anti-affinity with a backbone-anchored replica, owner-domain agreement is labelled distinctly from independent-operator agreement, and two browser tabs on a static bundle find each other with nothing dialed by a harness
 **Mode:** mvp
 **Depends on**: Phase 18, Phase 17
-**Requirements**: AUTH-05, NET-06, VER-03, VER-04, VER-08, VER-09, VER-10, WIRE-03
-**Research**: None — `composeQuorum`, `attestationReceipt`, and `resolveReplicaSets` exist and are unit-verified in Phase 6; the gap is that nothing on the production dispatch path calls them, and no test has ever put two tabs on a static bundle without a harness dialing for them
+**Requirements**: AUTH-04, AUTH-05, NET-06, VER-03, VER-04, VER-08, VER-09, VER-10, WIRE-03
+**Research**: None — but *"the gap"* is three different gaps, and calling them one is what this line got wrong. **Corrected in place 2026-08-03 by plan 19-03**; the superseded sentence and the measurements that refute it are in the dated note below the criteria. `attestationReceipt` and `resolveReplicaSets` exist, are unit-verified in Phase 6, and are indeed only *uncalled* on the production dispatch path. `composeQuorum` is not in that state: VER-03's anchored replica is **unimplemented rather than unwired**, and its ok arm returns `strength: 'independent'` unconditionally while never calling `classifyAttestation`, so wiring it as it stood would have reported every quorum `independent`. And no test had ever put two tabs on a static bundle without a harness dialing for them — that one is closed by 19-03
 **Constraints** (recorded 2026-07-28 by Phase 13, before criterion 2's plan is written):
   - Raw sovereign data does not move between nodes, including two nodes the same owner controls — `EgressGuard.send` refuses any frame carrying a registered sovereign payload rather than forwarding it (Plan 13-04). Criterion 2 below is therefore reachable only if the owner has already placed the input on both of their live nodes; the fabric will not fetch it onto the second one. See the **Raw sovereign data does not move between nodes** row in `.planning/PROJECT.md`'s Key Decisions
-  - That refusal path has no runtime coverage in a real tab anywhere. `BrowserNode` composes the identical `EgressGuard` and `registerSovereignInputs` wiring `FabricNode` does, but no sovereign job has ever run in a browser, so the refusal branch is compiled and never executed. This is the same structural gap `12-VERIFICATION.md` recorded and `13-03-PLAN.md` already routed to WIRE-03; naming it here so the WIRE-03 planner knows there is now a *behavior* to exercise and not only a composition to inspect
-  - **Browser-tier testing standard, one host and several browsers** (owner ruling, 2026-07-28): Playwright multi-browser on this machine — `instances: [{browser:'chromium'},{browser:'firefox'},{browser:'webkit'}]` — each peer in its own **isolated browser context** so it gets its own origin storage and IndexedDB, plus a **locally-started Circuit Relay v2 peer to dial**. Three engines on one host are three independent implementations and three independent storage backends; they are **not** three machines, and no result obtained this way may be labelled cross-machine or distributed-hardware. This standard is what makes criterion 4 runnable at all, and it **unblocks four items deferred for want of a multi-browser environment**: `BrowserNode.start()` has no dedicated runtime test anywhere in the repository (Phase 11, `11-VERIFICATION.md`); `BrowserNode`'s `guardSovereignty` wiring has zero runtime proof (Phase 12, `12-VERIFICATION.md`); `BrowserNode.egress` is unproven at runtime (Phase 13, threat T-13-08 in `13-03-PLAN.md`); and the Phase 13 `EgressGuard` refusal inherits into the browser tier untested (`13-VERIFICATION-2.md`). The recorded root cause is one sentence shared by all four — `BrowserNode.start()` needs a real `indexedDB` and a relay to dial, so it runs in **neither** vitest project. Full statement in REQUIREMENTS.md under WIRE-03
+  - **CORRECTED 2026-08-02 — this bullet previously said two things that are false, and both would have misdirected the WIRE-03 planner.** It read: *"`BrowserNode` composes the identical `EgressGuard` and `registerSovereignInputs` wiring `FabricNode` does, but no sovereign job has ever run in a browser, so the refusal branch is compiled and never executed."* (1) **`registerSovereignInputs` does not exist in this repository** — zero definitions, zero calls. The name was retired; the real symbols are `takeSovereignHold` and `withholdingFrom`, both exported at `packages/net/src/index.ts:77`, and `packages/net/src/capability-authorizer.ts:20-25` already records this verbatim. The planning documents inherited a name the source had dropped — the same failure this bullet's neighbour below documents for a different sentence. (2) **"No sovereign job has ever run in a browser" is refuted**: `packages/node/src/browser-capability.e2e.test.ts` dispatches three `label:'sovereign'` tasks (`:280-281`) to a live tab started with `canExecuteSovereign: true` (`:213`) and asserts the third is *accepted and executed* (`:349-353`)
+  - **What the composition claim gets right, and what actually remains unexecuted in a tab.** The composition holds line for line: guard construction (`fabric-node.ts:1284` / `browser-node.ts:851`), disposition object (`:1345` / `:885`), `withholdingFrom` (`:1366` / `:897`), `egress:` hook (`:1525` / `:1094`). What is *not* executed in a tab is narrower than "the refusal branch", and the source is more precise than this roadmap was: the **`authorize`/AUTH-03 refusal is executed** in a real tab; the **`EgressGuard`/`withholdingFrom` refusal is unconfirmed** — no e2e spec drives a sovereign payload out of a tab and reads the guard's refusal, and `two-tabs.e2e.test.ts:275-277` reads the *clean* manifest on a *public* job, the positive arm only; and the **`capacity`/SCHED-06 refusal is explicitly unexecuted, with the source naming this phase** — `packages/browser/src/browser-node.ts:1176-1184` says *"nothing drives a refusal through this hook … WIRE-03, Phase 19 builds the harness that would measure it."* Those two are WIRE-03's real content. This is the same structural gap `12-VERIFICATION.md` recorded and `13-03-PLAN.md` routed to WIRE-03
+  - **Browser-tier testing standard, one host and several browsers** (owner ruling, 2026-07-28): Playwright multi-browser on this machine — `instances: [{browser:'chromium'},{browser:'firefox'},{browser:'webkit'}]` — each peer in its own **isolated browser context** so it gets its own origin storage and IndexedDB, plus a **locally-started Circuit Relay v2 peer to dial**. Three engines on one host are three independent implementations and three independent storage backends; they are **not** three machines, and no result obtained this way may be labelled cross-machine or distributed-hardware. This standard is what makes criterion 4 runnable at all, and it **unblocks four items deferred for want of a multi-browser environment**: `BrowserNode.start()` has no dedicated runtime test anywhere in the repository (Phase 11, `11-VERIFICATION.md`); `BrowserNode`'s `guardSovereignty` wiring has zero runtime proof (Phase 12, `12-VERIFICATION.md`); `BrowserNode.egress` is unproven at runtime (Phase 13, threat T-13-08 in `13-03-PLAN.md`); and the Phase 13 `EgressGuard` refusal inherits into the browser tier untested (`13-VERIFICATION-2.md`). The recorded root cause was one sentence shared by all four — `BrowserNode.start()` needs a real `indexedDB` and a relay to dial, so it runs in **neither** vitest project — and **that sentence was false**. Retired in the source by Plan 15-05 and corrected here on 2026-08-01; it had survived at the package boundary, in the two documents a planner reads first. Corrected: the **`browser`** project cannot host such a test, because a Circuit Relay v2 server *"will not work in browsers"* in `@libp2p/circuit-relay-v2`'s own words; the **`e2e`** project can and **needs no relay at all**, because the tab dials a Node submitter's WebSocket listener directly. `packages/node/src/browser-capability.e2e.test.ts` starts that factory against a live tab today. The multi-browser standard above is still what criterion 4 needs — two tabs finding *each other* do need a relay — but it is not what unblocks the four deferred items, and treating it as such is what let them stay deferred. Full statement in REQUIREMENTS.md under WIRE-03
 **Success Criteria** (what must be TRUE):
-  1. A verification quorum assembled during a job run through `bin/agent.ts` contains at least one backbone-anchored replica and no two replicas from the same operator — a run engineered to try to fill a quorum from one operator's nodes is refused rather than silently accepted
+  1. A verification quorum assembled during a job run through `bin/agent.ts` rests on no single shared reachability dependency and contains no two replicas from the same operator — a run engineered to try to fill a quorum from one operator's nodes is refused rather than silently accepted, and so is one whose members all hang off the same relay
+
+<!-- CRITERION 1's FIRST CLAUSE REWORDED 2026-08-03 BY OWNER RULING. It read "contains at least
+     one backbone-anchored replica". The property is unchanged and the bar is NOT lowered — this
+     is a correction of wording that encoded a forbidden mechanism, not a criterion rewritten to
+     let a phase close.
+
+     WHAT WENT WRONG. "Backbone-anchored" was implemented in plan 19-02 as
+     `discoverability === 'seed'`, which collides head-on with `STATE.md:479-480`: *if a decision
+     keys on node kind, it is wrong — the only legitimate use is shared-dependency analysis over
+     the discovery graph.* It also contradicted a measured result: Phase 3 dialled an iPhone at
+     its `/p2p-circuit/webrtc` address and it ran half of a 2×-redundant job, so a
+     relay-discovered peer had already held a verification slot. The relay is a signalling
+     channel for registration and discovery, not a data path, and it drops out once peers
+     connect. Retracted in `0314208`.
+
+     WHY THE REWORDING IS FAITHFUL. VER-03's own rationale clause has always been *"so eclipsing
+     a quorum requires a backbone compromise"* — the requirement is **eclipse resistance**, and
+     shared-dependency analysis is the cardinal rule's named-legitimate way to express it.
+     `composeQuorum`'s rule 2 (`sharedRelay` over the chosen member set) delivers exactly that
+     property, and 19-02's own retraction measured why it must sit on the MEMBER set rather than
+     the candidate pool: a pool of relay-1/relay-1/relay-2 passes a pool-level check and then
+     draws two members both on relay-1 — a redundancy of two against a single point of failure.
+
+     THE DEFECT'S SHAPE, WORTH KEEPING. The old rule turned a repair into a refusal and put the
+     refusal before the thing it was about. If a quorum's dependencies are too concentrated the
+     answer is to draw a different member, not to refuse composition on what kind of node
+     somebody is. -->
+
   2. Several node certificates chaining to one owner's user key resolve, through `bin/agent.ts`, as a single discoverable replica set; a sovereignty-pinned task with two or more of that owner's nodes live executes on two of them, the outputs are compared, and the receipt reports the agreement as owner-domain, not independent-operator
   3. The same task with only one of that owner's nodes live executes once, and the resulting receipt reads owner-attested rather than verified, wherever it is displayed — CLI output, demo UI, or job result
-  4. Two browser peers opened against the static demo bundle — no seed process running, no `/bootstrap.json`, nothing dialed by a test harness — discover each other via the wired `index`/`reservations` hooks and complete a job together, proving browser peers participate in routing as full peers rather than only through backbone-served fallback. Run on **one host** under Playwright multi-browser (`chromium`, `firefox`, `webkit`), each peer in its own isolated context, against a locally-started relay — see the browser-tier testing standard in Constraints above; the result is a one-host result and is labelled as one
-**Plans**: TBD
+  4. Two browser peers opened against the static demo bundle — no seed process running, no `/bootstrap.json`, nothing dialed by a test harness — discover each other via the `index` hook each of them serves and the `reservations` answer the relay gives, and complete a job together, proving browser peers participate in routing as full peers rather than only through backbone-served fallback. Run on **one host** under Playwright multi-browser (`chromium`, `firefox`, `webkit`), each peer in its own isolated context, against a locally-started relay — see the browser-tier testing standard in Constraints above; the result is a one-host result and is labelled as one
+
+<!-- CRITERION 4's HOOK PHRASING CORRECTED 2026-08-03 BY PLAN 19-03, AND THE CORRECTION WAS
+     ITSELF CORRECTED BY OWNER RULING THE SAME DAY. The property is unchanged and the bar is
+     not lowered. This is a factual correction to a statement about the source, not a criterion
+     adjusted so a phase can close — RULING A above is explicit that a criterion is not
+     rewritten to let a phase close, and no other criterion text in this entry is touched.
+
+     WHAT IT USED TO SAY. *"discover each other via the wired `index`/`reservations` hooks"*.
+     That reads as though both hooks were wired on both tiers, and one of them is not.
+
+     WHAT WAS MEASURED. `index` is wired on both tiers and identically: each tier's
+     `serveAgent` call passes `index: records`, built by the same `ownRecords(certificate,
+     identity, sovereignty.canExecuteSovereign, store, withholdingFrom(egressDisposition))`
+     call over its own tier's store. `reservations` is wired on the Node tier only — a real
+     thunk over the reservation store, `reservations: () => node.reservedPeerIds` — while the
+     browser tier supplies the **named absence** `reservations: 'relays-for-nobody'`.
+
+     CITED BY SYMBOL, NOT BY LINE, and that is the correction rather than the numbers.
+     Warning W2 flagged four drifted line citations on 2026-08-04; they were corrected, and a
+     commit later the same day moved every one of them again by one line (W9). Three rounds of
+     chasing the same four numbers is enough evidence: a line number is an ABSOLUTE reference
+     into a file that keeps changing, and it rots silently while reading like evidence. A
+     grep-able symbol survives every edit that does not change the thing being cited.
+
+     WHY NOT SIMPLY NAME `index` ALONE. `19-CONTEXT.md` proposed exactly that, and the owner
+     ruled on 2026-08-03 that it **understates** the criterion. Both hooks are load-bearing;
+     they are just load-bearing on different nodes. The rendezvous answer that introduces two
+     tabs comes from the relay's `reservations` thunk, and each tab's own `index` hook is what
+     makes it a full routing peer rather than a client of one — which is precisely the clause
+     *"as full peers rather than only through backbone-served fallback"*. Dropping the second
+     name would have left that clause resting on nothing.
+
+     WHAT THE ASYMMETRY IS AND IS NOT. It is a statement about what each node *knows*, not
+     about what either is permitted to do. A tab holds no reservations of its own, so a tab
+     answering `reservations` would be reporting on peers it learned from a relay — a different
+     claim than the hook makes. **This is not a node-class decision** and must not be read as
+     one; giving the browser tier a real `reservations` thunk is deferred by decision, and if a
+     later phase wants it, it is a protocol question about what the hook asserts.
+
+     MEASURED, not argued from construction: `packages/node/src/static-rendezvous.e2e.test.ts`
+     takes the `reservations` reading on the built bundle with no origin to ask and no harness
+     dial, and `tab-refusals.e2e.test.ts:371,377` takes the `index` reading off a live tab over
+     the wire.
+
+     CORRECTED 2026-08-04 (verification warning W3). This read "takes both readings", which was
+     false: that file issues no `records` or `providers` request anywhere — discovery is
+     `findReservedPeers` alone, `computePeers` sends an `offer`, and its tabs are unenrolled so
+     `peerCertificate` returns before asking. The CLAUSE STILL HOLDS and criterion 4 remains
+     MET; only the sentence naming which file takes which reading was wrong. -->
+
+  5. **Enrolling a node costs an attacker something they cannot mint for free**, and the cost is measured: creating the N-th fake identity is demonstrably more expensive than creating the first. Routed here by owner ruling 2026-08-01 from Phase 17's AUTH-04, whose rate-limiting half is proven and whose cost half is not
+
+**Criterion 5 exists because Phase 17 measured its own rate limit and found what it does not buy.** The burst limit is real and fully proven — a stated threshold read out of the refusal the peer received, `limit: 5 / windowMs: 3_600_000` on the wire. But AUTH-04's text asks that mass fake-node creation be *"measurably costly"*, and Phase 17's verification established two things that defeat it. The limit is keyed on `userKey`, which is **one `ed25519.keygen()`** — so twenty distinct user keys all enrol unslowed, and removing the rate guard entirely leaves that test green. And the budget is per provider **process**: a second provider defeats it without needing a second user key at all, asserted across two spawned providers.
+
+It lands here rather than in Phase 17 because the remedy is a design decision this phase is already making — what scarce thing an identity must present. This phase owns AUTH-05 and the attestation-strength machinery, so the natural candidates (a provider-issued invitation chained to an owner key, a persistent cross-process budget, or proof-of-work) all sit beside work already scheduled here. **AUTH-04 stays open until then**; Phase 17 records the rate-limiting half as measured and the cost half as not, in those words.
+**Plans:** 18 plans, 8 waves
+
+Plans:
+- [ ] 19-01-PLAN.md — the certificate seam: `NodeDescriptor` carries the certificate discovery already held, or names its absence; `discoverCandidates` reports replica sets
+- [ ] 19-02-PLAN.md — `composeQuorum` gains the backbone anchor VER-03 never had, and reports the strength its members support instead of the constant it always declared
+- [ ] 19-03-PLAN.md — criterion 4: three browser peers on the static bundle, three engines, one relay, nothing dialled by the harness; plus this entry's three recorded corrections
+- [ ] 19-04-PLAN.md — WIRE-03: the two refusals a tab has never executed — the egress refusal on the browser submitter path, and the `exec` refusal at the slot limit
+- [ ] 19-05-PLAN.md — criterion 5, mechanism half: a second budget on the one quantity an attacker cannot rotate — the provider's own aggregate issuance — and an issuance ledger the host owns rather than the authority's heap
+- [ ] 19-06-PLAN.md — `submitJob` composes the quorum for public shards at redundancy ≥ 2 and emits the attestation receipt on every shard and every job
+- [ ] 19-07-PLAN.md — criterion 5, cost half: the durable issuance record on both tiers, the flag, and the budget that a provider restart does not hand back, measured across real processes
+- [ ] 19-08-PLAN.md — criterion 1 across real `bin/agent.ts` processes, with two engineered fabrics — one operator, and no anchor — each refused in the composer's own words
+- [ ] 19-09-PLAN.md — criterion 2 and AUTH-05: a node's owner id becomes its enrolled user key, and two of one owner's nodes agree as `owner-domain`
+- [ ] 19-10-PLAN.md — criterion 3 on the CLI: `bin/bench.ts` prints the receipt, and three readings are taken off the spawned driver's own stdout
+- [ ] 19-11-PLAN.md — criterion 3 in the demo UI, and the page's unconditional claim that every cube ran twice on different nodes is corrected
+- [ ] 19-12-PLAN.md — the ledger: one mutation entry per instrument, and requirement rows moved only as far as what landed supports
+- [ ] 19-13-PLAN.md — the third signing leg: a result a node signs with its certified key, the wrapper that produces it, and the wire that carries it
+- [ ] 19-14-PLAN.md — the agreeing set carries what each replica signed rather than a list of node ids the requestor chose
+- [ ] 19-15-PLAN.md — wired: both factories sign both verbs from one identity, and a signature verifies across a real process boundary
+- [ ] 19-16-PLAN.md — the aggregation is signed too: the combining node signs what it merged and what it produced, and `serveAgent` grows the one hook both verbs reach their key through
+- [ ] 19-17-PLAN.md — two receipts, because there are two claims: the aggregation's own strength, verified from combine signatures and printed beside the map job's
+- [ ] 19-18-PLAN.md — the strictness dial: every submitter states what it wants when verification cannot be composed, and not choosing stops being expressible
+
+<!-- Plan number is NOT wave order in this phase, and has not been since 19-04 was scheduled
+     after 19-05. Waves are: 1 = 01, 02, 03, 13; 2 = 05, 14; 3 = 18; 4 = 06, 16;
+     5 = 08, 10, 15; 6 = 04, 09; 7 = 07, 11, 17; 8 = 12. Every plan's frontmatter carries its
+     own `wave`, and
+     that is the authority — this list is ordered by number so a reader can find a plan, not by
+     when it runs. Machine-checked at planning time: every `depends_on` resolves to a strictly
+     earlier wave, and no two plans in one wave share a `files_modified` entry. -->
+
+<!-- PLANNED 2026-08-02. Three things a verifier should know before scoring this phase, all
+     of them decided at planning time rather than left to be discovered.
+
+     ENTRY-POINT SUBSTITUTION FOR CRITERIA 1 AND 2. `bin/agent.ts` never submits a job —
+     zero hits for `submitJob`, `JobSpec` or `executeVerified`; it is a serving node whose
+     only stdout is a handshake JSON at `:601`. *"A job run through `bin/agent.ts`"* is
+     satisfiable only as *"a job run **across** `bin/agent.ts` processes"*, which is the
+     shape `discovery-agents.node.test.ts` already uses for Phase 18's criteria 1 and 2.
+     Plans 19-08 and 19-09 take that shape and say so in their own headers. Recorded here
+     the way Phase 18 recorded its own at line 592, rather than left for verification.
+     Re-measured 2026-08-03 by plan 19-03, whose own task list carried this substitution as a
+     third correction to make: still zero hits for all three symbols, and `process.stdout.write`
+     still occurs exactly once in the file, at `:601`. Nothing was added — the record was
+     already correct, and duplicating it would have made one measurement look like two.
+
+     THE `Research: None` LINE ABOVE IS WRONG ON TWO COUNTS, both measured 2026-08-02.
+     VER-03's backbone-anchored replica is **unimplemented**, not unwired — `composeQuorum`
+     sorts by `relayIds.length` and refuses on a *shared* relay, and nothing anywhere
+     requires an anchored member; there is no `backbone` symbol in `packages/*/src` at all.
+     And `composeQuorum` returns `strength: 'independent'` **unconditionally** on its ok arm
+     while never calling `classifyAttestation`, so wiring it as it stood would have made
+     every quorum report `independent` including a size-1 one. Plan 19-02 fixes both; plan
+     19-03 corrects this line in place.
+
+     CRITERION 5's MECHANISM WAS DECIDED BY THE OWNER ON 2026-08-02, AND IT IS NONE OF THE
+     THREE CANDIDATES NAMED ABOVE AS THEY WERE FRAMED. Plan 19-05 originally opened with a
+     blocking decision between an invitation chain, a persistent budget and proof-of-work. The
+     ruling: the scarce thing an identity must present *already exists* — a provider-issued
+     certificate an attacker cannot mint, because `verifyCertificate` refuses an untrusted
+     issuer. What is not scarce is **issuance**. So the mechanism is a persistent, cross-process
+     **aggregate** issuance budget — how many certificates one provider will sign per window,
+     held where a restart cannot clear it — and nothing else. A budget keyed on any request
+     field is one the attacker rotates around, which is Phase 17's finding restated rather than
+     fixed. Plans 19-05 and 19-07 were replanned against it; the invitation, proof-of-work and a
+     larger rate limit are all off the table. The full ruling is in `19-CONTEXT.md` under
+     *"The signing triangle"*.
+
+     WHAT THAT MECHANISM IS, SO A VERIFIER SCORES THE EVIDENCE RATHER THAN THE WORDING. It is a
+     **bound made durable, not a per-identity price**: the N-th identity is *refused* inside the
+     window, and the refusal survives a provider restart. Criterion 5's phrase *"demonstrably
+     more expensive than the first"* can be read as requiring a rising price, and nothing in this
+     phase delivers one — no such price exists in this design and none was built. If a verifier
+     takes that reading, PARTIAL is the honest score and RULING A applies unchanged: a criterion
+     is not rewritten to let a phase close. Plan 19-07's own test file states the reading in its
+     header so the dispute surfaces at planning time rather than at verification.
+
+     THE PHASE ALSO ADDS THE THIRD SIGNING LEG, AND CRITERIA 2 AND 3 NOW DEPEND ON IT. Two legs
+     existed: the code a node runs is signed by its publisher (Phase 14, `guardModuleProvenance`
+     against pinned `trustAnchors`), and the node's certificate is signed by its provider
+     (Phase 17, `verifyCertificate` against `trustedIssuers`). The result a node returns was
+     signed by nobody — agreement was attested by transport authentication only, which is not
+     transferable, and `VerificationResult.agreeing` carried plain node-id strings. Plans 19-13,
+     19-14 and 19-15 add the leg for `exec`, and Plan 19-06 makes a certificate count toward a
+     receipt only when that node's signature over *this* result verifies. A receipt built
+     without it is the submitter's word about itself, so VER-08/09/10 may not be ticked on one —
+     recorded in Plan 19-12's disposition. Certificate lifetimes are explicitly **not** part of
+     any of this: the owner corrected an earlier draft that called for short ones, because the
+     attack radius does not justify them. No renewal machinery is planned and none may be added.
+
+     AND THE LEG COVERS THE COMBINE VERB TOO — owner decision 2026-08-02, taken after the first
+     three plans were written. Signing `exec` alone would have left a map/reduce job ending with
+     signed map results feeding an **unsigned aggregation**, which is precisely the half
+     `PROJECT.md` calls the verified one: *the owner's contribution is trusted; the aggregation
+     over contributions is verified*. `ReduceOutcome.executedBy` is a map of peer-id strings —
+     the combine verb's exact analogue of the defect being fixed for `exec`. Plan 19-16 has the
+     combining node sign the input set it merged, in merge order, and the result it produced;
+     Plan 19-17 verifies those signatures inside `reduceJob` and reports the aggregation's own
+     strength beside the map job's. **Two receipts, never one restated**: a sovereign map is
+     owner-attested by construction while the aggregation over it can be redundant, so they
+     routinely differ, and VER-08/09/10 may not be ticked on half the claim.
+
+     THE ISSUANCE BUDGET OPENS A DENIAL OF SERVICE, AND THE OWNER ACCEPTED IT AS A TRADE.
+     `serveAgent` serves enrolment unauthenticated, so anyone able to dial a provider can burn
+     its whole window at one `ed25519.keygen()` per attempt — where before the aggregate budget
+     they could burn only their own user key's window. No mitigation machinery is built: the
+     answer is that trust is per-verifier and pinned, so a burned provider is routed around by
+     trusting or running another. **But every fixture in this repository and the demo are
+     single-provider, so that recovery is an argument and not a reading.** Both sentences belong
+     in AUTH-04's row. *Unmeasured is not met* applies to a mitigation exactly as it applies to
+     a mechanism, and "mitigated by design" is not a phrase this row may use.
+
+     THE QUORUM IS THE DEFAULT AND IT IS OPTIONAL — owner ruling 2026-08-03, taken after 19-06
+     and 19-08 were written and requiring both to be replanned. A public shard at redundancy >= 2
+     whose candidate set cannot compose a valid quorum **degrades**: it runs at whatever
+     redundancy is available, is marked degraded, and its receipt reports the weaker strength.
+     **It does not fail the job.** Phase 12 already retired `not-enough-executors` for the same
+     reason, and criterion 1's load-bearing word is *silently* — `classifyAttestation` labels a
+     one-operator agreement `owner-attested` or `owner-domain` and never `independent`, so the
+     weaker outcome is named by construction. The exception is caller-set: Plan 19-18 puts a
+     **required two-armed dial** on `JobSpec`, and a caller that would rather have nothing than a
+     weaker answer takes the strict arm. Required rather than optional because this phase has
+     twice measured the alternative — Plans 19-01 and 19-13 each planted "make it optional and
+     omit it" and each saw `tsc --noEmit` exit 0 while the behavioural assertion failed. The
+     fan-out across every submitter is the point, not the cost.
+
+     THIS IS THE RETRACTED ANCHOR RULE'S SHAPE, AND IT IS WHY BOTH WERE CAUGHT THE SAME WEEK.
+     That defect turned a repair into a refusal and put the refusal before the thing it was
+     about. A candidate set too concentrated to verify is a condition the caller does not
+     control; the answer is to report what was achieved, not to kill the job — unless the caller
+     said in advance that a weaker answer is useless to them. Plan 19-08 now measures the same
+     over-concentrated fabric on **both** arms of the dial over one live fixture, because two
+     fabrics behaving differently proves nothing about a dial and one fabric submitted twice
+     does. -->
 
 ### Phase 20: Single Job Path, Ledger & Churn Resilience
 **Goal**: `submitJob` becomes the one job path — lease renewal, speculation, and coverage accounting live inside it, not in a second uncalled implementation — and the peer ledger records real cross-node outcomes instead of discarding them
 **Mode:** mvp
 **Depends on**: Phase 18, Phase 19
-**Requirements**: WIRE-04, CHURN-01, CHURN-02, CHURN-03, CHURN-04, CHURN-05, CHURN-06, BROW-02
-**Research**: None — `runResilient`'s lease/speculation/coverage machinery exists and is unit-verified in Phase 7; the gap is that nothing calls it, so `submitJob` is the only reachable job path and it does neither. `ledger` (made explicit in Phase 11) is supplied by no node in production
+**Requirements**: WIRE-04, CHURN-01, CHURN-02, CHURN-03, CHURN-04, CHURN-05, CHURN-06, BROW-02, AUTH-04
+**Research**: Mostly none — `runResilient`'s speculation and coverage machinery exists and is unit-verified in Phase 7; the gap is that nothing calls it. **Corrected 2026-08-04: this is FALSE of lease renewal, which criterion 1 names first.** `LeaseTable.renew`, `shouldRenew` and `RENEW_AT` have no caller anywhere outside `lease.test.ts`, and `runResilient` never renews — so renewal must be BUILT, not wired, and is prioritised accordingly by owner ruling. The hard constraint on that build: an unconditional renew is a longer timeout wearing a lease's clothes, so a renewal must be granted only on evidence that the holder is still working, so `submitJob` is the only reachable job path and it does neither. `ledger` (made explicit in Phase 11) is supplied by no node in production
 **Success Criteria** (what must be TRUE):
   1. `submitJob` is the only function a caller uses to run a job through `bin/agent.ts` — it performs lease renewal, speculation, and coverage accounting internally; `runResilient` no longer exists as a separate, uncalled entry point, either merged in or removed
+
+<!-- CRITERION 1 CARRIES PHASE 18's CRITERION 2b, AND A TRIPWIRE IS ALREADY ARMED FOR IT.
+     Recorded 2026-08-02 by owner ruling applying RULING A: Phase 18 verified 8/9 and stays
+     UNCOUNTED, with 2b's second clause — *"and the requestor re-picks"* — carried here rather
+     than lowered. Same treatment as Phase 16 criterion 3 → criterion 6 below, and Phase 17
+     criterion 2 → Phase 18 criterion 2d.
+
+     WHAT IS ALREADY TRUE. The refusal half is closed and measured (SCHED-06): a node at its
+     execution slot limit refuses an `exec` request naming the limit. What is absent is the
+     re-pick, because `submitJob` calls `executeVerified` exactly once per shard.
+
+     WHAT WILL FIRE WHEN YOU ADD THE RETRY. `packages/node/src/discovery-agents.node.test.ts`
+     asserts the shard ends `insufficient` with the refusal in `verification.failures`, taken
+     on a shard whose SELECTED executor refuses at exec. Adding a re-pick makes that shard
+     reach a second executor and stop being `insufficient`, so **the test goes red and that is
+     correct** — it is the scheduled clause arriving, not a regression. Update the assertion
+     to require the re-pick rather than its absence, and Phase 18 criterion 2b becomes MET.
+     Mutation-ledger entry M36 is exactly this defect planted deliberately; read it first, it
+     shows you the shape.
+
+     WHY THIS NOTE EXISTS AT ALL. The instrument that was supposed to hold this clause for
+     Phase 18 was a TAUTOLOGY — `expect(shard.verification.agreeing).toHaveLength(1)`, where
+     `agreeing ⊆ placement.nodeIds` whose length is `redundancy` = 1, under a
+     `status === 'agreed'` narrowing that excludes 0. It could not fail, so the clause would
+     have survived as a sentence in a summary, which is precisely what RULING A was written to
+     prevent. It was caught by an independent verification pass and re-armed in plan 18-12.
+     A scheduled clause is only scheduled if something red arrives to collect it. -->
+
+<!-- ALSO INHERITED HERE, AND NOT YET SCHEDULED TO A CRITERION: `admit:` at
+     `packages/node/src/bin/bench.ts:723` can be deleted with the entire suite staying green.
+     Deleting it moves `submitJob` from `planWithOffers` to `planPlacement`, and on a rig where
+     nothing refuses the two place identically. That line is the SOLE production caller behind
+     SCHED-02's "reachable from a runnable entry point" claim, so the requirement rests on a
+     wire nothing is watching. Confirmed structurally in Phase 18's re-verification:
+     `serve-agent-hooks.node.test.ts` pins eleven strings in that file and `admit` is not among
+     them. Closing it needs a rig where a node actually refuses — 18-12's re-armed criterion-2b
+     instrument, which saturates a node between the offer answer and the dispatch, is the
+     nearest existing shape. This phase merges the job paths and is therefore the phase most
+     likely to move that line; whoever does, give it a guard first. -->
+
   2. Killing 30% of participating node processes mid-job, run through `bin/agent.ts`, still produces the correct final result, with re-dispatches visible in the job's history output
   3. A straggler task is duplicated speculatively during a live run, the first correct result wins, and the job's reported cost accounting includes the speculation multiplier
   4. A cross-owner job run with some owners' nodes offline returns a coverage report (`covered: X/Y`) alongside its result, rather than presenting a silently partial aggregate as complete
   5. The browser demo's peer activity ledger, viewed across two or more connected tabs, shows merged counts contributed by every connected peer — not zero — because every node now supplies `serveAgent`'s `ledger` hook and reported outcomes are recorded rather than discarded
+  6. **A combine result arriving from a recovered node *after* `executeReduce` has already collected its `wanted` replicas is received and discarded harmlessly** — an unsolicited late duplicate, not one the test asked for. Routed here by owner ruling 2026-07-31 from Phase 16's criterion 3, which scored PARTIAL for this clause alone
+  7. A coordinator writes a checkpoint during a live job run through `bin/agent.ts`, and a SECOND requestor — given nothing but that checkpoint's CID — finishes only the outstanding shards and returns the same answer the first would have
+
+<!-- CRITERION 7 ADDED 2026-08-04 BY OWNER RULING, and the reason is a scoring gap rather than
+     a scope increase.
+
+     CHURN-03 was on this phase's `Requirements:` line and on NONE of its criteria. This project
+     counts over criteria and never over requirements — "a requirement can outlive the phase that
+     opened it; a criterion cannot" — so the work planned for CHURN-03 in plan 20-11 would have
+     been built and then never scored by any verifier. That is the exact "built, not wired"
+     condition this milestone exists to eliminate, reappearing in the ledger instead of the code.
+
+     WHAT IS ALREADY TRUE: `checkpoint.ts` is complete and imported by nothing — `coordinator.ts`
+     does not even import it. So this is a wiring criterion, not a build one.
+
+     WHY "A SECOND REQUESTOR" AND NOT "RESUMES": a resume by the same process proves only that a
+     value survived in memory. Handing a different requestor nothing but a CID is what makes the
+     checkpoint a durable artifact rather than a variable, and it is the only reading that cannot
+     be satisfied by the original job's state. -->
+
+
 **Plans**: TBD
+
+**Criterion 6 exists because Phase 16 could measure half of its own criterion 3 and said so.** The dedupe property is fully established there across nine real `bin/agent.ts` processes — probe-store deltas `+1/+0/+1`, a ninth fresh process returning the identical CID, two holders at redundancy 2 — but *"arriving late"* is not, because `executeReduce` stops at `wanted` replicas and **has no channel on which a late result could be received at all**. The duplicate in Phase 16's test is therefore solicited by the test, and `tree-reduce-agents.node.test.ts` says so about itself rather than letting the reading pass for more than it is.
+
+This phase is where the clause becomes measurable: it owns the recovery path, so a recovered node's late result finally has somewhere to arrive. **Phase 16 keeps MR-04 open on this account** — the criterion was scheduled rather than rewritten, on the same principle that sent AUTH-03's requestor half to Phase 23: lowering a bar is not clearing it.
 
 ### Phase 21: AOT Translation Signing & Runtime
 **Goal**: `translationCid` is called by the lift pipeline itself and the CLI emits the CID it produces; a production node constructs a real `WasiExecutor` so a translated artifact dispatched to a running node executes instead of failing at instantiate
@@ -504,6 +961,25 @@ The apparent ceiling of 256 with one peer is the **sender's** `maxOutboundStream
   3. A translated artifact produced by `tools/aot/cli.ts`, dispatched to a live node started via `bin/agent.ts`, executes successfully — the node constructs a real `WasiExecutor` in production, completing the same admission and verification path as a source-compiled module
 **Plans**: TBD
 
+**OPEN QUESTION FOR THE PLANNER — how does a 5.40 MiB artifact reach a node that does not have it? Answer this in the discuss step; do not let a plan assume it.** (Raised by the owner 2026-08-01. It is not rhetorical: criterion 3 cannot be met without an answer, because a node that cannot obtain the artifact fails at instantiate.)
+
+**The problem is not content addressing — we have that. It is durability and fan-out.** A CID tells you whether you got the right bytes; it says nothing about whether anyone still holds them. Today the only artifact path in production is `FetchingBlockstore` over the `block` RPC branch, which asks *a* peer. That has never been exercised as real distribution, because both existing paths dodge it: `packages/demo/src/kernel.ts` **embeds** the kernel in the JS bundle (`kernel-build.node.test.ts` asserts the bytes equal the committed `kernel.wasm`), and AOT artifacts have no production caller at all. In every case so far the holder and the requestor were the same process.
+
+Three consequences the planner must price:
+- **A resolvable name for unfetchable content is worse than no name.** Phase 14 made module resolution go through a signed `key → CID` mapping. If the one node holding those bytes leaves, the record still resolves and the job fails at `WebAssembly.instantiate` instead of at resolution.
+- **The browser tier loses copies silently.** IndexedDB evicts under storage pressure, and `idb-blockstore.ts` correctly treats a miss as "ask a peer" — which is only an answer while some peer has it.
+- **No fan-out.** N nodes needing one module each fetch it one-peer-at-a-time. Bitswap's want-lists and sessions exist for exactly this shape; our `block` branch does not have them.
+
+**The asymmetry that makes this tractable: an executable is public by construction, and sovereign data is not.** The two have *opposite* requirements — a module should be as widely available as possible; owner data must not move at all. They are currently served by one mechanism. The sovereignty argument that rules out third-party infrastructure for data therefore **does not apply to artifacts**, and `EgressGuard` already refuses any frame carrying a registered sovereign payload, so the separation is enforceable rather than aspirational.
+
+**The candidate to evaluate first is `@helia/http` alone** — trustless gateway block fetching over plain HTTP as a *second, public* retrieval path for artifacts only. Note this repository **does not depend on Helia at all today** (verified 2026-08-01: no `helia`, no `@helia/*`, no `unixfs`, no `bitswap` in any manifest), despite `STACK.md` recommending it at length — so this is a dependency decision, not a configuration one.
+
+**Explicitly do NOT adopt Helia wholesale.** Bitswap would put sovereign blocks on a general-purpose exchange protocol, and delegated routing (`delegated-ipfs.dev`) leaks query patterns to a third party. The gateway path is separable from both, and separability is the whole reason it is the candidate.
+
+**Two traps, both already measured — do not re-derive either:**
+- **Do not justify a gateway with V8 code caching.** Phase 10 tested exactly that configuration — 4.8 MB, `application/wasm`, query-free CID URL, `compileStreaming`, hot across three visits — and recorded the WASM code cache as **NOT OBSERVED**, while the same profile grew a 2 MB *JavaScript* cache and a `--v8-cache-options=none` calibration read the identical 72 B. AOT-05 records it independently. The argument for a gateway is **availability**, not warm compiles.
+- **The ~43 ms lifted-startup floor is not a distribution problem and a gateway will not touch it.** Measured 2026-07-31: the lifted `_start` alone is 42.83 ms against 42.65 ms for instantiate+start — indistinguishable, so the whole floor executes *inside* the guest in elfconv's emulated machine-state init, and is re-paid per task. Content addressing fully solves distributing the 5.40 MiB; the floor stays.
+
 ### Phase 22: Reachability Guard
 **Goal**: A guard test fails when a capability exported from a package barrel has no traced call path from any of the five runnable entry points — the class of defect this milestone exists to fix, made permanent
 **Mode:** mvp
@@ -514,6 +990,32 @@ The apparent ceiling of 256 with one peer is the **sender's** `maxOutboundStream
   1. Running the reachability guard after Phases 11-21 land passes clean — every capability exported from a package barrel has a traced call path from one of the five runnable entry points (`bin/agent.ts`, `bin/seed.ts`, `bin/bench.ts`, `tools/aot/cli.ts`, the browser demo)
   2. Reintroducing the original defect — commenting out a wired call site, or adding a new exported-but-uncalled function — fails the guard, naming the unreachable symbol and the barrel it came from, the same way `purity.node.test.ts` names a layering violation
   3. The guard runs as part of the same CI gate as the rest of the suite, so a future change that builds a mechanism without wiring it to an entry point fails CI rather than merging silently, the way the original 36 did
+
+**Known finding, recorded in advance by Phase 15 rather than left to be discovered here.**
+Phase 15 made `verifyChain` and `describeFailure` reachable from `bin/agent.ts` — AUTH-03's
+serving side — but did **not** make `delegate` reachable from any of the five entry points,
+so criterion 1 above will find it. Both submitting entry points dispatch public work:
+`bin/bench.ts` and `packages/bench/src/perf-workload.ts` label every shard `'public'`, and
+the browser demo's colouring job has no owner and no key. The minting side of a capability
+chain therefore lives entirely in tests. Three options were considered and the third taken **by the plan**; the
+owner then overruled it on 2026-07-31 and took the first.
+
+**Superseded — do not read the paragraph below as the standing decision.** Plan 15-04
+proposed accepting the requestor half as entry-point-unreachable. That was declined:
+shipping an adapter with no callers is the defect this milestone exists to remove, and
+naming it is not the same as fixing it. **The opt-in sovereign leg is now Phase 23
+criterion 5**, where `bin/bench.ts` is already being rewritten and the file need only be
+fought once. So criterion 1 above should find `delegate` reachable by the time this phase
+runs; if it does not, Phase 23 did not finish its job and that is the finding.
+
+*(Retained for the reasoning, not the verdict.)* Giving `bin/bench.ts` a sovereign leg
+would change what the benchmark measures, which 15-CONTEXT.md decision 2 exists to
+protect — hence "opt-in, off by default, default curve unmoved". Giving the browser demo
+one is impossible without an owner and a private key to root a chain at, so the demo is
+not the route. The identical finding is in `packages/net/src/remote-executor.ts`'s class
+comment and in the Phase 15 amendment note above; both say *named here*, and both now mean
+*scheduled to Phase 23*.
+
 **Plans**: TBD
 
 ## Progress
@@ -548,7 +1050,7 @@ Parallel tracks (config `parallelization: true`):
 | 15. Capability-Chained Dispatch | 0/TBD | Not started | - |
 | 16. Decomposable Tree-Reduce Wiring | 0/TBD | Not started | - |
 | 17. Node Identity & Enrollment | 0/TBD | Not started | - |
-| 18. Discovery, Capacity & Placement | 0/TBD | Not started | - |
+| 18. Discovery, Capacity & Placement | 3/11 | In Progress|  |
 | 19. Quorum Composition & Owner-Domain Attestation | 0/TBD | Not started | - |
 | 20. Single Job Path, Ledger & Churn Resilience | 0/TBD | Not started | - |
 | 21. AOT Translation Signing & Runtime | 0/TBD | Not started | - |
@@ -557,14 +1059,19 @@ Parallel tracks (config `parallelization: true`):
 ### Phase 23: Multi-Process Benchmark Driver
 **Goal**: The benchmark harness spawns N real operating-system processes instead of N `FabricNode`s on one event loop, so a parallel speedup is measurable at all — and the project's central scaling claim stops being unmeasured
 **Mode:** mvp
-**Depends on**: Phase 8 (the existing harness), Phase 12 (the spawn pattern)
-**Requirements**: BENCH-07 (new)
+**Depends on**: Phase 8 (the existing harness), Phase 12 (the spawn pattern), Phase 15 (AUTH-03's requestor half — see criterion 5)
+**Requirements**: BENCH-07 (new), AUTH-03 (requestor half, routed here by owner ruling 2026-07-31)
 **Research**: None — `sovereignty-placement.node.test.ts` and `two-process.node.test.ts` already spawn real `bin/agent.ts` processes via `spawn(process.execPath, [AGENT, '--dir', dir, ...])`. The work is moving `bin/bench.ts`'s node construction onto that pattern
 **Success Criteria** (what must be TRUE):
   1. A benchmark run at N nodes spawns N operating-system processes, verified by reading the child PIDs, and the published run records them — a run that silently falls back to in-process nodes fails the harness rather than reporting a curve
   2. Makespan at N=1 and N=8 differ on a fixture with enough work to saturate a core, and the ratio is published; a flat curve is a finding, but it must be a finding about the fabric rather than about the harness
   3. The two real-transport rungs Phase 8 published as excluded (8 and 16 nodes, dying on `INBOUND_CONNECTION_THRESHOLD = 5` per host) either run, or are re-excluded with a measurement showing the per-host inbound cap is still the cause under separate processes
   4. `BENCHMARK-RESULTS.md` states, for every published figure, whether it came from the single-process or the multi-process driver — no figure is silently replaced
+  5. **`bin/bench.ts` gains an opt-in sovereign leg, off by default, that mints a real capability chain and dispatches an owner-labelled shard through it** — giving `delegate` and `CapabilitySupplier` a traced call path from a runnable entry point, so Phase 22's guard finds them reachable. The default public curve must be **byte-identical in shape** to a run with the flag absent; if the leg moves the default measurement, it has been built wrong
+
+**Criterion 5 exists because of an owner ruling, and the alternative was cheaper to write down than to take.** Phase 15 wired AUTH-03's *serving* end and verified it end to end, but left `delegate`, `CapabilitySupplier` and `RemoteExecutor.execute`'s supplier branch as a production adapter with **zero production callers** — every one of the five production dispatch sites labels its shards `'public'`, which have no owner and therefore no root key to mint a chain at. That is the exact "built, not wired" shape this milestone exists to remove, so shipping it as *accepted unreachable* was declined on 2026-07-31.
+
+It lands **here** rather than in Phase 15 for one reason: this phase already rewrites `bin/bench.ts`'s node construction, and `bin/bench.ts` is the most contended file in the repository — six phases modify it. Doing the sovereign leg in Phase 15 would have meant fighting that file twice. The costs Phase 15 measured still apply and are the work of criterion 5: `realFabric`'s worker nodes start with no `sovereignty` configuration at all, so each needs an owner id, an owner key and clearance; the requestor needs a per-node chain minted against each worker's peer id; and `memoryFabric`'s nodes are raw `serveAgent` calls on `authorize: 'serves-unauthenticated'`, so the leg proves nothing there — which is precisely why it must stay opt-in and why the two published curves must keep measuring the same thing.
 
 **Why this phase exists.** Phase 8's own SUMMARY says it plainly: *"Every node in both curves runs inside one OS process on one JavaScript event loop ... no parallel speedup is measurable here at all ... the scaling claim remains unmeasured."* That has been read ever since as part of the BENCH-06 "needs a second machine" blocker. It is not. Phase 8 named the cheaper remedy itself — separate OS processes on one host — and Phase 12 has since built exactly that spawn harness for an unrelated reason. The blocker moved and nobody noticed.
 
@@ -573,6 +1080,96 @@ Parallel tracks (config `parallelization: true`):
 **Trap to avoid.** The COST crossover published at ~570× measures the guest ABI on a trivial fixture, not the fabric. Criterion 2 requires a fixture that does non-trivial work, or the new curve reproduces the old one's real problem with more processes.
 
 ## Requirement Coverage
+
+### Phase 24: Certificate-Gated Admission
+**Goal**: The network's front door is locked — a node that cannot present a provider-issued certificate cannot reserve a circuit, be advertised, or be dialled, so an identity that was never issued buys nothing
+**Mode:** mvp
+**Depends on**: Phase 19 (which opened the clause), and see the scheduling note below on Phase 22
+**Requirements**: AUTH-02, AUTH-04
+**Research**: Done 2026-08-04, read-only pass, recorded in `phase-24-certificate-gated-admission/24-CONTEXT.md`
+**Success Criteria** (what must be TRUE):
+  8. Enrolment's cost is bounded by admission, not by a counter: a node that cannot present a provider-issued certificate cannot join the fabric, advertise itself, or be dialled by another node — so an identity that was never issued buys nothing, and the N-th identity costs an attacker a provider's willingness to sign it
+
+<!-- CRITERION 8 ADDED 2026-08-04 BY OWNER RULING, replacing a stalled criterion in Phase 19.
+
+     PHASE 19's CRITERION 5 read "enrolment costs something unmintable, and the N-th identity
+     costs more than the first". It verified PARTIAL twice: the unmintable half is delivered and
+     measured across real processes including restart and two-provider recovery, but the N-th
+     identity is REFUSED inside the issuance window rather than PRICED. Measured comparatively:
+     a provider's cost to refuse over an attacker's cost to mint a fresh identity is ~3.0, and
+     over a replay ~1397 — so an attacker burns the window at roughly a third of what refusing
+     costs, and the denial then applies to every honest node for the rest of the window at no
+     further cost.
+
+     THE OWNER'S RULING, 2026-08-04, and it relocates the guard rather than lowering the bar:
+     *"The lifecycle of the node in the network starts from connecting to the relay. If the node
+     that connects in can authenticate itself with certificate issued by provider, then it gets
+     in to advertise itself in the network and connect to nodes. If it cannot authenticate — it
+     cannot join the network and connect to other nodes."*
+
+     WHY THAT ANSWERS THE COST CLAUSE RATHER THAN DUCKING IT. A price only deters when the thing
+     bought is worth something. Under this ruling an unissued identity is worth NOTHING — it
+     cannot join, advertise or be reached — so the cost of the N-th identity is not CPU, it is a
+     provider's signature, which is exactly the unmintable thing the first half of the criterion
+     already secured. The counter stops being the defence and becomes an accounting detail.
+
+     WHAT THIS DOES NOT EXCUSE. Enrolment itself is still served unauthenticated — it must be,
+     since it is how a node gets its first certificate — so a provider can still be made to spend
+     CPU refusing. What changes is that the attacker gains no foothold for it. That residual is
+     to be measured and pinned, not argued away.
+
+     THE MEASURED MITIGATION THAT DOES NOT WORK, recorded so it is not re-tried: a capacity slot
+     on the `enrol` branch served 8 of 8 concurrent enrolments, because `enrol` is synchronous so
+     the bound never binds; in a rig where an `exec` held the shared table it served 0 of 8. It
+     bounds the wrong verb. -->
+
+<!-- SCHEDULED LATER BY OWNER RULING 2026-08-04, and the state it leaves in place is KNOWN AND
+     ACCEPTED rather than undiscovered. Owner: *"yes, I know. Plan it for later."*
+
+     THE STATE, so the next reader does not file it as a fresh emergency and repeat the
+     investigation. The relay authenticates NOTHING: `circuitRelayServer` is constructed with
+     capacity limits only, no ACL and no gater, so a joining peer presents a Noise handshake and
+     nothing else. `SeedServer` publishes every reservation holder to every arriving browser
+     without a filter, and the `reservations`, `records` and `providers` answers are served to
+     anyone. **Every certificate check in the repository gates SELECTION — which peer I choose to
+     fetch from or dispatch to — and none gates ADMISSION.** The fabric admits everyone and
+     filters late. `peer-gate.node.test.ts` already recorded gating relay use as "UNMEASURED, not
+     descoped"; this phase is what measures it.
+
+     TWO FACTS THAT MAKE THE SELECTION GATES WEAKER THAN THEY LOOK. `PeerVerifier` FAILS OPEN —
+     pinned nobody means trust everybody — and its own header records that not one `FabricNode`
+     in this repository configures an anchor. And `SeedServerOptions` has no `trustedIssuers`
+     field at all, so the front door cannot be asked to check even if somebody wanted it to;
+     `--trust-anchor` on `bin/seed.ts` is module provenance (DET-03), a different thing wearing a
+     similar name.
+
+     WHY THIS CRITERION IS THE ANSWER TO PHASE 19's CRITERION 5 rather than a replacement for it.
+     19's criterion 5 verified PARTIAL twice: the unmintable half is delivered, but the N-th
+     identity is REFUSED inside an issuance window rather than PRICED, and an attacker burns that
+     window at roughly a third of what refusing costs. A price only deters when the thing bought
+     is worth something — and under gated admission an unissued identity is worth NOTHING, so the
+     cost of the N-th identity is a provider's signature, which is the unmintable thing the first
+     half already secured. Same carry-forward pattern as 18's 2b -> 20's criterion 1, 16's
+     criterion 3 -> 20's criterion 6, and 17's criterion 2 -> 18's 2d.
+
+     WHAT IS NOT EXCUSED BY IT. Enrolment stays unauthenticated because it must be — it is how a
+     node gets its first certificate — so a provider can still be made to spend CPU refusing. That
+     residual is to be measured and pinned, not argued away. And the mitigation everyone reaches
+     for does NOT work, measured: a capacity slot on the `enrol` branch served 8 of 8 concurrent
+     enrolments because `enrol` is synchronous so the bound never binds; in a rig where an `exec`
+     held the shared table it served 0 of 8. It bounds the wrong verb.
+
+     A TOPOLOGY REQUIREMENT THIS PHASE CREATES. Enrolment is a DIRECT dial on both tiers and does
+     not route through a reservation, so gating the reservation still leaves a tab able to enrol —
+     because for a browser tab the provider and the relay are the SAME node at the SAME address.
+     That resolution is available today and fails the moment a deployment separates them. The
+     requirement must be stated, not assumed.
+
+     SCHEDULING NOTE FOR THE OWNER. Phase 22 currently "runs last because it verifies what all
+     eleven other phases claim to have wired". A reachability guard that runs BEFORE admission is
+     gated passes over a fabric with an open door. Whether that matters depends on what WIRE-02
+     actually claims, and it is an owner decision rather than a planner's. -->
+
 
 ### v1.0 (Phases 1-10)
 

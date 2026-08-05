@@ -39,9 +39,31 @@ export const MAX_PARTITIONS = 0xffff
 export interface WasmExecutorOptions {
   readonly nodeId: string
   readonly blockstore: Blockstore
-  /** Cap on output size, to bound a misbehaving module. Default 1 MiB. */
+  /**
+   * Cap on output size, to bound a misbehaving module. Default 1 MiB.
+   *
+   * **Per node, and that is a disagreement this file does not close.** Two honest
+   * nodes configured differently reach different verdicts on the same
+   * content-addressed module and input, and the verdict is then committed to and
+   * compared as though it were the module's answer. What this file does is make that
+   * disagreement diagnosable — the refusal names the cap and the attempted length —
+   * rather than mysterious. Closing it means the bound belonging to the artifact or
+   * the task rather than to the node, which is a different requirement.
+   */
   readonly maxOutputBytes?: number
 }
+
+/**
+ * What one execution's `output_write` calls came to.
+ *
+ * Three states in one value, so the host cannot hold a refusal and a set of bytes at
+ * the same time. That combination is exactly what a pair of fields made
+ * representable, and it is what let a refused write be reported as no write at all.
+ */
+type OutputSlot =
+  | { state: 'empty' }
+  | { state: 'written'; bytes: Uint8Array<ArrayBuffer> }
+  | { state: 'refused'; reason: string }
 
 export class WasmExecutor implements Executor {
   readonly nodeId: string
@@ -68,9 +90,14 @@ export class WasmExecutor implements Executor {
       return { ok: false, reason: `input block missing: ${task.inputCid.toString()}` }
     }
 
-    // Assigned inside a host callback, which TypeScript's control-flow analysis
-    // cannot see — a bare `let` would narrow to `never` after the null check below.
-    const sink: { bytes: Uint8Array<ArrayBuffer> | null } = { bytes: null }
+    // One slot holding three states, not two fields whose agreement somebody has to
+    // remember. "Bytes present alongside a refusal" is the shape this executor used
+    // to be able to reach, and it is not expressible here.
+    //
+    // Behind an object for the reason the previous shape was: the assignments happen
+    // inside host callbacks, and TypeScript's control-flow analysis cannot see them —
+    // a bare `let` stays narrowed to the state it was initialised with.
+    const sink: { at: OutputSlot } = { at: { state: 'empty' } }
     let readCursor = 0
     let memory: WebAssembly.Memory | null = null
 
@@ -88,12 +115,40 @@ export class WasmExecutor implements Executor {
           return n
         },
         output_write: (ptr: number, len: number): void => {
-          if (memory === null) return
-          if (len < 0 || len > this.#maxOutputBytes) return
+          // A refusal is absorbing. Without this a module spends a refusal and then
+          // launders it with a smaller acceptable write, and the host reports the
+          // small one as the module's answer.
+          if (sink.at.state === 'refused') return
+          if (memory === null) {
+            sink.at = { state: 'refused', reason: 'module exported no memory to read output from' }
+            return
+          }
+          if (len < 0) {
+            sink.at = { state: 'refused', reason: `output_write called with a length of ${len}` }
+            return
+          }
+          if (len > this.#maxOutputBytes) {
+            // `output-too-large` is `packages/aot/src/wasi-executor.ts`'s term for the
+            // same condition, repeated verbatim so an operator greps once and finds
+            // both executors. The term is shared; the code is not — the two have
+            // different ABIs and different failure types and change for different
+            // reasons.
+            sink.at = {
+              state: 'refused',
+              reason: `output-too-large: output of ${len} bytes exceeds the ${this.#maxOutputBytes}-byte cap`,
+            }
+            return
+          }
           const view = new Uint8Array(memory.buffer)
-          if (ptr < 0 || ptr + len > view.length) return
+          if (ptr < 0 || ptr + len > view.length) {
+            sink.at = {
+              state: 'refused',
+              reason: `output_write at ${ptr} for ${len} bytes is outside the module's ${view.length}-byte memory`,
+            }
+            return
+          }
           // Copy out — the guest's memory is not stable after it returns.
-          sink.bytes = view.slice(ptr, ptr + len)
+          sink.at = { state: 'written', bytes: view.slice(ptr, ptr + len) }
         },
         partition: (): number =>
           ((task.partitionIndex & 0xffff) << 16) | (task.partitionCount & 0xffff),
@@ -132,10 +187,11 @@ export class WasmExecutor implements Executor {
       }
     }
 
-    const output = sink.bytes
-    if (output === null) {
-      return { ok: false, reason: 'module produced no output' }
-    }
+    const wrote = sink.at
+    if (wrote.state === 'refused') return { ok: false, reason: wrote.reason }
+    // Now means literally what it says: the module never called `output_write`.
+    if (wrote.state === 'empty') return { ok: false, reason: 'module produced no output' }
+    const output = wrote.bytes
 
     let decoded: CanonicalValue
     try {
@@ -150,6 +206,16 @@ export class WasmExecutor implements Executor {
     // Fuel is a deterministic proxy — bytes moved across the ABI. Wall time would
     // be nondeterministic, and fuel sits outside the compared digest (VER-05)
     // precisely so a cost metric can never cause honest nodes to disagree.
-    return { ok: true, output: decoded, fuelUsed: inputBytes.length + output.length }
+    // Unsigned by construction, and the sentinel is what says so. This class is kernel
+    // code: it holds a blockstore and a node id, and no key and no certificate. A
+    // kernel that signed would need an identity, which is the thing `ports.ts` exists to
+    // keep out. Signing is a wrapper composed at a node's construction —
+    // `executor/attesting-executor.ts` — exactly as module provenance is.
+    return {
+      ok: true,
+      output: decoded,
+      fuelUsed: inputBytes.length + output.length,
+      attestation: 'signed-by-nobody',
+    }
   }
 }

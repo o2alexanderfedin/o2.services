@@ -35,8 +35,12 @@ export interface PublishOptions {
   readonly peers: () => readonly string[]
   /** This node's own outcome, or `null` to ask without telling. */
   readonly outcome: StartOutcome | null
-  /** Visitors this node knows chose not to be counted. */
-  readonly declined?: number
+  /**
+   * Visitors this node knows chose not to be counted. Folded into this node's own
+   * ledger; there is no argument that puts it on a request frame, which is the only
+   * way an opt-out can mean what it says.
+   */
+  readonly declinedLocally?: number
   /** Cap on peers contacted, so a large mesh does not turn one page load into a fan-out. */
   readonly maxPeers?: number
 }
@@ -53,12 +57,11 @@ export interface PublishResult {
 export const DEFAULT_MAX_PEERS = 8
 
 export async function publishStartOutcome(options: PublishOptions): Promise<PublishResult> {
-  const declined = options.declined ?? 0
   const ledger = new StartOutcomeLedger()
   // The local outcome counts even if nothing else can be reached — a report of one
   // is still a report, and it is the only one a blocked visitor can produce.
   if (options.outcome !== null) ledger.record(options.outcome)
-  ledger.decline(declined)
+  ledger.decline(options.declinedLocally ?? 0)
 
   const peers = options.peers().slice(0, options.maxPeers ?? DEFAULT_MAX_PEERS)
   let reached = 0
@@ -68,7 +71,7 @@ export async function publishStartOutcome(options: PublishOptions): Promise<Publ
     try {
       body = await options.rpc.request(
         peer,
-        encodeRequest({ kind: 'report', outcome: options.outcome, declined }),
+        encodeRequest({ kind: 'report', outcome: options.outcome }),
       )
     } catch {
       continue // unreachable peer — exactly the case this metric exists to count
@@ -82,6 +85,13 @@ export async function publishStartOutcome(options: PublishOptions): Promise<Publ
     // number of peers asked while leaving the percentages unchanged — a rate over
     // a fictional `n`, which is the one failure mode a report like this must not
     // have.
+    //
+    // The receiving half is deliberately untouched: `protocol.ts` still parses a
+    // `declined` on an inbound report request and `agent.ts` still folds it in,
+    // because this build does not control every peer that may send one. What
+    // follows from having stopped producing it is worth writing down — a non-zero
+    // `declined` arriving in a report request did not come from this build, and
+    // with no producer here the argument below is fed only by peers.
     ledger.mergeOverlapping(response.counts, response.declined)
   }
 

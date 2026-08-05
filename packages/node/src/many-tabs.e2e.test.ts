@@ -40,7 +40,13 @@ let baseUrl: string
 
 beforeAll(async () => {
   // Above sixteen so a refusal means a real failure rather than a configured limit.
-  relay = await FabricNode.start({ maxReservations: 32, listen: ['/ip4/127.0.0.1/tcp/0/ws'] })
+  // DET-03: relays, executes nothing — the subject is how many tabs can hold a
+  // reservation, not provenance. See `background-tab.e2e.test.ts` for the full note.
+  relay = await FabricNode.start({
+    maxReservations: 32,
+    listen: ['/ip4/127.0.0.1/tcp/0/ws'],
+    trustAnchors: 'runs-unsigned-artifacts',
+  })
   const address = relay.browserDialableAddrs[0]
   if (address === undefined) throw new Error('relay produced no browser-dialable address')
   relayAddr = address

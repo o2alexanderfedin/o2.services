@@ -2,6 +2,7 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { request as httpRequest } from 'node:http'
+import { KERNEL_TRUST_ANCHOR } from '@o2/demo'
 import { chromium } from 'playwright'
 import type { Browser, BrowserContext } from 'playwright'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
@@ -30,7 +31,20 @@ const lanIp = lanAddresses()[0]
 
 beforeAll(async () => {
   workdir = await mkdtemp(join(tmpdir(), 'o2-seed-'))
-  seed = await SeedServer.start({ blockstoreDir: join(workdir, 'blocks'), maxReservations: 32 })
+  // DET-03: the demo's own anchor — exactly what `bin/seed.ts` pins with no flags, which
+  // is what this file is the closest thing in the repository to a picture of. Chosen for
+  // realism, not coverage: this file calls `computePeers` but never `runColouring` or
+  // `runJob`, and `computePeers` sends an `offer` probe and nothing else.
+  //
+  // Whether this set is ever consulted was **measured, not reasoned**, on 2026-07-31:
+  // it was replaced with `[]` — a set that refuses every module — and this file re-run.
+  // Every assertion still passed, so **this anchor set is never consulted**. It is here
+  // because it is what production pins, not because it covers anything.
+  seed = await SeedServer.start({
+    blockstoreDir: join(workdir, 'blocks'),
+    maxReservations: 32,
+    trustAnchors: [KERNEL_TRUST_ANCHOR],
+  })
   browser = await chromium.launch()
   context = await browser.newContext()
 }, 240_000)
@@ -309,6 +323,24 @@ describe('two devices on one seed find each other with nobody dialling for them'
     // drive this without accumulating duplicate connections.
     const again = await first.evaluate(async () => window.o2.connectDiscoveredPeers())
     expect(again.dialed).toEqual([])
+
+    // Two callers arriving together get one round. The page polls on a 4s timer and
+    // a round can outlive a tick, so overlapping rounds dial the same candidates
+    // twice and the loser finishes into a surface that has already moved on.
+    // Compared inside the page: object identity does not survive serialization out.
+    const rounds = await first.evaluate(async () => {
+      const [a, b] = await Promise.all([
+        window.o2.connectDiscoveredPeers(),
+        window.o2.connectDiscoveredPeers(),
+      ])
+      // And the memo clears afterwards rather than latching — two rounds run in
+      // sequence must still be two rounds.
+      const third = await window.o2.connectDiscoveredPeers()
+      const fourth = await window.o2.connectDiscoveredPeers()
+      return { coalesced: a === b, latched: third === fourth }
+    })
+    expect(rounds.coalesced).toBe(true)
+    expect(rounds.latched).toBe(false)
 
     // Every connection is a compute peer, and that is the fix rather than the
     // caveat. Holding a reservation *is* a libp2p connection, so `peers()` has

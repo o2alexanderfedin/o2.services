@@ -54,7 +54,14 @@ afterEach(async () => {
 
 /** A node that relays, which here means only: one that bound a real address. */
 async function relayingNode(): Promise<FabricNode> {
-  const node = await FabricNode.start({ listen: ['/ip4/127.0.0.1/tcp/0/ws'] })
+  // DET-03: this file's subject is the rendezvous wire — who is reachable here — and
+  // nothing in it dispatches a task at all. Stated rather than defaulted, which is the
+  // point of the field being required: a reader counting this literal learns which
+  // tests do not exercise the signed path.
+  const node = await FabricNode.start({
+    listen: ['/ip4/127.0.0.1/tcp/0/ws'],
+    trustAnchors: 'runs-unsigned-artifacts',
+  })
   started.push(node)
   return node
 }
@@ -69,7 +76,12 @@ async function relayingNode(): Promise<FabricNode> {
 async function reservingNode(relay: FabricNode): Promise<FabricNode> {
   const address = relay.browserDialableAddrs[0]
   if (address === undefined) throw new Error('relay bound no browser-dialable address')
-  const node = await FabricNode.start({ listen: ['/p2p-circuit'], relayAddrs: [address] })
+  // DET-03 — see `relayingNode` above.
+  const node = await FabricNode.start({
+    listen: ['/p2p-circuit'],
+    relayAddrs: [address],
+    trustAnchors: 'runs-unsigned-artifacts',
+  })
   started.push(node)
   return node
 }

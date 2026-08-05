@@ -71,6 +71,13 @@ describe('NET-04 — protocols negotiate over p2p-circuit', () => {
     const relay = await FabricNode.start({
       maxReservations: 8,
       listen: ['/ip4/127.0.0.1/tcp/0/ws'],
+      // DET-03: this file's subject is a job that crosses a relayed connection, and
+      // every dispatch in it is in-process on the node being configured. Stated rather
+      // than defaulted — the point of the field being required is that a reader
+      // counting this literal learns which tests do not exercise the signed path. No
+      // job here carries a `moduleRecord`: a node running with the opt-out has no
+      // guard to satisfy, and a record would be decoration.
+      trustAnchors: 'runs-unsigned-artifacts',
     })
     running.push(relay)
 
@@ -82,6 +89,8 @@ describe('NET-04 — protocols negotiate over p2p-circuit', () => {
       relayAddrs: relay.browserDialableAddrs.slice(0, 1),
       reservationWatcher: watcher,
       rpcTimeoutMs: 30_000,
+      // DET-03 — see the relay above.
+      trustAnchors: 'runs-unsigned-artifacts',
     })
     running.push(node)
 

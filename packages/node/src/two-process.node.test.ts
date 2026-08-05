@@ -1,18 +1,42 @@
 import { spawn } from 'node:child_process'
 import type { ChildProcessByStdio } from 'node:child_process'
-import type { Readable } from 'node:stream'
+import type { Readable, Writable } from 'node:stream'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { publicNodes, submitJob } from '@o2/core'
-import type { CanonicalValue } from '@o2/core'
+import { ed25519 } from '@noble/curves/ed25519.js'
+import { publicNodes, signName, submitJob, toHex } from '@o2/core'
+import type { CanonicalValue, NameRecord } from '@o2/core'
 import { RemoteExecutor } from '@o2/net'
+import type { CID } from 'multiformats/cid'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 // Test-only relative import — see the note in packages/net/src/distributed.test.ts.
 import { MODULE_WRITES_PARTITION } from '../../core/src/executor/fixtures.ts'
 import { FabricNode } from './fabric-node.ts'
 import { FsBlockstore } from './fs-blockstore.ts'
+
+/**
+ * DET-03 is not this file's subject — the transport and the process boundary are. The
+ * record exists so this file's real subject can still be reached: every executor below
+ * is a `RemoteExecutor` aimed at a spawned `bin/agent.ts`, and that binary pins the
+ * demo's anchor by default, so an unsigned job would have every dispatch here refused.
+ * The agents are spawned with this key instead and the jobs carry a matching record.
+ */
+const publisher = (() => {
+  // Seed 51 — distinct from every other fixture key in the repository.
+  const priv = new Uint8Array(32).fill(51)
+  return { priv, pub: toHex(ed25519.getPublicKey(priv)) }
+})()
+
+function recordFor(moduleCid: CID): NameRecord {
+  return signName(publisher.priv, {
+    name: 'two-process-fixture',
+    cid: moduleCid,
+    version: 1,
+    expiresAt: Date.now() + 3_600_000,
+  })
+}
 
 /**
  * NET-01 — the job crosses an operating-system process boundary.
@@ -29,8 +53,15 @@ import { FsBlockstore } from './fs-blockstore.ts'
 
 const AGENT = fileURLToPath(new URL('./bin/agent.ts', import.meta.url))
 
-/** stdin is `ignore`d, so the child's type carries `null` for it. */
-type AgentProcess = ChildProcessByStdio<null, Readable, Readable>
+/**
+ * stdin is piped and never written to, so the child's type carries a `Writable` for it.
+ *
+ * The pipe is the point rather than the type: `bin/agent.ts` watches fd 0 and leaves when
+ * it closes, which is what stops a spawned agent outliving a parent that was killed rather
+ * than asked. Handing it `ignore` would put `/dev/null` on fd 0 and silently opt this file
+ * out. See `orphan-leash.node.test.ts`, which demonstrates it and guards this line.
+ */
+type AgentProcess = ChildProcessByStdio<Writable, Readable, Readable>
 
 interface Agent {
   readonly peerId: string
@@ -44,11 +75,15 @@ const agents: Agent[] = []
 const nodes: FabricNode[] = []
 
 /** Spawn an agent process and wait for its one-line address handshake. */
-async function spawnAgent(name: string): Promise<Agent> {
+async function spawnAgent(name: string, extraArgs: readonly string[] = []): Promise<Agent> {
   const dir = join(workdir, name)
-  const child: AgentProcess = spawn(process.execPath, [AGENT, '--dir', dir], {
-    stdio: ['ignore', 'pipe', 'pipe'],
-  })
+  const child: AgentProcess = spawn(
+    process.execPath,
+    [AGENT, '--dir', dir, '--trust-anchor', publisher.pub, ...extraArgs],
+    {
+      stdio: ['pipe', 'pipe', 'pipe'],
+    },
+  )
 
   const handshake = await new Promise<{ peerId: string; multiaddrs: string[] }>((resolve, reject) => {
     const timer = setTimeout(() => reject(new Error(`agent ${name} did not announce in time: ${stderr}`)), 30_000)
@@ -84,6 +119,11 @@ async function startSubmitter(): Promise<FabricNode> {
     blockstoreDir: join(workdir, 'submitter'),
     listen: ['/ip4/127.0.0.1/tcp/0'],
     rpcTimeoutMs: 30_000,
+    // The same value the spawned agents get, rather than the opt-out: a submitter
+    // declaring a different authority from the nodes it dispatches to would be a lie
+    // in a file nobody would re-read. Nothing executes on this node — every executor
+    // here is remote — so this states an intent rather than gating anything.
+    trustAnchors: [publisher.pub],
   })
   nodes.push(node)
   return node
@@ -115,11 +155,20 @@ beforeEach(async () => {
   workdir = await mkdtemp(join(tmpdir(), 'o2-proc-'))
 })
 
+/**
+ * Inner 10 s, outer 20 s — and the order is the point.
+ *
+ * `stopAgent` gives a wedged process 10 s before SIGKILL. Vitest's default `hookTimeout`
+ * is also 10 s, so with no explicit budget the two clocks are armed for the same instant
+ * and the framework's fires first: the SIGKILL fallback can never run, and a wedged agent
+ * is reported as an anonymous hook timeout naming no step. A test arms two clocks and the
+ * framework's must be the larger.
+ */
 afterEach(async () => {
   await Promise.all(nodes.splice(0).map((n) => n.stop().catch(() => {})))
   await Promise.all(agents.splice(0).map((a) => stopAgent(a).catch(() => {})))
   await rm(workdir, { recursive: true, force: true })
-})
+}, 20_000)
 
 describe('NET-01 — a job across OS processes', () => {
   it('completes 4 shards at R=2 in two separate agent processes', async () => {
@@ -136,16 +185,18 @@ describe('NET-01 — a job across OS processes', () => {
     const moduleCid = await submitter.store.put(MODULE_WRITES_PARTITION)
 
     const executors = [
-      new RemoteExecutor(w1.peerId, submitter.rpc),
-      new RemoteExecutor(w2.peerId, submitter.rpc),
+      new RemoteExecutor(w1.peerId, submitter.rpc, 'dispatches-unauthenticated'),
+      new RemoteExecutor(w2.peerId, submitter.rpc, 'dispatches-unauthenticated'),
     ]
     const result = await submitJob(
       {
         moduleCid,
+        moduleRecord: recordFor(moduleCid),
         shards: [{ a: 0 }, { a: 1 }, { a: 2 }, { a: 3 }].map((value) => ({ value, label: 'public' as const })),
         executors,
         nodes: publicNodes(executors),
         redundancy: 2,
+        onQuorumShortfall: 'runs-at-available-redundancy',
       },
       submitter.store,
     )
@@ -162,7 +213,7 @@ describe('NET-01 — a job across OS processes', () => {
       expect(shard.verification.status).toBe('agreed')
       if (shard.verification.status !== 'agreed') continue
       expect(shard.verification.replicas).toBe(2)
-      expect([...shard.verification.agreeing].sort()).toEqual([w1.peerId, w2.peerId].sort())
+      expect(shard.verification.agreeing.map((e) => e.nodeId).sort()).toEqual([w1.peerId, w2.peerId].sort())
     }
     expect(result.job.verificationMultiplier).toBeCloseTo(2, 6)
   }, 120_000)
@@ -173,14 +224,16 @@ describe('NET-01 — a job across OS processes', () => {
     await submitter.dial(worker.multiaddrs[0]!)
 
     const moduleCid = await submitter.store.put(MODULE_WRITES_PARTITION)
-    const executors = [new RemoteExecutor(worker.peerId, submitter.rpc)]
+    const executors = [new RemoteExecutor(worker.peerId, submitter.rpc, 'dispatches-unauthenticated')]
     const result = await submitJob(
       {
         moduleCid,
+        moduleRecord: recordFor(moduleCid),
         shards: [{ a: 0 }, { a: 1 }].map((value) => ({ value, label: 'public' as const })),
         executors,
         nodes: publicNodes(executors),
         redundancy: 1,
+        onQuorumShortfall: 'runs-at-available-redundancy',
       },
       submitter.store,
     )
@@ -213,16 +266,18 @@ describe('NET-01 — a job across OS processes', () => {
     await stopAgent(w2)
 
     const executors = [
-      new RemoteExecutor(w1.peerId, submitter.rpc),
-      new RemoteExecutor(w2.peerId, submitter.rpc),
+      new RemoteExecutor(w1.peerId, submitter.rpc, 'dispatches-unauthenticated'),
+      new RemoteExecutor(w2.peerId, submitter.rpc, 'dispatches-unauthenticated'),
     ]
     const result = await submitJob(
       {
         moduleCid,
+        moduleRecord: recordFor(moduleCid),
         shards: [{ value: { a: 0 }, label: 'public' }],
         executors,
         nodes: publicNodes(executors),
         redundancy: 2,
+        onQuorumShortfall: 'runs-at-available-redundancy',
       },
       submitter.store,
     )
@@ -235,6 +290,6 @@ describe('NET-01 — a job across OS processes', () => {
     expect(verification.status).toBe('agreed')
     if (verification.status !== 'agreed') return
     expect(verification.replicas).toBe(1)
-    expect(verification.agreeing).toEqual([w1.peerId])
+    expect(verification.agreeing.map((e) => e.nodeId)).toEqual([w1.peerId])
   }, 120_000)
 })

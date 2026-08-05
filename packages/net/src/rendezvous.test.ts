@@ -3,7 +3,12 @@ import { describe, expect, it } from 'vitest'
 import { encodeRequest, encodeResponse, parseRequest, parseResponse } from './protocol.ts'
 import { RpcEndpoint } from './rpc.ts'
 import { serveAgent } from './agent.ts'
-import { findReservedPeers } from './rendezvous.ts'
+import { findReservedPeers, MAX_RESERVED_PEERS_PER_ANSWER } from './rendezvous.ts'
+
+/** Zero-padded so lexical order is numeric order — the module sorts what it returns. */
+function holders(count: number, prefix = 'tab'): string[] {
+  return Array.from({ length: count }, (_, i) => `${prefix}-${String(i).padStart(6, '0')}`)
+}
 
 /**
  * NET-03 — the rendezvous a browser cannot perform for itself.
@@ -28,10 +33,12 @@ function node(
     egress: 'holds-no-registrations',
     authorize: 'serves-unauthenticated',
     index: 'serves-no-records',
+    enroll: 'issues-no-certificates',
     capacity: 'accepts-every-offer',
     ledger: 'keeps-no-ledger',
     reservations,
     onDispatch: 'reports-no-dispatch',
+    attest: 'signs-nothing',
   })
   return rpc
 }
@@ -114,6 +121,54 @@ describe('a node answers with who is reserved on it', () => {
     const seeker = node(network, 'seeker')
     const found = await findReservedPeers({ rpc: seeker, peers: () => ['hub'], self: 'seeker' })
     expect([...found.addrs]).toEqual([...found.addrs].sort())
+  })
+})
+
+describe('one answer cannot decide how much work this node takes on', () => {
+  it('mints at most the cap from a single peer, however long its answer', async () => {
+    // The length of that list is the answering peer's choice, and every address
+    // minted from it becomes a dial attempt costing a full timeout.
+    const network = new MemoryNetwork()
+    node(network, 'hub', () => holders(10_000))
+    const seeker = node(network, 'seeker')
+
+    const found = await findReservedPeers({ rpc: seeker, peers: () => ['hub'], self: 'seeker' })
+
+    expect(found.answered).toBe(1)
+    expect(found.addrs).toHaveLength(MAX_RESERVED_PEERS_PER_ANSWER)
+    // The ones kept are the ones offered first, not an arbitrary subset.
+    expect(found.addrs).toEqual(
+      holders(MAX_RESERVED_PEERS_PER_ANSWER).map((h) => `/p2p/hub/p2p-circuit/webrtc/p2p/${h}`),
+    )
+  })
+
+  it('bounds each answer separately, so a second hub still contributes', async () => {
+    // The bound is per answer because the merge is the reason this module exists:
+    // two nodes hold different populations, and one hub's flood must not spend the
+    // budget the other hub's honest answer needs.
+    const network = new MemoryNetwork()
+    node(network, 'hub-1', () => holders(10_000, 'one'))
+    node(network, 'hub-2', () => holders(10_000, 'two'))
+    const seeker = node(network, 'seeker')
+
+    const found = await findReservedPeers({
+      rpc: seeker,
+      peers: () => ['hub-1', 'hub-2'],
+      self: 'seeker',
+    })
+
+    expect(found.addrs).toHaveLength(MAX_RESERVED_PEERS_PER_ANSWER * 2)
+    expect(found.addrs.filter((a) => a.includes('hub-1'))).toHaveLength(MAX_RESERVED_PEERS_PER_ANSWER)
+    expect(found.addrs.filter((a) => a.includes('hub-2'))).toHaveLength(MAX_RESERVED_PEERS_PER_ANSWER)
+  })
+
+  it('does not spend a slot on our own id coming back to us', async () => {
+    const network = new MemoryNetwork()
+    node(network, 'hub', () => ['seeker', ...holders(MAX_RESERVED_PEERS_PER_ANSWER)])
+    const seeker = node(network, 'seeker')
+
+    const found = await findReservedPeers({ rpc: seeker, peers: () => ['hub'], self: 'seeker' })
+    expect(found.addrs).toHaveLength(MAX_RESERVED_PEERS_PER_ANSWER)
   })
 })
 
