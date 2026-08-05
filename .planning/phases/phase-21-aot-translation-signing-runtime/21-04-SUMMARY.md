@@ -348,6 +348,25 @@ thing the table exists to prevent. The file-count drift check is still inside to
 `NODE_PROJECT_FILES` is now **147** against a recorded 144, drift **3**, tolerance **5** —
 but the margin is two files, and two other agents are adding specs in this same checkout.
 
+> **The two-file margin was spent, and has since been restored. Recorded 2026-08-05.**
+> Drift reached **6 of 5** and `slow-specs.node.test.ts` went red — `21-VERIFICATION.md`'s
+> W2, which attributes it to 20-11's `checkpoint-agents.node.test.ts` and explicitly not to
+> this plan. `MEASURED_NODE_SPANS` was then retaken in full at `files: 150`, and a run
+> today reads **EXIT=0, 9 passed**. The sentence above was accurate when written, became
+> false, and is accurate again; it is annotated rather than edited, because a count in a
+> summary is a dated reading and not a standing claim.
+
+> **The prediction in the section above was borne out exactly.** This plan wrote that a
+> `--reporter=json` re-measurement *"would record `tools/aot/echo-guest.node.test.ts` at
+> **403 ms**, i.e. below `SLOW_CUTOFF_MS`"*, and asked *"somebody should establish"* what
+> produced `lift.node.test.ts`'s recorded 235 551 ms. Both were settled on 2026-08-05 in
+> `vitest.config.ts`: `echo-guest` is recorded at **520 986 ms** of solo wall clock with
+> the note `// wall clock; reporter said 2_019`, and `lift.node.test.ts` was measured to
+> **agree** with the reporter within 1.2 % because all three of its `beforeAll`s sit
+> *below* its first case — so the discriminator is positional, and this plan's suspicion
+> about that file was reasonable and wrong. Noted here so the open question does not read
+> as still open.
+
 ## Known limits, stated rather than implied
 
 - **This is one process on one host.** The cross-ABI fuel equality, the value, the repeat —

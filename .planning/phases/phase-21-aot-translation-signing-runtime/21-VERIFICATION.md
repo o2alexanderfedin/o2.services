@@ -676,6 +676,55 @@ CIDs, both emitted key CIDs, both artifact byte counts, the three fuel numbers, 
 block, the `MAX_INBOUND_MESSAGE_BYTES` headroom claim (5 660 003 of 8 388 608, 67 %), and the
 `docker tag` finding.
 
+### RE-MEASURED 2026-08-05 — row 2 is withdrawn, and rows 3 and 5 are re-scoped
+
+The table above is kept verbatim. Three of its five rows do not survive a second reading, and
+saying so here is cheaper than leaving a reader to trust a report that has been checked once.
+
+**Row 2 is withdrawn.** *"Not reproducible at that magnitude. Measured 4 657 ms here."* Four
+consecutive runs of `npx vitest run --project node --reporter=verbose
+packages/node/src/aot-dispatch.node.test.ts` on 2026-08-05, exit code read with `EXIT=$?` on the
+next line and no pipe, at 1-minute loads of 2.68 / 4.77 / 4.55 / 4.66:
+
+```
+[aot-dispatch] wire: 5660003 bytes, 152ms, fetched=true, ok=true, dir grew 3→5
+[aot-dispatch] wire: 5660003 bytes, 146ms, fetched=true, ok=true, dir grew 3→5
+[aot-dispatch] wire: 5660003 bytes, 153ms, fetched=true, ok=true, dir grew 3→5
+[aot-dispatch] wire: 5660003 bytes, 155ms, fetched=true, ok=true, dir grew 3→5
+```
+
+All four sit **at or below the lowest** of 21-05's recorded `158 / 177 / 689 ms`, with a 9 ms
+spread. This pass's own report says it deliberately avoided a full sweep because *"three agents
+were editing the tree throughout"*; 4 657 ms is what that host produced, and it is a reading of
+the host rather than of the claim. **This pass applied the repository's own rule to every figure
+in the summaries and did not apply it to its own refutation** — *"prefer a comparative reading to
+an absolute one"*, and *"attribute a failure by measurement, not by plausibility"*. 21-05's
+figures stand; the re-measured band is recorded beside them in that summary rather than replacing
+them.
+
+**Row 3 is re-scoped, not withdrawn.** *"all three cases RAN on a cold cache through the real
+CLI"* is not false and was never claimed to be repeatable: it is unrepeatable **by the design
+21-05 itself introduced and documented**, in its deviation 1 (the artifact is cached under a
+gitignored path keyed on the guest source). Measured today, the same spec logs `origin=cache
+status=n/a … wall=2ms` and invokes no CLI. The escape hatch — delete `tools/aot/fixtures/lifted-*.wasm`
+or set `O2_AOT_ARTIFACT` — is named in that deviation. Annotated there.
+
+**Row 5 is now stale in the other direction.** *"Now false. Drift 6 of 5, red."* was true on the
+day. `MEASURED_NODE_SPANS` was retaken in full on 2026-08-05 at `files: 150`, and
+`npx vitest run --project node packages/node/src/slow-specs.node.test.ts` reads **EXIT=0,
+9 passed**. The row's own note — *"Not those plans' doing"* — was right, and the underlying point
+is that a file count in a summary is a dated reading rather than a standing claim. Both 21-04 and
+21-05 now carry that annotation in place.
+
+**Rows 1 and 4 are confirmed and are the two genuinely false claims.** Row 1: `21-03-SUMMARY.md`'s
+frontmatter read `requirements-completed: [AOT-04]` while its own body says AOT-04 is deliberately
+not marked complete and `.planning/REQUIREMENTS.md` carries `- [ ] **AOT-04**` as **Partial**;
+corrected in place 2026-08-05 with the original retained. Row 4: `describeKey` gained a production
+caller in `ddca460` — `tools/aot/lift.ts` pushes `key as hashed: ${'${describeKey(…)}'}` inside
+`describeLift`, verified by grep on 2026-08-05 — so 21-02's *"`describeKey` is not called, and
+that is a decision rather than an omission"* no longer describes the tree; annotated in place at
+both of the two spots that state it.
+
 ## Anti-pattern scan
 
 `TBD`, `FIXME`, `XXX`, `HACK`, `TODO`, `PLACEHOLDER`, "not yet implemented", "coming soon" — **zero

@@ -88,6 +88,18 @@ sha256:22a404f31c9f7bb5c49e3193081d4876718253d86747aae3d30fcfd971f19c05   # EXIT
 real CLI** — `origin=cli status=2` for both guests, in the spec's own `beforeAll`. A skip
 here would have been a plan failure rather than a host limitation; it was neither.
 
+> **NOT RE-ESTABLISHABLE, recorded 2026-08-05.** True of that session, and permanently
+> unrepeatable on a host that has run this spec once — **by the design this same plan
+> introduced and documented** (deviation 1: the artifact is cached under a gitignored
+> path, keyed on the guest source). Measured today on this host: the same spec logs
+> `[aot-dispatch] echo: origin=cache status=n/a artifact=5660003 bytes wall=2ms` and
+> `hello: origin=cache … wall=1ms`, with no CLI invocation at all. The cold-cache reading
+> is therefore evidence that cannot be reproduced without `rm`-ing
+> `tools/aot/fixtures/lifted-*.wasm` or setting `O2_AOT_ARTIFACT` — which the deviation
+> already names as the escape hatch. Retained because it is what was observed; annotated
+> because a reader who re-runs the file and sees `origin=cache` should find the reason
+> here rather than conclude the record is wrong.
+
 **Concurrency.** Three other agents worked this same checkout throughout — 20-08
 (`packages/core/src/job/submit.ts`, which it committed mid-session as `51bed18`), 20-09
 (`bin/bench.ts`, `perf-workload.ts`) and one on `late-combine.node.test.ts`. A fourth file,
@@ -177,6 +189,7 @@ at instantiate and one reached the codec.
 | the agent's directory | grew 3 → 5 files |
 | `statSync(artifactPath).size` | 5 660 003, equal to the offered length |
 | elapsed | **158 / 177 / 689 ms** across three runs |
+| elapsed, **re-measured 2026-08-05 on a quiet host** | **146 / 152 / 153 / 155 ms** across four runs, exit 0 each — see `## Correction 2026-08-05` |
 
 **A block the size of a lifted artifact crosses this fabric's wire today and the guest runs
 on the far side.** It sits below `MAX_INBOUND_MESSAGE_BYTES` (8 388 608, `constants.ts`),
@@ -472,6 +485,16 @@ tolerance 5**. 21-04 recorded drift 3; this plan adds one file and another agent
 `speculation-agents.node.test.ts` adds the other. `slow-specs.node.test.ts` passes 9/9
 today, and **the next test file added anywhere in the node project reddens it.**
 
+> **The prediction came true and has since been cleared. Three readings, 2026-08-05.**
+> 20-11's `checkpoint-agents.node.test.ts` was the next file added; drift went to **6 of 5**
+> and `slow-specs.node.test.ts` went red, which `21-VERIFICATION.md` records as W2 and
+> attributes — correctly — to a concurrent phase rather than to this plan. The table was
+> then retaken in full on 2026-08-05 at `files: 150`, and a run today reads
+> `npx vitest run --project node packages/node/src/slow-specs.node.test.ts` → **EXIT=0,
+> 9 passed**. So the sentence above is a dated snapshot that was accurate, then false, and
+> is now accurate again — which is the property of every count in a summary and the reason
+> this note records the reading and its date rather than editing the number.
+
 ## What was measured, at the end
 
 | run | result | detail |
@@ -592,6 +615,49 @@ is now false**, and its owner should know. Every clause of it is measured above.
 - `npx vitest run --project node packages/node/src/aot-dispatch.node.test.ts` — **EXIT=0**, read directly from `$?`
 - `npx vitest run --project node` (whole project) — **EXIT=1**, 147 of 149 files passing; both failing files named above with the evidence that neither is this plan's
 
+## Correction 2026-08-05 — one figure was reported false and the report is what was wrong
+
+**Original wording, retained verbatim and unchanged in the table above:**
+
+> | elapsed | **158 / 177 / 689 ms** across three runs |
+
+`21-VERIFICATION.md`'s row 2 records this as *"Not reproducible at that magnitude.
+Measured 4 657 ms here."* **That verdict does not survive re-measurement, and the original
+figures do.**
+
+Re-measured 2026-08-05 on this host, four consecutive runs of
+`npx vitest run --project node --reporter=verbose packages/node/src/aot-dispatch.node.test.ts`,
+exit code read with `EXIT=$?` on the next line, no pipe:
+
+| run | 1-minute load | `[aot-dispatch] wire:` |
+|---|---|---|
+| 1 | 2.68 | `5660003 bytes, 152ms, fetched=true, ok=true, dir grew 3→5` |
+| 2 | 4.77 | `5660003 bytes, 146ms, fetched=true, ok=true, dir grew 3→5` |
+| 3 | 4.55 | `5660003 bytes, 153ms, fetched=true, ok=true, dir grew 3→5` |
+| 4 | 4.66 | `5660003 bytes, 155ms, fetched=true, ok=true, dir grew 3→5` |
+
+All four exit 0. All four sit **at or below the lowest** of the three originally recorded
+values, and the spread across them is 9 ms. The verification's 4 657 ms was taken during a
+pass that says of itself that it deliberately avoided a full sweep because *"three agents
+were editing the tree throughout"* — so the disagreement is the host, not the figure, and
+the direction of the disagreement is the one a contended host produces.
+
+**Two things are corrected, not one.**
+
+1. The summary's `158 / 177 / 689 ms` stands. The re-measured band is added beside it in
+   the table above rather than replacing it, because two readings on two days at two loads
+   are two readings.
+2. `21-VERIFICATION.md`'s row 2 is itself measured false and now carries a dated note
+   saying so. A refutation with a number in it is not a refutation until the number is
+   taken under conditions the original claim can be compared against — *"a number that
+   agrees with a theory is not the theory's proof"*, which cuts both ways.
+
+**What was true in the verification's finding and is kept:** `689 ms` against `146 ms` is
+itself a 4.7× spread within the original three runs, so an absolute wall clock here was
+never a reproducible quantity. That is an argument for recording the load beside it, which
+this correction does, and not an argument that the figures were wrong.
+
 ---
 *Phase: phase-21-aot-translation-signing-runtime*
 *Completed: 2026-08-04*
+*Corrected: 2026-08-05*
