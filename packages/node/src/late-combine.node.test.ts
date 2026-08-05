@@ -23,6 +23,7 @@ import type {
   Blockstore,
   CanonicalValue,
   CombineDispatch,
+  CombineProduct,
   CombineTask,
   JobResult,
   NameRecord,
@@ -136,6 +137,74 @@ import { FabricNode } from './fabric-node.ts'
  * run**, which is the right shape for them, but the sentence *"the late arrival changed
  * nothing"* is carried by the upper half.
  *
+ * ## The one reading here that is a wall clock against a constant, and how it is taken
+ *
+ * `RPC_TIMEOUT_MS` is a constant, so `RPC_TIMEOUT_MS > combine × TIMEOUT_MARGIN` is a
+ * ratio only in form: one of its two terms is a millisecond measured on the host of the
+ * day. **A ratio against a constant is load-proof exactly as far as the measured term
+ * is**, and read the way this file first wrote it — one cold combine, this run's first —
+ * it was not load-proof at all. It went red three times under whole-suite load and passed
+ * alone each time: `expected 1500 to be greater than 2058.2`, `3403.93` and `4569.14`,
+ * i.e. single cold combines of 206 ms, 340 ms and 457 ms against a solo reading of 22 ms.
+ * One of the three was taken with `(user+sys)/real` at **0.87**, next to a sibling file
+ * reading 1.25 in the same run.
+ *
+ * **The repair is the estimator and only the estimator.** Six cold combines are taken —
+ * both level-1 tree nodes on each of the three non-victim peers, every pair genuinely
+ * cold — and the reading is the **fastest of the six**. Neither budget moved and the
+ * margin did not move, because both are the thing being guarded: `RPC_TIMEOUT_MS` has to
+ * fire *inside* `Libp2pTransport`'s 20 s send budget or no late reply is produced at all,
+ * and a margin relaxed to get green would be the guard switched off rather than fixed.
+ *
+ * ### One-sidedness holds here, but the floor is *not* invariant — measured, not assumed
+ *
+ * `enrollment-dos.node.test.ts`'s `pairedRatio` is where the licence for a minimum was
+ * first established, and it measured a floor that barely moved between host loads 8 and
+ * 213. **That result does not transfer unexamined**, and it was re-measured rather than
+ * cited: those arms were in-process Ed25519, while a combine here is a round trip through
+ * an OS process that is itself being starved. Five regimes on 2026-08-04, everything
+ * under `/usr/bin/time -p`, four trials of the first, four whole-suite runs, and three or
+ * four trials of each burner regime:
+ *
+ * | regime | `(user+sys)/real` | floor | slowest sample |
+ * |---|---|---|---|
+ * | this file alone | 1.32 – 1.63 | 14 – 18 ms | 20 – 48 ms |
+ * | inside a whole `--project node` run | 0.90 – 1.37 | 24 – 58 ms | 58 – 314 ms |
+ * | alone + 12 CPU burners | 0.85 – 1.20 | 36 – 38 ms | 63 – 141 ms |
+ * | alone + 24 CPU burners | 0.71 – 0.86 | 40 – 47 ms | 145 – 222 ms |
+ * | alone + 48 CPU burners | 0.34 – 0.42 | 36 – 77 ms | 275 – 442 ms |
+ *
+ * Two facts, and they are different facts:
+ *
+ * 1. **Contention only ever adds.** Across every regime and every trial no sample came in
+ *    below the solo floor of 14 ms, and the lowest loaded sample anywhere was 24 ms.
+ *    There is no discount to average in, so the minimum is the closest available reading
+ *    of the work itself.
+ * 2. **The floor is not invariant here, unlike AUTH-04's.** It rose about 3× from 14 ms
+ *    to 47 ms as the process's CPU share fell from 1.6 to 0.71, and reached 77 ms at
+ *    0.34. A share of the machine's scarcity lands on *every* sample, because the agent
+ *    process answering the combine is starved too — so this is not occasional stalls and
+ *    must not be described as such. **What the minimum buys is the gap between the two
+ *    columns**: in the whole-suite runs where the floor read 24–58 ms, a single sample
+ *    reached 314 ms.
+ *
+ * `TIMEOUT_MARGIN` needs the floor under 150 ms. It was 58 ms at worst across four whole
+ * `--project node` runs — including one at `(user+sys)/real` **0.90**, the share that
+ * produced the recorded failures — and 77 ms under a burner load twice past that, on a
+ * run where this file alone took 42 s. So the residual margin is **~2.6× in the regime
+ * that occurs** and ~2× at a starvation far beyond it. That is the boundary, stated
+ * rather than left implicit: a red here means a slower combine, and the first thing to
+ * check is whether the printed floor is near 150 or near 60.
+ *
+ * ### The defect reproduced on demand, and the repair observed rescuing it
+ *
+ * At 48 burners and `(user+sys)/real` **0.42**, one trial read
+ * `cold combines [39,50,50,102,273,275]ms floor 39ms first 275ms`. The **first** sample
+ * — the whole of what this file used to read — was 275 ms, which is
+ * `expected 1500 to be greater than 2750` and red. The floor was 39 ms and green, in the
+ * same run, on the same six numbers. The failure is therefore not a rare coincidence of
+ * scheduling: it is what reading one draw from that distribution does.
+ *
  * ## What is copied, what is imported, and whose numbers these are
  *
  * `standUp`, `spawnAgent`, `stopAgent`, `runMap`, `project`, `partitionOf` and the
@@ -153,12 +222,14 @@ import { FabricNode } from './fabric-node.ts'
  * Two numbers *are* this file's own, and both are sited against a reading taken in the
  * same run rather than copied from another host:
  *
- * - **`RPC_TIMEOUT_MS = 1500`**, down from the copied fixture's 10 000. Sited against a
- *   cold combine on a fresh agent, measured inside each case: **24 ms** on 2026-08-04, so
- *   the budget is ~62× the work it has to cover, and the case asserts the ratio rather
- *   than the millisecond. The other term it has to cover is the map's cold `exec`
- *   dispatch — module pull plus WASM compile — and the whole eight-shard map at
- *   redundancy 2 measured **184 ms**, an upper bound on any single dispatch inside it.
+ * - **`RPC_TIMEOUT_MS = 1500`**, down from the copied fixture's 10 000. Sited against the
+ *   **floor of six cold combines** measured inside the case — **14–18 ms** running alone
+ *   and **24–58 ms** inside a whole `--project node` run on 2026-08-04 — so the budget is
+ *   26–100× the work it has to cover, and the case asserts the ratio rather than the
+ *   millisecond. Why the floor and not this run's first is the section above; it is the
+ *   defect this file was fixed for. The other term the budget has to cover is the map's
+ *   cold `exec` dispatch — module pull plus WASM compile — and the whole eight-shard map
+ *   at redundancy 2 measured **184 ms**, an upper bound on any single dispatch inside it.
  *   The map either completes or `runMap` refuses to proceed, so that term is a
  *   precondition rather than an assertion.
  * - **`AGENT_COUNT = 4`**, down from `standUp`'s eight. At `REDUCE_REDUNDANCY = 2` a
@@ -349,11 +420,18 @@ const REDUCE_REDUNDANCY = 2
 const RPC_TIMEOUT_MS = 1_500
 
 /**
- * How far above a measured cold combine `RPC_TIMEOUT_MS` has to sit.
+ * How far above the **floor** of the run's cold combines `RPC_TIMEOUT_MS` has to sit.
  *
- * A **ratio taken inside the run**, not a millisecond threshold: an absolute one would
- * encode this host's load on the day it was written. Ten is a stated judgement against a
- * measured 24 ms, i.e. a budget that would still hold if a combine got six times slower.
+ * A ratio taken inside the run, not a millisecond threshold: an absolute one would encode
+ * this host's load on the day it was written. Ten is a stated judgement against a floor
+ * measured at 14–18 ms alone and 24–58 ms inside a whole `--project node` run, i.e. a
+ * budget that would still hold if a combine got six times slower.
+ *
+ * **It did not move when the estimator was fixed, and it must not move to get green.**
+ * The file header records what the floor reads down to a CPU share of 0.34 — 77 ms
+ * against the 150 ms this margin allows — so a red here is a slower combine, not a
+ * busier host. Raising this, or lowering `RPC_TIMEOUT_MS`'s partner budget, is widening
+ * what counts as passing.
  */
 const TIMEOUT_MARGIN = 10
 
@@ -480,6 +558,50 @@ async function referenceCombine(store: Blockstore, task: CombineTask): Promise<s
   return hashed.cid.toString()
 }
 
+/** One cold combine, timed. `product` is `null` only if that combine failed outright. */
+interface ColdSample {
+  readonly task: CombineTask
+  readonly executorId: string
+  readonly ms: number
+  readonly product: CombineProduct | null
+}
+
+/**
+ * One cold combine per `(task, executorId)` pair, timed, in that nesting order.
+ *
+ * **Every pair is genuinely cold and that is what makes the samples comparable.** The
+ * partials were projected in *this* process by `deriveTree` and written to the
+ * requestor's store; no agent has ever seen them, so each peer answering each task must
+ * first pull four blocks it does not hold. A second dispatch of the same task to the
+ * same peer would find both the inputs and the product already local and would therefore
+ * be measuring a different, cheaper thing — which is why this sweeps pairs rather than
+ * repeating one.
+ *
+ * Serial, not `Promise.all`. Concurrent samples would contend with **each other**, which
+ * is the one source of contention this file can remove rather than measure around.
+ *
+ * The reading taken from the result is the **minimum**, never the first and never the
+ * mean — see the file header. `enrollment-dos.node.test.ts`'s `pairedRatio` is where the
+ * one-sidedness that licenses a minimum was first measured; this file measures it again
+ * for its own workload, because that one was in-process crypto and this one is four OS
+ * processes and a real transport.
+ */
+async function sampleColdCombines(
+  dispatch: CombineDispatch,
+  tasks: readonly CombineTask[],
+  executorIds: readonly string[],
+): Promise<readonly ColdSample[]> {
+  const samples: ColdSample[] = []
+  for (const task of tasks) {
+    for (const executorId of executorIds) {
+      const started = performance.now()
+      const product = await dispatch(task, executorId)
+      samples.push({ task, executorId, ms: performance.now() - started, product })
+    }
+  }
+  return samples
+}
+
 interface InboundFrame {
   readonly from: string
   readonly kind: unknown
@@ -565,8 +687,9 @@ describe('MR-04 — a paused process answers after the request that asked for it
    *
    * Four readings, in this order, because each is the precondition of the next:
    *
-   * (i) a cold combine on a fresh agent completes, and its duration is what
-   *     `RPC_TIMEOUT_MS` is sited against;
+   * (i) six cold combines on agents that have never seen these partials all complete,
+   *     and the **fastest** of them is what `RPC_TIMEOUT_MS` is sited against — see the
+   *     file header for why the fastest and not this run's first;
    * (ii) the same combine dispatched to a paused agent resolves `null`, and does so at
    *      the budget rather than at the transport's;
    * (iii) after SIGCONT, a `res` frame arrives from that peer **after** the dispatch had
@@ -603,10 +726,31 @@ describe('MR-04 — a paused process answers after the request that asked for it
     const watch = watchInbound(submitter)
     const rejections = watchRejections()
 
-    // (i) — a cold combine, on an agent that has never seen these partials.
-    const healthyStart = performance.now()
-    const healthyProduct = await dispatch(task, understudyId)
-    const healthyCombineMs = performance.now() - healthyStart
+    // (i) — cold combines, one per (level-1 combine, non-victim peer) pair. Six of them,
+    // and the reading `RPC_TIMEOUT_MS` is sited against is the **fastest**, not this
+    // run's first. See the file header: the first is what used to be read, and reading it
+    // is what made this case fail under load three times.
+    //
+    // The victim is excluded on purpose. It has to reach the pause never having seen
+    // these partials, because its four `req` frames after the resume are what show the
+    // combine request crossed the pause rather than being re-sent.
+    const coldTasks = [task, taskFor(tree, 1)]
+    const coldPeers = ranked.slice(1)
+    const cold = await sampleColdCombines(dispatch, coldTasks, coldPeers)
+    expect(cold).toHaveLength(coldTasks.length * coldPeers.length)
+    // A `null` sample is a combine that hit the very timeout this reading sites, so a
+    // floor taken over the survivors would be the one case where it must not be taken.
+    expect(cold.filter((sample) => sample.product === null)).toEqual([])
+    const coldSpans = [...cold.map((sample) => sample.ms)].sort((a, b) => a - b)
+    const healthyCombineMs = coldSpans[0] as number
+
+    // The first sample is `task` on the understudy — the pair the two assertions below
+    // are about. Asserted rather than assumed: `sampleColdCombines` nests task-major, and
+    // an edit that swapped the loops would silently compare a different combine's CID.
+    const first = cold[0] as ColdSample
+    expect(first.executorId).toBe(understudyId)
+    expect(first.task).toBe(task)
+    const healthyProduct = first.product
     expect(healthyProduct).not.toBeNull()
     expect(healthyProduct?.cid.toString()).toBe(await referenceCombine(submitter.store, task))
 
@@ -633,7 +777,10 @@ describe('MR-04 — a paused process answers after the request that asked for it
     // precedent, for the same reason.
     console.log(
       `[criterion 6 / arrival] standUp ${Math.round(standUpMs)}ms, map ${Math.round(mapMs)}ms, ` +
-        `cold combine ${Math.round(healthyCombineMs)}ms, paused dispatch ${Math.round(pausedDispatchMs)}ms ` +
+        `cold combines [${coldSpans.map((ms) => Math.round(ms)).join(',')}]ms ` +
+        `floor ${Math.round(healthyCombineMs)}ms first ${Math.round(first.ms)}ms ` +
+        `spread ${(Math.max(...coldSpans) / healthyCombineMs).toFixed(2)}×, ` +
+        `paused dispatch ${Math.round(pausedDispatchMs)}ms ` +
         `against rpcTimeoutMs ${RPC_TIMEOUT_MS}, pause ${Math.round(pauseMs)}ms, ` +
         `late replies ${late.length} at +${late.map((f) => Math.round(f.atMs - timedOutAt)).join(',')}ms, ` +
         `frames from the paused peer [${fromVictim.map((f) => String(f.kind)).join(',')}]`,
@@ -656,6 +803,11 @@ describe('MR-04 — a paused process answers after the request that asked for it
     expect(afterProduct?.cid.toString()).toBe(healthyProduct?.cid.toString())
 
     // The three budgets, in the order the mechanism requires. Ratios, not milliseconds.
+    //
+    // `healthyCombineMs` is the **floor** of the six cold samples, not the first of them.
+    // Reading the first is what made this line fail three times under whole-suite load;
+    // the file header carries the five-regime measurement that licenses the minimum and
+    // states where its own margin runs out.
     expect(RPC_TIMEOUT_MS).toBeGreaterThan(healthyCombineMs * TIMEOUT_MARGIN)
     expect(pausedDispatchMs).toBeGreaterThanOrEqual(RPC_TIMEOUT_MS)
     expect(pauseMs).toBeGreaterThan(RPC_TIMEOUT_MS)
