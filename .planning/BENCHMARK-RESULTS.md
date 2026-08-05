@@ -1,6 +1,6 @@
 # o2.services — benchmark run
 
-**SAME-MACHINE: 16 processes on 1 host — not 16 nodes**
+**SAME-MACHINE: 16 nodes on 1 host — a node count, not a machine count**
 
 Run at 2026-08-01T06:09:01.272Z. Methodology pre-registered in
 [`BENCHMARK-METHODOLOGY.md`](./BENCHMARK-METHODOLOGY.md), committed before
@@ -9,11 +9,11 @@ this harness existed.
 ## What these numbers do NOT establish
 
 - **No parallel speedup is measurable here, by construction.** Every node in both curves runs inside one OS process on one JavaScript event loop — the memory transport is in-process by definition, and the real transport creates its libp2p nodes in the same process and dials them over loopback. So these curves measure **coordination cost**, not parallelism, and the flat makespan across the node ladder is the expected consequence rather than a finding about scaling. Demonstrating speedup needs separate processes or machines and is not done here.
-- **BENCH-06 (distinct machines) is NOT met.** One machine was available, so every number here is same-machine. Processes on one host share a CPU, a memory bus and a scheduler; this measures software scaling with contention included and the network excluded, and it is not a measurement of N nodes.
+- **BENCH-06 (distinct machines) is NOT met.** One machine was available, so every number here is same-machine. The N the ladder counts is N *node identities*, and they share one host — and, per the entry above, one process — so they share a CPU, a memory bus, a scheduler and an event loop. This measures software scaling with contention included and the network excluded, and it is not a measurement of N machines. The label on every table says which of the two it is.
 - No hosted relay exists yet, so no WAN browser-tier number is included. The real transport here is libp2p over TCP on loopback.
 - The WASM fixture does almost no work, so per-task overhead dominates and the COST crossover is worse than it would be for a realistic workload. Declared in the methodology before these runs, not discovered afterwards.
 - The 1-node rung necessarily runs at redundancy 1: verification needs two independent executors, and one node cannot supply them. Its verification tax of 1.0 is therefore a property of the system, not a cheaper configuration — the same reason a sovereign shard with one owner node is owner-attested.
-- Speculation and churn taxes are 1.0 and 0 because `submitJob` neither speculates nor re-dispatches and no node was killed during these runs. They are identities, not measurements.
+- **Speculation tax 1.0 and churn 0 are literals this driver writes, not measurements.** The measurement site sets both by hand and reads neither from the job it just ran, so both columns would print these values whatever that job did. For speculation that is still the identity — `submitJob` does not speculate. For churn it no longer is: since 20-01 a shard whose lease lapses is re-placed and `JobResult.redispatches` counts the generations beyond the first, so a measured figure exists and nothing here reads it. Making the column live is 20-09’s; what is corrected here is the sentence that said the fabric had no such path.
 - **The reduce figures are subject to the same one-process, one-event-loop construction as the makespan figures.** `combine executors` counts distinct *node identities*, not distinct machines and not even distinct OS processes, so a value above 1 says the rendezvous ranking spread the combines across identities — not that any of them ran anywhere else. The eight-process evidence for the tree walk lives in `packages/node/src/tree-reduce-agents.node.test.ts`, not here.
 - **`tree depth` and `combines` are decided by `deriveReduceTree` from a shard count and a fanout this sweep never varies.** A column the run shows constant across every rung of both transports carries no information about a configuration, and a constant is not a result — the same status `spec. tax` and `churn/task` carry above. The reduce columns expected to carry information are `reduce p50`, `reduce p95`, `recomputes` and `combine executors`; read those. Varying the fanout across the sweep would make the other two informative and was rejected for a stated reason: rungs walking differently-shaped trees have incomparable reduce timings, which is the only thing the reduce table is for.
 - **The real-transport reduce refusal that emptied this table on 2026-08-01 has been removed, and the rows below are whatever the run above actually produced.** Recorded rather than deleted, because a reader comparing two dated artifacts must be able to tell a figure that changed from a figure that was replaced. What the previous run published here: every real-transport row an em dash, because `serveAgent`’s combine branch refused outright unless its `authorize` hook was the `serves-unauthenticated` sentinel, and every `FabricNode` supplies a real `authorizeCapability` — so every node in the real-transport rig answered `combine requires a capability chain this build cannot verify`, measured as `combines: 0`, `failed: 5`, `executedBy: 0`, `rootCid: null`. 16-05 routed a combine through `options.authorize` like every other request, so a combine is now admitted or refused by the node’s own authorizer rather than by a branch keyed on whether the node had one. **An em dash in this table therefore no longer means "refused"** — it means that rung produced no reduce at all, and the excluded list below is where its reason is named. The two reduce curves are comparable only across rungs both transports measured.
@@ -24,7 +24,7 @@ this harness existed.
 |---|---|---|---|---|---|---|
 | Alexanders-MacBook-Pro.local | worker, requestor, aggregator | Apple M1 Pro | 0/8 | 32.0 GiB | darwin 25.5.0 | node v23.11.0 |
 
-## Makespan — memory transport (SAME-MACHINE: 16 processes on 1 host — not 16 nodes)
+## Makespan — memory transport (SAME-MACHINE: 16 nodes on 1 host — a node count, not a machine count)
 
 | nodes | p50 | p95 | p99 | n | incomplete | gross n·s | useful n·s | verif. tax | spec. tax | churn/task | cold start |
 |---|---|---|---|---|---|---|---|---|---|---|---|
@@ -34,7 +34,7 @@ this harness existed.
 | 8 | 45.8ms | 57.6ms | 57.6ms | 19 | 0 | 15.064 | 7.532 | 2.00× | 1.00× | 0.00 | 49.7ms |
 | 16 | 44.9ms | 51.4ms | 51.4ms | 19 | 0 | 14.646 | 7.323 | 2.00× | 1.00× | 0.00 | 66.6ms |
 
-## Makespan — real transport (SAME-MACHINE: 16 processes on 1 host — not 16 nodes)
+## Makespan — real transport (SAME-MACHINE: 16 nodes on 1 host — a node count, not a machine count)
 
 | nodes | p50 | p95 | p99 | n | incomplete | gross n·s | useful n·s | verif. tax | spec. tax | churn/task | cold start |
 |---|---|---|---|---|---|---|---|---|---|---|---|
@@ -43,7 +43,7 @@ this harness existed.
 | 4 | 67.2ms | 94.1ms | 94.1ms | 19 | 0 | 40.653 | 20.327 | 2.00× | 1.00× | 0.00 | 201.3ms |
 | 8 | 69.5ms | 122.3ms | 122.3ms | 19 | 0 | 42.939 | 21.470 | 2.00× | 1.00× | 0.00 | 279.5ms |
 
-## Reduce tree — memory transport (SAME-MACHINE: 16 processes on 1 host — not 16 nodes)
+## Reduce tree — memory transport (SAME-MACHINE: 16 nodes on 1 host — a node count, not a machine count)
 
 | nodes | reduce p50 | reduce p95 | tree depth | combines | recomputes | combine executors |
 |---|---|---|---|---|---|---|
@@ -53,7 +53,7 @@ this harness existed.
 | 8 | 1.2ms | 2.1ms | 2 | 5 | 0 | 4 |
 | 16 | 1.4ms | 1.9ms | 2 | 5 | 0 | 5 |
 
-## Reduce tree — real transport (SAME-MACHINE: 16 processes on 1 host — not 16 nodes)
+## Reduce tree — real transport (SAME-MACHINE: 16 nodes on 1 host — a node count, not a machine count)
 
 | nodes | reduce p50 | reduce p95 | tree depth | combines | recomputes | combine executors |
 |---|---|---|---|---|---|---|

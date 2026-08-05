@@ -503,7 +503,7 @@ function unmetArtifact(document: string): string[] {
 
 /** A document with the structure and no values — every cell an em dash. */
 const EM_DASH_ONLY_DOCUMENT = [
-  '## Reduce tree — memory transport (SAME-MACHINE: 4 processes on 1 host — not 4 nodes)',
+  '## Reduce tree — memory transport (SAME-MACHINE: 4 nodes on 1 host — a node count, not a machine count)',
   '',
   REDUCE_HEADER,
   '|---|---|---|---|---|---|---|',
@@ -520,7 +520,7 @@ const EM_DASH_ONLY_DOCUMENT = [
  * fanout would produce. Structurally valid, numerically wrong.
  */
 const FOLD_SHAPED_DOCUMENT = [
-  '## Reduce tree — memory transport (SAME-MACHINE: 4 processes on 1 host — not 4 nodes)',
+  '## Reduce tree — memory transport (SAME-MACHINE: 4 nodes on 1 host — a node count, not a machine count)',
   '',
   REDUCE_HEADER,
   '|---|---|---|---|---|---|---|',

@@ -306,7 +306,11 @@ information about a configuration."
 
 ### 3d. The published run (.planning/BENCHMARK-RESULTS.md, run 2026-08-01T06:09:01.272Z)
 
-Headline label: "**SAME-MACHINE: 16 processes on 1 host — not 16 nodes**".
+Headline label: "**SAME-MACHINE: 16 nodes on 1 host — a node count, not a machine count**"
+— corrected 2026-08-04 from "16 processes on 1 host — not 16 nodes", which named a unit
+nothing had counted: the label interpolated `nodeCount` into both halves, the driver
+counts node identities, and all sixteen ran inside the one process that published them.
+The disclosure is the same; only the noun moved, and no figure below changed.
 Machine: Alexanders-MacBook-Pro.local, Apple M1 Pro, 0/8 cores reported, 32.0 GiB,
 darwin 25.5.0, node v23.11.0 (an off-LTS version, declared in advance as bias #4).
 

@@ -158,11 +158,22 @@ const SHARDS = 16
  * cannot silently move this curve.
  *
  * Why a declared limit is needed here at all is a structural fact about the job path,
- * read from source: a job's whole dispatch set is genuinely concurrent. `submitJob`
- * runs every shard through one `Promise.all` (`core/src/job/submit.ts:206`) and
- * `executeVerified` runs every replica through another (`core/src/job/verify.ts:149`),
- * so these shards do not trickle in — they arrive together and a node meets them all
- * at once. That is the *shape* of the arrival and deliberately not a *count*: how many
+ * read from source: a job's whole dispatch set is genuinely concurrent. `submitJob` maps
+ * every shard through one `Promise.all` over `inputCids`, and `executeVerified` runs
+ * every replica through another over its `executors`, so these shards do not trickle in
+ * — they arrive together and a node meets them all at once.
+ *
+ * **Cited by symbol and not by line, because both line citations here had rotted**: the
+ * first named `submit.ts:206` for a call that is now near 1468, the second
+ * `verify.ts:149` for one now at 188. A symbol a reader can grep survives the next edit;
+ * a line number silently starts pointing at something else.
+ *
+ * **And each element of that map is no longer one dispatch.** Since 20-01 it is
+ * `submitJob`'s generation loop — place, grant a lease, dispatch under it, renew only
+ * against evidence, re-place — so one shard can meet a node in more than one generation,
+ * and what arrives together is a generation's dispatch set rather than the job's.
+ *
+ * That is the *shape* of the arrival and deliberately not a *count*: how many
  * land on any one node is **unmeasured**, and multiplying it by `SHARDS`, by
  * `redundancy` or by anything else is the step that produced three different wrong
  * answers during planning. What would measure it is `FabricNode.executorPeakInFlight`
@@ -1201,9 +1212,15 @@ function runnerFor(build: (nodes: number) => Promise<Fabric>): {
       grossNodeSeconds: cost.gross,
       usefulNodeSeconds,
       verificationMultiplier: result.ok ? result.job.verificationMultiplier : 0,
-      // submitJob does not speculate or re-dispatch; those paths belong to
-      // runResilient and are not exercised by this workload. Reported as the
-      // identity rather than as a measured zero.
+      // Both literals, and neither is read from the job that just returned — so both
+      // columns print these values whatever that job did.
+      //
+      // For speculation that is still the identity: `submitJob` does not speculate.
+      // **For churn it is not.** Since 20-01 a shard whose lease lapses is re-placed and
+      // `JobResult.redispatches` counts the generations beyond the first, so a measured
+      // figure now exists at the other end of this very call and this site does not read
+      // it. Reading it would move a published column, which is 20-09's; what is corrected
+      // here is the comment that claimed the fabric had no such path at all.
       speculationMultiplier: 1,
       redispatches: 0,
       codeCache,
@@ -1433,9 +1450,11 @@ async function main(): Promise<void> {
         ' scaling. Demonstrating speedup needs separate processes or machines and is not' +
         ' done here.',
       '**BENCH-06 (distinct machines) is NOT met.** One machine was available, so every' +
-        ' number here is same-machine. Processes on one host share a CPU, a memory bus and' +
-        ' a scheduler; this measures software scaling with contention included and the' +
-        ' network excluded, and it is not a measurement of N nodes.',
+        ' number here is same-machine. The N the ladder counts is N *node identities*, and' +
+        ' they share one host — and, per the entry above, one process — so they share a' +
+        ' CPU, a memory bus, a scheduler and an event loop. This measures software scaling' +
+        ' with contention included and the network excluded, and it is not a measurement of' +
+        ' N machines. The label on every table says which of the two it is.',
       'No hosted relay exists yet, so no WAN browser-tier number is included. The real' +
         ' transport here is libp2p over TCP on loopback.',
       'The WASM fixture does almost no work, so per-task overhead dominates and the COST' +
@@ -1467,9 +1486,14 @@ async function main(): Promise<void> {
         ' receipts are printed separately because they are claims about different things' +
         ' — this rig’s map half and its aggregation half can differ, and on a' +
         ' `--discover` run they do.',
-      'Speculation and churn taxes are 1.0 and 0 because `submitJob` neither speculates' +
-        ' nor re-dispatches and no node was killed during these runs. They are identities,' +
-        ' not measurements.',
+      '**Speculation tax 1.0 and churn 0 are literals this driver writes, not' +
+        ' measurements.** The measurement site sets both by hand and reads neither from the' +
+        ' job it just ran, so both columns would print these values whatever that job did.' +
+        ' For speculation that is still the identity — `submitJob` does not speculate. For' +
+        ' churn it no longer is: since 20-01 a shard whose lease lapses is re-placed and' +
+        ' `JobResult.redispatches` counts the generations beyond the first, so a measured' +
+        ' figure exists and nothing here reads it. Making the column live is 20-09’s; what' +
+        ' is corrected here is the sentence that said the fabric had no such path.',
       '**The reduce figures are subject to the same one-process, one-event-loop' +
         ' construction as the makespan figures.** `combine executors` counts distinct' +
         ' *node identities*, not distinct machines and not even distinct OS processes, so' +

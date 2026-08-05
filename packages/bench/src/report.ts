@@ -8,13 +8,13 @@
  *
  * ## The same-machine label is a type, not a footnote
  *
- * `hosts` is required and `sameMachine` is derived from it, never declared. Sixteen
- * processes on one laptop share a CPU, a memory bus, a page cache and a scheduler;
- * that is a legitimate measurement of software scaling with hardware contention
- * included and the network excluded, and it is **not** a measurement of sixteen nodes.
- * Reporting it as sixteen nodes would be the most misleading thing this project could
- * publish, which is why BENCH-06 exists and why the label is computed rather than
- * supplied.
+ * `hosts` is required and `sameMachine` is derived from it, never declared. Sixteen node
+ * identities on one laptop share a CPU, a memory bus, a page cache and a scheduler — and
+ * where they are one process, an event loop as well; that is a legitimate measurement of
+ * software scaling with hardware contention included and the network excluded, and it is
+ * **not** a measurement of sixteen machines. Reporting it as sixteen machines would be
+ * the most misleading thing this project could publish, which is why BENCH-06 exists and
+ * why the label is computed rather than supplied.
  *
  * `renderMarkdown` puts the label in the heading of every table it emits, so it
  * survives being copy-pasted out of context — which is exactly how caveats normally
@@ -65,13 +65,34 @@ export function isSameMachine(inventory: Inventory): boolean {
   return hostCount(inventory) <= 1 && inventory.nodeCount > 1
 }
 
-/** The label that must appear wherever the numbers appear. */
+/**
+ * The label that must appear wherever the numbers appear.
+ *
+ * **Every number in this label is one of exactly two counted quantities**, and each is
+ * bound to a name below so the noun beside it can be checked against where it came from:
+ * `inventory.nodeCount`, and `hostCount(inventory)` derived from the machine list. There
+ * is no third. In particular **nothing here counts processes** — `Inventory` carries no
+ * such field and this module has no platform with which to ask for one — so a label
+ * naming processes would be an invented measurement wearing the clothes of a disclosure,
+ * which is worse than no disclosure.
+ *
+ * It read `N processes on 1 host — not N nodes` until 2026-08-04, with `nodeCount`
+ * interpolated into *both* halves. The driver counts node identities and never processes
+ * — `bin/bench.ts` passes `Math.max(...NODE_LADDER)` — and every identity it counted ran
+ * inside the one process that published them, which the report's own `unmet` list said in
+ * the paragraph directly beneath. So the label asserted a unit nobody had counted and
+ * denied the one that had been. The same-machine disclosure BENCH-06 requires is
+ * load-bearing and is kept; what changed is that the noun is now the counted one, and the
+ * claim being denied is the uncounted one — distinct machines, which is what BENCH-06 is
+ * about. `N processes` belongs to a driver that counts processes; that is Phase 23's.
+ */
 export function machineLabel(inventory: Inventory): string {
   const hosts = hostCount(inventory)
-  if (inventory.nodeCount <= 1) return `single node on ${hosts} host`
+  const nodes = inventory.nodeCount
+  if (nodes <= 1) return `single node on ${hosts} host`
   return isSameMachine(inventory)
-    ? `SAME-MACHINE: ${inventory.nodeCount} processes on 1 host — not ${inventory.nodeCount} nodes`
-    : `${inventory.nodeCount} nodes across ${hosts} hosts`
+    ? `SAME-MACHINE: ${nodes} nodes on ${hosts} host — a node count, not a machine count`
+    : `${nodes} nodes across ${hosts} hosts`
 }
 
 export interface Report {
