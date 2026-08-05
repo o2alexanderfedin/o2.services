@@ -194,6 +194,20 @@ async function memoryRig(nodes: number): Promise<Rig> {
     // AUTH-01: this process holds no provider signing key.
     enroll: 'issues-no-certificates',
     capacity: new LocalCapacity({ nodeId: 'requestor', maxConcurrent: GATE_ADMISSION_LIMIT }),
+    // BROW-02 — **permanent, not a burn-down**, and Plan 20-02 read this site rather than
+    // deciding from the file name. The rule: a site that stands up a *node* supplies a
+    // real ledger; a site that stands up a *measurement fixture* states the opt-out and
+    // says why. This rig is a fixture by its own module comment — it exists to make one
+    // ratio hold still, and every endpoint in it lives in the gate's own process.
+    //
+    // The reason is honesty about the population rather than cost. BROW-02 counts
+    // **visitors** whose node failed to start; this rig's endpoints are one process
+    // start, not `GATE_LADDER` of them. A `started` row per endpoint would be
+    // manufactured population in a metric whose entire value is that its `n` is real.
+    //
+    // It also does not move what this gate measures, which is the property that matters
+    // here: the hook is reached only by a `report` frame and this workload sends none, so
+    // the ratio the baseline was taken against is unchanged and needs no re-baseline.
     ledger: 'keeps-no-ledger',
     reservations: 'relays-for-nobody',
     onDispatch: 'reports-no-dispatch',
@@ -228,6 +242,10 @@ async function memoryRig(nodes: number): Promise<Rig> {
       // counter shared across workers would refuse the second replica of every shard —
       // the reasoning `bin/bench.ts` records beside its own construction.
       capacity: new LocalCapacity({ nodeId: id, maxConcurrent: GATE_ADMISSION_LIMIT }),
+      // BROW-02 — a fixture worker, on the reasoning stated in full at the requestor
+      // endpoint above: this rig's endpoints are one process start and not one visitor
+      // each, so a `started` row per worker would be population invented for a metric
+      // whose only value is that its sample size is real.
       ledger: 'keeps-no-ledger',
       reservations: 'relays-for-nobody',
       onDispatch: 'reports-no-dispatch',

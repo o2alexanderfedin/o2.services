@@ -5,6 +5,7 @@ import { canonicalCid } from '../canonical/encode.ts'
 import type { CanonicalValue } from '../canonical/encode.ts'
 import { EnrollmentAuthority, requestEnrollment } from '../enrollment.ts'
 import type { NodeCertificate } from '../enrollment.ts'
+import { DEFAULT_LEASE_MS, DEFAULT_MAX_GENERATIONS } from '../lease.ts'
 import { signName } from '../naming.ts'
 import type { Executor, ExecutionOutcome, Task } from '../ports.ts'
 import { LocalCapacity } from '../placement.ts'
@@ -14,7 +15,7 @@ import type { ResultSigner } from '../result-attestation.ts'
 import { publicNodes } from '../sovereignty.ts'
 import type { NodeDescriptor } from '../sovereignty.ts'
 import { submitJob } from './submit.ts'
-import type { JobSpec, ShardResult, ShardSpec } from './submit.ts'
+import type { JobResult, JobSpec, ShardResult, ShardSpec } from './submit.ts'
 import { executeVerified } from './verify.ts'
 
 const MODULE_CID = CID.parse('bafyreidykglsfhoixmivffc5uwhcgshx4j465xwqntbmu43nb2dzqwfvae')
@@ -1076,6 +1077,484 @@ describe('SCHED-02 — the no-offer arm places exactly as it did before this pha
     )
     // One shard each, in order — the round-robin the nudge reproduces.
     expect(chosen).toStrictEqual(['w0', 'w1', 'w2', 'w3'])
+  })
+})
+
+// ---------------------------------------------------------------------------
+// WIRE-04, CHURN-01, CHURN-04, SCHED-06 — a shard that lost its executor is
+// placed again, under a lease.
+// ---------------------------------------------------------------------------
+
+/**
+ * The generation loop, six cases, each stating what it CANNOT redden on.
+ *
+ * That sentence per case is required rather than decorative. Phase 18 shipped a
+ * tautology into this very path — `expect(shard.verification.agreeing).toHaveLength(1)`
+ * over an `agreed` narrowing where `agreeing ⊆ placement.nodeIds` and that length **is**
+ * `redundancy` = 1, so the reading was confined to `{0,1}` with `0` already excluded —
+ * and `M36` exists because nobody had written down what it could not catch. So each case
+ * below names its own blind spot, and where two cases look like one claim stated twice,
+ * the note says which of them actually carries it.
+ *
+ * **Deterministic by construction.** Failure is driven by which executor a fixture hands
+ * over, never by a timer, and the two renewal arms run on a *virtual* clock whose only
+ * source of advancement is the module's own `sleep`. Nothing here races a real clock.
+ */
+describe('WIRE-04/CHURN-01 — a shard whose executor refuses or dies is placed again', () => {
+  /** An executor that records that it ran, so "was this node attempted" is read, not inferred. */
+  function watched(nodeId: string, ran: string[], inner: Executor = honest(nodeId)): Executor {
+    return {
+      nodeId,
+      async execute(task: Task): Promise<ExecutionOutcome> {
+        ran.push(nodeId)
+        return inner.execute(task)
+      },
+    }
+  }
+
+  /** The events of one kind, in order — the history is where a route is visible. */
+  function kinds(history: readonly { readonly kind: string }[]): readonly string[] {
+    return history.map((event) => event.kind)
+  }
+
+  it('re-places a refused shard onto an untried node, and says so beside a control that never had to', async () => {
+    // Redundancy 1 over three nodes at equal load, so `planPlacement` orders by id and
+    // chooses `n1` — derived from the rule, not hardcoded taste.
+    const failedRun: string[] = []
+    const cleanRun: string[] = []
+    const build = (first: Executor, ran: string[]): JobSpec => {
+      const executors = [first, watched('n2', ran), watched('n3', ran)]
+      return {
+        moduleCid: MODULE_CID,
+        shards: [{ value: { n: 1 }, label: 'public' }],
+        executors,
+        nodes: publicNodes(executors),
+        redundancy: 1,
+        onQuorumShortfall: 'runs-at-available-redundancy',
+      }
+    }
+
+    const retried = await submitJob(
+      build(watched('n1', failedRun, failing('n1', 'took the shard and then refused it')), failedRun),
+      new MemoryBlockstore(),
+    )
+    // The control, in the SAME case and the same run: an identical fixture whose first
+    // choice does not fail. A re-dispatch count is only legible against a job that
+    // never had to retry, and a job that completes proves nothing on its own — this one
+    // completes too.
+    const clean = await submitJob(build(watched('n1', cleanRun), cleanRun), new MemoryBlockstore())
+
+    expect(retried.ok && clean.ok).toBe(true)
+    if (!retried.ok || !clean.ok) return
+    const shard = retried.job.shards[0] as ShardResult
+    expect(shard.verification.status).toBe('agreed')
+    if (shard.verification.status === 'agreed') {
+      // WHICH node answered. "It completed" is satisfied by the control below.
+      expect(shard.verification.agreeing.map((e) => e.nodeId)).toStrictEqual(['n2'])
+    }
+    expect(shard.attempted).toStrictEqual(['n1', 'n2'])
+    expect(shard.ending).toBe('agreed')
+    expect(kinds(retried.job.leaseHistory)).toStrictEqual([
+      'granted',
+      'surrendered',
+      'granted',
+      'completed',
+    ])
+    // Comparative, inside one run: one more dispatch than the control, one more node.
+    expect(retried.job.redispatches).toBe(clean.job.redispatches + 1)
+    expect(shard.attempted.length).toBe((clean.job.shards[0] as ShardResult).attempted.length + 1)
+    expect(clean.job.redispatches).toBe(0)
+    expect(failedRun).toStrictEqual(['n1', 'n2'])
+
+    // WHAT THIS CANNOT REDDEN ON. It cannot catch a widened eligibility gate: the shard
+    // is public, so every node is eligible and there is nothing to leak past. It also
+    // cannot carry the under-replication trigger — at redundancy 1 the only shortfall
+    // expressible is `insufficient`, so a loop that triggered on `insufficient` alone
+    // would pass this case exactly as written. The case below is the one that catches
+    // that, and this note is here so nobody reads the pair as one claim twice.
+  })
+
+  it('tops up a shard that agreed below its redundancy, and reaches full redundancy across two generations', async () => {
+    // Redundancy 2 over four nodes: `planPlacement` takes `n1` and `n2`, and `n2` fails.
+    // `executeVerified` returns **`agreed` with `replicas: 1`** — not `insufficient` —
+    // which is the trigger this case exists for and the one the case above cannot reach.
+    const ran: string[] = []
+    const executors = [
+      watched('n1', ran),
+      watched('n2', ran, failing('n2', 'died between the offer and the dispatch')),
+      watched('n3', ran),
+      watched('n4', ran),
+    ]
+    const r = await submitJob(
+      {
+        moduleCid: MODULE_CID,
+        shards: [{ value: { n: 1 }, label: 'public' }],
+        executors,
+        nodes: publicNodes(executors),
+        redundancy: 2,
+        onQuorumShortfall: 'runs-at-available-redundancy',
+      },
+      new MemoryBlockstore(),
+    )
+
+    expect(r.ok).toBe(true)
+    if (!r.ok) return
+    const shard = r.job.shards[0] as ShardResult
+    expect(shard.verification.status).toBe('agreed')
+    if (shard.verification.status === 'agreed') {
+      // Two agreeing replicas, verified TOGETHER — one answer confirmed by two nodes
+      // across two generations, not two separate agreements reported side by side.
+      expect(shard.verification.replicas).toBe(2)
+      expect(shard.verification.agreeing.map((e) => e.nodeId).sort()).toStrictEqual(['n1', 'n3'])
+      // The top-up landed on a node the first placement did not choose.
+      expect(shard.attempted.slice(0, 2)).toStrictEqual(['n1', 'n2'])
+    }
+    expect(shard.attempted).toStrictEqual(['n1', 'n2', 'n3'])
+    expect(shard.generations).toBe(2)
+    // The load-bearing one: it asked for 2 and it GOT 2, so it is not degraded. A loop
+    // that reported the two generations as separate agreements, or that re-ran the full
+    // redundancy instead of the shortfall, cannot produce this pair of readings.
+    expect(shard.degraded).toBe(false)
+    expect(r.job.complete).toBe(true)
+    expect(r.job.redispatches).toBe(1)
+    // `n4` was never needed, so it was never run. Read off the executor, not inferred.
+    expect(ran).toStrictEqual(['n1', 'n2', 'n3'])
+
+    // WHAT THIS CANNOT REDDEN ON. A loop triggering on `insufficient` **only** goes red
+    // here and stays green on the case above, which is why this one and not that one
+    // carries the second trigger. It cannot catch the bound (three nodes is under the
+    // cap) and it cannot catch a widened gate (public shard).
+  })
+
+  it('keeps a sovereign shard on its owner’s nodes across generations, and stops rather than leaving them', async () => {
+    // Two owners in one fixture, run as two submissions, because the pair is the claim:
+    // the first shows a second generation happening at all under sovereignty, the second
+    // is the one that could catch a leak.
+    const alice: readonly NodeDescriptor[] = [
+      { nodeId: 'alice-1', ownerId: 'alice', canExecuteSovereign: true, load: 0, certificate: 'carries-no-certificate' },
+      { nodeId: 'alice-2', ownerId: 'alice', canExecuteSovereign: true, load: 0, certificate: 'carries-no-certificate' },
+    ]
+    const carol: readonly NodeDescriptor[] = [
+      { nodeId: 'carol-1', ownerId: 'carol', canExecuteSovereign: true, load: 0, certificate: 'carries-no-certificate' },
+    ]
+    // Idle and cheap, so every load signal in the fixture argues for relocating.
+    const foreign: readonly NodeDescriptor[] = ['bob-1', 'bob-2', 'bob-3'].map((nodeId) => ({
+      nodeId,
+      ownerId: 'bob',
+      canExecuteSovereign: true,
+      load: 0,
+      certificate: 'carries-no-certificate',
+    }))
+
+    const twoNodeRan: string[] = []
+    const twoNodeExecutors = [
+      watched('alice-1', twoNodeRan, failing('alice-1', 'owner node dropped the dispatch')),
+      watched('alice-2', twoNodeRan),
+      ...foreign.map((n) => watched(n.nodeId, twoNodeRan)),
+    ]
+    const twoNodes = await submitJob(
+      {
+        moduleCid: MODULE_CID,
+        shards: [{ value: { n: 1 }, label: 'sovereign', ownerId: 'alice' }],
+        executors: twoNodeExecutors,
+        nodes: [...alice, ...foreign],
+        redundancy: 1,
+        onQuorumShortfall: 'runs-at-available-redundancy',
+      },
+      new MemoryBlockstore(),
+    )
+
+    const oneNodeRan: string[] = []
+    const oneNodeExecutors = [
+      watched('carol-1', oneNodeRan, failing('carol-1', 'owner node dropped the dispatch')),
+      ...foreign.map((n) => watched(n.nodeId, oneNodeRan)),
+    ]
+    const oneNode = await submitJob(
+      {
+        moduleCid: MODULE_CID,
+        shards: [{ value: { n: 1 }, label: 'sovereign', ownerId: 'carol' }],
+        executors: oneNodeExecutors,
+        nodes: [...carol, ...foreign],
+        redundancy: 1,
+        onQuorumShortfall: 'runs-at-available-redundancy',
+      },
+      new MemoryBlockstore(),
+    )
+
+    expect(twoNodes.ok && oneNode.ok).toBe(true)
+    if (!twoNodes.ok || !oneNode.ok) return
+
+    const alicesShard = twoNodes.job.shards[0] as ShardResult
+    expect(alicesShard.verification.status).toBe('agreed')
+    if (alicesShard.verification.status === 'agreed') {
+      expect(alicesShard.verification.agreeing.map((e) => e.nodeId)).toStrictEqual(['alice-2'])
+    }
+    expect(alicesShard.attempted).toStrictEqual(['alice-1', 'alice-2'])
+    expect(twoNodeRan).toStrictEqual(['alice-1', 'alice-2'])
+
+    const carolsShard = oneNode.job.shards[0] as ShardResult
+    // The owner's only node failed and there is nowhere legal left, so the shard stops.
+    // A stalled sovereign shard is the correct outcome — `sovereignty.ts`'s own words.
+    expect(carolsShard.verification.status).toBe('insufficient')
+    expect(carolsShard.ending).toBe('no-untried-node')
+    // The anti-vacuity read: exactly the owner's own node was attempted, and nobody
+    // else. Reading `attempted` and the executors' own record, not the absence of an
+    // error — a reason string stays perfectly plausible while the shard runs on bob.
+    expect(carolsShard.attempted).toStrictEqual(['carol-1'])
+    expect(oneNodeRan).toStrictEqual(['carol-1'])
+    expect(oneNode.job.complete).toBe(false)
+
+    // WHAT THESE CANNOT REDDEN ON. The two-node arm cannot catch a widened pool: with
+    // every node at load 0 the ordering is by id, and `alice-2` sorts before every
+    // `bob-*`, so a loop re-placing over the whole node set would choose it anyway. The
+    // one-node arm is the one that could — and note precisely what it can catch and what
+    // it cannot. It catches a loop that dispatches to an untried executor **directly**.
+    // It does NOT catch a loop that hands the wrong pool to `planPlacement` or
+    // `planWithOffers`, because both call `eligibleNodes` as their first act on whatever
+    // they are given, so the gate re-runs and refuses `bob-*` regardless. That guarantee
+    // lives in `sovereignty.ts` and is asserted there; what is asserted here is that the
+    // generation loop still goes through a placer at all.
+  })
+
+  it('stops at the generation cap, naming every node that failed it, with the lease abandoned', async () => {
+    // Five nodes, every one of them failing. The pool is deliberately larger than the
+    // cap so that "it stopped" is not explained by running out of nodes.
+    const ran: string[] = []
+    const executors = ['n1', 'n2', 'n3', 'n4', 'n5'].map((nodeId) =>
+      watched(nodeId, ran, failing(nodeId, `${nodeId} trapped`)),
+    )
+    const r = await submitJob(
+      {
+        moduleCid: MODULE_CID,
+        shards: [{ value: { n: 1 }, label: 'public' }],
+        executors,
+        nodes: publicNodes(executors),
+        redundancy: 1,
+        onQuorumShortfall: 'runs-at-available-redundancy',
+      },
+      new MemoryBlockstore(),
+    )
+
+    expect(r.ok).toBe(true)
+    if (!r.ok) return
+    const shard = r.job.shards[0] as ShardResult
+    // Exactly the cap, from the exported constant rather than a literal — "it stopped"
+    // is satisfied by a bug that stops after one.
+    expect(shard.generations).toBe(DEFAULT_MAX_GENERATIONS)
+    expect(shard.attempted).toStrictEqual(['n1', 'n2', 'n3'])
+    expect(shard.attempted.length).toBe(DEFAULT_MAX_GENERATIONS)
+    expect(ran).toStrictEqual(['n1', 'n2', 'n3'])
+    expect(shard.ending).toBe('generations-spent')
+    expect(r.job.redispatches).toBe(DEFAULT_MAX_GENERATIONS - 1)
+    expect(shard.verification.status).toBe('insufficient')
+    if (shard.verification.status === 'insufficient') {
+      // Every node that failed it, and why, merged across the generations.
+      expect(shard.verification.failures.map((f) => f.nodeId)).toStrictEqual(['n1', 'n2', 'n3'])
+      expect(shard.verification.failures.map((f) => f.reason)).toStrictEqual([
+        'n1 trapped',
+        'n2 trapped',
+        'n3 trapped',
+      ])
+    }
+    // The bound is the lease table's, and the table says so in its own history.
+    expect(kinds(r.job.leaseHistory)).toContain('abandoned')
+
+    // WHAT THIS CANNOT REDDEN ON. It cannot distinguish *why* the cap is three — a loop
+    // with its own hardcoded counter of 3 passes this exactly. What separates the two is
+    // the `abandoned` event, which only the lease table can produce, so that assertion
+    // and not the count is what says the bound lives where this plan claims it does.
+  })
+
+  it('renews a lease only against evidence the holder is still working — one fixture, both arms', async () => {
+    /**
+     * ONE fixture, ONE flag. The flag is *whether the holder is still there*, and a
+     * holder that is there is observable in exactly two ways: it holds the task's
+     * capacity slot, so it refuses a duplicate claim on it, and it eventually answers.
+     * A holder that has gone does neither. Two fixtures behaving differently would prove
+     * nothing about a rule; this is one fixture read twice.
+     */
+    async function run(holderStillThere: boolean): Promise<{
+      readonly job: JobResult
+      readonly holderId: string
+      readonly spareId: string
+      readonly probed: readonly string[]
+      readonly slotKey: string
+    }> {
+      const nodes = publicNodes([{ nodeId: 'h1' }, { nodeId: 'h2' }])
+      // Which node the offer arm asks first is rendezvous rank on the shard id, so it is
+      // derived rather than named — the same reason `firstAsked` exists at all.
+      const holderId = (await firstAsked(nodes)) as string
+      const spareId = holderId === 'h1' ? 'h2' : 'h1'
+      // Real `LocalCapacity`, not a stub. The refusal string the renewal probe matches on
+      // is composed in `placement.ts` and nowhere else; driving the real object is what
+      // makes a change to it turn this case red instead of silently making every renewal
+      // unreachable.
+      const capacity = new Map(
+        nodes.map((n) => [n.nodeId, new LocalCapacity({ nodeId: n.nodeId, maxConcurrent: 4 })]),
+      )
+
+      let slotKey = ''
+      let answerHolder: ((outcome: ExecutionOutcome) => void) | null = null
+      const holderWork = new Promise<ExecutionOutcome>((resolve) => {
+        answerHolder = resolve
+      })
+      const holder: Executor = {
+        nodeId: holderId,
+        execute(task: Task): Promise<ExecutionOutcome> {
+          // Exactly what `serveAgent`'s exec branch does: reserve under the task's own
+          // derived key. The key is read off the real task rather than guessed.
+          slotKey = `${task.inputCid.toString()}:${task.partitionIndex}`
+          if (holderStillThere) {
+            ;(capacity.get(holderId) as LocalCapacity).offer({ shardId: slotKey, nodeId: holderId })
+          }
+          return holderWork
+        },
+      }
+
+      const probed: string[] = []
+      let inFlightRefusals = 0
+      const admit = (offer: Offer): Admission => {
+        probed.push(offer.shardId)
+        const decision = (capacity.get(offer.nodeId) as LocalCapacity).would(offer)
+        if (!decision.accepted && decision.reason === `${offer.shardId} is already in flight here`) {
+          inFlightRefusals += 1
+          // A holder that has shown it is working twice then finishes, which is the
+          // whole point of renewal: it bought the time to finish in.
+          if (inFlightRefusals >= 2 && answerHolder !== null) {
+            answerHolder({
+              ok: true,
+              output: { shard: 0, of: 1, sum: 0 },
+              fuelUsed: 100,
+              attestation: 'signed-by-nobody',
+            })
+          }
+        }
+        return decision
+      }
+
+      // A virtual clock whose ONLY source of advancement is the module's own `sleep`.
+      // Nothing here waits on a real timer, so both arms are a deterministic sequence of
+      // events rather than a race.
+      //
+      // **It has a horizon, and that is an instrument rather than a safety net.** An
+      // unconditionally-renewed lease is not a slow test, it is a non-terminating one:
+      // every wait here is a microtask, so a loop that renews forever never yields to
+      // the macrotask queue and no test timeout can ever fire — the run hangs rather
+      // than failing. Measured, on exactly that mutation. So the clock refuses to pass
+      // its horizon and says why. The horizon is stated as a multiple of the module's
+      // own `DEFAULT_LEASE_MS` rather than as a millisecond count, because it is virtual
+      // time: it encodes no machine, no load and no I/O weather, only how many lease
+      // spans this fixture is willing to call bounded.
+      const HORIZON = DEFAULT_LEASE_MS * 10
+      let t = 0
+      const r = await submitJob(
+        {
+          moduleCid: MODULE_CID,
+          shards: [{ value: { n: 1 }, label: 'public' }],
+          executors: [holder, honest(spareId)],
+          nodes,
+          redundancy: 1,
+          onQuorumShortfall: 'runs-at-available-redundancy',
+          admit,
+        },
+        new MemoryBlockstore(),
+        {
+          clock: {
+            now: () => t,
+            sleep: async (ms: number): Promise<void> => {
+              t += ms
+              if (t > HORIZON) {
+                throw new Error(
+                  `the lease clock passed ${HORIZON}ms of virtual time — this dispatch is not bounded by its lease`,
+                )
+              }
+            },
+          },
+        },
+      )
+      if (!r.ok) throw new Error(`fixture submission failed: ${JSON.stringify(r.error)}`)
+      return { job: r.job, holderId, spareId, probed, slotKey }
+    }
+
+    const present = await run(true)
+    const gone = await run(false)
+
+    // ── The outcome differs ──────────────────────────────────────────────────────
+    const heldShard = present.job.shards[0] as ShardResult
+    const movedShard = gone.job.shards[0] as ShardResult
+    expect(heldShard.verification.status).toBe('agreed')
+    if (heldShard.verification.status === 'agreed') {
+      expect(heldShard.verification.agreeing.map((e) => e.nodeId)).toStrictEqual([present.holderId])
+    }
+    expect(movedShard.verification.status).toBe('agreed')
+    if (movedShard.verification.status === 'agreed') {
+      expect(movedShard.verification.agreeing.map((e) => e.nodeId)).toStrictEqual([gone.spareId])
+    }
+    expect(heldShard.attempted).toStrictEqual([present.holderId])
+    expect(movedShard.attempted).toStrictEqual([gone.holderId, gone.spareId])
+    expect(present.job.redispatches).toBe(0)
+    expect(gone.job.redispatches).toBe(1)
+
+    // ── And so does the HISTORY, which is where the route is visible ──────────────
+    // Anti-vacuity: a shard can reach the same outcome by two routes, and the outcome
+    // alone cannot tell a renewal from a lease that simply never came under pressure.
+    const held = kinds(present.job.leaseHistory)
+    const moved = kinds(gone.job.leaseHistory)
+    expect(held.filter((k) => k === 'renewed').length).toBeGreaterThanOrEqual(1)
+    expect(held).not.toContain('expired')
+    expect(moved).not.toContain('renewed')
+    expect(moved).toContain('expired')
+
+    // ── The evidence was asked for on the task's OWN slot key ────────────────────
+    // Derived in the module from `inputCid:partitionIndex`, exactly as `serveAgent`'s
+    // exec branch derives what it reserves. A probe on the placement shard id (`'0'`)
+    // would ask about a key no node ever holds and could never be evidence of anything.
+    expect(present.slotKey).not.toBe('0')
+    expect(present.probed).toContain(present.slotKey)
+    expect(present.probed[0]).toBe('0')
+
+    // WHAT THIS CANNOT REDDEN ON. It cannot say anything about a fabric where `admit` is
+    // absent — that arm has no probe by construction and its lease always lapses, which
+    // is stated on `JobSpec.admit` and is not measured here. It also cannot distinguish
+    // one renewal from several: the count of `renewed` events depends on how many
+    // microtask turns `executeVerified` needs after the holder answers, so the assertion
+    // is `>= 1` deliberately rather than an exact number that would encode the runtime.
+  })
+
+  it('records nothing at all for a job in which nothing fails — the control', async () => {
+    const ran: string[] = []
+    const executors = ['w0', 'w1', 'w2'].map((nodeId) => watched(nodeId, ran))
+    const r = await submitJob(
+      {
+        moduleCid: MODULE_CID,
+        shards: [{ value: { n: 1 }, label: 'public' }, { value: { n: 2 }, label: 'public' }],
+        executors,
+        nodes: publicNodes(executors),
+        redundancy: 2,
+        onQuorumShortfall: 'runs-at-available-redundancy',
+      },
+      new MemoryBlockstore(),
+    )
+
+    expect(r.ok).toBe(true)
+    if (!r.ok) return
+    expect(r.job.complete).toBe(true)
+    expect(r.job.redispatches).toBe(0)
+    for (const shard of r.job.shards) {
+      expect(shard.generations).toBe(1)
+      expect(shard.ending).toBe('agreed')
+      expect(shard.attempted).toHaveLength(2)
+    }
+    // Grants and completions, and nothing else. Without this the five readings above
+    // could every one of them be describing a loop that retries unconditionally — a job
+    // that re-dispatches everything also completes, also reaches full redundancy, and
+    // also lands on a node the first placement did not choose.
+    expect(new Set(kinds(r.job.leaseHistory))).toStrictEqual(new Set(['granted', 'completed']))
+    expect(r.job.leaseHistory).toHaveLength(4)
+
+    // WHAT THIS CANNOT REDDEN ON. Nothing about the retry policy itself: every trigger,
+    // the bound and both renewal arms are unreachable on a fixture where nothing fails.
+    // Its whole job is to falsify the *other* five, and it is worthless alone.
   })
 })
 

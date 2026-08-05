@@ -57,19 +57,21 @@ import { FsBlockstore } from './fs-blockstore.ts'
  *
  * **What changed in Phase 19, and why these numbers did not.** `EnrollmentAuthority` now
  * carries a second budget — `maxIssuedPerWindow`, an aggregate on a quantity no request
- * field can rotate around — and a host-supplied issuance ledger both budgets read. Both
- * options are **required unions with named sentinels**, and `fabric-node.ts` writes the
- * sentinels: this tier states that it has neither an aggregate budget nor a durable
- * history. So every reading below is unchanged, and unchanged **for a reason a reader can
- * see at the construction site** rather than because nothing exists. Plan 19-07 is where
- * this tier takes both for real, and the cross-process measurement belongs to it.
+ * field can rotate around — and a host-supplied issuance ledger both budgets read. Since
+ * Plan 19-07 `bin/agent.ts` has no way to run a provider without stating that bound, so
+ * every spawn below carries `--max-issued-per-window 64` — **chosen well above the largest
+ * population any measurement here sends** (twenty), so the aggregate budget never binds and
+ * every reading below stays a reading about the **per-user** limiter. That is the whole of
+ * what changed here. The aggregate bound is measured where it is the subject:
+ * `enrollment-cost.node.test.ts`.
  *
- * **The stated threshold is a threshold per provider *uptime*, not per wall-clock window.**
- * The agents spawned here take `issuance: 'remembers-only-within-this-process'` through
- * `FabricNode`, so a provider process that restarts forgets every issuance it made. The
- * burst measurement is valid — a burst against one running provider is genuinely refused
- * past the limit — and this is the limit's actual scope rather than something a reader
- * should have to infer.
+ * **The stated threshold is per provider per window, and it now survives a restart.** Plan
+ * 19-07 gave this tier a durable record under the provider's own `--dir` (`FsIssuance`),
+ * so a provider process that stops and starts again on the same directory resumes with
+ * everything it has already signed. What that changes for *this* file is only the
+ * explanation of the third measurement below: a second provider on a second directory
+ * still has its own budget, and that is because it is a second **provider**, not because
+ * the first one forgot.
  *
  * **Nothing here measures verification.** Criterion 2 lives in
  * `certificate-verification.node.test.ts`, where both provider processes are killed before
@@ -282,7 +284,7 @@ describe('AUTH-01 — criterion 1, across two real bin/agent.ts processes', () =
     // the one node type: it executes tasks, holds blocks, serves records and relays
     // exactly as every other agent does. Its handshake carries a non-null `issuerKey`,
     // which is the public half of a key it generated on its own disk.
-    const provider = await spawnAgent('provider', ['--issues-certificates'])
+    const provider = await spawnAgent('provider', ['--issues-certificates', '--max-issued-per-window', '64'])
     expect(provider.issuerKey).not.toBeNull()
     expect(provider.certificate).toBeNull()
     const issuerKey = provider.issuerKey as string
@@ -377,7 +379,7 @@ describe('AUTH-01 — criterion 1, across two real bin/agent.ts processes', () =
    */
   it('exits 2 naming the missing companion when --provider-addr is given without it, and starts when both are given', async () => {
     const user = await writeUserKey('control-user', ALICE_USER_SEED)
-    const provider = await spawnAgent('provider', ['--issues-certificates'])
+    const provider = await spawnAgent('provider', ['--issues-certificates', '--max-issued-per-window', '64'])
 
     await expect(
       spawnAgent('partial', ['--provider-addr', provider.multiaddrs[0] as string, '--operator-id', 'op-a']),
@@ -414,7 +416,7 @@ describe('AUTH-01 — criterion 1, across two real bin/agent.ts processes', () =
    * from it.
    */
   it('exits 2 naming the flag and the value when --user-key does not name a readable 32-byte file', async () => {
-    const provider = await spawnAgent('provider', ['--issues-certificates'])
+    const provider = await spawnAgent('provider', ['--issues-certificates', '--max-issued-per-window', '64'])
 
     const nonsense = 'z'.repeat(64)
     await expect(
@@ -484,7 +486,7 @@ describe('AUTH-04 — criterion 3, the burst through the production request path
    * won, nor on how many did.
    */
   it('refuses past the threshold the refusal states, under one user key', async () => {
-    const provider = await spawnAgent('burst-provider', ['--issues-certificates'])
+    const provider = await spawnAgent('burst-provider', ['--issues-certificates', '--max-issued-per-window', '64'])
     const client = await startClient('burst-client')
     await client.dial(provider.multiaddrs[0] as string)
 
@@ -541,16 +543,19 @@ describe('AUTH-04 — criterion 3, the burst through the production request path
    * *"so mass fake-node creation is costly"* has been demonstrated by the per-user window.
    *
    * The bound that does answer it is `maxIssuedPerWindow`, and this spawned agent states
-   * `'issues-without-an-aggregate-budget'` — so twenty still succeed here, and would not
-   * against a provider that named a number. `enrollment.test.ts` runs this exact
-   * population against both configurations side by side.
+   * **64** — three times the population it meets, deliberately, so the twenty still
+   * succeed and this reading stays about the per-user limiter. Against a provider that
+   * named a number below twenty they would not, which is the whole difference and is
+   * measured in `enrollment-cost.node.test.ts` at a budget of one.
+   * `enrollment.test.ts` runs this exact population against both configurations side by
+   * side, in process.
    *
    * A **second** provider process rather than a reuse of the first, deliberately: neither
    * number may depend on the other measurement having run, and the first test deliberately
    * exhausts one user key's budget on the provider it uses.
    */
   it('does nothing at all against twenty distinct user keys — rate-limiting measured, cost unmeasured', async () => {
-    const provider = await spawnAgent('cost-provider', ['--issues-certificates'])
+    const provider = await spawnAgent('cost-provider', ['--issues-certificates', '--max-issued-per-window', '64'])
     const client = await startClient('cost-client')
     await client.dial(provider.multiaddrs[0] as string)
 
@@ -575,19 +580,24 @@ describe('AUTH-04 — criterion 3, the burst through the production request path
 
   /**
    * The limit's real scope, asserted rather than left for a reader to infer: it is a
-   * threshold per provider *uptime*.
+   * threshold per **provider**, and a provider is a directory.
    *
-   * The same user key that was refused above is accepted immediately by a **second**
-   * provider process, because this tier takes `issuance:
-   * 'remembers-only-within-this-process'` and a process that restarts starts with an
-   * empty history. That the threshold survives a provider restart is **unmeasured and
-   * false on this configuration**, and this is the reading that says so. The port that
-   * would make it true exists; supplying a durable implementation of it is Plan 19-07's,
-   * and the restart is the reading that plan has to take.
+   * The same user key that was refused above is accepted immediately by a second provider
+   * process — and since Plan 19-07 that is no longer because the record is per *process*.
+   * `FsIssuance` keys the record on the provider's own `--dir`, and these two spawns are
+   * given different directories by `spawnAgent`, so they are two providers with two
+   * signing keys and two budgets. That is correct rather than a hole: a peer that pinned
+   * the first one's issuer takes nothing from the second, because `verifyCertificate`
+   * refuses `untrusted-issuer`.
+   *
+   * **The reading this file no longer takes** is the one that used to be recorded here as
+   * unmeasured: a provider stopped and restarted on the *same* directory. That is
+   * `enrollment-cost.node.test.ts`'s, where it is the load-bearing measurement rather than
+   * a side note.
    */
   it('a second provider process has a fresh budget for the same user key', async () => {
-    const first = await spawnAgent('scope-provider-1', ['--issues-certificates'])
-    const second = await spawnAgent('scope-provider-2', ['--issues-certificates'])
+    const first = await spawnAgent('scope-provider-1', ['--issues-certificates', '--max-issued-per-window', '64'])
+    const second = await spawnAgent('scope-provider-2', ['--issues-certificates', '--max-issued-per-window', '64'])
     const client = await startClient('scope-client')
     await client.dial(first.multiaddrs[0] as string)
     await client.dial(second.multiaddrs[0] as string)

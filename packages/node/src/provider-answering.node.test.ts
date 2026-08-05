@@ -104,7 +104,7 @@ const start = async (name: string, options: Partial<FabricNodeOptions> = {}): Pr
 
 /** A provider: one boolean different from every other node in this file. */
 const startIssuer = async (): Promise<FabricNode> =>
-  start('issuer', { issuesCertificates: true })
+  start('issuer', { issuesCertificates: 'issues-without-an-aggregate-budget' })
 
 /** The TCP multiaddr a peer dials this node at, peer id included. */
 const addrOf = (node: FabricNode): string => {

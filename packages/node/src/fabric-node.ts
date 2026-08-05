@@ -85,7 +85,9 @@ import { ping } from '@libp2p/ping'
 import { tcp } from '@libp2p/tcp'
 import { webSockets } from '@libp2p/websockets'
 import { multiaddr } from '@multiformats/multiaddr'
+import { AbiExecutor, WasiExecutor } from '@o2/aot'
 import {
+  DEFAULT_ISSUANCE_WINDOW_MS,
   DEFAULT_MAX_CONCURRENT_TASKS,
   DutyCycleGovernor,
   EnrollmentAuthority,
@@ -93,19 +95,27 @@ import {
   MemoryBlockstore,
   SelfRecordIndex,
   SignedNameResolver,
+  StartOutcomeLedger,
   WorkerExecutor,
+  attestResults,
   guardModuleProvenance,
   guardSovereignty,
+  isStartBrowserLabel,
   publishCapabilities,
   requestEnrollment,
 } from '@o2/core'
 import type {
   Blockstore,
+  BrowserFamily,
   Executor,
+  IssuanceBudget,
   NodeCertificate,
   NodeSovereignty,
   PublicKeyHex,
+  ResultAttestor,
   SelfRecordIndexOptions,
+  StartOutcome,
+  StartReport,
 } from '@o2/core'
 import {
   CountingExecutor,
@@ -124,6 +134,7 @@ import type { EnrolOutcome } from '@o2/net'
 import { createLibp2p } from 'libp2p'
 import type { Libp2p } from '@libp2p/interface'
 import { FsBlockstore } from './fs-blockstore.ts'
+import { FsIssuance } from './fs-issuance.ts'
 import { FsSovereignCids } from './sovereign-cids.ts'
 import type { SovereignCids } from '@o2/net'
 import {
@@ -189,8 +200,8 @@ export interface FabricNodeOptions {
    */
   readonly sovereignty?: NodeSovereignty
   /**
-   * Whether this process holds a provider signing key and answers enrollment requests —
-   * AUTH-01, AUTH-04.
+   * Whether this process holds a provider signing key and answers enrollment requests, and
+   * **how many certificates it will sign per window if it does** — AUTH-01, AUTH-04.
    *
    * A **per-node setting, not a node kind.** Every `FabricNode` has the identical
    * executor, transport, relay capability and protocol surface regardless of it — exactly
@@ -201,18 +212,31 @@ export interface FabricNodeOptions {
    * Nothing anywhere branches on it except the two lines that build the authority and hand
    * it to `serveAgent`.
    *
-   * **The key is generated on-device and is never passed in.** There is no option here
-   * that accepts key material, and Plan 17-05's `--issues-certificates` is a boolean for
-   * the same reason: argv is world-readable in `ps`, so a key on a command line is a key
-   * every account on the host has read. It is written to `.provider.key`, a **different
-   * file from `.identity.key`**, so `issuerKey !== nodeKey` always holds and a
-   * provider-signed certificate is never confusable with a self-signed one.
+   * **It carries the budget rather than sitting beside it, and that is the whole shape of
+   * it.** It used to be a `boolean`. A separate optional `maxIssuedPerWindow` beside it
+   * would have left the one mechanism that bounds an attacker switched off whenever a
+   * caller forgot the second field, with `tsc --noEmit` at exit 0 — the failure
+   * `IssuanceBudget`'s own docblock records this phase measuring twice. Folded in, *a
+   * provider with no stated budget is not a state this type can express*: a caller either
+   * names a number or writes `'issues-without-an-aggregate-budget'` and thereby says so.
+   * Absence still means "does not issue at all", which is the safe default and is the one
+   * omission that selects nothing dangerous.
    *
-   * A process given no `blockstoreDir` has nowhere to persist it and gets a fresh provider
-   * key per start — the same deployment choice `blockstoreDir`'s own doc frames above, and
-   * not a different kind of node.
+   * **The key is generated on-device and is never passed in.** There is no option here
+   * that accepts key material, and `bin/agent.ts`'s `--issues-certificates` is a boolean
+   * for the same reason: argv is world-readable in `ps`, so a key on a command line is a
+   * key every account on the host has read. (The *budget* is a policy number rather than
+   * key material, so it does reach argv, as `--max-issued-per-window`.) The key is written
+   * to `.provider.key`, a **different file from `.identity.key`**, so `issuerKey !==
+   * nodeKey` always holds and a provider-signed certificate is never confusable with a
+   * self-signed one.
+   *
+   * A process given no `blockstoreDir` has nowhere to persist the key and gets a fresh one
+   * per start — the same deployment choice `blockstoreDir`'s own doc frames above, and not
+   * a different kind of node. It also has nowhere to persist the *issuance record*, and
+   * says so by name at the construction site rather than by omission.
    */
-  readonly issuesCertificates?: boolean
+  readonly issuesCertificates?: IssuanceBudget
   /**
    * The provider to enrol with, and the user this node belongs to — AUTH-01.
    *
@@ -709,6 +733,89 @@ function ownRecords(
   })
 }
 
+/**
+ * The family this node files **its own** start row under — BROW-02.
+ *
+ * `'other'`, and that is the honest label rather than a placeholder: `BROWSER_FAMILIES`'
+ * own comment says *"`other` is not a failure — it is an honest label"*, and a process
+ * that is not a browser at all is exactly what it is for.
+ *
+ * **Not a `'node'` family, deliberately.** The label range is a disclosure boundary —
+ * `parseCounts` (`@o2/net`) refuses any label `isStartBrowserLabel` rejects — so an
+ * invented family would not widen the range, it would leave this node's row on the floor
+ * at the first wire boundary it crossed, silently, with the local report and every merged
+ * report disagreeing and nothing naming why. Widening the range is a separate decision and
+ * is not taken here.
+ *
+ * Typed as `BrowserFamily` rather than as a bare string so that renaming the family list
+ * is a compile error at this line instead of a row peers quietly drop.
+ */
+const OWN_START_FAMILY: BrowserFamily = 'other'
+
+/**
+ * This node's own start outcome, or the named statement that it has none to report —
+ * BROW-02.
+ *
+ * ## Why a node records a row about itself at all
+ *
+ * `serveAgent`'s report branch records only what a **peer** told it, so without this a
+ * node asked for its counts hands the asker back the asker's own row. `mergeOverlapping`
+ * takes the maximum per `(browser, result)` key, so a merged report across two nodes reads
+ * 1 and across twenty nodes reads 1 — a metric that cannot exceed the local reading
+ * whatever the fabric does. The arithmetic is worked through in
+ * `.planning/phases/phase-20-single-job-path-ledger-churn-resilience/20-CONTEXT.md`.
+ *
+ * ## Why the sentinel arm is a guard and no longer a reachable state
+ *
+ * A label this build cannot file is not a row: `parseCounts` drops it at the wire, so
+ * filing it locally would give this node a report a peer can never corroborate, with the
+ * two readings disagreeing and nothing saying which is wrong. A node whose own label is
+ * outside the coarse range therefore has **nothing to report**, and says so by name.
+ *
+ * No node reaches that state now, on either tier, and the tiers arrive at the same place by
+ * different routes — which is the standing rule holding rather than breaking. Here
+ * {@link OWN_START_FAMILY} is a constant the type checker has already accepted. On the
+ * browser tier the label is derived from a user-agent string this build has never seen, and
+ * `browserLabel` used to interpolate the major unbounded while `isStartBrowserLabel`
+ * admitted four digits — so a five-digit visitor started and reported nothing whatever.
+ * That composer is now bounded by `MAX_BROWSER_MAJOR`, the ceiling the predicate is derived
+ * from. The arm stays because the parameter is a `string` and this predicate is where the
+ * range is enforced; it is defensive, and saying so is cheaper than claiming a reach it
+ * does not have.
+ *
+ * A node reaching this function **started** — there is no path through `#compose` that
+ * arrives here otherwise — so the result arm is not a value a caller chooses. That is why
+ * it is derived here rather than taken as a `FabricNodeOptions` field; see the plan
+ * summary for the measured fan-out a required field would have carried.
+ *
+ * `browser-node.ts` holds the byte-identical function over its own label, which is the
+ * standing rule this file's module comment states in the imperative: all nodes have equal
+ * functionality, and a browser label and `'other'` are two values of one field rather than
+ * two kinds of node.
+ */
+function ownStartOutcome(label: string): StartOutcome | 'reports-no-start-outcome' {
+  return isStartBrowserLabel(label)
+    ? { browser: label, result: { kind: 'started' } }
+    : 'reports-no-start-outcome'
+}
+
+/**
+ * A ledger holding this node's own row, ready for `serveAgent`'s hook — BROW-02.
+ *
+ * The argument is a **required union with a named sentinel** and never an optional: an
+ * omitted outcome would let this line mean "report nothing" without anything having said
+ * so, which is the hole `.planning/PROJECT.md`'s Key Decision *"an optional hook with a
+ * silent default is a hole"* names and which this repository has twice measured as
+ * `tsc --noEmit` exit 0 beside a failing behavioural assertion.
+ *
+ * `browser-node.ts` holds the byte-identical function.
+ */
+function ownStartLedger(outcome: StartOutcome | 'reports-no-start-outcome'): StartOutcomeLedger {
+  const held = new StartOutcomeLedger()
+  if (outcome !== 'reports-no-start-outcome') held.record(outcome)
+  return held
+}
+
 function hasReservations(value: unknown): value is RelayService {
   if (value === null || typeof value !== 'object') return false
   const candidate = (value as { reservations?: unknown }).reservations
@@ -828,6 +935,15 @@ export class FabricNode {
    * verdict would be new public surface with no production caller.
    */
   readonly #verifier: PeerVerifier
+  /**
+   * BROW-02 — what this node has been told about how starting went, including its own row.
+   *
+   * Private, and the reading is {@link startReport}. A public field would hand a caller
+   * `record` and `mergeOverlapping`, so reading what a peer said would be one property
+   * access away from writing it — and this ledger is unauthenticated wire input, which is
+   * the one thing that must not also be locally writable by whoever renders it.
+   */
+  readonly #startLedger: StartOutcomeLedger
 
   private constructor(parts: {
     libp2p: Libp2p
@@ -850,6 +966,7 @@ export class FabricNode {
     verifier: PeerVerifier
     relayFailures: readonly RelayDialFailure[]
     sovereignCids: SovereignCids | 'forgets-sovereignty-between-jobs'
+    startLedger: StartOutcomeLedger
   }) {
     this.libp2p = parts.libp2p
     this.transport = parts.transport
@@ -871,6 +988,27 @@ export class FabricNode {
     this.#verifier = parts.verifier
     this.#relayFailures = parts.relayFailures
     this.#sovereignCids = parts.sovereignCids
+    this.#startLedger = parts.startLedger
+  }
+
+  /**
+   * What this node has been told about start outcomes, its own row included — BROW-02.
+   *
+   * Readable without a round trip, which is the whole reason it is here: a caller that
+   * already holds this node can render what its peers reported to it without asking the
+   * fabric for something the fabric just told it.
+   *
+   * **Reading cannot mutate.** `report()` computes a fresh {@link StartReport} — plain
+   * data with no methods and no reference back to the ledger — so a caller holding one
+   * cannot add a row, and two calls a second apart are two independent snapshots rather
+   * than two views of one object.
+   *
+   * A node that has been told nothing still reports **one**: its own start, recorded at
+   * construction. That is the difference between this and every earlier build, where a
+   * peer asking any node in this repository was answered `counts: []`.
+   */
+  get startReport(): StartReport {
+    return this.#startLedger.report()
   }
 
   /**
@@ -1292,31 +1430,51 @@ export class FabricNode {
     // holds; and generated on-device, because no option in this phase accepts key material
     // and argv is world-readable in `ps` (17-CONTEXT.md decision 6).
     //
-    // The two *optional* issuance numbers are left exactly as `enrollment.ts` declares
-    // them. Cited rather than restated: nothing in this phase's criteria asks for other
-    // numbers, a knob nobody sets is a knob that drifts from the tests, and a value copied
-    // into a comment is a value that can disagree with its source.
+    // The two *optional* issuance numbers — `maxPerWindow` and `windowMs` — are left
+    // exactly as `enrollment.ts` declares them. Cited rather than restated: nothing in
+    // this phase's criteria asks for other numbers, a knob nobody sets is a knob that
+    // drifts from the tests, and a value copied into a comment is a value that can
+    // disagree with its source. `certificateLifetimeMs` is left alone for a stronger
+    // reason — the owner's 2026-08-02 correction rules certificate lifetimes out of the
+    // cost argument entirely, so a knob here would invite exactly the tuning it forbids.
     //
-    // The two **required** ones are written out below as named sentinels, and both say
-    // the same thing: this tier does not yet have what the option is for. Neither is
-    // omitted, because an omission would be indistinguishable from a decision — and for
-    // `issuance` specifically, defaulting it to the in-process history is *precisely* the
-    // per-process budget Phase 17 measured as defeated, with nothing anywhere failing.
+    // **AUTH-04, and this is the line that turns the mechanism on in production.** Both
+    // required options carried a named sentinel for one wave; both now carry the real
+    // thing.
     //
-    // **Plan 19-07 is where each gets its durable form on this tier** — a ledger over
-    // `<dir>/`, beside `.provider.key`, and an aggregate number to go with it. Until then
-    // this node states that it has neither, which is a reading a host can take rather
-    // than an absence a reader has to infer.
+    //   - the **budget** comes from the caller, because `FabricNodeOptions` cannot express
+    //     a provider that never stated one (see `issuesCertificates`). There is no default
+    //     here and there must not be: a defaulted budget is a policy nobody chose.
+    //   - the **history** is a file under this node's own `<dir>`, beside `.identity.key`
+    //     and `.provider.key`, carrying exactly the authority the filesystem permissions
+    //     there already carry. `FsIssuance`'s header has the argument for why it is not a
+    //     wire frame; the short form is that `serveAgent` serves enrolment
+    //     unauthenticated.
+    //
+    // **A node with no `blockstoreDir` says so by name rather than falling back quietly.**
+    // It has nowhere durable to write, exactly as it has nowhere to persist its identity
+    // seed or its sovereign-CID set, and the sentinel is what makes that a reading rather
+    // than an absence a reader has to infer — the identical shape `sovereignCids` uses a
+    // few lines below. Reaching that arm reproduces Phase 17's measured defect exactly,
+    // which is why it has to be asked for rather than arrived at.
     const authority =
-      options.issuesCertificates !== true
+      options.issuesCertificates === undefined
         ? null
         : new EnrollmentAuthority({
             providerPrivateKey:
               options.blockstoreDir === undefined
                 ? generateSeed()
                 : await loadOrCreateSeed(options.blockstoreDir, PROVIDER_FILE),
-            maxIssuedPerWindow: 'issues-without-an-aggregate-budget',
-            issuance: 'remembers-only-within-this-process',
+            maxIssuedPerWindow: options.issuesCertificates,
+            issuance:
+              options.blockstoreDir === undefined
+                ? ('remembers-only-within-this-process' as const)
+                : // The retained window is `enrollment.ts`'s own default, read from the
+                  // module the authority defaults from rather than restated here, so the
+                  // record cannot compact past a bound the authority still consults.
+                  await FsIssuance.open(options.blockstoreDir, {
+                    retainMs: DEFAULT_ISSUANCE_WINDOW_MS,
+                  }),
           })
 
     // AUTH-01 — the enrollment round trip, over the fabric's own protocol, before this
@@ -1472,6 +1630,60 @@ export class FabricNode {
       createThread: workerThread,
       ...(options.taskDeadlineMs === undefined ? {} : { deadlineMs: options.taskDeadlineMs }),
     })
+
+    // AOT-04 — this node runs both ABIs, and **the artifact chooses, never the node**.
+    // There is no `--wasi` flag on `bin/agent.ts`, no second factory and no option: a
+    // node's capability is not a property of how it was started. The module's own
+    // declared import namespace decides which host object it meets, and
+    // `WebAssembly.instantiate` remains the sandbox either way — routing wrongly costs
+    // one honest instantiation failure naming the missing import and cannot produce a
+    // wrong result. `abi-router.ts` carries the full argument.
+    //
+    // **Innermost, deliberately.** Everything outside these parentheses is unchanged,
+    // so the sovereignty gate and the provenance guard apply to a translated artifact
+    // exactly as they do to a source-compiled one. That is half of what "the same
+    // admission and verification path" means, and composing the router *outside*
+    // either of them would quietly exempt translated work from a guard this project
+    // treats as unconditional. `fabric-node.node.test.ts`'s DATA-09 block dispatches a
+    // sovereign WASI task for precisely that reading — the native assertions beside it
+    // cannot tell the two compositions apart, because `guardSovereignty` returns
+    // before `inner.execute` and the native arm stays guarded either way.
+    //
+    // The router compiles to decide and never instantiates, so "refused before
+    // instantiation" is untouched: provenance is still the last guard before the
+    // executor that reaches `WebAssembly.instantiate`, and the router sits beneath it.
+    //
+    // **The asymmetry here is within one node, not between kinds.** `compute` is the
+    // killable thread (BROW-04/SCHED-06), so a native module runs there and a WASI
+    // module runs inline on this thread — which means the per-task wall-clock deadline
+    // bounds the native arm and **does not bound the WASI arm**. Stated rather than
+    // discovered: a WASI guest that never returns holds this thread, and nothing here
+    // can interrupt it. It cannot be fixed at this line — `WorkerExecutor` posts to a
+    // thread running `@o2/core`'s `runTask`, and `@o2/core` may declare no dependency
+    // on any other `@o2` package at all (`purity.node.test.ts`), so the killable path
+    // cannot reach
+    // `WasiExecutor` from where it stands. Closing it means moving the ABI choice into
+    // `runTask`, which is a change to the kernel's dependency shape and not to this
+    // composition. **`browser-node.ts` carries the identical bound and the identical
+    // gap**, so this is one node's asymmetry between two artifacts, not a difference
+    // in capability between a tab and a server.
+    //
+    // **Reachability, recorded here so Phase 22 does not rediscover it as a finding.**
+    // The router is reachable from `bin/agent.ts` (through this factory) and from the
+    // browser demo (through `BrowserNode.start`). It is deliberately **not** reachable
+    // from `bin/bench.ts`, which constructs `WasmExecutor` directly at three sites
+    // because that benchmark measures the native ABI on purpose. That is a decision.
+    // What is **not** established is that no *other* construction path can yield a
+    // node running one ABI and not the other: `task-worker.ts`,
+    // `task-executor.worker.ts` and those three bench sites all still build bare
+    // native executors, and this comment is a note rather than a guard. A
+    // source-scanning check in `purity.node.test.ts`'s style would be the guard.
+    const abi = new AbiExecutor({
+      blockstore,
+      native: compute,
+      wasi: new WasiExecutor({ nodeId: libp2p.peerId.toString(), blockstore }),
+    })
+
     // SCHED-06 + SCHED-04. The counter sits **inside** the governor, which is a change
     // from this tier's previous order and brings it into line with `browser-node.ts`.
     //
@@ -1482,9 +1694,79 @@ export class FabricNode {
     // actually about.
     //
     // Everything inside is unchanged and the order still matters: sovereignty outside
-    // provenance, provenance innermost against `compute`.
-    const counter = new CountingExecutor(guardSovereignty(provenance(compute), sovereignty))
+    // provenance, provenance innermost — now against the ABI router rather than
+    // directly against `compute`, with the router delegating to `compute` or to the
+    // WASI executor. No guard moved and none was added between them.
+    const counter = new CountingExecutor(guardSovereignty(provenance(abi), sovereignty))
     const executor = new GovernedExecutor(counter, governor)
+
+    // VER-08 / VER-09 / VER-10 — this node's signing identity, resolved **once**, on one
+    // line, for both verbs.
+    //
+    // The seed and the certificate are the values this factory already holds: `identity`
+    // is what `requestEnrollment` signed with and `certificate.nodeKey` is its public
+    // half, so the two cannot disagree. Neither is an option and neither is re-derived. A
+    // node signing with anything but the key its certificate names produces attestations
+    // that verify for nobody, and `signingKeyOf` throws at composition when they diverge —
+    // there is no reason to make that state expressible from outside.
+    //
+    // **The literal, not a branch, and the difference is what a later reader can do to
+    // it.** A node nobody enrolled reaches this line by the same route as one that was,
+    // and states that it signs nothing. A `certificate === null` branch wrapped around
+    // the composition below would be a thing a later edit could extend — one more
+    // condition under which this node quietly stops signing; a named literal is a thing
+    // that edit would have to write down.
+    //
+    // **A per-node setting, not a node kind**, and `browser-node.ts` builds this from the
+    // byte-identical expression over its own two values. A tab that has been enrolled
+    // signs exactly as a server that has been; a node that has not says so identically on
+    // both tiers. The only asymmetry anywhere in this leg is where each tier persists its
+    // seed, and that is not in this file.
+    const attestor: ResultAttestor =
+      certificate === null ? 'signs-nothing' : { nodeSeed: identity.seed, certificate }
+
+    // The signing layer is **outermost** — outside `GovernedExecutor`, with nothing
+    // composed after it. It signs the outcome that actually leaves this node, so no layer
+    // added later can alter an answer after it was signed. That is the same argument the
+    // three orderings below it make, one layer further out, and **none of those three
+    // moves**: provenance stays innermost against `compute`, sovereignty stays outside
+    // provenance, and the counter stays inside the governor.
+    //
+    // Unconditional, on `serveAgent`'s own terms below: there is no construction path
+    // through this factory that yields a node whose results carry neither a signature nor
+    // its stated absence of one.
+    //
+    // **What this layer is for.** A result leaving this node carries this node's
+    // signature over it, checkable by somebody who was not present, so a receipt
+    // downstream is a statement about nodes a provider certified rather than about node
+    // id strings the requestor chose.
+    //
+    // **What it is not for: correctness.** A signature on a wrong answer is a signed
+    // wrong answer, signed exactly as convincingly as a right one. `executeVerified`'s
+    // N-version comparison is still the only thing in this design that says an answer is
+    // right, and this is written at the line because somebody will read "results are
+    // signed now" and propose reducing redundancy.
+    //
+    // `node.executor` below stays the `GovernedExecutor` — BROW-04 requires the concrete
+    // type on the browser tier and both tiers agree on this stack's shape — so a caller
+    // reaching a node's executor in-process gets the unsigned outcome. That is the
+    // truthful reading: nothing left the node, and a node's signed statement to itself
+    // establishes nothing it did not already hold.
+    const signing = attestResults(executor, attestor)
+
+    // BROW-02 — this node's own serve-side ledger, holding this node's own row.
+    //
+    // **Both halves are needed and neither is sufficient.** Handing `serveAgent` a real
+    // ledger stops the report branch answering `counts: []`; recording this node's own
+    // outcome into it is what lets a peer that asks learn something it did not itself
+    // supply. Without the second, `serveAgent` holds only what peers told it, a peer
+    // asking is handed back its own row, and `mergeOverlapping`'s maximum-per-key makes
+    // every merged report read 1 however many nodes are running.
+    //
+    // The argument is stated rather than defaulted: `ownStartOutcome` returns a required
+    // union whose other arm is a named sentinel, so a node with nothing fileable to report
+    // says so by name rather than by an absent row.
+    const startLedger = ownStartLedger(ownStartOutcome(OWN_START_FAMILY))
 
     const node = new FabricNode({
       libp2p,
@@ -1507,6 +1789,7 @@ export class FabricNode {
       verifier,
       relayFailures,
       sovereignCids,
+      startLedger,
     })
 
     // Unconditional, and that is the point: there is no construction path through
@@ -1528,7 +1811,9 @@ export class FabricNode {
     // the wire.
     serveAgent({
       rpc,
-      executor,
+      // VER-08 — the signing layer, which is the outermost one. Every `exec` reply this
+      // node sends is composed from an outcome that passed through it.
+      executor: signing,
       blockstore,
       // DATA-05: the same guard `rpc` is built over, plus the local-only tier that
       // says which payloads are sovereign — so a sovereign task's input is guarded
@@ -1599,24 +1884,42 @@ export class FabricNode {
       // With this line, the same run refuses by name and holds the declared bound.
       capacity: admission,
       reservations: () => node.reservedPeerIds,
-      ledger: 'keeps-no-ledger',
-      onDispatch: 'reports-no-dispatch',
-      // VER-08 / VER-09 / VER-10 — the node's own signing identity, for **both** verbs.
+      // BROW-02. **The named opt-out is gone from this file**, because there is no longer
+      // a node this factory can build that has been told nothing: every node holds a
+      // ledger and every node's own start is the first row in it. See the construction
+      // above for why the own row is the load-bearing half.
       //
-      // **The sentinel here is a burn-down and it has a date.** Plan 19-15 replaces it
-      // with a real signer built from this node's seed and the certificate it holds,
-      // composing `attestResults` around `executor` in the same pass so that `exec` and
-      // `combine` sign under one identity. Until then this node answers combines
-      // unsigned, truthfully and by name: the sentinel below reaches a peer as
-      // `signed-by-nobody` on the reply rather than as an omission.
+      // (The opt-out literal is described rather than written out, deliberately, and this
+      // paragraph tripped over it on first draft. `serve-agent-hooks.node.test.ts` counts
+      // raw text across the whole of this file, comments included, and now requires
+      // **zero** occurrences of it here — the same rule the `capacity:` block in
+      // `browser-node.ts` and `trust-anchors.node.test.ts` already write down for their
+      // own matchers: the instrument cannot tell a construction from a mention.)
+      //
+      // A per-node holding, not a node kind: `browser-node.ts` passes the identically
+      // named value derived by the identical pair of functions over its own label, and
+      // that guard counts both. Any node may hold one, on the same terms as any other —
+      // the only difference between nodes is discovery.
+      ledger: startLedger,
+      onDispatch: 'reports-no-dispatch',
+      // VER-08 / VER-09 / VER-10 — the node's own signing identity, for **both** verbs,
+      // and **the same value the executor above was wrapped with**. One identity resolved
+      // on one line and reaching both, rather than two derivations from one source: two
+      // derivations are two things that can drift, and the drift has a specific shape —
+      // a node that signed its map results and not the aggregation over them would
+      // satisfy the letter of this leg and none of its purpose, which is why one plan
+      // turned both verbs on rather than two.
+      //
+      // The two verbs reach it by different routes because the codebase is shaped that
+      // way and not by preference: `exec` runs through an `Executor`, so it signs through
+      // the wrapper composed above; a combine passes through no executor at all —
+      // `serveAgent` performs it itself — so its signer has to arrive here.
+      //
+      // A node holding no certificate passes the named absence to **both**, so there is
+      // no construction path through this factory that signs one verb and not the other.
       //
       // A per-node setting, not a node kind — see this hook's own doc in `agent.ts`.
-      // When 19-15 lands, this literal leaves this file and
-      // `serve-agent-hooks.node.test.ts`'s count for it goes to 0, exactly as the record
-      // and capacity sentinels already have. (Those two are described rather than
-      // written out, deliberately: that instrument counts raw text across this whole
-      // file, comments included, and cannot tell a construction from a mention.)
-      attest: 'signs-nothing',
+      attest: attestor,
     })
 
     return node

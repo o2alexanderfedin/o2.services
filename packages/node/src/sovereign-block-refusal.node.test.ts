@@ -8,6 +8,7 @@ import { MemoryNetwork, canonicalCid, decodeCanonical } from '@o2/core'
 import type { CanonicalValue, NodeDescriptor } from '@o2/core'
 import { EgressGuard, RemoteExecutor, parseRequest, submitJobWithEgress } from '@o2/net'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { stripComments } from './strip-comments.ts'
 // Test-only relative import — see the note in packages/net/src/distributed.test.ts.
 import { MODULE_WRITES_PARTITION } from '../../core/src/executor/fixtures.ts'
 import { OWNER_KEY, chainSupplierFor } from './capability-fixture.ts'
@@ -50,13 +51,22 @@ import type { FabricNodeOptions } from './fabric-node.ts'
  *    this change, and it passes *because* the gap is real, not despite it. The
  *    `submitJob` call-site scan at the bottom of this file is what makes a **new**
  *    production submit path fail loudly rather than quietly inherit the gap.
- * 3. It does **not** prove the browser tier's submitter path — WIRE-03, Phase 19. The
- *    reason recorded here until 2026-07-31, that `BrowserNode.start` *"needs a real
- *    `indexedDB` and a relay, so it runs in neither vitest project"*, was false: the
- *    `e2e` project starts that factory against a live tab
- *    (`packages/node/src/browser-capability.e2e.test.ts`). What is genuinely unproven is
- *    the **submitter** half in a tab — that file dispatches *to* a browser node and
- *    reads what it serves, which is the other direction.
+ * 3. It does **not** prove the browser tier's submitter path — **and that is no longer
+ *    an open gap; it is a statement about this file's scope.** Closed by
+ *    `packages/node/src/tab-refusals.e2e.test.ts` (WIRE-03, Plan 19-04), which has a real
+ *    tab submit a sovereign shard through `window.o2`, then has a Node peer ask that tab
+ *    for the row and read `egress refused: <cid> on <tab peer id>` off the reply, with the
+ *    tab's own `providers` answer withholding the same CID and a public block from the
+ *    same store served to the same peer in the same run. Two earlier accounts of why the
+ *    browser tier could not be reached are left visible rather than deleted, because both
+ *    were inherited by several plans: *"`BrowserNode.start` needs a real `indexedDB` and a
+ *    relay, so it runs in neither vitest project"* was false and was retired on
+ *    2026-07-31; *"what is genuinely unproven is the **submitter** half in a tab — that
+ *    file dispatches *to* a browser node and reads what it serves, which is the other
+ *    direction"* was true, named the gap exactly, and is what 19-04 closed. **The route
+ *    that closes it is DATA-10's blockstore-put registration, not this file's job-scoped
+ *    hold** — see point (1) — so what a tab refuses at rest and what this file measures
+ *    during a job remain two mechanisms with two lifetimes.
  *
  * What would close (1) and (2) together: registering at a boundary the node owns rather
  * than at one entry point — the submitting node's blockstore-put of a shard labelled
@@ -375,21 +385,29 @@ const SUBMIT_CALL_SITES: readonly { readonly file: string; readonly role: string
   },
 ]
 
-/**
- * Strips `//` line comments and block comments before matching.
- *
- * Load-bearing for the same reason `bench-egress.node.test.ts` gives: several of these
- * files *name* bare `submitJob` in their own prose — `submit-with-egress.ts`'s module
- * comment and `bin/bench.ts`'s `runnerFor` doc both do — so a raw-text match could be
- * satisfied by a description of a call site rather than by one.
- *
- * Regex-based, so a comment opener inside a string literal would be treated as opening
- * a comment. The failure direction is the safe one: over-stripping can only hide a real
- * call site, which drops a file out of the found set and fails this scan loudly.
- */
-function stripComments(source: string): string {
-  return source.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/\/\/[^\n]*/g, '')
-}
+// ---------------------------------------------------------------------------
+// Why this scan strips comments, and the claim it used to make about doing so
+// ---------------------------------------------------------------------------
+//
+// Stripping is load-bearing for the reason `bench-egress.node.test.ts` gives: several of
+// these files *name* bare `submitJob` in their own prose — `submit-with-egress.ts`'s
+// module comment and `bin/bench.ts`'s `runnerFor` doc both do — so a raw-text match could
+// be satisfied by a description of a call site rather than by one.
+//
+// **This file used to claim the failure direction was safe: "over-stripping can only hide
+// a real call site, which drops a file out of the found set and fails this scan loudly."
+// That is true for the three pinned files and false in general, which is the half that
+// matters.** `toEqual` on the whole set catches a *disappearance*, so a blinded call site
+// in `submit.ts`, `task-worker.ts` or `submit-with-egress.ts` does fail loudly. But a NEW
+// file whose `submitJob(` is blinded never enters the found set at all: `found` still
+// equals `expected` and the scan passes. Detecting a new call site is the entire purpose
+// of scanning the repository rather than reading three files, so the guard failed OPEN on
+// its own reason for existing.
+//
+// `stripComments` is now the shared tokenizer, which tracks string and template state and
+// so cannot open a comment the source never opened. `strip-comments.node.test.ts` holds
+// the differential against the regex it replaced — its `string-literal form` case is this
+// exact shape — and mutation-ledger entry `S3` plants that regex back here.
 
 /**
  * Every tracked, non-test TypeScript source under `packages/`.
@@ -468,5 +486,21 @@ describe('the scope of the guard — one entry point, not the node — is pinned
     expect(
       /\bsubmitJob\s*\(/.test(stripComments('await submitJobWithEgress(spec, store, [guard])')),
     ).toBe(false)
+
+    // **The case none of the four above could see, and the one this guard failed OPEN
+    // on.** They plant a real call and two ordinary comments, so a stripper that strips
+    // too much satisfies all of them. This plants a call site preceded by a string
+    // literal holding a comment opener — the shape that is live in 18 tracked files.
+    // Under the regex used here until 2026-08-04 the `/*` inside `'/*.ts'` opened a
+    // comment that ran to the closer two lines down, the call vanished, the file never
+    // entered `found`, and `found === expected` still held. A *disappearance* fails
+    // loudly; a NEW call site that was never seen does not fail at all, and finding new
+    // call sites is the whole reason this scan reads the repository instead of three
+    // files. Mutation-ledger entry `S3` plants that regex back and this line reddens.
+    expect(
+      /\bsubmitJob\s*\(/.test(
+        stripComments("const glob = '/*.ts'\nawait submitJob(spec, store)\n/** why the wrapper exists */\n"),
+      ),
+    ).toBe(true)
   })
 })

@@ -21,20 +21,26 @@
  * of the kernel is precisely what `ports.ts` exists for. Signing is a property of a
  * *node*, and a node is the thing that has been enrolled.
  *
- * ## Composed nowhere, and that ends on a date
+ * ## Composed at both production factories — and that is checked, not claimed
  *
- * **Nothing in this repository composes this wrapper yet.** Plan 19-15 does, at
- * `packages/node/src/fabric-node.ts` and `packages/browser/src/browser-node.ts` — the two
- * sites that already compose `guardModuleProvenance` — and
- * `packages/node/src/trust-anchors.node.test.ts:366-394` gains the textual guard that
- * leg 1 already has there. Plan 19-14 has landed: `VerificationResult`'s `agreeing`
- * entries carry an attestation each, so a reader for one exists — and until 19-15
- * composes this wrapper, every entry that reader sees reports the sentinel.
+ * This docblock used to open *"Nothing in this repository composes this wrapper yet"*,
+ * with Plan 19-15 named as the wave that ended it. **19-15 landed.** Both production
+ * factories — `packages/node/src/fabric-node.ts` and
+ * `packages/browser/src/browser-node.ts`, the same two sites that compose
+ * `guardModuleProvenance` — wrap their executor with this, **outermost**, from an
+ * identity resolved once and handed to `serveAgent`'s signing hook on the same line, so
+ * `exec` and `combine` cannot come to be signed by different keys or by only one of them.
  *
- * A wrapper exported and never composed is exactly the *built, not wired* condition this
- * milestone exists to remove. It is acceptable here for one wave only, and only because
- * a plan says when it ends. If you are reading this after 19-15 landed and it is still
- * composed nowhere, that is the defect.
+ * The composition is asserted **textually** by
+ * `packages/node/src/trust-anchors.node.test.ts`, through the same comment-stripped
+ * source that already holds leg 1 to the same standard — so this paragraph is not the
+ * evidence. Delete either composition and that file names the file it went missing from.
+ *
+ * A wrapper exported and never composed is the *built, not wired* condition this
+ * milestone exists to remove, and the guard is what keeps this from silently returning
+ * to it. What it does **not** establish is that a composed wrapper works on a live path;
+ * `packages/node/src/result-signature.node.test.ts` is that reading, across real
+ * `bin/agent.ts` processes with the provider's public key as the only trust input.
  *
  * Pure module: no platform imports, no clock of its own.
  */

@@ -166,7 +166,7 @@ describe('AUTH-01 — holding a provider key is a configuration, not a class', (
    */
   it('reports an issuerKey that is never the nodeKey, from a second file on disk', async () => {
     const dir = join(workdir, 'provider')
-    const node = await start({ blockstoreDir: dir, issuesCertificates: true })
+    const node = await start({ blockstoreDir: dir, issuesCertificates: 'issues-without-an-aggregate-budget' })
 
     expect(node.issuerKey).not.toBeNull()
     expect(node.issuerKey).not.toBe(node.nodeKey)
@@ -185,7 +185,7 @@ describe('AUTH-01 — holding a provider key is a configuration, not a class', (
    * decision keyed on node kind it would show up here.
    */
   it('gives a provider the identical executor binding every other node has', async () => {
-    const provider = await start({ blockstoreDir: join(workdir, 'p'), issuesCertificates: true })
+    const provider = await start({ blockstoreDir: join(workdir, 'p'), issuesCertificates: 'issues-without-an-aggregate-budget' })
     const plain = await start({ blockstoreDir: join(workdir, 'q') })
 
     for (const node of [provider, plain]) {

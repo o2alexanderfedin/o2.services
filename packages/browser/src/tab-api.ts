@@ -7,6 +7,7 @@
  * error surfaces as a timeout.
  */
 
+import type { BrowserTally, ShardAttestation } from '@o2/core'
 import type { EgressManifest } from '@o2/net'
 
 /**
@@ -62,8 +63,32 @@ export interface TabJobReport {
    * **The one field this phase adds to a returned report shape, and the exception is
    * named rather than left quiet:** {@link TabColouringRun} — the visitor-facing report
    * — is untouched. This is the harness-facing one.
+   *
+   * **That exception was itself excepted, and this is where to read why.** The sentence
+   * above was written when the only thing a returned report had gained was a diagnosis
+   * a harness needed. {@link TabColouringRun.attestation} broke the rule deliberately —
+   * criterion 3 requires the receipt to read `owner-attested` *wherever a result is
+   * displayed* and it names the demo UI, which is what that report is rendered into. The
+   * rule stands for everything else; the one surface the criterion names moved, and both
+   * docs say so rather than leaving a reader to notice a rule quietly stop applying.
    */
   readonly failures: readonly { readonly nodeId: string; readonly reason: string }[]
+  /**
+   * How strongly this job's answer was attested — VER-09, VER-10.
+   *
+   * **`JobResult.attestation`, passed through.** Not recomputed, not derived from
+   * `replicas`, not derived from `agreeing.length`, and not composed into a sentence
+   * here: this is the value `submitJob` produced and the same union the kernel carries.
+   * A report that computed its own would be a second opinion about one result, and the
+   * day the two disagree is the day a visitor is told the stronger one.
+   *
+   * The absence arm is a **statement**, not a blank: it says this tab holds no signed
+   * statement it could check about who produced the answer, and carries how many
+   * replicas agreed against how many of those were verified. See `NoVerifiedAttestation`
+   * in `@o2/core` — `0 of 2` and `1 of 2` are different situations with different
+   * remedies.
+   */
+  readonly attestation: ShardAttestation
 }
 
 /** How this tab is actually connected to a peer, right now. */
@@ -76,6 +101,55 @@ export interface TabConnection {
    * assumed.
    */
   readonly limited: boolean
+}
+
+/**
+ * A peer this tab holds a connection to, and whether that connection can carry a job —
+ * defect 32.
+ *
+ * The reading {@link TabApi.peers} cannot give. That one is `libp2p.getPeers()`, which
+ * counts a peer reachable over nothing but a `limited` relay circuit as connected —
+ * and a relayed circuit is 2 minutes and 128 KiB of signalling channel that this
+ * project's constraints say may not carry a job. The two are different questions and a
+ * surface that has only the first cannot say that a pair is connected and unusable.
+ */
+export interface TabHeldPeer {
+  readonly peer: string
+  /**
+   * True when at least one open, unlimited connection to this peer exists.
+   *
+   * A positive test rather than "no limited connection": an upgraded pair routinely
+   * keeps its signalling circuit open beside the WebRTC connection.
+   */
+  readonly carriesWork: boolean
+}
+
+/** What one discovery round did, and what it left behind — see {@link TabApi.connectDiscoveredPeers}. */
+export interface TabDiscoveryRound {
+  /** Whether any directory answered at all. False on a static host with no peers yet. */
+  readonly asked: boolean
+  /** Peer ids reached by a dial this round made. */
+  readonly dialed: string[]
+  /** Addresses whose dial threw. A simultaneous mutual dial lands here on both sides. */
+  readonly failed: string[]
+  /**
+   * The addresses among `dialed`/`failed` that were re-dials of a peer this tab already
+   * held over a relayed circuit — defect 32's repair, counted so a caller can tell a
+   * round that introduced somebody from one that was trying to rescue a stuck pair.
+   */
+  readonly upgrades: string[]
+  /**
+   * Peers this tab holds **only** over a relayed circuit as the round ended: connected,
+   * counted by `computePeers()` because the RPC protocol negotiates over a limited
+   * connection, and unable to carry the work.
+   */
+  readonly relayedOnly: string[]
+  /**
+   * The subset of `relayedOnly` this tab has stopped trying to upgrade, having spent its
+   * whole retry budget on them. The honest end state: *this pair is connected and cannot
+   * run your job, and I am no longer trying to fix it.*
+   */
+  readonly stalled: string[]
 }
 
 /** BROW-03 — what the visibility governor is doing right now. */
@@ -139,6 +213,33 @@ export interface TabStartReport {
   readonly text: string
   readonly reported: number
   readonly failed: number
+  /**
+   * The merged tallies, one row per browser family — BROW-02's cross-node reading.
+   *
+   * **Structure rather than prose, and the reason is what the criterion actually
+   * asserts.** The load-bearing reading is a *family this tab is not*: a chromium tab
+   * whose merged report carries a `firefox 130` row cannot have produced that row,
+   * because there is no expression in the page that would. A count above 1 is
+   * satisfiable by an accident, a double-record, or a fixture that opened one page
+   * twice; a foreign family label is not. With only {@link TabStartReport.text} on this
+   * interface a spec could assert that family only by regexing
+   * `describeStartReport`'s output — which would make the criterion depend on a
+   * formatting decision that is free to change and that nothing would then re-check.
+   *
+   * `StartReport.byBrowser`, passed straight through. Not recomputed, not re-sorted and
+   * not filtered here, for the reason {@link TabColouringRun.attestation} gives one
+   * interface over: a report that composed its own second opinion about one population
+   * is a thing that can disagree with the first, and the day the two disagree is the
+   * day a reader is shown whichever one the page happened to build.
+   *
+   * **This does not replace the screen reading, and adding it is not a way around
+   * one.** The criterion says the ledger is *viewed*, and a returned object is not a
+   * view. `peer-ledger.e2e.test.ts` takes its reading off the rendered element and uses
+   * this field only as the cross-check that the screen and the object agree — the right
+   * value read from the wrong object being the divergence class mutation-ledger entry
+   * `M37` records against this very tier.
+   */
+  readonly byBrowser: readonly BrowserTally[]
 }
 
 /** DEMO-01/DEMO-02 — one run of the colouring search across the fabric. */
@@ -161,6 +262,24 @@ export interface TabColouringRun {
    * (`EgressManifest` lives in `@o2/net`, which `@o2/core` may not depend on).
    */
   readonly egress: EgressManifest
+  /**
+   * How strongly this run's answer was attested — VER-09, VER-10, criterion 3.
+   *
+   * **This report had been held stable on purpose, and this field is the stated
+   * exception.** {@link TabJobReport.failures} records the rule — *the visitor-facing
+   * report is untouched* — and it was the right rule for a diagnosis a harness wanted.
+   * It is the wrong rule for this value, because criterion 3's requirement is that the
+   * receipt reads `owner-attested` rather than `verified` **wherever it is displayed**,
+   * and it names the demo UI by name. This report *is* the demo UI's input. Leaving it
+   * out would have satisfied the letter of a convention by leaving the criterion open on
+   * the one surface a person actually looks at.
+   *
+   * The same union {@link TabJobReport.attestation} carries, and the same passthrough:
+   * `JobResult.attestation`, unmodified. The page renders its `description` — the
+   * kernel's own sentence — and composes none of its own, which is the only arrangement
+   * in which the CLI and this page cannot come to describe one result differently.
+   */
+  readonly attestation: ShardAttestation
 }
 
 /**
@@ -227,6 +346,16 @@ export interface TabApi {
    * BROW-02. Publish this tab's start outcome and read back what peers know.
    *
    * Publishes only when the visitor allowed it; otherwise it asks without telling.
+   * **Declining to report is not declining to see**: a visitor who opted out still
+   * asks every peer, still merges every answer, and still transmits no outcome of
+   * their own — which is the only arrangement in which an opt-out means what it says.
+   *
+   * What comes back is a *merged* view and no longer only this tab's own row. Every
+   * node holds a start-outcome ledger with its own row in it from the moment it starts
+   * — `browser-node.ts` and `fabric-node.ts` do it on identical terms, because the only
+   * difference between nodes in this fabric is discovery — so a peer answers with
+   * something it observed rather than with an empty list, and the merge can carry a
+   * browser family the asking tab is not.
    */
   startReport(): Promise<TabStartReport>
   /**
@@ -297,6 +426,51 @@ export interface TabApi {
      * A starting value only; {@link TabApi.setDutyCycle} moves it on a running tab.
      */
     dutyCycle?: number
+    /**
+     * Enrol with a provider on the way up, and hold the certificate it signs — AUTH-01.
+     *
+     * Straight through to `BrowserNodeOptions.enrollment`, which carries the long form of
+     * every field. `userPrivateKey` crosses as `number[]` rather than as a `Uint8Array`
+     * for {@link TabNameRecord}'s reason one field over: Playwright serialises
+     * `page.evaluate` arguments as JSON, so a typed array arrives on the page side as a
+     * plain `{"0":…}` object and `ed25519.getPublicKey` would derive a key from nothing.
+     * The conversion happens at the implementation, which is the one place that knows
+     * both sides. It is the **private** half, and it has to be: `EnrollmentAuthority.enrol`
+     * refuses by name as `bad-owner-proof` without a signature over its challenge, and a
+     * public key cannot sign.
+     *
+     * ## Why this is on the page's contract when `sovereignty` deliberately is not
+     *
+     * `packages/browser/src/capability-harness.ts` records the rule this appears to
+     * break — it exists *"rather than a third option on `window.o2`"* because adding
+     * `BrowserNodeOptions.sovereignty` here *"would put node configuration on the page's
+     * own contract to serve a test"*. That rule stands, and this field is not a
+     * counter-example to it; the two options differ in what they change.
+     *
+     * `sovereignty` pins the owner a node will accept work **for**. It decides which
+     * dispatches a node takes, it is meaningful only to whoever operates the node, and no
+     * visitor-facing surface reports it. `enrollment` decides whether this node's
+     * statements about its own results **can be checked by anybody else** — and criterion
+     * 3 requires this page to display exactly that, in the kernel's words, on every run.
+     * A surface obliged to say how strongly an answer was attested, with no way to be
+     * given an identity to attest with, can only ever display the absence. That is a gap
+     * in the contract rather than a test's convenience.
+     *
+     * ## What omitting it means, and it is not a lesser node
+     *
+     * Nobody asked this tab to enrol. It executes tasks, holds blocks, serves peers and
+     * takes verification slots on exactly the terms an enrolled one does — the only thing
+     * it cannot do is produce a signed statement a third party could check, so every
+     * receipt naming it reads the named absence. That is a fact about what this tab was
+     * handed, not about what kind of node it is. Every visitor path omits it today:
+     * {@link TabApi.autoStart} does not pass it and deliberately grows no parameter for
+     * it, for the same reason it grows none for `trustAnchors`.
+     */
+    enrollment?: {
+      userPrivateKey: number[]
+      operatorId: string
+      providerAddr: string
+    }
   }): Promise<string>
   /**
    * Join using whatever the page's own origin says to dial.
@@ -326,8 +500,16 @@ export interface TabApi {
    * Returns nothing dialled on a static host, where there is no origin to ask. That
    * is a real limitation of the static tier rather than a failure, and the caller
    * can tell the difference from `asked`.
+   *
+   * **"Peers already connected are skipped" now means already reachable over a
+   * connection that can carry a job** — defect 32. A pair that dialled each other in the
+   * same moment can end up holding nothing but a relayed circuit, which `libp2p.getPeers()`
+   * reports as connected; a round that skipped every connected peer therefore never
+   * retried the upgrade, and the pair sat unusable until the relay's own duration limit
+   * tore the circuit down. Such a peer is dialled again, a bounded number of times, and
+   * then reported through `relayedOnly` and `stalled`.
    */
-  connectDiscoveredPeers(): Promise<{ asked: boolean; dialed: string[]; failed: string[] }>
+  connectDiscoveredPeers(): Promise<TabDiscoveryRound>
   /**
    * The connected peers that will actually execute a task.
    *
@@ -348,6 +530,15 @@ export interface TabApi {
   waitForWebrtcAddr(timeoutMs: number): Promise<string[]>
   dial(address: string): Promise<string>
   peers(): string[]
+  /**
+   * The same set as {@link peers}, with the one fact `peers` cannot carry: whether the
+   * connection this tab holds to each of them can carry a job — defect 32.
+   *
+   * Readable without running a discovery round, deliberately. The state it describes is
+   * reached by a race and left by a relay's duration limit, so a caller that could only
+   * learn about it as a side effect of dialling would be told about it late or not at all.
+   */
+  heldPeers(): TabHeldPeer[]
   connectionsTo(peerId: string): TabConnection[]
   putModule(bytes: number[]): Promise<string>
   storedBlocks(): Promise<number>
@@ -402,6 +593,38 @@ export interface TabApi {
     shards: number
     redundancy: number
     includeSelf?: boolean
+    /**
+     * Submit this job's shards as **owner-pinned data** rather than public — DATA-10,
+     * WIRE-03. Omitted means public, which is what every shard submitted from a page
+     * was until this field existed.
+     *
+     * **One field, not two.** The label and the owner id arrive together or not at
+     * all, because a sovereign shard with no owner is not a state this fabric has —
+     * `submitJob` refuses it by name (`shard-missing-owner`), and a pair of loose
+     * optionals is a way to spell a refusal rather than a job. Two spellings of one
+     * fact are two things that can disagree; this is the shape that cannot.
+     *
+     * **Why a page may submit owner-pinned data at all**, since the question reads at
+     * first like a tier being handed a capability: sovereignty is a property of the
+     * data and of whose it is, never of what kind of node holds it. A tab is the
+     * owner's own device and is therefore the most natural place for owner-pinned data
+     * to live — the least surprising submitter in the fabric, not a privileged one. A
+     * `FabricNode` submitting the same shard through `submitJobWithEgress` gets exactly
+     * this treatment and has since Phase 13.1.
+     *
+     * **What supplying it does, mechanically.** The page hands its node's
+     * `sovereignCids` to `submitJob`, so the shard's canonical bytes are recorded at the
+     * **blockstore-put** — the line that makes this tab hold the row — and the tab
+     * refuses to serve that block afterwards and withholds it from its own `providers`
+     * answer. Recorded at the put rather than at this call site, so a submitter is
+     * covered by having submitted rather than by having remembered.
+     *
+     * **Harness-facing, like the report this returns.** {@link TabColouringRun} — the
+     * visitor-facing surface — gains nothing, which is the same exception
+     * {@link TabJobReport.failures} already declares for itself: the demo runs a public
+     * colouring search over one shared input block, and there is no owner in it.
+     */
+    sovereign?: { readonly ownerId: string }
   }): Promise<TabJobReport>
   stop(): Promise<void>
 }

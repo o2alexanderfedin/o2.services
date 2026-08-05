@@ -41,7 +41,16 @@ measurement, not a line to slip into an unrelated diff.
 
 ---
 
-## 2. `tools/aot/lift.node.test.ts` fails under full-suite load, passes in isolation
+## 2. `tools/aot/lift.node.test.ts` — CLOSED 2026-08-03. Both readings below were wrong, and the second was wrong in the more expensive direction
+
+> **Read this box before the entry.** The entry is kept whole, retractions and all, because
+> it is the record of a diagnosis that cost this project time twice. What was measured on
+> 2026-08-03 is in the closing section, *What it actually was*, and in the module docblock of
+> `tools/aot/lift.node.test.ts`. In one line: **`60000ms` is that file's own `testTimeout`,
+> not a duration anything spent.** Nothing hung for a minute. The retry wrapper's envelope —
+> four attempts of a 20 s budget, 81 500 ms — did not fit inside the 60 000 ms case that
+> contained it, so the framework killed each case at its own budget and reported its own
+> budget back. Ten call sites could reach that state; ten timeouts were recorded.
 
 **Found during:** 18-01's full `npm run test:node` run.
 
@@ -94,6 +103,69 @@ because contention is no longer the whole story: something makes these docker in
 for a full 60 s apiece on an idle machine. The probe's inability to tell a *slow* docker from an
 *absent* one is now the primary finding rather than a secondary one, and whoever picks this up
 should re-measure before trusting either the 18-01 reading or this one.
+
+### What it actually was — measured and reproduced 2026-08-03, tracked defect 30
+
+The sentence directly above — *"something makes these docker invocations hang for a full 60 s
+apiece on an idle machine"* — is **false**, and it is the one that sent the next reader looking
+for a hang. `60000` is not a duration anything spent. It is
+`vi.setConfig({ testTimeout: 60_000 })` at the top of `lift.node.test.ts`. Every one of those ten
+lines reads `Error: Test timed out in 60000ms` because the framework killed the case at *its own
+budget* and reported *its own budget* back. **A duration that equals a timeout is evidence of the
+timeout.** Reading it as a measurement of the work is how a budget gets mistaken for a hang.
+
+**What was really there.** `despiteAFullProcessTable` — a retry wrapper added 2026-08-02, after
+the 18-01 reading and on the same day as the 18-12 one — bounds its retries by a *count* and not
+by a *duration*, and an attempt's duration is a budget the caller chose. Four attempts of
+`METADATA_BUDGET_MS` plus the backoffs is **81 500 ms of driver budget inside a 60 000 ms case**.
+So the framework was always first to fire, always at 60 000 ms, and always with nothing to say —
+while the driver's own named refusal, produced twice on the way there, was discarded. Eleven call
+sites handed the wrapper a budget that large and **ten of them could actually spend it**; the
+eleventh is `/nonexistent/definitely-not-docker`, which fails `ENOENT` in about a millisecond and
+is not retried. Ten is the recorded count, exactly. The remaining two of the twelve are the two
+deliberate-timeout cases at a 5 s budget, which is the pair 18-01 recorded by name.
+
+**Reproduced, not inferred**, because a count that agrees with a theory is not the theory's proof:
+
+| condition | result | elapsed |
+|---|---|---|
+| one stub changed to `exec sleep 25`, retry as shipped | `Error: Test timed out in 60000ms` | **60 013 ms** |
+| the identical plant, retry disabled | `expected 'docker-not-answering' to be 'image-digest-foreign'` | **20 016 ms** |
+| the identical plant, against the fix | `an answer that cost 20005 ms leaves no room for another attempt inside the 30000 ms this wrapper may spend inside a 60000 ms case … attempts so far: 20005 ms` | **20 010 ms** |
+
+The retry did not make this file flaky. It made the file's flake **unreadable**, and tripled what
+each instance cost — which is where 850 s came from: ~250 s of real work plus ten framework kills
+of 60 s each. The 217 s in the config table was never wrong.
+
+**And the "fails under load" half is wrong too, in the heading and in the 18-01 body.** Two whole
+runs on 2026-08-03, timed with `/usr/bin/time -p` because a system load average says nothing
+about whether *this* process got a core:
+
+| condition | result | `real` | `user` | `sys` | `(user+sys)/real` | Σ case spans |
+|---|---|---|---|---|---|---|
+| alone, host at 1-min load 5.9 | **99 passed, exit 0** | 216.83 s | 2.31 s | 0.69 s | 0.0138 | 15.96 s |
+| under 12 CPU burners + 6 fork loops, load 40 → 102 | **99 passed, exit 0** | 284.29 s | 2.69 s | 0.74 s | 0.0121 | 17.51 s |
+
+Load past twice the band this file was ever reported failing in moved the **cases** by 9.7 % and
+the worst single stub case from 211 ms to 337 ms — against the 20 000 ms budget it is handed. It
+moved the **wall clock** by 31 %, and that lands almost entirely on the integration `beforeAll`:
+93 % of this file's wall clock is three real container runs that the per-case reporter attributes
+to nothing at all. Neither reading is a bound failing under load, and the recommendations above —
+serialise the file, gate on `loadavg()` — would have bought nothing.
+
+**Fixed** in `tools/aot/lift.node.test.ts`: the wrapper now bounds its retries by an envelope
+that is a *share* of the framework budget rather than by a count, refuses to start an attempt
+that (judged by the worst attempt it has already seen in the same run) would not fit, abandons
+one that outlives the envelope, and throws a sentence carrying the driver's diagnosis and every
+attempt's measured cost. The one call site that handed `liftElf` no `timeoutMs` at all — and so
+armed a 60 000 ms inspect inside a 60 000 ms case — now passes one.
+
+**What is still not known**, stated plainly rather than guessed at: *why* an attempt missed its
+20 s budget on that host on 2026-08-02, when the same stub measures 337 ms at load 102 here. The
+old behaviour destroyed the only measurement that could answer it, which is the point of this
+entry. The fix records it: the per-attempt cost is now in the failure text, so the next
+occurrence arrives carrying `attempts so far: … ms` and the question closes on one reading
+instead of on another theory.
 
 ---
 

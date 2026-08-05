@@ -414,22 +414,45 @@ describe('NET-02 — two tabs on one machine', () => {
   }, 120_000)
 
   /**
-   * The panel may not present an aggregate that cannot exist.
+   * The panel presents an aggregate that now exists, and the count beside it is honest.
    *
-   * `serveAgent`'s report branch is the only absorber of a peer's start outcome, and
-   * every production call site opts out of it with the `'keeps-no-ledger'` sentinel.
-   * So a merged report can only ever contain this tab's own outcome, however many
-   * peers were asked, and a peer count rendered beside it reads as a tally of
-   * contributors. The mechanism is correct; the render was the lie.
+   * **This case was inverted on 2026-08-04 and the sentence it used to make is kept
+   * here rather than deleted.** It read *"renders no peer aggregate beside a report
+   * that can only hold this tab"*, and it was right for exactly as long as its premise
+   * held: `serveAgent`'s report branch is the only absorber of a peer's start outcome,
+   * and every production call site opted out of it with the `'keeps-no-ledger'`
+   * sentinel, so a merged report could only ever contain this tab's own row however
+   * many peers were asked. Plan 20-02 removed the premise — both node factories now
+   * build a real `StartOutcomeLedger` and record their own row into it — and **this case
+   * went red on that change alone, before any render was touched**: `expected '0 of 2
+   * reported starts failed (0.0%)…' to contain 'no start outcomes reported'`.
    *
-   * **This assertion is about the claim, not the string.** An author who reintroduces
-   * an aggregate under different words will not be caught here. Saying so is more
-   * useful than pretending an absence assertion is stronger than it is.
+   * ## The reading is a family, not a count
+   *
+   * `openTab` calls `grantConsent()` bare, so `reportingAllowed` is false and this tab
+   * sends `outcome: null`. It therefore contributes **nothing** — not to a peer, and not
+   * to its own merged view, because `publishStartOutcome` records the local outcome only
+   * when there is one. Every row in this panel was learned from somebody else.
+   *
+   * The load-bearing row is `other`. That is the **Node** tier's family label
+   * (`fabric-node.ts`'s `OWN_START_FAMILY`), it arrives from the relay's own ledger, and
+   * there is no user-agent string a chromium tab could report that yields it — a count
+   * above 1 is satisfiable by an accident or a double-record, and a family this tab has
+   * no expression to produce is not.
+   *
+   * ## What this file does NOT carry
+   *
+   * **Criterion 5's reading is not here.** Two tabs of one engine share a family label
+   * and `mergeOverlapping` takes the maximum per `(browser, result)` key, so a
+   * two-chromium fixture cannot tell two browser peers from one. That reading is
+   * `peer-ledger.e2e.test.ts`, across three engines. What this case holds is narrower and
+   * still worth holding: the demo panel's own rendering, the restored contributor count,
+   * and the fact that a visitor who declined to be counted still sees everything.
    *
    * This file runs in the `e2e` project only, so nothing about it is visible to the
    * `npm run test:unit` loop.
    */
-  it('renders no peer aggregate beside a report that can only hold this tab', async () => {
+  it('renders the merged aggregate a declining tab could not have produced', async () => {
     const [a] = tabs as [Tab]
 
     // `page.evaluate`, not a locator click: `#refresh-report` lives inside `#main`,
@@ -446,19 +469,29 @@ describe('NET-02 — two tabs on one machine', () => {
     )
     const panel = await a.page.evaluate(() => document.getElementById('report')?.textContent ?? '')
 
-    // The load-bearing assertion.
-    expect(panel).not.toContain('peers answering')
+    // The load-bearing assertion: a tally line for a family this tab cannot express.
+    // Anchored on `describeStartReport`'s two-space row indent so a blind spot note
+    // mentioning the word `other` in prose cannot satisfy it.
+    expect(panel).toMatch(/^ {2}other: /m)
 
-    // And the paired positive, so an absent instrument cannot masquerade as a
-    // passing absence. `openTab` calls `grantConsent()` bare, so `reportingAllowed`
-    // is false, `startReport` sends `outcome: null`, nothing is recorded anywhere and
-    // `describeStartReport` returns exactly this. A non-zero branch would need a tab
-    // opened with `grantConsent({ reporting: true })`, which is a different change.
-    expect(panel).toContain('no start outcomes reported')
+    // The paired negative, so the row above is shown to be a *merge* rather than this
+    // tab's own outcome having been counted after all. This tab declined, so the
+    // summary line it would produce alone is exactly the string this used to assert.
+    expect(panel).not.toContain('no start outcomes reported')
+
+    // The restored juxtaposition, and the anti-vacuity reading on it. `0 of 0 asked`
+    // renders just as happily as a real fan-out, so the count is parsed rather than
+    // matched: every peer asked answered, and at least two were asked — the other tab
+    // and the relay.
+    const answering = /peers answering: (\d+) of (\d+) asked/.exec(panel)
+    expect(answering).not.toBeNull()
+    const [reached, asked] = [Number(answering?.[1]), Number(answering?.[2])]
+    expect(asked).toBeGreaterThanOrEqual(2)
+    expect(reached).toBe(asked)
 
     // That same bare `grantConsent()` is one visitor declining to be counted, and the
     // running-node path is the only place that count could be dropped — no unit test
-    // can import the demo glue that passes it.
+    // can import the demo glue that passes it. Still local, still never transmitted.
     expect(panel).toContain('not counted: 1')
   }, 120_000)
 })

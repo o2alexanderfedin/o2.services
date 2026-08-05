@@ -79,8 +79,27 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { performance } from 'node:perf_hooks'
 import { sha256 } from '@o2/core'
-import { screenElf } from '@o2/aot'
-import type { ElfFacts, ElfRefusal, ToolchainVersions } from '@o2/aot'
+import { describeKey, describeKeyFailure, screenElf, translationCid } from '@o2/aot'
+import type {
+  ElfFacts,
+  ElfRefusal,
+  KeyFailure,
+  ToolchainVersions,
+  TranslationKey,
+  TranslationRecord,
+} from '@o2/aot'
+// Reaching into `@o2/net` for a hash looks wrong on sight, so: `blockCid` is not a
+// convenience. It is *the function the fetching path verifies a fetched block with*
+// (`block.ts`, `FetchingBlockstore.#fetchAndVerify`), and `MemoryBlockstore.put` and
+// `FsBlockstore.put` compute the identical two lines. `TranslationRecord.artifactCid`
+// has to be the CID a node looks the artifact up by, so defining a fifth copy of those
+// two lines here is exactly the drift `blockCid`'s own doc warns about — and the copy
+// that drifts produces a well-formed CID that no `blockstore.get` ever answers.
+//
+// Neither import closes a cycle and neither adds a forbidden edge: this file is a
+// build-time driver outside every package's `src`, so `purity.node.test.ts` does not
+// see it, and both packages are portable ones a tool may depend on.
+import { blockCid } from '@o2/net'
 import { readTargetFeatures } from './features.ts'
 import type { DeclaredFeature, FeatureFailure } from './features.ts'
 import { describeFinding, scanToolchainOutput } from './scan.ts'
@@ -308,6 +327,20 @@ export interface LiftedArtifact {
   readonly undecoded: UndecodedProbe
   /** Never empty. */
   readonly blindSpots: readonly LiftBlindSpot[]
+  /**
+   * What this artifact is called, and why it should be called that.
+   *
+   * Required for the reason the three fields above it are, and it is the same class of
+   * thing: an artifact that cannot be named cannot be cached, dispatched by name, or
+   * compared against another host's. There is no value of this type that carries the
+   * bytes without a name for them.
+   *
+   * Built by {@link liftElf} from `translationCid`, at the one point where all four of
+   * the key's inputs are already in hand. Before this field existed the driver assembled
+   * those four inputs within twenty lines of each other and named none of them, while
+   * mentioning `translationCid` twice in prose.
+   */
+  readonly translation: TranslationRecord
   readonly elf: ElfFacts
   readonly durationMs: number
   /** Kept whole: a finding is only actionable next to the phase that emitted it. */
@@ -470,6 +503,28 @@ export type LiftFailure =
    * {@link LiftedArtifact.unidentifiedTools}.
    */
   | { readonly kind: 'provenance-unreadable'; readonly path: string; readonly detail: string }
+  /**
+   * The lift produced bytes and `translationCid` refused to name them.
+   *
+   * **The reachable case is concrete, not hypothetical.** {@link parseMeta} trims, so a
+   * `meta.txt` line reading `clang=` yields `''` rather than `undefined`; the
+   * `?? 'unknown'` fallbacks in {@link liftElf} only ever fired for a key that was
+   * missing entirely, so the empty string reaches `translationCid` and comes back
+   * `{kind:'blank-version', tool:'clang'}`.
+   *
+   * **Why the refusal is right.** A version defaulted to the string `'unknown'` produces
+   * a perfectly good-looking CID that goes on matching after the compiler changed
+   * underneath it — the failure `cache-key.ts` exists to prevent, and the one it calls
+   * worse than no cache. Reporting a *success* here would put exactly that artifact into
+   * a cache under a name claiming it is fine, which is worse than the missing artifact,
+   * because the bytes are reproducible by re-running and a poisoned cache entry is not.
+   *
+   * Note the limit this does **not** reach: `translationCid` sees blank and only blank,
+   * so a `meta.txt` that says `wasi-sdk=unknown` in so many words is still named. The
+   * container writes that string itself when `WASI_VERSION_FULL` is unset, and
+   * {@link unidentifiedIn} does not report it either. See {@link LiftedArtifact.unidentifiedTools}.
+   */
+  | { readonly kind: 'unnameable'; readonly reason: KeyFailure }
 
 export type LiftOutcome =
   | { readonly ok: true; readonly verdict: 'clean'; readonly artifact: LiftedArtifact }
@@ -738,6 +793,34 @@ function toHex(bytes: Uint8Array): string {
   let out = ''
   for (const byte of bytes) out += byte.toString(16).padStart(2, '0')
   return out
+}
+
+/**
+ * The four things that could have changed these bytes, and nothing else.
+ *
+ * Pure — no container, no filesystem, no `await`. A separate exported function rather
+ * than four lines inlined at the call site, and the reason is what the roadmap criterion
+ * asks for: it is about *the emitted* CID, i.e. the key **the pipeline builds**, and a
+ * pipeline that silently dropped `requiredFeatures` from the key would pass every
+ * assertion `cache-key.test.ts` makes about `translationCid` in isolation. Extracted,
+ * the coverage claim is measurable by flipping one field of a fixture artifact with no
+ * container anywhere in it; inlined, the only probe is a full lift per field, which
+ * nobody will run.
+ *
+ * `features` is handed over unsorted on purpose. `translationCid` sorts and
+ * de-duplicates it, so two callers cannot disagree by ordering, and doing it twice would
+ * put a second place for that rule to be got wrong.
+ *
+ * No timing figure belongs in this comment. If one ever does, it must be measured on the
+ * host that wrote it and carry the date it was measured.
+ */
+export function translationKeyOf(artifact: Omit<LiftedArtifact, 'translation'>): TranslationKey {
+  return {
+    inputDigest: artifact.inputDigest,
+    target: artifact.target,
+    toolchain: artifact.toolchain,
+    features: artifact.requiredFeatures,
+  }
 }
 
 /**
@@ -1046,27 +1129,45 @@ export async function liftElf(elfPath: string, options: LiftOptions = {}): Promi
       'wasmedge',
     ])
 
+    // Assembled without its name first, because the name is a function of it — and as
+    // one literal rather than two, so the sixteen fields have one place to be wrong in.
+    // Every input `translationCid` wants has been in hand at this point since long
+    // before this call existed; that was the defect. The four of them were built within
+    // twenty lines of each other and none of them was ever named.
+    // `lifted` and not `artifact`: `artifact` is the `Buffer` read off the bind mount a
+    // few lines up, and this is the value built out of it.
+    const lifted: Omit<LiftedArtifact, 'translation'> = {
+      bytes: artifactBytes,
+      verdict,
+      target: LIFT_TARGET,
+      toolchain,
+      unidentifiedTools,
+      inputDigest: toHex(digest.bytes),
+      requiredFeatures: features.features.required,
+      declaredFeatures: features.features.declared,
+      findings: scan.findings,
+      unparsed: scan.unparsed,
+      undecoded,
+      blindSpots: blindSpotsFor(undecoded, verdict),
+      elf: screening.facts,
+      durationMs,
+      stdout: ran.stdout,
+      stderr: ran.stderr,
+    }
+
+    const named = await translationCid(translationKeyOf(lifted))
+    if (!named.ok) return { ok: false, failure: { kind: 'unnameable', reason: named.failure } }
+    // `artifactBytes` is a view over a `Buffer`'s pooled `ArrayBufferLike` and `blockCid`
+    // requires a `Uint8Array<ArrayBuffer>`, so the copy is structural rather than
+    // defensive — and it is what a blockstore would be handed anyway, since both of them
+    // copy on `put`. If its cost is ever worth recording, measure it and write the
+    // measured figure with its date; do not write a derived comparison.
+    const artifactCid = await blockCid(new Uint8Array(artifactBytes))
+
     return {
       ok: true,
       verdict,
-      artifact: {
-        bytes: artifactBytes,
-        verdict,
-        target: LIFT_TARGET,
-        toolchain,
-        unidentifiedTools,
-        inputDigest: toHex(digest.bytes),
-        requiredFeatures: features.features.required,
-        declaredFeatures: features.features.declared,
-        findings: scan.findings,
-        unparsed: scan.unparsed,
-        undecoded,
-        blindSpots: blindSpotsFor(undecoded, verdict),
-        elf: screening.facts,
-        durationMs,
-        stdout: ran.stdout,
-        stderr: ran.stderr,
-      },
+      artifact: { ...lifted, translation: { keyCid: named.cid, key: named.key, artifactCid } },
     }
   } finally {
     if (options.keepWorkDir !== true) await rm(workDir, { recursive: true, force: true })
@@ -1142,6 +1243,14 @@ export function describeLiftFailure(failure: LiftFailure): string {
         `be "unknown", which is not blank enough for translationCid to refuse and not a ` +
         `toolchain, so this artifact is unnameable and was not returned`
       )
+    case 'unnameable':
+      // Delegated to `describeKeyFailure` rather than restated, so the codec's own
+      // wording survives and the two cannot drift into two accounts of one refusal.
+      return (
+        `this lift produced an artifact that cannot be named: ${describeKeyFailure(failure.reason)}` +
+        ` — the bytes are reproducible by re-running, and a cache entry under a name that ` +
+        `identifies no particular toolchain is not`
+      )
   }
 }
 
@@ -1162,6 +1271,33 @@ export function describeLift(artifact: LiftedArtifact): string {
       `${artifact.verdict.toUpperCase()}`,
   )
   lines.push(`  needs ${artifact.requiredFeatures.join(' ') || 'no features'}`)
+  // Two CIDs, labelled, and inside this string rather than printed beside it by `main`.
+  //
+  // They answer two different questions, and the distinction is `cache-key.ts`'s own:
+  // hashing the artifact answers "are these the same bytes", hashing the key answers
+  // "should these be the same bytes". So the key CID names *what should have been
+  // produced* and the artifact CID names *what was*, and the gap between the two answers
+  // is precisely a reproducibility defect — detectable only because both are printed.
+  // One of them alone is not half the measurement; it is none of it.
+  //
+  // The key itself, above the CID that names it, and rendered by `describeKey` rather
+  // than restated here.
+  //
+  // 21-02 declined this on the grounds that `describeKey` would only repeat the target,
+  // the toolchain and the feature set from the lines around it. That is three of the
+  // four fields it renders. The fourth is `inputDigest`, and **nothing else in this
+  // string prints it** — so an operator holding two different key CIDs could not tell
+  // whether the inputs differed, which is the first question a key mismatch raises.
+  //
+  // It is also `artifact.translation.key`, the key `translationCid` returned, not the
+  // fields this artifact happens to carry. Those are not the same object:
+  // `normaliseFeatures` sorts and de-duplicates, so this line shows the feature set that
+  // was *hashed* while `needs …` above shows the order the artifact reported. A
+  // disagreement between the two lines is a normalisation defect, and it is legible only
+  // because both are printed — the same reason the two CIDs below are both printed.
+  lines.push(`  key as hashed: ${describeKey(artifact.translation.key)}`)
+  lines.push(`  translation key cid: ${artifact.translation.keyCid.toString()}`)
+  lines.push(`  artifact cid: ${artifact.translation.artifactCid.toString()}`)
   for (const [tool, version] of Object.entries(artifact.toolchain).sort(([a], [b]) => a.localeCompare(b))) {
     lines.push(`  ${tool}: ${version}`)
   }

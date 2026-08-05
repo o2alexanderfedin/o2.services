@@ -262,6 +262,21 @@ export class RpcEndpoint {
       // A reply from a peer this id was never requested from misses here, and falls
       // into the same line as a late or duplicate one — no new branch, and the real
       // destination's answer is still expected.
+      //
+      // **This line is the only production path on which a reply that arrives after its
+      // request gave up can be received at all**, and since 2026-08-04 a spec depends on
+      // the drop being silent. `packages/node/src/late-combine.node.test.ts` produces a
+      // genuinely late one: a `bin/agent.ts` process is SIGSTOPped, its request times out
+      // and deletes the entry above, the process is resumed while the transport's send
+      // budget is still open, and its answer lands here with nothing left to correlate
+      // against. `executeReduce` has long since walked past it.
+      //
+      // What that spec reads, and why the disposition is load-bearing rather than tidy:
+      // `#receive` is subscribed as `void this.#receive(...)`, so anything this branch
+      // throws has no caller left to catch it — the request it belonged to was rejected
+      // by the timeout — and becomes an unhandled rejection in the requestor's process.
+      // Replacing this `return` with a `throw` was planted and watched turning that spec
+      // red, in both its cases. Keep it a bare return, and keep it silent.
       if (entry === undefined) return // late or duplicate reply
       this.#pending.delete(key)
       clearTimeout(entry.timer)

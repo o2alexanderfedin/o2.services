@@ -315,6 +315,23 @@ export interface IssuanceLedger {
  */
 export type IssuanceHistory = IssuanceLedger | 'remembers-only-within-this-process'
 
+/**
+ * The window **both** budgets are measured over unless a caller states another.
+ *
+ * Exported as a value rather than left as a literal in the `??` below, because a **host**
+ * needs to read it. {@link IssuanceLedger} says a ledger must not prune — pruning to the
+ * window is policy and belongs to the authority — but it also says **compaction is the
+ * host's**: an implementation that kept one line per certificate for ever would grow with
+ * the provider's whole history rather than with one window. A host that wants to discard
+ * what can no longer decide anything has to know which entries those are, and a host that
+ * *guessed* would silently widen or narrow both budgets with nothing anywhere failing.
+ *
+ * So there is one number, read by the default here and by whatever each tier keeps, and the
+ * two cannot disagree because there is only one of them. The rule a host must not break is
+ * the direction: it may retain **more** than the authority's window and never less.
+ */
+export const DEFAULT_ISSUANCE_WINDOW_MS = 3_600_000
+
 /** What the sentinel selects: a history that lives and dies with this object. */
 class InProcessIssuance implements IssuanceLedger {
   readonly #byUser = new Map<PublicKeyHex, number[]>()
@@ -350,7 +367,11 @@ export interface AuthorityOptions {
    * is required, and for what the sentinel costs a caller who takes it.
    */
   readonly issuance: IssuanceHistory
-  /** The window **both** budgets are measured over, so an operator has one period to reason about. */
+  /**
+   * The window **both** budgets are measured over, so an operator has one period to reason
+   * about. Defaults to {@link DEFAULT_ISSUANCE_WINDOW_MS}, which a durable
+   * {@link IssuanceLedger} also reads so its compaction cannot outrun this bound.
+   */
   readonly windowMs?: number
   readonly certificateLifetimeMs?: number
 }
@@ -376,7 +397,7 @@ export class EnrollmentAuthority {
     this.#issuer = toHex(ed25519.getPublicKey(options.providerPrivateKey))
     this.#maxPerWindow = options.maxPerWindow ?? 5
     this.#maxIssuedPerWindow = options.maxIssuedPerWindow
-    this.#windowMs = options.windowMs ?? 3_600_000
+    this.#windowMs = options.windowMs ?? DEFAULT_ISSUANCE_WINDOW_MS
     this.#lifetimeMs = options.certificateLifetimeMs ?? 30 * 24 * 3_600_000
     this.#issuance =
       options.issuance === 'remembers-only-within-this-process'

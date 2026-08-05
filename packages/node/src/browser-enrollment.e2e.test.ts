@@ -179,7 +179,7 @@ beforeAll(async () => {
     blockstoreDir: join(workdir, 'provider'),
     listen: ['/ip4/127.0.0.1/tcp/0/ws'],
     trustAnchors: [publisher.pub],
-    issuesCertificates: true,
+    issuesCertificates: 'issues-without-an-aggregate-budget',
   })
   const issuer = provider.issuerKey
   if (issuer === null) throw new Error('provider was started to issue and holds no key')

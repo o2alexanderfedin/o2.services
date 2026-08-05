@@ -125,8 +125,10 @@
       <p class="note">
         Colour every whole number from 1 to N red or blue so that no three numbers
         with a² + b² = c² end up the same colour. The search is split into
-        independent cubes and spread across this tab and every peer it can reach;
-        each cube is run twice, on different nodes, and the two must agree.
+        independent cubes and spread across this tab and every peer it can reach.
+        With a peer connected, every cube is run on two of them and the two must
+        agree; alone, this tab runs each cube once. The report below says which
+        happened, and how far that goes.
       </p>
       <p class="note">
         N climbs until the fabric cannot settle a rung. Each cube fixes the colours
@@ -229,8 +231,18 @@
       $('allow').textContent = disclosure.affirm
       $('decline').textContent = disclosure.decline
 
-      const showReportOnly = (text) => {
-        reportEl.textContent = text
+      // The merged tallies and the fan-out that produced them, in one block. They were
+      // deliberately separated once and are deliberately together again — `refreshReport`
+      // below carries the whole of why, and it is the only place that reasoning lives.
+      //
+      // `report.text` is `describeStartReport`'s output and nothing here reformats it:
+      // the CLI renders the same function's output, so a second formatter on this page
+      // would be a second place the same sentence is written. The one line added sits
+      // after a blank line rather than indented under the summary, because it is not a
+      // tally row — it says how many peers the rows came from.
+      const showReport = (report) => {
+        reportEl.textContent =
+          `${report.text}\n\npeers answering: ${report.reached} of ${report.asked} asked`
       }
 
       // ---- reconciling the page with the node ----------------------------------
@@ -319,6 +331,49 @@
       // stops where the fabric stops rather than where a number would look good.
       const LADDER = [300, 400, 500, 600]
 
+      const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`
+
+      // VER-09/VER-10, criterion 3 — how strongly the answer was attested, in the
+      // kernel's own words.
+      //
+      // **The page composes no sentence of its own here, and that is the whole
+      // design.** `description` is the string `attestationReceipt` filled from
+      // `describeAttestation`, carried onto `JobResult` and passed through
+      // `runColouring` untouched. `bin/bench.ts` prints the same field for the same
+      // reason, so the CLI and this page cannot come to describe one result
+      // differently — there is one source of the words and neither surface holds a
+      // copy. Nothing below is derived from `redundancy`, from `agreeing.length`, or
+      // from anything this page believes about its own topology.
+      //
+      // **What stood here before was a claim the page could not check.** The line
+      // read `Verification cost N× — each cube ran twice, on different nodes, and the
+      // two had to agree`, unconditionally, on every settled run. At `redundancy: 1`
+      // — a lone visitor, which is every visitor who opens this page first — it was
+      // simply false, and it was printed directly above a placement list showing one
+      // node per cube. The cost figure is measured and stays; the claim about how the
+      // work was placed is now the kernel's.
+      //
+      // **The absence arm is a statement, not a blank and not a weaker label.** A
+      // visitor told less than the truth and a visitor told something untrue are
+      // different failures, and only the first is acceptable. So it says how many
+      // replicas agreed, how many of those this tab could actually check, and the
+      // kernel's own reason naming each replica it could not — never a strength over
+      // whatever happened to check out.
+      const attestationLines = (attestation) =>
+        'kind' in attestation
+          ? [
+              'How strongly was it checked: nothing established. ' +
+                `${plural(attestation.agreeing, 'replica')} agreed on the least-attested ` +
+                `cube, and ${attestation.verified} of those produced a signed statement ` +
+                'this tab could check.',
+              attestation.reason,
+            ]
+          : [
+              `How strongly was it checked: ${attestation.description}`,
+              `Established over ${plural(attestation.replicas, 'replica')} from ` +
+                `${plural(attestation.operators.length, 'operator')}.`,
+            ]
+
       $('run').addEventListener('click', async () => {
         $('run').disabled = true
         // Refreshed rather than reused: a device may have joined since the last
@@ -367,10 +422,10 @@
         if (best !== null) {
           lines.push('')
           lines.push(`Best settled: n = ${best.n}, every cube agreed: ${best.complete}`)
-          lines.push(
-            `Verification cost ${best.verificationMultiplier.toFixed(2)}× — each cube ran twice, ` +
-              'on different nodes, and the two had to agree.',
-          )
+          // VER-06. Gross fuel over useful fuel — measured, correct at any redundancy,
+          // and the half of the old line that was never in doubt.
+          lines.push(`Verification cost ${best.verificationMultiplier.toFixed(2)}×.`)
+          lines.push(...attestationLines(best.attestation))
           lines.push('')
           lines.push('Where the last rung ran:')
           lines.push(
@@ -418,8 +473,23 @@
           // kind of node they could be instead.
           const computing = computePeers.length + 1
           const spare = connected - computePeers.length
+          // Defect 32. A pair that dialled each other in the same moment can end up
+          // holding nothing but a relayed circuit — 2 min / 128 KiB, a signalling
+          // channel this project says may not carry a job. That peer still answers an
+          // offer, because the RPC protocol negotiates over a limited connection, so it
+          // is counted above and the page said "2 nodes computing" about a pair that
+          // could not run the work. Saying so is the whole of the repair that a retry
+          // cannot make: NET-05's lesson this phase was that a condition nobody reports
+          // is a condition nobody can act on.
+          const relayed =
+            found.relayedOnly.length > 0
+              ? ` · ${found.relayedOnly.length} peer(s) reachable only through the relay, which` +
+                ' cannot carry a job' +
+                (found.stalled.length > 0 ? ' — no longer retrying a direct connection' : '')
+              : ''
           const detail =
             (spare > 0 ? ` · ${spare} further connection(s) that do not compute` : '') +
+            relayed +
             (found.dialed.length > 0 ? ` · just dialled ${found.dialed.length}` : '')
 
           if (!found.asked) {
@@ -439,23 +509,44 @@
 
       const refreshReport = async () => {
         const report = await window.o2.startReport()
-        // Exactly and only what this tab knows. A peer count used to be appended
-        // here, and beside a report that can only ever hold this tab's own outcome it
-        // read as a tally of contributors: `no start outcomes reported` directly above
-        // `peers answering: 2 of 2 asked`.
+        // What this tab has been told, merged with what it knows — BROW-02. Every node
+        // holds a start-outcome ledger with its own row in it from the moment it starts,
+        // both tiers on identical terms, so a peer answers with something it observed
+        // instead of an empty list and this block can name a browser family this tab is
+        // not. Nothing in this page could produce such a row, which is why the foreign
+        // family — not the count — is what carries the criterion.
         //
-        // No node supplies `serveAgent`'s `ledger` hook — every production call site
-        // passes `'keeps-no-ledger'` — so the merged report has nothing else in it to
-        // present. The gap is disclosed at `.planning/REQUIREMENTS.md`. Wiring a
-        // serve-side ledger is deferred behind the magnitude bound and the label
-        // whitelist, because publishing per-peer start outcomes across the fabric
-        // before those land is the fingerprint the disclosure promise in
-        // `start-outcome.ts` exists to prevent.
+        // **The contributor reading is back, and here is the sentence it replaces.** It
+        // stood beside this report until 2026-08-02 and was removed for a real reason:
+        // beside a report that could only ever hold this tab's own outcome it read as a
+        // tally of contributors — `no start outcomes reported` directly above `peers
+        // answering: 2 of 2 asked`. **The lie was the juxtaposition, not the fields**,
+        // and what changed is not the render: the peers now genuinely contribute, so
+        // the two numbers beside the tallies are the peers whose rows are in them.
+        // `reached` and `asked` were always a real liveness reading — `asked > 0 &&
+        // reached === 0` is the blocklist cliff seen from the inside — and they can be
+        // shown next to the rows again because the rows are no longer only this tab's.
         //
-        // `reached` and `asked` stay on the returned object. They are a genuine
-        // liveness reading — `asked > 0 && reached === 0` is the blocklist cliff seen
-        // from the inside — and the lie was the juxtaposition, not the fields.
-        showReportOnly(report.text)
+        // **The deferral that stood here is spent, and it is replaced rather than
+        // deleted.** It deferred a serve-side ledger *"behind the magnitude bound and
+        // the label whitelist, because publishing per-peer start outcomes across the
+        // fabric before those land is the fingerprint the disclosure promise in
+        // `start-outcome.ts` exists to prevent."* Both landed, and both are enforced at
+        // the wire in `protocol.ts`'s `parseCounts`: `MAX_REPORTED_COUNT` caps any one
+        // entry's magnitude, and `isStartBrowserLabel` refuses a label outside the
+        // coarse family-and-major set that makes this metric safe to publish at all.
+        // Neither is taken on the parser's word — `start-report.test.ts`'s `lifting the
+        // deferral does not lift the bounds it was conditional on` measures each over
+        // the wire, pairing the refused row against a truthful one from the same peer
+        // so a dropped entry cannot be mistaken for a dropped frame.
+        //
+        // **What is still unbounded, said plainly rather than left to be inferred from
+        // the silence:** the row *count*. `parseCounts` bounds each entry and validates
+        // each label, and bounds no array length. Measured under Plan 20-02 at 43.90
+        // bytes a row against NET-08's 8 MiB inbound ceiling — a crossover at 191 099
+        // rows, so that ceiling does not meaningfully bound it. Closing it is a
+        // decision nobody has taken, and this note is here so nobody assumes it was.
+        showReport(report)
       }
       $('refresh-report').addEventListener('click', refreshReport)
 

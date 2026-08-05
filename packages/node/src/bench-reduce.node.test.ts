@@ -1,15 +1,28 @@
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
+import { stripComments } from './strip-comments.ts'
 
 /**
- * `bin/bench.ts`'s reduce leg, and the artifact it produces — MR-03, MR-04, MR-05.
+ * `bin/bench.ts`'s reduce leg, and the artifact it produces — MR-03, MR-04, MR-05,
+ * VER-08/09/10, and SCHED-02's entry point.
  *
  * **What this is.** Two guards in the idiom `bench-egress.node.test.ts` established:
  * a call-site shape guard over the driver's source, and a published-artifact guard
  * over `.planning/BENCHMARK-RESULTS.md`. Both read one file, require the shapes that
  * carry a property to be present, and are proved able to report their absence by
  * planting.
+ *
+ * **Why SCHED-02's `admit:` is guarded from here — defect #31, closed 2026-08-03.** That
+ * expression was carried as an open defect from Phase 18: *`admit:` at `bin/bench.ts` is
+ * guarded by nothing*, and deleting it left the entire suite green while
+ * `REQUIREMENTS.md`'s SCHED-02 row rested on it for the claim that `planWithOffers` has a
+ * production caller **from a runnable entry point**. A ledger row asserting reachability
+ * on the strength of one expression no test would miss is the *built, not wired*
+ * condition this milestone exists to remove, hiding inside the file that is supposed to
+ * demonstrate the opposite. It is guarded here rather than anywhere else because this
+ * file already owns the call-site shapes of this driver and already knows how to prove
+ * that it can report their absence.
  *
  * **What this is not.** Behavioural. It runs no benchmark, for a fact about the file
  * rather than for effort: `bin/bench.ts` drives its ladders from a top-level `main()`
@@ -20,10 +33,21 @@ import { describe, expect, it } from 'vitest'
  * could drive with a two-rung ladder and one iteration — a restructuring Phase 23 is
  * already scheduled to perform for its own reasons, and the right place for it.
  *
- * **The limit worth naming**, inherited with the idiom: {@link stripComments} is
- * regex-based, so a comment opener inside a string literal would be treated as opening
- * a comment. The failure direction is the safe one — over-stripping can only report a
- * satisfied requirement as unmet, which fails loudly, never the reverse.
+ * **The limit worth naming, and the defence that was inherited without its precondition.**
+ * The stripper here was regex-based until 2026-08-04, so a comment opener inside a string
+ * literal was treated as opening a comment. The sentence that came with it from
+ * `bench-egress.node.test.ts` — *the failure direction is the safe one, over-stripping can
+ * only report a satisfied requirement as unmet, which fails loudly, never the reverse* —
+ * is true only of a presence check, and this file is the sibling that added an absence
+ * one. `forbidden` is a must-NOT-match pattern, so over-stripping makes its requirement
+ * pass **wrongly**: the shape that is supposed to be refused simply is not read. The
+ * inherited defence was already false at the moment the `forbidden` field was introduced,
+ * and the field's own docblock explains why the field is needed without noticing that it
+ * inverts the claim four lines above it.
+ *
+ * {@link stripComments} is now the shared tokenizer, which tracks string and template
+ * state. `strip-comments.node.test.ts` measures it against the regex it replaced, and its
+ * `forbidden-pattern form` case is this file's arm, using this file's real pattern.
  */
 
 const BENCH = 'packages/node/src/bin/bench.ts'
@@ -60,18 +84,14 @@ const RESULTS_DOCUMENT: string = readFileSync(`${ROOT}${RESULTS}`, 'utf8')
 const MEASURED_TREE_DEPTH = 2
 const MEASURED_COMBINES = 5
 
-/**
- * Strips `//` line comments and block comments.
- *
- * The whole reason this guard is worth having. `bin/bench.ts` *names* every identifier
- * below in its own prose — the doc on `Fabric.rpc`, the paragraph on why the projection
- * decodes the output, the comment on why `complete` was deliberately not extended.
- * Match the raw text and a reader could delete every call site, leave the comments
- * describing them, and keep this file green.
- */
-function stripComments(source: string): string {
-  return source.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/\/\/[^\n]*/g, '')
-}
+// Stripping is the whole reason this guard is worth having. `bin/bench.ts` *names* every
+// identifier below in its own prose — the doc on `Fabric.rpc`, the paragraph on why the
+// projection decodes the output, the comment on why `complete` was deliberately not
+// extended. Match the raw text and a reader could delete every call site, leave the
+// comments describing them, and keep this file green.
+//
+// `stripComments` is the shared tokenizer; mutation-ledger entry `S4` plants the regex it
+// replaced back into this file, against the `forbidden` arm specifically.
 
 interface CallSiteRequirement {
   /** Named so whoever broke one knows which call site to open. */
@@ -166,6 +186,87 @@ const REQUIREMENTS: readonly CallSiteRequirement[] = [
     // that was deleted, so the fragment below has to invoke it.
     satisfying: '  counts: { [`partition-${partitionOf(output)}`]: 1 },\n',
   },
+  {
+    name: 'the reduce is told what this rig checks combine signatures against',
+    patterns: [/readonly\s+combineIssuers\s*:\s*CombineTrustAnchors/, /trustedIssuers\s*:\s*fabric\.combineIssuers/],
+    reason:
+      'VER-08/09/10. `reduceJob`’s trust anchors are a required union with a named sentinel, so a ' +
+      'driver cannot reach an aggregate receipt without having said what it checks against — but ' +
+      '`checks-no-combine-signatures` is a legal value, and a rig that quietly passed it on the ' +
+      '`--discover` arm would print the named absence forever while every other check here stayed ' +
+      'green. Both halves are required: the field on Fabric, resolved once from the one provider ' +
+      'this driver starts, and the supply at the call. A second issuer set assembled at the call ' +
+      'instead would be a second place one trust decision is made, able to disagree with the set ' +
+      '`discoverCandidates` was handed with nothing able to catch the disagreement.',
+    satisfying:
+      '  readonly combineIssuers: CombineTrustAnchors\n' +
+      '        trustedIssuers: fabric.combineIssuers,\n',
+  },
+  {
+    name: 'the aggregate reading is read off the reduce result, never derived',
+    patterns: [/aggregate\s*=\s*reduced\.aggregateAttestation/],
+    reason:
+      'A driver that derived the aggregation’s strength from `config.redundancy` would print the ' +
+      'right answer on this rig for the wrong reason, and would go on printing it after the ' +
+      'mechanism underneath broke. This is the same substitution Plan 19-10 guarded for the map ' +
+      'half; the aggregation needs its own, because the two receipts are different values and a ' +
+      'guard on one says nothing about the other.',
+    satisfying: '      if (reduced.ok) aggregate = reduced.aggregateAttestation\n',
+  },
+  {
+    name: 'both receipts reach stdout, each naming the claim it is about',
+    patterns: [/map attestation \(/, /aggregate attestation \(/],
+    reason:
+      'Criterion 3 is that the receipt reads its strength *wherever it is displayed*, and after ' +
+      'Plan 19-17 two receipts about two claims cross this stream. Both halves are required and ' +
+      'they fail differently: dropping the aggregate line is the "built, not wired" condition ' +
+      'arriving in its newest place, and dropping the word `map` from the other is worse than it ' +
+      'looks — a reduced sovereign job prints `owner-attested` for its map and can print ' +
+      '`independent` for its aggregation, so an unlabelled pair reads as a contradiction rather ' +
+      'than as the split PROJECT.md describes.',
+    satisfying:
+      '    process.stdout.write(`    map attestation (${population}): ${reading}`)\n' +
+      '    process.stdout.write(`    aggregate attestation (${population}): ${aggregate}`)\n',
+  },
+  {
+    name: 'the discover rig supplies admit, and the job spec passes it on',
+    patterns: [
+      /\.\.\.\(\s*DISCOVER\s*\?\s*\{\s*admit:\s*rpcAdmission\(requestor\.rpc\)\s*\}\s*:\s*\{\}\s*\)/,
+      /\.\.\.\(\s*fabric\.admit === undefined \? \{\} : \{ admit: fabric\.admit \}\)/,
+    ],
+    reason:
+      'DEFECT #31, carried from Phase 18 and closed here. `bin/bench.ts` holds the ONLY production ' +
+      'call of `rpcAdmission` in this repository — every other is a spec — so REQUIREMENTS.md’s ' +
+      'SCHED-02 row rests on these two expressions for its claim that `planWithOffers` has a ' +
+      'caller from a runnable entry point. Deleting either of them left the entire suite green. ' +
+      'Both halves are required because they fail differently and neither implies the other: a rig ' +
+      'that stopped supplying `admit` leaves `submitJob` on `planPlacement` with the spec still ' +
+      'looking wired, and a spec that stopped passing it leaves the rig building an admission ' +
+      'control nothing consumes.\n' +
+      '\n' +
+      'The patterns match the WHOLE spread, not the bare `admit:`, and that is the second half of ' +
+      'the property: on the default arm the key must be ABSENT rather than `undefined`, because ' +
+      '`submitJob` branches on `spec.admit === undefined` to choose between `planPlacement` and ' +
+      '`planWithOffers`. An unconditional `admit` would place the published curve differently from ' +
+      'every number already published beside it, and would satisfy a bare `admit:` pattern ' +
+      'perfectly.\n' +
+      '\n' +
+      'WHY TEXTUAL AND NOT BEHAVIOURAL, since `--discover` is off by default and no default-path ' +
+      'run reaches this expression at all. The only run that does is `bin/bench.ts --quick ' +
+      '--discover`, whose readings arrive minutes in — `bench-attestation.node.test.ts` measures ' +
+      '163 s to reach its own — and nothing that driver prints changes when `admit` is removed, ' +
+      'because a healthy rig refuses no offer and the `rejections` it would populate are not on ' +
+      'this driver’s output at all. So a behavioural reading here would have to be invented ' +
+      'before it could be taken. What a source guard cannot do is say the call *works*: that is ' +
+      '`discovery-agents.node.test.ts`, which measures `planWithOffers` + `rpcAdmission` across ' +
+      'real processes and derives the first-probed node by calling `sampleCandidates` rather than ' +
+      'by re-implementing its rule. Behaviour proves the mechanism; this proves the entry point ' +
+      'still composes it — the same division `trust-anchors.node.test.ts` records for signing legs ' +
+      '1 and 3, which is the pattern this entry follows rather than invents.',
+    satisfying:
+      '    ...(DISCOVER ? { admit: rpcAdmission(requestor.rpc) } : {}),\n' +
+      '        ...(fabric.admit === undefined ? {} : { admit: fabric.admit }),\n',
+  },
 ]
 
 /** The names of the requirements `source` does not satisfy, in declaration order. */
@@ -252,6 +353,29 @@ describe('the call site guard can report absence — proved by planting, not ass
     expect(unmetRequirements(coupled)).toEqual(['completeness is NOT coupled to the reduce'])
   })
 
+  it('reports it even when a string literal above the coupling holds a comment opener', () => {
+    // **The arm that made this file's inherited "the failure direction is the safe one"
+    // claim false.** `forbidden` is a must-NOT-match pattern, so a scan blinded before it
+    // reaches the line reports the requirement SATISFIED — over-stripping fails OPEN here,
+    // not loudly. The case above cannot see that, because it omits the satisfying
+    // fragment and so goes red through the *presence* pattern regardless.
+    //
+    // Here every requirement's satisfying fragment is present, so the presence pattern is
+    // met by the original expression and only the forbidden one is at stake. Under the
+    // regex used here until 2026-08-04, the `/*` inside `'partition/*'` opened a comment
+    // that ran to the closer on the last line, taking the coupled expression with it:
+    // the forbidden pattern matched nothing and this requirement read as MET.
+    // Mutation-ledger entry `S4` plants that regex back and this case reddens.
+    const coupledBelowAnOpener = REQUIREMENTS.map(({ satisfying }) => satisfying)
+      .join('')
+      .concat(
+        "    const shardLabel = 'partition/*'\n",
+        '    const complete = result.ok && result.job.complete && reduce.ok\n',
+        '    /** the closer that bounds the damage */\n',
+      )
+    expect(unmetRequirements(coupledBelowAnOpener)).toEqual(['completeness is NOT coupled to the reduce'])
+  })
+
   it('reports every requirement when every identifier appears only inside a comment', () => {
     const commentsOnly = [
       '// The driver used to call reduceJob(result.job, {rpc, executors, blockstore, project}).',
@@ -260,6 +384,12 @@ describe('the call site guard can report absence — proved by planting, not ass
       ' * and derived new Set(reduced.outcome.executedBy.values()).size from the outcome.',
       ' * Fabric carried readonly rpc: RpcEndpoint, supplied as rpc: callerRpc and rpc: requestor.rpc.',
       ' * The projection called partitionOf(output) to decode the guest’s bytes.',
+      ' * Fabric carried readonly combineIssuers: CombineTrustAnchors, supplied as',
+      ' * trustedIssuers: fabric.combineIssuers, and the rung took',
+      ' * if (reduced.ok) aggregate = reduced.aggregateAttestation.',
+      ' * It printed a map attestation (population) line and an aggregate attestation (population) one.',
+      ' * The discover rig carried ...(DISCOVER ? { admit: rpcAdmission(requestor.rpc) } : {}) and the',
+      ' * spec carried ...(fabric.admit === undefined ? {} : { admit: fabric.admit }).',
       ' */',
       '// const complete = result.ok && result.job.complete',
       'const theCallSitesThemselvesAreGone = true',

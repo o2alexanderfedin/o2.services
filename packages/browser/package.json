@@ -15,6 +15,7 @@
     "@libp2p/webrtc": "6.0.27",
     "@libp2p/websockets": "10.1.17",
     "@multiformats/multiaddr": "13.0.3",
+    "@o2/aot": "*",
     "@o2/core": "*",
     "@o2/demo": "*",
     "@o2/libp2p": "*",

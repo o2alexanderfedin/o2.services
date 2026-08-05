@@ -10,6 +10,7 @@ import { RemoteExecutor, blockCid } from '@o2/net'
 import type { CID } from 'multiformats/cid'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 // Test-only relative imports — see the note in packages/net/src/distributed.test.ts.
+import { wasiEcho } from '../../aot/src/fixtures/wasi-fixtures.ts'
 import { MODULE_WRITES_PARTITION } from '../../core/src/executor/fixtures.ts'
 import { OWNER_KEY, chainSupplierFor } from './capability-fixture.ts'
 import { FabricNode } from './fabric-node.ts'
@@ -309,6 +310,22 @@ describe("DATA-09 and AUTH-03's serving half — three node shapes, four dispatc
     ])
 
     const moduleCid = await submitter.store.put(MODULE_WRITES_PARTITION)
+    // AOT-04. The WASI counterpart of the module above, over the identical input:
+    // `0x80` is DAG-CBOR for the empty array, and `wasi-echo` copies stdin to stdout,
+    // so a run that reaches the executor produces that same value.
+    //
+    // **Why these dispatches are in this block and not one of their own.** Every
+    // pre-existing assertion here is green for a router composed *outside*
+    // `guardSovereignty` as well as inside it. `guardSovereignty` returns before
+    // `inner.execute` (`sovereignty-guard.ts`), so a mis-composition —
+    // `new AbiExecutor({ native: <guarded>, wasi: <unguarded> })` — leaves the native
+    // arm guarded, every native case below green, and every sovereign WASI task
+    // walking past the gate. 2b is the reading that goes red on that composition, and
+    // 3b/3c are its controls: without them, "the WASI task was refused" is equally
+    // well explained by a node that cannot run a WASI module at all. The three sit
+    // beside their native counterparts so the next reader of this block can see which
+    // assertion is carrying which claim.
+    const wasiCid = await submitter.store.put(wasiEcho)
     const inputCid = await submitter.store.put(new Uint8Array([0x80]))
 
     const sovereignTask: Task = {
@@ -319,6 +336,7 @@ describe("DATA-09 and AUTH-03's serving half — three node shapes, four dispatc
       label: 'sovereign',
       ownerId: 'alice',
     }
+    const sovereignWasiTask: Task = { ...sovereignTask, moduleCid: wasiCid }
 
     // 1. The safe default, observed. A node started with no `sovereignty` option at
     // all refuses even a chain that is entirely valid for it.
@@ -361,6 +379,19 @@ describe("DATA-09 and AUTH-03's serving half — three node shapes, four dispatc
     expect(uncleared.reason).toContain('sovereignty')
     expect(uncleared.reason).toContain(pinnedNode.peerId)
 
+    // 2b. The same refusal for a WASI artifact, from the same line — which is what
+    // says the router went *inside* the gate. Byte-identical to the reason above,
+    // because a refused clearance never reaches an executor and therefore never
+    // reaches the router at all.
+    const unclearedWasi = await new RemoteExecutor(
+      pinnedNode.peerId,
+      submitter.rpc,
+      chainSupplierFor(pinnedNode.peerId),
+    ).execute(sovereignWasiTask)
+    expect(unclearedWasi.ok).toBe(false)
+    if (unclearedWasi.ok) return
+    expect(unclearedWasi.reason).toBe(uncleared.reason)
+
     // 3. Pinned, keyed and cleared: the same task with the same chain is accepted.
     const accepted = await new RemoteExecutor(
       clearedNode.peerId,
@@ -368,6 +399,46 @@ describe("DATA-09 and AUTH-03's serving half — three node shapes, four dispatc
       chainSupplierFor(clearedNode.peerId),
     ).execute(sovereignTask)
     expect(accepted.ok).toBe(true)
+
+    // 3b. The control that makes 2b mean something: without it, "the WASI task was
+    // refused" is equally well explained by a node that cannot run a WASI module at
+    // all, whatever its clearance.
+    //
+    // **It cannot be the same shape as case 3, and the reason is a measurement rather
+    // than a workaround.** `wasi-echo` returns its input, and this task's input is the
+    // sovereign payload — so the reply body carries that payload off the node, and
+    // DATA-06's egress tap refuses it by name. That is the tap doing exactly its job,
+    // and a fixture chosen to slip past it would be a worse test. Measured here rather
+    // than asserted from the source: `egress refused: <inputCid> on <peerId>`.
+    //
+    // And it is a *stronger* reading than `ok: true` would have been. The tap runs on
+    // the reply body, after execution. A refusal naming the sovereign input CID means
+    // the body contained that value — which it can only do if the WASI module ran and
+    // echoed it. A run that had failed at instantiate would have come back
+    // `instantiation failed: … wasi_snapshot_preview1 …`, which contains no sovereign
+    // byte and would have egressed cleanly.
+    const overTheWire = await new RemoteExecutor(
+      clearedNode.peerId,
+      submitter.rpc,
+      chainSupplierFor(clearedNode.peerId),
+    ).execute(sovereignWasiTask)
+    expect(overTheWire.ok).toBe(false)
+    if (overTheWire.ok) return
+    expect(overTheWire.reason.startsWith('egress refused: ')).toBe(true)
+    expect(overTheWire.reason).toContain(inputCid.toString())
+    // The discrimination that carries the whole case: this is **not** the refusal 2b
+    // got. Clearance passed on this node, and a different gate answered.
+    expect(overTheWire.reason).not.toContain('sovereignty')
+
+    // 3c. And the value itself, read through `clearedNode.executor` — the same object
+    // `serveAgent` was handed, so this is the serving path with the wire removed. No
+    // reply frame leaves the node, so nothing egresses and the tap has nothing to
+    // refuse; what is left is the sovereignty gate and the router beneath it, which is
+    // exactly the pair under test.
+    const acceptedWasi = await clearedNode.executor.execute(sovereignWasiTask)
+    expect(acceptedWasi.ok).toBe(true)
+    if (!acceptedWasi.ok) return
+    expect(acceptedWasi.output).toEqual([])
 
     // 4. The control that makes assertion 3 mean something. Same node, same task, one
     // argument changed: no chain. Without this reading, "the cleared node accepts" is
@@ -480,6 +551,88 @@ describe('DET-03 — a production node runs only a module a pinned anchor vouche
       taskFor(moduleCid, inputCid, recordFor(publisher.priv, moduleCid)),
     )
     expect(signed.ok).toBe(true)
+  }, 60_000)
+})
+
+describe('AOT-04 — a node from the ordinary factory runs a WASI command module', () => {
+  /**
+   * The production call site, read through `node.executor`.
+   *
+   * `node.executor` is the identical object handed to `serveAgent` below its
+   * composition in `fabric-node.ts`, so this is the serving path rather than a
+   * parallel one — the same argument the DET-03 block above makes for its own subject.
+   * `startNode` is the same factory call `bin/agent.ts` makes: no test-only bypass, no
+   * hand-built fabric, and **no flag** — this phase adds none, and a node's ability to
+   * run a translated artifact is not a property of how it was started.
+   *
+   * **The single-line deletion that turns this red is the `wasi:` argument of the
+   * `new AbiExecutor({ … })` literal in `fabric-node.ts`.** Planted and measured on
+   * 2026-08-04, not predicted: pointing that argument at the native arm turns three
+   * cases in this file red, and this one comes back
+   *
+   *   `instantiation failed: WebAssembly.instantiate(): Import #0 "wasi_snapshot_preview1": module is not an object or function`
+   *
+   * — relayed verbatim from the killable thread, because the native arm does not
+   * supply that namespace and `WebAssembly.instantiate` says which one it wanted.
+   *
+   * **What this does not establish.** `wasi-echo` is a hand-written fixture compiled
+   * from `.wat` in this repository, not an artifact `elfconv` produced. So this proves
+   * the composition routes and that the WASI arm is real and reachable in production —
+   * the claim about a *translated* artifact, across real processes, is Plan 21-05's and
+   * needs the container.
+   */
+  it('executes it through the same executor a remote dispatch reaches', async () => {
+    const node = await startNode('aot-wasi')
+    const moduleCid = await node.store.put(wasiEcho)
+    // DAG-CBOR for the empty array. `wasi-echo` reads stdin to EOF and writes it back,
+    // so the output block is the input block and decodes to the same value — which is
+    // what makes a WASI shard and a native shard over one input directly comparable.
+    const inputCid = await node.store.put(new Uint8Array([0x80]))
+
+    const outcome = await node.executor.execute({
+      moduleCid,
+      inputCid,
+      partitionIndex: 0,
+      partitionCount: 1,
+      label: 'public',
+    })
+
+    expect(outcome.ok).toBe(true)
+    if (!outcome.ok) return
+    expect(outcome.output).toEqual([])
+    // One byte in and one byte out, under the definition both executors share.
+    expect(outcome.fuelUsed).toBe(2)
+    // Unsigned: this node was never enrolled, and `node.executor` is the layer beneath
+    // the signing wrapper on both tiers by construction.
+    expect(outcome.attestation).toBe('signed-by-nobody')
+  }, 60_000)
+
+  it('still runs a native module from the same node, unchanged', async () => {
+    // The control. Without it, "the WASI dispatch succeeded" is equally well explained
+    // by a node that routes everything to the WASI arm.
+    const node = await startNode('aot-both')
+    const wasiModule = await node.store.put(wasiEcho)
+    const nativeModule = await node.store.put(MODULE_WRITES_PARTITION)
+    const inputCid = await node.store.put(new Uint8Array([0x80]))
+    const at = (moduleCid: CID): Task => ({
+      moduleCid,
+      inputCid,
+      partitionIndex: 3,
+      partitionCount: 4,
+      label: 'public',
+    })
+
+    const native = await node.executor.execute(at(nativeModule))
+    expect(native.ok).toBe(true)
+    if (!native.ok) return
+    expect(partitionOf(native.output)).toBe(3)
+
+    const wasi = await node.executor.execute(at(wasiModule))
+    expect(wasi.ok).toBe(true)
+
+    // One node, one executor, two ABIs, chosen per artifact. This is the reading that
+    // says the choice is not a property of the node.
+    expect(node.executor.nodeId).toBe(node.peerId)
   }, 60_000)
 })
 

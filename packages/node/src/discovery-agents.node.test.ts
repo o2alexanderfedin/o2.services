@@ -37,8 +37,15 @@
  * candidate selection as **unmeasured** because there was no production caller to gate;
  * there is one now, and the `verifiedPeers` thunk below is it.
  *
- * **Quorum membership and relay use remain unmeasured.** Neither is gated on the
- * verified set, and nothing in this file reads them.
+ * **Quorum membership is measured one file over.** `quorum-agents.node.test.ts` reads
+ * quorum composition over this same fixture shape: spawned `bin/agent.ts` agents,
+ * provider-signed certificates, the production submit path. It reads relay use the same way
+ * — **since 2026-08-04**, when Plan 19-19 removed `--port`'s default so that an agent given
+ * `--relay-addr` and no `--port` binds nothing and enrols `via-relay`. Until then that half
+ * ran over in-process `FabricNode`s, because the binary bound a port unconditionally; the
+ * sentence that stood here said so, and it is recorded rather than deleted because it was
+ * true when written. Neither reading is gated on the verified set, and nothing in *this*
+ * file reads either.
  *
  * ## Budget
  *
@@ -54,7 +61,16 @@ import { join } from 'node:path'
 import type { Readable, Writable } from 'node:stream'
 import { fileURLToPath } from 'node:url'
 import { ed25519 } from '@noble/curves/ed25519.js'
-import { DEFAULT_D, canonicalCid, sampleCandidates, signName, submitJob, toHex } from '@o2/core'
+import {
+  DEFAULT_D,
+  DEFAULT_MAX_GENERATIONS,
+  canonicalCid,
+  planPlacement,
+  sampleCandidates,
+  signName,
+  submitJob,
+  toHex,
+} from '@o2/core'
 import type { Admission, CanonicalValue, NameRecord, NodeCertificate, Offer } from '@o2/core'
 import { SEED_BYTES, peerIdForNodeKey } from '@o2/libp2p'
 import { RemoteExecutor, discoverCandidates, encodeRequest, parseResponse, rpcAdmission } from '@o2/net'
@@ -257,8 +273,8 @@ async function standUp(holderArgs: readonly string[] = []): Promise<Fixture> {
   }
 
   const [p, p2] = await Promise.all([
-    spawnAgent('p', ['--issues-certificates']),
-    spawnAgent('p2', ['--issues-certificates']),
+    spawnAgent('p', ['--issues-certificates', '--max-issued-per-window', '64']),
+    spawnAgent('p2', ['--issues-certificates', '--max-issued-per-window', '64']),
   ])
   if (p.issuerKey === null || p2.issuerKey === null) throw new Error('a provider announced no issuer key')
   expect(p.issuerKey).not.toBe(p2.issuerKey)
@@ -278,7 +294,16 @@ async function standUp(holderArgs: readonly string[] = []): Promise<Fixture> {
   const b = await enrol('b', 0x92, p, holderArgs)
   const c = await enrol('c', 0x93, p, holderArgs)
   const d = await enrol('d', 0x94, p)
-  const e = await enrol('e', 0x95, p2)
+  // `holderArgs` reaches E as well as A, B and C, because E **is** a holder: it was
+  // seeded with both blocks above and the only thing that separates it from the other
+  // three is its issuer. The bounded-retry case below needs a fabric of four one-slot
+  // executors — strictly more than `DEFAULT_MAX_GENERATIONS`, or the cap it reads is
+  // indistinguishable from running out of nodes — and E is the fourth. D is left alone
+  // deliberately: it holds nothing, so it is never a provider and never an executor.
+  //
+  // Inert for every reading above: criterion 1 calls `standUp()` with no arguments, and
+  // the case that passes `--max-concurrent-tasks 1` places only on A, B and C.
+  const e = await enrol('e', 0x95, p2, holderArgs)
 
   expect(a.certificate?.issuer).toBe(p.issuerKey)
   expect(e.certificate?.issuer).toBe(p2.issuerKey)
@@ -542,13 +567,15 @@ describe('criterion 2 — sample, refuse, re-pick, complete', () => {
     // ---- Which refusal a saturated node gives, read directly. -------------------
     // Criterion 2b's second clause — *"a node at its execution slot limit refuses an
     // `exec` request … and the requestor re-picks"*. The offer re-pick above and the
-    // exec re-pick are DIFFERENT EVENTS. `job/submit.ts` calls `executeVerified`
-    // exactly once per shard: no retry, no resample.
+    // exec re-pick are DIFFERENT EVENTS, and the second one now happens: since Phase
+    // 20 plan 01 `job/submit.ts` runs a generation loop instead of calling
+    // `executeVerified` exactly once per shard, and the block after this one reads it.
     //
     // This dispatch settles the refusal's IDENTITY and nothing more. It is a bare
-    // `RemoteExecutor.execute()` **outside** `submitJob`, so a retry added inside
-    // `submitJob`/`runResilient` could never reach it and it can never go red — the
-    // absence is therefore read one level up, in the block after this one.
+    // `RemoteExecutor.execute()` **outside** `submitJob`, so the re-pick that now
+    // exists inside `submitJob` cannot reach it and it cannot go red on one. That is
+    // the reason the behaviour is read one level up, in the block after this, rather
+    // than here: this probe answers *which* refusal, never *what was done about it*.
     //
     // **The probe carries its own input block, and that is load-bearing.** A node's
     // slot key is derived from `inputCid:partitionIndex` and does NOT include the
@@ -577,37 +604,34 @@ describe('criterion 2 — sample, refuse, re-pick, complete', () => {
     expect(direct.ok).toBe(false)
     if (!direct.ok) expect(direct.reason).toContain('over-committed')
 
-    // ---- The absence itself, on the production submit path. ---------------------
-    // The reading that used to sit here was `expect(shard.verification.agreeing)
-    // .toHaveLength(1)`, and it could not fail. `agreeing` is a subset of the
-    // executors `submitJob` selected, which is `placement.nodeIds`, whose length IS
-    // `redundancy` — 1 in this fixture. So the value was confined to `{0,1}`, and the
-    // `agreed` narrowing above it excluded 0. No implementation of a re-pick could
-    // have moved it. It is removed rather than kept beside the reading below: a green
-    // assertion that looks like a guard and is not is worse than no assertion,
-    // because the next reader stops looking.
+    // ---- The exec-stage re-pick itself, on the production submit path. ----------
+    // A job whose SELECTED executor refuses at exec. The node answers the offer while
+    // it is free, is saturated between that answer and the dispatch, and then refuses
+    // the dispatch. That race is not contrived — it is the one the two clauses of
+    // criterion 2b are actually about, and the offer branch makes it inevitable on
+    // purpose: answering an offer reserves nothing (`LocalCapacity.would` is the
+    // non-reserving twin of `offer`, and its doc gives the leak that forced the
+    // split), so an accepted offer is a statement about the past by the time the exec
+    // arrives.
     //
-    // What can fail is a job whose SELECTED executor refuses at exec. The node
-    // answers the offer while it is free, is saturated between that answer and the
-    // dispatch, and then refuses the dispatch. That race is not contrived — it is the
-    // one the two clauses of criterion 2b are actually about, and the offer branch
-    // makes it inevitable on purpose: answering an offer reserves nothing
-    // (`LocalCapacity.would` is the non-reserving twin of `offer`, and its doc gives
-    // the leak that forced the split), so an accepted offer is a statement about the
-    // past by the time the exec arrives.
+    // **What this block cannot redden on: the offer-stage re-pick.** That one is
+    // `placeWithOffers`' own, it has existed since 18-06, and the first half of this
+    // test measures it — a node that refuses the OFFER is never placed. Two re-picks,
+    // two stages, and this block owns the second. A change that broke only the offer
+    // stage would redden the assertions above `direct`, not these.
     //
-    // `shard.rejections` cannot carry this refusal. `submit.ts:341` fills it from
-    // `planWithOffers`' PLACEMENT-stage refusals only, so an exec-stage refusal is
-    // structurally invisible there; the reading goes through `verification.failures`,
-    // which is not bounded by the placement and is where a refused executor lands.
-    //
-    // **This is the assertion that inverts the day WIRE-04 lands.** The shard is
-    // `insufficient` *because nothing retries it* — given a re-pick it would reach a
-    // second executor, which is free, and stop being `insufficient`. That inversion
-    // was measured rather than asserted: a re-pick planted in `submitJob` for the
-    // length of one run turned this red. **WIRE-04 / Phase 20 criterion 1 owns the
-    // merge that would add it**, and this is the correct moment for the clause to be
-    // revisited rather than a sentence in a summary nobody re-reads.
+    // **The history, in the one sentence that explains why this is written so
+    // carefully.** The clause was carried out of Phase 18 into Phase 20 criterion 1
+    // under RULING A because the instrument that was supposed to hold it —
+    // `expect(shard.verification.agreeing).toHaveLength(1)` — could not fail:
+    // `agreeing` is a subset of the executors `submitJob` selected, which is
+    // `placement.nodeIds`, whose length IS `redundancy` (1 here), under an `agreed`
+    // narrowing that excluded 0, so it was confined to `{0,1}` at the type level and
+    // no implementation of a re-pick could have moved it. What replaced it asserted
+    // the shard ended `insufficient` *because nothing retried it*, armed to invert
+    // the day WIRE-04 landed. It landed in plan 20-01 and this file went red with
+    // `expected 'agreed' to be 'insufficient'` — the scheduled clause arriving, not a
+    // regression. Below is that clause as a behaviour rather than as an absence.
     const ask = rpcAdmission(requestor.rpc)
     const victims: string[] = []
     const heldOnVictim: Promise<unknown>[] = []
@@ -640,7 +664,7 @@ describe('criterion 2 — sample, refuse, re-pick, complete', () => {
       return decision
     }
 
-    const stalled = await submitJob(
+    const repicked = await submitJob(
       {
         moduleCid: fixture.moduleCid,
         moduleRecord: fixture.moduleRecord,
@@ -654,30 +678,305 @@ describe('criterion 2 — sample, refuse, re-pick, complete', () => {
       requestor.store,
     )
 
-    expect(stalled.ok).toBe(true)
-    if (!stalled.ok) return
-    const stalledShard = stalled.job.shards[0]
-    if (stalledShard === undefined) throw new Error('expected one shard')
+    expect(repicked.ok).toBe(true)
+    if (!repicked.ok) return
+    const repickedShard = repicked.job.shards[0]
+    if (repickedShard === undefined) throw new Error('expected one shard')
     const victim = victims[0]
     if (victim === undefined) throw new Error('no node accepted the offer, so none was saturated')
 
-    // Not vacuous in the other direction: a shard that was never placed on the
-    // saturated node would also be `insufficient`, for an unrelated reason. Naming the
-    // node in the failure is what separates the two.
-    expect(stalledShard.verification.status).toBe('insufficient')
-    if (stalledShard.verification.status !== 'insufficient') return
-    expect(stalledShard.verification.failures.map((f) => f.nodeId)).toStrictEqual([victim])
-    expect(stalledShard.verification.failures.some((f) => f.reason.includes('over-committed'))).toBe(
-      true,
-    )
-    expect(stalled.job.complete).toBe(false)
+    // ---- Non-vacuity, half one: the node that refused WAS the one chosen. -------
+    // `ShardResult.attempted` is the set ASKED, in order, across every generation, so
+    // the victim standing first in it says placement chose it and the dispatch
+    // reached it. Without this half the reading is satisfiable by a shard that never
+    // met the saturated node at all, which would also have completed. And the victim
+    // appears in NO placement-stage rejection, because it ACCEPTED its offer — which
+    // is the whole reason this reading cannot go through `shard.rejections`.
+    expect(repickedShard.attempted[0]).toBe(victim)
+    expect(repickedShard.rejections.map((r) => r.nodeId)).not.toContain(victim)
 
-    // And the victim appears in NO placement-stage rejection: it accepted the offer.
-    // Its refusal exists only in `failures`, which is the whole reason that field is
-    // the one this reading goes through.
-    expect(stalledShard.rejections.map((r) => r.nodeId)).not.toContain(victim)
+    // ---- Non-vacuity, half two: the node that answered is a DIFFERENT one. ------
+    // The shard that used to stall now agrees, and not on the node that refused it.
+    expect(repickedShard.verification.status).toBe('agreed')
+    expect(repicked.job.complete).toBe(true)
+    if (repickedShard.verification.status !== 'agreed') return
+    const answered = repickedShard.verification.agreeing.map((e) => e.nodeId)
+    expect(answered).not.toContain(victim)
+    const answering = answered[0]
+    if (answering === undefined) throw new Error('an agreed shard with no agreeing replica')
+    // Both halves in one statement: exactly two nodes were asked, the first is the
+    // saturated one and the second is the one whose answer this result carries.
+    expect(repickedShard.attempted).toStrictEqual([victim, answering])
+
+    // ---- The count, exactly. ----------------------------------------------------
+    // `toBeGreaterThan(0)` here would be satisfied by a loop that re-dispatched
+    // unconditionally, which is the thing a bounded re-pick is not. One refusal, one
+    // re-pick: two generations and one re-dispatch, and `ending` says the loop
+    // stopped because the shard agreed rather than because it ran out of anything.
+    expect(repickedShard.generations).toBe(2)
+    expect(repicked.job.redispatches).toBe(1)
+    expect(repickedShard.ending).toBe('agreed')
+    // Full redundancy across two generations is not a shortfall — the shard asked for
+    // one replica and got one.
+    expect(repickedShard.degraded).toBe(false)
+
+    // ---- What survives of the refusal, measured rather than assumed. ------------
+    // This plan's clause asks that the re-pick not erase the first executor's named
+    // refusal. **It erases half of it, and the half it erases is the over-committed
+    // text.** `VerificationResult`'s `agreed` arm carries no `failures` field at all
+    // (`core/src/job/verify.ts`, search `status: 'agreed'`), and `mergeVerifications`
+    // (`core/src/job/submit.ts`) folds a failed generation into a later agreement by
+    // keeping the winner — the failure list has nowhere to go. 20-01 recorded that as
+    // a deferral in those words. Asserting a `failures` entry here would be asserting
+    // a field the union does not have, so this reading names its new home instead.
+    //
+    // What survives is the LEASE HISTORY, which is CHURN-01's "visible in the job
+    // history rather than hidden" and is the strongest true reading this tree
+    // supports today: the victim held generation 1 by name and gave it back, and
+    // generation 2 went to a different node and completed. A re-pick that quietly
+    // swapped nodes would produce a trail with one `granted` in it.
+    const leaseTrail = repicked.job.leaseHistory.map((event) =>
+      event.kind === 'abandoned' ? `abandoned:${event.taskId}` : `${event.kind}:${event.nodeId}`,
+    )
+    expect(leaseTrail).toStrictEqual([
+      `granted:${victim}`,
+      `surrendered:${victim}`,
+      `granted:${answering}`,
+      `completed:${answering}`,
+    ])
+
+    // ---- What `rejections` carries now, MEASURED rather than assumed. -----------
+    // This plan asked the question rather than answering it, so it was measured. The
+    // field is still filled from PLACEMENT-stage refusals only — an exec-stage
+    // refusal remains structurally invisible here, which is why the victim is absent
+    // from it above and why this whole reading goes through `attempted` and the lease
+    // history instead. What the generation loop changed is that a SECOND placement
+    // now runs and its refusals accumulate into the same list (`core/src/job/
+    // submit.ts`, search `collectedRejections`).
+    //
+    // Measured on this tree: **two entries, both `busy`** — one per placement stage.
+    // `busy` was saturated at the top of this test and is still full, and it is
+    // offered first for shard "0" in both stages, so it refuses twice. Before the
+    // generation loop there was one placement and therefore at most one entry, which
+    // is what makes the count itself a reading of the re-placement.
+    //
+    // Two claims, deliberately separated. The invariant first — every node named here
+    // is one the shard never dispatched to, which is what "placement-stage only"
+    // means as a property rather than as a sentence. Then the exact list: if this
+    // ever reads one entry, the question is whether the second placement still
+    // happened, and `generations` above answers it — that is the assertion to consult
+    // before touching this one.
+    for (const rejection of repickedShard.rejections) {
+      expect(repickedShard.attempted).not.toContain(rejection.nodeId)
+    }
+    expect(repickedShard.rejections.map((r) => r.nodeId)).toStrictEqual([busy.peerId, busy.peerId])
+    for (const rejection of repickedShard.rejections) {
+      expect(rejection.reason).toContain('over-committed: 1 of 1 slots in use')
+    }
 
     await Promise.all([heldOutcome, ...heldOnVictim])
+  }, PROCESS_TEST_TIMEOUT)
+})
+
+/**
+ * The other half of the re-pick: it is BOUNDED, and a fabric that refuses everywhere
+ * still says which nodes refused — CHURN-01, and the cost `DEFAULT_MAX_GENERATIONS`'
+ * own docblock argues for.
+ *
+ * The case above shows a refused shard reaching a second executor. On its own that is
+ * half a claim: a re-dispatch that never stops is worse than none, because it spends
+ * the fabric on work that will not succeed and reports nothing about why. This reads
+ * the stop.
+ *
+ * **No `JobSpec.admit` here, and that is the choice that makes it an exec-stage
+ * reading.** With an admission control supplied, a saturated node refuses the OFFER
+ * and is never placed, so the shard comes back unplaceable with placement-stage
+ * rejections and an empty failure list — a true statement about a different stage.
+ * Without one, `submitJob` places through `planPlacement`, dispatches, and meets the
+ * refusal at `exec`, which is where SCHED-06's slot limit actually lives.
+ */
+describe('criterion 2, bounded — a fabric with no free node, and the control that had one', () => {
+  it('stops at the generation cap naming every refusal, beside a control with one node free', async () => {
+    const fixture = await standUp(['--max-concurrent-tasks', '1'])
+    const { requestor } = fixture
+
+    // The peer gate settles asynchronously after each dial, and waiting for its
+    // verdict is what makes the connected set stable to read. Four of the five verify;
+    // E is not one of them and is still CONNECTED, which is what this case uses.
+    await until(
+      () => requestor.verifiedPeers.length === 4,
+      VERDICT_DEADLINE_MS,
+      `four verified peers, saw ${requestor.verifiedPeers.length}`,
+    )
+
+    // ---- A fabric strictly larger than the cap, and that is the whole point. ----
+    // With three executors and a `DEFAULT_MAX_GENERATIONS` of three, "stopped at the
+    // cap" and "ran out of untried nodes" are the same reading, and every assertion
+    // below would pass against a loop that had no cap at all. So this is the one
+    // reading in this file that trusts P2: E holds both blocks and differs from A, B
+    // and C only in its issuer, and trusting that issuer HERE — in this call's own
+    // `trustedIssuers`, never in the requestor's peer gate — is what makes a fourth
+    // executor exist. Criterion 1's reading of the issuer gate is a different call
+    // with a different set and is untouched by this one.
+    const found = await discoverCandidates(
+      { inputCid: fixture.inputCid },
+      {
+        rpc: requestor.rpc,
+        peers: () => requestor.transport.peers,
+        trustedIssuers: new Set([fixture.p.issuerKey as string, fixture.p2.issuerKey as string]),
+        now: () => Date.now(),
+        peerIdFor: peerIdForNodeKey,
+        dispatch: 'dispatches-unauthenticated' as const,
+      },
+    )
+    expect(found.executors).toHaveLength(4)
+    // Asserted rather than assumed, because it is the precondition the bound is read
+    // against: a fabric no larger than the cap cannot tell the two exits apart.
+    expect(found.executors.length).toBeGreaterThan(DEFAULT_MAX_GENERATIONS)
+
+    // Which node the production path places FIRST is derivable, not lucky: with no
+    // `admit` supplied `submitJob` places through `planPlacement`, so the same call
+    // over the same request and the same descriptors names the same node. Derived from
+    // the library's own function rather than recomputed by hand, for the reason the
+    // case above gives about `sampleCandidates`.
+    const firstPlan = planPlacement([{ shardId: '0', label: 'public', redundancy: 1 }], found.nodes)
+    const firstPlaced = firstPlan.placements[0]
+    if (firstPlaced?.status !== 'placed') throw new Error('the fixture cannot place its own shard')
+    const spare = firstPlaced.nodeIds[0] as string
+
+    const neverCid = await requestor.store.put(MODULE_NEVER_RETURNS)
+    const neverRecord = recordFor('discovery-agents-never-returns', neverCid)
+    const occupied: Promise<unknown>[] = []
+    /**
+     * Fill a node's single slot with a real long-running `exec` and return only once
+     * the node itself says it is full — `untilFull`, not a sleep, for the reason the
+     * case above records: a node that is only *sometimes* saturated measures nothing.
+     *
+     * Keyed on `SHARD_VALUE` at partition 0, which is a DIFFERENT slot key from the
+     * shard submitted below — that one carries `EXEC_STAGE_VALUE`. A same-key
+     * occupation would meet the dedupe branch (`… is already in flight here`) instead
+     * of the over-committed one, and only the second is SCHED-06's.
+     */
+    const saturate = async (nodeId: string): Promise<void> => {
+      const held = new RemoteExecutor(nodeId, requestor.rpc, 'dispatches-unauthenticated').execute({
+        moduleCid: neverCid,
+        inputCid: fixture.inputCid,
+        partitionIndex: 0,
+        partitionCount: 1,
+        label: 'public',
+        moduleRecord: neverRecord,
+      })
+      occupied.push(held.catch((cause: unknown) => ({ ok: false as const, reason: String(cause) })))
+      const full = await untilFull(requestor, nodeId)
+      expect(full.accepted).toBe(false)
+      expect(full.capacity).toStrictEqual({ slots: 1, inFlight: 1 })
+    }
+
+    const spec = {
+      moduleCid: fixture.moduleCid,
+      moduleRecord: fixture.moduleRecord,
+      shards: [{ value: EXEC_STAGE_VALUE, label: 'public' as const }],
+      executors: found.executors,
+      nodes: found.nodes,
+      redundancy: 1,
+      onQuorumShortfall: 'runs-at-available-redundancy' as const,
+    }
+
+    // ---- Arm one, the control: every node but the first-placed one is full. -----
+    for (const node of found.executors) if (node.nodeId !== spare) await saturate(node.nodeId)
+
+    const control = await submitJob(spec, requestor.store)
+    expect(control.ok).toBe(true)
+    if (!control.ok) return
+    const controlShard = control.job.shards[0]
+    if (controlShard === undefined) throw new Error('expected one shard')
+
+    expect(controlShard.verification.status).toBe('agreed')
+    expect(control.job.complete).toBe(true)
+    expect(controlShard.attempted).toStrictEqual([spare])
+    expect(controlShard.generations).toBe(1)
+    expect(control.job.redispatches).toBe(0)
+    expect(controlShard.ending).toBe('agreed')
+
+    // ---- Arm two: the same submission, with that last node saturated too. -------
+    // One fixture, two arms, one node's saturation between them. Two fabrics behaving
+    // differently would prove nothing about a bound; this way the only difference
+    // between the arms is the thing under test.
+    await saturate(spare)
+
+    const everyNodeFull = await submitJob(spec, requestor.store)
+    expect(everyNodeFull.ok).toBe(true)
+    if (!everyNodeFull.ok) return
+    const fullShard = everyNodeFull.job.shards[0]
+    if (fullShard === undefined) throw new Error('expected one shard')
+
+    expect(fullShard.verification.status).toBe('insufficient')
+    if (fullShard.verification.status !== 'insufficient') return
+
+    // ---- And it says why, PER NODE. ---------------------------------------------
+    // Compared element by element against `attempted` rather than counted: a bounded
+    // retry that reported only its last attempt would satisfy a length check and would
+    // have thrown away the evidence the bound exists to produce. Each node's refusal
+    // is its own, in its own words, and they arrive in the order the nodes were tried.
+    expect(fullShard.verification.failures.map((f) => f.nodeId)).toStrictEqual(fullShard.attempted)
+    for (const failure of fullShard.verification.failures) {
+      expect(failure.reason).toContain('over-committed: 1 of 1 slots in use')
+    }
+
+    // ---- The bound is READ, not inferred. ---------------------------------------
+    // Against the exported constant, never a literal — `submitJob` builds its lease
+    // table from that same symbol (`core/src/job/submit.ts`, search `maxGenerations`),
+    // so a cap that moved would move both sides of this together and the reading below
+    // is what stays true.
+    expect(fullShard.attempted).toHaveLength(DEFAULT_MAX_GENERATIONS)
+    expect(fullShard.generations).toBe(DEFAULT_MAX_GENERATIONS)
+    expect(everyNodeFull.job.redispatches).toBe(DEFAULT_MAX_GENERATIONS - 1)
+    // Which exit the loop took, named rather than inferred from the counts.
+    expect(fullShard.ending).toBe('generations-spent')
+    // And the reading that separates the cap from the fabric: a node that was
+    // eligible, saturated, and never asked. "Fewer than the fabric size" would be free
+    // in any fabric larger than the cap; a NAMED untried node is not.
+    const untried = found.executors.filter((node) => !fullShard.attempted.includes(node.nodeId))
+    expect(untried.map((node) => node.nodeId)).toHaveLength(
+      found.executors.length - DEFAULT_MAX_GENERATIONS,
+    )
+    // The abandonment is an event, not something a caller has to infer — CHURN-01.
+    expect(everyNodeFull.job.leaseHistory.filter((event) => event.kind === 'abandoned')).toHaveLength(1)
+
+    // ---- The comparison, taken inside one run. ----------------------------------
+    // The control's attempt count against this arm's, on the same fabric minutes
+    // apart, rather than either against an absolute nobody sited.
+    expect(controlShard.attempted.length).toBeLessThan(fullShard.attempted.length)
+    expect(control.job.complete).toBe(true)
+    expect(everyNodeFull.job.complete).toBe(false)
+
+    // No `admit` was supplied, so no offer was ever made and nothing refused one. `[]`
+    // is the truthful answer rather than a default, and it is also this case's proof
+    // that every refusal it read came from `exec`.
+    expect(fullShard.rejections).toStrictEqual([])
+
+    // ---- The saturation still held WHILE both arms ran. -------------------------
+    // Read after rather than assumed. `MODULE_NEVER_RETURNS` is ended by the node's
+    // own task deadline, so a slow run could have met a node that had gone free again
+    // and this arm would have measured nothing. That becomes a loud failure here
+    // instead of a silent pass — the failure mode the seed's orphan-leash test shipped
+    // with for a day.
+    for (const node of found.executors) {
+      const still = await askOffer(requestor, node.nodeId, 'post-placement')
+      expect(still.accepted).toBe(false)
+      expect(still.capacity).toStrictEqual({ slots: 1, inFlight: 1 })
+    }
+
+    // **What this case cannot redden on.** Not the renewal half of CHURN-04: it
+    // supplies no `JobSpec.admit`, so `submitJob` has no evidence channel to probe
+    // with and never reaches `LeaseTable.renew` (`core/src/job/submit.ts`, search
+    // `probeHolder`) — and no dispatch here holds a lease long enough to reach a
+    // renewal point anyway, since every one of them is refused at once. Not the
+    // offer-stage re-pick either, for the same reason: no offers, hence the empty
+    // `rejections` above. And not speculation, which has no production path at this
+    // wave — 20-07 lands it and 20-09 reads it, and when it does, the count this case
+    // asserts exactly is one of the numbers it will move.
+    await Promise.all(occupied)
   }, PROCESS_TEST_TIMEOUT)
 })
 

@@ -106,8 +106,8 @@ describe('AUTH-02 — the block source reads the verified subset', () => {
    * Plan 17-05's Mutation A.
    */
   it('fetches from the peer whose certificate chains to a pinned issuer and not from the one that does not', async () => {
-    const p1 = await start({ blockstoreDir: join(workdir, 'p1'), issuesCertificates: true })
-    const p2 = await start({ blockstoreDir: join(workdir, 'p2'), issuesCertificates: true })
+    const p1 = await start({ blockstoreDir: join(workdir, 'p1'), issuesCertificates: 'issues-without-an-aggregate-budget' })
+    const p2 = await start({ blockstoreDir: join(workdir, 'p2'), issuesCertificates: 'issues-without-an-aggregate-budget' })
     const a = await start({
       blockstoreDir: join(workdir, 'a'),
       enrollment: { userPrivateKey: USER_SEED, operatorId: 'harbour-ops', providerAddr: addrOf(p1) },
@@ -153,8 +153,8 @@ describe('AUTH-02 — the block source reads the verified subset', () => {
    * Reddened by the same thunk revert.
    */
   it('names the exclusion: C is a connected peer, absent from the verified subset, refused by issuer', async () => {
-    const p1 = await start({ blockstoreDir: join(workdir, 'p1'), issuesCertificates: true })
-    const p2 = await start({ blockstoreDir: join(workdir, 'p2'), issuesCertificates: true })
+    const p1 = await start({ blockstoreDir: join(workdir, 'p1'), issuesCertificates: 'issues-without-an-aggregate-budget' })
+    const p2 = await start({ blockstoreDir: join(workdir, 'p2'), issuesCertificates: 'issues-without-an-aggregate-budget' })
     const a = await start({
       blockstoreDir: join(workdir, 'a'),
       enrollment: { userPrivateKey: USER_SEED, operatorId: 'harbour-ops', providerAddr: addrOf(p1) },
@@ -223,7 +223,7 @@ describe('AUTH-02 — stopping a node removes its verifier’s listeners', () =>
    * Reddened by deleting `this.#verifier.stop()` from `FabricNode.stop()`.
    */
   it('produces a verdict for a connect before stop, and none for a connect after it', async () => {
-    const p1 = await start({ blockstoreDir: join(workdir, 'p1'), issuesCertificates: true })
+    const p1 = await start({ blockstoreDir: join(workdir, 'p1'), issuesCertificates: 'issues-without-an-aggregate-budget' })
     const b = await start({
       blockstoreDir: join(workdir, 'b'),
       trustedIssuers: [p1.issuerKey as string],

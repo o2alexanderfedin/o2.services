@@ -49,7 +49,16 @@ export type { RemoteCombineOptions } from './combine.ts'
 
 // Turning a JobResult into a reduce over connected peers — MR-04…MR-07.
 export { reduceJob } from './reduce-job.ts'
-export type { ReduceJobOptions, ReduceJobResult } from './reduce-job.ts'
+// VER-08/09/10 — the AGGREGATION's own receipt, which is not the map half's. This barrel
+// is `@o2/net`'s only entry point, so a type absent from here cannot be named anywhere
+// else: `bin/bench.ts` prints both receipts and has to be able to write this one's name.
+export type {
+  AggregateAttestation,
+  CombineTrustAnchors,
+  NoVerifiedAggregation,
+  ReduceJobOptions,
+  ReduceJobResult,
+} from './reduce-job.ts'
 
 // Discovery and admission over RPC — SCHED-01, SCHED-03, NET-06.
 export { DEFAULT_PROBE_TIMEOUT_MS, RpcRecordIndex, rpcAdmission } from './discovery.ts'

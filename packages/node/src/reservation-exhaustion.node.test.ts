@@ -123,23 +123,73 @@ interface AgentHandshake {
   readonly relays: string[]
 }
 
-/** Spawn an agent and read its one-line handshake, by name. */
+/**
+ * The half of "still serving directly" that this file used to assert nowhere.
+ *
+ * **Verification warning W10, 2026-08-04.** Both surviving cases claimed a node refused by a
+ * relay, or unable to reach one, *"still serves every peer that can reach it directly"* — and
+ * asserted only `relays === []` and `exitCode === null`. Neither reads a dialable address,
+ * though `multiaddrs` has been on the handshake since the file was written. The docblock at the
+ * head of this file names that exact failure mode, twelve lines above the assertions that missed
+ * it, which is why it survived: **the claim was made in prose and checked nowhere.**
+ *
+ * Proved rather than argued: with `bin/agent.ts` planted to bind nothing, this file exited **0,
+ * 1 passed** — a node serving no one satisfied every assertion about it serving directly.
+ *
+ * A `/p2p-circuit` address is excluded deliberately. It is exactly what these two nodes do not
+ * have, and counting one would make the check pass for the node it exists to catch.
+ */
+function expectStillServingDirectly(node: AgentHandshake, label: string): void {
+  const direct = node.multiaddrs.filter((address) => !address.includes('/p2p-circuit'))
+  expect(direct, `${label} announced no non-circuit address: ${JSON.stringify(node.multiaddrs)}`).not.toHaveLength(0)
+}
+
+/**
+ * Spawn an agent and read its one-line handshake, by name.
+ *
+ * **`--port 0` is stated rather than left to a default, and every case below depends on
+ * it.** Until 2026-08-04 `bin/agent.ts` gave `--port` a default of `'0'`, so an agent
+ * given `--relay-addr` bound a real address *and* asked for a circuit; Plan 19-19 removed
+ * that default so that omitting `--port` alongside `--relay-addr` now produces a node that
+ * binds **nothing** — the browser's topology, which quorum rule 2 needs a process to be
+ * able to express.
+ *
+ * This file wants the old behaviour, and not incidentally: cases B and C assert that a node
+ * refused by a full relay, and a node whose relay is not there, each *started anyway* and is
+ * *still serving directly*. A node binding nothing would announce a handshake carrying no
+ * dialable address at all, and both of those sentences would quietly stop being true while
+ * the assertions stayed green. So the binding is now said out loud here.
+ */
 async function startAgent(name: string, extra: readonly string[]): Promise<Started & AgentHandshake> {
-  const { child, stderr } = launch(AGENT, ['--dir', join(workdir, name), ...extra])
+  const { child, stderr } = launch(AGENT, ['--dir', join(workdir, name), '--port', '0', ...extra])
   const out = await waitForStdout(child, stderr, '\n', `agent ${name}`)
   const line = out.slice(0, out.indexOf('\n'))
   const parsed = JSON.parse(line) as AgentHandshake
   return { ...parsed, child, stderr, stdout: out }
 }
 
-/** Wait for `probe` to hold, polling. A sleep would be a guess about a retry loop. */
-async function until(probe: () => boolean, timeoutMs: number, what: string): Promise<void> {
+/**
+ * Wait for `probe` to hold, polling. A sleep would be a guess about a retry loop.
+ *
+ * **`detail` is a thunk, and that is the whole point of it rather than a style choice.**
+ * The evidence a timeout needs is what the process said *during* the wait, so a string
+ * built at the call site reports the state before the waiting started — which is empty,
+ * every time. This file shipped exactly that: case C passed `` `… stderr was ${c.stderr()}` ``,
+ * a template literal evaluated on entry, so it appeared to carry a diagnostic and carried
+ * a snapshot of nothing. Evaluated here, at the throw, it carries what actually arrived.
+ */
+async function until(
+  probe: () => boolean,
+  timeoutMs: number,
+  what: string,
+  detail?: () => string,
+): Promise<void> {
   const deadline = Date.now() + timeoutMs
   while (Date.now() < deadline) {
     if (probe()) return
     await new Promise((r) => setTimeout(r, 50))
   }
-  throw new Error(`timed out waiting for ${what}`)
+  throw new Error(`timed out waiting for ${what}${detail === undefined ? '' : `; ${detail()}`}`)
 }
 
 beforeEach(async () => {
@@ -211,7 +261,14 @@ describe('NET-05 criterion 4 — a full seed refuses a real joiner by name', () 
     // "the relay was not there" by the fact that B reached it: the seed granted A through
     // the very same address, in this run.
     const b = await startAgent('b', ['--relay-addr', relayAddr])
-    await until(() => b.stderr().includes('at-capacity'), REFUSAL_BUDGET_MS, 'b to be refused by name')
+    await until(
+      () => b.stderr().includes('at-capacity'),
+      REFUSAL_BUDGET_MS,
+      'b to be refused by name',
+      // The file's own deliverable was the one wait that reported nothing on failure,
+      // while C's reported a snapshot taken before the wait. Both now name what arrived.
+      () => `b's stderr was ${JSON.stringify(b.stderr())}`,
+    )
     expect(b.stderr()).toContain('relay reservation at-capacity: RESERVATION_REFUSED')
     // Named refusal, not an outage: nothing about B's report says unreachable.
     expect(b.stderr()).not.toContain('unreachable')
@@ -219,6 +276,7 @@ describe('NET-05 criterion 4 — a full seed refuses a real joiner by name', () 
     // can reach it directly, which is why it announced a handshake at all.
     expect(b.relays).toStrictEqual([])
     expect(b.child.exitCode).toBeNull()
+    expectStillServingDirectly(b, 'b')
 
     // ---- C: the relay is not there. ---------------------------------------------
     // Port 1 is never listening. Before this plan this case did not produce a named
@@ -230,7 +288,8 @@ describe('NET-05 criterion 4 — a full seed refuses a real joiner by name', () 
     await until(
       () => c.stderr().includes('unreachable:'),
       REFUSAL_BUDGET_MS,
-      `c to name its unreachable relay; stderr was ${c.stderr()}`,
+      'c to name its unreachable relay',
+      () => `c's stderr was ${JSON.stringify(c.stderr())}`,
     )
     expect(c.stderr()).toContain('relay /ip4/127.0.0.1/tcp/1/ws unreachable:')
     // The other half of the distinction: C says unreachable and never says at-capacity.
@@ -239,5 +298,6 @@ describe('NET-05 criterion 4 — a full seed refuses a real joiner by name', () 
     // Not fatal. It announced, so it is serving.
     expect(c.child.exitCode).toBeNull()
     expect(c.peerId).not.toBe('')
+    expectStillServingDirectly(c, 'c')
   }, PROCESS_TEST_TIMEOUT)
 })

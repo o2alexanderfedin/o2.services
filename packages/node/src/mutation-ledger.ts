@@ -45,8 +45,14 @@
  * and that is not evidence the guard saw anything.
  *
  * A signature is therefore *output*, and most output has no literal in any file. But
- * a large majority of these — 26 of the 40 — are the test's own title, which vitest
- * echoes verbatim, and a title **is** source text. That is the half the cheap layer
+ * a large majority of these — **60 of the 82**, re-counted 2026-08-04 — are the test's own
+ * title, which vitest echoes verbatim, and a title **is** source text. (This sentence read
+ * *"26 of the 40"* earlier that day, then *"48 of the 72"*, and **the second figure was
+ * already stale by eight when it was written**: the ledger held 78 entries and 56 titles at
+ * the moment it was re-counted. So the sentence warning that a count written into prose
+ * expires exactly the way a `find` string does has now expired twice, in the same file, in
+ * the paragraph that says so. Nothing reads it, which is the whole point — and the right
+ * fix is a derived count, not a third transcription.) That is the half the cheap layer
  * can check, and until 2026-08-01 it did not: `B1` and `B2` named a test that had
  * been renamed from `five sentinels` to `six` four commits earlier, and every
  * ordinary run stayed green because nothing compared the signature to anything.
@@ -133,6 +139,22 @@ export interface Mutation {
  * the benchmark driver's admission wiring, whose sentinel reversion is caught by the
  * structural count in `serve-agent-hooks.node.test.ts`.
  *
+ * The three `P*` entries are `packages/bench/src/perf-workload.ts`, added 2026-08-04 for
+ * defect #19. They are worth a sentence because of what the count was before them:
+ * **sixty-seven entries and not one mention of that file**, against a tracked non-test
+ * source holding two production `serveAgent` call sites and one production
+ * `RemoteExecutor` site. The sites were not wrong — `19-15` and `19-16` ruled that both
+ * keep the `attest` sentinel permanently, because neither holds a certificate — they were
+ * simply somewhere this ledger did not look, which is a different failure and the one
+ * that lets a file drift from its four siblings silently. `P3` in particular records the
+ * one hook where it already had.
+ *
+ * The two `E*` entries are AUTH-04's cost half, added the same day for defect #20. They
+ * pin an exposure the owner **accepted** on 2026-08-02 rather than a guarantee, which
+ * makes them the only entries here whose correct end is deletion: when a price at the
+ * enrolment frame is ruled in, they and their readings go, and nothing about them may be
+ * loosened in the meantime to keep a suite green.
+ *
  * Every `caughtBy` and every `signature` below was measured on 2026-07-29 by
  * planting the mutation and running exactly the listed files under
  * `vitest run --project node`.
@@ -181,12 +203,15 @@ export const MUTATIONS: readonly Mutation[] = [
       'strong result covering two call sites. **The reason is not that the factory is ' +
       'unreachable.** That claim stood here until 2026-07-31 and was false: the `e2e` ' +
       'project drives a real tab from Node, and `M30` below plants a defect in this ' +
-      'same file and watches a live tab catch it. What is missing for *this* entry is ' +
-      'narrower and is the whole of it — nothing drives an over-committed refusal ' +
-      'through a browser tab, so the admission bound has never been read there. The ' +
-      '`browser` project genuinely cannot host such a test, because a Circuit Relay v2 ' +
-      'server *"will not work in browsers"* in `@libp2p/circuit-relay-v2`’s own words; ' +
-      'the `e2e` project can, and closing this is a matter of writing the case.',
+      'same file and watches a live tab catch it. **The sentence that used to close this ' +
+      'entry said the admission bound had never been read through a tab, and Plan 19-04 ' +
+      'made it false** — `M59` below is that reading, taken off a real reply frame with ' +
+      'the number in its text. This entry is not retired with it: the two are caught by ' +
+      'different layers, a source-text count here and a live tab there, and a fix to one ' +
+      'has never implied a fix to the other. What remains true is why the reading had to ' +
+      'go to `e2e`: the `browser` project genuinely cannot host it, because a Circuit ' +
+      'Relay v2 server *"will not work in browsers"* in `@libp2p/circuit-relay-v2`’s own ' +
+      'words.',
     file: 'packages/browser/src/browser-node.ts',
     find: '      capacity: admission,',
     replace: "      capacity: 'accepts-every-offer',",
@@ -528,26 +553,29 @@ export const MUTATIONS: readonly Mutation[] = [
     signature: 'records a copy that fails after the winner is picked as a failure of that shard',
     signatureSource: 'test-title',
   },
-  {
-    id: 'M19',
-    why:
-      'BROW-05. The demo panel may not present an aggregate that cannot exist. Restoring ' +
-      'this line puts a peer count back beside a report whose every production call site ' +
-      "opts out of the ledger that would fill it — the rendered panel read `no start " +
-      "outcomes reported` on one line and `peers answering: 2 of 2 asked` on the next, " +
-      'which is a tally of contributors that has none. It is a restoration rather than a ' +
-      'deletion because the defect was text that was there, not text that was missing.',
-    file: 'packages/browser/demo/index.html',
-    find: '        showReportOnly(report.text)\n',
-    replace:
-      '        showReportOnly(\n' +
-      '          `${report.text}\\n  peers answering: ${report.reached} of ${report.asked} asked`,\n' +
-      '        )\n',
-    caughtBy: ['packages/node/src/two-tabs.e2e.test.ts'],
-    project: 'e2e',
-    signature: 'renders no peer aggregate beside a report that can only hold this tab',
-    signatureSource: 'test-title',
-  },
+  // `M19` stood here and is gone, deleted by Phase 20 plan 06 on 2026-08-04. It pinned
+  // the **absence** of a peer count beside the start-outcome panel, and its `why` rested
+  // on a premise that is now false in the tree: *"a report whose every production call
+  // site opts out of the ledger that would fill it"*. Plan 20-02 gave both node factories
+  // a real `StartOutcomeLedger` holding their own row, so a peer answers with something
+  // it observed, the merged panel carries browser families the reading tab is not, and
+  // `peers answering: N of M asked` beside those rows is a truthful tally of the peers
+  // whose rows are in them rather than a tally of contributors that has none. The lie was
+  // the juxtaposition and the juxtaposition has stopped being one — `demo/index.html`'s
+  // `refreshReport` quotes the removed sentence at the line so the history is not lost.
+  //
+  // **Deleted rather than left drifting, and not deleted silently.** Its `find` —
+  // `showReportOnly(report.text)` — no longer occurs, so the pre-commit guard refused the
+  // commit that changed the render; an entry that cannot be planted guards nothing.
+  //
+  // **What replaces it, measured and handed to plan 20-13**, which owns this file: the
+  // inverse defect is now `peers: () => running.transport.peers` in `demo/main.ts`'s
+  // `startReport`, replaced by `peers: () => []`. That renders the local ledger instead
+  // of the merged one — the page still shows a plausible report, `reached` and `asked`
+  // both read 0, and every foreign family row disappears. It is invisible to any
+  // single-tab reading, which is why its `caughtBy` is the three-engine
+  // `peer-ledger.e2e.test.ts` and not this file's older two-tab sibling. The observed
+  // failure text is recorded in `20-06-SUMMARY.md`.
   {
     id: 'B1',
     why:
@@ -702,10 +730,16 @@ export const MUTATIONS: readonly Mutation[] = [
       'guard here leaves every symbol in place and every anchor still declared, and the node ' +
       'silently runs modules nobody vouched for. Measured with it unwrapped: four of the five ' +
       'cross-process cases turn `insufficient` into `agreed`, and the accepted case stays ' +
-      'green — a wiring proof made only of successes would not have moved at all.',
+      'green — a wiring proof made only of successes would not have moved at all. ' +
+      'AOT-04 moved the find text from `provenance(compute)` to `provenance(abi)` on ' +
+      '2026-08-04: the guard did not move and neither did the wrap order, but what it now ' +
+      'wraps is the ABI router rather than the killable-thread executor directly, so the ' +
+      'unwrapping this entry plants exempts a translated artifact as well as a ' +
+      'source-compiled one. The measured counts above were taken before that change and ' +
+      'are left as taken.',
     file: 'packages/node/src/fabric-node.ts',
-    find: 'provenance(compute)',
-    replace: 'compute',
+    find: 'provenance(abi)',
+    replace: 'abi',
     caughtBy: ['packages/node/src/signed-artifact.node.test.ts'],
     signature: "expected 'agreed' to be 'insufficient'",
     signatureSource: 'rendered-at-runtime',
@@ -714,15 +748,23 @@ export const MUTATIONS: readonly Mutation[] = [
     id: 'M28',
     why:
       'DET-03/DATA-08, the browser tier, and the reason it needs its own entry: ' +
-      '`trust-anchors.node.test.ts` stays green at 20/20 under this mutation, because ' +
+      '`trust-anchors.node.test.ts` stays green under this mutation, because ' +
       '`guardModuleProvenance(` is still textually present in the file and merely applied to ' +
       'nothing. A census that counts call sites cannot tell a composed guard from a decorative ' +
       'one; only a job dispatched through a real tab can. All nodes have equal functionality, ' +
       'so the browser tier needs the same proof as the Node tier rather than an argument by ' +
-      'analogy from it.',
+      'analogy from it. **The count that used to stand here — 20/20 — was measured on the ' +
+      'tree of 2026-07-31 and expired**: 19-15 added the `attestResults` composition cases ' +
+      'and the file now carries 26. The mutation has not been re-planted against them, so ' +
+      'what this entry claims is the insensitivity and not a number; the number is struck ' +
+      'rather than renumbered, because renumbering it would report a reading nobody took. ' +
+      'AOT-04 moved the find text from `provenance(worker)` to `provenance(abi)` on ' +
+      '2026-08-04, for the reason M27 records at its own line: the guard now wraps the ABI ' +
+      'router rather than the worker executor directly, and the two tiers still spell it ' +
+      'identically.',
     file: 'packages/browser/src/browser-node.ts',
-    find: 'provenance(worker)',
-    replace: 'worker',
+    find: 'provenance(abi)',
+    replace: 'abi',
     caughtBy: ['packages/node/src/two-tabs.e2e.test.ts'],
     project: 'e2e',
     signature: 'refuses a job whose record no tab pinned',
@@ -887,43 +929,17 @@ export const MUTATIONS: readonly Mutation[] = [
     signature: 'discards an answer from an ask that a disconnect and reconnect superseded',
     signatureSource: 'test-title',
   },
-  {
-    id: 'M36',
-    why:
-      'SCHED-06 / WIRE-04 — this entry pins an **absence**, which is the unusual thing ' +
-      'about it. `submitJob` calls `executeVerified` once per shard and nothing retries a ' +
-      'selected executor that refuses at exec; that is correct for now, because the re-pick ' +
-      'is Phase 20 criterion 1’s. RULING A accepted criterion 2b as PARTIAL on one stated ' +
-      'condition — that the absence be held by a reading which turns red the day the retry ' +
-      'lands, rather than by a sentence in a summary. The reading that claimed to do that ' +
-      'was `expect(shard.verification.agreeing).toHaveLength(1)`, and it could not: ' +
-      '`agreeing` is a subset of `placement.nodeIds`, whose length IS `redundancy` — 1 in ' +
-      'that fixture — so it was confined to `{0,1}` and the `agreed` narrowing above it ' +
-      'excluded 0. **Planting the retry is therefore the only way to know the replacement ' +
-      'is not the same kind of ornament**, and the mutation is deliberately the shape ' +
-      'WIRE-04 would take: dispatch to a candidate the placement did not choose. With it ' +
-      'planted the shard reaches a free second executor and stops being `insufficient`, ' +
-      'which is exactly the inversion the ruling asked for. When WIRE-04 really lands, this ' +
-      'entry is the thing to delete — not the assertion, which by then has a behaviour to ' +
-      'describe.',
-    file: 'packages/core/src/job/submit.ts',
-    find: '      const verification = await executeVerified(task, selectedExecutors)',
-    replace:
-      '      let verification = await executeVerified(task, selectedExecutors)\n' +
-      "      if (verification.status === 'insufficient') {\n" +
-      '        const chosen = new Set(placement.nodeIds)\n' +
-      '        for (const alt of spec.executors.filter((e) => !chosen.has(e.nodeId))) {\n' +
-      '          const retry = await executeVerified(task, [alt])\n' +
-      "          if (retry.status === 'agreed') {\n" +
-      '            verification = retry\n' +
-      '            break\n' +
-      '          }\n' +
-      '        }\n' +
-      '      }',
-    caughtBy: ['packages/node/src/discovery-agents.node.test.ts'],
-    signature: "expected 'agreed' to be 'insufficient'",
-    signatureSource: 'rendered-at-runtime',
-  },
+  // `M36` stood here and is gone, deleted by Phase 20 plan 01 on 2026-08-04 exactly as
+  // its own `why` instructed: *"When WIRE-04 really lands, this entry is the thing to
+  // delete — not the assertion, which by then has a behaviour to describe."* It pinned an
+  // **absence** — that `submitJob` called `executeVerified` once per shard and nothing
+  // retried a selected executor that refused at exec — and the absence is closed: the
+  // generation loop is `submit.ts`'s, and `W1` through `W5` below are the five defects
+  // planted into it and watched go red. The assertion `M36` protected, in
+  // `discovery-agents.node.test.ts`, is the armed tripwire this plan deliberately turned
+  // red and does **not** repair; plan 20-04 rewrites it to require the re-pick. An entry
+  // deleted with no note in its place reads as an entry that was never there, which is
+  // the failure this whole file exists to prevent, so the note stays.
   {
     id: 'M37',
     why:
@@ -952,6 +968,994 @@ export const MUTATIONS: readonly Mutation[] = [
     signatureSource: 'rendered-at-runtime',
     project: 'e2e',
   },
+  {
+    id: 'M38',
+    why:
+      'VER-10. `composeQuorum`’s ok arm returned the literal `\'independent\'` from Phase 6 until ' +
+      '2026-08-02 while `classifyAttestation` sat two functions below, written in the same file in ' +
+      'the same phase to compute exactly this. The constant was right in every case the unit tests ' +
+      'reached and wrong at size 1 — one node reporting that separate operators agreed with each ' +
+      'other — which is a defect that is correct wherever it is looked at. **What this entry also ' +
+      'records is where the property is NOT guarded**: Plan 19-08 planted this same substitution ' +
+      'and `quorum-agents.node.test.ts` stayed GREEN at 3 passed, because a shard’s receipt comes ' +
+      'from `attestationReceipt(verified)` in `receiptFor` and never from `QuorumResult.strength`. ' +
+      'That separation is correct and is why the across-process file cannot carry this claim.',
+    file: 'packages/core/src/quorum.ts',
+    find: '    strength: classifyAttestation(members),',
+    replace: "    strength: 'independent',",
+    caughtBy: ['packages/core/src/quorum.test.ts'],
+    signature: 'composes a quorum whose strength its own members support, not a constant',
+    signatureSource: 'test-title',
+  },
+  {
+    id: 'M39',
+    why:
+      'VER-03 — eclipse resistance, and the position of the rule rather than the rule itself. ' +
+      'Asking `sharedRelay` of the candidate **pool** instead of the chosen **members** is the ' +
+      'tempting simplification, and it was live in this file for a day: a pool on relay-1, relay-1 ' +
+      'and relay-2 has no shared dependency, so the pool-level check passes, and the two members ' +
+      'drawn at `size: 2` both hang off relay-1. That composition reports a redundancy of two ' +
+      'against a single point of failure. Pool-refusal implies member-refusal and the converse ' +
+      'fails, so the pool position is strictly the weaker one — measured rather than argued, on ' +
+      'the run that moved it back.',
+    file: 'packages/core/src/quorum.ts',
+    find: '    const shared = sharedRelay(members)',
+    replace: '    const shared = sharedRelay(distinct)',
+    caughtBy: ['packages/core/src/quorum.test.ts'],
+    signature: 'refuses a one-member quorum that hangs off a single relay',
+    signatureSource: 'test-title',
+  },
+  {
+    id: 'M40',
+    why:
+      'VER-03, the rule deleted outright rather than moved, and the entry that says which case ' +
+      'carries the claim — **re-measured across real processes on 2026-08-04, which is the ' +
+      'whole of what Plan 19-19 was for.** Planted against the whole file: 1 failed, 3 passed, ' +
+      'and the one that failed is the one-relay fabric, whose three executors are now spawned ' +
+      '`bin/agent.ts` processes given `--relay-addr` and no `--port`. Before 19-19 that same ' +
+      'plant reddened only an IN-PROCESS fixture (19-08 recorded 1 failed, 2 passed), because ' +
+      'the binary bound a port unconditionally and could make nothing but a `seed` with ' +
+      '`relayIds: []`; `19-VERIFICATION.md` scored criterion 1 PARTIAL for exactly that, since ' +
+      'the criterion names `bin/agent.ts` as the entry point. The other three cases still ' +
+      'CANNOT redden here and that is by construction, not by luck: their agents are given no ' +
+      'relay at all, so `sharedRelay` answers `null` on sight of a seed. A reader who takes the ' +
+      'three-operator fabric as evidence for rule 2 has taken a green that could not have gone ' +
+      'red.',
+    file: 'packages/core/src/quorum.ts',
+    find: '  if (requireIndependentPaths) {',
+    replace: '  if (false as boolean) {',
+    caughtBy: ['packages/node/src/quorum-agents.node.test.ts'],
+    signature: "expected 'composed' to be 'not-composed'",
+    signatureSource: 'rendered-at-runtime',
+  },
+  {
+    id: 'M41',
+    why:
+      'The one entry here that guards a **retraction**. Between 2026-08-02 and 2026-08-03 this ' +
+      'function required a member with `discoverability === \'seed\'`, and the owner retracted it ' +
+      'in `0314208` for keying on node kind — which `STATE.md` forbids outright, and which Phase ' +
+      '3 had already falsified by dialling an iPhone at its `/p2p-circuit/webrtc` address and ' +
+      'watching it run half of a 2×-redundant job. Reinstating the predicate disqualifies ' +
+      'relay-discovered peers from quorum slots again, and six cases see it. The refusal payload ' +
+      'in `replace` is reconstructed; the **predicate** is the one that was planted, and it is the ' +
+      'predicate the cases read — each asserts `result.ok`, which inverts whatever the refusal ' +
+      'carries.',
+    file: 'packages/core/src/quorum.ts',
+    find: '  const members = ordered.slice(0, rules.size)',
+    replace:
+      '  const members = ordered.slice(0, rules.size)\n' +
+      "  if (!members.some((c) => c.discoverability === 'seed')) {\n" +
+      "    return refuse({ kind: 'no-candidates' }, 'no member of this quorum is a seed')\n" +
+      '  }',
+    caughtBy: ['packages/core/src/quorum.test.ts'],
+    signature: 'does not disqualify relay-discovered peers from the slots of a quorum',
+    signatureSource: 'test-title',
+  },
+  {
+    id: 'M42',
+    why:
+      'VER-10 / criterion 1 — the conflation the whole requirement exists to forbid. One operator ' +
+      'agreeing with itself is `owner-domain`; two operators agreeing is `independent`, and the ' +
+      'stronger claim may never be reported for the weaker fact. Relaxing the threshold by one is ' +
+      'the shape a "surely one is enough" edit leaves behind, and it is invisible to every ' +
+      'assertion of the form "a strength was reported". Plan 19-09 planted a two-line variant of ' +
+      'the same defect and watched `owner-domain-agents.node.test.ts` report ' +
+      '`expected \'independent\' to be \'owner-domain\'` on one arm and ' +
+      '`expected \'independent\' to be \'owner-attested\'` on the other **under one plant**, which ' +
+      'is the evidence that one expression produces both labels.',
+    file: 'packages/core/src/quorum.ts',
+    find: "  if (operators.size >= 2) return 'independent'",
+    replace: "  if (operators.size >= 1) return 'independent'",
+    caughtBy: ['packages/node/src/quorum-agents.node.test.ts'],
+    signature: "expected 'independent' to be 'owner-domain'",
+    signatureSource: 'rendered-at-runtime',
+  },
+  {
+    id: 'M43',
+    why:
+      'The 2026-08-03 quorum ruling, first half of a pair — and the pair must be read together, ' +
+      'because each is the other’s opposite failure. Ignoring `onQuorumShortfall` and degrading ' +
+      'every shortfall means a caller that said in as many words that a weaker answer is useless ' +
+      'to it silently gets one: the job completes, the shard is marked degraded, and nothing the ' +
+      'caller asked for was honoured. The dial is read at the one point a shortfall exists and ' +
+      'nowhere else, so there is no second site where a fix could be applied and this one left. ' +
+      'Plan 19-06 planted a narrower in-process variant of the same defect and took 1 failed / 60 ' +
+      'passed in `submit.test.ts`; the entry is keyed on the across-process reading because that ' +
+      'is the one measured against this exact `replace`.',
+    file: 'packages/core/src/job/submit.ts',
+    find:
+      "      degraded: spec.onQuorumShortfall === 'runs-at-available-redundancy',\n" +
+      "      refusal: spec.onQuorumShortfall === 'refuses-the-shard' ? composition.reason : null,",
+    replace: '      degraded: true,\n      refusal: null,',
+    caughtBy: ['packages/node/src/quorum-agents.node.test.ts'],
+    signature: "expected 'agreed' to be 'insufficient'",
+    signatureSource: 'rendered-at-runtime',
+  },
+  {
+    id: 'M44',
+    why:
+      'The same ruling, second half of the pair, and the reason `M43` alone is not enough: refusing ' +
+      'every shortfall restores the pre-ruling behaviour the owner ruled **against**. A fabric too ' +
+      'concentrated to compose stops running at all rather than running at available redundancy ' +
+      'with a weaker label, so the default outcome of the whole mechanism inverts while every ' +
+      'refusal string stays correct and every degrade assertion is simply never reached. A single ' +
+      'entry pinned to one direction would be satisfied by a guard that only ever sees that ' +
+      'direction; this pair is what proves the file sees either.',
+    file: 'packages/core/src/job/submit.ts',
+    find:
+      "      degraded: spec.onQuorumShortfall === 'runs-at-available-redundancy',\n" +
+      "      refusal: spec.onQuorumShortfall === 'refuses-the-shard' ? composition.reason : null,",
+    replace: '      degraded: false,\n      refusal: composition.reason,',
+    caughtBy: ['packages/node/src/quorum-agents.node.test.ts'],
+    signature: "expected 'insufficient' to be 'agreed'",
+    signatureSource: 'rendered-at-runtime',
+  },
+  {
+    id: 'M45',
+    why:
+      'The ruling’s third consequence, and the one this phase would most easily have shipped ' +
+      'unpinned. `ShardResult.degraded` used to mean "fewer replicas than asked for" alone; 19-06 ' +
+      'widened it to cover a verification shortfall too, so a shard that got its redundancy but ' +
+      'not its independence reports degraded. Reverting the widening leaves a caller filtering on ' +
+      'that flag accepting a shard whose quorum was refused, at full redundancy, with the ' +
+      'composer’s reason sitting unread beside it. **The weakness of this entry is its signature ' +
+      'and it is stated rather than hidden**: the only text recorded on the run that observed it ' +
+      'is `expected false to be true`, which a flake could also produce, and the summary did not ' +
+      'say which of the two degrading fabrics spoke. The cheap layer still holds the `find`; ' +
+      'closing the rest is a matter of re-planting and pasting the FAIL line. ' +
+      '**Both were done on 2026-08-04 by Phase 20 plan 01, and the entry moved for a reason ' +
+      'that plan did not predict.** That plan’s interface block named `M36` as the one entry its ' +
+      'edit would redden; this one reddened too, because the generation loop necessarily rewrites ' +
+      'the `degraded` expression — it now reads the replicas that ANSWERED rather than the ones ' +
+      'that were placed, so a shard topped up to full redundancy across two generations is ' +
+      'correctly not degraded. The mutation is unchanged in substance: drop the `gate.degraded` ' +
+      'term and a shard whose quorum was refused at full redundancy reports clean. Re-planted ' +
+      'against the new expression and re-measured: **2 failed, 2 passed** in ' +
+      '`quorum-agents.node.test.ts`, and the FAIL line is now pasted in below, which upgrades ' +
+      'this entry out of the weak-signature class it spent a phase in.',
+    file: 'packages/core/src/job/submit.ts',
+    find:
+      '        degraded:\n' +
+      '          gate.degraded ||\n' +
+      "          (settled.status === 'agreed' ? settled.replicas < spec.redundancy : placementDegraded),",
+    replace:
+      '        degraded:\n' +
+      "          (settled.status === 'agreed' ? settled.replicas < spec.redundancy : placementDegraded),",
+    caughtBy: ['packages/node/src/quorum-agents.node.test.ts'],
+    signature:
+      'degrades to owner-domain on the default dial, is refused in the composer’s words on the strict one, and leaves a redundancy-1 job untouched by either',
+    signatureSource: 'test-title',
+  },
+  {
+    id: 'M46',
+    why:
+      'VER-08. The agreeing set’s node ids and their attestations are two projections of one ' +
+      'receipt, and this line is the whole of what keeps them in step. Built from two separately ' +
+      'ordered arrays they line up wrongly — entry `a` carrying node `c`’s certificate — and every ' +
+      'node-id assertion in the file still passes, because the ids were never the evidence. That ' +
+      'is the argument for one field holding both rather than two fields that can disagree, and it ' +
+      'is the defect a receipt built from a lookup reintroduces one layer up.',
+    file: 'packages/core/src/job/verify.ts',
+    find: '    agreeing: answered.map((r) => ({ nodeId: r.nodeId, attestation: r.attestation })),',
+    replace:
+      '    agreeing: (() => {\n' +
+      '      const signatures = [...answered].sort((x, y) => y.nodeId.localeCompare(x.nodeId))\n' +
+      '      return answered.map((r, i) => ({ nodeId: r.nodeId, attestation: signatures[i]!.attestation }))\n' +
+      '    })(),',
+    caughtBy: ['packages/core/src/job/verify.test.ts'],
+    signature: 'gives every entry the attestation of the node that entry names',
+    signatureSource: 'test-title',
+  },
+  {
+    id: 'M47',
+    why:
+      'The third signing leg. `outputCid` is what makes a result attestation a statement about **an ' +
+      'answer** rather than about a task, and without it one node’s signature over one shard ' +
+      'verifies against a different answer to the same shard — which is exactly the forgery ' +
+      'redundant execution exists to detect, performed with a real key and a real certificate. It ' +
+      'is a field-drop rather than a rewrite because that is the shape a "the challenge is ' +
+      'getting long" tidy leaves behind, and every surrounding check still passes.',
+    file: 'packages/core/src/result-attestation.ts',
+    find: '    partitionIndex: work.partitionIndex,\n    outputCid: work.outputCid,\n',
+    replace: '    partitionIndex: work.partitionIndex,\n',
+    caughtBy: ['packages/core/src/result-attestation.test.ts'],
+    signature: 'does not verify against a different answer',
+    signatureSource: 'test-title',
+  },
+  {
+    id: 'M48',
+    why:
+      'The same challenge’s `nodeKey`, and the entry exists because the argument for the field ' +
+      'that was written down first is **false**. Plan 19-13 predicted that dropping it would let ' +
+      'B’s certificate plus A’s signature verify; it planted the drop and all 14 cases stayed ' +
+      'green, because `verifyResultAttestation` verifies under `certificate.nodeKey` and Ed25519’s ' +
+      'own key binding does that work whatever bytes were signed. What the field really buys is ' +
+      'that two replicas of one shard sign **different bytes**, so an attestation is ' +
+      'self-describing rather than meaningful only in company with the certificate it travels ' +
+      'with — and this entry pins that property, which is the one that can fail.',
+    file: 'packages/core/src/result-attestation.ts',
+    find: '    outputCid: work.outputCid,\n    nodeKey,\n',
+    replace: '    outputCid: work.outputCid,\n',
+    caughtBy: ['packages/core/src/result-attestation.test.ts'],
+    signature: 'gives two nodes different bytes to sign',
+    signatureSource: 'test-title',
+  },
+  {
+    id: 'M49',
+    why:
+      'The combine verb, and it guards the half `PROJECT.md` calls the verified one. A reduction ' +
+      'over sovereign contributions is trusted for the map and **verified for the aggregation**, ' +
+      'so a combine signature has to cover the order the inputs were merged in. Sorting the list ' +
+      'inside the challenge makes a reordered combine verify against a result it did not produce, ' +
+      'and sorting is the reflex — `payloadOf` sorts `relayIds` one module over, for a genuinely ' +
+      'different reason. The line carries a comment saying never to sort it; this entry is what ' +
+      'makes the comment a reading.',
+    file: 'packages/core/src/result-attestation.ts',
+    find: '    inputCids: [...inputCids],',
+    replace: '    inputCids: [...inputCids].sort(),',
+    caughtBy: ['packages/core/src/result-attestation.test.ts'],
+    signature: 'signs a combine over its inputs in merge order, never sorted',
+    signatureSource: 'test-title',
+  },
+  {
+    id: 'M50',
+    why:
+      'VER-08/09/10 — the wrapper that turns a result into evidence, replaced by the truthful ' +
+      'sentinel. A node that reports `signed-by-nobody` is not lying, and that is what makes this ' +
+      'the dangerous edit: nothing throws, no refusal is named, and every receipt downstream falls ' +
+      'to the named absence with `agreeing: 2, verified: 0`. A reader sees a weaker report rather ' +
+      'than a broken one. Planted by both 19-09 and 19-15; the caught file is the one 19-15 named ' +
+      'with a line number, and the signature is that case’s title.',
+    file: 'packages/core/src/executor/attesting-executor.ts',
+    find:
+      '        attestation: signResult(attestor, {\n' +
+      '          moduleCid: task.moduleCid,\n' +
+      '          inputCid: task.inputCid,\n' +
+      '          partitionIndex: task.partitionIndex,\n' +
+      '          outputCid: hashed.cid,\n' +
+      '        }),',
+    replace: "        attestation: 'signed-by-nobody' as const,",
+    caughtBy: ['packages/node/src/result-signature.node.test.ts'],
+    signature:
+      'VER-08/09/10 — a result signed in one process verifies in another > carries a real attestation from every replica, verifiable against the provider key alone',
+    signatureSource: 'test-title',
+  },
+  {
+    id: 'M51',
+    why:
+      'The Node factory’s composition of the signing wrapper — **the same shape `M27` already has ' +
+      'for provenance, and the two should be read as a pair**: a reader who finds one should find ' +
+      'the other, because a required option that is resolved and then not composed buys nothing ' +
+      'and looks identical to one that is. Unwrapping it leaves `attestResults` imported, the ' +
+      'attestor resolved and every symbol in place while the node signs nothing, and the guard is ' +
+      'textual for the reason `M28` records: a census cannot tell a composed wrapper from a ' +
+      'decorative one, so the check is that the call survives comment-stripping in this exact file.',
+    file: 'packages/node/src/fabric-node.ts',
+    find: 'const signing = attestResults(executor, attestor)',
+    replace: 'const signing = executor',
+    caughtBy: ['packages/node/src/trust-anchors.node.test.ts'],
+    signature: 'packages/node/src/fabric-node.ts composes attestResults',
+    signatureSource: 'rendered-at-runtime',
+  },
+  {
+    id: 'M52',
+    why:
+      'The **other** signing hook on the same factory, and it is a separate entry because it fails ' +
+      'separately: with the executor wrapper composed and this one at the sentinel, every map ' +
+      'result is signed and the aggregation over them is not — so a reduced job’s verified half is ' +
+      'attested by nobody while every exec reading in the file stays green. A reader checking only ' +
+      'the exec leg sees nothing wrong. That divergence is the whole argument for turning both ' +
+      'verbs on in one plan rather than one at a time.',
+    file: 'packages/node/src/fabric-node.ts',
+    find: '      attest: attestor,',
+    replace: "      attest: 'signs-nothing',",
+    caughtBy: ['packages/node/src/result-signature.node.test.ts'],
+    signature:
+      'VER-08/09/10 — a result signed in one process verifies in another > carries a real attestation from every replica, verifiable against the provider key alone',
+    signatureSource: 'test-title',
+  },
+  {
+    id: 'M53',
+    why:
+      'The aggregation’s own receipt, and the defect it exists to replace. Pushing the certificate ' +
+      'the replica handed over — instead of the one `verifyCombineAttestation` returned — makes a ' +
+      'reduction report a strength on the requestor’s own say-so: two peers presenting self-issued ' +
+      'certificates under two operator ids read as `independent`, and a combine whose signature ' +
+      'covers an input order it never merged is counted. Nothing empties, nothing throws, and the ' +
+      'printed line is the strongest label the fabric has.',
+    file: 'packages/net/src/reduce-job.ts',
+    find:
+      '      if (!checked.ok) {\n' +
+      '        unaccounted.push(`${node.id}: ${checked.reason}`)\n' +
+      '        continue\n' +
+      '      }\n' +
+      '      verified.push(checked.certificate)',
+    replace: '      void checked\n      verified.push(replica.attestation.certificate)',
+    caughtBy: ['packages/net/src/reduce-job.test.ts'],
+    signature: 'does not count a combine whose signature covers an input order it did not merge',
+    signatureSource: 'test-title',
+  },
+  {
+    id: 'M54',
+    why:
+      'AUTH-04, and the only bound in this repository that a fresh key cannot rotate around. The ' +
+      'per-user limiter keys on `userKey`, and a fresh user key is one `ed25519.keygen()` — Phase ' +
+      '17 measured twenty free keygens enrolling unslowed against it. This block is the aggregate: ' +
+      'how many certificates one provider signs per window, whoever asked. Deleted, that ' +
+      'measurement comes straight back, with the per-user refusal still present and still correct ' +
+      'about the wrong quantity.',
+    file: 'packages/core/src/enrollment.ts',
+    find:
+      "    if (this.#maxIssuedPerWindow !== 'issues-without-an-aggregate-budget') {\n" +
+      '      const issued = this.#recentForAnybody(now)\n' +
+      '      if (issued.length >= this.#maxIssuedPerWindow) {\n' +
+      '        const oldest = Math.min(...issued)\n' +
+      '        return {\n' +
+      '          ok: false,\n' +
+      '          refusal: {\n' +
+      "            kind: 'issuance-budget-exhausted',\n" +
+      '            limit: this.#maxIssuedPerWindow,\n' +
+      '            windowMs: this.#windowMs,\n' +
+      '            retryAfterMs: oldest + this.#windowMs - now,\n' +
+      '          },\n' +
+      "          // Names no user key and no node key, deliberately. See the refusal's own\n" +
+      '          // docblock: this requester is not what went wrong.\n' +
+      '          reason: `this provider has issued ${issued.length} certificates in the last ${this.#windowMs}ms (limit ${this.#maxIssuedPerWindow})`,\n' +
+      '        }\n' +
+      '      }\n' +
+      '    }\n',
+    replace: '',
+    caughtBy: ['packages/core/src/enrollment.test.ts'],
+    signature: 'refuses past its stated number however many free keygens the requester mints',
+    signatureSource: 'test-title',
+  },
+  {
+    id: 'M55',
+    why:
+      'The trust decision behind the aggregate receipt, on the one CLI in this repository that runs ' +
+      'jobs. `reduceJob` verifies a combine signature against the issuers it is handed, so emptying ' +
+      'the set makes the rig check nothing while still printing a receipt — the "second place the ' +
+      'decision is made" defect, where a requestor that pinned a provider for `exec` silently ' +
+      'accepts anybody for `combine`. Caught by a call-site requirement rather than by a run, ' +
+      'because the failure is an argument value on a binary no unit test constructs.',
+    file: 'packages/node/src/bin/bench.ts',
+    find: '        trustedIssuers: fabric.combineIssuers,',
+    replace: '        trustedIssuers: new Set<string>(),',
+    caughtBy: ['packages/node/src/bench-reduce.node.test.ts'],
+    signature: 'the reduce is told what this rig checks combine signatures against',
+    signatureSource: 'test-title',
+  },
+  {
+    id: 'M56',
+    why:
+      'Two receipts about two different claims, each of which has to say which claim it is about. ' +
+      'A reduced job carries a map attestation and an aggregate attestation, and they routinely ' +
+      'disagree — on a default run the map half reads a strength and the aggregate half reads the ' +
+      'named absence, because that rig pins no issuer. Dropping the word that labels one of them ' +
+      'gives a reader two lines that look like one measurement taken twice, which is worse than ' +
+      'printing neither.',
+    file: 'packages/node/src/bin/bench.ts',
+    find: 'map attestation (',
+    replace: 'attestation (',
+    caughtBy: ['packages/node/src/bench-reduce.node.test.ts'],
+    signature: 'both receipts reach stdout, each naming the claim it is about',
+    signatureSource: 'test-title',
+  },
+  {
+    id: 'M57',
+    why:
+      'SCHED-02, and the entry that closes defect #31. This is the **only** production call of ' +
+      '`rpcAdmission` in the repository — every other is a spec — so `REQUIREMENTS.md`’s SCHED-02 ' +
+      'row rests entirely on this expression for its claim that `planWithOffers` has a caller from ' +
+      'a runnable entry point. **The measurement that justifies the entry is what stayed green ' +
+      'when it was deleted**: `tsc --noEmit` exit 0, because `Fabric.admit` is optional; all six ' +
+      'cheap guards exit 0, including the requirements ledger itself; `discover-arm.node.test.ts` ' +
+      'exit 0, though it reads this driver’s own stdout. One file noticed. The spread form is part ' +
+      'of the `find` on purpose — `admit` must be **absent** on the default rig rather than ' +
+      '`undefined`, or the published curve changes placer.',
+    file: 'packages/node/src/bin/bench.ts',
+    find: '    ...(DISCOVER ? { admit: rpcAdmission(requestor.rpc) } : {}),',
+    replace: '',
+    caughtBy: ['packages/node/src/bench-reduce.node.test.ts'],
+    signature: 'the discover rig supplies admit, and the job spec passes it on',
+    signatureSource: 'test-title',
+  },
+  {
+    id: 'M58',
+    why:
+      'DATA-10 in a live tab. A node that refuses to serve a sovereign block and then **advertises ' +
+      'itself as a provider of it** has told every peer where the data is while declining to hand ' +
+      'it over, which is a worse answer than either alone. The two halves fail independently and ' +
+      'this proves it: with the withholding predicate replaced by the sentinel the block refusal ' +
+      'fifteen lines above stayed green and only the `providers` reading moved, naming the tab’s ' +
+      'own node key for the CID it had just refused.',
+    file: 'packages/browser/src/browser-node.ts',
+    find: '      withholdingFrom(egressDisposition),',
+    replace: "      'advertises-everything-it-holds',",
+    caughtBy: ['packages/node/src/tab-refusals.e2e.test.ts'],
+    project: 'e2e',
+    signature:
+      'serves a public block to the peer, refuses the sovereign one by name, and withholds it from its own providers answer',
+    signatureSource: 'test-title',
+  },
+  {
+    id: 'M59',
+    why:
+      'SCHED-06 / WIRE-03 in a live tab, and **the entry that closes the hole `M2b` names**. `M2b` ' +
+      'records that the browser admission bound had never been read through a tab and that closing ' +
+      'it was a matter of writing the case. Plan 19-04 wrote it: a tab started through `window.o2` ' +
+      'with one slot, two concurrent `exec` dispatches from a Node peer, and the refusal read off ' +
+      'the second reply frame with its number in the text. Under this plant the second dispatch ' +
+      'succeeds and the count goes 1 → 2, while the sovereign-egress case in the same file stays ' +
+      'green. Separate from `M2b` because the two are caught by different layers — a source-text ' +
+      'count and a live tab — and a fix to one has never implied a fix to the other.',
+    file: 'packages/browser/src/browser-node.ts',
+    find: '      capacity: admission,',
+    replace: "      capacity: 'accepts-every-offer',",
+    caughtBy: ['packages/node/src/tab-refusals.e2e.test.ts'],
+    project: 'e2e',
+    signature:
+      'admits one of two concurrent dispatches, refuses the other naming its one slot, and admits the refused one once the slot is free',
+    signatureSource: 'test-title',
+  },
+  {
+    id: 'M60',
+    why:
+      'NET-06 / WIRE-03 — the rendezvous a tab has no other way to perform. A browser peer holds no ' +
+      'reservations of its own (`browser-node.ts` states the named absence), so the relay’s thunk ' +
+      'is the whole of how three tabs on a static bundle learn that each other exist. Replacing it ' +
+      'with the sentinel reproduces the pre-Phase-6 fabric exactly, and the shape of the failure is ' +
+      'the point: every page still **asks**, no page errors, and the attempt count is zero. Asked, ' +
+      'nothing attempted, nothing failed, nothing logged — a fabric that looks like it is ' +
+      'discovering and is not.',
+    file: 'packages/node/src/fabric-node.ts',
+    find: '      reservations: () => node.reservedPeerIds,',
+    replace: "      reservations: 'relays-for-nobody',",
+    caughtBy: ['packages/node/src/static-rendezvous.e2e.test.ts'],
+    project: 'e2e',
+    signature: 'each peer asks the relay who is here and dials them, with no harness dial',
+    signatureSource: 'test-title',
+  },
+  {
+    id: 'M61',
+    why:
+      'VER-10 on the surface with the widest audience. `receiptFor` verifies a replica’s attestation ' +
+      'against **the issuer named by the descriptor it was handed**, so a certificate taken off the ' +
+      'wire and put on a descriptor unverified supplies its own trust root — two peers presenting ' +
+      'self-issued certificates under two operator ids are then reported as `independent`. The pin ' +
+      'has to be applied where an independently-held key exists, and this is that place. Measured: ' +
+      'with it removed the page printed *independently verified — replicas from separate operators ' +
+      'agreed* for a run whose second operator was a stranger the tab had never pinned, and only ' +
+      'the stranger case moved.',
+    file: 'packages/browser/demo/main.ts',
+    find:
+      '  const checked = verifyCertificate(answered.certificate, new Set([held.issuer]), Date.now())\n' +
+      "  return checked.ok ? checked.certificate : 'carries-no-certificate'",
+    replace: '  return answered.certificate',
+    caughtBy: ['packages/node/src/attestation-ui.e2e.test.ts'],
+    project: 'e2e',
+    signature: 'states the same absence for a peer enrolled by a provider this tab does not pin',
+    signatureSource: 'test-title',
+  },
+  {
+    id: 'M62',
+    why:
+      'AUTH-05 / VER-08. `publicNodes` builds descriptors from anything carrying a `nodeId`, and the ' +
+      'certificate literal it writes is the honest answer rather than a placeholder — this ' +
+      'requestor holds no signed statement about that node. Dropping the write makes the field ' +
+      '`undefined` at every such site, which is not a statement about anything and which every ' +
+      'downstream `=== \'carries-no-certificate\'` comparison reads as "a certificate is present". ' +
+      'The plant that was measured also made the field optional so `tsc` stayed at exit 0; this ' +
+      'entry carries the **write** half, which is the half a run can see, and the type half is ' +
+      'recorded here rather than encoded because a `Mutation` holds one `find` and the two hunks ' +
+      'are not contiguous.',
+    file: 'packages/core/src/sovereignty.ts',
+    find: "    load: 0,\n    certificate: 'carries-no-certificate',\n  }))",
+    replace: '    load: 0,\n  }))',
+    caughtBy: ['packages/net/src/discover-candidates.test.ts'],
+    signature: 'states the absence where there is no certificate to carry, rather than omitting it',
+    signatureSource: 'test-title',
+  },
+  {
+    id: 'M63',
+    why:
+      'AOT-01. The bound this replaced was absolute — `expect(elapsed).toBeLessThan(8_000)` — and ' +
+      'an absolute encodes the machine, the load and the I/O weather of the day it was written. ' +
+      'The claim is "the caller\'s timeout reached `resolveImage`", so the case now asks twice in ' +
+      'one run, with a 400 ms budget and a 2 000 ms budget, and reads the difference: spawn cost ' +
+      'cancels algebraically and only the driver\'s response to the request survives. This plant is ' +
+      'the reason the timing half is kept at all — it spends a fixed budget while still *reporting* ' +
+      'the caller\'s, so the classification assertion and both message assertions pass untouched and ' +
+      'nothing but the difference sees it. Measured: `asking for 1600 ms more budget bought 0 ms ' +
+      'more wall clock (403 ms → 403 ms): expected 0 to be greater than 800`, red in 813 ms.',
+    file: 'tools/aot/lift.ts',
+    find: '[\'image\', \'inspect\', image, \'--format\', \'{{join .RepoDigests "\\\\n"}}\'],\n    timeoutMs,',
+    replace: '[\'image\', \'inspect\', image, \'--format\', \'{{join .RepoDigests "\\\\n"}}\'],\n    400,',
+    caughtBy: ['tools/aot/lift.node.test.ts'],
+    signature: 'gives up on a wedged inspect in the time it was given, not in a hardcoded minute',
+    signatureSource: 'test-title',
+  },
+  {
+    id: 'M64',
+    why:
+      'CHURN. The case this pins used to check that eight shard CIDs were **distinct**, which is a ' +
+      'weaker claim than it reads as: distinct is not the same as correct, and an answer that ' +
+      'depended on which node produced it would satisfy it every time. So the reading is now an ' +
+      'equality between two arms of ONE fabric — the same job answered with 0% killed and then with ' +
+      '30% killed, shard for shard — and the machine, the load and the I/O weather cancel between ' +
+      'the arms rather than being budgeted for. This plant is what shows the old check could not ' +
+      'see the failure that matters: the planted CID prefix is IDENTICAL and only the node suffix ' +
+      'differs, so a distinctness check is blind to it by construction. Measured: shard `s3` ran on ' +
+      '`n2` intact and on `n3` after `n2` left, red on a single differing suffix. The same plant ' +
+      'against the pre-fix file exited 0 and passed.',
+    file: 'packages/net/src/churn.ts',
+    find: 'return { ok: true, resultCid: encoded.cid.toString() }',
+    replace: 'return { ok: true, resultCid: `${encoded.cid.toString()}-ran-on-${nodeId}` }',
+    caughtBy: ['packages/net/src/churn.test.ts'],
+    signature: 'completes every shard with 30% of the fabric killed, answering what the whole fabric answered',
+    signatureSource: 'test-title',
+  },
+  {
+    id: 'M65',
+    why:
+      'NET-06 / defect 32 — `planDials` decided "already connected, skip" from ' +
+      '`libp2p.getPeers()`, which counts a peer whose ONLY connection is a limited relay ' +
+      'circuit. A relayed circuit is 2 min / 128 KiB of signalling channel that PROJECT.md ' +
+      'says may not carry a job, so a pair that dialled in the same moment and lost ICE was ' +
+      'skipped by every later round — measured `dialed: []`, `failed: []` on both sides, in ' +
+      'two independent constructions, after a forced race that came out 4 of 4 rather than ' +
+      'the 1 in 3 it was filed as. This plants the skip back. It is worth pinning because ' +
+      'the repair is nearly invisible: libp2p already re-dials past a limited connection on ' +
+      'every `dialProtocol`, so the pair sometimes recovers by accident and always recovers ' +
+      'at the relay’s 120 s duration limit — which means a weaker `planDials` looks fine on ' +
+      'any reading that waits. The guard does not wait: it constructs the state with a bare ' +
+      '`/p2p-circuit` dial and reads the round immediately.',
+    file: 'packages/browser/src/dial-plan.ts',
+    find: '  const carries = new Set(round.held.filter((h) => h.carriesWork).map((h) => h.peer))',
+    replace: '  const carries = new Set(round.held.map((h) => h.peer))',
+    caughtBy: ['packages/browser/src/dial-plan.test.ts'],
+    signature: 'dials it again, and says the dial is an upgrade rather than first contact',
+    signatureSource: 'test-title',
+  },
+  {
+    id: 'P1',
+    why:
+      'SCHED-06 on the **fourth** production `serveAgent` file, and the entry exists because ' +
+      'until it was written this ledger had never once named `packages/bench/src/perf-workload.ts` ' +
+      '— sixty-seven entries, zero mentions, against a file holding two production call sites. ' +
+      'That is the condition defect #19 reports: not that the sites are wrong, but that they sit ' +
+      'somewhere the ledger does not look, so they can drift from the other four with nothing ' +
+      'saying so. `B1` records what the drift costs when it happens, on this rig’s sibling: the ' +
+      'memory-transport curve in `.planning/BENCHMARK-RESULTS.md` was published having been ' +
+      'measured with the sentinel at `bin/bench.ts`’s two call sites while the real-transport ' +
+      'curve admitted, so two curves printed side by side were taken under different node ' +
+      'behaviour. This rig is the one the **perf gate** runs, so the same reversion here moves a ' +
+      'number that fails a build rather than one that is only printed.',
+    file: 'packages/bench/src/perf-workload.ts',
+    find: "capacity: new LocalCapacity({ nodeId: 'requestor', maxConcurrent: GATE_ADMISSION_LIMIT }),",
+    replace: "capacity: 'accepts-every-offer',",
+    caughtBy: ['packages/node/src/serve-agent-hooks.node.test.ts'],
+    signature: 'bench/src/perf-workload.ts: the third production serveAgent file',
+    signatureSource: 'test-title',
+  },
+  {
+    id: 'P2',
+    why:
+      'The same reversion on this rig’s worker loop — `B1`/`B2`’s pairing one file over, and a ' +
+      'pair for the identical reason: the guard that catches both is a count over the whole ' +
+      'file, so a single entry would be satisfied by an instrument that only ever sees one of ' +
+      'the two call sites, and this pair is what proves it sees either. The worker site is also ' +
+      'the one where the sentinel would do real damage: `serveAgent` keys an exec slot on ' +
+      '`inputCid:partitionIndex`, the gate runs at `redundancy: min(2, nodes)`, and a rig that ' +
+      'admitted every offer would let all sixteen shards of every iteration land unbounded on ' +
+      'one node — which the gate would report as a **ratio**, not as a failure.',
+    file: 'packages/bench/src/perf-workload.ts',
+    find: 'capacity: new LocalCapacity({ nodeId: id, maxConcurrent: GATE_ADMISSION_LIMIT }),',
+    replace: "capacity: 'accepts-every-offer',",
+    caughtBy: ['packages/node/src/serve-agent-hooks.node.test.ts'],
+    signature: 'bench/src/perf-workload.ts: the third production serveAgent file',
+    signatureSource: 'test-title',
+  },
+  {
+    id: 'P3',
+    why:
+      'DET-03, and — like `M36` — this entry pins an **absence** rather than a line. The perf ' +
+      'gate wraps neither side of its own ratio in `guardModuleProvenance`, while `bin/bench.ts` ' +
+      'wraps all three of its rigs and says why against its own interest: *"if the fabrics pay ' +
+      'for the check and the baseline does not, every reported speedup is inflated by exactly ' +
+      'the difference."* The two rigs therefore do not measure the same quantity, and nothing ' +
+      'said so until defect #19 went looking. **The absence is not the defect this pins — the ' +
+      'silence is.** Wiring the guard changes what `measureGateLadder` measures, and ' +
+      '`perf-baseline.ts` holds committed wall-clock numbers the gate asserts against, so the ' +
+      'wiring and a re-baseline are one commit or the gate reports a change of workload as a ' +
+      'regression. Planting the wrap is what turns that into a red test at the moment somebody ' +
+      'tries it, instead of a surprise minutes later under `O2_PERF=1`. When the guard really ' +
+      'lands with a retaken baseline, this entry is the thing to delete.',
+    file: 'packages/bench/src/perf-workload.ts',
+    find: "    executor: new WasmExecutor({ nodeId: 'requestor', blockstore: originStore }),",
+    replace:
+      '    executor: guardModuleProvenance(\n' +
+      "      new WasmExecutor({ nodeId: 'requestor', blockstore: originStore }),\n" +
+      '      { resolver: new SignedNameResolver([]), now: () => Date.now() },\n' +
+      '    ),',
+    caughtBy: ['packages/node/src/serve-agent-hooks.node.test.ts'],
+    signature:
+      'bench/src/perf-workload.ts composes no provenance guard where bin/bench.ts composes one at every rig',
+    signatureSource: 'test-title',
+  },
+  {
+    id: 'E1',
+    why:
+      'AUTH-04’s **cost** half, and the entry `19-VERIFICATION.md` asked for by name: *"`M54` ' +
+      'pins the bound; nothing pins what it cost."* `serveAgent` serves `enrol` ' +
+      'unauthenticated, and `enrol` checks possession and consent — two Ed25519 verifications — ' +
+      '**before** either budget is read. That ordering is correct and `enrollment.ts` records ' +
+      'why: the limiter keys on `userKey`, so a cross-user attempt that reached it would consume ' +
+      'the victim’s window. It is also the whole of the CPU exposure, because a provider that ' +
+      'has already decided to refuse pays those two verifications anyway. Hoisting a budget ' +
+      'check above them is the obvious cheap mitigation and is the mutation planted here; it ' +
+      'collapses the measured verification tax from 56–146× to about 1, and the exchange rate ' +
+      'against a fresh identity from 3.0 to 0.02. **The entry pins an accepted exposure, not a ' +
+      'guarantee** — owner decision 2026-08-02 accepted it deliberately — so when a mitigation ' +
+      'is ruled in, delete this entry and its readings rather than loosening them.',
+    file: 'packages/core/src/enrollment.ts',
+    find: '    const challenge = possessionChallenge(request.nodeKey, request.userKey)\n',
+    replace:
+      '    const challenge = possessionChallenge(request.nodeKey, request.userKey)\n' +
+      "    if (this.#maxIssuedPerWindow !== 'issues-without-an-aggregate-budget') {\n" +
+      '      const spent = this.#recentForAnybody(now)\n' +
+      '      if (spent.length >= this.#maxIssuedPerWindow) {\n' +
+      '        return {\n' +
+      '          ok: false,\n' +
+      "          refusal: {\n            kind: 'issuance-budget-exhausted',\n" +
+      '            limit: this.#maxIssuedPerWindow,\n' +
+      '            windowMs: this.#windowMs,\n' +
+      '            retryAfterMs: Math.min(...spent) + this.#windowMs - now,\n' +
+      '          },\n' +
+      '          reason: `this provider has issued ${spent.length} certificates`,\n' +
+      '        }\n' +
+      '      }\n' +
+      '    }\n',
+    caughtBy: ['packages/node/src/enrollment-dos.node.test.ts'],
+    signature: "expected 'issuance-budget-exhausted' to be 'bad-proof-of-possession'",
+    signatureSource: 'rendered-at-runtime',
+  },
+  {
+    id: 'E2',
+    why:
+      'AUTH-04’s cost half at the wire, and the second thing nothing pinned: the `enrol` branch ' +
+      'takes no capacity slot **and consults no authorizer**, so a node sitting at its declared ' +
+      'admission bound refuses seven of eight dispatches by name and serves eight of eight ' +
+      'enrolments in the same instant. Planting an authorization step on that branch is what ' +
+      'proves the reading is a reading — the counted call list goes from `[exec]` to `[exec]` ' +
+      'plus one per enrolment. Like `M36` and `P3` this pins an **absence**, and the absence is ' +
+      'accepted rather than approved: `enrollment.ts`’ header calls the DoS *"accepted ' +
+      'deliberately rather than mitigated"*, and criterion 5’s second clause is an open owner ' +
+      'ruling that this entry deliberately does not settle. **A capacity slot is not the ' +
+      'mitigation**, and that was measured rather than argued from the docblock: planted, eight ' +
+      'concurrent enrolments at `maxConcurrent: 1` with nothing else running were all served, ' +
+      'because `enrol` is synchronous and nothing can interleave around it — while in a rig ' +
+      'where one `exec` held the shared slot, **zero** of eight enrolments got through. The ' +
+      'slot binds only against the wrong verb.',
+    file: 'packages/net/src/agent.ts',
+    find: "      response =\n        options.enroll === 'issues-no-certificates'\n",
+    replace:
+      '      const enrolRefusal =\n' +
+      "        options.authorize === 'serves-unauthenticated'\n" +
+      '          ? null\n' +
+      '          : options.authorize({\n' +
+      "              kind: 'combine',\n" +
+      "              combine: { combineId: 'enrol', inputCids: [], level: 0 },\n" +
+      '              capability: [],\n' +
+      '            })\n' +
+      '      response =\n' +
+      '        enrolRefusal !== null\n' +
+      '          ? { kind: \'error\', reason: `unauthorized: ${enrolRefusal}` }\n' +
+      "          : options.enroll === 'issues-no-certificates'\n",
+    caughtBy: ['packages/node/src/enrollment-dos.node.test.ts'],
+    // Deliberately the right-hand side alone. The observed FAIL line was `expected
+    // [ 'exec', 'combine', 'combine', …(6) ] to deeply equal [ 'exec' ]`, and the left
+    // half is vitest's width-dependent truncation — a signature keyed on `…(6)` would
+    // be a guard that stops matching when somebody resizes a terminal.
+    signature: "to deeply equal [ 'exec' ]",
+    signatureSource: 'rendered-at-runtime',
+  },
+  // ── W1…W5 — the generation loop, Phase 20 plan 01, measured 2026-08-04 ────────────
+  //
+  // Five defects planted into `job/submit.ts`'s new generation loop and watched go red
+  // against `packages/core/src/job/submit.test.ts`. They replace `M36`, which pinned the
+  // **absence** of this loop and whose own `why` named its deletion as the correct end.
+  //
+  // **A sixth was planted and left the file GREEN**, and it is recorded in `W3` rather
+  // than dropped, because a plant that cannot fail is the finding. Substituting
+  // `spec.nodes` for the gate's own pool in the re-placement — the obvious "eligibility
+  // was widened" mutation — changes nothing observable: both placers call `eligibleNodes`
+  // as their first act on whatever pool they are handed, so the sovereignty gate re-runs
+  // inside the placer and refuses the foreign nodes regardless. Measured across the whole
+  // of `packages/core/src`: **30 files, 516 tests, zero failures.** The claim that
+  // sovereignty survives re-dispatch is therefore carried by `sovereignty.ts`, not by
+  // this loop, and `W3` plants the mutation that *can* fail instead.
+  {
+    id: 'W1',
+    why:
+      'WIRE-04 — the whole of it. `submitJob` called `executeVerified` exactly once per shard ' +
+      'until Phase 20, so a node that answered the offer while free and then refused the ' +
+      'dispatch ended that shard and nothing tried anyone else. This plants that behaviour back: ' +
+      'the loop runs its first generation and returns it unchanged. It is the entry that says ' +
+      'the loop is a loop rather than dead code wrapped around a single pass, and it is the one ' +
+      'to check first if any of the four below are ever weakened — a re-dispatch that never ' +
+      'happens satisfies every assertion about *what* a re-dispatch may do.',
+    file: 'packages/core/src/job/submit.ts',
+    find: '        // How much is still missing. A shard that agreed at 1 of 2 needs one more',
+    replace:
+      '        break\n' +
+      '        // How much is still missing. A shard that agreed at 1 of 2 needs one more',
+    caughtBy: ['packages/core/src/job/submit.test.ts'],
+    // Measured: 5 failed, 62 passed. The first FAIL line's title, which vitest echoes
+    // verbatim; its rendered assertion was `expected 'insufficient' to be 'agreed'`.
+    signature:
+      're-places a refused shard onto an untried node, and says so beside a control that never had to',
+    signatureSource: 'test-title',
+  },
+  {
+    id: 'W2',
+    why:
+      'The **second** re-dispatch trigger, which is the common one and not the loud one. ' +
+      '`executeVerified` returns `insufficient` only when *every* executor failed; at ' +
+      'redundancy 2 with one executor dead it returns `agreed` with `replicas: 1` — a shard that ' +
+      'silently got half the verification it asked for. This plants the version that looks ' +
+      'finished: trigger on `insufficient` alone. **What makes this entry worth its own line is ' +
+      'which case it reddens.** Measured: 1 failed, 66 passed — the top-up case goes red and the ' +
+      'refused-then-re-placed case stays GREEN, because at redundancy 1 the only shortfall ' +
+      'expressible is `insufficient` and that case satisfies the first trigger incidentally. So ' +
+      'the top-up case, and only it, carries this claim.',
+    file: 'packages/core/src/job/submit.ts',
+    find:
+      "          if (verification.status === 'agreed' && verification.replicas >= spec.redundancy) {",
+    replace: "          if (verification.status === 'agreed') {",
+    caughtBy: ['packages/core/src/job/submit.test.ts'],
+    // Rendered assertion on that run: `expected 1 to be 2` — the replicas the top-up
+    // reached against the redundancy the job asked for.
+    signature:
+      'tops up a shard that agreed below its redundancy, and reaches full redundancy across two generations',
+    signatureSource: 'test-title',
+  },
+  {
+    id: 'W3',
+    why:
+      'DATA-03/DATA-04 across generations, planted at the level where it can actually fail. The ' +
+      'tempting mutation — hand the re-placement `spec.nodes` instead of the gate’s pool — leaves ' +
+      'the tree green, because `planPlacement` and `placeWithOffers` both call `eligibleNodes` ' +
+      'first on whatever pool they are given; widening a placer’s *input* cannot widen its ' +
+      'output. So the mutation that has to be planted is the one that skips the placer ' +
+      'altogether and dispatches to any untried executor, which is the shape a re-dispatch ' +
+      'written for liveness alone would naturally take. Measured: 2 failed, 65 passed — a ' +
+      'sovereign shard whose owner has exactly one node, which fails, reaches `agreed` on a ' +
+      'foreign owner’s node instead of stopping, and a public job’s receipt reads `independent` ' +
+      'where the fixture placed one operator. **Note what this does not say**: it does not say ' +
+      'the loop enforces sovereignty. `sovereignty.ts` does. What it says is that the loop still ' +
+      'goes through a placer at all.',
+    file: 'packages/core/src/job/submit.ts',
+    find:
+      '        const again = await placeAgain(\n' +
+      '          requestFor(shard, shardId, wanted),\n' +
+      '          gate.pool,\n' +
+      '          new Set(attempted),\n' +
+      '          spec.admit,\n' +
+      '        )',
+    replace:
+      '        const untried = spec.executors.filter((e) => !new Set(attempted).has(e.nodeId))\n' +
+      '        const again = untried.length === 0\n' +
+      '          ? ({ placed: false, rejections: [] } as const)\n' +
+      '          : ({ placed: true, nodeIds: untried.slice(0, wanted).map((e) => e.nodeId), rejections: [], degraded: false } as const)',
+    caughtBy: ['packages/core/src/job/submit.test.ts'],
+    // Rendered assertion: `expected 'agreed' to be 'insufficient'` — the sovereign shard
+    // that should have stalled instead completed, somewhere it may never run.
+    signature:
+      'keeps a sovereign shard on its owner’s nodes across generations, and stops rather than leaving them',
+    signatureSource: 'test-title',
+  },
+  {
+    id: 'W4',
+    why:
+      'CHURN-04’s bound, and where it lives. The loop keeps no counter of its own: it stops ' +
+      'because `LeaseTable.grant` returns null once `DEFAULT_MAX_GENERATIONS` is spent, which is ' +
+      'also what records the `abandoned` event that explains the stop. This plants a fabricated ' +
+      'lease over the null, which is exactly what a loop that "handled" the null defensively ' +
+      'would look like. Measured on a five-node fixture where every node fails: the shard walks ' +
+      'all **five** instead of stopping at three — `expected 5 to be 3` — so the reading is a ' +
+      'count and not "it terminated". A hardcoded counter of 3 would pass that count and fail ' +
+      'the `abandoned` assertion beside it, which is what says the bound lives in the table.',
+    file: 'packages/core/src/job/submit.ts',
+    find:
+      '        const lease = leases.grant(shardId, holderId, clock.now())\n' +
+      '        if (lease === null) {\n' +
+      "          ending = 'generations-spent'\n" +
+      '          break\n' +
+      '        }',
+    replace:
+      '        const lease = leases.grant(shardId, holderId, clock.now()) ?? {\n' +
+      '          taskId: shardId,\n' +
+      '          nodeId: holderId,\n' +
+      '          grantedAt: clock.now(),\n' +
+      '          expiresAt: clock.now() + 30_000,\n' +
+      '          generation: generations + 1,\n' +
+      '        }',
+    caughtBy: ['packages/core/src/job/submit.test.ts'],
+    signature: 'stops at the generation cap, naming every node that failed it, with the lease abandoned',
+    signatureSource: 'test-title',
+  },
+  {
+    id: 'W5',
+    why:
+      'CHURN-04, and the difference between a lease and a longer timeout. A renewal granted on a ' +
+      'timer alone makes the bound unbounded; renewal here is conditional on the holder answering ' +
+      'a probe on **this task’s own capacity slot key** with `LocalCapacity`’s duplicate refusal. ' +
+      'This plants the unconditional form by deleting the evidence check, which is the single ' +
+      'most plausible simplification anyone will propose against this file. ' +
+      '**Two things this entry records that the plan it came from did not predict.** First, the ' +
+      'mutation does not merely fail — it makes the run *non-terminating*: every wait in the ' +
+      'renewal fixture is a microtask, so a lease renewed forever never yields to the macrotask ' +
+      'queue and no vitest timeout can fire. The fixture therefore gives its virtual clock a ' +
+      'horizon and refuses to pass it, which turns a hang into a named failure. Second, planting ' +
+      'this found a real defect in the honest code: the wake-up instant was computed forward from ' +
+      '`grantedAt`, and since `LeaseTable.renew` holds `grantedAt` fixed while pushing `expiresAt` ' +
+      'out, the renewal point overtook the current instant once elapsed time passed twice the ' +
+      'lease — after which a working holder’s lease lapsed anyway. Measuring back from the ' +
+      'deadline fixes it. The mutation reddened the *wrong arm* until it was fixed, which is how ' +
+      'it was found.',
+    file: 'packages/core/src/job/submit.ts',
+    find:
+      '    if (!(await probeHolder(probe, lease.nodeId))) {\n' +
+      '      // No evidence. **Not** a renewal, and not an expiry either — the holder keeps the\n' +
+      '      // rest of its lease, which is the window in which a node that had just finished\n' +
+      '      // and released its slot still answers in time.\n' +
+      '      renewable = false\n' +
+      '      continue\n' +
+      '    }\n\n',
+    replace: '',
+    caughtBy: ['packages/core/src/job/submit.test.ts'],
+    // Rendered on the observed run: `Error: the lease clock passed 300000ms of virtual
+    // time — this dispatch is not bounded by its lease`.
+    signature: 'renews a lease only against evidence the holder is still working — one fixture, both arms',
+    signatureSource: 'test-title',
+  },
+  // ---------------------------------------------------------------------------
+  // S1–S4 — the comment stripper, added 2026-08-04 for defect #40
+  // ---------------------------------------------------------------------------
+  //
+  // Six source-scanning guards each carried their own stripper, five of them the same
+  // regex pair. It has no notion of where it is in a file, so a comment opener inside a
+  // string literal opened a comment the source never opened and deleted everything to the
+  // next closer anywhere in the file. `packages/node/src/strip-comments.ts` replaces them
+  // with a tokenizer and keeps that regex beside it, exported as `BLINDABLE`, for exactly
+  // these four entries: each rewrites one guard's import so the guard runs with its old
+  // blindness restored.
+  //
+  // **Why these four and not all six.** `bench-egress` is the one guard whose stated
+  // defence held — every requirement in it is a presence check, so over-stripping fails
+  // loudly there. `identity-store`'s stripper was a different (line-prefix) implementation
+  // and its scan is a `subtle` census with no absence claim resting on the strip. The four
+  // below are the ones that failed OPEN: three assert *absence* and one has a `forbidden`
+  // arm, so for all four a blinded scan reads as a clean result.
+  //
+  // **Each of these needed a new case in its own guard before it could be planted at all,
+  // and that is the finding rather than a detail.** Measured 2026-08-04 across all 314
+  // tracked source files, no guard's found/not-found verdict differs between the two
+  // strippers — the mechanism is live, and nothing a guard currently searches for overlaps
+  // one of the 70 stray openers. So a swap alone reddened nothing. Every planted-pair block
+  // in these files plants an *ordinary* comment, which a stripper that strips too much
+  // satisfies perfectly; none of them planted a comment opener the source never opened,
+  // which is the case that blinds them. Those cases were added with this change, and they
+  // are what the reds below are.
+  {
+    id: 'S1',
+    why:
+      'DET-03’s absence guard, and the clearest instance of the class. `trust-anchors` asserts the ' +
+      'provenance opt-out appears nowhere outside a test — an assertion of the form "this list is ' +
+      'empty", which a blinded scan satisfies perfectly. Its docblock named stripping as dangerous ' +
+      'and pointed at its planted-pair block as the defence; that block plants an ordinary comment ' +
+      'and never a desync, so the defence did not cover the case. With the regex restored, an ' +
+      'opt-out sitting below a string literal containing a comment opener is deleted before `flags` ' +
+      'sees it, the repository reads clean, and the empty result the main assertion produces is a ' +
+      'silence rather than a reading.',
+    file: 'packages/node/src/trust-anchors.node.test.ts',
+    find: "import { stripComments } from './strip-comments.ts'",
+    replace: "import { BLINDABLE as stripComments } from './strip-comments.ts'",
+    caughtBy: ['packages/node/src/trust-anchors.node.test.ts'],
+    // Measured: 1 failed, 26 passed. Rendered assertion on that run:
+    // `AssertionError: expected 0 to be greater than 0`.
+    signature: 'flags it below a line whose string literal merely contains a comment opener',
+    signatureSource: 'test-title',
+  },
+  {
+    id: 'S2',
+    why:
+      'The guard failing open on the exact defect it exists to prevent. `requirements-ledger` checks ' +
+      'that a row reading "X has no production caller" is true, by searching the production corpus ' +
+      'for a call. Blind that search and an obvious caller reads as absent, so a false row PASSES — ' +
+      'and the file whose entire subject is five rows that were false in that direction produced the ' +
+      'blindness with its own instrument. Its docblock claimed "both errors are in the safe ' +
+      'direction"; that sentence is about reachability and never covered the strip. The regex also ' +
+      'carried a `[^:]` special case for `https://`, which is the argument against the approach ' +
+      'rather than a fix for it — it rescued the one input somebody noticed and did nothing for ' +
+      '`a // b`, the same bug one character over.',
+    file: 'packages/node/src/requirements-ledger.node.test.ts',
+    find: "import { stripComments } from './strip-comments.ts'",
+    replace: "import { BLINDABLE as stripComments } from './strip-comments.ts'",
+    caughtBy: ['packages/node/src/requirements-ledger.node.test.ts'],
+    // Measured: 1 failed, 15 passed. Rendered assertion on that run:
+    // `expected 'const a = 1 \n \nconst b = \'https:' to contain '\'https://x\''` — the
+    // string literal truncated at the `//` the `[^:]` hack no longer rescues, because
+    // `BLINDABLE` is the pair without it.
+    signature: 'strips comments, without which every claim would read as violated',
+    signatureSource: 'test-title',
+  },
+  {
+    id: 'S3',
+    why:
+      'DATA-10’s scope scan, and the half its docblock got wrong. It claimed over-stripping "can ' +
+      'only hide a real call site, which drops a file out of the found set and fails this scan ' +
+      'loudly" — true for the three pinned files, because `toEqual` on the whole set catches a ' +
+      // Note the wording: this sentence may not spell the bare call shape, paren included,
+      // because `sovereign-block-refusal.node.test.ts` scans every non-test file under
+      // `packages/` for it and this file is in that population. Strings are preserved by
+      // the stripper — deliberately, that is the defect being fixed — so prose in a string
+      // literal reads exactly like code. Caught by that guard on the first full run.
+      'disappearance. It is false for a NEW file whose bare call is blinded: that file never ' +
+      'enters `found`, `found === expected` still holds, and the scan passes. Detecting a new bare ' +
+      'submit path is the entire reason this scan reads the repository instead of three files, so ' +
+      'the guard failed open on its own purpose.',
+    file: 'packages/node/src/sovereign-block-refusal.node.test.ts',
+    find: "import { stripComments } from './strip-comments.ts'",
+    replace: "import { BLINDABLE as stripComments } from './strip-comments.ts'",
+    caughtBy: ['packages/node/src/sovereign-block-refusal.node.test.ts'],
+    // Measured: 1 failed, 3 passed. Rendered assertion on that run:
+    // `AssertionError: expected false to be true`.
+    signature: 'can report a new call site, and is not satisfied by prose describing one',
+    signatureSource: 'test-title',
+  },
+  {
+    id: 'S4',
+    why:
+      'The `forbidden` arm, which inverts the defence this file inherited verbatim from ' +
+      '`bench-egress.node.test.ts`. A `forbidden` pattern is must-NOT-match, so a scan blinded ' +
+      'before it reaches the line reports the requirement SATISFIED — over-stripping fails open ' +
+      'here, not loudly. The inherited sentence was already false at the moment the field was ' +
+      'introduced, and the field’s own docblock explains why the field is needed without noticing ' +
+      'that it reverses the claim four lines above. Concretely: `const complete = … && reduce.ok` ' +
+      'would couple every published p50/p95/p99 to the reduce having succeeded, and a blinded scan ' +
+      'reports that coupling absent.',
+    file: 'packages/node/src/bench-reduce.node.test.ts',
+    find: "import { stripComments } from './strip-comments.ts'",
+    replace: "import { BLINDABLE as stripComments } from './strip-comments.ts'",
+    caughtBy: ['packages/node/src/bench-reduce.node.test.ts'],
+    // Measured: 1 failed, 18 passed. Rendered assertion on that run:
+    // `AssertionError: expected [] to deeply equal [ Array(1) ]` — the empty list being
+    // the blinded scan reporting the coupling requirement as met.
+    signature: 'reports it even when a string literal above the coupling holds a comment opener',
+    signatureSource: 'test-title',
+  },
 ]
 
 /** Literal occurrences of `needle` in `text`. `needle` must be non-empty. */
@@ -978,7 +1982,7 @@ const TITLE_SEPARATOR = ' > '
  *
  * ## What this does not catch, and must not be read as catching
  *
- * - **The whole `rendered-at-runtime` arm.** Fourteen of these entries carry
+ * - **The whole `rendered-at-runtime` arm.** Twenty-four of these entries carry
  *   assertion or runner output, which exists in no file. Nothing here reads them;
  *   only a planted run can.
  * - **A title that is present but not running.** `it.skip`, a `describe` that no
@@ -990,10 +1994,12 @@ const TITLE_SEPARATOR = ' > '
  * - **A signature short enough to match by accident.** Length is checked against zero
  *   and nothing else, so a three-character signature would pass here and be worthless.
  *
- * The first bullet is the one worth restating: this check is silent on 14 of the 40
- * entries by construction. A guard that appears to cover a population it cannot is
- * the defect this function exists to close, so its scope is written down rather than
- * left to be inferred from the fact that it passes.
+ * The first bullet is the one worth restating: this check is silent on **22 of the 82**
+ * entries by construction — the `rendered-at-runtime` half. (It read *"24 of the 72"* until
+ * 2026-08-04, which was wrong in both figures at the moment it was written; see the header
+ * for why this file now has two expired counts on record rather than one.) A guard that
+ * appears to cover a population it cannot is the defect this function exists to close, so
+ * its scope is written down rather than left to be inferred from the fact that it passes.
  */
 function signatureProblems(entry: Mutation, caughtByContent: readonly (string | null)[]): string[] {
   // Both already produce their own, more specific problem above. Reporting a second

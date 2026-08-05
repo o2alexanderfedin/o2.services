@@ -243,6 +243,28 @@ describe('NET-05 — exhaustion is reported by name', () => {
     // And the relay's own view says why, rather than leaving it to be inferred.
     expect(relay.capacity.atCapacity).toBe(true)
     expect(relay.capacity.granted).toBe(1)
+
+    // NET-05's lost wakeup, guarded deterministically and with no race to lose.
+    //
+    // The refusal above is already recorded by the time these lines run, so a listener
+    // subscribed *now* is exactly the case `bin/agent.ts` met in production: it
+    // subscribed after `FabricNode.start`, the relay dial happens inside `start`, and
+    // roughly one node in five was therefore never told it had been refused — reported
+    // instead as the outcome that cannot tell a full relay from a silent one.
+    //
+    // This case is the cheap half of the pair, and the half that cannot flake. The
+    // cross-process reading in `reservation-exhaustion.node.test.ts` is the expensive
+    // half, and it is the one that was ~80% reliable for weeks *because this property
+    // was never asserted anywhere*. `nextCapacityRefusal` has always replayed, which is
+    // precisely why this file stayed green while the other file did not — the asymmetry
+    // between the two methods was the whole defect.
+    //
+    // Reddened by removing the replay loop from `ReservationWatcher.onFailure`: this
+    // reads `[]`.
+    const afterTheFact: string[] = []
+    watcher.onFailure((failure) => afterTheFact.push(failure.kind))
+    expect(afterTheFact).toContain('at-capacity')
+    expect(afterTheFact).toHaveLength(watcher.failures.length)
   }, 60_000)
 
   it('raises the inbound limits alongside reservations, since both bind first', async () => {

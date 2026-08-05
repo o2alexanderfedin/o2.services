@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { EnrollmentAuthority, requestEnrollment, verifyCertificate } from '@o2/core'
 import type { NodeCertificate } from '@o2/core'
 import { SEED_BYTES } from '@o2/libp2p'
+import { stripComments } from './strip-comments.ts'
 import {
   CERTIFICATE_FILE,
   IDENTITY_FILE,
@@ -312,6 +313,18 @@ describe('AUTH-01 — identity generation does not require a secure context', ()
    * Comment lines are stripped before counting, because both files' comments *explain*
    * this constraint and an unfiltered count would be self-invalidating.
    *
+   * **The stripper here was a line-prefix filter with the mirror-image bugs**, replaced
+   * 2026-08-04 by the shared tokenizer. It dropped any line whose first non-space
+   * character began `*`, `//` or `/*`, which is wrong in both directions at once: it kept
+   * a trailing `// …` comment on a line of code — so a `subtle` named in one would count
+   * as a use, a false red — and it deleted whole *code* lines that merely began with a
+   * `*` or a `/`, which is a false green.
+   *
+   * **Neither direction was live, and that is measured rather than assumed.** Across the
+   * three files this block reads, the `subtle` counts are identical under both stripper
+   * and filter — 0, 0 and 5 — so the replacement changes no verdict here today. What it
+   * removes is the standing possibility, in a file whose whole claim is a zero count.
+   *
    * **The limit of this instrument, stated: the insecure-context case is unmeasured.**
    * The grep proves these two files do not name `subtle`. It cannot prove anything about
    * the dependency, and the dependency does touch it — `@libp2p/crypto`'s browser entry
@@ -324,15 +337,6 @@ describe('AUTH-01 — identity generation does not require a secure context', ()
    * on a LAN address and generating an identity in that tab — first runnable under Phase
    * 19's multi-browser standard.
    */
-  const stripComments = (source: string): string =>
-    source
-      .split('\n')
-      .filter((line) => {
-        const t = line.trim()
-        return !t.startsWith('*') && !t.startsWith('//') && !t.startsWith('/*')
-      })
-      .join('\n')
-
   const occurrences = (source: string, needle: string): number => source.split(needle).length - 1
 
   const IDENTITY_SRC = readFileSync(new URL('../../libp2p/src/identity.ts', import.meta.url), 'utf8')

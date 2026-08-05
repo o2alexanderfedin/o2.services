@@ -40,21 +40,31 @@ import { FabricNode } from './fabric-node.ts'
  *
  * ## The mechanism, stated so nobody looks for a missing one
  *
- * A tab holds no reservations of its own. `browser-node.ts:1201` supplies
+ * A tab holds no reservations of its own. `browser-node.ts`'s `serveAgent` call supplies
  * `reservations: 'relays-for-nobody'` — a **named absence, not an omission** — so tabs
  * do not answer each other's rendezvous and none of them is ever asked. **They both ask
  * the relay**, which is a `FabricNode` holding a real thunk over its own reservation
- * store (`fabric-node.ts:1601`). `findReservedPeers` (`net/src/rendezvous.ts:76`) turns
+ * store (`fabric-node.ts:1695`). `findReservedPeers` (`net/src/rendezvous.ts:76`) turns
  * each reported holder into `/p2p/<relay>/p2p-circuit/webrtc/p2p/<holder>` and the tab
  * dials that. The relay carries the SDP exchange and then drops out; the job runs over
  * direct WebRTC, which is why the `limited` reading below is not decoration — a relayed
  * circuit is 2 minutes and 128 KiB and `PROJECT.md` records that it may not carry a job.
  *
  * The other hook criterion 4 names is `index`, and it is genuinely wired on both tiers
- * (`browser-node.ts:1178`, byte-identical to `fabric-node.ts:1578`) — that is what makes
+ * (each tier's `serveAgent` call passes a byte-identical `index: records`) — that is what makes
  * each of these tabs a full routing peer rather than a client of one. The rendezvous
  * answer and the routing hook are two different hooks on two different nodes, and the
  * roadmap's phrasing was corrected accordingly on 2026-08-03.
+ *
+ * **`index` is wired here, and it is NOT read here — the distinction is W3 of
+ * `19-VERIFICATION.md` and it is worth keeping straight.** Nothing in this file asks a tab
+ * for `records` or `providers`: discovery is `findReservedPeers` alone, `computePeers` sends
+ * an `offer`, and these tabs are unenrolled so `demo/main.ts`'s `peerCertificate` returns
+ * before asking. The paragraph above is therefore a reading of *construction*, which is what
+ * it says and all it says. The hook is read off a **live tab over the real wire** by a
+ * sibling file from this same phase — `tab-refusals.e2e.test.ts:371,377` — which is where
+ * criterion 4's `index` clause is actually measured. Four line citations in this header had
+ * drifted and were re-checked against the tree on 2026-08-04.
  *
  * ## One host. Three engines. Not three machines.
  *
@@ -314,9 +324,22 @@ describe('NET-06 — three engines on one static bundle, nothing dialled by the 
    * contention** — see the recorded note in `19-03-SUMMARY.md`. A simultaneous mutual
    * dial between firefox and webkit lost ICE on one run of three and left the pair
    * holding a *limited* circuit and no `/webrtc` connection; the same code succeeded on
-   * the next two runs, producing duplicate connections both times. A later round cannot
-   * repair it, because `planDials` (`dial-plan.ts:66`) skips a peer already in
-   * `n.transport.peers` and a limited circuit puts it there.
+   * the next two runs, producing duplicate connections both times.
+   *
+   * **Amended 2026-08-04 — the second half of that paragraph is fixed and the first half
+   * got worse.** It used to end *"a later round cannot repair it, because `planDials`
+   * skips a peer already in `n.transport.peers` and a limited circuit puts it there"*.
+   * That was read off the source and has since been measured, as defect 32: the skip was
+   * real, and `planDials` now takes `heldPeers` — connected **and able to carry work** —
+   * so a relayed-only peer is dialled again and named. The flake itself is *not* 1-in-3;
+   * forced, it was 4 out of 4. `relay-latch.e2e.test.ts` carries the whole reading and
+   * the two facts this file's reasoning did not have: the pair recovers on its own when
+   * the relay's duration limit drops the circuit, and firefox's re-dial to webkit times
+   * out while webkit ends up holding a `/webrtc` connection firefox does not have.
+   *
+   * None of that changes what this case does. Sequential rounds remain the right choice
+   * here for the reason below — an exact reading beats a raced one — and this file's
+   * assertions were re-run unchanged and green against the fix.
    *
    * ## So the anti-vacuity reading is made exact instead of merely non-zero
    *

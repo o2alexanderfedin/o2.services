@@ -52,6 +52,14 @@ export { submitJob } from './job/submit.ts'
 export type {
   JobResult,
   JobSpec,
+  // VER-09, VER-10. Added by Plan 19-10 because a display site outside this package
+  // cannot name what it is rendering without them: `bin/bench.ts` prints a rung's
+  // strength and the demo UI (19-11) renders the same value. 19-06 defined all three
+  // and deliberately left the barrel alone — that file was under concurrent edit — and
+  // 19-CONTEXT.md records the handoff. Types only: nothing new is *callable* from here.
+  NoVerifiedAttestation,
+  ShardAttestation,
+  ShardQuorum,
   ShardResult,
   ShardSpec,
   SubmitError,
@@ -163,6 +171,7 @@ export type {
 // Start outcomes and the blocking metric — BROW-02.
 export {
   BROWSER_FAMILIES,
+  MAX_BROWSER_MAJOR,
   MIN_REPORTS_FOR_RATE,
   START_FAILURES,
   STRUCTURAL_BLIND_SPOT,
@@ -268,6 +277,10 @@ export type {
 
 // Enrollment and node identity — AUTH-01, AUTH-02, AUTH-04, AUTH-05.
 export {
+  // The one window both budgets are measured over, read by a durable ledger's compaction
+  // as well as by the authority — see `IssuanceLedger` for why a host that guessed it
+  // would widen a budget with nothing failing.
+  DEFAULT_ISSUANCE_WINDOW_MS,
   EnrollmentAuthority,
   possessionChallenge,
   requestEnrollment,

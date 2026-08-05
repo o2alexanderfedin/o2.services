@@ -63,8 +63,34 @@ export const BROWSER_FAMILIES = ['chromium', 'edge', 'firefox', 'safari', 'other
 
 export type BrowserFamily = (typeof BROWSER_FAMILIES)[number]
 
+/**
+ * Digits a major version may carry. The **only** statement of that width.
+ *
+ * Both the pattern below and {@link MAX_BROWSER_MAJOR} are derived from it, because a
+ * width written twice is a width that drifts, and the copy that drifts is the one nobody
+ * tests. That is not hypothetical here: it is exactly how `browserLabel` came to compose
+ * `${family} ${major}` with no bound at all while this pattern admitted four digits, and
+ * a visitor past the fourth digit reported nothing at all as a result.
+ */
+const MAJOR_DIGITS = 4
+
+/**
+ * The largest major version a label may carry.
+ *
+ * Exported so a composer can bound itself against the range that will judge it. It is
+ * *not* a statement about how high browser versions go — it is the width of a ledger key
+ * a peer supplies, and therefore the count of distinct keys one peer can make a node
+ * hold. Raising it costs key space at the wire; it is not a free knob.
+ *
+ * A label whose version is past this is not clamped to it. Clamping would file a real
+ * visitor under a number no browser ever had, and the merge takes the maximum per key, so
+ * the invented row would outlive the real one. The label drops to its family instead —
+ * see `browserLabel` in `@o2/browser`, which is the only composer.
+ */
+export const MAX_BROWSER_MAJOR: number = 10 ** MAJOR_DIGITS - 1
+
 /** Derived from the list, so adding a family is one edit rather than two. */
-const BROWSER_LABEL = new RegExp(`^(?:${BROWSER_FAMILIES.join('|')})(?: \\d{1,4})?$`)
+const BROWSER_LABEL = new RegExp(`^(?:${BROWSER_FAMILIES.join('|')})(?: \\d{1,${MAJOR_DIGITS}})?$`)
 
 /**
  * Whether a label is one this build can file.

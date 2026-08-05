@@ -24,21 +24,64 @@ import {
   DEFAULT_FANOUT,
   MAX_PARTIAL_BYTES,
   asFabricPartial,
+  attestationRank,
+  attestationReceipt,
   canonicalCid,
   deriveReduceTree,
   executeReduce,
+  verifyCombineAttestation,
 } from '@o2/core'
 import type {
+  AttestationReceipt,
+  AttestedResult,
   Blockstore,
   CanonicalValue,
+  CombineDispatch,
   JobResult,
+  NodeCertificate,
+  PublicKeyHex,
   ReduceContribution,
   ReduceOutcome,
   ReduceTree,
 } from '@o2/core'
-import type { CID } from 'multiformats/cid'
+import { CID } from 'multiformats/cid'
 import { remoteCombineDispatch } from './combine.ts'
 import type { RpcEndpoint } from './rpc.ts'
+
+/**
+ * The issuers this requestor accepts combine certificates from, or the named statement
+ * that it checks no combine signature at all.
+ *
+ * **Required with a named sentinel, never optional.** `.planning/PROJECT.md`'s rule is
+ * that an optional hook with a silent default is a hole, and here the hole has a precise
+ * shape: a requestor that omitted this would report an aggregate strength derived from
+ * nothing it had checked, which is the exact artifact the combine-signing leg exists to
+ * replace. The fan-out is the point rather than the cost — every caller states what it
+ * checks against.
+ *
+ * ## Why `reduceJob` takes this and `submitJob` deliberately does not
+ *
+ * The two entry points look inconsistent without this paragraph, and the difference is
+ * structural rather than stylistic.
+ *
+ * `submitJob` reaches its trust decision through a seam that already made it.
+ * `NodeDescriptor` carries the certificate a node was **discovered** under, and
+ * `discoverCandidates` verified that certificate against pinned issuers at the discovery
+ * seam. `receiptFor` therefore pins each replica against *that descriptor's own issuer*
+ * and takes no issuer argument: a second issuer set on `submitJob` would be a second
+ * place one decision is made, able to disagree with the first with nothing able to catch
+ * the disagreement.
+ *
+ * **`reduceJob` has no such seam.** Its {@link ReduceJobOptions.executors} are bare peer
+ * id strings, and there is no certificate anywhere on the reduce path — not on the
+ * option, not on `CombineTask`, not on `ReduceOutcome`. So this option is the only place
+ * the decision can be made, and it is made once, here.
+ *
+ * The absence of that seam costs one thing more, and it is written down at
+ * {@link ReduceJobResult} rather than hidden here: with no descriptor to compare against,
+ * nothing binds the certificate a peer presents to the peer that presented it.
+ */
+export type CombineTrustAnchors = ReadonlySet<PublicKeyHex> | 'checks-no-combine-signatures'
 
 export interface ReduceJobOptions {
   readonly rpc: RpcEndpoint
@@ -67,7 +110,55 @@ export interface ReduceJobOptions {
   readonly project: (output: CanonicalValue, partitionIndex: number) => CanonicalValue
   readonly fanout?: number
   readonly redundancy?: number
+  /** See {@link CombineTrustAnchors}. Required, and required here rather than on `submitJob`. */
+  readonly trustedIssuers: CombineTrustAnchors
 }
+
+/**
+ * The named statement that this requestor holds no verified signed statement about who
+ * performed this **aggregation** — VER-08, VER-09, VER-10.
+ *
+ * `submitJob`'s `NoVerifiedAttestation` is the same convention one claim over, and the
+ * two are deliberately different types with different `kind` strings: a reader handed
+ * both must not be able to satisfy an aggregation question with a map answer. The counts
+ * differ for the same reason — the map half counts *replicas*, this half counts
+ * **combines**, because a tree's weakest step is a step and not a replica.
+ *
+ * **A statement, never a default.** It says something specific and true: *this requestor
+ * cannot account, from signatures it checked, for who performed this aggregation.* A
+ * strength computed over the combines that happened to verify would over- or understate
+ * depending on which ones did, so a partial verification lands here too, with the counts.
+ */
+export interface NoVerifiedAggregation {
+  readonly kind: 'holds-no-verified-aggregate-attestation'
+  /** Why, in this module's own words, naming each combine that was not counted. */
+  readonly reason: string
+  /** Combines in the derived tree — the steps a receipt would have to account for. */
+  readonly combines: number
+  /** Of those, how many produced statements this requestor checked all the way through. */
+  readonly verified: number
+}
+
+/**
+ * How strongly this reduction's **aggregation** is attested, or the named absence.
+ *
+ * **This is not the map half's receipt and must never be read as one.** `PROJECT.md`
+ * splits the verification claim, and the split is not a formality: a sovereign map is
+ * `owner-attested` by construction — pinning data to one owner removes the second
+ * independent executor — while the aggregation *over* those contributions can be
+ * redundant, because a combine reads only content-addressed partials and is runnable
+ * anywhere. `reduce.ts`'s `ReduceRun.redundancy` states the same thing in the source's
+ * own words. So the two receipts routinely differ, and a reduced job reporting only one
+ * of them would be making the stronger-sounding claim about the weaker half.
+ *
+ * **What a signature here does not buy.** It says a certified node performed this
+ * aggregation over these partials. It says nothing about whether the aggregation is
+ * arithmetically right — that remains `executeReduce`'s `redundancy` and its
+ * `disagreements` arm, exactly as a signed `exec` result is not a correct one. Somebody
+ * will propose lowering reduce redundancy because combines are signed now; this line is
+ * there for them.
+ */
+export type AggregateAttestation = AttestationReceipt | NoVerifiedAggregation
 
 /**
  * What a reduce attempt produced.
@@ -88,6 +179,26 @@ export type ReduceJobResult =
       readonly leaves: readonly CID[]
       /** Partition indices whose verification was not `'agreed'`. */
       readonly skipped: readonly number[]
+      /**
+       * How strongly the **aggregation** is attested — see {@link AggregateAttestation}.
+       *
+       * **What it establishes, and what the reduce path cannot.** A pass says: nodes
+       * these pinned issuers certified performed each merge in this tree, over exactly
+       * the partials named, in exactly the order merged. What it does **not** say is
+       * that the peer which answered is the node whose certificate it presented. An
+       * attestation is transferable by design — `result-attestation.ts` records the
+       * replay property as intended, because that is what makes the statement showable
+       * to a third party — and this module holds no way to derive a peer id from a node
+       * key: that derivation lives in `@o2/libp2p`, which `@o2/net` may not import, and
+       * `discover-candidates.ts` takes it as an injected function for exactly that
+       * reason. `submitJob` closes the same gap with the descriptor a node was
+       * discovered under; there is no descriptor here.
+       *
+       * What stands in its place is the duplicate-node-key check below: a peer
+       * forwarding another's signed statement cannot inflate the replica count, because
+       * two entries under one node key make the whole reduction read the named absence.
+       */
+      readonly aggregateAttestation: AggregateAttestation
     }
   | { readonly ok: false; readonly reason: string }
 
@@ -113,6 +224,157 @@ export type ReduceJobResult =
  */
 function contributorFor(partitionIndex: number): string {
   return `shard-${partitionIndex}`
+}
+
+/**
+ * What one combine's replicas answered, kept so the requestor can check what they signed.
+ *
+ * **Why this is recorded here and not read off {@link ReduceOutcome}.** A combine
+ * attestation covers `(inputCids in merge order, resultCid, nodeKey)`, and `ReduceOutcome`
+ * carries neither of the first two per combine: `executedBy` is peer ids, `attestations`
+ * is the accepted replica's statement alone, and the map from a tree node to the CID its
+ * value resolved to never leaves `executeReduce`. Only a **level-1** combine's inputs and
+ * only the **root's** result are recoverable from the tree, so a deeper tree would have
+ * nothing checkable in it at all. Widening `ReduceOutcome` was the alternative and is
+ * `@o2/core`'s to make, not this module's; wrapping the dispatch this module already
+ * constructs costs one `Map` and no port change.
+ *
+ * The replicas are held **in dispatch order**, which is the order `executeReduce` walks
+ * the rendezvous ranking in, so the first entry is the `produced[0]` it accepts.
+ */
+interface CombineObservation {
+  /** As merged. **Never sorted** — see `combineChallenge`. */
+  readonly inputCids: readonly CID[]
+  readonly replicas: { readonly resultCid: CID; readonly attestation: AttestedResult }[]
+}
+
+/**
+ * The aggregate receipt, over combine statements this requestor checked itself.
+ *
+ * Four questions per replica, each named when the answer is no, in the shape
+ * `submitJob`'s `receiptFor` already uses for the map half — the two should read alike
+ * because they are one idea applied to two claims.
+ *
+ * **The aggregate is the weakest combine's, by `attestationRank`.** A tree is no better
+ * attested than its least-attested step, and averaging would let one unverifiable combine
+ * disappear under a strong root — which is precisely the shape a tree makes easy to hide.
+ */
+function aggregateAttestationOf(
+  tree: ReduceTree,
+  outcome: ReduceOutcome,
+  observed: ReadonlyMap<string, CombineObservation>,
+  trustedIssuers: CombineTrustAnchors,
+  now: number,
+): AggregateAttestation {
+  const combines = tree.nodes.length
+
+  // A lone contribution is *promoted* rather than wrapped in a combine (`deriveReduceTree`
+  // says so at the promotion), so no node performed an aggregation at all. `owner-attested`
+  // here would be a claim about a step that never ran — the same conflation the named
+  // absence exists to prevent one level up.
+  if (combines === 0) {
+    return {
+      kind: 'holds-no-verified-aggregate-attestation',
+      reason:
+        'this reduction merged nothing — a single contribution is promoted rather than combined, ' +
+        'so there is no aggregation to attest',
+      combines: 0,
+      verified: 0,
+    }
+  }
+
+  if (trustedIssuers === 'checks-no-combine-signatures') {
+    return {
+      kind: 'holds-no-verified-aggregate-attestation',
+      reason:
+        'this requestor checks no combine signatures, so it holds no statement about who ' +
+        'performed this aggregation',
+      combines,
+      verified: 0,
+    }
+  }
+
+  const receipts: AttestationReceipt[] = []
+  const unaccounted: string[] = []
+
+  for (const node of tree.nodes) {
+    // A combine absent from `outcome.attestations` either produced nothing at all or had
+    // its replicas disagree. `executeReduce` records no statement for either — putting
+    // signatures on a disagreement invites somebody to pick a winner out of them — and
+    // this receipt does not invent one where that module declined to.
+    if (!outcome.attestations.has(node.id)) {
+      unaccounted.push(`${node.id}: no agreed statement was recorded for this combine`)
+      continue
+    }
+    const seen = observed.get(node.id)
+    if (seen === undefined || seen.replicas.length === 0) {
+      unaccounted.push(`${node.id}: this requestor recorded no replica answer for this combine`)
+      continue
+    }
+
+    const verified: NodeCertificate[] = []
+    for (const replica of seen.replicas) {
+      if (replica.attestation === 'signed-by-nobody') {
+        unaccounted.push(`${node.id}: a replica stated that it signs nothing`)
+        continue
+      }
+      const checked = verifyCombineAttestation(
+        replica.attestation,
+        // The caller's own view of the merge, never anything the attestation supplies —
+        // `inputCids` as dispatched and `resultCid` as this requestor retrieved and
+        // hash-checked it. An attestation that could name its own work would verify
+        // against itself every time.
+        seen.inputCids,
+        replica.resultCid,
+        trustedIssuers,
+        now,
+      )
+      if (!checked.ok) {
+        unaccounted.push(`${node.id}: ${checked.reason}`)
+        continue
+      }
+      verified.push(checked.certificate)
+    }
+
+    // `attestationReceipt` reports `replicas` from the set it is handed and does not
+    // dedupe, so two entries carrying one node's certificate would report redundancy this
+    // aggregation does not have. **Reachable rather than defensive, and that is the
+    // difference from the map half**: an attestation is transferable by design, and with
+    // no descriptor to compare a peer against, one peer can forward another's signed
+    // statement verbatim. So it is answered as a named absence rather than thrown —
+    // `submitJob` throws on the same condition because there it is an assembly defect
+    // this repository's own code would have to have caused, whereas here it is a verdict
+    // about what peers sent.
+    const keys = new Set(verified.map((certificate) => certificate.nodeKey))
+    if (keys.size !== verified.length) {
+      unaccounted.push(
+        `${node.id}: ${String(verified.length)} replicas verified under one node key ` +
+          `(${[...keys].join(', ')}), and a receipt built from that set would report redundancy ` +
+          'this aggregation does not have',
+      )
+      continue
+    }
+    if (verified.length === 0) continue
+    receipts.push(attestationReceipt(verified))
+  }
+
+  if (unaccounted.length > 0 || receipts.length !== combines) {
+    return {
+      kind: 'holds-no-verified-aggregate-attestation',
+      reason:
+        receipts.length === 0
+          ? `no combine in this tree produced a statement this requestor could check — ${unaccounted.join('; ')}`
+          : `only ${String(receipts.length)} of ${String(combines)} combines produced statements this ` +
+            'requestor could check, and a strength over that subset would state something this ' +
+            `requestor cannot account for — ${unaccounted.join('; ')}`,
+      combines,
+      verified: receipts.length,
+    }
+  }
+
+  return receipts.reduce((weakest, receipt) =>
+    attestationRank(receipt.strength) < attestationRank(weakest.strength) ? receipt : weakest,
+  )
 }
 
 /** Turn a completed job into a reduce over `options.executors`. */
@@ -189,12 +451,47 @@ export async function reduceJob(job: JobResult, options: ReduceJobOptions): Prom
   // The same store the leaves were written to is the one each combine's result is
   // fetched back into. One store, serving the whole tree — this is the call site a
   // reader arrives at first, so it is stated here as well as in `combine.ts`.
+  const combining = remoteCombineDispatch({ rpc: options.rpc, blockstore: options.blockstore })
+
+  // VER-08/09/10 — what each replica answered, kept so its statement can be checked
+  // against the merge this requestor actually asked for. See {@link CombineObservation}
+  // for why the reading is taken here and not off `ReduceOutcome`.
+  const observed = new Map<string, CombineObservation>()
+  const dispatch: CombineDispatch = async (task, executorId) => {
+    const product = await combining(task, executorId)
+    if (product === null) return null
+    let entry = observed.get(task.nodeId)
+    if (entry === undefined) {
+      // `CID.parse` is safe here and would not be above: a non-null product means the
+      // dispatch already parsed these same strings inside its own `try`, so a malformed
+      // one has been turned into a `null` and never reaches this line.
+      entry = { inputCids: task.inputCids.map((cidString) => CID.parse(cidString)), replicas: [] }
+      observed.set(task.nodeId, entry)
+    }
+    entry.replicas.push({ resultCid: product.cid, attestation: product.attestation })
+    return product
+  }
+
   const outcome = await executeReduce({
     tree,
     executors: options.executors,
-    dispatch: remoteCombineDispatch({ rpc: options.rpc, blockstore: options.blockstore }),
+    dispatch,
     ...(options.redundancy === undefined ? {} : { redundancy: options.redundancy }),
   })
 
-  return { ok: true, outcome, tree, leaves, skipped }
+  // One clock read for the whole reduction, so every certificate in one receipt is judged
+  // against one instant rather than against a window that drifts down the tree. The
+  // second clock read in production `@o2/net` — `agent.ts`'s enrolment branch is the
+  // other, and states the same reasoning: `@o2/core` takes its clock as a parameter
+  // precisely so an adapter supplies it, and `Date.now()` behaves identically in both
+  // targets this package has to run in.
+  const aggregateAttestation = aggregateAttestationOf(
+    tree,
+    outcome,
+    observed,
+    options.trustedIssuers,
+    Date.now(),
+  )
+
+  return { ok: true, outcome, tree, leaves, skipped, aggregateAttestation }
 }

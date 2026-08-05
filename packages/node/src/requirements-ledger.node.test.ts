@@ -2,6 +2,7 @@ import { readFileSync, readdirSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
+import { stripComments } from './strip-comments.ts'
 
 /**
  * The ledger's *reasons*, made checkable.
@@ -56,6 +57,14 @@ import { describe, expect, it } from 'vitest'
  * regex cannot see counts as uncalled. Both errors are in the safe direction for the
  * defect being guarded — the failure being prevented is a row claiming *no* caller while
  * an obvious one exists, and an obvious one is exactly what a regex finds.
+ *
+ * **That sentence was read as covering more than it does, and the gap was a live
+ * fail-open.** It is a claim about *reachability*, and it says nothing about the step that
+ * runs before any of it: comment stripping. Until 2026-08-04 the stripper was a regex that
+ * treated a comment opener inside a string literal as opening a comment, deleting
+ * everything to the next closer anywhere in the file — under which an obvious caller reads
+ * as absent and a false "no caller" row PASSES. See {@link CODE} for the measurement and
+ * what replaced it.
  *
  * It also cannot tell an asserted claim from a **quoted and refuted** one. A row that
  * reproduces the false sentence it is correcting has that sentence read back as its own,
@@ -131,22 +140,40 @@ const PRODUCTION: readonly string[] = [...walk(join(ROOT, 'packages')), ...walk(
   .sort()
 
 /**
- * Comments removed before any call-site search.
+ * The production corpus with comments removed, which is what every call-site search reads.
  *
  * Not cosmetic — it is the difference between a measurement and a false negative in the
- * direction that matters. This codebase documents heavily, and the symbols named in
- * these rows are discussed by name in dozens of docblocks: `runResilient` appears in
- * comments in `churn.ts`, `combine.ts`, `worker-executor.ts` and `mutation-ledger.ts`
- * and is called by none of them. Without this step every claim would read as violated
- * and the file would be permanently red, which is how a guard gets deleted.
+ * direction that matters. This codebase documents heavily, and the symbols named in these
+ * rows are discussed by name in dozens of docblocks: `runResilient` appears in comments in
+ * `churn.ts`, `combine.ts`, `worker-executor.ts` and `mutation-ledger.ts` and is called by
+ * none of them. Without this step every claim would read as violated and the file would be
+ * permanently red, which is how a guard gets deleted.
  *
- * The `[^:]` guard before `//` keeps `https://` inside a string literal from truncating
- * the rest of its line.
+ * ## This file's own stripper produced this file's own defect
+ *
+ * Until 2026-08-04 the strip was a regex pair, plus a `[^:]` special case bolted on so that
+ * a `https://` inside a string literal would not truncate the rest of its line. That
+ * special case is the argument against the whole approach rather than a fix for it: it
+ * rescued the one input somebody noticed and did nothing for `'a // b'`, which is the same
+ * bug one character over. Both are deleted now, because {@link stripComments} preserves
+ * string literals outright.
+ *
+ * The docblock here used to say both of this scan's errors were "in the safe direction".
+ * **That was false, and false about this file specifically.** A comment opener inside a
+ * string literal made the old regex open a comment the source never opened and delete
+ * everything to the next closer anywhere in the file — so an obvious caller read as
+ * absent, and a row claiming *"X has no production caller"* PASSED while being false.
+ * That is precisely the defect this file exists to prevent, produced by this file's own
+ * instrument. Measured 2026-08-04: 70 such openers across 18 tracked source files, four of
+ * them inside this corpus.
+ *
+ * What remains true is the narrower claim the sentence was reaching for: this scan reads
+ * call *syntax*, not reachability, so a symbol called only from dead code counts as called
+ * and one reached by dynamic dispatch counts as uncalled. Those two errors are in the safe
+ * direction, because the failure being prevented is a row claiming *no* caller while an
+ * obvious one exists, and an obvious one is exactly what a regex finds. The stripper was
+ * never covered by that argument.
  */
-function stripComments(source: string): string {
-  return source.replaceAll(/\/\*[\s\S]*?\*\//g, ' ').replaceAll(/(^|[^:])\/\/[^\n]*/g, '$1')
-}
-
 const CODE: ReadonlyMap<string, string> = new Map(
   PRODUCTION.map((path) => [path, stripComments(readFileSync(path, 'utf8'))]),
 )
@@ -329,22 +356,49 @@ const UNREACHED = ROWS.filter((row) => UNREACHED_VERDICTS.includes(row.verdict))
  *   `AOT-05`, `MR-03`…`MR-07`. The symbol has callers and the row says so; what is open
  *   is that the caller is behind a flag, or is a test rather than a page, or is one of
  *   two merge paths. `SCHED-05` is the clearest: `eligibleNodes` is called by both
- *   placers, and the open leg is that no entry point ever labels a shard `sovereign` —
- *   a claim about an *argument value*, which this file does not read.
+ *   placers, and the open leg is that no entry point ever labels a shard `sovereign` — a
+ *   claim about an *argument value*, which this file does not read.
+ *
+ *   **`VER-08` and `AUTH-05` were here for one day and are not any more, which is the
+ *   whole lifecycle this list is supposed to have.** Both carried a checkable claim —
+ *   *`attestResults` has no production caller* — until Plan 19-15 composed that wrapper
+ *   at both node factories and made it false; correcting each row on 2026-08-03 left it
+ *   saying only the argument-value claim it had always also said, so both were added
+ *   here in the same commit. Plan 19-09 then satisfied that claim too — a sovereign
+ *   shard pinned to a real owner's user key, placed on a discovered replica set of two
+ *   `bin/agent.ts` processes — so both rows are now `Done`, are no longer *unreached*,
+ *   and dropping out of this list is the assertion below noticing. **A row losing its
+ *   checkable claim by being *satisfied* must be added here in the same commit, and
+ *   removed in the same commit as the tick.** Neither direction can pass silently: the
+ *   check is a set equality.
+ *
+ *   `VER-09` and `VER-10` went the other way in the same 19-15 commit and are
+ *   deliberately *not* here: their remaining absence is the display half, and it is
+ *   expressible as a call-site fact — `describeAttestation` renders the three labels for
+ *   a human and nothing calls it.
  * - **A statement about a tier or a configuration.** `AUTH-02`, `AUTH-03`, `AUTH-04`,
  *   `NET-03`, `AOT-04`, `SCHED-04`. Both tiers construct the mechanism; what differs is
  *   a host requirement, a measurement not yet taken, or — for `SCHED-04` — nothing at
  *   all, the row stating in words that its marker is conservative rather than
  *   descriptive. A row that reports no absence has no absence to name.
  *
- * `BROW-02` is deliberately **not** here: its reason is that no node supplies
- * `serveAgent`'s `ledger` hook, which the third shape reads. It is checked, just not by
- * the caller shapes.
+ * `BROW-02` **was** deliberately not here, on the stated ground that its reason was the
+ * hook shape: no node supplied `serveAgent`'s `ledger` hook, and the third shape read
+ * that. Plan 20-02 satisfied it — both node factories now build a real
+ * `StartOutcomeLedger` and record their own start row into it — so the row lost its only
+ * checkable claim **by being satisfied**, which is the direction this list's own rule
+ * says must be recorded in the same commit. Its remaining absence is a measurement not
+ * yet taken (a tab showing counts it could only have learned from a peer, Plan 20-06),
+ * which puts it in the tier-or-configuration bucket beside `AUTH-02` and `SCHED-04`
+ * rather than in any of the three call-site shapes. Left visible rather than rewritten,
+ * because a reader who finds only the new sentence cannot tell a row that never had a
+ * claim from one that closed the claim it had.
  */
 const WITHOUT_A_CHECKABLE_CLAIM: readonly string[] = [
   'AUTH-02',
   'AUTH-03',
   'AUTH-04',
+  'BROW-02',
   'NET-03',
   'NET-06',
   'SCHED-04',
@@ -501,9 +555,16 @@ describe('the corpus and the ledger were really read', () => {
   })
 
   it('strips comments, without which every claim would read as violated', () => {
+    // Unchanged input, and it now passes for a different reason. The `'https://x'` arm
+    // used to be carried by a `[^:]` special case written for this one string; strings
+    // are preserved outright now, so the arm measures the property rather than the patch.
+    // The comparative reading — this input under the regex that was here before — is in
+    // `strip-comments.node.test.ts`, which requires the two to disagree.
     const stripped = stripComments("const a = 1 // runResilient(x)\n/* runResilient(y) */\nconst b = 'https://x'")
     expect(stripped).not.toContain('runResilient')
     expect(stripped).toContain("'https://x'")
+    // The case the special case never covered, and the reason it was the wrong shape of fix.
+    expect(stripComments("const divider = 'a // b'")).toContain("'a // b'")
   })
 
   it('finds callers of symbols that are wired, so an empty result means something', () => {
@@ -528,9 +589,22 @@ describe('the corpus and the ledger were really read', () => {
     expect(hookSuppliers('capacity')).toContain('packages/node/src/fabric-node.ts')
     expect(hookSuppliers('capacity')).toContain('packages/browser/src/browser-node.ts')
     expect(hookSuppliers('index')).toContain('packages/node/src/fabric-node.ts')
-    // `ledger: 'keeps-no-ledger'` is a named absence at every call site, so the same
-    // machinery must report it unsupplied — the negative control for the same reader.
-    expect(hookSuppliers('ledger')).toEqual([])
+    // The negative control, and Plan 20-02 made it **sharper** rather than deleting it.
+    //
+    // It used to read `hookSuppliers('ledger')).toEqual([])` — a named absence at every
+    // production call site. Both node factories now supply a real `StartOutcomeLedger`,
+    // so that reading is gone, and an empty-result control taken over some *other* hook
+    // would be a different reader on a different string.
+    //
+    // What replaces it is a **comparative reading of the same hook inside one run**: the
+    // two node factories supply it, the two benchmark rigs state the named opt-out, and
+    // the reader has to tell them apart. A reader that stopped discriminating breaks both
+    // halves at once — reporting the rigs as suppliers, or the factories as not — which
+    // an equality against `[]` on some unrelated hook could not have caught.
+    expect(hookSuppliers('ledger')).toContain('packages/node/src/fabric-node.ts')
+    expect(hookSuppliers('ledger')).toContain('packages/browser/src/browser-node.ts')
+    expect(hookSuppliers('ledger')).not.toContain('packages/node/src/bin/bench.ts')
+    expect(hookSuppliers('ledger')).not.toContain('packages/bench/src/perf-workload.ts')
   })
 
   it('extracted claims from the rows rather than matching nothing', () => {

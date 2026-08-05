@@ -27,7 +27,9 @@ export type {
   TabAddresses,
   TabApi,
   TabConsentState,
+  TabDiscoveryRound,
   TabGovernorState,
+  TabHeldPeer,
   TabIsolation,
   TabJobReport,
   // DET-03/DATA-08: exported because the shape has a caller outside this package. The

@@ -26,6 +26,11 @@
  * exported here, and `admission.test.ts` reaches them through this barrel on purpose:
  * delete a line below and that test stops compiling, which is the point.
  *
+ * `AbiExecutor` is on this surface for the same argument one step further out: it is
+ * what `@o2/node` and `@o2/browser` actually compose, so a router reachable only from
+ * inside `packages/aot` would be the very defect this phase exists to close — a
+ * mechanism with no production caller.
+ *
  * ## What is deliberately absent
  *
  * The lift driver. `tools/aot/lift.ts` shells out to Docker and imports
@@ -46,6 +51,15 @@ export type {
   TranslationKey,
   TranslationRecord,
 } from './cache-key.ts'
+
+// Choosing which executor an artifact meets — AOT-04's wiring half.
+//
+// Beside the WASI executor deliberately: the two are one mechanism. `WasiExecutor`
+// is the thing that can run a translated artifact, and this is the thing that gets a
+// translated artifact to it without a node needing to have been *started* differently.
+// The choice is per artifact and never per node.
+export { AbiExecutor } from './abi-router.ts'
+export type { AbiExecutorOptions } from './abi-router.ts'
 
 export { describeRefusal, screenElf } from './elf.ts'
 export type {

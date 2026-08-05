@@ -60,6 +60,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [ ] **Phase 21: AOT Translation Signing & Runtime** - `translationCid` is called by the lift pipeline and a production node constructs a real `WasiExecutor`
 - [ ] **Phase 22: Reachability Guard** - A guard test fails when an exported capability has no path from a runnable entry point — the class of defect this milestone exists to fix
 - [ ] **Phase 23: Multi-Process Benchmark Driver** - The harness spawns N real operating-system processes instead of N nodes on one event loop, so a parallel speedup is measurable at all
+- [ ] **Phase 24: Certificate-Gated Admission** - The front door is locked: a node that cannot present a provider-issued certificate cannot reserve a circuit, be advertised, or be dialled. Scheduled later by owner ruling 2026-08-04; the open door is a KNOWN and accepted state until this phase runs
 
 ## Phase Details
 
@@ -640,7 +641,7 @@ Criterion 6 needs no plan — it landed on `develop` as `351bde1` before this ph
 **Goal**: Verification quorums compose under anti-affinity with a backbone-anchored replica, owner-domain agreement is labelled distinctly from independent-operator agreement, and two browser tabs on a static bundle find each other with nothing dialed by a harness
 **Mode:** mvp
 **Depends on**: Phase 18, Phase 17
-**Requirements**: AUTH-05, NET-06, VER-03, VER-04, VER-08, VER-09, VER-10, WIRE-03
+**Requirements**: AUTH-04, AUTH-05, NET-06, VER-03, VER-04, VER-08, VER-09, VER-10, WIRE-03
 **Research**: None — but *"the gap"* is three different gaps, and calling them one is what this line got wrong. **Corrected in place 2026-08-03 by plan 19-03**; the superseded sentence and the measurements that refute it are in the dated note below the criteria. `attestationReceipt` and `resolveReplicaSets` exist, are unit-verified in Phase 6, and are indeed only *uncalled* on the production dispatch path. `composeQuorum` is not in that state: VER-03's anchored replica is **unimplemented rather than unwired**, and its ok arm returns `strength: 'independent'` unconditionally while never calling `classifyAttestation`, so wiring it as it stood would have reported every quorum `independent`. And no test had ever put two tabs on a static bundle without a harness dialing for them — that one is closed by 19-03
 **Constraints** (recorded 2026-07-28 by Phase 13, before criterion 2's plan is written):
   - Raw sovereign data does not move between nodes, including two nodes the same owner controls — `EgressGuard.send` refuses any frame carrying a registered sovereign payload rather than forwarding it (Plan 13-04). Criterion 2 below is therefore reachable only if the owner has already placed the input on both of their live nodes; the fabric will not fetch it onto the second one. See the **Raw sovereign data does not move between nodes** row in `.planning/PROJECT.md`'s Key Decisions
@@ -690,12 +691,19 @@ Criterion 6 needs no plan — it landed on `develop` as `351bde1` before this ph
      WHAT IT USED TO SAY. *"discover each other via the wired `index`/`reservations` hooks"*.
      That reads as though both hooks were wired on both tiers, and one of them is not.
 
-     WHAT WAS MEASURED. `index` is wired on both tiers and identically: `index: records` at
-     `browser-node.ts:1178` and `fabric-node.ts:1578`, each built by the same `ownRecords(
-     certificate, identity, sovereignty.canExecuteSovereign, store, withholdingFrom(
-     egressDisposition))` call over its own tier's store. `reservations` is wired on the Node
-     tier only — a real thunk over the reservation store at `fabric-node.ts:1601` — while the
-     browser tier supplies the **named absence** `'relays-for-nobody'` at `browser-node.ts:1201`.
+     WHAT WAS MEASURED. `index` is wired on both tiers and identically: each tier's
+     `serveAgent` call passes `index: records`, built by the same `ownRecords(certificate,
+     identity, sovereignty.canExecuteSovereign, store, withholdingFrom(egressDisposition))`
+     call over its own tier's store. `reservations` is wired on the Node tier only — a real
+     thunk over the reservation store, `reservations: () => node.reservedPeerIds` — while the
+     browser tier supplies the **named absence** `reservations: 'relays-for-nobody'`.
+
+     CITED BY SYMBOL, NOT BY LINE, and that is the correction rather than the numbers.
+     Warning W2 flagged four drifted line citations on 2026-08-04; they were corrected, and a
+     commit later the same day moved every one of them again by one line (W9). Three rounds of
+     chasing the same four numbers is enough evidence: a line number is an ABSOLUTE reference
+     into a file that keeps changing, and it rots silently while reading like evidence. A
+     grep-able symbol survives every edit that does not change the thing being cited.
 
      WHY NOT SIMPLY NAME `index` ALONE. `19-CONTEXT.md` proposed exactly that, and the owner
      ruled on 2026-08-03 that it **understates** the criterion. Both hooks are load-bearing;
@@ -713,7 +721,15 @@ Criterion 6 needs no plan — it landed on `develop` as `351bde1` before this ph
      later phase wants it, it is a protocol question about what the hook asserts.
 
      MEASURED, not argued from construction: `packages/node/src/static-rendezvous.e2e.test.ts`
-     takes both readings on the built bundle with no origin to ask and no harness dial. -->
+     takes the `reservations` reading on the built bundle with no origin to ask and no harness
+     dial, and `tab-refusals.e2e.test.ts:371,377` takes the `index` reading off a live tab over
+     the wire.
+
+     CORRECTED 2026-08-04 (verification warning W3). This read "takes both readings", which was
+     false: that file issues no `records` or `providers` request anywhere — discovery is
+     `findReservedPeers` alone, `computePeers` sends an `offer`, and its tabs are unenrolled so
+     `peerCertificate` returns before asking. The CLAUSE STILL HOLDS and criterion 4 remains
+     MET; only the sentence naming which file takes which reading was wrong. -->
 
   5. **Enrolling a node costs an attacker something they cannot mint for free**, and the cost is measured: creating the N-th fake identity is demonstrably more expensive than creating the first. Routed here by owner ruling 2026-08-01 from Phase 17's AUTH-04, whose rate-limiting half is proven and whose cost half is not
 
@@ -858,8 +874,8 @@ Plans:
 **Goal**: `submitJob` becomes the one job path — lease renewal, speculation, and coverage accounting live inside it, not in a second uncalled implementation — and the peer ledger records real cross-node outcomes instead of discarding them
 **Mode:** mvp
 **Depends on**: Phase 18, Phase 19
-**Requirements**: WIRE-04, CHURN-01, CHURN-02, CHURN-03, CHURN-04, CHURN-05, CHURN-06, BROW-02
-**Research**: None — `runResilient`'s lease/speculation/coverage machinery exists and is unit-verified in Phase 7; the gap is that nothing calls it, so `submitJob` is the only reachable job path and it does neither. `ledger` (made explicit in Phase 11) is supplied by no node in production
+**Requirements**: WIRE-04, CHURN-01, CHURN-02, CHURN-03, CHURN-04, CHURN-05, CHURN-06, BROW-02, AUTH-04
+**Research**: Mostly none — `runResilient`'s speculation and coverage machinery exists and is unit-verified in Phase 7; the gap is that nothing calls it. **Corrected 2026-08-04: this is FALSE of lease renewal, which criterion 1 names first.** `LeaseTable.renew`, `shouldRenew` and `RENEW_AT` have no caller anywhere outside `lease.test.ts`, and `runResilient` never renews — so renewal must be BUILT, not wired, and is prioritised accordingly by owner ruling. The hard constraint on that build: an unconditional renew is a longer timeout wearing a lease's clothes, so a renewal must be granted only on evidence that the holder is still working, so `submitJob` is the only reachable job path and it does neither. `ledger` (made explicit in Phase 11) is supplied by no node in production
 **Success Criteria** (what must be TRUE):
   1. `submitJob` is the only function a caller uses to run a job through `bin/agent.ts` — it performs lease renewal, speculation, and coverage accounting internally; `runResilient` no longer exists as a separate, uncalled entry point, either merged in or removed
 
@@ -907,6 +923,26 @@ Plans:
   4. A cross-owner job run with some owners' nodes offline returns a coverage report (`covered: X/Y`) alongside its result, rather than presenting a silently partial aggregate as complete
   5. The browser demo's peer activity ledger, viewed across two or more connected tabs, shows merged counts contributed by every connected peer — not zero — because every node now supplies `serveAgent`'s `ledger` hook and reported outcomes are recorded rather than discarded
   6. **A combine result arriving from a recovered node *after* `executeReduce` has already collected its `wanted` replicas is received and discarded harmlessly** — an unsolicited late duplicate, not one the test asked for. Routed here by owner ruling 2026-07-31 from Phase 16's criterion 3, which scored PARTIAL for this clause alone
+  7. A coordinator writes a checkpoint during a live job run through `bin/agent.ts`, and a SECOND requestor — given nothing but that checkpoint's CID — finishes only the outstanding shards and returns the same answer the first would have
+
+<!-- CRITERION 7 ADDED 2026-08-04 BY OWNER RULING, and the reason is a scoring gap rather than
+     a scope increase.
+
+     CHURN-03 was on this phase's `Requirements:` line and on NONE of its criteria. This project
+     counts over criteria and never over requirements — "a requirement can outlive the phase that
+     opened it; a criterion cannot" — so the work planned for CHURN-03 in plan 20-11 would have
+     been built and then never scored by any verifier. That is the exact "built, not wired"
+     condition this milestone exists to eliminate, reappearing in the ledger instead of the code.
+
+     WHAT IS ALREADY TRUE: `checkpoint.ts` is complete and imported by nothing — `coordinator.ts`
+     does not even import it. So this is a wiring criterion, not a build one.
+
+     WHY "A SECOND REQUESTOR" AND NOT "RESUMES": a resume by the same process proves only that a
+     value survived in memory. Handing a different requestor nothing but a CID is what makes the
+     checkpoint a durable artifact rather than a variable, and it is the only reading that cannot
+     be satisfied by the original job's state. -->
+
+
 **Plans**: TBD
 
 **Criterion 6 exists because Phase 16 could measure half of its own criterion 3 and said so.** The dedupe property is fully established there across nine real `bin/agent.ts` processes — probe-store deltas `+1/+0/+1`, a ninth fresh process returning the identical CID, two holders at redundancy 2 — but *"arriving late"* is not, because `executeReduce` stops at `wanted` replicas and **has no channel on which a late result could be received at all**. The duplicate in Phase 16's test is therefore solicited by the test, and `tree-reduce-agents.node.test.ts` says so about itself rather than letting the reading pass for more than it is.
@@ -1044,6 +1080,96 @@ It lands **here** rather than in Phase 15 for one reason: this phase already rew
 **Trap to avoid.** The COST crossover published at ~570× measures the guest ABI on a trivial fixture, not the fabric. Criterion 2 requires a fixture that does non-trivial work, or the new curve reproduces the old one's real problem with more processes.
 
 ## Requirement Coverage
+
+### Phase 24: Certificate-Gated Admission
+**Goal**: The network's front door is locked — a node that cannot present a provider-issued certificate cannot reserve a circuit, be advertised, or be dialled, so an identity that was never issued buys nothing
+**Mode:** mvp
+**Depends on**: Phase 19 (which opened the clause), and see the scheduling note below on Phase 22
+**Requirements**: AUTH-02, AUTH-04
+**Research**: Done 2026-08-04, read-only pass, recorded in `phase-24-certificate-gated-admission/24-CONTEXT.md`
+**Success Criteria** (what must be TRUE):
+  8. Enrolment's cost is bounded by admission, not by a counter: a node that cannot present a provider-issued certificate cannot join the fabric, advertise itself, or be dialled by another node — so an identity that was never issued buys nothing, and the N-th identity costs an attacker a provider's willingness to sign it
+
+<!-- CRITERION 8 ADDED 2026-08-04 BY OWNER RULING, replacing a stalled criterion in Phase 19.
+
+     PHASE 19's CRITERION 5 read "enrolment costs something unmintable, and the N-th identity
+     costs more than the first". It verified PARTIAL twice: the unmintable half is delivered and
+     measured across real processes including restart and two-provider recovery, but the N-th
+     identity is REFUSED inside the issuance window rather than PRICED. Measured comparatively:
+     a provider's cost to refuse over an attacker's cost to mint a fresh identity is ~3.0, and
+     over a replay ~1397 — so an attacker burns the window at roughly a third of what refusing
+     costs, and the denial then applies to every honest node for the rest of the window at no
+     further cost.
+
+     THE OWNER'S RULING, 2026-08-04, and it relocates the guard rather than lowering the bar:
+     *"The lifecycle of the node in the network starts from connecting to the relay. If the node
+     that connects in can authenticate itself with certificate issued by provider, then it gets
+     in to advertise itself in the network and connect to nodes. If it cannot authenticate — it
+     cannot join the network and connect to other nodes."*
+
+     WHY THAT ANSWERS THE COST CLAUSE RATHER THAN DUCKING IT. A price only deters when the thing
+     bought is worth something. Under this ruling an unissued identity is worth NOTHING — it
+     cannot join, advertise or be reached — so the cost of the N-th identity is not CPU, it is a
+     provider's signature, which is exactly the unmintable thing the first half of the criterion
+     already secured. The counter stops being the defence and becomes an accounting detail.
+
+     WHAT THIS DOES NOT EXCUSE. Enrolment itself is still served unauthenticated — it must be,
+     since it is how a node gets its first certificate — so a provider can still be made to spend
+     CPU refusing. What changes is that the attacker gains no foothold for it. That residual is
+     to be measured and pinned, not argued away.
+
+     THE MEASURED MITIGATION THAT DOES NOT WORK, recorded so it is not re-tried: a capacity slot
+     on the `enrol` branch served 8 of 8 concurrent enrolments, because `enrol` is synchronous so
+     the bound never binds; in a rig where an `exec` held the shared table it served 0 of 8. It
+     bounds the wrong verb. -->
+
+<!-- SCHEDULED LATER BY OWNER RULING 2026-08-04, and the state it leaves in place is KNOWN AND
+     ACCEPTED rather than undiscovered. Owner: *"yes, I know. Plan it for later."*
+
+     THE STATE, so the next reader does not file it as a fresh emergency and repeat the
+     investigation. The relay authenticates NOTHING: `circuitRelayServer` is constructed with
+     capacity limits only, no ACL and no gater, so a joining peer presents a Noise handshake and
+     nothing else. `SeedServer` publishes every reservation holder to every arriving browser
+     without a filter, and the `reservations`, `records` and `providers` answers are served to
+     anyone. **Every certificate check in the repository gates SELECTION — which peer I choose to
+     fetch from or dispatch to — and none gates ADMISSION.** The fabric admits everyone and
+     filters late. `peer-gate.node.test.ts` already recorded gating relay use as "UNMEASURED, not
+     descoped"; this phase is what measures it.
+
+     TWO FACTS THAT MAKE THE SELECTION GATES WEAKER THAN THEY LOOK. `PeerVerifier` FAILS OPEN —
+     pinned nobody means trust everybody — and its own header records that not one `FabricNode`
+     in this repository configures an anchor. And `SeedServerOptions` has no `trustedIssuers`
+     field at all, so the front door cannot be asked to check even if somebody wanted it to;
+     `--trust-anchor` on `bin/seed.ts` is module provenance (DET-03), a different thing wearing a
+     similar name.
+
+     WHY THIS CRITERION IS THE ANSWER TO PHASE 19's CRITERION 5 rather than a replacement for it.
+     19's criterion 5 verified PARTIAL twice: the unmintable half is delivered, but the N-th
+     identity is REFUSED inside an issuance window rather than PRICED, and an attacker burns that
+     window at roughly a third of what refusing costs. A price only deters when the thing bought
+     is worth something — and under gated admission an unissued identity is worth NOTHING, so the
+     cost of the N-th identity is a provider's signature, which is the unmintable thing the first
+     half already secured. Same carry-forward pattern as 18's 2b -> 20's criterion 1, 16's
+     criterion 3 -> 20's criterion 6, and 17's criterion 2 -> 18's 2d.
+
+     WHAT IS NOT EXCUSED BY IT. Enrolment stays unauthenticated because it must be — it is how a
+     node gets its first certificate — so a provider can still be made to spend CPU refusing. That
+     residual is to be measured and pinned, not argued away. And the mitigation everyone reaches
+     for does NOT work, measured: a capacity slot on the `enrol` branch served 8 of 8 concurrent
+     enrolments because `enrol` is synchronous so the bound never binds; in a rig where an `exec`
+     held the shared table it served 0 of 8. It bounds the wrong verb.
+
+     A TOPOLOGY REQUIREMENT THIS PHASE CREATES. Enrolment is a DIRECT dial on both tiers and does
+     not route through a reservation, so gating the reservation still leaves a tab able to enrol —
+     because for a browser tab the provider and the relay are the SAME node at the SAME address.
+     That resolution is available today and fails the moment a deployment separates them. The
+     requirement must be stated, not assumed.
+
+     SCHEDULING NOTE FOR THE OWNER. Phase 22 currently "runs last because it verifies what all
+     eleven other phases claim to have wired". A reachability guard that runs BEFORE admission is
+     gated passes over a fabric with an open door. Whether that matters depends on what WIRE-02
+     actually claims, and it is an owner decision rather than a planner's. -->
+
 
 ### v1.0 (Phases 1-10)
 

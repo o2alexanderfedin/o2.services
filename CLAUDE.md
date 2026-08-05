@@ -340,7 +340,70 @@ manifest and coverage report, not by a quorum.
 <!-- GSD:conventions-start source:CONVENTIONS.md -->
 ## Conventions
 
-Conventions not yet established. Will populate as patterns emerge during development.
+Each rule below was paid for. The cost is stated so nobody relaxes one on the grounds that
+it looks like ceremony.
+
+### Concurrent agents share ONE working tree and ONE git index
+
+- **Commit with explicit paths — `git commit -- <path> <path>` — never a bare `git commit`.**
+  A bare commit sweeps whatever another agent has *already staged* into your commit. The tree
+  stays green and the history is silently wrong. "Never `git add -A`" is necessary but **not**
+  sufficient: it constrains what you stage and says nothing about what is already staged.
+  After committing, read `git show --stat` and confirm only your own files are in it.
+- **`git add` immediately after each edit group** — staged content lives where another agent's
+  working-tree revert cannot reach it.
+- **But `git add` only *between* test runs, never *during* one.** At least two specs snapshot
+  `git status --porcelain` around themselves and assert it is unchanged —
+  `packages/node/src/discover-arm.node.test.ts` and
+  `packages/node/src/bench-attestation.node.test.ts` — so moving the index mid-run turns them
+  red for reasons unrelated to any code. **With concurrent agents this is not self-discipline
+  but a shared hazard**: one agent staging a file has reddened another agent's sweep. If either
+  spec fails, check what the index was doing before you look at the code.
+- **Never `git stash` a path you do not own.** It is a write despite the word — it reverted
+  ~250 lines of a concurrent agent's in-progress work. Likewise never `git checkout --` a file
+  you did not write. Restore a planted mutation with `cp` + `cmp`.
+- Never switch branches without a clean `git status`.
+- A whole-tree `tsc --noEmit` reports another agent's mid-edit files. **Re-run before
+  diagnosing, and never "fix" a file outside your own list.**
+
+### Measurement
+
+- **Never trust an exit code you did not read directly.** `EXIT=$?` on the line *immediately*
+  after the command — no pipes, no trailing `echo`/`tail`. A trailing `tail` has made a
+  *failing* vitest run report success more than once.
+- **Run vitest by project** — `npx vitest run --project node|browser|e2e|perf`. A bare path
+  fans out across all four.
+- **Prefer a comparative reading to an absolute one.** An absolute threshold silently encodes
+  the machine, the load and the I/O weather of the day it was written, and then fails
+  somewhere else for reasons that have nothing to do with the code. A ratio taken *within one
+  run* cancels all three. So: measure the thing against a calibration workload in the same
+  run and assert on the ratio; compare a file against its own earlier reading; compare arm A
+  against arm B of the same fixture. Reserve absolutes for the cases where nothing else is
+  available, and say what they were sited against.
+- **Measure the process, not the machine.** System load average counts machine-wide runnable
+  *and* I/O-blocked threads and says nothing about whether *your* process got CPU — this host
+  has shown load 33 while a CPU-bound process still held 95% of a core. Use
+  `/usr/bin/time -p <cmd>` and record `real`/`user`/`sys` plus the derived `(user+sys)/real`.
+  That ratio is a *comparability key*, not a verdict: for a spawn- or network-heavy spec
+  `real` legitimately exceeds CPU time because the process is waiting, not starving.
+- **Never write a measured span you did not measure**, and record the conditions beside it.
+  Note `--reporter=json` attributes **no hook time**, so a spawn in `beforeAll` makes a slow
+  file look instant — a 154 s file once reported 235 ms.
+- **Attribute a failure by measurement, not by plausibility.** "Passes in isolation" is a
+  claim to verify, not a diagnosis; one recorded instance of it was simply false. Two
+  hypotheses about a single defect have died here despite each having arithmetic that fit —
+  a number that agrees with a theory is not the theory's proof.
+
+### Proofs
+
+- **A proof that cannot fail is not a proof.** Plant the mutation, *watch* it go red, restore,
+  and record the observed text. If a plant leaves the file green, say so and name which case
+  actually carries the claim — a green you did not watch fail is worse than a gap you reported.
+- **A comment is not a specification.** Rules here have entered the tree as
+  proposal → docblock → implementation, and been retracted. When a comment and a requirement
+  disagree, the requirement wins and the comment gets fixed.
+- **Descoped is not satisfied; unmeasured is not met.** Never close a gap by widening what
+  counts as passing.
 <!-- GSD:conventions-end -->
 
 <!-- GSD:architecture-start source:ARCHITECTURE.md -->

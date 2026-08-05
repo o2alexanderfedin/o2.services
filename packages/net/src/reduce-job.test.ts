@@ -1,16 +1,27 @@
 import {
+  EnrollmentAuthority,
   MAX_PARTIAL_BYTES,
   MemoryBlockstore,
   MemoryNetwork,
   WasmExecutor,
   canonicalCid,
+  decodeCanonical,
   deriveReduceTree,
   fabricCombiner,
   publicNodes,
   rendezvousRank,
+  requestEnrollment,
+  signCombine,
   submitJob,
 } from '@o2/core'
-import type { CanonicalValue, JobResult, ShardResult } from '@o2/core'
+import type {
+  Blockstore,
+  CanonicalValue,
+  JobResult,
+  PublicKeyHex,
+  ResultSigner,
+  ShardResult,
+} from '@o2/core'
 import { CID } from 'multiformats/cid'
 import { describe, expect, it } from 'vitest'
 // Test-only relative import, exactly as `distributed.test.ts` does it: `@o2/core`'s
@@ -19,6 +30,7 @@ import { describe, expect, it } from 'vitest'
 import { MODULE_WRITES_PARTITION } from '../../core/src/executor/fixtures.ts'
 import { RpcBlockSource, serveAgent } from './agent.ts'
 import { FetchingBlockstore } from './block.ts'
+import { encodeResponse, parseRequest } from './protocol.ts'
 import { RemoteExecutor } from './remote-executor.ts'
 import { reduceJob } from './reduce-job.ts'
 import { RpcEndpoint } from './rpc.ts'
@@ -115,6 +127,14 @@ function jobWith(shards: readonly ShardResult[]): JobResult {
     grossFuel: 0,
     usefulFuel: 0,
     verificationMultiplier: 1,
+    // A fixture job that never had to retry anything, stated rather than omitted: these
+    // literals stand for the *output* of a submission, and `submitJob` reports both of
+    // these on every job since Phase 20 gave a shard a second generation. `reduceJob`
+    // reads neither — it consumes `shards` and `attestation` — so the honest value here
+    // is the one a job with no churn produces, which is zero re-dispatches over a
+    // history whose only events would be the grants and completions of a clean run.
+    redispatches: 0,
+    leaseHistory: [],
   }
 }
 
@@ -131,6 +151,14 @@ function agreed(partitionIndex: number, output: CanonicalValue): ShardResult {
     inputCid: FIXED_CID,
     degraded: false,
     rejections: [],
+    // One generation, one node, no re-dispatch — the shape of a shard that agreed the
+    // first time it was asked. `'w0'` is the same node `verification.agreeing` names
+    // below, because the set attempted and the set that answered coincide exactly when
+    // nothing failed, and inventing a second name here would describe a retry this
+    // fixture did not have.
+    attempted: ['w0'],
+    generations: 1,
+    ending: 'agreed',
     attestation: {
       kind: 'holds-no-verified-attestation',
       reason: 'the executor this fixture stands for signs nothing',
@@ -166,6 +194,12 @@ function insufficient(partitionIndex: number): ShardResult {
     degraded: true,
     // Empty for the same reason as `agreed` above: no offer was made here.
     rejections: [],
+    // A shard nobody would take, so nothing was ever attempted and no generation ran.
+    // `'never-placed'` rather than `'no-untried-node'`: this fixture stands for the
+    // unplaceable arm, which is reached before the generation loop is entered at all.
+    attempted: [],
+    generations: 0,
+    ending: 'never-placed',
     attestation: {
       kind: 'holds-no-verified-attestation',
       reason: 'this shard is insufficient rather than agreed, so there is no agreement to attest',
@@ -250,11 +284,30 @@ describe('MR-04 / MR-05 / MR-07 — eight shards reduce over eight peers that ca
         blockstore: fabric.originStore,
         project,
         redundancy: 2,
+        // Every agent in this fabric passes `attest: 'signs-nothing'`, so there is no
+        // combine signature here to check against anything. The sentinel is the honest
+        // statement of that — an issuer set would say this requestor checked signatures
+        // and found none, which is a different (and false) claim about the run.
+        trustedIssuers: 'checks-no-combine-signatures',
       })
 
       expect(result.ok).toBe(true)
       if (!result.ok) return
       const { outcome, tree, leaves, skipped } = result
+
+      // The `ok: true` arm's whole surface, asserted as a key set rather than as a
+      // whole-object `toEqual` — `outcome` carries two `Map`s and `tree` carries every
+      // leaf, so an object literal here would be unreadable and would be rewritten
+      // rather than read. The property worth keeping is the one a `toMatchObject`
+      // throws away: a field added to this arm and reported nowhere fails here.
+      expect(Object.keys(result).sort()).toEqual([
+        'aggregateAttestation',
+        'leaves',
+        'ok',
+        'outcome',
+        'skipped',
+        'tree',
+      ])
 
       expect(skipped).toEqual([])
       // The leaf count is the shard count — this test's own input, not a derived figure.
@@ -278,6 +331,19 @@ describe('MR-04 / MR-05 / MR-07 — eight shards reduce over eight peers that ca
       // Two independent executors produced each combine and their answers deduped,
       // because they carry the same CID.
       expect(outcome.minReplicas).toBe(2)
+
+      // **Two replicas per combine and no aggregate strength**, which is the pair worth
+      // asserting together: redundancy is not attestation. These agents sign nothing, so
+      // this requestor holds no statement about who performed the aggregation, and the
+      // receipt says so instead of reading the redundancy off `minReplicas`.
+      expect(result.aggregateAttestation).toEqual({
+        kind: 'holds-no-verified-aggregate-attestation',
+        reason:
+          'this requestor checks no combine signatures, so it holds no statement about who ' +
+          'performed this aggregation',
+        combines: tree.nodes.length,
+        verified: 0,
+      })
 
       // Every leaf is resident in the store the combine nodes fetch from.
       for (const leaf of leaves) expect(await fabric.originStore.has(leaf)).toBe(true)
@@ -321,6 +387,11 @@ describe('reduceJob names what it could not do, rather than presenting a partial
     executors: ['w0'],
     blockstore: new MemoryBlockstore(),
     project,
+    // These cases are about the named failures a reduce reports before any combine is
+    // dispatched, so nothing here has a signature to check. Stated rather than defaulted:
+    // the option is required precisely so a caller cannot arrive at a receipt without
+    // having said what it checks against.
+    trustedIssuers: 'checks-no-combine-signatures' as const,
     ...over,
   })
 
@@ -408,6 +479,449 @@ describe('reduceJob names what it could not do, rather than presenting a partial
     // `executeReduce` already handles this by returning `ok: false` with
     // `failed: [tree.rootId]`, which is true and tells the caller nothing about why.
     expect(result).toEqual({ ok: false, reason: 'no executor to combine on' })
+  })
+})
+
+// ─── VER-08 / VER-09 / VER-10 — the AGGREGATION's own receipt ────────────────────────
+//
+// **Two receipts, and conflating them would be worse than having one.** The map half's
+// receipt is `submitJob`'s and rides on `JobResult.attestation`; this half is
+// `reduceJob`'s and is about a different claim. `PROJECT.md` splits them because they
+// routinely differ: a sovereign map is owner-attested by construction — pinning data to
+// one owner removes the second executor — while the aggregation over it can be redundant,
+// since a combine reads only content-addressed partials and is runnable anywhere.
+// `reduce.ts`'s `ReduceRun.redundancy` doc states the same split in the source's own
+// words. Every fixture below therefore carries the map half's **named absence** (see
+// `jobWith`) while asserting a real strength for the aggregation, which is the pairing
+// that would be impossible if one receipt stood for both.
+
+/** The provider every fixture worker below enrols with. */
+const FIXTURE_PROVIDER_SEED = new Uint8Array(32).fill(41)
+/** One user key across the fixture's nodes — the operator id is what diversity is about. */
+const FIXTURE_USER_SEED = new Uint8Array(32).fill(42)
+
+/**
+ * How one fixture peer answers a `combine`.
+ *
+ * `'the production agent'` is `serveAgent`, which is what makes the three label readings
+ * measurements of production code rather than of this file. The object arm is a
+ * hand-written peer, and it exists for the two properties `serveAgent` **cannot** be
+ * asked to produce: a node that refuses a particular level of the tree, and a node whose
+ * signature covers an input order it did not merge in.
+ */
+type FixtureBehaviour =
+  | 'the production agent'
+  | {
+      /** Answer `resultCid: null` at this level, the way an over-capacity node does. */
+      readonly refusesLevel: number | 'refuses-nothing'
+      readonly signsOver: 'the inputs as merged' | 'the inputs reversed'
+    }
+
+interface FixtureWorker {
+  readonly operatorId: string
+  /** The byte its 32-byte node seed is filled with. Two workers may share one — see the duplicate case. */
+  readonly seedByte: number
+  readonly behaviour: FixtureBehaviour
+}
+
+/**
+ * A hand-written combine peer.
+ *
+ * Serves exactly two verbs, because that is all a reduce asks of a peer: `block`, so the
+ * requestor can fetch the merge back, and `combine`. It merges **honestly** with the
+ * fabric's own `fabricCombiner` in every arm — a peer that answered with the wrong bytes
+ * would be refused by `remoteCombineDispatch`'s content-address check long before any
+ * signature was looked at, which would prove nothing about the receipt.
+ */
+function serveFixtureCombiner(options: {
+  readonly rpc: RpcEndpoint
+  readonly blockstore: Blockstore
+  readonly signer: ResultSigner
+  readonly refusesLevel: number | 'refuses-nothing'
+  readonly signsOver: 'the inputs as merged' | 'the inputs reversed'
+}): void {
+  options.rpc.serve(async (_from, body) => {
+    const request = parseRequest(body)
+    if (request === null) return encodeResponse({ kind: 'error', reason: 'malformed request' })
+    if (request.kind === 'block') {
+      const bytes = await options.blockstore.get(request.cid)
+      return encodeResponse({ kind: 'block', bytes: bytes ?? null })
+    }
+    if (request.kind !== 'combine') {
+      return encodeResponse({ kind: 'error', reason: 'this fixture serves only block and combine' })
+    }
+    if (options.refusesLevel !== 'refuses-nothing' && request.level === options.refusesLevel) {
+      // The combine reply shape and not an `error` frame, exactly as `agent.ts`'s own
+      // admission refusal does it — and with the sentinel, because a combine this peer
+      // did not run is not a merge it can make a statement about.
+      return encodeResponse({
+        kind: 'combine',
+        resultCid: null,
+        reason: `this fixture refuses level ${String(request.level)}`,
+        attestation: 'signed-by-nobody',
+      })
+    }
+    const inputs: CanonicalValue[] = []
+    for (const cid of request.inputCids) {
+      const bytes = await options.blockstore.get(cid)
+      if (bytes === undefined) {
+        return encodeResponse({
+          kind: 'combine',
+          resultCid: null,
+          reason: `combine input ${cid.toString()} not held`,
+          attestation: 'signed-by-nobody',
+        })
+      }
+      inputs.push(decodeCanonical(bytes))
+    }
+    const hashed = await canonicalCid(fabricCombiner(inputs))
+    if (!hashed.ok) throw new Error('fixture merge is not encodable')
+    await options.blockstore.put(hashed.bytes)
+    // **The whole of the dishonest arm is the ORDER**, and nothing else: the result is
+    // the honest merge and hashes to what is claimed. `fabricCombiner` is commutative,
+    // so a reversed input list produces the identical bytes — which is what makes this a
+    // statement about a merge that did not happen rather than a wrong answer, and is
+    // exactly what `combineChallenge`'s never-sort rule exists to catch.
+    const signedOver =
+      options.signsOver === 'the inputs as merged' ? request.inputCids : [...request.inputCids].reverse()
+    return encodeResponse({
+      kind: 'combine',
+      resultCid: hashed.cid,
+      reason: '',
+      attestation: signCombine(options.signer, signedOver, hashed.cid),
+    })
+  })
+}
+
+/** A requestor that serves its own blocks, plus N enrolled combine peers. */
+async function combineFabric(workers: readonly FixtureWorker[]) {
+  const network = new MemoryNetwork()
+  const authority = new EnrollmentAuthority({
+    providerPrivateKey: FIXTURE_PROVIDER_SEED,
+    maxPerWindow: 100,
+    maxIssuedPerWindow: 'issues-without-an-aggregate-budget',
+    issuance: 'remembers-only-within-this-process',
+  })
+
+  const requestorStore = new MemoryBlockstore()
+  const requestorRpc = new RpcEndpoint(network.connect('requestor'), { timeoutMs: 5_000 })
+  serveAgent({
+    ...SENTINELS,
+    rpc: requestorRpc,
+    executor: new WasmExecutor({ nodeId: 'requestor', blockstore: requestorStore }),
+    blockstore: requestorStore,
+  })
+
+  const endpoints: RpcEndpoint[] = [requestorRpc]
+  const ids: string[] = []
+  const signers: ResultSigner[] = []
+
+  for (const [index, worker] of workers.entries()) {
+    const id = `w${String(index)}`
+    const nodeSeed = new Uint8Array(32).fill(worker.seedByte)
+    // Enrolled at the real clock, because `reduceJob` verifies at the real clock: a
+    // fixed fixture epoch would make every certificate here `not-yet-valid` or `expired`
+    // and every reading below the named absence for a reason unrelated to attestation.
+    const enrolled = authority.enrol(
+      requestEnrollment(nodeSeed, FIXTURE_USER_SEED, {
+        operatorId: worker.operatorId,
+        discoverability: 'seed',
+        relayIds: [],
+      }),
+      Date.now(),
+    )
+    if (!enrolled.ok) throw new Error(`fixture enrolment failed: ${enrolled.reason}`)
+    const signer: ResultSigner = { nodeSeed, certificate: enrolled.certificate }
+
+    const rpc = new RpcEndpoint(network.connect(id), { timeoutMs: 5_000 })
+    // The requestor is where the leaves live, so it is the one place a combine peer
+    // fetches from — the same topology every fabric in this repository has.
+    const store = new FetchingBlockstore(
+      new MemoryBlockstore(),
+      new RpcBlockSource(rpc, () => ['requestor']),
+    )
+    if (worker.behaviour === 'the production agent') {
+      serveAgent({
+        ...SENTINELS,
+        rpc,
+        executor: new WasmExecutor({ nodeId: id, blockstore: store }),
+        blockstore: store,
+        attest: signer,
+      })
+    } else {
+      serveFixtureCombiner({
+        rpc,
+        blockstore: store,
+        signer,
+        refusesLevel: worker.behaviour.refusesLevel,
+        signsOver: worker.behaviour.signsOver,
+      })
+    }
+    endpoints.push(rpc)
+    ids.push(id)
+    signers.push(signer)
+  }
+
+  return {
+    requestorRpc,
+    requestorStore,
+    ids,
+    signers,
+    trustedIssuers: new Set<PublicKeyHex>([authority.issuerKey]),
+    close: () => {
+      for (const rpc of endpoints) rpc.close()
+    },
+  }
+}
+
+/** A job of `count` agreed shards, each with a distinct partition output. */
+function agreedJob(count: number): JobResult {
+  return jobWith(Array.from({ length: count }, (_, i) => agreed(i, partitionOutput(i))))
+}
+
+describe('a reduction reports how strongly its own AGGREGATION is attested', () => {
+  /**
+   * The three labels are one expression on three inputs.
+   *
+   * Asserted in one case rather than three, because either reading alone is satisfied by
+   * a constant: a driver hardcoding `'owner-attested'` passes the first, one hardcoding
+   * `'independent'` passes the third, and only the set of them together says the value
+   * followed its input. `describeAttestation`'s own sentence is compared rather than
+   * transcribed, so the two surfaces cannot drift.
+   */
+  it('reads owner-attested at one producer, owner-domain within one operator, independent across two', async () => {
+    const readings: string[] = []
+    const cases: readonly { readonly workers: readonly FixtureWorker[]; readonly redundancy: number }[] = [
+      {
+        workers: [{ operatorId: 'alice-op', seedByte: 120, behaviour: 'the production agent' }],
+        redundancy: 1,
+      },
+      {
+        workers: [
+          { operatorId: 'alice-op', seedByte: 121, behaviour: 'the production agent' },
+          { operatorId: 'alice-op', seedByte: 122, behaviour: 'the production agent' },
+        ],
+        redundancy: 2,
+      },
+      {
+        workers: [
+          { operatorId: 'alice-op', seedByte: 123, behaviour: 'the production agent' },
+          { operatorId: 'bob-op', seedByte: 124, behaviour: 'the production agent' },
+        ],
+        redundancy: 2,
+      },
+    ]
+
+    for (const { workers, redundancy } of cases) {
+      const fabric = await combineFabric(workers)
+      try {
+        const result = await reduceJob(agreedJob(2), {
+          rpc: fabric.requestorRpc,
+          executors: fabric.ids,
+          blockstore: fabric.requestorStore,
+          project,
+          redundancy,
+          trustedIssuers: fabric.trustedIssuers,
+        })
+        expect(result.ok).toBe(true)
+        if (!result.ok) return
+        expect(result.outcome.ok).toBe(true)
+        // One combine over two leaves, so the tree has exactly one step and "the weakest
+        // step" is not doing any hiding in this case.
+        expect(result.tree.nodes).toHaveLength(1)
+        const receipt = result.aggregateAttestation
+        if ('kind' in receipt) throw new Error(`expected a strength, got ${receipt.reason}`)
+        readings.push(receipt.strength)
+        expect(receipt.replicas).toBe(redundancy)
+      } finally {
+        fabric.close()
+      }
+    }
+
+    expect(readings).toEqual(['owner-attested', 'owner-domain', 'independent'])
+  })
+
+  it('does not count a combine whose signature covers an input order it did not merge', async () => {
+    // **The assertion the whole combine-signing leg exists for.** This peer merged
+    // honestly and its result hashes to what it claimed, so every check that came before
+    // signatures passes; the only thing wrong is what it signed. A requestor that counted
+    // the certificate without checking the signature reports a strength on its own
+    // say-so — see the `verifyCombineAttestation` call this reddens.
+    const fabric = await combineFabric([
+      {
+        operatorId: 'alice-op',
+        seedByte: 125,
+        behaviour: { refusesLevel: 'refuses-nothing', signsOver: 'the inputs reversed' },
+      },
+    ])
+    try {
+      const result = await reduceJob(agreedJob(2), {
+        rpc: fabric.requestorRpc,
+        executors: fabric.ids,
+        blockstore: fabric.requestorStore,
+        project,
+        redundancy: 1,
+        trustedIssuers: fabric.trustedIssuers,
+      })
+      expect(result.ok).toBe(true)
+      if (!result.ok) return
+      // The aggregation itself succeeded — this is not a failed reduce with a footnote.
+      expect(result.outcome.ok).toBe(true)
+      expect(result.outcome.rootCid).not.toBeNull()
+
+      const receipt = result.aggregateAttestation
+      expect('kind' in receipt).toBe(true)
+      if (!('kind' in receipt)) return
+      expect(receipt.kind).toBe('holds-no-verified-aggregate-attestation')
+      expect(receipt.combines).toBe(1)
+      expect(receipt.verified).toBe(0)
+      // The kernel's own words for a signature that does not check out, forwarded rather
+      // than restated — `verifyCombineAttestation`'s `bad-result-signature` reason.
+      expect(receipt.reason).toContain('did not sign')
+    } finally {
+      fabric.close()
+    }
+  })
+
+  it('is set by the weakest step, so a weak leaf-level combine cannot hide under a strong root', async () => {
+    // Five leaves make a two-level tree: one level-1 combine over four leaves, and a root
+    // over that node plus the promoted fifth leaf. `bob` refuses **level 1** only, so the
+    // level-1 combine gets one producer and the root gets two from two operators.
+    const fabric = await combineFabric([
+      { operatorId: 'alice-op', seedByte: 126, behaviour: 'the production agent' },
+      {
+        operatorId: 'bob-op',
+        seedByte: 127,
+        behaviour: { refusesLevel: 1, signsOver: 'the inputs as merged' },
+      },
+    ])
+    try {
+      const result = await reduceJob(agreedJob(5), {
+        rpc: fabric.requestorRpc,
+        executors: fabric.ids,
+        blockstore: fabric.requestorStore,
+        project,
+        redundancy: 2,
+        trustedIssuers: fabric.trustedIssuers,
+      })
+      expect(result.ok).toBe(true)
+      if (!result.ok) return
+      expect(result.outcome.ok).toBe(true)
+      // Measured off `deriveReduceTree`, not asserted from a figure on paper.
+      expect(result.tree.depth).toBe(2)
+      expect(result.tree.nodes).toHaveLength(2)
+      // The shape the case depends on: the two levels really did achieve different
+      // redundancy, or the reading below would be about nothing.
+      expect(result.outcome.minReplicas).toBe(1)
+
+      const receipt = result.aggregateAttestation
+      if ('kind' in receipt) throw new Error(`expected a strength, got ${receipt.reason}`)
+      // The root alone reads `independent`; the tree reads its weakest step.
+      expect(receipt.strength).toBe('owner-attested')
+    } finally {
+      fabric.close()
+    }
+  })
+
+  it('refuses to read two replicas out of one node key, however many peers presented it', async () => {
+    // Two peers, one identity: `attestationReceipt` reports `replicas` from the set it is
+    // handed and cannot know, so a requestor that skipped this check would report a
+    // redundancy of two for an aggregation one node attested. It is reachable rather than
+    // hypothetical — an attestation is transferable by design, so a peer can forward
+    // another's signed statement verbatim, and `reduceJob`'s executors are bare peer ids
+    // with no certificate to compare against.
+    const fabric = await combineFabric([
+      { operatorId: 'alice-op', seedByte: 128, behaviour: 'the production agent' },
+      { operatorId: 'bob-op', seedByte: 128, behaviour: 'the production agent' },
+    ])
+    try {
+      const result = await reduceJob(agreedJob(2), {
+        rpc: fabric.requestorRpc,
+        executors: fabric.ids,
+        blockstore: fabric.requestorStore,
+        project,
+        redundancy: 2,
+        trustedIssuers: fabric.trustedIssuers,
+      })
+      expect(result.ok).toBe(true)
+      if (!result.ok) return
+      // Both peers answered and agreed — the inflation is available to be reported.
+      expect(result.outcome.minReplicas).toBe(2)
+
+      const receipt = result.aggregateAttestation
+      expect('kind' in receipt).toBe(true)
+      if (!('kind' in receipt)) return
+      expect(receipt.verified).toBe(0)
+      expect(receipt.reason).toContain('under one node key')
+    } finally {
+      fabric.close()
+    }
+  })
+
+  it('answers the no-checking sentinel with the named absence, beside a checking run of the same rig', async () => {
+    // The two configurations are shown to differ rather than assumed to: one fabric, one
+    // job, two requestors. Without the pair, "the sentinel reads the absence" would be
+    // satisfied by a rig that never establishes anything.
+    const fabric = await combineFabric([
+      { operatorId: 'alice-op', seedByte: 129, behaviour: 'the production agent' },
+    ])
+    try {
+      const common = {
+        rpc: fabric.requestorRpc,
+        executors: fabric.ids,
+        blockstore: fabric.requestorStore,
+        project,
+        redundancy: 1,
+      }
+      const checking = await reduceJob(agreedJob(2), { ...common, trustedIssuers: fabric.trustedIssuers })
+      const unchecking = await reduceJob(agreedJob(2), {
+        ...common,
+        trustedIssuers: 'checks-no-combine-signatures',
+      })
+      expect(checking.ok && unchecking.ok).toBe(true)
+      if (!checking.ok || !unchecking.ok) return
+
+      const established = checking.aggregateAttestation
+      if ('kind' in established) throw new Error(`expected a strength, got ${established.reason}`)
+      expect(established.strength).toBe('owner-attested')
+
+      const absent = unchecking.aggregateAttestation
+      expect('kind' in absent).toBe(true)
+      if (!('kind' in absent)) return
+      expect(absent.reason).toContain('checks no combine signatures')
+      expect(absent.verified).toBe(0)
+    } finally {
+      fabric.close()
+    }
+  })
+
+  it('says a reduction that merged nothing has no aggregation to attest, rather than reading a strength', async () => {
+    // A single contribution is promoted rather than combined, so no node performed an
+    // aggregation at all. `owner-attested` here would be a claim about a step that never
+    // ran — the same conflation the named absence exists to prevent one level up.
+    const fabric = await combineFabric([
+      { operatorId: 'alice-op', seedByte: 130, behaviour: 'the production agent' },
+    ])
+    try {
+      const result = await reduceJob(agreedJob(1), {
+        rpc: fabric.requestorRpc,
+        executors: fabric.ids,
+        blockstore: fabric.requestorStore,
+        project,
+        redundancy: 1,
+        trustedIssuers: fabric.trustedIssuers,
+      })
+      expect(result.ok).toBe(true)
+      if (!result.ok) return
+      expect(result.tree.nodes).toEqual([])
+      const receipt = result.aggregateAttestation
+      expect('kind' in receipt).toBe(true)
+      if (!('kind' in receipt)) return
+      expect(receipt.combines).toBe(0)
+      expect(receipt.reason).toContain('merged nothing')
+    } finally {
+      fabric.close()
+    }
   })
 })
 
