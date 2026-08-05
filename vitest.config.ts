@@ -163,6 +163,38 @@ const NODE_MEASUREMENT = {
  * minutes. **The guard did its job**: nothing here was discovered by anyone noticing, it
  * was discovered by the count.
  *
+ * ## Four spans Phase 20 handed over, and why not one of them is pinned on
+ *
+ * Recorded 2026-08-05 by plan 20-13, which owns this file for that phase and was told to
+ * add *"any measured span handed over by 20-03, 20-06, 20-09, 20-10 or 20-11"*. **Nothing
+ * was added and no figure moved.** Four of the five plans measured a span and handed it
+ * over rather than editing this file out of turn, and every one of those four files was
+ * then measured again by the whole-table retake above, in one run. Pinning the handed-over
+ * value onto a table taken in a different run is the exact failure step 2 of the procedure
+ * below forbids, and it would destroy the only property this table has.
+ *
+ * The four, with what was handed over beside what the retake read — so that a reader who
+ * finds the hand-over in a summary does not go looking for a row that is missing, and can
+ * see the size of the disagreement rather than being told there is none:
+ *
+ * | file | handed over | this table |
+ * |---|---|---|
+ * | `late-combine.node.test.ts` (20-03) | 7 740 ms of test time, 8 490 ms wall, solo | 15 467 |
+ * | `speculation-agents.node.test.ts` (20-09) | 13 040 ms, solo `real` under `/usr/bin/time -p` | 12 310 |
+ * | `coverage-agents.node.test.ts` (20-10) | 13 820 ms, solo, four quiet runs 13.82–14.29 s | 28 173 |
+ * | `checkpoint-agents.node.test.ts` (20-11) | 10 400 ms of test time, 25 130 ms solo `real` | 6 392 |
+ *
+ * **The disagreements are the host and not the files**, which is the argument this whole
+ * docblock already makes at length: the four hand-overs were solo readings on quiet hosts,
+ * the retake ran 150 files in parallel at a peak load of 109, and both directions appear —
+ * `coverage-agents` doubled and `checkpoint-agents` more than halved. Two of the four
+ * hand-overs are also *test time* rather than a file span, which is a third instrument
+ * again. Averaging any of that would produce a number nobody measured.
+ *
+ * The fifth plan, 20-06, handed over nothing: it recorded no span for
+ * `peer-ledger.e2e.test.ts` and says so in its own summary. That file is in the `e2e`
+ * project in any case, and this table is the `node` project's.
+ *
  * ## Retaking this table: the obvious method is measurably wrong, and that is the defect
  *
  * **`--reporter=json` does not time a file. It times the file's cases.** A file's

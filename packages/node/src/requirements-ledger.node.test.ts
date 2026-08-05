@@ -648,33 +648,39 @@ const UNREACHED = ROWS.filter((row) => UNREACHED_VERDICTS.includes(row.verdict))
  * claim from one that closed the claim it had.
  */
 const WITHOUT_A_CHECKABLE_CLAIM: readonly string[] = [
-  // ── Added 2026-08-05 by Plan 20-12, by a THIRD route this list had not seen ─────────
+  // ── Added 2026-08-05 by Plan 20-12 and RESOLVED the same day by Plan 20-13 ──────────
   //
-  // The seven below did not lose their claim by being satisfied and did not lose it by
-  // being rephrased. They lose it because **the symbol they name was deleted**: every one
-  // reads *"`runResilient` has no caller"* or similar, and 20-12 removed `runResilient`
-  // and its module under WIRE-04, which requires exactly one job entry point. `EXPORTED`
-  // no longer holds the name, so `parseRows` drops the claim and the rows fall through to
-  // here — which is this list doing its job, loudly, rather than seven rows going quietly
-  // unread.
+  // Seven ids stood here for a few hours: `CHURN-01`…`CHURN-06` and `SCHED-03`. They did
+  // not lose their claim by being satisfied and did not lose it by being rephrased — they
+  // lost it because **the symbol they named was deleted.** Every one read *"`runResilient`
+  // has no caller"* or similar, 20-12 removed `runResilient` and its module under WIRE-04,
+  // `EXPORTED` stopped holding the name, and `parseRows` stopped extracting the claim. That
+  // was this list doing its job loudly rather than seven rows going quietly unread, and
+  // 20-12 recorded it as a hand-over with the standing rule attached: **delete them in the
+  // same commit that gives them a claim again.**
   //
-  // **They are the most misleading rows in the ledger right now, not the least.** The
-  // sentence has been false in its second half since 20-01 and 20-07 (`submitJob` does
-  // re-dispatch and does speculate), 20-08 and 20-11 each recorded that and each declined
-  // to fix a row it did not own, and now the first half is false too. Plan 20-13 owns the
-  // rewrite — `CHURN-01`…`CHURN-06` are on its declared list — and **must delete them from
-  // here in the same commit that gives them a claim again**, which is this list's standing
-  // rule in the direction it was written for.
+  // Five are gone, in the two different ways the rule allows:
   //
-  // `SCHED-03` is NOT on 20-13's declared row list and is handed to it here: its row still
-  // says the exec-stage re-pick lives only in `runResilient`, which 20-04 made false and
-  // 20-12 made unparseable.
-  'CHURN-01',
-  'CHURN-02',
-  'CHURN-03',
+  // - `CHURN-01`, `CHURN-02`, `CHURN-05` and `CHURN-06` are no longer *unreached* at all.
+  //   Their verdicts are `Done`, so they leave this list by leaving the population — the
+  //   set equality below is what makes that removal compulsory rather than optional.
+  // - `CHURN-03` is still *Partial* and now carries a claim a search can read: its row says
+  //   `checkpointChain` and `remainingWork` have no production caller, which is true and is
+  //   the shape of what is genuinely still unwired about it — a checkpoint mechanism whose
+  //   history nothing walks, because no production submitter supplies `SubmitOptions.
+  //   checkpoints` at all.
+  //
+  // Two stay, with the reason each stays rewritten rather than inherited:
+  //
+  // - `CHURN-04` — its open leg is an **argument value**: renewal is conditional on
+  //   `JobSpec.admit`, which is optional, and only `bin/bench.ts --discover` — off by
+  //   default — supplies it in production. Every symbol the row names has a caller. That is
+  //   the `SCHED-05` bucket exactly, one requirement over.
+  // - `SCHED-03` — its open leg is a **tier**: the browser factory's refusal has never been
+  //   driven, so the number an over-committed tab would refuse with has never been read.
+  //   Both tiers construct the mechanism and the row says so. That is the `AUTH-02` /
+  //   `SCHED-04` bucket.
   'CHURN-04',
-  'CHURN-05',
-  'CHURN-06',
   'SCHED-03',
   // ── The pre-existing entries ───────────────────────────────────────────────────────
   'AUTH-02',
@@ -979,20 +985,34 @@ describe('the corpus and the ledger were really read', () => {
     // naming it across seven rows — `CHURN-01`…`CHURN-06` and `SCHED-03` — so `EXPORTED`
     // stopped holding the name and `parseRows` stopped extracting them. **Measured
     // immediately after the deletion: 5.** Keeping `> 10` would assert a fact about the
-    // ledger that stopped being true, and would stay red until 20-13 rewrites those rows.
+    // ledger that stopped being true, and would stay red until 20-13 rewrote those rows.
     //
     // **Lowering it costs nothing this file was relying on**, and that is the part worth
     // checking rather than asserting. This is an anti-vacuity floor — its case title is
     // *"rather than matching nothing"* — and the failure mode of a row silently ceasing
     // to be parsed is held by the **set equality** in *"leaves every unreached row either
     // checkable or recorded as not"*, which is strictly stronger: it names which rows have
-    // no claim rather than counting how many do. All seven rows above appear there, by
-    // name, with the reason. So what moved here is the weaker of two overlapping guards,
-    // and the stronger one caught the same event in the same run.
+    // no claim rather than counting how many do. So what moved was the weaker of two
+    // overlapping guards, and the stronger one caught the same event in the same run.
     //
-    // It is expected to rise again when 20-13 gives those rows claims a search can read.
-    if (claims <= 3) {
-      // 5 on 2026-08-05; 14 on 2026-08-02 before 20-12.
+    // ── Re-sited AGAIN to `> 5` on 2026-08-05 by Plan 20-13, which owns those rows ─────
+    //
+    // 20-12 named `> 3` as its weakest change and named this line as the one to revert.
+    // **A revert to `> 10` is not available, and that is a finding rather than an excuse.**
+    // Nine of the fourteen claims the old floor was sited against were the sentence
+    // *"`runResilient` has no caller"* repeated across seven rows, and WIRE-04's entire
+    // content is that `runResilient` must stop existing. The population did not drift; it
+    // was deliberately reduced, by a requirement, and a floor of 10 would now assert that
+    // the ledger still contains nine sentences the milestone was written to delete.
+    //
+    // **Measured after the rewrite: 7.** `CHURN-03` contributes two — `checkpointChain`
+    // and `remainingWork` have no production caller, which is the honest shape of what is
+    // still unwired about checkpointing — and the other five are `VER-03`, `VER-04`,
+    // `VER-09`, `VER-10` and `AOT-02`, unchanged. Sited at `> 5`: below the measurement by
+    // two, above 20-12's emergency floor by two, and it recovers two thirds of the drop
+    // without asserting a fact about a symbol this milestone removed on purpose.
+    if (claims <= 5) {
+      // 7 on 2026-08-05 after 20-13; 5 immediately after 20-12; 14 on 2026-08-02 before it.
       //
       // **This is the floor that refused Plan 20-10** — `expected 5 to be greater than
       // 10`, on a commit that touched neither the ledger nor this file. The count falls
@@ -1009,7 +1029,7 @@ describe('the corpus and the ledger were really read', () => {
       // is an empty `paths` — unattributed, therefore own, therefore blocking.
       findings.push({
         paths: attribute(declaringPathsAtHead(ROWS)),
-        line: `checkable claims parsed out of the rows: ${claims}, floor 3`,
+        line: `checkable claims parsed out of the rows: ${claims}, floor 5`,
       })
     }
     ledgerFloor(UNREACHED.length, BUILT_NOT_WIRED.length, 'rows whose verdict says not fully reached') // 32 vs 14

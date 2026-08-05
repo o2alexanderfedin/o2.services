@@ -736,6 +736,26 @@ Criterion 6 needs no plan — it landed on `develop` as `351bde1` before this ph
 **Criterion 5 exists because Phase 17 measured its own rate limit and found what it does not buy.** The burst limit is real and fully proven — a stated threshold read out of the refusal the peer received, `limit: 5 / windowMs: 3_600_000` on the wire. But AUTH-04's text asks that mass fake-node creation be *"measurably costly"*, and Phase 17's verification established two things that defeat it. The limit is keyed on `userKey`, which is **one `ed25519.keygen()`** — so twenty distinct user keys all enrol unslowed, and removing the rate guard entirely leaves that test green. And the budget is per provider **process**: a second provider defeats it without needing a second user key at all, asserted across two spawned providers.
 
 It lands here rather than in Phase 17 because the remedy is a design decision this phase is already making — what scarce thing an identity must present. This phase owns AUTH-05 and the attestation-strength machinery, so the natural candidates (a provider-issued invitation chained to an owner key, a persistent cross-process budget, or proof-of-work) all sit beside work already scheduled here. **AUTH-04 stays open until then**; Phase 17 records the rate-limiting half as measured and the cost half as not, in those words.
+
+**CRITERION 5's SECOND CLAUSE IS CARRIED TO PHASE 24 CRITERION 8, recorded here on
+2026-08-05 because this entry did not say so and the destination did.** Phase 24's own entry
+carries the full ruling, the arithmetic and the mitigation that was measured not to work —
+and until now `Phase 24` appeared nowhere in this section, so a reader scoring Phase 19 from
+this entry alone would have found an open criterion with no home. Phase 18's entry names
+Phase 20 criterion 1 in place for exactly this reason; this is the same act, one phase over.
+
+**The state being carried, in one paragraph.** Criterion 5 verified PARTIAL twice. The
+unmintable half is delivered and measured across real processes, including a provider
+restart and two-provider recovery. The N-th identity is **refused inside an issuance window
+rather than priced**: measured comparatively, a provider's cost to refuse over an attacker's
+cost to mint a fresh identity is ~3.0, and over a replay ~1397 — so an attacker burns the
+window at roughly a third of what refusing costs, and the denial then applies to every honest
+node for the rest of the window at no further cost. The owner's ruling of 2026-08-04
+relocates the guard rather than lowering the bar: under gated admission an unissued identity
+is worth **nothing**, so the price of the N-th identity is a provider's signature, which is
+the unmintable thing the first half already secured. **This is a carry-forward, not a
+closure** — Phase 19 does not become 6/6 by it, on the same principle that kept Phase 16's
+MR-04 open when its criterion 3 went to Phase 20.
 **Plans:** 18 plans, 8 waves
 
 Plans:
@@ -875,7 +895,7 @@ Plans:
 **Mode:** mvp
 **Depends on**: Phase 18, Phase 19
 **Requirements**: WIRE-04, CHURN-01, CHURN-02, CHURN-03, CHURN-04, CHURN-05, CHURN-06, BROW-02, AUTH-04
-**Research**: Mostly none — `runResilient`'s speculation and coverage machinery exists and is unit-verified in Phase 7; the gap is that nothing calls it. **Corrected 2026-08-04: this is FALSE of lease renewal, which criterion 1 names first.** `LeaseTable.renew`, `shouldRenew` and `RENEW_AT` have no caller anywhere outside `lease.test.ts`, and `runResilient` never renews — so renewal must be BUILT, not wired, and is prioritised accordingly by owner ruling. The hard constraint on that build: an unconditional renew is a longer timeout wearing a lease's clothes, so a renewal must be granted only on evidence that the holder is still working, so `submitJob` is the only reachable job path and it does neither. `ledger` (made explicit in Phase 11) is supplied by no node in production
+**Research**: **Corrected in place twice — read the dated correction, not the original.** The line as planned read *“Mostly none — `runResilient`'s speculation and coverage machinery exists and is unit-verified in Phase 7; the gap is that nothing calls it”*, and it was true of speculation and of coverage and **false of lease renewal, which criterion 1 names first**: `LeaseTable.renew`, `shouldRenew` and `RENEW_AT` had no caller anywhere outside `lease.test.ts`, and `runResilient` never renewed — it granted, completed, surrendered and reaped, and nothing else. So renewal had to be BUILT and not wired, and was prioritised accordingly by owner ruling on 2026-08-04, with one hard constraint recorded at the same time: an unconditional renew is a longer timeout wearing a lease's clothes, so a renewal may be granted only on evidence that the holder is still working. **What the phase then measured, recorded here on 2026-08-05 by plan 20-13 because a correction that lives in a summary reaches nobody.** (1) Renewal was built, in plan 20-01, conditional on the holder refusing a duplicate claim on this task's own capacity slot key — an existing wire answer rather than a new hook — and `submit.ts` is now the first and only production caller of all three symbols. (2) The clause after that constraint had been left ungrammatical by the 2026-08-04 edit (*“… still working, so `submitJob` is the only reachable job path and it does neither”*), and it is retired here rather than repaired: `submitJob` now does all three. (3) *“`ledger` (made explicit in Phase 11) is supplied by no node in production”* was true when written and became false in plan 20-02 — both node factories build a real `StartOutcomeLedger` and record their own start row into it, and mutation-ledger `L1`/`L2` are what keep that so. (4) `runResilient` itself no longer exists (plan 20-12), so every sentence above that names it is a statement about the tree's history rather than about the tree
 **Success Criteria** (what must be TRUE):
   1. `submitJob` is the only function a caller uses to run a job through `bin/agent.ts` — it performs lease renewal, speculation, and coverage accounting internally; `runResilient` no longer exists as a separate, uncalled entry point, either merged in or removed
 
@@ -943,7 +963,22 @@ Plans:
      be satisfied by the original job's state. -->
 
 
-**Plans**: TBD
+**Plans:** 13 plans, 7 waves
+
+Plans:
+- [x] 20-01-PLAN.md — a shard that lost its executor is placed again, under a lease: the generation loop, the two re-dispatch triggers, and renewal on evidence rather than on a timer
+- [x] 20-02-PLAN.md — every node keeps a real ledger and puts its own row in it, so a peer's answer carries something the asking node could not have produced
+- [x] 20-03-PLAN.md — criterion 6: a recovered node's combine result arrives late at a requestor that stopped waiting, and is received and discarded
+- [x] 20-04-PLAN.md — the armed tripwire inverts: the assertion that a refused shard ends `insufficient` becomes the assertion that it reaches a second executor
+- [x] 20-05-PLAN.md — criterion 2: thirty per cent of the fabric dies mid-job and the per-shard answers are byte-identical to a control on the same fabric
+- [x] 20-06-PLAN.md — criterion 5: a tab shows counts it could not have produced — **delivered no plant record, no span and no exit code; see the phase's verification**
+- [x] 20-07-PLAN.md — criterion 3, mechanism: a straggler is duplicated and the loser is still read, so a copy that disagrees cannot vanish into the winner
+- [x] 20-08-PLAN.md — criterion 4, mechanism: the aggregate carries its denominator, as a named union so a public job says what it is instead of printing PARTIAL
+- [x] 20-09-PLAN.md — criterion 3, reading: the speculation tax stops being a constant on the published surface, measured across real processes
+- [x] 20-10-PLAN.md — criterion 4, reading: the partial aggregate says it is partial, with an owner's process stopped against a control on the same fabric
+- [x] 20-11-PLAN.md — criterion 7: the job survives its requestor — a second requestor given nothing but a CID finishes the outstanding shards
+- [x] 20-12-PLAN.md — WIRE-04: the second job path stops existing, its 32 kernel cases re-targeted or their loss recorded case by case
+- [x] 20-13-PLAN.md — the ledger, the rows, and the roadmap line that was wrong
 
 **Criterion 6 exists because Phase 16 could measure half of its own criterion 3 and said so.** The dedupe property is fully established there across nine real `bin/agent.ts` processes — probe-store deltas `+1/+0/+1`, a ninth fresh process returning the identical CID, two holders at redundancy 2 — but *"arriving late"* is not, because `executeReduce` stops at `wanted` replicas and **has no channel on which a late result could be received at all**. The duplicate in Phase 16's test is therefore solicited by the test, and `tree-reduce-agents.node.test.ts` says so about itself rather than letting the reading pass for more than it is.
 
@@ -959,6 +994,35 @@ This phase is where the clause becomes measurable: it owns the recovery path, so
   1. Running `tools/aot/cli.ts` against a real AArch64 binary produces a `TranslationRecord` whose CID covers input digest, toolchain versions, target, and WASM feature set, and the CLI prints that CID to the operator
   2. Re-tagging a local translated image under a different name and pointing the CLI at it is refused rather than hashed under the borrowed name, and changing any one covered input changes the emitted CID
   3. A translated artifact produced by `tools/aot/cli.ts`, dispatched to a live node started via `bin/agent.ts`, executes successfully — the node constructs a real `WasiExecutor` in production, completing the same admission and verification path as a source-compiled module
+
+<!-- CRITERION 2 IS PARTIAL AND HAS NO HOME. Recorded 2026-08-05 by plan 20-13 as an open
+     item needing an owner ruling. **No destination is invented here** — Phases 22, 23 and 24
+     were read and none of them contains a goal, a criterion or a requirement touching image
+     resolution, `RepoDigests` or AOT-02, so writing one in would be inventing a schedule
+     rather than recording one.
+
+     WHAT WAS SCORED. `21-VERIFICATION.md`: 2/3 MET, 1 PARTIAL, 0 FAILED. Criterion 2's second
+     clause — *changing any one covered input changes the emitted CID* — is MET, on a sweep
+     plus two real lifts with two different printed key CIDs. Its first clause — *a re-tagged
+     local image is refused rather than hashed under the borrowed name* — is **measured and
+     NOT met**, which is a different state from unmeasured and a different state from failed.
+
+     WHY NO PREDICATE CAN DECIDE IT, which is why this is a ruling and not a bug. `docker tag`
+     gives the borrowed repository its own `RepoDigests` entry carrying the origin's manifest
+     digest, so the repository match succeeds and the borrowed name is adopted. `RepoDigests`
+     is a property of the image **ID**, not of the reference inspected, so once a borrowed tag
+     exists the canonical name returns a **byte-identical list** — re-measured by hand on
+     Docker Server 29.4.0 with the containerd image store. Requiring every entry to agree was
+     measured to refuse the *canonical* image, trading an unportable name for a false refusal.
+     The refusal is unchanged and still enforced where the data supports it, against a digest
+     list naming only other repositories. The classic dockerd image store is unmeasured, and
+     unmeasured is not met.
+
+     THE TWO ROUTES, so the ruling has something to choose between. EITHER a mechanism that
+     does not rest on `RepoDigests` — the only candidate anyone has named — OR an amendment to
+     criterion 2's first clause stating the measured reading. Descoping it is not a third
+     route: *descoped is not satisfied*. -->
+
 **Plans**: TBD
 
 **OPEN QUESTION FOR THE PLANNER — how does a 5.40 MiB artifact reach a node that does not have it? Answer this in the discuss step; do not let a plan assume it.** (Raised by the owner 2026-08-01. It is not rhetorical: criterion 3 cannot be met without an answer, because a node that cannot obtain the artifact fails at instantiate.)
