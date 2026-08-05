@@ -45,6 +45,7 @@ import {
 // now has one home in `../bench-fabric.ts`.
 import type {
   CanonicalValue,
+  Delegation,
   Executor,
   JobResult,
   NameRecord,
@@ -65,8 +66,8 @@ import {
   serveAgent,
   submitJobWithEgress,
 } from '@o2/net'
-import type { AggregateAttestation } from '@o2/net'
-import { peerIdForNodeKey } from '@o2/libp2p'
+import type { AggregateAttestation, CapabilitySupplier } from '@o2/net'
+import { audienceKeyOf, peerIdForNodeKey } from '@o2/libp2p'
 import {
   HarnessIntegrityError,
   MAX_DRIVER_CPU_SHARE,
@@ -775,13 +776,19 @@ async function memoryFabric(nodes: number): Promise<Fabric> {
     endpoints.push(rpc)
   }
 
-  // AUTH-03. The sentinel is the permanent, correct value at both of this driver's
-  // dispatch sites, not a placeholder. Every shard this benchmark submits is
-  // `label: 'public'` (`:517`), so there is no owner and no root key a chain could
-  // be rooted at; giving the benchmark a sovereign leg would change what it
-  // measures and break comparability with the published curves. Because the
-  // sentinel encodes no `capability` key at all, the frames this driver sends stay
-  // byte-identical to pre-Phase-15 ones and the existing numbers remain comparable.
+  // AUTH-03. The sentinel is the permanent, correct value **on this rig**, not a
+  // placeholder — and the sentence that used to stand here said it was permanent at *both*
+  // of this driver's dispatch sites because every shard the benchmark submits is public.
+  // That ground is now false on one arm and the claim is narrowed rather than deleted: the
+  // `--sovereign` leg dispatches one owner-labelled shard, and it does so on the real
+  // transport only. It cannot be run here, and the reason is not cost: these endpoints
+  // state the unauthenticated serving disposition permanently, so a chain would be accepted
+  // without ever being verified and a leg over them would prove nothing at all.
+  //
+  // Every shard *this* rig submits is public, so there is no owner and no root key a chain
+  // could be rooted at. And because the sentinel encodes no `capability` key, the frames
+  // this rig sends stay byte-identical to pre-Phase-15 ones and its published numbers
+  // remain comparable.
   const remote = endpoints.map(
     (_, i) => new RemoteExecutor(`n${i}`, callerRpc, 'dispatches-unauthenticated'),
   )
@@ -868,6 +875,57 @@ const BENCH_OWNER_KEY: PublicKeyHex = delegate(BENCH_USER_SEED, {
   abilities: ['execute'],
   expiresAt: 1,
 }).issuer
+
+/**
+ * AUTH-03's requestor half: the chain one candidate is dispatched under.
+ *
+ * ## A copy of a shape, and the import it refuses
+ *
+ * `capability-fixture.ts`'s `chainSupplierFor` and `directChainFor` are these same lines.
+ * They are copied and not imported for the reason stated in full at {@link BENCH_OWNER_KEY}
+ * — that module is test-only and is deliberately outside the barrel, and importing it from
+ * a runnable entry point would manufacture the Phase 22 reachability finding this leg
+ * exists to remove. **The two must be kept in step by hand.** A reader who does not know
+ * that will merge them, which is why it is said at both ends.
+ *
+ * ## A function of the node id, and why that is not incidental
+ *
+ * `CandidateOptions.dispatch` takes a function *of the node id* returning the supplier,
+ * because a chain's audience must be the node it is sent to: *"a chain minted for node A is
+ * refused at node B with `wrong-audience`"*. One supplier shared across a candidate set can
+ * name at most one audience. `audienceKeyOf` derives that key from the peer id, and it is
+ * the identical derivation the serving node applies to its own `libp2p.peerId` — nothing is
+ * exchanged to make the two agree.
+ *
+ * ## `[]` for anything not owner-labelled is not a stub
+ *
+ * A public task has no owner and therefore no key a chain could be rooted at, and
+ * `authorizeCapability` returns `null` for one before it ever looks at a chain. The empty
+ * return is the correct answer, not a missing case — which matters here because every shard
+ * of every rung this driver measures takes exactly that branch.
+ *
+ * ## The expiry is a constraint, not a formality
+ *
+ * One hour, computed at call time rather than at module load so a slow run cannot expire a
+ * chain minted for it. An unbounded delegation is the thing AUTH-03 exists to make
+ * impossible: `verifyChain` checks it against the serving node's own clock, so a chain that
+ * never expires is a standing grant to whoever holds it. One hour is a configuration choice
+ * and not a measurement — it has to outlast one dispatch, and nothing here reads how long a
+ * dispatch takes.
+ */
+function sovereignSupplierFor(nodeId: string): CapabilitySupplier {
+  return (task: Task): readonly Delegation[] =>
+    task.label === 'sovereign' && task.ownerId !== undefined
+      ? [
+          delegate(BENCH_USER_SEED, {
+            ownerId: task.ownerId,
+            expiresAt: Date.now() + 3_600_000,
+            audience: audienceKeyOf(nodeId),
+            abilities: ['execute'],
+          }),
+        ]
+      : []
+}
 
 /** The TCP multiaddr a peer dials this node at, peer id included. */
 function dialableAddr(node: FabricNode): string {
@@ -1041,6 +1099,39 @@ async function realFabric(
                   providerAddr,
                 },
               }),
+          // AUTH-03 — the clearance the `--sovereign` leg dispatches into, and a spread for
+          // the reason the `enrollment` spread above already gives: with
+          // `exactOptionalPropertyTypes` an explicit `undefined` is a different thing from
+          // an absent key, and on the default path this key must be **absent** so a worker
+          // is built byte-identically to what it was before this leg existed.
+          //
+          // Three fields, each with a different consumer, so none of them is decoration:
+          //
+          // - `ownerId` is what `authorizeCapability` compares a task's owner against, and
+          //   what `guardSovereignty` checks this node's clearance for. They refuse for
+          //   different reasons at different points; both read this string.
+          // - `ownerKey` is the root `verifyChain` verifies a chain against. **Without it
+          //   every sovereign task is refused before clearance is even consulted** — that
+          //   is `authorizeCapability`'s rule 2, and it is the refusal a requestor observes
+          //   first, because `authorize` runs before `execute`.
+          // - `canExecuteSovereign` is the only field `ownRecords` reads from this record,
+          //   and it is what puts `certificate.userKey` into the published `sovereignFor`
+          //   list that `discoverCandidates` reads back as the descriptor's clearance. All
+          //   three values are one string here — see `BENCH_OWNER_KEY` for why a second
+          //   would be a second answer to a question that has one.
+          //
+          // This is a per-node clearance and **not a node class**: every node this driver
+          // builds has identical capability, and what differs is the value it was
+          // configured with — the sentence `FabricNodeOptions.sovereignty` already carries.
+          ...(SOVEREIGN
+            ? {
+                sovereignty: {
+                  ownerId: BENCH_OWNER_KEY,
+                  canExecuteSovereign: true,
+                  ownerKey: BENCH_OWNER_KEY,
+                },
+              }
+            : {}),
         }),
       )
     }
@@ -1125,8 +1216,15 @@ async function realFabric(
       }
     }
 
-    // AUTH-03, same permanent sentinel and the same reason as the memory-transport
-    // leg above: this driver's shards are all public.
+    // AUTH-03 — the **default** arm's executor set, and the sentinel is the correct value
+    // on it for the reason it always was: every shard placed against these descriptors is
+    // public, and `publicNodes` below hardcodes an owner id of `'public'`, so nothing here
+    // could name an owner even if a shard did.
+    //
+    // These two lines are what `--discover` replaces and what `--sovereign` therefore never
+    // reaches: the sovereign leg rides the discovered set, which carries an owner id read
+    // off a signed certificate. Both are reassigned below rather than shadowed, so a
+    // reader can see there is one executor set and one descriptor set per rig.
     let executors: readonly Executor[] = started.map(
       (node) =>
         new RemoteExecutor(node.libp2p.peerId.toString(), requestor.rpc, 'dispatches-unauthenticated'),
@@ -1164,8 +1262,20 @@ async function realFabric(
           trustedIssuers: new Set(provider?.issuerKey == null ? [] : [provider.issuerKey]),
           now: () => Date.now(),
           peerIdFor: peerIdForNodeKey,
-          // The same permanent sentinel as the list above: every shard here is public.
-          dispatch: 'dispatches-unauthenticated',
+          // AUTH-03 — **one argument, and it is the whole supplier half.** Every
+          // `RemoteExecutor` this helper builds inherits what is written here, which is why
+          // the sovereign leg adds no construction of its own.
+          //
+          // **The comment that stood here said the sentinel was permanent because every
+          // shard this driver submits is public. That ground is now false on one arm**, and
+          // a comment left standing beside code contradicting it is exactly the decoration
+          // `serve-agent-hooks.node.test.ts` exists to prevent. What is true instead: the
+          // sentinel is what the **default** arm writes down, and it is still the correct
+          // value there for the unchanged reason — a public task has no owner, so there is
+          // no key a chain could be rooted at and a chain would be a per-dispatch cost on a
+          // branch that can never refuse. The `--sovereign` arm is the other branch of this
+          // one ternary, at this one site.
+          dispatch: SOVEREIGN ? sovereignSupplierFor : 'dispatches-unauthenticated',
         },
       )
 
@@ -1180,6 +1290,120 @@ async function realFabric(
 
       executors = found.executors
       descriptors = found.nodes
+
+      // ── the --sovereign leg ────────────────────────────────────────────────────────────
+      //
+      // AUTH-03's requestor half, given a caller. One owner-labelled shard, dispatched
+      // through the executors `discoverCandidates` just built, each carrying the chain
+      // `sovereignSupplierFor` mints for it. Everything here is inside `if (DISCOVER)` and
+      // inside `if (SOVEREIGN)`, so a default run reaches none of it.
+      //
+      // ## Why this is its own job and not one relabelled shard of the sweeps
+      //
+      // The plan for this leg put the owner-labelled shard at `runnerOver`'s submit site,
+      // beside the fifteen public ones. **Two measured facts refuse that**, and both were
+      // read from source rather than reasoned about:
+      //
+      // 1. That site is shared by every rig. `memoryFabric` builds its descriptors with
+      //    `publicNodes`, which hardcodes an `ownerId` of `'public'`, so `eligibleNodes`
+      //    matches nothing for an owner-labelled shard and the shard is `unplaceable`. The
+      //    memory sweeps run before the first real rig, so the driver would have failed
+      //    there — on the arm the leg is not about — before this one was ever built.
+      // 2. `submitJobWithEgress` registers every sovereign shard's canonical bytes on every
+      //    guard it is handed, for the job's duration (DATA-10). This requestor is the block
+      //    source for every worker, so an owner-labelled row the owner does not already hold
+      //    cannot reach it: the response frame carries the registered bytes and the guard
+      //    refuses it. That is the mechanism working, not failing — a sovereign row is
+      //    owner-pinned by construction — and it means the leg has to seed the owner's own
+      //    node with its own row **before** dispatching, which is only possible where the
+      //    nodes are built. Which is here.
+      //
+      // ## The trivial fixture only, and that is a scope statement
+      //
+      // The saturating rig's shards all carry one identical value, so seeding it would put
+      // the control sweep's own input into every worker's store and move what that sweep
+      // measures. The dispatch path this leg is about is identical on both fixtures, so
+      // nothing is lost by running it on one. Named here so it is a scheduled absence
+      // rather than an oversight.
+      if (SOVEREIGN && fixture === 'trivial') {
+        // Distinct from every value `shardInputs` produces, deliberately: the sweeps that
+        // follow must fetch their own inputs exactly as they always have, and a row seeded
+        // into the workers below that happened to be one of theirs would remove a fetch from
+        // the measured path.
+        const row: CanonicalValue = { partition: 0, payload: new Uint8Array(16).fill(0x5e) }
+        const encoded = await canonicalCid(row)
+        if (!encoded.ok) {
+          throw new Error(`--sovereign: the owner-labelled row would not encode: ${encoded.error}`)
+        }
+
+        // **The row is resident on the owner's own node before anything is dispatched**,
+        // which is what "sovereign" means in this fabric and what `sovereign-egress.ts`
+        // states as its premise. It is also what makes the dispatch possible at all — see
+        // fact 2 above — and what lets the worker take its own hold on the row while it
+        // executes over it.
+        for (const node of started) await node.store.put(encoded.bytes)
+
+        const legStarted = performance.now()
+        const dispatched = await submitJobWithEgress(
+          {
+            moduleCid,
+            moduleRecord,
+            // Exactly one, and the count is the point rather than a sample size. This leg
+            // exists to give `delegate` a caller, not to change what the fixture measures,
+            // and the reading it produces — did a real chain, verified by a real node
+            // against a pinned key, admit a real dispatch — is answered as completely by one
+            // shard as by sixteen.
+            shards: [{ value: row, label: 'sovereign' as const, ownerId: BENCH_OWNER_KEY }],
+            executors,
+            nodes: descriptors,
+            // 1, and it is the honest figure rather than a weakened one: every worker in
+            // this rig enrols under one user key, so they are one owner's nodes, and a
+            // sovereign shard is owner-attested by construction — pinning data to one owner
+            // removes the second independent executor. `PROJECT.md` splits the verification
+            // claim on exactly this line.
+            redundancy: 1,
+            onQuorumShortfall: 'runs-at-available-redundancy',
+          },
+          requestor.store,
+          [requestor.egress],
+          { checkpoints: 'checkpoints-nothing' },
+        )
+        const legMs = performance.now() - legStarted
+
+        const shard = dispatched.ok ? dispatched.job.shards[0] : undefined
+        const agreed = shard?.verification.status === 'agreed' ? 1 : 0
+        process.stdout.write(
+          `--sovereign: ${String(agreed)} of 1 sovereign shards agreed,` +
+            ` chain rooted at ${BENCH_OWNER_KEY.slice(0, 8)},` +
+            ` audience ${shard === undefined || shard.attempted.length === 0 ? 'nobody' : shard.attempted.join('/')}\n`,
+        )
+
+        // **A throw and never a reported zero**, and the reason is the failure mode this
+        // whole criterion is about: a leg printing `0 of 1` is indistinguishable from a leg
+        // that was never wired, and both look like a line that ran. So the run stops, and it
+        // stops carrying what the fabric said — the shard's own status, the reason on the
+        // arm that has one, and each node's refusal in its own words, which is where a
+        // chain the worker rejected arrives (`unauthorized: …`, prefixed by `agent.ts` and
+        // worded by `describeFailure`).
+        if (agreed === 0) {
+          const said =
+            shard === undefined
+              ? `submit refused: ${dispatched.ok ? 'no shard returned' : dispatched.error.kind}`
+              : `${shard.verification.status}` +
+                `${shard.verification.status === 'insufficient' ? `: ${shard.verification.reason}` : ''}` +
+                `${
+                  shard.verification.status === 'agreed'
+                    ? ''
+                    : shard.verification.failures
+                        .map((failure) => `; ${failure.nodeId}: ${failure.reason}`)
+                        .join('')
+                }`
+          throw new Error(
+            `--sovereign: the owner-labelled shard did not agree (${said}) after` +
+              ` ${legMs.toFixed(0)} ms; refusing to report a leg that dispatched nothing`,
+          )
+        }
+      }
     }
 
     const fabric: Fabric = {
@@ -1305,6 +1529,11 @@ interface RungAttestation {
    * Every rung of this driver submits `label: 'public'` shards, so this is the named
    * sentinel on every rung of every run — which is exactly why it is *carried* rather than
    * rendered unconditionally. See {@link coverageReading}.
+   *
+   * **Still every rung, including under `--sovereign`.** That leg submits its one
+   * owner-labelled shard as a job of its own, during rig construction and outside every
+   * measured region, so no rung's `JobResult` ever carries an owner and this field's
+   * reading does not move. See the leg in `realFabric` for why it is a separate job.
    */
   readonly coverage: JobResult['coverage']
   /** `Observation.complete` of the run this was taken off — every shard agreed, undegraded. */
@@ -1431,7 +1660,8 @@ function aggregateReading(held: RungAttestation | NoJobToAttest): string | null 
  *
  * **A coverage line is printed only where the job defines owners, so the line's presence
  * is itself the information.** Every rung of this driver submits `label: 'public'` shards
- * — `shards.map((value) => ({ value, label: 'public' as const }))` at the one submit site
+ * — `shards.map((value) => ({ value, label: 'public' as const }))` at the **measured**
+ * submit site, which is the only site any rung reaches
  * — so `JobResult.coverage` is the named sentinel on **every rung of every run**, and this
  * function returns `null` for all of them. That is the decision, not a gap: a line
  * repeating *"this job defines no owners"* five times per sweep is noise a reader learns
@@ -1459,7 +1689,12 @@ function aggregateReading(held: RungAttestation | NoJobToAttest): string | null 
  *
  * Not here. A `covered: 2/3 owners` line off a live cross-owner job with one owner's node
  * stopped is in `coverage-agents.node.test.ts`, over spawned `bin/agent.ts` processes,
- * because this driver runs no sovereign shard and therefore has no owner to be missing.
+ * because no rung of this driver runs a sovereign shard and no rung therefore has an owner
+ * to be missing. **The `--sovereign` leg does not change that and is not a second reading
+ * of it**: its job names one owner and every node in the rig belongs to that owner, so its
+ * coverage would be complete by construction — a denominator of one, answered by the one
+ * node that could ever have answered it. Coverage is a question about *several* owners, and
+ * the file above is where several exist.
  * Same division as the speculation columns above: the CLI leg establishes that the surface
  * is wired, the process fixture establishes what it says when it has something to say.
  *
@@ -2602,6 +2837,12 @@ function configurationOf(
     // enrols every worker, so its rung holds a different population from this one and a
     // reader comparing the two has to be told which was in force.
     ['discover', DISCOVER ? 'on' : 'off'],
+    // Same reading and the same reason one row up. A `--sovereign` run clears every worker
+    // for an owner, mints a chain and dispatches one owner-labelled shard through it before
+    // the rung's own runs begin — so the rung stood up under a different node configuration
+    // and a reader comparing it with a default row has to be told so here rather than
+    // inferring it from a line in the terminal.
+    ['sovereign', SOVEREIGN ? 'on' : 'off'],
   ]
 }
 
@@ -2922,6 +3163,7 @@ async function main(): Promise<void> {
             ['fixture', 'trivial'],
             ['admissionLimit', String(DECLARED_ADMISSION_LIMIT)],
             ['discover', DISCOVER ? 'on' : 'off'],
+            ['sovereign', SOVEREIGN ? 'on' : 'off'],
             ['stagger', 'none'],
           ],
         }),
@@ -3268,6 +3510,23 @@ async function main(): Promise<void> {
         ' at that flag. What is therefore **unmeasured here** is the attestation of the' +
         ' configuration these curves were taken under; what is measured is that it was not' +
         ' established, which is a different and weaker statement.',
+      '**A `--sovereign` run is not comparable with a default one, and no figure taken' +
+        ' under that flag is published beside a default curve.** AUTH-03’s requestor half' +
+        ' — `delegate` and `CapabilitySupplier` — has a caller reachable from this entry' +
+        ' point: `--discover --sovereign` clears every worker for one owner, mints a chain' +
+        ' rooted at the key those workers enrolled under, and dispatches one owner-labelled' +
+        ' shard through executors discovery built. **That leg is a dispatch-path' +
+        ' demonstration and not a measurement**: it runs once per real rig, during' +
+        ' construction and outside every timed region, as a job of its own that no rung' +
+        ' reads. What it nonetheless changes is what the rig IS — every worker starts with a' +
+        ' per-node clearance it does not otherwise have, and holds one row it does not' +
+        ' otherwise hold — which is exactly why the flag exists, why it is off by default,' +
+        ' and why the configuration table above prints whether it was in force. **What the' +
+        ' leg does NOT establish is a sovereignty claim about data**: the shard carries an' +
+        ' owner label and a verified chain, and its value is a fixture row this driver' +
+        ' invented. The egress and coverage machinery is what would make a data claim; this' +
+        ' is about the dispatch path, and saying so is cheaper than letting a reader assume' +
+        ' otherwise.',
       '**The `aggregate attestation` lines say the same thing on a default run, for a' +
         ' second and independent reason.** A default rig pins no issuer at all — no' +
         ' provider process is started and no worker enrols — so it hands `reduceJob` the' +
