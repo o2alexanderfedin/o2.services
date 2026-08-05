@@ -62,17 +62,22 @@
  * is never offered to anybody, while the owner is up and answering.
  *
  * **The obvious arrangement — spawn that agent with `--max-concurrent-tasks 1` and let its
- * own capacity refuse the second shard — cannot produce this reading, and the reason is
- * worth writing down because it is the first thing a reader will propose.** That flag sets
- * one number, and that number binds in *every* arm: `serveAgent`'s `exec` branch reserves
- * a slot around the executor call and refuses a concurrent second with `over-committed`,
- * and `submitJob` dispatches every shard of a job under one `Promise.all`. So a node with
- * one slot refuses the owner's second shard in the **control** too, and there is no arm in
- * which that owner is fully covered — the control is destroyed by the same knob that would
- * have produced the partial arm. A node-stated slot count cannot separate the two because
- * it is the same integer on both sides. What separates them is a *requestor-side* dial,
- * which is exactly what `JobSpec.admit` is: *"a requestor that supplies this bounds
- * itself"*.
+ * own capacity refuse the second shard — was tried, and it destroys the control.** It is
+ * the first thing a reader will propose, so it is recorded as a measurement rather than as
+ * an argument: with that flag on the two-shard owner's agent, this file's **control** arm
+ * reads `covered: 2/3` (`expected 2 to be 3`, run 2026-08-05). The reason is that the flag
+ * sets one number and that number binds in *every* arm — `serveAgent`'s `exec` branch
+ * reserves a slot around the executor call and refuses a concurrent second, and `submitJob`
+ * dispatches every shard of a job under one `Promise.all` — so the owner is partial before
+ * anything has gone wrong, and there is no arm left in which it is fully covered. A
+ * node-stated slot count cannot separate the two arms because it is the same integer on
+ * both sides. What separates them is a *requestor-side* dial, which is exactly what
+ * `JobSpec.admit` is: *"a requestor that supplies this bounds itself"*.
+ *
+ * **Nor can stopping part of that owner's node set do it**, which is the other arrangement
+ * that suggests itself. Give the owner two nodes and stop one, and the generation loop
+ * places the orphaned shard on the survivor — that repair is 20-01's whole subject — so
+ * the owner ends up fully covered by the mechanism that exists to make it so.
  *
  * **So the admission control is this fixture's dial and not its subject.** What is under
  * test is what `submitJob` reports about an owner that delivered one shard of two; how
