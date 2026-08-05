@@ -1221,17 +1221,29 @@ function runnerFor(build: (nodes: number) => Promise<Fabric>): {
       grossNodeSeconds: cost.gross,
       usefulNodeSeconds,
       verificationMultiplier: result.ok ? result.job.verificationMultiplier : 0,
-      // Both literals, and neither is read from the job that just returned — so both
-      // columns print these values whatever that job did.
+      // **Both read from the job that just returned**, since 20-09. Neither was until
+      // then: both were literals with a comment saying so, and both columns printed those
+      // values whatever the job did. `redispatches` has been real on this path since 20-01
+      // — a shard whose lease lapses is re-placed and `JobResult.redispatches` counts the
+      // generations beyond the first — and `speculationMultiplier` since 20-07, which gave
+      // `submitJob` straggler duplication and a `SpeculationLedger` to count it with.
       //
-      // For speculation that is still the identity: `submitJob` does not speculate.
-      // **For churn it is not.** Since 20-01 a shard whose lease lapses is re-placed and
-      // `JobResult.redispatches` counts the generations beyond the first, so a measured
-      // figure now exists at the other end of this very call and this site does not read
-      // it. Reading it would move a published column, which is 20-09's; what is corrected
-      // here is the comment that claimed the fabric had no such path at all.
-      speculationMultiplier: 1,
-      redispatches: 0,
+      // **A run in which nothing straggled still prints 1.00, and that is now a
+      // measurement rather than the identity.** The distinction is invisible in the number
+      // and is therefore stated here, which is the same care the comment this replaced
+      // took in the other direction. What separates the two in the data is
+      // `JobResult.speculationSpent` — `0` on a job that duplicated nothing — and it is
+      // deliberately not folded into either column, because a column that quietly means
+      // two things is what the pair of sentences above exists to prevent. The live reading
+      // of a duplicate actually firing lives in
+      // `packages/node/src/speculation-agents.node.test.ts`, which is also where these two
+      // call sites are guarded against reverting to constants.
+      //
+      // `0` on the not-ok arm follows `verificationMultiplier` above: a submission that
+      // was refused ran no job, so there is no measurement — and `SpeculationLedger`
+      // itself reports `0` for a job of zero tasks, so the two agree.
+      speculationMultiplier: result.ok ? result.job.speculationMultiplier : 0,
+      redispatches: result.ok ? result.job.redispatches : 0,
       codeCache,
       reduce,
     } satisfies Observation
@@ -1495,14 +1507,24 @@ async function main(): Promise<void> {
         ' receipts are printed separately because they are claims about different things' +
         ' — this rig’s map half and its aggregation half can differ, and on a' +
         ' `--discover` run they do.',
-      '**Speculation tax 1.0 and churn 0 are literals this driver writes, not' +
-        ' measurements.** The measurement site sets both by hand and reads neither from the' +
-        ' job it just ran, so both columns would print these values whatever that job did.' +
-        ' For speculation that is still the identity — `submitJob` does not speculate. For' +
-        ' churn it no longer is: since 20-01 a shard whose lease lapses is re-placed and' +
-        ' `JobResult.redispatches` counts the generations beyond the first, so a measured' +
-        ' figure exists and nothing here reads it. Making the column live is 20-09’s; what' +
-        ' is corrected here is the sentence that said the fabric had no such path.',
+      '**`spec. tax` and `churn/task` are now read from each job, and on a default run' +
+        ' they are measurements of a fabric in which nothing went wrong.** Until 20-09 both' +
+        ' were literals this driver wrote by hand, and the entry here said so; that sentence' +
+        ' is false in the other direction now and this is its replacement. The measurement' +
+        ' site reads `JobResult.speculationMultiplier` and `JobResult.redispatches`, which' +
+        ' `submitJob` has carried since 20-07 and 20-01 respectively.' +
+        ' **What a reader must not conclude from a `1.00` and a `0.00` is that the' +
+        ' mechanisms are off.** A job with no straggler reports a multiplier of exactly `1`,' +
+        ' and a job in which no lease lapsed reports zero re-dispatches, so these two rows' +
+        ' say *this sweep produced no tail and lost no node* — which is what a healthy' +
+        ' in-process fabric running a uniform workload should say, and is a weaker statement' +
+        ' than the mechanism having fired. A further bound is structural and worth naming:' +
+        ' the budget is `floor(shards × 0.1)` and this driver submits 16 shards, so at most' +
+        ' one duplicate is affordable per run. **The reading that a straggler really is' +
+        ' duplicated across processes, and that the losing copy is still accounted for,' +
+        ' lives in `packages/node/src/speculation-agents.node.test.ts`, not here** — and' +
+        ' those two call sites are guarded against reverting to constants from the same' +
+        ' file.',
       '**The reduce figures are subject to the same one-process, one-event-loop' +
         ' construction as the makespan figures.** `combine executors` counts distinct' +
         ' *node identities*, not distinct machines and not even distinct OS processes, so' +
@@ -1513,8 +1535,11 @@ async function main(): Promise<void> {
       '**`tree depth` and `combines` are decided by `deriveReduceTree` from a shard count' +
         ' and a fanout this sweep never varies.** A column the run shows constant across' +
         ' every rung of both transports carries no information about a configuration, and' +
-        ' a constant is not a result — the same status `spec. tax` and `churn/task` carry' +
-        ' above. The reduce columns expected to carry information are `reduce p50`,' +
+        ' a constant is not a result. **`spec. tax` and `churn/task` are no longer the same' +
+        ' status and the difference is worth keeping straight:** since 20-09 those two are' +
+        ' *measured* and merely happen to be constant on this sweep, whereas these two are' +
+        ' *decided* by `deriveReduceTree` from inputs the sweep never varies and could not' +
+        ' come out otherwise. The reduce columns expected to carry information are `reduce p50`,' +
         ' `reduce p95`, `recomputes` and `combine executors`; read those. Varying the' +
         ' fanout across the sweep would make the other two informative and was rejected' +
         ' for a stated reason: rungs walking differently-shaped trees have incomparable' +
