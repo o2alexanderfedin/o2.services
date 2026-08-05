@@ -34,6 +34,7 @@ import {
   SignedNameResolver,
   WasmExecutor,
   canonicalCid,
+  describeCoverage,
   guardModuleProvenance,
   publicNodes,
   signName,
@@ -42,6 +43,7 @@ import type {
   AdmissionControl,
   CanonicalValue,
   Executor,
+  JobResult,
   NameRecord,
   NodeDescriptor,
   ShardAttestation,
@@ -158,11 +160,22 @@ const SHARDS = 16
  * cannot silently move this curve.
  *
  * Why a declared limit is needed here at all is a structural fact about the job path,
- * read from source: a job's whole dispatch set is genuinely concurrent. `submitJob`
- * runs every shard through one `Promise.all` (`core/src/job/submit.ts:206`) and
- * `executeVerified` runs every replica through another (`core/src/job/verify.ts:149`),
- * so these shards do not trickle in — they arrive together and a node meets them all
- * at once. That is the *shape* of the arrival and deliberately not a *count*: how many
+ * read from source: a job's whole dispatch set is genuinely concurrent. `submitJob` maps
+ * every shard through one `Promise.all` over `inputCids`, and `executeVerified` runs
+ * every replica through another over its `executors`, so these shards do not trickle in
+ * — they arrive together and a node meets them all at once.
+ *
+ * **Cited by symbol and not by line, because both line citations here had rotted**: the
+ * first named `submit.ts:206` for a call that is now near 1468, the second
+ * `verify.ts:149` for one now at 188. A symbol a reader can grep survives the next edit;
+ * a line number silently starts pointing at something else.
+ *
+ * **And each element of that map is no longer one dispatch.** Since 20-01 it is
+ * `submitJob`'s generation loop — place, grant a lease, dispatch under it, renew only
+ * against evidence, re-place — so one shard can meet a node in more than one generation,
+ * and what arrives together is a generation's dispatch set rather than the job's.
+ *
+ * That is the *shape* of the arrival and deliberately not a *count*: how many
  * land on any one node is **unmeasured**, and multiplying it by `SHARDS`, by
  * `redundancy` or by anything else is the step that produced three different wrong
  * answers during planning. What would measure it is `FabricNode.executorPeakInFlight`
@@ -660,6 +673,12 @@ async function realFabric(nodes: number): Promise<Fabric> {
     const providerDir = join(root, 'provider')
     await mkdir(providerDir, { recursive: true })
     provider = await FabricNode.start({
+      relayAdmission: 'admits-any-peer',
+      // BROW-01 — open, which is what these three nodes did before the field existed, so
+      // the published curves in `.planning/BENCHMARK-RESULTS.md` were measured under this
+      // behaviour and no re-baseline is owed. It costs the measurement nothing either
+      // way: the hook is reached only by a `report` frame and this driver sends none.
+      startReporting: 'reports-its-own-start',
       blockstoreDir: providerDir,
       rpcTimeoutMs: 30_000,
       maxConcurrentTasks: DECLARED_ADMISSION_LIMIT,
@@ -686,6 +705,9 @@ async function realFabric(nodes: number): Promise<Fabric> {
     // this run does not record.
     started.push(
       await FabricNode.start({
+        relayAdmission: 'admits-any-peer',
+        // BROW-01 — open, on the ground stated at the provider rig above.
+        startReporting: 'reports-its-own-start',
         blockstoreDir: dir,
         rpcTimeoutMs: 30_000,
         maxConcurrentTasks: DECLARED_ADMISSION_LIMIT,
@@ -715,6 +737,9 @@ async function realFabric(nodes: number): Promise<Fabric> {
   const requestorDir = join(root, 'requestor')
   await mkdir(requestorDir, { recursive: true })
   const requestor = await FabricNode.start({
+    relayAdmission: 'admits-any-peer',
+    // BROW-01 — open, on the ground stated at the provider rig above.
+    startReporting: 'reports-its-own-start',
     blockstoreDir: requestorDir,
     rpcTimeoutMs: 30_000,
     maxConcurrentTasks: DECLARED_ADMISSION_LIMIT,
@@ -880,6 +905,18 @@ interface RungAttestation {
    * from iteration 5 beside an aggregate receipt from iteration 1 with nothing saying so.
    */
   readonly aggregate: AggregateAttestation | NoReduceToAttest
+  /**
+   * How many of this job's owners contributed — CHURN-05, criterion 4.
+   *
+   * Recorded on the **same record and in the same statement** as the two receipts above,
+   * for that statement's own stated reason: a reader comparing a coverage denominator
+   * against an attestation strength must be comparing two facts about one job.
+   *
+   * Every rung of this driver submits `label: 'public'` shards, so this is the named
+   * sentinel on every rung of every run — which is exactly why it is *carried* rather than
+   * rendered unconditionally. See {@link coverageReading}.
+   */
+  readonly coverage: JobResult['coverage']
   /** `Observation.complete` of the run this was taken off — every shard agreed, undegraded. */
   readonly fromCompletedRun: boolean
 }
@@ -995,6 +1032,59 @@ function aggregateReading(held: RungAttestation | NoJobToAttest): string | null 
     `${aggregate.strength} (replicas ${aggregate.replicas},` +
     ` operators ${aggregate.operators.length}) — ${aggregate.description}`
   )
+}
+
+/**
+ * How many of one rung's owners contributed — CHURN-05, criterion 4's CLI half.
+ *
+ * ## The decision this function is, written down because it had to be made either way
+ *
+ * **A coverage line is printed only where the job defines owners, so the line's presence
+ * is itself the information.** Every rung of this driver submits `label: 'public'` shards
+ * — `shards.map((value) => ({ value, label: 'public' as const }))` at the one submit site
+ * — so `JobResult.coverage` is the named sentinel on **every rung of every run**, and this
+ * function returns `null` for all of them. That is the decision, not a gap: a line
+ * repeating *"this job defines no owners"* five times per sweep is noise a reader learns
+ * to skip, and a reader who has learned to skip a line cannot be told anything by it.
+ *
+ * **The alternative was to print nothing at all here**, and it was rejected for one
+ * reason: it leaves the CLI with no reader for the failure below, and that failure is the
+ * one 20-08's named union exists to prevent.
+ *
+ * ## What must not happen, and what holds it
+ *
+ * `coverageOf` treats an empty owner set as **not** complete — *"An empty job is not a
+ * complete one — '0 of 0 owners' answers nothing"* — so a bare `CoverageReport` on a
+ * public job renders `covered: 0/0 owners — PARTIAL (no owners were expected)`. Ship that
+ * and **every rung of every published sweep prints PARTIAL**, apologising for a question
+ * it was never entered for. The named arm below is the only thing between this stream and
+ * that sentence, and `packages/node/src/coverage-agents.node.test.ts` reads this driver's
+ * own stdout to say so: no rung prints `PARTIAL`, and no rung prints `covered:`.
+ *
+ * That reading is an *absence*, so it is paired there with a source-text count of this
+ * function's call site — otherwise deleting the renderer would satisfy it. Neither half is
+ * worth much alone; the pair is what makes the silence a measurement.
+ *
+ * ## Where criterion 4's rendered reading actually lives
+ *
+ * Not here. A `covered: 2/3 owners` line off a live cross-owner job with one owner's node
+ * stopped is in `coverage-agents.node.test.ts`, over spawned `bin/agent.ts` processes,
+ * because this driver runs no sovereign shard and therefore has no owner to be missing.
+ * Same division as the speculation columns above: the CLI leg establishes that the surface
+ * is wired, the process fixture establishes what it says when it has something to say.
+ *
+ * `null` when this rung returned no job at all, for {@link aggregateReading}'s reason: a
+ * rung that ran nothing has no coverage, and printing a denominator for it would be a
+ * statement about a job that did not happen.
+ */
+function coverageReading(held: RungAttestation | NoJobToAttest): string | null {
+  if (held === 'no-run-of-this-rung-returned-a-job') return null
+  const { coverage } = held
+  // The named arm, handled before `describeCoverage` is reachable at all — the shape
+  // 20-08 built the union to force on every display site. Deleting this line does not
+  // fail to compile; it changes what five rungs print.
+  if (coverage === 'defines-no-owners') return null
+  return describeCoverage(coverage)
 }
 
 /** Build a runner that reuses one fabric per node count across all iterations. */
@@ -1182,6 +1272,8 @@ function runnerFor(build: (nodes: number) => Promise<Fabric>): {
         attestations.set(config.nodes, {
           attestation: result.job.attestation,
           aggregate,
+          // CHURN-05, in the same statement as the two receipts and for the same reason.
+          coverage: result.job.coverage,
           fromCompletedRun: complete,
         })
       }
@@ -1198,11 +1290,29 @@ function runnerFor(build: (nodes: number) => Promise<Fabric>): {
       grossNodeSeconds: cost.gross,
       usefulNodeSeconds,
       verificationMultiplier: result.ok ? result.job.verificationMultiplier : 0,
-      // submitJob does not speculate or re-dispatch; those paths belong to
-      // runResilient and are not exercised by this workload. Reported as the
-      // identity rather than as a measured zero.
-      speculationMultiplier: 1,
-      redispatches: 0,
+      // **Both read from the job that just returned**, since 20-09. Neither was until
+      // then: both were literals with a comment saying so, and both columns printed those
+      // values whatever the job did. `redispatches` has been real on this path since 20-01
+      // — a shard whose lease lapses is re-placed and `JobResult.redispatches` counts the
+      // generations beyond the first — and `speculationMultiplier` since 20-07, which gave
+      // `submitJob` straggler duplication and a `SpeculationLedger` to count it with.
+      //
+      // **A run in which nothing straggled still prints 1.00, and that is now a
+      // measurement rather than the identity.** The distinction is invisible in the number
+      // and is therefore stated here, which is the same care the comment this replaced
+      // took in the other direction. What separates the two in the data is
+      // `JobResult.speculationSpent` — `0` on a job that duplicated nothing — and it is
+      // deliberately not folded into either column, because a column that quietly means
+      // two things is what the pair of sentences above exists to prevent. The live reading
+      // of a duplicate actually firing lives in
+      // `packages/node/src/speculation-agents.node.test.ts`, which is also where these two
+      // call sites are guarded against reverting to constants.
+      //
+      // `0` on the not-ok arm follows `verificationMultiplier` above: a submission that
+      // was refused ran no job, so there is no measurement — and `SpeculationLedger`
+      // itself reports `0` for a job of zero tasks, so the two agree.
+      speculationMultiplier: result.ok ? result.job.speculationMultiplier : 0,
+      redispatches: result.ok ? result.job.redispatches : 0,
       codeCache,
       reduce,
     } satisfies Observation
@@ -1304,6 +1414,12 @@ async function main(): Promise<void> {
     reading: string
     /** The aggregation's own reading, or absent when this rung reduced nothing. */
     aggregate?: string
+    /**
+     * The owner denominator, or absent when this rung's job defined no owners — which is
+     * every rung of this driver. See {@link coverageReading} for why absence is the
+     * decision rather than the omission.
+     */
+    coverage?: string
   }[] = []
   const sayAttestation = (config: string, held: RungAttestation | NoJobToAttest): void => {
     const { population, reading } = attestationReading(held)
@@ -1316,11 +1432,25 @@ async function main(): Promise<void> {
     if (aggregate !== null) {
       process.stdout.write(`    aggregate attestation (${population}): ${aggregate}\n`)
     }
+    // CHURN-05. Printed only where the job defined owners, so the line's presence is the
+    // information — see {@link coverageReading}, where the decision and its alternative
+    // are argued. On this driver that is never, and the silence is what
+    // `coverage-agents.node.test.ts` reads.
+    const coverage = coverageReading(held)
+    if (coverage !== null) {
+      process.stdout.write(`    owner coverage (${population}): ${coverage}\n`)
+    }
     // Absent, not `undefined` and not a placeholder string: `exactOptionalPropertyTypes`
     // makes those different, and a reader of `raw.json` must be able to tell *this rung
     // reduced nothing* from *this rung's aggregation was not attested* by the presence of
     // the key alone, exactly as the terminal reader tells them by the presence of a line.
-    attested.push({ config, population, reading, ...(aggregate === null ? {} : { aggregate }) })
+    attested.push({
+      config,
+      population,
+      reading,
+      ...(aggregate === null ? {} : { aggregate }),
+      ...(coverage === null ? {} : { coverage }),
+    })
   }
 
   const memory = runnerFor(memoryFabric)
@@ -1430,9 +1560,11 @@ async function main(): Promise<void> {
         ' scaling. Demonstrating speedup needs separate processes or machines and is not' +
         ' done here.',
       '**BENCH-06 (distinct machines) is NOT met.** One machine was available, so every' +
-        ' number here is same-machine. Processes on one host share a CPU, a memory bus and' +
-        ' a scheduler; this measures software scaling with contention included and the' +
-        ' network excluded, and it is not a measurement of N nodes.',
+        ' number here is same-machine. The N the ladder counts is N *node identities*, and' +
+        ' they share one host — and, per the entry above, one process — so they share a' +
+        ' CPU, a memory bus, a scheduler and an event loop. This measures software scaling' +
+        ' with contention included and the network excluded, and it is not a measurement of' +
+        ' N machines. The label on every table says which of the two it is.',
       'No hosted relay exists yet, so no WAN browser-tier number is included. The real' +
         ' transport here is libp2p over TCP on loopback.',
       'The WASM fixture does almost no work, so per-task overhead dominates and the COST' +
@@ -1464,9 +1596,24 @@ async function main(): Promise<void> {
         ' receipts are printed separately because they are claims about different things' +
         ' — this rig’s map half and its aggregation half can differ, and on a' +
         ' `--discover` run they do.',
-      'Speculation and churn taxes are 1.0 and 0 because `submitJob` neither speculates' +
-        ' nor re-dispatches and no node was killed during these runs. They are identities,' +
-        ' not measurements.',
+      '**`spec. tax` and `churn/task` are now read from each job, and on a default run' +
+        ' they are measurements of a fabric in which nothing went wrong.** Until 20-09 both' +
+        ' were literals this driver wrote by hand, and the entry here said so; that sentence' +
+        ' is false in the other direction now and this is its replacement. The measurement' +
+        ' site reads `JobResult.speculationMultiplier` and `JobResult.redispatches`, which' +
+        ' `submitJob` has carried since 20-07 and 20-01 respectively.' +
+        ' **What a reader must not conclude from a `1.00` and a `0.00` is that the' +
+        ' mechanisms are off.** A job with no straggler reports a multiplier of exactly `1`,' +
+        ' and a job in which no lease lapsed reports zero re-dispatches, so these two rows' +
+        ' say *this sweep produced no tail and lost no node* — which is what a healthy' +
+        ' in-process fabric running a uniform workload should say, and is a weaker statement' +
+        ' than the mechanism having fired. A further bound is structural and worth naming:' +
+        ' the budget is `floor(shards × 0.1)` and this driver submits 16 shards, so at most' +
+        ' one duplicate is affordable per run. **The reading that a straggler really is' +
+        ' duplicated across processes, and that the losing copy is still accounted for,' +
+        ' lives in `packages/node/src/speculation-agents.node.test.ts`, not here** — and' +
+        ' those two call sites are guarded against reverting to constants from the same' +
+        ' file.',
       '**The reduce figures are subject to the same one-process, one-event-loop' +
         ' construction as the makespan figures.** `combine executors` counts distinct' +
         ' *node identities*, not distinct machines and not even distinct OS processes, so' +
@@ -1477,8 +1624,11 @@ async function main(): Promise<void> {
       '**`tree depth` and `combines` are decided by `deriveReduceTree` from a shard count' +
         ' and a fanout this sweep never varies.** A column the run shows constant across' +
         ' every rung of both transports carries no information about a configuration, and' +
-        ' a constant is not a result — the same status `spec. tax` and `churn/task` carry' +
-        ' above. The reduce columns expected to carry information are `reduce p50`,' +
+        ' a constant is not a result. **`spec. tax` and `churn/task` are no longer the same' +
+        ' status and the difference is worth keeping straight:** since 20-09 those two are' +
+        ' *measured* and merely happen to be constant on this sweep, whereas these two are' +
+        ' *decided* by `deriveReduceTree` from inputs the sweep never varies and could not' +
+        ' come out otherwise. The reduce columns expected to carry information are `reduce p50`,' +
         ' `reduce p95`, `recomputes` and `combine executors`; read those. Varying the' +
         ' fanout across the sweep would make the other two informative and was rejected' +
         ' for a stated reason: rungs walking differently-shaped trees have incomparable' +

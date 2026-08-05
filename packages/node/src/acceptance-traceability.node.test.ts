@@ -393,13 +393,6 @@ const EXEMPT: readonly Exemption[] = [
       'the reproducibility claim is a property of the whole harness spec — the pinned node ladder and runs-per-config — rather than of one block, and the sibling ids BENCH-04/05/06 that do have titles are the specific sub-claims',
   },
   {
-    id: 'BENCH-03',
-    waives: 'named-in-a-test-title',
-    evidence: 'packages/bench/src/stats.test.ts docblock',
-    reason:
-      'the file has one subject and nothing else in it: percentile arithmetic, and the refusal to report a mean. Every title in it is about that',
-  },
-  {
     id: 'DEMO-03',
     waives: 'named-in-a-test-title',
     evidence: 'packages/node/src/rendezvous-wire.node.test.ts docblock, paired with NET-03',

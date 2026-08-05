@@ -116,6 +116,51 @@ export interface StartOutcome {
 }
 
 /**
+ * Whether a node files its **own** start row into the ledger it serves peers — BROW-01.
+ *
+ * ## Why this exists, and why it is not a filter
+ *
+ * A node records one row about itself at construction so that a peer asking it learns
+ * something the asker did not itself supply — see {@link StartOutcomeLedger} for the
+ * arithmetic that makes the own row load-bearing. That row is a datum *about the owner's
+ * device*, and it is the only one in this ledger that is. Everything else a node serves
+ * arrived from a peer that chose to send it.
+ *
+ * So this value governs the **recording** of that one row and nothing else. It is
+ * deliberately not a predicate consulted when a report frame goes out: an egress filter
+ * leaves the row in the ledger, which means the next thing that reads a ledger — a
+ * debugger, a second serve path, a persistence layer — publishes it again, and the
+ * withholding has to be re-derived at every such site. A row that was never recorded
+ * cannot be forgotten about.
+ *
+ * ## Why it is a required option and not a default
+ *
+ * `.planning/PROJECT.md`'s Key Decision — *an optional hook with a silent default is a
+ * hole* — and this is the boundary that decision is about. Either default is a lie
+ * somewhere: `'reports-its-own-start'` publishes a visitor's browser family because
+ * nobody wrote down that they should not, and `'withholds-its-own-start'` silently
+ * empties the metric BROW-02 exists to produce. Both node factories therefore take it
+ * with no `?`, exactly as `trustAnchors` and `FabricNodeOptions.relayAdmission` do.
+ *
+ * ## What each value costs
+ *
+ * - **`'reports-its-own-start'`** — this node's family and start result travel to any
+ *   peer that asks. That is one coarse label, bounded by {@link isStartBrowserLabel},
+ *   and it is what makes a blocklist cliff visible at all.
+ * - **`'withholds-its-own-start'`** — no row about *this* node ever enters the ledger it
+ *   serves. The node still asks peers, still merges their answers, and still serves back
+ *   what peers told it; declining to report is not declining to see, and it is not
+ *   declining to relay what others consented to. The cost is a real blind spot, which is
+ *   why {@link BlindSpot} has a `declined` arm and {@link describeStartReport} renders it
+ *   beside the numbers it is missing from.
+ *
+ * A per-node **value**, not a node kind. Both factories hold the identical derivation
+ * over it, and a browser tab reading a visitor's checkbox and a server process stating a
+ * constant are two values of one field rather than two kinds of node.
+ */
+export type StartReportingConsent = 'reports-its-own-start' | 'withholds-its-own-start'
+
+/**
  * Below this many reports from one browser, a percentage is noise.
  *
  * Reported rather than suppressed: a rate over four samples is still the only

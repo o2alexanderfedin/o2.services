@@ -28,8 +28,11 @@
  * fabric. So this one failure throws instead, and the throw names the store.
  *
  * **How this differs from `remoteDispatch`, because a reader will otherwise ask.**
- * `remoteDispatch` preserves the failure *kind* — node, sender, task — because
- * `runResilient` branches on it. `CombineDispatch` is `Promise<CID | null>` and
+ * `remoteDispatch` preserves the failure *kind* — node, sender, task — because the
+ * coordinator it was written for branched on it. That coordinator (`runResilient`) was
+ * deleted by Plan 20-12 and `remoteDispatch` now has no caller either, so the contrast
+ * below is between two *shapes*, not between two live paths; `churn.ts`'s own header
+ * carries the debt and its owner phase. `CombineDispatch` is `Promise<CID | null>` and
  * `executeReduce` has exactly one thing it does with a falsy answer: count an attempt
  * and move to the next node in the rendezvous ranking. So every failure collapses to
  * `null` here, and **the reason string the peer sent is lost by construction.**

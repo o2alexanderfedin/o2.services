@@ -2,6 +2,7 @@ import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
+import { blocking, commitScope, pathFormProblems, trackedPaths } from './commit-scope.ts'
 
 /**
  * `vitest.config.ts`'s exclusion list, held to its own stated rule.
@@ -54,6 +55,36 @@ import { describe, expect, it } from 'vitest'
 const ROOT = fileURLToPath(new URL('../../..', import.meta.url))
 const CONFIG_PATH = join(ROOT, 'vitest.config.ts')
 const CONFIG = readFileSync(CONFIG_PATH, 'utf8')
+
+/** `vitest.config.ts` as a commit can name it — every finding here participates in it. */
+const CONFIG_FILE = 'vitest.config.ts'
+
+/**
+ * The commit these findings are judged against, or `NO_COMMIT_SCOPE` outside a commit.
+ *
+ * ## This guard's attribution is the least exact of the five, and that is said here
+ *
+ * Two of the three checks below name a path precisely: a measured span that no longer
+ * exists, or that sits outside the node project, is about `vitest.config.ts` and about
+ * that one file, and either author can resolve it.
+ *
+ * The **file-count drift** check is different, and the difference is worth writing down
+ * rather than discovering. Its subject is "the project grew since the measurement", which
+ * has no single author — and `MEASURED_NODE_SPANS` cannot say which files arrived, because
+ * it records ~40 spans for a run that covered 144 files. So there is no data here from
+ * which to name the cause exactly. The choice is therefore between attributing it to
+ * `vitest.config.ts` alone — which would mean it stops holding the people whose files
+ * moved the count, i.e. it stops blocking — and attributing it to the whole node test
+ * population, which over-attributes and holds somebody who merely edited an existing
+ * spec.
+ *
+ * **Over-attribution is the correct direction, so that is what it does.** A guard that
+ * blocks somebody it need not is an inconvenience; a guard that blocks nobody is a guard
+ * that has been switched off with no symptom. It still narrows: a documentation commit, a
+ * production-source commit, and a plan-document commit all go through, and those are the
+ * commits the recorded `O2_SKIP_GUARDS` instances were.
+ */
+const SCOPE = commitScope()
 
 // ---------------------------------------------------------------------------
 // Parsing the config
@@ -174,17 +205,26 @@ describe('the exclusion list is derived from the measurement, not written beside
 
 describe('every measured path is still a file this project runs', () => {
   it('has no measured path that does not exist on disk', () => {
-    const missing = SPANS.filter((span) => !existsSync(join(ROOT, span.path))).map((span) => span.path)
-    expect(missing).toEqual([])
+    // The union: the config names the path, and whoever renamed or deleted the file is
+    // the other half. A rename is exactly the in-flight edit this narrowing is for, and
+    // `--diff-filter=ACMRD --no-renames` in the hook is what puts the *old* path in the
+    // scope — with rename detection on, git prints only the destination and this finding
+    // would read as foreign.
+    const missing = SPANS.filter((span) => !existsSync(join(ROOT, span.path))).map((span) => ({
+      paths: [CONFIG_FILE, span.path],
+      line: span.path,
+    }))
+    expect(blocking('slow-specs/missing-path', missing, SCOPE)).toEqual([])
   })
 
   it('has no measured path outside the node project', () => {
     // An excluded path the project would not have collected anyway excludes nothing,
     // and reads exactly like a working exclusion.
-    const stray = SPANS.filter((span) => !NODE_PROJECT_FILES.includes(span.path)).map(
-      (span) => span.path,
-    )
-    expect(stray).toEqual([])
+    const stray = SPANS.filter((span) => !NODE_PROJECT_FILES.includes(span.path)).map((span) => ({
+      paths: [CONFIG_FILE, span.path],
+      line: span.path,
+    }))
+    expect(blocking('slow-specs/stray-path', stray, SCOPE)).toEqual([])
   })
 })
 
@@ -201,13 +241,23 @@ describe('the recorded measurement still describes this repository', () => {
   it('has not drifted further from the measured file count than the tolerance allows', () => {
     const recorded = measurementField('files')
     const drift = Math.abs(NODE_PROJECT_FILES.length - recorded)
-    expect(
-      drift,
-      `the node project holds ${NODE_PROJECT_FILES.length} test files, the recorded ` +
-        `measurement covered ${recorded}. Re-measure with ` +
-        `\`npx vitest run --project node --reporter=json --outputFile=…\` and update ` +
-        `MEASURED_NODE_SPANS and NODE_MEASUREMENT in vitest.config.ts.`,
-    ).toBeLessThanOrEqual(FILE_COUNT_TOLERANCE)
+    // Deliberately over-attributed — see `SCOPE` above. The config is where the fix goes;
+    // the node test population is where the cause is, and nothing here can say which of
+    // those files is the cause, so all of them participate.
+    const drifted =
+      drift <= FILE_COUNT_TOLERANCE
+        ? []
+        : [
+            {
+              paths: [CONFIG_FILE, ...NODE_PROJECT_FILES],
+              line:
+                `the node project holds ${NODE_PROJECT_FILES.length} test files, the recorded ` +
+                `measurement covered ${recorded}. Re-measure with ` +
+                `\`npx vitest run --project node --reporter=json --outputFile=…\` and update ` +
+                `MEASURED_NODE_SPANS and NODE_MEASUREMENT in vitest.config.ts.`,
+            },
+          ]
+    expect(blocking('slow-specs/file-count-drift', drifted, SCOPE)).toEqual([])
   })
 
   it('states figures consistent with the table they came from', () => {
@@ -221,5 +271,34 @@ describe('the recorded measurement still describes this repository', () => {
     // A load average is recorded, because an absolute-millisecond cut is not
     // reproducible without one. Zero would mean nobody filled it in.
     expect(measurementField('load')).toBeGreaterThan(0)
+  })
+})
+
+describe('the paths this guard attributes findings to are paths a commit can match', () => {
+  /**
+   * The residual fail-open of narrowing, checked from this guard's end.
+   *
+   * Two path-building expressions feed the attributions above, and they disagree about
+   * the leading separator by construction: `MEASURED_NODE_SPANS` holds hand-typed
+   * strings, while `NODE_PROJECT_FILES` builds its own with `slice(ROOT.length)` followed
+   * by an explicit `replace(/^\//, '')`. That `replace` is the load-bearing character. If
+   * it goes, every measured-path finding becomes `/packages/…`, matches no commit scope,
+   * and this guard silently stops blocking — with nothing else in this file noticing,
+   * because a leading slash still resolves on disk through `join`.
+   *
+   * Membership is a floor because the walk reads the filesystem rather than the index,
+   * so a concurrent agent's untracked spec legitimately appears.
+   */
+  const TRACKED = trackedPaths(ROOT)
+
+  it('emits repo-relative POSIX paths that git also prints', () => {
+    const attributable = [CONFIG_FILE, ...SPANS.map((span) => span.path), ...NODE_PROJECT_FILES]
+    expect(pathFormProblems(attributable)).toEqual([])
+    expect(TRACKED.has(CONFIG_FILE)).toBe(true)
+    // Every *measured* path is a committed file, so this half is an equality: a hand-typed
+    // span that git does not know about is a typo, and a typo here is a permanently
+    // foreign finding.
+    expect(SPANS.map((span) => span.path).filter((path) => !TRACKED.has(path))).toEqual([])
+    expect(NODE_PROJECT_FILES.filter((path) => TRACKED.has(path)).length).toBeGreaterThan(80)
   })
 })

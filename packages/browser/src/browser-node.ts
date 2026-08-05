@@ -59,6 +59,7 @@ import type {
   SelfRecordIndexOptions,
   StartOutcome,
   StartReport,
+  StartReportingConsent,
 } from '@o2/core'
 import {
   Libp2pTransport,
@@ -167,6 +168,49 @@ export interface BrowserNodeOptions {
    * something is.
    */
   readonly trustAnchors: readonly PublicKeyHex[] | 'runs-unsigned-artifacts'
+  /**
+   * Whether this tab's own start row may leave this device — BROW-01.
+   *
+   * **Required, with no `?` and no default**, on the same ground as `trustAnchors` above
+   * and `FabricNodeOptions.relayAdmission`: this is the boundary where the difference
+   * between silence and consent is the entire claim, and `.planning/PROJECT.md`'s Key
+   * Decision — *an optional hook with a silent default is a hole* — is about exactly it.
+   * The union's two values and what each costs are documented in full at
+   * {@link StartReportingConsent} in `@o2/core`.
+   *
+   * ## The defect this field exists to close, recorded because it was a live one
+   *
+   * `DISCLOSURE.reporting` promises a visitor, in the words they read before deciding:
+   * *"Sends one line — which browser family, and whether the node started or was blocked…
+   * **Off unless you turn it on.**"* Two things sent that line and only one of them was
+   * gated. `demo/main.ts`'s `startReport` honoured the choice by sending `outcome: null`.
+   * This factory recorded the tab's own row into its **serve-side** ledger at
+   * construction, with no reference to consent, because this interface carried none — and
+   * `serveAgent`'s report branch hands that ledger to every peer that asks. So the page
+   * withheld the line and the node served it, and a control that changed only what the
+   * local page rendered is the sovereignty claim failing in miniature.
+   *
+   * It was measured rather than reasoned about, over the real wire, in
+   * `packages/node/src/peer-ledger.e2e.test.ts`: a chromium context whose visitor turned
+   * reporting off answered a relay's `report` request with
+   * `chromium | chromium 151 | edge 120 | firefox 153 | safari 26`, its own `edge 120`
+   * among them.
+   *
+   * ## Whose answer this is
+   *
+   * A page's, from the visitor's own consent record — `demo/main.ts` derives it from the
+   * `GrantedConsent` that `requireConsent()` returns, which is the value minted when the
+   * visitor answered the disclosure. Nothing else on a visitor's path supplies it and no
+   * parameter of `TabApi.start` carries one, for the reason `trustAnchors` gives one field
+   * up: a page that was found rather than configured must not be configurable by whatever
+   * found it.
+   *
+   * Per-node **value**, not a node kind. `FabricNodeOptions.startReporting` is the same
+   * field with the same type over there, because a browser node is not a lesser node and
+   * "the tab is only the demo" is precisely the reasoning that would have left the hole
+   * here rather than in the Node tier.
+   */
+  readonly startReporting: StartReportingConsent
   /** IndexedDB database name. Distinct names give one origin several independent nodes. */
   readonly blockstoreName?: string
   /**
@@ -559,18 +603,56 @@ function ownStartOutcome(label: string): StartOutcome | 'reports-no-start-outcom
 }
 
 /**
- * A ledger holding this tab's own row, ready for `serveAgent`'s hook — BROW-02.
+ * A ledger holding this tab's own row, ready for `serveAgent`'s hook — BROW-02, BROW-01.
  *
- * The argument is a **required union with a named sentinel** and never an optional: an
- * omitted outcome would let this line mean "report nothing" without anything having said
- * so, which is the hole `.planning/PROJECT.md`'s Key Decision *"an optional hook with a
+ * Both arguments are **required unions with named members** and neither is an optional: an
+ * omitted one would let this line mean "report nothing" without anything having said so,
+ * which is the hole `.planning/PROJECT.md`'s Key Decision *"an optional hook with a
  * silent default is a hole"* names and which this repository has twice measured as
  * `tsc --noEmit` exit 0 beside a failing behavioural assertion.
  *
+ * ## Two refusals, kept apart on purpose
+ *
+ * The body has two guards and they are deliberately not merged into one condition, even
+ * though the ledger they produce is identical. They answer different questions and only
+ * one of them is the owner's:
+ *
+ * - `consent` is **may this row leave at all**. It is the visitor's answer to
+ *   `DISCLOSURE.reporting`, and it is the whole of BROW-01 at this tier.
+ * - `outcome` is **is there a row this build could file**. A label outside the coarse
+ *   range is refused by `parseCounts` at the wire, so filing it locally would give this
+ *   tab a reading no peer can corroborate.
+ *
+ * Merging them would make a consenting visitor whose label is unfileable indistinguishable
+ * from one who declined, and the next reader would have one condition to re-derive two
+ * meanings from. DATA-10 made the same call for the same reason — a CID-keyed durable set
+ * and a payload-keyed job-scoped guard were kept as two mechanisms rather than one.
+ *
+ * ## Why the consent is taken here rather than applied when a report goes out
+ *
+ * Because a row that was never recorded cannot be forgotten about. See
+ * {@link StartReportingConsent} in `@o2/core`, which carries that argument in full; the
+ * short form is that `serveAgent`'s report branch is not the only thing that will ever
+ * read a ledger, and an egress filter has to be re-derived at each site that does.
+ *
+ * ## What a visitor's later change of mind does, stated rather than left to be found
+ *
+ * The consent is read **once, at construction**. A visitor who turns reporting *on* after
+ * their node started is not counted until it restarts, which is the safe direction and is
+ * the only one this reaches: `revokeConsent` stops the node before it forgets the consent,
+ * and the gate that re-grants is only rendered while no node is running. The unsafe
+ * direction is therefore not reachable from the page — but it *is* reachable by calling
+ * `window.o2.grantConsent` directly with a narrower `reporting` while a node runs, and
+ * that residue is recorded here rather than in a plan nobody reads.
+ *
  * `fabric-node.ts` holds the byte-identical function.
  */
-function ownStartLedger(outcome: StartOutcome | 'reports-no-start-outcome'): StartOutcomeLedger {
+function ownStartLedger(
+  outcome: StartOutcome | 'reports-no-start-outcome',
+  consent: StartReportingConsent,
+): StartOutcomeLedger {
   const held = new StartOutcomeLedger()
+  if (consent === 'withholds-its-own-start') return held
   if (outcome !== 'reports-no-start-outcome') held.record(outcome)
   return held
 }
@@ -1394,10 +1476,20 @@ export class BrowserNode {
     // asking is handed back its own row, and `mergeOverlapping`'s maximum-per-key makes
     // every merged report read 1 however many tabs are open.
     //
-    // The argument is stated rather than defaulted: `ownStartOutcome` returns a required
+    // Both arguments are stated rather than defaulted: `ownStartOutcome` returns a required
     // union whose other arm is a named sentinel, so a tab with nothing fileable to report
-    // says so by name rather than by an absent row.
-    const startLedger = ownStartLedger(ownStartOutcome(currentBrowserLabel()))
+    // says so by name rather than by an absent row — and `startReporting` is the visitor's
+    // own answer to `DISCLOSURE.reporting`, required on this interface for the same reason.
+    //
+    // BROW-01 — **this is the line the consent has to reach, and until it did the opt-out
+    // was cosmetic.** A tab whose visitor declined withheld the line from its own screen
+    // and served the identical row to every peer that asked, because the row was already
+    // in the ledger by the time anything consulted the choice. Recorded at the option's
+    // docblock above with the measurement that showed it.
+    const startLedger = ownStartLedger(
+      ownStartOutcome(currentBrowserLabel()),
+      options.startReporting,
+    )
 
     const node = new BrowserNode({
       libp2p,

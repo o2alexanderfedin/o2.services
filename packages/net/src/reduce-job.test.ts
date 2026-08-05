@@ -135,6 +135,21 @@ function jobWith(shards: readonly ShardResult[]): JobResult {
     // history whose only events would be the grants and completions of a clean run.
     redispatches: 0,
     leaseHistory: [],
+    // A fixture job that duplicated no straggler, on the same terms. `1` is the identity
+    // `SpeculationLedger.multiplier` reports when nothing was spent — the reading a job
+    // with no tail gives, which is what these literals stand for. `reduceJob` reads
+    // neither; they are stated because `JobResult` requires them and a placeholder here
+    // would be a number nobody measured.
+    speculationMultiplier: 1,
+    speculationSpent: 0,
+    // A fixture job that defines no owners, and this is the measured reading rather than
+    // a convenient one: `ShardResult` carries no owner — `reduceJob`'s own header says
+    // *"`ShardSpec.ownerId` exists but `JobResult` does not preserve it"* — so a job
+    // assembled from these literals has no sovereign shard to derive an owner from. The
+    // named arm is what `submitJob` reports for exactly that job. A `CoverageReport` of
+    // `0/0` here would render `PARTIAL (no owners were expected)` and would be this
+    // fixture apologising for a question it was never asked.
+    coverage: 'defines-no-owners',
   }
 }
 
@@ -159,6 +174,12 @@ function agreed(partitionIndex: number, output: CanonicalValue): ShardResult {
     attempted: ['w0'],
     generations: 1,
     ending: 'agreed',
+    // Nothing was slow enough to duplicate, so there is no second copy and nothing was
+    // left over to compare. `[]` is the truthful reading of "no copy was started", the
+    // same reading `rejections: []` gives above.
+    speculated: false,
+    disagreed: false,
+    copies: [],
     attestation: {
       kind: 'holds-no-verified-attestation',
       reason: 'the executor this fixture stands for signs nothing',
@@ -200,6 +221,10 @@ function insufficient(partitionIndex: number): ShardResult {
     attempted: [],
     generations: 0,
     ending: 'never-placed',
+    // A shard nobody would take never ran, so nothing about it was ever slow.
+    speculated: false,
+    disagreed: false,
+    copies: [],
     attestation: {
       kind: 'holds-no-verified-attestation',
       reason: 'this shard is insufficient rather than agreed, so there is no agreement to attest',

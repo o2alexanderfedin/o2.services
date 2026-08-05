@@ -398,10 +398,19 @@ export async function measureGateLadder(
         grossNodeSeconds: cost.gross,
         usefulNodeSeconds: cost.gross / Math.max(1, config.redundancy),
         verificationMultiplier: result.ok ? result.job.verificationMultiplier : 0,
-        // `submitJob` neither speculates nor re-dispatches. Identities, not
-        // measurements — the same distinction the driver draws.
-        speculationMultiplier: 1,
-        redispatches: 0,
+        // **Read from the job**, since 20-09 — the same distinction the driver draws, now
+        // pointed the other way. `submitJob` re-dispatches (20-01) and speculates (20-07),
+        // so these were measurements available at the other end of the call above while
+        // this site wrote constants. A rung where nothing straggled still reports a
+        // multiplier of `1`; that is now a measured `1` rather than an identity, and what
+        // tells the two apart is `JobResult.speculationSpent` rather than this figure.
+        //
+        // Nothing in this gate asserts on either — its statistic is the paired
+        // fabric-over-reference ratio — so the guard that keeps them read rather than
+        // written is a source scan, in
+        // `packages/node/src/speculation-agents.node.test.ts`.
+        speculationMultiplier: result.ok ? result.job.speculationMultiplier : 0,
+        redispatches: result.ok ? result.job.redispatches : 0,
         codeCache,
         // **The perf gate deliberately runs no reduce**, and this is a not-measured
         // sentinel rather than a measurement of zero.

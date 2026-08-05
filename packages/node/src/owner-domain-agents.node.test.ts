@@ -413,6 +413,8 @@ async function standUp(): Promise<Fixture> {
   for (const agent of [n1, n2, n3]) expect(agent.certificate?.issuer).toBe(providerKey)
 
   const requestor = await FabricNode.start({
+    relayAdmission: 'admits-any-peer',
+    startReporting: 'reports-its-own-start',
     blockstoreDir: join(workdir, 'requestor'),
     listen: ['/ip4/127.0.0.1/tcp/0'],
     rpcTimeoutMs: 20_000,

@@ -258,6 +258,8 @@ function dialable(node: FabricNode, name: string): string {
  */
 async function startProvider(name: string): Promise<{ node: FabricNode; addr: string }> {
   const node = await FabricNode.start({
+    relayAdmission: 'admits-any-peer',
+    startReporting: 'reports-its-own-start',
     blockstoreDir: join(workdir, name),
     listen: ['/ip4/127.0.0.1/tcp/0/ws'],
     trustAnchors: [KERNEL_TRUST_ANCHOR],
@@ -280,6 +282,8 @@ async function startPeer(
   enrollment?: { userPrivateKey: Uint8Array; operatorId: string; providerAddr: string },
 ): Promise<{ node: FabricNode; addr: string }> {
   const node = await FabricNode.start({
+    relayAdmission: 'admits-any-peer',
+    startReporting: 'reports-its-own-start',
     blockstoreDir: join(workdir, name),
     listen: ['/ip4/127.0.0.1/tcp/0/ws'],
     trustAnchors: [KERNEL_TRUST_ANCHOR],

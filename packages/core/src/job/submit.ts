@@ -13,6 +13,58 @@
  * re-derives "who could run this"; it only narrows the executor pool to the
  * nodes the placement plan actually chose.
  *
+ * ## Three rules inherited verbatim from the deleted `coordinator.ts`
+ *
+ * Plan 20-12 deleted that module — it was a second job implementation nothing called, and
+ * WIRE-04's own wording makes a second entry point the failure mode. But it was also the
+ * only written statement of three rules that are now **this** module's, and a rule whose
+ * only statement lives in a deleted file is a rule about to be re-broken. So they are
+ * moved rather than lost, in `coordinator.ts`'s own words:
+ *
+ * ### Liveness changes who computes a task and when, never what the answer is
+ *
+ * > A node vanishing costs an attempt. A node being slow costs a duplicate. Neither can
+ * > change the bytes, because a result is a pure function of `(module, input, partition)`
+ * > and is content-addressed. That is what lets this loop be aggressive: every recovery
+ * > action it can take is, at worst, wasted work.
+ *
+ * ### Failure is a fact, silence is a deadline
+ *
+ * > The two are handled differently and it matters. A dispatch that reports failure is
+ * > *observed* — the node refused, or its connection died — so the lease is surrendered
+ * > immediately and the task moves on. Silence gets a deadline instead, because silence
+ * > is indistinguishable from slowness and the only safe response to "I cannot tell" is
+ * > to wait a bounded time. Conflating them would either waste a full lease on a node
+ * > known to be gone, or declare a slow node dead on no evidence.
+ *
+ * > **The deadline is the lease, and it is enforced here rather than assumed.** An
+ * > earlier version of that module stated the rule and then never checked `expiresAt`
+ * > anywhere: once speculation became impossible the loop awaited the pending dispatch
+ * > with no timer at all, so a peer that simply never answered hung the shard, and
+ * > `Promise.all` hung the job. Nothing bounded it, because the transport timeout belongs
+ * > to the transport and a caller may not have one.
+ *
+ * ### Disagreement must survive speculation
+ *
+ * > When a duplicate wins, the loser is *not* abandoned unexamined. That was the other
+ * > thing that module got wrong: breaking out of the race on the first arrival meant a
+ * > second copy's answer was never compared, so `disagreed` could not become true on any
+ * > input — timing alone picked which of two different CIDs became the job's answer, and
+ * > the run reported clean. That is majority-vote-by-race, the thing this project has
+ * > explicitly refused.
+ *
+ * > The fix keeps speculation's whole point intact. Waiting for the loser would undo the
+ * > latency saving — the loser is usually the straggler. So the winner returns
+ * > immediately and the outstanding copies are compared **after every shard has
+ * > settled**, which costs nothing because the job was going to wait for its slowest
+ * > shard anyway. A copy that has still not answered by then is reported as uncompared
+ * > rather than as agreeing; you cannot compare an answer that never arrived, and saying
+ * > "no disagreement" about it would be a claim nobody checked.
+ *
+ * All three are implemented below — the surrender-on-failure and sleep-to-the-deadline
+ * arms in `dispatchUnderLease`, and the post-settle comparison in `compareOutstanding` —
+ * and each is planted against in `submit.test.ts`.
+ *
  * ## A shard gets more than one generation — WIRE-04, CHURN-01, CHURN-04
  *
  * Until Phase 20 this module called `executeVerified` **exactly once per shard**. A
@@ -47,6 +99,57 @@
  * scheduler that quietly retried would produce correct answers and inexplicable
  * bills."*
  *
+ * ## A straggler is duplicated, and the loser is still read — CHURN-02, CHURN-06
+ *
+ * A job finishes when its *slowest* shard finishes, so one node on a train ruins a
+ * thousand-node job. When a shard has been running far longer than its peers, a second
+ * copy is dispatched to another eligible node while the first is still running, and the
+ * first answer to arrive is the shard's answer. `speculation.ts` carries the pieces —
+ * the median, the budget, the eligibility gate — and this is their first production
+ * caller.
+ *
+ * **Three things `coordinator.ts` got wrong before it got them right.** That module is
+ * deleted in a later plan, so its reasoning is reproduced here rather than referenced,
+ * and quoted where its own sentence is the clearest statement of the rule:
+ *
+ * 1. **Breaking out of the race on the first arrival made `disagreed` impossible on any
+ *    input.** Timing alone picked which of two different CIDs became the answer and the
+ *    run reported clean — *"majority-vote-by-race, the thing this project has explicitly
+ *    refused"*. So the winner returns immediately and the copies still outstanding are
+ *    **registered, never cancelled**, then compared after **every** shard has settled.
+ *    That costs nothing, because the job was going to wait for its slowest shard anyway.
+ *    A copy that still has not answered by then is reported **uncompared**: you cannot
+ *    compare an answer that never arrived, and calling it agreement would be a claim
+ *    nobody checked.
+ * 2. **A flag that stopped speculating was allowed to stop the timer**, leaving the loop
+ *    awaiting a promise that might never settle. The watchdog is therefore
+ *    *unconditional*: `watching` decides only whether a tick may **speculate**, never
+ *    whether there is a deadline. Termination is the lease deadline's job and only its
+ *    job.
+ * 3. **Wrapping each dispatch into its raced form inside the loop** allocated a fresh
+ *    closure and promise per iteration — an out-of-memory crash rather than a slow test,
+ *    and only when a real dispatch is slower than the watchdog, which is exactly when
+ *    speculation is working. Each {@link Copy} is therefore built **once**, at dispatch.
+ *
+ * **Speculation is adaptive, not a fixed timeout.** A shard is a straggler relative to
+ * its *peers*, so the threshold is the median of what has already finished. Early in a
+ * job nothing has finished and nothing is duplicated — correctly, since there is no tail
+ * yet — which is why the loop polls rather than sleeping once for a precomputed instant:
+ * the threshold it checks against does not exist when the shard starts. "Too new to
+ * judge" is the one reason to do nothing that must **not** stop the watching, because the
+ * median moves and elapsed time grows.
+ *
+ * **Speculation is not redundancy and the two must not be confused.** Redundancy is N
+ * executors compared for agreement; speculation is one extra copy of an already-placed
+ * shard because it is slow. A job at redundancy 2 whose straggler is duplicated has
+ * **three dispatches and two replicas**.
+ *
+ * **CHURN-06 is a property of construction.** The duplicate's candidates come from
+ * `speculativeCandidates`, which routes through the same `eligibleNodes` gate every
+ * placer calls, so a sovereign shard's copy lands on its owner's own nodes or the shard
+ * is **not duplicated at all** — and where the owner has no spare node, waiting is the
+ * correct move rather than a failure.
+ *
  * **A dispatch that answers nothing is bounded by its lease, and that is a behaviour
  * change with a cost.** Before this, `submitJob` awaited `executeVerified` forever. It
  * now stops waiting at `DEFAULT_LEASE_MS` and moves the shard, so a *genuinely slow*
@@ -56,13 +159,89 @@
  * 'I cannot tell' is to wait a bounded time"*), and `DEFAULT_LEASE_MS` is the dial. The
  * escape from it is evidence, not a longer timer — see {@link JobSpec.admit}.
  *
+ * ## The aggregate carries its denominator — CHURN-05
+ *
+ * A job over ten owners that reached eight of them computed a *different number* from the
+ * one it was asked for, and nothing about the number itself says so. `coverage.ts` exists
+ * to stop the first being presented as the second, and until Phase 20 it had **zero**
+ * production callers. Every job now reports how many of its owners contributed, beside
+ * its result rather than instead of it — see {@link JobResult.coverage}.
+ *
+ * **The owner set is derived from the job's own shards and there is no `JobSpec` field
+ * for it.** A shard is defined for an owner whether or not that owner's nodes are up, so
+ * an owner whose every node is missing still has a shard, is still *expected*, and lands
+ * in `CoverageReport.missing` by name. This is not a contradiction of the standing rule
+ * that an optional field with a silent default is a hole — see {@link JobSpec.admit},
+ * which is such a field and states its asymmetry. That rule governs *choices the caller
+ * must state*; an owner set is a *fact already present in the caller's own input*, and a
+ * required field for it would be a five-site fan-out buying nothing derivation does not.
+ *
+ * **What that derivation costs, measured rather than assumed.** It ties one direction of
+ * coverage to completeness: an owner can only be expected by having a shard, and that
+ * shard is inside {@link JobResult.complete}'s conjunction, so a `complete` job is always
+ * fully covered. The converse fails — a fully covered job can be incomplete — and the two
+ * remain separate fields for that reason and because the remedies differ. What would make
+ * the missing direction reachable is a *declared* owner set (`runResilient`'s optional
+ * `expectedOwners`), and declaring one is the thing this module refuses.
+ *
+ * ## The job outlives the requestor — CHURN-03
+ *
+ * The requestor is a browser tab, and tabs close. So the coordinator is arranged to be
+ * the least important participant: as each shard settles, a small canonical block naming
+ * every answered partition **by result CID** is written to the same blockstore everything
+ * else goes to, and its handle is handed straight out through
+ * {@link SubmitOptions.checkpoints}. A requestor holding that handle can hand it to
+ * another requestor, which resumes by running {@link SubmitOptions.resumeFrom} — the
+ * *same* `submitJob` call with a starting state, not a second entry point.
+ *
+ * **A checkpoint names results; it does not carry them.** `PROJECT.md`'s liveness
+ * invariant is what makes that sound — a result is a pure function of
+ * `(module, input, partition)` and is content-addressed — so a resume is a *lookup*, not
+ * a re-send, and the checkpoint block's size is independent of how big the answers were.
+ * `checkpoint.ts`'s own header states the consequence this module relies on: *"A task that
+ * was in flight when the tab closed is simply outstanding, because its lease expired."*
+ * There is nothing to release and nothing to reconcile.
+ *
+ * **The cadence is one write per shard that answers, and the alternatives are both worse.**
+ * Once at the end is useless: a requestor that departed mid-job wrote nothing, which is the
+ * only case this exists for. A write on a timer would decouple the record from the events
+ * it records and would still lose an unbounded amount between ticks. So: N writes for N
+ * answered shards, serialised through one chain so the `previous` links form a line rather
+ * than a fork, each naming *everything* known at the instant it is composed. **What a crash
+ * between two writes loses** is the shards that answered since the last published handle;
+ * a resume re-runs them, which costs work and never correctness. What each write costs is
+ * one canonical encode and one `blockstore.put` of a block whose size grows by one
+ * `(index, cid)` pair per shard — arithmetic on a path that is otherwise pure, and the
+ * reason the cadence is stated here rather than left to be discovered in a profile.
+ *
+ * **What a checkpoint cannot know, stated rather than left to be found.** It is written
+ * when a shard settles, and {@link ShardResult.disagreed} — a *late* copy that hashed
+ * differently — is only known after **every** shard has settled. So a published handle can
+ * name a shard whose losing copy later disagreed. Two things bound it: that event already
+ * fails {@link JobResult.complete} for the run that observed it, and a resumed job is
+ * **never** `complete` anyway, because a carried shard got zero replicas from *this*
+ * requestor and is therefore degraded. Nobody can read a resumed job as fully verified,
+ * which is the honest reading: this requestor verified the shards it ran and took the rest
+ * on a predecessor's word.
+ *
+ * **The scope line, held.** This is a record written and read back. There is no failover,
+ * no leader election, no registry, and no agreement between two requestors about which of
+ * them owns a job — that shape is shared mutable state requiring consensus, and
+ * `19-CONTEXT.md`'s NO BLOCKCHAIN ruling refuses it. Two requestors resuming the same
+ * checkpoint both finish the job and both get the same answers, because the answers are a
+ * pure function of the inputs; they duplicate work and nothing else.
+ *
  * Pure module: the blockstore and executors arrive as ports, and so do the clock and
  * the timer the lease deadline needs — see {@link SubmitOptions.clock}.
  */
 
-import type { CID } from 'multiformats/cid'
-import { canonicalCid } from '../canonical/encode.ts'
+import { CID } from 'multiformats/cid'
+import { canonicalCid, decodeCanonical } from '../canonical/encode.ts'
 import type { CanonicalValue } from '../canonical/encode.ts'
+import { checkpointOf, recoverCheckpoint, readCheckpoint, writeCheckpoint } from '../checkpoint.ts'
+import type { CheckpointFailure, CompletedShard, JobCheckpoint } from '../checkpoint.ts'
+import { coverageOf } from '../coverage.ts'
+import type { CoverageReport } from '../coverage.ts'
 import type { NodeCertificate } from '../enrollment.ts'
 import type { Sleep } from '../governor.ts'
 import { DEFAULT_MAX_GENERATIONS, LeaseTable, RENEW_AT, shouldRenew } from '../lease.ts'
@@ -75,6 +254,13 @@ import { attestationRank, attestationReceipt, composeQuorum } from '../quorum.ts
 import type { AttestationReceipt, QuorumRefusal } from '../quorum.ts'
 import { verifyResultAttestation } from '../result-attestation.ts'
 import type { ResultWork } from '../result-attestation.ts'
+import {
+  DEFAULT_SPECULATION_FRACTION,
+  DEFAULT_STRAGGLER_FACTOR,
+  SpeculationLedger,
+  speculativeCandidates,
+  stragglers,
+} from '../speculation.ts'
 import { planPlacement } from '../sovereignty.ts'
 import type { NodeDescriptor, OwnerId, Placement, PlacementRequest } from '../sovereignty.ts'
 import { executeVerified } from './verify.ts'
@@ -392,6 +578,59 @@ interface ShardGate {
 }
 
 /**
+ * How often a running dispatch is re-examined for having become a straggler — CHURN-02.
+ *
+ * Also the floor on how quickly one can be spotted, and the default width of the window
+ * a losing copy gets to answer in once the job has settled. 250 ms is
+ * `coordinator.ts`'s own figure, transcribed rather than imported because that module is
+ * deleted in a later plan.
+ *
+ * **A poll and not a precomputed deadline**, because the threshold a shard is judged
+ * against is the median of what has already *finished* — a quantity that does not exist
+ * when the shard starts and that moves while it runs.
+ */
+export const DEFAULT_SPECULATION_WATCHDOG_MS = 250
+
+/**
+ * What became of a speculative copy once the job had settled — CHURN-02, VER-01.
+ *
+ * **One list per shard rather than one map per outcome**, and the reason is
+ * `coordinator.ts`'s recorded hole: a copy that answered *with a failure* is neither
+ * silent nor disagreeing, and every reader had to remember to consult a third structure
+ * that did not exist. The `'agreed'` arm carries nothing and exists purely so the
+ * enumeration is exhaustive — *"which turns a fifth outcome invented later into a
+ * compile error rather than a silent omission."*
+ *
+ * A copy is any dispatch of a shard that was still outstanding when another one won, so
+ * the *placed* dispatch appears here too when a duplicate beat it. Speculation makes the
+ * two symmetric on purpose: once a second copy is running, which of them is "the
+ * original" is a fact about scheduling and not about the answer.
+ */
+export type SpeculativeCopy =
+  /** It answered, and its result was the winner's result. Nothing more to say. */
+  | { readonly nodeIds: readonly string[]; readonly outcome: 'agreed' }
+  /**
+   * It answered with a **different** result — reported, never resolved.
+   *
+   * Two copies of a deterministic function over content-addressed inputs must agree;
+   * that they did not is a determinism failure or a dishonest node, and it is the most
+   * informative event this system can observe. The differing CID travels with it so the
+   * shard names *both* answers rather than only asserting that they differed.
+   */
+  | { readonly nodeIds: readonly string[]; readonly outcome: 'disagreed'; readonly resultCid: string }
+  /** It answered, and what it said was that it failed. Its own bucket for that reason. */
+  | { readonly nodeIds: readonly string[]; readonly outcome: 'failed'; readonly reason: string }
+  /**
+   * Its answer was not compared, and `reason` says why.
+   *
+   * Deliberately distinct from `'agreed'`. Either it had not answered when the window
+   * closed, or the shard reached no single agreed result for it to be compared against —
+   * both are "nobody checked this", and folding either into agreement would assert
+   * something nobody checked.
+   */
+  | { readonly nodeIds: readonly string[]; readonly outcome: 'uncompared'; readonly reason: string }
+
+/**
  * Why a shard's generation loop stopped — WIRE-04, CHURN-01.
  *
  * Three of these are the loop's only exits and the fourth is a shard that never entered
@@ -417,6 +656,20 @@ export type ShardEnding =
   | 'generations-spent'
   /** The first placement never placed it, so no generation ever ran. */
   | 'never-placed'
+  /**
+   * A checkpoint already named this shard's answer, so this requestor never ran it —
+   * CHURN-03.
+   *
+   * **The one ending that is not an outcome of the generation loop**, and it is a
+   * *value* rather than something a reader infers from `generations: 0` plus an empty
+   * `attempted`, because `'never-placed'` reads exactly the same way and means the
+   * opposite: nobody would take it, versus somebody already did it. The shard's
+   * {@link ShardResult.verification} is `agreed` at `replicas: 0` — this requestor
+   * obtained no replica of its own — which is also why such a shard is
+   * {@link ShardResult.degraded} and why a resumed job is never
+   * {@link JobResult.complete}.
+   */
+  | 'carried-from-checkpoint'
 
 export interface ShardResult {
   readonly partitionIndex: number
@@ -435,8 +688,42 @@ export interface ShardResult {
    * A node appears at most once: every generation places over a candidate list with
    * every already-attempted node removed, because placement is deterministic and a
    * re-dispatch handed the same pool would pick the node that just failed, every time.
+   * A speculative duplicate is a dispatch and appears here too, appended at the instant
+   * it was started — which is also what keeps a later generation from re-placing onto it.
    */
   readonly attempted: readonly string[]
+  /**
+   * True when a speculative duplicate was started for this shard — CHURN-02.
+   *
+   * `false` is the ordinary reading and covers three different situations that a caller
+   * usually does not need to distinguish: nothing was slow enough, the job-wide budget
+   * was gone, or there was nowhere legal to duplicate to. {@link ShardResult.copies} and
+   * {@link JobResult.speculationSpent} are where the difference is visible.
+   */
+  readonly speculated: boolean
+  /**
+   * True when a copy of this shard produced a **different** result from the winner.
+   *
+   * **This is the LATE half of disagreement and not the whole of it.** The in-generation
+   * half is `verification.status === 'disagreed'` — replicas of one dispatch that did not
+   * match. A caller asking "did this shard disagree?" has to read both, which is why
+   * {@link JobResult.complete} does. They are separate fields because they are separate
+   * events: one is N replicas compared inside a dispatch, the other is two whole copies
+   * of the shard compared against each other after the job settled.
+   *
+   * Reported, never resolved. First-result-wins picks the winner; the disagreement
+   * travels alongside it.
+   */
+  readonly disagreed: boolean
+  /**
+   * Every copy of this shard that was still outstanding when another one won, and what
+   * became of it. See {@link SpeculativeCopy}.
+   *
+   * `[]` on every shard of every job that speculated nothing, which is most of them —
+   * and it is a truthful reading rather than a default: no second copy was started, so
+   * none was left over to compare.
+   */
+  readonly copies: readonly SpeculativeCopy[]
   /**
    * Dispatch generations this shard used. `1` is a shard that never had to retry, `0`
    * a shard that was never placed.
@@ -516,6 +803,50 @@ export interface ShardResult {
   readonly rejections: readonly Rejection[]
 }
 
+/**
+ * How much of a job's owner set actually contributed — CHURN-05.
+ *
+ * **A named union rather than a bare {@link CoverageReport}**, and this is the decision
+ * most likely to be undone by somebody tidying. `coverageOf` treats an empty owner set as
+ * **not** complete — its own words, *"An empty job is not a complete one — '0 of 0 owners'
+ * answers nothing"* — so a bare report on a public job renders `covered: 0/0 owners —
+ * PARTIAL (no owners were expected)`. That is a correct answer to a question the job was
+ * never entered for, and it would print on every benchmark rung in this repository. So a
+ * job with no sovereign shard says what it is *by name*, the same shape as
+ * `'keeps-no-ledger'`, `'signs-nothing'` and `'carries-no-certificate'`, and a reader has
+ * to have handled that arm before it can reach `describeCoverage` at all.
+ */
+export type JobCoverage = CoverageReport | 'defines-no-owners'
+
+/**
+ * Did this shard put its owner's data into the aggregate? — CHURN-05.
+ *
+ * **`agreed`, and no copy of it that disagreed.** An `insufficient` shard produced
+ * nothing, a `disagreed` one produced two different things and `verify.ts` refuses to pick
+ * between them, and an unplaceable one never ran. The second clause carries 20-07's rule
+ * one level out: a shard whose losing copy hashed differently is a failed run and not a
+ * run with a footnote, so its owner's bytes are not in an aggregate anybody should read.
+ * {@link ShardResult.disagreed} post-dates the sentence in `verify.ts` that this
+ * predicate otherwise transcribes, so the clause is written here rather than left implied.
+ *
+ * **`degraded` deliberately does NOT disqualify**, and the reason is written down because
+ * an unstated answer here would read as an oversight. A shard that agreed at one replica
+ * instead of two *did* read its owner's data and produce a result over it — the owner
+ * contributed. What is weaker is the **verification**, which is a different question with
+ * a different remedy (ask for more replicas, versus go and find the owner's node), and
+ * {@link ShardResult.degraded}, {@link ShardResult.attestation} and
+ * {@link JobResult.complete} each already report it. Folding it in would make `2/3`
+ * ambiguous between *an owner is absent* and *an owner's shard got half the redundancy it
+ * asked for* — the same collapse of two questions into one number that `coverage.ts`
+ * exists to prevent, running the other way. It would also contradict `PROJECT.md`'s own
+ * split: sovereign data is **owner-attested** rather than redundantly executed, so
+ * requiring full redundancy before an owner counts would demand a guarantee this project
+ * does not claim, on exactly the shards coverage is computed over.
+ */
+function landedForItsOwner(shard: ShardResult): boolean {
+  return shard.verification.status === 'agreed' && !shard.disagreed
+}
+
 export interface JobResult {
   readonly moduleCid: CID
   readonly shards: readonly ShardResult[]
@@ -529,7 +860,15 @@ export interface JobResult {
    * remembered string order, which is what that function exists for.
    */
   readonly attestation: ShardAttestation
-  /** True only if every shard reached `agreed` at its full requested redundancy. */
+  /**
+   * True only if every shard reached `agreed` at its full requested redundancy, with no
+   * copy of it disagreeing.
+   *
+   * The last clause arrived with speculation. **A disagreement is a failed run, not a run
+   * with a footnote** — the same rule `executeVerified` and `executeReduce` already
+   * apply — so a job whose winner and whose late copy hashed differently is not complete,
+   * however well every individual dispatch went.
+   */
   readonly complete: boolean
   /** Node-seconds spent including redundant work. */
   /**
@@ -579,6 +918,47 @@ export interface JobResult {
    * *which kind* of trouble it had without guessing from a reason string.
    */
   readonly leaseHistory: readonly LeaseEvent[]
+  /**
+   * Measured speculation tax: total dispatches over useful ones — CHURN-02.
+   *
+   * Deliberately the same shape as {@link JobResult.verificationMultiplier} and for the
+   * same reason: *a cost that is not surfaced is a cost that gets discovered later, by
+   * someone else, in a bill.* `1` means speculation cost this job nothing, and it is
+   * reported whether or not speculation was used, so its absence from a job is visible
+   * rather than assumed.
+   *
+   * **`1` alone does not say speculation was off.** A job with no stragglers reports `1`
+   * too. What distinguishes disabled from idle is this figure *together with* the
+   * dispatch count — which is why `submit.test.ts`'s disabled arm asserts both.
+   *
+   * Read off `SpeculationLedger.multiplier`, so it counts *tasks* rather than replicas:
+   * a job of ten shards with one duplicate reads `1.1` whatever its redundancy, because
+   * redundancy is `verificationMultiplier`'s question and not this one.
+   */
+  readonly speculationMultiplier: number
+  /** Duplicates this job actually started, out of a job-wide budget it could not exceed. */
+  readonly speculationSpent: number
+  /**
+   * Owners this job was defined over, against owners that **fully** delivered — CHURN-05.
+   *
+   * Beside the result rather than instead of it: `covered: 2/3 owners` is the sentence
+   * `describeCoverage` already writes and criterion 4 already asks for, and this is the
+   * value it is written from.
+   *
+   * **An owner counts only when every one of its shards landed.** One of four is not a
+   * contribution — see {@link landedForItsOwner} and the argument reproduced at the site
+   * that computes this.
+   *
+   * **Not {@link JobResult.complete}, and never merged with it.** A caller can be told
+   * this job is incomplete because a shard disagreed, or because an owner is entirely
+   * absent, and those are different remedies: re-run, versus go and find the owner's node.
+   * Deriving either from the other would take a caller's ability to tell them apart.
+   * *(One implication does hold, by construction and not by design: because the owner set
+   * is derived from the job's own shards, a `complete` job is always fully covered. The
+   * converse fails, which is why the pair carries information at all. The module header
+   * records what would make the missing direction reachable.)*
+   */
+  readonly coverage: JobCoverage
 }
 
 export type SubmitError =
@@ -593,6 +973,30 @@ export type SubmitError =
    * compile time — this is the runtime backstop for that cast (T-12-01).
    */
   | { kind: 'shard-missing-owner'; partitionIndex: number }
+  /**
+   * Every handle in {@link SubmitOptions.resumeFrom} was unreadable — CHURN-03.
+   *
+   * **Named through `readCheckpoint`'s own failure union rather than flattened to a
+   * sentence**, because the three kinds have three different remedies: `block-missing`
+   * says go and find the block, `undecodable` says the bytes are not a canonical block
+   * at all, and `malformed` names the *field* that made it unusable. A resume that
+   * threw, or one that silently ran the whole job, would both be worse than either —
+   * the first loses the reason, the second loses the record.
+   *
+   * `failure` is the **newest** handle's, since that is the one the caller named; the
+   * `detail` says how many handles were tried in total.
+   */
+  | { kind: 'checkpoint-unreadable'; failure: CheckpointFailure; detail: string }
+  /**
+   * The checkpoint is readable and is a checkpoint of a **different job** — CHURN-03.
+   *
+   * Reachable because `jobId` is derived from the module and the ordered input CIDs (see
+   * {@link jobIdOf}), so this compares the checkpoint's own account of what job it
+   * belongs to against this spec's. Without it a resume against a valid checkpoint of an
+   * unrelated job would skip partitions by index — decoding cleanly, type-checking
+   * cleanly, and returning another job's answers under this job's shard numbers.
+   */
+  | { kind: 'checkpoint-names-another-job'; expected: string; found: string }
 
 export type SubmitResult =
   | { ok: true; job: JobResult }
@@ -788,6 +1192,308 @@ function inFlightRefusal(slotKey: string): string {
   return `${slotKey} is already in flight here`
 }
 
+/**
+ * The name a job answers to in its own checkpoints — CHURN-03.
+ *
+ * **Derived, never declared**, and the argument is the one 20-08 made for the owner set:
+ * the standing rule that an optional field with a silent default is a hole governs
+ * *choices the caller must state*, and a job's identity is not a choice — it is a fact
+ * already present in the caller's own input. `PROJECT.md`'s liveness invariant says a
+ * result is a pure function of `(module, input, partition)`, so two submissions of the
+ * same module over the same ordered inputs **are** the same job: they compute the same
+ * answers and either one's checkpoint is a correct account of the other's progress. A
+ * caller-supplied string could disagree between the requestor that departed and the one
+ * that arrived, and the resume would then read a checkpoint of a different job while
+ * everything type-checked.
+ *
+ * Deriving it is also what makes {@link SubmitError} `'checkpoint-names-another-job'`
+ * reachable at all: a declared id would be whatever the resuming caller passed, so the
+ * comparison would be against itself.
+ *
+ * **Redundancy is deliberately not in it.** A shard's answer does not depend on how many
+ * nodes computed it — that is what content addressing means here — so a job re-submitted
+ * at a different redundancy is the same job, and its checkpoint names answers that are
+ * still correct. What *does* change is how well this requestor verified them, and that is
+ * reported on the shard ({@link ShardResult.degraded}, `replicas: 0`) rather than smuggled
+ * into an identity.
+ *
+ * Throws rather than returning an error, and only on an input this function constructs
+ * itself — a record of two strings and an array of strings, which the canonical codec
+ * cannot refuse. Same call {@link receiptFor} makes for its own assembly invariant.
+ */
+async function jobIdOf(moduleCid: CID, inputCids: readonly CID[]): Promise<string> {
+  const encoded = await canonicalCid({
+    module: moduleCid.toString(),
+    inputs: inputCids.map((cid) => cid.toString()),
+  })
+  if (!encoded.ok) {
+    throw new Error(
+      `a job id over ${inputCids.length} content addresses would not canonicalise — ` +
+        `this input is built from strings and cannot be refused: ${JSON.stringify(encoded.error)}`,
+    )
+  }
+  return encoded.cid.toString()
+}
+
+/** Somewhere a checkpoint handle goes the instant it exists. See {@link SubmitOptions.checkpoints}. */
+export interface CheckpointSink {
+  /**
+   * Called with each handle as it is written, oldest first.
+   *
+   * The {@link JobCheckpoint} is handed over beside it because it is already in hand and
+   * a sink that wants to show progress would otherwise have to read the block back to
+   * learn what it just published.
+   *
+   * **Awaited**, so a sink that persists slowly slows the job rather than silently
+   * falling behind it. A handle that has not reached the sink is a handle nobody can
+   * resume from, which makes an un-awaited publish a checkpoint that does not exist.
+   */
+  publish(handle: CID, checkpoint: JobCheckpoint): Promise<void>
+}
+
+/** Records answered shards and publishes a handle per answer. See {@link SubmitOptions.checkpoints}. */
+interface CheckpointLog {
+  record(shard: CompletedShard): Promise<void>
+}
+
+/** The log that writes nothing, for a caller that named no sink. */
+const NO_CHECKPOINTS: CheckpointLog = {
+  record: async (): Promise<void> => {},
+}
+
+/**
+ * One serialised chain of checkpoint writes for one job — CHURN-03.
+ *
+ * **Serialised, and that is not incidental.** Shards run concurrently, so two settling
+ * within one turn would otherwise each compose a checkpoint against the same `previous`
+ * and the chain would *fork* — two handles claiming the same predecessor, one of them
+ * naming work the other does not. `checkpointChain`'s audit walk would then follow one
+ * branch and report a history that omits half the job. Chaining the writes through a
+ * single promise costs the settling shard the duration of one encode and one put, which
+ * is the tail of a dispatch that has already finished.
+ *
+ * Each write names **everything known when it is composed**, not a delta, which is what
+ * makes any single handle a complete view and therefore something a resume can act on
+ * alone. `checkpointOf` sorts and dedupes, so the same knowledge always produces the same
+ * CID.
+ */
+function checkpointLogOf(
+  sink: CheckpointSink,
+  blockstore: Blockstore,
+  job: { readonly jobId: string; readonly moduleCid: string; readonly partitionCount: number },
+  clock: JobClock,
+  carried: readonly CompletedShard[],
+  resumedFrom: CID | null,
+): CheckpointLog {
+  // Seeded with whatever a resume carried, so a *third* requestor reading this run's
+  // newest handle does not re-run the first requestor's work. A checkpoint that named
+  // only what this process computed would lose ground on every hand-off.
+  const completed: CompletedShard[] = [...carried]
+  // Continuous across requestors: this run's first checkpoint names the handle it resumed
+  // from as its predecessor, so `checkpointChain` walks back through the departed
+  // requestor's history rather than stopping at the hand-off.
+  let previous: string | null = resumedFrom === null ? null : resumedFrom.toString()
+  let chain: Promise<void> = Promise.resolve()
+
+  return {
+    record(shard: CompletedShard): Promise<void> {
+      chain = chain.then(async (): Promise<void> => {
+        completed.push(shard)
+        const checkpoint = checkpointOf({
+          jobId: job.jobId,
+          moduleCid: job.moduleCid,
+          partitionCount: job.partitionCount,
+          completed,
+          // `readCheckpoint` refuses an `at` that is not a whole number ≥ 0, so a clock
+          // port that reports a fraction — or a virtual one that ran backwards — would
+          // otherwise produce a block this module could not read back. Clamped here
+          // rather than trusted, for the reason `checkpoint.ts` validates every field it
+          // reads: this is the only place the value is chosen.
+          at: Math.max(0, Math.floor(clock.now())),
+          previous,
+        })
+        const handle = await writeCheckpoint(checkpoint, blockstore)
+        previous = handle.toString()
+        await sink.publish(handle, checkpoint)
+      })
+      return chain
+    },
+  }
+}
+
+/** One shard a checkpoint answered, with the bytes its CID resolved to. */
+interface CarriedShard {
+  readonly resultCid: CID
+  readonly output: CanonicalValue
+}
+
+/** What a resume found, or the named refusal that stopped it. */
+type ResumeState =
+  | {
+      readonly ok: true
+      readonly carried: ReadonlyMap<number, CarriedShard>
+      /** The handle actually used. `null` when the caller asked for no resume. */
+      readonly from: CID | null
+      /** Handles ahead of it whose blocks were unreadable. See `recoverCheckpoint`. */
+      readonly skipped: number
+    }
+  | { readonly ok: false; readonly error: SubmitError }
+
+/**
+ * Read the newest usable handle and turn it into the shards this job may skip — CHURN-03.
+ *
+ * ## Recovery is the point, not a fallback
+ *
+ * The handles arrive newest first and go straight to `recoverCheckpoint`, whose own
+ * docblock gives the reason the signature is a *list*: **a chain cannot be walked
+ * backwards past a block you cannot read**, because the link to the predecessor lives
+ * inside that block. So the newest block being gone is not an error — it is the ordinary
+ * case a coordinator publishes handles for. The job resumes from an older *complete* view
+ * and re-runs whatever the lost checkpoint would have let it skip: work, never
+ * correctness.
+ *
+ * ## A named answer is looked up, and a lookup that fails is a shard to re-run
+ *
+ * `remainingWork` is `checkpoint.ts`'s answer to "what is left", and it reads the
+ * partition indices alone. This function is stricter on purpose: a partition counts as
+ * carried only if its named result block is **present and decodable in this requestor's
+ * blockstore**. A checkpoint whose blocks were garbage-collected names answers nobody can
+ * retrieve, and skipping such a shard would produce a job result whose output nobody
+ * holds. Falling through to a re-run is the same trade the recovery arm makes and the same
+ * one the whole module makes: liveness changes who computes a task and when, never what
+ * the answer is.
+ */
+async function resumeState(
+  handles: readonly CID[] | undefined,
+  blockstore: Blockstore,
+  jobId: string,
+  partitionCount: number,
+): Promise<ResumeState> {
+  if (handles === undefined || handles.length === 0) {
+    return { ok: true, carried: new Map(), from: null, skipped: 0 }
+  }
+
+  const recovered = await recoverCheckpoint(handles, blockstore)
+  if (recovered === null) {
+    // `recoverCheckpoint` reports *how many* it skipped and not *why* each failed, so the
+    // newest handle is read once more to name a failure. One extra lookup, on a path that
+    // is already returning an error, in exchange for a refusal a caller can act on.
+    const newest = await readCheckpoint(handles[0] as CID, blockstore)
+    return {
+      ok: false,
+      error: {
+        kind: 'checkpoint-unreadable',
+        failure: newest.ok
+          ? { kind: 'block-missing', cid: (handles[0] as CID).toString() }
+          : newest.failure,
+        detail:
+          `none of the ${handles.length} handle(s) offered for this resume was readable; ` +
+          `the newest is ${newest.ok ? 'readable now, so the store changed under this read' : newest.reason}`,
+      },
+    }
+  }
+
+  if (recovered.checkpoint.jobId !== jobId) {
+    return {
+      ok: false,
+      error: {
+        kind: 'checkpoint-names-another-job',
+        expected: jobId,
+        found: recovered.checkpoint.jobId,
+      },
+    }
+  }
+
+  const carried = new Map<number, CarriedShard>()
+  for (const shard of recovered.checkpoint.completed) {
+    // A partition outside this job. `readCheckpoint` already refuses one past the
+    // checkpoint's *own* `partitionCount`; this is the comparison against **this job's**,
+    // which is a different number whenever a hand-written block claims a matching id.
+    if (shard.partitionIndex >= partitionCount) continue
+    let resultCid: CID
+    try {
+      resultCid = CID.parse(shard.resultCid)
+    } catch {
+      // The field is a string by `readCheckpoint`'s validation and a CID by nobody's.
+      continue
+    }
+    const bytes = await blockstore.get(resultCid)
+    if (bytes === undefined) continue
+    try {
+      carried.set(shard.partitionIndex, { resultCid, output: decodeCanonical(bytes) })
+    } catch {
+      // Named, present, and not a canonical block. Re-run it.
+      continue
+    }
+  }
+
+  return { ok: true, carried, from: recovered.cid, skipped: recovered.skipped }
+}
+
+/**
+ * What the placement array holds for a shard a checkpoint already answered.
+ *
+ * The placement pass runs over every partition and a carried one has no placement to
+ * record, so it records the reason it has none. Named rather than inlined at the two arms
+ * that write it, so the two cannot drift into saying different things about one condition.
+ */
+const CARRIED_NOT_PLACED =
+  'a checkpoint already named this shard’s answer, so this requestor placed it nowhere'
+
+/** The record of a shard this requestor did not run, in the shape every other shard reports. */
+function carriedResult(
+  partitionIndex: number,
+  inputCid: CID,
+  shard: CarriedShard,
+): ShardResult {
+  return {
+    partitionIndex,
+    inputCid,
+    // `agreed`, because the answer is in hand and retrievable — and at `replicas: 0`,
+    // because **this requestor obtained none**. Reporting the redundancy the predecessor
+    // achieved would be this module asserting a verification it did not perform and
+    // cannot check, which is the conflation `receiptFor`'s doc refuses one level down.
+    verification: {
+      status: 'agreed',
+      resultCid: shard.resultCid,
+      output: shard.output,
+      agreeing: [],
+      replicas: 0,
+      grossFuel: 0,
+      usefulFuel: 0,
+    },
+    // Nothing was asked, nothing was placed, no generation ran, no lease was granted.
+    // Measured zeroes, the same reading the `never-placed` arm takes — and `ending` is
+    // what tells the two apart.
+    attempted: [],
+    generations: 0,
+    ending: 'carried-from-checkpoint',
+    speculated: false,
+    disagreed: false,
+    copies: [],
+    // See {@link ShardEnding} `'carried-from-checkpoint'`: zero replicas is below any
+    // redundancy a caller can ask for, so this is the field's own definition applied
+    // rather than a policy invented here.
+    degraded: true,
+    quorum: {
+      kind: 'not-attempted',
+      reason:
+        'a checkpoint already named this shard’s answer, so this requestor dispatched it ' +
+        'to nobody and composed no quorum for it',
+    },
+    rejections: [],
+    attestation: {
+      kind: 'holds-no-verified-attestation',
+      reason:
+        'this shard’s answer was carried from a checkpoint, so this requestor holds no ' +
+        'signature over it from anybody — the predecessor’s receipt, if it had one, is not ' +
+        'in the checkpoint and a checkpoint could not be trusted to carry one',
+      agreeing: 0,
+      verified: 0,
+    },
+  }
+}
+
 /** The default account of time: the platform's, with a wait that cannot outlive the job. */
 const platformClock: JobClock = {
   now: () => Date.now(),
@@ -964,13 +1670,105 @@ async function placeAgain(
     : { placed: false, rejections: placement.rejections }
 }
 
-/** A dispatch answered, or its lease ran out with the holder still silent. */
-type Dispatched =
-  | { readonly kind: 'answered'; readonly verification: VerificationResult }
-  | { readonly kind: 'lapsed' }
+/** A copy of one shard still in flight, and its answer in both forms it is read in. */
+interface Copy {
+  /** The nodes this copy ran on. `nodeIds[0]` is the key it is held under. */
+  readonly nodeIds: readonly string[]
+  /** True for a speculative duplicate, false for the generation's placed dispatch. */
+  readonly speculative: boolean
+  /** The dispatch, converted so it can never reject. Read again by the late comparison. */
+  readonly pending: Promise<VerificationResult>
+  /**
+   * The same answer in the form the poll loop races, built **once**, here.
+   *
+   * `coordinator.ts` built this inside the loop and recorded what that cost: a fresh
+   * closure and promise per iteration, *"an out-of-memory crash rather than a slow test,
+   * and only when a real dispatch is slower than the watchdog, which is exactly when
+   * speculation is supposed to be working."* The loop below re-races these same promise
+   * objects; it never re-wraps them.
+   */
+  readonly raced: Promise<Raced>
+}
 
-/** Distinguishes the deadline firing from a dispatch that resolved to anything at all. */
-const LEASE_TICK: unique symbol = Symbol('lease-tick')
+/**
+ * What the poll produced: a copy answered, or the timer fired.
+ *
+ * A discriminated union rather than a sentinel value, because `insufficient` is a
+ * perfectly ordinary dispatch result here and a tick must not be confusable with one.
+ */
+type Raced =
+  | { readonly tick: true }
+  | { readonly tick: false; readonly key: string; readonly verification: VerificationResult }
+
+/** A copy left running when another one won, kept so its answer can still be read. */
+interface OutstandingCopy {
+  readonly nodeIds: readonly string[]
+  readonly pending: Promise<VerificationResult>
+}
+
+/**
+ * A dispatch answered, or its lease ran out with the holder still silent.
+ *
+ * `outstanding` is non-empty only where speculation started a second copy: with one copy
+ * in flight, the copy that answers is the only copy there was. That is why turning
+ * speculation off restores this loop to exactly the two-wake shape Plan 20-01 shipped.
+ */
+type Dispatched =
+  | {
+      readonly kind: 'answered'
+      readonly verification: VerificationResult
+      readonly outstanding: readonly OutstandingCopy[]
+      readonly speculated: boolean
+    }
+  | { readonly kind: 'lapsed'; readonly speculated: boolean }
+
+/** The job-wide speculation state one shard's dispatch needs to consult. */
+interface ShardSpeculation {
+  /** The job-wide budget. Shared, because a per-shard one lets a big job duplicate everything. */
+  readonly ledger: SpeculationLedger
+  /** Durations of shards that have finished, live and job-wide, so the median means something. */
+  readonly completed: readonly number[]
+  /** This shard's placement request, for the one eligibility gate. Redundancy is not read. */
+  readonly request: PlacementRequest
+  /** The candidate pool this shard's generations place over — the gate's, never the job's. */
+  readonly pool: readonly NodeDescriptor[]
+  /**
+   * This shard's own `attempted` list, **mutated** when a duplicate is started.
+   *
+   * Live rather than copied, because the exclusion has to be current *within* a
+   * generation: a duplicate started at one tick must not be a candidate at the next, and
+   * a later generation must not re-place onto it.
+   */
+  readonly attempted: string[]
+  readonly factor: number
+  readonly watchdogMs: number
+}
+
+/** One dispatch of one copy, wrapped once into both the forms this module reads it in. */
+function dispatchCopy(
+  dispatch: (nodeIds: readonly string[]) => Promise<VerificationResult>,
+  nodeIds: readonly string[],
+  speculative: boolean,
+): Copy {
+  // Handled at creation, so abandoning this promise on a lapse can never surface as an
+  // unhandled rejection. `executeVerified` converts a throwing executor into a named
+  // failure itself; this covers the port breaking in a way that one does not.
+  const pending: Promise<VerificationResult> = dispatch(nodeIds).then(
+    (verification) => verification,
+    (cause): VerificationResult => ({
+      status: 'insufficient',
+      reason: `the dispatch itself threw: ${cause instanceof Error ? cause.message : String(cause)}`,
+      failures: [],
+    }),
+  )
+  const key = nodeIds[0] as string
+  return {
+    nodeIds,
+    speculative,
+    pending,
+    raced: pending.then((verification): Raced => ({ tick: false, key, verification })),
+  }
+}
 
 /**
  * Run one generation under its lease, renewing only against evidence — CHURN-04.
@@ -998,33 +1796,56 @@ const LEASE_TICK: unique symbol = Symbol('lease-tick')
  * resolve to the same bytes any re-dispatch produces — `lease.ts`'s invariant, that
  * liveness changes who computes a task and when, never what the answer is. Its result is
  * simply not the one this shard reports.
+ *
+ * ## The race, when there is one — CHURN-02
+ *
+ * A tick may start a **second copy** of this shard on another eligible node while the
+ * first is still running, and from then on the loop races both. The first answer that is
+ * an answer wins and returns; whatever is still running is handed back on `outstanding`,
+ * **never cancelled**, and compared once every shard of the job has settled. A copy that
+ * answers `insufficient` does not win — every executor of that copy failed, which is not
+ * a result — so the loop keeps waiting for its sibling and merges the failures into
+ * whatever finally arrives.
+ *
+ * **The timer is unconditional.** `watching` decides only whether a tick may
+ * *speculate*. An earlier version of `coordinator.ts` used such a flag to drop the
+ * watchdog out of the race entirely, which left the loop awaiting a promise that might
+ * never settle — the flag doing double duty as an optimisation and as a broken
+ * termination argument. Termination is the lease deadline's job and only its job.
  */
 async function dispatchUnderLease(
-  run: () => Promise<VerificationResult>,
+  dispatch: (nodeIds: readonly string[]) => Promise<VerificationResult>,
+  placed: readonly string[],
+  startedAt: number,
   granted: Lease,
   leases: LeaseTable,
   clock: JobClock,
   probe: ((nodeId: string) => Promise<boolean>) | null,
+  speculation: ShardSpeculation | null,
 ): Promise<Dispatched> {
-  // Handled at creation, so abandoning this promise on a lapse can never surface as an
-  // unhandled rejection. `executeVerified` converts a throwing executor into a named
-  // failure itself; this covers the port breaking in a way that one does not.
-  const pending: Promise<VerificationResult> = run().then(
-    (verification) => verification,
-    (cause): VerificationResult => ({
-      status: 'insufficient',
-      reason: `the dispatch itself threw: ${cause instanceof Error ? cause.message : String(cause)}`,
-      failures: [],
-    }),
-  )
+  const first = dispatchCopy(dispatch, placed, false)
+  const copies = new Map<string, Copy>([[first.nodeIds[0] as string, first]])
+  /** Merged across copies of this generation, so a loser's failures are not lost. */
+  let answered: VerificationResult | null = null
+  let speculated = false
 
   let lease = granted
   /** Cleared once this generation has been refused a renewal. It is never restored. */
   let renewable = probe !== null
+  /**
+   * Whether a tick may still start a duplicate for this shard.
+   *
+   * Cleared for the three *permanent* reasons — a duplicate is already running, the
+   * job-wide budget is gone, or there is no eligible node left to duplicate onto — each
+   * permanent because the budget only shrinks and `attempted` only grows. Being **too
+   * new to judge** is the one reason to do nothing that must not clear it: the median
+   * moves and elapsed time grows, so a shard that is not a straggler yet may become one.
+   */
+  let watching = speculation !== null
 
   for (;;) {
     const at = clock.now()
-    if (at >= lease.expiresAt) return { kind: 'lapsed' }
+    if (at >= lease.expiresAt) return { kind: 'lapsed', speculated }
 
     // The renewal point, measured **back from the deadline** rather than forward from
     // the grant — `expiresAt - leaseMs × (1 - RENEW_AT)`, which is the instant at which
@@ -1042,20 +1863,101 @@ async function dispatchUnderLease(
     // was why. `shouldRenew` remains the authority on whether a renewal is due; this
     // only decides when to wake up and ask.
     const renewPoint = lease.expiresAt - leases.leaseMs * (1 - RENEW_AT)
-    // Wake at the renewal point while renewal is still possible, and at the deadline
-    // once it is not. Two wakes rather than a poll: the only two instants at which
-    // anything can be decided are the one where evidence is asked for and the one where
-    // the deadline bites. Clamped into `(at, expiresAt]` so a renewal point already in
-    // the past asks immediately rather than sleeping through it.
-    const wakeAt = renewable ? Math.min(Math.max(renewPoint, at), lease.expiresAt) : lease.expiresAt
-    const raced = await Promise.race<VerificationResult | typeof LEASE_TICK>([
-      pending,
-      clock.sleep(Math.max(1, Math.ceil(wakeAt - at))).then(() => LEASE_TICK),
+    // Wake at the earliest instant at which anything can be decided: the renewal point
+    // while renewal is still possible, the next watchdog tick while a duplicate is still
+    // possible, and the deadline, which is always in the list. With neither of the first
+    // two live this is the two-wake schedule Plan 20-01 shipped, unchanged — a shard that
+    // cannot speculate does not poll. Clamped into `(at, expiresAt]` so an instant
+    // already in the past is asked about immediately rather than slept through.
+    let wakeAt = lease.expiresAt
+    if (renewable) wakeAt = Math.min(wakeAt, Math.max(renewPoint, at))
+    if (watching && speculation !== null) wakeAt = Math.min(wakeAt, at + speculation.watchdogMs)
+    wakeAt = Math.max(wakeAt, at)
+    // The timer is **unconditional** — see the header. `watching` chose how soon to wake,
+    // never whether to. The copies' `raced` promises are re-raced, never re-wrapped.
+    const raced: Raced = await Promise.race<Raced>([
+      ...[...copies.values()].map((copy) => copy.raced),
+      clock.sleep(Math.max(1, Math.ceil(wakeAt - at))).then((): Raced => ({ tick: true })),
     ])
-    if (raced !== LEASE_TICK) return { kind: 'answered', verification: raced }
+
+    if (!raced.tick) {
+      copies.delete(raced.key)
+      answered =
+        answered === null ? raced.verification : mergeVerifications(answered, raced.verification)
+      // First result wins, and the copies still running are **registered, not forgotten**.
+      // `insufficient` is not a result — every executor of that copy failed — so it does
+      // not win a race it has a sibling in; the loop waits for the sibling and the
+      // failures ride along in the merge. With one copy in flight there is no sibling and
+      // this is exactly Plan 20-01's behaviour: the answer, whatever it was, returns.
+      if (raced.verification.status !== 'insufficient' || copies.size === 0) {
+        return {
+          kind: 'answered',
+          verification: answered,
+          outstanding: [...copies.values()].map((copy) => ({
+            nodeIds: copy.nodeIds,
+            pending: copy.pending,
+          })),
+          speculated,
+        }
+      }
+      continue
+    }
 
     const woke = clock.now()
-    if (woke >= lease.expiresAt) return { kind: 'lapsed' }
+    if (woke >= lease.expiresAt) return { kind: 'lapsed', speculated }
+
+    // ── Straggler duplication — CHURN-02, CHURN-06 ────────────────────────────────
+    //
+    // Before the renewal question, because they are different questions about different
+    // things: renewal asks whether *this* holder is still working, duplication asks
+    // whether the shard has fallen behind its peers. A shard can be both — a holder that
+    // proves it is working and is still slower than everything else gets its lease
+    // renewed *and* a second copy started, which is the correct pair of answers.
+    if (speculation !== null && watching) {
+      if (speculation.ledger.duplicated(lease.taskId) || speculation.ledger.remaining <= 0) {
+        watching = false
+      } else {
+        // **The one eligibility gate.** `speculativeCandidates` routes through
+        // `eligibleNodes`, the same function both placers call first, so a sovereign
+        // shard's duplicate can only land on its owner's own executable nodes. The pool
+        // is the *gate's* pool rather than the job's candidate set, so a composed quorum
+        // is not silently widened by a duplicate — the copy may become the answering
+        // replica, and its certificate would then be in the receipt.
+        const candidates = speculativeCandidates(
+          speculation.request,
+          speculation.pool,
+          speculation.attempted,
+        )
+        if (candidates.length === 0) {
+          // Nowhere legal to duplicate to. For a sovereign shard whose owner has no spare
+          // node this is the **correct outcome** and waiting is the only move — CHURN-06
+          // holds here by there being no branch that could do anything else.
+          watching = false
+        } else {
+          const slow = stragglers(
+            [{ taskId: lease.taskId, nodeId: lease.nodeId, startedAt }],
+            woke,
+            { completed: speculation.completed, factor: speculation.factor },
+          )
+          // Too new to judge — no median yet, or not slow enough yet. Keep watching.
+          if (slow.length > 0) {
+            if (!speculation.ledger.request(lease.taskId)) watching = false
+            else {
+              const target = candidates[0] as NodeDescriptor
+              speculated = true
+              speculation.attempted.push(target.nodeId)
+              const copy = dispatchCopy(dispatch, [target.nodeId], true)
+              copies.set(target.nodeId, copy)
+              // The lease is **not** moved. `LeaseTable` models one holder per task, and
+              // a duplicate is a second copy inside one generation rather than a new
+              // generation: the holder is unchanged, and the lease is closed against it
+              // even when the copy is what answered.
+            }
+          }
+        }
+      }
+    }
+
     // A `Sleep` port may return early; `shouldRenew` is the authority on whether this is
     // the renewal point, not the arithmetic that chose when to wake.
     if (!renewable || !shouldRenew(lease, woke)) continue
@@ -1069,9 +1971,143 @@ async function dispatchUnderLease(
     }
 
     const renewed = leases.renew(lease.taskId, lease.nodeId, woke)
-    if (renewed === null) return { kind: 'lapsed' }
+    if (renewed === null) return { kind: 'lapsed', speculated }
     lease = renewed
   }
+}
+
+/** Distinguishes the comparison window closing from a copy that answered inside it. */
+const COMPARE_TICK: unique symbol = Symbol('compare-tick')
+
+/** One shard's leftovers, and the answer they are to be measured against. */
+interface ToCompare {
+  readonly outstanding: readonly OutstandingCopy[]
+  /** The shard's own settled result, or null where it reached no single agreed one. */
+  readonly winnerCid: string | null
+}
+
+/**
+ * A shard that has finished, before the copies it left running have been read.
+ *
+ * The two-stage shape is what the post-settle comparison needs and is not decoration: a
+ * shard cannot report whether a copy disagreed until *every* shard has settled, because
+ * that is when the losers are read, and a shard cannot wait for its own loser without
+ * giving back the latency speculation exists to save.
+ */
+interface SettledShard extends ToCompare {
+  readonly result: ShardResult
+}
+
+/**
+ * Read every copy that lost, once every shard has settled — VER-01, CHURN-02.
+ *
+ * **This is what keeps `disagreed` reachable at all.** Breaking out of a speculative race
+ * on the first arrival and dropping the copies still running is `coordinator.ts`'s
+ * recorded original defect: timing alone then picks which of two different CIDs becomes
+ * the answer and the run reports clean, which is majority-vote-by-race. So the winner
+ * returns immediately — waiting for the loser would undo the whole latency saving, since
+ * the loser is usually the straggler — and the comparison happens here, **after** the last
+ * shard has finished, which costs nothing because the job was going to wait for its
+ * slowest shard anyway. By now the losers have had that whole time to answer.
+ *
+ * **One window for the whole job, not one per copy.** The grace bounds the *comparison*
+ * and never the result, and the question it answers — "have the leftovers arrived yet?" —
+ * is asked once of all of them. A window per copy would multiply a bound that exists to
+ * be a bound.
+ *
+ * A copy whose shard reached no single agreed result is `uncompared` and says so: there
+ * is nothing for it to be compared *against*, which is a different fact from silence and
+ * a different fact again from agreement.
+ */
+async function compareOutstanding(
+  shards: readonly ToCompare[],
+  clock: JobClock,
+  graceMs: number,
+): Promise<readonly (readonly SpeculativeCopy[])[]> {
+  // No leftovers, or none with an answer to be measured against: no window is opened at
+  // all. Every job that speculated nothing takes this branch, which is what keeps the
+  // grace off the path of the jobs it has nothing to say about.
+  if (!shards.some((shard) => shard.winnerCid !== null && shard.outstanding.length > 0)) {
+    return shards.map((shard) =>
+      shard.outstanding.map(
+        (copy): SpeculativeCopy => ({
+          nodeIds: copy.nodeIds,
+          outcome: 'uncompared',
+          reason: 'this shard reached no single agreed result to compare this copy against',
+        }),
+      ),
+    )
+  }
+
+  const graceOver: Promise<typeof COMPARE_TICK> = clock.sleep(graceMs).then(() => COMPARE_TICK)
+  return Promise.all(
+    shards.map(async (shard) =>
+      Promise.all(
+        shard.outstanding.map(async (copy): Promise<SpeculativeCopy> => {
+          if (shard.winnerCid === null) {
+            return {
+              nodeIds: copy.nodeIds,
+              outcome: 'uncompared',
+              reason: 'this shard reached no single agreed result to compare this copy against',
+            }
+          }
+          const settled = await Promise.race<VerificationResult | typeof COMPARE_TICK>([
+            copy.pending,
+            graceOver,
+          ])
+          if (settled === COMPARE_TICK) {
+            // Silence. **Not** evidence of agreement — recording it as agreement would
+            // assert something nobody checked.
+            return {
+              nodeIds: copy.nodeIds,
+              outcome: 'uncompared',
+              reason: `this copy had not answered ${graceMs}ms after the job settled`,
+            }
+          }
+          if (settled.status === 'insufficient') {
+            // It answered, and what it said was that it failed. Neither silence nor
+            // agreement, and its own bucket for that reason.
+            //
+            // **In the failing node's own words where it gave any.** `executeVerified`
+            // composes `'every executor failed'` over the individual refusals, which names
+            // the shape of the outcome and not its cause; a reader handed that sentence
+            // learns nothing it did not already know from the bucket. Found by test, which
+            // asserted the node's own sentence and got the composed one.
+            return {
+              nodeIds: copy.nodeIds,
+              outcome: 'failed',
+              reason:
+                settled.failures.length === 0
+                  ? settled.reason
+                  : settled.failures
+                      .map((failure) => `${failure.nodeId}: ${failure.reason}`)
+                      .join('; '),
+            }
+          }
+          if (settled.status === 'disagreed') {
+            // A copy at redundancy > 1 whose own replicas split. Every distinct answer it
+            // produced is named, because "it disagreed" without the CIDs is the reading
+            // this whole mechanism exists to avoid.
+            return {
+              nodeIds: copy.nodeIds,
+              outcome: 'disagreed',
+              resultCid: settled.partitions.map((partition) => partition.resultCid).join(', '),
+            }
+          }
+          const resultCid = settled.resultCid.toString()
+          // Compared directly rather than through `settleRace`, and the reason is written
+          // down because that function looks like the right tool. It re-derives the winner
+          // from arrival instants and ties break on node id — so on a clock that reports
+          // the same instant for both, it could name the *loser* as the winner, overturning
+          // a decision this module has already taken and already closed a lease against.
+          // The winner is known here; all that is left is whether the loser's bytes match.
+          return resultCid === shard.winnerCid
+            ? { nodeIds: copy.nodeIds, outcome: 'agreed' }
+            : { nodeIds: copy.nodeIds, outcome: 'disagreed', resultCid }
+        }),
+      ),
+    ),
+  )
 }
 
 /** Ask the holder about this task's slot key. Any answer that is not the duplicate refusal is not evidence. */
@@ -1128,7 +2164,60 @@ export interface JobClock {
   readonly sleep: Sleep
 }
 
+/**
+ * The dials on straggler duplication — CHURN-02.
+ *
+ * Every one defaults to the exported constant beside it, and every one is here rather
+ * than on `JobSpec` because they are the *requestor's* cost/latency preferences about
+ * its own job, not facts the fabric needs told. A knob nobody sets drifts from the tests,
+ * so these exist for the measurement 20-09 makes and for the fixtures that prove the
+ * mechanism, not as a configuration surface.
+ */
+export interface SpeculationOptions {
+  /** Extra dispatches allowed, as a fraction of the shard count. `DEFAULT_SPECULATION_FRACTION`. */
+  readonly fraction?: number
+  /** How much slower than the median a shard must be. `DEFAULT_STRAGGLER_FACTOR`. */
+  readonly factor?: number
+  /** Poll interval, and the floor on how fast a straggler can be spotted. */
+  readonly watchdogMs?: number
+  /**
+   * Extra time a losing copy gets to answer once every shard has settled.
+   *
+   * Bounds the **comparison** and never the result: the winner is already decided and
+   * already returned. A copy that misses this window is reported `uncompared`.
+   */
+  readonly compareGraceMs?: number
+}
+
 export interface SubmitOptions {
+  /**
+   * Straggler duplication, or the named statement that this caller wants none — CHURN-02.
+   *
+   * **`'duplicates-no-stragglers'` is a value a caller writes, not an omission**, and the
+   * asymmetry with the omitted case is deliberate. Omitting this leaves the module's own
+   * stated policy in force — the exported constants, which are what
+   * `DEFAULT_MAX_GENERATIONS` is to the generation loop. Writing the literal turns
+   * duplication off entirely, and that arm exists because **a cost that cannot be turned
+   * off cannot be measured**: 20-09 compares a job against itself with and without it,
+   * and a fabric with no off switch has no such comparison to make.
+   *
+   * ## What "on by default" actually costs, measured rather than asserted
+   *
+   * `DEFAULT_SPECULATION_FRACTION` is 0.1 and the budget is `floor(shards × fraction)`,
+   * so **a job of fewer than ten shards has an allowance of zero** and cannot duplicate
+   * anything however slow it gets. Below that threshold the watchdog is not even started,
+   * so such a job's dispatch waits on exactly the two instants the lease loop already had
+   * — the renewal point and the deadline. That is most of the jobs in this repository,
+   * and it is why turning this on changed nothing that was not about speculation.
+   *
+   * Above it, each outstanding dispatch also wakes every `watchdogMs` while a duplicate
+   * is still possible, and stops waking once one has been started, the budget is gone, or
+   * there is nowhere legal left to duplicate to. Waking is not the same as speculating: a
+   * shard must additionally be slower than `factor` × the median of what has finished,
+   * and until `MIN_SAMPLES` shards have finished there is no median and nothing is
+   * duplicated.
+   */
+  readonly speculation?: SpeculationOptions | 'duplicates-no-stragglers'
   /**
    * The clock and timer the lease deadline runs on. See {@link JobClock}.
    *
@@ -1149,6 +2238,82 @@ export interface SubmitOptions {
    * call this function at all.
    */
   readonly sovereignCids?: { add(cid: string): Promise<void> }
+  /**
+   * Where this job's checkpoint handles go as they are written — CHURN-03.
+   *
+   * A handle is a CID and nothing else; the block it names lives in the same `blockstore`
+   * every shard input and every agreed output goes to. **Reused rather than given its own
+   * store**, because a second store would be a second place the same bytes live, and the
+   * one property that makes a checkpoint cheap is that it is content-addressed like
+   * everything else.
+   *
+   * ## Why the handle leaves through here and not on `JobResult`
+   *
+   * **The case this exists for is the case that never returns a `JobResult`.** A requestor
+   * that departs mid-job never reaches the end of `submitJob`, so a handle carried on the
+   * result would be a handle nobody with a use for it ever sees. It has to escape the
+   * process *as it is written*, which is what makes this a sink and not a field.
+   *
+   * ## Optional here, and the argument is `sovereignCids`'s rather than `onQuorumShortfall`'s
+   *
+   * This was decided and not defaulted, so the reasoning is written down rather than left
+   * to be reconstructed. `JobSpec.onQuorumShortfall` is required because omitting it would
+   * let every existing call site *mean* `degrade` without saying so — a position held by
+   * callers who never stated one. **There is no equivalent position here.** Omitting this
+   * means no block is written and no handle is published; nothing is claimed on the
+   * caller's behalf, and no field of the result changes. It is the absence of a
+   * destination for bytes, not a silent answer to a question.
+   *
+   * {@link SubmitOptions.sovereignCids} is the precedent that fits, and it fits on both
+   * halves. Its argument is that the omission is *real* for a specific caller —
+   * `task-worker.ts` submits into a `MemoryBlockstore` — and that is exactly true here: a
+   * checkpoint written into a store that dies with the process is a checkpoint of nothing.
+   * Requiring such a caller to name a destination it does not have would be requiring it
+   * to state a falsehood.
+   *
+   * **What the type therefore does not hold, measured rather than assumed.** With this
+   * optional, `npx tsc --noEmit` exits **0** while every production submitter omits it —
+   * checked, not predicted, because this repository has recorded that exact reading twice
+   * (Plans 19-01 and 19-13) as the shape of a hole. So nothing in the type system says a
+   * submitter that *should* checkpoint does. The other half of the `sovereignCids`
+   * precedent is what closes that, and it is a **guard, not a type**:
+   * `sovereign-block-refusal.node.test.ts` pins the set of files allowed to pass that
+   * option. The equivalent guard for this one is named in this plan's summary and belongs
+   * to whoever owns that file next; it is not written here because this plan does not own
+   * that file.
+   *
+   * The alternative was `JobSpec.checkpoints: CheckpointSink | 'checkpoints-nothing'` — a
+   * required union with a named sentinel and a five-site fan-out, `onQuorumShortfall`'s
+   * shape. It was rejected on the merits above, **and** it would have been out of reach
+   * regardless: the five sites are not this plan's files, and two of them
+   * (`bin/bench.ts`, `perf-workload.ts`) have their argument lists count-pinned by
+   * `serve-agent-hooks.node.test.ts`. Both halves are recorded so nobody reads the
+   * constraint as the argument.
+   */
+  readonly checkpoints?: CheckpointSink
+  /**
+   * Checkpoint handles to resume from, **newest first** — CHURN-03.
+   *
+   * The ordinary case is one CID: a requestor that departed published a handle, and a
+   * second requestor knowing only that CID and this job's spec runs the shards the
+   * checkpoint does not name. More than one is the recovery case — `recoverCheckpoint`
+   * takes the newest readable handle and says how many it had to skip, because a chain
+   * cannot be walked backwards past a block that is gone.
+   *
+   * **This is not a second job entry point.** WIRE-04's wording is *"without the caller
+   * choosing between two functions"*, and a starting state is not a second function: the
+   * shards this does not carry go down the *same* placement, lease, dispatch, speculation
+   * and coverage path every other shard takes, in the same call. A shard that a resume
+   * skips reports {@link ShardEnding} `'carried-from-checkpoint'` and nothing else about
+   * this module changes.
+   *
+   * A resume against a handle that is not a checkpoint of *this* job is refused by name —
+   * see {@link SubmitError} `'checkpoint-unreadable'` and `'checkpoint-names-another-job'`.
+   * A resume of a job the checkpoint says is finished dispatches nothing, which is a
+   * measured no-op rather than a special case: every partition is carried, so there is
+   * nothing left for the loop to place.
+   */
+  readonly resumeFrom?: readonly CID[]
 }
 
 export async function submitJob(
@@ -1201,15 +2366,61 @@ export async function submitJob(
   // The lease clock is a **separate read of a different question** — elapsed time
   // against a deadline this module granted, not a point judged against certificate
   // windows somebody else minted. See {@link JobClock}.
+  //
+  // **Speculation reads this one, not a third.** It asks the same *kind* of question the
+  // lease asks — how long has this been running, against a span measured in this
+  // process — so a fixture that advances the lease clock advances the straggler
+  // threshold with it, which is the only way the two can be reasoned about together.
+  // The certificate instant above stays a single `Date.now()` read for the whole job:
+  // it judges validity windows somebody else minted, and a job that took a virtual
+  // thirty seconds to duplicate a straggler must not thereby expire the certificates it
+  // enrolled.
   const clock = options?.clock ?? platformClock
+
+  // ── The speculation budget — CHURN-02 ──────────────────────────────────────────────
+  //
+  // **Job-wide and shared across shards**, because a per-shard budget would let a job
+  // with many shards duplicate every one of them and still call each duplicate within
+  // its allowance. `speculation.ts`'s own words: *"the budget is a fraction of the job's
+  // task count, held once for the whole job, and every duplicate spends from it."*
+  //
+  // The off arm is a fraction of zero rather than a second flag: the allowance is
+  // `floor(tasks × fraction)`, so zero refuses every request, and the multiplier is still
+  // the identity `1` — which is what an off arm has to report if it is to be compared
+  // against an on one.
+  const dial: SpeculationOptions =
+    options?.speculation === undefined || options.speculation === 'duplicates-no-stragglers'
+      ? {}
+      : options.speculation
+  const ledger = new SpeculationLedger({
+    tasks: partitionCount,
+    fraction:
+      options?.speculation === 'duplicates-no-stragglers'
+        ? 0
+        : (dial.fraction ?? DEFAULT_SPECULATION_FRACTION),
+  })
+  // A job that could not duplicate anything does not watch for stragglers either. That
+  // is not an optimisation with a behavioural edge: `ledger.request` would refuse every
+  // one of them anyway, and skipping the watchdog keeps every job below the fraction's
+  // threshold — which is most of them — on exactly the wake schedule it had before.
+  const speculationEnabled = ledger.allowance > 0
+  /**
+   * Durations of the shards that have finished, shared so the median means something.
+   *
+   * Job-wide by construction: a shard is a straggler *relative to its peers*, and a
+   * per-shard list would have no peers in it.
+   */
+  const completedDurations: number[] = []
 
   // One table for the whole job, because the bound it enforces is per task and its
   // history is the job's. `DEFAULT_MAX_GENERATIONS` is named rather than defaulted into:
   // it is the policy this loop runs on, `submit.test.ts` asserts the attempt count
   // against that same exported constant, and a cap reached by omission is a cap nobody
-  // stated. `runResilient` sizes its own table to the node pool instead, deliberately —
-  // there the pool is the real bound and the table is a backstop; here the table IS the
-  // bound, for the reason `DEFAULT_MAX_GENERATIONS`' docblock gives.
+  // stated. `runResilient` sized its own table to the node pool instead, deliberately —
+  // there the pool was the real bound and the table a backstop; here the table IS the
+  // bound, for the reason `DEFAULT_MAX_GENERATIONS`' docblock gives. (Past tense since
+  // Plan 20-12: that module is deleted, and this is the contrast that explains the
+  // choice rather than a live alternative.)
   const leases = new LeaseTable({ maxGenerations: DEFAULT_MAX_GENERATIONS })
 
   // Persist every shard input as a block first, so a task is addressed entirely
@@ -1246,6 +2457,32 @@ export async function submitJob(
     }
     inputCids.push(encoded.cid)
   }
+
+  // ── Checkpointing and resume — CHURN-03 ────────────────────────────────────────────
+  //
+  // Here rather than earlier because the job's identity is derived from the *input CIDs*,
+  // which do not exist until the loop above has canonicalised every shard. That ordering
+  // is what makes the id a fact about the job's content rather than about its spelling:
+  // two callers that shard the same data into the same partitions derive the same id
+  // however they built the values. See {@link jobIdOf}.
+  const jobId = await jobIdOf(spec.moduleCid, inputCids)
+  const resumed = await resumeState(options?.resumeFrom, blockstore, jobId, partitionCount)
+  if (!resumed.ok) return { ok: false, error: resumed.error }
+  const carried = resumed.carried
+  const checkpoints: CheckpointLog =
+    options?.checkpoints === undefined
+      ? NO_CHECKPOINTS
+      : checkpointLogOf(
+          options.checkpoints,
+          blockstore,
+          { jobId, moduleCid: spec.moduleCid.toString(), partitionCount },
+          clock,
+          [...carried].map(([partitionIndex, shard]) => ({
+            partitionIndex,
+            resultCid: shard.resultCid.toString(),
+          })),
+          resumed.from,
+        )
 
   // Placement pass — TWO ARRANGEMENTS OF ONE GATE, selected by whether the caller
   // supplied a way to ask a node anything. What the two arms share is the whole of
@@ -1390,6 +2627,16 @@ export async function submitJob(
     // already-eligible nodes.
     const dispatchCount = new Map<string, number>()
     for (let i = 0; i < partitionCount; i++) {
+      // A carried shard is not placed, and therefore takes no `dispatchCount` nudge: it
+      // is not competing for a node, so counting it would spread the shards that *are*
+      // against load nobody is about to apply. This entry is never read — the per-shard
+      // loop below answers a carried partition before it looks at a placement — and it is
+      // still written truthfully rather than left as a hole, because "never read" is a
+      // property of today's control flow and not of the value.
+      if (carried.has(i)) {
+        shardPlacements.push({ shardId: String(i), status: 'unplaceable', reason: CARRIED_NOT_PLACED })
+        continue
+      }
       const gate = gates[i] as ShardGate
       if (gate.refusal !== null) {
         // The caller's stated preference, in the composer's own words. Nothing else
@@ -1434,7 +2681,10 @@ export async function submitJob(
     const byPool = new Map<readonly NodeDescriptor[], number[]>()
     for (let i = 0; i < partitionCount; i++) {
       const gate = gates[i] as ShardGate
-      if (gate.refusal !== null) continue
+      // A carried shard makes **no offer**, which is the reading that distinguishes a
+      // resume from a restart at the wire and not merely in this process: a node is never
+      // asked about a partition somebody else already answered.
+      if (carried.has(i) || gate.refusal !== null) continue
       const group = byPool.get(gate.pool)
       if (group === undefined) byPool.set(gate.pool, [i])
       else group.push(i)
@@ -1457,20 +2707,37 @@ export async function submitJob(
     for (let i = 0; i < partitionCount; i++) {
       const gate = gates[i] as ShardGate
       shardPlacements.push(
-        gate.refusal !== null
-          ? { shardId: String(i), status: 'unplaceable', reason: gate.refusal }
-          : (placedByShard.get(i) as Placement),
+        carried.has(i)
+          ? { shardId: String(i), status: 'unplaceable', reason: CARRIED_NOT_PLACED }
+          : gate.refusal !== null
+            ? { shardId: String(i), status: 'unplaceable', reason: gate.refusal }
+            : (placedByShard.get(i) as Placement),
       )
     }
     shardRejections = rejectionsByShard
   }
 
-  const shards = await Promise.all(
-    inputCids.map(async (inputCid, partitionIndex): Promise<ShardResult> => {
+  const settledShards = await Promise.all(
+    inputCids.map(async (inputCid, partitionIndex): Promise<SettledShard> => {
+      // ── The resume, and it is the whole of it — CHURN-03 ──────────────────────────
+      //
+      // Answered **before** the placement is read, because a carried shard has no
+      // placement to read. This is the only branch a resume adds to the dispatch path:
+      // everything below is what a fresh job does, unchanged, over the partitions the
+      // checkpoint did not name. `remainingWork` is not called here and does not need to
+      // be — it enumerates the complement of `completed`, and iterating every partition
+      // and skipping the carried ones **is** that complement, computed once instead of
+      // built into a list and then searched.
+      const already = carried.get(partitionIndex)
+      if (already !== undefined) {
+        const result = carriedResult(partitionIndex, inputCid, already)
+        return { outstanding: [], winnerCid: already.resultCid.toString(), result }
+      }
+
       const placement = shardPlacements[partitionIndex] as Placement
       const rejections = shardRejections[partitionIndex] as readonly Rejection[]
       if (placement.status === 'unplaceable') {
-        return {
+        const unplaceable: ShardResult = {
           partitionIndex,
           inputCid,
           // The reason reaches the caller exactly as an unplaceable shard's always
@@ -1485,6 +2752,11 @@ export async function submitJob(
           attempted: [],
           generations: 0,
           ending: 'never-placed',
+          // Nothing ran, so nothing was slow, so nothing was duplicated. Measured
+          // readings rather than placeholders, in the same spirit as `generations: 0`.
+          speculated: false,
+          disagreed: false,
+          copies: [],
           // A shard that never ran has no result to describe, so this stays what it has
           // always been on this arm. The record of *why* is on `quorum` beside it, in the
           // composer's own words when a caller asked for refusal.
@@ -1493,6 +2765,7 @@ export async function submitJob(
           rejections,
           attestation: noAgreementToAttest('unplaceable'),
         }
+        return { outstanding: [], winnerCid: null, result: unplaceable }
       }
 
       const shard = spec.shards[partitionIndex] as ShardSpec
@@ -1557,11 +2830,38 @@ export async function submitJob(
 
       const attempted: string[] = []
       const collectedRejections: Rejection[] = [...rejections]
+      const outstanding: OutstandingCopy[] = []
       let verification: VerificationResult | null = null
       let generations = 0
+      let speculated = false
       let placementDegraded = placement.degraded
       let nodeIds: readonly string[] = placement.nodeIds
       let ending: ShardEnding = 'no-untried-node'
+
+      // Built once per shard, not per generation and not per poll. The copy of a slow
+      // shard goes through **this same call** with its own executor set, so a speculative
+      // copy of a redundancy-2 shard is verified on exactly the terms anything else is and
+      // no second verification path appears.
+      const runOn = (on: readonly string[]): Promise<VerificationResult> =>
+        executeVerified(
+          task,
+          on.map((nodeId) => execByNodeId.get(nodeId) as Executor),
+        )
+      // The straggler machinery this shard's dispatches consult, or the stated absence of
+      // it. Absent, `dispatchUnderLease` keeps Plan 20-01's two-wake schedule exactly.
+      // `requestFor(…, 1)` because a duplicate is one extra copy — `eligibleNodes`, which
+      // is all `speculativeCandidates` consults, does not read redundancy at all.
+      const speculation: ShardSpeculation | null = speculationEnabled
+        ? {
+            ledger,
+            completed: completedDurations,
+            request: requestFor(shard, shardId, 1),
+            pool: gate.pool,
+            attempted,
+            factor: dial.factor ?? DEFAULT_STRAGGLER_FACTOR,
+            watchdogMs: dial.watchdogMs ?? DEFAULT_SPECULATION_WATCHDOG_MS,
+          }
+        : null
 
       for (;;) {
         // The lease names one holder, and it is the generation's first node. `LeaseTable`
@@ -1579,16 +2879,31 @@ export async function submitJob(
         generations += 1
         attempted.push(...nodeIds)
 
-        const executors = nodeIds.map((nodeId) => execByNodeId.get(nodeId) as Executor)
+        const startedAt = clock.now()
         const dispatched = await dispatchUnderLease(
-          () => executeVerified(task, executors),
+          runOn,
+          nodeIds,
+          startedAt,
           lease,
           leases,
           clock,
           probe,
+          speculation,
         )
+        speculated = speculated || dispatched.speculated
 
         if (dispatched.kind === 'answered') {
+          outstanding.push(...dispatched.outstanding)
+          // What this generation cost, for the median every other shard is judged
+          // against. Only a generation that produced a **result** counts: how long a
+          // dispatch took to fail everywhere says nothing about how long the work takes,
+          // and folding it in would move the straggler threshold with the fabric's
+          // failures rather than with its speed. Clamped to at least 1 because
+          // `stragglers` refuses a threshold that is not above zero, and a clock that has
+          // not advanced would otherwise make every finished shard contribute nothing.
+          if (dispatched.verification.status !== 'insufficient') {
+            completedDurations.push(Math.max(1, clock.now() - startedAt))
+          }
           verification =
             verification === null
               ? dispatched.verification
@@ -1653,6 +2968,17 @@ export async function submitJob(
       if (settled.status === 'agreed') {
         const out = await canonicalCid(settled.output)
         if (out.ok) await blockstore.put(out.bytes)
+        // CHURN-03, and the ordering is load-bearing: the block goes in **first**, so a
+        // handle a departed requestor holds can never name a result nobody can retrieve.
+        // The reverse order would publish a promise the store had not yet kept.
+        //
+        // Awaited, so `submitJob` cannot return before every handle has reached the sink.
+        // It serialises against the other shards' writes and not against their dispatches
+        // — see {@link checkpointLogOf}.
+        await checkpoints.record({
+          partitionIndex,
+          resultCid: settled.resultCid.toString(),
+        })
       }
       // The receipt, built from the agreeing replicas' checked signatures. `resultCid` is
       // the output every one of them hashed to — that is what agreement means — so the
@@ -1672,13 +2998,20 @@ export async function submitJob(
               now,
             )
           : noAgreementToAttest(settled.status)
-      return {
+      const result: ShardResult = {
         partitionIndex,
         inputCid,
         verification: settled,
         attempted,
         generations,
         ending,
+        speculated,
+        // Filled in below, once every shard has settled and the leftovers have been read.
+        // `false`/`[]` here rather than absent, because a shard result is built in one
+        // expression and patched in one place — which is what stops the two from
+        // drifting apart.
+        disagreed: false,
+        copies: [],
         // Either shortfall degrades the shard: fewer replicas than asked for, or the
         // independence a composed quorum would have given it. The redundancy half is
         // read off the replicas that ANSWERED — see {@link ShardResult.degraded} — so a
@@ -1692,8 +3025,90 @@ export async function submitJob(
         rejections: collectedRejections,
         attestation,
       }
+      // `outstanding` is whatever is still running, handed up so the job can read it once
+      // every shard has settled. Nothing is cancelled — see {@link compareOutstanding}.
+      return {
+        outstanding,
+        winnerCid: settled.status === 'agreed' ? settled.resultCid.toString() : null,
+        result,
+      }
     }),
   )
+
+  // Every shard has finished. Now read the copies that lost — see
+  // {@link compareOutstanding} for why this is where it happens and what it costs.
+  const lateCopies = await compareOutstanding(
+    settledShards,
+    clock,
+    dial.compareGraceMs ?? dial.watchdogMs ?? DEFAULT_SPECULATION_WATCHDOG_MS,
+  )
+  const shards: readonly ShardResult[] = settledShards.map((settled, index) => {
+    const copies = lateCopies[index] as readonly SpeculativeCopy[]
+    if (copies.length === 0) return settled.result
+    return {
+      ...settled.result,
+      copies,
+      disagreed: copies.some((copy) => copy.outcome === 'disagreed'),
+    }
+  })
+
+  // ── Coverage over owners — CHURN-05 ────────────────────────────────────────────────
+  //
+  // Shards each owner contributed, against shards each owner *owes*. The argument for the
+  // per-owner gate is `coordinator.ts`'s and is reproduced here rather than referenced,
+  // attributed, because a later plan deletes that module and this is the clearest
+  // statement of the rule anywhere in the tree:
+  //
+  //   "Counting an owner as covered the moment any one of their shards lands overstates
+  //   coverage exactly where it matters most: an owner with four shards, three of which
+  //   failed, would be reported as having contributed, and `complete` would be true over
+  //   a quarter of their data. That is the failure `coverage.ts` exists to prevent,
+  //   arriving through the composition rather than through `coverageOf`."
+  //
+  // So the gate is **owed against done, per owner**, and it lives here in the caller.
+  // `coverageOf` is pure set arithmetic over owner ids and has no way to express it; a
+  // set of "owners that appeared" handed to it would already have lost the count.
+  //
+  // Arithmetic over shards already in hand — two map builds and a filter — not a second
+  // pass over anything. It runs after the late copies have been read, because
+  // {@link ShardResult.disagreed} is only known then and it is half of what "landed" means.
+  const owedByOwner = new Map<OwnerId, number>()
+  const doneByOwner = new Map<OwnerId, number>()
+  for (const shard of spec.shards) {
+    // A public shard names no owner and therefore contributes to no owner's count —
+    // neither to the numerator nor to the denominator. It is not an owner called
+    // "public"; it is a shard the question does not apply to.
+    if (shard.label !== 'sovereign') continue
+    owedByOwner.set(shard.ownerId, (owedByOwner.get(shard.ownerId) ?? 0) + 1)
+  }
+  for (const settled of shards) {
+    const shard = spec.shards[settled.partitionIndex] as ShardSpec
+    if (shard.label !== 'sovereign') continue
+    if (!landedForItsOwner(settled)) continue
+    doneByOwner.set(shard.ownerId, (doneByOwner.get(shard.ownerId) ?? 0) + 1)
+  }
+  // The expected set is the owners this job's own shards name — never the owners its
+  // *nodes* belong to. A pool containing a node of some owner who has no shard here says
+  // nothing about what this job was asked for, and counting it would report an owner
+  // missing from a job that never wanted them.
+  //
+  // `unexpected` is carried through rather than dropped, and it is **structurally empty
+  // today**: both sets are derived from `spec.shards[i].ownerId` through the one map
+  // above, so the contributed set is a subset of the expected one by construction. That
+  // is a reason to keep the field, not to remove it — a non-empty `unexpected` here would
+  // mean the derivation and the delivery had come apart, which nothing else in this
+  // module would catch. It becomes genuinely reachable the day the delivered owner is
+  // read from a second source (a `ShardResult` that carried its own owner, or an egress
+  // manifest), and not before.
+  const coverage: JobCoverage =
+    owedByOwner.size === 0
+      ? 'defines-no-owners'
+      : coverageOf(
+          [...owedByOwner.keys()],
+          [...owedByOwner]
+            .filter(([owner, owed]) => (doneByOwner.get(owner) ?? 0) >= owed)
+            .map(([owner]) => owner),
+        )
 
   let gross = 0
   let useful = 0
@@ -1710,12 +3125,20 @@ export async function submitJob(
       moduleCid: spec.moduleCid,
       shards,
       attestation: jobAttestationOf(shards),
-      complete: shards.every((s) => s.verification.status === 'agreed' && !s.degraded),
+      // A disagreement is a failed run, not a run with a footnote — the same rule
+      // `executeVerified` and `executeReduce` apply, and the reason `disagreed` is read
+      // here beside the verification status rather than left for a caller to remember.
+      complete: shards.every(
+        (s) => s.verification.status === 'agreed' && !s.degraded && !s.disagreed,
+      ),
       grossFuel: gross,
       usefulFuel: useful,
       verificationMultiplier: useful === 0 ? 0 : gross / useful,
       redispatches: leases.redispatches,
       leaseHistory: leases.history,
+      speculationMultiplier: ledger.multiplier,
+      speculationSpent: ledger.spent,
+      coverage,
     },
   }
 }

@@ -57,6 +57,8 @@ afterEach(async () => {
 
 const start = async (options: Partial<FabricNodeOptions> = {}): Promise<FabricNode> => {
   const node = await FabricNode.start({
+    relayAdmission: 'admits-any-peer',
+    startReporting: 'reports-its-own-start',
     listen: ['/ip4/127.0.0.1/tcp/0'],
     trustAnchors: 'runs-unsigned-artifacts',
     rpcTimeoutMs: 10_000,
@@ -232,6 +234,8 @@ describe('AUTH-01 — a node told to enrol that cannot enrol does not start', ()
 
     await expect(
       FabricNode.start({
+        relayAdmission: 'admits-any-peer',
+        startReporting: 'reports-its-own-start',
         blockstoreDir: join(workdir, 'refused'),
         listen: [`/ip4/127.0.0.1/tcp/${port}`],
         trustAnchors: 'runs-unsigned-artifacts',
@@ -271,6 +275,8 @@ describe('AUTH-01 — a node told to enrol that cannot enrol does not start', ()
     const nowhere = `/ip4/127.0.0.1/tcp/${port}`
 
     const failure = await FabricNode.start({
+      relayAdmission: 'admits-any-peer',
+      startReporting: 'reports-its-own-start',
       blockstoreDir: join(workdir, 'unreachable'),
       listen: ['/ip4/127.0.0.1/tcp/0'],
       trustAnchors: 'runs-unsigned-artifacts',

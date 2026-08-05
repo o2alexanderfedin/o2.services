@@ -197,6 +197,8 @@ async function spawnAgent(name: string, extraArgs: readonly string[] = []): Prom
  */
 async function startSubmitter(): Promise<FabricNode> {
   const node = await FabricNode.start({
+    relayAdmission: 'admits-any-peer',
+    startReporting: 'reports-its-own-start',
     blockstoreDir: join(workdir, 'submitter'),
     listen: ['/ip4/127.0.0.1/tcp/0'],
     rpcTimeoutMs: 30_000,

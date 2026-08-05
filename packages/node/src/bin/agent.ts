@@ -763,6 +763,28 @@ const listen =
       : []
 
 node = await FabricNode.start({
+  // AUTH-02 — who this agent admits if it relays, stated by name.
+  //
+  // **There is no `--admit-any-peer` flag and this is not defaulted for want of one.** It
+  // is the posture every node in this repository has today, written down so that arming
+  // the gate is a change to one value rather than a change to what silence means.
+  //
+  // Whether this binary should instead **refuse to start** when an operator states neither
+  // `--trusted-issuer` nor an explicit open posture is an open owner ruling, deliberately
+  // not decided here. Its cost was measured while this landed: 19 argv-construction sites
+  // across 18 `*.node.test.ts` files spawn this binary, and 3 more spawn `bin/seed.ts`;
+  // none of them is a published measurement. That is the whole price of the fail-closed
+  // answer, and the owner is entitled to see it before ruling.
+  relayAdmission: 'admits-any-peer',
+  // BROW-01 — what this process says about *itself* when a peer asks for start counts:
+  // one `other` row, which is the coarsest label the range has and carries no version and
+  // no machine. Open because BROW-02's whole purpose is to make a blocklist's silence
+  // visible, and an agent that withheld its own row would be manufacturing a little of
+  // that silence — while an operator who wants it withheld has a named value to write
+  // here. **No flag yet, and that is the gap**: the choice is an option rather than argv,
+  // so an operator states it by editing this line. Adding `--withholds-start-report`
+  // belongs with whatever else this entry point next learns to say, not smuggled in here.
+  startReporting: 'reports-its-own-start',
   blockstoreDir: values.dir,
   listen,
   trustAnchors,

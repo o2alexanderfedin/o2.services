@@ -862,9 +862,19 @@ export function serveAgent(options: AgentOptions): void {
           // `churn.ts`'s classification table calls `error` a **node**
           // condition — reachable, refusing to serve *this* — which is the retry
           // policy a capacity refusal wants, because the same task on another
-          // node succeeds. An `exec ok:false` classifies as **task** and burns
-          // against `DEFAULT_MAX_TASK_FAILURES`, which would let a busy peer
-          // condemn a perfectly good shard.
+          // node succeeds. An `exec ok:false` classifies as **task**, which was
+          // the kind a scheduler gave up on quickly, so a busy peer answering
+          // that way could condemn a perfectly good shard.
+          //
+          // **The consequence half of that is now latent, and saying so is the
+          // point of a comment.** Plan 20-12 deleted `runResilient`, the only
+          // thing that ever branched on the kind, along with the task-failure
+          // budget it was counted against; `submitJob` bounds every failure at
+          // `DEFAULT_MAX_GENERATIONS` instead and cannot see kinds at all. So the
+          // shape chosen here is still the right one and is still classified,
+          // but nothing downstream currently acts on the difference. If a kind
+          // reaches `ExecutionOutcome` — `20-CONTEXT.md`'s deferred item — this
+          // branch is already correct and needs no revisiting.
           //
           // The cost of reusing the shape, recorded rather than left to be
           // discovered: a requestor cannot tell `malformed request` from

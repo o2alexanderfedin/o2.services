@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
+import { blocking, commitScope, pathFormProblems, trackedPaths } from './commit-scope.ts'
 
 /**
  * Vocabulary discipline, enforced over the whole repository rather than remembered.
@@ -24,9 +25,29 @@ import { describe, expect, it } from 'vitest'
  * A rule that cannot express its own exceptions gets disabled the first time it
  * fires wrongly — so the exceptions are data, each carrying the reason it is
  * defensible, and the rule is proved able to fail before it is trusted.
+ *
+ * ## Scanned repo-wide, blocking on the commit
+ *
+ * The corpus is every tracked file and stays that way. What narrowed on 2026-08-04 is
+ * only what a *commit* is refused for: this guard used to hold whoever committed next,
+ * which for a term committed into a root-level `.md` meant refusing every subsequent
+ * commit by an agent working on `.ts` files who had not caused it. A finding outside the
+ * commit is still printed — see `commit-scope.ts`, and the reason hiding it would be the
+ * wrong fix is defect #38, one file over.
  */
 
 const ROOT = fileURLToPath(new URL('../../..', import.meta.url))
+
+/**
+ * The commit these findings are judged against, or `NO_COMMIT_SCOPE` outside a commit.
+ *
+ * Read once, at module scope, so every case below reads the same answer. Absence is
+ * strict: under `npm test` or a verifier there is no scope and every finding blocks.
+ */
+const SCOPE = commitScope()
+
+/** This file's own path, which is where a dead line exemption is deleted. */
+const SELF = 'packages/node/src/vocabulary.node.test.ts'
 
 interface Banned {
   readonly term: string
@@ -453,11 +474,18 @@ describe('the repository scan is looking at the repository', () => {
    */
   it('has no file that escaped the scan by looking like a binary', () => {
     expect(
-      REPO.invisible.map(
-        (file) =>
-          `${file} contains a NUL byte and is not a declared binary — it is being skipped ` +
-          'entirely, which is an exemption with no entry and no reason. Spell the NUL ' +
-          `\\u0000 in source, or add its extension to BINARY_EXTENSIONS.`,
+      blocking(
+        'vocabulary/invisible',
+        REPO.invisible.map((file) => ({
+          // The file itself, and this one — the two places the fix can be made: spell
+          // the NUL, or declare the extension in `BINARY_EXTENSIONS` here.
+          paths: [file, SELF],
+          line:
+            `${file} contains a NUL byte and is not a declared binary — it is being skipped ` +
+            'entirely, which is an exemption with no entry and no reason. Spell the NUL ' +
+            `\\u0000 in source, or add its extension to BINARY_EXTENSIONS.`,
+        })),
+        SCOPE,
       ),
     ).toEqual([])
   })
@@ -507,9 +535,36 @@ describe('a NUL byte cannot buy a file its way out of the scan', () => {
 describe('no cryptojacking vocabulary reaches a reviewer who greps', () => {
   for (const { term, why } of BANNED) {
     it(`says "${term}" nowhere — ${why}`, () => {
-      expect(REPO.violations.filter((v) => v.term === term).map(render)).toEqual([])
+      // One path, and it is exact: a banned word is in the file it is in, and the person
+      // who put it there is the person who can take it out. No union applies.
+      const findings = REPO.violations
+        .filter((violation) => violation.term === term)
+        .map((violation) => ({ paths: [violation.file], line: render(violation) }))
+      expect(blocking(`vocabulary/${term}`, findings, SCOPE)).toEqual([])
     })
   }
+})
+
+describe('the paths this guard attributes findings to are paths a commit can match', () => {
+  /**
+   * The residual fail-open of narrowing, checked from the guard's end.
+   *
+   * A `./` prefix, a leading `/`, or a Windows separator in the corpus makes every
+   * finding foreign and this guard silently stops blocking — no red, no output, nothing
+   * that distinguishes it from a clean repository. Form alone is not enough either:
+   * `src/index.html` for a file at `packages/browser/demo/index.html` is well-formed and
+   * matches nothing. So the reading is a round trip against the same `git ls-files` a
+   * commit scope is built from.
+   */
+  const TRACKED = trackedPaths(ROOT)
+
+  it('emits repo-relative POSIX paths that git also prints', () => {
+    expect(pathFormProblems(REPO.scanned)).toEqual([])
+    // Every scanned path came from `git ls-files`, so all of them round-trip. A floor
+    // rather than an equality only because the corpus grows.
+    expect(REPO.scanned.filter((file) => TRACKED.has(file)).length).toBeGreaterThan(100)
+    expect(REPO.scanned.filter((file) => !TRACKED.has(file))).toEqual([])
+  })
 })
 
 describe('the exceptions stay honest', () => {
@@ -523,10 +578,14 @@ describe('the exceptions stay honest', () => {
    * contents legitimately come and go.
    */
   it('carries no line exemption that no longer matches anything', () => {
-    const dead = EXEMPT_LINES.filter((entry) => !REPO.used.has(keyOf(entry))).map(
-      (entry) => `${keyOf(entry)} — no longer present; delete this entry (was: ${entry.reason})`,
-    )
-    expect(dead).toEqual([])
+    const dead = EXEMPT_LINES.filter((entry) => !REPO.used.has(keyOf(entry))).map((entry) => ({
+      // The union: an exemption dies either because somebody edited the line it covers
+      // or because somebody should delete the entry here. Both participate, so whichever
+      // of the two is committing is held.
+      paths: [entry.file, SELF],
+      line: `${keyOf(entry)} — no longer present; delete this entry (was: ${entry.reason})`,
+    }))
+    expect(blocking('vocabulary/dead-exemption', dead, SCOPE)).toEqual([])
   })
 
   it('gives every exemption a stated reason, so none can be added silently', () => {

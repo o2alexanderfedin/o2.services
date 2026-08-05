@@ -145,6 +145,8 @@ beforeAll(async () => {
   workdir = await mkdtemp(join(tmpdir(), 'o2-tabs-'))
 
   relay = await FabricNode.start({
+    relayAdmission: 'admits-any-peer',
+    startReporting: 'reports-its-own-start',
     // Comfortably above the two tabs, so a refusal cannot be mistaken for a bug.
     maxReservations: 16,
     listen: ['/ip4/127.0.0.1/tcp/0/ws'],
