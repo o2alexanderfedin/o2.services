@@ -1956,6 +1956,76 @@ export const MUTATIONS: readonly Mutation[] = [
     signature: 'reports it even when a string literal above the coupling holds a comment opener',
     signatureSource: 'test-title',
   },
+  // -------------------------------------------------------------------------
+  // C1–C3 — defect #39, 2026-08-04. Narrowing what a guard blocks on.
+  //
+  // Every one of these turns five guards off without turning anything red, which is
+  // why they are here: the change they protect is one whose failure mode is a green
+  // run in which nothing was checked. `O2_SKIP_GUARDS=1` is at least visible in the
+  // log; none of these three would be visible anywhere.
+  // -------------------------------------------------------------------------
+  {
+    id: 'C1',
+    why:
+      'The whole safety of defect #39’s fix, inverted. `commit-scope` narrows a guard’s blocking ' +
+      'set to the paths in the current commit, and `NO_COMMIT_SCOPE` is what it returns when it ' +
+      'cannot tell whose commit this is — missing variable, unreadable file, empty file, malformed ' +
+      'file. Under that value every finding must be treated as own. Swap the two arms and the ' +
+      'opposite happens: a guard run by `npm test`, by a verifier, or by a hook whose environment ' +
+      'did not reach the worker blocks on NOTHING, and reports a clean tree it never examined. ' +
+      'There is no output that distinguishes that from a repository with no violations in it, ' +
+      'which is why this cannot be left to a docblock saying the default is strict.',
+    file: 'packages/node/src/commit-scope.ts',
+    find: 'return { own: [...findings], foreign: [] }',
+    replace: 'return { own: [], foreign: [...findings] }',
+    caughtBy: ['packages/node/src/commit-scope.node.test.ts'],
+    // Measured 2026-08-04: 1 failed, 18 passed. Rendered assertion on that run:
+    // `AssertionError: expected [] to deeply equal [ { paths: [ …(2) ], …(1) }, { …(2) } ]`.
+    signature: 'blocks on every finding when there is no scope',
+    signatureSource: 'test-title',
+  },
+  {
+    id: 'C2',
+    why:
+      'The union rule, reduced to an intersection — the real fail-open of a naive narrowing, and ' +
+      'the one the `translationCid` case in `7717ade` turns on. A finding names EVERY path that ' +
+      'participates: a requirements row broken by a new caller names the ledger and the caller ' +
+      'both, because either author can resolve the contradiction and either may be the one ' +
+      'committing. `some` holds whichever of them is present; `every` holds only somebody who ' +
+      'staged all of them at once, which in a repository worked by concurrent agents is nobody. ' +
+      'The guard would then pass for the author of the caller and for the author of the row alike, ' +
+      'with the finding printed as somebody else’s and no red anywhere.',
+    file: 'packages/node/src/commit-scope.ts',
+    find: '!finding.paths.some((path) => scope.has(path))',
+    replace: '!finding.paths.every((path) => scope.has(path))',
+    caughtBy: ['packages/node/src/commit-scope.node.test.ts'],
+    // Measured 2026-08-04: 4 failed, 15 passed — both union arms, the single-path
+    // regression case, and the end-to-end `blocking` case. Rendered assertion:
+    // `AssertionError: expected [] to deeply equal [ { paths: [ …(2) ], …(1) } ]`.
+    signature: 'blocks the author of the caller',
+    signatureSource: 'test-title',
+  },
+  {
+    id: 'C3',
+    why:
+      'Path-form drift, which is the residual fail-open of defect #39’s fix and the one recorded ' +
+      'as most likely to actually happen. Every guard emits repo-relative POSIX because that is ' +
+      'what `git ls-files` and `git diff-index --name-only` print; a leading slash on either side ' +
+      'of the comparison makes every finding foreign and the guards stop blocking with NO symptom ' +
+      '— no red, no output, nothing that distinguishes it from a clean run. `isLsFilesForm` is the ' +
+      'check at both ends, so weakening one of its clauses is exactly how the drift would arrive ' +
+      'unnoticed: an absolute path in the scope file would then be accepted as a scope, and the ' +
+      'per-guard round-trip assertions would accept a corpus that can never be matched.',
+    file: 'packages/node/src/commit-scope.ts',
+    find: "if (path.startsWith('/')) return false",
+    replace: "if (path.startsWith('/')) return true",
+    caughtBy: ['packages/node/src/commit-scope.node.test.ts'],
+    // Measured 2026-08-04: 3 failed, 16 passed. Rendered assertion on the first:
+    // `AssertionError: expected Set{ '/Volumes/x/packages/core/src/a…' } to be
+    // 'no-commit-scope'`.
+    signature: 'refuses an absolute or dot-prefixed path',
+    signatureSource: 'test-title',
+  },
 ]
 
 /** Literal occurrences of `needle` in `text`. `needle` must be non-empty. */
