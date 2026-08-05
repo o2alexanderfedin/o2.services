@@ -189,3 +189,70 @@ describe('BENCH-07 — processFabric puts N nodes in N operating-system processe
     expect(dirs.filter((dir) => existsSync(dir))).toEqual([])
   }, 120_000)
 })
+
+/**
+ * The inverse dial direction and the pinned cap — BENCH-07 criterion 3's two levers.
+ *
+ * **Added outside Plan 23-04's declared file list, deliberately, and the cost of not adding
+ * it is the reason.** Attempts F and G of that plan's factorial are the only cells that put
+ * N processes on one host dialling one node at once, which is the population the published
+ * exclusion blames. They run inside `bin/bench.ts`, whose `main()` executes on import, so
+ * nothing in any suite can reach them — an arm that had never been exercised would be
+ * discovered broken during a twenty-minute run, and a broken arm and a rung that failed for
+ * the reason under investigation are indistinguishable from the outside.
+ *
+ * At two nodes it costs one rig. It says nothing about sixteen.
+ */
+describe('BENCH-07 — the rig can be built with the workers dialling in, and with the cap pinned', () => {
+  it('has every agent reach the submitter before it announces, at the threshold it was given', async () => {
+    const record = await fixtureRecord()
+    const built = await processFabric(2, MODULE_WRITES_PARTITION, record, {
+      trustAnchors: [publisher.pub],
+      dial: 'workers-to-submitter',
+      inboundThreshold: 5,
+      submitterInboundThreshold: 5,
+    })
+    fabric = built
+
+    // The direction, read off what each agent said it reached rather than off the option
+    // that asked for it. `--peer-addr` dials before the handshake is written, so a rig that
+    // exists at all is a rig whose dials completed.
+    for (const agent of built.agents) {
+      expect(agent.peers).toContain(built.submitterPeerId)
+    }
+
+    // The cap, read off each agent's own started node. This is the value the published
+    // exclusion blames, made settable — and 5 is asserted because 5 is what the caller
+    // stated. No assertion anywhere names the derived figure.
+    expect(built.agents.map((a) => a.inboundConnectionThreshold)).toEqual([5, 5])
+    // The other limit stays derived, which is what makes this one lever rather than two.
+    expect(built.agents.every((a) => a.maxIncomingPendingConnections !== 5)).toBe(true)
+
+    // And the job still crosses the boundary, so the direction is a change to who accepts
+    // rather than to whether a dispatch arrives.
+    const result = await submitJobWithEgress(
+      {
+        moduleCid: built.moduleCid,
+        moduleRecord: built.moduleRecord,
+        shards: [{ a: 0 }, { a: 1 }].map((value) => ({ value, label: 'public' as const })),
+        executors: built.executors,
+        nodes: built.nodes,
+        redundancy: 1,
+        onQuorumShortfall: 'runs-at-available-redundancy',
+      },
+      built.blockstore,
+      [built.guard],
+      { checkpoints: 'checkpoints-nothing' },
+    )
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.job.complete).toBe(true)
+    for (const shard of result.job.shards) {
+      if (shard.verification.status !== 'agreed') continue
+      for (const entry of shard.verification.agreeing) {
+        expect(built.agents.map((a) => a.peerId)).toContain(entry.nodeId)
+      }
+    }
+  }, 120_000)
+})

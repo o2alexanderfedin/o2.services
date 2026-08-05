@@ -6,7 +6,14 @@
  *
  *   { "peerId": "12D3Koo…", "multiaddrs": ["/ip4/127.0.0.1/tcp/54321/p2p/12D3Koo…"],
  *     "trustAnchors": ["…"], "nodeKey": "…", "certificate": null, "issuerKey": null,
- *     "peers": [], "dutyCycle": 1, "relays": [], "pid": 12345 }
+ *     "peers": [], "dutyCycle": 1, "relays": [], "pid": 12345,
+ *     "inboundConnectionThreshold": …, "maxIncomingPendingConnections": … }
+ *
+ * The last two are shown as ellipses rather than as numbers **deliberately**: both are
+ * derived from this node's reservation limit unless `--inbound-threshold` pins the first, so
+ * what a given start comes to is a reading and not a constant, and a figure written down
+ * here would be a prediction that goes stale the next time the derivation moves. That is the
+ * whole point of announcing them; see the keys themselves.
  *
  * The handshake is deliberately a single line on stdout rather than a fixed port or
  * a discovery service: the OS assigns the port, so parallel runs cannot collide,
@@ -356,6 +363,36 @@ const { values } = parseArgs({
     // `type: 'string'` because `parseArgs` has no integer type; the parse and the range
     // check are the validator below.
     'max-concurrent-tasks': { type: 'string' },
+    // BENCH-07 criterion 3: inbound connections **per second, per host** this node accepts,
+    // pinned rather than derived.
+    //
+    // **What it is for, and it is not tuning.** `.planning/BENCHMARK-RESULTS.md` excludes a
+    // real-transport rung with a paragraph naming libp2p's inbound cap of five per host as
+    // the cause. That paragraph was attached without measuring anything, and the constant it
+    // names is not necessarily the value a node runs at: `FabricNode.start` derives this
+    // limit as `max(libp2p's default, the reservation limit)`, and that coupling landed
+    // after the run the paragraph describes. Making the value settable is what turns "the
+    // cap is the cause" from an assertion into an attempt somebody can run — a rung pinned
+    // back to the blamed value beside the same rung at the derived one.
+    //
+    // **A rate, not a count**, which is why raising the reservation and pending limits did
+    // not fix the failure this exists to reproduce and staggering the joins did. The
+    // neighbouring `maxIncomingPendingConnections` is the count, and it is left derived here
+    // deliberately: pinning one lever at a time is the whole point of the flag.
+    //
+    // **A per-node setting, not a node kind** — the same sentence every other flag in this
+    // block carries. A node at five accepts exactly the requests a node at fifteen does; it
+    // accepts them more slowly from one host, and nothing anywhere branches on the value.
+    //
+    // **The `--port` rule does not apply to this flag and is restated so it is not
+    // forgotten.** This is not `--relay-addr`: an agent given `--inbound-threshold` and no
+    // `--port` still takes the `relayAddrs.length === 0` row of the `listen` table below and
+    // binds `/ip4/127.0.0.1/tcp/0`. Do not add a defensive `--port 0` beside it — that
+    // would quietly change what the rig binds while looking like caution.
+    //
+    // `type: 'string'` because `parseArgs` has no integer type; the parse and the range
+    // check are the validator below.
+    'inbound-threshold': { type: 'string' },
     // SCHED-04: the share of wall clock this node spends running tasks, in (0, 1].
     //
     // **The starting value, not a fixed one.** The requirement asks for a cap an operator
@@ -481,7 +518,7 @@ const { values } = parseArgs({
 })
 
 const USAGE =
-  'usage: agent.ts --dir <blockstore-dir> [--port <n>] [--owner-id <id — the enrolled user key when --user-key is given> [--owner-key <hex>] [--can-execute-sovereign]] [--trust-anchor <hex> ...] [--issues-certificates --max-issued-per-window <n>] [--provider-addr <multiaddr> --user-key <path> --operator-id <id>] [--trusted-issuer <hex> ...] [--peer-addr <multiaddr> ...] [--max-concurrent-tasks <n>] [--duty-cycle <n>] [--relay-addr <multiaddr> ...]\n'
+  'usage: agent.ts --dir <blockstore-dir> [--port <n>] [--owner-id <id — the enrolled user key when --user-key is given> [--owner-key <hex>] [--can-execute-sovereign]] [--trust-anchor <hex> ...] [--issues-certificates --max-issued-per-window <n>] [--provider-addr <multiaddr> --user-key <path> --operator-id <id>] [--trusted-issuer <hex> ...] [--peer-addr <multiaddr> ...] [--max-concurrent-tasks <n>] [--inbound-threshold <n>] [--duty-cycle <n>] [--relay-addr <multiaddr> ...]\n'
 
 /**
  * The one exit-2 path, extended rather than duplicated.
@@ -563,6 +600,21 @@ if (values['max-concurrent-tasks'] !== undefined) {
   const slots = Number(values['max-concurrent-tasks'])
   if (!Number.isInteger(slots) || slots < 1) {
     refuse(`--max-concurrent-tasks ${values['max-concurrent-tasks']} is not an integer of at least 1`)
+  }
+}
+
+// BENCH-07: refused here rather than clamped, for the reason every other numeric flag on
+// this binary is. Without it `Number('five')` reaches `connectionManager` as `NaN`, every
+// rate comparison against it is `false`, and the node accepts inbound connections at no
+// rate limit at all — with nothing anywhere reporting that the input was never a number.
+// That is the exact shape of failure this flag exists to *measure*, so producing it by
+// accident would make an attempt unreadable. Zero is rejected with the rest: a node that
+// accepted no inbound connection per second would refuse every peer, which is a
+// configuration better named at the command line than discovered from a dead rung.
+if (values['inbound-threshold'] !== undefined) {
+  const rate = Number(values['inbound-threshold'])
+  if (!Number.isInteger(rate) || rate < 1) {
+    refuse(`--inbound-threshold ${values['inbound-threshold']} is not an integer of at least 1`)
   }
 }
 
@@ -826,6 +878,14 @@ node = await FabricNode.start({
   ...(values['max-concurrent-tasks'] === undefined
     ? {}
     : { maxConcurrentTasks: Number(values['max-concurrent-tasks']) }),
+  // BENCH-07 — same conditional-spread idiom, same `exactOptionalPropertyTypes` reason, and
+  // one extra consequence that is the whole point of the flag: with it absent the key is
+  // absent, so the node keeps the value its own derivation gives it rather than being pinned
+  // to a parsed `NaN`. An unflagged agent therefore announces the *derived* figure below,
+  // which is the reading the published exclusion's constant has to be compared against.
+  ...(values['inbound-threshold'] === undefined
+    ? {}
+    : { inboundConnectionThreshold: Number(values['inbound-threshold']) }),
   ...(values['duty-cycle'] === undefined ? {} : { dutyCycle: Number(values['duty-cycle']) }),
   // Both keys or neither: a watcher with no relay to watch reports nothing, and a relay
   // with no watcher is the silence NET-05 exists to end.
@@ -1007,6 +1067,21 @@ process.stdout.write(
     // derived: the claim is that *this* process is the one serving the addresses above it,
     // and only this process can state that about itself.
     pid: process.pid,
+    // BENCH-07 criterion 3 — the two inbound limits, read off the **started node's own
+    // getters** and never off `values`, and the difference is the whole reason these keys
+    // exist.
+    //
+    // Only one of them can be set on this command line, and neither has to be: absent the
+    // flag, `FabricNode.start` derives both from the reservation limit. A run that published
+    // what it *passed* instead of what the node ended up with would reproduce, at the
+    // reporting layer, precisely the defect it is being built to remove — the published
+    // exclusion names a constant the code does not necessarily run at, and it names it
+    // because somebody wrote down the intent rather than reading the node.
+    //
+    // Both are public by construction, exactly as every field above: a rate limit is
+    // announced to any peer that meets it.
+    inboundConnectionThreshold: node.inboundConnectionThreshold,
+    maxIncomingPendingConnections: node.maxIncomingPendingConnections,
   })}\n`,
 )
 

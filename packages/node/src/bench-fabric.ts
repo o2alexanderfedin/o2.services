@@ -151,6 +151,27 @@ export interface AgentHandle {
   readonly peerId: string
   readonly multiaddrs: readonly string[]
   readonly dir: string
+  /**
+   * The inbound rate limit this agent **ended up with**, read off its own started node.
+   *
+   * BENCH-07 criterion 3. Carried on the handle rather than restated from the options that
+   * built the rig, because those are two different facts and only one of them is a
+   * measurement: a limit that is derived rather than set is exactly the case that produced
+   * the published exclusion's stale constant. A caller that reports what it passed instead
+   * of what the agent announced reproduces that defect at the reporting layer.
+   */
+  readonly inboundConnectionThreshold: number
+  /** The same, for the pending-handshake count. Derived from the same reservation limit. */
+  readonly maxIncomingPendingConnections: number
+  /**
+   * The peer ids this agent reached before it announced, `[]` when it was told to reach
+   * nobody.
+   *
+   * Non-empty only under {@link ProcessFabricOptions.dial} `'workers-to-submitter'`, where
+   * it holds the submitting node's peer id — which is how a caller knows the inverse
+   * direction actually happened rather than was merely requested.
+   */
+  readonly peers: readonly string[]
 }
 
 /**
@@ -177,7 +198,28 @@ interface Handshake {
   readonly peerId: string
   readonly multiaddrs: readonly string[]
   readonly pid: number
+  readonly inboundConnectionThreshold: number
+  readonly maxIncomingPendingConnections: number
+  readonly peers: readonly string[]
 }
+
+/**
+ * Which side of this rig opens the connections — a controlled variable, never a detail.
+ *
+ * `'submitter-to-workers'` is what Plan 23-02 built and what every published process-driver
+ * number was taken under: the submitting node dials each agent, matching every spawn
+ * harness in this package. `'workers-to-submitter'` is what `realFabric` does and what the
+ * excluded real-transport rung was measured under — N peers on one host opening connections
+ * to one node.
+ *
+ * The direction decides **which side receives** the inbound connections, and nothing else:
+ * `Libp2pTransport.send` reaches a peer by peer id and reuses an existing connection
+ * whichever end opened it, so a dispatch arrives identically either way. That is what makes
+ * this separable from the process split, and separating them is what criterion 3 asks for —
+ * adopting the spawn pattern changed both at once, and only one of them is what BENCH-07 is
+ * about.
+ */
+export type DialDirection = 'submitter-to-workers' | 'workers-to-submitter'
 
 /** The binary each worker process runs. The same one every node-tier spawn site uses. */
 const AGENT_PATH = fileURLToPath(new URL('./bin/agent.ts', import.meta.url))
@@ -288,6 +330,41 @@ export interface ProcessFabricOptions {
   readonly trustAnchors?: readonly string[]
   /** Passed through to every spawned agent. See {@link spawnAgent} on `--port 0`. */
   readonly agentArgs?: readonly string[]
+  /**
+   * The inbound rate limit pinned on **every spawned agent**, or absent to let each derive
+   * its own — BENCH-07 criterion 3.
+   *
+   * One option, one flag (`--inbound-threshold`), one announced reading on each
+   * {@link AgentHandle}. There is deliberately no second way to pass the same thing: a rig
+   * with two routes to one limit is a rig whose published configuration has two answers.
+   */
+  readonly inboundThreshold?: number
+  /**
+   * The inbound rate limit pinned on the **submitting** node, or absent to let it derive
+   * its own.
+   *
+   * Separate from {@link ProcessFabricOptions.inboundThreshold} for a reason that is
+   * structural rather than stylistic: under `'workers-to-submitter'` the node that receives
+   * every dial is the one this function starts *in the driver's own process*, and an
+   * agent-side flag cannot reach it. Pinning the cap on the side that does not receive the
+   * connections would be an attempt that exercised nothing.
+   */
+  readonly submitterInboundThreshold?: number
+  /**
+   * Which side opens the connections. See {@link DialDirection}.
+   *
+   * Defaults to `'submitter-to-workers'` — what this rig has always done, and what every
+   * process-driver figure already published was taken under, so an existing caller that
+   * omits it builds exactly what it built before.
+   */
+  readonly dial?: DialDirection
+}
+
+/** The first TCP address of a set that a peer can actually dial. */
+function dialable(multiaddrs: readonly string[], what: string): string {
+  const address = multiaddrs.find((ma) => ma.includes('/tcp/') && !ma.includes('/p2p-circuit'))
+  if (address === undefined) throw new Error(`no dialable address on ${what}`)
+  return address
 }
 
 /**
@@ -323,15 +400,32 @@ export async function processFabric(
     await rm(root, { recursive: true, force: true })
   }
 
-  try {
-    // Spawned in parallel: the OS assigns each port, so parallel spawns cannot collide, and
-    // a rung of sixteen agents started one at a time would spend the whole rig construction
-    // in serial libp2p startups.
+  const direction: DialDirection = options.dial ?? 'submitter-to-workers'
+  const inboundArgs =
+    options.inboundThreshold === undefined
+      ? []
+      : ['--inbound-threshold', String(options.inboundThreshold)]
+
+  /**
+   * Spawn every agent **at once**, with `extra` appended to each one's argv.
+   *
+   * Parallel because the OS assigns each port, so parallel spawns cannot collide, and a rung
+   * of sixteen agents started one at a time would spend the whole rig construction in serial
+   * libp2p startups. Under `'workers-to-submitter'` the parallelism is not an optimisation
+   * but **the mechanism**: it is what makes N dials to one node concurrent, and a per-second
+   * per-host rate limit is only observable against concurrent dials.
+   */
+  const spawnAll = async (extra: readonly string[]): Promise<void> => {
     const spawned = await Promise.all(
       Array.from({ length: nodes }, async (_, i) => {
         const dir = join(root, `node-${i}`)
         await mkdir(dir, { recursive: true })
-        const agent = await spawnAgent(AGENT_PATH, dir, [...anchorArgs, ...(options.agentArgs ?? [])])
+        const agent = await spawnAgent(AGENT_PATH, dir, [
+          ...anchorArgs,
+          ...inboundArgs,
+          ...extra,
+          ...(options.agentArgs ?? []),
+        ])
         return { ...agent, dir }
       }),
     )
@@ -348,12 +442,20 @@ export async function processFabric(
         peerId: handshake.peerId,
         multiaddrs: handshake.multiaddrs,
         dir,
+        // The same rule as `announcedPid`, applied to the configuration: read off what the
+        // agent said about its own started node, never restated from `inboundArgs` above.
+        inboundConnectionThreshold: handshake.inboundConnectionThreshold,
+        maxIncomingPendingConnections: handshake.maxIncomingPendingConnections,
+        peers: handshake.peers,
       })
     }
+  }
 
+  /** The submitting node, and the module in its store. Identical under both directions. */
+  const startSubmitter = async (): Promise<FabricNode> => {
     const submitterDir = join(root, 'submitter')
     await mkdir(submitterDir, { recursive: true })
-    submitter = await FabricNode.start({
+    return FabricNode.start({
       relayAdmission: 'admits-any-peer',
       startReporting: 'reports-its-own-start',
       blockstoreDir: submitterDir,
@@ -367,7 +469,30 @@ export async function processFabric(
       ...(options.maxConcurrentTasks === undefined
         ? {}
         : { maxConcurrentTasks: options.maxConcurrentTasks }),
+      // BENCH-07 criterion 3. Pinned here and not through `agentArgs`, because under
+      // `'workers-to-submitter'` this is the node that receives every dial and it lives in
+      // the driver's process — no flag on a child could reach it.
+      ...(options.submitterInboundThreshold === undefined
+        ? {}
+        : { inboundConnectionThreshold: options.submitterInboundThreshold }),
     })
+  }
+
+  try {
+    if (direction === 'workers-to-submitter') {
+      // **Submitter first, then all N agents at once.** The ordering is the whole mechanism
+      // rather than a consequence: the agents cannot be told where to dial until the node
+      // they are dialling exists, and spawning them in parallel is what makes their dials
+      // concurrent. `--peer-addr` dials after `FabricNode.start` resolves and strictly
+      // before the handshake line is written, so a spawn that resolves is a dial that
+      // already succeeded, and a dial that fails rejects the spawn with the child's stderr
+      // instead of a rig that quietly has one fewer peer.
+      submitter = await startSubmitter()
+      await spawnAll(['--peer-addr', dialable(submitter.multiaddrs, 'the submitting node')])
+    } else {
+      await spawnAll([])
+      submitter = await startSubmitter()
+    }
 
     const moduleCid = await submitter.store.put(moduleBytes)
     if (moduleCid.toString() !== moduleRecord.cid.toString()) {
@@ -381,20 +506,15 @@ export async function processFabric(
       )
     }
 
-    // **The submitter dials outward**, matching every existing spawn harness in this
-    // package. `realFabric` has it the other way — each worker dials the requestor — so
-    // adopting this shape changes *two* things at once: the process split and the dial
-    // direction. Only the first is what BENCH-07 is about. The direction decides which side
-    // receives the inbound connections, which is a controlled variable rather than a
-    // detail, and it is measured by holding this rig fixed while varying it. Nothing here
-    // states how many inbound connections either side ends up with, or whether the per-host
-    // inbound cap binds: those are quantities to measure, not to reason about, and
-    // `Libp2pTransport.send` reuses an existing connection whichever side opened it, so the
-    // direction changes who accepts rather than how a dispatch reaches a peer.
-    for (const agent of agents) {
-      const address = agent.multiaddrs.find((ma) => ma.includes('/tcp/') && !ma.includes('/p2p-circuit'))
-      if (address === undefined) throw new Error(`no dialable address on the agent in ${agent.dir}`)
-      await submitter.dial(address)
+    // **The submitter dials outward** under the default direction, matching every existing
+    // spawn harness in this package, and dials nobody under the inverse one — where the
+    // agents have already dialled it. Nothing here states how many inbound connections
+    // either side ends up with, or whether the per-host cap binds: those are quantities to
+    // measure, and `bin/bench.ts`'s criterion-3 block is where they are measured.
+    if (direction === 'submitter-to-workers') {
+      for (const agent of agents) {
+        await submitter.dial(dialable(agent.multiaddrs, `the agent in ${agent.dir}`))
+      }
     }
 
     // AUTH-03: the unauthenticated sentinel is the correct value for this rig rather than a

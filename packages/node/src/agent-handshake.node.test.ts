@@ -6,6 +6,7 @@ import { join } from 'node:path'
 import type { Readable, Writable } from 'node:stream'
 import { fileURLToPath } from 'node:url'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { FabricNode } from './fabric-node.ts'
 
 /**
  * BENCH-07 — the process that announced an address is the process the parent spawned.
@@ -36,6 +37,23 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
  * one-line addition being additive is that every existing parent still finds what it
  * names. That argument is cheap to state and cheap to check, so it is checked.
  *
+ * ## The two inbound limits are asserted as a relationship, never at a value
+ *
+ * BENCH-07 criterion 3's published exclusion names `INBOUND_CONNECTION_THRESHOLD = 5` as
+ * the cause of a rung that died. A default node does not necessarily run at five: it derives
+ * both inbound limits from its reservation limit, and that coupling landed *after* the run
+ * whose exclusion names the constant. What the effective figure actually is was recorded as
+ * **unverified** by this phase's context pass, on the ground that reading it needs a live
+ * node.
+ *
+ * So this file spawns one and reads it, and asserts only what the shared derivation implies
+ * without predicting either value: both are positive integers and they are equal to each
+ * other. Asserting a number here would be a test of a memory — and if the derivation moves,
+ * it fails for a reason about nothing.
+ *
+ * The one value that *is* asserted is 5, on an agent given `--inbound-threshold 5`, because
+ * that one is a value the caller stated rather than one the node derived.
+ *
  * Node-only by necessity: the subject is an operating-system process.
  */
 
@@ -55,10 +73,28 @@ interface Handshake {
   readonly peerId: string
   readonly multiaddrs: readonly string[]
   readonly pid: number
+  /** Read off the started node's own getter, never restated from the flags. */
+  readonly inboundConnectionThreshold: number
+  /** The same, and coupled to it by the node factory's shared derivation. */
+  readonly maxIncomingPendingConnections: number
+  /**
+   * The peer ids this process reached through `--peer-addr`, before it announced.
+   *
+   * **Pre-existing, and read here because the criterion-3 factorial rests on it.** Plan
+   * 23-04 specified a new `--dial` flag with a new `dialed` array for exactly this; the
+   * flag it describes is this one, already shipped, already dialling before the handshake
+   * and already reporting peer ids read off the `Connection`. A second flag meaning the
+   * same thing would be a field with two answers, which is the defect `fabric-node.ts`'s
+   * `ownRecords` docblock exists to name.
+   */
+  readonly peers: readonly string[]
 }
 
 let workdir: string
-let child: AgentProcess | undefined
+/** Every agent this file spawned, torn down in `afterEach` whatever the case did. */
+let children: AgentProcess[] = []
+/** The in-process node the dial cases aim at, stopped in `afterEach`. */
+let target: FabricNode | undefined
 
 /**
  * Spawn one agent and resolve its single announcement line.
@@ -67,10 +103,14 @@ let child: AgentProcess | undefined
  * `/ip4/127.0.0.1/tcp/0`, which is what the `/tcp/` assertion below reads. The rule that
  * would apply here if this file grew a relay flag is stated in `bench-fabric.ts`.
  */
-async function spawnAgent(dir: string): Promise<{ child: AgentProcess; handshake: Handshake }> {
-  const spawned: AgentProcess = spawn(process.execPath, [AGENT, '--dir', dir], {
+async function spawnAgent(
+  dir: string,
+  extraArgs: readonly string[] = [],
+): Promise<{ child: AgentProcess; handshake: Handshake }> {
+  const spawned: AgentProcess = spawn(process.execPath, [AGENT, '--dir', dir, ...extraArgs], {
     stdio: ['pipe', 'pipe', 'pipe'],
   })
+  children.push(spawned)
 
   const handshake = await new Promise<Handshake>((resolve, reject) => {
     const timer = setTimeout(() => reject(new Error(`the agent did not announce in time: ${stderr}`)), 30_000)
@@ -130,15 +170,17 @@ beforeEach(async () => {
  * no step. The same reasoning `two-process.node.test.ts` records for its own teardown.
  */
 afterEach(async () => {
-  if (child !== undefined) await stopAgent(child).catch(() => {})
-  child = undefined
+  for (const spawned of children) await stopAgent(spawned).catch(() => {})
+  children = []
+  if (target !== undefined) await target.stop().catch(() => {})
+  target = undefined
   await rm(workdir, { recursive: true, force: true })
-}, 20_000)
+}, 30_000)
 
 describe('BENCH-07 — an agent states its own process id on the line it already prints', () => {
   it('announces a pid equal to the pid its parent was handed, alongside the keys every existing reader takes', async () => {
     const spawned = await spawnAgent(join(workdir, 'a'))
-    child = spawned.child
+    const child = spawned.child
     const { handshake } = spawned
 
     // The premise, stated rather than assumed: `spawn` gave this parent a pid at all.
@@ -154,9 +196,113 @@ describe('BENCH-07 — an agent states its own process id on the line it already
     expect(handshake.peerId.length).toBeGreaterThan(0)
     expect(handshake.multiaddrs.some((ma) => ma.includes('/tcp/'))).toBe(true)
 
+    // BENCH-07 criterion 3 — the configuration in force, read off the started node rather
+    // than restated from the flags this process was given. **No value is predicted**: see
+    // the module comment. What is asserted is what the shared derivation implies.
+    expect(Number.isInteger(handshake.inboundConnectionThreshold)).toBe(true)
+    expect(handshake.inboundConnectionThreshold).toBeGreaterThan(0)
+    expect(Number.isInteger(handshake.maxIncomingPendingConnections)).toBe(true)
+    expect(handshake.maxIncomingPendingConnections).toBeGreaterThan(0)
+    // Both fall out of one `max(libp2p's default, reservation limit)` on this configuration,
+    // so an implementation that announced one of them from somewhere else shows up here.
+    expect(handshake.inboundConnectionThreshold).toBe(handshake.maxIncomingPendingConnections)
+    // Printed so the summary can record the observed pair — which is what converts the
+    // figure from unverified into measured, without asserting it anywhere.
+    process.stdout.write(
+      `OBSERVED default agent limits: inboundConnectionThreshold=${String(handshake.inboundConnectionThreshold)}` +
+        ` maxIncomingPendingConnections=${String(handshake.maxIncomingPendingConnections)}\n`,
+    )
+
+    // An agent given no `--peer-addr` dials nobody and says so. `[]` is a statement,
+    // exactly as `relays` beside it is.
+    expect(handshake.peers).toEqual([])
+
     // And it leaves when asked, so this file resides nothing beyond its own run. Read off
     // the process rather than off the signal that was sent: `kill` states an intention.
     await stopAgent(child)
     expect(child.exitCode !== null || child.signalCode !== null).toBe(true)
   }, 30_000)
+})
+
+describe('BENCH-07 — an agent can be given the inbound limit a published exclusion blames', () => {
+  it('announces the threshold it was told to run at, and moves nothing else', async () => {
+    const derived = await spawnAgent(join(workdir, 'derived'))
+    const pinned = await spawnAgent(join(workdir, 'pinned'), ['--inbound-threshold', '5'])
+
+    // Asserted at a value, and legitimately: 5 is what the caller stated. The default
+    // agent's figure is derived, which is why the case above asserts a relationship instead.
+    expect(pinned.handshake.inboundConnectionThreshold).toBe(5)
+
+    // The pin is a pin and not a switch: the other limit keeps the value the derivation
+    // gives it, and it is the same value the unflagged agent announced.
+    expect(pinned.handshake.maxIncomingPendingConnections).toBe(
+      derived.handshake.maxIncomingPendingConnections,
+    )
+    expect(pinned.handshake.pid).toBe(pinned.child.pid)
+    expect(pinned.handshake.multiaddrs.some((ma) => ma.includes('/tcp/'))).toBe(true)
+    expect(pinned.handshake.peers).toEqual([])
+
+    // Anti-vacuity: if the flag did nothing, the two agents would announce the same
+    // threshold — so the pin has to be observably different from the derived figure. This
+    // is the one place the derived value is used, and it is used as a comparison rather
+    // than as a prediction.
+    expect(derived.handshake.inboundConnectionThreshold).not.toBe(5)
+  }, 40_000)
+})
+
+/**
+ * The dial leg the criterion-3 factorial rests on — and it is **pre-existing behaviour**.
+ *
+ * Plan 23-04 specified a new `--dial` flag for this and predicted these two cases would be
+ * red before it landed. They are not: `--peer-addr` already dials after `FabricNode.start`
+ * resolves and strictly before the handshake line is written, already reports the peer ids
+ * it reached off the `Connection` rather than off the configured string, and already exits
+ * non-zero with the message on stderr and no handshake when a dial fails. Nothing was added
+ * to the binary for either reading.
+ *
+ * They are kept, and they are worth their two processes, because the `workers-to-submitter`
+ * arm of `processFabric` now passes `--peer-addr` on every spawn and **nothing anywhere
+ * asserted that path**. What they measure is that the arm's mechanism works; what they do
+ * not measure is anything this plan wrote.
+ */
+describe('BENCH-07 — an agent can be told which node to dial, and a failed dial is visible at spawn', () => {
+  it('reaches the address it was given and names the peer it reached, before announcing', async () => {
+    target = await FabricNode.start({
+      relayAdmission: 'admits-any-peer',
+      startReporting: 'reports-its-own-start',
+      blockstoreDir: join(workdir, 'target'),
+      listen: ['/ip4/127.0.0.1/tcp/0'],
+      rpcTimeoutMs: 30_000,
+      // Empty, and stated rather than defaulted: this node is a dial target and nothing is
+      // ever dispatched to it, so it vouches for no build authority at all.
+      trustAnchors: [],
+    })
+    const address = target.multiaddrs.find((ma) => ma.includes('/tcp/'))
+    expect(address).toBeDefined()
+
+    const { handshake } = await spawnAgent(join(workdir, 'dialer'), ['--peer-addr', address ?? ''])
+
+    // The peer id is read off the `Connection` the agent established, so this is the peer
+    // actually reached rather than the one the address claimed.
+    expect(handshake.peers).toContain(target.peerId)
+    // The ordering claim: the line is written after the dials, so a parent holding the line
+    // is holding a completed dial rather than an intention. A dial moved after the write
+    // would leave this array empty.
+    expect(handshake.peers.length).toBe(1)
+  }, 60_000)
+
+  it('exits without announcing when the dial fails, so the parent gets the error instead of the budget', async () => {
+    // Port 1 needs privilege to bind, so nothing in this repository is listening there and
+    // the peer id is syntactically real. The dial is refused rather than timing out, which
+    // is what makes this case cheap.
+    const unreachable = '/ip4/127.0.0.1/tcp/1/p2p/12D3KooWCJrxedHTCt5RNFSDkvMURi6BqMQmX7S2eTTigp32rM4m'
+
+    // The whole reading: the spawn REJECTS. This is the shape the workers-dial-in attempts
+    // of the criterion-3 factorial are built on — the failure a published exclusion
+    // describes happens during the noise handshake, so it has to be observable at spawn
+    // time rather than as a wait that ends at the 30 s budget with nothing to say.
+    await expect(
+      spawnAgent(join(workdir, 'unreachable'), ['--peer-addr', unreachable]),
+    ).rejects.toThrow(/exited early/)
+  }, 60_000)
 })
