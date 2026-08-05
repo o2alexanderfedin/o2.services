@@ -34,6 +34,7 @@ import {
   SignedNameResolver,
   WasmExecutor,
   canonicalCid,
+  delegate,
   describeCoverage,
   guardModuleProvenance,
   publicNodes,
@@ -47,6 +48,7 @@ import type {
   Executor,
   JobResult,
   NameRecord,
+  PublicKeyHex,
   ShardAttestation,
   Task,
 } from '@o2/core'
@@ -140,6 +142,74 @@ import { FabricNode } from '../fabric-node.ts'
  * beats importing a parser to add one boolean.
  */
 const DISCOVER = process.argv.includes('--discover')
+
+/**
+ * Mint a real capability chain and dispatch one owner-labelled shard through it —
+ * AUTH-03's requestor half. Off by default. **Requires {@link DISCOVER}.**
+ *
+ * ## Why the flag exists
+ *
+ * `delegate` (`@o2/core`) and `CapabilitySupplier` (`@o2/net`) were complete, fuzzed and
+ * verified at the *serving* end in Phase 15, and had **zero production callers**: all five
+ * production dispatch sites label their shards public, a public task has no owner, and a
+ * task with no owner has no root key a chain could be rooted at. Owner ruling 2026-07-31
+ * declined to ship that as accepted-unreachable — naming a gap is not closing it — and
+ * routed the fix to this driver, because this phase already rewrites its node
+ * construction. This flag is that call path.
+ *
+ * ## Why it is off by default
+ *
+ * The same reason {@link DISCOVER} is, and it is the reason rather than a matching style:
+ * a published scaling curve must not be reshaped by a change nobody declared. With this
+ * flag absent, `realFabric` builds exactly what it built before the flag existed — no
+ * `sovereignty` key reaches any node, no chain is minted, no owner-labelled shard is
+ * submitted and nothing extra is dispatched. The default run measures what it measured
+ * yesterday, and `coverage-agents.node.test.ts` reads that off this driver's own stdout.
+ *
+ * ## Why it REQUIRES `--discover` and does not imply it
+ *
+ * A sovereign shard is placed only against a descriptor whose `ownerId` matches it
+ * (`eligibleNodes`, `core/src/sovereignty.ts`), and `publicNodes` hardcodes the literal
+ * `'public'` there — so the default descriptor derivation cannot place one at all.
+ * Hand-building a second `NodeDescriptor[]` here to work around that would create a second
+ * producer of the same record, able to disagree with `discoverCandidates`' with nothing in
+ * the repository to catch it: the field-with-two-answers shape `fabric-node.ts` exists to
+ * name. Riding the discover arm instead reads `ownerId` and `canExecuteSovereign` off a
+ * **signed** capability record, which is what makes this an AUTH-03 path rather than a rig.
+ *
+ * It refuses rather than implying, and that is deliberate. A `--discover` run stands up a
+ * provider and enrols every worker, so its node population is N+2 rather than N+1 and the
+ * report has to declare it. A run whose topology changed for a reason the operator did not
+ * type is the failure this driver's whole opt-in discipline exists to prevent.
+ *
+ * ## It is not a node kind
+ *
+ * Every node in either leg is the same node. What differs is the label on one shard and
+ * the per-node clearance those nodes were configured with — the sentence
+ * `FabricNodeOptions.sovereignty` already carries about itself.
+ *
+ * Read the way `--quick` and `--discover` are read: `process.argv.includes`, not
+ * `parseArgs`, because this file has none.
+ */
+const SOVEREIGN = process.argv.includes('--sovereign')
+
+/**
+ * The refusal, in the shape `bin/agent.ts`'s `refuse` already uses — a named reason, then
+ * the usage line, then a non-zero exit.
+ *
+ * Before anything is constructed, so the cost of a mistyped invocation is one write and an
+ * exit rather than a rig. See {@link SOVEREIGN} for why this is a refusal and not
+ * `DISCOVER ||= SOVEREIGN`.
+ */
+if (SOVEREIGN && !DISCOVER) {
+  process.stderr.write(
+    'bench.ts: --sovereign requires --discover and does not imply it — a sovereign shard is' +
+      ' placed only against a discovered descriptor, and a --discover run has a different node' +
+      ' population that the report must declare.\n' +
+      'usage: bench.ts [--quick] [--discover [--sovereign]]\n',
+  )
+  process.exit(2)
+}
 
 const QUICK = process.argv.includes('--quick')
 const RUNS = QUICK ? 6 : 20
@@ -752,6 +822,53 @@ async function memoryFabric(nodes: number): Promise<Fabric> {
  */
 const BENCH_USER_SEED = new Uint8Array(32).fill(7)
 
+/**
+ * The public half of {@link BENCH_USER_SEED}, hex-encoded — the one identity the
+ * `--sovereign` leg has.
+ *
+ * ## Owner id, owner key and enrolment user key are deliberately the same value
+ *
+ * Not a shortcut: it is the *absence* of a second answer. `discoverCandidates` sets a
+ * descriptor's `ownerId` to `certificate.userKey`; `ownRecords` (`fabric-node.ts`)
+ * publishes `sovereignFor: [certificate.userKey]` and reads nothing else from a node's
+ * clearance; `bin/agent.ts` refuses, exit 2 naming both, when a passed `--owner-id`
+ * disagrees with its `--user-key`-derived key; and `fabric-node.ts` names the repository's
+ * own fixture as dodging the two-answers problem *"by making the owner id be a hex key"*.
+ * A second keypair here would be a second answer to a question that has one, and the
+ * failure it produces is the one `bin/agent.ts` already recorded: *"a
+ * `PlacementRequest.ownerId` holding an operator label therefore matched no
+ * discovery-derived descriptor, and a sovereign shard came back `unplaceable` with nothing
+ * anywhere obviously wrong."*
+ *
+ * ## Derived through `delegate`, and that is a COPY of a shape, not a de-duplication
+ * candidate
+ *
+ * `packages/node/src/capability-fixture.ts`'s `publicKeyOf` is the same three lines and its
+ * docblock carries the same argument: `delegate` computes the issuer's public key as part
+ * of signing and is the only public-key derivation `@o2/core` exposes, so this needs no
+ * `@noble/curves` — which is **not** a declared dependency of `@o2/node` and only resolves
+ * in specs because the root install hoists it. It is also the identical derivation
+ * `delegate` uses when it signs the chain below, so the root of a chain cannot disagree
+ * with the key this driver pins.
+ *
+ * **That fixture must not be imported from `bin/`, and this copy is the price.** Its own
+ * header says why: it is test-only and deliberately absent from the barrel *"so it exposes
+ * no capability that Phase 22's reachability guard could trace to an entry point. A
+ * barrel-exported fixture would hand that guard a real finding this phase invented."*
+ * Importing it here would manufacture the exact finding this leg exists to remove. The two
+ * are kept in step by hand; do not merge them.
+ *
+ * The throwaway delegation this derivation mints is never sent anywhere — it exists for
+ * one field read off its own signature — which is why its owner id, audience and expiry
+ * say so rather than pretending to be plausible values.
+ */
+const BENCH_OWNER_KEY: PublicKeyHex = delegate(BENCH_USER_SEED, {
+  ownerId: 'derives-a-public-key-and-is-never-sent',
+  audience: 'derives-a-public-key-and-is-never-sent',
+  abilities: ['execute'],
+  expiresAt: 1,
+}).issuer
+
 /** The TCP multiaddr a peer dials this node at, peer id included. */
 function dialableAddr(node: FabricNode): string {
   const addr = node.multiaddrs.find((ma) => ma.includes('/tcp/') && !ma.includes('/p2p-circuit'))
@@ -926,6 +1043,38 @@ async function realFabric(
               }),
         }),
       )
+    }
+
+    // **The falsifier for the whole `--sovereign` mechanism, and it is checked against the
+    // fabric rather than trusted.**
+    //
+    // `BENCH_OWNER_KEY` is derived locally, from a seed, by a different code path from the
+    // one `requestEnrollment` uses to compute `userKey` — that one is
+    // `toHex(ed25519.getPublicKey(userPrivateKey))`. Four call sites downstream have to
+    // agree on that one string: the descriptor's `ownerId`, the published `sovereignFor`
+    // list, `guardSovereignty`'s clearance and `authorizeCapability`'s pinned owner. A
+    // derivation wrong by one byte satisfies none of them and satisfies them **quietly** —
+    // the shard becomes `unplaceable`, the leg reports a zero, and there is nothing
+    // anywhere obviously wrong. So the two are compared here, at the one moment both
+    // exist, and a disagreement stops the run naming both keys.
+    //
+    // Read off `started[0]` and not off every worker: they all enrol under the same seed
+    // with the same provider, so the first is the reading and a loop would be N copies of
+    // one comparison.
+    if (SOVEREIGN) {
+      const witness = started[0]
+      if (witness?.certificate == null) {
+        throw new Error(
+          '--sovereign: no worker holds a certificate, so no descriptor can carry an owner —' +
+            ' the enrolment the discover arm performs is what this leg rides',
+        )
+      }
+      if (witness.certificate.userKey !== BENCH_OWNER_KEY) {
+        throw new Error(
+          `--sovereign: the derived owner key ${BENCH_OWNER_KEY} is not the key a worker enrolled` +
+            ` under (${witness.certificate.userKey}); every sovereign shard would be unplaceable`,
+        )
+      }
     }
 
     const requestorDir = join(root, 'requestor')
