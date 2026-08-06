@@ -32,7 +32,7 @@ decisions:
   - "run 3 is published although its host was the noisiest of the three: it is the only run whose generator is the committed one and the only one whose ideal bound is measured rather than fabricated"
   - "STATE.md, ROADMAP.md and REQUIREMENTS.md deliberately NOT touched — 23-01 through 23-04 and 23-06 all took the same position"
 metrics:
-  duration: ~1h50m
+  duration: 43m, measured — 2603 s between a recorded start epoch and the final check, not estimated
   completed: 2026-08-05
 ---
 
