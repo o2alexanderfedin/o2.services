@@ -5,7 +5,10 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
-import { FabricNode } from './fabric-node.ts'
+import { peerIdFromString } from '@libp2p/peer-id'
+import type { RpcEndpoint } from '@o2/net'
+import { FabricNode, relayAdmissionGate } from './fabric-node.ts'
+import type { AdmissionDecision } from './fabric-node.ts'
 import { SeedServer } from './seed-server.ts'
 import { stripComments } from './strip-comments.ts'
 
@@ -409,26 +412,71 @@ describe('every relay-capable site states a posture, and every one of them is op
   })
 })
 
-describe('nothing reads the posture yet — this wave arms nothing', () => {
+/**
+ * **Inverted 2026-08-06 (Plan 24-03), and the inversion is the point of this block.**
+ *
+ * This block used to be titled *"nothing reads the posture yet — this wave arms nothing"*, and
+ * every case in it fired when the door **closed**. Defect #51 is that nothing anywhere fired
+ * while it stayed **open**: all four cases were green on a fabric that refused nobody and would
+ * have stayed green forever if Phase 24 had never run. A phase whose entire evidence is *"the
+ * suite went red when we changed something"* has no reading at all if the change is never made.
+ *
+ * So two of the four are now inverted — they assert the gate is **present** and go red if it is
+ * removed — one is inverted at the census above, and the fourth keeps its assertions for a
+ * reason stated at its own case.
+ */
+describe('the posture is read, and these rows go red if it stops being', () => {
   // The title is assembled for {@link GATER}'s reason: a test *name* is code, not a
   // comment, so `stripComments` leaves it in and a matcher spelled out here would count
   // this file as a site. That is how this block first went red.
-  it(`constructs no ${GATER} on any relay-capable node`, () => {
-    // The mechanism that will read it is `ConnectionGater.denyInboundRelayReservation`, and
-    // no gater exists in this repository to hold one. The single exception is stated rather
-    // than excluded by a pattern, because it is the opposite of a gate: `browser-node.ts`
-    // passes `denyDialMultiaddr: async () => false`, which *opens* dialling.
+  it(`constructs a ${GATER} on the relay-capable node factory, and still none on a tab`, () => {
+    // **Inverted.** This asserted `['packages/browser/src/browser-node.ts']` — i.e. that no
+    // node factory gated anything. `fabric-node.ts` must now appear, because that is where
+    // the reservation is refused.
+    // **Production files only**, on the same idiom the `admitsAnyPeer` case below already
+    // uses, and the narrowing was forced by measurement rather than chosen: it was added when
+    // `enrol-through-a-closed-door.node.test.ts` — which installs a gater *into a fixture* to
+    // measure the hook — started counting as a third site. A test that plants a gater is not a
+    // place this repository decides admission, and the claim below is about places it does.
     const withGater = [...REPO.stripped]
-      .filter(([, source]) => source.includes(GATER))
+      .filter(([file, source]) => !file.endsWith('.test.ts') && source.includes(GATER))
       .map(([file]) => file)
-    expect(withGater).toEqual(['packages/browser/src/browser-node.ts'])
+    expect(withGater).toContain('packages/node/src/fabric-node.ts')
+    expect(withGater).toContain('packages/browser/src/browser-node.ts')
+    // And nothing else. A third gater appearing is a second place deciding who gets in, which
+    // is the defect the objective's "one change" sentence exists to catch.
+    expect([...withGater].sort()).toEqual([
+      'packages/browser/src/browser-node.ts',
+      'packages/node/src/fabric-node.ts',
+    ])
+
+    // **The surviving negative, and it is now a PROTECTED PROPERTY rather than a
+    // "nothing moved" claim.** `browser-node.ts`'s only gater opens dialling, and it must
+    // never gate a reservation — measured 2026-08-06, a `BrowserNode` imports only
+    // `circuitRelayTransport` from `@libp2p/circuit-relay-v2`, never `circuitRelayServer`, and
+    // its `#compose` passes `services: { identify, identifyPush }` and nothing else. It runs no
+    // relay server, grants no reservation, and therefore **has no reservation to gate**. This
+    // assertion is the machine-checked half of the sentence at
+    // `BrowserNodeOptions.startReporting`'s docblock; neither can be reverted without the
+    // other reddening.
     expect(code('packages/browser/src/browser-node.ts')).toContain('denyDialMultiaddr')
     expect(code('packages/browser/src/browser-node.ts')).not.toContain(`deny${'Inbound'}RelayReservation`)
   })
 
-  it('leaves circuitRelayServer taking capacity limits and nothing else', () => {
-    // A plan whose claim is "nothing moved" must not have moved this. The four reservation
-    // numbers are what that call took before this wave and are what it takes now.
+  /**
+   * **NOT inverted, and this is the one case whose meaning changed without its assertions
+   * changing.**
+   *
+   * It used to mean *"this wave moved nothing"*. It now means *"the gate is not in the capacity
+   * call, and must never be"* — which is a stronger claim and a permanent one. The gate went on
+   * `createLibp2p`'s top-level `connectionGater`, so both halves below stayed true through
+   * arming, and that is exactly why they are worth keeping: capacity is *how many*, admission is
+   * *who*, and a relay refusing for one reason while an operator reads the other is the
+   * ambiguity NET-05 exists to remove.
+   *
+   * Its mutation is `relayAdmission` passed into `circuitRelayServer(`.
+   */
+  it('leaves circuitRelayServer taking capacity limits and nothing else, which is now a protected property', () => {
     const factory = code('packages/node/src/fabric-node.ts')
     expect(factory).toContain('circuitRelayServer(')
     expect(factory).toContain('maxReservations:')
@@ -440,14 +488,18 @@ describe('nothing reads the posture yet — this wave arms nothing', () => {
     expect(call.slice(0, call.indexOf('}),')).includes('relayAdmission')).toBe(false)
   })
 
-  it('has no production caller for the predicate that reads the union', () => {
-    // `admitsAnyPeer` exists so that 24-03 adds a *caller* rather than a *semantics* — one
-    // place that decides what the union means instead of one per reader. Until then it has
-    // none, and saying so is what makes its arrival visible.
+  it('has exactly one production caller for the predicate that reads the union', () => {
+    // **Inverted.** This asserted `['packages/libp2p/src/relay-admission.ts']` — the predicate
+    // with no caller at all. `fabric-node.ts` must now be one, and it must be the **only** new
+    // one: `admitsAnyPeer` exists so that the decision about what the union *means* is made
+    // once rather than once per reader, and a second production caller is that guarantee gone.
     const callers = [...REPO.stripped]
       .filter(([file, source]) => !file.endsWith('.test.ts') && source.includes('admitsAnyPeer('))
       .map(([file]) => file)
-    expect(callers).toEqual(['packages/libp2p/src/relay-admission.ts'])
+    expect([...callers].sort()).toEqual([
+      'packages/libp2p/src/relay-admission.ts',
+      'packages/node/src/fabric-node.ts',
+    ])
   })
 })
 
@@ -717,5 +769,283 @@ describe('the needles can fail, and are not prefix matches — measured, not rea
     expect(occurrences(stripComments(`// ${OPEN}`), OPEN_POSTURE)).toBe(0)
     expect(occurrences(stripComments(`/**\n * ${OPEN} */\n`), OPEN_POSTURE)).toBe(0)
     expect(occurrences(stripComments(OPEN), OPEN_POSTURE)).toBe(1)
+  })
+})
+
+/**
+ * AUTH-02 / AUTH-04 — **the gate decides, and this is the block that shows it deciding.**
+ *
+ * ## Why this is behavioural and cannot be a census
+ *
+ * Everything above counts source text, and a count cannot tell a gate that refuses the right
+ * peer from one that refuses everybody. The three arms below are the whole of the ruling: a
+ * peer with no certificate is refused, the same peer enrolled with the pinned issuer is
+ * admitted, and a peer holding a certificate from a **different** issuer is refused *for a
+ * different stated reason*. Without the third arm the gate might be checking "has any
+ * certificate", which is not what the owner ruled.
+ *
+ * ## Comparative, in one run
+ *
+ * All three arms use the same relay construction, the same deadline and peers built by the
+ * same helper. The only thing that differs between them is which issuer — if any — signed the
+ * peer's certificate, so a divergence cannot be attributed to this machine or its load.
+ *
+ * ## What this block cannot show
+ *
+ * It cannot show that advertisement and dialling follow from the reservation — that is a
+ * structural claim about `reservedPeerIds` and 24-04 measures it. It cannot show a browser tab
+ * behaves this way; a `BrowserNode` runs no relay server at all. And it cannot show the
+ * published benchmark curves did not move, which is 24-02's baseline re-run.
+ */
+describe('AUTH-02 — the relay consults RelayAdmission at the reservation, and only there', () => {
+  const nodes: FabricNode[] = []
+  const dirs: string[] = []
+
+  const madeDir = async (name: string): Promise<string> => {
+    const dir = await mkdtemp(join(tmpdir(), `o2-admission-${name}-`))
+    dirs.push(dir)
+    return dir
+  }
+
+  const stopAll = async (): Promise<void> => {
+    await Promise.all(nodes.splice(0).map((n) => n.stop().catch(() => {})))
+    await Promise.all(dirs.splice(0).map((d) => rm(d, { recursive: true, force: true })))
+  }
+
+  async function until(
+    predicate: () => boolean,
+    timeoutMs: number,
+    what: string,
+    observed?: () => unknown,
+  ): Promise<void> {
+    const deadline = Date.now() + timeoutMs
+    while (Date.now() < deadline) {
+      if (predicate()) return
+      await new Promise((r) => setTimeout(r, 50))
+    }
+    const tail = observed === undefined ? '' : `; observed ${JSON.stringify(observed())}`
+    throw new Error(`timed out waiting for ${what}${tail}`)
+  }
+
+  const wsAddr = (node: FabricNode): string => {
+    const addr = node.browserDialableAddrs[0]
+    if (addr === undefined) throw new Error(`no browser-dialable address on ${node.peerId}`)
+    return addr
+  }
+
+  /**
+   * The three arms, in one run, against one relay.
+   *
+   * The relay pins **provider A**. Peer `mine` enrols with A, peer `theirs` enrols with an
+   * entirely separate provider B, and peer `bare` never enrols at all. All three then ask the
+   * same relay for a reservation.
+   *
+   * The relay is deliberately **not** the provider here — unlike
+   * `enrol-through-a-closed-door.node.test.ts`, whose subject is the co-located topology a
+   * browser tab is forced into. Separating them is what lets one relay pin an issuer it does
+   * not itself own, which is the deployment sub-decision 1 says must remain possible.
+   */
+  it('refuses a peer with no certificate, admits one from the pinned issuer, and refuses one from another — each by name', async () => {
+    try {
+      const providerA = await FabricNode.start({
+        relayAdmission: 'admits-any-peer',
+        startReporting: 'reports-its-own-start',
+        listen: ['/ip4/127.0.0.1/tcp/0/ws'],
+        trustAnchors: 'runs-unsigned-artifacts',
+        blockstoreDir: await madeDir('provider-a'),
+        issuesCertificates: 'issues-without-an-aggregate-budget',
+      })
+      nodes.push(providerA)
+      const providerB = await FabricNode.start({
+        relayAdmission: 'admits-any-peer',
+        startReporting: 'reports-its-own-start',
+        listen: ['/ip4/127.0.0.1/tcp/0/ws'],
+        trustAnchors: 'runs-unsigned-artifacts',
+        blockstoreDir: await madeDir('provider-b'),
+        issuesCertificates: 'issues-without-an-aggregate-budget',
+      })
+      nodes.push(providerB)
+
+      const pinned = providerA.issuerKey
+      expect(pinned, 'provider A must issue certificates or there is nothing to pin').not.toBeNull()
+      expect(providerB.issuerKey).not.toBe(pinned)
+
+      // The relay under test. This is the first construction site in this repository ever to
+      // state something other than the open posture.
+      const relay = await FabricNode.start({
+        relayAdmission: new Set([pinned as string]),
+        startReporting: 'reports-its-own-start',
+        listen: ['/ip4/127.0.0.1/tcp/0/ws'],
+        trustAnchors: 'runs-unsigned-artifacts',
+        blockstoreDir: await madeDir('relay'),
+      })
+      nodes.push(relay)
+      const door = wsAddr(relay)
+
+      const joiner = async (name: string, provider: FabricNode | null): Promise<FabricNode> => {
+        const node = await FabricNode.start({
+          relayAdmission: 'admits-any-peer',
+          startReporting: 'reports-its-own-start',
+          listen: [],
+          relayAddrs: [door],
+          rpcTimeoutMs: 20_000,
+          trustAnchors: 'runs-unsigned-artifacts',
+          blockstoreDir: await madeDir(name),
+          ...(provider === null
+            ? {}
+            : {
+                enrollment: {
+                  userPrivateKey: new Uint8Array(32).fill(name.charCodeAt(0)),
+                  operatorId: `${name}-ops`,
+                  providerAddr: wsAddr(provider),
+                },
+              }),
+        })
+        nodes.push(node)
+        return node
+      }
+
+      const mine = await joiner('mine', providerA)
+      const theirs = await joiner('theirs', providerB)
+      const bare = await joiner('bare', null)
+
+      // ---- arm 2 first, because it is the one that can be waited *for*. ----------------
+      // The other two are absences, and an absence is only meaningful once the fixture has
+      // been shown capable of producing a presence.
+      await until(
+        () => relay.reservedPeerIds.includes(mine.peerId),
+        60_000,
+        'the peer from the pinned issuer to be admitted',
+        () => ({ reserved: relay.reservedPeerIds, decisions: relay.admissionDecisions }),
+      )
+      expect(relay.reservedPeerIds).toContain(mine.peerId)
+
+      // Every peer has been decided about by now — `mine` is in, so the gate has run — but
+      // the two refusals settle independently, so wait for each decision rather than assuming
+      // one ordering.
+      await until(
+        () =>
+          relay.admissionDecisions.some((d) => d.peerId === theirs.peerId) &&
+          relay.admissionDecisions.some((d) => d.peerId === bare.peerId),
+        60_000,
+        'a decision about all three peers',
+        () => ({ decisions: relay.admissionDecisions }),
+      )
+
+      const about = (peer: FabricNode) => relay.admissionDecisions.find((d) => d.peerId === peer.peerId)
+
+      // ---- arm 1: no certificate at all. ----------------------------------------------
+      expect(relay.reservedPeerIds).not.toContain(bare.peerId)
+      expect(about(bare)?.admitted).toBe(false)
+      expect(about(bare)?.reason).toContain('holds no provider-issued certificate')
+
+      // ---- arm 3: a certificate, from the wrong issuer. --------------------------------
+      // **The load-bearing arm.** Without it the gate might be checking that a certificate
+      // exists, which is a signature test and not admission. The reason must also
+      // *distinguish* this from arm 1 — an operator who cannot tell "brought nothing" from
+      // "brought the wrong thing" cannot act on either.
+      expect(theirs.certificate).not.toBeNull()
+      expect(relay.reservedPeerIds).not.toContain(theirs.peerId)
+      expect(about(theirs)?.admitted).toBe(false)
+      expect(about(theirs)?.reason).toContain('not a pinned provider')
+      expect(about(theirs)?.reason).not.toContain('holds no provider-issued certificate')
+
+      // ---- and the admission itself is named too, not merely implied by presence. ------
+      expect(about(mine)?.admitted).toBe(true)
+      expect(about(mine)?.reason).toContain('from a pinned issuer')
+      // It was admitted **by a lookup**, not by a default. Without this the arm would still
+      // pass if the gate answered "allow" without ever asking anybody, which is precisely the
+      // shape a fail-open gate takes.
+      expect(about(mine)?.attempts).toBeGreaterThan(0)
+      expect(about(theirs)?.attempts).toBeGreaterThan(0)
+      expect(about(bare)?.attempts).toBeGreaterThan(0)
+
+      // The refusals are per-peer rather than a switch: one relay, three peers, one admitted.
+      expect(relay.reservedPeerIds).toEqual([mine.peerId])
+
+      // And nothing else was gated. All three peers are connected to the relay — the plain
+      // connection stands for every one of them, which is the property that keeps enrolment
+      // reachable through a closed door.
+      for (const peer of [mine, theirs, bare]) {
+        expect(peer.transport.peers, `${peer.peerId} lost its connection`).toContain(relay.peerId)
+      }
+    } finally {
+      await stopAll()
+    }
+  }, 180_000)
+
+  /**
+   * `'admits-any-peer'` supplies **no gater method at all**, and this is the plant that
+   * catches an implementation supplying `() => false` instead.
+   *
+   * The distinction is not pedantry. `@libp2p/circuit-relay-v2` optional-calls the hook, so an
+   * absent method is byte-for-byte today's behaviour, while a present-and-permissive one is a
+   * decision that was taken — and 24-02's pre-gate benchmark baseline is only comparable while
+   * the open posture means *nobody was asked*. A relay that "allows" is not a relay that was
+   * never consulted.
+   */
+  it('builds no gate at all for the open posture, and a real one for a pinned set', () => {
+    expect(relayAdmissionGate({ admission: 'admits-any-peer', rpc: () => null })).toBeUndefined()
+    expect(relayAdmissionGate({ admission: new Set(['a'.repeat(64)]), rpc: () => null })).toBeTypeOf('function')
+    // The empty set is a gate, not an absence — sub-decision 2's whole point.
+    expect(relayAdmissionGate({ admission: new Set(), rpc: () => null })).toBeTypeOf('function')
+  })
+
+  /**
+   * The predicate's edges, exercised **without standing up a relay**.
+   *
+   * `24-CONTEXT.md` makes that non-discretionary: a predicate reachable only through a live
+   * libp2p node is a predicate nobody tests the edges of. These are the three dispositions a
+   * live fixture is worst at producing on demand.
+   */
+  it('refuses on an empty set, on an unaskable relay, and on a peer that never answers — never admitting while it does not know', async () => {
+    const peer = peerIdFromString('12D3KooWQYV9dGMFoRzNStwpXztXaBUjtPqi6aU76ZgUriHhKust')
+
+    // 1. Pinned nobody. Refused with no I/O — no certificate can chain to an empty set, so
+    //    spending a round trip to find that out would be waste with a security label on it.
+    const closed: AdmissionDecision[] = []
+    const shut = relayAdmissionGate({ admission: new Set(), rpc: () => null, onDecision: (d) => closed.push(d) })
+    expect(await shut?.(peer)).toBe(true)
+    expect(closed[0]?.attempts).toBe(0)
+    expect(closed[0]?.reason).toContain('admits no peer')
+
+    // 2. The relay is not serving yet, so it cannot ask. **Refused, not awaited.** A relay
+    //    that cannot ask a peer anything has not decided anything, and the one disposition a
+    //    gate may never take is to admit while it does not know.
+    const unasked: AdmissionDecision[] = []
+    const early = relayAdmissionGate({
+      admission: new Set(['b'.repeat(64)]),
+      rpc: () => null,
+      deadlineMs: 150,
+      retryGapMs: 20,
+      onDecision: (d) => unasked.push(d),
+    })
+    expect(await early?.(peer)).toBe(true)
+    expect(unasked[0]?.admitted).toBe(false)
+    expect(unasked[0]?.reason).toContain('not yet serving')
+
+    // 3. **The admit-while-pending plant.** The endpoint exists and simply never answers, so
+    //    every ask is outstanding when the budget runs out. If the gate resolved `false`
+    //    (admit) on the way out, it would be decoration under load — the exact defect
+    //    `peer-verifier.ts` records finding by measurement on 2026-08-01. It must refuse.
+    const pending: AdmissionDecision[] = []
+    const neverAnswers = { request: async () => new Promise<never>(() => {}) } as unknown as RpcEndpoint
+    const stalled = relayAdmissionGate({
+      admission: new Set(['c'.repeat(64)]),
+      rpc: () => neverAnswers,
+      deadlineMs: 400,
+      attemptMs: 80,
+      retryGapMs: 20,
+      onDecision: (d) => pending.push(d),
+    })
+    expect(await stalled?.(peer)).toBe(true)
+    expect(pending[0]?.admitted).toBe(false)
+    // It really did keep asking rather than blocking on one outstanding request — which is
+    // the retry the measured drop-into-an-empty-handler-set requires.
+    expect(pending[0]?.attempts).toBeGreaterThan(1)
+    expect(pending[0]?.reason).toContain('did not answer a records request')
+    // And it stayed inside its budget, which is what keeps it inside libp2p's own 5 s
+    // reservation ceiling. Sited against the deadline it was given, not against the clock.
+    expect(pending[0]?.ms).toBeLessThan(400 * 4)
   })
 })
