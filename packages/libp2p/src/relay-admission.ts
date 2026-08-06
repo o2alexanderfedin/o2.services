@@ -1,5 +1,6 @@
 /**
- * AUTH-02 / AUTH-04 — who a relay lets in, stated by the operator and read by nobody yet.
+ * AUTH-02 / AUTH-04 — who a relay lets in, stated by the operator and read at the
+ * reservation.
  *
  * ## What this is for
  *
@@ -13,9 +14,8 @@
  *
  * **Every one of those four is SELECTION, not ADMISSION.** `PeerVerifier`,
  * `discoverExecutors`, `discoverCandidates`/`resolveReplicaSets` and
- * `verifyResultAttestation` all decide who to *use*. None decides who gets *in*. Until
- * something reads this value, that is still true and this file changes it in no way — see
- * "Consulted by nothing" below.
+ * `verifyResultAttestation` all decide who to *use*. None decides who gets *in*. This
+ * value is the one that does, and since Plan 24-03 it is read — see "Who reads this" below.
  *
  * ## Why a required named union, and not an optional set
  *
@@ -53,14 +53,34 @@
  * than a set. A matching sentence sits at `PeerVerifier.verifiedPeers`'s early return,
  * because an asymmetry recorded at only one of two lines gets "fixed" back from the other.
  *
- * ## Consulted by nothing — a claim this file makes about itself
+ * ## Who reads this — a claim this file makes about itself, corrected 2026-08-06
  *
- * As of the plan that introduced it, **no code reads this value.** No `ConnectionGater` is
- * constructed anywhere in this repository except `browser-node.ts`'s
- * `{ denyDialMultiaddr: async () => false }`, which *opens* dialling; `circuitRelayServer`
- * is still passed capacity limits and nothing else. The mechanism that will read it is
- * `@libp2p/interface`'s optional `ConnectionGater.denyInboundRelayReservation(source)`,
- * which `@libp2p/circuit-relay-v2`'s server calls with `?.` and refuses on `=== true`.
+ * **This section used to be headed "Consulted by nothing" and said that no code reads this
+ * value and that no `ConnectionGater` is constructed anywhere except `browser-node.ts`'s.
+ * Both were true for one wave and are false now**, and the correction is recorded rather
+ * than swapped in silently, because a comment asserting a mechanism is inert is the exact
+ * shape this repository has been bitten by: a reader who believes it stops looking.
+ *
+ * `fabric-node.ts`'s `relayAdmissionGate` reads this value — via {@link admitsAnyPeer}, its
+ * single production caller — and `createLibp2p` is handed
+ * `connectionGater: { denyInboundRelayReservation: gate }` by a conditional spread. The
+ * spread is conditional because the gate returns `undefined` for the open posture, so an
+ * open node supplies **no gater method at all** and is byte-identical to the tree before
+ * this file existed. `browser-node.ts`'s `{ denyDialMultiaddr: async () => false }` is still
+ * there and still only *opens* dialling; a `BrowserNode` imports `circuitRelayTransport` and
+ * never `circuitRelayServer`, so it runs no relay server, grants no reservation, and has no
+ * reservation to gate. `circuitRelayServer` is still passed capacity limits and nothing
+ * else, and `relay-admission.node.test.ts`'s census pins all three of those facts —
+ * including that a *third* production gater appearing is a failure.
+ *
+ * The mechanism that reads it is `@libp2p/interface`'s optional
+ * `ConnectionGater.denyInboundRelayReservation(source)`, which `@libp2p/circuit-relay-v2`'s
+ * server calls with `?.` and refuses on `=== true`, writing `PERMISSION_DENIED`. That is
+ * **per-relay by construction** — a fact worth stating here because it bounds the claim the
+ * whole file supports: a peer this relay refuses is refused *here*, and any other
+ * relay-capable peer it can reach decides for itself. `24-VERIFICATION.md` scores criterion
+ * 8 PARTIAL on exactly that, because a joiner must dial an enrolment provider that is itself
+ * relay-capable, and `bin/seed.ts` cannot be told to close at all.
  *
  * Three properties make that the right hook, and each is load-bearing:
  *
@@ -90,12 +110,37 @@
  * reservation is bounded by {@link RELAY_MAX_RESERVATION_TTL_MS} (or whatever
  * `reservationTtlMs` a node was given), and that is stated here rather than implied.
  *
- * **Two things that rests on are MEASUREMENTS not yet taken**, and are recorded as open
- * rather than assumed: that `@libp2p/circuit-relay-v2` re-consults the gater on a renewal
- * and not only on a first grant — if it does not, the window is unbounded and that is a
- * finding to report rather than a case to fake — and that `expired` staying out of
- * `PeerVerifier`'s `FINAL` set composes with this, so a lapsed peer fails at its next
- * renewal rather than being cached as permanently refused.
+ * **The two things that rests on were MEASUREMENTS not yet taken. Plan 24-03 took them,
+ * and this paragraph carried the open wording for a wave after they were answered.** Both
+ * are in `enrol-through-a-closed-door.node.test.ts`.
+ *
+ *   1. **A renewal IS a grant, so the window is bounded.** The joining side re-sends a
+ *      `HopMessage.Type.RESERVE`; the relay handles it in the same `handleReserve` that
+ *      calls `denyInboundRelayReservation`; and the server's store resets its
+ *      `retimeableSignal` only on a grant it actually made, so a refused renewal never
+ *      restarts the clock. Withdrawing admission from a peer already holding a reservation,
+ *      changing nothing else, was observed re-consulting the gate and then dropping the peer:
+ *      `ttlMs 40000 renewalAskedAfterMs 30027 droppedAfterMs 40028` (24-03), re-read
+ *      independently by the verifier as `30031 / 40049` against the same 40 000 ms TTL. **The
+ *      revocation window is the reservation TTL, as a number and not by construction alone.**
+ *   2. **Shortening the TTL does not shorten the window below ~30 s.**
+ *      `@libp2p/circuit-relay-v2`'s transport refreshes at
+ *      `min(max(expiry - REFRESH_TIMEOUT, REFRESH_TIMEOUT_MIN), 2**31 - 1)` with
+ *      `REFRESH_TIMEOUT` 5 min and `REFRESH_TIMEOUT_MIN` **30 s** — read off the installed
+ *      package, not off a comment — so for any TTL under five minutes the clamp wins, and
+ *      below about 30 s a reservation expires before its holder ever tries to renew. That is
+ *      churn, not revocation. It is a property of the installed package, not of this union.
+ *
+ * A third measurement belongs beside them because it decides what an operator can expect of
+ * a refusal: **a refused peer never retries by itself.** libp2p arms its refresh timer only
+ * inside the success path, so a failed reservation leaves no timer at all, and a
+ * *reconnection* — not the passage of time — is what gets a newly-admitted peer in.
+ *
+ * What remains open is the composition question, and it is open as a measurement rather than
+ * as a doubt: `expired` staying out of `PeerVerifier`'s `FINAL` set should mean a lapsed peer
+ * fails at its next renewal rather than being cached as permanently refused, and the gate
+ * re-decides from scratch at every grant instead of memoising, which is the behaviour that
+ * would make it so.
  *
  * ## It is not a node kind
  *
@@ -131,10 +176,16 @@ export const ADMITS_ANY_PEER = 'admits-any-peer'
 /**
  * Whether this posture admits a peer holding no certificate at all.
  *
- * A predicate rather than a comparison at each call site, so that when 24-03 arms the
- * gate there is one place that decides what the union *means* and not one per reader.
- * **Nothing calls this yet**, which is this plan's defining property; it exists so the
- * arming plan adds a caller rather than a semantics.
+ * A predicate rather than a comparison at each call site, so that there is one place that
+ * decides what the union *means* and not one per reader.
+ *
+ * **It has exactly one production caller, and that is a pinned property rather than an
+ * observation.** Plan 24-03 armed the gate and `fabric-node.ts`'s `relayAdmissionGate` opens
+ * with it, returning `undefined` — no gater method at all — for the open posture.
+ * `relay-admission.node.test.ts` asserts the caller set is exactly this file and
+ * `fabric-node.ts`: a *second* production caller would be the single-place-decides guarantee
+ * gone. The docblock here read **"Nothing calls this yet"** for a wave after that stopped
+ * being true; it was corrected 2026-08-06.
  */
 export function admitsAnyPeer(admission: RelayAdmission): boolean {
   return admission === ADMITS_ANY_PEER

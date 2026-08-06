@@ -59,11 +59,12 @@ export type { ObservedFailure } from './exclusion.ts'
 /**
  * The harness-integrity gate — BENCH-07.
  *
- * **Exported here with no production caller yet.** Plan 23-03 supplies it, in
- * `bin/bench.ts`, one `assertIntegrity` call per rung. Until it does, every name below
- * joins `sweepNodeCount` on the built-not-wired list this project tracks — barrel
- * exported, reachable only from its own tests — and that is a fact worth stating rather
- * than discovering from a reachability guard later.
+ * **It has a production caller.** Plan 23-03 supplied the one this comment was waiting
+ * for: `gateRung` in `bin/bench.ts` calls `assertIntegrity` once per rung. So these names
+ * came off the built-not-wired list rather than staying on it, and the sentence that said
+ * otherwise was left standing for three days after the thing it predicted had happened —
+ * corrected 2026-08-06 against `23-VERIFICATION.md`. `sweepNodeCount`, which this used to
+ * be grouped with, is a separate question and is not settled here.
  */
 export {
   HarnessIntegrityError,

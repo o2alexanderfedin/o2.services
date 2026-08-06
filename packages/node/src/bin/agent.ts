@@ -316,6 +316,43 @@ const { values } = parseArgs({
     // node will run a module for, an issuer says whose *enrollment* signature it will
     // believe about a peer. A module and a peer are different subjects.
     'trusted-issuer': { type: 'string', multiple: true },
+    // AUTH-02 / AUTH-04 — **the third flag in a family of three, and the one that decides who
+    // gets in at all.** An agent given `--port` is relay-capable, because `canRelay` is
+    // derived from the listen list; until this flag existed, the binary every cross-process
+    // proof spawns could hold a door but could not be told to close one.
+    //
+    // ## The disambiguation is mandatory, because these three are one word apart in the
+    // source and a world apart in what they authorise
+    //
+    //   - `--trust-anchor` pins whose *build* records this node will run a module for
+    //     (DET-03). Subject: **a module**.
+    //   - `--trusted-issuer` pins whose *enrolment signature* this node will believe about a
+    //     peer it is already talking to (AUTH-02, **selection**). Subject: **a peer this node
+    //     talks to**. It gates block sources; it does not gate the door.
+    //   - `--admit-issuer` pins whose certificate gets a peer a **circuit reservation on this
+    //     node** (AUTH-02, **admission**). Subject: **a peer asking to come in**.
+    //
+    // Three subjects, and a key pinned for one says nothing whatever about the others. None
+    // of the three may be folded into another.
+    //
+    // Repeatable, with the identical `multiple: true` shape as the two above, for the reason
+    // both of them state by name: pinning two providers is ordinary configuration and a
+    // comma-split string would be a parser nobody asked for.
+    //
+    // **Omitting it is a stated absence, not a safe default.** Absent, the posture stays
+    // exactly `'admits-any-peer'` and every existing argv site keeps working unchanged — see
+    // the ternary at `FabricNode.start` for why this one cannot use the conditional-spread
+    // idiom its two siblings use.
+    //
+    // Hex-validated below, through the same `parseKeyHex` / `refuse` / exit-2 loop, because
+    // `fromHex` zero-fills rather than throwing: a mistyped value would otherwise produce a
+    // node that refuses **every** peer a reservation with nothing anywhere reporting that the
+    // input was never hex.
+    //
+    // Per-node setting, never a node kind. Every agent process built by this binary executes
+    // tasks, serves blocks, answers records and attests results identically whatever is
+    // passed here. What differs is who may reserve a circuit *through* it.
+    'admit-issuer': { type: 'string', multiple: true },
     // AUTH-02's **accepting** half, across a real process boundary: the multiaddr of a peer
     // this process dials once it is up, so a spawned node can be shown to *accept* a peer
     // and not only to refuse one. Until this flag existed no phase could take that reading
@@ -518,7 +555,7 @@ const { values } = parseArgs({
 })
 
 const USAGE =
-  'usage: agent.ts --dir <blockstore-dir> [--port <n>] [--owner-id <id — the enrolled user key when --user-key is given> [--owner-key <hex>] [--can-execute-sovereign]] [--trust-anchor <hex> ...] [--issues-certificates --max-issued-per-window <n>] [--provider-addr <multiaddr> --user-key <path> --operator-id <id>] [--trusted-issuer <hex> ...] [--peer-addr <multiaddr> ...] [--max-concurrent-tasks <n>] [--inbound-threshold <n>] [--duty-cycle <n>] [--relay-addr <multiaddr> ...]\n'
+  'usage: agent.ts --dir <blockstore-dir> [--port <n>] [--owner-id <id — the enrolled user key when --user-key is given> [--owner-key <hex>] [--can-execute-sovereign]] [--trust-anchor <hex> ...] [--issues-certificates --max-issued-per-window <n>] [--provider-addr <multiaddr> --user-key <path> --operator-id <id>] [--trusted-issuer <hex> ...] [--admit-issuer <hex> ...] [--peer-addr <multiaddr> ...] [--max-concurrent-tasks <n>] [--inbound-threshold <n>] [--duty-cycle <n>] [--relay-addr <multiaddr> ...]\n'
 
 /**
  * The one exit-2 path, extended rather than duplicated.
@@ -581,6 +618,18 @@ if (values['max-issued-per-window'] !== undefined) {
 for (const issuer of values['trusted-issuer'] ?? []) {
   if (parseKeyHex(issuer) === null) {
     refuse(`--trusted-issuer ${issuer} is not 64 lowercase hex characters`)
+  }
+}
+
+// The identical loop for the identical reason, and **separate rather than merged with the
+// one above**: the message has to name which flag was rejected, and an operator who passed
+// both would otherwise be told the wrong one. The consequence of skipping it is worse here
+// than for `--trusted-issuer` — a zero-filled admission key does not merely stop this node
+// trusting anybody, it stops every peer obtaining a reservation, and the peers see only
+// `PERMISSION_DENIED`.
+for (const issuer of values['admit-issuer'] ?? []) {
+  if (parseKeyHex(issuer) === null) {
+    refuse(`--admit-issuer ${issuer} is not 64 lowercase hex characters`)
   }
 }
 
@@ -829,17 +878,27 @@ const listen =
 node = await FabricNode.start({
   // AUTH-02 — who this agent admits if it relays, stated by name.
   //
-  // **There is no `--admit-any-peer` flag and this is not defaulted for want of one.** It
-  // is the posture every node in this repository has today, written down so that arming
-  // the gate is a change to one value rather than a change to what silence means.
+  // **A ternary rather than the conditional spread its two sibling flags use, and the
+  // difference is forced by the type rather than chosen.** `trustedIssuers` and
+  // `sovereignty` are *optional*, so `exactOptionalPropertyTypes` makes an absent key and an
+  // explicit `undefined` different things and those sites write
+  // `...(values[…] === undefined ? {} : { … })`. `relayAdmission` is **required**: there is no
+  // key to omit, this site takes a value either way, and the shape is therefore a ternary
+  // whose absent arm is the literal open posture. Writing a conditional spread here would not
+  // compile, and writing one that did would mean the field had stopped being required.
   //
-  // Whether this binary should instead **refuse to start** when an operator states neither
-  // `--trusted-issuer` nor an explicit open posture is an open owner ruling, deliberately
-  // not decided here. Its cost was measured while this landed: 19 argv-construction sites
-  // across 18 `*.node.test.ts` files spawn this binary, and 3 more spawn `bin/seed.ts`;
-  // none of them is a published measurement. That is the whole price of the fail-closed
-  // answer, and the owner is entitled to see it before ruling.
-  relayAdmission: 'admits-any-peer',
+  // Absent `--admit-issuer`, this is byte-for-byte the value this line held before the flag
+  // existed, which is what keeps all 19 existing argv sites behaving identically.
+  //
+  // **There is still no `--admit-any-peer` flag, and that is not the gap this closes.**
+  // Whether this binary should **refuse to start** when an operator states neither a pinned
+  // issuer nor an explicit open posture is an open owner ruling, deliberately not decided
+  // here. Its cost was measured when `--trusted-issuer` landed: 19 argv-construction sites
+  // across 18 `*.node.test.ts` files spawn this binary, and 3 more spawn `bin/seed.ts`; none
+  // of them is a published measurement. That is the whole price of the fail-closed answer,
+  // and the owner is entitled to see it before ruling.
+  relayAdmission:
+    values['admit-issuer'] === undefined ? 'admits-any-peer' : new Set(values['admit-issuer']),
   // BROW-01 — what this process says about *itself* when a peer asks for start counts:
   // one `other` row, which is the coarsest label the range has and carries no version and
   // no machine. Open because BROW-02's whole purpose is to make a blocklist's silence
@@ -1057,6 +1116,26 @@ process.stdout.write(
     peerId: node.peerId,
     multiaddrs: node.multiaddrs,
     trustAnchors,
+    // AUTH-02 — this node's admission posture, and it is here for a **proof requirement**
+    // rather than for tidiness.
+    //
+    // A fixture that spawns a closed-arm agent has to be able to assert *that arm is really
+    // closed*. Without a published posture a typo in argv produces an open agent and the
+    // reading passes for the wrong reason — which is the single most likely way a
+    // cross-process admission proof lies, and this repository has already carried two
+    // criteria at PARTIAL for exactly that shape of tautology.
+    //
+    // Public by construction, on the same ground as `trustAnchors` immediately above: these
+    // are pinned issuer **public** keys, and the open value is a sentinel naming a behaviour
+    // every peer discovers by trying. Adding a field is additive under the module comment's
+    // own rule for this line — *every reader destructures the keys it names* — so no existing
+    // reader of the handshake breaks.
+    //
+    // A sorted array rather than the `Set`, because JSON has no set and
+    // `JSON.stringify(new Set())` is `{}` — which would publish the fail-closed posture as an
+    // empty object indistinguishable from a missing field.
+    relayAdmission:
+      values['admit-issuer'] === undefined ? 'admits-any-peer' : [...values['admit-issuer']].sort(),
     nodeKey: node.nodeKey,
     certificate: node.certificate,
     issuerKey: node.issuerKey,

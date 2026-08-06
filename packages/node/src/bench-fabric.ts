@@ -515,6 +515,22 @@ export async function processFabric(
     const submitterDir = join(root, 'submitter')
     await mkdir(submitterDir, { recursive: true })
     return FabricNode.start({
+      // AUTH-02 — open, and this rig's posture is stated in **two** files because the rig
+      // is made of two kinds of thing. This node is the in-process half; the N children are
+      // `bin/agent.ts` processes, and the posture they start with is written at that
+      // binary's own construction site. **Plan 24-03 owns that half** — it is the binary
+      // every cross-process proof in this repository spawns, and giving it a way to state a
+      // closed posture is that plan's task 2A. Nothing here may be read as having decided
+      // for it.
+      //
+      // The decision at *this* line, on Plan 24-02's rule: a site standing up a measurement
+      // fixture may hold the door open and must say so. It binds a loopback address, so it
+      // runs a relay service — and, measured, **no node in either bench rig is ever given
+      // `relayAddrs`**, so that service is never asked for a reservation and its store is
+      // empty for the whole run. So BENCH-07's process-per-node figures were taken over a
+      // fabric in which the reservation path was never exercised. They are a usable
+      // "before" reading for exactly that reason, and they support no claim whatever about
+      // who a relay that pinned issuers would have admitted.
       relayAdmission: 'admits-any-peer',
       startReporting: 'reports-its-own-start',
       blockstoreDir: submitterDir,
