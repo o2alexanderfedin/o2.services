@@ -51,12 +51,46 @@ import { stripComments } from './strip-comments.ts'
  */
 
 const BENCH = 'packages/node/src/bin/bench.ts'
+const SEAM = 'packages/node/src/bench-fabric.ts'
 const RESULTS = '.planning/BENCHMARK-RESULTS.md'
 
 /** Repo root, resolved the way `vocabulary.node.test.ts` resolves its own `ROOT`. */
 const ROOT: string = fileURLToPath(new URL('../../..', import.meta.url))
 
 const BENCH_SOURCE: string = readFileSync(fileURLToPath(new URL('./bin/bench.ts', import.meta.url)), 'utf8')
+/**
+ * The `Fabric` seam, which used to be declared inside `bin/bench.ts` and is not any more.
+ *
+ * ## Why this file has two sources now, and why that is a reading rather than a widening
+ *
+ * **This guard went red on 2026-08-05 without anything being lost.** Plan 23-02 created
+ * `bench-fabric.ts` and Plan 23-03 deleted `bin/bench.ts`'s local `interface Fabric` in favour
+ * of importing it — so `readonly rpc: RpcEndpoint` and `readonly combineIssuers:
+ * CombineTrustAnchors` left this guard's corpus while every *supply* site stayed exactly where
+ * it was. Measured at the time: all three supplies (`rpc: callerRpc`, `rpc: requestor.rpc`,
+ * `trustedIssuers: fabric.combineIssuers`) were still in `bin/bench.ts`, and only the two field
+ * declarations had moved.
+ *
+ * **That is this repository's most-repeated defect shape, arriving a fourth time**: *the
+ * population a guard acts on is not the population that pays for it* — #38, #39, #66, and now
+ * this. Each previous instance was closed by widening the corpus to a **reading** of what the
+ * guard consumes, never to a belief about who could move what.
+ *
+ * So the split is deliberate and load-bearing, and must not be collapsed into one concatenated
+ * blob for convenience:
+ *
+ * - **`patterns`** are the *supply* sites and stay pinned to `bin/bench.ts`. A driver that
+ *   stopped supplying `rpc` would still be a driver whose reduce curve is unmeasured, and
+ *   letting those match anywhere would make that invisible again.
+ * - **`seamPatterns`** are *declarations of the `Fabric` type* and are read from wherever
+ *   `Fabric` is declared. The requirement's own reason says *"three halves, one per site: the
+ *   field on `Fabric`, and one supply from each of the two rigs"* — three halves is still
+ *   three; one of them simply lives in another file.
+ *
+ * If `Fabric` moves again, this constant is the single line to change, and the guard will say
+ * so by reddening rather than by passing over an empty corpus.
+ */
+const SEAM_SOURCE: string = readFileSync(fileURLToPath(new URL('./bench-fabric.ts', import.meta.url)), 'utf8')
 const RESULTS_DOCUMENT: string = readFileSync(`${ROOT}${RESULTS}`, 'utf8')
 
 /**
@@ -96,8 +130,21 @@ const MEASURED_COMBINES = 5
 interface CallSiteRequirement {
   /** Named so whoever broke one knows which call site to open. */
   readonly name: string
-  /** Every pattern must match. Plural because several are conjunctions in the source. */
+  /**
+   * Every pattern must match **`bin/bench.ts`**. Plural because several are conjunctions in the
+   * source. These are the *supply* sites — where the driver hands something to the reduce.
+   */
   readonly patterns: readonly RegExp[]
+  /**
+   * Every pattern must match **`bench-fabric.ts`** — declarations of the `Fabric` type, which
+   * stopped living in `bin/bench.ts` when Plan 23-03 deleted the local `interface Fabric`.
+   *
+   * **Separate from `patterns` on purpose.** Concatenating the two files and testing everything
+   * against the blob would let a *supply* site migrate out of `bin/bench.ts` unnoticed, and a
+   * driver that stopped supplying `rpc` still leaves that transport's whole reduce curve
+   * unmeasured. Two populations, two readings. See {@link SEAM_SOURCE} for the full account.
+   */
+  readonly seamPatterns?: readonly RegExp[]
   /**
    * Patterns that must **not** match. Empty for all but one requirement, and that one
    * is the reason this field exists: "the shape is absent" and "a different shape is
@@ -160,7 +207,8 @@ const REQUIREMENTS: readonly CallSiteRequirement[] = [
   },
   {
     name: 'the fabric supplies the submitting node’s own endpoint as rpc',
-    patterns: [/readonly\s+rpc\s*:\s*RpcEndpoint/, /\brpc\s*:\s*callerRpc\b/, /\brpc\s*:\s*requestor\.rpc\b/],
+    patterns: [/\brpc\s*:\s*callerRpc\b/, /\brpc\s*:\s*requestor\.rpc\b/],
+    seamPatterns: [/readonly\s+rpc\s*:\s*RpcEndpoint/],
     reason:
       'A combine is dispatched from the submitter’s endpoint — the same one every RemoteExecutor is ' +
       'built over and the one whose serveAgent the combine nodes fetch their leaves back through. A ' +
@@ -188,7 +236,8 @@ const REQUIREMENTS: readonly CallSiteRequirement[] = [
   },
   {
     name: 'the reduce is told what this rig checks combine signatures against',
-    patterns: [/readonly\s+combineIssuers\s*:\s*CombineTrustAnchors/, /trustedIssuers\s*:\s*fabric\.combineIssuers/],
+    patterns: [/trustedIssuers\s*:\s*fabric\.combineIssuers/],
+    seamPatterns: [/readonly\s+combineIssuers\s*:\s*CombineTrustAnchors/],
     reason:
       'VER-08/09/10. `reduceJob`’s trust anchors are a required union with a named sentinel, so a ' +
       'driver cannot reach an aggregate receipt without having said what it checks against — but ' +
@@ -269,12 +318,21 @@ const REQUIREMENTS: readonly CallSiteRequirement[] = [
   },
 ]
 
-/** The names of the requirements `source` does not satisfy, in declaration order. */
-function unmetRequirements(source: string): string[] {
+/**
+ * The names of the requirements the pair does not satisfy, in declaration order.
+ *
+ * `seam` defaults to `source` so every planting call below keeps working unchanged: a
+ * synthesised source built from the `satisfying` fragments holds the seam declarations and the
+ * supply sites in one string, which is exactly what a plant needs. The real call passes the two
+ * files separately, and that separation is the point — see {@link SEAM_SOURCE}.
+ */
+function unmetRequirements(source: string, seam: string = source): string[] {
   const stripped = stripComments(source)
+  const strippedSeam = seam === source ? stripped : stripComments(seam)
   return REQUIREMENTS.filter(
-    ({ patterns, forbidden }) =>
+    ({ patterns, seamPatterns, forbidden }) =>
       !patterns.every((pattern) => pattern.test(stripped)) ||
+      !(seamPatterns ?? []).every((pattern) => pattern.test(strippedSeam)) ||
       (forbidden ?? []).some((pattern) => pattern.test(stripped)),
   ).map(({ name }) => name)
 }
@@ -300,7 +358,14 @@ describe('the reduce call site in bin/bench.ts', () => {
     expect(BENCH_SOURCE.length).toBeGreaterThan(5_000)
     expect(BENCH_SOURCE).toContain('async function memoryFabric')
 
-    expect(describeUnmet(unmetRequirements(BENCH_SOURCE))).toEqual([])
+    // The same guard on the seam, and it is not ceremony: `seamPatterns` are the only
+    // requirements now read from a second file, so an empty or renamed `bench-fabric.ts`
+    // would satisfy `every` vacuously and this guard would pass over a missing field.
+    expect(SEAM_SOURCE.length).toBeGreaterThan(1_000)
+    expect(SEAM_SOURCE).toContain('export interface Fabric')
+    expect(REQUIREMENTS.filter(({ seamPatterns }) => seamPatterns !== undefined)).toHaveLength(2)
+
+    expect(describeUnmet(unmetRequirements(BENCH_SOURCE, SEAM_SOURCE))).toEqual([])
   })
 
   it('closes the makespan bracket before it opens the reduce', () => {

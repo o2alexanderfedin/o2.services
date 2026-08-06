@@ -226,6 +226,8 @@ describe('criterion 7 — the row a node submitted does not leave it while the j
         },
         submitter.store,
         [submitter.egress],
+        // CHURN-03 — this test asserts nothing about checkpointing.
+        { checkpoints: 'checkpoints-nothing' },
       )
 
       // The submission itself is valid — nothing here is a malformed job.
@@ -330,6 +332,8 @@ describe('criterion 7 — the row a node submitted does not leave it while the j
         },
         submitter.store,
         [submitter.egress],
+        // CHURN-03 — this test asserts nothing about checkpointing.
+        { checkpoints: 'checkpoints-nothing' },
       )
 
       expect(control.ok).toBe(true)

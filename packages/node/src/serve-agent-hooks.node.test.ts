@@ -419,11 +419,17 @@ describe('production serveAgent call sites state every hook explicitly', () => {
     // **Two is the permanent correct value here, not a pending item.** The other two
     // production factories burned this count to 0 in Phase 15; this driver does not,
     // and a reader comparing the three rows would otherwise read this as unfinished
-    // work. `bench.ts` dispatches `label: 'public'` shards exclusively (`bench.ts:270`),
-    // a public task has no owner and therefore no key a chain could be rooted at, and
-    // `authorizeCapability`'s first precedence step returns `null` for a public task
-    // regardless — so installing one here would add a per-dispatch cost to the published
-    // scaling curves in exchange for a branch that can never refuse.
+    // work. Both of these endpoints are on the **memory** rig, which dispatches
+    // `label: 'public'` shards exclusively; a public task has no owner and therefore no key
+    // a chain could be rooted at, and `authorizeCapability`'s first precedence step returns
+    // `null` for a public task regardless — so installing one here would add a per-dispatch
+    // cost to the published scaling curves in exchange for a branch that can never refuse.
+    //
+    // **Plan 23-06's sovereign leg does not reach these two and could not.** It runs on the
+    // real transport, whose nodes come from `FabricNode.start` and compose a real
+    // authorizer from the clearance they were configured with; a chain dispatched at *these*
+    // endpoints would be accepted without ever being verified, which is why the leg is on
+    // the other rig and why this count stays at 2 rather than burning down with it.
     expect(occurrences(BENCH, "'serves-unauthenticated'")).toBe(2)
     expect(occurrences(BENCH, "'serves-no-records'")).toBe(2)
     // SCHED-06 burn-down, and the reason it matters here is not tidiness. The
@@ -575,8 +581,16 @@ describe('production RemoteExecutor call sites state the chain explicitly', () =
   // choice did the call site write down".
   //
   // Each expected number is a **floor that is also the ceiling**, and is expected to
-  // stay where it is rather than fall to 0. Every one of these five dispatch sites
-  // submits `label: 'public'` shards.
+  // stay where it is rather than fall to 0.
+  //
+  // **The ground under that used to be *every one of these five dispatch sites submits
+  // `label: 'public'` shards*, and as of Plan 23-06 that is false at one of them.**
+  // `bin/bench.ts` gained an opt-in sovereign leg — criterion 5 of BENCH-07, AUTH-03's
+  // requestor half — so its `discoverCandidates` site now writes the sentinel on one branch
+  // of a ternary and a capability supplier on the other. The counts did not move; the
+  // reason they hold did. It is restated per file below rather than once here, because the
+  // four other sites keep the original reason unchanged and a shared sentence would have
+  // made them look conditional too.
 
   it('demo/main.ts: both peer dispatches are public work', () => {
     expect(occurrences(DEMO_MAIN, "'dispatches-unauthenticated'")).toBe(2)
@@ -586,14 +600,28 @@ describe('production RemoteExecutor call sites state the chain explicitly', () =
     expect(occurrences(DEMO_MAIN, 'new RemoteExecutor(')).toBe(2)
   })
 
-  it('bin/bench.ts: both drivers dispatch public shards, and so does the discovered set', () => {
-    // **Three, raised from two by 18-06, and the raise is the honest answer rather than
-    // the convenient one.** The third is not a new dispatch *site* in the sense the other
-    // two are — it is `discoverCandidates`' required `dispatch` option, which is handed to
-    // every `RemoteExecutor` that helper builds on the `--discover` arm. So it states the
-    // same sentinel for the same permanent reason the other two do: every shard this
-    // driver submits is `label: 'public'`, and a public task has no owner and therefore no
-    // key a capability chain could be rooted at.
+  it('bin/bench.ts: the default arm dispatches public shards, and the sovereign leg is one branch beside it', () => {
+    // **Three, and the number did not move when Plan 23-06 gave this driver a sovereign
+    // leg — but the ground under it did, so the comment is rewritten rather than left
+    // standing.** Read the count against the source rather than inheriting it: the third
+    // occurrence is now one branch of a ternary
+    // (`SOVEREIGN ? sovereignSupplierFor : <sentinel>`), and a ternary keeps the literal in
+    // the file. A reader who assumed the count would fall would have been wrong for a
+    // reason that has nothing to do with what the leg does.
+    //
+    // **The floor is now conditional on the leg, and that is the whole change.** What the
+    // sentence here used to say — *the sentinel is permanent at all three sites because
+    // every shard this driver submits is public* — is false on one arm as of criterion 5.
+    // What is true instead: the sentinel is what the **default** arm writes down at each of
+    // the three sites, and it is still the correct value there for the unchanged reason —
+    // a public task has no owner, so no key exists for a chain to be rooted at and a chain
+    // would be a per-dispatch cost on a branch that can never refuse. The arm that does
+    // *not* write it is one branch of one ternary, at the third site.
+    //
+    // The first two sites are unconditional and stay so: `memoryFabric`'s endpoints serve
+    // unauthenticated permanently, so a chain dispatched there would be accepted without
+    // ever being verified; and the real rig's default executor set is placed against
+    // `publicNodes` descriptors, which hardcode an owner id no sovereign shard can match.
     //
     // The plan for 18-06 said this count must stay at 2. It could only have stayed at 2 by
     // hoisting the literal into a constant, which would have taken it to 1 and made the
@@ -601,9 +629,44 @@ describe('production RemoteExecutor call sites state the chain explicitly', () =
     // for a stated reason. `CandidateOptions.dispatch` is required precisely so that a
     // candidate built without one cannot dispatch unauthenticated silently.
     expect(occurrences(BENCH, "'dispatches-unauthenticated'")).toBe(3)
-    // Unmoved: the discover arm builds no `RemoteExecutor` of its own — it takes the ones
-    // `discoverCandidates` returns, which is the entire point of the helper.
+    // Unmoved, and the sovereign leg does not move it either: the discover arm builds no
+    // `RemoteExecutor` of its own — it takes the ones `discoverCandidates` returns, which
+    // is the entire point of the helper, and which is also why giving those executors a
+    // capability supplier is one argument rather than a loop.
     expect(occurrences(BENCH, 'new RemoteExecutor(')).toBe(2)
+  })
+
+  it('bin/bench.ts: AUTH-03’s requestor half has a floor of its own', () => {
+    // **The new half of the pair above, added by Plan 23-06.** The rows above record that
+    // the sentinel is still written where it should be; these record that the arm which
+    // does *not* write it exists. Without them a count of three could be satisfied by
+    // deleting the leg and restoring the unconditional sentinel, which is the single most
+    // likely way for this capability to lose its only production caller again.
+    //
+    // **So a zero on either of the first two means the leg was deleted — not that it was
+    // never there.** `delegate` and `CapabilitySupplier` shipped complete in Phase 15 with
+    // zero production callers, and owner ruling 2026-07-31 declined to accept that as
+    // unreachable. This is the floor that state had none of.
+    //
+    // The definition and the use are counted separately, and by patterns that can only be
+    // code: the bare identifier appears in this driver's prose as well, and a substring
+    // count over the name alone would be satisfied by a comment describing a function that
+    // no longer exists — the trap the `await discoverCandidates(` row below already names.
+    expect(occurrences(BENCH, 'function sovereignSupplierFor(')).toBe(1)
+    expect(occurrences(BENCH, 'SOVEREIGN ? sovereignSupplierFor :')).toBe(1)
+    // One shard, and one is the count the leg is designed around rather than a sample: it
+    // exists to give `delegate` a call path, not to change what the fixture measures. The
+    // runtime reading — that the shard really was dispatched, and really was admitted by a
+    // chain the serving node verified — is `sovereign-arm.node.test.ts`, which reads the
+    // leg's own printed line off this driver's stdout. This row is the cheap half of that
+    // pair, failing in milliseconds when the label is gone.
+    expect(occurrences(BENCH, "label: 'sovereign'")).toBe(1)
+    // The clearance the shard is dispatched *into*, without which the leg refuses itself.
+    // Flipping this literal to `false` was planted: the worker stops publishing its owner
+    // in `sovereignFor`, the discovered descriptor comes back uncleared, and the shard is
+    // `unplaceable` before any node is asked — observed as `no executable node for owner
+    // ea4a6c63…`. One occurrence, on the worker loop, behind the flag's spread.
+    expect(occurrences(BENCH, 'canExecuteSovereign: true')).toBe(1)
   })
 
   it('bin/bench.ts: discoverCandidates is reachable from the entry point', () => {

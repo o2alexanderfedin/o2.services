@@ -209,7 +209,20 @@ export type { CoverageReport, CoveredAggregate } from './coverage.ts'
 // four production submitters actually call.
 //
 // `submitJob` is exported from `./job/submit.ts` below and is the only way to run a job.
-// `job-entry-point.test.ts` holds that as a check rather than as this comment.
+//
+// Two checks hold that, and this comment holds neither of them. **The sentence here until
+// 2026-08-05 named `job-entry-point.test.ts`, and no file of that name has ever existed in
+// this repository** — the string occurred on this one line in the whole tree, which is the
+// defect this project keeps re-finding: a comment that reads like evidence. Cited by
+// grep-able symbol rather than by file name alone, because that is what rotted:
+//
+//   - `describe('WIRE-04 — the barrel offers exactly one way to run a job'` in
+//     `packages/core/src/job/submit.test.ts` — this barrel's own `Object.keys`, pinned as a
+//     set, with `export { submitJob as runResilient }` planted against it.
+//   - `describe('WIRE-04 — every barrel in the workspace offers at most one way to run a job'`
+//     in `packages/node/src/job-entry-points.node.test.ts` — the same predicate over **all
+//     eight** workspace barrels, because the check above reads this file and nothing else,
+//     and `@o2/net` already exports a job-shaped `submitJobWithEgress` it never saw.
 //
 // Where the deleted exports went: `ShardWork`, `DispatchOutcome` and `ShardDispatch` moved
 // to `@o2/net`'s `churn.ts`, the only module that still reads them. `DEFAULT_WATCHDOG_MS`

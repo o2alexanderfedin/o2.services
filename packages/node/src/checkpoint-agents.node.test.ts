@@ -544,7 +544,7 @@ describe('CHURN-03 — the requestor goes away and a second one finishes the job
     const control = await submitJob(
       specFor(fabric, first, controlDispatches),
       await FsBlockstore.open(join(workdir, 'control-store')),
-      {},
+      { checkpoints: 'checkpoints-nothing',},
     )
     const controlMs = performance.now() - controlAt
     expect(control.ok).toBe(true)
@@ -670,7 +670,7 @@ describe('CHURN-03 — the requestor goes away and a second one finishes the job
       // Opened fresh, over the directory the departed requestor wrote into. A new object,
       // a new file-descriptor set, no inherited state — the storage, not the coordinator.
       await FsBlockstore.open(coordinatorDir),
-      { resumeFrom: [handle] },
+      { checkpoints: 'checkpoints-nothing', resumeFrom: [handle] },
     )
     const resumedMs = performance.now() - resumedAt
     expect(resumed.ok).toBe(true)
@@ -759,7 +759,7 @@ describe('CHURN-03 — the requestor goes away and a second one finishes the job
     const refused = await submitJob(
       specFor(fabric, second, refusedDispatches),
       await FsBlockstore.open(coordinatorDir),
-      { resumeFrom: [notACheckpoint.cid] },
+      { checkpoints: 'checkpoints-nothing', resumeFrom: [notACheckpoint.cid] },
     )
     expect(refused.ok).toBe(false)
     if (refused.ok) throw new Error('a resume against a non-checkpoint was accepted')

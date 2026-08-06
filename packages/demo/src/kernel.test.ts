@@ -462,6 +462,8 @@ describe('the whole job, across cubes, at redundancy 2', () => {
         onQuorumShortfall: 'runs-at-available-redundancy',
       },
       store,
+      // CHURN-03 — this test asserts nothing about checkpointing.
+      { checkpoints: 'checkpoints-nothing' },
     )
 
     expect(submitted.ok).toBe(true)
@@ -510,6 +512,8 @@ describe('the whole job, across cubes, at redundancy 2', () => {
         onQuorumShortfall: 'runs-at-available-redundancy',
       },
       store,
+      // CHURN-03 — this test asserts nothing about checkpointing.
+      { checkpoints: 'checkpoints-nothing' },
     )
     expect(submitted.ok).toBe(true)
     if (!submitted.ok) return

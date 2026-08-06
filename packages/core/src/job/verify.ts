@@ -149,6 +149,38 @@ export type VerificationResult =
       agreeing: readonly AgreeingReplica[]
       /** Redundancy actually achieved. */
       replicas: number
+      /**
+       * Nodes that were asked and refused, each in its own words — **on the agreed arm
+       * too, and that is the whole of the fix**.
+       *
+       * This arm carried no such field until it was measured not to. A shard whose first
+       * executor refused by name and whose re-pick then succeeded came back `agreed` with
+       * the refusal nowhere in the result: `ShardResult.attempted` said node `n1` had been
+       * asked and `ShardResult.generations` said a retry had happened, but the reason `n1`
+       * gave was unreachable from the returned value. That is exactly the silent filtering
+       * Phase 6's rule forbids — *"silent filtering leaves a requestor unable to tell a
+       * dead network from a wrong clock from a module nobody can run"* — arriving one
+       * layer up, where a caller is least likely to look for it because the job succeeded.
+       *
+       * **The loss was never only across generations.** `executeVerified` computes this
+       * array for every dispatch and used it on two arms of three, so a *single* dispatch
+       * at redundancy 2 with one replica failing and one agreeing dropped the failure just
+       * as thoroughly. That is why the field lives on the type rather than being
+       * accumulated by `submitJob`'s generation loop: a `ShardResult`-shaped repair would
+       * have closed the half that was easy to see and left the half below it open.
+       *
+       * **Required, not optional**, for the reason `ShardResult.attestation` gives: an
+       * omitted array read as `[]` makes *nobody refused* indistinguishable from *nobody
+       * recorded it*, at the exact point the distinction is what the caller wanted.
+       *
+       * `[]` on the ordinary reading, and it is a measurement rather than a default —
+       * every executor that was asked answered.
+       *
+       * **Not the same set as `agreeing`'s complement.** A node that answered with a
+       * *different* result is not a failure and does not appear here; that case is the
+       * `disagreed` arm. This is the set that produced no answer at all.
+       */
+      failures: readonly { nodeId: string; reason: string }[]
       grossFuel: number
       usefulFuel: number
     }
@@ -225,6 +257,12 @@ export async function executeVerified(
     // {@link AgreeingReplica} for why that is the whole argument for one field.
     agreeing: answered.map((r) => ({ nodeId: r.nodeId, attestation: r.attestation })),
     replicas: answered.length,
+    // The **same** array the other two arms return, off the same `receipts` pass above.
+    // It was computed here and used on two arms of three, so a dispatch at redundancy 2
+    // that got one refusal and one answer reported the answer and discarded the refusal.
+    // See {@link VerificationResult}'s `failures` for why that had to be fixed on the
+    // type rather than in the caller.
+    failures,
     grossFuel,
     usefulFuel: winner.fuelUsed,
   }

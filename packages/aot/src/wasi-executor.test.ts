@@ -1229,6 +1229,8 @@ describe('a WASI artifact travels the fabric’s ordinary verified path — AOT-
         onQuorumShortfall: 'runs-at-available-redundancy',
       },
       blockstore,
+      // CHURN-03 — this test asserts nothing about checkpointing.
+      { checkpoints: 'checkpoints-nothing' },
     )
 
     expect(result.ok).toBe(true)

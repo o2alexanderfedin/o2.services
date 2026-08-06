@@ -420,6 +420,8 @@ async function runJob(fabric: Fabric, executors: readonly Executor[]): Promise<J
       admit: rpcAdmission(fabric.requestor.rpc),
     },
     fabric.requestor.store,
+    // CHURN-03 — this test asserts nothing about checkpointing.
+    { checkpoints: 'checkpoints-nothing' },
   )
   expect(result.ok).toBe(true)
   if (!result.ok) throw new Error(`the job was refused: ${JSON.stringify(result.error)}`)

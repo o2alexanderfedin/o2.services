@@ -438,6 +438,8 @@ async function runMap(fabric: Fabric): Promise<JobResult> {
       onQuorumShortfall: 'runs-at-available-redundancy',
     },
     fabric.submitter.store,
+    // CHURN-03 — this test asserts nothing about checkpointing.
+    { checkpoints: 'checkpoints-nothing' },
   )
 
   // A reduce over a job that did not complete would be measuring the wrong failure.

@@ -169,7 +169,10 @@ describe('submitJobWithEgress — a job’s manifest, reachable from the call th
         onQuorumShortfall: 'runs-at-available-redundancy',
       }
 
-      const result = await submitJobWithEgress(spec, fabric.seedStore, [fabric.guard])
+      const result = await submitJobWithEgress(spec, fabric.seedStore, [fabric.guard],
+        // CHURN-03 — this test asserts nothing about checkpointing.
+        { checkpoints: 'checkpoints-nothing' },
+      )
       expect(result.ok).toBe(true)
       if (!result.ok) return
 
@@ -208,13 +211,19 @@ describe('submitJobWithEgress — a job’s manifest, reachable from the call th
         onQuorumShortfall: 'runs-at-available-redundancy',
       })
 
-      const first = await submitJobWithEgress(specFor({ n: 1 }), fabric.seedStore, [fabric.guard])
+      const first = await submitJobWithEgress(specFor({ n: 1 }), fabric.seedStore, [fabric.guard],
+        // CHURN-03 — this test asserts nothing about checkpointing.
+        { checkpoints: 'checkpoints-nothing' },
+      )
       expect(first.ok).toBe(true)
       if (!first.ok) return
       expect(first.manifests[0]?.entries.length).toBeGreaterThan(0)
       const firstCount = first.manifests[0]?.entries.length as number
 
-      const second = await submitJobWithEgress(specFor({ n: 2 }), fabric.seedStore, [fabric.guard])
+      const second = await submitJobWithEgress(specFor({ n: 2 }), fabric.seedStore, [fabric.guard],
+        // CHURN-03 — this test asserts nothing about checkpointing.
+        { checkpoints: 'checkpoints-nothing' },
+      )
       expect(second.ok).toBe(true)
       if (!second.ok) return
 
@@ -239,8 +248,14 @@ describe('submitJobWithEgress — a job’s manifest, reachable from the call th
         onQuorumShortfall: 'runs-at-available-redundancy',
       }
 
-      const expected = await submitJob(spec, fabric.seedStore)
-      const result = await submitJobWithEgress(spec, fabric.seedStore, [fabric.guard])
+      const expected = await submitJob(spec, fabric.seedStore,
+        // CHURN-03 — this test asserts nothing about checkpointing.
+        { checkpoints: 'checkpoints-nothing' },
+      )
+      const result = await submitJobWithEgress(spec, fabric.seedStore, [fabric.guard],
+        // CHURN-03 — this test asserts nothing about checkpointing.
+        { checkpoints: 'checkpoints-nothing' },
+      )
 
       expect(result).toEqual(expected)
       expect(result.ok).toBe(false)
@@ -339,6 +354,8 @@ describe('submitJobWithEgress — a submitter does not serve the row it submitte
       },
       store,
       guards,
+      // CHURN-03 — this test asserts nothing about checkpointing.
+      { checkpoints: 'checkpoints-nothing' },
     )
 
     expect(result.ok).toBe(true)
@@ -390,6 +407,8 @@ describe('submitJobWithEgress — a submitter does not serve the row it submitte
       },
       store,
       [submitterGuard],
+      // CHURN-03 — this test asserts nothing about checkpointing.
+      { checkpoints: 'checkpoints-nothing' },
     )
     expect(result.ok).toBe(true)
     expect(duringSubmit).toHaveLength(1)
@@ -456,6 +475,8 @@ describe('submitJobWithEgress — a submitter does not serve the row it submitte
         },
         failing,
         [guard],
+        // CHURN-03 — this test asserts nothing about checkpointing.
+        { checkpoints: 'checkpoints-nothing' },
       ),
     ).rejects.toThrow('blockstore is gone')
 
@@ -490,6 +511,8 @@ describe('submitJobWithEgress — a submitter does not serve the row it submitte
       },
       store,
       [guard],
+      // CHURN-03 — this test asserts nothing about checkpointing.
+      { checkpoints: 'checkpoints-nothing' },
     )
 
     expect(result.ok).toBe(true)
@@ -529,6 +552,8 @@ describe('submitJobWithEgress — a submitter does not serve the row it submitte
       },
       store,
       [guard],
+      // CHURN-03 — this test asserts nothing about checkpointing.
+      { checkpoints: 'checkpoints-nothing' },
     )
 
     expect(result.ok).toBe(true)

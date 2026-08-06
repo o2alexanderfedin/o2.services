@@ -201,6 +201,8 @@ describe('NET-01 — a job across OS processes', () => {
         onQuorumShortfall: 'runs-at-available-redundancy',
       },
       submitter.store,
+      // CHURN-03 — this test asserts nothing about checkpointing.
+      { checkpoints: 'checkpoints-nothing' },
     )
 
     expect(result.ok).toBe(true)
@@ -238,6 +240,8 @@ describe('NET-01 — a job across OS processes', () => {
         onQuorumShortfall: 'runs-at-available-redundancy',
       },
       submitter.store,
+      // CHURN-03 — this test asserts nothing about checkpointing.
+      { checkpoints: 'checkpoints-nothing' },
     )
     expect(result.ok).toBe(true)
     if (!result.ok) return
@@ -282,6 +286,8 @@ describe('NET-01 — a job across OS processes', () => {
         onQuorumShortfall: 'runs-at-available-redundancy',
       },
       submitter.store,
+      // CHURN-03 — this test asserts nothing about checkpointing.
+      { checkpoints: 'checkpoints-nothing' },
     )
 
     expect(result.ok).toBe(true)

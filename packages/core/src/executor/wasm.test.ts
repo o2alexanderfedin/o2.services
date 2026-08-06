@@ -230,6 +230,8 @@ describe('end to end — a real WASM job at R=2', () => {
         onQuorumShortfall: 'runs-at-available-redundancy',
       },
       store,
+      // CHURN-03 — this test asserts nothing about checkpointing.
+      { checkpoints: 'checkpoints-nothing' },
     )
 
     expect(r.ok).toBe(true)

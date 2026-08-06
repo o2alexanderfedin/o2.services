@@ -158,6 +158,8 @@ describe('NET-01 — a redundant job with every execution remote', () => {
         onQuorumShortfall: 'runs-at-available-redundancy',
       },
       submitter.store,
+      // CHURN-03 — this test asserts nothing about checkpointing.
+      { checkpoints: 'checkpoints-nothing' },
     )
 
     expect(result.ok).toBe(true)
@@ -212,6 +214,8 @@ describe('NET-01 — a redundant job with every execution remote', () => {
         onQuorumShortfall: 'runs-at-available-redundancy',
       },
       submitter.store,
+      // CHURN-03 — this test asserts nothing about checkpointing.
+      { checkpoints: 'checkpoints-nothing' },
     )
 
     expect(result.ok).toBe(true)
@@ -241,6 +245,8 @@ describe('NET-01 — persistence across a restart', () => {
         onQuorumShortfall: 'runs-at-available-redundancy',
       },
       submitter.store,
+      // CHURN-03 — this test asserts nothing about checkpointing.
+      { checkpoints: 'checkpoints-nothing' },
     )
     expect(result.ok).toBe(true)
     if (!result.ok) return

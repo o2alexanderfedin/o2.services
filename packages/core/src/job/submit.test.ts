@@ -241,6 +241,8 @@ describe('submitJob — sharding and content addressing (MR-01, DATA-01)', () =>
         onQuorumShortfall: 'runs-at-available-redundancy',
       },
       store,
+      // CHURN-03 — this test asserts nothing about checkpointing.
+      { checkpoints: 'checkpoints-nothing' },
     )
     expect(r.ok).toBe(true)
     if (!r.ok) return
@@ -269,6 +271,8 @@ describe('submitJob — sharding and content addressing (MR-01, DATA-01)', () =>
         onQuorumShortfall: 'runs-at-available-redundancy',
       },
       store,
+      // CHURN-03 — this test asserts nothing about checkpointing.
+      { checkpoints: 'checkpoints-nothing' },
     )
     expect(r.ok).toBe(true)
     if (r.ok) {
@@ -291,6 +295,8 @@ describe('submitJob — sharding and content addressing (MR-01, DATA-01)', () =>
         onQuorumShortfall: 'runs-at-available-redundancy',
       },
       store,
+      // CHURN-03 — this test asserts nothing about checkpointing.
+      { checkpoints: 'checkpoints-nothing' },
     )
     expect(r.ok).toBe(true)
     if (r.ok) expect(r.job.verificationMultiplier).toBe(1)
@@ -309,6 +315,8 @@ describe('submitJob — sharding and content addressing (MR-01, DATA-01)', () =>
         onQuorumShortfall: 'runs-at-available-redundancy',
       },
       store,
+      // CHURN-03 — this test asserts nothing about checkpointing.
+      { checkpoints: 'checkpoints-nothing' },
     )
     expect(r.ok).toBe(true)
     if (!r.ok) return
@@ -335,6 +343,8 @@ describe('submitJob — sharding and content addressing (MR-01, DATA-01)', () =>
         onQuorumShortfall: 'runs-at-available-redundancy',
       },
       store,
+      // CHURN-03 — this test asserts nothing about checkpointing.
+      { checkpoints: 'checkpoints-nothing' },
     )
     expect(r.ok).toBe(true)
     if (r.ok) {
@@ -359,6 +369,8 @@ describe('submitJob — sharding and content addressing (MR-01, DATA-01)', () =>
           onQuorumShortfall: 'runs-at-available-redundancy',
         },
         store,
+        // CHURN-03 — this test asserts nothing about checkpointing.
+        { checkpoints: 'checkpoints-nothing' },
       ),
     ).resolves.toMatchObject({ ok: true })
 
@@ -372,6 +384,8 @@ describe('submitJob — sharding and content addressing (MR-01, DATA-01)', () =>
         onQuorumShortfall: 'runs-at-available-redundancy',
       },
       store,
+      // CHURN-03 — this test asserts nothing about checkpointing.
+      { checkpoints: 'checkpoints-nothing' },
     )
     expect(r.ok).toBe(true)
     if (!r.ok) return
@@ -397,6 +411,8 @@ describe('submitJob — sharding and content addressing (MR-01, DATA-01)', () =>
         onQuorumShortfall: 'runs-at-available-redundancy',
       },
       store,
+      // CHURN-03 — this test asserts nothing about checkpointing.
+      { checkpoints: 'checkpoints-nothing' },
     )
     expect(r.ok).toBe(true)
     if (r.ok) {
@@ -419,6 +435,8 @@ describe('submitJob — input validation', () => {
         onQuorumShortfall: 'runs-at-available-redundancy',
       },
       new MemoryBlockstore(),
+      // CHURN-03 — this test asserts nothing about checkpointing.
+      { checkpoints: 'checkpoints-nothing' },
     )
     expect(r.ok).toBe(false)
     if (!r.ok) expect(r.error.kind).toBe('no-shards')
@@ -436,6 +454,8 @@ describe('submitJob — input validation', () => {
         onQuorumShortfall: 'runs-at-available-redundancy',
       },
       new MemoryBlockstore(),
+      // CHURN-03 — this test asserts nothing about checkpointing.
+      { checkpoints: 'checkpoints-nothing' },
     )
     expect(r.ok).toBe(false)
     if (!r.ok) expect(r.error.kind).toBe('bad-redundancy')
@@ -453,6 +473,8 @@ describe('submitJob — input validation', () => {
         onQuorumShortfall: 'runs-at-available-redundancy',
       },
       new MemoryBlockstore(),
+      // CHURN-03 — this test asserts nothing about checkpointing.
+      { checkpoints: 'checkpoints-nothing' },
     )
     expect(r.ok).toBe(true)
     if (r.ok) {
@@ -479,6 +501,8 @@ describe('submitJob — input validation', () => {
         onQuorumShortfall: 'runs-at-available-redundancy',
       },
       new MemoryBlockstore(),
+      // CHURN-03 — this test asserts nothing about checkpointing.
+      { checkpoints: 'checkpoints-nothing' },
     )
     expect(r.ok).toBe(false)
     if (!r.ok && r.error.kind === 'input-not-encodable') {
@@ -513,6 +537,8 @@ describe('DATA-03/DATA-04 — sovereignty wired onto submitJob', () => {
         onQuorumShortfall: 'runs-at-available-redundancy',
       },
       store,
+      // CHURN-03 — this test asserts nothing about checkpointing.
+      { checkpoints: 'checkpoints-nothing' },
     )
 
     expect(r.ok).toBe(true)
@@ -557,6 +583,8 @@ describe('DATA-03/DATA-04 — sovereignty wired onto submitJob', () => {
         onQuorumShortfall: 'runs-at-available-redundancy',
       },
       store,
+      // CHURN-03 — this test asserts nothing about checkpointing.
+      { checkpoints: 'checkpoints-nothing' },
     )
 
     expect(r.ok).toBe(true)
@@ -587,6 +615,8 @@ describe('DATA-03/DATA-04 — sovereignty wired onto submitJob', () => {
         onQuorumShortfall: 'runs-at-available-redundancy',
       },
       store,
+      // CHURN-03 — this test asserts nothing about checkpointing.
+      { checkpoints: 'checkpoints-nothing' },
     )
 
     expect(r.ok).toBe(true)
@@ -611,6 +641,8 @@ describe('DATA-03/DATA-04 — sovereignty wired onto submitJob', () => {
         onQuorumShortfall: 'runs-at-available-redundancy',
       },
       new MemoryBlockstore(),
+      // CHURN-03 — this test asserts nothing about checkpointing.
+      { checkpoints: 'checkpoints-nothing' },
     )
     expect(r.ok).toBe(false)
     if (!r.ok && r.error.kind === 'shard-missing-owner') {
@@ -630,6 +662,8 @@ describe('DATA-03/DATA-04 — sovereignty wired onto submitJob', () => {
         onQuorumShortfall: 'runs-at-available-redundancy',
       },
       new MemoryBlockstore(),
+      // CHURN-03 — this test asserts nothing about checkpointing.
+      { checkpoints: 'checkpoints-nothing' },
     )
     expect(r.ok).toBe(false)
     if (!r.ok && r.error.kind === 'missing-node-descriptor') {
@@ -685,6 +719,8 @@ describe('DET-03/DATA-08 — the signed module record reaches every task submitJ
         onQuorumShortfall: 'runs-at-available-redundancy',
       },
       new MemoryBlockstore(),
+      // CHURN-03 — this test asserts nothing about checkpointing.
+      { checkpoints: 'checkpoints-nothing' },
     )
 
     expect(r.ok).toBe(true)
@@ -709,6 +745,8 @@ describe('DET-03/DATA-08 — the signed module record reaches every task submitJ
         onQuorumShortfall: 'runs-at-available-redundancy',
       },
       new MemoryBlockstore(),
+      // CHURN-03 — this test asserts nothing about checkpointing.
+      { checkpoints: 'checkpoints-nothing' },
     )
 
     expect(r.ok).toBe(true)
@@ -729,6 +767,8 @@ describe('DET-03/DATA-08 — the signed module record reaches every task submitJ
         onQuorumShortfall: 'runs-at-available-redundancy',
       },
       new MemoryBlockstore(),
+      // CHURN-03 — this test asserts nothing about checkpointing.
+      { checkpoints: 'checkpoints-nothing' },
     )
 
     expect(r.ok).toBe(true)
@@ -803,6 +843,8 @@ describe('SCHED-03 — submitJob places by offers when it is given a way to ask'
         admit: stub.admit,
       },
       new MemoryBlockstore(),
+      // CHURN-03 — this test asserts nothing about checkpointing.
+      { checkpoints: 'checkpoints-nothing' },
     )
 
     expect(r.ok).toBe(true)
@@ -836,6 +878,8 @@ describe('SCHED-03 — submitJob places by offers when it is given a way to ask'
         admit: stub.admit,
       },
       new MemoryBlockstore(),
+      // CHURN-03 — this test asserts nothing about checkpointing.
+      { checkpoints: 'checkpoints-nothing' },
     )
 
     expect(r.ok).toBe(true)
@@ -857,6 +901,8 @@ describe('SCHED-03 — submitJob places by offers when it is given a way to ask'
         onQuorumShortfall: 'runs-at-available-redundancy',
       },
       new MemoryBlockstore(),
+      // CHURN-03 — this test asserts nothing about checkpointing.
+      { checkpoints: 'checkpoints-nothing' },
     )
 
     expect(r.ok).toBe(true)
@@ -882,6 +928,8 @@ describe('SCHED-03 — submitJob places by offers when it is given a way to ask'
         admit: stub.admit,
       },
       new MemoryBlockstore(),
+      // CHURN-03 — this test asserts nothing about checkpointing.
+      { checkpoints: 'checkpoints-nothing' },
     )
 
     expect(r.ok).toBe(true)
@@ -921,6 +969,8 @@ describe('SCHED-03 — submitJob places by offers when it is given a way to ask'
         admit: stub.admit,
       },
       new MemoryBlockstore(),
+      // CHURN-03 — this test asserts nothing about checkpointing.
+      { checkpoints: 'checkpoints-nothing' },
     )
 
     expect(r.ok).toBe(true)
@@ -950,11 +1000,15 @@ describe('SCHED-03 — submitJob places by offers when it is given a way to ask'
     const viaPlan = await submitJob(
       { moduleCid: MODULE_CID, shards, executors, nodes, redundancy: 1, onQuorumShortfall: 'runs-at-available-redundancy' },
       new MemoryBlockstore(),
+      // CHURN-03 — this test asserts nothing about checkpointing.
+      { checkpoints: 'checkpoints-nothing' },
     )
     // Arm B — same fixture, an `admit` supplied, so `planWithOffers`.
     const viaOffers = await submitJob(
       { moduleCid: MODULE_CID, shards, executors, nodes, redundancy: 1, onQuorumShortfall: 'runs-at-available-redundancy', admit: accepting.admit },
       new MemoryBlockstore(),
+      // CHURN-03 — this test asserts nothing about checkpointing.
+      { checkpoints: 'checkpoints-nothing' },
     )
 
     expect(viaPlan.ok && viaOffers.ok).toBe(true)
@@ -990,6 +1044,8 @@ describe('SCHED-03 — submitJob places by offers when it is given a way to ask'
         admit: (offer: Offer): Admission => capacity.would(offer),
       },
       new MemoryBlockstore(),
+      // CHURN-03 — this test asserts nothing about checkpointing.
+      { checkpoints: 'checkpoints-nothing' },
     )
 
     expect(r.ok).toBe(true)
@@ -1051,6 +1107,8 @@ describe('SCHED-02 — the no-offer arm places exactly as it did before this pha
         onQuorumShortfall: 'runs-at-available-redundancy',
       },
       new MemoryBlockstore(),
+      // CHURN-03 — this test asserts nothing about checkpointing.
+      { checkpoints: 'checkpoints-nothing' },
     )
 
     expect(r.ok).toBe(true)
@@ -1080,6 +1138,8 @@ describe('SCHED-02 — the no-offer arm places exactly as it did before this pha
         onQuorumShortfall: 'runs-at-available-redundancy',
       },
       new MemoryBlockstore(),
+      // CHURN-03 — this test asserts nothing about checkpointing.
+      { checkpoints: 'checkpoints-nothing' },
     )
 
     expect(r.ok).toBe(true)
@@ -1149,12 +1209,17 @@ describe('WIRE-04/CHURN-01 — a shard whose executor refuses or dies is placed 
     const retried = await submitJob(
       build(watched('n1', failedRun, failing('n1', 'took the shard and then refused it')), failedRun),
       new MemoryBlockstore(),
+      // CHURN-03 — this test asserts nothing about checkpointing.
+      { checkpoints: 'checkpoints-nothing' },
     )
     // The control, in the SAME case and the same run: an identical fixture whose first
     // choice does not fail. A re-dispatch count is only legible against a job that
     // never had to retry, and a job that completes proves nothing on its own — this one
     // completes too.
-    const clean = await submitJob(build(watched('n1', cleanRun), cleanRun), new MemoryBlockstore())
+    const clean = await submitJob(build(watched('n1', cleanRun), cleanRun), new MemoryBlockstore(),
+      // CHURN-03 — this test asserts nothing about checkpointing.
+      { checkpoints: 'checkpoints-nothing' },
+    )
 
     expect(retried.ok && clean.ok).toBe(true)
     if (!retried.ok || !clean.ok) return
@@ -1207,6 +1272,8 @@ describe('WIRE-04/CHURN-01 — a shard whose executor refuses or dies is placed 
         onQuorumShortfall: 'runs-at-available-redundancy',
       },
       new MemoryBlockstore(),
+      // CHURN-03 — this test asserts nothing about checkpointing.
+      { checkpoints: 'checkpoints-nothing' },
     )
 
     expect(r.ok).toBe(true)
@@ -1274,6 +1341,8 @@ describe('WIRE-04/CHURN-01 — a shard whose executor refuses or dies is placed 
         onQuorumShortfall: 'runs-at-available-redundancy',
       },
       new MemoryBlockstore(),
+      // CHURN-03 — this test asserts nothing about checkpointing.
+      { checkpoints: 'checkpoints-nothing' },
     )
 
     const oneNodeRan: string[] = []
@@ -1291,6 +1360,8 @@ describe('WIRE-04/CHURN-01 — a shard whose executor refuses or dies is placed 
         onQuorumShortfall: 'runs-at-available-redundancy',
       },
       new MemoryBlockstore(),
+      // CHURN-03 — this test asserts nothing about checkpointing.
+      { checkpoints: 'checkpoints-nothing' },
     )
 
     expect(twoNodes.ok && oneNode.ok).toBe(true)
@@ -1345,6 +1416,8 @@ describe('WIRE-04/CHURN-01 — a shard whose executor refuses or dies is placed 
         onQuorumShortfall: 'runs-at-available-redundancy',
       },
       new MemoryBlockstore(),
+      // CHURN-03 — this test asserts nothing about checkpointing.
+      { checkpoints: 'checkpoints-nothing' },
     )
 
     expect(r.ok).toBe(true)
@@ -1471,6 +1544,8 @@ describe('WIRE-04/CHURN-01 — a shard whose executor refuses or dies is placed 
         },
         new MemoryBlockstore(),
         {
+          // CHURN-03 — this test asserts nothing about checkpointing.
+          checkpoints: 'checkpoints-nothing',
           clock: {
             now: () => t,
             sleep: async (ms: number): Promise<void> => {
@@ -1546,6 +1621,8 @@ describe('WIRE-04/CHURN-01 — a shard whose executor refuses or dies is placed 
         onQuorumShortfall: 'runs-at-available-redundancy',
       },
       new MemoryBlockstore(),
+      // CHURN-03 — this test asserts nothing about checkpointing.
+      { checkpoints: 'checkpoints-nothing' },
     )
 
     expect(r.ok).toBe(true)
@@ -1567,6 +1644,99 @@ describe('WIRE-04/CHURN-01 — a shard whose executor refuses or dies is placed 
     // WHAT THIS CANNOT REDDEN ON. Nothing about the retry policy itself: every trigger,
     // the bound and both renewal arms are unreachable on a fixture where nothing fails.
     // Its whole job is to falsify the *other* five, and it is worthless alone.
+  })
+
+  /**
+   * The re-pick carries the refusal it moved on from — and the case above cannot see it.
+   *
+   * `re-places a refused shard onto an untried node` asserts `attempted` is `['n1','n2']`
+   * and that `n2` agreed, which says *that* `n1` was asked and did not work out. It does
+   * not read *why*, and until this case was written nothing did: `mergeVerifications`
+   * collected every generation's `failures` and the `agreed` arm of `VerificationResult`
+   * had nowhere to put them, so a re-pick that succeeded reported the success and erased
+   * `n1`'s own words. Phase 6's rule is that every exclusion is named, because *"silent
+   * filtering leaves a requestor unable to tell a dead network from a wrong clock from a
+   * module nobody can run"* — and a retry that hides the reason is that same filtering
+   * arriving one layer up, where a caller is least likely to look because the job
+   * succeeded.
+   *
+   * The reason strings are deliberately distinctive, so finding one in a result means it
+   * *travelled* rather than that it was reconstructed from a node id and a status.
+   */
+  const FIRST_REFUSAL = 'n1 refused: module feature set includes relaxed-simd'
+  const SECOND_REFUSAL = 'n2 refused: clock skew 41s beyond tolerance'
+
+  it('names the refusal it re-picked away from, beside a control that lost nobody', async () => {
+    const build = (first: Executor): JobSpec => {
+      const executors = [first, honest('n2'), honest('n3')]
+      return {
+        moduleCid: MODULE_CID,
+        shards: [{ value: { n: 1 }, label: 'public' }],
+        executors,
+        nodes: publicNodes(executors),
+        redundancy: 1,
+        onQuorumShortfall: 'runs-at-available-redundancy',
+      }
+    }
+    const store = (): Blockstore => new MemoryBlockstore()
+    const opts: SubmitOptions = { checkpoints: 'checkpoints-nothing' }
+
+    const retried = await submitJob(build(failing('n1', FIRST_REFUSAL)), store(), opts)
+    // The control, in the SAME case and the same run: identical but for the refusal, so
+    // the empty array below is a measurement rather than luck. Without it this case
+    // passes against any implementation that puts something in the field.
+    const clean = await submitJob(build(honest('n1')), store(), opts)
+
+    expect(retried.ok && clean.ok).toBe(true)
+    if (!retried.ok || !clean.ok) return
+    const shard = retried.job.shards[0] as ShardResult
+    const control = clean.job.shards[0] as ShardResult
+
+    // The re-pick happened at all — otherwise there is no refusal to have lost.
+    expect(shard.attempted).toStrictEqual(['n1', 'n2'])
+    expect(shard.generations).toBe(control.generations + 1)
+    expect(shard.ending).toBe('agreed')
+
+    expect(shard.verification.status).toBe('agreed')
+    expect(control.verification.status).toBe('agreed')
+    if (shard.verification.status !== 'agreed' || control.verification.status !== 'agreed') return
+    // The claim: not "a failure was recorded" but "n1's own words survived the re-pick".
+    expect(shard.verification.failures).toStrictEqual([{ nodeId: 'n1', reason: FIRST_REFUSAL }])
+    expect(control.verification.failures).toStrictEqual([])
+    // And the answer is still reported — the refusal travels beside it, never over it.
+    expect(shard.verification.agreeing.map((e) => e.nodeId)).toStrictEqual(['n2'])
+  })
+
+  it('unions every generation’s refusals rather than reporting only the most recent', async () => {
+    // Two nodes refuse in turn before the third answers. An implementation that kept only
+    // the latest generation's failures would lose `n1` while looking perfectly correct
+    // about `n2` — which a single-refusal fixture cannot tell apart from the truth.
+    const executors = [failing('n1', FIRST_REFUSAL), failing('n2', SECOND_REFUSAL), honest('n3')]
+    const r = await submitJob(
+      {
+        moduleCid: MODULE_CID,
+        shards: [{ value: { n: 1 }, label: 'public' }],
+        executors,
+        nodes: publicNodes(executors),
+        redundancy: 1,
+        onQuorumShortfall: 'runs-at-available-redundancy',
+      },
+      new MemoryBlockstore(),
+      { checkpoints: 'checkpoints-nothing' },
+    )
+    expect(r.ok).toBe(true)
+    if (!r.ok) return
+    const shard = r.job.shards[0] as ShardResult
+    expect(shard.attempted).toStrictEqual(['n1', 'n2', 'n3'])
+    expect(shard.generations).toBe(3)
+    expect(shard.verification.status).toBe('agreed')
+    if (shard.verification.status !== 'agreed') return
+    // Generation order, earliest first, so a reader follows the refusals in the order the
+    // fabric met them rather than having to sort them against `attempted`.
+    expect(shard.verification.failures).toStrictEqual([
+      { nodeId: 'n1', reason: FIRST_REFUSAL },
+      { nodeId: 'n2', reason: SECOND_REFUSAL },
+    ])
   })
 })
 
@@ -1745,7 +1915,7 @@ describe('CHURN-02/CHURN-06 — a straggler is duplicated, and the loser is stil
         onQuorumShortfall: 'runs-at-available-redundancy',
       },
       new MemoryBlockstore(),
-      { clock },
+      { checkpoints: 'checkpoints-nothing', clock },
     )
 
     expect(r.ok).toBe(true)
@@ -1794,7 +1964,7 @@ describe('CHURN-02/CHURN-06 — a straggler is duplicated, and the loser is stil
         onQuorumShortfall: 'runs-at-available-redundancy',
       },
       new MemoryBlockstore(),
-      { clock },
+      { checkpoints: 'checkpoints-nothing', clock },
     )
 
     expect(r.ok).toBe(true)
@@ -1861,7 +2031,7 @@ describe('CHURN-02/CHURN-06 — a straggler is duplicated, and the loser is stil
         onQuorumShortfall: 'runs-at-available-redundancy',
       },
       new MemoryBlockstore(),
-      { clock },
+      { checkpoints: 'checkpoints-nothing', clock },
     )
 
     expect(r.ok).toBe(true)
@@ -1918,7 +2088,7 @@ describe('CHURN-02/CHURN-06 — a straggler is duplicated, and the loser is stil
         onQuorumShortfall: 'runs-at-available-redundancy',
       },
       new MemoryBlockstore(),
-      { clock },
+      { checkpoints: 'checkpoints-nothing', clock },
     )
 
     expect(r.ok).toBe(true)
@@ -1970,7 +2140,7 @@ describe('CHURN-02/CHURN-06 — a straggler is duplicated, and the loser is stil
       new MemoryBlockstore(),
       // A grace narrow enough that a copy nobody released cannot answer inside it, stated
       // as a knob rather than left to the default so the window is the case's own.
-      { clock, speculation: { compareGraceMs: DEFAULT_SPECULATION_WATCHDOG_MS } },
+      { checkpoints: 'checkpoints-nothing', clock, speculation: { compareGraceMs: DEFAULT_SPECULATION_WATCHDOG_MS } },
     )
 
     expect(r.ok).toBe(true)
@@ -2024,7 +2194,7 @@ describe('CHURN-02/CHURN-06 — a straggler is duplicated, and the loser is stil
       // Wide enough that the release instant falls inside the window. Stated against the
       // lease rather than as a millisecond count: it is virtual time and encodes nothing
       // about this machine.
-      { clock, speculation: { compareGraceMs: DEFAULT_LEASE_MS } },
+      { checkpoints: 'checkpoints-nothing', clock, speculation: { compareGraceMs: DEFAULT_LEASE_MS } },
     )
 
     expect(r.ok).toBe(true)
@@ -2067,7 +2237,7 @@ describe('CHURN-02/CHURN-06 — a straggler is duplicated, and the loser is stil
         onQuorumShortfall: 'runs-at-available-redundancy',
       },
       new MemoryBlockstore(),
-      { clock },
+      { checkpoints: 'checkpoints-nothing', clock },
     )
 
     expect(r.ok).toBe(true)
@@ -2144,7 +2314,7 @@ describe('CHURN-02/CHURN-06 — a straggler is duplicated, and the loser is stil
           onQuorumShortfall: 'runs-at-available-redundancy',
         },
         new MemoryBlockstore(),
-        { clock },
+        { checkpoints: 'checkpoints-nothing', clock },
       )
       if (!r.ok) throw new Error(`fixture submission failed: ${JSON.stringify(r.error)}`)
       return { job: r.job, ran }
@@ -2231,7 +2401,7 @@ describe('CHURN-02/CHURN-06 — a straggler is duplicated, and the loser is stil
       // A budget large enough that carol's shard is refused a duplicate by the
       // ELIGIBILITY gate and not by the allowance. Without this the two refusals are
       // indistinguishable and the case is vacuous.
-      { clock, speculation: { fraction: 1 } },
+      { checkpoints: 'checkpoints-nothing', clock, speculation: { fraction: 1 } },
     )
 
     expect(r.ok).toBe(true)
@@ -2288,7 +2458,7 @@ describe('CHURN-02/CHURN-06 — a straggler is duplicated, and the loser is stil
         onQuorumShortfall: 'runs-at-available-redundancy',
       },
       new MemoryBlockstore(),
-      { clock },
+      { checkpoints: 'checkpoints-nothing', clock },
     )
 
     expect(r.ok).toBe(true)
@@ -2337,7 +2507,11 @@ describe('CHURN-02/CHURN-06 — a straggler is duplicated, and the loser is stil
           onQuorumShortfall: 'runs-at-available-redundancy',
         },
         new MemoryBlockstore(),
-        speculation === undefined ? { clock } : { clock, speculation },
+        // CHURN-03 — this fixture asserts nothing about checkpointing, and it says so on
+        // both arms rather than only on the one it happens to take.
+        speculation === undefined
+          ? { clock, checkpoints: 'checkpoints-nothing' }
+          : { clock, speculation, checkpoints: 'checkpoints-nothing' },
       )
       if (!r.ok) throw new Error(`fixture submission failed: ${JSON.stringify(r.error)}`)
       return { job: r.job, ran }
@@ -2416,7 +2590,10 @@ describe('VER-03/VER-04 — a job cannot be submitted without saying what an unc
   it('carries the degrade arm through submission unchanged', async () => {
     const spec = specWith('runs-at-available-redundancy')
     expect(spec.onQuorumShortfall).toBe('runs-at-available-redundancy')
-    const r = await submitJob(spec, new MemoryBlockstore())
+    const r = await submitJob(spec, new MemoryBlockstore(),
+      // CHURN-03 — this test asserts nothing about checkpointing.
+      { checkpoints: 'checkpoints-nothing' },
+    )
     expect(r.ok).toBe(true)
     if (!r.ok) return
     // Stated as an unchanged reading rather than a new one: this plan adds no
@@ -2429,7 +2606,10 @@ describe('VER-03/VER-04 — a job cannot be submitted without saying what an unc
   it('carries the refuse arm through submission unchanged, because nothing reads it yet', async () => {
     const spec = specWith('refuses-the-shard')
     expect(spec.onQuorumShortfall).toBe('refuses-the-shard')
-    const r = await submitJob(spec, new MemoryBlockstore())
+    const r = await submitJob(spec, new MemoryBlockstore(),
+      // CHURN-03 — this test asserts nothing about checkpointing.
+      { checkpoints: 'checkpoints-nothing' },
+    )
     expect(r.ok).toBe(true)
     if (!r.ok) return
     // The same reading as the degrade arm above, and that identity is the claim:
@@ -2450,11 +2630,97 @@ describe('VER-03/VER-04 — a job cannot be submitted without saying what an unc
     const full = specWith('runs-at-available-redundancy')
     const { onQuorumShortfall: _unused, ...rest } = full
     // @ts-expect-error VER-03 — onQuorumShortfall is required; omitting it must fail `tsc --noEmit`, naming 'onQuorumShortfall'.
-    const r = await submitJob(rest, new MemoryBlockstore())
+    const r = await submitJob(rest, new MemoryBlockstore(), {
+      // CHURN-03 — supplied so the *only* thing wrong with this call is the omission
+      // under test. Until 2026-08-05 the third argument could be dropped entirely and
+      // this case passed two arguments; it then read `undefined.clock` and threw, which
+      // is how the required-options change first announced itself here.
+      checkpoints: 'checkpoints-nothing',
+    })
     // The submission still runs: nothing reads the field, so the omission is a
     // compile-time refusal and nothing else. The runtime assertion is here only so
     // the case is a test rather than a comment.
     expect(r.ok).toBe(true)
+  })
+})
+
+/**
+ * CHURN-03 — the type-level half of the 2026-08-05 ruling on
+ * `SubmitOptions.checkpoints`.
+ *
+ * The scope guard (`packages/node/src/checkpoint-optout-scope.node.test.ts`) pins *which*
+ * files opt out. It cannot see the thing that made opting out a written act in the first
+ * place, because that is a property of the type and a type produces no runtime evidence.
+ * These two cases are that evidence, in the idiom the `onQuorumShortfall` case above
+ * established: `@ts-expect-error` fails `tsc --noEmit` if the error it claims stops
+ * happening, so a silent revert to `checkpoints?:` reddens the build rather than passing
+ * quietly.
+ *
+ * **This proves the field is required. It proves nothing about anything writing a
+ * checkpoint** — no production submitter supplies a real sink, and ROADMAP criterion 7 is
+ * PARTIAL for exactly that reason.
+ */
+describe('CHURN-03 — a job cannot be submitted without saying whether it checkpoints', () => {
+  /** The smallest spec that submits successfully, so the only variable is the options bag. */
+  function oneShard(): JobSpec {
+    const executors = [honest('a')]
+    return {
+      moduleCid: MODULE_CID,
+      shards: [{ value: { n: 1 }, label: 'public' }],
+      executors,
+      nodes: publicNodes(executors),
+      redundancy: 1,
+      onQuorumShortfall: 'runs-at-available-redundancy',
+    }
+  }
+
+  it('fails to compile with the options bag omitted entirely', async () => {
+    const spec = oneShard()
+    // @ts-expect-error CHURN-03 — the options bag is required, because a bag that may be
+    // omitted cannot carry a mandatory field: this call is the silence the ruling removed.
+    const submitted = submitJob(spec, new MemoryBlockstore())
+    // It rejects rather than resolving: `submitJob` reads `options.clock` before it does
+    // anything else, so the omitted bag is a throw and not a refusal with a name. Asserted
+    // rather than swallowed, so this case is a test and not a comment.
+    await expect(submitted).rejects.toThrow(TypeError)
+  })
+
+  it('fails to compile with an options bag that omits checkpoints', async () => {
+    const spec = oneShard()
+    const submitted = submitJob(
+      spec,
+      new MemoryBlockstore(),
+      // @ts-expect-error CHURN-03 — `checkpoints` is required; a caller that keeps none
+      // must write `'checkpoints-nothing'` rather than leave the question unanswered.
+      {},
+    )
+    // **Recorded because it was measured and it surprised the change that caused it.**
+    // The expectation written here first was `r.ok === true` — that an omitted field
+    // would still reach `NO_CHECKPOINTS`, as it did while the field was optional. It does
+    // not. The consuming branch now tests for the sentinel *positively*, so an untyped
+    // `undefined` falls to the sink arm and `checkpointLogOf` throws on the first
+    // settling shard: `TypeError: Cannot read properties of undefined (reading 'publish')`.
+    //
+    // That is the honest reading and it is the better one, but note what it is: the two
+    // arms are no longer interchangeable at runtime *either*, so a JavaScript caller — or
+    // anything that reaches here past a deliberate `@ts-expect-error`, which is the only
+    // way in — fails loudly rather than quietly keeping no checkpoints. It fails mid-job
+    // rather than at entry, which is a worse instant than an early refusal would be. No
+    // runtime validation was added for it, following the precedent of `onQuorumShortfall`
+    // one describe up: a field required by the type is not re-checked at run time here,
+    // and inventing a new `SubmitError` for an unreachable case is a wider change than
+    // this ruling authorised.
+    await expect(submitted).rejects.toThrow(TypeError)
+  })
+
+  it('accepts the sentinel, and the sentinel is spelled the way the fabric spells its others', () => {
+    // Not a tautology over a literal: it pins the *spelling* against the idiom
+    // `'duplicates-no-stragglers'`, `'serves-unauthenticated'` and `'admits-any-peer'`
+    // share, which is what `checkpoint-optout-scope.node.test.ts` greps for. A rename
+    // that missed that file would leave the scope guard scanning for a string nothing
+    // says — passing while pinning nothing.
+    const options: SubmitOptions = { checkpoints: 'checkpoints-nothing' }
+    expect(options.checkpoints).toBe('checkpoints-nothing')
   })
 })
 
@@ -2480,6 +2746,8 @@ async function firstAsked(nodes: readonly NodeDescriptor[]): Promise<string | un
       },
     },
     new MemoryBlockstore(),
+    // CHURN-03 — this test asserts nothing about checkpointing.
+    { checkpoints: 'checkpoints-nothing' },
   )
   return first
 }
@@ -2615,6 +2883,8 @@ describe('VER-08/VER-09/VER-10 — every shard says how strongly it was attested
         onQuorumShortfall: 'runs-at-available-redundancy',
       },
       new MemoryBlockstore(),
+      // CHURN-03 — this test asserts nothing about checkpointing.
+      { checkpoints: 'checkpoints-nothing' },
     )
 
     expect(r.ok).toBe(true)
@@ -2637,6 +2907,8 @@ describe('VER-08/VER-09/VER-10 — every shard says how strongly it was attested
         onQuorumShortfall: 'runs-at-available-redundancy',
       },
       new MemoryBlockstore(),
+      // CHURN-03 — this test asserts nothing about checkpointing.
+      { checkpoints: 'checkpoints-nothing' },
     )
 
     expect(r.ok).toBe(true)
@@ -2661,6 +2933,8 @@ describe('VER-08/VER-09/VER-10 — every shard says how strongly it was attested
         onQuorumShortfall: 'runs-at-available-redundancy',
       },
       new MemoryBlockstore(),
+      // CHURN-03 — this test asserts nothing about checkpointing.
+      { checkpoints: 'checkpoints-nothing' },
     )
 
     expect(r.ok).toBe(true)
@@ -2685,6 +2959,8 @@ describe('VER-08/VER-09/VER-10 — every shard says how strongly it was attested
         onQuorumShortfall: 'runs-at-available-redundancy',
       },
       new MemoryBlockstore(),
+      // CHURN-03 — this test asserts nothing about checkpointing.
+      { checkpoints: 'checkpoints-nothing' },
     )
 
     expect(r.ok).toBe(true)
@@ -2720,6 +2996,8 @@ describe('VER-08/VER-09/VER-10 — every shard says how strongly it was attested
         onQuorumShortfall: 'runs-at-available-redundancy',
       },
       new MemoryBlockstore(),
+      // CHURN-03 — this test asserts nothing about checkpointing.
+      { checkpoints: 'checkpoints-nothing' },
     )
 
     expect(r.ok).toBe(true)
@@ -2761,6 +3039,8 @@ describe('VER-08/VER-09/VER-10 — every shard says how strongly it was attested
         onQuorumShortfall: 'runs-at-available-redundancy',
       },
       new MemoryBlockstore(),
+      // CHURN-03 — this test asserts nothing about checkpointing.
+      { checkpoints: 'checkpoints-nothing' },
     )
 
     expect(r.ok).toBe(true)
@@ -2785,6 +3065,8 @@ describe('VER-08/VER-09/VER-10 — every shard says how strongly it was attested
         onQuorumShortfall: 'runs-at-available-redundancy',
       },
       new MemoryBlockstore(),
+      // CHURN-03 — this test asserts nothing about checkpointing.
+      { checkpoints: 'checkpoints-nothing' },
     )
 
     expect(r.ok).toBe(true)
@@ -2812,6 +3094,8 @@ describe('VER-08/VER-09/VER-10 — every shard says how strongly it was attested
         onQuorumShortfall: 'runs-at-available-redundancy',
       },
       new MemoryBlockstore(),
+      // CHURN-03 — this test asserts nothing about checkpointing.
+      { checkpoints: 'checkpoints-nothing' },
     )
 
     expect(r.ok).toBe(true)
@@ -2839,6 +3123,8 @@ describe('VER-08/VER-09/VER-10 — every shard says how strongly it was attested
         onQuorumShortfall: 'runs-at-available-redundancy',
       },
       new MemoryBlockstore(),
+      // CHURN-03 — this test asserts nothing about checkpointing.
+      { checkpoints: 'checkpoints-nothing' },
     )
 
     expect(r.ok).toBe(true)
@@ -2869,6 +3155,8 @@ describe('VER-08/VER-09/VER-10 — every shard says how strongly it was attested
         onQuorumShortfall: 'runs-at-available-redundancy',
       },
       new MemoryBlockstore(),
+      // CHURN-03 — this test asserts nothing about checkpointing.
+      { checkpoints: 'checkpoints-nothing' },
     )
 
     expect(r.ok).toBe(true)
@@ -2903,6 +3191,8 @@ describe('VER-03/VER-04 — a public shard wanting verification gets a composed 
         onQuorumShortfall: 'runs-at-available-redundancy',
       },
       new MemoryBlockstore(),
+      // CHURN-03 — this test asserts nothing about checkpointing.
+      { checkpoints: 'checkpoints-nothing' },
     )
 
     expect(r.ok).toBe(true)
@@ -2929,6 +3219,8 @@ describe('VER-03/VER-04 — a public shard wanting verification gets a composed 
         onQuorumShortfall: 'runs-at-available-redundancy',
       },
       new MemoryBlockstore(),
+      // CHURN-03 — this test asserts nothing about checkpointing.
+      { checkpoints: 'checkpoints-nothing' },
     )
 
     expect(r.ok).toBe(true)
@@ -2964,6 +3256,8 @@ describe('VER-03/VER-04 — a public shard wanting verification gets a composed 
         onQuorumShortfall: 'refuses-the-shard',
       },
       new MemoryBlockstore(),
+      // CHURN-03 — this test asserts nothing about checkpointing.
+      { checkpoints: 'checkpoints-nothing' },
     )
 
     expect(r.ok).toBe(true)
@@ -2990,6 +3284,8 @@ describe('VER-03/VER-04 — a public shard wanting verification gets a composed 
         onQuorumShortfall: 'runs-at-available-redundancy',
       },
       new MemoryBlockstore(),
+      // CHURN-03 — this test asserts nothing about checkpointing.
+      { checkpoints: 'checkpoints-nothing' },
     )
 
     expect(r.ok).toBe(true)
@@ -3021,6 +3317,8 @@ describe('VER-03/VER-04 — a public shard wanting verification gets a composed 
         onQuorumShortfall: 'refuses-the-shard',
       },
       new MemoryBlockstore(),
+      // CHURN-03 — this test asserts nothing about checkpointing.
+      { checkpoints: 'checkpoints-nothing' },
     )
 
     expect(r.ok).toBe(true)
@@ -3052,6 +3350,8 @@ describe('VER-03/VER-04 — a public shard wanting verification gets a composed 
         onQuorumShortfall: 'refuses-the-shard',
       },
       new MemoryBlockstore(),
+      // CHURN-03 — this test asserts nothing about checkpointing.
+      { checkpoints: 'checkpoints-nothing' },
     )
 
     expect(r.ok).toBe(true)
@@ -3082,6 +3382,8 @@ describe('VER-03/VER-04 — a public shard wanting verification gets a composed 
         onQuorumShortfall: 'refuses-the-shard',
       },
       new MemoryBlockstore(),
+      // CHURN-03 — this test asserts nothing about checkpointing.
+      { checkpoints: 'checkpoints-nothing' },
     )
 
     expect(r.ok).toBe(true)
@@ -3106,6 +3408,8 @@ describe('VER-03/VER-04 — a public shard wanting verification gets a composed 
         onQuorumShortfall: 'runs-at-available-redundancy',
       },
       new MemoryBlockstore(),
+      // CHURN-03 — this test asserts nothing about checkpointing.
+      { checkpoints: 'checkpoints-nothing' },
     )
 
     expect(r.ok).toBe(true)
@@ -3260,6 +3564,8 @@ describe('CHURN-05 — the one job path reports how many of its owners contribut
         onQuorumShortfall: 'runs-at-available-redundancy',
       },
       new MemoryBlockstore(),
+      // CHURN-03 — this test asserts nothing about checkpointing.
+      { checkpoints: 'checkpoints-nothing' },
     )
 
     expect(r.ok).toBe(true)
@@ -3310,6 +3616,8 @@ describe('CHURN-05 — the one job path reports how many of its owners contribut
         onQuorumShortfall: 'runs-at-available-redundancy',
       },
       new MemoryBlockstore(),
+      // CHURN-03 — this test asserts nothing about checkpointing.
+      { checkpoints: 'checkpoints-nothing' },
     )
 
     expect(r.ok).toBe(true)
@@ -3350,6 +3658,8 @@ describe('CHURN-05 — the one job path reports how many of its owners contribut
         onQuorumShortfall: 'runs-at-available-redundancy',
       },
       new MemoryBlockstore(),
+      // CHURN-03 — this test asserts nothing about checkpointing.
+      { checkpoints: 'checkpoints-nothing' },
     )
 
     expect(r.ok).toBe(true)
@@ -3401,6 +3711,8 @@ describe('CHURN-05 — the one job path reports how many of its owners contribut
         onQuorumShortfall: 'runs-at-available-redundancy',
       },
       new MemoryBlockstore(),
+      // CHURN-03 — this test asserts nothing about checkpointing.
+      { checkpoints: 'checkpoints-nothing' },
     )
 
     expect(r.ok).toBe(true)
@@ -3450,6 +3762,8 @@ describe('CHURN-05 — the one job path reports how many of its owners contribut
         onQuorumShortfall: 'runs-at-available-redundancy',
       },
       new MemoryBlockstore(),
+      // CHURN-03 — this test asserts nothing about checkpointing.
+      { checkpoints: 'checkpoints-nothing' },
     )
 
     expect(r.ok).toBe(true)
@@ -3493,6 +3807,8 @@ describe('CHURN-05 — the one job path reports how many of its owners contribut
         onQuorumShortfall: 'runs-at-available-redundancy',
       },
       new MemoryBlockstore(),
+      // CHURN-03 — this test asserts nothing about checkpointing.
+      { checkpoints: 'checkpoints-nothing' },
     )
 
     expect(r.ok).toBe(true)
@@ -3553,7 +3869,7 @@ describe('CHURN-05 — the one job path reports how many of its owners contribut
         onQuorumShortfall: 'runs-at-available-redundancy',
       },
       new MemoryBlockstore(),
-      { clock: virtualClock(DEFAULT_LEASE_MS * 10) },
+      { checkpoints: 'checkpoints-nothing', clock: virtualClock(DEFAULT_LEASE_MS * 10) },
     )
 
     expect(r.ok).toBe(true)
@@ -3739,6 +4055,8 @@ describe('CHURN-03 — a departed requestor leaves a record, and a second one fi
     // store holds beyond the other is a checkpoint.
     const quiet = new MemoryBlockstore()
     const noSink = await submitJob(specOver([honest('a'), honest('b')]), quiet, {
+      // CHURN-03 — this test asserts nothing about checkpointing.
+      checkpoints: 'checkpoints-nothing',
       clock: frozenClock(64),
     })
     expect(noSink.ok).toBe(true)
@@ -3860,6 +4178,8 @@ describe('CHURN-03 — a departed requestor leaves a record, and a second one fi
     // was actually asked to run.
     const seen: number[] = []
     const resumed = await submitJob(specOver([counting('d', seen), counting('e', seen)]), store, {
+      // CHURN-03 — this test asserts nothing about checkpointing.
+      checkpoints: 'checkpoints-nothing',
       clock: frozenClock(64),
       resumeFrom: [handle],
     })
@@ -3907,6 +4227,8 @@ describe('CHURN-03 — a departed requestor leaves a record, and a second one fi
     // The control, in the same fixture rather than a pinned literal: the identical job,
     // over the identical inputs, run by one requestor that never went away.
     const control = await submitJob(specOver([honest('a'), honest('b')]), new MemoryBlockstore(), {
+      // CHURN-03 — this test asserts nothing about checkpointing.
+      checkpoints: 'checkpoints-nothing',
       clock: frozenClock(64),
     })
     expect(control.ok).toBe(true)
@@ -3924,6 +4246,8 @@ describe('CHURN-03 — a departed requestor leaves a record, and a second one fi
     if (!departed.ok) return
 
     const resumed = await submitJob(specOver([honest('d'), honest('e')]), store, {
+      // CHURN-03 — this test asserts nothing about checkpointing.
+      checkpoints: 'checkpoints-nothing',
       clock: frozenClock(64),
       resumeFrom: [log.handles[log.handles.length - 1] as CID],
     })
@@ -3964,7 +4288,7 @@ describe('CHURN-03 — a departed requestor leaves a record, and a second one fi
     const resumed = await submitJob(
       specOver([counting('d', seen), counting('e', seen)]),
       losing(store, newest),
-      { clock: frozenClock(64), resumeFrom: [newest, older] },
+      { checkpoints: 'checkpoints-nothing', clock: frozenClock(64), resumeFrom: [newest, older] },
     )
     expect(resumed.ok).toBe(true)
     if (!resumed.ok) return
@@ -4034,6 +4358,8 @@ describe('CHURN-03 — a departed requestor leaves a record, and a second one fi
     await store.put(encoded.bytes)
 
     const notACheckpoint = await submitJob(specOver([honest('a')]), store, {
+      // CHURN-03 — this test asserts nothing about checkpointing.
+      checkpoints: 'checkpoints-nothing',
       clock: frozenClock(64),
       resumeFrom: [encoded.cid],
     })
@@ -4054,6 +4380,8 @@ describe('CHURN-03 — a departed requestor leaves a record, and a second one fi
     expect(absent.ok).toBe(true)
     if (!absent.ok) return
     const missing = await submitJob(specOver([honest('a')]), store, {
+      // CHURN-03 — this test asserts nothing about checkpointing.
+      checkpoints: 'checkpoints-nothing',
       clock: frozenClock(64),
       resumeFrom: [absent.cid],
     })
@@ -4089,6 +4417,8 @@ describe('CHURN-03 — a departed requestor leaves a record, and a second one fi
 
     const seen: number[] = []
     const wrong = await submitJob(specOver([counting('d', seen), counting('e', seen)]), store, {
+      // CHURN-03 — this test asserts nothing about checkpointing.
+      checkpoints: 'checkpoints-nothing',
       clock: frozenClock(64),
       resumeFrom: [log.handles[SHARDS - 1] as CID],
     })
@@ -4123,7 +4453,7 @@ describe('CHURN-03 — a departed requestor leaves a record, and a second one fi
     const resumed = await submitJob(
       specOver([counting('d', seen), counting('e', seen)]),
       losing(store, lost.resultCid),
-      { clock: frozenClock(64), resumeFrom: [log.handles[SHARDS - 1] as CID] },
+      { checkpoints: 'checkpoints-nothing', clock: frozenClock(64), resumeFrom: [log.handles[SHARDS - 1] as CID] },
     )
     expect(resumed.ok).toBe(true)
     if (!resumed.ok) return
@@ -4172,6 +4502,8 @@ describe('CHURN-03 — a departed requestor leaves a record, and a second one fi
     // And a third requestor resuming from the newest handle has nothing left to do.
     const seen: number[] = []
     const third = await submitJob(specOver([counting('f', seen), counting('g', seen)]), store, {
+      // CHURN-03 — this test asserts nothing about checkpointing.
+      checkpoints: 'checkpoints-nothing',
       clock: frozenClock(64),
       resumeFrom: [secondLog.handles[3] as CID],
     })

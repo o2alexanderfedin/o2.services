@@ -113,9 +113,11 @@ describe('DATA-10 at rest — a node refuses a sovereign block after the job tha
         onQuorumShortfall: 'runs-at-available-redundancy',
       },
       holder.store,
+      // CHURN-03 — this file's subject is the sovereign CID set, not checkpointing, and
+      // the statement is on both arms so the arm under test stays the only difference.
       holder.sovereignCids === 'forgets-sovereignty-between-jobs'
-        ? {}
-        : { sovereignCids: holder.sovereignCids },
+        ? { checkpoints: 'checkpoints-nothing' }
+        : { sovereignCids: holder.sovereignCids, checkpoints: 'checkpoints-nothing' },
     )
     // The job itself cannot place — there are no executors — and that is irrelevant here.
     // What matters is that the shard input was content-addressed and PUT before placement
@@ -154,9 +156,11 @@ describe('DATA-10 at rest — a node refuses a sovereign block after the job tha
         onQuorumShortfall: 'runs-at-available-redundancy',
       },
       holder.store,
+      // CHURN-03 — this file's subject is the sovereign CID set, not checkpointing, and
+      // the statement is on both arms so the arm under test stays the only difference.
       holder.sovereignCids === 'forgets-sovereignty-between-jobs'
-        ? {}
-        : { sovereignCids: holder.sovereignCids },
+        ? { checkpoints: 'checkpoints-nothing' }
+        : { sovereignCids: holder.sovereignCids, checkpoints: 'checkpoints-nothing' },
     )
     expect(result.ok).toBe(true)
 
@@ -186,9 +190,10 @@ describe('DATA-10 at rest — a node refuses a sovereign block after the job tha
           onQuorumShortfall: 'runs-at-available-redundancy',
         },
         holder.store,
+        // CHURN-03 — as above: stated on both arms so it cannot be the difference.
         holder.sovereignCids === 'forgets-sovereignty-between-jobs'
-          ? {}
-          : { sovereignCids: holder.sovereignCids },
+          ? { checkpoints: 'checkpoints-nothing' }
+          : { sovereignCids: holder.sovereignCids, checkpoints: 'checkpoints-nothing' },
       )
       expect(result.ok).toBe(true)
       await holder.stop()

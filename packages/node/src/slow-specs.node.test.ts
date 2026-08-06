@@ -252,9 +252,24 @@ describe('the recorded measurement still describes this repository', () => {
               paths: [CONFIG_FILE, ...NODE_PROJECT_FILES],
               line:
                 `the node project holds ${NODE_PROJECT_FILES.length} test files, the recorded ` +
-                `measurement covered ${recorded}. Re-measure with ` +
-                `\`npx vitest run --project node --reporter=json --outputFile=…\` and update ` +
-                `MEASURED_NODE_SPANS and NODE_MEASUREMENT in vitest.config.ts.`,
+                `measurement covered ${recorded}. Re-measure by the procedure in ` +
+                `MEASURED_NODE_SPANS's docblock in vitest.config.ts ("So this is the procedure, ` +
+                `and it is not optional"), then update MEASURED_NODE_SPANS and NODE_MEASUREMENT ` +
+                `there. \`--reporter=json\` is step 2 of that procedure and is not sufficient ` +
+                `alone: it stamps a file's startTime at its FIRST CASE, not at file pickup, so ` +
+                `a beforeAll registered above that case is charged to nothing — on the ` +
+                `2026-08-05 run 2 retake, start-reporting.node.test.ts reported 90 ms against a ` +
+                `real 765 ms and echo-guest.node.test.ts 600 ms against 255 540 ms, a factor of ` +
+                `426. The ${CUTOFF_MS} ms cutoff falls inside both gaps, so the reporter alone ` +
+                `would keep a node-spawning spec in test:unit forever. Step 3 is the one that ` +
+                `closes it: find every file whose beforeAll/beforeEach runs BEFORE its first ` +
+                `it/test and does real work — the test is positional, not "has a hook", and a ` +
+                `TOP-LEVEL hook runs first wherever it is written — then re-run each one alone ` +
+                `under \`/usr/bin/time -p\`, bracket it with a solo trivial spec to subtract the ` +
+                `~1.2 s boot floor, and let the wall clock win where the reporter UNDERSTATED. ` +
+                `Where its span already exceeds the whole solo run there is nothing to repair; ` +
+                `aot-dispatch.node.test.ts is that case. Record the counts in ` +
+                `NODE_MEASUREMENT.hookShadowCandidates / hookShadowDisagreed.`,
             },
           ]
     expect(blocking('slow-specs/file-count-drift', drifted, SCOPE)).toEqual([])

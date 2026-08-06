@@ -616,6 +616,8 @@ describe.skipIf(!MEASURABLE)(
             onQuorumShortfall: 'runs-at-available-redundancy',
           },
           submitter.store,
+          // CHURN-03 — this test asserts nothing about checkpointing.
+          { checkpoints: 'checkpoints-nothing' },
         )
         const translatedMs = performance.now() - translatedStarted
 
@@ -671,6 +673,8 @@ describe.skipIf(!MEASURABLE)(
             onQuorumShortfall: 'runs-at-available-redundancy',
           },
           submitter.store,
+          // CHURN-03 — this test asserts nothing about checkpointing.
+          { checkpoints: 'checkpoints-nothing' },
         )
         const nativeMs = performance.now() - nativeStarted
 
@@ -759,6 +763,8 @@ describe.skipIf(!MEASURABLE)(
             onQuorumShortfall: 'runs-at-available-redundancy',
           },
           submitter.store,
+          // CHURN-03 — this test asserts nothing about checkpointing.
+          { checkpoints: 'checkpoints-nothing' },
         )
 
         expect(result.ok).toBe(true)

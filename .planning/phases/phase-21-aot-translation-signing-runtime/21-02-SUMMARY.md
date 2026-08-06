@@ -108,6 +108,18 @@ caller*. Calling it would have turned that row false and reddened a guard whose 
 in `.planning/REQUIREMENTS.md`, which this plan does not own. The gap stays open and stays
 named.
 
+> **REVERSED 2026-08-04, recorded here 2026-08-05.** The paragraph above is retained
+> verbatim because its reasoning is still the reasoning — but it no longer describes the
+> tree. Commit `ddca460` (*"show the input digest, and record the borrowed name as
+> measured"*, defect #41) gave `describeKey` its production caller: `tools/aot/lift.ts`
+> pushes `key as hashed: ${describeKey(artifact.translation.key)}` inside `describeLift`,
+> and the file's own comment at that line names this summary — *"21-02 declined this on the
+> grounds that `describeKey` would only repeat the target…"*. `AOT-02`'s row was corrected
+> in the same commit, so nothing in the tree is inconsistent; what is stale is this
+> document's statement of the decision. Verified 2026-08-05 by
+> `grep -rn describeKey --include='*.ts'`: two non-test callers, `tools/aot/lift.ts` and
+> `packages/aot/src/index.ts`'s re-export. See `## Correction 2026-08-05` at the foot.
+
 ### Task 2 — `--image` and `--docker` on the argv surface
 
 `parseAotArgs` is one left-to-right pass over a three-entry `VALUE_FLAGS` table,
@@ -330,6 +342,10 @@ under `packages/` and `tools/` as production and holds AOT-02's row to *"`descri
 no production caller"*. Giving it one is a two-file change, and the second file is
 `.planning/REQUIREMENTS.md`.
 
+> **REVERSED 2026-08-04 by `ddca460`.** Both files were changed together, which is exactly
+> the two-file change this deviation said it was declining. See the note under Task 1 and
+> `## Correction 2026-08-05`.
+
 ### 5. [Rule 3 — the commit sequence was compressed by another agent's tree]
 
 The RED/GREEN split was **observed** for every task and the failing text recorded above,
@@ -383,3 +399,29 @@ content. The plan's *counts* were right every time; only its offsets were wrong.
 - `grep -rn "missing-out-value" tools/aot/` — no output, exit 1
 - `npx tsc --noEmit` — 0 errors in these four files
 - `npx vitest run --project node tools/aot` — **154 passed, exit 0**, read directly from `$?`
+
+## Correction 2026-08-05 — one decision this file records was reversed inside the phase window
+
+**Original wording, retained verbatim in place** (Task 1, and deviation 4):
+
+> **`describeKey` is not called, and that is a decision rather than an omission.**
+
+**Measured false as a description of the tree**, though it was true when written and the
+reasoning behind it was sound. Commit `ddca460` — `fix(aot): show the input digest, and
+record the borrowed name as measured`, 2026-08-04, closing defect #41 — added
+`lines.push(\`  key as hashed: ${'${describeKey(artifact.translation.key)}'}\`)` to
+`describeLift` in `tools/aot/lift.ts` **and** corrected AOT-02's row in
+`.planning/REQUIREMENTS.md` in the same commit. That is the two-file change deviation 4
+declined to make, made two days later for a different reason.
+
+Re-verified 2026-08-05 by reading the tree, not the report:
+`grep -rn "describeKey" --include="*.ts"` returns `tools/aot/lift.ts` (the call, plus a
+comment naming this summary) and `packages/aot/src/index.ts` (the re-export); the rest are
+tests. `requirements-ledger.node.test.ts` is green, so nothing in the tree is inconsistent
+— only this document was.
+
+`21-VERIFICATION.md` records the same thing as its row 4. Retained for the reasoning, not
+the verdict.
+
+---
+*Corrected: 2026-08-05*
