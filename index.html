@@ -6,11 +6,24 @@
     <title>o2.services — node</title>
     <style>
       :root { color-scheme: light dark; }
+      /*
+        The browser's own `[hidden] { display: none }` is an attribute selector, so
+        *any* id or class rule that sets `display` silently outranks it. `#bar` set
+        `display: flex` and the always-visible bar became the always-visible bar in
+        the literal sense — shown, reading "idle", offering to Stop a node that did
+        not exist. Reported from an iPhone; not caught here, because the tests
+        asserted the `hidden` *attribute* rather than whether anything was on screen.
+        One rule closes the whole class.
+      */
+      [hidden] { display: none !important; }
       body {
         font: 15px/1.55 ui-monospace, SFMono-Regular, Menlo, monospace;
-        margin-inline: auto; max-width: 46rem; padding: 2rem 1.25rem;
+        margin-inline: auto; max-width: 46rem;
+        /* Bottom padding clears the fixed bar, so nothing it covers is unreachable. */
+        padding: 2rem 1.25rem 7rem;
       }
       h1 { font-size: 1.1rem; margin: 0 0 .25rem; letter-spacing: .02em; }
+      h2 { font-size: 1rem; margin: 0 0 1rem; font-weight: 600; }
       .sub { opacity: .65; margin: 0 0 1.75rem; font-size: .85rem; }
       .state {
         border: 1px solid currentColor; border-radius: 6px;
@@ -30,6 +43,8 @@
       }
       button[disabled] { opacity: .4; cursor: default; }
       .note { font-size: .85rem; opacity: .75; }
+      /* A rule above it, so it reads as a footer rather than as one more paragraph
+         of whichever section happens to be visible at the time. */
       #measurements {
         margin-top: 2.5rem; padding-top: 1rem;
         border-top: 1px solid color-mix(in srgb, currentColor 20%, transparent);
@@ -38,35 +53,137 @@
         background: color-mix(in srgb, currentColor 12%, transparent);
         padding: .1em .35em; border-radius: 3px;
       }
+      pre { font: inherit; white-space: pre-wrap; opacity: .8; margin: 0; }
+
+      /* The consent gate. Nothing behind it runs, and nothing behind it is dialled. */
+      #gate {
+        border: 1px solid currentColor; border-radius: 6px;
+        padding: 1.25rem 1.25rem .35rem;
+      }
+      #gate dl { grid-template-columns: 1fr; gap: .15rem; }
+      #gate dt { opacity: 1; font-weight: 600; }
+      #gate dd { margin: 0 0 .9rem; opacity: .8; }
+      #gate label { display: block; margin: 0 0 .35rem; cursor: pointer; }
+      .controls { display: flex; gap: .6rem; align-items: center; margin: 1.1rem 0 .6rem; }
+
+      /*
+        BROW-04. Fixed, and with no control that hides it: the requirement says a
+        persistent, always-visible surface, so a collapse affordance would be the
+        first thing to remove it.
+      */
+      #bar {
+        position: fixed; inset: auto 0 0 0;
+        display: flex; flex-wrap: wrap; gap: .5rem 1.1rem; align-items: center;
+        padding: .7rem 1.1rem;
+        border-top: 1px solid currentColor;
+        background: Canvas; color: CanvasText;
+        font-size: .85rem;
+      }
+      #bar strong { font-weight: 600; }
+      #bar .spacer { flex: 1 1 auto; }
+      #bar-stats { opacity: .75; }
+      #stop { border-color: #cb4b16; color: #cb4b16; }
     </style>
-    <script type="module" crossorigin src="./assets/index-Bv4UEfgy.js"></script>
+    <script type="module" crossorigin src="./assets/index-BWNquVp8.js"></script>
     <link rel="modulepreload" crossorigin href="./assets/cid-BXpsijIc.js">
+    <link rel="modulepreload" crossorigin href="./assets/src-D6bgmcKu.js">
   </head>
   <body>
     <h1>o2.services — peer-to-peer compute node</h1>
     <p class="sub">
       This page can become a compute node in a peer-to-peer fabric.
-      Nothing runs until you start it.
+      Nothing runs, and nothing is contacted, until you allow it.
     </p>
 
     <!--
-      Deliberately inert on load. No node starts by itself: a visitor's CPU is not
-      taken without an explicit action, and the two-tab tests need to control exactly
-      when each tab joins.
+      BROW-01. The gate is the first thing rendered and the only thing that starts
+      anything. Relay discovery is behind it too: reading `/bootstrap.json` is a
+      network request, and the decision here was that no third party learns a
+      visitor is present before the visitor agrees. Everything below `#main` stays
+      hidden — and, more to the point, uncalled — until consent exists.
     -->
-    <div class="state" id="state" data-tone="idle">checking for a relay…</div>
+    <section id="gate" hidden>
+      <h2 id="gate-headline"></h2>
+      <dl id="gate-terms"></dl>
+      <label><input type="checkbox" id="reporting" /> <span id="reporting-question"></span></label>
+      <p class="note" id="reporting-answer"></p>
+      <p class="controls">
+        <button id="allow"></button>
+        <button id="decline"></button>
+      </p>
+      <p class="note" id="gate-version"></p>
+    </section>
 
-    <p><button id="join" disabled>Start node</button></p>
+    <section id="main" hidden>
+      <div class="state" id="state" data-tone="idle">checking for a relay…</div>
 
-    <dl id="facts"></dl>
+      <p><button id="join" disabled>Start node</button></p>
 
-    <p class="note" id="explain"></p>
+      <dl id="facts"></dl>
 
+      <p class="note" id="explain"></p>
+      <p class="note" id="peers"></p>
+
+      <h2>The job</h2>
+      <p class="note">
+        Colour every whole number from 1 to N red or blue so that no three numbers
+        with a² + b² = c² end up the same colour. The search is split into
+        independent cubes and spread across this tab and every peer it can reach.
+        With a peer connected, every cube is run on two of them and the two must
+        agree; alone, this tab runs each cube once. The report below says which
+        happened, and how far that goes.
+      </p>
+      <p class="note">
+        N climbs until the fabric cannot settle a rung. Each cube fixes the colours
+        of the most constrained numbers and searches the rest, so more cubes reach
+        further — with more peers connected, more cubes run, and the answer gets
+        better. N = 7824 is the largest that admits a colouring at all; 7825 does
+        not, which took a cluster and a 200-terabyte proof to establish. This will
+        not get near either.
+      </p>
+      <p class="controls">
+        <button id="run" disabled>Run the search</button>
+        <span class="note" id="run-status">start a node first</span>
+      </p>
+      <pre id="run-report"></pre>
+
+      <p class="note">
+        Nothing above needs to be believed. The check below re-derives every
+        Pythagorean triple from the definition and tests the answer against it, here,
+        in this tab — no node's word, no published table, no trust in this site.
+      </p>
+      <p class="controls"><button id="verify" disabled>Check this answer myself</button></p>
+      <pre id="verify-report"></pre>
+
+      <h2>How often does this fail to start?</h2>
+      <p class="note">
+        A browser that blocks this page does not announce it — it looks like fewer
+        volunteers. These are the reports this node has heard, including what they
+        cannot see.
+      </p>
+      <pre id="report">not asked yet</pre>
+      <p class="controls"><button id="refresh-report">Refresh</button></p>
+    </section>
+
+    <!--
+      Outside `#gate` and `#main`, both of which are `hidden` until a visitor has
+      consented and started a node. A reader who wants to know what this thing costs
+      before running anything is exactly the reader who has not pressed the button,
+      so a link inside either section would be invisible to the only audience for it.
+    -->
     <footer class="note" id="measurements">
       Measured, with the method and the numbers that disagreed with the prediction:
-      <a href="./perf/">prime counting and a pi series on this fabric</a> &mdash;
-      throughput, decomposition cost, fabric overhead and real parallel speedup.
+      <a href="./perf/">prime counting and a pi series on this fabric</a> — throughput,
+      decomposition cost, fabric overhead and real parallel speedup.
     </footer>
+
+    <!-- BROW-04. Rendered only while a node exists; never dismissible while it does. -->
+    <div id="bar" hidden>
+      <strong id="bar-what">idle</strong>
+      <span id="bar-stats"></span>
+      <span class="spacer"></span>
+      <button id="stop">Stop</button>
+    </div>
 
   </body>
 </html>
