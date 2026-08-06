@@ -258,6 +258,39 @@ const REQUIREMENTS: readonly DriverRequirement[] = [
       '    ...criterionThreeSection(criterionThree),\n' +
       "    '## The excluded rungs, re-measured — in-process and process-per-node drivers, trivial fixture',\n",
   },
+  {
+    name: 'the calibration labels its task and reads whether each call ran',
+    check: (source) => {
+      const body = source.slice(source.indexOf('async function calibratePerShard'))
+      return (
+        body.includes("label: 'public'") &&
+        /\bconst\s+outcome\s*=\s*await\s+executor\.execute\s*\(/.test(body) &&
+        /if\s*\(!outcome\.ok\)/.test(body)
+      )
+    },
+    reason:
+      'Measured on 2026-08-05, and this requirement exists because the defect was published ' +
+      'before it was found. `Executor.execute` reports failure by RETURNING `{ok: false, ' +
+      'reason}` and never by throwing, so a loop that discards the outcome measures a refusal ' +
+      'as though it were a shard. `Task.label` is optional in process and REQUIRED at the wire ' +
+      '— parseRequest’s exec branch refuses a frame carrying neither `public` nor `sovereign`, ' +
+      'so an unlabelled task cannot reach guardSovereignty as a no-op — and this call site had ' +
+      'no label. All sixteen calls came back `malformed request` in 1.2–4.3 ms each, against the ' +
+      '~90 ms the same shard costs in the rung’s own dispatch intervals, and the run published ' +
+      'an ideal bound of 8.71× derived from sixteen refusal round trips. Both halves are ' +
+      'required and each fails differently: without the label every call is refused, and without ' +
+      'the check a refusal is indistinguishable from a fast shard. A wrong bound looks exactly ' +
+      'like a right one, which is why this cannot be left to the reader of the number.',
+    satisfying:
+      'async function calibratePerShard(fabric: ProcessFabric): Promise<readonly number[]> {\n' +
+      '    const outcome = await executor.execute({\n' +
+      "      label: 'public',\n" +
+      '    })\n' +
+      '    if (!outcome.ok) {\n' +
+      '      throw new Error(`the serial calibration did not run`)\n' +
+      '    }\n' +
+      '}\n',
+  },
 ]
 
 /**
@@ -378,15 +411,23 @@ describe('the scan can report an unmet requirement — proved by planting, not a
     // own doc comments, so a raw-text match could be satisfied by prose describing a call
     // site that had been deleted.
     //
-    // It reports seven names and not ten, and that is a property of the assertions rather
+    // It reports eight names and not eleven, and that is a property of the assertions rather
     // than of the stripper: an absence requirement and a count equality both hold over a
     // source with no code in it. Those three are in `VACUOUS_ON_AN_EMPTY_SOURCE`, which is
     // computed by running each check against the empty source, and each is planted by
     // addition above.
+    //
+    // **Moved 7 → 8 by Plan 23-05, and the reason is stated rather than left to be
+    // reconstructed:** the eleventh requirement — the calibration labels its task and reads
+    // whether each call ran — is a pure presence check, so it is reported over a source with
+    // no code in it and joins this list. It was added because the defect it guards had
+    // already been published: sixteen refused calls were measured as shard durations and a
+    // derived ideal bound was rendered off them. A number that moves without its comment is
+    // how a guard becomes decoration, which is this file's own thesis about itself.
     const expected = REQUIREMENTS.map(({ name }) => name).filter(
       (name) => !VACUOUS_ON_AN_EMPTY_SOURCE.includes(name),
     )
-    expect(expected.length).toBe(7)
+    expect(expected.length).toBe(8)
     expect(unmetRequirements(commentsOnly)).toEqual(expected)
   })
 

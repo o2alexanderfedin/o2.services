@@ -2225,6 +2225,21 @@ function gateRung(
  * trip on top of the shard**. No estimate of it is subtracted and no derivation of which
  * way it moves the quotient is written here. The module block is already resident at the
  * agent from the rung's measured runs, so this measures compute rather than first fetch.
+ *
+ * ## Every call is checked, and the check is not decoration
+ *
+ * `Executor.execute` reports failure by **returning** `{ok: false, reason}` and never by
+ * throwing, so a loop that discards the outcome cannot tell a shard that ran from a shard
+ * that was refused — and a refusal is fast, which biases the quotient downward without
+ * changing its shape. Measured on 2026-08-05: with the `label` below absent, all sixteen
+ * calls came back `malformed request` in 1.2–4.3 ms each, against the ~90 ms the same
+ * shard costs in the rung's own dispatch intervals, and a bound of `8.71×` was published
+ * off sixteen refusal round trips. **The label is required at the wire even though it is
+ * optional on `Task`** — `parseRequest`'s exec branch refuses a frame carrying neither
+ * `public` nor `sovereign`, so an unlabelled task cannot reach `guardSovereignty` as a
+ * no-op. So this function now states the label and refuses to return a vector at all if
+ * any call did not run: a bound derived from calls that were refused is not a bound, and
+ * the failure has to be loud because its symptom is a plausible number.
  */
 async function calibratePerShard(fabric: ProcessFabric): Promise<readonly number[]> {
   const executor = fabric.executors[0]
@@ -2241,14 +2256,25 @@ async function calibratePerShard(fabric: ProcessFabric): Promise<readonly number
   const perShard: number[] = []
   for (let partitionIndex = 0; partitionIndex < SHARDS; partitionIndex++) {
     const at = performance.now()
-    await executor.execute({
+    const outcome = await executor.execute({
       moduleCid: fabric.moduleCid,
       moduleRecord: SATURATING_RECORD,
       inputCid: encoded.cid,
       partitionIndex,
       partitionCount: SHARDS,
+      // Stated, not defaulted. `Task.label` is optional in process and **required at the
+      // wire**; every shard this driver dispatches is `public`, and so is this one.
+      label: 'public',
     })
-    perShard.push(performance.now() - at)
+    const elapsed = performance.now() - at
+    if (!outcome.ok) {
+      throw new Error(
+        `the serial calibration's shard ${partitionIndex} of ${SHARDS} did not run: ${outcome.reason}. ` +
+          'The ideal bound is sum ÷ max over these durations, so a refused call publishes a ' +
+          'round trip as a shard cost — refusing here is the only way that stays visible.',
+      )
+    }
+    perShard.push(elapsed)
   }
   return perShard
 }
@@ -3006,6 +3032,48 @@ function criterionThreeSection(outcomes: readonly AttemptOutcome[]): readonly st
   ]
 }
 
+/**
+ * The run this one replaced, and where its figures went.
+ *
+ * **This section exists because `main()` rewrites the report wholesale.** Both `writeFile`
+ * calls at the end of this function name `.planning/BENCHMARK-RESULTS.md` and
+ * `.planning/bench/raw.json`, and the memory and real ladders are swept on the same rungs
+ * the 2026-08-01 run swept — so every one of that run's figures is overwritten with a new
+ * number for the same configuration the moment this driver starts. BENCH-07 criterion 4's
+ * second half is *no figure is silently replaced*, and that cannot be satisfied by
+ * re-deriving those numbers and then checking that a row of the right shape exists: a shape
+ * check passes against any values whatsoever. It is satisfied by the earlier values
+ * surviving in a file nothing regenerates, and by this section saying the replacement
+ * happened.
+ *
+ * **No driver writes the path named below**, which is what makes it a floor rather than a
+ * courtesy: a later phase's benchmark run cannot take those figures with it either.
+ *
+ * The heading names its driver and fixture like every other figure-carrying section, and
+ * `bench-results.node.test.ts` requires this literal to exist here — so deleting this
+ * renderer is a red test rather than a report that quietly stops pointing at the artifact.
+ */
+function frozenRunSection(): readonly string[] {
+  return [
+    '## Earlier run — frozen (in-process driver, trivial fixture)',
+    '',
+    'The run stamped `2026-08-01T06:09:01.272Z` published a memory ladder over 1/2/4/8/16',
+    'nodes and a real-transport ladder over 1/2/4/8, both in-process on the trivial fixture.',
+    '**Every rung it published has been re-measured by the run above and overwritten in this',
+    'file.** Its own figures survive byte for byte in',
+    '[`BENCHMARK-RESULTS-2026-08-01.md`](./BENCHMARK-RESULTS-2026-08-01.md), which this',
+    'driver does not write and no later run of it will.',
+    '',
+    '**Do not read the tables above as still containing those values.** They are a second',
+    'measurement of the same configurations, taken on a different day, under a different',
+    'load, by a driver this phase changed — so a reader comparing the two artifacts is',
+    'comparing two runs, which is the only honest comparison available. What a reader must',
+    'be able to tell apart is a figure that *changed* from a figure that was *replaced*, and',
+    'both files existing is what makes that possible.',
+    '',
+  ]
+}
+
 async function main(): Promise<void> {
   const outDir = join(process.cwd(), '.planning', 'bench')
   await mkdir(outDir, { recursive: true })
@@ -3482,6 +3550,23 @@ async function main(): Promise<void> {
         ' and a knee there is contention rather than coordination. The observed process' +
         ' count and the core count are both published below, per rung, so a reader can' +
         ' see which rungs those are rather than take a claim about it.',
+      // The two phrases below are single string literals and are deliberately not broken
+      // across a concatenation. `bench-results.node.test.ts`'s linkage block requires each
+      // to exist unbroken in this file, and it caught them assembled from three fragments
+      // on the first take: a sentence a reader must not be able to lose has to be findable
+      // in the source that writes it, not only in the output that happens to join it.
+      '**BENCH-06’s distinct-machine half is descoped, and ' +
+        'unmeasured is not met' +
+        '.** Every rung in this report ran on one host, and a same-host run ' +
+        '**cannot detect divergence between machines**' +
+        ' whatever its process count: one CPU, one V8' +
+        ' and one libc produce one answer, and a divergence is a disagreement between two.' +
+        ' **Spawning an operating-system process per node does not close this**, and no' +
+        ' section below should be read as though it did — what process isolation buys is' +
+        ' separate address spaces and separate schedulers on the same machine, which is a' +
+        ' different property from two machines disagreeing about a float. What would measure' +
+        ' it is a second host, and one was not available. Recorded in these words because' +
+        ' this is the phase whose report is most likely to be read as having closed it.',
       '**BENCH-06 (distinct machines) is NOT met.** One machine was available, so every' +
         ' number here is same-machine. The N the ladder counts is N *node identities*, and' +
         ' they share one host — and, per the entry above, one process — so they share a' +
@@ -3597,7 +3682,12 @@ async function main(): Promise<void> {
 
   const markdown = [
     renderMarkdown(report),
-    '## Supplementary — where the time goes',
+    // The heading names a driver and a fixture like every other figure-carrying section.
+    // The three readings beneath it are not all from one rig and the heading says so
+    // rather than picking whichever name would have been shortest: the skew reading comes
+    // from the in-process driver on the trivial fixture, and the other two run no fabric at
+    // all, so there is no driver to name for them and claiming one would be false.
+    '## Supplementary — where the time goes — in-process driver, trivial fixture, and two runs with no fabric',
     '',
     'Not part of the pre-registered plan; included because it decomposes the crossover',
     'rather than flattering it.',
@@ -3633,6 +3723,7 @@ async function main(): Promise<void> {
     ...processSection(processRows, logicalCores),
     ...speedupSection(speedupRungs, perShardMs, logicalCores, processRows),
     ...criterionThreeSection(criterionThree),
+    ...frozenRunSection(),
   ].join('\n')
 
   await writeFile(join(outDir, 'raw.json'), JSON.stringify({ report, skewed, wasmSummary }, null, 2))
