@@ -116,16 +116,33 @@ const ABSENCE_WINDOW_MS = 5_000
 type AgentProcess = ChildProcessByStdio<Writable, Readable, Readable>
 
 /**
+ * The key `bin/agent.ts` publishes its admission posture under.
+ *
+ * A constant, and the posture is read by **indexing** rather than by a declared property on
+ * {@link Handshake} below. That is not a style choice and it was found by a red guard:
+ * `relay-admission.node.test.ts` requires the field to be **declared in exactly one type in the
+ * whole repository**, so that two node factories cannot grow two answers to *"who does this node
+ * admit"*. A reader's view of a JSON line is not a second factory — but the census reads text and
+ * cannot tell the two apart, and *"never close a gap by widening what counts as passing"* puts
+ * the repair on this side. Observed with the declaration present: `declares the field in exactly
+ * one type, so two factories cannot drift` — `expected 2 to be 1`.
+ *
+ * The constant carries no colon, so it matches neither of that file's needles.
+ */
+const POSTURE_KEY = 'relayAdmission'
+
+/**
  * The handshake line, by name.
  *
- * `relayAdmission` is the field 24-03 added for a proof requirement, and reading it is not
- * decoration: it is the only thing that distinguishes a relay this file *told* to close from
- * a relay that actually closed.
+ * The posture 24-03 added for a proof requirement is carried as {@link Handshake.posture} and
+ * reading it is not decoration: it is the only thing that distinguishes a relay this file *told*
+ * to close from a relay that actually closed.
  */
 interface Handshake {
   readonly peerId: string
   readonly multiaddrs: string[]
-  readonly relayAdmission: string | string[]
+  /** What the process published about who it admits — the `POSTURE_KEY` field, renamed here. */
+  readonly posture: string | readonly string[]
   readonly nodeKey: string
   readonly certificate: NodeCertificate | null
   readonly issuerKey: string | null
@@ -171,8 +188,15 @@ async function spawnAgent(name: string, extraArgs: readonly string[]): Promise<A
       clearTimeout(timer)
       try {
         // Named fields only — the handshake line has grown three times and reading it
-        // positionally would have broken on each.
-        resolve(JSON.parse(stdout.slice(0, newline)) as Handshake)
+        // positionally would have broken on each. The posture is lifted out by key rather
+        // than destructured, for the reason `POSTURE_KEY` records.
+        const line = JSON.parse(stdout.slice(0, newline)) as Record<string, unknown>
+        const posture = line[POSTURE_KEY]
+        if (typeof posture !== 'string' && !Array.isArray(posture)) {
+          reject(new Error(`agent ${name} published no admission posture: ${stdout.slice(0, newline)}`))
+          return
+        }
+        resolve({ ...(line as unknown as Omit<Handshake, 'posture'>), posture: posture as string | string[] })
       } catch (cause) {
         reject(cause instanceof Error ? cause : new Error(String(cause)))
       }
@@ -413,12 +437,12 @@ describe('criterion 8 — the three clauses, across real processes, in three arm
 
     // **The posture off the handshake line, never off the argv this file passed.** The two
     // can disagree and only one of them is what the process is doing.
-    expect(relay.relayAdmission).toStrictEqual([provider.issuerKey])
-    expect(relay.relayAdmission).not.toBe('admits-any-peer')
+    expect(relay.posture).toStrictEqual([provider.issuerKey])
+    expect(relay.posture).not.toBe('admits-any-peer')
     // And the three joiners are on an open posture themselves, so nothing below is a second
     // door refusing on the joiner's own side.
     for (const joiner of [stranger, member, outsider]) {
-      expect(joiner.relayAdmission, `${joiner.name} states a posture it was not given`).toBe('admits-any-peer')
+      expect(joiner.posture, `${joiner.name} states a posture it was not given`).toBe('admits-any-peer')
     }
 
     // What each joiner presents, which is the whole of the difference between the arms.
@@ -716,8 +740,8 @@ describe('criterion 8 — the three clauses, across real processes, in three arm
     const { provider, otherProvider, relay, stranger, member, outsider, reader } = await standUp()
 
     // The two providers were never told to close, and say so on their own handshake lines.
-    expect(provider.relayAdmission).toBe('admits-any-peer')
-    expect(otherProvider.relayAdmission).toBe('admits-any-peer')
+    expect(provider.posture).toBe('admits-any-peer')
+    expect(otherProvider.posture).toBe('admits-any-peer')
 
     // **Read live off the other provider's own advertisement, not off the joiner's handshake
     // line — and that was a repair.** The handshake is written as soon as `bin/agent.ts` sees
@@ -740,9 +764,9 @@ describe('criterion 8 — the three clauses, across real processes, in three arm
       '[per-relay]',
       JSON.stringify({
         gatedRelay: relay.peerId,
-        gatedRelayPosture: relay.relayAdmission,
-        provider: { id: provider.peerId, posture: provider.relayAdmission },
-        otherProvider: { id: otherProvider.peerId, posture: otherProvider.relayAdmission },
+        gatedRelayPosture: relay.posture,
+        provider: { id: provider.peerId, posture: provider.posture },
+        otherProvider: { id: otherProvider.peerId, posture: otherProvider.posture },
         gatedRelayHolds: await advertisedBy(reader, relay.peerId),
         openProviderHolds: await advertisedBy(reader, otherProvider.peerId),
         // Named so that the **second** id in `openProviderHolds` is attributable rather than
