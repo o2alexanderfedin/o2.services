@@ -369,6 +369,22 @@ async function attestedNodes(
       ownerId: 'public',
       canExecuteSovereign: true,
       load: 0,
+      // **AUTH-02 — what this tab's named absence will come to mean, and it does not mean
+      // it yet.** Today a tab holding no certificate joins, is advertised and is dialled on
+      // exactly the terms an enrolled one is; the absence costs it only a receipt a third
+      // party could check, which is what the panel already reports in the kernel's own
+      // words. Phase 24's ruling moves the decision to the relay reservation — where a
+      // node's life in the fabric begins — and then this same absence becomes the reason a
+      // tab is not let in. So: **this tab can enrol, and until it does it will not be
+      // admitted.**
+      //
+      // A fact about what *this tab* was handed, never a kind of node. Enrolment stays open
+      // precisely so a tab in this state can leave it, and the tab beside it that did enrol
+      // is the same class with a different value in this field.
+      //
+      // **Nothing in this repository refuses anybody on this ground as of 2026-08-06.** Plan
+      // 24-03 is the one that arms it; a reader meeting this before that lands is reading a
+      // promise about the next plan, not a description of this one.
       certificate:
         executor.nodeId === n.peerId
           ? (n.certificate ?? 'carries-no-certificate')

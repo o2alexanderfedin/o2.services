@@ -585,6 +585,96 @@ describe('AUTH-02 — a seed can be told its issuers, separately from its build 
   }, 180_000)
 })
 
+/**
+ * AUTH-02 — the two surfaces a person meets, and the sentences they now carry.
+ *
+ * ## Why this guard had to be written rather than extended
+ *
+ * Plan 24-02 instructed the executor to *extend whatever guard already reads
+ * `'carries-no-certificate'` in `demo/main.ts`*. **Measured 2026-08-06: no such guard
+ * exists.** Ten test files read `packages/browser/demo/main.ts` as source text —
+ * `serve-agent-hooks`, `trust-anchors`, `purity`, `opt-in-only-sources`,
+ * `checkpoint-optout-scope`, `sovereign-block-refusal`, `kernel-build`, and the three e2e
+ * specs — and **not one of them mentions the literal**. The state is first-class in the
+ * demo's own types and pinned by nothing that reads its source.
+ *
+ * It is not unguarded, and the distinction matters. `attestation-ui.e2e.test.ts` pins the
+ * **rendered consequence**: an unenrolled peer makes the panel print *"this requestor holds
+ * no certificate for it"*, and an enrolled one must not. That is a stronger reading than a
+ * substring count and it is also an expensive one — it runs `vite build` and drives
+ * Playwright over the built bundle, in an `e2e` project that sets `fileParallelism: false`.
+ * So the two are complements: that file measures what a visitor sees, this one pins that
+ * the source still says it, and only this one is cheap enough to run on every commit.
+ *
+ * ## What the counts and phrases mean
+ *
+ * The literal is counted over **stripped** source, so a comment naming the state is not a
+ * state. The two new sentences are matched over **flowed prose** — comment markers removed
+ * and whitespace collapsed — because they are documentation, which stripping deletes, and
+ * because a sentence pinned as a raw line would be broken by rewrapping it rather than by
+ * removing it. A guard that fires on reflowing is a guard somebody deletes.
+ *
+ * ## The forbidden vocabulary, and the word deliberately not on the list
+ *
+ * 24-CONTEXT's cardinal rule: certificate-holding is a per-node **fact**, never a node
+ * kind. So neither surface may grow a `gated node` / `open node` label. **`lesser node` is
+ * not forbidden** — it occurs once in `tab-api.ts`, in the sentence *"it is not a lesser
+ * node"*, and that is the rule being **kept**. Forbidding the denial along with the
+ * assertion would delete the clearest statement of the rule in either file, which is how a
+ * guard ends up enforcing the opposite of its own subject.
+ */
+describe('AUTH-02 — the demo and the tab API say what carrying no certificate will mean', () => {
+  const DEMO = 'packages/browser/demo/main.ts'
+  const TAB_API = 'packages/browser/src/tab-api.ts'
+
+  /** Documentation as a reader receives it: comment markers gone, wrapping collapsed. */
+  const prose = (file: string): string =>
+    readFileSync(join(ROOT, file), 'utf8')
+      .replace(/^[ \t]*(\/\/+|\*+\/?|\/\*+)[ \t]?/gm, '')
+      .replace(/\s+/g, ' ')
+
+  it('reads real prose out of both files, so the phrases below are absences in text that exists', () => {
+    // Anti-vacuity first. A `prose` that returned nothing would satisfy every negative and
+    // fail every positive for a reason having nothing to do with either file.
+    expect(prose(DEMO).length).toBeGreaterThan(20_000)
+    expect(prose(TAB_API).length).toBeGreaterThan(10_000)
+    // And it really did strip: a sentence both files carry inside a comment is reachable.
+    expect(prose(TAB_API)).toContain('it is not a lesser node')
+  })
+
+  it('keeps the demo’s first-class absence as a value, not only as prose', () => {
+    // Seven, over stripped source. The literal appears an eighth time in `attestedNodes`'s
+    // own commentary, which is exactly why this counts the stripped form: a sentence about
+    // the state is not the state.
+    expect(occurrences(code(DEMO), "'carries-no-certificate'")).toBe(7)
+  })
+
+  it('says at the demo what the absence will mean once admission is gated', () => {
+    // Phrased as a fact about *this tab* and as a promise about 24-03, which is the whole
+    // of what Plan 24-02 was allowed to write: nothing refuses anybody yet.
+    expect(prose(DEMO)).toContain('this tab can enrol, and until it does it will not be admitted')
+    expect(prose(DEMO)).toContain('Nothing in this repository refuses anybody on this ground')
+  })
+
+  it('says at the tab API that a supplied relay address is the door admission is decided at', () => {
+    expect(prose(TAB_API)).toContain(
+      'A host page supplying this is supplying a front door, and the front door is where admission will be decided.',
+    )
+    // The exemption that makes the ruling implementable, stated where a page choosing an
+    // address will meet it rather than only in a planning document.
+    expect(prose(TAB_API)).toContain('The gate fires on the reservation and on nothing else.')
+  })
+
+  it('grows no node kind on either surface', () => {
+    // See this block's docblock for why `lesser node` is absent from this list.
+    const kinds = ['gated node', 'open node', 'admitted node', 'unadmitted node']
+    for (const file of [DEMO, TAB_API]) {
+      const lowered = prose(file).toLowerCase()
+      for (const kind of kinds) expect([file, kind, lowered.includes(kind)]).toEqual([file, kind, false])
+    }
+  })
+})
+
 describe('the needles can fail, and are not prefix matches — measured, not reasoned', () => {
   // `serve-agent-hooks.node.test.ts`'s own comment records a needle that matched inside a
   // longer line and discriminated nothing for as long as it existed. That precedent is why
