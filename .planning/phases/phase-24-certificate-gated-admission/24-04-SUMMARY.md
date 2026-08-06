@@ -9,7 +9,7 @@ requires:
   - a connectionGater consulting RelayAdmission at the reservation and nowhere else (24-03)
   - bin/agent.ts --admit-issuer, with the posture published on the handshake line (24-03)
 provides:
-  - criterion 8's three clauses read across five real bin/agent.ts processes, each with a plant that reddens it alone
+  - criterion 8's three clauses read across six real bin/agent.ts processes, each with a plant that reddens it alone
   - the browser tier's refuse-enrol-admit transition in chromium, firefox and webkit, on the co-located topology no fixture stood up before
   - the measured fact that admission is PER-RELAY — a peer the gate refuses reserves on the open provider it dialled to enrol
   - the measured fact that a node with no relayAddrs of its own cannot dial a relayed peer at all
@@ -46,7 +46,7 @@ metrics:
 
 # Phase 24 Plan 04: Read the criterion, and measure what it does not fix — Summary
 
-Criterion 8's three clauses are read across five real `bin/agent.ts` processes and in three
+Criterion 8's three clauses are read across six real `bin/agent.ts` processes and in three
 browser engines, each clause with a plant that reddens it alone; the residual this phase does
 not fix is a measured ratio recorded as unchanged; and the phase's own claim is bounded by a
 finding that was not planned — **admission is per-relay, and the fabric is only as closed as
@@ -358,6 +358,25 @@ have made clause 1 and clause 2 the same reading.
 **4. Plant (b) was re-targeted from `seed-server.ts` to `fabric-node.ts`.** The plan's target
 is not a surface this reading can use. Reasoned above.
 
+## Correction applied 2026-08-06, after verification — the process count was FIVE and is SIX
+
+`24-VERIFICATION.md` warning **W3** measured it: `spawnAgent` runs for `provider`,
+`other-provider`, `relay`, and three more times inside `joinFabric` (`member`, `stranger`,
+`outsider`) — **six** `bin/agent.ts` children, plus one in-process `FabricNode` reader. The
+wrong figure stood in three places, all corrected in this pass: twice in this file (the
+frontmatter `provides` line and the opening paragraph), once in
+`admission-agents.node.test.ts`'s own Budget section — and it had propagated into the
+**AUTH-02 requirement row drafted below**, which is why it had to be corrected before that
+row landed in a permanent ledger. The test file's own reader paragraph calling the reader
+*"a seventh child"* it declined to spawn was consistent with six all along, and is the
+sentence that made the contradiction findable.
+
+**The ledger rows below HAVE now landed**, on 2026-08-06, with W3's correction applied and
+with the bound `24-VERIFICATION.md` added: `bin/seed.ts` is not merely still open, it
+**cannot be told to close** — no flag, no `SeedServerOptions` field — which is why criterion
+8 verifies **PARTIAL** (0 of 1) rather than passing with a stated bound. Neither checkbox
+moved; both verdict cells stay `Partial`.
+
 ## Notes for the verifier — ledger changes this plan did not land
 
 `STATE.md` and `ROADMAP.md` were **not** edited, on instruction. `REQUIREMENTS.md` was edited,
@@ -377,7 +396,7 @@ verified, and reverted, also on instruction. What this plan would otherwise have
 > will *use*; `relayAdmission` decides who gets *in*. `FabricNode` now supplies
 > `connectionGater.denyInboundRelayReservation`, which asks a joining peer for its records
 > over the fabric's own RPC, verifies the certificate offline against a pinned issuer set, and
-> refuses the circuit reservation when it does not chain. **Measured across five real
+> refuses the circuit reservation when it does not chain. **Measured across six real
 > `bin/agent.ts` processes** in `packages/node/src/admission-agents.node.test.ts`: an agent
 > with no certificate holds no circuit through a gated relay and is told `PERMISSION_DENIED`
 > by name, is absent from the relay's `reservations` answer in the same list an enrolled agent

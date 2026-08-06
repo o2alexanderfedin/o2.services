@@ -64,9 +64,15 @@
  *
  * ## Budget
  *
- * Five child processes plus one in-process reader. `discovery-agents.node.test.ts` runs seven
- * and `tree-reduce-agents.node.test.ts` nine, so this is inside the established budget for
- * this repository and its timeouts are reused rather than re-invented.
+ * **Six** child processes plus one in-process reader. `spawnAgent` runs for `provider`,
+ * `other-provider` and `relay`, and three more times inside `joinFabric` for `member`,
+ * `stranger` and `outsider`. This paragraph read *"Five"* until 2026-08-06, which contradicted
+ * the reader paragraph above it calling the reader *"a seventh child"* it declined to spawn —
+ * the count was corrected, not the reader paragraph, and the same wrong figure had propagated
+ * into `24-04-SUMMARY.md` twice and into the AUTH-02 requirement row drafted from it.
+ * `discovery-agents.node.test.ts` runs seven and `tree-reduce-agents.node.test.ts` nine, so
+ * this is inside the established budget for this repository and its timeouts are reused rather
+ * than re-invented.
  */
 import { spawn } from 'node:child_process'
 import type { ChildProcessByStdio } from 'node:child_process'

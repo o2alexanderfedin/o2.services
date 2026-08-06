@@ -491,12 +491,37 @@ export interface FabricNodeOptions {
    * carries that meaning instead — so the two mechanisms do not read one value two ways,
    * they read different types.
    *
-   * **Nothing reads this yet, and that is a property of this wave rather than an
-   * oversight.** No `connectionGater` is constructed below, `circuitRelayServer`'s
-   * arguments are unchanged, and every construction site in this repository writes
-   * `'admits-any-peer'` — which is exactly what the tree already did. Threading the option
-   * first is what makes arming it cheap: a site that has already stated what it means does
-   * not break when the value starts being consulted.
+   * **This is read, and Plan 24-03 is what made it so. The paragraph that stood here said
+   * the opposite, and it was corrected on 2026-08-06 rather than left to be believed.** It
+   * read *"Nothing reads this yet … No `connectionGater` is constructed below … every
+   * construction site in this repository writes `'admits-any-peer'`"*, and three of those
+   * four clauses are false **in this same file**. {@link relayAdmissionGate} takes this
+   * value as its `admission` argument; `createLibp2p` below is handed
+   * `connectionGater: { denyInboundRelayReservation: gate }` by a conditional spread; and
+   * `bin/agent.ts` writes a pinned `new Set(values['admit-issuer'])` when `--admit-issuer`
+   * is given. The spread is conditional because the gate returns `undefined` for
+   * `'admits-any-peer'`, so an open node supplies **no gater method at all** and is
+   * byte-identical to the tree before this field existed — which is the property that made
+   * arming it safe, not a leftover of the wave that deferred it.
+   *
+   * **The one clause that survives is `circuitRelayServer`'s.** Its arguments are still
+   * capacity-only, deliberately, and `relay-admission.node.test.ts`'s census pins that:
+   * admission is a `ConnectionGater` question and capacity is a relay-server one, and
+   * folding either into the other is the defect that census exists to catch.
+   *
+   * **Threading the option one wave before arming it was still the right move**, and that
+   * half of the old paragraph was true — a site that had already stated what it means did
+   * not break when the value started being consulted.
+   *
+   * **What being read costs, stated here because this is where a deployment reads it.** A
+   * relay that pins issuers asks a joining peer for its records over the fabric's own RPC
+   * before granting the reservation, so it must be able to reach that peer at that moment;
+   * the ask is retried, because the first request is *destroyed* rather than delayed. The
+   * verdict is taken **at the grant and at each renewal**, which is what makes
+   * {@link FabricNodeOptions.reservationTtlMs} this node's revocation window — measured, and
+   * argued in full at that field. Every verdict lands in {@link FabricNode.admissionDecisions},
+   * which is in-process only: across a process boundary a refusal reaches the joiner as an
+   * undifferentiated `PERMISSION_DENIED` carrying no reason at all.
    *
    * Per-node **configuration**, not a node kind. Every `FabricNode` has the identical
    * executor, transport, relay capability and protocol surface whatever is passed here —
