@@ -48,7 +48,13 @@ patterns-established:
   - "A line comment in a scanned source file must not contain the two characters that open a block comment: the repo's comment-strippers are non-greedy regexes and one such sequence swallows the file"
   - "A refusal from a *different* gate than the one under test is evidence the task got past the gate under test"
 
-requirements-completed: [AOT-04]
+# CORRECTED 2026-08-05. This field read `requirements-completed: [AOT-04]`, which
+# contradicted this file's own `## Self-Check` — *"AOT-04 is deliberately not marked
+# complete in `REQUIREMENTS.md` by this plan"* — and contradicted the ledger, where AOT-04
+# is an unchecked `- [ ]` box carried as **Partial**. The other four Phase 21 summaries
+# read `[]`. The original value is retained in this comment, not deleted: retained for the
+# reasoning, not the verdict. See `## Correction 2026-08-05` at the foot of this file.
+requirements-completed: []
 
 duration: 30min
 completed: 2026-08-04
@@ -213,6 +219,33 @@ report a criterion as met on the strength of a hand-written fixture.
 `STATE.md` and `ROADMAP.md` were not modified, per the execution instruction for this
 shared working tree.
 
+## Correction 2026-08-05 — the frontmatter contradicted the body
+
+**Original wording, retained verbatim:**
+
+```yaml
+requirements-completed: [AOT-04]
+```
+
+**Measured false**, and the evidence is in three places that all disagree with it:
+
+1. This file's own `## Self-Check`, four paragraphs above: *"**AOT-04 is deliberately not
+   marked complete in `REQUIREMENTS.md` by this plan.** … Marking it here would report a
+   criterion as met on the strength of a hand-written fixture."*
+2. `.planning/REQUIREMENTS.md` carries `- [ ] **AOT-04**` — an unchecked box — and its
+   traceability row reads **Partial**, naming the outstanding clause as *"the ABI verified
+   against a real elfconv artifact rather than a hand-written fixture, across real
+   processes (Plan 21-05)."*
+3. `21-01`, `21-02`, `21-04` and `21-05` all read `requirements-completed: []`.
+
+**This is the machine-readable half of a document contradicting the prose above it** —
+`21-VERIFICATION.md`'s finding W4, confirmed here by re-reading the tree rather than by
+re-reading that report. Nothing in the tree parses this field, so the correction moves no
+behaviour; what it moves is what a reader of the record is told.
+
+The field now reads `[]`. Retained for the reasoning, not the verdict.
+
 ---
 *Phase: phase-21-aot-translation-signing-runtime*
 *Completed: 2026-08-04*
+*Corrected: 2026-08-05*

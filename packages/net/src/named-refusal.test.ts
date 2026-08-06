@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest'
 import { EgressGuard } from './egress.ts'
 import { RpcEndpoint } from './rpc.ts'
 import { RpcBlockSource, serveAgent } from './agent.ts'
+import { FetchingBlockstore } from './block.ts'
 import { encodeRequest, parseResponse } from './protocol.ts'
 
 /**
@@ -89,6 +90,15 @@ interface Node {
   readonly nodeId: string
   readonly guard: CountingGuard
   readonly store: MemoryBlockstore
+  /**
+   * The store this node actually serves from — the same object `serveAgent` was handed.
+   *
+   * Identical to `store` unless `fetchesFrom` was supplied, in which case it is the
+   * `FetchingBlockstore` wrapper production wires. Exposed so a test can drive a fetch
+   * through the very store the serve path answers from, rather than through a second one
+   * built to resemble it.
+   */
+  readonly served: Blockstore
   close(): void
 }
 
@@ -100,16 +110,30 @@ const network = new MemoryNetwork()
 interface Faulty {
   readonly blockstore?: Blockstore
   readonly index?: RecordIndex
+  /**
+   * Give this node the production wiring: a `FetchingBlockstore` over these peers.
+   *
+   * A thunk, so a pair of nodes can name each other before either exists — which is also
+   * how `fabric-node.ts` and `browser-node.ts` pass `verifiedPeers` and `transport.peers`.
+   * Absent, the node serves a bare `MemoryBlockstore` with no network fallback at all,
+   * which is what every other case in this file wants and is why this is opt-in.
+   */
+  readonly fetchesFrom?: () => readonly string[]
 }
 
 function servingNode(nodeId: string, faulty: Faulty = {}): Node {
   const guard = new CountingGuard(network.connect(nodeId), OWNER_ID)
   const rpc = new RpcEndpoint(guard, { timeoutMs: 2_000 })
   const store = new MemoryBlockstore()
+  const served =
+    faulty.blockstore ??
+    (faulty.fetchesFrom === undefined
+      ? store
+      : new FetchingBlockstore(store, new RpcBlockSource(rpc, faulty.fetchesFrom)))
   serveAgent({
     rpc,
     executor: stubExecutor(nodeId),
-    blockstore: faulty.blockstore ?? store,
+    blockstore: served,
     // This file takes holds directly, so the store the serve path would declare
     // from is deliberately empty: nothing here is meant to register through a task.
     egress: { guard, sovereignInputs: new MemoryBlockstore(), sovereignCids: 'forgets-sovereignty-between-jobs' },
@@ -126,6 +150,7 @@ function servingNode(nodeId: string, faulty: Faulty = {}): Node {
     nodeId,
     guard,
     store,
+    served,
     close() {
       rpc.close()
     },
@@ -323,6 +348,101 @@ describe('a node holding no registrations pays nothing for the pre-scan', () => 
     } finally {
       node.close()
       rpc.close()
+    }
+  })
+})
+
+/**
+ * Two nodes wired to each other answer "not held" instead of waiting out the deadline.
+ *
+ * ## The reading that was wrong, and why it was wrong in a way this repo has seen before
+ *
+ * The reported symptom was *"two connected nodes each ask the other for a block neither
+ * holds — 60 s timeout with no refusal"*, and the recorded diagnosis read that as a
+ * missing refusal branch. It is not one: `serveAgent`'s block arm has answered
+ * `{ kind: 'block', bytes: bytes ?? null }` all along, and `RpcBlockSource` has always
+ * treated that `null` as a miss and moved to the next peer. **Both halves of the named
+ * refusal were already correct.** What was wrong is that control never reached them.
+ *
+ * The 60 s was never a fact about blocks. It is `packages/browser/demo/main.ts`'s own
+ * `rpcTimeoutMs: 60_000`, and re-siting the bound moves the reading with it — the fixture
+ * below reads ~2 002 ms against a 2 000 ms budget. *A duration equal to a timeout is
+ * evidence of the timeout*, the rule this repository already paid for once on
+ * `lift.node.test.ts` (defect #30), applied to a second sighting of the same shape.
+ *
+ * ## What actually happened, measured rather than reasoned
+ *
+ * In production `serveAgent`'s blockstore is a `FetchingBlockstore`, so a node asked for a
+ * block it did not hold went to the network to find one *for the peer that had just asked
+ * it*. A's `get` registers the CID in its in-flight map and asks B; B's serve path calls
+ * its own `get`, which asks A; A's serve path calls `get` again and the in-flight map
+ * hands it back the very promise that is waiting on B. Neither can resolve, so only the
+ * RPC timer ends it.
+ *
+ * **The two arms below are the differentiator, and they run in one call** so the machine,
+ * the load and the I/O weather cancel. A cycle and a chain of the same depth-2 shape: if
+ * the deadlock were really "block fetches are slow", both would wait; only the cycle does.
+ */
+describe('a node answers for what it holds, not for what its peers might hold', () => {
+  it('resolves a mutual fetch by name instead of by deadline, against a chain that never cycled', async () => {
+    // Chain: A -> B -> C, and C has no fallback at all, so the walk terminates on its own.
+    // This arm is the control. It shares every ingredient with the cycle below except the
+    // cycle, so a slow reading here would mean the block path is slow and the diagnosis is
+    // about something else entirely.
+    const chainC = servingNode('chain-c')
+    const chainB = servingNode('chain-b', { fetchesFrom: () => [chainC.nodeId] })
+    const chainA = servingNode('chain-a', { fetchesFrom: () => [chainB.nodeId] })
+    // Cycle: A <-> B, which is what any two peers of one mesh are.
+    const cycleA = servingNode('cycle-a', { fetchesFrom: () => ['cycle-b'] })
+    const cycleB = servingNode('cycle-b', { fetchesFrom: () => ['cycle-a'] })
+    try {
+      // Held by nobody: the CID is computed from bytes no node in this case ever stores.
+      const absent = await new MemoryBlockstore().put(encoded({ nothing: 'here' }))
+
+      const chainAt = Date.now()
+      const chainGot = await chainA.served.get(absent)
+      const chainMs = Date.now() - chainAt
+
+      const cycleAt = Date.now()
+      const cycleGot = await cycleA.served.get(absent)
+      const cycleMs = Date.now() - cycleAt
+
+      // Both report absence — that half was never broken and is asserted so a regression
+      // cannot buy promptness by inventing bytes or by throwing.
+      expect(chainGot).toBeUndefined()
+      expect(cycleGot).toBeUndefined()
+
+      // The claim. Comparative within one run rather than an absolute: the cycle must not
+      // cost meaningfully more than the chain that did the same amount of real work. The
+      // endpoints are built at `timeoutMs: 2_000`, so the defect reads ~2 002 ms here and
+      // the fix reads single-digit milliseconds — three orders of magnitude of headroom
+      // for a slow or contended host before this becomes flaky.
+      expect(cycleMs).toBeLessThan(chainMs + 500)
+      // And an absolute floor under the pair, so a future change that made BOTH arms wait
+      // out the deadline could not satisfy the comparison above by moving them together.
+      expect(cycleMs).toBeLessThan(1_000)
+    } finally {
+      chainA.close()
+      chainB.close()
+      chainC.close()
+      cycleA.close()
+      cycleB.close()
+    }
+  })
+
+  it('still serves a block it does hold, so the gate did not simply stop answering', async () => {
+    // The positive control the case above cannot supply: a node wired for fetching, asked
+    // for something it holds locally, must still serve the bytes. Without this, deleting
+    // the block branch outright would pass every assertion above.
+    const holder = servingNode('cycle-holder', { fetchesFrom: () => ['cycle-asker'] })
+    const asker = servingNode('cycle-asker', { fetchesFrom: () => ['cycle-holder'] })
+    try {
+      const cid = await holder.store.put(encoded(PUBLIC_ROW))
+      // Asked across the same mutually-wired pair that deadlocks on an absent CID.
+      expect(await asker.served.get(cid)).toEqual(encoded(PUBLIC_ROW))
+    } finally {
+      holder.close()
+      asker.close()
     }
   })
 })

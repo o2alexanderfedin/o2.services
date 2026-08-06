@@ -173,6 +173,8 @@ describe('DATA-05 — the tap refuses the leaking frame, so the shard fails wher
       },
       requestor.store,
       [alice.egress],
+      // CHURN-03 — this test asserts nothing about checkpointing.
+      { checkpoints: 'checkpoints-nothing' },
     )
 
     // Submission itself is valid — nothing here is a malformed job.
@@ -238,6 +240,8 @@ describe('DATA-05 — the tap refuses the leaking frame, so the shard fails wher
       },
       requestor.store,
       [alice.egress],
+      // CHURN-03 — this test asserts nothing about checkpointing.
+      { checkpoints: 'checkpoints-nothing' },
     )
 
     expect(control.ok).toBe(true)
@@ -287,6 +291,8 @@ describe("DATA-06 — every job's manifest is reachable from its own result meta
       },
       requestor.store,
       [alice.egress],
+      // CHURN-03 — this test asserts nothing about checkpointing.
+      { checkpoints: 'checkpoints-nothing' },
     )
 
     expect(result.ok).toBe(true)
@@ -321,6 +327,8 @@ describe("DATA-06 — every job's manifest is reachable from its own result meta
       },
       requestor.store,
       [defaultNode.egress],
+      // CHURN-03 — this test asserts nothing about checkpointing.
+      { checkpoints: 'checkpoints-nothing' },
     )
 
     expect(result.ok).toBe(true)
@@ -360,6 +368,8 @@ describe("DATA-06 — every job's manifest is reachable from its own result meta
       },
       requestor.store,
       [alice.egress],
+      // CHURN-03 — this test asserts nothing about checkpointing.
+      { checkpoints: 'checkpoints-nothing' },
     )
 
     expect(result.ok).toBe(true)

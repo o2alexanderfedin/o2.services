@@ -381,3 +381,209 @@ contribution is not separable from these two numbers and no attempt is made here
 separate it. And the real transport's figure includes combine requests that were all
 **refused** (paragraph 7), so it counts the request frames of an aggregation that never
 happened.
+
+### 2026-08-05 — a second fixture, one that does work (Phase 23, BENCH-07)
+
+**Committed before the driver that runs it exists, and four waves before the run that
+uses it.** The same ordering the 2026-07-31 entry claims, for the same reason, and it is
+checkable the same way: this entry's commit contains no fixture parameter and no number
+produced by one.
+
+**1. What §6.3 already declared, and what is being done about it.** §6.3's third
+known bias reads *"The WASM fixtures are tiny. The hand-assembled test modules do almost
+no work, so per-task overhead dominates and the COST crossover will look worse than it
+would for a realistic workload."* That bias is not merely unflattering — it makes the
+primary question of this phase unaskable. The published sweeps dispatch a guest that
+writes its partition index and returns, so there is nothing to divide across nodes and no
+node count at which a makespan could fall. A speedup that cannot exist is not evidence
+about parallelism; it is evidence about the fixture.
+
+**2. What is added.** A second fixture: `@o2/demo`'s colouring kernel — a committed,
+integer-only, budget-bounded search guest — at `budget = DEFAULT_BUDGET`, dispatched over
+`SHARDS` partitions. Its per-shard cost is a **declared input** rather than a property of
+the host, which is the whole reason it was chosen over a workload that spins for a
+duration: a fixture whose cost is a wall-clock constant encodes the machine it was written
+on into every ladder it is ever run against.
+
+**3. No parameter is written down here, and the omission is the point.** The problem size
+this fixture runs at is chosen **by measurement, in Plan 23-03, at `SHARDS` partitions**,
+against three acceptance conditions declared now:
+
+- **every shard returns `budget`** — that is, no cube finishes early, so shard cost is
+  uniform across partitions and a makespan ratio is not reading a lopsided split;
+- **the encoded input stays under `WIRE_CHUNK_BYTES = 16_384`** — so the transport regime
+  does not change between the two fixtures and the connectivity tax stays comparable;
+- **the partition count is a power of two** — the guest derives `k = log2(count)` from the
+  packed partition word, and `SHARDS = 16` satisfies it.
+
+An earlier draft of this entry quoted a problem size, a per-shard range, a serial total
+and a payload size. **Every one of them was measured at eight partitions**, and `SHARDS`
+is sixteen, so every one of them describes a configuration this phase does not run. They
+are withdrawn rather than adjusted, because an adjusted number is a guess wearing the
+clothes of a measurement. The value finally chosen, and the shard status vector observed
+at it, are published in the results document beside the curve they produced.
+
+**4. The trivial fixture is kept.** It is not replaced and its curves are not withdrawn.
+The COST crossover of §4 and the single-threaded baseline it is measured against stay
+defined against the trivial fixture, because that is what every published crossover figure
+has meant to date and redefining it silently would make this date a discontinuity in a
+number the project quotes. The two fixtures are reported side by side, each row saying
+which one it ran.
+
+### 2026-08-05 — a third driver, and two declared dimensions (Phase 23, BENCH-07)
+
+**1. Why a third driver.** Both curves published under Phase 8 built every node inside the
+driver's own process. Sixteen node identities sharing one event loop cannot execute two
+shards at the same instant, so **no parallel speedup was measurable at any node count**,
+and the flat curve the run produced is a property of the harness rather than a finding
+about the fabric. This phase adds a **process-per-node** driver that spawns `bin/agent.ts`
+as N operating-system processes on one host. The two in-process drivers stay, and their
+published numbers stay.
+
+**2. Two declared dimensions.** `RunConfig` gains required `driver` and `fixture` fields.
+Required, not optional: the raw observations go to `.planning/bench/raw.json`, which has no
+headings to fall back on, and a provenance field that *can* be omitted eventually is — at
+the one call site nobody re-reads. Both are rendered as columns in every makespan table,
+placed before any number, and every figure-carrying section heading names the driver and
+fixture its numbers were derived from, read off the curve rather than written into the
+string.
+
+**3. What this does not buy, stated plainly.** A same-host run **cannot** detect divergence
+between machines, because it has one CPU, one V8 and one libc. Spawning sixteen processes
+changes the scheduler that runs them and nothing about the arithmetic they perform.
+BENCH-06's distinct-machine claim is therefore **descoped and unmeasured, and unmeasured is
+not met** — it is not closed by this phase, not transferred to it, and nothing this phase
+publishes may be read as evidence for it. The same-machine label of §3.3 stays mandatory on
+every table, and the process count is disclosed beside the node count rather than in place
+of it.
+
+**4. The axis this phase sweeps.** §1.1's node-count axis only, one requestor, one job in
+flight. The user-count axis — where §1.1 says a super-linear claim could live — is **not
+swept by this phase**, and no figure produced here bears on it. The process driver makes
+that second axis buildable for the first time, which is a reason to name it as the next
+benchmark question and not a reason to imply it was answered.
+
+**5. The integrity thresholds this phase will judge its own runs against, fixed before any
+data exists.** A rung is **rejected**, and the run produces no report at all, when any of
+these hold:
+
+- **the observed process identity is wrong** — the child process count does not match the
+  rung's node count, a process id repeats, the driver's own process id appears among the
+  children, a child's announced identity does not match the process that announced it, or
+  the executor set does not correspond one-for-one with processes that were observed. A
+  run that silently fell back to in-process nodes fails here rather than reporting a curve;
+- **the driver's own CPU time exceeds half the shard compute time it dispatched** —
+  `MAX_DRIVER_CPU_SHARE = 0.5`. This is a **declared threshold**, chosen now precisely
+  because no data exists to tune it against, and it is deliberately **not** a figure worked
+  out from how a driver is expected to behave. What the share actually comes to at each
+  rung is a quantity the run measures and publishes beside the rung;
+- **the fixture's shard status vector is anything other than `SHARDS` `budget` results** —
+  a non-uniform or short vector means the fixture is mis-parameterised for this host, and a
+  ratio taken over it would be reading the split rather than the parallelism.
+
+A rejection is not an excluded row. §7's exclusion rule covers a configuration that could
+not be **measured**; these three say the measurement that came back is not of the thing it
+claims, and publishing that as a rung with a caveat is how a harness defect becomes a
+finding about a fabric.
+
+### 2026-08-05 — a fixed-redundancy speedup sweep, and the two mechanisms that make fixing redundancy insufficient (Phase 23, BENCH-07)
+
+**1. Why the existing ladders cannot carry a speedup ratio.** Both published sweeps run at
+`redundancy = min(2, nodes)`. The 1-node rung is therefore R=1 and every other rung is
+R=2, so a ratio taken between the ends of that ladder varies **two** things at once —
+parallelism and replication — and attributes the whole difference to the first. The
+headline N=1 ↔ N=8 ratio this phase publishes comes instead from a **dedicated sweep at
+R = 1 across the full ladder**, run under both the in-process and the process-per-node
+driver on the same fixture, so the multi-process curve has an in-process control that
+differs from it in exactly one declared dimension.
+
+**2. Holding redundancy at 1 is necessary and it is not sufficient.** This is
+pre-registered as part of the plan rather than added afterwards as a caveat, because it
+changes what the ratio is allowed to be published with. Two mechanisms vary a shard's
+dispatch count without varying redundancy:
+
+- **Re-placement.** `placeAgain` sits inside `submitJob`'s unconditional per-shard
+  generation loop. There is no `redundancy === 1` branch anywhere on that path;
+  `LeaseTable` is the only bound and it bounds *generations*, at
+  `DEFAULT_MAX_GENERATIONS = 3`.
+- **Straggler speculation.** `speculativeCandidates` does not read redundancy at all, and
+  `SpeculationLedger`'s allowance is `floor(tasks × DEFAULT_SPECULATION_FRACTION)`, which
+  at `SHARDS = 16` and a fraction of `0.1` is **one**. Below ten shards the allowance is
+  zero and the watchdog never starts; sixteen is above that threshold, so speculation is
+  **on** for every job this driver submits.
+
+So a shard at R=1 can be placed as many as three times and duplicated once.
+
+**3. What the ratio must be published with.** Per rung: `redispatches` and
+`speculationMultiplier` — both already measured on this path and already rendered as
+`churn/task` and `spec. tax` — **and** a reading of `ShardResult.generations` and
+`ShardResult.speculated`, which exist on the result and are not yet surfaced by the driver.
+A ratio published without them is a finding about the harness rather than about the fabric,
+which is exactly what this phase's second success criterion forbids. The published
+trivial-fixture run reports zero for both existing columns; that establishes the
+instruments are wired and were quiet on that fixture, and it establishes nothing about a
+saturating fixture on an oversubscribed host, which is the regime where a straggler
+appears.
+
+**4. No expected speedup figure is declared, and the previous one is withdrawn.** An
+earlier draft of this entry pre-registered an ideal speedup derived from an eight-partition
+measurement. `SHARDS` is sixteen; the figure is withdrawn and **nothing replaces it as a
+number**. What is pre-registered instead is the *method*. The ideal bound is `sum / max`
+over `SHARDS` per-shard durations obtained by a **serial calibration** on the N=1
+process-per-node fabric — one call in flight at a time — taken by the same run that
+publishes the ratio it constrains.
+
+**5. Why the measured job's own per-call times cannot supply that bound.** `submitJob`
+dispatches shards concurrently, so even at N=1 the recorded per-call intervals overlap in
+wall-clock time. A sum of overlapping intervals is not a serial total, and dividing by the
+maximum of them yields a bound that is wrong in an unknown direction. The calibration is
+therefore a separate, deliberately serial pass, and it is stated here so that a later
+reader cannot mistake it for an extra measurement someone added to make a ratio look
+better.
+
+**6. What does not change.** The existing memory-transport and real-transport ladders keep
+`redundancy = min(2, nodes)` and keep every number they have published. The R=1 sweep is an
+addition beside them, labelled as its own configuration, and no figure moves between the
+two. On the R=1 sweep the verification tax of §2.2 is reported as the identity `1.00×`,
+exactly as the 1-node rung of the existing ladders already is: BENCH-04 is satisfied by
+gross and useful node-seconds both appearing with their ratio, not by that ratio exceeding
+one.
+
+### 2026-08-05 — an opt-in dispatch leg, and a third declared dimension (Phase 23, AUTH-03)
+
+**1. Why a benchmark document is describing a capability chain.** Phase 15 wired AUTH-03's
+serving end and verified it end to end, and left its requestor half — `delegate`,
+`CapabilitySupplier`, and the supplier branch of `RemoteExecutor.execute` — with **no
+production caller at all**. Every production dispatch site in the repository labels its
+shards public, and a public shard has no owner, so there is no root key a chain could be
+rooted at. Owner ruling 2026-07-31 routed the fix into this phase rather than shipping the
+adapter as accepted-unreachable, and it lands here because this phase already rewrites the
+driver's node construction and that file is the most contended in the repository.
+
+**2. What is added.** `bin/bench.ts` gains an **opt-in leg, off by default**, that
+configures per-node clearance, mints a real capability chain against each worker's own
+identity, and dispatches one owner-labelled shard through it. It is not a node kind and it
+is not a second rig: every node in either leg is the same node, built by the same code
+path, and what differs is the label on one shard and the clearance the nodes were started
+with.
+
+**3. The third declared dimension.** `RunConfig` gains a required `leg` field recording
+what the rung actually **dispatched** — whether every shard it submitted was public and
+every dispatch named the unauthenticated sentinel, or whether at least one shard carried an
+owner and went through a real chain. It is a fact about the dispatch, not about what the
+operator intended, and it exists so that the promise in the next paragraph is **checkable
+in `raw.json` rather than asserted in prose**. It is deliberately not rendered as a table
+column: in every published curve its value is the same, and a constant is not a result.
+
+**4. The property the leg is held to.** *The default curve is unchanged in shape by the
+leg's existence.* That is a claim about a run made with the flag absent — such a run must
+build exactly what it built before the flag existed, down to the extra process not being
+started and the enrolment round trip not happening at all. It is checked by spawning the
+driver and reading its output, not by asserting it here. If the leg moves the default
+measurement, it has been built wrong, and the correct response is to fix the leg rather
+than to re-baseline the curve.
+
+**5. No figure produced under the leg is published beside a default curve.** The two runs
+build different rigs and therefore measure different things, for exactly the reason the
+existing discovery arm's own report line already gives about itself. A run made under the
+leg says so in its own report, and its numbers are not folded into the ladder.

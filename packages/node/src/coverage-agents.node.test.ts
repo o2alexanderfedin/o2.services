@@ -718,6 +718,8 @@ describe('CHURN-05 — a cross-owner job returns its answer and the number of ow
           admit: statesRoom(mast.peerId, mastRoom, log),
         },
         requestor.store,
+        // CHURN-03 — this test asserts nothing about checkpointing.
+        { checkpoints: 'checkpoints-nothing' },
       )
 
     // ---- Arm 1: the control, over the live fabric. -------------------------------

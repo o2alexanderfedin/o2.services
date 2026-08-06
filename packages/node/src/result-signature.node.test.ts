@@ -419,6 +419,8 @@ describe('VER-08/09/10 — a result signed in one process verifies in another', 
         admit: rpcAdmission(requestor.rpc),
       },
       requestor.store,
+      // CHURN-03 — this test asserts nothing about checkpointing.
+      { checkpoints: 'checkpoints-nothing' },
     )
 
     expect(result.ok).toBe(true)

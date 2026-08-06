@@ -25,11 +25,15 @@ import type {
   CombineDispatch,
   CombineProduct,
   CombineTask,
+  ExecutionOutcome,
+  Executor,
   JobResult,
   NameRecord,
   ReduceContribution,
   ReduceTree,
+  Task,
 } from '@o2/core'
+import { DEFAULT_SEND_TIMEOUT_MS } from '@o2/libp2p'
 import { RemoteExecutor, remoteCombineDispatch } from '@o2/net'
 import { CID } from 'multiformats/cid'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -90,8 +94,8 @@ import { FabricNode } from './fabric-node.ts'
  * assume a race. Two independent budgets are in play and they are deliberately not the
  * same number:
  *
- * - `RpcEndpoint`'s correlation timeout, here `rpcTimeoutMs: 1500`, which deletes the
- *   pending entry and rejects the caller;
+ * - `RpcEndpoint`'s correlation timeout, on the submitter `rpcTimeoutMs: 1500`, which
+ *   deletes the pending entry and rejects the caller;
  * - `Libp2pTransport`'s `DEFAULT_SEND_TIMEOUT_MS` (20 000), which bounds the whole
  *   transfer — the `dialProtocol` handshake included.
  *
@@ -102,6 +106,33 @@ import { FabricNode } from './fabric-node.ts'
  * correlation table that no longer has an entry for it. **Any pause longer than the send
  * budget would produce silence instead**, which is why the case asserts the ordering
  * `healthy combine < rpcTimeoutMs < pause < send budget` rather than trusting it.
+ *
+ * That last sentence was prose for two milestones and is now a reading: `sendWindowMs`,
+ * asserted against the imported `DEFAULT_SEND_TIMEOUT_MS`. It was also **confirmed from
+ * the far side** — with the budget lifted to 12 000 the frozen window is
+ * `tree.depth × 12 000 = 24 000 ms` against a 20 000 ms send budget, and all five trials
+ * read `frames from the paused peer []`. Silence, exactly as predicted, and the first time
+ * in this file's history that `expect(arrived)` had ever actually failed.
+ *
+ * ## A third budget, on a second node, and why one node could not carry both
+ *
+ * `RpcEndpoint`'s timeout is fixed at construction and `request` takes no per-call
+ * override, so **one node has exactly one correlation budget for everything it asks**.
+ * This fixture asks two very different things: sixteen concurrent cold `exec` dispatches
+ * for the map, and one combine dispatch at a frozen peer for the pause. They want
+ * opposite budgets — the map wants room, the pause wants the frozen window to stay well
+ * inside the send budget — and until 2026-08-06 both rode on `1_500`.
+ *
+ * The map's side of that was never measured. The header used to argue it from *"the whole
+ * eight-shard map at redundancy 2 measured 184 ms, an upper bound on any single dispatch
+ * inside it"*, and **that inference is backwards**: the sixteen dispatches run
+ * concurrently, so each one spans very nearly the whole map rather than a sixteenth of it.
+ * Measured on an idle host the same day: map 404 ms, slowest single dispatch 370 ms. The
+ * margin was never 8×; it was 3.5× on an idle machine, and the map's cost inflates about
+ * 7× between an idle host and the CPU share at which this file was reddening.
+ *
+ * So the map runs on its own node with its own budget (`MAP_RPC_TIMEOUT_MS`), and
+ * `RPC_TIMEOUT_MS` did not move. See `standUp` for what the split does and does not touch.
  *
  * ## What this file cannot redden on, so nobody takes it for more than it is
  *
@@ -137,7 +168,61 @@ import { FabricNode } from './fabric-node.ts'
  * run**, which is the right shape for them, but the sentence *"the late arrival changed
  * nothing"* is carried by the upper half.
  *
- * ## The one reading here that is a wall clock against a constant, and how it is taken
+ * ## Two assertions in this file redden with the identical text, and it cost a diagnosis
+ *
+ * `expect(arrived).toBe(true)` and `runMap`'s old `expect(result.job.complete).toBe(true)`
+ * both print `AssertionError: expected false to be true`. Nothing but the stack frame told
+ * them apart, and on 2026-08-05 a whole `--project node` run at load 68 failed both cases
+ * at the **map precondition** and it was reported, in good faith, as the arrival assertion
+ * failing. The `15_000` arrival budget was blamed and investigated; it had not run.
+ *
+ * The tell is cheap and worth knowing: the arrival case `console.log`s *before* it asserts,
+ * so **a red at the arrival assertion always has a `[criterion 6 / arrival]` line above
+ * it**. That run had none — the case never got past `runMap`. Two facts follow, and the
+ * second is the one that misled:
+ *
+ * - the arrival assertion was not reached, so it did not fail;
+ * - `RPC_TIMEOUT_MS > healthyCombineMs × TIMEOUT_MARGIN` sits *below* the arrival
+ *   assertion, so it was not reached either. "Defect #46's fix held under load 68" was a
+ *   claim about a line that never executed.
+ *
+ * `runMap` no longer asserts a bare boolean. It names which of `complete`'s three
+ * conjuncts failed, on which shard, at what replica count, beside the dispatch spans — so
+ * the same red can never again be read as this one.
+ *
+ * ## Where the arrival budget is actually sited, since it was accused and acquitted
+ *
+ * `15_000` is a wall-clock absolute and it is left alone, because the relationship it
+ * would be calibrated against was measured and it does not need one. Thirty-three
+ * (floor, arrival) pairs across five regimes on 2026-08-05/06, plus four recovered from
+ * earlier logs that reach a much higher floor:
+ *
+ * ```
+ * arrival ≈ 175 ms + 1.00 × floor      (least squares, R² = 0.80, floor 15 → 729 ms)
+ * ```
+ *
+ * The slope is **one**, and that is mechanical rather than lucky: the resumed process
+ * does the same work a cold combine does — it fetches the same four partials and runs the
+ * same combiner — so the numerator *contains* the denominator. The ~175 ms intercept is
+ * the resume itself (`resumeAgent` polls `ps` at 25 ms granularity, plus the wake and the
+ * pending stream negotiation) and it does **not** move with load: 141–296 ms alone,
+ * 101–363 ms at a CPU share of 0.30.
+ *
+ * This is the opposite shape to `speculation-agents.node.test.ts`'s defect, where a
+ * wait-bound numerator was tied to a CPU-bound denominator and the two moved 1.2× against
+ * 28×. Here they move together, one for one. **A ratio bound would still be the wrong
+ * instrument** — `arrival/floor` spans 1.25 to 11.33, a 9.1× spread, because the intercept
+ * dominates when the floor is small. The relationship is affine, not proportional.
+ *
+ * What that buys is a number instead of an argument. The worst arrival ever observed
+ * anywhere, including on a host saturated by an unrelated LLVM build, is **912 ms** — 16×
+ * inside the budget. And the budget is doubly protected, because `TIMEOUT_MARGIN` already
+ * refuses any run whose floor exceeds 150 ms: on any run that *reaches* the arrival
+ * assertion the affine law caps the arrival near 175 + 150 ≈ 325 ms, i.e. **~46×** inside
+ * it. Raising or calibrating `15_000` would be tuning the one budget in this file that has
+ * never been close.
+ *
+ * ## The readings here that are a wall clock against a constant, and how they are taken
  *
  * `RPC_TIMEOUT_MS` is a constant, so `RPC_TIMEOUT_MS > combine × TIMEOUT_MARGIN` is a
  * ratio only in form: one of its two terms is a millisecond measured on the host of the
@@ -224,14 +309,51 @@ import { FabricNode } from './fabric-node.ts'
  * `job.complete` precondition — the eight-shard map would not finish across four spawned
  * agents — and a whole `--project node` run at `(user+sys)/real` **0.38** took 1 245 s and
  * failed 17 files, the entire spawned-process family (`two-process`, `churn-agents`,
- * `capability-dispatch`, `owner-domain-agents`, this file) at the same `runMap` line. A
- * fabric that cannot complete a map is not a timing estimator's problem.
+ * `capability-dispatch`, `owner-domain-agents`, this file) at the same `runMap` line.
+ *
+ * ### That paragraph conflated two regimes, and only one of them was the fabric's
+ *
+ * *"A fabric that cannot complete a map is not a timing estimator's problem"* is what used
+ * to close this section, and it retired a defect by naming it weather. Measured
+ * 2026-08-06 across 44 trials, `runMap`'s shortfall has **two distinct shapes** and the
+ * old bare `expect(result.job.complete).toBe(true)` could not tell them apart because it
+ * printed neither:
+ *
+ * | CPU share | what every short shard read | what it was |
+ * |---|---|---|
+ * | ~0.30 | `agreed replicas 1/2 degraded true` | **one dispatch of two crossed the budget** |
+ * | ~0.21 | `insufficient replicas n/a/2` on all eight | the fabric, genuinely |
+ *
+ * The first is not the host giving out. The shard *agreed* — a peer answered, correctly —
+ * and the job is incomplete only because its co-replica's dispatch was killed at 1 500 ms.
+ * That is a fixture budget too small for its own map, and it is the defect that produced
+ * the 2026-08-05 red. It is fixed by `MAP_RPC_TIMEOUT_MS`, and at that same share the file
+ * now reads 6/8 green with the slowest dispatch at 2 890 – 3 488 ms against 15 000.
+ *
+ * The second is the fabric, and it stays exactly as described. Only at a CPU share around
+ * 0.21 does *every* shard come back with no replicas at all, and no budget rescues that.
+ *
+ * The regime that matched the reported failure — a `--project node` run inflated ~2.5–3.5×,
+ * reproduced here at 48 burners and `(user+sys)/real` 0.52 – 0.56 — now reads **4/4 green
+ * with the slowest dispatch at 1 488 – 1 580 ms**. Every one of those four trials would
+ * have exceeded the old budget.
  *
  * **So read a red here by the printed distribution.** A floor near 60 ms with a wide
  * spread is this host; a floor several hundred milliseconds with a *narrow* spread, beside
  * a `standUp` and `map` that are also multiples of the numbers above, is the host as well
  * and is visible as such. A floor that has moved while `standUp` and `map` have not is the
  * combine, and that is the case this assertion exists to catch.
+ *
+ * ### What is still not fixed, stated rather than left for the next reader to hit
+ *
+ * At a CPU share around 0.30 the **combine floor** guard — `TIMEOUT_MARGIN`, not anything
+ * added by the map repair — fails roughly a quarter of the time, on runs where all six
+ * cold combines land above 150 ms together. Measured at 96 burners across the same
+ * fixture before and after the map repair: floors `[59,235,34,161,65,234]` before and
+ * `[30,40,66,51,224,234,58,73]` after, i.e. 3/6 and 2/8 above 150 ms. **The repair neither
+ * caused this nor helped it**, which is why both columns are recorded: it is the residual
+ * this section already describes, reached at a lower load than the prose above implies,
+ * and `TIMEOUT_MARGIN` must not be widened to hide it.
  *
  * ### The defect reproduced on demand, and the repair observed rescuing it
  *
@@ -244,10 +366,14 @@ import { FabricNode } from './fabric-node.ts'
  *
  * ## What is copied, what is imported, and whose numbers these are
  *
- * `standUp`, `spawnAgent`, `stopAgent`, `runMap`, `project`, `partitionOf` and the
- * publisher record are **faithful copies** from `tree-reduce-agents.node.test.ts` —
- * none of them is exported, and importing across spec files would make one file's
- * teardown another's. `deriveTree` is a copy of `reduceJob`'s projection-and-store
+ * `spawnAgent`, `stopAgent`, `project`, `partitionOf` and the publisher record are
+ * **faithful copies** from `tree-reduce-agents.node.test.ts` — none of them is exported,
+ * and importing across spec files would make one file's teardown another's. `standUp` and
+ * `runMap` **were** copies and are no longer: `standUp` starts a second requestor so the
+ * map and the pause stop sharing one correlation budget, and `runMap` times every dispatch
+ * and names its own shortfall. Both changes are described where they are made, and neither
+ * is a candidate for copying back — the sibling files have one budget because they ask one
+ * kind of question. `deriveTree` is a copy of `reduceJob`'s projection-and-store
  * prologue (`packages/net/src/reduce-job.ts`, search `contributorFor`) for the one reason
  * `reduceJob` cannot be called here: it builds its dispatch internally, and the pause has
  * to be staged in a wrapper around the **production** `remoteCombineDispatch` — the same
@@ -264,11 +390,19 @@ import { FabricNode } from './fabric-node.ts'
  *   and **24–58 ms** inside a whole `--project node` run on 2026-08-04 — so the budget is
  *   26–100× the work it has to cover, and the case asserts the ratio rather than the
  *   millisecond. Why the floor and not this run's first is the section above; it is the
- *   defect this file was fixed for. The other term the budget has to cover is the map's
- *   cold `exec` dispatch — module pull plus WASM compile — and the whole eight-shard map
- *   at redundancy 2 measured **184 ms**, an upper bound on any single dispatch inside it.
- *   The map either completes or `runMap` refuses to proceed, so that term is a
- *   precondition rather than an assertion.
+ *   defect this file was fixed for.
+ *
+ *   **This budget no longer covers the map, and the sentence that used to stand here is
+ *   where the next defect came from.** It read: *"the whole eight-shard map at redundancy
+ *   2 measured 184 ms, an upper bound on any single dispatch inside it. The map either
+ *   completes or `runMap` refuses to proceed, so that term is a precondition rather than
+ *   an assertion."* Both halves were wrong. The sixteen dispatches are concurrent, so the
+ *   whole map's span is very nearly *one* dispatch's and not a bound on it — measured on
+ *   an idle host, map 404 ms against a slowest dispatch of 370 ms. And "a precondition
+ *   rather than an assertion" is precisely how a term ends up unmeasured: it is the one
+ *   that reddened this file at load 68, and it did so with `expected false to be true`,
+ *   the arrival assertion's own text. The map now runs on `MAP_RPC_TIMEOUT_MS`, and that
+ *   budget is asserted against the run's slowest dispatch rather than assumed.
  * - **`AGENT_COUNT = 4`**, down from `standUp`'s eight. At `REDUCE_REDUNDANCY = 2` a
  *   combine whose first-ranked executor is paused needs three peers to reach two
  *   replicas; four leaves one spare. A wider fabric would only make a timeout look like
@@ -453,8 +587,84 @@ const AGENT_COUNT = 4
 /** Combine redundancy. Two, so `minReplicas` is a reading of the run and not its floor. */
 const REDUCE_REDUNDANCY = 2
 
-/** See the file header. Sited against a cold combine measured in the same run. */
+/**
+ * The **requestor's** correlation budget — the one the pause is staged against.
+ *
+ * See the file header. Sited against a cold combine measured in the same run, and
+ * **unchanged** by the repair that split it from the map's: this number never had a
+ * problem, the fact that a second, opposite requirement was riding on it did.
+ */
 const RPC_TIMEOUT_MS = 1_500
+
+/**
+ * The **mapper's** correlation budget, which is a different node's and a different number.
+ *
+ * These were one budget until this file's map precondition started reddening under
+ * whole-suite load, and one budget could not satisfy both requirements because they pull
+ * opposite ways:
+ *
+ * - the pause needs it **small**, because the frozen window is `tree.depth × budget` and
+ *   the first `transport.send` has to outlive the whole of it — measured, not reasoned:
+ *   at 12 000 the window is 24 000 ms against `DEFAULT_SEND_TIMEOUT_MS` 20 000 and every
+ *   trial read `frames from the paused peer []`, silence rather than a late reply;
+ * - the map needs it **large**, because its sixteen `exec` dispatches all run concurrently
+ *   and each pays a module pull and a WASM compile.
+ *
+ * At `1_500` the second requirement was the binding one and nothing measured it. Measured
+ * 2026-08-06 across four regimes, slowest of the sixteen dispatches in a run:
+ *
+ * | regime | `(user+sys)/real` | slowest `exec` dispatch |
+ * |---|---|---|
+ * | alone | 1.04 – 1.15 | 335 – 535 ms |
+ * | alone + 24 CPU burners | 0.67 – 0.84 | 718 – 1 194 ms |
+ * | alone + 48 CPU burners | 0.49 – 0.54 | 1 346 – 1 564 ms |
+ * | alone + 96 CPU burners | — | 2 647 – 3 176 ms |
+ *
+ * The 48-burner row already crosses 1 500, and the 96-burner row is **2 647–3 176 ms
+ * against a 1 500 ms budget**. Those last numbers had to be taken with the budget lifted
+ * to 12 000, because at 1 500 the distribution is *censored by the budget itself*: every
+ * reading came back 1 503–1 541 ms, which is not what the dispatch cost, it is where it
+ * was killed.
+ *
+ * `15_000` is 4.7× the slowest reading anywhere in that table and the assertion beside
+ * `MAP_DISPATCH_MARGIN` re-derives the ratio every run rather than trusting this note.
+ * It costs nothing when nothing times out — a budget is only spent by a dispatch that
+ * fails — and `PROCESS_TEST_TIMEOUT` is twenty times it.
+ */
+const MAP_RPC_TIMEOUT_MS = 15_000
+
+/**
+ * How far above the run's **slowest** `exec` dispatch the mapper's budget has to sit.
+ *
+ * The slowest and not the floor, and the asymmetry with `TIMEOUT_MARGIN` is the point.
+ * `TIMEOUT_MARGIN` guards a *lower* bound — that a healthy combine is comfortably inside
+ * the budget — so it reads the floor, the cleanest available estimate of the work itself.
+ * This guards an *upper* bound: `job.complete` is a conjunction over all eight shards, so
+ * **one** dispatch crossing the budget fails the precondition. A floor would be blind to
+ * exactly the sample that decides it.
+ *
+ * Three is a stated judgement against 3 176 ms, the worst of the four regimes above: it
+ * reddens at 5 000 ms, well before the 15 000 ms at which the map would actually start
+ * losing replicas. That gap is deliberate — this is meant to report a host drifting
+ * toward the cliff *with its reading*, not to confirm it went over.
+ */
+const MAP_DISPATCH_MARGIN = 3
+
+/**
+ * How much of `Libp2pTransport`'s send budget the frozen window is allowed to spend.
+ *
+ * The upper bound on `RPC_TIMEOUT_MS`, and until now it existed only as prose in the file
+ * header — *"any pause longer than the send budget would produce silence instead"* — with
+ * nothing measuring it. `DEFAULT_SEND_TIMEOUT_MS` is **imported from the transport rather
+ * than restated**, so a change to it moves this guard instead of silently invalidating a
+ * copied 20 000.
+ *
+ * Two is a stated judgement against a window measured at 1 687 ms when the paused peer is
+ * asked once and 3 214 – 3 270 ms when it is asked three times — the asks are not serial,
+ * so the window is `tree.depth × RPC_TIMEOUT_MS` and not `asks × RPC_TIMEOUT_MS`, which
+ * was measured rather than inferred from `executeReduce`'s shape.
+ */
+const SEND_BUDGET_MARGIN = 2
 
 /**
  * How far above the **floor** of the run's cold combines `RPC_TIMEOUT_MS` has to sit.
@@ -477,12 +687,36 @@ const PROCESS_TEST_TIMEOUT = 300_000
 
 interface Fabric {
   readonly agents: readonly Agent[]
+  /** Runs the reduce, and the node the pause is staged against. Budget `RPC_TIMEOUT_MS`. */
   readonly submitter: FabricNode
+  /** Runs the map, and nothing else. Budget `MAP_RPC_TIMEOUT_MS`. */
+  readonly mapper: FabricNode
   readonly moduleCid: CID
   readonly executorIds: readonly string[]
 }
 
-/** Spawn `agentCount` agents, start the submitter, dial outward, seed the module. */
+/**
+ * Spawn `agentCount` agents, start **two** requestors, dial outward, seed the module.
+ *
+ * ## Why two, when every other file in this family stands up one
+ *
+ * `RpcEndpoint`'s correlation timeout is fixed at construction — `#timeoutMs` is private
+ * and `request` takes no per-call override — so **a node has exactly one correlation
+ * budget**, and every request it makes is bounded by it. That is correct for production
+ * and it is what made this fixture fail: the map's `exec` dispatches and the reduce's
+ * combine dispatches were riding on one number, and they want opposite things from it.
+ *
+ * The repair is not a bigger number, it is two nodes. The mapper carries a budget large
+ * enough for sixteen concurrent cold `exec` dispatches; the submitter keeps the tight one
+ * the pause needs. Neither has to be a compromise, and the constant this file's earlier
+ * red was blamed on — `RPC_TIMEOUT_MS` — did not move.
+ *
+ * The mapper leaves the reduce untouched. `executorIds` names the agents only, so
+ * `rendezvousRank` is unaffected; `deriveTree` projects the map's outputs **in this
+ * process** and writes the partials to the *submitter's* store, so every combine still
+ * finds its inputs exactly where it did before; and `watchInbound` still watches the one
+ * node whose frames this file reads.
+ */
 async function standUp(agentCount: number): Promise<Fabric> {
   const spawned = await Promise.all(Array.from({ length: agentCount }, (_, i) => spawnAgent(`a${i}`)))
 
@@ -496,23 +730,83 @@ async function standUp(agentCount: number): Promise<Fabric> {
   })
   nodes.push(submitter)
 
-  // Outward, one dial per agent — the direction that keeps eight reachable in the file
-  // this fixture comes from, and costs nothing at four.
-  const dialed = await Promise.all(spawned.map((agent) => submitter.dial(agent.multiaddrs[0] as string)))
-  expect([...dialed].sort()).toEqual(spawned.map((a) => a.peerId).sort())
+  const mapper = await FabricNode.start({
+    relayAdmission: 'admits-any-peer',
+    startReporting: 'reports-its-own-start',
+    blockstoreDir: join(workdir, 'mapper'),
+    listen: ['/ip4/127.0.0.1/tcp/0'],
+    rpcTimeoutMs: MAP_RPC_TIMEOUT_MS,
+    trustAnchors: [publisher.pub],
+  })
+  nodes.push(mapper)
 
-  // Only the submitter has the module. Every agent is a fresh process with an empty
-  // directory, so it cannot have it except by asking.
-  const moduleCid = await submitter.store.put(MODULE_WRITES_PARTITION)
+  // Outward, one dial per agent per requestor — the direction that keeps eight reachable
+  // in the file this fixture comes from, and costs nothing at four.
+  for (const requestor of [submitter, mapper]) {
+    const dialed = await Promise.all(spawned.map((agent) => requestor.dial(agent.multiaddrs[0] as string)))
+    expect([...dialed].sort()).toEqual(spawned.map((a) => a.peerId).sort())
+  }
 
-  return { agents: spawned, submitter, moduleCid, executorIds: spawned.map((a) => a.peerId) }
+  // Only the mapper has the module, and it is the mapper that dispatches the map. Every
+  // agent is a fresh process with an empty directory, so it cannot have it except by
+  // asking — which is the cost `MAP_RPC_TIMEOUT_MS` exists to cover.
+  const moduleCid = await mapper.store.put(MODULE_WRITES_PARTITION)
+
+  return { agents: spawned, submitter, mapper, moduleCid, executorIds: spawned.map((a) => a.peerId) }
+}
+
+/**
+ * `Executor` with a stopwatch, wrapped around the production `RemoteExecutor`.
+ *
+ * The seam is the `Executor` port itself — two members, `nodeId` and `execute` — so the
+ * wrapper substitutes nothing and observes one span: the whole `exec` round trip,
+ * including the module pull and the WASM compile the first dispatch to a peer pays for.
+ * The same wrapping idiom MR-07 uses around `remoteCombineDispatch`, for the same reason:
+ * the production path is what runs.
+ *
+ * **This exists because that span is the term `RPC_TIMEOUT_MS` has to cover and nothing
+ * in this file used to measure it.** It is measured *during* the map rather than by a
+ * probe before it, because the map dispatches 16 of these across four peers concurrently
+ * and a serial probe would read the uncontended cost — a different, cheaper thing.
+ */
+function timedExecutor(inner: Executor, into: ExecSample[]): Executor {
+  return {
+    nodeId: inner.nodeId,
+    execute: async (task: Task): Promise<ExecutionOutcome> => {
+      const started = performance.now()
+      const outcome = await inner.execute(task)
+      into.push({ nodeId: inner.nodeId, ms: performance.now() - started, ok: outcome.ok })
+      return outcome
+    },
+  }
+}
+
+/** One map `exec` dispatch, timed at the `Executor` port. */
+interface ExecSample {
+  readonly nodeId: string
+  readonly ms: number
+  readonly ok: boolean
+}
+
+/** What `runMap` measured while establishing its precondition. */
+interface MapRun {
+  readonly job: JobResult
+  /**
+   * Every `exec` dispatch's span, ascending. The **slowest** is what sites
+   * `MAP_RPC_TIMEOUT_MS` — see `MAP_DISPATCH_MARGIN` for why the slowest and not the floor.
+   */
+  readonly execSpans: readonly number[]
+  readonly ms: number
 }
 
 /** Run the map phase across every agent, and refuse to proceed unless it completed. */
-async function runMap(fabric: Fabric): Promise<JobResult> {
-  const executors = fabric.executorIds.map(
-    (id) => new RemoteExecutor(id, fabric.submitter.rpc, 'dispatches-unauthenticated'),
+async function runMap(fabric: Fabric): Promise<MapRun> {
+  const samples: ExecSample[] = []
+  // The mapper's endpoint, not the submitter's — the whole point of the split.
+  const executors = fabric.executorIds.map((id) =>
+    timedExecutor(new RemoteExecutor(id, fabric.mapper.rpc, 'dispatches-unauthenticated'), samples),
   )
+  const startedAt = performance.now()
   const result = await submitJob(
     {
       moduleCid: fabric.moduleCid,
@@ -523,13 +817,49 @@ async function runMap(fabric: Fabric): Promise<JobResult> {
       redundancy: MAP_REDUNDANCY,
       onQuorumShortfall: 'runs-at-available-redundancy',
     },
-    fabric.submitter.store,
+    fabric.mapper.store,
+    // CHURN-03 — this test asserts nothing about checkpointing.
+    { checkpoints: 'checkpoints-nothing' },
   )
+
+  const ms = performance.now() - startedAt
+  const execSpans = [...samples.map((sample) => sample.ms)].sort((a, b) => a - b)
 
   expect(result.ok).toBe(true)
   if (!result.ok) throw new Error('the map did not run')
-  expect(result.job.complete).toBe(true)
-  return result.job
+
+  // Named rather than asserted as a bare boolean, and this is not tidiness.
+  // `expect(result.job.complete).toBe(true)` reddens as `expected false to be true`,
+  // which is **the identical text** the two `expect(arrived).toBe(true)` sites produce.
+  // A whole-suite red here was read as the arrival assertion's for exactly that reason
+  // and the wrong instrument was blamed; only the stack frame told them apart. So the
+  // shortfall says which of `complete`'s three conjuncts failed, on which shard, with
+  // the replica count that decided it — and beside it the dispatch spans, which are what
+  // decide whether a shortfall is this fixture's budget or this host's collapse.
+  const short = result.job.shards.filter(
+    (shard) => shard.verification.status !== 'agreed' || shard.degraded || shard.disagreed,
+  )
+  if (short.length > 0) {
+    const failed = samples.filter((sample) => !sample.ok).length
+    throw new Error(
+      `the map did not complete — ${short.length} of ${result.job.shards.length} shards short: ` +
+        short
+          .map((shard) => {
+            const replicas =
+              shard.verification.status === 'agreed' ? String(shard.verification.replicas) : 'n/a'
+            return (
+              `shard ${shard.partitionIndex} ${shard.verification.status} ` +
+              `replicas ${replicas}/${MAP_REDUNDANCY} degraded ${String(shard.degraded)} ` +
+              `disagreed ${String(shard.disagreed)}`
+            )
+          })
+          .join('; ') +
+        ` | ${failed} of ${samples.length} exec dispatches failed, spans [${execSpans
+          .map((span) => Math.round(span))
+          .join(',')}]ms against rpcTimeoutMs ${MAP_RPC_TIMEOUT_MS}`,
+    )
+  }
+  return { job: result.job, execSpans, ms }
 }
 
 /**
@@ -740,9 +1070,9 @@ describe('MR-04 — a paused process answers after the request that asked for it
     const standUpMs = performance.now() - standUpStart
     const { agents: spawned, submitter, executorIds } = fabric
 
-    const mapStart = performance.now()
-    const job = await runMap(fabric)
-    const mapMs = performance.now() - mapStart
+    const map = await runMap(fabric)
+    const { job, execSpans, ms: mapMs } = map
+    const slowestExecMs = execSpans[execSpans.length - 1] as number
 
     const tree = await deriveTree(job, submitter.store)
     // A tree, not a one-level merge: two level-1 combines and a root above them.
@@ -809,21 +1139,43 @@ describe('MR-04 — a paused process answers after the request that asked for it
     const fromVictim = watch.frames.filter((frame) => frame.from === victimId)
     watch.stop()
 
+    // How long the oldest still-open `transport.send` had to stay alive: from the dial
+    // that started it to the reply that ended it. **This is the budget the mechanism
+    // actually spends** — `DEFAULT_SEND_TIMEOUT_MS`, imported from the transport rather
+    // than restated — and until now it was reasoned about in the header and measured
+    // nowhere. It is what stops `RPC_TIMEOUT_MS` from being raised without limit.
+    const sendWindowMs =
+      late.length > 0 ? (late[late.length - 1] as InboundFrame).atMs - pausedStart : Number.NaN
+
     // Printed rather than only asserted, so the reading is available on every run instead
     // of surviving as a note somebody took once — `capability-dispatch.node.test.ts`'s
     // precedent, for the same reason.
     console.log(
       `[criterion 6 / arrival] standUp ${Math.round(standUpMs)}ms, map ${Math.round(mapMs)}ms, ` +
+        `exec dispatches [${execSpans.map((ms) => Math.round(ms)).join(',')}]ms ` +
+        `slowest ${Math.round(slowestExecMs)}ms of ${MAP_RPC_TIMEOUT_MS}, ` +
         `cold combines [${coldSpans.map((ms) => Math.round(ms)).join(',')}]ms ` +
         `floor ${Math.round(healthyCombineMs)}ms first ${Math.round(first.ms)}ms ` +
         `spread ${(Math.max(...coldSpans) / healthyCombineMs).toFixed(2)}×, ` +
         `paused dispatch ${Math.round(pausedDispatchMs)}ms ` +
         `against rpcTimeoutMs ${RPC_TIMEOUT_MS}, pause ${Math.round(pauseMs)}ms, ` +
         `late replies ${late.length} at +${late.map((f) => Math.round(f.atMs - timedOutAt)).join(',')}ms, ` +
+        `send window ${Math.round(sendWindowMs)}ms of ${DEFAULT_SEND_TIMEOUT_MS}, ` +
         `frames from the paused peer [${fromVictim.map((f) => String(f.kind)).join(',')}]`,
     )
 
-    expect(arrived).toBe(true)
+    // A zero here used to be reported as *"the stream did not survive the pause"* and the
+    // reading could not carry that: it was equally consistent with a host that never
+    // scheduled the resumed process inside the budget. **`fromVictim` settles it**, and
+    // both sides of it have been observed. A resumed process that was scheduled fetches
+    // its four partials first, so `[req,req,req,req,res]` is the healthy reading and
+    // `[req,...]` with no `res` would be a process running and not finishing — slowness.
+    // `[]` is silence: nothing crossed, the send was aborted, the stream is genuinely
+    // gone. That is what the case reads when the budget is raised past the send budget
+    // (measured 2026-08-06 at `RPC_TIMEOUT_MS` 12 000: `frames from the paused peer []`).
+    expect(arrived, `no late reply; frames from the paused peer [${fromVictim
+      .map((frame) => String(frame.kind))
+      .join(',')}] — empty means the send was aborted, non-empty means it ran and did not finish`).toBe(true)
     // Exactly one request was left outstanding on that peer, so exactly one reply is owed.
     expect(late).toHaveLength(1)
     // Every frame this peer ever sent arrived after it was resumed — it was frozen before
@@ -839,7 +1191,7 @@ describe('MR-04 — a paused process answers after the request that asked for it
     expect(afterProduct).not.toBeNull()
     expect(afterProduct?.cid.toString()).toBe(healthyProduct?.cid.toString())
 
-    // The three budgets, in the order the mechanism requires. Ratios, not milliseconds.
+    // The budgets, in the order the mechanism requires. Ratios, not milliseconds.
     //
     // `healthyCombineMs` is the **floor** of the six cold samples, not the first of them.
     // Reading the first is what made this line fail three times under whole-suite load;
@@ -848,6 +1200,19 @@ describe('MR-04 — a paused process answers after the request that asked for it
     expect(RPC_TIMEOUT_MS).toBeGreaterThan(healthyCombineMs * TIMEOUT_MARGIN)
     expect(pausedDispatchMs).toBeGreaterThanOrEqual(RPC_TIMEOUT_MS)
     expect(pauseMs).toBeGreaterThan(RPC_TIMEOUT_MS)
+
+    // The mapper's budget against the run's slowest `exec` dispatch — the guard this file
+    // never had, and whose absence is what actually reddened it under whole-suite load.
+    // The map's completeness was treated as a precondition and its cost was never read,
+    // so the budget's real margin was invisible: 3.5× on an idle host, not the 8× the
+    // header's arithmetic implied, and under 1× where it failed.
+    expect(MAP_RPC_TIMEOUT_MS).toBeGreaterThan(slowestExecMs * MAP_DISPATCH_MARGIN)
+
+    // And the upper bound the mechanism needs, against the transport's own constant
+    // rather than a copy of it. This is the one that stops `RPC_TIMEOUT_MS` being raised
+    // out of trouble: past `DEFAULT_SEND_TIMEOUT_MS / tree.depth` there is no late reply
+    // to observe at all, only silence.
+    expect(sendWindowMs).toBeLessThan(DEFAULT_SEND_TIMEOUT_MS / SEND_BUDGET_MARGIN)
 
     rejections.stop()
     expect(rejections.seen.map((reason) => String(reason))).toEqual([])
@@ -875,8 +1240,9 @@ describe('MR-07 — the late duplicate is unsolicited, and it costs nothing', ()
   it('leaves the root CID, the executor record and the process error state identical to an unpaused run', async () => {
     const fabric = await standUp(AGENT_COUNT)
     const { agents: spawned, submitter, executorIds } = fabric
-    const job = await runMap(fabric)
-    const tree = await deriveTree(job, submitter.store)
+    const map = await runMap(fabric)
+    const slowestExecMs = map.execSpans[map.execSpans.length - 1] as number
+    const tree = await deriveTree(map.job, submitter.store)
 
     const production = remoteCombineDispatch({ rpc: submitter.rpc, blockstore: submitter.store })
 
@@ -944,20 +1310,46 @@ describe('MR-07 — the late duplicate is unsolicited, and it costs nothing', ()
     const late = repliesFrom(watch.frames, victimId, reduceReturnedAt)
     watch.stop()
 
+    // The oldest open send, and here it is the reading that decides how large
+    // `RPC_TIMEOUT_MS` may be. The paused peer is asked once per tree node it ranks first
+    // for, and it stays frozen from the **first** of those asks until the resume, so the
+    // first send has to survive every one of them. Whether those asks are concurrent or
+    // serial is not something to reason about from `executeReduce`'s shape — it is
+    // measured here, because the answer multiplies the budget.
+    const firstAskAt = Math.min(...victimAsks.map((entry) => entry.atMs))
+    const sendWindowMs =
+      late.length > 0 ? (late[late.length - 1] as InboundFrame).atMs - firstAskAt : Number.NaN
+
     console.log(
       `[criterion 6 / harmlessness] tree ${tree.nodes.length} combines, ` +
-        `paused peer asked ${victimAsks.length}× (${victimAsks.map((a) => a.nodeId.slice(0, 8)).join(',')}), ` +
+        `slowest exec dispatch ${Math.round(slowestExecMs)}ms of ${MAP_RPC_TIMEOUT_MS}, ` +
+        `paused peer asked ${victimAsks.length}× (${victimAsks.map((a) => a.nodeId.slice(0, 8)).join(',')}) ` +
+        `spread over ${Math.round(Math.max(...victimAsks.map((a) => a.atMs)) - firstAskAt)}ms, ` +
         `late replies ${late.length} at +${late.map((f) => Math.round(f.atMs - reduceReturnedAt)).join(',')}ms, ` +
+        `send window ${Math.round(sendWindowMs)}ms of ${DEFAULT_SEND_TIMEOUT_MS}, ` +
         `recomputes ${paused.recomputes} against ${healthy.recomputes} unpaused`,
     )
 
     // ── RECEIVED ──────────────────────────────────────────────────────────────────
-    // Non-zero across the window that begins when `executeReduce` returned.
-    expect(arrived).toBe(true)
+    // Non-zero across the window that begins when `executeReduce` returned. See MR-04 for
+    // why the frames the paused peer sent are named in the failure: without them a zero
+    // cannot distinguish an aborted send from a process that ran and did not finish.
+    expect(arrived, `expected ${victimAsks.length} late replies, saw ${late.length}; the paused peer sent [${watch.frames
+      .filter((frame) => frame.from === victimId)
+      .map((frame) => String(frame.kind))
+      .join(',')}]`).toBe(true)
     expect(late.length).toBeGreaterThan(0)
     // One reply per request left outstanding — no reply this test did not provoke, and
     // none of the outstanding ones lost.
     expect(late).toHaveLength(victimAsks.length)
+
+    // ── THE BUDGETS THAT MAKE THE ABOVE OBSERVABLE AT ALL ─────────────────────────
+    // Both are ratios against a reading taken in this run, and neither existed before the
+    // map precondition started reddening under whole-suite load. The first is the guard
+    // whose absence caused that red; the second is what stops the first being satisfied
+    // by simply raising a budget until the late reply stops arriving.
+    expect(MAP_RPC_TIMEOUT_MS).toBeGreaterThan(slowestExecMs * MAP_DISPATCH_MARGIN)
+    expect(sendWindowMs).toBeLessThan(DEFAULT_SEND_TIMEOUT_MS / SEND_BUDGET_MARGIN)
 
     // ── UNSOLICITED ───────────────────────────────────────────────────────────────
     expect(victimAsks.length).toBeGreaterThanOrEqual(1)

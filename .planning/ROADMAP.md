@@ -1047,7 +1047,7 @@ Three consequences the planner must price:
 ### Phase 22: Reachability Guard
 **Goal**: A guard test fails when a capability exported from a package barrel has no traced call path from any of the five runnable entry points — the class of defect this milestone exists to fix, made permanent
 **Mode:** mvp
-**Depends on**: Phases 11-21 — runs last because it verifies what all eleven other phases claim to have wired
+**Depends on**: Phases 11-21, **and Phase 24** — runs last because it verifies what every other phase claims to have wired. **Owner ruling 2026-08-05 put Phase 24 ahead of it too** (see the scheduling note in the Phase 24 block): a reachability guard that runs before admission is gated certifies a fabric with an open door. Order is **23 → 24 → 22**. If Phase 24 does not land inside the milestone, Phase 22 runs anyway and its verification says what it could not cover — ordering must not be the mechanism that hides a known gap
 **Requirements**: WIRE-02
 **Research**: None — the pattern to follow is `purity.node.test.ts`, which already enforces a structural property (no forbidden imports in a portable package) against real files rather than a mock. This guard does the same for call-graph reachability instead of import origin
 **Success Criteria** (what must be TRUE):
@@ -1085,7 +1085,15 @@ comment and in the Phase 15 amendment note above; both say *named here*, and bot
 ## Progress
 
 **Execution Order:**
-Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 → 9 → 10 → 11 → 12 → 13 → 14 → 15 → 16 → 17 → 18 → 19 → 20 → 21 → 22
+Phases execute in numeric order **up to 21, and then deliberately not**: 1 → … → 20 → 21 → **23 → 24 → 22**.
+
+**Phase 22 is last by construction, and this line used to say otherwise.** It ended at "→ 22" and
+omitted 23 and 24 entirely, which read as though 22 came before them. Three other places in this
+file and `STATE.md:227` have always said 22 runs last; this line was the odd one out and was
+corrected 2026-08-05 after it misrouted a session. **23 before 22** because Phase 23 criterion 5
+is what gives `delegate` and `CapabilitySupplier` a traced call path — without it Phase 22's
+criterion 1 fails by construction, measured 2026-08-05. **24 before 22** by owner ruling of the
+same date.
 
 Parallel tracks (config `parallelization: true`):
 - Phase 9 (benchmark) runs alongside Phases 7-8 against the dispatch API frozen in Phase 6
@@ -1129,7 +1137,7 @@ Parallel tracks (config `parallelization: true`):
 **Success Criteria** (what must be TRUE):
   1. A benchmark run at N nodes spawns N operating-system processes, verified by reading the child PIDs, and the published run records them — a run that silently falls back to in-process nodes fails the harness rather than reporting a curve
   2. Makespan at N=1 and N=8 differ on a fixture with enough work to saturate a core, and the ratio is published; a flat curve is a finding, but it must be a finding about the fabric rather than about the harness
-  3. The two real-transport rungs Phase 8 published as excluded (8 and 16 nodes, dying on `INBOUND_CONNECTION_THRESHOLD = 5` per host) either run, or are re-excluded with a measurement showing the per-host inbound cap is still the cause under separate processes
+  3. The real-transport rungs Phase 8 published as excluded either run, or are re-excluded with a measurement showing the per-host inbound cap is still the cause under separate processes. **Corrected 2026-08-05: this is ONE rung, not the two the criterion was written against.** The clause said *"8 and 16 nodes, dying on `INBOUND_CONNECTION_THRESHOLD = 5` per host"*; the committed run (stamped `2026-08-01T06:09:01.272Z`) excludes exactly one row — `real transport, 16 nodes` — and the **8-node rung already runs**, at `n = 19` with `incomplete = 0`. The scope change must be **stated in the published section, not absorbed**: this project's own rule is that a rung which vanishes between plan and results is indistinguishable, to a reader, from one removed because its number was inconvenient. The same rule applies to one that quietly appears
   4. `BENCHMARK-RESULTS.md` states, for every published figure, whether it came from the single-process or the multi-process driver — no figure is silently replaced
   5. **`bin/bench.ts` gains an opt-in sovereign leg, off by default, that mints a real capability chain and dispatches an owner-labelled shard through it** — giving `delegate` and `CapabilitySupplier` a traced call path from a runnable entry point, so Phase 22's guard finds them reachable. The default public curve must be **byte-identical in shape** to a run with the flag absent; if the leg moves the default measurement, it has been built wrong
 
@@ -1141,7 +1149,15 @@ It lands **here** rather than in Phase 15 for one reason: this phase already rew
 
 **What this phase is not.** It does not make a one-host curve a distributed one. BENCH-06 was rewritten on 2026-07-28 to what one host establishes; the distinct-machine claim it used to carry is **descoped and unmeasured — not met, and not transferred to this phase**. A same-host run has one CPU, one V8 and one libc, so it cannot detect divergence between machines whatever the process count. Phase 8's rule that a same-machine run is labelled as such carries forward unchanged, and AOT-03's `CROSS_MACHINE_BLIND_SPOT` is untouched by any of this.
 
-**Trap to avoid.** The COST crossover published at ~570× measures the guest ABI on a trivial fixture, not the fabric. Criterion 2 requires a fixture that does non-trivial work, or the new curve reproduces the old one's real problem with more processes.
+**Trap to avoid.** The COST crossover measures the guest ABI on a trivial fixture, not the fabric. Criterion 2 requires a fixture that does non-trivial work, or the new curve reproduces the old one's real problem with more processes.
+
+**The figure this paragraph used to quote was stale, and by more than an order of magnitude.** It read *"published at ~570×"*. The committed `BENCHMARK-RESULTS.md` publishes **7086.14×**. The old Plan 23-05 asserted `573.16×` — against `BENCHMARK-RESULTS-2026-07-27.md`, **a file that does not exist**. Corrected 2026-08-05. The trap is unchanged and if anything sharper at the real number; only the citation was wrong.
+
+**Plans**: **6 plans, 5 waves** — replanned in full on 2026-08-05 (commit `3dca149`) after the original five were measured against the tree they would actually run on and 21 premises came back false. `23-01` and `23-02` in wave 1 (disjoint files), `23-03` wave 2, `23-04` wave 3, `23-06` wave 4, `23-05` wave 5 with `autonomous: false`.
+
+`23-06` is new and carries criterion 5 — `[BENCH-07, AUTH-03]`. **None of the original five mentioned `AUTH-03`, `delegate` or `CapabilitySupplier` even once**: they were committed 2026-07-29 and criterion 5 was minted by owner ruling on 2026-07-31, so the plan set was never written against this phase's actual scope. That is chronological rather than an oversight in review, and it is why this was a replan and not an amendment.
+
+**`23-05` sits behind `23-06`, not beside it.** A leg that breaks the default run has to be caught before the numbers are taken, not after.
 
 ## Requirement Coverage
 
@@ -1229,10 +1245,49 @@ It lands **here** rather than in Phase 15 for one reason: this phase already rew
      That resolution is available today and fails the moment a deployment separates them. The
      requirement must be stated, not assumed.
 
+     CORRECTED 2026-08-05 — the first two clauses hold, the causal one does not, and it is wrong
+     in BOTH directions. Measured against `BrowserNode.#compose`:
+
+       - SEPARATION DOES NOT BREAK ENROLMENT. A denied reservation does not fail the relay-dial
+         loop: the loop asserts only that the DIAL resolved, and nothing in `#compose` reads
+         whether a reservation was granted. The tab proceeds to `resolveCertificate` and enrols
+         over its own plain connection. So the door stays open for enrolment in the SEPARATED
+         topology too — the co-location premise is not load-bearing for this half.
+       - CO-LOCATION IS NOT WHAT MAKES IT WORK, and it is not even guaranteed. `relayAddrs` and
+         `enrollment.providerAddr` are two independent parameters and NOTHING checks they agree.
+         In `demo/main.ts` they come from entirely separate sources — `relayAddrs` from
+         `discoverRelays()` (a `?relay=` query param or the origin's `/o2-info` JSON),
+         `providerAddr` from whatever the host page passes.
+
+     THE ACCURATE FORM IS ALREADY AT THE LINE, in `packages/libp2p/src/relay-admission.ts`:
+     *"A relay that pins issuers must either serve enrolment itself, or name a provider a joining
+     peer can reach without a reservation."* This roadmap is corrected to match the source; the
+     source was right first.
+
+     AND ARMING STILL CLOSES THE DOOR IT AIMS AT, which is the part worth keeping.
+     `BootstrapInfo.peerAddrs` is `[seedAddr, ...node.reservedPeerIds.map(...)]` and `agent.ts`'s
+     `reservations` branch answers from the same thunk, so an unreserved peer is structurally
+     absent from both advertisement surfaces — no filter to add and no `if` to forget.
+
+     UNNAMED BY ANY PLAN, and it belongs in one: in the separated topology a tab whose reservation
+     is refused still completes its relay dial, does not fail `#compose`, enrols against a provider
+     at a different address, then holds a certificate and re-reserves.
+
      SCHEDULING NOTE FOR THE OWNER. Phase 22 currently "runs last because it verifies what all
      eleven other phases claim to have wired". A reachability guard that runs BEFORE admission is
      gated passes over a fabric with an open door. Whether that matters depends on what WIRE-02
-     actually claims, and it is an owner decision rather than a planner's. -->
+     actually claims, and it is an owner decision rather than a planner's.
+
+     RULED 2026-08-05: Phase 22 runs AFTER Phase 24. The order is 23 -> 24 -> 22, and Phase 24's
+     waves 2-4 are un-deferred to make that possible. The reasoning the owner took: a guard is
+     worth what it covers, and certifying reachability over a fabric whose admission gate is
+     deliberately unarmed certifies the wrong fabric. Task #51 already records that the deferral
+     has no armed tripwire, so the alternative was to ship two known-open things at once.
+
+     THE ESCAPE HATCH IS PART OF THE RULING, NOT A CAVEAT. If Phase 24 does not land inside this
+     milestone, Phase 22 runs anyway and 22-VERIFICATION.md states plainly that it certified
+     reachability over an ungated fabric. Ordering must never become the mechanism by which a
+     known gap stops being visible. -->
 
 
 ### v1.0 (Phases 1-10)
@@ -1312,7 +1367,10 @@ and `submitJob` into the one job path and wires churn resilience plus the peer l
 (v1.0 Phase 7, plus two partials); Phase 21 finishes the AOT pipeline's two open wiring
 gaps (v1.0 Phase 10); Phase 22 is the reachability guard that would have caught this
 milestone happening in the first place — it runs last because it verifies the other
-eleven phases actually did what they claim.
+phases actually did what they claim. **Last means after 23 and 24, not after 21** — the
+execution order is 23 → 24 → 22, and both of those dependencies are load-bearing rather
+than tidy: Phase 23 criterion 5 is what makes Phase 22 criterion 1 passable at all, and
+Phase 24 is what makes the fabric it certifies a gated one (owner ruling 2026-08-05).
 
 Almost no code here is algorithmically novel — the mechanisms already exist, unit-tested,
 in the v1.0 phase directories. Each v1.1 phase's job is to make a runnable entry point

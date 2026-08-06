@@ -53,6 +53,14 @@ export async function runJobInWorker(request: WorkerRequest): Promise<WorkerResp
         onQuorumShortfall: 'runs-at-available-redundancy',
       },
       store,
+      {
+        // CHURN-03. Stated, and the statement is true rather than a formality: `store` is
+        // the `MemoryBlockstore` two lines up, so a handle published from here would name
+        // a block that dies with this worker's task — a checkpoint nobody could resume
+        // from. This is the caller the old optional field was justified by, and the named
+        // sentinel is what lets it say so instead of saying nothing.
+        checkpoints: 'checkpoints-nothing',
+      },
     )
     if (!result.ok) return { ok: false, error: JSON.stringify(result.error) }
     return {

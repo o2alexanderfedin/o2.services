@@ -726,6 +726,15 @@ const api: TabApi = {
       },
       node.store,
       [node.egress],
+      {
+        // CHURN-03. The demo keeps no checkpoints: a visitor's cube run is short, and a
+        // handle published to a panel nobody can hand to a second requestor would be a
+        // resume story the page cannot tell. Stated rather than omitted since 2026-08-05
+        // — see `SubmitOptions.checkpoints`. **This tab's store is the one production
+        // store that already outlives its process** (`node.store` is IndexedDB-backed),
+        // so this is where a real sink would cost least; it is not wired here.
+        checkpoints: 'checkpoints-nothing',
+      },
     )
     if (!result.ok) throw new Error(`submit failed: ${JSON.stringify(result.error)}`)
     // Exactly one guard was supplied above, so exactly one manifest comes back.
@@ -1012,7 +1021,13 @@ const api: TabApi = {
       // `runColouring` above deliberately does not get this: every cube it submits is
       // `label: 'public'`, so there is nothing for the set to record and handing it one
       // would suggest otherwise.
-      { sovereignCids: n.sovereignCids },
+      {
+        sovereignCids: n.sovereignCids,
+        // CHURN-03 — as `runColouring` above, and for the same reason. Note this is the
+        // one production submit that already passes an options bag, so it is the only one
+        // of the five where the new field cost a line rather than an argument.
+        checkpoints: 'checkpoints-nothing',
+      },
     )
     if (!result.ok) throw new Error(`submit failed: ${JSON.stringify(result.error)}`)
     // Exactly one guard was supplied above, so exactly one manifest comes back.

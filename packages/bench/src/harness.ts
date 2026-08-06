@@ -46,6 +46,60 @@ export type TransportKind = 'memory' | 'real'
 export type Skew = 'uniform' | 'skewed'
 export type CodeCache = 'cold' | 'warm'
 
+/**
+ * Which harness built the nodes a run measured — BENCH-07.
+ *
+ * A claim about the **measurement**, not a note about the implementation, and each
+ * value is stated as what it licenses a reader to conclude.
+ *
+ * - `in-process` — every node shared the driver's event loop. Two shards therefore
+ *   could not execute at the same instant however many node identities existed, so a
+ *   flat curve under this driver is a property of the harness and is not a finding
+ *   about the fabric. Both curves published before 2026-08-05 are this.
+ * - `process-per-node` — each node was its own operating-system process, on one host.
+ *   This is where a parallel speedup can exist at all. It still says **nothing** about
+ *   divergence between machines: one host has one CPU, one V8 and one libc, and
+ *   spawning processes changes the scheduler that runs them and not the arithmetic
+ *   they perform. BENCH-06's distinct-machine half stays unmeasured, and unmeasured
+ *   is not met.
+ */
+export type DriverKind = 'in-process' | 'process-per-node'
+
+/**
+ * Which guest a run dispatched — BENCH-07.
+ *
+ * - `trivial` — the fixed-output partition module. It writes its partition index and
+ *   returns, so there is nothing in it to divide across nodes. The COST crossover and
+ *   the single-threaded baseline are defined against this fixture and stay defined
+ *   against it, because that is what every crossover figure published to date means.
+ * - `saturating` — the colouring kernel, whose shards each spend a declared budget.
+ *   The cost per shard is an **input** rather than a property of the host, which is why
+ *   it was chosen over a workload that spins for a wall-clock duration: a duration
+ *   encodes the machine it was written on into every ladder it is run against.
+ */
+export type FixtureKind = 'trivial' | 'saturating'
+
+/**
+ * What a run actually dispatched through — AUTH-03, and new in the 2026-08-05
+ * amendment.
+ *
+ * - `public` — every shard the rung submitted was labelled public, and every dispatch
+ *   named the unauthenticated sentinel.
+ * - `sovereign` — at least one shard carried an owner and was dispatched through a real
+ *   capability chain.
+ *
+ * **A fact about what the rung dispatched, not about what the operator intended.** Its
+ * purpose is to make the sovereign leg's central promise — that the default curve keeps
+ * its shape — checkable in `.planning/bench/raw.json` rather than asserted in prose.
+ *
+ * **Not a node kind.** Every node in either leg is the same node, built by the same code
+ * path with the same capability; what differs is the label on a shard and the clearance
+ * the nodes were started with. The repository says the same thing about itself in three
+ * other places, and it is repeated here because a dimension named `leg` invites exactly
+ * the opposite reading.
+ */
+export type DispatchLeg = 'public' | 'sovereign'
+
 export interface RunConfig {
   readonly nodes: number
   readonly shards: number
@@ -53,6 +107,21 @@ export interface RunConfig {
   readonly redundancy: number
   readonly transport: TransportKind
   readonly skew: Skew
+  /**
+   * Provenance. **Required, for the reason `Inventory.machines` is required.**
+   *
+   * The next three fields are not optional, and the choice is the whole point of them.
+   * The raw observations are published to `.planning/bench/raw.json`, which has no
+   * headings and no prose to fall back on, so an observation that does not carry its
+   * own provenance does not have any. An optional provenance field is one that gets
+   * omitted at the single call site nobody re-reads, and a figure that *can* be
+   * published without its provenance eventually is. Required means a driver that stops
+   * saying which rig produced a number fails `tsc` rather than publishing an anonymous
+   * curve beside a named one.
+   */
+  readonly driver: DriverKind
+  readonly fixture: FixtureKind
+  readonly leg: DispatchLeg
 }
 
 /**
@@ -373,16 +442,47 @@ export interface ConnectivityTax {
 }
 
 /**
+ * Refuse a curve that holds two results at one node count.
+ *
+ * **An error rather than a merge, and rather than a silent pick.** The methodology
+ * defines the connectivity tax as the same job over two transports with everything else
+ * held constant. Two entries at one node count mean something else varied — a second
+ * driver, a second fixture, a second dispatch leg — so the two are not two readings of
+ * one configuration and picking between them is not a choice this function is entitled
+ * to make. It cannot even see which one to prefer: `SweepResult` carries the config, and
+ * both configs are equally valid runs of different things.
+ *
+ * The shape this replaces failed silently. `new Map(curve.map(…))` keeps whichever entry
+ * was appended last, so appending a process-per-node curve onto the in-process one lost a
+ * rung and computed a tax against the survivor with nothing anywhere reporting it.
+ */
+function refuseDuplicateRungs(curve: 'memory' | 'real', results: readonly SweepResult[]): void {
+  const seen = new Set<number>()
+  for (const point of results) {
+    if (seen.has(point.config.nodes)) {
+      throw new RangeError(
+        `the ${curve} curve holds two results at ${point.config.nodes} nodes — the connectivity tax is defined over one configuration per node count per transport, so a second entry means something else varied and choosing between them is not this function's decision to make`,
+      )
+    }
+    seen.add(point.config.nodes)
+  }
+}
+
+/**
  * The gap between the two transports, at equal node count — criterion 1.
  *
  * Published as its own number because it is the honest answer to "how much of your
  * scaling curve is an artifact of the fake network". Node counts present in only one
- * curve are skipped rather than compared against a missing value.
+ * curve are skipped rather than compared against a missing value; a node count present
+ * *twice* in one curve is refused outright — see {@link refuseDuplicateRungs}.
  */
 export function connectivityTax(
   memory: readonly SweepResult[],
   real: readonly SweepResult[],
 ): readonly ConnectivityTax[] {
+  refuseDuplicateRungs('memory', memory)
+  refuseDuplicateRungs('real', real)
+
   const byNodes = new Map(real.map((point) => [point.config.nodes, point]))
   const taxes: ConnectivityTax[] = []
 

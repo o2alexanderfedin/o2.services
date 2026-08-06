@@ -219,6 +219,8 @@ describe('a translated artifact reaches the fabric through the public entry poin
         onQuorumShortfall: 'runs-at-available-redundancy',
       },
       blockstore,
+      // CHURN-03 — this test asserts nothing about checkpointing.
+      { checkpoints: 'checkpoints-nothing' },
     )
     const fromTranslation = await submitJob(
       {
@@ -230,6 +232,8 @@ describe('a translated artifact reaches the fabric through the public entry poin
         onQuorumShortfall: 'runs-at-available-redundancy',
       },
       blockstore,
+      // CHURN-03 — this test asserts nothing about checkpointing.
+      { checkpoints: 'checkpoints-nothing' },
     )
 
     expect(fromSource.ok).toBe(true)

@@ -201,6 +201,9 @@ function agreed(partitionIndex: number, output: CanonicalValue): ShardResult {
       // every executor in the tree gives until the signing wrapper is composed.
       agreeing: [{ nodeId: 'w0', attestation: 'signed-by-nobody' }],
       replicas: 1,
+      // This fixture stands for a shard whose single executor answered, so nothing
+      // refused. `[]` is the fixture's own statement and not a filler.
+      failures: [],
       grossFuel: 0,
       usefulFuel: 0,
     },
@@ -297,6 +300,8 @@ describe('MR-04 / MR-05 / MR-07 — eight shards reduce over eight peers that ca
           onQuorumShortfall: 'runs-at-available-redundancy',
         },
         fabric.originStore,
+        // CHURN-03 — this test asserts nothing about checkpointing.
+        { checkpoints: 'checkpoints-nothing' },
       )
       expect(submitted.ok).toBe(true)
       if (!submitted.ok) return

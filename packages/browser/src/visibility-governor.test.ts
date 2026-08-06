@@ -171,6 +171,8 @@ describe('BROW-03 — a job spanning a visibility change', () => {
         onQuorumShortfall: 'runs-at-available-redundancy',
       },
       store,
+      // CHURN-03 — this test asserts nothing about checkpointing.
+      { checkpoints: 'checkpoints-nothing' },
     )
 
     expect(result.ok).toBe(true)
@@ -242,6 +244,8 @@ describe('GovernedExecutor — concurrency cannot bypass the cap', () => {
         onQuorumShortfall: 'runs-at-available-redundancy',
       },
       store,
+      // CHURN-03 — this test asserts nothing about checkpointing.
+      { checkpoints: 'checkpoints-nothing' },
     )
 
     expect(result.ok).toBe(true)
@@ -286,6 +290,8 @@ describe('GovernedExecutor — concurrency cannot bypass the cap', () => {
         onQuorumShortfall: 'runs-at-available-redundancy',
       },
       store,
+      // CHURN-03 — this test asserts nothing about checkpointing.
+      { checkpoints: 'checkpoints-nothing' },
     )
 
     // A full-rate node must not be quietly serialized by the governor's presence.

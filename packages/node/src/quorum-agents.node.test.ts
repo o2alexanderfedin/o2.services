@@ -511,6 +511,8 @@ describe('criterion 1 — three operators, a quorum whose independence is read o
         onQuorumShortfall: 'runs-at-available-redundancy',
       },
       requestor.store,
+      // CHURN-03 — this test asserts nothing about checkpointing.
+      { checkpoints: 'checkpoints-nothing' },
     )
 
     expect(result.ok).toBe(true)
@@ -639,6 +641,8 @@ describe('criterion 1 engineered — one operator: degraded by default, refused 
           onQuorumShortfall,
         },
         requestor.store,
+        // CHURN-03 — this test asserts nothing about checkpointing.
+        { checkpoints: 'checkpoints-nothing' },
       )
 
     const shardOf = (result: Awaited<ReturnType<typeof submitOver>>): ShardResult => {
@@ -1056,6 +1060,8 @@ describe('criterion 1 engineered — one relay: caught by rule 2 and named by it
           onQuorumShortfall,
         },
         requestor.store,
+        // CHURN-03 — this test asserts nothing about checkpointing.
+        { checkpoints: 'checkpoints-nothing' },
       )
 
     const shardOf = (result: Awaited<ReturnType<typeof submitOver>>): ShardResult => {

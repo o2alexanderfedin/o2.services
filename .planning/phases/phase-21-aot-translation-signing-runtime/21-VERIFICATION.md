@@ -1,7 +1,22 @@
 ---
 phase: 21-aot-translation-signing-runtime
 verified: 2026-08-05T07:45:16Z
-status: human_needed # criterion 2's re-tag clause is a MEASURED NEGATIVE with no executor-closable fix; it needs an owner ruling, not a plan
+status: ruled # the owner ruling this pass asked for was taken 2026-08-05; see `ruling` below. Score UNCHANGED at 2/3.
+ruling: >-
+  OWNER RULING 2026-08-05, on task #64. Criterion 2's re-tag clause is RECORDED AS A MEASURED
+  NEGATIVE, on AOT-05's precedent — the same disposition v1.0 took for the V8 code-cache result.
+  The score does NOT move: criterion 2 stays PARTIAL and Phase 21 stays 2/3. What the ruling
+  settles is the REASON, which had been pending since this pass was written.
+  The two alternatives were declined on the merits, both by this pass's own measurement: a name
+  allow-list decides the clause but makes `--image` pointless, which is the flag's whole purpose;
+  and amending the clause was already rejected once as unmeasurable, because the classic-store
+  daemon exits 1. Under this project's rule that unmeasured is not met, a third option of
+  scoring it MET off the unit-level `resolveImage` refusal was never available.
+  The clause is therefore CARRIED, not cleared, and Phase 21 does not close on it — the same
+  disposition as 13.1 (6/7), 16 (3/4), 17 (1/3), 18 (8/9), 19 (4/5) and 20 (6/7). The count is
+  over criteria, never over requirements.
+  REQUIREMENTS.md already carried the measured-negative wording in three places before this
+  ruling; the ruling makes the verification agree with the ledger rather than the other way round.
 score: >-
   2/3 criteria MET (1 PARTIAL, 0 FAILED). Criterion 2 is PARTIAL on one clause only —
   the re-tag refusal — which this pass RE-MEASURED BY HAND and confirms is not met on
@@ -661,6 +676,55 @@ CIDs, both emitted key CIDs, both artifact byte counts, the three fuel numbers, 
 block, the `MAX_INBOUND_MESSAGE_BYTES` headroom claim (5 660 003 of 8 388 608, 67 %), and the
 `docker tag` finding.
 
+### RE-MEASURED 2026-08-05 — row 2 is withdrawn, and rows 3 and 5 are re-scoped
+
+The table above is kept verbatim. Three of its five rows do not survive a second reading, and
+saying so here is cheaper than leaving a reader to trust a report that has been checked once.
+
+**Row 2 is withdrawn.** *"Not reproducible at that magnitude. Measured 4 657 ms here."* Four
+consecutive runs of `npx vitest run --project node --reporter=verbose
+packages/node/src/aot-dispatch.node.test.ts` on 2026-08-05, exit code read with `EXIT=$?` on the
+next line and no pipe, at 1-minute loads of 2.68 / 4.77 / 4.55 / 4.66:
+
+```
+[aot-dispatch] wire: 5660003 bytes, 152ms, fetched=true, ok=true, dir grew 3→5
+[aot-dispatch] wire: 5660003 bytes, 146ms, fetched=true, ok=true, dir grew 3→5
+[aot-dispatch] wire: 5660003 bytes, 153ms, fetched=true, ok=true, dir grew 3→5
+[aot-dispatch] wire: 5660003 bytes, 155ms, fetched=true, ok=true, dir grew 3→5
+```
+
+All four sit **at or below the lowest** of 21-05's recorded `158 / 177 / 689 ms`, with a 9 ms
+spread. This pass's own report says it deliberately avoided a full sweep because *"three agents
+were editing the tree throughout"*; 4 657 ms is what that host produced, and it is a reading of
+the host rather than of the claim. **This pass applied the repository's own rule to every figure
+in the summaries and did not apply it to its own refutation** — *"prefer a comparative reading to
+an absolute one"*, and *"attribute a failure by measurement, not by plausibility"*. 21-05's
+figures stand; the re-measured band is recorded beside them in that summary rather than replacing
+them.
+
+**Row 3 is re-scoped, not withdrawn.** *"all three cases RAN on a cold cache through the real
+CLI"* is not false and was never claimed to be repeatable: it is unrepeatable **by the design
+21-05 itself introduced and documented**, in its deviation 1 (the artifact is cached under a
+gitignored path keyed on the guest source). Measured today, the same spec logs `origin=cache
+status=n/a … wall=2ms` and invokes no CLI. The escape hatch — delete `tools/aot/fixtures/lifted-*.wasm`
+or set `O2_AOT_ARTIFACT` — is named in that deviation. Annotated there.
+
+**Row 5 is now stale in the other direction.** *"Now false. Drift 6 of 5, red."* was true on the
+day. `MEASURED_NODE_SPANS` was retaken in full on 2026-08-05 at `files: 150`, and
+`npx vitest run --project node packages/node/src/slow-specs.node.test.ts` reads **EXIT=0,
+9 passed**. The row's own note — *"Not those plans' doing"* — was right, and the underlying point
+is that a file count in a summary is a dated reading rather than a standing claim. Both 21-04 and
+21-05 now carry that annotation in place.
+
+**Rows 1 and 4 are confirmed and are the two genuinely false claims.** Row 1: `21-03-SUMMARY.md`'s
+frontmatter read `requirements-completed: [AOT-04]` while its own body says AOT-04 is deliberately
+not marked complete and `.planning/REQUIREMENTS.md` carries `- [ ] **AOT-04**` as **Partial**;
+corrected in place 2026-08-05 with the original retained. Row 4: `describeKey` gained a production
+caller in `ddca460` — `tools/aot/lift.ts` pushes `key as hashed: ${'${describeKey(…)}'}` inside
+`describeLift`, verified by grep on 2026-08-05 — so 21-02's *"`describeKey` is not called, and
+that is a decision rather than an omission"* no longer describes the tree; annotated in place at
+both of the two spots that state it.
+
 ## Anti-pattern scan
 
 `TBD`, `FIXME`, `XXX`, `HACK`, `TODO`, `PLACEHOLDER`, "not yet implemented", "coming soon" — **zero
@@ -721,8 +785,39 @@ escalation, and it needs one of:
 
 Under the Phase 17 → 18, Phase 16 → 20, Phase 18 → 20 and Phase 19 → 24 precedent, a clause that is
 carried rather than cleared keeps its criterion at PARTIAL and the phase does not close on it. That
-precedent is why this report reads 2/3 and not 3/3, and why the status is `human_needed` rather than
-`passed`.
+precedent is why this report reads 2/3 and not 3/3, and why the status was `human_needed` rather
+than `passed`.
+
+---
+
+## RULED 2026-08-05 — option 3, which this section did not list
+
+**The owner took neither of the two options above.** Both were declined on this pass's own
+measurements: option 1 converts content addressing into a name allow-list and makes `--image`
+useless for the purpose 21-CONTEXT decision 5 added it for; option 2 was already rejected once as
+unmeasurable, because the classic-store daemon exits 1.
+
+**The clause is recorded as a MEASURED NEGATIVE, on AOT-05's precedent** — the disposition v1.0
+took for the V8 code-cache result, *"reported unmet rather than reworded"*. That is a third option
+and this section should have listed it, because it is the one the repository already had a name
+for. Recorded here rather than by rewriting the list above, so what this pass could see on
+2026-08-05 stays readable.
+
+**Nothing about the score moves.** Criterion 2 stays PARTIAL, Phase 21 stays **2/3**, and the
+phase still does not close on it. The ruling settles the *reason*, which is what had been pending:
+`RepoDigests` is a property of the image **ID**, so no predicate over it can separate a borrowed
+name from the canonical one, and **the information is not in the data source**. That is a fact
+about the containerd image store, not a gap in this code — and *"unmeasured is not met"* was never
+in tension with it, because this clause is **measured** and not met.
+
+**The classic dockerd image store remains unmeasured, and unmeasured is not met.** The ruling does
+not extend to it. If a future host with the classic store shows the refusal working, this clause
+becomes host-dependent rather than false, and that reading should be added beside this one rather
+than replacing it.
+
+`REQUIREMENTS.md` already carried the measured-negative wording in three places before the ruling
+— the AOT-02 traceability row, the v1.1 wiring row, and the exclusions paragraph. **The ruling
+makes this verification agree with the ledger, not the other way round.**
 
 ---
 

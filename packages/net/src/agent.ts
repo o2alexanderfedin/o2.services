@@ -669,7 +669,42 @@ export function serveAgent(options: AgentOptions): void {
 
     let response: AgentResponse
     if (request.kind === 'block') {
-      const bytes = await blockstore.get(request.cid)
+      // **Local holdings only, and the `has` gate is what makes it local.**
+      //
+      // This branch used to be a bare `blockstore.get`, and in production `blockstore` is
+      // a `FetchingBlockstore` — so a node asked for a block it did not hold went to the
+      // network to find one, for the peer that had just asked it. Two nodes wired to each
+      // other, which in a mesh is every pair, then deadlocked: A's `get` registers the CID
+      // in its in-flight map and asks B; B's serve path calls its own `get`, which asks A;
+      // A's serve path calls `get` again and is handed back **the very promise that is
+      // waiting on B**. Nothing can resolve it, so the `bytes ?? null` refusal three lines
+      // down — which is correct and has always been here — was simply never reached, and
+      // the requestor waited out its whole RPC budget for an answer this node could have
+      // given immediately.
+      //
+      // **The 60 s that was reported is the demo page's `rpcTimeoutMs`, not a fact about
+      // blocks.** Re-sited at 2 000 ms the same fixture reads 2 002 ms. A duration equal
+      // to a timeout is evidence of the timeout — the rule this repository already paid
+      // for once on `lift.node.test.ts`.
+      //
+      // `has` is the right instrument rather than a convenient one: `FetchingBlockstore`
+      // documents it as *"Local presence only — deliberately does not go to the network"*,
+      // for this exact reason one layer down. And when it answers true the `get` below
+      // reads the local tier and cannot dial, because `get` checks local first.
+      //
+      // **This costs no reachability.** `RpcBlockSource.fetch` already walks every peer
+      // itself, so a serving node that also walked its peers was duplicating the
+      // requestor's own loop — with no hop bound, no cycle check, and no idea who had
+      // asked. What it removes is a node unwittingly acting as an open recursive proxy
+      // for anything any peer names. The `combine` branch keeps its network fallback and
+      // says so in its own refusal text (*"not held and not obtainable"*); that branch is
+      // fetching inputs it was asked to **compute over**, which is a different question
+      // from "do you have this".
+      //
+      // The race between `has` and `get` is benign and worth stating: a block evicted in
+      // that window makes this answer `bytes: null`, which is a *stated* miss and exactly
+      // what a caller must handle anyway. Silence was never one of the outcomes.
+      const bytes = (await blockstore.has(request.cid)) ? await blockstore.get(request.cid) : undefined
       const found: AgentResponse = { kind: 'block', bytes: bytes ?? null }
       // ROADMAP criterion 7. This branch gets the same treatment as `exec`
       // because without it a node asked for registered bytes answers with a

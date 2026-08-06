@@ -302,6 +302,8 @@ describe('DET-03/DATA-08 — signed artifact resolution across a real bin/agent.
         onQuorumShortfall: 'runs-at-available-redundancy',
       },
       submitter.store,
+      // CHURN-03 — this test asserts nothing about checkpointing.
+      { checkpoints: 'checkpoints-nothing' },
     )
 
     expect(result.ok).toBe(true)
@@ -338,6 +340,8 @@ describe('DET-03/DATA-08 — signed artifact resolution across a real bin/agent.
         onQuorumShortfall: 'runs-at-available-redundancy',
       },
       submitter.store,
+      // CHURN-03 — this test asserts nothing about checkpointing.
+      { checkpoints: 'checkpoints-nothing' },
     )
 
     expect(result.ok).toBe(true)
@@ -382,6 +386,8 @@ describe('DET-03/DATA-08 — signed artifact resolution across a real bin/agent.
         onQuorumShortfall: 'runs-at-available-redundancy',
       },
       submitter.store,
+      // CHURN-03 — this test asserts nothing about checkpointing.
+      { checkpoints: 'checkpoints-nothing' },
     )
 
     expect(result.ok).toBe(true)
@@ -426,6 +432,8 @@ describe('DET-03/DATA-08 — signed artifact resolution across a real bin/agent.
         onQuorumShortfall: 'runs-at-available-redundancy',
       },
       submitter.store,
+      // CHURN-03 — this test asserts nothing about checkpointing.
+      { checkpoints: 'checkpoints-nothing' },
     )
 
     expect(result.ok).toBe(true)
@@ -478,6 +486,8 @@ describe('DET-03/DATA-08 — signed artifact resolution across a real bin/agent.
         onQuorumShortfall: 'runs-at-available-redundancy',
       },
       submitter.store,
+      // CHURN-03 — this test asserts nothing about checkpointing.
+      { checkpoints: 'checkpoints-nothing' },
     )
 
     expect(result.ok).toBe(true)

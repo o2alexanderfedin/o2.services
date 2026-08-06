@@ -138,13 +138,54 @@ beforeAll(async () => {
   context = await browser.newContext()
 }, 180_000)
 
+/**
+ * A budget, because the default is structurally below the one operation this hook awaits.
+ *
+ * This hook was the only one of the fifteen `*.e2e.test.ts` files to pass no timeout at
+ * all, so it ran on vitest's default. That default is `1e4` for a project that is not
+ * `browser.enabled` — `vitest/dist/chunks/coverage.DM_a_rWm.js:539`,
+ * `resolved.hookTimeout ??= resolved.browser.enabled ? 3e4 : 1e4` — and the `e2e` project
+ * is `environment: 'node'`. So: **10 000 ms**.
+ *
+ * `browser.close()` is bounded at **30 000 ms** by Playwright's own constant.
+ * `closeOrKill` races `gracefullyClose()` against a timer of `DEFAULT_PLAYWRIGHT_TIMEOUT`
+ * (`playwright-core/lib/coreBundle.js`, `DEFAULT_PLAYWRIGHT_TIMEOUT = 3e4`) and SIGKILLs
+ * the process when that timer wins. A hook that awaits it on a 10 000 ms budget is armed
+ * at a *third* of the ceiling of the thing it is waiting for, so it does not lose that
+ * race occasionally — it loses it every time graceful shutdown misses its window, on any
+ * machine. The symptom is the whole file red on a hook while all six cases pass.
+ *
+ * Measured here, per step, on 2026-08-05:
+ *
+ * | 1-min load | `context.close` | `browser.close` | `server.close` | `peer.stop` | `relay.stop` | total |
+ * |---|---|---|---|---|---|---|
+ * | 33 | 24 ms | **22 ms** | 1 ms | 1 ms | 1 ms | **50 ms** |
+ * | 129 → 163 | 24 ms | **30 026 ms** | 2 ms | 3 ms | 2 ms | **30 057 ms** |
+ *
+ * The loaded reading is 30 026 ms against a 30 000 ms constant, which is that constant
+ * firing and not a measurement of Chromium: a duration that equals a timeout is evidence
+ * of the timeout. Nothing here leaks — the same six tabs, with the same six live nodes,
+ * close in 22 ms when the host has cores to give — so there is no handle to release and
+ * the cost is CPU starvation at 20× oversubscription.
+ *
+ * **The second harm, which the red was hiding.** Killed at 10 000 ms, `browser.close()` is
+ * abandoned *before* Playwright's own 30 s kill fallback can run, so the Chromium process
+ * outlives the run. The old budget did not only mis-report; it leaked the thing it was
+ * supposed to be reclaiming.
+ *
+ * **Why 180 000 survives a different machine.** It is not sited on this host's speed. The
+ * term that dominates is a constant inside Playwright, so the worst case is ~30 s on any
+ * machine and this is 6× it. It also matches what this file already says everywhere else
+ * — `beforeAll` and all six cases are 180 000 — so the file now states one number rather
+ * than five and a silent default.
+ */
 afterAll(async () => {
   await context?.close().catch(() => {})
   await browser?.close().catch(() => {})
   await server?.close().catch(() => {})
   await peer?.stop().catch(() => {})
   await relay?.stop().catch(() => {})
-})
+}, 180_000)
 
 describe('a live tab carries a user cap it can change', () => {
   it('starts unthrottled and drops its slot count when capped', async () => {

@@ -519,6 +519,8 @@ describe('AUTH-05/VER-08/VER-09 — an owner’s own processes verify each other
           onQuorumShortfall: 'runs-at-available-redundancy' as const,
         },
         requestor.store,
+        // CHURN-03 — this test asserts nothing about checkpointing.
+        { checkpoints: 'checkpoints-nothing' },
       )
 
     // ---- Discovery: two qualify, the third is excluded by name. ------------------

@@ -24,6 +24,26 @@ import type { OwnerId, Sovereignty } from './sovereignty.ts'
 export interface Blockstore {
   put(bytes: Uint8Array<ArrayBuffer>): Promise<CID>
   get(cid: CID): Promise<Uint8Array<ArrayBuffer> | undefined>
+  /**
+   * Does **this** store hold the block — answered without going to the network.
+   *
+   * The distinction from {@link Blockstore.get} is the whole point and is now written
+   * down, because a caller depended on it before anything stated it. `get` may be
+   * decorated to fall back to peers — `FetchingBlockstore` in `@o2/net` is exactly that —
+   * while `has` is *"local presence only"* in that class's own words, so callers can make
+   * cheap decisions without a version that dialled peers turning an availability check
+   * into a round trip.
+   *
+   * **What went wrong when this was only implied.** `serveAgent`'s `block` branch answered
+   * a peer with `blockstore.get`, and in production that blockstore fetches. So a node
+   * asked for a block it did not hold went looking for one on behalf of the peer that
+   * asked; two nodes pointed at each other handed one another the same pending promise and
+   * neither could ever answer. The branch now gates on `has`, which makes this line the
+   * contract that keeps it correct rather than an accident of which store was passed.
+   *
+   * An implementation that answered this by consulting the network would reintroduce that
+   * defect at a distance, which is why the rule lives on the port and not in one caller.
+   */
   has(cid: CID): Promise<boolean>
   readonly size: number
 }

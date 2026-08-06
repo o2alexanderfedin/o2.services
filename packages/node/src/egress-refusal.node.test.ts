@@ -306,6 +306,8 @@ describe('DATA-05 — the refusal across two real bin/agent.ts processes', () =>
         onQuorumShortfall: 'runs-at-available-redundancy',
       },
       submitter.store,
+      // CHURN-03 — this test asserts nothing about checkpointing.
+      { checkpoints: 'checkpoints-nothing' },
     )
 
     expect(leaking.ok).toBe(true)
@@ -355,6 +357,8 @@ describe('DATA-05 — the refusal across two real bin/agent.ts processes', () =>
         onQuorumShortfall: 'runs-at-available-redundancy',
       },
       submitter.store,
+      // CHURN-03 — this test asserts nothing about checkpointing.
+      { checkpoints: 'checkpoints-nothing' },
     )
 
     expect(control.ok).toBe(true)

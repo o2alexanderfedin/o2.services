@@ -1256,7 +1256,7 @@ interface CheckpointLog {
   record(shard: CompletedShard): Promise<void>
 }
 
-/** The log that writes nothing, for a caller that named no sink. */
+/** The log that writes nothing, for a caller that named `'checkpoints-nothing'`. */
 const NO_CHECKPOINTS: CheckpointLog = {
   record: async (): Promise<void> => {},
 }
@@ -1459,6 +1459,14 @@ function carriedResult(
       output: shard.output,
       agreeing: [],
       replicas: 0,
+      // Empty because **this requestor asked nobody**, which is the same measured zero
+      // `replicas`, `grossFuel` and `attempted` take here and not a default standing in
+      // for an unknown. A refusal the predecessor met is not in the checkpoint — a
+      // checkpoint carries an answer, not the history that produced it — and inventing
+      // `[]` to mean "there were none" would be this module asserting something about a
+      // run it did not observe, which is the conflation the `replicas: 0` note above
+      // refuses in the same breath.
+      failures: [],
       grossFuel: 0,
       usefulFuel: 0,
     },
@@ -1590,6 +1598,19 @@ function mergeVerifications(first: VerificationResult, second: VerificationResul
     output: winner.output,
     agreeing,
     replicas: agreeing.length,
+    // **Every generation's refusals, carried across the fold.** This function collected
+    // them all along — for the `disagreed` and `insufficient` returns above — and then
+    // dropped them here, which is the defect stated in one line: a shard whose first
+    // executor refused by name and whose re-pick succeeded reported the success and
+    // erased the refusal, so a requestor could see from `ShardResult.attempted` and
+    // `ShardResult.generations` *that* a node had been asked and had not worked out, and
+    // never *why*. A retry that hides the reason is the silent filtering Phase 6 forbids,
+    // arriving one layer up.
+    //
+    // Unioned rather than replaced, for the reason the replicas are: two generations that
+    // each lost a node lost two nodes, and reporting only the last would be a different
+    // claim. Order is generation order, so the earliest refusal reads first.
+    failures,
     grossFuel,
     usefulFuel: winner.usefulFuel,
   }
@@ -2239,7 +2260,8 @@ export interface SubmitOptions {
    */
   readonly sovereignCids?: { add(cid: string): Promise<void> }
   /**
-   * Where this job's checkpoint handles go as they are written — CHURN-03.
+   * Where this job's checkpoint handles go as they are written, or the named statement
+   * that this caller keeps none — CHURN-03.
    *
    * A handle is a CID and nothing else; the block it names lives in the same `blockstore`
    * every shard input and every agreed output goes to. **Reused rather than given its own
@@ -2254,15 +2276,21 @@ export interface SubmitOptions {
    * result would be a handle nobody with a use for it ever sees. It has to escape the
    * process *as it is written*, which is what makes this a sink and not a field.
    *
-   * ## Optional here, and the argument is `sovereignCids`'s rather than `onQuorumShortfall`'s
+   * ## Optional until 2026-08-05, and required after — the argument, then the ruling
    *
-   * This was decided and not defaulted, so the reasoning is written down rather than left
-   * to be reconstructed. `JobSpec.onQuorumShortfall` is required because omitting it would
-   * let every existing call site *mean* `degrade` without saying so — a position held by
-   * callers who never stated one. **There is no equivalent position here.** Omitting this
-   * means no block is written and no handle is published; nothing is claimed on the
-   * caller's behalf, and no field of the result changes. It is the absence of a
-   * destination for bytes, not a silent answer to a question.
+   * **Retained for the reasoning, not the verdict.** This was decided and not defaulted,
+   * so what stood here is kept in full rather than replaced by its outcome. A reader who
+   * only meets the current shape cannot tell which objections were weighed and which were
+   * never raised.
+   *
+   * ### The case for optional, as it was written
+   *
+   * `JobSpec.onQuorumShortfall` is required because omitting it would let every existing
+   * call site *mean* `degrade` without saying so — a position held by callers who never
+   * stated one. **There is no equivalent position here.** Omitting this means no block is
+   * written and no handle is published; nothing is claimed on the caller's behalf, and no
+   * field of the result changes. It is the absence of a destination for bytes, not a
+   * silent answer to a question.
    *
    * {@link SubmitOptions.sovereignCids} is the precedent that fits, and it fits on both
    * halves. Its argument is that the omission is *real* for a specific caller —
@@ -2271,26 +2299,68 @@ export interface SubmitOptions {
    * Requiring such a caller to name a destination it does not have would be requiring it
    * to state a falsehood.
    *
-   * **What the type therefore does not hold, measured rather than assumed.** With this
-   * optional, `npx tsc --noEmit` exits **0** while every production submitter omits it —
-   * checked, not predicted, because this repository has recorded that exact reading twice
-   * (Plans 19-01 and 19-13) as the shape of a hole. So nothing in the type system says a
-   * submitter that *should* checkpoint does. The other half of the `sovereignCids`
-   * precedent is what closes that, and it is a **guard, not a type**:
-   * `sovereign-block-refusal.node.test.ts` pins the set of files allowed to pass that
-   * option. The equivalent guard for this one is named in this plan's summary and belongs
-   * to whoever owns that file next; it is not written here because this plan does not own
-   * that file.
-   *
-   * The alternative was `JobSpec.checkpoints: CheckpointSink | 'checkpoints-nothing'` — a
-   * required union with a named sentinel and a five-site fan-out, `onQuorumShortfall`'s
-   * shape. It was rejected on the merits above, **and** it would have been out of reach
-   * regardless: the five sites are not this plan's files, and two of them
-   * (`bin/bench.ts`, `perf-workload.ts`) have their argument lists count-pinned by
-   * `serve-agent-hooks.node.test.ts`. Both halves are recorded so nobody reads the
+   * The alternative was `checkpoints: CheckpointSink | 'checkpoints-nothing'` — a required
+   * union with a named sentinel and a five-site fan-out, `onQuorumShortfall`'s shape. It
+   * was rejected on the merits above, **and** it was out of reach regardless: the five
+   * sites were not that plan's files, and two of them (`bin/bench.ts`,
+   * `perf-workload.ts`) have their argument lists count-pinned by
+   * `serve-agent-hooks.node.test.ts`. Both halves were recorded so nobody would read the
    * constraint as the argument.
+   *
+   * ### The ruling — repository owner, 2026-08-05
+   *
+   * **Overruled, and the rejected alternative is what ships.** Two things the case above
+   * did not weigh:
+   *
+   * 1. **Silence and consent were indistinguishable.** The argument turns on omission
+   *    claiming nothing, and that is true of the *bytes* — no block is written either way.
+   *    It is not true of the *reader*. A submitter that omits this and a submitter that
+   *    weighed checkpointing and declined are the same text, so no reader and no guard can
+   *    separate a decision from an oversight. `onQuorumShortfall`'s rule was applied too
+   *    narrowly: what it forbids is not silently meaning `degrade`, it is a caller holding
+   *    a position it never stated. Not checkpointing is such a position.
+   * 2. **The write half went thirteen phases with no production caller.** The `sovereignCids`
+   *    precedent assumes the option is reached by *someone*, so the omitting caller is the
+   *    exception. Here every production submitter omitted it and the recovery half was
+   *    proven against sinks that exist only in tests. That is the "Built, not wired" shape
+   *    this milestone exists to remove, and an optional field is how it stayed invisible:
+   *    `npx tsc --noEmit` exited **0** across the whole tree while nothing anywhere wrote a
+   *    checkpoint.
+   *
+   * **The falsehood objection is answered by the shape rather than waived, and this is the
+   * whole point of a named sentinel.** `'checkpoints-nothing'` is not a destination
+   * `task-worker.ts` does not have — it is an accurate statement about a caller that keeps
+   * none, in the same idiom as `'duplicates-no-stragglers'` one field up,
+   * `'serves-unauthenticated'` in `AgentOptions` and `'admits-any-peer'` in
+   * `FabricNodeOptions`. A caller submitting into a `MemoryBlockstore` writes it and states
+   * a truth. What it can no longer do is state nothing.
+   *
+   * **The count-pin the argument above cited as making this out of reach did not bind, and
+   * that was measured rather than assumed.** `serve-agent-hooks.node.test.ts` was expected
+   * to go red on `bin/bench.ts` and `perf-workload.ts`; it was run against the finished
+   * change and passed 11/11 untouched. The prediction misread what that file pins: it
+   * counts `serveAgent` hook *sentinel substrings* (`'keeps-no-ledger'`,
+   * `'serves-unauthenticated'`, `'signs-nothing'` — 2 each in both files) and the argument
+   * lines of `authorizeCapability({…})` / `ownStartOutcome`. It does not read
+   * `submitJobWithEgress`'s argument list at all, so a fourth argument there moves no
+   * count, and `'checkpoints-nothing'` is a string it never counted. **No expected count in
+   * that file was moved, and none needed to be.** The half of the original argument that
+   * held is the other half: five sites is a real fan-out, and it came to 5 production call
+   * sites in 4 files plus this wrapper — the stated number, verified rather than trusted.
+   *
+   * ## What this does NOT do — do not read it as more than it is
+   *
+   * **Requiring the field does not make the write half reachable.** Every production
+   * submitter now says `'checkpoints-nothing'` explicitly instead of saying nothing; not
+   * one supplies a real sink, so no checkpoint block is written by anything an operator
+   * runs, and ROADMAP criterion 7 stays **PARTIAL**. What changed is that a *future*
+   * submitter must decide, and that a new opt-out is visible rather than silent —
+   * `checkpoint-optout-scope.node.test.ts` pins the set of production files allowed to say
+   * the sentinel, on `sovereign-block-refusal.node.test.ts`'s model. Closing the criterion
+   * needs a runnable entry point holding a store that outlives its process; that is a
+   * separate ruling and is not this field's doing.
    */
-  readonly checkpoints?: CheckpointSink
+  readonly checkpoints: CheckpointSink | 'checkpoints-nothing'
   /**
    * Checkpoint handles to resume from, **newest first** — CHURN-03.
    *
@@ -2319,7 +2389,14 @@ export interface SubmitOptions {
 export async function submitJob(
   spec: JobSpec,
   blockstore: Blockstore,
-  options?: SubmitOptions,
+  // Required since 2026-08-05, and required *because* one of its fields is. A bag that
+  // may be omitted entirely cannot carry a mandatory field: `submitJob(spec, store)` would
+  // still compile and still write no checkpoint, which is precisely the silence
+  // {@link SubmitOptions.checkpoints}'s ruling removed — the requirement would have been
+  // escapable by dropping one argument. Both cited precedents are shaped this way:
+  // `AgentOptions.ledger` sits in a required `options: AgentOptions`, and
+  // `FabricNodeOptions.relayAdmission` in the required literal `FabricNode.start` takes.
+  options: SubmitOptions,
 ): Promise<SubmitResult> {
   if (spec.shards.length === 0) return { ok: false, error: { kind: 'no-shards' } }
   if (!Number.isInteger(spec.redundancy) || spec.redundancy < 1) {
@@ -2375,7 +2452,7 @@ export async function submitJob(
   // it judges validity windows somebody else minted, and a job that took a virtual
   // thirty seconds to duplicate a straggler must not thereby expire the certificates it
   // enrolled.
-  const clock = options?.clock ?? platformClock
+  const clock = options.clock ?? platformClock
 
   // ── The speculation budget — CHURN-02 ──────────────────────────────────────────────
   //
@@ -2389,13 +2466,13 @@ export async function submitJob(
   // the identity `1` — which is what an off arm has to report if it is to be compared
   // against an on one.
   const dial: SpeculationOptions =
-    options?.speculation === undefined || options.speculation === 'duplicates-no-stragglers'
+    options.speculation === undefined || options.speculation === 'duplicates-no-stragglers'
       ? {}
       : options.speculation
   const ledger = new SpeculationLedger({
     tasks: partitionCount,
     fraction:
-      options?.speculation === 'duplicates-no-stragglers'
+      options.speculation === 'duplicates-no-stragglers'
         ? 0
         : (dial.fraction ?? DEFAULT_SPECULATION_FRACTION),
   })
@@ -2452,7 +2529,7 @@ export async function submitJob(
     //
     // The bytes are already in hand, so this costs a set insert and one append — the
     // second canonicalisation `submit-with-egress.ts` pays is not repeated here.
-    if ((spec.shards[i] as ShardSpec).label === 'sovereign' && options?.sovereignCids !== undefined) {
+    if ((spec.shards[i] as ShardSpec).label === 'sovereign' && options.sovereignCids !== undefined) {
       await options.sovereignCids.add(encoded.cid.toString())
     }
     inputCids.push(encoded.cid)
@@ -2466,11 +2543,16 @@ export async function submitJob(
   // two callers that shard the same data into the same partitions derive the same id
   // however they built the values. See {@link jobIdOf}.
   const jobId = await jobIdOf(spec.moduleCid, inputCids)
-  const resumed = await resumeState(options?.resumeFrom, blockstore, jobId, partitionCount)
+  const resumed = await resumeState(options.resumeFrom, blockstore, jobId, partitionCount)
   if (!resumed.ok) return { ok: false, error: resumed.error }
   const carried = resumed.carried
+  // Explicit on both arms: the sentinel is a value the caller wrote, not an absence this
+  // line inferred. Reading it as `!== undefined` would put the two back together — a
+  // caller that named `'checkpoints-nothing'` and a caller that named nothing would take
+  // the same branch for different reasons, which is the distinction the field was made
+  // required to hold. See {@link SubmitOptions.checkpoints}.
   const checkpoints: CheckpointLog =
-    options?.checkpoints === undefined
+    options.checkpoints === 'checkpoints-nothing'
       ? NO_CHECKPOINTS
       : checkpointLogOf(
           options.checkpoints,
