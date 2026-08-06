@@ -73,16 +73,49 @@ const NODE_MEASUREMENT = {
    * from `test:unit` until it is tracked. Whoever commits it should add it to the table at
    * that value or re-measure. (`opt-in-only-sources.node.test.ts` read 5 ms and is below
    * the listing floor either way, so it costs the fast loop nothing.)
+   *
+   * ## Re-sited 2026-08-06 by Plan 24-03 — 157 → 162, **count only**
+   *
+   * The tree had drifted to 161 files and this plan's own spec makes 162, which lands the
+   * drift check on exactly its tolerance of 5. Passing with no headroom left is the state
+   * that made three agents reach for `O2_SKIP_GUARDS` last time, so the count was retaken
+   * rather than the tolerance widened — the same choice, for the same reason, as the
+   * 150 → 157 re-site of 2026-08-05.
+   *
+   * **Two independent routes, sharing no code, both say 162**: the filesystem walk
+   * `slow-specs.node.test.ts` derives `NODE_PROJECT_FILES` from, and `git ls-files` filtered
+   * by the same globs. Half of the paragraph above has expired and half has not, and the
+   * difference is worth stating because the paragraph reads as one fact: **both files it
+   * names are now tracked**, so the two routes agree exactly instead of differing by two —
+   * but `job-entry-points.node.test.ts` is **still absent from the table**, so it is still
+   * paying its 2 737 ms into every `test:unit` run. That is a live gap, and it is named here
+   * rather than closed: transcribing a span out of a docblock is not measuring one, and this
+   * plan did not run that file.
+   *
+   * **What was NOT retaken, said plainly rather than left to be assumed.** Nothing was
+   * re-timed. `load`, `loadPeak`, `tests`, `wallClockMs`, `sumOfReportedSpansMs`, the
+   * hook-shadow counts and every span in the table other than the one row added beside this
+   * change still describe the **2026-08-05** run. This field and `unitFiles` are the only
+   * ones that moved, and they moved because they are *counts* — the one property of this
+   * project that can be re-derived without running it, which `slow-specs.node.test.ts` says
+   * of itself in its "what this deliberately does not do" section. A full retake by the
+   * procedure below is still owed and is still blocked on the same thing it was blocked on
+   * in August: a green `--project node` from which a `test:unit` reading can be taken.
    */
-  files: 157,
+  files: 162,
   tests: 2240,
   /**
    * Sum of the per-file costs the table below records — reporter spans for the files the
    * reporter can time, cross-checked wall clocks for the three it structurally cannot.
    * Not wall clock: vitest runs files in parallel, and see {@link NODE_MEASUREMENT} on why
    * this figure is now larger than it used to look.
+   *
+   * **Moved 2026-08-06 by exactly the one span added below**, 1_364_769 → 1_423_929, and by
+   * nothing else. The pre-existing 7 943 ms by which this ran ahead of the table's own sum
+   * is carried forward untouched rather than reconciled — it predates this plan, and
+   * silently absorbing it into an addition would hide it.
    */
-  sumOfFileSpansMs: 1_364_769,
+  sumOfFileSpansMs: 1_423_929,
   /**
    * What `--reporter=json` alone said the same run summed to, i.e. the same number with
    * the three hook-shadowed files left at the value the reporter gave them.
@@ -158,8 +191,16 @@ const NODE_MEASUREMENT = {
    * against a half-updated table came back 7.97 s and **red**, because
    * `slow-specs.node.test.ts` was still holding the previous run's `unitFiles`. Its 7.97 s
    * is not written down anywhere.
+   *
+   * **104 → 108 on 2026-08-06, derived and NOT re-observed, which is a weakening of this
+   * field and is recorded as one.** `slow-specs.node.test.ts` asserts
+   * `unitFiles === files - EXCLUDED.length`, so re-siting `files` to 162 and adding one row
+   * above the cut forces this number; the direct `npm run test:unit` cross-check that made
+   * it more than a restatement of that assertion was **not** retaken, for the reason the
+   * paragraph above already gives. Until it is, this field is a derivation wearing a
+   * measurement's clothes, and the next full retake owes it a reading.
    */
-  unitFiles: 104,
+  unitFiles: 108,
   unitTests: 1650,
   unitWallClockMs: 7_750,
 } as const
@@ -514,6 +555,18 @@ const MEASURED_NODE_SPANS: readonly (readonly [string, number])[] = [
   ['tools/aot/lift.node.test.ts', 371_637],
   ['tools/aot/echo-guest.node.test.ts', 255_540],  // wall clock; reporter said 600
   ['packages/node/src/discovery-agents.node.test.ts', 86_064],
+  // Added 2026-08-06 by Plan 24-03 — see NODE_MEASUREMENT.files on what was retaken with
+  // it. Reporter span, solo, no hook shadow: this file registers a `beforeEach` (a cheap
+  // `mkdtemp`) and no top-level `beforeAll`, so the reporter's start is the file's start.
+  // Cross-checked against `/usr/bin/time -p` real 60.73 / 60.87 s across two runs, less the
+  // ~1.2 s boot floor — the reporter and the wall clock agree here, which is why this row
+  // carries no `// wall clock` note.
+  //
+  // **Almost none of it is CPU.** `(user+sys)/real` is 0.043. Two of its five cases wait out
+  // libp2p's own hard-coded clocks — a reservation refresh fixed at 30 s by
+  // `REFRESH_TIMEOUT_MIN` and a 40 s TTL expiry — and neither can be shortened, which is
+  // stated at those cases. It is a slow file that costs the machine nearly nothing.
+  ['packages/node/src/enrol-through-a-closed-door.node.test.ts', 59_160],
   ['packages/node/src/quorum-agents.node.test.ts', 56_427],
   ['packages/node/src/enrollment.node.test.ts', 53_559],
   ['packages/node/src/peer-dial.node.test.ts', 41_817],
