@@ -73,16 +73,65 @@ const NODE_MEASUREMENT = {
    * from `test:unit` until it is tracked. Whoever commits it should add it to the table at
    * that value or re-measure. (`opt-in-only-sources.node.test.ts` read 5 ms and is below
    * the listing floor either way, so it costs the fast loop nothing.)
+   *
+   * ## Re-sited 2026-08-06 by Plan 24-03 — 157 → 162, **count only**
+   *
+   * The tree had drifted to 161 files and this plan's own spec makes 162, which lands the
+   * drift check on exactly its tolerance of 5. Passing with no headroom left is the state
+   * that made three agents reach for `O2_SKIP_GUARDS` last time, so the count was retaken
+   * rather than the tolerance widened — the same choice, for the same reason, as the
+   * 150 → 157 re-site of 2026-08-05.
+   *
+   * **Two independent routes, sharing no code, both say 162**: the filesystem walk
+   * `slow-specs.node.test.ts` derives `NODE_PROJECT_FILES` from, and `git ls-files` filtered
+   * by the same globs. Half of the paragraph above has expired and half has not, and the
+   * difference is worth stating because the paragraph reads as one fact: **both files it
+   * names are now tracked**, so the two routes agree exactly instead of differing by two —
+   * but `job-entry-points.node.test.ts` is **still absent from the table**, so it is still
+   * paying its 2 737 ms into every `test:unit` run. That is a live gap, and it is named here
+   * rather than closed: transcribing a span out of a docblock is not measuring one, and this
+   * plan did not run that file.
+   *
+   * **What was NOT retaken, said plainly rather than left to be assumed.** Nothing was
+   * re-timed. `load`, `loadPeak`, `tests`, `wallClockMs`, `sumOfReportedSpansMs`, the
+   * hook-shadow counts and every span in the table other than the one row added beside this
+   * change still describe the **2026-08-05** run. This field and `unitFiles` are the only
+   * ones that moved, and they moved because they are *counts* — the one property of this
+   * project that can be re-derived without running it, which `slow-specs.node.test.ts` says
+   * of itself in its "what this deliberately does not do" section. A full retake by the
+   * procedure below is still owed and is still blocked on the same thing it was blocked on
+   * in August: a green `--project node` from which a `test:unit` reading can be taken.
+   *
+   * **162 → 164 on 2026-08-06 by Plan 24-04**, which adds exactly two node-project files —
+   * `admission-agents.node.test.ts` and `enrolment-residual.node.test.ts`. Its third file is
+   * `gated-admission.e2e.test.ts`, which this project **excludes** and which therefore moves
+   * nothing here. Cross-checked by the two routes that share no code: the filesystem walk
+   * `slow-specs.node.test.ts` performs, and `git ls-files` filtered by the same globs.
+   *
+   * `unitFiles` below does **not** move with it, and that is arithmetic rather than an
+   * oversight: both new spans sit above `SLOW_CUTOFF_MS`, so the derived exclusion list grows
+   * by the same two, and `files - EXCLUDED.length` is unchanged. Both spans were **measured**,
+   * not estimated — see the two rows in the table for the reporter reading, its wall-clock
+   * cross-check, and the boot floor it was taken against.
    */
-  files: 157,
+  files: 164,
   tests: 2240,
   /**
    * Sum of the per-file costs the table below records — reporter spans for the files the
    * reporter can time, cross-checked wall clocks for the three it structurally cannot.
    * Not wall clock: vitest runs files in parallel, and see {@link NODE_MEASUREMENT} on why
    * this figure is now larger than it used to look.
+   *
+   * **Moved 2026-08-06 by exactly the one span added below**, 1_364_769 → 1_423_929, and by
+   * nothing else. The pre-existing 7 943 ms by which this ran ahead of the table's own sum
+   * is carried forward untouched rather than reconciled — it predates this plan, and
+   * silently absorbing it into an addition would hide it.
+   *
+   * **Moved again the same day by Plan 24-04**, 1_423_929 → 1_465_924, which is exactly
+   * 34 973 + 7 022 and nothing else. The 7 943 ms discrepancy above is still carried, still
+   * unreconciled, and still not this plan's to absorb.
    */
-  sumOfFileSpansMs: 1_364_769,
+  sumOfFileSpansMs: 1_465_924,
   /**
    * What `--reporter=json` alone said the same run summed to, i.e. the same number with
    * the three hook-shadowed files left at the value the reporter gave them.
@@ -158,8 +207,16 @@ const NODE_MEASUREMENT = {
    * against a half-updated table came back 7.97 s and **red**, because
    * `slow-specs.node.test.ts` was still holding the previous run's `unitFiles`. Its 7.97 s
    * is not written down anywhere.
+   *
+   * **104 → 108 on 2026-08-06, derived and NOT re-observed, which is a weakening of this
+   * field and is recorded as one.** `slow-specs.node.test.ts` asserts
+   * `unitFiles === files - EXCLUDED.length`, so re-siting `files` to 162 and adding one row
+   * above the cut forces this number; the direct `npm run test:unit` cross-check that made
+   * it more than a restatement of that assertion was **not** retaken, for the reason the
+   * paragraph above already gives. Until it is, this field is a derivation wearing a
+   * measurement's clothes, and the next full retake owes it a reading.
    */
-  unitFiles: 104,
+  unitFiles: 108,
   unitTests: 1650,
   unitWallClockMs: 7_750,
 } as const
@@ -514,11 +571,28 @@ const MEASURED_NODE_SPANS: readonly (readonly [string, number])[] = [
   ['tools/aot/lift.node.test.ts', 371_637],
   ['tools/aot/echo-guest.node.test.ts', 255_540],  // wall clock; reporter said 600
   ['packages/node/src/discovery-agents.node.test.ts', 86_064],
+  // Added 2026-08-06 by Plan 24-03 — see NODE_MEASUREMENT.files on what was retaken with
+  // it. Reporter span, solo, no hook shadow: this file registers a `beforeEach` (a cheap
+  // `mkdtemp`) and no top-level `beforeAll`, so the reporter's start is the file's start.
+  // Cross-checked against `/usr/bin/time -p` real 60.73 / 60.87 s across two runs, less the
+  // ~1.2 s boot floor — the reporter and the wall clock agree here, which is why this row
+  // carries no `// wall clock` note.
+  //
+  // **Almost none of it is CPU.** `(user+sys)/real` is 0.043. Two of its five cases wait out
+  // libp2p's own hard-coded clocks — a reservation refresh fixed at 30 s by
+  // `REFRESH_TIMEOUT_MIN` and a 40 s TTL expiry — and neither can be shortened, which is
+  // stated at those cases. It is a slow file that costs the machine nearly nothing.
+  ['packages/node/src/enrol-through-a-closed-door.node.test.ts', 59_160],
   ['packages/node/src/quorum-agents.node.test.ts', 56_427],
   ['packages/node/src/enrollment.node.test.ts', 53_559],
   ['packages/node/src/peer-dial.node.test.ts', 41_817],
   ['packages/node/src/enrollment-cost.node.test.ts', 37_140],
   ['packages/node/src/coverage-agents.node.test.ts', 36_284],
+  // Measured 2026-08-06 by Plan 24-04, at 1-minute load 4.37 on an 8-core host. Reporter span
+  // 34_973, cross-checked against a solo `/usr/bin/time -p real 36.30` less a boot floor
+  // measured in the same session at `real 1.49` — 34.81, agreeing to within 0.5 %. Its heavy
+  // work is inside each `it`, not in a top-level hook, so there is no hook shadow to correct.
+  ['packages/node/src/admission-agents.node.test.ts', 34_973],
   ['packages/node/src/tree-reduce-agents.node.test.ts', 32_880],
   ['packages/node/src/orphan-leash.node.test.ts', 24_079],
   ['packages/node/src/bench-attestation.node.test.ts', 23_310],
@@ -540,6 +614,10 @@ const MEASURED_NODE_SPANS: readonly (readonly [string, number])[] = [
   ['packages/demo/src/kernel.test.ts', 10_753],
   ['packages/node/src/churn-agents.node.test.ts', 9_548],
   ['packages/node/src/duty-cycle.node.test.ts', 9_222],
+  // Measured 2026-08-06 by Plan 24-04, same session as the entry above. Reporter span 7_022,
+  // cross-checked against a solo `real 8.57` less the 1.49 boot floor — 7.08, agreeing to
+  // within 1 %. No hook shadow: its `beforeEach` makes a temp directory and nothing else.
+  ['packages/node/src/enrolment-residual.node.test.ts', 7_022],
   ['packages/node/src/checkpoint-agents.node.test.ts', 6_465],
   ['packages/node/src/discover-arm.node.test.ts', 5_603],
   ['packages/node/src/node-records.node.test.ts', 4_978],

@@ -409,6 +409,37 @@ export interface TabApi {
    * with its own key and pins that key here; it does not turn the check off.
    */
   start(options: {
+    /**
+     * The relays this tab dials on the way up — AUTH-02.
+     *
+     * **A host page supplying this is supplying a front door, and the front door is where
+     * admission will be decided.** Today that door is unlocked and the unlock is scheduled
+     * rather than accidental: `circuitRelayServer` is constructed with capacity limits and
+     * nothing else, no `connectionGater` guards a reservation anywhere in this repository,
+     * and every certificate check in the tree decides who to *use* rather than who gets
+     * *in*. So any peer completing a Noise handshake against one of these addresses is
+     * reserved, advertised and dialable.
+     *
+     * Phase 24's ruling puts the decision at the reservation, because that is where a
+     * node's life in the fabric begins. From then on **the address a page passes here is
+     * the address that decides whether this tab joins at all** — which is why it is worth
+     * saying at the field rather than in a planning document nobody reading this will open.
+     *
+     * Two things a page choosing an address should know, neither of them true yet:
+     *
+     * - **A relay that pins issuers must serve enrolment itself, or name a provider a
+     *   joining peer can reach without a reservation.** `RelayAdmission`'s own docblock
+     *   carries that as a deployment requirement. It is satisfied today by co-location, and
+     *   `browser-enrollment.e2e.test.ts` says so about itself — *"The provider, not the
+     *   gate"*, passing the provider's address in this very field.
+     * - **The gate fires on the reservation and on nothing else.** A plain connection never
+     *   reaches it, and the `enrollment` dial below is a plain connection, so a tab holding
+     *   no certificate can still obtain its first one through this same address. That is an
+     *   exemption by construction rather than a carve-out somebody has to remember.
+     *
+     * Nothing here refuses anybody as of 2026-08-06. This states where the decision will be
+     * made, so a page choosing an address chooses it knowing that.
+     */
     relayAddrs: string[]
     blockstoreName: string
     trustAnchors?: string[]

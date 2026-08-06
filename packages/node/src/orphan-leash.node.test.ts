@@ -6,6 +6,7 @@ import { join } from 'node:path'
 import type { Readable, Writable } from 'node:stream'
 import { fileURLToPath } from 'node:url'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { stripComments } from './strip-comments.ts'
 
 /**
  * A spawned agent does not outlive the process that spawned it, including when that
@@ -362,21 +363,48 @@ describe.each(BINARIES)('a spawned $label binary does not outlive a SIGKILLed pa
  * **This used to read `bin/agent.ts` and nothing else**, which is how it stayed silent
  * while `bin/seed.ts` had no leash at all. It now derives the list from the directory, so a
  * binary added later is covered without anyone remembering to add it here.
+ *
+ * **And it used to read only `*.test.ts`, which is the same mistake one level up.** Widening
+ * the *binaries* left the *spawn sites* narrow, so the corpus was 89 test files and the
+ * population that pays for the rule was those 89 **plus `bench-fabric.ts`** — the one
+ * non-test file in this repository that spawns a guarded binary, and the one with production
+ * reach, since `bin/bench.ts` imports `processFabric` and calls it at two sites. It complied
+ * anyway, so nothing leaked; but its own docblock said this file *"guards every spawn site
+ * against it"*, and that sentence was false for the whole time it stood. Corrected 2026-08-06.
+ * This is the sixth instance in this repository of one shape: **the population a guard acts
+ * on is not the population that pays for it.**
+ *
+ * The scan is over `stripComments` output and must stay that way. `orphan-leash.ts` carries
+ * `spawn(` inside a docblock table, and the prose at the top of this very suite contains
+ * `'ignore'` next to fd 0 — both would be read as code by a raw-text scan. That failure has
+ * its own entry in this project's history: a `/*` inside a `//` comment blinded three
+ * source-scanning guards.
  */
 describe('every bin spawn site keeps the leash', () => {
   /** `'inherit'` is here too: it puts the *Vitest worker's* stdin on the child, which is not this parent's pipe. */
   const OPTED_OUT = /stdio:\s*\[\s*'(?:ignore|inherit)'/
 
+  /**
+   * The floor, re-sited 2026-08-06 against the widened corpus.
+   *
+   * It stood at **10** — "the ten files that spawned a binary when the seed was leashed" —
+   * against a real population of 27, so seventeen spawn sites could have been deleted before
+   * it noticed. A floor that far below what it guards is a floor that cannot fall.
+   */
+  const SPAWN_SITE_FLOOR = 26
+
   it('passes no ignored or inherited stdin to any bin it spawns', async () => {
     const bins = (await readdir(BIN_DIR)).filter((name) => name.endsWith('.ts')).sort()
     expect(bins.length, 'found no binaries to guard').toBeGreaterThan(0)
 
-    const files = (await readdir(NODE_SRC)).filter((name) => name.endsWith('.test.ts')).sort()
+    // Every `.ts` here, not every `.test.ts`. `readdir` is non-recursive and `bin` has no
+    // `.ts` suffix, so the binaries themselves stay out — the suite below owns that population.
+    const files = (await readdir(NODE_SRC)).filter((name) => name.endsWith('.ts')).sort()
 
     const spawnSites: string[] = []
     const optedOut: string[] = []
     for (const file of files) {
-      const source = await readFile(join(NODE_SRC, file), 'utf8')
+      const source = stripComments(await readFile(join(NODE_SRC, file), 'utf8'))
       if (!bins.some((bin) => source.includes(`bin/${bin}`)) || !source.includes('spawn(')) continue
       spawnSites.push(file)
       if (OPTED_OUT.test(source)) optedOut.push(file)
@@ -384,13 +412,18 @@ describe('every bin spawn site keeps the leash', () => {
 
     expect(optedOut).toEqual([])
 
-    // A guard that found nothing to guard passes silently and forever. The count is the ten
-    // files that spawned a binary when the seed was leashed; a new spawn site raises it and
-    // is welcome to, but it may not fall.
+    // A guard that found nothing to guard passes silently and forever.
     expect(
       spawnSites.length,
       `expected the known bin spawn sites, found ${spawnSites.join(', ')}`,
-    ).toBeGreaterThanOrEqual(10)
+    ).toBeGreaterThanOrEqual(SPAWN_SITE_FLOOR)
+
+    // The production spawn site, named rather than merely counted. It is the reason this
+    // corpus was widened, and a count alone would let it drop out unnoticed the way it got
+    // in unnoticed.
+    expect(spawnSites, 'the one non-test file that spawns a guarded binary').toContain(
+      'bench-fabric.ts',
+    )
   })
 })
 

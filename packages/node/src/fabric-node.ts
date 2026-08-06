@@ -103,10 +103,12 @@ import {
   isStartBrowserLabel,
   publishCapabilities,
   requestEnrollment,
+  verifyCertificate,
 } from '@o2/core'
 import type {
   Blockstore,
   BrowserFamily,
+  CanonicalValue,
   Executor,
   IssuanceBudget,
   NodeCertificate,
@@ -127,13 +129,15 @@ import {
   RpcEndpoint,
   UNREACHABLE_PROVIDER,
   authorizeCapability,
+  encodeRequest,
   enrolOverRpc,
+  parseResponse,
   serveAgent,
   withholdingFrom,
 } from '@o2/net'
 import type { EnrolOutcome } from '@o2/net'
 import { createLibp2p } from 'libp2p'
-import type { Libp2p } from '@libp2p/interface'
+import type { Libp2p, PeerId } from '@libp2p/interface'
 import { FsBlockstore } from './fs-blockstore.ts'
 import { FsIssuance } from './fs-issuance.ts'
 import { FsSovereignCids } from './sovereign-cids.ts'
@@ -146,9 +150,11 @@ import {
   RELAY_DURATION_LIMIT_MS,
   RELAY_MAX_RESERVATIONS,
   RELAY_MAX_RESERVATION_TTL_MS,
+  admitsAnyPeer,
   audienceKeyOf,
   generateSeed,
   identityFromSeed,
+  nodeKeyForPeerId,
   peerIdForNodeKey,
 } from '@o2/libp2p'
 import type { NodeIdentity, RelayAdmission } from '@o2/libp2p'
@@ -485,12 +491,37 @@ export interface FabricNodeOptions {
    * carries that meaning instead — so the two mechanisms do not read one value two ways,
    * they read different types.
    *
-   * **Nothing reads this yet, and that is a property of this wave rather than an
-   * oversight.** No `connectionGater` is constructed below, `circuitRelayServer`'s
-   * arguments are unchanged, and every construction site in this repository writes
-   * `'admits-any-peer'` — which is exactly what the tree already did. Threading the option
-   * first is what makes arming it cheap: a site that has already stated what it means does
-   * not break when the value starts being consulted.
+   * **This is read, and Plan 24-03 is what made it so. The paragraph that stood here said
+   * the opposite, and it was corrected on 2026-08-06 rather than left to be believed.** It
+   * read *"Nothing reads this yet … No `connectionGater` is constructed below … every
+   * construction site in this repository writes `'admits-any-peer'`"*, and three of those
+   * four clauses are false **in this same file**. {@link relayAdmissionGate} takes this
+   * value as its `admission` argument; `createLibp2p` below is handed
+   * `connectionGater: { denyInboundRelayReservation: gate }` by a conditional spread; and
+   * `bin/agent.ts` writes a pinned `new Set(values['admit-issuer'])` when `--admit-issuer`
+   * is given. The spread is conditional because the gate returns `undefined` for
+   * `'admits-any-peer'`, so an open node supplies **no gater method at all** and is
+   * byte-identical to the tree before this field existed — which is the property that made
+   * arming it safe, not a leftover of the wave that deferred it.
+   *
+   * **The one clause that survives is `circuitRelayServer`'s.** Its arguments are still
+   * capacity-only, deliberately, and `relay-admission.node.test.ts`'s census pins that:
+   * admission is a `ConnectionGater` question and capacity is a relay-server one, and
+   * folding either into the other is the defect that census exists to catch.
+   *
+   * **Threading the option one wave before arming it was still the right move**, and that
+   * half of the old paragraph was true — a site that had already stated what it means did
+   * not break when the value started being consulted.
+   *
+   * **What being read costs, stated here because this is where a deployment reads it.** A
+   * relay that pins issuers asks a joining peer for its records over the fabric's own RPC
+   * before granting the reservation, so it must be able to reach that peer at that moment;
+   * the ask is retried, because the first request is *destroyed* rather than delayed. The
+   * verdict is taken **at the grant and at each renewal**, which is what makes
+   * {@link FabricNodeOptions.reservationTtlMs} this node's revocation window — measured, and
+   * argued in full at that field. Every verdict lands in {@link FabricNode.admissionDecisions},
+   * which is in-process only: across a process boundary a refusal reaches the joiner as an
+   * undifferentiated `PERMISSION_DENIED` carrying no reason at all.
    *
    * Per-node **configuration**, not a node kind. Every `FabricNode` has the identical
    * executor, transport, relay capability and protocol surface whatever is passed here —
@@ -550,6 +581,53 @@ export interface FabricNodeOptions {
   readonly startReporting: StartReportingConsent
   /** Concurrent reservations to accept from others. Defaults to libp2p's 15. */
   readonly maxReservations?: number
+  /**
+   * How long a circuit reservation this node grants stays valid — and, since Phase 24,
+   * **this node's revocation window.**
+   *
+   * The subject first, because a docblock whose opening sentence is a security window on a
+   * field whose meaning was never stated is a footnote without a text. This is the TTL
+   * written into every reservation this node grants, passed straight through to
+   * `circuitRelayServer`'s `reservationTtl`. Defaults to
+   * {@link RELAY_MAX_RESERVATION_TTL_MS}. A peer holding a reservation is reachable through
+   * this node and appears in `reservedPeerIds`, which is what both advertisement surfaces are
+   * derived from.
+   *
+   * ## Why it is also the revocation window, measured rather than assumed
+   *
+   * {@link FabricNodeOptions.relayAdmission} is consulted at every reservation **grant**.
+   * Nothing re-checks a peer mid-reservation — deliberately; a connection-level re-check is a
+   * fabric-wide behaviour change of the class this repository has already held for an owner
+   * ruling once. So the question that decides whether the window is bounded at all is whether
+   * a **renewal** is a grant. `24-CONTEXT.md`'s sub-decision 3 flagged it as a measurement
+   * not yet taken and warned that a "no" would make the window unbounded.
+   *
+   * **Measured 2026-08-06, and the answer is yes**, in
+   * `enrol-through-a-closed-door.node.test.ts`. The renewal path is not a special case in
+   * libp2p: the joining side re-sends a `HopMessage.Type.RESERVE`, the relay handles it in the
+   * same `handleReserve` that calls `denyInboundRelayReservation`, and the server's store only
+   * resets its `retimeableSignal` on a grant it actually made. Withdrawing admission from a
+   * peer already holding a reservation, changing nothing else, was observed re-consulting the
+   * gate at **30 027 ms** and dropping the peer from the store at **40 028 ms** against a
+   * 40 000 ms TTL. So the window is the TTL, as a number, and not by construction alone.
+   *
+   * ## The floor a short TTL cannot buy past
+   *
+   * Shortening this does **not** shorten the window below 30 s.
+   * `@libp2p/circuit-relay-v2`'s transport refreshes at
+   * `min(max(expiry - REFRESH_TIMEOUT, REFRESH_TIMEOUT_MIN), 2**31 - 1)` with
+   * `REFRESH_TIMEOUT` 5 min and `REFRESH_TIMEOUT_MIN` **30 s** — for any TTL under five
+   * minutes the first term is negative and the clamp wins. Below ~30 s a reservation
+   * therefore expires before its holder ever tries to renew it, which is churn rather than
+   * revocation. That is a property of the installed package, not of this option.
+   *
+   * ## What this window is not
+   *
+   * It is not a certificate lifetime, and a lapsed certificate is not cached as a permanent
+   * refusal: `PeerVerifier`'s `FINAL` set deliberately excludes `expired`, so an expired
+   * verdict is re-askable, and the same reasoning is why this gate re-decides from scratch at
+   * every grant instead of memoising.
+   */
   readonly reservationTtlMs?: number
   readonly durationLimitMs?: number
   readonly dataLimitBytes?: bigint
@@ -617,6 +695,301 @@ interface RelayService {
   readonly reservations: {
     readonly size: number
     keys(): IterableIterator<{ toString(): string }>
+  }
+}
+
+/**
+ * libp2p's own ceiling on a reservation, and therefore the budget this gate lives inside.
+ *
+ * `@libp2p/circuit-relay-v2/dist/src/constants.js` sets
+ * `DEFAULT_RESERVATION_COMPLETION_TIMEOUT = 5_000`, and the **joining** side wraps its whole
+ * reserve in `AbortSignal.timeout` of it. A gate that blocks `handleReserve` for longer than
+ * that fails the reservation on the client's clock whatever verdict it eventually reaches —
+ * so the peer would be refused *without having been judged*, which is a different thing from
+ * being refused, and only one of the two is a gate.
+ *
+ * Not imported, because the package does not export it. Pinned against the installed source
+ * by `enrol-through-a-closed-door.node.test.ts`, so a release that moves it fails there
+ * loudly instead of turning every number below into an arbitrary one.
+ */
+const LIBP2P_RESERVATION_COMPLETION_TIMEOUT_MS = 5_000
+
+/**
+ * How long the whole admission lookup may take before the peer is refused.
+ *
+ * Sited against the ceiling above with margin, not chosen by preference. The margin matters:
+ * the ceiling is measured on the *joiner's* clock and starts before ours does — it covers
+ * opening the connection and writing the RESERVE as well as waiting for our answer — so a
+ * budget equal to the ceiling would be a budget that is already over.
+ */
+export const RELAY_ADMISSION_DEADLINE_MS = 3_500
+
+/**
+ * How long one `records` ask may take before it is abandoned and re-issued.
+ *
+ * **This is a retry interval, not a patience setting, and the difference is the whole design
+ * of this gate.** Measured 2026-08-06 in `enrol-through-a-closed-door.node.test.ts`: a
+ * `records` request that arrives at a joining peer between `Libp2pTransport.start` — which
+ * calls `libp2p.handle`, and is therefore what makes identify advertise `/o2/rpc/1.0.0` — and
+ * `serveAgent`'s `onMessage` subscription is delivered into an **empty handler set** and
+ * dropped. `Libp2pTransport.#dispatch` is `for (const handler of [...this.#handlers])
+ * handler(from, message)`; with no handlers that loop does nothing, no reply is ever written,
+ * and the caller can only learn about it by giving up. The request is **destroyed, not
+ * delayed**, so waiting longer on the same request cannot ever succeed — only asking again
+ * can. In the same measurement the peer became answerable 5 ms after the hook fired, and a
+ * second ask was answered in 4 ms with a certificate that verified.
+ *
+ * That is also the mechanism behind the unexplained 30 s silence `peer-verifier.ts`'s header
+ * records from 2026-08-01.
+ */
+export const RELAY_ADMISSION_ATTEMPT_MS = 700
+
+/** Pause between asks, so a peer that is still starting is not spun on. */
+export const RELAY_ADMISSION_RETRY_GAP_MS = 100
+
+/**
+ * How many admission decisions a node keeps.
+ *
+ * A refusal nobody can read is a refusal that cannot be acted on, so the reasons are kept —
+ * but this is a per-reservation event on a process meant to run for weeks, and an unbounded
+ * array is a leak with a good justification attached. The newest are what an operator or a
+ * test is looking at, so the oldest go.
+ */
+const ADMISSION_LOG_LIMIT = 64
+
+/** What this relay decided about one peer's reservation, and why — AUTH-02 / AUTH-04. */
+export interface AdmissionDecision {
+  readonly peerId: string
+  /** `true` when the reservation was granted. */
+  readonly admitted: boolean
+  /** Operator-facing, in the register of this fabric's other refusals. */
+  readonly reason: string
+  /** How many `records` asks it took. `0` when no ask was needed. */
+  readonly attempts: number
+  readonly ms: number
+}
+
+export interface RelayAdmissionGateOptions {
+  /** Who this relay admits. `'admits-any-peer'` produces **no gate at all** — see below. */
+  readonly admission: RelayAdmission
+  /**
+   * The endpoint to ask over, as a thunk.
+   *
+   * A thunk because of a hard ordering fact rather than for taste: `createLibp2p` has to be
+   * given its `connectionGater` at construction, and the `RpcEndpoint` does not exist until
+   * after `Libp2pTransport.start`, which needs the libp2p node. Returning `null` means "this
+   * relay is not serving yet", and that is refused rather than waited on — a relay that
+   * cannot ask has not decided.
+   */
+  readonly rpc: () => RpcEndpoint | null
+  readonly deadlineMs?: number
+  readonly attemptMs?: number
+  readonly retryGapMs?: number
+  /** Observes every decision, admitted and refused alike. */
+  readonly onDecision?: (decision: AdmissionDecision) => void
+}
+
+/**
+ * Build the `denyInboundRelayReservation` hook for a relay, or **nothing at all**.
+ *
+ * ## Why this is a module-level factory
+ *
+ * So a test can exercise the predicate without standing up a relay. `24-CONTEXT.md` makes
+ * that non-discretionary, and the reason is that a predicate reachable only through a live
+ * libp2p node is a predicate nobody will test the edges of.
+ *
+ * ## `'admits-any-peer'` returns `undefined`, and that is not a stylistic choice
+ *
+ * The open posture supplies **no method**, never a method that returns `false`. The call site
+ * in `@libp2p/circuit-relay-v2` is
+ * `await this.components.connectionGater.denyInboundRelayReservation?.(connection.remotePeer)`
+ * — optional-called — so an absent method is the genuine no-op, byte for byte the behaviour
+ * every node in this repository had before this plan. A method that decided to allow is a
+ * different thing from a node that was never asked, and only one of them is honest about a
+ * benchmark rig: 24-02's pre-gate baseline was taken on a fabric where nothing was consulted,
+ * and it stays comparable only while that remains true.
+ *
+ * ## An empty set admits nobody, and does not spend a round trip finding out
+ *
+ * `RelayAdmission`'s union exists so that "admit everyone" has a *name* and cannot be arrived
+ * at by omission. An empty set is therefore genuinely fail-closed. It is also decidable with
+ * no I/O — no certificate can chain to a pinned issuer when nothing is pinned — so this
+ * refuses immediately rather than asking a peer a question whose answer cannot matter.
+ *
+ * ## No admit-while-pending
+ *
+ * Every path out of the loop below is a decision. A lookup that runs out of budget refuses;
+ * it does not fall through to "allow" while something is still in flight. That failure has
+ * been found by measurement in this repository once already — an async gate that answers
+ * "allow" while a lookup is outstanding is a fail-open hole wearing a gate's clothes.
+ *
+ * ## What this gate deliberately does NOT reuse
+ *
+ * `PeerVerifier`, though the two ask the same question over the same wire. Three reasons,
+ * each sufficient:
+ *
+ *   1. **They pin different sets.** `FabricNodeOptions.trustedIssuers` names whose *enrolment
+ *      signature* this node will believe about a peer it is already talking to — selection.
+ *      `relayAdmission` names whose certificate gets a peer *in at all* — admission. Folding
+ *      one into the other is the conflation the union was introduced to prevent.
+ *   2. **Their failure dispositions are opposite.** `PeerVerifier.verifiedPeers` is
+ *      fail-*open* on an empty anchor set, deliberately and permanently. This is fail-closed.
+ *      That asymmetry is written at `RelayAdmission`'s docblock and again at that early
+ *      return, and sharing an implementation would be the way it gets "fixed" back.
+ *   3. **Its retry floor is longer than this gate's whole budget.**
+ *      `DEFAULT_VERDICT_RETRY_FLOOR_MS` is 5 000 ms — sited, correctly for its own purpose,
+ *      against the 30 s RPC default. A gate that must settle inside libp2p's 5 s reservation
+ *      ceiling cannot wait a floor of that size for a second ask, and the second ask is the
+ *      only one that works.
+ */
+export function relayAdmissionGate(
+  options: RelayAdmissionGateOptions,
+): ((source: PeerId) => Promise<boolean>) | undefined {
+  // The one production caller of the predicate that reads the union. The decision about what
+  // the union *means* lives in `@o2/libp2p` and is made once, here, rather than once per
+  // reader.
+  if (admitsAnyPeer(options.admission)) return undefined
+
+  const issuers = options.admission
+  if (typeof issuers === 'string') {
+    // **Unreachable today, and fail-closed if it ever stops being.** `admitsAnyPeer` above is
+    // the decision; this branch exists only because that predicate returns `boolean` rather
+    // than narrowing, and making it a type guard would change an exported signature in
+    // `@o2/libp2p` for one call site's convenience.
+    //
+    // The disposition is the load-bearing part. `RelayAdmission` has exactly one string
+    // member today, so nothing reaches here — but if a second is added, this gate does not
+    // understand the posture it was handed, and a gate that does not understand its posture
+    // must refuse rather than stand aside. Returning `undefined` here would read as tidier
+    // and would be a fail-*open* hole opened by a future union member.
+    return async (source: PeerId): Promise<boolean> => {
+      options.onDecision?.({
+        peerId: source.toString(),
+        admitted: false,
+        reason: `this relay was given an admission posture it does not understand (${issuers}), so it admits nobody`,
+        attempts: 0,
+        ms: 0,
+      })
+      return true
+    }
+  }
+
+  const deadlineMs = options.deadlineMs ?? RELAY_ADMISSION_DEADLINE_MS
+  const attemptMs = options.attemptMs ?? RELAY_ADMISSION_ATTEMPT_MS
+  const retryGapMs = options.retryGapMs ?? RELAY_ADMISSION_RETRY_GAP_MS
+
+  return async (source: PeerId): Promise<boolean> => {
+    const peerId = source.toString()
+    const startedAt = Date.now()
+    let attempts = 0
+
+    // `true` denies. Naming both arms means neither is the fall-through.
+    const decide = (admitted: boolean, reason: string): boolean => {
+      options.onDecision?.({ peerId, admitted, reason, attempts, ms: Date.now() - startedAt })
+      return !admitted
+    }
+
+    if (issuers.size === 0) {
+      return decide(false, `this relay pins no certificate issuer, so it admits no peer — ${peerId} refused`)
+    }
+
+    // Step 1, and the only thing this gate learns for free: a peer id derived from an
+    // Ed25519 key *is* the node key, already proved over Noise. It is what a certificate
+    // would have to name, and it is available with no I/O of any kind.
+    const expected = nodeKeyForPeerId(peerId)
+    if (expected === null) {
+      return decide(false, `peer id ${peerId} names no Ed25519 key, so no certificate can be expected of it`)
+    }
+
+    const deadline = startedAt + deadlineMs
+    let lastReason = `${peerId} was not asked for a certificate within ${deadlineMs}ms`
+
+    while (Date.now() < deadline) {
+      const rpc = options.rpc()
+      if (rpc === null) {
+        lastReason = `this relay was not yet serving when ${peerId} asked for a reservation`
+        await new Promise((resolve) => setTimeout(resolve, retryGapMs))
+        continue
+      }
+
+      attempts += 1
+      let body: CanonicalValue | null = null
+      try {
+        body = await withBudget(rpc.request(peerId, encodeRequest({ kind: 'records', nodeKey: expected })), attemptMs)
+      } catch (cause) {
+        // The destroyed-request case, and the reason this is a loop. Retry rather than wait.
+        lastReason = `${peerId} did not answer a records request within ${attemptMs}ms`
+        void cause
+      }
+
+      if (body === null) {
+        await new Promise((resolve) => setTimeout(resolve, retryGapMs))
+        continue
+      }
+
+      const response = parseResponse(body)
+      if (response === null || response.kind !== 'records') {
+        // An answer, just not one to this question. Definitive: a peer that replies with the
+        // wrong frame will reply with the wrong frame again.
+        return decide(false, `${peerId} answered a records request with ${response === null ? 'an unparseable frame' : `a ${response.kind} frame`}`)
+      }
+      if (response.records === null) {
+        // The peer answered and said it holds nothing. **Definitive, and composing with two
+        // measured facts rather than with an assumption:** a peer that enrols after this
+        // point gets another verdict at its next reservation, and there are exactly two ways
+        // it reaches one — a reconnection, which re-enters this hook off the identify
+        // topology event, or a renewal, which re-consults this hook at the 30 s refresh
+        // floor. Both were measured on 2026-08-06. Holding the reservation open here in the
+        // hope of a certificate arriving would cost every unenrolled peer the full budget and
+        // still not be admission.
+        return decide(false, `${peerId} holds no provider-issued certificate, so it is not admitted to this relay`)
+      }
+
+      const { certificate } = response.records
+      if (certificate.nodeKey !== expected) {
+        // Not redundant with the signature check below, and the difference is the whole of
+        // what admission means: the peer proved possession of exactly one key over Noise, so
+        // a certificate naming a different one is somebody else's, presented perhaps by a
+        // node that copied it off the wire.
+        return decide(
+          false,
+          `${peerId} presented a certificate for ${certificate.nodeKey}, but its peer id implies ${expected}`,
+        )
+      }
+
+      const verdict = verifyCertificate(certificate, issuers, Date.now())
+      if (!verdict.ok) return decide(false, `${peerId} refused: ${verdict.reason}`)
+      return decide(true, `${peerId} holds a certificate from a pinned issuer`)
+    }
+
+    // Out of budget. **Refuse.** This is the branch that must never become "allow".
+    return decide(false, lastReason)
+  }
+}
+
+/**
+ * Settle `work` within `ms`, or reject.
+ *
+ * `RpcEndpoint.request` takes no per-request budget — it uses the endpoint's own
+ * `timeoutMs`, which on a `FabricNode` defaults to 30 s, six times libp2p's whole reservation
+ * ceiling. Racing it is therefore the only way to bound one ask. The loser is left to settle
+ * on its own and its rejection is swallowed, because an abandoned ask that rejects later must
+ * not surface as an unhandled rejection in an unrelated part of the process.
+ */
+async function withBudget<T>(work: Promise<T>, ms: number): Promise<T> {
+  work.catch(() => {})
+  let timer: ReturnType<typeof setTimeout> | undefined
+  try {
+    return await Promise.race([
+      work,
+      new Promise<never>((_resolve, reject) => {
+        timer = setTimeout(() => {
+          reject(new Error(`no answer within ${ms}ms`))
+        }, ms)
+      }),
+    ])
+  } finally {
+    if (timer !== undefined) clearTimeout(timer)
   }
 }
 
@@ -1055,6 +1428,20 @@ export class FabricNode {
    * the one thing that must not also be locally writable by whoever renders it.
    */
   readonly #startLedger: StartOutcomeLedger
+  /**
+   * AUTH-02 — what this relay decided about the reservations it was asked for.
+   *
+   * **A refusal nobody can read is a refusal nobody can act on**, and until this existed the
+   * relay's side of admission was a boolean returned into libp2p and lost. The joining side
+   * already had its half — libp2p reports `reservation failed with status PERMISSION_DENIED`
+   * and `classifyReservationFailure` turns it into a named `refused` — but that tells the
+   * refused peer only *that* it was refused, never *why*, and the why is knowable only here.
+   *
+   * The array is the live one the gate appends to, exposed through
+   * {@link admissionDecisions} as a copy so a caller cannot rewrite this node's own record of
+   * who it turned away.
+   */
+  readonly #admissionLog: readonly AdmissionDecision[]
 
   private constructor(parts: {
     libp2p: Libp2p
@@ -1078,6 +1465,7 @@ export class FabricNode {
     relayFailures: readonly RelayDialFailure[]
     sovereignCids: SovereignCids | 'forgets-sovereignty-between-jobs'
     startLedger: StartOutcomeLedger
+    admissionLog: readonly AdmissionDecision[]
   }) {
     this.libp2p = parts.libp2p
     this.transport = parts.transport
@@ -1097,6 +1485,7 @@ export class FabricNode {
     this.#authority = parts.authority
     this.certificate = parts.certificate
     this.#verifier = parts.verifier
+    this.#admissionLog = parts.admissionLog
     this.#relayFailures = parts.relayFailures
     this.#sovereignCids = parts.sovereignCids
     this.#startLedger = parts.startLedger
@@ -1325,11 +1714,41 @@ export class FabricNode {
       options.inboundConnectionThreshold ??
       Math.max(LIBP2P_INBOUND_CONNECTION_THRESHOLD, limit)
 
+    // AUTH-02 / AUTH-04 — **the whole of arming the door, and it is one key below.**
+    //
+    // The gate goes on `createLibp2p`'s top-level `connectionGater` and **not** into
+    // `circuitRelayServer`'s arguments, which keep taking capacity limits and nothing else.
+    // That separation is deliberate and is guarded: capacity is about how many, admission is
+    // about who, and a relay that refuses for one reason while an operator reads the other is
+    // the ambiguity NET-05 exists to remove.
+    //
+    // `relayAdmissionGate` returns `undefined` for `'admits-any-peer'`, and the conditional
+    // spread means the *method is absent* rather than present-and-permissive — see that
+    // factory's docblock for why a node that was never asked and a node that decided to allow
+    // must not be the same thing.
+    //
+    // The `rpc` thunk is forced by ordering: the endpoint is built ~200 lines below, out of a
+    // transport that needs the node this call is creating.
+    let serving: RpcEndpoint | null = null
+    const admissionLog: AdmissionDecision[] = []
+    const gate = relayAdmissionGate({
+      admission: options.relayAdmission,
+      rpc: () => serving,
+      onDecision: (decision) => {
+        // Bounded, because this is a per-reservation event on a long-lived process and an
+        // unbounded array is a leak with a good reason attached. The newest are what an
+        // operator or a test is looking at.
+        admissionLog.push(decision)
+        if (admissionLog.length > ADMISSION_LOG_LIMIT) admissionLog.splice(0, admissionLog.length - ADMISSION_LOG_LIMIT)
+      },
+    })
+
     const libp2p = await createLibp2p({
       // AUTH-01. Without this line libp2p mints a fresh ephemeral key on every start, so
       // a node has no identity that outlives its process and no certificate could refer
       // to it — which is exactly what every start did before this phase.
       privateKey: identity.privateKey,
+      ...(gate === undefined ? {} : { connectionGater: { denyInboundRelayReservation: gate } }),
       addresses: { listen },
       transports: viaRelay
         ? [tcp(), webSockets(), circuitRelayTransport()]
@@ -1535,6 +1954,14 @@ export class FabricNode {
       egress,
       options.rpcTimeoutMs === undefined ? {} : { timeoutMs: options.rpcTimeoutMs },
     )
+    // AUTH-02 — the gate's `rpc` thunk resolves from here on. Before this line it answers
+    // `null`, which the gate treats as *"this relay is not serving yet"* and **refuses**
+    // rather than waits on: a relay that cannot ask a peer anything has not decided anything,
+    // and the one disposition a gate may never take is to admit while it does not know.
+    //
+    // The window is real but narrow and it is on the relay's own start, not the joiner's — a
+    // relay is normally listening for minutes before anyone dials it.
+    serving = rpc
 
     // AUTH-01 / AUTH-04 — the provider signing key, when this process was told to hold
     // one. A **separate file** from `.identity.key`, so `issuerKey !== nodeKey` always
@@ -1907,6 +2334,7 @@ export class FabricNode {
       relayFailures,
       sovereignCids,
       startLedger,
+      admissionLog,
     })
 
     // Unconditional, and that is the point: there is no construction path through
@@ -2142,6 +2570,21 @@ export class FabricNode {
    * Read from the live store on demand, for the same reason `capacity` is: libp2p
    * declares a `relay:reservation` event and never dispatches it.
    */
+  /**
+   * Every admission decision this relay has made, newest last — AUTH-02 / AUTH-04.
+   *
+   * Empty on a node stating `'admits-any-peer'`, and empty **because nothing was ever
+   * consulted** rather than because everything was allowed. That distinction is the whole of
+   * why the open posture supplies no gater method at all, and it is readable here: a relay
+   * that admits any peer produces no decisions, not a list of approvals.
+   *
+   * A copy, so this node's record of who it turned away is not writable through its own
+   * getter. Bounded at {@link ADMISSION_LOG_LIMIT}.
+   */
+  get admissionDecisions(): readonly AdmissionDecision[] {
+    return [...this.#admissionLog]
+  }
+
   get reservedPeerIds(): readonly string[] {
     const service: unknown = this.libp2p.services['relay']
     if (!hasReservations(service)) return []

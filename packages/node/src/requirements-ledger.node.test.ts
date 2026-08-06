@@ -635,6 +635,24 @@ const UNREACHED = ROWS.filter((row) => UNREACHED_VERDICTS.includes(row.verdict))
  *   all, the row stating in words that its marker is conservative rather than
  *   descriptive. A row that reports no absence has no absence to name.
  *
+ *   **`AUTH-03`'s membership here was true by accident until 2026-08-06, and the audit is
+ *   worth keeping.** Its row *did* name an absence — *"`delegate`, `CapabilitySupplier`
+ *   and `RemoteExecutor.execute`'s supplier branch have a production adapter and zero
+ *   production callers"* — and that absence had become false when Phase 23 gave the leg a
+ *   caller. Nothing failed. `23-VERIFICATION.md` ran the two {@link NO_CALLER} patterns
+ *   against the literal row and both returned **zero matches**: three subjects in one
+ *   clause, and *"zero production callers"* rather than *"has no production caller"*, are
+ *   outside the shapes `parseRows` reads. So the row sat exempt under a stated reason that
+ *   was not its real one, which is this repository's most-repeated defect wearing a
+ *   different coat — the population a guard acts on was not the population that paid for
+ *   it. The row's prose was corrected in the same commit as this note and **no longer
+ *   claims a call-site absence at all**, which is what makes its membership here honest
+ *   rather than lucky. What remains unproven for `AUTH-03` is a measurement (the browser
+ *   factory's authorizer) and a pending ruling (Phase 22 on entry-point reachability) —
+ *   genuinely this bucket. **If a future edit reintroduces a call-site claim to that row,
+ *   phrase it as ``` `X` has no production caller ``` so the parser can read it, and
+ *   delete `AUTH-03` from this list in the same commit.**
+ *
  * `BROW-02` **was** deliberately not here, on the stated ground that its reason was the
  * hook shape: no node supplied `serveAgent`'s `ledger` hook, and the third shape read
  * that. Plan 20-02 satisfied it — both node factories now build a real

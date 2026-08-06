@@ -209,6 +209,43 @@ export interface BrowserNodeOptions {
    * field with the same type over there, because a browser node is not a lesser node and
    * "the tab is only the demo" is precisely the reasoning that would have left the hole
    * here rather than in the Node tier.
+   *
+   * ## The precedent cited above is one this interface does not have — defect #55
+   *
+   * The first paragraph argues this field's required-with-no-default shape *"on the same
+   * ground as `trustAnchors` above and `FabricNodeOptions.relayAdmission`"*, and closes by
+   * saying a browser node is not a lesser node. But **`BrowserNodeOptions` has no
+   * `relayAdmission` field**, so an argument against tier asymmetry was sitting inside an
+   * instance of one. Flagged by Plan 24-01 and closed here.
+   *
+   * **The absence is a consequence of topology, not of tier, and that is the whole
+   * correction.** Measured 2026-08-06: this module imports only `circuitRelayTransport` from
+   * `@libp2p/circuit-relay-v2` — never `circuitRelayServer` — and `#compose` passes
+   * `services: { identify: identify(), identifyPush: identifyPush() }`, which is the entire
+   * services list. A `BrowserNode` therefore **runs no relay server, grants no reservation,
+   * and has no reservation to gate.** The same fact is stated on the answering side by the
+   * named-absence sentinel this factory passes as `serveAgent`'s `reservations` hook. The tab
+   * is not being trusted less; it is not holding a door.
+   *
+   * (That sentinel is deliberately **not** spelled out here. `serve-agent-hooks.node.test.ts`
+   * counts its occurrences in this file's **raw** source and requires exactly one, because a
+   * raw-text scan cannot tell a construction from a mention — the identical hazard
+   * `relay-admission.node.test.ts` records for its own matchers. Naming it in this paragraph
+   * took that count to 2 and reddened that guard, which is how this sentence came to be
+   * written the way it is.)
+   *
+   * **`BrowserNodeOptions` must not gain a `relayAdmission` field to make the symmetry
+   * look complete.** A required posture on an interface with nothing to gate is a value
+   * nobody can act on and a second vocabulary for one fact — exactly what
+   * *"certificate-holding is a per-node FACT, never a node kind"* forbids.
+   *
+   * **What carries this paragraph is not this paragraph**, and saying so is the point: a
+   * sentence is not executable and no mutation of it can redden anything. The machine-checked
+   * half is in `packages/node/src/relay-admission.node.test.ts`, whose gater census requires
+   * that this file contain `denyDialMultiaddr` — which *opens* dialling — and must **not**
+   * contain the reservation-deny method. That negative is now a protected property rather
+   * than a "nothing moved" claim, and it and this sentence landed together so neither can be
+   * reverted without the other reddening.
    */
   readonly startReporting: StartReportingConsent
   /** IndexedDB database name. Distinct names give one origin several independent nodes. */

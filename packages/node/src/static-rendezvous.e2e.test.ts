@@ -222,6 +222,21 @@ beforeAll(async () => {
   // DET-03: this node relays and executes nothing — the subject is three tabs reaching
   // each other. See `background-tab.e2e.test.ts` for the full note on why stating the
   // opt-out is the point of the field being required.
+  //
+  // AUTH-02 — **this fixture's reading DEPENDS on the relay admitting any peer, and since
+  // 2026-08-06 that is a stated dependency rather than an ambient fact.** Plan 24-03 armed
+  // `connectionGater.denyInboundRelayReservation` on `FabricNode`, so a relay that pins an
+  // issuer now refuses a peer that cannot present a certificate from it. The three tabs below
+  // are **unenrolled** — this file's own header says so, and `demo/main.ts`'s
+  // `peerCertificate` therefore returns nothing for them — so they hold three simultaneous
+  // reservations here **only because this line says they may**.
+  //
+  // A future change that pins issuers at this line does not make this fixture stricter; it
+  // changes what the fixture measures, from "three unenrolled tabs find each other" to
+  // "nothing joins". This is the fixture behind Phase 19 criterion 4 (W12 in
+  // `19-VERIFICATION.md`), so that would silently move a scored criterion. The assertion
+  // immediately after `start` is the collision recorded on this fixture's own end: it fails
+  // **by name, here**, rather than as three ICE timeouts twenty seconds later in a browser.
   relay = await FabricNode.start({
     relayAdmission: 'admits-any-peer',
     startReporting: 'reports-its-own-start',
@@ -229,6 +244,35 @@ beforeAll(async () => {
     listen: ['/ip4/127.0.0.1/tcp/0/ws'],
     trustAnchors: 'runs-unsigned-artifacts',
   })
+  // The positive assertion of this fixture's own posture — AUTH-02, added 2026-08-06.
+  //
+  // Placed here, in `beforeAll`, because a pinned relay produces three tabs that never get a
+  // circuit and the three cases below then fail as ICE timeouts — a symptom that reads like a
+  // flaky browser, in a file that already excludes engines for being flaky, and this
+  // repository has spent real time on that shape of misdiagnosis before.
+  //
+  // **Read off this file's own source, and the first attempt at something cleverer was
+  // vacuous.** Asserting `relay.admissionDecisions.length === 0` looks like a behavioural
+  // reading and is not one: no peer has asked for a reservation at this point in `beforeAll`,
+  // so it is zero for a pinned relay and an open one alike. The posture is a *construction*
+  // fact here, and the construction is a literal a few lines above, so reading the literal is
+  // the honest instrument. Planting a pinned set at that line reddens this and nothing else in
+  // this file gets as far as launching a browser.
+  //
+  // The needle is assembled rather than written whole, on `relay-admission.node.test.ts`'s
+  // standing rule: this file is a tracked `.ts` under `packages/`, so a needle written out
+  // would make the repository-wide census count this assertion as a second construction site.
+  const OPEN_HERE = 'relayAdmission' + ": 'admits-any-peer',"
+  const ownSource = await readFile(fileURLToPath(import.meta.url), 'utf8')
+  if (!ownSource.includes(OPEN_HERE)) {
+    throw new Error(
+      'this fixture requires a relay that admits any peer, and its own construction no longer ' +
+        'states one. Three UNENROLLED tabs hold three simultaneous reservations here; a relay ' +
+        'that pins an issuer refuses all three, so pinning one changes what this file measures ' +
+        '— Phase 19 criterion 4, per W12 in 19-VERIFICATION.md — rather than making it stricter.',
+    )
+  }
+
   const dialable = relay.browserDialableAddrs[0]
   if (dialable === undefined) throw new Error('relay produced no browser-dialable address')
   relayAddr = dialable

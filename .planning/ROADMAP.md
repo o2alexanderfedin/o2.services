@@ -59,7 +59,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [ ] **Phase 20: Single Job Path, Ledger & Churn Resilience** - `submitJob` becomes the one job path — lease, speculate, account for coverage — and the peer ledger records real outcomes instead of discarding them
 - [ ] **Phase 21: AOT Translation Signing & Runtime** - `translationCid` is called by the lift pipeline and a production node constructs a real `WasiExecutor`
 - [ ] **Phase 22: Reachability Guard** - A guard test fails when an exported capability has no path from a runnable entry point — the class of defect this milestone exists to fix
-- [ ] **Phase 23: Multi-Process Benchmark Driver** - The harness spawns N real operating-system processes instead of N nodes on one event loop, so a parallel speedup is measurable at all
+- [x] **Phase 23: Multi-Process Benchmark Driver** - The harness spawns N real operating-system processes instead of N nodes on one event loop, so a parallel speedup is measurable at all — **5 of 5 criteria** (`23-VERIFICATION.md`, 2026-08-06). Criterion 3 passes on its *first* disjunct; the second's premise was refuted by the phase's own factorial. **BENCH-07 closed; AUTH-03 stays `Partial` pending Phase 22.** What the phase deliberately did *not* establish: that the two drivers differ at all — three runs, the curves crossed twice, and the spread between runs exceeds the difference between them
 - [ ] **Phase 24: Certificate-Gated Admission** - The front door is locked: a node that cannot present a provider-issued certificate cannot reserve a circuit, be advertised, or be dialled. Scheduled later by owner ruling 2026-08-04; the open door is a KNOWN and accepted state until this phase runs
 
 ## Phase Details
@@ -1100,8 +1100,23 @@ Parallel tracks (config `parallelization: true`):
 - Phase 10 (elfconv AOT) runs alongside everything from Phase 4 onward; it only needs Phase 5's signing infrastructure to land before its own exit
 - Phase 21 (AOT translation signing & runtime) needs only Phase 11's hook contract and can run parallel to Phases 12-20, mirroring how Phase 10 ran parallel to Phases 4-9 in v1.0
 
-<!-- "Plans Complete" is a dash throughout: this project executes phases directly
-     and records each in `phases/<name>/SUMMARY.md` rather than as numbered plans. -->
+<!-- "Plans Complete" is a dash for phases 1-10 ONLY, and that sentence used to claim
+     "throughout", which stopped being true at Phase 11 and stayed on the page until
+     2026-08-06. Phases 1-10 were executed directly and recorded in a single
+     `phases/<name>/SUMMARY.md`. From Phase 11 on there are numbered plans, and the
+     column counts plan FILES.
+
+     The denominator is deliberate: four phases carry MORE summaries than plans, because
+     gap-closure and defect summaries are written without a plan of their own (15 has 5
+     summaries to 4 plans, 16 has 6 to 4, 17 has 6 to 5, 19 has 23 to 19). Counting
+     summaries would make the column exceed its own denominator and read as over 100%,
+     which is the trap STATE.md already warns about. Plan files it is.
+
+     Status text states the shortfall when there is one. A phase with a PARTIAL criterion
+     is not "Complete" here however nearly done it looks -- 16, 17, 19, 20 and 21 all sit
+     short on one criterion apiece, several of them carried to a later phase by owner
+     ruling. RULING A governs: a criterion is not rewritten to let a phase close, and a
+     carried criterion stays PARTIAL until its destination phase lands. -->
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
@@ -1118,15 +1133,18 @@ Parallel tracks (config `parallelization: true`):
 | 11. Explicit serveAgent Hook Contract | 1/1 | Complete   | 2026-07-27 |
 | 12. Sovereignty-Pinned Placement | 4/4 | Complete   | 2026-07-27 |
 | 13. Egress Manifest Completeness | 3/3 | Complete   | 2026-07-27 |
-| 14. Signed Artifact Resolution | 0/TBD | Not started | - |
-| 15. Capability-Chained Dispatch | 0/TBD | Not started | - |
-| 16. Decomposable Tree-Reduce Wiring | 0/TBD | Not started | - |
-| 17. Node Identity & Enrollment | 0/TBD | Not started | - |
-| 18. Discovery, Capacity & Placement | 3/11 | In Progress|  |
-| 19. Quorum Composition & Owner-Domain Attestation | 0/TBD | Not started | - |
-| 20. Single Job Path, Ledger & Churn Resilience | 0/TBD | Not started | - |
-| 21. AOT Translation Signing & Runtime | 0/TBD | Not started | - |
-| 22. Reachability Guard | 0/TBD | Not started | - |
+| 13.1. Node-Side Admission & Transport Bounds | 5/5 | Complete   | 2026-08-04 |
+| 14. Signed Artifact Resolution | 5/5 | Complete   | 2026-07-31 |
+| 15. Capability-Chained Dispatch | 4/4 | Complete   | 2026-07-31 |
+| 16. Decomposable Tree-Reduce Wiring | 4/4 | 3 of 4 criteria — criterion 3's "arriving late" clause was not expressible on the build it was written against and was carried to Phase 20 criterion 6, **which is now MET**. No amendment has been written to `16-VERIFICATION.md`, and until one is this row does not move: a phase closes when a verifier says so | 2026-08-01 |
+| 17. Node Identity & Enrollment | 5/5 | 2 of 3 criteria — criterion 3's COST clause not met; measured to be an admission property rather than a selection one, and carried to Phase 24 criterion 8. **Phase 24 landed 2026-08-06 and criterion 8 verified PARTIAL, so criterion 3 does NOT close** and this row does not move — RULING A: a carried criterion stays PARTIAL until its destination lands, and its destination landed PARTIAL | 2026-08-04 |
+| 18. Discovery, Capacity & Placement | 13/13 | Complete   | 2026-08-04 |
+| 19. Quorum Composition & Owner-Domain Attestation | 19/19 | 4 of 5 criteria — criterion 5 prices nothing; the N-th identity is refused inside the window rather than priced. Carried to Phase 24 criterion 8 by owner ruling 2026-08-04, and **stays PARTIAL until 24 lands** — deferred is a disposition, not a pass. **24 landed 2026-08-06 and criterion 8 verified PARTIAL, so criterion 5 does NOT close**: the destination arrived and did not settle the clause, and RULING A does not let a phase close on a criterion whose destination is itself PARTIAL | 2026-08-04 |
+| 20. Single Job Path, Ledger & Churn Resilience | 13/13 | 6 of 7 criteria — criterion 7's checkpoint-**write** half runs on a sink no production submitter supplies; the recovery half is measured | 2026-08-05 |
+| 21. AOT Translation Signing & Runtime | 5/5 | 2 of 3 criteria — criterion 2's re-tag refusal recorded as a measured negative by owner ruling 2026-08-05; carried, not cleared | 2026-08-05 |
+| 22. Reachability Guard | 0/4 | Planned, not executed — 4 plans, no summaries, no verification. Runs **last** (23 → 24 → 22) | - |
+| 23. Multi-Process Benchmark Driver | 6/6 | Complete — 5 of 5 criteria | 2026-08-06 |
+| 24. Certificate-Gated Admission | 4/4 | 0 of 1 — criterion 8 PARTIAL. **One** criterion, numbered 8, carried from Phase 19, so the score reads out of 1 and not out of 8. The gate is built, armed and measured across six real `bin/agent.ts` processes and three browser engines; the criterion says *"cannot join the fabric"* and the evidence says *"cannot join a relay that has been told to close"*. Admission is per-relay by construction and `bin/seed.ts` cannot be told to close — no flag, no `SeedServerOptions` field — so an uncertificated peer reserves on any open relay-capable peer it dials. Mechanism delivered; the criterion does not close | 2026-08-06 |
 
 ### Phase 23: Multi-Process Benchmark Driver
 **Goal**: The benchmark harness spawns N real operating-system processes instead of N `FabricNode`s on one event loop, so a parallel speedup is measurable at all — and the project's central scaling claim stops being unmeasured
@@ -1137,11 +1155,11 @@ Parallel tracks (config `parallelization: true`):
 **Success Criteria** (what must be TRUE):
   1. A benchmark run at N nodes spawns N operating-system processes, verified by reading the child PIDs, and the published run records them — a run that silently falls back to in-process nodes fails the harness rather than reporting a curve
   2. Makespan at N=1 and N=8 differ on a fixture with enough work to saturate a core, and the ratio is published; a flat curve is a finding, but it must be a finding about the fabric rather than about the harness
-  3. The real-transport rungs Phase 8 published as excluded either run, or are re-excluded with a measurement showing the per-host inbound cap is still the cause under separate processes. **Corrected 2026-08-05: this is ONE rung, not the two the criterion was written against.** The clause said *"8 and 16 nodes, dying on `INBOUND_CONNECTION_THRESHOLD = 5` per host"*; the committed run (stamped `2026-08-01T06:09:01.272Z`) excludes exactly one row — `real transport, 16 nodes` — and the **8-node rung already runs**, at `n = 19` with `incomplete = 0`. The scope change must be **stated in the published section, not absorbed**: this project's own rule is that a rung which vanishes between plan and results is indistinguishable, to a reader, from one removed because its number was inconvenient. The same rule applies to one that quietly appears
+  3. The real-transport rungs Phase 8 published as excluded either run, or are re-excluded with a measurement showing the per-host inbound cap is still the cause under separate processes. **Corrected 2026-08-05: this is ONE rung, not the two the criterion was written against.** The clause said *"8 and 16 nodes, dying on `INBOUND_CONNECTION_THRESHOLD = 5` per host"*; the committed run (stamped `2026-08-01T06:09:01.272Z`) excludes exactly one row — `real transport, 16 nodes` — and the **8-node rung already runs**, at `n = 19` with `incomplete = 0`. The scope change must be **stated in the published section, not absorbed**: this project's own rule is that a rung which vanishes between plan and results is indistinguishable, to a reader, from one removed because its number was inconvenient. The same rule applies to one that quietly appears. **Corrected again 2026-08-06, and this time the criterion's own premise is what changed.** The second disjunct asks for a measurement showing *"the per-host inbound cap is still the cause"*. 23-04's eight-cell factorial, reproduced identically three times, **refuted that cause rather than confirming it**: the outcomes partition cleanly on **dial direction**, and driver and cap placement each appear on *both* sides — A fails at the derived cap, B fails pinned back to 5, and E completes with the agents at 5. The blamed constant was never in force: a live node announces `inboundConnectionThreshold=15 maxIncomingPendingConnections=15`, not the 5 the exclusion named. So the criterion **passes on its FIRST disjunct** — the rung runs, at attempts C, D and E, D being the process driver at this phase's headline configuration. A reader checking the second disjunct literally will find a contradiction, and this note is why: the disjunct is retained for the reasoning, not for the verdict. The published ladder was **not** re-taken, so its excluded row stands as a true report of what that arrangement produced
   4. `BENCHMARK-RESULTS.md` states, for every published figure, whether it came from the single-process or the multi-process driver — no figure is silently replaced
   5. **`bin/bench.ts` gains an opt-in sovereign leg, off by default, that mints a real capability chain and dispatches an owner-labelled shard through it** — giving `delegate` and `CapabilitySupplier` a traced call path from a runnable entry point, so Phase 22's guard finds them reachable. The default public curve must be **byte-identical in shape** to a run with the flag absent; if the leg moves the default measurement, it has been built wrong
 
-**Criterion 5 exists because of an owner ruling, and the alternative was cheaper to write down than to take.** Phase 15 wired AUTH-03's *serving* end and verified it end to end, but left `delegate`, `CapabilitySupplier` and `RemoteExecutor.execute`'s supplier branch as a production adapter with **zero production callers** — every one of the five production dispatch sites labels its shards `'public'`, which have no owner and therefore no root key to mint a chain at. That is the exact "built, not wired" shape this milestone exists to remove, so shipping it as *accepted unreachable* was declined on 2026-07-31.
+**Criterion 5 exists because of an owner ruling, and the alternative was cheaper to write down than to take.** Phase 15 wired AUTH-03's *serving* end and verified it end to end, but left `delegate`, `CapabilitySupplier` and `RemoteExecutor.execute`'s supplier branch as a production adapter nothing in production reached — every one of the five production dispatch sites labelled its shards `'public'`, which have no owner and therefore no root key to mint a chain at. That is the exact "built, not wired" shape this milestone exists to remove, so shipping it as *accepted unreachable* was declined on 2026-07-31. **That state of affairs ended on 2026-08-06 and the past tense above is deliberate**: 23-06 delivered the leg, `bin/bench.ts` now calls `delegate` at two production sites and ships a `'sovereign'`-labelled shard, and a spawned run printed an agreed sovereign shard rooted at the enrolled owner key. **AUTH-03's checkbox still does not move** — the leg sits behind `--discover --sovereign`, both off by default, and whether that is *entry-point reachable* is Phase 22's guard's ruling, which is why Phase 22 runs last.
 
 It lands **here** rather than in Phase 15 for one reason: this phase already rewrites `bin/bench.ts`'s node construction, and `bin/bench.ts` is the most contended file in the repository — six phases modify it. Doing the sovereign leg in Phase 15 would have meant fighting that file twice. The costs Phase 15 measured still apply and are the work of criterion 5: `realFabric`'s worker nodes start with no `sovereignty` configuration at all, so each needs an owner id, an owner key and clearance; the requestor needs a per-node chain minted against each worker's peer id; and `memoryFabric`'s nodes are raw `serveAgent` calls on `authorize: 'serves-unauthenticated'`, so the leg proves nothing there — which is precisely why it must stay opt-in and why the two published curves must keep measuring the same thing.
 

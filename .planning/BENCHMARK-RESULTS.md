@@ -197,6 +197,24 @@ coordination ate the gain. This is **not** the connectivity tax and must not be 
 one: that figure is computed over the in-process trivial curves at a different
 redundancy, so there is no connectivity tax figure for any rung here.
 
+**These four numbers are one run, and the N=8 cell is not reproducible — read it as a
+single observation, not as a measurement.** Three runs of this ladder were taken. The
+N=8 coordination ratio came out **0.98×, 1.03× and 0.77×** across them: the sign flips,
+and the table above publishes the third. The between-driver comparison behind it moved
+the same way — **3.68× / 3.77×**, then **3.83× / 3.76×**, then **2.70× / 3.47×** for
+process-per-node against the in-process control — so the two curves crossed twice and
+**the spread between runs is larger than the difference between the drivers.**
+
+**What that does and does not undermine.** The ratio this report's headline rests on is
+*within* one driver — N=1 → N=8 on the same curve — and that one held its sign in all
+three runs. What is **unsettled is whether the two drivers differ at all**, and this
+report does not claim they do. The sentence above about coordination eating the gain is
+a reading of one rung of one run; it is retained because the mechanism it names is real
+and worth looking for, not because this table establishes it. Settling it needs a quiet
+host and repeated ladders, and neither was available: every absolute here was taken with
+a foreign compiler holding roughly two of eight cores, at a load that drifted 13.5 → 33.3
+during the run.
+
 ### The ideal bound, derived from this run
 
 **9.78×**, computed as sum ÷ max over **16**

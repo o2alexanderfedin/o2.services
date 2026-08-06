@@ -16,20 +16,34 @@
  * degrade to "this node failed", which verification already handles, rather than
  * rejecting the whole job.
  *
- * AUTH-03: the *minting* side of this is still entry-point-unreachable, and that
- * is recorded here rather than left to be discovered. Every non-test
- * `new RemoteExecutor(` site in the repository dispatches public work —
- * `bin/bench.ts` and `bench/src/perf-workload.ts` label every shard `'public'`,
- * and the browser demo's colouring job has no owner — so `delegate` is called only
- * from tests and Phase 22's reachability guard will find it. Three options were
- * considered. Giving `bin/bench.ts` a sovereign leg would change what the benchmark
- * measures, which is exactly what this phase set out to protect so the scaling
- * curve stays comparable across the change. Giving the demo one is impossible
- * without an owner and a private key to root a chain at. So the third was taken:
- * the requestor half is accepted as entry-point-unreachable and named here, in
- * source, where Phase 22 will read it. The roadmap carries the same finding; if the
- * two ever disagree, this comment is the one a reader hits first and the roadmap is
- * the one an auditor greps.
+ * AUTH-03: the minting side **is reached from production**, as of Phase 23.
+ *
+ * What stood here until 2026-08-06 said the opposite, and said it with authority it
+ * did not have. It recorded that every non-test `new RemoteExecutor(` site dispatches
+ * public work, that `delegate` is therefore called only from tests, that of three
+ * options considered "the third was taken" — the requestor half accepted as
+ * entry-point-unreachable — and it closed by instructing the reader that if this
+ * comment and the roadmap ever disagreed, this comment was the one to believe.
+ *
+ * Three of those claims are now false and the fourth was never this comment's to make.
+ * `bin/bench.ts` does not label every shard `'public'`; a `'sovereign'`-labelled shard
+ * is in the file. `delegate` has two production call sites there — one at module scope
+ * and one inside `sovereignSupplierFor`. And "the third was taken" names the option the
+ * owner **overruled on 2026-07-31**: the ruling was *naming that is not fixing it*, and
+ * the work was routed to Phase 23 criterion 5, which delivered it. `ROADMAP.md` marks
+ * the corresponding paragraph *"Superseded — do not read the paragraph below as the
+ * standing decision."* This comment was that superseded decision, unmarked, sitting
+ * where Phase 22's author would read it first.
+ *
+ * **The precedence clause is deleted rather than re-pointed.** A comment does not
+ * outrank a requirement in this repository — when the two disagree the requirement wins
+ * and the comment gets fixed, which is what happened here. `23-VERIFICATION.md` records
+ * the measurement.
+ *
+ * What is still open is narrower and belongs to nobody in this file: the leg is reached
+ * only behind `--discover --sovereign`, both off by default, and whether a twice-flag-gated
+ * path counts as *entry-point reachable* is **Phase 22's guard's ruling**. AUTH-03 stays
+ * `Partial` until that guard runs.
  *
  * Pure module.
  */

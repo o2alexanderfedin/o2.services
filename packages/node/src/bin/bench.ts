@@ -1041,6 +1041,19 @@ async function realFabric(
       const providerDir = join(root, 'provider')
       await mkdir(providerDir, { recursive: true })
       provider = await FabricNode.start({
+        // AUTH-02 — open, and at this site that is a decision rather than an inheritance.
+        // **This is the node the workers below enrol against**, so it is the one a peer
+        // must reach while holding no certificate at all; a pinned issuer set here would
+        // shut the door of the house that hands out the keys. `RelayAdmission`'s own
+        // docblock states that requirement for a deployment — a relay that pins issuers
+        // must serve enrolment itself or name a provider reachable without a reservation —
+        // and this rig is the co-located case it describes.
+        //
+        // **What the `--discover` curve therefore claims about admission: nothing.** It was
+        // measured over a fabric whose relays admit everybody and, more sharply, one in
+        // which *nothing ever asks for a reservation* — no node this driver builds is given
+        // `relayAddrs`. A number taken here can be compared with a later number taken on a
+        // gated fabric; on its own it is not evidence about who a gated relay lets in.
         relayAdmission: 'admits-any-peer',
         // BROW-01 — open, which is what these three nodes did before the field existed, so
         // the published curves in `.planning/BENCHMARK-RESULTS.md` were measured under this
@@ -1074,6 +1087,18 @@ async function realFabric(
       // this run does not record.
       started.push(
         await FabricNode.start({
+          // AUTH-02 — open, and this is the measurement fixture the deciding rule permits to
+          // hold the door open provided it says so. These are the N nodes the published
+          // scaling curve is a curve *of*, and they are the reason this plan runs before the
+          // gate is armed at all: pinning here would move every rung, and a reader of
+          // `.planning/BENCHMARK-RESULTS.md` could no longer tell an admission cost from a
+          // handshake cost from a rig falling back.
+          //
+          // **Measured, not assumed:** this driver passes `relayAddrs` to nobody, so the
+          // relay service each of these workers runs is never asked for a reservation and
+          // its store stays empty for the whole run. The posture below is therefore stated
+          // and unreached — which is precisely what makes these numbers a usable "before".
+          // They say what N nodes cost. They say nothing about who gets in.
           relayAdmission: 'admits-any-peer',
           // BROW-01 — open, on the ground stated at the provider rig above.
           startReporting: 'reports-its-own-start',
@@ -1171,6 +1196,18 @@ async function realFabric(
     const requestorDir = join(root, 'requestor')
     await mkdir(requestorDir, { recursive: true })
     const requestor = await FabricNode.start({
+      // AUTH-02 — open, and the third decision is the sharpest of the three because this
+      // node already refuses somebody. On the `--discover` arm it pins `trustedIssuers`
+      // below, so an uncertificated peer is rejected here as a **block source** while being
+      // admitted as a **joiner**. That is not an inconsistency to tidy up: it is the
+      // asymmetry `relay-admission.ts` argues at its own line, seen from a rig — selection
+      // and admission are different questions, they are answered by different types, and
+      // this node deliberately answers them differently.
+      //
+      // The figures this node publishes record the open answer to the second question. A
+      // reader may conclude from them what N nodes cost to dispatch across; they may not
+      // conclude anything about what a relay that pinned issuers would have admitted,
+      // because on this rig no reservation was ever requested of one.
       relayAdmission: 'admits-any-peer',
       // BROW-01 — open, on the ground stated at the provider rig above.
       startReporting: 'reports-its-own-start',
