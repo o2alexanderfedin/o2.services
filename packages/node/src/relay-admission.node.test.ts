@@ -142,11 +142,21 @@ interface PostureSite {
  * are the ones an operator's fabric is actually made of and there are few enough that a
  * number moving is a decision somebody took rather than an unrelated new test.
  *
- * **`bin/bench.ts` is deliberately absent, and the absence is a scope statement rather
- * than an oversight.** Its three rigs are measurement fixtures whose posture Plan 24-02
- * decides and pins, alongside `perf-workload.ts` — folding that decision in here would
- * pre-empt it, and the file is concurrently being edited by Phase 20. Its sites still
- * state a posture; `tsc` is what guarantees that, not a row here.
+ * **The benchmark rigs are absent from this list on purpose**, and they are not
+ * unguarded: {@link RIG_SITES} below holds them, counted the same way and for a different
+ * reason. A production site is a deployment; a rig site is a fixture that publishes a
+ * number, and the two are answerable to different questions.
+ *
+ * > **Corrected 2026-08-06 by Plan 24-02, which owns the rig posture.** This paragraph
+ * > read *"Its three rigs are measurement fixtures whose posture Plan 24-02 decides and
+ * > pins, alongside `perf-workload.ts`"*. The pairing with `perf-workload.ts` is wrong and
+ * > is corrected rather than deleted, because the same wrong pairing appears twice in
+ * > `24-01-SUMMARY.md` and a reader who meets it there should be able to find the
+ * > measurement here. `packages/bench/src/perf-workload.ts` holds **zero** postures,
+ * > constructs **no** `FabricNode`, and passes `reservations: 'relays-for-nobody'` at both
+ * > of its `serveAgent` calls. A rig with no relay has no reservation to gate and so no
+ * > admission posture to state. That is measured by {@link RIG_SITES}'s last case rather
+ * > than asserted here.
  */
 const PRODUCTION_SITES: readonly PostureSite[] = [
   {
@@ -162,6 +172,62 @@ const PRODUCTION_SITES: readonly PostureSite[] = [
     total: 1,
     reason:
       'the production Node entry point; whether it should instead refuse to start when an operator states neither an issuer nor an open posture is an open owner ruling, costed and deliberately not decided',
+  },
+]
+
+/**
+ * The benchmark rigs, counted exactly — Plan 24-02's subject.
+ *
+ * ## What these counts mean, and why they are a different list from {@link PRODUCTION_SITES}
+ *
+ * A production site states what an operator's fabric admits. A **rig** site states the
+ * conditions a *published number* was taken under, and that is a claim about evidence
+ * rather than about a deployment. Both are pinned exactly, for one shared reason and one
+ * separate one: shared, that there are few enough of them that a moved number is a
+ * decision somebody took; separate, that a rig whose posture changes silently invalidates
+ * every figure in `.planning/BENCHMARK-RESULTS.md` without touching a single one of them.
+ *
+ * **The count was wrong twice before it was right, and both corrections are recorded**
+ * because the arithmetic is the whole content of this list:
+ *
+ * 1. Plan 24-02 as first written said *four rig sites*, pairing `bin/bench.ts` with
+ *    `packages/bench/src/perf-workload.ts`.
+ * 2. It was amended on 2026-08-05 to *three, all in `bin/bench.ts`* — true of that file,
+ *    and true of `perf-workload.ts`, which really does hold none.
+ * 3. Measured on execution, 2026-08-06: **four**, and the fourth is neither of the files
+ *    either audit looked at. `packages/node/src/bench-fabric.ts` was created by Plan 23-02
+ *    at 12:08 on 2026-08-05 — *after* 24-01 made the field required, so it had to state a
+ *    posture, and plausibly after the audit that produced correction 2. So the original
+ *    number was right and the file was wrong, and the amendment corrected the file by
+ *    lowering the number. This list is what stops a fifth rig arriving unnoticed.
+ *
+ * ## What the counts do NOT say
+ *
+ * They do not say a reservation was ever requested of any of these nodes. It was not, and
+ * `no rig asks any relay for a reservation` below is the reading that establishes it:
+ * neither rig passes `relayAddrs` to anything, so every relay service they start has an
+ * empty store for the whole of a run. **That is the strongest available statement that
+ * arming admission cannot move the published curves**, and it is a measurement of source
+ * text, not of a run.
+ *
+ * `bin/agent.ts` is a rig's other half — the process rig's children are that binary — and
+ * it is in {@link PRODUCTION_SITES}, not here, because it is a production entry point that
+ * a rig happens to spawn. Plan 24-03 owns giving it a way to state a closed posture.
+ */
+const RIG_SITES: readonly PostureSite[] = [
+  {
+    file: 'packages/node/src/bin/bench.ts',
+    open: 3,
+    total: 3,
+    reason:
+      'the in-process rig behind both published curves: the --discover arm’s provider, the N workers the curve is a curve of, and the requestor — three sites, three decisions, each stating at its own line what its numbers do not claim about admission',
+  },
+  {
+    file: 'packages/node/src/bench-fabric.ts',
+    open: 1,
+    total: 1,
+    reason:
+      'BENCH-07’s process-per-node rig, in-process half. Its other half is the spawned bin/agent.ts, whose posture is stated at that binary and owned by Plan 24-03; this row is the reason the rig is not half-guarded',
   },
 ]
 
@@ -234,6 +300,10 @@ describe('the scan looked at the repository it claims to have looked at', () => 
     for (const site of PRODUCTION_SITES) expect(REPO.files).toContain(site.file)
   })
 
+  it('reaches both benchmark rigs by name', () => {
+    for (const site of RIG_SITES) expect(REPO.files).toContain(site.file)
+  })
+
   it('names none of its own matchers in its own source, so it cannot report itself', () => {
     // The regression that produced this assertion, turned into a standing one rather than
     // a comment. This file is tracked, is under `packages/`, and is therefore counted like
@@ -263,6 +333,40 @@ describe('every relay-capable site states a posture, and every one of them is op
       expect(site.reason.length).toBeGreaterThan(20)
     })
   }
+
+  for (const site of RIG_SITES) {
+    it(`${site.file} states a rig posture, and it is open`, () => {
+      expect(occurrences(code(site.file), ANY_POSTURE)).toBe(site.total)
+      expect(occurrences(code(site.file), OPEN_POSTURE)).toBe(site.open)
+      expect(site.reason.length).toBeGreaterThan(20)
+    })
+  }
+
+  it('has no rig that asks any relay for a reservation, so no published curve can move', () => {
+    // **The reading that makes the three sentences at `bin/bench.ts`'s call sites true.**
+    // Each of them says its numbers claim nothing about admission, and the ground given is
+    // that no node either rig builds is ever handed a relay address to dial. A reservation
+    // is requested by the *joining* peer, so a rig that hands out no relay address never
+    // reaches the reservation protocol at all — whatever posture its relay-capable nodes
+    // state. That is why arming the gate in 24-03 cannot move a committed figure.
+    //
+    // Asserted on stripped source, so a sentence in a comment that merely mentions the
+    // option cannot satisfy it, and against `code()`, which throws on a file that has left
+    // the population rather than passing vacuously.
+    for (const site of RIG_SITES) expect(code(site.file)).not.toContain('relayAddrs')
+  })
+
+  it('finds no posture and no node factory in the non-relaying rig', () => {
+    // `packages/bench/src/perf-workload.ts` — the file two audits disagreed about. It
+    // composes `serveAgent` directly and relays for nobody, so it has no reservation to
+    // gate and states no posture. Pinned as a **negative with a positive beside it**: the
+    // `serveAgent` count is what stops this passing because the file was renamed or gutted.
+    const workload = code('packages/bench/src/perf-workload.ts')
+    expect(occurrences(workload, ANY_POSTURE)).toBe(0)
+    expect(workload).not.toContain('FabricNode')
+    expect(occurrences(workload, 'serveAgent(')).toBe(2)
+    expect(occurrences(workload, "reservations: 'relays-for-nobody'")).toBe(2)
+  })
 
   it('holds the door open at every site in the repository, and shuts it at none', () => {
     // **The load-bearing pair.** The first is a floor: it says the option is still threaded
