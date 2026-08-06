@@ -1,4 +1,5 @@
-import { execFileSync } from 'node:child_process'
+import { execFileSync, spawn } from 'node:child_process'
+import type { ChildProcess } from 'node:child_process'
 import { readFileSync } from 'node:fs'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -171,10 +172,23 @@ const PRODUCTION_SITES: readonly PostureSite[] = [
   },
   {
     file: 'packages/node/src/bin/agent.ts',
-    open: 1,
-    total: 1,
+    // **Moved 2026-08-06 by Plan 24-03, and the shape of the move is the finding.** `open` is
+    // now **0** and `total` is **2**, and neither number means what a first reading suggests.
+    //
+    // This binary no longer writes the bare literal anywhere. `--admit-issuer` reaches the
+    // required `relayAdmission` key through a ternary whose absent arm *is* `'admits-any-peer'`
+    // — so the default behaviour is byte-for-byte what it always was, while the source no
+    // longer contains `relayAdmission: 'admits-any-peer',` for {@link OPEN_POSTURE} to match.
+    // The second occurrence is the handshake line, which publishes the posture so that a
+    // fixture spawning a closed-arm agent can assert the arm is really closed.
+    //
+    // **This is the site that takes the repository-wide row off zero**, which is exactly what
+    // that row's own docblock said would happen and what defect #51 needed to happen: it is
+    // the first production site in this repository that can be told to refuse somebody.
+    open: 0,
+    total: 2,
     reason:
-      'the production Node entry point; whether it should instead refuse to start when an operator states neither an issuer nor an open posture is an open owner ruling, costed and deliberately not decided',
+      'the production Node entry point, and the first that can be told to close a door — --admit-issuer reaches the required key through a ternary whose absent arm is the open literal, and the posture is published on the handshake line so a spawned closed arm can be asserted closed; whether it should instead refuse to start when an operator states neither an issuer nor an open posture is an open owner ruling, costed and deliberately not decided',
   },
 ]
 
@@ -328,7 +342,14 @@ describe('the scan looked at the repository it claims to have looked at', () => 
   })
 })
 
-describe('every relay-capable site states a posture, and every one of them is open', () => {
+// **Retitled 2026-08-06.** It read *"every relay-capable site states a posture, and every one
+// of them is open"*, and the second half stopped being true when `bin/agent.ts` learned to
+// close a door. Renaming it is not cosmetic and it is not free: a test **name is code** —
+// `stripComments` leaves it in — so a title containing a spelled-out matcher makes this file
+// count itself as a site, which is how this block first went red. The new title is written to
+// name no matcher at all, which is the cheaper of the two available answers (the other being
+// to assemble it from fragments the way the case titles below do).
+describe('every relay-capable site states a posture, and not all of them are open', () => {
   for (const site of PRODUCTION_SITES) {
     it(`${site.file} states its posture, and it is open`, () => {
       expect(occurrences(code(site.file), ANY_POSTURE)).toBe(site.total)
@@ -371,21 +392,57 @@ describe('every relay-capable site states a posture, and every one of them is op
     expect(occurrences(workload, "reservations: 'relays-for-nobody'")).toBe(2)
   })
 
-  it('holds the door open at every site in the repository, and shuts it at none', () => {
-    // **The load-bearing pair.** The first is a floor: it says the option is still threaded
-    // through every node this repository builds, and it fails when sites stop stating a
-    // posture — which, because the field is required, means when nodes are deleted. A
-    // number this large cannot be exact without failing on every unrelated new test that
-    // starts a node, which is the trade `trust-anchors.node.test.ts` writes down for its
-    // own bound.
-    //
-    // The second is exact, and it is the one that matters. `total - open` is the number of
-    // sites stating something other than `'admits-any-peer'` — a pinned issuer set, or an
-    // empty one. **Zero is the claim that this wave changed no behaviour**, and it is not a
-    // burn-down heading anywhere on its own: Plans 24-02 and 24-03 take it off zero on
-    // purpose, and when they do, this row is what makes them say so.
+  /**
+   * **INVERTED 2026-08-06 (Plan 24-03) — this is defect #51's row, and it is the only one in
+   * the repository that fails while the door stays open.**
+   *
+   * It read `expect(REPO.total - REPO.open).toBe(0)` and its own docblock predicted this
+   * change: *"Plans 24-02 and 24-03 take it off zero on purpose, and when they do, this row is
+   * what makes them say so."* This is it saying so.
+   *
+   * The defect being answered: every guard 24-01 built fires when the door **closes**, and
+   * nothing anywhere fired while it stayed **open**. All four cases were green on a fabric that
+   * refused nobody and would have stayed green forever if this phase had never run. A phase
+   * whose entire evidence is "the suite went red when we changed something" has no reading at
+   * all if the change is never made — *a proof that cannot fail is not a proof*.
+   *
+   * **Observed red before the gate and green after**, which is the one thing about this row
+   * that cannot be established by inspection. Red on the tree immediately before `bin/agent.ts`
+   * learned `--admit-issuer`: `expected 2 to be +0`.
+   */
+  it('shuts the door at at least one production site, and names which', () => {
+    // The floor is unchanged and still a floor: it says the option is still threaded through
+    // every node this repository builds, and it fails when sites stop stating a posture —
+    // which, because the field is required, means when nodes are deleted.
     expect(REPO.open).toBeGreaterThanOrEqual(60)
-    expect(REPO.total - REPO.open).toBe(0)
+
+    // **The inversion.** `total - open` counts sites stating something other than the open
+    // literal. It must now be at least one, because the whole of Phase 24 is that a relay can
+    // be told to refuse — and a repository where this is zero again is a repository where the
+    // gate can no longer be reached from any deployment.
+    expect(REPO.total - REPO.open).toBeGreaterThanOrEqual(1)
+
+    // And it names **which** production site, so the row cannot be satisfied by an unrelated
+    // fixture drifting. `bin/agent.ts` is the site: `--admit-issuer` reaches the required key
+    // through a ternary whose absent arm is the open literal, so the file states a posture
+    // that is no longer the bare literal even when nobody passes the flag.
+    //
+    // ## This half was VACUOUS on its first writing, and the repair is the interesting part
+    //
+    // It read `expect(occurrences(agent, ANY_POSTURE)).toBeGreaterThan(occurrences(agent,
+    // OPEN_POSTURE))`. Planted with this row's own prescribed mutation — the bare open literal
+    // restored at the construction site — it **stayed green**: the handshake line contributes
+    // a second `${FIELD}:` occurrence, so the inequality held (2 > 1) while the site that
+    // actually *decides* had gone back to admitting everybody. A row satisfiable by a line
+    // that merely **reports** a posture is not a row about a door.
+    //
+    // The repair keys on the thing the mutation restores. Zero, exactly: this binary must not
+    // write the bare open literal anywhere, because both of its two occurrences of the field
+    // are now ternaries. Planted again after the repair, it reddens.
+    const agent = code('packages/node/src/bin/agent.ts')
+    expect(occurrences(agent, OPEN_POSTURE)).toBe(0)
+    expect(occurrences(agent, ANY_POSTURE)).toBeGreaterThan(0)
+    expect(agent).toContain("values['admit-issuer']")
   })
 
   it('declares the field in exactly one type, so two factories cannot drift', () => {
@@ -1047,5 +1104,216 @@ describe('AUTH-02 — the relay consults RelayAdmission at the reservation, and 
     // And it stayed inside its budget, which is what keeps it inside libp2p's own 5 s
     // reservation ceiling. Sited against the deadline it was given, not against the clock.
     expect(pending[0]?.ms).toBeLessThan(400 * 4)
+  })
+})
+
+/**
+ * AUTH-02 — **the binary every cross-process proof spawns can now state a closed posture.**
+ *
+ * ## The gap this closes, stated so it is not re-argued
+ *
+ * `bin/agent.ts` wrote `relayAdmission: 'admits-any-peer'` as a *literal*, and an agent given
+ * `--port` is relay-capable — `canRelay` is derived from the listen list. So the production
+ * binary behind every spawned fixture in this repository could hold a door and could not be
+ * told to close one, and a cross-process claim about admission had no fixture on the agent
+ * side at all.
+ *
+ * ## Two readings, because one of them is the binary quoting itself back
+ *
+ * The handshake field alone proves only that argv reached stdout. The behavioural half — a
+ * peer holding no certificate does not appear in that agent's reservations — is what proves it
+ * reached the *gate*. Both, or neither means anything.
+ *
+ * Node-only by necessity: the subject is an operating-system process.
+ */
+describe('AUTH-02 — a spawned agent is a fixture rather than a constant', () => {
+  const AGENT = fileURLToPath(new URL('./bin/agent.ts', import.meta.url))
+  const children: ChildProcess[] = []
+  const dirs: string[] = []
+  const nodes: FabricNode[] = []
+
+  const madeDir = async (name: string): Promise<string> => {
+    const dir = await mkdtemp(join(tmpdir(), `o2-admit-flag-${name}-`))
+    dirs.push(dir)
+    return dir
+  }
+
+  const cleanUp = async (): Promise<void> => {
+    for (const child of children.splice(0)) {
+      if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL')
+    }
+    await Promise.all(nodes.splice(0).map((n) => n.stop().catch(() => {})))
+    await Promise.all(dirs.splice(0).map((d) => rm(d, { recursive: true, force: true })))
+  }
+
+  /**
+   * Every key this block reads off the line. The line carries more; a reader takes what it
+   * names, which is the module comment's own rule for that line and the reason adding a field
+   * to it is additive.
+   *
+   * **The posture is read through an index rather than declared as a property**, and that is
+   * this file's standing rule rather than a quirk: a declaration would spell
+   * `readonly ${FIELD}:` in this file's own source, and this file is inside its own
+   * jurisdiction — the census would then count itself as declaring the option. Measured, not
+   * anticipated: writing it out reddened `names none of its own matchers in its own source`
+   * with `expected '…' not to contain 'readonly relayAdmission:'`.
+   */
+  interface Handshake extends Record<string, unknown> {
+    readonly peerId: string
+    readonly multiaddrs: readonly string[]
+    readonly pid: number
+    /** Read to establish the addition is additive rather than a replacement. */
+    readonly trustAnchors: readonly string[]
+  }
+
+  /** The posture off a handshake line, reached without naming the field in a declaration. */
+  const postureOf = (handshake: Handshake | null): unknown => handshake?.[FIELD]
+
+  /** Spawn one agent and resolve its announcement line, or its refusal. */
+  async function spawnAgent(
+    args: readonly string[],
+  ): Promise<{ handshake: Handshake | null; stderr: string; code: number | null }> {
+    const child = spawn(process.execPath, [AGENT, ...args], { stdio: ['pipe', 'pipe', 'pipe'] })
+    children.push(child)
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error(`the agent neither announced nor exited: ${stderr}`)), 60_000)
+      let stdout = ''
+      let stderr = ''
+      child.stderr?.on('data', (chunk: Buffer) => {
+        stderr += chunk.toString()
+      })
+      child.stdout?.on('data', (chunk: Buffer) => {
+        stdout += chunk.toString()
+        const newline = stdout.indexOf('\n')
+        if (newline === -1) return
+        clearTimeout(timer)
+        try {
+          resolve({ handshake: JSON.parse(stdout.slice(0, newline)) as Handshake, stderr, code: null })
+        } catch (cause) {
+          reject(cause instanceof Error ? cause : new Error(String(cause)))
+        }
+      })
+      // A refusal is a legitimate outcome here, not a failure — one case below is about
+      // exactly that — so an exit before any line resolves rather than rejecting.
+      child.on('exit', (exitCode: number | null) => {
+        clearTimeout(timer)
+        resolve({ handshake: null, stderr, code: exitCode })
+      })
+    })
+  }
+
+  it('publishes the posture on the handshake line, and a peer with no certificate does not get in', async () => {
+    try {
+      // Any well-formed key nobody holds. The joiner below carries no certificate at all, so
+      // what is being read is that *pinning somebody* closes the door — the peer could not
+      // satisfy this key even if it wanted to.
+      const pinned = 'd'.repeat(64)
+      const closed = await spawnAgent(['--dir', await madeDir('closed'), '--port', '0', '--admit-issuer', pinned])
+      expect(closed.handshake, `the closed agent did not announce: ${closed.stderr}`).not.toBeNull()
+      // Reading 1 — the binary states its posture. Necessary, and on its own worth little.
+      expect(postureOf(closed.handshake)).toEqual([pinned])
+      // Additive: an existing reader of this line still finds what it names.
+      expect(closed.handshake?.peerId).toBeTypeOf('string')
+      expect(Array.isArray(closed.handshake?.trustAnchors)).toBe(true)
+
+      // Reading 2 — the posture reached the gate. A real peer, holding no certificate, asks
+      // that agent for a reservation and does not get one.
+      const door = closed.handshake?.multiaddrs.find((ma) => ma.includes('/tcp/') && !ma.includes('/p2p-circuit'))
+      expect(door, 'the spawned agent published no dialable address').toBeDefined()
+      const joiner = await FabricNode.start({
+        relayAdmission: 'admits-any-peer',
+        startReporting: 'reports-its-own-start',
+        listen: [],
+        relayAddrs: [door as string],
+        rpcTimeoutMs: 20_000,
+        trustAnchors: 'runs-unsigned-artifacts',
+        blockstoreDir: await madeDir('joiner'),
+      })
+      nodes.push(joiner)
+      // It connected — the plain connection stands, which is what keeps enrolment reachable.
+      expect(joiner.transport.peers).toContain(closed.handshake?.peerId)
+      // And it never obtained a circuit. Held over a window rather than sampled once.
+      const deadline = Date.now() + 8_000
+      while (Date.now() < deadline) {
+        expect(joiner.circuitAddrs).toEqual([])
+        await new Promise((r) => setTimeout(r, 100))
+      }
+    } finally {
+      await cleanUp()
+    }
+  }, 180_000)
+
+  it('behaves exactly as before when the flag is absent, and refuses a value that is not hex', async () => {
+    try {
+      // Absence is a stated absence. The posture is the literal, spelled the way every one of
+      // the existing argv sites has always got it.
+      const open = await spawnAgent(['--dir', await madeDir('open'), '--port', '0'])
+      expect(open.handshake, `the open agent did not announce: ${open.stderr}`).not.toBeNull()
+      expect(postureOf(open.handshake)).toBe('admits-any-peer')
+
+      // The validator can fail, and it names which flag and which value. `fromHex` zero-fills
+      // rather than throwing, so without this an operator's typo becomes a node that refuses
+      // every peer a reservation with nothing reporting that the input was never hex.
+      const bad = await spawnAgent(['--dir', await madeDir('bad'), '--port', '0', '--admit-issuer', 'nothex'])
+      expect(bad.handshake).toBeNull()
+      expect(bad.code).toBe(2)
+      expect(bad.stderr).toContain('--admit-issuer')
+      expect(bad.stderr).toContain('nothex')
+      // And it names the *right* flag — an operator who passed both must not be sent to the
+      // wrong one, which is why the two validator loops are separate rather than merged.
+      //
+      // **Asserted on the refusal line, not on all of stderr**, and the narrowing was forced
+      // by measurement: `refuse` writes the reason *and then the whole `USAGE` string*, which
+      // legitimately names every flag this binary takes. A whole-stderr negative here read as
+      // a real finding and was a false one.
+      const refusal = bad.stderr.split('\n').find((l) => l.startsWith('agent.ts:')) ?? ''
+      expect(refusal).toContain('--admit-issuer')
+      expect(refusal).not.toContain('--trusted-issuer')
+    } finally {
+      await cleanUp()
+    }
+  }, 120_000)
+
+  /**
+   * The three flags are still three, read as source text.
+   *
+   * `trust-anchors.node.test.ts` already compares the two older flags' default expressions
+   * textually and reddened when 24-01 planted a cross-wiring between them. This is the same
+   * reading extended to the third: `--admit-issuer` must reach `relayAdmission` and must reach
+   * nothing else.
+   */
+  it('wires the new flag to admission alone, and neither of the other two to it', () => {
+    const agent = code('packages/node/src/bin/agent.ts')
+    // It reaches the required key, through a ternary rather than a conditional spread.
+    expect(agent).toMatch(/relayAdmission:\s*\n?\s*values\['admit-issuer'\] === undefined \? 'admits-any-peer' : new Set\(values\['admit-issuer'\]\)/)
+    // And nothing else consumes it except the handshake line, which reports it.
+    const consumers = agent.split("values['admit-issuer']").length - 1
+    expect(consumers).toBeGreaterThanOrEqual(3)
+    // The two older flags still reach their own options and not this one.
+    expect(agent).toContain("trustedIssuers: values['trusted-issuer']")
+    expect(agent).not.toContain("trustedIssuers: values['admit-issuer']")
+    expect(agent).not.toContain("trustAnchors: values['admit-issuer']")
+    expect(agent).not.toContain("relayAdmission: values['trusted-issuer']")
+  })
+
+  /**
+   * No operator-facing line in either binary claims the gate is unarmed.
+   *
+   * Task 2 armed it, so `bin/seed.ts`'s parenthetical stopped being true the moment that
+   * landed. A claim about whether a security mechanism *exists* is the one an operator has
+   * least chance of checking, and until this assertion existed it was one edit from being
+   * false again with nothing to notice.
+   */
+  it('has no banner in either binary saying certificate-gated admission is not armed', () => {
+    for (const file of ['packages/node/src/bin/seed.ts', 'packages/node/src/bin/agent.ts']) {
+      // Stripped, so the correction note *recording* the old wording is not read as the
+      // wording. This is the same hazard, and the same answer, that this file's own matchers
+      // and `trust-anchors.node.test.ts`'s `OPT_OUT` already carry.
+      const stripped = stripComments(readFileSync(join(ROOT, file), 'utf8'))
+      expect(stripped, `${file} still tells an operator the gate is unarmed`).not.toContain('is not armed')
+    }
+    // And the seed still says something about admission rather than saying nothing — a line
+    // deleted would satisfy the negative above perfectly.
+    expect(code('packages/node/src/bin/seed.ts')).toContain('admits     every peer that completes a handshake')
   })
 })

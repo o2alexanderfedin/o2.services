@@ -195,7 +195,14 @@ line(
 // every peer and also answers enrolment — and it is printed anyway, because the moment a
 // deployment separates the provider from the relay it becomes the difference between a
 // fabric anyone can join and one nobody new can.
-line('  admits     every peer that completes a handshake (certificate-gated admission is not armed)')
+// **Corrected 2026-08-06.** This said *"(certificate-gated admission is not armed)"*, and
+// after Plan 24-03 armed `denyInboundRelayReservation` on `FabricNode` that parenthetical
+// became false: the mechanism exists, and this seed simply holds the open posture. An
+// operator-facing line that misstates whether a security mechanism exists is the shape this
+// repository files as a defect, so it now states *this seed's* posture rather than the
+// mechanism's existence. One line — pinning the seed's own value to a flag is a separate
+// decision that 24-01 recorded as deliberately not taken.
+line('  admits     every peer that completes a handshake (this seed pins no admission issuer)')
 line()
 line('  Open on another device:')
 line(`    ${seed.joinUrl}`)
