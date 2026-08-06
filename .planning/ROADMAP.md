@@ -1100,8 +1100,23 @@ Parallel tracks (config `parallelization: true`):
 - Phase 10 (elfconv AOT) runs alongside everything from Phase 4 onward; it only needs Phase 5's signing infrastructure to land before its own exit
 - Phase 21 (AOT translation signing & runtime) needs only Phase 11's hook contract and can run parallel to Phases 12-20, mirroring how Phase 10 ran parallel to Phases 4-9 in v1.0
 
-<!-- "Plans Complete" is a dash throughout: this project executes phases directly
-     and records each in `phases/<name>/SUMMARY.md` rather than as numbered plans. -->
+<!-- "Plans Complete" is a dash for phases 1-10 ONLY, and that sentence used to claim
+     "throughout", which stopped being true at Phase 11 and stayed on the page until
+     2026-08-06. Phases 1-10 were executed directly and recorded in a single
+     `phases/<name>/SUMMARY.md`. From Phase 11 on there are numbered plans, and the
+     column counts plan FILES.
+
+     The denominator is deliberate: four phases carry MORE summaries than plans, because
+     gap-closure and defect summaries are written without a plan of their own (15 has 5
+     summaries to 4 plans, 16 has 6 to 4, 17 has 6 to 5, 19 has 23 to 19). Counting
+     summaries would make the column exceed its own denominator and read as over 100%,
+     which is the trap STATE.md already warns about. Plan files it is.
+
+     Status text states the shortfall when there is one. A phase with a PARTIAL criterion
+     is not "Complete" here however nearly done it looks -- 16, 17, 19, 20 and 21 all sit
+     short on one criterion apiece, several of them carried to a later phase by owner
+     ruling. RULING A governs: a criterion is not rewritten to let a phase close, and a
+     carried criterion stays PARTIAL until its destination phase lands. -->
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
@@ -1118,15 +1133,18 @@ Parallel tracks (config `parallelization: true`):
 | 11. Explicit serveAgent Hook Contract | 1/1 | Complete   | 2026-07-27 |
 | 12. Sovereignty-Pinned Placement | 4/4 | Complete   | 2026-07-27 |
 | 13. Egress Manifest Completeness | 3/3 | Complete   | 2026-07-27 |
-| 14. Signed Artifact Resolution | 0/TBD | Not started | - |
-| 15. Capability-Chained Dispatch | 0/TBD | Not started | - |
-| 16. Decomposable Tree-Reduce Wiring | 0/TBD | Not started | - |
-| 17. Node Identity & Enrollment | 0/TBD | Not started | - |
-| 18. Discovery, Capacity & Placement | 3/11 | In Progress|  |
-| 19. Quorum Composition & Owner-Domain Attestation | 0/TBD | Not started | - |
-| 20. Single Job Path, Ledger & Churn Resilience | 0/TBD | Not started | - |
-| 21. AOT Translation Signing & Runtime | 0/TBD | Not started | - |
-| 22. Reachability Guard | 0/TBD | Not started | - |
+| 13.1. Node-Side Admission & Transport Bounds | 5/5 | Complete   | 2026-08-04 |
+| 14. Signed Artifact Resolution | 5/5 | Complete   | 2026-07-31 |
+| 15. Capability-Chained Dispatch | 4/4 | Complete   | 2026-07-31 |
+| 16. Decomposable Tree-Reduce Wiring | 4/4 | 3 of 4 criteria — criterion 3's "arriving late" clause was not expressible on the build it was written against and was carried to Phase 20 criterion 6, **which is now MET**. No amendment has been written to `16-VERIFICATION.md`, and until one is this row does not move: a phase closes when a verifier says so | 2026-08-01 |
+| 17. Node Identity & Enrollment | 5/5 | 2 of 3 criteria — criterion 3's COST clause not met; measured to be an admission property rather than a selection one, and carried to Phase 24 criterion 8 | 2026-08-04 |
+| 18. Discovery, Capacity & Placement | 13/13 | Complete   | 2026-08-04 |
+| 19. Quorum Composition & Owner-Domain Attestation | 19/19 | 4 of 5 criteria — criterion 5 prices nothing; the N-th identity is refused inside the window rather than priced. Carried to Phase 24 criterion 8 by owner ruling 2026-08-04, and **stays PARTIAL until 24 lands** — deferred is a disposition, not a pass | 2026-08-04 |
+| 20. Single Job Path, Ledger & Churn Resilience | 13/13 | 6 of 7 criteria — criterion 7's checkpoint-**write** half runs on a sink no production submitter supplies; the recovery half is measured | 2026-08-05 |
+| 21. AOT Translation Signing & Runtime | 5/5 | 2 of 3 criteria — criterion 2's re-tag refusal recorded as a measured negative by owner ruling 2026-08-05; carried, not cleared | 2026-08-05 |
+| 22. Reachability Guard | 0/4 | Planned, not executed — 4 plans, no summaries, no verification. Runs **last** (23 → 24 → 22) | - |
+| 23. Multi-Process Benchmark Driver | 6/6 | Complete — 5 of 5 criteria | 2026-08-06 |
+| 24. Certificate-Gated Admission | 1/4 | In Progress — 24-01 landed, 24-02/03/04 amended and ready. **One** criterion, numbered 8, carried from Phase 19 — a future score reads out of 1, not out of 8 | - |
 
 ### Phase 23: Multi-Process Benchmark Driver
 **Goal**: The benchmark harness spawns N real operating-system processes instead of N `FabricNode`s on one event loop, so a parallel speedup is measurable at all — and the project's central scaling claim stops being unmeasured
