@@ -39,6 +39,23 @@
  * which could not get into one relay can still work, so the dial is now non-fatal and the
  * failure is named. C is the case that holds that.
  *
+ * ## This file reads an OPEN DOOR as evidence — AUTH-02, recorded 2026-08-06
+ *
+ * `grep -cE "enrol|provider-addr|issuesCertificates"` over this file returns **0**. Its three
+ * agents never enrol and obtain reservations regardless, which was an ambient fact until Plan
+ * 24-03 armed `connectionGater.denyInboundRelayReservation` on `FabricNode`. It is now a
+ * **stated dependency**: this file measures capacity refusal, and capacity refusal is only
+ * observable on a relay that would otherwise have admitted the peer.
+ *
+ * **This file owns no `relayAdmission` literal to assert on.** Its relay is a spawned
+ * `bin/seed.ts`, and that binary deliberately has no admission flag — 24-01 recorded pinning
+ * the seed's posture as *"a later decision and deliberately not taken here"* — so the value
+ * lives in `seed-server.ts`, a production file this fixture does not own and must not pin
+ * from here. The assertion available to it is therefore **behavioural: joiner A was granted**,
+ * asserted before B's refusal is read, and the note at A's arm explains why that ordering is
+ * the difference between this case's title being satisfied and being satisfied by the wrong
+ * mechanism.
+ *
  * ## Cost
  *
  * One seed process and three agent processes. Spawning the seed was called *a minute of
@@ -250,11 +267,33 @@ describe('NET-05 criterion 4 — a full seed refuses a real joiner by name', () 
     expect(banner).toContain('capacity   1 reservations')
 
     // ---- A: the relay has room. -------------------------------------------------
+    //
+    // **A's grant is this file's posture assertion — AUTH-02, added 2026-08-06.** See the
+    // header for why this file has no `relayAdmission` literal of its own to read: its relay
+    // is a spawned `bin/seed.ts`, whose posture is a literal inside `seed-server.ts`, and
+    // reaching into a production file from a fixture that does not own it would pin a line
+    // this file has no business pinning. The available instrument is therefore behavioural,
+    // and this is it.
+    //
+    // **Asserted BEFORE B's refusal is read, and the ordering is the whole point.** Under a
+    // seed that pinned an issuer, A is refused too — none of these agents enrols — and B would
+    // then be "refused" for the wrong reason while this case's title still read as satisfied.
+    // That is a tautology of exactly the kind this repository has already carried two criteria
+    // at PARTIAL for.
     const a = await startAgent('a', ['--relay-addr', relayAddr])
     await until(() => a.relays.length > 0 || a.stderr() !== '', REFUSAL_BUDGET_MS, 'a to settle')
-    expect(a.relays.length, `a reported no circuit; stderr was ${a.stderr()}`).toBeGreaterThan(0)
+    expect(
+      a.relays.length,
+      `a reported no circuit, so this seed is not admitting every peer and B's refusal below ` +
+        `would be about admission rather than capacity; stderr was ${a.stderr()}`,
+    ).toBeGreaterThan(0)
     expect(a.relays[0]).toContain('/p2p-circuit')
     expect(a.stderr()).not.toContain('at-capacity')
+    // And not refused for admission either. `bin/agent.ts` prints
+    // `relay reservation <kind>: <status>`, so a certificate refusal reads `refused:
+    // PERMISSION_DENIED` — a distinct string from the `at-capacity: RESERVATION_REFUSED` this
+    // file is about. Naming it here is what makes the two failure modes separable in a run.
+    expect(a.stderr()).not.toContain('PERMISSION_DENIED')
 
     // ---- B: the relay is full. --------------------------------------------------
     // The deliverable. B reports `at-capacity` BY NAME, and the reading is separated from
