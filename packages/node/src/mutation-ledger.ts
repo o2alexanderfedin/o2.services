@@ -1570,6 +1570,28 @@ export const MUTATIONS: readonly Mutation[] = [
     signatureSource: 'test-title',
   },
   {
+    id: 'M66',
+    why:
+      'AUTH-02 / criterion 8 — **the gate itself, at the one branch that decides the ' +
+      'criterion’s own subject.** A peer that answers the `records` ask and says it holds ' +
+      'nothing is exactly *"a node that cannot present a provider-issued certificate"*, and ' +
+      'this line is where that peer is turned away. Flipping the verdict leaves the whole ' +
+      'mechanism in place and makes it decoration: the gater is still installed, still ' +
+      'consulted, still asks, still records a decision with the identical operator-facing ' +
+      'sentence — and admits everybody it was built to refuse. **That is the shape worth ' +
+      'planting**, because every structural guard 24-01 and 24-03 built stays green through ' +
+      'it: `relay-admission.node.test.ts`’s census counts postures and call sites, not ' +
+      'verdicts, and `admissionDecisions` still fills up. The wrong-issuer branch below is ' +
+      'untouched by this plant, so the named case fails on the no-certificate arm alone while ' +
+      'the arm beside it still refuses — which is what makes the failure attributable.',
+    file: 'packages/node/src/fabric-node.ts',
+    find: '        return decide(false, `${peerId} holds no provider-issued certificate, so it is not admitted to this relay`)',
+    replace: '        return decide(true, `${peerId} holds no provider-issued certificate, so it is not admitted to this relay`)',
+    caughtBy: ['packages/node/src/enrolment-residual.node.test.ts'],
+    signature: 'records why each peer was turned away, and the no-certificate reason is not the wrong-issuer one',
+    signatureSource: 'test-title',
+  },
+  {
     id: 'P1',
     why:
       'SCHED-06 on the **fourth** production `serveAgent` file, and the entry exists because ' +

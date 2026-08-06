@@ -101,8 +101,20 @@ const NODE_MEASUREMENT = {
    * of itself in its "what this deliberately does not do" section. A full retake by the
    * procedure below is still owed and is still blocked on the same thing it was blocked on
    * in August: a green `--project node` from which a `test:unit` reading can be taken.
+   *
+   * **162 → 164 on 2026-08-06 by Plan 24-04**, which adds exactly two node-project files —
+   * `admission-agents.node.test.ts` and `enrolment-residual.node.test.ts`. Its third file is
+   * `gated-admission.e2e.test.ts`, which this project **excludes** and which therefore moves
+   * nothing here. Cross-checked by the two routes that share no code: the filesystem walk
+   * `slow-specs.node.test.ts` performs, and `git ls-files` filtered by the same globs.
+   *
+   * `unitFiles` below does **not** move with it, and that is arithmetic rather than an
+   * oversight: both new spans sit above `SLOW_CUTOFF_MS`, so the derived exclusion list grows
+   * by the same two, and `files - EXCLUDED.length` is unchanged. Both spans were **measured**,
+   * not estimated — see the two rows in the table for the reporter reading, its wall-clock
+   * cross-check, and the boot floor it was taken against.
    */
-  files: 162,
+  files: 164,
   tests: 2240,
   /**
    * Sum of the per-file costs the table below records — reporter spans for the files the
@@ -114,8 +126,12 @@ const NODE_MEASUREMENT = {
    * nothing else. The pre-existing 7 943 ms by which this ran ahead of the table's own sum
    * is carried forward untouched rather than reconciled — it predates this plan, and
    * silently absorbing it into an addition would hide it.
+   *
+   * **Moved again the same day by Plan 24-04**, 1_423_929 → 1_465_924, which is exactly
+   * 34 973 + 7 022 and nothing else. The 7 943 ms discrepancy above is still carried, still
+   * unreconciled, and still not this plan's to absorb.
    */
-  sumOfFileSpansMs: 1_423_929,
+  sumOfFileSpansMs: 1_465_924,
   /**
    * What `--reporter=json` alone said the same run summed to, i.e. the same number with
    * the three hook-shadowed files left at the value the reporter gave them.
@@ -572,6 +588,11 @@ const MEASURED_NODE_SPANS: readonly (readonly [string, number])[] = [
   ['packages/node/src/peer-dial.node.test.ts', 41_817],
   ['packages/node/src/enrollment-cost.node.test.ts', 37_140],
   ['packages/node/src/coverage-agents.node.test.ts', 36_284],
+  // Measured 2026-08-06 by Plan 24-04, at 1-minute load 4.37 on an 8-core host. Reporter span
+  // 34_973, cross-checked against a solo `/usr/bin/time -p real 36.30` less a boot floor
+  // measured in the same session at `real 1.49` — 34.81, agreeing to within 0.5 %. Its heavy
+  // work is inside each `it`, not in a top-level hook, so there is no hook shadow to correct.
+  ['packages/node/src/admission-agents.node.test.ts', 34_973],
   ['packages/node/src/tree-reduce-agents.node.test.ts', 32_880],
   ['packages/node/src/orphan-leash.node.test.ts', 24_079],
   ['packages/node/src/bench-attestation.node.test.ts', 23_310],
@@ -593,6 +614,10 @@ const MEASURED_NODE_SPANS: readonly (readonly [string, number])[] = [
   ['packages/demo/src/kernel.test.ts', 10_753],
   ['packages/node/src/churn-agents.node.test.ts', 9_548],
   ['packages/node/src/duty-cycle.node.test.ts', 9_222],
+  // Measured 2026-08-06 by Plan 24-04, same session as the entry above. Reporter span 7_022,
+  // cross-checked against a solo `real 8.57` less the 1.49 boot floor — 7.08, agreeing to
+  // within 1 %. No hook shadow: its `beforeEach` makes a temp directory and nothing else.
+  ['packages/node/src/enrolment-residual.node.test.ts', 7_022],
   ['packages/node/src/checkpoint-agents.node.test.ts', 6_465],
   ['packages/node/src/discover-arm.node.test.ts', 5_603],
   ['packages/node/src/node-records.node.test.ts', 4_978],
