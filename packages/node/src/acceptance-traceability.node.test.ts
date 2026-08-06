@@ -636,13 +636,27 @@ describe('the ledger this suite parses is the real ledger', () => {
     // than the check being brittle.
     //
     // `DATA-10` held the late-minted-and-open role until 2026-08-02, when the at-rest
-    // half closed and 13.1's criterion 7 went from PARTIAL to MET. The role moved to
-    // `BENCH-07`, which is late-minted and open for a reason no phase can retire on its
-    // own: it needs a second machine.
+    // half closed and 13.1's criterion 7 went from PARTIAL to MET. It passed to
+    // `BENCH-07`, and on 2026-08-06 to `WIRE-02` — the third re-aiming, and the first
+    // where the *reason recorded here was false* rather than merely outdated.
+    //
+    // What stood here said `BENCH-07` was open "for a reason no phase can retire on its
+    // own: it needs a second machine." BENCH-07 needs nothing of the sort. Its own
+    // scoping sentence is **"Needs only separate processes on one host"**, and the
+    // second-machine condition belongs to BENCH-06, whose distinct-machine half remains
+    // descoped and unmeasured. This comment was the last surviving copy of a misreading
+    // the roadmap had already diagnosed and moved on from, and because it sat in a guard
+    // it read as a rule. `23-VERIFICATION.md` ruled it: a comment is not a specification,
+    // and when the two disagree the requirement wins.
+    //
+    // `WIRE-02` now holds the role — of the ten ids minted with v1.1, eight are `[x]`;
+    // only `WIRE-02` and (until today) `BENCH-07` were open. It stays open until Phase 22
+    // lands, and Phase 22 runs last.
     expect(locate('DATA-05')?.satisfied).toBe(true) // v1 section, closed
     expect(locate('MR-02')?.satisfied).toBe(false) // v1 section, open
     expect(locate('SCHED-06')?.satisfied).toBe(true) // v1.1 section, closed
-    expect(locate('BENCH-07')?.satisfied).toBe(false) // v1.1 section, open
+    expect(locate('WIRE-02')?.satisfied).toBe(false) // v1.1 section, open
+    expect(locate('BENCH-07')?.satisfied).toBe(true) // v1.1 section, closed 2026-08-06
     expect(locate('DATA-10')?.satisfied).toBe(true) // v1.1 section, closed 2026-08-02
     expect(locate('WIRE-01')?.satisfied).toBe(true)
   })

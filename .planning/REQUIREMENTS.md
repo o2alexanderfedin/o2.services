@@ -595,7 +595,7 @@ inference.
 
 ### Benchmark parallelism (new ID, minted 2026-07-28)
 
-- [ ] **BENCH-07**: The benchmark harness spawns N operating-system processes rather than
+- [x] **BENCH-07**: The benchmark harness spawns N operating-system processes rather than
       N nodes on one event loop, and a makespan difference between N=1 and N=8 is
       measurable on a fixture that saturates a core. Needs only separate processes on one
       host, which Phase 8's own summary named as the cheaper remedy and Phase 12 has since
@@ -603,7 +603,18 @@ inference.
       discipline it runs under** — machine inventory recorded, same-machine label derived
       and retained — **and BENCH-06's distinct-machine half is descoped and unmeasured, not
       met.** Spawning N processes on one host does not close it and must not be published
-      as though it had: one host has one CPU, one V8 and one libc
+      as though it had: one host has one CPU, one V8 and one libc.
+      **Closed 2026-08-06 by `23-VERIFICATION.md`, 5/5 criteria.** `processFabric` puts each
+      node in its own process and the driver publishes their pids per rung — `nodes + 1`,
+      the submitter staying in-process; the makespan moves 1591.1 ms → 590.0 ms at N=1→N=8,
+      a **2.70×** the verifier re-derived from `raw.json` rather than read from a summary;
+      core saturation is taken comparatively, serial sum 1656 ms against the 1-node makespan
+      of 1591 ms; the machine inventory is a required field and `isSameMachine(inventory)`
+      **derives** the same-machine label instead of declaring it. **The fourth sentence above
+      is the one that scopes this ID** — one host is sufficient *for BENCH-07*, and a guard
+      comment reading *"it needs a second machine"* was the last surviving copy of the
+      BENCH-06 blocker misfiled here; it was corrected in the same commit. BENCH-06's
+      distinct-machine half is untouched and stays not met
 
 ### Explicitly not in v1.1
 
