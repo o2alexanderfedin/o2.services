@@ -10,7 +10,7 @@ import { RpcEndpoint, encodeResponse, parseRequest } from '@o2/net'
 import type { Libp2p } from '@libp2p/interface'
 import { FabricNode } from './fabric-node.ts'
 import type { FabricNodeOptions } from './fabric-node.ts'
-import { PeerVerifier } from './peer-verifier.ts'
+import { DEFAULT_VERDICT_RETRY_FLOOR_MS, PeerVerifier } from './peer-verifier.ts'
 
 /**
  * AUTH-02 — a node verifies a peer's provider-signed certificate offline.
@@ -94,7 +94,11 @@ interface HandBuilt {
  * observe here, and a stub is what makes the `stop()` reading below possible at all.
  */
 async function servedBy(options: {
-  answer: (nodeKey: PublicKeyHex) => NodeRecords | null
+  /**
+   * May return a promise, and one case below returns one that never settles — that is how
+   * a **timed-out re-ask** is produced without a sleep and without a second transport.
+   */
+  answer: (nodeKey: PublicKeyHex) => NodeRecords | null | Promise<NodeRecords | null>
   trustedIssuers: ReadonlySet<PublicKeyHex>
   /** Defaults to the served peer, which is what makes `start`'s seeding loop fire. */
   peers?: (peerId: string) => readonly string[]
@@ -107,11 +111,27 @@ async function servedBy(options: {
    * behaviour, which is what most of this file wants.
    */
   retryFloorMs?: number
+  /**
+   * The verifier's clock, as `PeerVerifierOptions.now` takes it.
+   *
+   * Absent everywhere except the expiry cases, which advance it rather than sleep — the
+   * whole point of the option being a thunk. Left absent, this is `Date.now` and nothing
+   * about any other case changes.
+   */
+  now?: () => number
+  /**
+   * The *client* RPC timeout. Only the timed-out-re-ask case sets it, and it sets it low
+   * so that the timeout is a 200 ms reading rather than a 30 s one.
+   */
+  clientTimeoutMs?: number
 }): Promise<HandBuilt> {
   const identity = await identityFromSeed(FIXTURE_SEED)
   const network = new MemoryNetwork()
   const serverRpc = new RpcEndpoint(network.connect(identity.peerId))
-  const clientRpc = new RpcEndpoint(network.connect('the-verifier'))
+  const clientRpc = new RpcEndpoint(
+    network.connect('the-verifier'),
+    options.clientTimeoutMs === undefined ? {} : { timeoutMs: options.clientTimeoutMs },
+  )
 
   let requests = 0
   serverRpc.serve(async (_from, body) => {
@@ -120,7 +140,7 @@ async function servedBy(options: {
       return encodeResponse({ kind: 'error', reason: `unexpected request ${String(request?.kind)}` })
     }
     requests += 1
-    return encodeResponse({ kind: 'records', records: options.answer(request.nodeKey) })
+    return encodeResponse({ kind: 'records', records: await options.answer(request.nodeKey) })
   })
 
   const events = new EventTarget()
@@ -130,6 +150,7 @@ async function servedBy(options: {
     peers: () => (options.peers ?? ((id: string) => [id]))(identity.peerId),
     trustedIssuers: options.trustedIssuers,
     ...(options.retryFloorMs === undefined ? {} : { retryFloorMs: options.retryFloorMs }),
+    ...(options.now === undefined ? {} : { now: options.now }),
   })
 
   return {
@@ -785,6 +806,190 @@ describe('AUTH-02 — a peer that enrols after connecting stops being excluded',
       5_000,
       'a verdict for a peer that only ever appeared in the thunk',
     )
+  })
+})
+
+describe('AUTH-02 — an acceptance stops being one when the certificate under it expires', () => {
+  /**
+   * **The missing half of the asymmetry**, and the defect these two cases exist for.
+   *
+   * `#refresh` bounded its re-asking with three guards, and the first of them — *"a settled
+   * acceptance is never re-asked"* — was written as though verification were monotone. It is
+   * not. `expired` was deliberately left **out** of {@link FINAL} so that a refusal could be
+   * promoted when a peer renewed, which is exactly the right reading of a clock-dependent
+   * fact; but nothing anywhere read that clock in the other direction. So a peer accepted
+   * once stayed accepted for as long as the connection lived, and the effective window in
+   * which a lapsed certificate stopped being usable was the **connection** lifetime, not the
+   * **certificate** lifetime. On the backbone a connection lives for days.
+   *
+   * Two sibling comments already record the doubt this closes, both of them describing a
+   * property the code did not have: `relay-admission.ts` — *"`expired` staying out of
+   * `PeerVerifier`'s `FINAL` set **should** mean a lapsed peer fails at its next renewal
+   * rather than being cached as permanently refused"* — and `fabric-node.ts`'s
+   * `reservationTtlMs` docblock, which says the same thing in the same words. Both were
+   * true only of a peer that had already been *refused*.
+   *
+   * **Nothing here is revocation and nothing here builds any.** There is no CRL, no OCSP and
+   * no revocation state in this repository; a certificate withdrawn before its `expiresAt`
+   * is still honoured until that instant. This closes the expiry half only.
+   *
+   * **The clock is advanced, never slept through.** `PeerVerifierOptions.now` is a thunk for
+   * this reason, following `authorizeCapability`. Every instant below is derived from `T0`,
+   * so a failing run reproduces exactly.
+   */
+  const T0 = 1_800_000_000_000
+  const LIFETIME_MS = 60_000
+
+  /**
+   * The core reading: demotion is **synchronous**, and it happens before the re-ask it
+   * triggers can possibly answer.
+   *
+   * That ordering is the whole guarantee. Demoting only when a *replacement* verdict lands
+   * would leave the acceptance standing for one round trip — and for ever if that round trip
+   * never completes, which is the case measured immediately below.
+   *
+   * Reddened by deleting the `#demoteIfExpired` call from `#refresh` (or by making that
+   * method return its argument unchanged): the first three assertions stay green, and the
+   * `not.toContain` at the expired clock fails with the peer still in the verified set.
+   */
+  it('drops a settled acceptance out of the verified set the instant its expiresAt passes, and re-asks', async () => {
+    const first = certificateFor(FIXTURE_SEED, USER_SEED, T0, LIFETIME_MS).certificate
+    // A renewal the peer obtains **without reconnecting** — same node key, same pinned
+    // issuer, a later window. This is the sequence `FINAL`'s docblock already describes.
+    const renewed = certificateFor(FIXTURE_SEED, USER_SEED, first.expiresAt, LIFETIME_MS).certificate
+    expect(first.expiresAt).toBe(T0 + LIFETIME_MS)
+    expect(renewed.expiresAt).toBeGreaterThan(first.expiresAt)
+
+    let now = T0
+    let held = first
+    const served = await servedBy({
+      answer: () => recordsOf(held, FIXTURE_SEED),
+      trustedIssuers: PINNED,
+      now: () => now,
+    })
+    cleanups.push(served.stop)
+
+    // 1. Accepted, at a clock inside the certificate's own window.
+    await until(() => served.verifier.verdictFor(served.peerId) !== undefined, 5_000, 'the first verdict')
+    expect(served.verifier.verdictFor(served.peerId)?.ok).toBe(true)
+    expect(served.verifier.verifiedPeers).toContain(served.peerId)
+    // Reading the gate against a live certificate costs nothing extra — the acceptance is
+    // still an acceptance, so no request was issued.
+    expect(served.requests()).toBe(1)
+
+    // 2. The certificate lapses. Nothing disconnects, nothing about the conversation
+    //    changes, the peer is still answering; only the clock moves — to the exact instant
+    //    the kernel calls expired, since its predicate is `expiresAt <= now`
+    //    (`core/src/enrollment.ts`).
+    now = first.expiresAt
+
+    // **Synchronous, in the same tick as the read.** No `await` between the getter and these
+    // assertions, so no answer to the re-ask this call issued can have landed.
+    expect(served.verifier.verifiedPeers).not.toContain(served.peerId)
+    const demoted = served.verifier.verdictFor(served.peerId)
+    expect(demoted?.ok).toBe(false)
+    // The kernel's own name and the kernel's own fields, because the demotion is
+    // `verifyCertificate`'s verdict rather than this class's opinion about a clock.
+    expect(demoted?.ok === false ? demoted.failure : null).toStrictEqual({
+      kind: 'expired',
+      expiresAt: first.expiresAt,
+      now: first.expiresAt,
+    })
+
+    // 3. Re-asked, not merely dropped — the promote-a-refusal behaviour is untouched, which
+    //    is what `expired`'s absence from `FINAL` has always been for. The peer renews and
+    //    is taken again, on the same connection.
+    held = renewed
+    now = first.expiresAt + DEFAULT_VERDICT_RETRY_FLOOR_MS + 1
+    await until(
+      () => served.verifier.verifiedPeers.includes(served.peerId),
+      5_000,
+      'the renewed peer to be taken as a block source again',
+    )
+    expect(served.verifier.verdictFor(served.peerId)?.ok).toBe(true)
+    expect(served.requests()).toBeGreaterThan(1)
+  })
+
+  /**
+   * What happens when the re-ask **cannot be answered**, which is the case a demotion that
+   * waited for a replacement verdict would get wrong.
+   *
+   * Both halves are asserted, because each alone is satisfiable by a wrong implementation:
+   *
+   *   - **Not silently still accepted.** The peer is out of the verified set from the first
+   *     read at the expired clock, stays out while the re-ask hangs, and is still out once
+   *     that ask settles as `unreachable`. A design that demoted on the *answer* would keep
+   *     serving blocks from a lapsed peer for the whole RPC budget — 30 s on a default
+   *     `FabricNode` — and for ever if the peer simply never answers again.
+   *   - **Not dropped on a transient either.** `unreachable` is not in {@link FINAL}, so the
+   *     peer keeps being asked at the floor, and a renewal presented later is taken. This is
+   *     the repository's own measured precedent: a gate request landing between
+   *     `libp2p.handle` and `serveAgent` is destroyed in an empty handler set rather than
+   *     delayed, and the correct verdict is reached **by re-asking** — ask 1 timed out after
+   *     701 ms, ask 2 answered in 4 ms.
+   *
+   * The timeout is real rather than simulated: the server parks the second answer on a
+   * promise this test resolves, and the client's own `timeoutMs` is 200 ms, so the
+   * `unreachable` verdict is produced by `RpcEndpoint`'s timer on the production path.
+   */
+  it('keeps an expired acceptance out of the verified set when the re-ask times out, and takes the peer back when it answers again', async () => {
+    const first = certificateFor(FIXTURE_SEED, USER_SEED, T0, LIFETIME_MS).certificate
+    const renewed = certificateFor(FIXTURE_SEED, USER_SEED, first.expiresAt, LIFETIME_MS).certificate
+
+    let releaseParkedAnswer = (): void => {}
+    const parked = new Promise<NodeRecords | null>((resolve) => {
+      releaseParkedAnswer = () => {
+        resolve(null)
+      }
+    })
+    cleanups.push(() => releaseParkedAnswer())
+
+    let now = T0
+    let phase: 'accept' | 'park' | 'renew' = 'accept'
+    const served = await servedBy({
+      answer: () => {
+        if (phase === 'accept') return recordsOf(first, FIXTURE_SEED)
+        if (phase === 'park') return parked
+        return recordsOf(renewed, FIXTURE_SEED)
+      },
+      trustedIssuers: PINNED,
+      now: () => now,
+      clientTimeoutMs: 200,
+    })
+    cleanups.push(served.stop)
+
+    await until(() => served.verifier.verdictFor(served.peerId) !== undefined, 5_000, 'the first verdict')
+    expect(served.verifier.verifiedPeers).toContain(served.peerId)
+
+    // The certificate lapses and the peer goes quiet in the same moment.
+    now = first.expiresAt
+    phase = 'park'
+
+    expect(served.verifier.verifiedPeers).not.toContain(served.peerId)
+    expect(served.verifier.verdictFor(served.peerId)?.ok).toBe(false)
+
+    // The re-ask hangs and then times out. Throughout, and afterwards, excluded.
+    await until(
+      () => {
+        const verdict = served.verifier.verdictFor(served.peerId)
+        return verdict?.ok === false && verdict.failure.kind === 'unreachable'
+      },
+      5_000,
+      'the parked re-ask to time out',
+    )
+    expect(served.verifier.verifiedPeers).not.toContain(served.peerId)
+    expect(served.requests()).toBe(2)
+
+    // A transient is not a death sentence: the peer answers again, with a renewal, and is
+    // taken back on the same connection.
+    phase = 'renew'
+    now = first.expiresAt + DEFAULT_VERDICT_RETRY_FLOOR_MS + 1
+    await until(
+      () => served.verifier.verifiedPeers.includes(served.peerId),
+      5_000,
+      'the peer to be taken back once it answers again',
+    )
+    expect(served.verifier.verdictFor(served.peerId)?.ok).toBe(true)
   })
 })
 
