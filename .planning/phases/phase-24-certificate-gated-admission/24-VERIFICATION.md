@@ -755,3 +755,516 @@ should be repaired in the same pass that lands the rows.
 _Verified: 2026-08-06T21:55:21Z at `753d298`, working tree clean before and after._
 _Verifier: Claude (gsd-verifier). No source, ledger, roadmap or state file was modified._
 _Every exit code above was read with `EXIT=$?` on the immediately following line._
+
+---
+
+## Amendment — 2026-08-06 (second pass): criterion 8 is MET, and the score is 1/1
+
+**Score: 0/1 → 1/1 criteria.** Everything above is the first pass of 2026-08-06 at `753d298` and
+is left standing; **nothing in it is retracted, and the frontmatter above is untouched** — it
+still reads `status: gaps_found` and `score: 0/1 criteria MET — criterion 8 verifies PARTIAL`,
+and both are superseded by this amendment rather than edited by it, on the form
+`16-VERIFICATION.md` set on 2026-08-06.
+
+This is a re-verification triggered by four gap-closure plans landing (`68be6a9`, `afe8b0b`,
+`241a9cc`, `1b7f99d`). It is an independent pass: **every reading below was executed in this
+verifier's own process**, and none of it is transcribed from `24-05`/`24-06`/`24-07`/`24-08`
+`-SUMMARY.md`. Two mutations below are this verifier's own, unledgered, and neither is `M66`.
+
+**Re-verified:** 2026-08-06, at `1b7f99d`, working tree clean before and after
+**Status:** `human_needed` — not `passed`, and only because the ledger edits below are ones a
+verifier may not apply. Phase 23's precedent exactly.
+
+---
+
+### The reading of *"the fabric"* this amendment adopts, stated before the evidence
+
+> **"The fabric" means a fabric this repository can be deployed and operated as, with an
+> admission posture stated on every relay-capable door — not the default argv of its binaries.**
+
+Criterion 8's words are **unedited**, and that was checked rather than assumed.
+`.planning/ROADMAP.md:1189` was extracted and normalised against the quotation carried at
+`24-VERIFICATION.md:173` and against the quotation in the header of
+`packages/node/src/closed-fabric-agents.node.test.ts`: **identical**. `git log -L1189,1189`
+returns exactly one commit — `3cc5a83` *("docs: Phase 24 — Certificate-Gated Admission,
+scheduled later by owner ruling")* — so the line has never been edited since it was written.
+`criterion_text_unchanged: true`. **RULING A is honoured: this amendment reads the criterion, it
+does not rewrite it.**
+
+**Why this reading and not the wider one, in four steps.**
+
+1. **The first pass named the exact condition under which its own disposition changes**, and did
+   so in its own words: *"'Pass-with-a-stated-bound' would be the right disposition if the bound
+   were a deployment posture an operator can remove. It is not: for the seed there is no knob."*
+   It then wrote the consequence out under Human Verification 1: *"Under (a) criterion 8 can
+   reach MET"*, where (a) is *"adding `SeedServerOptions.relayAdmission` and `bin/seed.ts
+   --admit-issuer`, then re-reading criterion 8 over a fully-gated fabric"*.
+2. **The owner ruled (a).** `0e8e7cd`: *"Owner ruling 2026-08-06: a seed MAY be told which
+   issuers it admits. Mirror `bin/agent.ts --admit-issuer` onto `bin/seed.ts` and give
+   `SeedServerOptions` the field that holds it."* Route (b) — restating the criterion as a
+   property of a relay — was **not** taken, and this amendment does not take it either.
+3. **The criterion's own parent is a mechanism claim.** The owner ruling of 2026-08-04 quoted in
+   `ROADMAP.md:1203` reads *"If it cannot authenticate — it cannot join the network."* That is a
+   statement about what the door does to a peer that cannot authenticate. Every access-control
+   property in this repository is conditional on being configured; `FabricNodeOptions.relayAdmission`
+   and `SeedServerOptions.relayAdmission` are **required with no default**, so the API cannot even
+   express silence. What has a default is argv, on two binaries, deliberately.
+4. **What the wider reading would cost.** Under *"any fabric this repository can be deployed as,
+   including a default-argv one"*, no per-relay mechanism can ever satisfy criterion 8, and the
+   only route left is `24-CONTEXT.md` open ruling 1 — make both binaries refuse to start absent a
+   stated posture. That is an owner ruling, it is **deliberately unplanned**, and a verifier
+   adopting the reading that forces it would be selecting a route the owner declined. The first
+   pass put route (b) beyond a verifier's reach; the same principle puts this beyond it too.
+
+**The bound this MET carries, stated at the verdict rather than in a footnote.** The default
+posture of `bin/agent.ts`, `bin/seed.ts` and `bin/bench.ts` is **open**, and must be: nineteen
+`bin/agent.ts` and three `bin/seed.ts` argv sites depend on it, and
+`reservation-exhaustion.node.test.ts` arm A is a **live behavioural guard** on it — read at the
+source, lines 285-317: *"a seed whose no-flag posture had become anything but
+`'admits-any-peer'` reddens here, by name, before B is ever read"*, backed by
+`expect(a.stderr()).not.toContain('PERMISSION_DENIED')`. Criterion 8 is MET **of a fabric an
+operator has closed**, and this repository ships open by default on purpose.
+
+---
+
+### Verdict
+
+| | |
+|---|---|
+| **Criterion 8** | **MET**, with the bound above stated |
+| Score | **1 / 1** |
+| Phase | **human_needed** — every criterion satisfied; the open items are ledger edits and two scheduling/metadata rulings |
+
+---
+
+### What this verifier ran, and read directly
+
+Every exit code was captured with `EXIT=$?` on the line **immediately** following the command —
+no pipes, no trailing filter. Host: 8 cores, `uptime` 1-minute load recorded per row.
+
+| # | Command | Exit | Result | `/usr/bin/time -p` | load |
+|---|---|---|---|---|---|
+| 1 | `npx tsc --noEmit` | **0** | zero output | `real 1.60 user 2.18 sys 0.52` | 4.88 |
+| 2 | `npx vitest run --project node closed-fabric-agents.node.test.ts --reporter=verbose` | **0** | 2 tests | `real 18.26 user 9.50 sys 1.77` | 3.52 |
+| 3 | `npx vitest run --project node relay-admission + enrolment-needs-no-reservation + reservation-exhaustion` | **0** | 3 files, **40 tests** | `real 24.02 user 18.36 sys 3.53` | 6.19 |
+| 4 | `npx vitest run --project e2e gated-seed.e2e.test.ts --reporter=verbose` | **0** | 4 tests, chromium + firefox + webkit | `real 71.75 user 9.80 sys 2.90` | 6.13 |
+| 5 | `npx vitest run --project node` (full) | **0** | **167 files, 2323 passed, 2 skipped** | `real 288.50 user 422.53 sys 65.17`, ratio **1.69** | 7.45 → 9.68 |
+| 6 | **plant V1** — `closed-fabric-agents.node.test.ts` | **1** | **2 failed** | `real 72.32` | 4.88 |
+| 7 | **plant V2** — `closed-fabric-agents.node.test.ts` | **1** | **1 failed, 1 passed** | `real 74.27` | 5.97 |
+| 8 | `npx vitest run --project node closed-fabric-agents.node.test.ts` (after restore) | **0** | 2 passed | `real 18.24` | 9.23 |
+
+Row 5 against the baseline handed to this verifier — 167 files, 2323 passed, 2 skipped,
+`real 304.17`, ratio 1.63 — is **the same file and test counts** at `real 288.50` and ratio
+**1.69**. Comparable rather than merely both green. `git status --porcelain` was empty before
+row 5, before row 8, and at the end of the session; both plants were restored with `cp` and
+confirmed with `cmp` **exit 0** and `git diff --quiet` **exit 0** over the whole tree.
+
+---
+
+### Plant V1 — this verifier's own, unledgered: *the label says shut and the door is open*
+
+**Not `M66`, and not `M67`.** `M67` puts `relayAdmission: 'admits-any-peer'` back as a literal in
+`seed-server.ts`, where a **source census** in `relay-admission.node.test.ts` counts it. V1
+leaves `seed-server.ts`, `SeedServerOptions`, the hex validator and the entire banner **byte-for-byte
+intact** and changes exactly which argv key `bin/seed.ts` reads:
+
+```diff
+   relayAdmission:
+-    values['admit-issuer'] === undefined ? 'admits-any-peer' : new Set(values['admit-issuer']),
++    values['trusted-issuer'] === undefined ? 'admits-any-peer' : new Set(values['trusted-issuer']),
+```
+
+The fixture passes only `--admit-issuer`, so under V1 the seed is **open while its banner still
+prints `admits only peers certified by 1 pinned admission issuer …`** — the fixture's own posture
+assertion (`expect(admitsLine(seed.banner)).toContain('only peers certified by')`) stays green.
+This is the sharpest available test of whether the whole-set reading reads the **door** or the
+**label**.
+
+**It reads the door. Exit 1, both cases red.** The `/bootstrap.json` case named the surface
+exactly:
+
+```
+AssertionError: the uncertificated stranger is advertised to every arriving browser:
+expected [ Array(1) ] to strictly equal []
+```
+
+Restored: `cmp` exit 0, `git diff --quiet` exit 0.
+
+**And V1 recorded something the summaries do not.** `24-07-SUMMARY.md` states that its equivalent
+plant reddens *"with exactly `{door: 'seed', admitted: 'stranger'}` and `{door: 'seed', admitted:
+'reader'}` and no other door"*. Under V1 the **first** case did not reach that assertion at all:
+it died earlier, at R3, the control —
+
+```
+timed out waiting for the uncertificated stranger to hold a reservation on the one peer
+nobody closed; observed {"openControlHolds":[], …}
+```
+
+— because the silently-opened seed took the stranger's reservation and the control never got one.
+Both outcomes are red and both are attributable (`strangerRelays` in the diagnostic names the
+seed's own address), but **the `intruders` machinery that exists to name which door let whom in is
+bypassed in what is arguably the likeliest failure mode.** That is a finding about the
+instrument's failure ordering, not about its correctness, and it qualifies the summary's claim of
+determinism.
+
+---
+
+### Plant V2 — this verifier's own, unledgered: *is the "whole set" the fabric's population?*
+
+The first pass's central complaint was that 24-04 *"reasoned about one named peer"*. 24-07's
+answer is a set. V2 asks the next question: **is the set the population that pays?**
+
+Added to `standUp`: a **seventh** relay-capable `bin/agent.ts`, spawned `--port 0` with **no**
+`--admit-issuer` — i.e. open — placed inside the fabric, reachable by the stranger, and **never
+added to `closedSet`**.
+
+**Exit 1 — but the population assertions stayed green.** `expect(closedSet).toHaveLength(CLOSED_RELAY_CAPABLE - 1)`
+and `expect(Object.keys(answers)).toHaveLength(CLOSED_RELAY_CAPABLE)` both passed with an open
+relay-capable peer sitting inside the fabric. What reddened was R3 again, and only incidentally —
+the planted door took the stranger's reservation, so the control starved:
+
+```
+timed out waiting for the uncertificated stranger to hold a reservation on the one peer
+nobody closed; observed {"openControlHolds":["…reader…"], "strangerRelays":[ … /tcp/52940/… ]}
+```
+
+**So the finding stands, and the file's own docblock states its guard backwards.**
+`CLOSED_RELAY_CAPABLE`'s docblock claims it is *"asserted rather than assumed, so that a
+participant added to `standUp` without being added to the set reddens instead of silently
+narrowing the claim."* Read at the source and confirmed by V2, the constant catches the
+**opposite** case: adding a participant to `closedSet` without bumping the constant reddens;
+adding one to `standUp` alone does not. The population of *"every relay-capable peer"* is a
+hand-maintained literal, and nothing derives it from the spawn sites. **Severity: WARNING.** The
+six doors that *were* asked are real, both uncertificated subjects are absent from all six, and
+the reading taken is sound. What is not machine-held is its completeness.
+
+**V2 also surfaced the one thing the green path never asserts, and it is favourable.** The
+stranger's stderr under V2 carried **seven** `agent.ts: relay reservation refused:
+PERMISSION_DENIED` lines. The stranger genuinely asks and is genuinely refused, repeatedly — a
+fact visible only inside a failure diagnostic. See W8 below.
+
+**Both plants restored with `cp` + `cmp` exit 0.** Neither was committed, staged or stashed.
+
+---
+
+### The two findings the first pass scored PARTIAL on — both closed, re-measured here
+
+#### G1 — *"the criterion says the fabric; the evidence says a relay"*: **CLOSED**
+
+**The knob exists and is behaviourally wired, verified at the source and then by V1.**
+
+| Was, 2026-08-06 first pass | Is, verified now |
+|---|---|
+| `SeedServerOptions` has no field | `readonly relayAdmission: FabricNodeOptions['relayAdmission']` at `seed-server.ts:179` — **required, no `?`**, and typed by **indexed access** so the two option types cannot drift |
+| `seed-server.ts` writes the literal | `relayAdmission: options.relayAdmission` at `seed-server.ts:329`; `grep OPEN_POSTURE` over that file reads **0** |
+| `bin/seed.ts` has no `--admit-issuer` | `'admit-issuer': { type: 'string', multiple: true }` at `bin/seed.ts:105`, its own hex validator with a separate refusal message at 138-142, the ternary at 197-198, and the posture printed in the banner at 291-296 |
+
+**The whole-set reading, taken in this verifier's own run** (`[closed-fabric]`, row 2):
+
+```
+postures  provider [71ed1c…]  seed "admits only peers certified by 1 pinned admission issuer…"
+          relay [71ed1c…]  memberAtSeed [71ed1c…]  memberAtRelay [71ed1c…]
+          stranger [71ed1c…]  reader [71ed1c…]  openControl "admits-any-peer"
+closedSetHolds  provider []   seed [memberAtSeed]   relay [memberAtRelay]
+                memberAtSeed []   memberAtRelay []   reader []
+openControlHolds  [ stranger , reader ]
+strangerRelays    [ one circuit, through openControl and nothing else ]
+```
+
+Six closed doors. **Two** uncertificated subjects — `stranger` **and** `reader`, the very node
+whose admission falsified 24-04 — absent from all six, over two scans bracketing a 5 s window,
+with `unanswered` asserted empty so a door that cannot answer fails the reading. Both subjects
+present at the one peer nobody closed, so the absence is a **refusal** and not inaction. And the
+reader is itself closed and itself uncertificated, so **every reading in the file is taken by a
+node the fabric turned away** — the sharpest form of the claim available.
+
+**The bootstrap paradox, which is what could have made a fully-closed fabric unbuildable, is false
+and is falsified inside this same fixture.** Both enrolled arms hold `certificate.issuer ===
+issuer` signed by a provider that pins that issuer and therefore refuses them a reservation, and
+then hold circuits at closed doors. Independently reproduced in row 3:
+`enrolment-needs-no-reservation.node.test.ts` green, whose arm A is a joiner whose provider pins
+`eeee…ee` — a well-formed key nobody holds — and which still ends holding a valid certificate from
+that provider with `relays === []` and `PERMISSION_DENIED` on stderr. `resolveCertificate` enrols
+over a plain dial; there is no reservation anywhere in that path.
+
+**Clause-by-clause, on the reading adopted above:**
+
+| # | Clause | Was | Now | Evidence this verifier took |
+|---|---|---|---|---|
+| 1 | cannot **join** the fabric | PARTIAL | **MET** | 6 closed doors × 2 uncertificated subjects, absent from all, two scans, live control |
+| 2 | cannot **advertise** itself | PARTIAL | **MET** | both surfaces: the relay's `reservations` thunk over the wire, **and** `/bootstrap.json` over real HTTP from a real `bin/seed.ts`, presence-then-absence — the gap §2 named |
+| 3 | cannot **be dialled** | VERIFIED, bounded | **MET** | method unchanged and sound; clause 2's surface bound is gone; browser round attempts the member, never attempts the stranger, reaches it on a direct address |
+| 4 | an identity never issued **buys nothing** | PARTIAL | **MET** | the stranger holds nothing at any of six doors and appears on neither advertisement surface |
+| 5 | the N-th identity costs a **provider's willingness to sign** | PARTIAL | **MET** | the only two nodes in are the two holding a certificate from the pinned issuer; enrolment is the only route in and it spends the provider's aggregate window |
+
+#### G2 — *`BootstrapInfo.peerAddrs` is read by nothing as a gated surface*: **CLOSED, twice**
+
+The first pass: `grep -rln peerAddrs packages/node/src/*.test.ts` returned one file asserting
+address **shape**, while `packages/browser/demo/main.ts` consumes it as its dial-candidate source.
+
+**Now read at both tiers, and this verifier ran both.**
+
+- **Node tier** (row 2, case 2): `fetch('http://127.0.0.1:<port>/bootstrap.json')` against a real
+  spawned `bin/seed.ts`. Presence of the enrolled arm established **first**, absence of both
+  uncertificated subjects held over the same window, `status 200`, `cache-control: no-store`, and
+  the `peerAddrs[0] === relayAddrs[0]` shape invariant asserted so a change of shape is a finding
+  rather than a silent pass. Observed:
+  `peerAddrs = [ seedAddr , seedAddr/p2p-circuit/webrtc/p2p/<memberAtSeed> ]` — the enrolled arm
+  and nothing else.
+- **Browser tier** (row 4): `gated-seed.e2e.test.ts`, **chromium, firefox and webkit, none
+  excluded**, against a real `SeedServer` pinning a **separated** provider's issuer and serving
+  both the demo page and `/bootstrap.json` from its own origin. The tab learns its relay from
+  `discoverRelays()` answering `'origin'`, never from the harness. `peerAddrs` is read as
+  content **and** as behaviour: `connectDiscoveredPeers()` with `round.asked` asserted true so an
+  empty round cannot read as a pass, the member in `attempted`, the stranger in neither `dialed`
+  nor `failed`, and the stranger reached immediately on a direct dial — so the claim is about
+  **discovery**, not reachability.
+
+That reading is what makes the seed's closure a browser-tier fact and not a Node-tier one, which
+matters because the seed is the only door a tab has.
+
+---
+
+### Regression checks on what the first pass had already verified
+
+| Item | Status | Evidence |
+|---|---|---|
+| Full `--project node` | ✓ | row 5: 167 files, **2323 passed**, 2 skipped, exit 0 |
+| `tsc --noEmit` | ✓ | row 1, exit 0, zero output |
+| Declaration census not widened to let 24-06 pass | ✓ | `relay-admission.node.test.ts` splits by **shape** — one *defining* declaration naming the union in `fabric-node.ts`, plus *forwarding* declarations using indexed access, defining + forwarding = total, so a third shape fails by name. This is the opposite of `toBe(1) → toBe(2)`; it is strictly stronger in both directions and does **not** close a gap by widening what passes |
+| Default posture unmoved | ✓ | `reservation-exhaustion.node.test.ts` arm A green (row 3), and it is a live behavioural guard — a seed whose no-flag posture changed reddens there by name |
+| W1 `fabric-node.ts` *"Nothing reads this yet"* | ✓ **repaired** | line 496 now quotes what it replaced |
+| W2 `relay-admission.ts` *"Consulted by nothing"* / *"Nothing calls this yet"* / *"MEASUREMENTS not yet taken"* | ✓ **repaired** | lines 58, 126, 200 each quote what they replaced and name the measurement taken |
+| W3 process count *"Five"* → six | ✓ **repaired** | `admission-agents.node.test.ts:79` reads **Six** |
+| Budget arithmetic not repeating W3's error | ✓ | 24-07 claims eight children / seven concurrent; counted against the spawn sites: 7 `spawnAgent` calls (provider ×2, relay, openControl, memberAtSeed, memberAtRelay, stranger) + 1 `bin/seed.ts` = **8**, minus the stopped minting provider = **7 concurrent**. Correct |
+| Browser tier runs no relay server | ✓ | `grep -rn circuitRelayServer packages/browser/src/` returns two hits, **both inside comments**; no import |
+| Debt markers in the phase's files | ✓ **none** | `TBD` / `FIXME` / `XXX` across all thirteen files the four plans touched: zero. No debt-marker gate fires |
+| Working tree | ✓ | `git status --porcelain` empty before row 5, before row 8, and at session end |
+
+---
+
+### New warnings raised by this pass
+
+| id | file | issue | severity |
+|---|---|---|---|
+| **W6** | `packages/node/src/closed-fabric-agents.node.test.ts` | `CLOSED_RELAY_CAPABLE`'s docblock claims a participant added to `standUp` but not to `closedSet` reddens. **It does not** — proved by plant V2, where both population assertions stayed green with an open seventh relay-capable peer inside the fabric. The guard catches the opposite case. The comment should be corrected to say what it actually holds, or the set derived from the spawn sites | WARNING |
+| **W7** | `packages/node/src/closed-fabric-agents.node.test.ts:866-871` | `circuitsThrough(stranger, …)` is an **assertion** over `stranger.relays`, a **handshake-time snapshot**. An absence at announce time is not an absence now. It is sound only because `bin/agent.ts:1089-1096` records, measured, that libp2p makes exactly one reservation attempt ever on this configuration — *"a single lost attempt is permanent"*. The load-bearing reading (R2, two live scans) is not a snapshot, so this is a bound on a secondary instrument. The dependency should be named at the assertion | WARNING |
+| **W8** | same file, R2/R3 | The green path asserts the stranger's **absence** but never asserts a **named refusal**. Plant V2 showed its stderr carrying seven `relay reservation refused: PERMISSION_DENIED` lines — visible only in a failure diagnostic. `enrolment-needs-no-reservation.node.test.ts` asserts that string on its own arm A, so the fact is measured in the phase; it is simply not measured in the fixture that carries the criterion | INFO |
+| **W9** | `packages/node/src/bin/bench.ts` (3 sites), `packages/node/src/bench-fabric.ts` (1 site) | A **third binary** hardcodes `relayAdmission: 'admits-any-peer'` and has no flag. Each site carries a written decision and the honest disclosure that *"this driver passes `relayAddrs` to nobody, so the relay service each of these workers runs is never asked for a reservation and its store stays empty for the whole run"*, and no published curve therefore says anything about admission. It is a measurement rig, not a deployment path — but it is the last residue of the structural shape the first pass named, and it should be recorded rather than discovered later | INFO |
+| **W10** | `24-07-SUMMARY.md` | States its seed plant reddens *"with exactly `{door: 'seed', admitted: …}` and no other door"*. Under this verifier's equivalent plant V1 the first case reddened earlier, at R3, and never reached the `intruders` assertion. Both reds are true and attributable; the summary overstates determinism | INFO |
+| **W11** | `packages/node/src/mutation-ledger.ts`, `M67` | `caughtBy` names only `relay-admission.node.test.ts`, with the note *"that file is untracked at the time this entry was written… Whoever commits it should add it to `caughtBy`."* `closed-fabric-agents.node.test.ts` is now **git-tracked** (`git ls-files --error-unmatch` exit 0, committed at `241a9cc`). The entry's own instruction is due | WARNING |
+| **W4′** | `.planning/ROADMAP.md` progress row 24 | Unchanged from the first pass's W4 and now materially **false**: it asserts *"`bin/seed.ts` cannot be told to close — no flag, no `SeedServerOptions` field"*. Both halves were repaired by `afe8b0b`. See L1 | BLOCKER for the ledger, not for the phase |
+| **W5′** | `.planning/ROADMAP.md`, Phase 24 `**Mode:** mvp` | Unchanged. The goal is a security property, not a User Story, so MVP-mode's User Flow Coverage contract cannot be applied; this pass used standard goal-backward verification, as the first pass did | WARNING |
+
+---
+
+### Requirements coverage
+
+| Requirement | Honest state after the four gap-closure plans | Checkbox |
+|---|---|---|
+| **AUTH-02** | **Partial → Partial.** The admission half is now measured over a **fabric** rather than a relay, on **both** advertisement surfaces, at **both** tiers. Still open and unchanged: the browser tier pins nobody and verifies nobody (Phase 22, `DEFICIENCIES.md` D09), and `records`/`providers` answers are ungated (`24-CONTEXT.md` deferred idea). **The row's own text is now stale — see L2** | **stays `[ ]`** |
+| **AUTH-04** | **Partial → Partial.** The devaluation approach is now demonstrated end-to-end on a closed fabric: an unissued identity buys nothing at any of six doors. The `serveAgent` `enrol` branch still takes **no authorization step** and the enrolment DoS surface is untouched — 24-05 in fact *depends* on that being true, since enrolment over a plain dial is what makes a fully-closed fabric joinable at all. **The row's own text is now stale — see L3** | **stays `[ ]`** |
+| — orphan check — | ROADMAP `Requirements: AUTH-02, AUTH-04`; both claimed by plans. **No orphaned requirement** | — |
+
+`acceptance-traceability.node.test.ts` and `requirements-ledger.node.test.ts` are green inside
+row 5. **Neither checkbox may move**: both requirements have live clauses this phase did not
+close, and the pairing guard reddens by name on an overstatement.
+
+---
+
+### Deferred — unchanged, restated so neither is read as covered
+
+| Item | Addressed in | Evidence |
+|---|---|---|
+| The browser tier pins nobody and reaches no verdict about a peer | **Phase 22** | `DEFICIENCIES.md` D09; 24-03 and 24-04 both name Phase 22 as the owner of the `PeerVerifier` move. 24-08 read the tab as a **subject** of admission, never as a verifier, and says so |
+| `records` / `providers` answers gated on the certificate | **Not scheduled** | `24-CONTEXT.md` `<deferred>`. `closed-fabric-agents.node.test.ts` restates in its header that it does not re-take clause 3's *unfindable, not unreachable* result and does not weaken it |
+| Whether the binaries should refuse to start absent a stated posture | **Owner ruling, unplanned** | `24-CONTEXT.md` open ruling 1. Deliberately no plan; `0e8e7cd` records why |
+
+---
+
+## LEDGER EDITS RECOMMENDED (not applied)
+
+**This verifier modified no source, ledger, roadmap or state file.** `.planning/STATE.md`,
+`.planning/ROADMAP.md` and `.planning/REQUIREMENTS.md` are untouched.
+
+### MUST change
+
+**L1 — `.planning/ROADMAP.md`, progress table row 24 (line 1147).** The current cell asserts a
+fact that is now false. Replace with, dated 2026-08-06:
+
+> `4/4 | **1 of 1 — criterion 8 MET**, by dated amendment to `24-VERIFICATION.md` after four
+> gap-closure plans (`68be6a9`, `afe8b0b`, `241a9cc`, `1b7f99d`). **One** criterion, numbered 8,
+> carried from Phase 19, so the score reads out of 1 and not out of 8. Read over a fabric whose
+> **every** relay-capable peer was told to close — eight OS processes, six closed doors, **two**
+> uncertificated subjects, absence asserted over the set with each door named, and a live control
+> the verifier watched fail twice. Both advertisement surfaces read, including
+> `BootstrapInfo.peerAddrs` over real HTTP and in three browser engines. **The bound, stated:**
+> the default posture of `bin/agent.ts`, `bin/seed.ts` and `bin/bench.ts` is open and must be —
+> 19 + 3 argv sites and a live behavioural guard depend on it — so criterion 8 is MET of a fabric
+> an operator has closed. Whether the binaries should refuse to start absent a stated posture is
+> `24-CONTEXT.md` open ruling 1 and remains the owner's | 2026-08-06`
+
+**L2 — `.planning/REQUIREMENTS.md`, AUTH-02 traceability row (line ~692).** Its closing sentences
+are now false and must be corrected rather than left to age:
+
+- *"And a seed cannot be told to close, which is why criterion 8 verifies PARTIAL rather than
+  passing with a stated bound … there is no `--admit-issuer` flag on `bin/seed.ts`,
+  `SeedServerOptions` carries no field that could hold one, and `seed-server.ts` writes
+  `relayAdmission: 'admits-any-peer'` at its `FabricNode.start` call. The bound is structural,
+  not a deployment posture an operator can remove"* — **all four clauses repaired by `afe8b0b`.**
+- *"every `bin/seed.ts` is still open — 24-01 hardcoded that posture deliberately"* — false.
+- The 24-04 falsification recorded at the end (*"the in-process `reader` is also a node handed no
+  `enrollment` option…"*) should be **kept**, and followed by the repair: in 24-07's fixture the
+  reader is itself closed and itself uncertificated, is a **subject** of the reading rather than a
+  hole in it, and is absent from all six doors.
+- Append: the whole-set reading, both advertisement surfaces, the three-engine seed reading, and
+  the stated default-open bound. **Add the two new instruments by path**:
+  `packages/node/src/closed-fabric-agents.node.test.ts` and
+  `packages/node/src/gated-seed.e2e.test.ts`.
+
+**L3 — `.planning/REQUIREMENTS.md`, AUTH-04 traceability row (line ~694).** Its closing sentence
+— *"**The N-th-identity clause therefore verifies PARTIAL, not MET** … because admission is
+per-relay and every seed is structurally un-closable"* — is false in its stated cause. Replace
+with the MET verdict **and its bound**, and keep every clause about the untouched enrolment DoS
+surface: nothing here shrank it, and 24-05's result depends on it not having been shrunk.
+
+**L4 — `.planning/ROADMAP.md`, Phase 19 and Phase 17 progress rows.** Both currently record their
+carried criteria as staying PARTIAL until Phase 24 lands. **Phase 24's criterion 8 has now landed
+MET, so RULING A's precondition is satisfied for both.** See the section below; the rows must be
+told, and the closures themselves belong in dated amendments to `19-VERIFICATION.md` and
+`17-VERIFICATION.md`, not here.
+
+**L5 — `.planning/STATE.md`.** Phase 24 is 4 of 4 plans, verified **1 of 1 with criterion 8 MET**,
+and is therefore **COUNTED**. The frontmatter note beginning *"Phase 24 joined that list on
+2026-08-06 and it did NOT join the count"* is superseded. The count moves **9 → 10 of 15** on
+Phase 24 alone; if L4's two amendments are written and score as recommended it moves to **12 of
+15**, leaving 20 (6/7), 21 (2/3) and 22 (not executed). The three pending owner rulings listed in
+STATE.md's frontmatter reduce to two: *"whether a seed may be told which issuers it admits"* was
+**ruled on 2026-08-06** (`0e8e7cd`) and delivered.
+
+**L6 — `packages/node/src/mutation-ledger.ts`, `M67`.** Add
+`packages/node/src/closed-fabric-agents.node.test.ts` to `caughtBy`. The entry's own text
+instructs this, conditional on the file becoming git-tracked; it is tracked as of `241a9cc`. (Not
+a planning-ledger edit, but it is a ledger and it is due in the same pass.)
+
+### MUST NOT change
+
+- **Criterion 8's wording.** Verified unedited, one commit ever. This amendment reads it and
+  states the reading; it does not narrow it. If the owner disagrees with the reading, the correct
+  instrument is an `overrides:` entry or a dated owner note beside the criterion — **not** a
+  change to its words, and **not** a verifier silently adopting the other reading either.
+- **AUTH-02's and AUTH-04's checkboxes stay `[ ]`; both `Partial` cells stay `Partial`.** Each has
+  live clauses Phase 24 did not close, and `acceptance-traceability.node.test.ts` reddens by name
+  on an overstatement.
+- **The default posture must not be closed to make the criterion read better.** Nineteen
+  `bin/agent.ts` and three `bin/seed.ts` argv sites depend on it and
+  `reservation-exhaustion.node.test.ts` arm A is a live guard on it. Changing it is open ruling 1,
+  and it is the owner's.
+- **`CLOSED_RELAY_CAPABLE` must not be bumped to paper over W6.** The repair is either a corrected
+  comment or a set derived from the spawn sites — never a larger constant.
+- **`BENCH-03` does not move**, and `bin/bench.ts`'s three open literals (W9) must not be "fixed"
+  by pinning: pinning would move every published rung.
+
+---
+
+### Do Phase 17 criterion 3 and Phase 19 criterion 5 close?
+
+**Yes — the RULING A precondition is now satisfied for both, and both should close by dated
+amendments to their own verification files.** This verifier does not close them here: it was not
+asked to verify those phases, and their scores live in files this pass does not write.
+
+RULING A as `.planning/STATE.md` states it: *"a carried criterion stays PARTIAL until its
+destination lands"*, applied **per criterion** — the reading `16-VERIFICATION.md`'s 2026-08-06
+amendment took, and before it `18-VERIFICATION.md`'s of 2026-08-04. Criterion 8 **is** the
+destination of both, by owner ruling: Phase 19's criterion 5 (`ROADMAP.md:1191-1222`) and Phase
+17's criterion 3, whose **cost** clause STATE.md records as *"carried to Phase 24 criterion 8"*.
+Criterion 8 has landed **MET**. The condition is met.
+
+What each then needs, and it is a re-read rather than a rubber stamp:
+
+- **Phase 19 criterion 5** — *"enrolment costs something unmintable, and the N-th identity costs
+  more than the first."* The unmintable half was already delivered and measured across real
+  processes including a provider restart. The N-th-identity half was relocated, not lowered: under
+  a closed fabric an unissued identity buys nothing, so the price of the N-th identity is the
+  provider's signature. **This verifier re-read the economics on the current tree** and they are
+  where Phase 19 left them; the counted half — three full issuances for three askers against zero
+  reservations — is a **count**, needs no calibration, and reproduces. Expected: **PARTIAL →
+  MET**, Phase 19 **4/5 → 5/5**.
+- **Phase 17 criterion 3** — *"…refused beyond a stated threshold rather than accepted unbounded —
+  making mass fake-node creation measurably costly."* The rate-limiting half is delivered
+  (`maxIssuedPerWindow`, a durable host-owned ledger, survives a provider restart). The cost half
+  is criterion 8's, and it now reads MET on a closed fabric. Expected: **PARTIAL → MET**, Phase 17
+  **2/3 → 3/3**.
+
+**One caveat the amending verifier must not skip.** Criterion 8 is MET **with a bound** — of a
+fabric an operator has closed. A carried criterion cannot inherit more than its destination
+delivered, so both amendments must carry the same bound in the same words. A closure that drops
+it would be exactly the softening RULING A exists to prevent.
+
+---
+
+### Human verification required
+
+1. **Ratify the reading of *"the fabric"*, or reject it.** This amendment adopts *"a fabric this
+   repository can be deployed and operated as, with a posture stated on every door"*, on the
+   ground that the first pass named MET as route (a)'s destination and the owner ruled route (a)
+   on 2026-08-06. **If the owner intends the wider reading**, criterion 8 returns to PARTIAL and
+   the only route is open ruling 1 — and the instrument is an `overrides:` entry or a dated owner
+   note beside the criterion, never an edit to its words.
+2. **Rule on `24-CONTEXT.md` open ruling 1** — should `bin/agent.ts` and `bin/seed.ts` refuse to
+   start when the operator states neither a pinned issuer nor an explicit open posture? Its cost
+   is already measured: 19 + 3 argv sites and one live behavioural guard. Deliberately unplanned.
+3. **Apply L1-L6.** A verifier may not apply the ledger edits it recommends. L1, L2 and L3 are the
+   urgent ones: three permanent records currently assert *"a seed cannot be told to close"*, which
+   is false, and that is the precise shape this repository has been bitten by — a reader who
+   believes it stops looking.
+4. **Write the two carried-criterion amendments (L4).** With the bound carried verbatim.
+5. **Re-confirm the 23 → 24 → 22 ordering.** The 2026-08-05 ruling put 22 after 24 so the
+   reachability guard would certify a **gated** fabric. Its premise has moved again and this time
+   favourably: a fabric can now be closed at every door, so Phase 22 can be run against one and
+   `22-VERIFICATION.md` should be told which posture it certified.
+6. **Remove `**Mode:** mvp` from Phase 24's ROADMAP block, or restate the goal as a User Story**
+   (W5′). Unchanged from the first pass.
+
+---
+
+### Gaps summary
+
+There are no gaps in the phase's own criterion.
+
+The first pass found the mechanism real and the criterion's words wider than the evidence, and it
+named precisely what would change that: a knob on the seed, and a reading over a fabric rather
+than a relay. Both landed. The knob is required rather than optional, typed by indexed access so
+it cannot drift, validated with its own message, printed in the seed's banner — and, which is the
+part that matters and the part this verifier measured rather than read, **wired to the door and
+not to the label**: a plant that left `seed-server.ts`, the option type, the validator and the
+entire banner intact and changed only which argv key `bin/seed.ts` reads put an uncertificated
+peer into `/bootstrap.json` and turned the file red.
+
+The reading is now over a set of six closed doors with two uncertificated subjects, one of them
+the very node whose admission falsified the previous defence, both of them absent everywhere and
+both present at the one door nobody closed. The surface no test read as a gated one is read
+twice, once over HTTP at the Node tier and once through the browser's own discovery round in
+three engines. And the thing that could have made a fully-closed fabric unbuildable — that
+nobody could ever enrol — is measured false inside the same fixture that needs it to be false.
+
+**What is not delivered is the default, and it is not delivered on purpose.** This repository
+ships open, held there by nineteen plus three argv sites and one live behavioural guard, and
+whether it should is an owner ruling that was deliberately left unplanned. That is the bound this
+MET carries, and it travels with every closure that inherits from it.
+
+Three smaller things are true and should be recorded rather than found later. The "whole set" is
+a hand-maintained literal whose docblock describes a protection it does not have — proved, not
+argued (W6). One secondary assertion reads a handshake-time snapshot and is sound only because of
+a measured property of libp2p that is not named at the assertion (W7). And a third binary still
+cannot be told to close, disclosed at each of its sites, which is a measurement rig rather than a
+deployment path (W9). None changes the verdict; all three are cheaper to fix now than to
+rediscover.
+
+---
+
+_Re-verified: 2026-08-06 at `1b7f99d`, working tree clean before and after; both plants restored
+with `cp` and confirmed with `cmp` exit 0 and `git diff --quiet` exit 0 over the whole tree._
+_Verifier: Claude (gsd-verifier), second independent pass._
+_No source, ledger, roadmap or state file was modified. Nothing was staged, committed or stashed._
+_Every exit code above was read with `EXIT=$?` on the immediately following line, no pipes._
