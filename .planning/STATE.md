@@ -453,12 +453,36 @@ ruling anticipated.
 
 ## Current Position
 
-Phase: 24 (Certificate-Gated Admission) — **0/1 on criteria, NOT closed and NOT counted**
-Status: 4 plans, 4 summaries, `24-VERIFICATION.md` dated 2026-08-06 at `753d298`,
-`status: gaps_found`. **The phase has exactly one criterion, numbered 8**, carried into it
-from Phase 19 criterion 5 and Phase 17 criterion 3 by owner ruling 2026-08-04, so a score
-reads **out of 1 and never out of 8**. The verdict is **PARTIAL, not NOT MET**, and the
-distinction is the whole of what this entry records.
+Phase: 24 (Certificate-Gated Admission) — **1/1 on criteria, CLOSED and COUNTED**
+Status: **8 plans, 8 summaries**, `24-VERIFICATION.md` dated 2026-08-06, scored **0/1** at
+`753d298` and re-scored **1/1 MET** by the dated amendment at `580e461`. **The phase has
+exactly one criterion, numbered 8**, carried into it from Phase 19 criterion 5 and Phase
+17 criterion 3 by owner ruling 2026-08-04, so a score reads **out of 1 and never out of
+8**. **This block read "0/1 on criteria, NOT closed and NOT counted" until 2026-08-06,
+while four other places in this same file already said 1/1** — recorded rather than
+quietly overwritten, because a file disagreeing with itself is the defect this milestone
+keeps finding, and it found it here in its own bookkeeping.
+
+**MET carries a stated bound and the bound is part of the verdict.** The default posture
+of `bin/agent.ts`, `bin/seed.ts` and `bin/bench.ts` is **open and must be** — 19 + 3 argv
+sites, with `reservation-exhaustion.node.test.ts` arm A a live behavioural guard on it.
+*"The fabric"* was read as **a fabric this repository can be deployed and operated as,
+with an admission posture stated on every relay-capable door** — not the default argv of
+its binaries.
+
+**Of the two criteria carried into it, one closed and one declined — the same day, by two
+independent verifiers.** Phase 19 criterion 5 closed at **5/5** (`ac7b214`), carrying the
+bound verbatim. **Phase 17 criterion 3 DECLINED and stays 2/3** (`a3d2215`) — the first
+time RULING A has held against a destination that actually landed MET, and it declined for
+a reason worth more than the verdict: criterion 3 is about **mass** creation, and bounded
+issuance plus *"an unissued identity buys nothing"* only yields a per-identity price **if
+one certificate admits exactly one identity**. That binding exists in `fabric-node.ts` and
+**no test observes it** — neutralising it stays green across 8 files and 5 runs, while the
+control plant reddens, so the silence is a fact about the corpus rather than about the day.
+
+**Both carried criteria arguably rest on that same unguarded binding, and the two verdicts
+disagree. That is an owner adjudication and is recorded as one** rather than settled by
+whichever pass ran last.
 
 **The mechanism is real, armed and measured.** `RelayAdmission` is a required named union
 at 70 construction sites; `relayAdmissionGate` reads it and returns *no gater method at
