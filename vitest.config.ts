@@ -210,7 +210,11 @@ const NODE_MEASUREMENT = {
    * `// wall clock, hook-shadowed` note, add the same figure to `sumOfFileSpansMs`, and drop
    * `unitFiles` by one — or re-measure.
    */
-  files: 167,
+  // 167 -> 169 on 2026-08-07: two node-project files arrived with the elfconv loader-port
+  // tests. One of them, the differential, is above SLOW_CUTOFF_MS and so joins EXCLUDED;
+  // the other is not. So `files` grows by two while `EXCLUDED.length` grows by one, and
+  // `unitFiles` by one -- the derivation the guard checks.
+  files: 169,
   tests: 2240,
   /**
    * Sum of the per-file costs the table below records — reporter spans for the files the
@@ -234,7 +238,11 @@ const NODE_MEASUREMENT = {
    * 7 943 ms discrepancy above is still carried and still unreconciled — three passes deep
    * now, and each has declined to absorb it for the same reason.
    */
-  sumOfFileSpansMs: 1_486_198,
+  // 1 486 198 -> 1 817 366 on 2026-08-07: + 331 010 for the differential (wall clock,
+  // `/usr/bin/time -p`, real 331.01) and + 158 for elf-loader-facts (reporter, solo).
+  // Added rather than re-summed from a fresh full-suite run, which is the same method the
+  // 2026-08-06 re-siting used; the guard requires only that this cover the listed spans.
+  sumOfFileSpansMs: 1_817_366,
   /**
    * What `--reporter=json` alone said the same run summed to, i.e. the same number with
    * the three hook-shadowed files left at the value the reporter gave them.
@@ -353,7 +361,7 @@ const NODE_MEASUREMENT = {
    * keeps this field from being a derivation wearing a measurement's clothes was taken
    * against this table, and its reading is recorded below.
    */
-  unitFiles: 110,
+  unitFiles: 111,
   /**
    * **1650 → 1716 and 7 750 → 25 950 on 2026-08-06 by Plan 24-07, both OBSERVED on one green
    * run**, which is the retake the `unitFiles` docblock above has been asking for since the
@@ -401,8 +409,21 @@ const NODE_MEASUREMENT = {
    * mostly wait. It is also why the ~21 s this row was hiding never showed up as 21 s of
    * anybody's wall clock, and why it went unnoticed for as long as it did.
    */
-  unitTests: 1685,
-  unitWallClockMs: 24_590,
+  // 1685 -> 1693 and 24 590 -> 33 680 on 2026-08-07, both OBSERVED on one GREEN
+  // `npm run test:unit`: 111 files, 1692 passed | 1 skipped, Duration 33.68 s
+  // (/usr/bin/time -p real 35.10, user 57.37, sys 11.17 -- (user+sys)/real 1.95).
+  // The +8 is elf-loader-facts' eight cases; the differential's six do not appear here
+  // because it is excluded from this loop, which is the whole reason it was measured.
+  //
+  // TREAT THIS FIGURE AS SOFT. A first run of the same table on the same host read
+  // 25.69 s -- a 31 % spread between two runs minutes apart, so any comparison against
+  // this number that turns on less than a third of it is reading the host's weather.
+  // It is recorded because the field is defined as a wall clock, not because a wall
+  // clock is a good instrument. That first reading is also NOT the one recorded here:
+  // it came from a run in which slow-specs itself was red, and a figure from a failing
+  // run is not a measurement of this suite.
+  unitTests: 1693,
+  unitWallClockMs: 33_680,
 } as const
 
 /**
@@ -753,6 +774,16 @@ const NODE_MEASUREMENT = {
  */
 const MEASURED_NODE_SPANS: readonly (readonly [string, number])[] = [
   ['tools/aot/lift.node.test.ts', 371_637],
+  // Added 2026-08-07 with the elfconv loader-port differential. Wall clock from
+  // `/usr/bin/time -p` on a solo run: real 331.01, user 0.83, sys 0.32. The reporter agreed
+  // here (329.81 s) because vitest attributed the `beforeAll` to `tests`, so this row needs
+  // no hook-shadow note — unlike `echo-guest` below. `(user+sys)/real` is **0.003**, which is
+  // a comparability key and not an alarm: the whole span is one `docker run` that builds
+  // elflift from source and lifts eight times, so this process is WAITING, not starving. It
+  // is above `SLOW_CUTOFF_MS` by a factor of 331, so it is excluded from `test:unit` — which
+  // is the point of measuring it rather than leaving it off the table, where it would have
+  // silently added five and a half minutes to every pre-commit run.
+  ['tools/aot/elfconv-differential.node.test.ts', 331_010],
   ['tools/aot/echo-guest.node.test.ts', 255_540],  // wall clock; reporter said 600
   ['packages/node/src/discovery-agents.node.test.ts', 86_064],
   // Added 2026-08-06 by Plan 24-03 — see NODE_MEASUREMENT.files on what was retaken with
