@@ -1,17 +1,33 @@
 ---
 phase: 17-node-identity-enrollment
 verified: 2026-08-01T03:50:00Z
-amended: 2026-08-05T02:11:20Z
-status: gaps_found
-score: 2/3 success criteria fully met (1 PARTIAL)
+amended: 2026-08-07T08:16:20Z
+status: human_needed
+score: 3/3 success criteria met (criterion 3 closed 2026-08-07, carrying Phase 24 criterion 8's bound verbatim)
 original_status: gaps_found
 original_score: 1/3 success criteria fully met (2 PARTIAL)
 requirements: [AUTH-01, AUTH-02, AUTH-04]
-typecheck: "npx tsc --noEmit — exit 0 (2026-08-01), re-run exit 0 (2026-08-05)"
+typecheck: "npx tsc --noEmit — exit 0 (2026-08-01), re-run exit 0 (2026-08-05), re-run exit 0 (2026-08-07, real 1.37 user 2.12 sys 0.40)"
 mutations_planted: 3
 mutations_caught: 3
 amendment_mutations_planted: 4
 amendment_mutations_caught: 4
+third_amendment_mutations_planted: 2
+third_amendment_mutations_caught: 1
+fourth_amendment_mutations_planted: 2
+fourth_amendment_mutations_caught: 2
+carried_bound: >-
+  Criterion 3 closes ONLY by carrying Phase 24 criterion 8's stated bound verbatim, per owner
+  ruling 2026-08-07 (the NARROW reading, confirmed over the wider one): "The default posture of
+  `bin/agent.ts`, `bin/seed.ts` and `bin/bench.ts` is **open**, and must be: nineteen
+  `bin/agent.ts` and three `bin/seed.ts` argv sites depend on it, and
+  `reservation-exhaustion.node.test.ts` arm A is a **live behavioural guard** on it — read at the
+  source, lines 285-317: 'a seed whose no-flag posture had become anything but
+  `admits-any-peer` reddens here, by name, before B is ever read', backed by
+  `expect(a.stderr()).not.toContain('PERMISSION_DENIED')`. Criterion 8 is MET **of a fabric an
+  operator has closed**, and this repository ships open by default on purpose." Both option types
+  make `relayAdmission` required with no default, so the API cannot express silence; only argv has
+  a default. A carried criterion inherits no more than its destination delivered.
 gaps_closed:
   - truth: "A second node started via `bin/agent.ts` verifies the first node's certificate offline, with no live call to any certificate authority, before treating it as a legitimate peer"
     closed_by: "Plan 18-01 — `--peer-addr` on `bin/agent.ts` (`9748608`, 2026-08-01)"
@@ -29,47 +45,45 @@ gaps_closed:
       pinned issuer excludes an uncertificated tab by name (`no-records`) and then contains
       an enrolled tab in `verifiedPeers`, with the certificate's `nodeKey` resolving through
       `peerIdForNodeKey` to that tab's own peer id. Planted red by this verifier (R3).
-gaps:
   - truth: "Enrolling many node identities in a burst through the same entry point is rate-limited — refused beyond a stated threshold rather than accepted unbounded — making mass fake-node creation measurably costly"
-    status: partial
-    reason: >-
-      The rate-limiting clause is now met in full and both 2026-08-01 escapes are closed and
-      measured: an aggregate `maxIssuedPerWindow` the requester cannot rotate around, and an
-      `FsIssuance` record that a provider restart on the same `--dir` does not hand back. The
-      COST clause is still not met, and re-measurement shows why it cannot be met here — it is
-      an ADMISSION property, not a SELECTION one. An unissued identity still joins the fabric,
-      is still advertised, is still dialled and is still used by every peer that pins no issuer
-      (`PeerVerifier` fails open; `SeedServer` has no certificate check), so bounding issuance
-      does not bound fake-node creation. The enrol branch is additionally cheaper for the
-      attacker than for the provider — measured 2.96–3.16× across nine readings.
-    artifacts:
-      - path: "packages/core/src/enrollment.ts"
-        issue: "the aggregate bound refuses the N-th identity inside the window; it does not price it, and `possessionChallenge` carries no nonce so a refusal is replayable at ~1/3758th of what refusing costs"
-      - path: "packages/node/src/seed-server.ts"
-        issue: "no certificate check of any kind — every reservation holder is published to every arriving peer"
-      - path: "packages/node/src/peer-verifier.ts"
-        issue: "`verifiedPeers` returns the whole connected set when `trustedIssuers` is empty, and `FabricNodeOptions.trustedIssuers` is optional with no default"
-    missing:
-      - "Certificate-gated ADMISSION — a node that cannot present a provider-issued certificate cannot reserve a circuit, be advertised, or be dialled"
-    addressed_in: "Phase 24 criterion 8 (owner ruling 2026-08-04), routed there from Phase 19 criterion 5, which was routed from this criterion on 2026-08-01"
-deferred:
-  - truth: "making mass fake-node creation measurably costly"
-    addressed_in: "Phase 24 — Certificate-Gated Admission, criterion 8"
+    closed_by: >-
+      Phase 24 criterion 8 (MET 2026-08-06, `580e461`) for the cost clause itself, PLUS commit
+      `8719029` (2026-08-06, `relay-admission.node.test.ts` +204, ledger entry M68) for the
+      composing link the 2026-08-06 amendment declined on — one certificate admits exactly one
+      identity.
     evidence: >-
-      "Enrolment's cost is bounded by admission, not by a counter: a node that cannot present a
-      provider-issued certificate cannot join the fabric, advertise itself, or be dialled by
-      another node — so an identity that was never issued buys nothing, and the N-th identity
-      costs an attacker a provider's willingness to sign it." Phase 17 is NOT counted as closing
-      on this — the ROADMAP's own standing rule, recorded at Phase 18 RULING A, is that a
-      criterion is not rewritten to let a phase close.
+      Re-planted by the fourth-pass verifier on 2026-08-07 and WATCHED going red, which the
+      2026-08-06 pass could not do. `packages/node/src/fabric-node.ts` in `relayAdmissionGate`,
+      `if (certificate.nodeKey !== expected)` -> `... && expected === ''`: `PLANTED_P1_EXIT=1`,
+      `Tests 1 failed | 59 passed (60)`, the failure being arm 1 of
+      `relay-admission.node.test.ts`'s new case — `AssertionError: expected false to be true` at
+      `:1466`, i.e. the door ADMITTED a peer holding somebody else's certificate. Matched clean
+      baselines on the same two files, same command, before and after: 60 passed, exit 0 twice.
+      The both-ways control holds: the identical edit in `packages/node/src/peer-verifier.ts:678`
+      leaves the new door case GREEN while reddening `peer-verifier.node.test.ts`'s own borrowed
+      row (`expected true to be false` at `:482`) — two copies of one comparison, two separate
+      guards, neither standing in for the other.
+    bound: "Closes carrying `carried_bound` above verbatim. See the 2026-08-07 amendment for the two limits stated at the verdict."
+gaps: []
+deferred: []
 human_verification:
   - test: "Decide who owns the one leg of AUTH-02 that no phase currently names: a browser tab cannot pin an issuer. `BrowserNodeOptions` has no `trustedIssuers` field, `peer-verifier.ts` lives in `@o2/node`, and `@o2/browser` does not depend on it."
     expected: "Either a phase is given the leg, or the asymmetry is recorded in ROADMAP.md as accepted. AUTH-02 cannot be ticked while it stands."
     why_human: >-
-      A scheduling decision. It is no longer the Phase 17 defect — a tab is now taken by pinning
-      peers on identical terms — but a tab is still unable to REFUSE anyone, and Phase 24's own
-      note records that the front door has no `trustedIssuers` either, which is a different leg
-      of the same absence.
+      A scheduling decision, and it is NOT a criterion-3 matter and NOT a Phase 17 defect — a tab
+      is now taken by pinning peers on identical terms. It is carried unchanged from the
+      2026-08-05 amendment. Phase 24's own note records that the front door has no
+      `trustedIssuers` either, which is a different leg of the same absence. The phase scores 3/3
+      on its criteria; this item is why `status` is `human_needed` rather than `passed`.
+  - test: "Adjudicate the reading of criterion 3's word `costly`. This close delivers a BOUND made durable plus DEVALUATION (an unissued identity buys nothing at a closed door), not a GRADUATED price — the N-th identity is refused inside the window rather than priced above the first."
+    expected: "Confirm the 2026-08-04 devaluation ruling governs criterion 3 as it governed Phase 19 criterion 5, which closed at 5/5 on it (`ac7b214`)."
+    why_human: >-
+      An owner reading, not a measurement. It is recorded rather than assumed because
+      `REQUIREMENTS.md`'s AUTH-04 row states in its own words that a verifier reading the clause
+      as requiring a rising cost should score it PARTIAL, and `8719029`'s own message repeats it.
+      This verifier applied the 2026-08-04 ruling because the owner routed criterion 3's cost
+      clause to criterion 8 and criterion 8 is MET on that ruling — but the ruling is the owner's
+      to confirm, not a verifier's to assume.
 ---
 
 # Phase 17: Node Identity & Enrollment — Verification Report
@@ -1258,5 +1272,491 @@ after; both plants restored with `cp`, confirmed with `cmp` exit 0, `shasum -a 2
 pre-plant digest, and `git diff --quiet` over the whole tree exit 0._
 _Verifier: Claude (gsd-verifier), third pass — goal-backward re-verification against the
 destination phase._
+_No source, test, ledger, roadmap or state file was modified. Nothing was staged, committed or
+stashed. Every exit code above was read with `EXIT=$?` on the immediately following line._
+
+---
+
+## Amendment — 2026-08-07: criterion 3 **CLOSES**, and the score becomes **3/3**
+
+**Score: 2/3 → 3/3 criteria.** Everything above — the 2026-08-01 initial pass and the amendments
+of 2026-08-05 and 2026-08-06 — is left standing; **nothing in any of them is retracted**. The
+2026-08-06 pass was right on the day it was written, and this amendment closes the criterion on
+the exact evidence that pass specified and could not then find.
+
+**Re-verified:** 2026-08-07T08:16:20Z, at `ba5c473`, branch
+`feature/phase-18-discovery-capacity-placement`. Working tree `git status --porcelain` **empty**
+before the session, after every restore, and at the end.
+**Scope: criterion 3 ONLY.** Criteria 1 and 2 are MET and were **not re-adjudicated**, by
+instruction. Phase 24 criterion 8's MET is **not re-adjudicated** either — that verdict is the
+destination phase's.
+**Verdict:** criterion 3 **MET**, phase **3/3**, carrying criterion 8's stated bound verbatim.
+
+**The short form.** The 2026-08-06 amendment declined for one named, measured reason: bounded
+issuance plus *"an unissued identity buys nothing"* only yields a per-identity price **if one
+certificate admits exactly one identity**, that binding lives in `fabric-node.ts`'s
+`relayAdmissionGate`, and **no test observed it** — plant P1 stayed green across eight files and
+five runs while the control reddened. Commit `8719029` claims to close exactly that. **This
+verifier did not take the claim.** It re-planted P1 itself, watched it go red, ran the both-ways
+control the commit rests on, and watched both halves of that behave as claimed. The declining
+verifier's own closure specification is satisfied, and it is satisfied by measurement rather than
+by a commit message.
+
+---
+
+### What the 2026-08-06 pass said would close it, quoted from four hundred lines above
+
+> One test, and it is cheap. At a relay pinning issuer A, a peer that holds a genuine, unexpired,
+> A-signed certificate **for a different node key** asks for a reservation and is refused by name,
+> against a control in the same run that is admitted — the `peer-verifier.node.test.ts:448` shape,
+> moved to the door. It must redden when `fabric-node.ts:949` is neutralised, and that must be
+> watched rather than assumed.
+
+Delivered by `8719029` — *"test(auth-04): a borrowed certificate is refused AT THE DOOR, and the
+proof runs both ways"*, 2026-08-06 21:50:55 -0700. `git show --stat`: **two files, 240 insertions,
+1 deletion** — `relay-admission.node.test.ts` +204 and `mutation-ledger.ts` +37. No production
+source changed, which is the right shape for a gap that was an absence of observation rather than
+an absence of mechanism.
+
+The criterion text is unchanged and was re-checked rather than assumed: `.planning/ROADMAP.md:491`
+reads verbatim as quoted at the head of this section, and `git log -L491,491:.planning/ROADMAP.md`
+still returns **exactly one commit** — `c3e6fe1` (2026-07-27), the line's addition. Criterion 8 at
+`ROADMAP.md:1189` is likewise unedited (`git log -L` → `3cc5a83` alone). **RULING A is honoured in
+both directions: nothing was softened to let this phase close, and nothing was stretched to keep
+it open.**
+
+---
+
+### The case that now exists, read at the source rather than from its title
+
+`packages/node/src/relay-admission.node.test.ts:1374`, inside
+`describe('AUTH-02 — the relay consults RelayAdmission at the reservation, and only there')`:
+
+> `it('refuses a peer presenting a certificate issued to a different peer, and admits the peer that certificate names')`
+
+Its subject is the production symbol: line 14 of that file is
+`import { FabricNode, relayAdmissionGate } from './fabric-node.ts'` — the door's own predicate, not
+a re-implementation. Nothing in the fixture is forged: a real `EnrollmentAuthority`, a real
+`requestEnrollment`, one certificate whose `nodeKey` is asserted to be the rightful peer's
+(`:1409`) and whose `expiresAt` is asserted to be in the future (`:1410`). The premise is asserted
+rather than assumed — `borrower.nodeKey !== rightful.nodeKey` and
+`borrower.peerId !== rightful.peerId` at `:1388-1389`, so two colliding seeds cannot make the
+reading pass for an unrelated reason.
+
+**One certificate, served at two addresses on one `MemoryNetwork`, asked by one gate pinning that
+authority.** Arm 1 (`:1466`): the borrower answers a `records` ask about *its own* key with the
+document naming somebody else, and is refused — `true` denies. Arm 2 (`:1471`): the peer that
+certificate names, same gate, same pinned set, moments later — **admitted**.
+
+Arm 2 is what makes arm 1 a reading rather than a claim, and this verifier agrees with that
+reasoning after checking it: a certificate that the same gate admits cannot be unsigned, cannot be
+expired and cannot be from an unpinned issuer, so the borrower's refusal has nowhere else to come
+from. It is closed from the other side by three negatives at `:1493-1495` — the refusal must **not**
+contain `refused:` (the prefix every `verifyCertificate` failure reaches an operator through),
+`not a pinned provider`, or `holds no provider-issued certificate`. And `:1499-1503` records the
+key each server was *asked* about, so the borrower's server must have been asked for the
+**borrower's own** key — which is the fact `expected` rests on, and the fact that makes the refusal
+about *who is holding* the document rather than about the document.
+
+---
+
+### Plant P1-R — the same plant as 2026-08-06, re-planted, and this time it **reddens**
+
+**Counted before running, because an unapplied plant and a green plant are identical in a log.**
+`grep -c "if (certificate.nodeKey !== expected) {"` → `packages/node/src/fabric-node.ts` **1**,
+`packages/node/src/peer-verifier.ts` **1**. Exactly one target site per file, so each plant's own
+effect is one line and the effect count is known before the run rather than inferred from it.
+
+`packages/node/src/fabric-node.ts` was `shasum -a 256` **`d6688f731cd472525ef21f1f331e708465686005c7c27ade7788da106ca15648`** before planting —
+**byte-identical to the digest the 2026-08-06 amendment recorded at `1028cc1`**. The plant target is
+therefore provably the same source the earlier pass measured green, and the difference between the
+two results cannot be a difference in the production file.
+
+Applied, in `relayAdmissionGate`:
+
+```diff
+-      if (certificate.nodeKey !== expected) {
++      if (certificate.nodeKey !== expected && expected === '') {
+```
+
+`git diff --stat` immediately after: **`1 file changed, 1 insertion(+), 1 deletion(-)`**, one hunk,
+and `git status --porcelain` over the whole tree showed **`M packages/node/src/fabric-node.ts`**
+and nothing else. Every type, symbol and both refusal strings byte-intact; `expected` is a
+64-character lowercase hex string at that point (null-checked at `:900`), so the guard is dead and
+a certificate naming **any** node key is carried straight to `verifyCertificate`.
+
+**Command** (identical to the baseline command, same two files, same order):
+`npx vitest run --project node packages/node/src/relay-admission.node.test.ts packages/node/src/peer-verifier.node.test.ts`
+
+**`PLANTED_P1_EXIT=1`** — read with `EXIT=$?` on the immediately following line, no pipe, no
+trailing filter. `Tests 1 failed | 59 passed (60)`, `real 28.67 user 10.74 sys 2.10`, load 32.45.
+Verbatim:
+
+```
+ ❯ |node| packages/node/src/relay-admission.node.test.ts (38 tests | 1 failed) 24442ms
+     × refuses a peer presenting a certificate issued to a different peer, and admits the peer
+       that certificate names 28ms
+
+ FAIL  |node| packages/node/src/relay-admission.node.test.ts > AUTH-02 — the relay consults
+ RelayAdmission at the reservation, and only there > refuses a peer presenting a certificate
+ issued to a different peer, and admits the peer that certificate names
+AssertionError: expected false to be true // Object.is equality
+
+- Expected
++ Received
+
+- true
++ false
+
+ ❯ packages/node/src/relay-admission.node.test.ts:1466:63
+    1465|       // ---- arm 1: the borrower. `true` denies. --------------------…
+    1466|       expect(await gate?.(peerIdFromString(borrower.peerId))).toBe(tru…
+```
+
+**The failure is semantically the defect and not a side effect.** `true` denies; the door returned
+`false`, meaning it **admitted** a peer presenting a certificate issued to somebody else. That is
+precisely the property whose absence the 2026-08-06 pass declined on.
+
+**Restored by the surgical inverse of this verifier's own edit — not by `cp`.** The one planted
+line was reversed by the exact inverse substitution, then: `cmp` against a snapshot taken
+*immediately before planting* → **`CMP_P1_RESTORE_EXIT=0`**; `shasum -a 256` back to
+`d6688f73…`; `git diff --quiet` over the **whole tree** → exit 0; `git status --porcelain` →
+**empty**. No `git checkout --`, `restore`, `stash`, `reset`, `clean`, `add` or `commit` at any
+point.
+
+---
+
+### Plant P4 — the both-ways control, which is what stops the green being vacuous
+
+`8719029`'s central claim is not that the new case reddens. It is that the new case reddens for
+the **door's** copy of the comparison and not for `peer-verifier.ts`'s — two copies, two guards,
+neither standing in for the other. Without that second column, a case that merely tracked
+`peer-verifier`'s behaviour would prove nothing about admission. **So it was run.**
+
+`packages/node/src/peer-verifier.ts:678` — the SELECTION-side copy, guarded since 17-05 — planted
+with the identical edit (the ledger's note cites `:527`; the line has drifted to `:678` and the
+citation is stale, see F2 below):
+
+```diff
+-    if (certificate.nodeKey !== expected) {
++    if (certificate.nodeKey !== expected && expected === '') {
+```
+
+`git diff --stat` → `1 file changed, 1 insertion(+), 1 deletion(-)`; whole-tree status
+`M packages/node/src/peer-verifier.ts` **and nothing else** — `fabric-node.ts` provably clean, so
+the two plants never overlapped.
+
+**Same command. `PLANTED_P4_EXIT=1`**, `Tests 2 failed | 58 passed (60)`,
+`real 25.47 user 9.55 sys 1.86`, load 45.78:
+
+```
+ ❯ |node| packages/node/src/peer-verifier.node.test.ts (22 tests | 2 failed) 2938ms
+     × refuses a certificate borrowed from another node as nodeKey-mismatch, naming both keys 21ms
+     × never re-asks a refusal that cannot change, however often the gate is read 61ms
+
+ FAIL  … > AUTH-02 — the five peer-level refusals > refuses a certificate borrowed from another
+ node as nodeKey-mismatch, naming both keys
+AssertionError: expected true to be false // Object.is equality
+ ❯ packages/node/src/peer-verifier.node.test.ts:482:24
+    482|     expect(verdict.ok).toBe(false)
+```
+
+and, in the same run, **`packages/node/src/relay-admission.node.test.ts` passed in full** — the
+file does not appear in the failure list, and the summary reads `Test Files 1 failed | 1 passed
+(2)` with the 38 relay-admission tests among the 58 that passed.
+
+**Both halves hold, as claimed:**
+
+| Plant | `relay-admission` new case | `peer-verifier` borrowed row | Exit |
+|---|---|---|---|
+| `fabric-node.ts:949` (P1-R) | **RED** — `expected false to be true` | green | **1** |
+| `peer-verifier.ts:678` (P4) | **green** | **RED** — `expected true to be false` | **1** |
+
+The new case observes **the door**. It is not a second reading of `PeerVerifier` wearing a
+different title, and it does not pass because some sibling check happened to fire. This is the
+column that makes the close a measurement.
+
+**Restored** by the surgical inverse: `CMP_P4_RESTORE_EXIT=0`, `shasum -a 256` back to
+`2a36ca52e5a2f69d5589fdd8bfdad538aa85fd4196d84aebbcf35b2d0c6594d8`, whole-tree `git diff --quiet`
+exit 0, `git status --porcelain` empty.
+
+---
+
+### Attribution — matched clean baselines on both sides of both plants
+
+A red is worth nothing without a green it can be compared to on the same files, the same command
+and the same tree.
+
+- **Before any plant:** `BASE1_EXIT=0`, `Test Files 2 passed (2) | Tests 60 passed (60)`,
+  `real 30.59 user 11.56 sys 2.70`, load 38.07.
+- **After both restores:** `BASE2_POST_RESTORE_EXIT=0`, `Tests 60 passed (60)`,
+  `real 28.63 user 10.83 sys 2.04`, load 70.78, `git status --porcelain` empty.
+
+Sixty green, one line planted, fifty-nine green and one red at the arm the plant disables;
+restore, sixty green again. The comparison is within one session on one host, which is the
+comparative reading this repository's conventions ask for rather than an absolute threshold.
+
+**`npx tsc --noEmit` → `TSC_EXIT=0`**, `real 1.37 user 2.12 sys 0.40`, on the restored tree.
+
+**The repository's own guard, run rather than cited:**
+`npx vitest run --project node packages/node/src/mutation-guard.node.test.ts` →
+**`MUTATION_GUARD_EXIT=0`**, `Tests 148 passed (148)`, `real 2.69`. M68 is a real ledger entry, its
+`find`/`replace` pair is byte-identical to the plant this verifier ran, and its recorded signature
+— *"AssertionError: expected false to be true"* against the test title
+*"refuses a peer presenting a certificate issued to a different peer, and admits the peer that
+certificate names"* — **matches what this verifier independently observed**. So the mutation is
+pinned by the harness, not only described in a report, which is this repository's own standing rule.
+
+---
+
+### The known flake: **not observed**, and not re-raised
+
+The 2026-08-06 pass recorded `relay-admission.node.test.ts` arm 3 reddening fail-open on an
+unmutated tree, 2 in 12; the owner records that this was later refuted as a concurrent agent's live
+plant, at a cost of 111 executions and a `node_modules` patch.
+
+**This verifier observed it zero times in four executions of that file** — baseline, under P1-R,
+under P4, and the post-restore baseline. Under P1-R the file reported `38 tests | 1 failed` with
+the **only** `×` being the new case, so arm 3 passed in that run too. Arm 3's assertion shape
+(`expected [ …(2) ] to not include '12D3Koo…'`) is distinct from the P1-R failure
+(`expected false to be true` at `:1466`), so the two can never be confused, and P1-R's red is not
+attributable to it.
+
+**No new evidence, so no defect is raised.** Recorded as four more clean observations for whoever
+holds the tally, and nothing more.
+
+---
+
+### The adjudication — what the cost clause now rests on, and what it does not
+
+The chain criterion 3's cost clause needs, with the state of each link measured rather than
+asserted:
+
+| # | Link | State | Where it is measured |
+|---|---|---|---|
+| 1 | Issuance is bounded by a quantity the requester cannot mint | **MET** | `maxIssuedPerWindow` + `FsIssuance`; plant P2 (2026-08-06) reddened 10 tests across 3 files against a matched baseline. Not re-run here — it is not in this pass's scope and it was watched red by the previous verifier |
+| 2 | An unissued identity buys nothing — it cannot join, be advertised, or be dialled | **MET** | Phase 24 criterion 8, `580e461`. **Not re-adjudicated by this pass** |
+| 3 | **One certificate admits exactly one identity** — without which an attacker buys one signature and mints N nodes | **MET as of `8719029`, and now MEASURED** | `relay-admission.node.test.ts:1374`; plant P1-R **watched red at exit 1 by this verifier**, with the both-ways control P4 confirming the case observes the door and not the selector |
+
+Link 3 was the sole ground of the 2026-08-06 decline, in that verifier's own words: *"nothing in
+the repository would notice if it stopped."* Something now would. Criterion 3's verb is
+*measurably*, and the composition is now measured end to end.
+
+**The criterion closes at 3/3, carrying Phase 24 criterion 8's stated bound VERBATIM**, per the
+owner ruling of 2026-08-07 confirming the NARROW reading over the wider one. A carried criterion
+inherits no more than its destination delivered:
+
+> **The bound this MET carries, stated at the verdict rather than in a footnote.** The default
+> posture of `bin/agent.ts`, `bin/seed.ts` and `bin/bench.ts` is **open**, and must be: nineteen
+> `bin/agent.ts` and three `bin/seed.ts` argv sites depend on it, and
+> `reservation-exhaustion.node.test.ts` arm A is a **live behavioural guard** on it — read at the
+> source, lines 285-317: *"a seed whose no-flag posture had become anything but
+> `'admits-any-peer'` reddens here, by name, before B is ever read"*, backed by
+> `expect(a.stderr()).not.toContain('PERMISSION_DENIED')`. Criterion 8 is MET **of a fabric an
+> operator has closed**, and this repository ships open by default on purpose.
+
+*"The fabric"* is read as a fabric this repository can be **deployed and operated as**, with an
+admission posture stated on every relay-capable door — **not** the default argv. Both option types
+make `relayAdmission` **required with no default**, so the API cannot express silence; only argv
+has a default.
+
+**The bound's substance was re-checked at `ba5c473` rather than transcribed.** The default-open
+ternary is live in both binaries — `bin/seed.ts:198` and `bin/agent.ts:901`, both reading
+`values['admit-issuer'] === undefined ? 'admits-any-peer' : new Set(values['admit-issuer'])` — and
+`reservation-exhaustion.node.test.ts:285-317` still carries arm A in the words quoted, with
+`expect(a.stderr()).not.toContain('PERMISSION_DENIED')` at `:317`. The arithmetic *"nineteen plus
+three"* originates at `24-06-PLAN.md:275`; **this verifier did not recount it and does not certify
+the two integers**, exactly as the 2026-08-06 pass did not.
+
+#### Two further limits, stated at the verdict rather than in a footnote
+
+**LIMIT 1 — the borrowed case is measured at the PREDICATE, not at a live reservation.** The new
+case calls `relayAdmissionGate` directly over `MemoryNetwork`; its own docblock says so
+(*"It cannot show libp2p really consults the gate at a reservation"*). The reservation leg is
+carried by a **different** case in the same file — the three live arms at `:1035`, which start real
+`FabricNode`s on real `/ip4/127.0.0.1/tcp/0/ws` listeners and distinguish three peers by identity
+at a real reservation — together with the structural row at `:670` that pins there being exactly
+one production caller of the predicate. **The close rests on the conjunction of two readings, not
+on one.** This verifier judges the conjunction sound: the live case establishes that this predicate
+is what libp2p consults and that the gated peer's own id is what reaches it; the new case
+establishes that the predicate binds the certificate to that id. It is recorded because a later
+reader should know the borrowed peer was never a live joiner.
+
+**LIMIT 2 — this is a BOUND plus DEVALUATION, not a GRADUATED price.** The N-th identity is refused
+inside the window rather than priced above the first. `REQUIREMENTS.md`'s AUTH-04 row says so in its
+own words, and `8719029`'s message repeats it: *"it does NOT convert a bound into a graduated
+cost."* This verifier applied the owner's devaluation ruling of 2026-08-04 — under gated admission
+an unissued identity is worth nothing, so the price of the N-th identity is a provider's signature,
+which is the unmintable thing — because the owner routed criterion 3's cost clause to criterion 8
+**on that ruling** and criterion 8 is MET **on that ruling**, and because Phase 19 criterion 5,
+whose text is the stricter *"the N-th … demonstrably more expensive than the first"*, closed at 5/5
+on it (`ac7b214`). **A reader who takes criterion 3's `costly` to require a rising per-identity
+price has the same answer today as on 2026-08-01.** That reading is escalated for owner
+confirmation in the frontmatter rather than settled here, because it is a reading and not a
+measurement.
+
+#### What this close is NOT
+
+- It is **not** a rewrite of criterion 3. `ROADMAP.md:491` is unedited, one commit in `git log -L`.
+- It is **not** a re-adjudication of criterion 8, of criterion 1, or of criterion 2.
+- It is **not** a claim that the enrolment DoS surface shrank. `serveAgent`'s `enrol` branch still
+  takes no authorization step, refuse-over-mint still sits at ~3.07-3.09× and the replay ratio at
+  ~9351-9577×. That exposure is **accepted deliberately** by owner decision and is not this
+  criterion's to carry — recorded so it is not re-filed.
+- It is **not** a claim that the repository is closed by default. It ships open, on purpose, and
+  that is the whole of the carried bound.
+
+---
+
+### Findings that are **not** about criterion 3
+
+Recorded because they were found while doing this work, not because they bear on the verdict.
+
+**F1 — `ROADMAP.md:1140` and `:1147` are now stale in the opposite direction from before.** Both
+rows were correctly updated after the 2026-08-06 decline and both now assert that criterion 3 does
+not close and that *"no test observes"* the binding. `8719029` landed **within the hour** of the
+row being written and both statements are false at `ba5c473`. `:1147` additionally poses *"the two
+verdicts arguably rest on the same unguarded binding and disagree — an owner adjudication"*; that
+question is now **answered by the code** rather than needing an adjudication — the binding is
+guarded, so Phase 19's close and Phase 17's close agree. See L1/L2 below.
+
+**F2 — a stale line citation inside the mutation ledger.** `mutation-ledger.ts` M68's `why` text
+cites the selection-side copy as `peer-verifier.ts:527`; it is at **`:678`** at `ba5c473`, moved by
+`c12bf86` and `e642d96`. The `find`/`replace` pair is string-based and therefore unaffected — the
+guard passes 148/148 — so this is a prose citation rotting, the same rot the 2026-08-05 amendment
+recorded as warnings W2 and W9 and answered with *"cite by symbol"*. **Not a defect; a two-word
+fix** whenever that block is next touched.
+
+**F3 — the `verifiedPeers` cache row is a second guard on the same comparison.** Under P4, a
+second `peer-verifier.node.test.ts` row reddened: *"never re-asks a refusal that cannot change,
+however often the gate is read"* (`:743`). That row asserts a refusal is memoised, so neutralising
+the `nodeKey-mismatch` branch flips it too. Noted as a **strength** — the selection-side binding
+has two independent observers, where the door now has one.
+
+**F4 — this pass ran on a host at 1-minute load 32-71**, far above the 6-15 the 2026-08-06 pass
+recorded, and the readings did not change shape: the same 60 tests, the same wall times to within
+2 s, no new intermittency. Recorded as a comparability key, not as a verdict.
+
+---
+
+### LEDGER EDITS RECOMMENDED (not applied)
+
+**A verifier may not write `.planning/STATE.md`, `.planning/ROADMAP.md` or
+`.planning/REQUIREMENTS.md`, and this verifier wrote none of them.** Each item below is a **false**
+statement at `ba5c473`, not a matter of taste.
+
+**L1 — `.planning/ROADMAP.md:1140`, the Phase 17 row. Verdict and reason are now both false.** It
+reads *"2 of 3 criteria"*, *"criterion 3's COST clause not met"*, and *"The binding exists in
+`fabric-node.ts`; **no test observes it** (neutralising it is green across 8 files and 5 runs …).
+One test at the door closes this"*. That test landed in `8719029` within the hour. Replace the
+score with **3/3** and the reason with: *"Criterion 3 CLOSED 2026-08-07 by the fourth amendment to
+`17-VERIFICATION.md`. The link the 2026-08-06 decline named — one certificate admits exactly one
+identity, `fabric-node.ts` `relayAdmissionGate` — was guarded by `8719029` and the plant was
+**re-planted and watched red by the verifier** (exit 1, `expected false to be true` at
+`relay-admission.node.test.ts:1466`), with the both-ways control confirming the case observes the
+door and not `peer-verifier.ts`. **Closes carrying Phase 24 criterion 8's stated bound verbatim**:
+the binaries' default argv posture is open and must be, so the close is of a fabric an operator has
+closed."* Also tick `ROADMAP.md:56`'s Phase 17 checkbox **only if** the human-verification items in
+the frontmatter are dispositioned — they are the AUTH-02 browser-pinning leg and the `costly`
+reading, neither of which is a criterion-3 gap.
+
+**L2 — `.planning/ROADMAP.md:1147`, the Phase 24 row.** It ends *"Criterion 3 needs a third link
+neither criterion names, one certificate admitting exactly one identity, and no test observes it.
+**The two verdicts arguably rest on the same unguarded binding and disagree — an owner
+adjudication**"*. Append: *"Resolved by code rather than by adjudication: `8719029` guarded that
+binding at the door, and Phase 17's fourth amendment (2026-08-07) re-planted it, watched it redden
+and closed criterion 3 at 3/3 carrying this row's bound verbatim. **17 and 19 now agree**, and
+`24-VERIFICATION.md`'s criterion 8 verdict is untouched by either."*
+
+**L3 — `.planning/STATE.md:475`** (and the same claim at `:35`, `:292`, `:1678`). It records
+*"**Phase 17 criterion 3 DECLINED and stays 2/3** (`a3d2215`) — the first [time RULING A held
+against a destination that landed MET]"*. Correct to: *"17 declined on 2026-08-06 (`a3d2215`),
+`8719029` closed the named gap the same evening, and the fourth amendment of 2026-08-07 CLOSED
+criterion 3 at **3/3** on a re-planted, watched red. RULING A held, then was satisfied — which is
+the outcome it exists to produce."* The `11 of 15` tallies that depend on 17 being uncounted need
+recomputing with 17 counted; **this verifier did not recount them and does not certify any tally.**
+
+**L4 — `.planning/REQUIREMENTS.md:274` and `:694`, AUTH-04.** The `[ ]` marker and the row's
+*"What remains open, and why the marker has not moved"* paragraph are now the only thing holding
+AUTH-04 open on the cost clause. Recommended: record that the composing binding is guarded and
+watched (`M68`, `relay-admission.node.test.ts`), **and keep the marker's disposition an owner
+decision**, because the row's own stated ground for staying `[ ]` is the graduated-cost reading —
+LIMIT 2 above — which is a reading rather than a measurement. **This verifier does not recommend
+ticking AUTH-04 without that reading confirmed**, and `acceptance-traceability.node.test.ts`
+couples the checkbox to the traceability verdict text, so the two must move together or not at all.
+
+**L5 — AUTH-02** is unchanged by this pass and its remaining leg (a tab cannot pin an issuer) is
+still escalated in the frontmatter, unresolved since 2026-08-05.
+
+**RECOMMENDED source/test repairs — not ledger:**
+
+- **S1 — CLOSED.** The missing door test named by the 2026-08-06 pass now exists and is guarded by
+  `M68`. Nothing further.
+- **S2 — carried, unresolved.** `relay-admission.node.test.ts` arm 3's fail-open reading. **Not
+  observed here (0 in 4)** and the owner records the 2026-08-06 sighting as refuted — a concurrent
+  agent's live plant. Carried only so the tally is not lost; **no new evidence and no defect
+  raised.**
+- **S3 — carried, unchanged.** `CLOSED_RELAY_CAPABLE`'s docblock in
+  `closed-fabric-agents.node.test.ts` still describes a protection it does not have (destination
+  verifier's W6). Unrelated to this criterion; restated so it is not lost.
+- **S4 — new, cosmetic.** F2 above: M68's `peer-verifier.ts:527` citation should read `:678`, or
+  better, cite by symbol.
+
+---
+
+### What this verifier ran, and read directly
+
+Every exit code was captured with `EXIT=$?` on the line **immediately** following the command — no
+pipes, no trailing filter, no `tail`. Host: 8 cores; `uptime` 1-minute load recorded per row. Runs
+are `npx vitest run --project node <paths>`; **the full node project was never run**, and
+`bench-attestation.node.test.ts` and `discover-arm.node.test.ts` were **never invoked** — both
+snapshot `git status --porcelain` around themselves and this pass moves the working tree. No file
+was created or deleted inside the repository at any point; the two pre-plant snapshots and all
+captured output live outside it, under the session scratchpad.
+
+| # | Command | Exit | Result | `/usr/bin/time -p` | load |
+|---|---|---|---|---|---|
+| 1 | **baseline** — `relay-admission` + `peer-verifier` | **0** | 2 files, **60 passed** | `real 30.59 user 11.56 sys 2.70` | 38.07 |
+| 2 | **P1-R planted** (`fabric-node.ts:949`) — same two files | **1** | **1 failed / 59 passed** — the new door case, arm 1 | `real 28.67 user 10.74 sys 2.10` | 32.45 |
+| 3 | **P4 planted** (`peer-verifier.ts:678`) — same two files | **1** | **2 failed / 58 passed** — `peer-verifier`'s borrowed row **and** its memoisation row; `relay-admission` **passed in full** | `real 25.47 user 9.55 sys 1.86` | 45.78 |
+| 4 | **restored** — `mutation-guard.node.test.ts` | **0** | **148 passed** — M68 still describes the source | `real 2.69 user 1.15 sys 0.36` | 63.14 |
+| 5 | **restored** — `npx tsc --noEmit` | **0** | zero output | `real 1.37 user 2.12 sys 0.40` | — |
+| 6 | **restored, matched baseline** — same two files as rows 1-3 | **0** | **60 passed** | `real 28.63 user 10.83 sys 2.04` | 70.78 |
+
+Rows 1-3 and 6 are spawn- and network-bound (the three live admission arms start real `FabricNode`
+listeners), so `real` legitimately exceeds CPU time; the ratios are a comparability key, not a
+verdict. Rows 1 and 6 are the matched clean baselines that make rows 2 and 3 attributable.
+
+**Tree discipline.** `git status --porcelain` was **empty** before the session, before and after
+every restore, and at the end. Snapshots were taken with `cp` into the session scratchpad
+*immediately before* each plant and used **only** as the `cmp` reference — **every restore was the
+surgical inverse of this verifier's own one-line edit, never a `cp` back**. Each restore was
+confirmed by `cmp` **exit 0**, by `shasum -a 256` back to the pre-plant digest, and by
+`git diff --quiet` over the **whole tree** exit 0. Plant-target occurrence counts were read
+**before** each plant (**1** in each file) so an unapplied plant could not be mistaken for a green
+one. **No `git add`, `commit`, `stash`, `checkout --`, `restore`, `reset` or `clean` was used at any
+point**, no process this verifier did not start was signalled, no other agent was spawned, and the
+two planted files were never modified simultaneously.
+
+---
+
+### Verdict
+
+| | |
+|---|---|
+| **Criterion 1** | MET — unchanged, not re-opened |
+| **Criterion 2** | MET — unchanged, not re-opened |
+| **Criterion 3** | **MET** — rate-limiting clause MET since 2026-08-05; cost clause carried to Phase 24 criterion 8 (MET), and the composing link that the 2026-08-06 pass declined on — one certificate admits exactly one identity — is now guarded by `relay-admission.node.test.ts`, **re-planted and watched red at exit 1 by this verifier**, with the both-ways control holding. **Closes carrying criterion 8's stated bound verbatim** |
+| **Score** | **3 / 3** |
+| **Phase** | `human_needed` — no gaps remain; two items await an owner decision, neither of which is a criterion-3 gap |
+
+**3/3**
+
+---
+
+_Amended: 2026-08-07T08:16:20Z at `ba5c473`, working tree clean before and after; both plants
+restored by the surgical inverse of this verifier's own edit, confirmed with `cmp` exit 0,
+`shasum -a 256` back to the pre-plant digest, and `git diff --quiet` over the whole tree exit 0._
+_Verifier: Claude (gsd-verifier), fourth pass — goal-backward re-verification of criterion 3 only._
 _No source, test, ledger, roadmap or state file was modified. Nothing was staged, committed or
 stashed. Every exit code above was read with `EXIT=$?` on the immediately following line._

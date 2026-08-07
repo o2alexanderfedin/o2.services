@@ -470,8 +470,19 @@ export function describeRefusal(reason: ElfRefusal): string {
       return `not a 64-bit ELF (EI_CLASS ${reason.elfClass}) — the aarch64 targets lift ELF64 only, so rebuild for a 64-bit target`
     case 'not-little-endian':
       return `not a little-endian ELF (EI_DATA ${reason.elfData}) — big-endian AArch64 is a different ABI and is not supported`
-    case 'not-aarch64':
-      return `built for machine ${reason.machine}, not AArch64 (${EM_AARCH64}) — cross-compile the input for aarch64 before translating`
+    case 'not-aarch64': {
+      // `EM_X86_64`. Named rather than left as a constant because it is the machine this
+      // refusal overwhelmingly meets, and "machine 62" sends a reader to a header file.
+      const named = reason.machine === 62 ? ' (x86-64)' : ''
+      return (
+        `built for machine ${reason.machine}${named}, not AArch64 (${EM_AARCH64}) — ` +
+        `if you have the source, cross-compile it for aarch64 and translate that. ` +
+        `If you have only the binary: this screen is scoped to the toolchain image this ` +
+        `driver ships, which is an AArch64 build of elfconv. Upstream elfconv has an ` +
+        `x86-64 build behind \`ECV_X86=1\` and a CI arm for it, but its wasm output is ` +
+        `unproven here — see AOT-06`
+      )
+    }
     case 'dynamically-linked':
       return `dynamically linked or position-independent (${reason.evidence.join(', ')}) — relink with -static and without -pie, because elfconv aborts on these complaining that __wrap_main is missing`
     case 'stripped-without-unwind-tables': {

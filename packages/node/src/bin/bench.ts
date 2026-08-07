@@ -108,6 +108,7 @@ import { MODULE_WRITES_PARTITION } from '../../../core/src/executor/fixtures.ts'
 import { processFabric } from '../bench-fabric.ts'
 import type { AgentHandle, DialDirection, Fabric, ProcessFabric, SubmitterReading } from '../bench-fabric.ts'
 import { FabricNode } from '../fabric-node.ts'
+import { armOrphanLeash } from '../orphan-leash.ts'
 
 /**
  * Derive the real rig's executors by **discovery** rather than from this driver's own
@@ -211,6 +212,44 @@ if (SOVEREIGN && !DISCOVER) {
   )
   process.exit(2)
 }
+
+/**
+ * Leave when the parent that spawned this driver does — defect #94, closed 2026-08-07.
+ *
+ * `orphan-leash.node.test.ts` carried an `EXEMPT` entry for this binary whose `why` said, in
+ * its own words, **NO VALID GROUND**. Every clause of the original exemption had been
+ * measured false: this driver binds `/ip4/127.0.0.1/tcp/0` in its own process on the default
+ * arm as well as under `--discover`, it is a parent because `spawnAgent` gives it real
+ * `bin/agent.ts` children, and the speedup ladder is minutes of work, so it is long-lived.
+ * All three spawn sites hand it a pipe on fd 0 — `discover-arm`, `bench-attestation` and
+ * `coverage-agents` all use `stdio: ['pipe', 'pipe', 'pipe']` — so the leash arms.
+ *
+ * ## Why the stop is a bare exit, and why that is complete rather than lazy
+ *
+ * `bin/agent.ts` and `bin/seed.ts` each hold **one** module-scoped node, so each can stop it
+ * before leaving. This driver holds none: every node it starts lives inside a rig-building
+ * closure behind that closure's own `release`, and there is no module-level handle to reach.
+ * Adding a registry so this function could walk it would be a change to the shape of a
+ * 3 700-line driver in order to do, less reliably, what leaving already does.
+ *
+ * **The children do not leak, and that is the designed cascade rather than an assumption.**
+ * `bench-fabric.ts` spawns every agent with `stdio[0]` as `'pipe'` and its docblock states
+ * why: fd 0 is the child's own leash. When this process leaves, those pipes close, each
+ * child reads EOF, and each child's leash fires. The exemption's own instruction was to
+ * delete it once this line existed; the line is here, and the entry is gone with it.
+ *
+ * **The stated limit:** the `mkdtemp` directories under `tmpdir()` are not removed on this
+ * path, because `release` is what removes them and `release` is not reachable from here.
+ * They are the OS's to reclaim, and this is true of any abrupt exit, but it is written down
+ * rather than left for someone to discover.
+ */
+let stopping = false
+const shutdown = (): void => {
+  if (stopping) return
+  stopping = true
+  process.exit(0)
+}
+armOrphanLeash(shutdown)
 
 const QUICK = process.argv.includes('--quick')
 const RUNS = QUICK ? 6 : 20

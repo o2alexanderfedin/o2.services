@@ -1,0 +1,4 @@
+[submodule "third_party/elfconv"]
+	path = third_party/elfconv
+	url = https://github.com/o2alexanderfedin/elfconv
+	branch = amd64-elf-frontend

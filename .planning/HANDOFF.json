@@ -1,0 +1,162 @@
+{
+  "version": "1.0",
+  "timestamp": "2026-08-07T18:11:15.415Z",
+  "phase": "26",
+  "phase_name": "elfconv Compiled to Wasm — Translation as a Fabric Workload",
+  "phase_dir": null,
+  "plan": null,
+  "task": 2,
+  "total_tasks": 7,
+  "status": "paused",
+  "context_note": "No phase-execution handoff: Phase 26 is FILED in ROADMAP.md and has no plan directory. Work this session was (a) Phase 17 re-verification, (b) four owner rulings, (c) the AOT-06 verdict and the elfconv fork, (d) groundwork for Phase 26. The count is 12 of 15.",
+  "completed_tasks": [
+    {
+      "id": 1,
+      "name": "Phase 17 re-verified and CLOSED at 3/3 (count 11 -> 12 of 15)",
+      "status": "done",
+      "commit": "7d33a2f"
+    },
+    {
+      "id": 2,
+      "name": "Four owner rulings taken; three executed (orphan leash, vitest re-site, X.509 filed as Phase 25)",
+      "status": "done",
+      "commit": "08e9c45,55d2bcb,51d0f03"
+    },
+    {
+      "id": 3,
+      "name": "AOT-06 answered — x86-64 blocked in elfconv's AArch64-only ELF front end, not in semantics",
+      "status": "done",
+      "commit": "c4d8b29"
+    },
+    {
+      "id": 4,
+      "name": "elfconv forked, submodule repointed, five amd64 front-end fixes; AArch64 bitcode byte-identical",
+      "status": "done",
+      "commit": "975289c,40d83df"
+    },
+    {
+      "id": 5,
+      "name": "Phase 26 filed with measured feasibility; Memory64 and module-size questions closed",
+      "status": "done",
+      "commit": "004e4b5,2a9d2b4,2e09242"
+    },
+    {
+      "id": 6,
+      "name": "elfconv configures for WebAssembly; 19 of 25 TUs compile; LLVM 16/17 dual-compat landed",
+      "status": "done",
+      "commit": "c6d903d,fd5ad7e"
+    },
+    {
+      "id": 7,
+      "name": "Port elflift fully to WebAssembly",
+      "status": "in_progress",
+      "progress": "Configure succeeds against prebuilt wasm LLVM 17.0.6. 19/25 TUs compile. Missing third-party set reduced from six to three (gflags, glog, XED all cross-compile clean). Five items remain — see remaining_tasks."
+    }
+  ],
+  "remaining_tasks": [
+    {
+      "id": 8,
+      "name": "Port remill/lib/BC/Optimizer.cpp off PassManagerBuilder (removed in LLVM 17) to PassBuilder/ModulePassManager",
+      "status": "not_started",
+      "note": "Two real pipelines at lines 56/75 and 95/114. Must stay compatible with LLVM 16 — version-guard, do not replace outright. Makes LLVMPasses a mandatory archive."
+    },
+    {
+      "id": 9,
+      "name": "Rewrite the ConstantExpr::getSelect arm in remill/lib/BC/Util.cpp:1362",
+      "status": "not_started",
+      "note": "Constant-expression select removed in LLVM 17. One `case llvm::Instruction::Select` arm in MoveConstantIntoModule."
+    },
+    {
+      "id": 10,
+      "name": "Replace bfd + libdwarf + libelf with llvm::object::ELFObjectFile and DWARFContext",
+      "status": "not_started",
+      "note": "LARGEST remaining item and the highest-leverage one: deletes three of the three remaining ports rather than performing them. Confined to lifter/Binary/Loader.{h,cpp} (766 lines) plus one bfd_section_vma call at TraceManager.cpp:158. Both LLVM libs are already IN the prebuilt wasm build (LLVMObject 2.5 MB, LLVMDebugInfoDWARF 1.4 MB)."
+    },
+    {
+      "id": 11,
+      "name": "Build the 7 LLVM archives absent from the prebuilt tree",
+      "status": "not_started",
+      "note": "LLVMPasses, LLVMipo, LLVMCoroutines, LLVMVectorize, LLVMInstrumentation, LLVMLinker, LLVMIRPrinter. Buildable in place but that re-runs CMake in a NEIGHBOURING project's tree."
+    },
+    {
+      "id": 12,
+      "name": "Provide a native clang/llvm-link for the semantics bitcode step",
+      "status": "not_started",
+      "note": "The wasm LLVM's clang is clang.js-17 and cannot execute as a compiler. A wasm build needs a second, native toolchain for the .bc semantics."
+    }
+  ],
+  "blockers": [
+    {
+      "description": "Phase 26's prebuilt wasm LLVM lives in a NEIGHBOURING working tree (/Volumes/ProjectsSSD/Projects/hupyy/libclang-wasm), outside this repo and uncommitted. Depending on another checkout is a spike, not a build system.",
+      "type": "external",
+      "workaround": "Acceptable for the spike. Before Phase 26 can close, either vendor the recipe and reproduce it, or pin and publish the archives."
+    },
+    {
+      "description": "gdb is unusable for the amd64 elfconv image: it runs emulated on this arm64 host and ptrace returns 'Couldn't get registers'.",
+      "type": "technical",
+      "workaround": "printf bisection only. Every AOT-06 diagnosis was done this way."
+    }
+  ],
+  "human_actions_pending": [
+    {
+      "action": "Ruling 2 — `**Mode:** mvp` is wrong on 25 roadmap blocks",
+      "context": "The only one of the five rulings not taken. Phase 24 could not be verified under MVP mode's User Flow Coverage contract because its goal is a security property, not a User Story.",
+      "blocking": false
+    },
+    {
+      "action": "Decide the graduated-cost reading of Phase 17 criterion 3's word 'costly'",
+      "context": "The 3/3 close is a bound-plus-devaluation, not a rising per-identity price. A reader taking 'costly' to require the latter gets the 2026-08-01 answer. Escalated by the verifier, not settled.",
+      "blocking": false
+    },
+    {
+      "action": "AUTH-02 browser-pinning leg",
+      "context": "Carried unresolved since 2026-08-05. Not a criterion-3 gap.",
+      "blocking": false
+    },
+    {
+      "action": "Decide whether to keep ~/Projects/hapyy -> /Volumes/ProjectsSSD/Projects/hupyy",
+      "context": "A subagent created this symlink because the prebuilt LLVM's CMake exports hard-code the 'hapyy' path (a typo) in every IMPORTED_LOCATION. Outside this repository. It also regenerated the emsdk cache once.",
+      "blocking": false
+    },
+    {
+      "action": "Push 12 local commits to origin, and decide on merging main/develop",
+      "context": "Branch is 12 ahead. Pushing was never requested this session and is outward-facing on a public repo; main/develop remain deliberately unmerged.",
+      "blocking": false
+    }
+  ],
+  "decisions": [
+    {
+      "decision": "'The fabric' in Phase 24 criterion 8 is read NARROWLY",
+      "rationale": "A fabric this repo can be deployed and operated as, with an admission posture stated on every relay-capable door — not the default argv. The wider reading would have returned 24 to PARTIAL and 19 with it, at a cost of 19+3 argv sites made refuse-to-start. Owner declined it.",
+      "phase": "24"
+    },
+    {
+      "decision": "Compile elfconv ITSELF to wasm; do NOT make RISC-V a lift source",
+      "rationale": "Remill has zero RISC-V support (grep -ri riscv over the vendored tree returns nothing) and its Sleigh backend vendors no .slaspec. RV64GC semantics would be written from scratch. A wasm-hosted translator reaches RISC-V hosts without that.",
+      "phase": "26"
+    },
+    {
+      "decision": "Every LLVM 16->17 change must be compatible in BOTH directions, never replaced outright",
+      "rationale": "The native build still runs on LLVM 16 and is the path that currently works. An unconditional llvm/IR/AttributeMask.h include broke it — that header does not exist in 16.",
+      "phase": "26"
+    },
+    {
+      "decision": "Link-test BEFORE porting the ELF loader",
+      "rationale": "One build attempt priced the LLVM 16->17 skew, the target-library question and the missing-dependency set at once. Had the skew been severe, a 620-line loader port would have been wasted.",
+      "phase": "26"
+    },
+    {
+      "decision": "The disclosure gate exempts submodules, derived from git's index (160000 gitlinks), never a path literal",
+      "rationale": "elfconv ships .github/workflows and DEMO-04 forbids any workflow file. A hand-maintained list is the population defect this repo has hit four times. The unmeasured part — that GitHub never runs a submodule's workflows — is named as unmeasured in the code.",
+      "phase": null
+    },
+    {
+      "decision": "Reject a WASIX shim in the executor unless explicitly argued",
+      "rationale": "It would hand guest code fork/exec and sockets — the sandbox surface Phases 13.1 and 24 spent their effort narrowing. Not to be widened for a demo.",
+      "phase": "26"
+    }
+  ],
+  "uncommitted_files": [],
+  "next_action": "Replace bfd/libdwarf/libelf in lifter/Binary/Loader.{h,cpp} with llvm::object::ELFObjectFile and DWARFContext. It is the largest remaining item and it deletes the other two ports rather than performing them. Verify with the AArch64 harness: bitcode sha256 must stay ec2dc6f94af1ec7a0df56869ceff64f04577bbff6f01a9c6fadd6003cac5f8c4 at 900 functions.",
+  "context_notes": "Approach that worked all session: measure before committing to a direction, and treat a document's claim about the code as a hypothesis. Three recorded claims turned out false when checked — elfconv's README on x86 support, the praxis review on verifyChain's depth bound, and my own first draft of a test comment. The AArch64 byte-identical-bitcode check (sha256 ec2dc6f9..., 900 functions) is the regression harness for all elfconv work and it is cheap; run it before believing any elfconv change is safe. Note it FAILED TO FAIL once this session — see the blocking anti-pattern in .continue-here.md."
+}

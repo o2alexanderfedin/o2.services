@@ -347,7 +347,18 @@ describe('the wrong ELF flavour is named before anything is parsed out of it', (
     expect(reason.kind).toBe('not-aarch64')
     if (reason.kind !== 'not-aarch64') return
     expect(reason.machine).toBe(EM_X86_64)
-    expect(describeRefusal(reason)).toContain('62')
+    const message = describeRefusal(reason)
+    expect(message).toContain('62')
+    // x86-64 is the machine this refusal overwhelmingly fires on, so name it rather than
+    // making a reader look up the constant.
+    expect(message).toContain('x86-64')
+    // **The remedy must not be the only thing offered.** "cross-compile for aarch64"
+    // needs SOURCE, and the case this refusal mostly meets is a legacy binary whose
+    // source is gone — advice that cannot be taken in the main case reads as a
+    // workaround and sends the operator looking for a flag that does not exist. The
+    // message must also say the input is out of scope for this tier and why.
+    expect(message).toMatch(/if you have the source/i)
+    expect(message).toContain('elfconv')
   })
 
   it('reports an x86-64 shared object as the wrong machine, not as dynamic', () => {

@@ -1137,14 +1137,14 @@ Parallel tracks (config `parallelization: true`):
 | 14. Signed Artifact Resolution | 5/5 | Complete   | 2026-07-31 |
 | 15. Capability-Chained Dispatch | 4/4 | Complete   | 2026-07-31 |
 | 16. Decomposable Tree-Reduce Wiring | 4/4 | **Complete — 4 of 4 criteria.** Criterion 3's "arriving late" clause was not expressible on the build it was written against and was carried to Phase 20 criterion 6, which scored MET; the amendment of 2026-08-06 **re-measured** it rather than transcribing that verdict — `criterion_text_unchanged: true`, both texts `cmp`'d at exit 0, two plants watched red and restored by `cp` + `cmp`. One clause does not match literally and the amendment says so: *"because it carries the same CID"* is causally inert on the late path, since `rpc.ts` drops the frame on a missing correlation entry before the payload matters. **The verdict turns on that reading and an owner may overturn it**, returning the row to 3 of 4. Two non-criterion gaps stay open and tracked, not scored; MR-04 and MR-07 stay `Partial` on their **demo** half, which is WIRE-02 and Phase 22's | 2026-08-06 |
-| 17. Node Identity & Enrollment | 5/5 | 2 of 3 criteria — criterion 3's COST clause not met; measured to be an admission property rather than a selection one, and carried to Phase 24 criterion 8. **This row asserted "Phase 24 landed 2026-08-06 and criterion 8 verified PARTIAL, so criterion 3 does NOT close" — the verdict is right and the REASON is false from `580e461`, while row 24 four lines below said the opposite.** Criterion 8 landed **MET**, so RULING A's precondition IS satisfied — and criterion 3 was re-verified on 2026-08-06 (`a3d2215`) and **declined anyway**, the first time RULING A has held against a destination that landed MET. The clauses match; what is missing is a third link neither sentence names — criterion 3 is about **mass** creation, and that needs **one certificate to admit exactly one identity**. The binding exists in `fabric-node.ts`; **no test observes it** (neutralising it is green across 8 files and 5 runs, while the control plant reddens). One test at the door closes this | 2026-08-06 |
+| 17. Node Identity & Enrollment | 5/5 | **Complete — 3 of 3 criteria.** Criterion 3's COST clause was not met for six days; measured to be an admission property rather than a selection one, and carried to Phase 24 criterion 8. **This row asserted "Phase 24 landed 2026-08-06 and criterion 8 verified PARTIAL, so criterion 3 does NOT close" — the verdict is right and the REASON is false from `580e461`, while row 24 four lines below said the opposite.** Criterion 8 landed **MET**, so RULING A's precondition IS satisfied — and criterion 3 was re-verified on 2026-08-06 (`a3d2215`) and **declined anyway**, the first time RULING A has held against a destination that landed MET. The clauses match; what is missing is a third link neither sentence names — criterion 3 is about **mass** creation, and that needs **one certificate to admit exactly one identity**. The binding exists in `fabric-node.ts`; **no test observes it** (neutralising it is green across 8 files and 5 runs, while the control plant reddens). One test at the door closes this. **CLOSED 2026-08-07 at 3/3 — the test landed within the hour (`8719029`, ledgered M68) and the fourth amendment re-ran the decline rather than transcribing it.** The same plant on the same file — `fabric-node.ts` sha256 `d6688f73…`, byte-identical to the digest the declining pass recorded, so the different result cannot be a different file — now **reddens**: `PLANTED_P1_EXIT=1`, the door returning `false` where `true` denies, i.e. admitting a peer holding somebody else's certificate. **The both-ways proof held**, which is what stops the green being vacuous: planting `peer-verifier.ts` instead leaves relay-admission green in full while reddening peer-verifier's own borrowed-certificate row, so the new case observes the **door** and not the **selector** — the distinction the decline turned on. Two limits are at the verdict, not in a footnote: the borrowed case is measured at the **predicate** over `MemoryNetwork` rather than at a live reservation, so the close rests on a conjunction with the file's live-relay arms; and this is a **bound plus devaluation, not a graduated price** — a reader taking *costly* to require a rising per-identity price gets the 2026-08-01 answer, and that reading is escalated rather than settled | 2026-08-07 |
 | 18. Discovery, Capacity & Placement | 13/13 | Complete   | 2026-08-04 |
 | 19. Quorum Composition & Owner-Domain Attestation | 19/19 | **Complete — 5 of 5 criteria.** Criterion 5 priced nothing: the N-th identity was refused inside the window rather than priced. Carried to Phase 24 criterion 8 by owner ruling 2026-08-04, and **closed there** by the third amendment of 2026-08-06 (`ac7b214`) once criterion 8 was re-scored MET. **This row asserted in the present tense that "criterion 8 verified PARTIAL, so criterion 5 does NOT close" — false from `580e461`, while row 24 three lines below said the opposite.** `criterion_text_unchanged: true` for both criteria, `cmp`'d and `git log -L`-checked. **MET within criterion 8's stated bound, carried verbatim**: the default posture of the binaries stays open and must. Two of the gap's three parts were never Phase 24's — the `userKey` part was answered by 19-05's aggregate budget and the per-process part by 19-07's durable ledger, so criterion 8 is not credited with work this phase did itself | 2026-08-06 |
 | 20. Single Job Path, Ledger & Churn Resilience | 13/13 | 6 of 7 criteria — criterion 7's checkpoint-**write** half runs on a sink no production submitter supplies; the recovery half is measured | 2026-08-05 |
 | 21. AOT Translation Signing & Runtime | 5/5 | 2 of 3 criteria — criterion 2's re-tag refusal recorded as a measured negative by owner ruling 2026-08-05; carried, not cleared | 2026-08-05 |
 | 22. Reachability Guard | 0/4 | Planned, not executed — 4 plans, no summaries, no verification. Runs **last** (23 → 24 → 22) | - |
 | 23. Multi-Process Benchmark Driver | 6/6 | Complete — 5 of 5 criteria | 2026-08-06 |
-| 24. Certificate-Gated Admission | 8/8 | **Complete — 1 of 1.** Criterion 8 verified **PARTIAL** on 2026-08-06 (0 of 1) because the criterion says *"the fabric"* while the evidence read *"a relay that has been told to close"*, and `bin/seed.ts` could not be told to close at all — so the bound was **structural**, not a posture an operator could remove. Four gap-closure plans and a dated amendment (`580e461`) changed that: 24-05 measured the bootstrap paradox **false** (enrolment runs over a plain dial, no reservation in its path), 24-06 built the knob, 24-07 read the absence over **every** door with a control that can fail, 24-08 read the browser tier in three engines. **MET with a stated bound**: the default posture of the binaries stays open and must — 19 + 3 argv sites, with `reservation-exhaustion` arm A a live guard on it. Criterion 8's wording is unedited. **Phase 17 criterion 3 and Phase 19 criterion 5 were both carried into criterion 8. 19 CLOSED at 5/5 (`ac7b214`) carrying the bound verbatim; 17 DECLINED and stays 2/3 (`a3d2215`).** This row said both "can now close" — an actual attempt falsified that for 17 within the hour. Criterion 3 needs a third link neither criterion names, one certificate admitting exactly one identity, and no test observes it. **The two verdicts arguably rest on the same unguarded binding and disagree — an owner adjudication** | 2026-08-06 |
+| 24. Certificate-Gated Admission | 8/8 | **Complete — 1 of 1.** Criterion 8 verified **PARTIAL** on 2026-08-06 (0 of 1) because the criterion says *"the fabric"* while the evidence read *"a relay that has been told to close"*, and `bin/seed.ts` could not be told to close at all — so the bound was **structural**, not a posture an operator could remove. Four gap-closure plans and a dated amendment (`580e461`) changed that: 24-05 measured the bootstrap paradox **false** (enrolment runs over a plain dial, no reservation in its path), 24-06 built the knob, 24-07 read the absence over **every** door with a control that can fail, 24-08 read the browser tier in three engines. **MET with a stated bound**: the default posture of the binaries stays open and must — 19 + 3 argv sites, with `reservation-exhaustion` arm A a live guard on it. Criterion 8's wording is unedited. **Phase 17 criterion 3 and Phase 19 criterion 5 were both carried into criterion 8. 19 CLOSED at 5/5 (`ac7b214`) carrying the bound verbatim; 17 DECLINED and stays 2/3 (`a3d2215`).** This row said both "can now close" — an actual attempt falsified that for 17 within the hour. Criterion 3 needs a third link neither criterion names, one certificate admitting exactly one identity, and no test observes it. This row's closing clause read **"the two verdicts arguably rest on the same unguarded binding and disagree — an owner adjudication"**. **That adjudication was answered by code rather than by a ruling, 2026-08-07**: the binding is now guarded at the door (`8719029`, M68), 17 re-verified and **closed at 3/3**, and the two verdicts agree. The disagreement was never about the criteria — it was about whether the shared premise was observed by anything, and it was not | 2026-08-07 |
 
 ### Phase 23: Multi-Process Benchmark Driver
 **Goal**: The benchmark harness spawns N real operating-system processes instead of N `FabricNode`s on one event loop, so a parallel speedup is measurable at all — and the project's central scaling claim stops being unmeasured
@@ -1307,6 +1307,280 @@ It lands **here** rather than in Phase 15 for one reason: this phase already rew
      reachability over an ungated fabric. Ordering must never become the mechanism by which a
      known gap stops being visible. -->
 
+### Phase 25: X.509 Certificate Profile
+**Goal**: The certificate envelope becomes X.509 v3 with a cryptographic profile that is load-bearing rather than advisory — a set of precise refusals, each guarded, such that an ASN.1 parser in the browser trust path is not the weakest thing in the design
+**Depends on**: Phase 24 (which armed the gate the profile governs); no phase depends on this
+**Requirements**: none yet — this phase opens them
+**Research**: `docs/architecture/RFC-0003-Decentralized-Cloud-Security-Architecture-v0.2.md` §4, the three RFC-0003 reviews of 2026-08-06, and the 2026-08-07 correction appended to the praxis review
+**Success Criteria** (what must be TRUE): to be derived at plan time, one per obligation below
+
+<!-- FILED 2026-08-07 BY OWNER RULING. Not scheduled into v1.1 — v1.1 is "Wire What Was Built"
+     and this builds something new. It is filed rather than left in a review document because a
+     ruling that lives only in a doc is a ruling nobody executes.
+
+     THE RULING, AND IT WAS TAKEN AGAINST THE STANDING RECOMMENDATION. The recommendation was to
+     keep `@noble/curves` + `@ipld/dag-cbor` — both already present — and document the divergence
+     from X.509, on the ground that adopting it ships `pkijs` + `asn1js` into the BROWSER trust
+     path: a few hundred KB of exactly the code that generates CVE classes, at the one boundary
+     that must fail closed. The supporting argument was that `critical` extensions buy little
+     here because there is no generic validator anywhere in this system, while the one place a
+     standard validator would sit — §2's optional external CA — is guaranteed to reject a chain
+     carrying critical unknown extensions, so §2 and §4 pull against each other.
+
+     THE OWNER RULED ADOPT ANYWAY, 2026-08-06, and re-confirmed the filing 2026-08-07. The
+     decision stands and the work proceeds under it. What it OBLIGES is that the cryptographic
+     profile stops being advisory. Seven items were named:
+
+       1. permitted algorithms
+       2. bans on SHA-1 and weak curves
+       3. DER canonicalisation rules
+       4. certificate parsing limits
+       5. maximum chain depth
+       6. extension size limits
+       7. strict handling of duplicate extensions
+
+     ITEM 5 IS ALREADY DELIVERED AND GUARDED, measured 2026-08-07 against the tree rather than
+     taken from the review. `packages/core/src/capability.ts:127` defines `MAX_CHAIN_DEPTH = 8`
+     and `:190` enforces it BEFORE any signature work, for the reason the review itself gives:
+     the length is attacker-supplied and this is the cheapest possible refusal. Its companion
+     hazard is closed too — `:255` folds `expiresAt` with `reduce` rather than
+     `Math.min(...chain.map(...))`, because the spread raised RangeError past ~200 000 elements
+     on the SUCCESS path. The two controls are deliberately independent. The review's claim that
+     *"verifyChain currently has no depth bound at all"* is FALSE and was false when written; a
+     dated correction is appended to the praxis review rather than edited into it.
+
+     THE OTHER SIX ATTACH TO A PARSER THAT DOES NOT EXIST, and that is the phase's real shape.
+     No `pkijs`, `asn1js`, `node-forge` or `@peculiar/*` is installed in the root manifest or any
+     workspace package; certificates today are Ed25519 over `@noble/curves`
+     (`packages/core/src/enrollment.ts:113`), not DER. So items 3, 4, 6 and 7 are rules for
+     something not yet built — which argues for specifying them BEFORE it arrives, and is why
+     this is a phase rather than a patch.
+
+     WHAT THE PLANNER MUST NOT DO. "Reject on ambiguity" is not a principle to state; under this
+     ruling it is the set of precise refusals, each with a test that has been watched red. A
+     profile document with no guard is the advisory thing the ruling exists to replace.
+
+     THE COST IS PART OF THE RULING AND MUST BE MEASURED, NOT ASSUMED: bundle weight added to the
+     browser tier, and whether the parser can be kept off the path a tab executes. Both are
+     numbers this phase owes, not caveats it may inherit. -->
+
+
+### Phase 26: elfconv Compiled to Wasm — Translation as a Fabric Workload
+**Goal**: The AOT translator runs as a wasm module on any node, so producing a lifted artifact stops being a Docker-host privilege and becomes a job the fabric can schedule — closing the asymmetry where the fabric can RUN lifted artifacts anywhere but only PRODUCE them on one machine
+**Depends on**: the `third_party/elfconv` submodule (added 2026-08-07); no phase depends on this
+**Requirements**: none yet — this phase opens them
+**Research**: measured 2026-08-07 against `ghcr.io/yomaytk/elfconv:amd64`, recorded below
+
+<!-- FILED 2026-08-07 BY OWNER INSTRUCTION ("compile to Wasm"). NOT scheduled into v1.1.
+
+     THE POINT, so nobody re-derives it: a node can already execute a lifted `.wasm`. It cannot
+     PRODUCE one without Docker, a native LLVM and an x86-64-or-arm64 host. That asymmetry is
+     what makes AOT a build-machine privilege. It also means a RISC-V host can run fabric work
+     but can never contribute translation — which is where this started.
+
+     WHAT WAS MEASURED, not assumed. Every line below is a reading, not a plan.
+
+     1. THE LLVM ARCHIVES CANNOT BE REUSED. `/usr/lib/llvm-16/lib/*.a` are host objects —
+        `readelf -h` on a member reports `Machine: Advanced Micro Devices X86-64`. LLVM must be
+        CROSS-COMPILED to wasm32-wasi from source. This is the dominant cost of the phase and
+        it is not avoidable by linking what the image already ships.
+
+     2. THE FULL DEPENDENCY SET, read off the real link line in `build.ninja` rather than
+        guessed: `libLLVM-16.so.1`, `-lbfd`, `-ldwarf`, `-lelf`, and the vendored
+        `libgflags.a`, `libglog.a`, `libxed.a`. Seven ports, of which LLVM is the large one and
+        binutils BFD is the least obviously portable.
+
+     3. THREADS WORK. `wasm32-wasi-threads` + `-pthread` built a `std::thread`/`std::mutex`
+        program at 1 175 165 bytes. wasi-sdk-24.0 ships `wasm32-wasi`, `wasm32-wasi-threads`,
+        `wasm32-wasip1`, `wasm32-wasip1-threads` and `wasm32-wasip2` sysroots.
+
+     4. C++ EXCEPTIONS DO NOT. `wasm-ld: undefined symbol: __cxa_allocate_exception` — wasi-sdk
+        24's libc++ is built without EH. **This is survivable and the codebase already knows
+        it**: `utils/Util.cpp:11`'s `elfconv_runtime_error` carries a
+        `#if defined(__wasm__)` branch that `vprintf`s and `abort()`s instead of throwing, so
+        all 17 throw/error sites funnel through a helper that is already wasm-aware. LLVM's own
+        defaults are `LLVM_ENABLE_EH=OFF` / `LLVM_ENABLE_RTTI=OFF`, so LLVM does not need them
+        either.
+
+     5. MEMORY64 IS NOT AVAILABLE, AND THIS CLOSES AN OPEN QUESTION. The handoff carried
+        *"wasm32's 4 GB ceiling for LLVM passes — Memory64 is reportedly stable in browsers,
+        verify against wasi-sdk, not a blog."* Verified: wasi-sdk-24.0 has **no `wasm64-wasi`
+        sysroot at all** — a `--target=wasm64-wasi` build fails at `'memory' file not found`.
+        So the 4 GB address space is a HARD BOUND for this toolchain no matter what browsers
+        support. Whether it binds in practice is a separate measurement this phase owes: the
+        900-function static-glibc lift produces 4.4 MB of bitcode, so peak LLVM residency may
+        sit well under the ceiling for modest inputs. Size the claim to what is measured.
+
+     WHAT THIS PHASE MUST NOT DO. It must not report success on a module that was never run.
+     The deliverable is a wasm module that lifts a real ELF and produces bitcode a native
+     elfconv would also produce — compared byte-for-byte where possible, exactly as the AArch64
+     non-regression check for the amd64 front-end work was done (`sha256` on the `.bc`).
+
+     A NOTE ON THE SECOND STAGE, because "elfconv to wasm" understates the target. The pipeline
+     is ELF -> bitcode (`elflift`) and then bitcode -> wasm (`wasi-sdk clang++` + `lld`). BOTH
+     halves are LLVM. A node that can only run the first half still needs a toolchain host for
+     the second, so the phase should state up front whether it is shipping the lifter alone or
+     the whole toolchain, and price them separately.
+
+     6. PRIOR ART EXISTS AND IT SETTLES FEASIBILITY, but not on an ABI this project can use.
+        Wasmer ships the FULL clang compiled to WebAssembly and runs it in Chrome, Safari and
+        Firefox (https://wasmer.io/posts/clang-in-browser). So "LLVM cannot be compiled to
+        wasm" is FALSE and must not be written down as a blocker. Two details bound what can be
+        borrowed:
+          - It targets **WASIX**, not plain WASI, and it is **~100 MB uncompressed**.
+          - WASIX is a SUPERSET of WASI preview1 adding fork/exec, signals, sockets and
+            setjmp/longjmp-via-asyncify (https://wasmer.io/posts/announcing-wasix). Preview1
+            has none of those.
+        **This matters because o2's execution tier is preview1**: V8's built-in `WebAssembly`
+        plus `@bjorn3/browser_wasi_shim`, per the stack decision in CLAUDE.md. A WASIX module
+        does not run there — it needs a WASIX runtime. So Wasmer's artifact proves the concept
+        and is NOT a drop-in for the fabric.
+
+     7. THE LIKELY REASON CLANG NEEDED WASIX DOES NOT APPLY TO elflift, and this is the single
+        most useful thing to test first. **INFERRED, NOT YET MEASURED** — say so until it is.
+        The clang DRIVER spawns subprocesses (`cc1`, then the linker), which is fork/exec and is
+        exactly what preview1 lacks. `elflift` is not a driver: it links LLVM as a LIBRARY,
+        reads one ELF and writes one `.bc`, in a single process. If it needs no fork/exec, no
+        signals and no longjmp, it may fit plain wasm32-wasi where the clang driver cannot.
+        **First experiment of this phase: build elflift for wasm32-wasi and find out**, because
+        a negative here changes the whole shape of the work.
+
+     8. THE SECOND STAGE MAY AVOID THE DRIVER TOO — also inferred, also to be measured. Stage 2
+        needs bitcode -> object -> wasm, which is `llc` and `wasm-ld`; both are single-process
+        library-shaped tools, unlike the driver. And elfconv's stage 2 additionally compiles its
+        C++ RUNTIME sources (`Entry.cpp`, `Memory.cpp`, `Runtime.cpp`, `VmIntrinsics.cpp`,
+        `Util.cpp`, `elfconv.cpp`, `SyscallWasi.cpp`) — but those DO NOT CHANGE PER JOB, so they
+        can be compiled to bitcode ONCE, natively, and shipped as a fixed input. That removes
+        the C++ frontend from the fabric path entirely and leaves only `llc` + `wasm-ld`.
+        If it holds, the fabric never needs a compiler frontend, only a backend and a linker.
+
+     9. OWNER IDEA 2026-08-07: "clang in wasm" AS A DEMO SERVICE. Recorded here rather than in a
+        notes file because it shares this phase's dependency and inherits its bounds.
+
+        WHY IT FITS, and it fits better than most demo candidates. Compilation is embarrassingly
+        parallel across translation units, which is the shape this project's core value claim
+        needs. And it lands the SOVEREIGNTY story cleanly rather than by analogy: the source IS
+        the owner's data, so it compiles on the owner's node under `owner-attested` and only the
+        artifact crosses the egress boundary — the exact split PROJECT.md describes, on a
+        workload people already care about.
+
+        WHAT BLOCKS IT TODAY, measured above and not negotiable by wanting it: Wasmer's clang is
+        **WASIX**, and this fabric executes **preview1** (V8 + `@bjorn3/browser_wasi_shim`). So
+        the artifact that exists cannot run on the tier that exists. Three routes, and they are
+        not equal:
+          a. Build clang for plain wasm32-wasi — blocked on the DRIVER's fork/exec (item 7).
+          b. Ship `llc` + `wasm-ld` only, with the C++ frontend left off the fabric (item 8).
+             This is the cheapest route and it is ALSO the honest one for a demo: it compiles
+             BITCODE, not C++, and the demo must say so rather than imply a full compiler.
+          c. Teach the executor a WASIX shim — **rejected unless argued explicitly**, because
+             WASIX adds fork/exec and sockets to guest code, which is a sandbox surface this
+             project spent Phase 13.1 and Phase 24 narrowing. Do not widen it for a demo.
+
+        TWO SIZING FACTS ALREADY IN HAND. The artifact is ~100 MB uncompressed, against a
+        browser mesh whose data path cannot carry bulk (16 KiB WebRTC messages, 128 KiB relay
+        limit) — so it must come over the CID-keyed CDN path the peer study identified, not over
+        the mesh. And wasm32's 4 GB ceiling (item 5) is a real bound for a compiler, which is
+        one of the few workloads that can genuinely reach it.
+
+     10. A PROVEN RECIPE EXISTS AND THIS PHASE SHOULD START FROM IT, NOT FROM SCRATCH.
+        `guyutongxue/clangd-in-browser` builds **clangd** — a large clang/LLVM binary — to wasm
+        and runs it in a browser. Its `build.sh` is the template:
+
+          LLVM 21.1.0, built with **emcmake (Emscripten)** — NOT wasi-sdk
+          cmake --build build-native --target llvm-tblgen clang-tblgen   # HOST tablegen first
+          -DLLVM_ENABLE_PROJECTS="clang;clang-tools-extra"
+          -DLLVM_TARGETS_TO_BUILD=WebAssembly
+          -DLLVM_BUILD_STATIC=ON
+          disabled: backtraces, unwind tables, crash overrides, analyzer, terminfo, PIC, zlib
+          -s INITIAL_MEMORY=2GB -s MAXIMUM_MEMORY=4GB -s ASYNCIFY -s WASM_BIGINT
+          -s ENVIRONMENT=worker -s MODULARIZE -s EXPORT_ES6 -pthread
+          -s PTHREAD_POOL_SIZE='Math.max(navigator.hardwareConcurrency, 8)'
+
+        It also carries a `wait_stdin.patch`, so **at least one LLVM patch is required** — expect
+        patches rather than treating the first one as a surprise. It points at `soedirgo/llvm-wasm`
+        as the detailed guide.
+
+        **INDEPENDENT CORROBORATION OF ITEM 5**: `MAXIMUM_MEMORY=4GB` is the whole wasm32
+        address space, and `INITIAL_MEMORY` is already 2 GB. A real LLVM workload runs up against
+        the ceiling this project measured wasi-sdk cannot lift. Two measurements, one conclusion.
+
+        FOUR DELTAS BETWEEN THAT RECIPE AND WHAT o2 NEEDS. These are the phase's actual design
+        decisions and none is a detail:
+
+          a. **Emscripten vs WASI is a decision about WHERE THE TRANSLATOR RUNS, not a detail.**
+             Emscripten output needs its JS glue, so it cannot be guest code under this project's
+             preview1 sandbox. But a translator does not have to be guest code: run it
+             **host-side in the agent** (the same place `WasmExecutor` lives) and the glue is
+             fine. Running it as a sandboxed guest job forces plain WASI and item 7's question.
+             **Decide this first — it determines the toolchain, not the other way round.**
+          b. **Threads may be droppable, and dropping them removes SharedArrayBuffer.** clangd is
+             multi-threaded so that build needs SAB and `crossOriginIsolated`. `elflift` reads one
+             ELF and writes one `.bc`; `LLVM_ENABLE_THREADS=OFF` is likely viable and would remove
+             the COOP/COEP requirement entirely — which matters because CLAUDE.md records that
+             GitHub Pages sets no headers. Note the escape hatch both projects already use, and
+             it is verified in this tree rather than assumed: **elfconv vendors
+             `browser/coi-serviceworker.js` (5 221 bytes)** and copies it in `prepare_js`. Sharper
+             still — elfconv's OWN browser target already links `-pthread`
+             (`EMCC_OPTION` carries `-pthread -sPTHREAD_POOL_SIZE=0`), so it already produces
+             shared-memory modules and already needs cross-origin isolation. That constraint is
+             not new work this phase introduces; it is work elfconv's browser path already carries
+             and which o2 sidesteps today only because its AOT artifacts use the `wasi32` target
+             rather than the emscripten one.
+          c. **`LLVM_TARGETS_TO_BUILD` is not the same list.** clangd needs only `WebAssembly`.
+             elflift emits bitcode and may need no backend at all, while Remill's `Arch::Build`
+             may want `X86` and/or `AArch64` target data for the SOURCE architecture. Measure
+             which are actually referenced before enabling three targets' worth of size.
+          d. **Stage 2 wants `llc` + `wasm-ld`, not `clang-tools-extra`.** The recipe builds a
+             language server; this phase needs a backend and a linker (item 8). Different
+             `LLVM_ENABLE_PROJECTS`, and probably much smaller.
+
+        NOT MEASURED YET, and it is the number the demo-service idea turns on: the module size
+        of that clangd build. Wasmer's clang is ~100 MB uncompressed; assume the same order until
+        this repository's artifact is actually weighed.
+     11. THE COST ESTIMATE COLLAPSED ON 2026-08-07, and the two hardest unknowns are now
+        resolved — both MEASURED, neither assumed.
+
+        (i) LLVM IS ALREADY CROSS-COMPILED TO WASM ON THIS MACHINE. The owner pointed at
+        `/Volumes/ProjectsSSD/Projects/hupyy/libclang-wasm`, whose `build-llvm.sh` (adapted from
+        `jprendes/emception`) has already produced **66 static archives, 71 MB of `libLLVM*.a`**,
+        and a working **`libclang.wasm` of 34 075 902 bytes** carrying real wasm magic
+        (`00 61 73 6d 01 00 00 00`). `CMakeCache.txt` confirms the Emscripten toolchain file,
+        `LLVM_TARGETS_TO_BUILD=WebAssembly`, and — the delta this phase predicted —
+        **`LLVM_ENABLE_THREADS:BOOL=OFF`**, which is what removes SharedArrayBuffer and the
+        COOP/COEP requirement entirely. It needs ONE small patch (`getMainExecutable` returning a
+        fixed path under `__EMSCRIPTEN__`) plus `CXXFLAGS=-Dwait4=__syscall_wait4`.
+        **34 MB, not the ~100 MB assumed from Wasmer** — so the demo-service size question has a
+        real answer and it is three times better than the placeholder.
+
+        (ii) elfconv AND remill ARE ALREADY PORTABLE. Measured by replaying every entry of
+        `build/compile_commands.json` through `em++ -fsyntax-only`: **22 of 22 non-test TUs pass,
+        0 fail**, with NO source patch — only `-DREMILL_ARCH`, `-DREMILL_OS` and the
+        `REMILL_ON_*` set supplied on the command line. Without them, 17 of 27 fail on exactly
+        two `#error` lines (`Arch/Name.h:82` "Cannot infer current architecture",
+        `OS/OS.h:51` "Cannot infer current OS"), and BOTH sit inside `#ifndef REMILL_ARCH` /
+        `#ifndef REMILL_OS` guards — so this is a FLAGS problem, not a portability problem. The
+        remaining failures were all in `backend/remill/tests/AArch64/`, which this phase does not
+        need.
+
+        WHAT IS ACTUALLY LEFT, now that LLVM is not the problem:
+          - **LLVM 16 -> 17 API skew.** The prebuilt wasm LLVM is **17.0.6**; elfconv's scripts
+            say `LLVM_VERSION=16`. But `backend/remill/CMakeLists.txt` uses
+            `find_package(LLVM CONFIG REQUIRED)` and DERIVES `REMILL_LLVM_VERSION`, so the
+            version is not pinned in the build. One major step; testable, not a wall.
+          - **Six non-LLVM dependencies still need wasm builds**: `-lbfd`, `-ldwarf`, `-lelf`,
+            gflags, glog, XED. **This is now the main remaining work.**
+          - **HIGHEST-LEVERAGE IDEA, and it deletes three of those six.** BFD, libdwarf and libelf
+            exist only to parse the ELF and recover functions. LLVM already ships
+            `llvm::object::ELFObjectFile` and `DWARFContext`, and they are IN the wasm build
+            already sitting on disk. Porting elfconv's loader onto LLVM's own object/DWARF
+            readers removes three ports rather than performing them. Measure before committing,
+            but this is the first thing to try.
+
+        A CAVEAT THAT MUST NOT BE LOST: those artifacts live in a NEIGHBOURING working tree
+        (`Projects/hupyy/...`), outside this repository and not committed here. Depending on
+        another checkout is a spike, not a build system. This phase must either vendor the build
+        recipe and reproduce it, or pin and publish the archives — a green build that only works
+        on one laptop is the thing this project's conventions exist to refuse. -->
 
 ### v1.0 (Phases 1-10)
 
