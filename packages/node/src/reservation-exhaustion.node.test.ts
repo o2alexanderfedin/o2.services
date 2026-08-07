@@ -47,14 +47,29 @@
  * **stated dependency**: this file measures capacity refusal, and capacity refusal is only
  * observable on a relay that would otherwise have admitted the peer.
  *
- * **This file owns no `relayAdmission` literal to assert on.** Its relay is a spawned
- * `bin/seed.ts`, and that binary deliberately has no admission flag — 24-01 recorded pinning
- * the seed's posture as *"a later decision and deliberately not taken here"* — so the value
- * lives in `seed-server.ts`, a production file this fixture does not own and must not pin
- * from here. The assertion available to it is therefore **behavioural: joiner A was granted**,
- * asserted before B's refusal is read, and the note at A's arm explains why that ordering is
- * the difference between this case's title being satisfied and being satisfied by the wrong
- * mechanism.
+ * **This file owns no `relayAdmission` literal to assert on**, and the reason changed on
+ * 2026-08-06 while the conclusion did not. It used to be that its relay is a spawned
+ * `bin/seed.ts` and *"that binary deliberately has no admission flag — 24-01 recorded pinning
+ * the seed's posture as a later decision and deliberately not taken here"*, so the value lived
+ * as a literal in `seed-server.ts`. **Both of those sentences are now false**, and they are
+ * corrected here rather than deleted, because a fixture that explains itself by a mechanism
+ * that has since been built is a fixture nobody re-reads. Plan 24-06 gave `bin/seed.ts` an
+ * `--admit-issuer` flag and `SeedServerOptions` a required `relayAdmission`; the literal in
+ * `seed-server.ts` is gone, replaced by a forward from the operator's argv.
+ *
+ * The conclusion survives intact: this file still owns no literal, because its relay is still
+ * a **spawned process** whose posture is decided by the argv below and not by any value in
+ * this source. The assertion available to it is therefore **behavioural: joiner A was
+ * granted**, asserted before B's refusal is read.
+ *
+ * **And that assertion is now a live guard rather than a note about an ambient fact — which
+ * is a strengthening of this file, not a cost.** The launch below passes **no**
+ * `--admit-issuer`, so it exercises the exact argv path that keeps the default open: the
+ * ternary's absent arm. If the default posture were ever changed to anything but
+ * `'admits-any-peer'`, A would be refused a reservation and this file would go red naming the
+ * refusal — which makes it one of the two behavioural readings in the repository that hold the
+ * open default in place, the other being 24-06's own two-armed spawn block in
+ * `relay-admission.node.test.ts`.
  *
  * ## Cost
  *
@@ -270,10 +285,16 @@ describe('NET-05 criterion 4 — a full seed refuses a real joiner by name', () 
     //
     // **A's grant is this file's posture assertion — AUTH-02, added 2026-08-06.** See the
     // header for why this file has no `relayAdmission` literal of its own to read: its relay
-    // is a spawned `bin/seed.ts`, whose posture is a literal inside `seed-server.ts`, and
-    // reaching into a production file from a fixture that does not own it would pin a line
-    // this file has no business pinning. The available instrument is therefore behavioural,
-    // and this is it.
+    // is a spawned `bin/seed.ts`, whose posture is decided by the argv above and not by any
+    // value in this source, and reaching into a production file from a fixture that does not
+    // own it would pin a line this file has no business pinning. The available instrument is
+    // therefore behavioural, and this is it.
+    //
+    // **What it now guards, restated 2026-08-06 by Plan 24-06.** That launch passes no
+    // `--admit-issuer`, so this line reads the open arm of that binary's ternary across a real
+    // process. It is therefore a live guard that the default did not move, and not merely a
+    // precondition for B: a seed whose no-flag posture had become anything but
+    // `'admits-any-peer'` reddens here, by name, before B is ever read.
     //
     // **Asserted BEFORE B's refusal is read, and the ordering is the whole point.** Under a
     // seed that pinned an issuer, A is refused too — none of these agents enrols — and B would
