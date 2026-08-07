@@ -370,9 +370,15 @@ it looks like ceremony.
   into `fabric-node.ts` between another agent's clean `git status --porcelain` and its own
   edit, producing a two-hunk diff on a one-line plant. A `cp` there would have silently
   reverted live work — the exact failure `cp` was adopted to prevent.
-  **So: reverse exactly the line(s) you changed, then verify with `cmp` *and*
-  `git status --porcelain`. Before restoring, count the hunks — a diff with more hunks than
-  your plant is proof another agent is in the file; stop and report rather than restore.**
+  **So: reverse exactly the line(s) you changed, then verify with `cmp` against a snapshot
+  you took *immediately before planting* — that is the check, and nothing else is.**
+- **The hunk count is a one-way test, and reading it as the check is how this rule failed
+  within a day of being written.** *More* hunks than your plant proves another writer is in
+  the file. **Equal hunks proves nothing** — a plant dropped inside a hunk you already had
+  open leaves the count exactly where it was, which is what happened on 2026-08-06 to an
+  agent editing a file it had already modified. The count is a cheap alarm, not a
+  verification: it can only ever tell you to stop, never that it is safe to proceed. `cmp`
+  is what actually held.
 - **Agents that plant must not run in parallel on shared source.** Checking that two plans'
   `files_modified` are disjoint is **not sufficient**, because a plant can touch any file —
   and on 2026-08-06 two verifiers launched together both planted `fabric-node.ts`. The cost

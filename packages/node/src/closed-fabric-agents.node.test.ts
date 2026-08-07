@@ -405,6 +405,102 @@ interface Participant {
   readonly directAddr: string
 }
 
+/**
+ * What a standing relay-capable peer is **to R2**, and therefore whether R2 asks it.
+ *
+ * There are exactly four dispositions and every standing peer has one of them, which is what
+ * makes {@link standingRelayCapable} a partition rather than a filter. `'door'` is the
+ * **default** disposition on purpose — see {@link roleOf}.
+ */
+type Role = 'door' | 'subject' | 'control' | 'in-process'
+
+/** A relay-capable peer this fixture left standing, with the posture it published itself. */
+interface Standing extends Participant {
+  readonly role: Role
+  /**
+   * Whether this peer published a posture **other than** the open literal — read off its own
+   * handshake line or its own banner, never off the argv this file passed it.
+   *
+   * This is the field the hand-maintained set could not have. A relay-capable peer that is
+   * standing and open makes the header's *"every relay-capable peer has been told to close"*
+   * false, and it is now read from the peer rather than assumed of it.
+   */
+  readonly closed: boolean
+}
+
+/** Where a `directAddr` would go for the peer that is never dialled. See {@link Role}. */
+const IN_PROCESS_ADDR = '<in-process — the reader cannot dial itself and is never dialled>'
+
+/**
+ * R2's disposition for a spawned agent, **keyed on its spawn name, and `'door'` by default**.
+ *
+ * The default is the whole mechanism. Two peers are excluded from the closed set for stated
+ * reasons — `stranger` is R2's *subject* and `openControl` is R3's *control* — and every other
+ * spawn is a door R2 dials and asks. So a participant added to {@link standUp} is a door
+ * **automatically**: it is dialled, it is asked, its posture is checked, and it moves the
+ * counted length. Nothing has to be added anywhere for that to happen, which is precisely the
+ * property {@link CLOSED_RELAY_CAPABLE} used to claim and did not have.
+ */
+function roleOf(name: string): Role {
+  if (name === 'stranger') return 'subject'
+  if (name === 'open-control') return 'control'
+  return 'door'
+}
+
+/**
+ * Every relay-capable peer this fixture left standing — **derived from the processes, not
+ * listed beside them.**
+ *
+ * ## The defect this replaces, and why the replacement is a different kind of thing
+ *
+ * `closedSet` used to be a literal of five `{name, peerId, directAddr}` records written out by
+ * hand next to the spawns, and {@link CLOSED_RELAY_CAPABLE}'s docblock claimed that *"a
+ * participant added to `standUp` without being added to the set reddens instead of silently
+ * narrowing the claim"*. **It did not.** A verifier measured the exact case the sentence
+ * describes: a seventh, open, relay-capable agent was added to `standUp` and never added to
+ * `closedSet`, and **both** population assertions stayed green. The guard caught the opposite
+ * case — a set naming a peer that was not there — and nothing at all watched the direction the
+ * docblock advertised. The population the guard acted on was not the population that stood up.
+ *
+ * That shape has now been found eight times in this repository (#38, #39, #66, `bench-reduce`,
+ * WIRE-04 / `@o2/net`, `orphan-leash`, the five `advertisedBy` sites, and this). The repair
+ * that does not repeat it is not a better literal — it is to stop having one.
+ *
+ * ## What is derived and what is still named
+ *
+ * The population comes from `agents`, which every {@link spawnAgent} call appends to, filtered
+ * to the processes that are **still alive**. The liveness filter is load-bearing rather than
+ * defensive: the minting provider is deliberately stopped before its replacement starts, so
+ * `agents` holds a dead entry by construction and a count taken without this filter would be
+ * wrong on the first run.
+ *
+ * Two peers are not `bin/agent.ts` processes and cannot come from that array — the spawned seed,
+ * whose peer id and posture are read off its banner, and the in-process reader. They are passed
+ * in by the caller, where the banner is in scope.
+ *
+ * What remains hand-written is **two names in {@link roleOf}**, each an exclusion with a reason
+ * stated at it. That is not the defect being repaired: an exclusion the derivation has to be
+ * told about is bounded and visible, whereas an inclusion it has to be told about is the thing
+ * that silently went missing.
+ */
+function standingRelayCapable(others: readonly Standing[]): readonly Standing[] {
+  const live = agents.filter((agent) => agent.child.exitCode === null && agent.child.signalCode === null)
+  return [
+    ...live.map(
+      (agent): Standing => ({
+        name: agent.name,
+        peerId: agent.peerId,
+        directAddr: directAddrOf(agent),
+        role: roleOf(agent.name),
+        // Off the process's own handshake line. `posture` is the open literal as a string, or
+        // an array of pinned issuers — so anything that is not that one string is a closed door.
+        closed: agent.posture !== 'admits-any-peer',
+      }),
+    ),
+    ...others,
+  ]
+}
+
 interface Fixture {
   /** The issuer every certificate below is signed by, and every closed door pins. */
   readonly issuer: string
@@ -423,8 +519,21 @@ interface Fixture {
   readonly openControl: Agent
   /** Uncertificated, closed, and a **subject** of R2 as well as its instrument. */
   readonly reader: FabricNode
-  /** The closed relay-capable peers R2 dials and asks, excluding the in-process reader. */
+  /**
+   * The closed relay-capable peers R2 dials and asks, excluding the in-process reader.
+   *
+   * **Derived**, not listed — every `role: 'door'` entry of {@link Fixture.standing}. See
+   * {@link standingRelayCapable} for the measured defect that made it derived.
+   */
   readonly closedSet: readonly Participant[]
+  /**
+   * The whole standing relay-capable population, partitioned by {@link Role}.
+   *
+   * Carried on the fixture rather than recomputed in the case, because it is what the case
+   * asserts *over*: a reading that re-derived its own population inside itself could not fail
+   * on a population that had changed.
+   */
+  readonly standing: readonly Standing[]
 }
 
 let fixture: Fixture
@@ -438,8 +547,26 @@ let fixture: Fixture
  * socket and states the same closed posture, but it is R2's **subject** and is not asked about
  * itself. `openControl` is not in this count and never is.
  *
- * Asserted rather than assumed, so that a participant added to `standUp` without being added to
- * the set reddens instead of silently narrowing the claim.
+ * ## What this constant claims, and the version of the claim that was false
+ *
+ * It read: *"Asserted rather than assumed, so that a participant added to `standUp` without
+ * being added to the set reddens instead of silently narrowing the claim."* **That was not
+ * true, and it was measured false**: a seventh, open, relay-capable agent added to `standUp`
+ * and never added to `closedSet` left both population assertions green. The figure was compared
+ * against a hand-written literal, so the two moved together only when somebody moved them
+ * together, and the sentence described a redness the guard did not have.
+ *
+ * It is true now, and it is true for a different reason than the sentence implied: there is no
+ * longer a set to *omit* a participant from. `closedSet` is every `role: 'door'` entry of the
+ * population that actually stood up ({@link standingRelayCapable}), and {@link roleOf} makes
+ * `'door'` the default disposition — so an added participant is in the set whether or not
+ * anybody meant it to be, and this figure is what it then contradicts.
+ *
+ * Three readings turn on it, and they fail in different directions on purpose:
+ * a participant added **closed** moves the derived length and reddens this figure; a
+ * participant added **open** additionally reddens the posture partition by name, because the
+ * header's claim is that every relay-capable peer standing here was told to close; and a
+ * participant that stops standing lowers the length and reddens it too.
  */
 const CLOSED_RELAY_CAPABLE = 6
 
@@ -597,15 +724,36 @@ async function standUp(): Promise<Fixture> {
   })
   nodes.push(reader)
 
-  const closedSet: readonly Participant[] = [
-    { name: 'provider', peerId: provider.peerId, directAddr: providerAddr },
-    { name: 'seed', peerId: seedPeerId, directAddr: seedAddr },
-    { name: 'relay', peerId: relay.peerId, directAddr: relayAddr },
-    { name: 'memberAtSeed', peerId: memberAtSeed.peerId, directAddr: directAddrOf(memberAtSeed) },
-    { name: 'memberAtRelay', peerId: memberAtRelay.peerId, directAddr: directAddrOf(memberAtRelay) },
-  ]
+  // ---- the population, DERIVED from what stood up rather than listed beside it. ---------
+  //
+  // See {@link standingRelayCapable} for the measured defect this replaces. The two entries
+  // passed in are the peers that are not `bin/agent.ts` processes and so cannot come out of
+  // `agents`: the spawned seed, and the in-process reader.
+  const standing = standingRelayCapable([
+    {
+      name: 'seed',
+      peerId: seedPeerId,
+      directAddr: seedAddr,
+      role: 'door',
+      // Off the seed's own banner, by the same negative its spawn asserted: the open banner
+      // says it admits "every peer that completes a handshake", and this one must not.
+      closed: !admitsLine(seed.banner).includes('every peer that completes a handshake'),
+    },
+    {
+      name: 'reader',
+      peerId: reader.peerId,
+      directAddr: IN_PROCESS_ADDR,
+      role: 'in-process',
+      // Constructed above with `relayAdmission: new Set([issuer])`, in this process, at a line
+      // a reader of this file can see — so unlike every peer above there is no wire to read it
+      // off, and unlike every peer above there is no argv that could disagree with it.
+      closed: true,
+    },
+  ])
+  const closedSet: readonly Participant[] = standing.filter((peer) => peer.role === 'door')
 
   return {
+    standing,
     issuer,
     provider,
     seed,
@@ -698,7 +846,68 @@ describe('criterion 8 — over a fabric whose every relay-capable peer was told 
       openControl,
       reader,
       closedSet,
+      standing,
     } = fixture
+
+    // ---- the POPULATION, before anything is read over it. --------------------------------
+    //
+    // First in the case, and the position is the same lesson `relay-admission.node.test.ts`'s
+    // arm 3 records for its own ordering: every loop below iterates `closedSet`, so a
+    // population that is wrong shows up downstream as a peer that was never met or a door that
+    // did not answer — symptoms that name the wrong cause. Asserted here, a red names the
+    // population itself.
+    //
+    // Every one of these reads {@link Fixture.standing}, which is derived from the processes
+    // that actually stood up. That is the whole repair: see {@link standingRelayCapable}.
+
+    // 1. **Every door in the derived set published a CLOSED posture** — the header's claim,
+    //    read over the standing fabric instead of over a literal. This is the assertion the
+    //    hand-maintained set could not have had: a relay-capable peer added to `standUp` and
+    //    left open is a `'door'` by default, lands here, and is named.
+    expect(
+      standing.filter((peer) => peer.role === 'door' && !peer.closed).map((peer) => `${peer.name} (${peer.peerId})`),
+      'a relay-capable peer is standing in this fabric with an OPEN posture and is not the control, ' +
+        'so “a fabric whose every relay-capable peer was told to close” is false of this run',
+    ).toStrictEqual([])
+
+    // 2. **The partition**, stated as three exact singletons rather than as a count. Each of
+    //    the three non-door dispositions is an exclusion from R2's whole-set reading, so each
+    //    is pinned by name: a second control would quietly halve the claim, and a second
+    //    subject would make "the uncertificated node" two different nodes.
+    expect(
+      standing.filter((peer) => peer.role === 'subject').map((peer) => peer.name),
+      'R2’s subject is not exactly one peer',
+    ).toStrictEqual(['stranger'])
+    expect(
+      standing.filter((peer) => peer.role === 'control').map((peer) => peer.name),
+      'R3’s control is not exactly one peer, so an absence elsewhere is attributable to nothing',
+    ).toStrictEqual(['open-control'])
+    expect(
+      standing.filter((peer) => peer.role === 'in-process').map((peer) => peer.name),
+      'the in-process instrument is not exactly one peer',
+    ).toStrictEqual(['reader'])
+
+    // 3. **The counted budget**, now taken over the derived population. `closedSet` is every
+    //    door; the whole standing set is those plus the three excluded dispositions, minus the
+    //    in-process reader which {@link CLOSED_RELAY_CAPABLE} already counts.
+    expect(
+      closedSet.map((peer) => peer.name),
+      `the closed relay-capable set is not the ${String(CLOSED_RELAY_CAPABLE - 1)} doors this fixture budgets for`,
+    ).toHaveLength(CLOSED_RELAY_CAPABLE - 1)
+    expect(
+      standing.map((peer) => `${peer.name}:${peer.role}`),
+      'the standing relay-capable population is not the doors plus the subject, the control and the reader',
+    ).toHaveLength(CLOSED_RELAY_CAPABLE + 2)
+
+    // And the derived set really is the peers this file names, so a derivation that silently
+    // stopped finding processes cannot pass every reading above by returning a tidy nothing.
+    expect([...closedSet].map((peer) => peer.name).sort()).toStrictEqual([
+      'member-at-relay',
+      'member-at-seed',
+      'provider',
+      'relay',
+      'seed',
+    ])
 
     // ---- the fixture really is what it says it is. --------------------------------------
     //

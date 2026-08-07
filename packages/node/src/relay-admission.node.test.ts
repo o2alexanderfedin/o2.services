@@ -1121,10 +1121,86 @@ describe('AUTH-02 — the relay consults RelayAdmission at the reservation, and 
 
       const about = (peer: FabricNode) => relay.admissionDecisions.find((d) => d.peerId === peer.peerId)
 
+      /**
+       * **A refusal, read VERDICT-FIRST and STORE-SECOND — and the order is the whole of
+       * what a red here is worth.**
+       *
+       * ## The ambiguity this removes, priced by the run that paid for it
+       *
+       * Both refusing arms used to open with `expect(relay.reservedPeerIds).not.toContain(…)`
+       * and reach the decision record three lines later. So the first — and, because vitest
+       * stops at the first failed assertion, the *only* — thing a red said was *"a peer that
+       * should be out is in"*. That sentence cannot distinguish:
+       *
+       *   **(a) the gate ANSWERED ADMIT** — `relayAdmissionGate` returned "allow" for a peer
+       *   this relay pins against. A defect in admission itself, and the event Phase 24
+       *   criterion 8 says cannot happen.
+       *   **(b) an entry appeared WITHOUT a grant** — the gate refused and a reservation
+       *   exists anyway. A defect in `@libp2p/circuit-relay-v2` or in this fixture, and *not*
+       *   a statement about the gate at all.
+       *
+       * On 2026-08-06 that ambiguity turned a probable orchestration artefact — a concurrent
+       * agent's live plant in `fabric-node.ts`, observed by another agent as a red here — into
+       * a reported security defect that was escalated to the owner. Resolving it cost **111
+       * executions**, a patch to `node_modules/@libp2p/circuit-relay-v2` to read the gater's
+       * return value directly, and a reading of the library's call ordering to establish that
+       * branch (b) is unreachable by construction: the gater is awaited strictly before
+       * `reservationStore.reserve(…)`, and `reserve()` has exactly one caller. Every one of
+       * those steps was answering a question this assertion order answers on the first red.
+       *
+       * The gate already carried the evidence the whole time. `relayAdmissionGate` produces
+       * `{admitted, reason}` through `decide(…)` and hands it to an `onDecision` callback this
+       * file already uses — so nothing new is measured here. It is read in the order that makes
+       * it explain rather than merely accompany.
+       *
+       * ## Why it is a helper rather than two hand-written orderings
+       *
+       * Both refusing arms have the identical shape, and the defect was that one of them had
+       * the order backwards. Two hand-written copies is exactly how they diverged once already;
+       * a shared reading cannot.
+       */
+      const refusedAtTheDoor = (peer: FabricNode, name: string): AdmissionDecision => {
+        const verdict = about(peer)
+        // Nothing above narrows this, so the missing-verdict case gets its own sentence: a
+        // gate that never ran is neither (a) nor (b), and reporting it as either would name a
+        // cause that is not the cause. The `until` above waits for exactly this record, so a
+        // red here means the wait was satisfied by a decision about somebody else.
+        expect(
+          verdict,
+          `THE GATE REACHED NO VERDICT ABOUT ${name} — neither branch below can be attributed, ` +
+            'because the relay has no decision record for this peer at all',
+        ).toBeDefined()
+        if (verdict === undefined) throw new Error(`no admission decision about ${name}`)
+
+        // **(a) first.** If the gate said yes, that is the finding, and any store entry below
+        // is its consequence rather than an independent fact.
+        expect(
+          verdict.admitted,
+          `(a) THE GATE ANSWERED ADMIT for ${name} — relayAdmissionGate returned "allow" for a ` +
+            `peer this relay pins against. This is an admission defect in the gate; a ` +
+            `reservation ${name} holds follows FROM it and does not need separate explaining. ` +
+            `Reason the gate gave: ${JSON.stringify(verdict.reason)}`,
+        ).toBe(false)
+
+        // **(b) second, and only now meaningful.** The verdict is established as refuse one
+        // line up, so an entry here cannot have come from this gate saying yes.
+        expect(
+          relay.reservedPeerIds,
+          `(b) A RESERVATION EXISTS THAT NO GRANT EXPLAINS — the gate REFUSED ${name} ` +
+            `(asserted immediately above: admitted === false, reason ` +
+            `${JSON.stringify(verdict.reason)}), and a reservation exists anyway. This is NOT ` +
+            'an admission defect: look at @libp2p/circuit-relay-v2 and at this fixture. Note ' +
+            'that this branch was established unreachable by construction on 2026-08-06 — the ' +
+            'gater is awaited strictly before reservationStore.reserve(), which has one caller ' +
+            '— so a red here is first of all a reason to check whether another agent is ' +
+            'holding a plant in the tree',
+        ).not.toContain(peer.peerId)
+
+        return verdict
+      }
+
       // ---- arm 1: no certificate at all. ----------------------------------------------
-      expect(relay.reservedPeerIds).not.toContain(bare.peerId)
-      expect(about(bare)?.admitted).toBe(false)
-      expect(about(bare)?.reason).toContain('holds no provider-issued certificate')
+      expect(refusedAtTheDoor(bare, 'bare').reason).toContain('holds no provider-issued certificate')
 
       // ---- arm 3: a certificate, from the wrong issuer. --------------------------------
       // **The load-bearing arm.** Without it the gate might be checking that a certificate
@@ -1132,10 +1208,9 @@ describe('AUTH-02 — the relay consults RelayAdmission at the reservation, and 
       // *distinguish* this from arm 1 — an operator who cannot tell "brought nothing" from
       // "brought the wrong thing" cannot act on either.
       expect(theirs.certificate).not.toBeNull()
-      expect(relay.reservedPeerIds).not.toContain(theirs.peerId)
-      expect(about(theirs)?.admitted).toBe(false)
-      expect(about(theirs)?.reason).toContain('not a pinned provider')
-      expect(about(theirs)?.reason).not.toContain('holds no provider-issued certificate')
+      const theirsRefusal = refusedAtTheDoor(theirs, 'theirs')
+      expect(theirsRefusal.reason).toContain('not a pinned provider')
+      expect(theirsRefusal.reason).not.toContain('holds no provider-issued certificate')
 
       // ---- and the admission itself is named too, not merely implied by presence. ------
       expect(about(mine)?.admitted).toBe(true)
