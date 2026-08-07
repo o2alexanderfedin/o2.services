@@ -1,0 +1,4 @@
+[submodule "third_party/elfconv"]
+	path = third_party/elfconv
+	url = https://github.com/yomaytk/elfconv
+	branch = main

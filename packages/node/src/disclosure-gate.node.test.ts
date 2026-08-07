@@ -58,6 +58,62 @@ const ROOT = fileURLToPath(new URL('../../..', import.meta.url))
  */
 const SKIP_DIRS: ReadonlySet<string> = new Set(['node_modules', '.git', 'dist'])
 
+/**
+ * Submodule roots, **derived from git's own index rather than named here**.
+ *
+ * A gitlink is a `160000` entry in `git ls-files --stage`. That is the authoritative
+ * record of what this repository treats as a submodule — not `.gitmodules`, which can
+ * describe a submodule that was never initialised, and emphatically not a `third_party/`
+ * string literal.
+ *
+ * ## Why derived and not written down
+ *
+ * This repository has hit the same defect four times: **the population a guard acts on is
+ * not the population that pays for it.** A hand-maintained exemption list is that defect
+ * waiting to happen — it goes stale the first time a submodule is added, moved or removed,
+ * and it goes stale silently, because a list that is too small only ever makes the guard
+ * *stricter* until the day it makes it wrong. Deriving it from the index means the
+ * exemption cannot describe a submodule that does not exist, and cannot miss one that does.
+ *
+ * ## Why an exemption is legitimate here, stated so it can be argued with
+ *
+ * The `.github` assertions below are deliberately absolute, and their own comment names the
+ * erosion this could be mistaken for: *"'we moved it' is exactly the shape this constraint
+ * erodes into."* The distinction is that a submodule is not this repository moving its own
+ * workflow somewhere quieter. Three facts separate them, and the first two are measured:
+ *
+ * 1. **Git tracks none of it.** `git ls-files` reports the gitlink `third_party/elfconv`
+ *    and **zero** files beneath it. Only the on-disk walk sees them, and the walk is
+ *    deliberately wider than git precisely because *this repository's own* gitignored
+ *    workflow would still deploy.
+ * 2. **This repository did not author them.** They are `yomaytk/elfconv`'s CI, pinned at a
+ *    commit, Apache 2.0 — the same standing as the `node_modules` CI config that
+ *    {@link SKIP_DIRS} already prunes for the reason given above it: third-party CI
+ *    *"says nothing about this repository's intent"*.
+ * 3. **GitHub Actions reads workflows from the pushing repository's own root**, and does not
+ *    check out submodules at all unless a workflow asks it to. **This third one is a claim
+ *    about a platform and it is NOT measured here** — proving it would require pushing, and
+ *    pushing is the exact act DEMO-04 exists to prevent. It is recorded as the assumption it
+ *    is. If it is wrong, facts 1 and 2 do not save the constraint and this exemption is
+ *    wrong with it.
+ *
+ * Owner ruling 2026-08-07, taken against the alternative of dropping the submodule.
+ */
+function submodulePaths(): ReadonlySet<string> {
+  const staged = execFileSync('git', ['ls-files', '--stage', '-z'], {
+    cwd: ROOT,
+    encoding: 'utf8',
+  })
+  return new Set(
+    staged
+      .split('\0')
+      .filter((entry) => entry.startsWith('160000 '))
+      .map((entry) => entry.slice(entry.indexOf('\t') + 1)),
+  )
+}
+
+const SUBMODULES: ReadonlySet<string> = submodulePaths()
+
 interface Tree {
   /** Repo-relative POSIX paths of every directory reached. */
   readonly dirs: readonly string[]
@@ -82,7 +138,13 @@ function walk(): Tree {
       const path = join(current, entry.name)
       if (entry.isDirectory()) {
         if (SKIP_DIRS.has(entry.name)) continue
-        dirs.push(toPosix(path))
+        // Pruned at the root of the submodule, so nothing beneath it is reached — the same
+        // treatment `SKIP_DIRS` gives `node_modules`, and for the reason stated on
+        // {@link submodulePaths}. Pruning rather than filtering afterwards means every
+        // assertion in this file sees one consistent tree.
+        const posix = toPosix(path)
+        if (SUBMODULES.has(posix)) continue
+        dirs.push(posix)
         queue.push(path)
       } else if (entry.isFile()) {
         files.push(toPosix(path))
@@ -229,6 +291,68 @@ describe('the repository root this suite is checking is the real one', () => {
 
   it('is a git repository with tracked files, so the git-side view is real too', () => {
     expect(trackedFiles().length).toBeGreaterThan(100)
+  })
+
+  /**
+   * The exemption is an instrument and is checked like one.
+   *
+   * An exemption that silently grew to cover the repository root would make every
+   * assertion below vacuous while leaving them all green — the failure mode that costs
+   * the most and announces itself the least. So its *contents* are pinned to what git
+   * says, not merely its shape.
+   */
+  it('exempts exactly the paths git records as submodules, and nothing else', () => {
+    // Derived a second way, from a different git command, so the check is not the
+    // implementation restated. `.gitmodules` is the declaration; the index is the fact;
+    // they must agree.
+    const declared = execFileSync(
+      'git',
+      ['config', '--file', '.gitmodules', '--get-regexp', String.raw`^submodule\..*\.path$`],
+      { cwd: ROOT, encoding: 'utf8' },
+    )
+      .split('\n')
+      .filter((line) => line.trim().length > 0)
+      .map((line) => line.slice(line.indexOf(' ') + 1))
+
+    expect([...SUBMODULES].sort()).toEqual([...declared].sort())
+
+    // Non-vacuous in both directions: it covers something, and it does not cover the root.
+    expect(SUBMODULES.size).toBeGreaterThan(0)
+    expect(SUBMODULES.has('')).toBe(false)
+    expect(SUBMODULES.has('.')).toBe(false)
+    for (const path of SUBMODULES) {
+      expect(path, 'an exemption must name a subdirectory, never the tree').not.toBe('')
+      expect(existsSync(join(ROOT, path))).toBe(true)
+    }
+  })
+
+  /**
+   * The half that matters: pruning submodules must not have blinded the walk to this
+   * repository's *own* `.github`.
+   *
+   * **This block first said the structural form was preferable to planting a real workflow
+   * file, "because creating one — even for a moment — is the act the constraint forbids".
+   * That was an excuse and the plant was run instead.** Creating a local file and deleting
+   * it cannot disclose anything; disclosure needs a push. And the structural assertions
+   * below prove the *predicate*, while the pruning happens in {@link walk} — so on their own
+   * they would have gone green against a walk that could no longer see the root at all.
+   *
+   * **Watched red, 2026-08-07.** A real `.github/workflows/probe.yml` carrying
+   * `npx gh-pages -d dist` was written at the repository root: `PLANTED_EXIT=1`, **four**
+   * assertions failing — the directory check, the any-depth check, the tracked-or-untracked
+   * check and the by-content check — each naming `.github/workflows/probe.yml`. Removed
+   * with `rm` + `rmdir`, `git status --porcelain` showing no trace, and the file re-run
+   * green at 17 passed. The structural assertions below are kept because they are cheap and
+   * they localise a failure; they are not what carries the claim.
+   */
+  it('still reaches a root-level .github path, so the exemption did not blind the walk', () => {
+    const wouldPrune = (path: string): boolean => SUBMODULES.has(path)
+    expect(wouldPrune('.github')).toBe(false)
+    expect(wouldPrune('.github/workflows')).toBe(false)
+    expect(wouldPrune('packages/browser/.github')).toBe(false)
+    // And the predicate the assertions use still classifies those as workflow paths.
+    expect(isUnderDotGithub('.github/workflows/deploy.yml')).toBe(true)
+    expect(isUnderDotGithub('packages/browser/.github/workflows/deploy.yml')).toBe(true)
   })
 })
 
