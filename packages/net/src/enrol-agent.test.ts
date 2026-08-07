@@ -9,11 +9,13 @@ import {
   toHex,
   verifyCertificate,
 } from '@o2/core'
-import type { EnrollmentRequest } from '@o2/core'
+import type { PendingEnrollment } from '@o2/core'
+import type { CanonicalValue } from '@o2/core'
 import { describe, expect, it } from 'vitest'
 import { serveAgent } from './agent.ts'
 import { enrolOverRpc } from './enrol-client.ts'
 import type { EnrolOutcome } from './enrol-client.ts'
+import { encodeRequest, parseResponse } from './protocol.ts'
 import { RpcEndpoint } from './rpc.ts'
 
 /**
@@ -40,11 +42,30 @@ const PROVIDER = 'provider'
 const SILENT = 'silent-provider'
 const ENROLLEE = 'enrollee'
 
+/**
+ * An endpoint that keeps every frame it sent, so a test can replay one verbatim.
+ *
+ * Subclassed rather than hand-rolled: `enrolOverRpc` takes an `RpcEndpoint`, and a
+ * duck-typed stand-in would let the capture drift from what the real endpoint puts on
+ * the wire. What is recorded here is the argument to `request` — the same
+ * `CanonicalValue` an eavesdropper would decode off the transport, and nothing more.
+ */
+class RecordingEndpoint extends RpcEndpoint {
+  readonly sent: CanonicalValue[] = []
+
+  override async request(to: string, body: CanonicalValue): Promise<CanonicalValue> {
+    this.sent.push(body)
+    return super.request(to, body)
+  }
+}
+
 /** One shared network per fabric; each fabric gets its own so nothing leaks between tests. */
 function buildFabric(options: { readonly issues: boolean }): {
   readonly rpc: RpcEndpoint
   readonly authority: EnrollmentAuthority
   readonly providerId: string
+  /** Exposed so a test can attach a second peer — an eavesdropper — to the same fabric. */
+  readonly network: MemoryNetwork
 } {
   const network = new MemoryNetwork()
   const authority = new EnrollmentAuthority({
@@ -74,10 +95,10 @@ function buildFabric(options: { readonly issues: boolean }): {
   // A short budget, so the unreachable behaviour below does not wait out
   // `DEFAULT_RPC_TIMEOUT_MS`.
   const rpc = new RpcEndpoint(network.connect(ENROLLEE), { timeoutMs: 1_000 })
-  return { rpc, authority, providerId }
+  return { rpc, authority, providerId, network }
 }
 
-function buildRequest(nodeSeed: Uint8Array, userSeed: Uint8Array = user.priv): EnrollmentRequest {
+function buildRequest(nodeSeed: Uint8Array, userSeed: Uint8Array = user.priv): PendingEnrollment {
   return requestEnrollment(nodeSeed, userSeed, {
     operatorId: 'op-a',
     discoverability: 'via-relay',
@@ -108,7 +129,11 @@ describe('a node obtains a certificate by asking, over the fabric protocol', () 
     // A well-formed signature over the right message by the wrong key is the case
     // worth measuring: a malformed hex string would be refused by arithmetic rather
     // than by the possession check.
-    const forged: EnrollmentRequest = {
+    // A spread, and it keeps `answering` — which is the whole reason `PendingEnrollment`
+    // hands back an *answer* rather than a rebuilt request. A closure that rebuilt the
+    // request would undo this tampering on the way to the wire and the case would go green
+    // while measuring nothing.
+    const forged: PendingEnrollment = {
       ...genuine,
       proofOfPossession: toHex(
         ed25519.sign(possessionChallenge(genuine.nodeKey, genuine.userKey), impostor.priv),
@@ -147,7 +172,7 @@ describe('a node obtains a certificate by asking, over the fabric protocol', () 
     const node = keypair(87)
     const genuine = buildRequest(node.priv)
     // Possession stays genuine; only the owner's consent is forged.
-    const withoutConsent: EnrollmentRequest = {
+    const withoutConsent: PendingEnrollment = {
       ...genuine,
       ownerProof: toHex(
         ed25519.sign(possessionChallenge(genuine.nodeKey, genuine.userKey), impostor.priv),
@@ -294,5 +319,84 @@ describe('a failure says which of three things went wrong', () => {
     expect(outcome).toMatchObject({ ok: false, kind: 'unreachable' })
     if (outcome.ok || outcome.kind !== 'unreachable') throw new Error('expected unreachable')
     expect(outcome.reason.length).toBeGreaterThan(0)
+  })
+})
+
+/**
+ * AUTH-01 freshness — an observed enrolment request is not a replayable byte string.
+ *
+ * The defect these cases were written against: `possessionChallenge` encoded
+ * `{purpose, nodeKey, userKey}` and nothing else, so the bytes a node signed to prove
+ * possession were **fixed for that pair forever**. Anybody who watched one enrolment held
+ * a frame they could resend verbatim, for as long as the provider ran, and the only thing
+ * bounding the damage was the issuance budget those replays spent.
+ *
+ * **The capture is a capture, not a reconstruction.** `RecordingEndpoint` keeps the exact
+ * `CanonicalValue` `enrolOverRpc` handed the transport, and the replay resends *that
+ * object* from a second peer that holds no key of any kind. A test that rebuilt an
+ * equivalent request with `requestEnrollment` would be measuring whether a fresh request
+ * is accepted, which is a different question and one the first case above already answers.
+ *
+ * **Why the eavesdropper is a separate endpoint.** Replaying down the joiner's own
+ * endpoint would leave open the reading that the provider recognised a repeat *caller*.
+ * It does not; it recognises a spent challenge, and the second peer is what makes that
+ * distinguishable.
+ */
+describe('an observed enrolment request is not a replayable byte string', () => {
+  it('refuses the exact frame it already answered, and names the challenge as spent', async () => {
+    const { network, providerId } = buildFabric({ issues: true })
+    const joiner = new RecordingEndpoint(network.connect('recording-joiner'), { timeoutMs: 1_000 })
+    const node = keypair(91)
+
+    const honest = await enrolOverRpc(joiner, providerId, buildRequest(node.priv))
+    expect(honest.ok).toBe(true)
+
+    // The last frame the joiner sent is the enrolment itself. Asserted rather than
+    // assumed: if the exchange ever stops ending on the `enrol` frame, this capture would
+    // silently start replaying something else and the case would pass for the wrong reason.
+    const observed = joiner.sent.at(-1)
+    if (observed === undefined) throw new Error('the joiner sent nothing')
+    expect(observed).toMatchObject({ kind: 'enrol' })
+
+    const eavesdropper = new RpcEndpoint(network.connect('eavesdropper'), { timeoutMs: 1_000 })
+    const replayed = parseResponse(await eavesdropper.request(providerId, observed))
+
+    expect(replayed).toMatchObject({
+      kind: 'enrol',
+      result: { ok: false, refusal: { kind: 'stale-challenge' } },
+    })
+  })
+
+  /**
+   * The sentinel arm, at the wire, and it is here because a plant proved it was missing.
+   *
+   * Neutralising `redeemChallenge`'s `'answers-no-challenge'` guard reddened
+   * `enrollment.test.ts` and left every case in *this* file green — because `enrolOverRpc`
+   * always answers a challenge, so nothing here ever produced the sentinel on a frame. A
+   * mechanism whose only catcher is the unit that implements it is the shape this
+   * repository keeps finding: built, and its wiring assumed.
+   *
+   * The frame below is what a build predating this exchange sends, and what any peer that
+   * skips leg one sends. `requestEnrollment` produces it directly — no hand-assembly —
+   * which is what makes this a reading about the *branch* rather than about a fixture.
+   */
+  it('refuses a well-formed frame that answers no challenge at all', async () => {
+    const { rpc, providerId } = buildFabric({ issues: true })
+    const unfreshened = buildRequest(keypair(92).priv)
+    expect(unfreshened.freshness).toBe('answers-no-challenge')
+
+    const answered = parseResponse(
+      await rpc.request(providerId, encodeRequest({ kind: 'enrol', request: unfreshened })),
+    )
+
+    expect(answered).toMatchObject({
+      kind: 'enrol',
+      result: { ok: false, refusal: { kind: 'stale-challenge' } },
+    })
+    // A refusal, not an `error` frame: this is an answer about the request, and it names
+    // the one next action that works. `error` stays reserved for facts about the
+    // answering node — "this node issues no certificates" and nothing else.
+    if (answered?.kind !== 'enrol' || answered.result.ok) throw new Error('expected a refusal')
+    expect(answered.result.reason).toContain('ask this provider for another')
   })
 })

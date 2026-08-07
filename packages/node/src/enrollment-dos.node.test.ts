@@ -7,7 +7,7 @@ import {
   canonicalCid,
   requestEnrollment,
 } from '@o2/core'
-import type { EnrollmentRequest, ExecutionOutcome, Executor, Task } from '@o2/core'
+import type { EnrollmentRequest, ExecutionOutcome, Executor, PendingEnrollment, Task } from '@o2/core'
 import { RemoteExecutor, RpcEndpoint, enrolOverRpc, serveAgent } from '@o2/net'
 import type { AuthorizedWork } from '@o2/net'
 import { describe, expect, it } from 'vitest'
@@ -74,7 +74,7 @@ const NOW = 1_800_000_000_000
  * `requestEnrollment` performs the two public-key derivations and the two signatures, so
  * this call **is** the attacker's per-identity cost and nothing else is charged to them.
  */
-function freshRequest(): EnrollmentRequest {
+function freshRequest(): PendingEnrollment {
   return requestEnrollment(ed25519.utils.randomSecretKey(), ed25519.utils.randomSecretKey(), {
     operatorId: 'op-attacker',
     discoverability: 'seed',
@@ -213,10 +213,24 @@ describe('AUTH-04 — what one unauthenticated enrolment attempt costs each side
     expect(sink).toHaveLength(SAMPLES)
 
     // The same numerator against the cheaper attack. `possessionChallenge` carries no
-    // nonce and no validity window — `enrollment.ts` states that replay gap outright — so
-    // an attacker who wants provider CPU rather than provider *budget* re-presents one
-    // request for ever and pays a memory copy for each. The spread below is a generous
-    // overestimate of that: a real one holds the encoded frame and pays nothing.
+    // nonce and no validity window, so an attacker who wants provider CPU rather than
+    // provider *budget* re-presents one request for ever and pays a memory copy for each.
+    // The spread below is a generous overestimate of that: a real one holds the encoded
+    // frame and pays nothing.
+    //
+    // **NARROWED 2026-08-06 — this is now true of THIS ARM ONLY, and the arm is the
+    // point.** The clause used to read that `enrollment.ts` "states that replay gap
+    // outright", and that is no longer where the gap lives. At the **wire**, an enrolment
+    // request now carries a `freshness` answer to a provider-minted nonce, and replaying an
+    // observed frame is refused `stale-challenge` — so the attack this ratio prices is not
+    // available to a peer holding captured bytes.
+    //
+    // What this arm measures is `authority.enrol` **in process**, where freshness is
+    // deliberately absent: replay is a property of an *exchange*, and an in-process caller
+    // holding the authority object has none — it can simply call again. So the numerator is
+    // still the right cost model for the residual it names, and the residual is exact: **a
+    // host that wires `enrol` to a transport of its own gets no freshness.** `serveAgent` is
+    // the only such wiring in this repository.
     const replayed = pool[0]!
     const perReplay = pairedRatio(
       SAMPLES,

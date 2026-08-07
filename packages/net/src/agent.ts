@@ -24,6 +24,7 @@ import type {
   CanonicalValue,
   Delegation,
   EnrollmentAuthority,
+  EnrollmentRequest,
   Executor,
   LocalCapacity,
   RecordIndex,
@@ -647,6 +648,36 @@ async function combineAdmitted(
 }
 
 /**
+ * Redeem the challenge an enrolment frame answers, then decide entitlement — AUTH-01.
+ *
+ * **This is where the freshness check lives, and the placement was chosen rather than
+ * fallen into.** `EnrollmentAuthority.enrol` is a pure function of `(request, now)` that
+ * answers *is this node entitled to a certificate* — a question about the request alone.
+ * Replayability is not a property of a request; it is a property of an **exchange**, and
+ * this branch is the only place in this repository where a stranger's bytes become one.
+ * `enrollment.ts`' header states the residual that follows: a host wiring `enrol` to a
+ * transport of its own would get no freshness, and `serveAgent` is the only such wiring
+ * here.
+ *
+ * The ordering is redeem-then-enrol, so a replayed frame never reaches the limiter and
+ * never spends anybody's budget. It is the same discipline `enrol` already applies
+ * internally by checking possession and consent before touching the window.
+ *
+ * A *refusal* is returned rather than an `error` frame, on the `enrol` branch's stated
+ * rule: this is an answer about the request, and it names the one next action that works —
+ * ask for another challenge. `error` stays reserved for facts about the answering node.
+ */
+function certifyFreshly(
+  authority: EnrollmentAuthority,
+  request: EnrollmentRequest,
+  now: number,
+): AgentResponse {
+  const stale = authority.redeemChallenge(request, now)
+  if (stale !== null) return { kind: 'enrol', result: stale }
+  return { kind: 'enrol', result: authority.enrol(request, now) }
+}
+
+/**
  * Install the request handler that makes this endpoint a serving node.
  *
  * A node that serves also **combines**, unconditionally and with no option to say
@@ -862,7 +893,36 @@ export function serveAgent(options: AgentOptions): void {
             // parameter *precisely* so an adapter supplies it, keeping that module free
             // of platform time and its limiter deterministic under test. `Date.now()`
             // behaves identically in both targets `@o2/net` has to run in.
-            { kind: 'enrol', result: options.enroll.enrol(request.request, Date.now()) }
+            certifyFreshly(options.enroll, request.request, Date.now())
+    } else if (request.kind === 'enrol-challenge') {
+      // AUTH-01 freshness, the first leg of the two the enrolment exchange now takes.
+      //
+      // **Unconditional for a provider that issues at all.** There is no refusal arm here
+      // because nothing about this frame can be wrong: it carries no fields, so there is
+      // nothing to judge. A node holding no signing key answers `error` for the reason the
+      // `enrol` branch above gives — a fact about this node, not about the request.
+      //
+      // **What this branch costs, stated on the same terms as the branch above.** An
+      // unauthenticated peer can mint without ever answering, and each mint is 32 random
+      // bytes plus one map entry that `mintChallenge` sweeps out a TTL later. That is
+      // strictly cheaper than the two signature verifications an unanswerable `enrol` frame
+      // already costs this node, so it widens no surface that was not already accepted —
+      // see `enrollment.ts`' header on the deliberately accepted enrolment DoS. It takes no
+      // capacity slot for the same measured reason the `enrol` branch does not: minting is
+      // synchronous, so nothing can interleave around it and the count could never read
+      // above one.
+      //
+      // **Bound to a local, and the shape deliberately differs from the branch above.**
+      // `mutation-ledger.ts`'s `E2` keys on that branch's exact `response =` /
+      // `options.enroll === 'issues-no-certificates'` pair, and a second verbatim copy here
+      // makes its plant name two sites instead of one — `mutation-guard.node.test.ts` said
+      // so by name when this branch was first written the other way. A proof asset is not
+      // something to work around silently.
+      const issuer = options.enroll
+      response =
+        issuer === 'issues-no-certificates'
+          ? { kind: 'error', reason: 'this node issues no certificates' }
+          : { kind: 'enrol-challenge', challenge: issuer.mintChallenge(Date.now()) }
     } else {
       // SCHED-06 — admission, on the branch that actually costs a
       // `WebAssembly.compile` plus an `instantiate` plus a linear memory.
