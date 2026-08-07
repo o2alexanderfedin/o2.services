@@ -361,7 +361,27 @@ it looks like ceremony.
   spec fails, check what the index was doing before you look at the code.
 - **Never `git stash` a path you do not own.** It is a write despite the word — it reverted
   ~250 lines of a concurrent agent's in-progress work. Likewise never `git checkout --` a file
-  you did not write. Restore a planted mutation with `cp` + `cmp`.
+  you did not write.
+- **Restore a planted mutation by the surgical inverse of your own edit — not by `cp`.**
+  This line read *"restore with `cp` + `cmp`"* until 2026-08-06, and that rule is **correct
+  against `git stash` and insufficient against concurrency**. `cp` restores the *whole file*
+  to a snapshot, which is only safe if you were the sole writer for the entire
+  plant-to-restore window. **Twice in one session you were not**: a concurrent agent planted
+  into `fabric-node.ts` between another agent's clean `git status --porcelain` and its own
+  edit, producing a two-hunk diff on a one-line plant. A `cp` there would have silently
+  reverted live work — the exact failure `cp` was adopted to prevent.
+  **So: reverse exactly the line(s) you changed, then verify with `cmp` *and*
+  `git status --porcelain`. Before restoring, count the hunks — a diff with more hunks than
+  your plant is proof another agent is in the file; stop and report rather than restore.**
+- **Agents that plant must not run in parallel on shared source.** Checking that two plans'
+  `files_modified` are disjoint is **not sufficient**, because a plant can touch any file —
+  and on 2026-08-06 two verifiers launched together both planted `fabric-node.ts`. The cost
+  was not a lost edit but a **false finding**: one agent read the other's live plant as an
+  intermittent fail-open in the admission gate, it was escalated as a possible security
+  defect, and refuting it took 111 executions, a patch to `node_modules`, and a reading of
+  the library's call ordering. **Give parallel agents disjoint plant targets, or run them
+  sequentially.** An observation taken while another agent holds a plant is not a measurement
+  of the tree.
 - Never switch branches without a clean `git status`.
 - A whole-tree `tsc --noEmit` reports another agent's mid-edit files. **Re-run before
   diagnosing, and never "fix" a file outside your own list.**
