@@ -2820,6 +2820,43 @@ export const MUTATIONS: readonly Mutation[] = [
     signature: 'exports submitJob and no second job runner beside it',
     signatureSource: 'test-title',
   },
+  {
+    id: 'M68',
+    why:
+      'AUTH-04 / criterion 3 — **the certificate-to-peer binding at the relay door, which was ' +
+      'guarded by nothing at all until 2026-08-06.** `relayAdmissionGate` derives `expected` ' +
+      'from the asking peer id and refuses a certificate naming a different key. That is not ' +
+      'redundant with the signature check and the difference is the whole of what admission ' +
+      'means: `verifyCertificate` is handed a certificate and an issuer set and **cannot know ' +
+      'which peer is holding it**. This exact plant was measured against the tree before the ' +
+      'case below existed and stayed **green across eight admission specs and five runs**, ' +
+      'while a control plant on `enrollment.ts`’s aggregate budget reddened at exit 1 — so the ' +
+      'silence was a fact about the corpus, not about the day. **The near-miss form is ' +
+      'deliberate**: `&& expected === \'\'` leaves every type, symbol and refusal string ' +
+      'byte-intact, so the gate is still installed, still consulted, still asks, still records ' +
+      'a decision — and admits any peer that can replay somebody else’s certificate. Every ' +
+      'structural guard survives it: `relay-admission.node.test.ts`’s census counts postures ' +
+      'and call sites rather than verdicts, and the three live arms above vary ' +
+      'enrolled-versus-unenrolled, never **borrowed**. **Why it matters beyond one line:** ' +
+      'bounded issuance prices identity creation only while one certificate admits exactly one ' +
+      'peer. Planted, one legitimately-issued certificate admits an unbounded number of peers ' +
+      'through every closed door in this fabric, and the issuance budget prices nothing. ' +
+      '**Independence measured in both directions, not assumed.** The identical edit in ' +
+      '`peer-verifier.ts:527` — the SELECTION-side copy, guarded since 17-05 — leaves the case ' +
+      'below green while reddening `peer-verifier.node.test.ts`’s borrowed-certificate row; ' +
+      'this plant reddens the case below and not that one. Two copies of one comparison, two ' +
+      'separate guards, neither standing in for the other.',
+    file: 'packages/node/src/fabric-node.ts',
+    find: '      if (certificate.nodeKey !== expected) {',
+    replace: "      if (certificate.nodeKey !== expected && expected === '') {",
+    caughtBy: ['packages/node/src/relay-admission.node.test.ts'],
+    // Observed 2026-08-06, exit 1, `1 failed | 37 skipped`, 54 ms of test time on a host at
+    // 1-minute load 13.46. Rendered: `AssertionError: expected false to be true` at
+    // `relay-admission.node.test.ts:1391` — arm 1, the borrower, admitted by a door that had
+    // stopped reading who was holding the certificate.
+    signature: 'refuses a peer presenting a certificate issued to a different peer, and admits the peer that certificate names',
+    signatureSource: 'test-title',
+  },
 ]
 
 /**

@@ -7,7 +7,10 @@ import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import { peerIdFromString } from '@libp2p/peer-id'
-import type { RpcEndpoint } from '@o2/net'
+import { EnrollmentAuthority, MemoryNetwork, publishCapabilities, requestEnrollment } from '@o2/core'
+import type { NodeRecords, PublicKeyHex } from '@o2/core'
+import { SEED_BYTES, identityFromSeed } from '@o2/libp2p'
+import { RpcEndpoint, encodeResponse, parseRequest } from '@o2/net'
 import { FabricNode, relayAdmissionGate } from './fabric-node.ts'
 import type { AdmissionDecision } from './fabric-node.ts'
 import { SeedServer } from './seed-server.ts'
@@ -1231,6 +1234,205 @@ describe('AUTH-02 — the relay consults RelayAdmission at the reservation, and 
     // And it stayed inside its budget, which is what keeps it inside libp2p's own 5 s
     // reservation ceiling. Sited against the deadline it was given, not against the clock.
     expect(pending[0]?.ms).toBeLessThan(400 * 4)
+  })
+
+  /**
+   * AUTH-04 — **the borrowed certificate, at the door**, and the reason this case had to be
+   * written rather than inherited.
+   *
+   * ## The gap, measured rather than argued
+   *
+   * `relayAdmissionGate` derives `expected` from the asking peer id and refuses a certificate
+   * whose `nodeKey` names a different key. Its docblock says why that is not redundant with
+   * the signature check, and it is right: `verifyCertificate` is handed a certificate and an
+   * issuer set, and **cannot know which peer is holding it**.
+   *
+   * Until this case existed, nothing read that line. Neutralising the comparison to
+   * `certificate.nodeKey !== expected && expected === ''` — every type, symbol and refusal
+   * string left byte-intact — stayed **green across eight admission specs and five runs**,
+   * while a control plant on `enrollment.ts`'s aggregate budget reddened at exit 1 against a
+   * matched clean baseline. So the instrument read, and the silence was a fact about the
+   * corpus rather than about the day.
+   *
+   * The borrowed case exists exactly once in this repository, at
+   * `peer-verifier.node.test.ts`'s `nodeKey-mismatch` row. **That guards SELECTION** — who a
+   * node will *use* as a block source. Every door reading — the three arms above,
+   * `closed-fabric-agents.node.test.ts`, `gated-admission.e2e.test.ts`, `gated-seed.e2e.test.ts`
+   * — has an **enrolled-versus-unenrolled** axis and never a **borrowed** one, so not one of
+   * them can tell *"one certificate admits one identity"* from *"one certificate admits
+   * anybody who can copy it off the wire"*.
+   *
+   * ## Why that distinction is the whole of a per-identity price
+   *
+   * Bounded issuance prices identity creation only while one certificate admits exactly one
+   * peer. Remove this binding and a single legitimately-issued certificate admits an unbounded
+   * number of peers through every closed door in this fabric — and the issuance budget, which
+   * is the thing doing the pricing, prices nothing at all.
+   *
+   * ## Why a hand-built answer rather than a fourth live joiner
+   *
+   * This case needs a peer that **lies** — one that answers a `records` ask about its own key
+   * with somebody else's certificate. `peer-verifier.node.test.ts` records the standing ruling
+   * for exactly that need: a lying mode on `FabricNode` would be a test-only branch in
+   * production code, and 17-CONTEXT.md forbids a `--forge` flag on any binary. So the answer is
+   * built directly and served over `MemoryNetwork` through the same `parseRequest` /
+   * `encodeResponse` pair production uses, and the subject is `relayAdmissionGate` itself — the
+   * door's own predicate, the instrument the three-disposition case above already uses, for the
+   * reason stated there.
+   *
+   * ## What makes the refusal attributable to THIS check and to no sibling of it
+   *
+   * Two readings in one run, over **one certificate**: the borrower is refused and the refusal
+   * names both keys; and the peer that certificate actually names, asked by the same gate
+   * against the same pinned issuer set moments later, is **admitted**. The second is what makes
+   * the first a reading — a certificate that is admitted cannot be unsigned, cannot be expired
+   * and cannot be from an unpinned issuer, so the borrower's refusal has nowhere else to come
+   * from. The negative on `refused:` closes it from the other side: every failure
+   * `verifyCertificate` produces reaches an operator through that prefix, and this one does not
+   * carry it.
+   *
+   * ## What this cannot show
+   *
+   * It cannot show libp2p really consults the gate at a reservation — that is the three-arm
+   * live case above, and this one deliberately shares no fixture with it.
+   */
+  it('refuses a peer presenting a certificate issued to a different peer, and admits the peer that certificate names', async () => {
+    // Fixed patterns, not random — a failing run must be reproducible. These four are local
+    // to this case: no other fixture in this file mints an identity, so there is no shared
+    // seed table to drift from.
+    const RIGHTFUL_SEED = new Uint8Array(SEED_BYTES).fill(0xb1)
+    const BORROWER_SEED = new Uint8Array(SEED_BYTES).fill(0xb2)
+    const PROVIDER_SEED = new Uint8Array(SEED_BYTES).fill(0xb3)
+    const USER_SEED = new Uint8Array(SEED_BYTES).fill(0xb4)
+
+    const rightful = await identityFromSeed(RIGHTFUL_SEED)
+    const borrower = await identityFromSeed(BORROWER_SEED)
+    // The premise, asserted rather than assumed: two identities, and the peer ids really do
+    // imply different node keys. Two seeds that collided would make every reading below pass
+    // for a reason having nothing to do with the door.
+    expect(borrower.nodeKey).not.toBe(rightful.nodeKey)
+    expect(borrower.peerId).not.toBe(rightful.peerId)
+
+    // One real provider, one real enrolment. **Nothing here is forged** — that is the point:
+    // only the *presenter* is wrong.
+    const authority = new EnrollmentAuthority({
+      providerPrivateKey: PROVIDER_SEED,
+      certificateLifetimeMs: 30 * 24 * 3_600_000,
+      maxIssuedPerWindow: 'issues-without-an-aggregate-budget',
+      issuance: 'remembers-only-within-this-process',
+    })
+    const issued = authority.enrol(
+      requestEnrollment(RIGHTFUL_SEED, USER_SEED, {
+        operatorId: 'harbour-ops',
+        discoverability: 'seed',
+        relayIds: [],
+      }),
+      Date.now(),
+    )
+    if (!issued.ok) throw new Error(`fixture enrolment refused: ${issued.reason}`)
+    const { certificate } = issued
+    expect(certificate.nodeKey).toBe(rightful.nodeKey)
+    expect(certificate.expiresAt).toBeGreaterThan(Date.now())
+
+    const records: NodeRecords = {
+      certificate,
+      capabilities: publishCapabilities(RIGHTFUL_SEED, {
+        features: [],
+        sovereignFor: [],
+        issuedAt: certificate.issuedAt,
+        expiresAt: certificate.expiresAt,
+      }),
+    }
+
+    /**
+     * One network, two serving peers, **one certificate between them**.
+     *
+     * Each answers every `records` ask with the same bytes, so the borrower is doing the one
+     * thing a copied certificate lets a peer do: replying to a question about its own key with
+     * a document about somebody else's. The key it was asked about is recorded, because the
+     * whole claim is that the gate derived `expected` from the peer id it was gating.
+     */
+    const network = new MemoryNetwork()
+    const endpoints: RpcEndpoint[] = []
+    const asked = new Map<string, PublicKeyHex[]>()
+    const serveAt = (address: string): void => {
+      const keys: PublicKeyHex[] = []
+      asked.set(address, keys)
+      const server = new RpcEndpoint(network.connect(address))
+      server.serve(async (_from, body) => {
+        const request = parseRequest(body)
+        if (request === null || request.kind !== 'records') {
+          return encodeResponse({ kind: 'error', reason: `unexpected request ${String(request?.kind)}` })
+        }
+        keys.push(request.nodeKey)
+        return encodeResponse({ kind: 'records', records })
+      })
+      endpoints.push(server)
+    }
+    serveAt(borrower.peerId)
+    serveAt(rightful.peerId)
+
+    const relayRpc = new RpcEndpoint(network.connect('the-relay'))
+    endpoints.push(relayRpc)
+
+    try {
+      const decisions: AdmissionDecision[] = []
+      const gate = relayAdmissionGate({
+        admission: new Set([authority.issuerKey]),
+        rpc: () => relayRpc,
+        deadlineMs: 5_000,
+        attemptMs: 2_000,
+        retryGapMs: 20,
+        onDecision: (d) => decisions.push(d),
+      })
+      expect(gate, 'a pinned issuer set must build a gate').toBeTypeOf('function')
+
+      // ---- arm 1: the borrower. `true` denies. -----------------------------------------
+      expect(await gate?.(peerIdFromString(borrower.peerId))).toBe(true)
+
+      // ---- arm 2: the peer the certificate names, same gate, same pinned set. -----------
+      // Ordered second on purpose. An absence is only a reading once the fixture has been
+      // shown capable of producing a presence, and this arm is that presence.
+      expect(await gate?.(peerIdFromString(rightful.peerId))).toBe(false)
+
+      const about = (peerId: string): AdmissionDecision | undefined =>
+        decisions.find((d) => d.peerId === peerId)
+
+      // ---- arm 2 read first, because it is what licenses arm 1's attribution. -----------
+      expect(about(rightful.peerId)?.admitted).toBe(true)
+      expect(about(rightful.peerId)?.reason).toContain('from a pinned issuer')
+      // Admitted **by a lookup** rather than by a default — the shape a fail-open gate takes.
+      expect(about(rightful.peerId)?.attempts).toBeGreaterThan(0)
+
+      // ---- arm 1, and the refusal names both keys. --------------------------------------
+      const refusal = about(borrower.peerId)
+      expect(refusal?.admitted).toBe(false)
+      expect(refusal?.attempts).toBeGreaterThan(0)
+      expect(refusal?.reason).toContain(`presented a certificate for ${rightful.nodeKey}`)
+      expect(refusal?.reason).toContain(`its peer id implies ${borrower.nodeKey}`)
+
+      // **The attribution, from the other side.** Every refusal `verifyCertificate` produces
+      // reaches an operator through the `refused:` prefix, and every one of the two remaining
+      // door refusals has its own sentence. A case that passed by way of any of them would be
+      // passing for the wrong reason and would leave this binding unguarded exactly as before.
+      expect(refusal?.reason).not.toContain('refused:')
+      expect(refusal?.reason).not.toContain('not a pinned provider')
+      expect(refusal?.reason).not.toContain('holds no provider-issued certificate')
+
+      // And the two verdicts really are about the same document. Without this the arms could
+      // diverge because the fixture minted twice.
+      expect(asked.get(borrower.peerId)).toEqual([borrower.nodeKey])
+      expect(asked.get(rightful.peerId)).toEqual([rightful.nodeKey])
+      // The gate asked the borrower about the borrower's own key — so `expected` came from the
+      // peer id being gated, which is the fact the whole refusal rests on.
+      expect(asked.get(borrower.peerId)).not.toContain(rightful.nodeKey)
+
+      // One certificate, one identity. Stated as the arithmetic the criterion is about rather
+      // than left implied by two booleans.
+      expect(decisions.filter((d) => d.admitted).map((d) => d.peerId)).toEqual([rightful.peerId])
+    } finally {
+      for (const endpoint of endpoints) endpoint.close()
+    }
   })
 })
 
