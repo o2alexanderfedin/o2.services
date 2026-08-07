@@ -157,10 +157,47 @@ structural ranking. Revisit once the new terms are settled.
 | **Free-text `operatorId`** — *now the top structural item* | all tiers | ICP, anything staked | Quorum diversity is exactly as strong as one provider's willingness to sign. *"Nothing in an enrolment request is scarce."* Two colluders under distinct operator IDs bill `independent` agreement at half the work. This is the load-bearing weakness in the integrity claim, and the one a technical buyer will find first. |
 | **No commit–reveal** | all tiers | BOINC | Removed because the ceremony was measured vacuous, not because the threat vanished. One executor can copy another's `resultCid` and sign it. |
 | **No TEE tier** | all tiers | Azure/AWS/GCP confidential | Sovereignty and cross-operator verification are mutually exclusive without one — unless the customer pre-replicates by hand, which the fabric will not do for them. |
-| **AOT is AArch64-only**, 5.40 MiB artifacts, 43 ms in-guest floor | all tiers | any container platform | Cannot ingest the x86-64 legacy the AOT tier exists to serve. |
+| **AOT is AArch64-only**, 5.40 MiB artifact **floor**, 43 ms in-guest floor | all tiers | any container platform | An x86-64 binary is refused, and a container platform takes it. See the note below — one clause of this row was overstated and is corrected there. |
 | **~2× redundancy tax** | all tiers | every centralized platform | Doubles any $/unit comparison — but see §6. |
 | `MAX_PARTIAL_BYTES = 9216` | all tiers **by constant, not transport** | — | Lives in the portable kernel (`core/src/reduce.ts:76`), enforced unconditionally. A configuration ceiling, not a capability ceiling; raising it for a homogeneous deployment is one line. |
 | Duty cycle, eviction, relay dependency, ~1.04 s WebRTC hop | **tabs only** | — | The fabric routes around these by placing demanding work on Node/embedded peers. |
+
+**Correction to the AOT row, 2026-08-07 — one clause was the study's own framing, not a
+measured gap.** It read *"cannot ingest the x86-64 legacy the AOT tier exists to serve."*
+The second half is false: **`AOT-01` specifies "a statically-linked **AArch64** binary
+translates to a `.wasm`", and the string `x86` appears nowhere in `REQUIREMENTS.md` or
+`ROADMAP.md`.** The AOT tier was scoped to AArch64 from the day it was written. Losing
+x86-64 work to a container platform is real and the row keeps it; *"the tier exists to
+serve"* it was not a requirement anyone set and is withdrawn.
+
+Three things the row omitted, each of which changes how a technical reader should weigh it:
+
+- **The refusal is explicit, at the front door, by name.** `packages/aot/src/elf.ts`
+  screens `e_machine` before anything else runs and returns `not-aarch64`. An x86-64 input
+  does not fail obscurely deep in the toolchain — which matters, because elfconv **exits
+  `0` on binaries it could not fully translate**, so a driver that did not screen would
+  have shipped a broken artifact under a name asserting it was clean.
+- **The constraint is upstream and is not permanent.** elfconv's README states *"Only
+  AArch64 ELF binaries are currently supported"* and *"x86-64 support is under
+  development"*. That is not aspirational: six x86 PRs merged in February 2026, including
+  *"Activate all x86 semantics files"* and *"Fix x86 instruction support and add the test
+  env to CI"*. **It has then been quiet on x86 for five months** — April to July 2026 is
+  AArch64 instructions and dependency bumps — so treat it as a live but unscheduled
+  dependency, not a date. The lifter underneath (Remill) has supported amd64 for years;
+  the gap is elfconv's frontend and runtime, which is why the work is tractable at all.
+- **5.40 MiB is a floor, not a typical size.** It is 5.40 MiB *whether the program does
+  nothing or 128 MiB of traffic* — it is the emitted runtime, not the payload. Quoting it
+  as an artifact size makes a small guest look cheap and a large one look ruinous, and both
+  readings are wrong.
+
+**What is not fixable here, stated plainly.** Ingesting x86-64 needs either upstream to
+land it, or a fork writing an x86-64 frontend and runtime against Remill's existing
+semantics. The emulator routes — Blink, Box64, qemu-user compiled to WASM — are worse on
+every axis this project measures: they would carry a full x86-64 FPU and SIMD model into
+the guest, which is a far larger **determinism** surface than a lifted static binary, and
+determinism here must be enforced at publish time because V8 exposes no NaN-canonicalization
+or relaxed-SIMD control. **The honest disposition is that this stays open as a dependency,
+and the row says so rather than implying a missed requirement.**
 
 **The economics, which cut for you:**
 
