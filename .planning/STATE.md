@@ -1739,6 +1739,59 @@ changes. Every executor built a resolver farm and proved it with
 `createRequire().resolve()` before editing. Second, **each wave's prompt carried the prior
 wave's corrections**, because a correction recorded in a SUMMARY reaches no sibling plan.
 
+### Off-roadmap work, 2026-08-06 — the technical peer comparison
+
+Not attributable to any phase. `docs/business/o2-vs-peers-study.md` joins the AWS study as the
+second business document: an apples-to-apples technical comparison of o2 **as specified when
+complete** against wasmCloud, Cloudflare Workers, the Internet Computer, Bacalhau/Fluence, BOINC
+and Apple Private Cloud Compute. Eight parallel research streams, primary sources, tier-tagged.
+
+Four findings bear on decisions outside the document and are recorded here so they are not lost
+with it:
+
+- **BOINC's fix for the redundancy tax.** Twenty years of measurement: *"at least 50% of total
+  CPU time is spent checking result validity."* Their answer was **reputation-gated selective
+  replication at 5-10%**, not uniform 2-3×. This project has the primitives BOINC lacked —
+  enrolment, certificates, per-node signed results. Highest-leverage change identified.
+- **Cross-architecture NaN divergence in V8 was measured**, closing the open question recorded in
+  `CLAUDE.md` ("no measurement found"). Identical wasm bytes, identical V8 12.9.202.28, arm64 vs
+  x86-64: **6 of 10 primitive float ops produce different bits**, stable across 2M iterations and
+  both JIT tiers — a mixed-architecture quorum yields a **permanent 2-2 split**, not a flaky
+  minority. Binaryen `denan` v131 made all ten bit-identical at ~3.0-3.6× on float-saturated
+  code. **Caveat: the x86-64 side ran under Rosetta 2 (`hw.optional.fma: 0`); native confirmation
+  is owed before this is quoted as settled.** Open design question this raises: DAG-CBOR at the
+  serialization boundary fails closed on a NaN-*valued* output, but a NaN-*influenced* output —
+  one flowing through a comparison, bitcast or branch to a finite-but-different number per
+  architecture — would encode happily. If quorums can ever span arm64 and x86-64 this wants a
+  ruling.
+- **Public IPFS retrieval is not a viable artifact path.** Cloudflare's gateway ended 2024-08-14,
+  Brave removed `ipfs://` 2024-08-22, the IPFS Foundation's own docs say public gateways are
+  *"not intended to be part of your critical path or production infrastructure"*, and Filecoin's
+  measured network-wide retrieval success rate was **12.8%** (Sept 2024). Bluesky/atproto solves
+  this in production with a **CDN keyed by CID** — content addressing preserved, and the V8
+  code-caching path with it.
+- **There is nothing to adopt for the decentralized DB.** Measured by commits, not `pushed_at`
+  (which misleads): OrbitDB **0 commits since 2026-05-15** and version-incompatible anyway
+  (`multiformats@^13`/`uint8arrays@^5`/`helia@^6` against this project's 14/6/7 — the exact
+  `CID instanceof` boundary `CLAUDE.md` warns about), with open issue **#1255 "Sync never
+  delivers the first entry to a reader connected only through a relay"** sitting on this
+  project's own topology. GUN: 4 commits in 12 months. Ceramic: 0 since 2025-10-20. Calibration:
+  `ipfs/helia` logged 56 commits in the trailing 90 days. Build it; the category vacated.
+
+Two corrections the owner made during the work, both recorded because they are the recurring
+failure mode: the supply model is **any device with a JS engine** — browser, Node, and embedded
+in a host app — not "browser tabs"; and native mobile embedding is **not** a weak leg, because
+`nodejs-mobile`'s *"On iOS, WASM is unsupported"* is that library's build configuration, not a
+platform limit. WASM has run on iPhone since 2019, and both embedding paths (in-process V8,
+embedded WebView) are owner-tested. **A library's disabled build flag is not a platform
+prohibition.** Only watchOS is genuinely closed (`ENABLE(WEBASSEMBLY) && !PLATFORM(WATCHOS)`).
+
+Licensing is excluded from the study's structural ranking by owner decision — the licence is
+planned to change. With it out, the top structural weakness is **`operatorId` being a
+requester-chosen free-text string the provider signs without verifying**, which is the same
+defect as the absent commit-reveal seen from another angle: nothing makes an identity scarce, so
+"independent agreement" is an assertion rather than a measurement. Open for an owner ruling.
+
 ### Off-roadmap work, 2026-07-29 → 2026-07-31
 
 Not attributable to any phase, and recorded here so it is not mistaken for phase progress.
