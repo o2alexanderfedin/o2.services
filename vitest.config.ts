@@ -113,8 +113,55 @@ const NODE_MEASUREMENT = {
    * by the same two, and `files - EXCLUDED.length` is unchanged. Both spans were **measured**,
    * not estimated — see the two rows in the table for the reporter reading, its wall-clock
    * cross-check, and the boot floor it was taken against.
+   *
+   * ## 164 → 166 on 2026-08-06 by Plan 24-05, and **only one of the two is this plan's**
+   *
+   * Two independent routes agree, as they did at the last two re-sites: the filesystem walk
+   * `slow-specs.node.test.ts` derives `NODE_PROJECT_FILES` from reads **166**, and
+   * `git ls-files packages tools` filtered by the same globs reads **165 tracked**, with
+   * exactly one untracked node spec in `git status --porcelain` — 165 + 1 = 166. The two
+   * routes share no code and disagree by exactly the untracked file, which is the shape they
+   * are supposed to have.
+   *
+   * **The gap was 2, not 1, and the second file is not this plan's.**
+   * `packages/node/src/state-frontmatter.node.test.ts` landed in `9af6210` *after* Plan 24-04
+   * sited this field at 164, so the tree had already drifted by one before this plan opened.
+   * Absorbing it silently into a `+1` would have credited this plan with another agent's file
+   * and left the count wrong by one, so both components are named here instead. That file is
+   * **not** in the table below either — this plan did not run it and transcribing a span
+   * nobody measured is the failure the table exists to prevent.
+   *
+   * **This plan's own file cannot be listed in the table, and the reason is a live rule
+   * rather than an omission.** `packages/node/src/enrolment-needs-no-reservation.node.test.ts`
+   * is **untracked** — Plan 24-05 runs in a shared checkout alongside a concurrent agent and
+   * is explicitly forbidden `git add`, `git commit` and `git stash` — while
+   * `slow-specs.node.test.ts` asserts, as an equality and not a floor, that every path in
+   * {@link MEASURED_NODE_SPANS} is a committed file: *"a hand-typed span git does not know
+   * about is a typo, and a typo there is a permanently foreign finding"*. Listing it would
+   * redden that guard. Counting it here is required by the other rule in the same guard, which
+   * derives the population from the **filesystem**. Both rules are right and they point
+   * opposite ways, exactly as this docblock already records for `job-entry-points` and
+   * `opt-in-only-sources`.
+   *
+   * **So the span is recorded here rather than in the table, and it was measured rather than
+   * estimated.** Reporter span **19 202 ms** (a second solo run read 19 080 ms), whose sum of
+   * case durations equals the span to within 1 ms in both runs — so there is **no hook
+   * shadow**: the file's only hook is a `beforeEach` that makes a temp directory. Cross-checked
+   * against `/usr/bin/time -p` solo `real 20.50` and `20.64`, less a boot floor of **1.13 s**
+   * measured by bracketing the pair with two solo runs of
+   * `packages/core/src/blockstore/memory.test.ts` (`real 1.20` and `1.06`) in the same session
+   * — 19.37 and 19.51, agreeing with the reporter to within 2 %. Load was 4.84 → 5.86 on an
+   * 8-core host. `(user+sys)/real` is **0.43**: the file spawns six `bin/agent.ts` children and
+   * holds two 5 s absence windows, so most of that wall clock is waiting rather than computing.
+   *
+   * It is above `SLOW_CUTOFF_MS` by a factor of 19, so **it is paying its 19.2 s into every
+   * `test:unit` run** until it is committed and the row can land. That cost is stated rather
+   * than hidden, on the same terms as `job-entry-points`' 2 737 ms above. Whoever commits the
+   * file should add `['packages/node/src/enrolment-needs-no-reservation.node.test.ts', 19_202]`
+   * to the table, add the same figure to `sumOfFileSpansMs`, and drop `unitFiles` by one — or
+   * re-measure.
    */
-  files: 164,
+  files: 166,
   tests: 2240,
   /**
    * Sum of the per-file costs the table below records — reporter spans for the files the
@@ -215,8 +262,20 @@ const NODE_MEASUREMENT = {
    * it more than a restatement of that assertion was **not** retaken, for the reason the
    * paragraph above already gives. Until it is, this field is a derivation wearing a
    * measurement's clothes, and the next full retake owes it a reading.
+   *
+   * **108 → 110 on 2026-08-06 by Plan 24-05, derived and NOT re-observed, and the direction
+   * is the finding.** `files` moved 164 → 166 while `EXCLUDED.length` did not move at all,
+   * because **neither** arriving file is in the table: `state-frontmatter.node.test.ts` was
+   * never measured by anyone, and this plan's own spec is untracked and therefore cannot be
+   * listed. So `files - EXCLUDED.length` grows by the full two. That is not bookkeeping — it
+   * is the arithmetic saying plainly that `test:unit` now runs two more files than it did,
+   * one of them a 19.2 s process-spawning spec. See {@link NODE_MEASUREMENT.files} for that
+   * span, for how it was measured, and for what closes the gap. This field's own weakness is
+   * unchanged and is now two re-sites deep: it is still a derivation, and the
+   * `npm run test:unit` cross-check that would make it a measurement has still not been
+   * retaken.
    */
-  unitFiles: 108,
+  unitFiles: 110,
   unitTests: 1650,
   unitWallClockMs: 7_750,
 } as const
