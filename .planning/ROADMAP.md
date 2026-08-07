@@ -1480,7 +1480,63 @@ It lands **here** rather than in Phase 15 for one reason: this phase already rew
         browser mesh whose data path cannot carry bulk (16 KiB WebRTC messages, 128 KiB relay
         limit) — so it must come over the CID-keyed CDN path the peer study identified, not over
         the mesh. And wasm32's 4 GB ceiling (item 5) is a real bound for a compiler, which is
-        one of the few workloads that can genuinely reach it. -->
+        one of the few workloads that can genuinely reach it.
+
+     10. A PROVEN RECIPE EXISTS AND THIS PHASE SHOULD START FROM IT, NOT FROM SCRATCH.
+        `guyutongxue/clangd-in-browser` builds **clangd** — a large clang/LLVM binary — to wasm
+        and runs it in a browser. Its `build.sh` is the template:
+
+          LLVM 21.1.0, built with **emcmake (Emscripten)** — NOT wasi-sdk
+          cmake --build build-native --target llvm-tblgen clang-tblgen   # HOST tablegen first
+          -DLLVM_ENABLE_PROJECTS="clang;clang-tools-extra"
+          -DLLVM_TARGETS_TO_BUILD=WebAssembly
+          -DLLVM_BUILD_STATIC=ON
+          disabled: backtraces, unwind tables, crash overrides, analyzer, terminfo, PIC, zlib
+          -s INITIAL_MEMORY=2GB -s MAXIMUM_MEMORY=4GB -s ASYNCIFY -s WASM_BIGINT
+          -s ENVIRONMENT=worker -s MODULARIZE -s EXPORT_ES6 -pthread
+          -s PTHREAD_POOL_SIZE='Math.max(navigator.hardwareConcurrency, 8)'
+
+        It also carries a `wait_stdin.patch`, so **at least one LLVM patch is required** — expect
+        patches rather than treating the first one as a surprise. It points at `soedirgo/llvm-wasm`
+        as the detailed guide.
+
+        **INDEPENDENT CORROBORATION OF ITEM 5**: `MAXIMUM_MEMORY=4GB` is the whole wasm32
+        address space, and `INITIAL_MEMORY` is already 2 GB. A real LLVM workload runs up against
+        the ceiling this project measured wasi-sdk cannot lift. Two measurements, one conclusion.
+
+        FOUR DELTAS BETWEEN THAT RECIPE AND WHAT o2 NEEDS. These are the phase's actual design
+        decisions and none is a detail:
+
+          a. **Emscripten vs WASI is a decision about WHERE THE TRANSLATOR RUNS, not a detail.**
+             Emscripten output needs its JS glue, so it cannot be guest code under this project's
+             preview1 sandbox. But a translator does not have to be guest code: run it
+             **host-side in the agent** (the same place `WasmExecutor` lives) and the glue is
+             fine. Running it as a sandboxed guest job forces plain WASI and item 7's question.
+             **Decide this first — it determines the toolchain, not the other way round.**
+          b. **Threads may be droppable, and dropping them removes SharedArrayBuffer.** clangd is
+             multi-threaded so that build needs SAB and `crossOriginIsolated`. `elflift` reads one
+             ELF and writes one `.bc`; `LLVM_ENABLE_THREADS=OFF` is likely viable and would remove
+             the COOP/COEP requirement entirely — which matters because CLAUDE.md records that
+             GitHub Pages sets no headers. Note the escape hatch both projects already use, and
+             it is verified in this tree rather than assumed: **elfconv vendors
+             `browser/coi-serviceworker.js` (5 221 bytes)** and copies it in `prepare_js`. Sharper
+             still — elfconv's OWN browser target already links `-pthread`
+             (`EMCC_OPTION` carries `-pthread -sPTHREAD_POOL_SIZE=0`), so it already produces
+             shared-memory modules and already needs cross-origin isolation. That constraint is
+             not new work this phase introduces; it is work elfconv's browser path already carries
+             and which o2 sidesteps today only because its AOT artifacts use the `wasi32` target
+             rather than the emscripten one.
+          c. **`LLVM_TARGETS_TO_BUILD` is not the same list.** clangd needs only `WebAssembly`.
+             elflift emits bitcode and may need no backend at all, while Remill's `Arch::Build`
+             may want `X86` and/or `AArch64` target data for the SOURCE architecture. Measure
+             which are actually referenced before enabling three targets' worth of size.
+          d. **Stage 2 wants `llc` + `wasm-ld`, not `clang-tools-extra`.** The recipe builds a
+             language server; this phase needs a backend and a linker (item 8). Different
+             `LLVM_ENABLE_PROJECTS`, and probably much smaller.
+
+        NOT MEASURED YET, and it is the number the demo-service idea turns on: the module size
+        of that clangd build. Wasmer's clang is ~100 MB uncompressed; assume the same order until
+        this repository's artifact is actually weighed. -->
 
 ### v1.0 (Phases 1-10)
 
