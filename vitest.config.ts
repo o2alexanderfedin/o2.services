@@ -226,8 +226,15 @@ const NODE_MEASUREMENT = {
    * **Moved again the same day by Plan 24-04**, 1_423_929 → 1_465_924, which is exactly
    * 34 973 + 7 022 and nothing else. The 7 943 ms discrepancy above is still carried, still
    * unreconciled, and still not this plan's to absorb.
+   *
+   * **Moved 2026-08-07 by the owner's re-siting ruling**, 1_465_924 → 1_486_198, which is
+   * exactly 21 197 − 923 and nothing else. This is a **correction, not an addition**: no file
+   * arrived, one file's span stopped being wrong by 23x. Every figure derived from this
+   * number understated the node project by ~20 s for as long as the old row stood. The
+   * 7 943 ms discrepancy above is still carried and still unreconciled — three passes deep
+   * now, and each has declined to absorb it for the same reason.
    */
-  sumOfFileSpansMs: 1_465_924,
+  sumOfFileSpansMs: 1_486_198,
   /**
    * What `--reporter=json` alone said the same run summed to, i.e. the same number with
    * the three hook-shadowed files left at the value the reporter gave them.
@@ -335,8 +342,18 @@ const NODE_MEASUREMENT = {
    * `bench-attestation.node.test.ts` and `discover-arm.node.test.ts` — are both above the cut
    * and are therefore both **excluded** from `test:unit`, which was verified against the
    * derived exclusion list before the run rather than assumed.
+   *
+   * **111 → 110 on 2026-08-07 by the owner's re-siting ruling, and this one WAS observed
+   * directly — the second time in four re-sites.** `files` did not move at all; what moved is
+   * `EXCLUDED.length`, because `relay-admission.node.test.ts` crossed `SLOW_CUTOFF_MS` when
+   * its span was corrected 923 → 21 197. So this is the first re-site in the list above whose
+   * direction is **downward**, and the reason is worth keeping: the fast loop did not shrink
+   * because a file was deleted, it shrank because a file that was always costing ~21 s
+   * stopped being recorded as costing 0.9 s. The direct `npm run test:unit` cross-check that
+   * keeps this field from being a derivation wearing a measurement's clothes was taken
+   * against this table, and its reading is recorded below.
    */
-  unitFiles: 111,
+  unitFiles: 110,
   /**
    * **1650 → 1716 and 7 750 → 25 950 on 2026-08-06 by Plan 24-07, both OBSERVED on one green
    * run**, which is the retake the `unitFiles` docblock above has been asking for since the
@@ -354,9 +371,38 @@ const NODE_MEASUREMENT = {
    * same one file: it spawns nine children and holds a 5 s window, so it adds wall clock
    * without adding CPU. Measured as a process rather than as a machine, exactly as the rule in
    * this object's own docblock requires.
+   *
+   * **1716 → 1685 and 25 950 → 24 590 on 2026-08-07, OBSERVED on the same green run that
+   * observed `unitFiles: 110`** — `npm run test:unit` exit **0**, `Test Files 110 passed
+   * (110)`, `Tests 1684 passed | 1 skipped (1685)`, `real 24.59 user 52.57 sys 9.61`,
+   * 1-minute load **9.09** on an 8-core host.
+   *
+   * **The net is −31, and it is NOT one file's worth — the decomposition was measured rather
+   * than inferred from the subtraction, after a first draft of this block asserted it was.**
+   * `relay-admission.node.test.ts` alone reports **38 passed** (solo `--project node`, exit 0),
+   * so the file leaving accounts for **−38**. The remaining **+7** arrived in files that stayed
+   * in the loop, between 24-07's reading on 2026-08-06 and this one — `8719029`'s M68 door case
+   * and the `elf.test.ts` work of `d024d99`/`344eaec` are both in that window. **It is not
+   * decomposed further here**, and is carried as a stated residual rather than absorbed into
+   * the −38, on the same rule that keeps `sumOfFileSpansMs`'s 7 943 ms discrepancy visible.
+   *
+   * No test was deleted or skipped. A reader comparing 1716 with 1685 must not read it as
+   * coverage lost: the file runs in every full sweep, and what it stopped doing is running in
+   * the pre-commit loop.
+   *
+   * That solo run is also a **third independent reading of the re-sited span** — `tests
+   * 21.59 s` against the recorded 20 773 / 21 197 ms, agreeing to within 2 % across three
+   * readings taken a day apart. The table keeps 21 197; this is corroboration, not a re-site.
+   *
+   * **The wall clock barely moved — 25.95 → 24.59 s — and the gap is the finding.** A file
+   * whose solo span is ~21 s left the loop, and the loop got 1.4 s faster, because vitest runs
+   * files in parallel and this one was waiting on reservation deadlines rather than holding a
+   * core. `(user+sys)/real` falls 2.65 → **2.53**, consistent with removing work that was
+   * mostly wait. It is also why the ~21 s this row was hiding never showed up as 21 s of
+   * anybody's wall clock, and why it went unnoticed for as long as it did.
    */
-  unitTests: 1716,
-  unitWallClockMs: 25_950,
+  unitTests: 1685,
+  unitWallClockMs: 24_590,
 } as const
 
 /**
@@ -736,6 +782,38 @@ const MEASURED_NODE_SPANS: readonly (readonly [string, number])[] = [
   ['packages/node/src/bench-attestation.node.test.ts', 23_310],
   ['packages/node/src/sovereignty-placement.node.test.ts', 23_031],
   ['packages/node/src/certificate-verification.node.test.ts', 21_222],
+  // **Re-sited 923 → 21 197 on 2026-08-07 by owner ruling — option A of the two the
+  // 2026-08-06 pass laid out, and the row moved from below the cut to eleventh from the top.**
+  // The old figure was wrong by ~23x and had been left in place deliberately, because
+  // correcting it is a *ruling* rather than an edit: 923 is below `SLOW_CUTOFF_MS` and the
+  // true figure is 21x above it, so the correction is also an exclusion.
+  //
+  // **What it costs, stated rather than buried:** this file leaves the pre-commit fast loop,
+  // and with it the only admission coverage that loop still had — both the posture census and
+  // Phase 24's behavioural gate arms live here. The ruling accepted that. The premise it was
+  // taken on is that the trade is *smaller* than first put: the other two admission fixtures,
+  // `admission-agents.node.test.ts` (34 973) and `admission.node.test.ts` (11 104), are
+  // already above the cut and already excluded, so this re-site removes **one** file from the
+  // fast loop, not three.
+  //
+  // **The measurement.** Reporter span **20 773 ms** and **21 197 ms** over two solo
+  // `--project node` runs 4 minutes apart, agreeing to within 2 %; the larger is recorded, as
+  // the table's convention is the span a reader would observe rather than the kinder of two.
+  // Not a stale reading of the same file — the file *grew* Phase 24's behavioural arms, which
+  // stand up real relays and enrolled peers. **No hook shadow, so the reporter figure is the
+  // whole cost**: the sum of case durations equals the span to within 2 ms and 1 ms
+  // respectively. Cross-checked against `/usr/bin/time -p` solo — `real 23.00 / user 7.07 /
+  // sys 1.47` and `real 23.18 / user 7.18 / sys 1.48` — less the 0.90–1.13 s boot floor this
+  // file's earlier blocks measured, giving ~21.9–22.3 s and agreeing to within ~5 %.
+  // `(user+sys)/real` is **0.37**: the arms spawn peers and wait out reservation deadlines, so
+  // most of the wall clock is waiting rather than computing. A comparability key, not a
+  // verdict.
+  //
+  // **The defect the old comment existed to expose is still here and is still not fixed by a
+  // comment.** `slow-specs.node.test.ts` re-reads none of these spans, so a figure can be
+  // wrong by 23x and no guard notices. Re-siting this row corrects one instance; it does not
+  // build the guard that would have caught it.
+  ['packages/node/src/relay-admission.node.test.ts', 21_197],
   ['packages/node/src/two-process.node.test.ts', 19_455],
   ['packages/node/src/capability-dispatch.node.test.ts', 16_363],
   ['packages/node/src/result-signature.node.test.ts', 15_700],
@@ -783,46 +861,6 @@ const MEASURED_NODE_SPANS: readonly (readonly [string, number])[] = [
   // ---- below the cut; listed so the boundary is visible, not excluded ----
   ['packages/net/src/reduce-job.test.ts', 997],
   ['packages/node/src/rendezvous-wire.node.test.ts', 940],
-  // **THIS FIGURE IS WRONG BY ~23x AND IS LEFT IN PLACE DELIBERATELY — read before trusting
-  // it.** Measured 2026-08-06: this file's reporter span is **20 773 ms** and **21 197 ms**
-  // over two solo `--project node` runs. `923` is not a stale reading of the same file; the
-  // file grew Phase 24's behavioural gate arms, which stand up real relays and enrolled peers.
-  //
-  // **No hook shadow, so the reporter figure is the whole cost.** The sum of case durations
-  // equals the span to within **2 ms and 1 ms** respectively — the same internal-consistency
-  // check the `enrolment-needs-no-reservation` block above applies. Cross-checked against
-  // `/usr/bin/time -p` solo: `real 23.00 / user 7.07 / sys 1.47` and
-  // `real 23.18 / user 7.18 / sys 1.48`. Less the **0.90–1.13 s** boot floor this file's own
-  // earlier blocks measured — **not re-measured in this session, and said rather than
-  // implied** — that is ~21.9–22.3 s, agreeing with the reporter to within ~5 %.
-  // `(user+sys)/real` is **0.37**: the behavioural arms spawn peers and wait out reservation
-  // deadlines, so most of the wall clock is waiting rather than computing. A comparability
-  // key, not a verdict. Load was not pinned; two runs 4 minutes apart agreed to within 2 %.
-  //
-  // **Why it was not simply corrected: the correction is a ruling, not an edit, and it is
-  // NOT this pass's to make.** `923` is below `SLOW_CUTOFF_MS` and the true figure is 21x
-  // above it, so re-siting the row moves the file into `SLOW_NODE_SPECS` and out of
-  // `test:unit`. The two options, with what each costs:
-  //
-  //   A. **Re-site to ~21 197.** `test:unit` stops paying ~21 s it currently pays and does
-  //      not account for. Cost: this file leaves the pre-commit fast loop, and with it the
-  //      **only admission coverage that loop still has** — both the posture census and
-  //      Phase 24's behavioural gate arms live in this one file. Also requires
-  //      `unitFiles` 111 → 110 and `sumOfFileSpansMs` 1_465_924 → 1_486_198.
-  //   B. **Leave the row at 923.** Admission stays in the commit loop. Cost:
-  //      `sumOfFileSpansMs` and every figure derived from it understate the node project by
-  //      ~20 s, and `test:unit` silently pays a cost its own accounting denies.
-  //
-  // **A correction to the premise, measured rather than assumed:** the case for A is
-  // *smaller* than it was put to this pass. The other two admission fixtures —
-  // `admission-agents.node.test.ts` (34 973) and `admission.node.test.ts` (11 104) — are
-  // already above `SLOW_CUTOFF_MS` and therefore **already excluded**. Re-siting this row
-  // removes one file from the fast loop, not three.
-  //
-  // `slow-specs.node.test.ts` is green either way and always was: it re-reads none of these
-  // numbers, so a span can be wrong by 23x and no guard notices. That is the defect this
-  // comment exists to stop being silent, and it is not fixed by the comment.
-  ['packages/node/src/relay-admission.node.test.ts', 923],
   ['packages/aot/src/wasi-real.node.test.ts', 919],
   ['packages/core/src/discovery.test.ts', 884],
   ['packages/aot/src/wasi-executor.test.ts', 817],
