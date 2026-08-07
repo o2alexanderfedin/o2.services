@@ -1137,14 +1137,14 @@ Parallel tracks (config `parallelization: true`):
 | 14. Signed Artifact Resolution | 5/5 | Complete   | 2026-07-31 |
 | 15. Capability-Chained Dispatch | 4/4 | Complete   | 2026-07-31 |
 | 16. Decomposable Tree-Reduce Wiring | 4/4 | **Complete — 4 of 4 criteria.** Criterion 3's "arriving late" clause was not expressible on the build it was written against and was carried to Phase 20 criterion 6, which scored MET; the amendment of 2026-08-06 **re-measured** it rather than transcribing that verdict — `criterion_text_unchanged: true`, both texts `cmp`'d at exit 0, two plants watched red and restored by `cp` + `cmp`. One clause does not match literally and the amendment says so: *"because it carries the same CID"* is causally inert on the late path, since `rpc.ts` drops the frame on a missing correlation entry before the payload matters. **The verdict turns on that reading and an owner may overturn it**, returning the row to 3 of 4. Two non-criterion gaps stay open and tracked, not scored; MR-04 and MR-07 stay `Partial` on their **demo** half, which is WIRE-02 and Phase 22's | 2026-08-06 |
-| 17. Node Identity & Enrollment | 5/5 | 2 of 3 criteria — criterion 3's COST clause not met; measured to be an admission property rather than a selection one, and carried to Phase 24 criterion 8. **This row asserted "Phase 24 landed 2026-08-06 and criterion 8 verified PARTIAL, so criterion 3 does NOT close" — the verdict is right and the REASON is false from `580e461`, while row 24 four lines below said the opposite.** Criterion 8 landed **MET**, so RULING A's precondition IS satisfied — and criterion 3 was re-verified on 2026-08-06 (`a3d2215`) and **declined anyway**, the first time RULING A has held against a destination that landed MET. The clauses match; what is missing is a third link neither sentence names — criterion 3 is about **mass** creation, and that needs **one certificate to admit exactly one identity**. The binding exists in `fabric-node.ts`; **no test observes it** (neutralising it is green across 8 files and 5 runs, while the control plant reddens). One test at the door closes this | 2026-08-06 |
+| 17. Node Identity & Enrollment | 5/5 | **Complete — 3 of 3 criteria.** Criterion 3's COST clause was not met for six days; measured to be an admission property rather than a selection one, and carried to Phase 24 criterion 8. **This row asserted "Phase 24 landed 2026-08-06 and criterion 8 verified PARTIAL, so criterion 3 does NOT close" — the verdict is right and the REASON is false from `580e461`, while row 24 four lines below said the opposite.** Criterion 8 landed **MET**, so RULING A's precondition IS satisfied — and criterion 3 was re-verified on 2026-08-06 (`a3d2215`) and **declined anyway**, the first time RULING A has held against a destination that landed MET. The clauses match; what is missing is a third link neither sentence names — criterion 3 is about **mass** creation, and that needs **one certificate to admit exactly one identity**. The binding exists in `fabric-node.ts`; **no test observes it** (neutralising it is green across 8 files and 5 runs, while the control plant reddens). One test at the door closes this. **CLOSED 2026-08-07 at 3/3 — the test landed within the hour (`8719029`, ledgered M68) and the fourth amendment re-ran the decline rather than transcribing it.** The same plant on the same file — `fabric-node.ts` sha256 `d6688f73…`, byte-identical to the digest the declining pass recorded, so the different result cannot be a different file — now **reddens**: `PLANTED_P1_EXIT=1`, the door returning `false` where `true` denies, i.e. admitting a peer holding somebody else's certificate. **The both-ways proof held**, which is what stops the green being vacuous: planting `peer-verifier.ts` instead leaves relay-admission green in full while reddening peer-verifier's own borrowed-certificate row, so the new case observes the **door** and not the **selector** — the distinction the decline turned on. Two limits are at the verdict, not in a footnote: the borrowed case is measured at the **predicate** over `MemoryNetwork` rather than at a live reservation, so the close rests on a conjunction with the file's live-relay arms; and this is a **bound plus devaluation, not a graduated price** — a reader taking *costly* to require a rising per-identity price gets the 2026-08-01 answer, and that reading is escalated rather than settled | 2026-08-07 |
 | 18. Discovery, Capacity & Placement | 13/13 | Complete   | 2026-08-04 |
 | 19. Quorum Composition & Owner-Domain Attestation | 19/19 | **Complete — 5 of 5 criteria.** Criterion 5 priced nothing: the N-th identity was refused inside the window rather than priced. Carried to Phase 24 criterion 8 by owner ruling 2026-08-04, and **closed there** by the third amendment of 2026-08-06 (`ac7b214`) once criterion 8 was re-scored MET. **This row asserted in the present tense that "criterion 8 verified PARTIAL, so criterion 5 does NOT close" — false from `580e461`, while row 24 three lines below said the opposite.** `criterion_text_unchanged: true` for both criteria, `cmp`'d and `git log -L`-checked. **MET within criterion 8's stated bound, carried verbatim**: the default posture of the binaries stays open and must. Two of the gap's three parts were never Phase 24's — the `userKey` part was answered by 19-05's aggregate budget and the per-process part by 19-07's durable ledger, so criterion 8 is not credited with work this phase did itself | 2026-08-06 |
 | 20. Single Job Path, Ledger & Churn Resilience | 13/13 | 6 of 7 criteria — criterion 7's checkpoint-**write** half runs on a sink no production submitter supplies; the recovery half is measured | 2026-08-05 |
 | 21. AOT Translation Signing & Runtime | 5/5 | 2 of 3 criteria — criterion 2's re-tag refusal recorded as a measured negative by owner ruling 2026-08-05; carried, not cleared | 2026-08-05 |
 | 22. Reachability Guard | 0/4 | Planned, not executed — 4 plans, no summaries, no verification. Runs **last** (23 → 24 → 22) | - |
 | 23. Multi-Process Benchmark Driver | 6/6 | Complete — 5 of 5 criteria | 2026-08-06 |
-| 24. Certificate-Gated Admission | 8/8 | **Complete — 1 of 1.** Criterion 8 verified **PARTIAL** on 2026-08-06 (0 of 1) because the criterion says *"the fabric"* while the evidence read *"a relay that has been told to close"*, and `bin/seed.ts` could not be told to close at all — so the bound was **structural**, not a posture an operator could remove. Four gap-closure plans and a dated amendment (`580e461`) changed that: 24-05 measured the bootstrap paradox **false** (enrolment runs over a plain dial, no reservation in its path), 24-06 built the knob, 24-07 read the absence over **every** door with a control that can fail, 24-08 read the browser tier in three engines. **MET with a stated bound**: the default posture of the binaries stays open and must — 19 + 3 argv sites, with `reservation-exhaustion` arm A a live guard on it. Criterion 8's wording is unedited. **Phase 17 criterion 3 and Phase 19 criterion 5 were both carried into criterion 8. 19 CLOSED at 5/5 (`ac7b214`) carrying the bound verbatim; 17 DECLINED and stays 2/3 (`a3d2215`).** This row said both "can now close" — an actual attempt falsified that for 17 within the hour. Criterion 3 needs a third link neither criterion names, one certificate admitting exactly one identity, and no test observes it. **The two verdicts arguably rest on the same unguarded binding and disagree — an owner adjudication** | 2026-08-06 |
+| 24. Certificate-Gated Admission | 8/8 | **Complete — 1 of 1.** Criterion 8 verified **PARTIAL** on 2026-08-06 (0 of 1) because the criterion says *"the fabric"* while the evidence read *"a relay that has been told to close"*, and `bin/seed.ts` could not be told to close at all — so the bound was **structural**, not a posture an operator could remove. Four gap-closure plans and a dated amendment (`580e461`) changed that: 24-05 measured the bootstrap paradox **false** (enrolment runs over a plain dial, no reservation in its path), 24-06 built the knob, 24-07 read the absence over **every** door with a control that can fail, 24-08 read the browser tier in three engines. **MET with a stated bound**: the default posture of the binaries stays open and must — 19 + 3 argv sites, with `reservation-exhaustion` arm A a live guard on it. Criterion 8's wording is unedited. **Phase 17 criterion 3 and Phase 19 criterion 5 were both carried into criterion 8. 19 CLOSED at 5/5 (`ac7b214`) carrying the bound verbatim; 17 DECLINED and stays 2/3 (`a3d2215`).** This row said both "can now close" — an actual attempt falsified that for 17 within the hour. Criterion 3 needs a third link neither criterion names, one certificate admitting exactly one identity, and no test observes it. This row's closing clause read **"the two verdicts arguably rest on the same unguarded binding and disagree — an owner adjudication"**. **That adjudication was answered by code rather than by a ruling, 2026-08-07**: the binding is now guarded at the door (`8719029`, M68), 17 re-verified and **closed at 3/3**, and the two verdicts agree. The disagreement was never about the criteria — it was about whether the shared premise was observed by anything, and it was not | 2026-08-07 |
 
 ### Phase 23: Multi-Process Benchmark Driver
 **Goal**: The benchmark harness spawns N real operating-system processes instead of N `FabricNode`s on one event loop, so a parallel speedup is measurable at all — and the project's central scaling claim stops being unmeasured
@@ -1306,6 +1306,63 @@ It lands **here** rather than in Phase 15 for one reason: this phase already rew
      milestone, Phase 22 runs anyway and 22-VERIFICATION.md states plainly that it certified
      reachability over an ungated fabric. Ordering must never become the mechanism by which a
      known gap stops being visible. -->
+
+### Phase 25: X.509 Certificate Profile
+**Goal**: The certificate envelope becomes X.509 v3 with a cryptographic profile that is load-bearing rather than advisory — a set of precise refusals, each guarded, such that an ASN.1 parser in the browser trust path is not the weakest thing in the design
+**Depends on**: Phase 24 (which armed the gate the profile governs); no phase depends on this
+**Requirements**: none yet — this phase opens them
+**Research**: `docs/architecture/RFC-0003-Decentralized-Cloud-Security-Architecture-v0.2.md` §4, the three RFC-0003 reviews of 2026-08-06, and the 2026-08-07 correction appended to the praxis review
+**Success Criteria** (what must be TRUE): to be derived at plan time, one per obligation below
+
+<!-- FILED 2026-08-07 BY OWNER RULING. Not scheduled into v1.1 — v1.1 is "Wire What Was Built"
+     and this builds something new. It is filed rather than left in a review document because a
+     ruling that lives only in a doc is a ruling nobody executes.
+
+     THE RULING, AND IT WAS TAKEN AGAINST THE STANDING RECOMMENDATION. The recommendation was to
+     keep `@noble/curves` + `@ipld/dag-cbor` — both already present — and document the divergence
+     from X.509, on the ground that adopting it ships `pkijs` + `asn1js` into the BROWSER trust
+     path: a few hundred KB of exactly the code that generates CVE classes, at the one boundary
+     that must fail closed. The supporting argument was that `critical` extensions buy little
+     here because there is no generic validator anywhere in this system, while the one place a
+     standard validator would sit — §2's optional external CA — is guaranteed to reject a chain
+     carrying critical unknown extensions, so §2 and §4 pull against each other.
+
+     THE OWNER RULED ADOPT ANYWAY, 2026-08-06, and re-confirmed the filing 2026-08-07. The
+     decision stands and the work proceeds under it. What it OBLIGES is that the cryptographic
+     profile stops being advisory. Seven items were named:
+
+       1. permitted algorithms
+       2. bans on SHA-1 and weak curves
+       3. DER canonicalisation rules
+       4. certificate parsing limits
+       5. maximum chain depth
+       6. extension size limits
+       7. strict handling of duplicate extensions
+
+     ITEM 5 IS ALREADY DELIVERED AND GUARDED, measured 2026-08-07 against the tree rather than
+     taken from the review. `packages/core/src/capability.ts:127` defines `MAX_CHAIN_DEPTH = 8`
+     and `:190` enforces it BEFORE any signature work, for the reason the review itself gives:
+     the length is attacker-supplied and this is the cheapest possible refusal. Its companion
+     hazard is closed too — `:255` folds `expiresAt` with `reduce` rather than
+     `Math.min(...chain.map(...))`, because the spread raised RangeError past ~200 000 elements
+     on the SUCCESS path. The two controls are deliberately independent. The review's claim that
+     *"verifyChain currently has no depth bound at all"* is FALSE and was false when written; a
+     dated correction is appended to the praxis review rather than edited into it.
+
+     THE OTHER SIX ATTACH TO A PARSER THAT DOES NOT EXIST, and that is the phase's real shape.
+     No `pkijs`, `asn1js`, `node-forge` or `@peculiar/*` is installed in the root manifest or any
+     workspace package; certificates today are Ed25519 over `@noble/curves`
+     (`packages/core/src/enrollment.ts:113`), not DER. So items 3, 4, 6 and 7 are rules for
+     something not yet built — which argues for specifying them BEFORE it arrives, and is why
+     this is a phase rather than a patch.
+
+     WHAT THE PLANNER MUST NOT DO. "Reject on ambiguity" is not a principle to state; under this
+     ruling it is the set of precise refusals, each with a test that has been watched red. A
+     profile document with no guard is the advisory thing the ruling exists to replace.
+
+     THE COST IS PART OF THE RULING AND MUST BE MEASURED, NOT ASSUMED: bundle weight added to the
+     browser tier, and whether the parser can be kept off the path a tab executes. Both are
+     numbers this phase owes, not caveats it may inherit. -->
 
 
 ### v1.0 (Phases 1-10)

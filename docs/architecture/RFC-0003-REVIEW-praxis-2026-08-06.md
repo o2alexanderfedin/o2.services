@@ -382,3 +382,28 @@ bans on SHA-1 and weak curves, DER canonicalisation rules, certificate parsing l
 from the wire — extension size limits, and strict handling of duplicate extensions. Under this
 ruling *"reject on ambiguity"* is not a principle to state; it is the set of precise refusals
 that keeps an ASN.1 parser in a browser from being the weakest thing in the design.
+
+### Correction, 2026-08-07 — one item on that list was already built
+
+Appended rather than edited into the paragraph above, because that paragraph is a dated review
+record and its claims are worth being able to read as they were made.
+
+**The chain-depth clause is false against the tree and was false when it was written.**
+`packages/core/src/capability.ts:127` defines `MAX_CHAIN_DEPTH = 8`, and `:190` enforces it
+**before any signature work**, with the comment stating the reason in the same terms the review
+does: *"the length is attacker-supplied, and this is the cheapest possible refusal."* The
+companion hazard is closed too — `:255` folds `expiresAt` with `reduce` rather than
+`Math.min(...chain.map(…))`, specifically because the spread raised `RangeError: Maximum call
+stack size exceeded` past ~200 000 elements, *on the success path*. The two controls are
+deliberately independent: the bound makes the overflow unreachable, the fold makes it
+impossible.
+
+So of the seven obligations the ruling names, **one is delivered and guarded, and six are not.**
+
+**The six that remain do not attach to anything yet, and that is the honest status.** No ASN.1
+or X.509 parser is installed — no `pkijs`, `asn1js`, `node-forge` or `@peculiar/*` in the root
+manifest or any workspace package. Certificates today are Ed25519 over `@noble/curves`
+(`packages/core/src/enrollment.ts:113`), not DER. DER canonicalisation, parsing limits,
+extension size limits and duplicate-extension handling are therefore **rules for a parser that
+does not exist**, which is an argument for specifying them before it arrives rather than after —
+and an argument that this is phase-sized work rather than a patch.
