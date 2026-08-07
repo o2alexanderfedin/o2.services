@@ -62,14 +62,36 @@ stopped_at: >-
   OTHER SIX ATTACH TO A PARSER THAT DOES NOT EXIST - no pkijs, asn1js, node-forge or @peculiar
   anywhere in the manifests, and certificates today are Ed25519 over @noble/curves, not DER -
   which is the argument for specifying them before it arrives and is why this is a phase rather
-  than a patch. NEXT IS AOT-06, one step from a verdict with both elfconv images cached locally,
-  then Phase 22, then the v1.1 milestone audit. TWO ITEMS STAY WITH THE OWNER out of the Phase
-  17 close and neither is a criterion-3 gap: the AUTH-02 browser-pinning leg, carried unresolved
-  since 2026-08-05, and the graduated-cost reading of costly. THIS BLOCK PREVIOUSLY SAID 10 OF
-  15 while the handoff said 11 and Session Continuity said 8 - three counts in one file, none of
+  than a patch. AOT-06 IS ANSWERED AND THE ANSWER IS A LOCATED NEGATIVE. elfconv cannot lift
+  x86-64 today, and the gap is NOT instruction semantics - Remill has had amd64 for years, CI
+  publishes an :amd64 image, the --arch flag accepts it and the ELF loader classifies it. The
+  gap is that lifter/TraceManager.cpp finds main by matching LITERAL AARCH64 ENCODINGS on a
+  fixed 4-byte stride with no amd64 branch, then calls elfconv_runtime_error. Measured twice,
+  gcc and clang-16, two entry points, both LIFT_EXIT=134 SIGABRT with no bitcode and no wasm -
+  but THE VERDICT IS CARRIED BY THE SOURCE RATHER THAN BY THE RUNS, which matters because the
+  amd64 image runs emulated on this arm64 host and a byte pattern that cannot match cannot match
+  on any host. The previous session's exit 0 with no artifact is explained too: elfconv.sh's
+  target case has NO DEFAULT BRANCH, so an unhandled TARGET returns 0 having produced nothing.
+  Two hypotheses were REFUTED rather than argued - a missing LLVM dynamic library (ldd resolves
+  libLLVM-16.so.1 with zero not-found, and the abort is elfconv's own thrown runtime_error,
+  which a loader failure could not produce) and the compiler (the clang control aborts
+  identically). Fixing it means WRITING amd64 entry-point discovery, upstream or as a patch
+  carried in the submodule: tractable, not small, and upstream has not done it - main is one
+  commit ahead of the pinned 5319dd8 and that commit is a dependabot action bump. ELFCONV IS NOW
+  A SUBMODULE at third_party/elfconv, pinned to the commit both cached images report, so every
+  file:line above is readable with no Docker at all. That required teaching the disclosure gate
+  what a submodule is: the submodule ships .github/workflows, DEMO-04 forbids a workflow file
+  existing at all, and the exemption is DERIVED FROM GIT'S INDEX (160000 gitlink entries) rather
+  than written down, because a hand-maintained list is the population defect this repo has hit
+  four times. Two plants watched red. The unmeasured part is named: that GitHub never executes a
+  submodule's workflows is a claim about a platform, and proving it needs a push. NEXT IS PHASE
+  22, then the v1.1 milestone audit. TWO ITEMS STAY WITH THE OWNER out of the Phase 17 close and
+  neither is a criterion-3 gap: the AUTH-02 browser-pinning leg, carried unresolved since
+  2026-08-05, and the graduated-cost reading of costly. THIS BLOCK PREVIOUSLY SAID 10 OF 15
+  while the handoff said 11 and Session Continuity said 8 - three counts in one file, none of
   them right, which is the defect this milestone keeps finding in its own bookkeeping and found
   here again.
-last_updated: "2026-08-07T08:35:00.000Z"
+last_updated: "2026-08-07T10:15:00.000Z"
 last_activity: 2026-08-07
 progress:
   total_phases: 15
@@ -291,8 +313,13 @@ See: .planning/PROJECT.md (updated 2026-07-27)
 **Core value:** Usable capacity grows super-linearly with the user base, without any raw data leaving its owner's device.
 **Current focus:** **The count is 12 of 15.** Phase 24 closed at 1/1 and Phase 19 at 5/5 on
 2026-08-06; **Phase 17 closed at 3/3 on 2026-08-07**, having been *declined* the day before.
-Next is **AOT-06** (one step from a verdict, both elfconv images cached locally), then
-**Phase 22 (Reachability Guard), which runs last**, then the v1.1 milestone audit. That order
+**AOT-06 was answered on 2026-08-07 and the answer is negative with a located cause**:
+elfconv cannot lift x86-64 today, because `lifter/TraceManager.cpp`'s entry-point discovery
+is hardcoded AArch64 byte patterns with no amd64 branch — **not** instruction semantics,
+which Remill has had for years, and **not** the build, which CI publishes as `:amd64`.
+elfconv is now a submodule pinned at the commit both images report, so that is readable
+in-tree. Next is **Phase 22 (Reachability Guard), which runs last**, then the v1.1
+milestone audit. That order
 is an owner ruling of 2026-08-05, which inserted 24 ahead of 22; 22 was already last, because
 it is the guard that rules on everything the other phases wire. **The premise that ruling
 rested on was re-confirmed 2026-08-07**: the narrow reading of *"the fabric"* stands, so 22
@@ -1583,8 +1610,22 @@ Phase 25** rather than left in a review document.
 than quietly overwritten: a file disagreeing with itself is the defect this milestone keeps
 finding, and it kept finding it here.
 
-Next unit: **AOT-06** — one step from a verdict, both elfconv images cached locally, and the
-handoff names the step. Then **Phase 22 (Reachability Guard)** — 4 plans, no summaries, and
+**AOT-06 is closed as a NEGATIVE with a located cause, 2026-08-07.** elfconv's x86-64 build,
+CI arm, published `:amd64` image and Remill amd64 semantics all exist — and lifting an x86-64
+ELF still aborts, because `lifter/TraceManager.cpp` finds `main` by matching **literal
+AArch64 encodings** (`nop` = `1f 20 03 d5`, `bti c` = `5f 24 03 d5`, `b` = byte `& 0xfc ==
+0x14`) on a fixed 4-byte stride, with no amd64 branch. Measured twice — `gcc` and `clang-16`,
+two entry points, both `LIFT_EXIT=134` (SIGABRT) with no `.bc` and no `.wasm` — but **the
+verdict is carried by the source, not the runs**, which matters because the amd64 image runs
+emulated here and a byte pattern that cannot match cannot match on any host. The previous
+session's `exit 0` + no artifact is also explained: `elfconv.sh`'s target `case` has **no
+`*)` branch**, so an unhandled `TARGET` returns 0 having produced nothing. Two hypotheses
+were refuted rather than argued: a missing LLVM dylib (`ldd` shows 0 not-found, and the abort
+is elfconv's own thrown `runtime_error`) and the compiler (clang control). Fixing it means
+**writing amd64 entry-point discovery**, upstream or as a patch in the submodule — tractable,
+not small, and upstream has not done it.
+
+Next unit: **Phase 22 (Reachability Guard)** — 4 plans, no summaries, and
 it runs last. **The ordering ruling was re-confirmed 2026-08-07 and no longer blocks it.**
 22 was placed after 24 so the guard would certify a *gated* fabric; under the narrow reading
 of criterion 8 it will certify a fabric with an admission posture stated on every
