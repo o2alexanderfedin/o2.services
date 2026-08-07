@@ -177,27 +177,46 @@ Three things the row omitted, each of which changes how a technical reader shoul
   does not fail obscurely deep in the toolchain — which matters, because elfconv **exits
   `0` on binaries it could not fully translate**, so a driver that did not screen would
   have shipped a broken artifact under a name asserting it was clean.
-- **The constraint is upstream and is not permanent.** elfconv's README states *"Only
-  AArch64 ELF binaries are currently supported"* and *"x86-64 support is under
-  development"*. That is not aspirational: six x86 PRs merged in February 2026, including
-  *"Activate all x86 semantics files"* and *"Fix x86 instruction support and add the test
-  env to CI"*. **It has then been quiet on x86 for five months** — April to July 2026 is
-  AArch64 instructions and dependency bumps — so treat it as a live but unscheduled
-  dependency, not a date. The lifter underneath (Remill) has supported amd64 for years;
-  the gap is elfconv's frontend and runtime, which is why the work is tractable at all.
+- **The constraint is upstream, it is not permanent, and it is weaker than the README
+  says.** elfconv's README still reads *"Only AArch64 ELF binaries are currently
+  supported"* — but **the README is stale.** `scripts/build.sh` takes `ELFCONV_X86=1`,
+  passes `CMAKE_ELFCONV_X86_BUILD` to CMake, and enforces it as *mutually exclusive* with
+  the AArch64 build; `.github/workflows/tests.yml` carries a build matrix with
+  **`arch: AMD64` / `build-arg: ECV_X86=1`** alongside the AArch64 arm. Six x86 PRs merged
+  in February 2026, including *"Activate all x86 semantics files"* and *"Fix x86
+  instruction support and add the test env to CI"*. So an x86-64 **lifter build exists and
+  is CI-exercised** — what is unproven is its **wasm** output, because the workflow's
+  browser job runs the AArch64 arm only. It has then been quiet on x86 for five months
+  (April–July 2026 is AArch64 instructions and dependency bumps), so treat the *finish* as
+  unscheduled — but the starting point is far past zero. The lifter underneath (Remill)
+  has supported amd64 for years; the gap was never the instruction semantics.
 - **5.40 MiB is a floor, not a typical size.** It is 5.40 MiB *whether the program does
   nothing or 128 MiB of traffic* — it is the emitted runtime, not the payload. Quoting it
   as an artifact size makes a small guest look cheap and a large one look ruinous, and both
   readings are wrong.
 
-**What is not fixable here, stated plainly.** Ingesting x86-64 needs either upstream to
-land it, or a fork writing an x86-64 frontend and runtime against Remill's existing
-semantics. The emulator routes — Blink, Box64, qemu-user compiled to WASM — are worse on
-every axis this project measures: they would carry a full x86-64 FPU and SIMD model into
-the guest, which is a far larger **determinism** surface than a lifted static binary, and
-determinism here must be enforced at publish time because V8 exposes no NaN-canonicalization
-or relaxed-SIMD control. **The honest disposition is that this stays open as a dependency,
-and the row says so rather than implying a missed requirement.**
+**The path is shorter than this row implied, and it is now a measurement rather than a
+research question — tracked as `AOT-06`.** The driver is *already* parameterised for more
+than one target: `tools/aot/cli.ts` takes `--image <tag>`, and `cache-key.ts` carries
+`target` with its own note that *"the wrong target emits a different ABI"* — so the
+architecture is not the obstacle. Three things stand between here and an x86-64 artifact,
+in order:
+
+1. Build the elfconv image with `ECV_X86=1` and lift an x86-64 static hello-world **to
+   wasm**. This is the decisive experiment and nobody has run it. If the wasm arm is broken
+   upstream, everything below is moot and the row reverts to its pessimistic reading.
+2. If it produces a module: widen `elf.ts`'s screen from a hard-coded `EM_AARCH64` to the
+   machine the *selected target* accepts, and carry the machine in the cache key so an
+   x86-64 artifact and an AArch64 one can never collide.
+3. Re-measure the two published floors on the x86 path. **Do not assume they carry over** —
+   5.40 MiB and 43 ms are both properties of elfconv's emitted runtime and machine-state
+   init, and the x86-64 `State` struct is a different size.
+
+**What stays ruled out regardless.** The emulator routes — Blink, Box64, qemu-user compiled
+to WASM — are worse on every axis this project measures, and decisively on **determinism**:
+they carry a full x86-64 FPU and SIMD model into the guest, a far larger nondeterminism
+surface than a lifted static binary, against a constraint that must be enforced at publish
+time because V8 exposes no NaN-canonicalization or relaxed-SIMD control.
 
 **The economics, which cut for you:**
 

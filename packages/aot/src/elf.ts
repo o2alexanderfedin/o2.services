@@ -477,9 +477,10 @@ export function describeRefusal(reason: ElfRefusal): string {
       return (
         `built for machine ${reason.machine}${named}, not AArch64 (${EM_AARCH64}) — ` +
         `if you have the source, cross-compile it for aarch64 and translate that. ` +
-        `If you have only the binary, it is out of scope for this tier: elfconv lifts ` +
-        `AArch64 ELF input only, and its x86-64 support is upstream work in progress, ` +
-        `not a flag this driver is withholding`
+        `If you have only the binary: this screen is scoped to the toolchain image this ` +
+        `driver ships, which is an AArch64 build of elfconv. Upstream elfconv has an ` +
+        `x86-64 build behind \`ECV_X86=1\` and a CI arm for it, but its wasm output is ` +
+        `unproven here — see AOT-06`
       )
     }
     case 'dynamically-linked':
