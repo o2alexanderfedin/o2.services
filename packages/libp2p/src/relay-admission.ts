@@ -80,7 +80,20 @@
  * whole file supports: a peer this relay refuses is refused *here*, and any other
  * relay-capable peer it can reach decides for itself. `24-VERIFICATION.md` scores criterion
  * 8 PARTIAL on exactly that, because a joiner must dial an enrolment provider that is itself
- * relay-capable, and `bin/seed.ts` cannot be told to close at all.
+ * relay-capable.
+ *
+ * **That sentence ended *"and `bin/seed.ts` cannot be told to close at all"* until 2026-08-06,
+ * and the clause is corrected here rather than deleted** — this file's own established
+ * practice for its two prior corrections, for the reason it gives at both of them: *a comment
+ * asserting a mechanism is inert is the exact shape this repository has been bitten by; a
+ * reader who believes it stops looking.* Plan 24-06 added `SeedServerOptions.relayAdmission`
+ * and `bin/seed.ts --admit-issuer`, so the seed — the relay every browser tab in this fabric
+ * reserves on, and the source of `BootstrapInfo.peerAddrs` — takes its posture from its
+ * operator. **The default did not move**: that binary threads the flag through a ternary whose
+ * absent arm is the open literal, so a seed told nothing is byte-identical to the seed before
+ * the flag existed, and `reservation-exhaustion.node.test.ts` holds that behaviourally across
+ * a real process. What criterion 8 still turns on is a reading over a *fabric* rather than
+ * over one relay, and that reading is not this mechanism's to make.
  *
  * Three properties make that the right hook, and each is load-bearing:
  *

@@ -77,13 +77,35 @@
  * So `verifiedPeers` re-asks. Which verdicts it will re-ask is decided by {@link FINAL},
  * and that split is the same one this comment already draws above: a fact about a **signed
  * document** cannot change while the connection lives, and a fact about the **conversation**
- * can. Three guards keep the cost bounded — an acceptance is never re-asked, a `FINAL`
- * refusal is never re-asked, and nothing is re-asked inside
- * {@link DEFAULT_VERDICT_RETRY_FLOOR_MS}. The ceiling is therefore one request per connected
- * peer per interval, paid only while something is actually fetching blocks.
+ * can. Two guards keep the cost bounded — a `FINAL` refusal is never re-asked, and nothing
+ * is re-asked inside {@link DEFAULT_VERDICT_RETRY_FLOOR_MS}. The ceiling is therefore one
+ * request per connected peer per interval, paid only while something is actually fetching
+ * blocks.
  *
  * **This is a fabric-wide behaviour, not a local fix**, which is why it was held for an
  * owner ruling rather than patched when it was found (2026-08-01).
+ *
+ * ## The half of that asymmetry which was missing, and is not any more
+ *
+ * A third guard stood beside those two and read *"a settled acceptance is never re-asked:
+ * verification is monotone here — nothing below revokes"*. The premise was true and the
+ * conclusion did not follow from it. A certificate is not open-ended; it names its own
+ * `expiresAt`, and honouring an acceptance past that instant made the window in which a
+ * lapsed peer stopped being usable the **connection** lifetime rather than the
+ * **certificate** lifetime. On the backbone a connection lives for days.
+ *
+ * The shape of the mistake is worth keeping, because it was a half-applied insight rather
+ * than an oversight: `expired` was deliberately kept **out** of {@link FINAL} precisely
+ * because it is a statement about a clock, so a *refusal* could be promoted when the peer
+ * renewed — and nothing anywhere demoted an *acceptance* on the same reading of the same
+ * clock. {@link PeerVerifier.#demoteIfExpired} is the missing direction; the promotion is
+ * untouched.
+ *
+ * **It is expiry, and it is not revocation.** No CRL, no OCSP, no revocation state exists
+ * anywhere in this repository, and this adds none. A certificate withdrawn by its issuer
+ * before `expiresAt` is still honoured until that instant, and closing *that* gap is a
+ * separate design question involving an owner. What is closed here is only the half where
+ * the signed document itself says it has stopped being valid.
  *
  * ## Packaging, stated because it is a finding and not a design
  *
@@ -193,6 +215,13 @@ export type PeerVerdict =
  * about the document's validity: a not-yet-valid certificate becomes valid by waiting, and
  * an expired one is replaced by a renewal the peer can obtain without reconnecting.
  *
+ * That reading is now used in both directions rather than one. It always meant an `expired`
+ * **refusal** could be promoted; since {@link PeerVerifier.#demoteIfExpired} it also means an
+ * **acceptance** is demoted to `expired` the moment the certificate under it lapses — same
+ * clock, same name, opposite direction. A set that governs only promotion would have made
+ * this class's guarantee "verified at some point during this connection", which is not what
+ * a gate deciding who to fetch a block from *right now* can act on.
+ *
  * A disconnect clears everything regardless — {@link PeerVerifier} drops both maps on
  * `peer:disconnect` — so "final" means *for this connection*, never *forever*.
  */
@@ -240,6 +269,25 @@ export interface PeerVerifierOptions {
    * including zero is meaningful, so there is no absent case for a sentinel to name.
    */
   readonly retryFloorMs?: number
+  /**
+   * The clock this verifier reads. A thunk, and deliberately not a value.
+   *
+   * The idiom is `authorizeCapability`'s, word for word and for the same reason
+   * (`net/src/capability-authorizer.ts:59-67`): `verifyCertificate` takes `now` as a
+   * **value** and states why — *"Injected so verification is deterministic in tests and has
+   * no clock port"* — and keeping the indirection one layer up preserves that property. The
+   * kernel still sees a number; only this class knows where the number came from.
+   *
+   * It is one clock for all three readings this class takes — the expiry check in
+   * {@link PeerVerifier.#refresh}, the retry floor, and the `now` handed to
+   * `verifyCertificate` — because two clocks would let a frozen test advance past a
+   * certificate's expiry without advancing past the floor, and the demotion below would
+   * then be observable only by luck.
+   *
+   * Optional, defaulting to `Date.now`, so no existing caller changes. Every production
+   * caller takes the default.
+   */
+  readonly now?: () => number
 }
 
 function refuse(failure: PeerFailure, reason: string): PeerVerdict {
@@ -282,6 +330,8 @@ export class PeerVerifier {
   /** Monotone for the life of this verifier. See {@link PeerVerifier.#lastAsk}. */
   #generations = 0
   readonly #retryFloorMs: number
+  /** See {@link PeerVerifierOptions.now}. `Date.now` on every production node. */
+  readonly #now: () => number
   #subscribed = false
   #stopped = false
 
@@ -312,6 +362,7 @@ export class PeerVerifier {
     this.#peers = options.peers
     this.#trustedIssuers = options.trustedIssuers
     this.#retryFloorMs = options.retryFloorMs ?? DEFAULT_VERDICT_RETRY_FLOOR_MS
+    this.#now = options.now ?? Date.now
   }
 
   /**
@@ -347,12 +398,19 @@ export class PeerVerifier {
    * has not finished is not yet verified, which is the right default for a gate, and the
    * cost is one RPC round trip because the consumer reads this thunk per fetch.
    *
-   * **Reading this getter can start a request**, which is unusual enough to say plainly.
-   * See `#refresh` below for why the trigger lives here and what bounds it. The filter
-   * still reads only settled verdicts, so the value returned is never affected by the
-   * request the same call may have just issued — a re-ask in flight leaves the *old*
-   * verdict standing, and a peer under re-verification therefore stays excluded until it
-   * verifies. Fail-closed is preserved across the retry, not merely at the first ask.
+   * **Reading this getter can start a request, and can change a verdict**, which is unusual
+   * enough to say plainly. See `#refresh` below for why the trigger lives here and what
+   * bounds it. The filter reads only settled verdicts, so no answer to a request this call
+   * issued can affect what it returns — a re-ask in flight leaves the *old* verdict
+   * standing, and a peer under re-verification therefore stays excluded until it verifies.
+   * Fail-closed is preserved across the retry, not merely at the first ask.
+   *
+   * **The one verdict this call does change is an acceptance that has expired**, and it
+   * changes it *before* filtering rather than when an answer arrives. That is the same
+   * fail-closed rule and not an exception to it: leaving a refusal standing across a retry
+   * keeps the gate shut, and leaving an *acceptance* standing across a retry would prop it
+   * open on a certificate that has lapsed — for a whole RPC budget, or for ever against a
+   * peer that has stopped answering. See {@link PeerVerifier.#demoteIfExpired}.
    *
    * ## The relay does not share this reading, and the difference is a type
    *
@@ -391,15 +449,24 @@ export class PeerVerifier {
    * would have stood forever even though the tab held a valid certificate from the pinned
    * issuer the whole time.
    *
-   * Three guards, each closing a different way this could become unbounded:
+   * Two guards, each closing a different way this could become unbounded:
    *
-   * 1. **A settled acceptance is never re-asked.** Verification is monotone here — nothing
-   *    below revokes — so a peer that verified stays verified until it disconnects.
-   * 2. **A {@link FINAL} refusal is never re-asked**, which is what keeps a peer that
+   * 1. **A {@link FINAL} refusal is never re-asked**, which is what keeps a peer that
    *    presented a forged or borrowed certificate from costing an RPC per interval forever.
-   * 3. **Nothing is re-asked inside the retry floor.** Because {@link verify} stamps
+   * 2. **Nothing is re-asked inside the retry floor.** Because {@link verify} stamps
    *    `#askedAt` when it *issues* rather than when it settles, this also covers the
    *    in-flight case: a slow answer holds off the next ask by itself.
+   *
+   * **There used to be a third, and it was the defect.** It read *"a settled acceptance is
+   * never re-asked — verification is monotone here, nothing below revokes"*, and the second
+   * clause did not follow from the first. Nothing revoking does not make an acceptance
+   * permanent; a certificate carries its own `expiresAt`, and honouring one past that instant
+   * made the effective window in which a lapsed peer stopped being usable the **connection**
+   * lifetime rather than the **certificate** lifetime. On the backbone a connection lives for
+   * days. {@link PeerVerifier.#demoteIfExpired} is that guard's replacement, and the
+   * asymmetry it repairs is the one this class always half-had: `expired` sits outside
+   * {@link FINAL} so a *refusal* could be promoted when a peer renewed, while nothing
+   * anywhere demoted an *acceptance*. Both directions now read the same clock.
    *
    * The `undefined` branch is the one worth reading twice. No settled verdict means either
    * an ask is in flight or no ask was ever made — and those are not the same. The second
@@ -418,9 +485,15 @@ export class PeerVerifier {
       if (!this.#inFlight.has(peerId)) void this.verify(peerId)
       return
     }
-    if (settled.ok) return
-    if (FINAL.has(settled.failure.kind)) return
-    if (Date.now() - (this.#lastAsk.get(peerId)?.at ?? 0) < this.#retryFloorMs) return
+
+    // An acceptance whose certificate has lapsed is demoted **here**, before the guards
+    // below, so a lapsed peer is out of the verified set on this very call and the re-ask is
+    // what might put it back — never the other way round. See the method's own comment.
+    const standing = this.#demoteIfExpired(peerId, settled)
+
+    if (standing.ok) return
+    if (FINAL.has(standing.failure.kind)) return
+    if (this.#now() - (this.#lastAsk.get(peerId)?.at ?? 0) < this.#retryFloorMs) return
 
     // Drop the memo so `verify` issues a fresh request. The verdict itself stays until the
     // new one settles, which is what keeps the gate closed across the retry.
@@ -428,7 +501,85 @@ export class PeerVerifier {
     void this.verify(peerId)
   }
 
-  /** The settled verdict for a peer, or `undefined` if none has been computed. */
+  /**
+   * Demote an acceptance whose certificate has expired, and return what now stands.
+   *
+   * ## Why the demotion is written before the request rather than after the answer
+   *
+   * The obvious shape is to re-ask an expiring acceptance and let the answer decide, leaving
+   * the old verdict standing meanwhile — which is exactly what {@link verifiedPeers}'s
+   * docblock says a re-ask does, and is *correct there*, because leaving a **refusal**
+   * standing across a retry is fail-closed. Doing the same to an acceptance inverts it: the
+   * peer would keep serving blocks under a lapsed certificate for one whole round trip, and
+   * a round trip that never completes is not one round trip, it is for ever. That case is
+   * not hypothetical — a `records` request has been measured going unanswered for the full
+   * 30 s RPC budget on this fabric, and a peer that has simply stopped answering never
+   * completes it at all.
+   *
+   * So the demotion is unconditional and synchronous, and only the **re-ask** is rate
+   * limited by the floor below. A peer that cannot be re-asked stays excluded; it does not
+   * stay accepted.
+   *
+   * ## Why it does not stay excluded for ever either
+   *
+   * The verdict written here is `expired`, which is deliberately **not** in {@link FINAL},
+   * so the very next line re-asks and a renewal the peer obtained without reconnecting
+   * promotes it back. Nor does a failed re-ask trap it: a timeout settles as `unreachable`,
+   * also outside `FINAL`, so it is asked again at the floor rather than being written off on
+   * a transient. That is this repository's own measured pattern — a gate request landing
+   * between `libp2p.handle` and `serveAgent` is destroyed in an empty handler set rather than
+   * delayed, and the correct verdict is reached **by re-asking** (ask 1 timed out after
+   * 701 ms, ask 2 answered in 4 ms).
+   *
+   * ## This is expiry, and it is not revocation
+   *
+   * There is no CRL, no OCSP and no revocation state anywhere in this repository, and this
+   * is not one. A certificate withdrawn before its `expiresAt` is still honoured until that
+   * instant. What is closed here is only the half where the document says, in its own
+   * signed fields, that it has stopped being valid.
+   *
+   * ## Why `verifyCertificate` is called rather than the predicate inlined
+   *
+   * The cheap `expiresAt` comparison is a **guard**, not the verdict: it decides whether to
+   * ask the kernel at all, so a live acceptance costs one integer compare per gate read and
+   * no signature work. Past it, the refusal is produced by `verifyCertificate` so that the
+   * name, the fields and the reason string are byte-identical to the ones a fresh ask would
+   * have produced — this class states that kernel refusals *"arrive at the caller exactly as
+   * `enrollment.ts` produced them"*, and a hand-built `expired` would be the second copy of a
+   * predicate that then gets to drift. It is paid once per acceptance, because what it writes
+   * is a refusal and this method's first line never fires on one again.
+   */
+  #demoteIfExpired(peerId: string, settled: PeerVerdict): PeerVerdict {
+    if (!settled.ok) return settled
+    const now = this.#now()
+    if (settled.certificate.expiresAt > now) return settled
+
+    const recheck = verifyCertificate(settled.certificate, this.#trustedIssuers, now)
+    // Unreachable while the kernel's predicate is `expiresAt <= now`, which the line above
+    // has already satisfied. Kept because the authority on whether a certificate is good is
+    // `verifyCertificate` and not the comparison above it: if the kernel still accepts, so
+    // does this, and the guard reads as an optimisation rather than as a second opinion.
+    if (recheck.ok) return settled
+
+    const demoted = refuse(recheck.failure, recheck.reason)
+    this.#verdicts.set(peerId, demoted)
+    return demoted
+  }
+
+  /**
+   * The settled verdict for a peer, or `undefined` if none has been computed.
+   *
+   * A **pure read**, deliberately, and the boundary is worth stating because the expiry
+   * demotion is not applied here. This reports what the last {@link verifiedPeers} read
+   * settled on; that getter is where a lapsed acceptance is demoted, because that is the
+   * read which decides whether this node *uses* a peer, and it is the read every production
+   * consumer takes — `RpcBlockSource`'s peer thunk, `discoverCandidates`, the bench driver.
+   * A caller that only ever reads this one can see an acceptance whose `certificate
+   * .expiresAt` has passed; it has, by construction, not asked to use that peer.
+   *
+   * Making this impure would put a second side-effecting getter on a class that already
+   * documents one as unusual, and would give an inspection call the power to issue an RPC.
+   */
   verdictFor(peerId: string): PeerVerdict | undefined {
     return this.#verdicts.get(peerId)
   }
@@ -451,7 +602,7 @@ export class PeerVerifier {
 
     this.#generations += 1
     const generation = this.#generations
-    this.#lastAsk.set(peerId, { generation, at: Date.now() })
+    this.#lastAsk.set(peerId, { generation, at: this.#now() })
 
     const settled = this.#decide(peerId)
       .catch((cause: unknown) =>
@@ -534,7 +685,7 @@ export class PeerVerifier {
     // 4. Offline. `verifyCertificate` takes its anchors as an argument and has nothing to
     //    reach out to, and its result is returned **unchanged** so the four kernel refusal
     //    names arrive at the caller exactly as `enrollment.ts` produced them.
-    const verdict = verifyCertificate(certificate, this.#trustedIssuers, Date.now())
+    const verdict = verifyCertificate(certificate, this.#trustedIssuers, this.#now())
     if (!verdict.ok) return refuse(verdict.failure, verdict.reason)
     return { ok: true, certificate: verdict.certificate }
   }

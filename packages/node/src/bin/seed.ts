@@ -64,10 +64,45 @@ const { values } = parseArgs({
     // stated in `FabricNodeOptions.trustedIssuers`, not defaulted here — which is why
     // there is no `KERNEL_*` fallback on this line where `--trust-anchor` has one.
     //
-    // **It gates block sources, not the door.** A seed given this flag still grants a
-    // circuit reservation to every peer that completes a handshake and still publishes all
-    // of them in `/bootstrap.json`. See `RelayAdmission` for who gets in.
+    // **It gates block sources, not the door.** A seed given *this flag alone* still grants
+    // a circuit reservation to every peer that completes a handshake and still publishes all
+    // of them in `/bootstrap.json`. The door is `--admit-issuer` below.
     'trusted-issuer': { type: 'string', multiple: true },
+    // AUTH-02 / AUTH-04 — **the third flag in a family of three, and the one that decides who
+    // gets in at all.** A seed binds a real listening socket, so it always relays; until this
+    // flag existed the front door of the LAN demo could hold a door open and could not be
+    // told to close one, which is the structural fact `24-VERIFICATION.md` scored criterion 8
+    // PARTIAL on. Added 2026-08-06 on the owner ruling of that date.
+    //
+    // ## The disambiguation is mandatory, because these three are one word apart in the
+    // source and a world apart in what they authorise
+    //
+    //   - `--trust-anchor` pins whose *build* records this seed will run a module for
+    //     (DET-03). Subject: **a module**.
+    //   - `--trusted-issuer` pins whose *enrolment signature* this seed will believe about a
+    //     peer it is already talking to (AUTH-02, **selection**). Subject: **a peer this seed
+    //     talks to**. It gates block sources; it does not gate the door.
+    //   - `--admit-issuer` pins whose certificate gets a peer a **circuit reservation on this
+    //     seed** (AUTH-02, **admission**). Subject: **a peer asking to come in**.
+    //
+    // Three subjects, and a key pinned for one says nothing whatever about the others. None
+    // of the three may be folded into another.
+    //
+    // Repeatable, with the identical `multiple: true` shape as the two above and as
+    // `bin/agent.ts`'s flag of the same name: pinning two providers is ordinary configuration
+    // and a comma-split string would be a parser nobody asked for.
+    //
+    // **Omitting it is a stated absence, not a safe default.** Absent, the posture stays
+    // exactly `'admits-any-peer'` and every existing argv site keeps working unchanged — see
+    // the ternary at `SeedServer.start` for why this one cannot use the conditional-spread
+    // idiom its two siblings use.
+    //
+    // Hex-validated below in its **own** loop, for a reason stated at that loop.
+    //
+    // Per-node setting, never a node kind. Every seed this binary starts executes tasks,
+    // serves blocks, answers records and relays identically whatever is passed here. What
+    // differs is who may reserve a circuit *through* it.
+    'admit-issuer': { type: 'string', multiple: true },
   },
 })
 
@@ -89,6 +124,20 @@ function refuse(reason: string): never {
 for (const issuer of values['trusted-issuer'] ?? []) {
   if (parseKeyHex(issuer) === null) {
     refuse(`--trusted-issuer ${issuer} is not 64 lowercase hex characters`)
+  }
+}
+
+// The identical loop for the identical reason, and **separate rather than merged with the
+// one above**: the message has to name which flag was rejected, and an operator who passed
+// both would otherwise be sent to the wrong one. The consequence of skipping it is worse
+// here than for `--trusted-issuer` — a zero-filled admission key does not merely stop this
+// seed trusting anybody, it stops **every** peer obtaining a reservation, and the peers see
+// only `PERMISSION_DENIED`, which carries no reason across a process boundary at all. On the
+// one node every browser tab in this fabric reserves on, that is the whole LAN demo dark
+// with nothing anywhere reporting that the input was never hex.
+for (const issuer of values['admit-issuer'] ?? []) {
+  if (parseKeyHex(issuer) === null) {
+    refuse(`--admit-issuer ${issuer} is not 64 lowercase hex characters`)
   }
 }
 
@@ -132,6 +181,21 @@ seed = await SeedServer.start({
   // explicit `undefined` different types, and a seed told nothing must pin nothing rather
   // than pin an empty set.
   ...(values['trusted-issuer'] === undefined ? {} : { trustedIssuers: values['trusted-issuer'] }),
+  // AUTH-02 — who this seed admits, stated by name.
+  //
+  // **A ternary rather than the conditional spread the line above uses, and the difference is
+  // forced by the type rather than chosen.** `trustedIssuers` is *optional*, so
+  // `exactOptionalPropertyTypes` makes an absent key and an explicit `undefined` different
+  // things and that site writes a spread. `relayAdmission` is **required**: there is no key to
+  // omit, this site takes a value either way, and the shape is therefore a ternary whose
+  // absent arm is the literal open posture. Writing a conditional spread here would not
+  // compile, and writing one that did would mean the field had stopped being required.
+  //
+  // Absent `--admit-issuer`, this is byte-for-byte the value `seed-server.ts` held as a
+  // literal before this flag existed, which is what keeps the three `bin/seed.ts` argv sites
+  // and every browser tab that has not yet enrolled behaving identically.
+  relayAdmission:
+    values['admit-issuer'] === undefined ? 'admits-any-peer' : new Set(values['admit-issuer']),
 })
 
 const line = (text = ''): void => {
@@ -190,19 +254,47 @@ line(
     ? '  issuers    none pinned — every connected peer is treated as usable (pass --trusted-issuer <hex>)'
     : `  issuers    ${trustedIssuers.length} pinned certificate issuer${trustedIssuers.length === 1 ? '' : 's'} (from --trusted-issuer)`,
 )
-// Sub-decision 1's deployment requirement, said where an operator running the command
-// reads it rather than only in a planning document. It is a no-op today — this node admits
-// every peer and also answers enrolment — and it is printed anyway, because the moment a
-// deployment separates the provider from the relay it becomes the difference between a
-// fabric anyone can join and one nobody new can.
+// AUTH-02 — **this seed's own door, in whichever of its two states it is actually in.**
+//
 // **Corrected 2026-08-06.** This said *"(certificate-gated admission is not armed)"*, and
 // after Plan 24-03 armed `denyInboundRelayReservation` on `FabricNode` that parenthetical
-// became false: the mechanism exists, and this seed simply holds the open posture. An
+// became false: the mechanism exists, and this seed simply held the open posture. An
 // operator-facing line that misstates whether a security mechanism exists is the shape this
-// repository files as a defect, so it now states *this seed's* posture rather than the
-// mechanism's existence. One line — pinning the seed's own value to a flag is a separate
-// decision that 24-01 recorded as deliberately not taken.
-line('  admits     every peer that completes a handshake (this seed pins no admission issuer)')
+// repository files as a defect, so it was changed to state *this seed's* posture rather than
+// the mechanism's existence.
+//
+// **Two-armed since Plan 24-06**, and it was one line until then because there was one
+// posture. Now that `--admit-issuer` exists, a single-armed banner would lie to whichever
+// half of the operators is in the other arm — and `relay-admission.node.test.ts` asserts both
+// arms are present for exactly that reason, a missing arm being invisible to a guard that
+// only checks the one it was written against.
+//
+// **The open arm's text is unchanged, deliberately**, so a guard that already reads it still
+// finds it. The closed arm names the count **and** the sorted keys: a fixture spawning a
+// closed seed has to be able to assert this seed pinned *what it was told*, not merely that
+// it pinned something — a typo in a spawn argument otherwise produces an open seed and the
+// reading passes for the wrong reason. Public by construction, on the same ground
+// `bin/agent.ts` publishes the identical value on its handshake line: these are pinned issuer
+// **public** keys.
+//
+// Sub-decision 1's deployment requirement rides on the closed arm, said where an operator
+// who has just closed a door reads it rather than only in a planning document. It is not
+// hypothetical for a seed: this is the node every browser tab reserves on, so an operator who
+// pins issuers here without a reachable provider has a fabric nobody new can join. Plan 24-05
+// measured that enrolment itself survives a closed provider — `resolveCertificate` dials
+// plain and reserves nothing — so the failure this warns about is *no provider*, not *a
+// closed one*.
+//
+// The label stays `admits`. `trust-anchors.node.test.ts` finds the anchor line by searching
+// for `trusts` and `issuers` is already taken by `--trusted-issuer`, so a second line
+// carrying either word would be found first by half the runs.
+const admitIssuers = [...(values['admit-issuer'] ?? [])].sort()
+line(
+  admitIssuers.length === 0
+    ? '  admits     every peer that completes a handshake (this seed pins no admission issuer)'
+    : `  admits     only peers certified by ${admitIssuers.length} pinned admission issuer${admitIssuers.length === 1 ? '' : 's'} (from --admit-issuer): ${admitIssuers.join(' ')}` +
+        ` — a relay that pins issuers must serve enrolment itself or name a provider a joining peer can reach without a reservation`,
+)
 line()
 line('  Open on another device:')
 line(`    ${seed.joinUrl}`)

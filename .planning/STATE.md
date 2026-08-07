@@ -3,15 +3,208 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Wire What Was Built
 status: executing
-stopped_at: PHASE 24 IS EXECUTED AND VERIFIED AT 0 OF 1, AND IT IS NOT COUNTED - four plans, four summaries, `24-VERIFICATION.md` dated 2026-08-06 at `753d298`, `status` reading `gaps_found`. THE COUNT STAYS 8 OF 15. Criterion 8 is the phase's ONLY criterion, carried into it from Phase 19 criterion 5 and Phase 17 criterion 3, so a score reads out of 1 and never out of 8 - and it verifies PARTIAL, not NOT MET. THE MECHANISM IS REAL AND ARMED - `connectionGater.denyInboundRelayReservation` on `fabric-node.ts` asks a joining peer for its records over the fabric's own RPC, verifies the certificate offline against a pinned issuer set, refuses inside libp2p's own 5000 ms ceiling, and every path out of it is a decision; it refuses and admits by certificate across SIX real `bin/agent.ts` processes and three browser engines, and mutation M66 was planted and caught by the verifier itself. WHAT DOES NOT HOLD IS THE CRITERION'S OWN WORD, FABRIC. The evidence reads "cannot join a relay that has been told to close". Admission is per-relay by construction, and the enrolment provider a joiner MUST dial in order to be certified is itself an open door, so a refused joiner reserves there - demonstrated twice in one run, once by accident. 24-04 argued the clause still held because `stranger` is nowhere; the verifier falsified that using 24-04's own run, because the in-process `reader` is ALSO a node handed no `enrollment` option and holding no certificate, and its id is the second entry in `openProviderHolds`, so what separates the node that is out from the node that is in is not the certificate but which peers each happened to dial. AND `bin/seed.ts` CANNOT BE TOLD TO CLOSE - no `--admit-issuer` flag, no `SeedServerOptions` field, `relayAdmission` hardcoded `'admits-any-peer'` at `seed-server.ts`'s `FabricNode.start` call - so the bound is STRUCTURAL rather than a deployment posture an operator can remove, and the seed is the relay every browser tab reserves on and the source of `BootstrapInfo.peerAddrs`, the one advertisement surface no test in the tree reads as a gated one and the one `demo/main.ts` consumes for peer discovery. SO PHASE 19 CRITERION 5 AND PHASE 17 CRITERION 3 DO NOT CLOSE EITHER - RULING A, a carried criterion stays PARTIAL until its destination lands, and its destination landed PARTIAL. Neither phase's score moves. AUTH-02 AND AUTH-04 STAY `[ ]` AND STAY `Partial`; both traceability rows were extended 2026-08-06 with what Phase 24 measured and with the three things it does not close. The refuse-over-mint residual is UNCHANGED on two independent readings at different host loads - 3.070 by 24-04 and 3.0895 by the verifier, both inside Phase 19's 2.96-3.16 band - so Phase 19's economics survive on an armed tree; refuse-over-replay reads above its band for a reason that is about the clock and not the code. THREE OWNER RULINGS ARE PENDING, all named in `24-VERIFICATION.md` - whether a seed may be told which issuers it admits, whether Phase 22 still runs next now that it will certify a fabric gated at agent relays and open at every seed, and the `**Mode -** mvp` label on Phase 24's roadmap block, which cannot be verified under MVP mode's User Flow Coverage contract because the phase goal is a security property rather than a User Story. Three stale source comments were repaired in the same pass - `fabric-node.ts`'s "Nothing reads this yet", `relay-admission.ts`'s "Consulted by nothing", and a process count of five that was wrong in the test's own Budget section and twice in `24-04-SUMMARY.md`. NEXT IS PHASE 22, which runs LAST, then the v1.1 milestone audit. Phase 23's notes follow and are superseded wherever they disagree with the above. WAS - PHASE 23 IS COMPLETE AND COUNTED - 5/5 criteria MET, `23-VERIFICATION.md` dated 2026-08-06, `status` reading `human_needed` only because a verifier may not apply the ledger edits it recommends, and this STATE.md update is one of them. THE COUNT IS 8 OF 15 - 11, 12, 13, 13.1, 14, 15, 18 and 23 are closed; 16 (3/4), 17 (2/3), 19 (4/5), 20 (6/7) and 21 (2/3) are each verified and each UNCOUNTED on one criterion; 22 has four plans and no execution; 24 is 1 of 4 and running. RULING A has now held across six phases without being bent once. WHAT MOVED SINCE 2026-08-04 - 13.1 IS 7/7, criterion 7's at-rest half having landed 2026-08-02, so this frontmatter read 6/7 for four days while the body two paragraphs below already said it had landed; 18 IS 9/9 AND CLOSED by the second amendment of 2026-08-04, the day WIRE-04 landed, which is criterion 2b's tripwire doing exactly what RULING A required of it; 17 IS 2/3, amended up 2026-08-05, with criterion 3's COST clause carried to Phase 24 criterion 8. PHASE 23 MEASURED THE CLAIM THIS PROJECT EXISTS TO MAKE AND THE NUMBER IS SMALLER THAN THE STORY - N real OS processes with published pids per rung (`nodes + 1`, submitter in-process), makespan 1591.1 ms at N=1 falling to 590.0 ms at N=8, a 2.70x speedup re-derived from `.planning/bench/raw.json` rather than transcribed, against an ideal bound of 9.78x (`sum / max` over 16 calibrations). THREE EARLIER PUBLISHED BOUNDS ARE VOID and were withdrawn rather than reconciled - the old bound averaged sixteen calibration calls THAT NEVER RAN, because `Task.label` is optional in-process and REQUIRED at the wire while `execute` returns `{ok:false}` instead of throwing, so all sixteen failed silently and every one was counted as a success. TWO OF THE PHASE'S OWN HEADLINE HYPOTHESES CAME BACK FALSE AND WERE PUBLISHED AS FALSE - the recorded cause for the excluded 16-node rung was REFUTED by the phase's own eight-cell factorial, since outcomes partition on DIAL DIRECTION and a live node announces `inboundConnectionThreshold=15` rather than the blamed 5; and WHETHER THE TWO DRIVERS DIFFER AT ALL IS UNSETTLED and is published as unsettled, three runs with the curves crossing twice and the spread between runs exceeding the difference between drivers. Criterion 3 passes on its FIRST disjunct, so the refutation costs the phase nothing and the criterion takes a dated correction note rather than a rewrite. BENCH-07 CLOSED 2026-08-06. AUTH-03 STAYS `Partial` - its requestor half now has production callers, `bin/bench.ts` calling `delegate` twice and shipping a `'sovereign'` shard, which is more than it had and is still not the reachability question; that ruling belongs to Phase 22 criterion 1. NEXT IS PHASE 24, 1 of 4 with three plans amended and ready, AND IT HAS A PRE-EXECUTION BLOCKER recorded under Session Continuity. Order is 24, then 22, then the milestone audit. Two older readings carried forward and NOT re-checked since 2026-08-04 - TEN TRACKED DEFECTS CLOSED and every one had a wrong recorded diagnosis, and FOUR GUARD DEFECTS SHARE ONE SHAPE, the population a guard acts on not being the population that pays for it (defect 38 fixed, defects 39 and 40 open). Phase 19's notes follow and are superseded wherever they disagree with the above. WAS - PHASE 19 IS CLOSED, verified twice, 4/5 MET, 1 PARTIAL, 0 FAILED, and NOT COUNTED, following 13.1 (then 6/7, now 7/7), 16 (3/4), 17 (then 1/3, now 2/3) and 18 (then 8/9, now 9/9 and closed): a phase at less than full marks stays uncounted until its last criterion is settled. Criterion 5 needs an OWNER RULING - the N-th identity is refused inside the window, not priced, and both routes are open. PHASE 20 IS EXECUTED AND VERIFIED AT 6/7 - 13 plans, 13 summaries, `20-VERIFICATION.md` dated 2026-08-05, ten plants each watched red and restored by `cp` + `cmp`. This clause used to read "PHASE 20 IS PLANNED (13 plans, 7 waves, none executed)". Criterion 7's checkpoint-WRITE half has NO production submitter - no shipped entry point supplies a `checkpoints` sink and no guard pins the set, so CHURN-03 stays Partial and the phase does not close. Its planner had surfaced two further rulings: the roadmap Research:None line is measured FALSE about lease renewal (LeaseTable.renew has no caller anywhere and runResilient never renews, so renewal needs BUILDING), and CHURN-03 sits on the Requirements line and on none of the six criteria so a verifier will not score it. PHASE 21 IS 5 OF 5 PLANS AND VERIFIED AT 2/3 - this clause used to read "2 OF 5 PLANS (wave 1 done)". The owner ruling of 2026-08-05 recorded criterion 2's re-tag refusal as a MEASURED NEGATIVE on AOT-05's precedent; the clause is CARRIED, not cleared, and the score did NOT move. TEN TRACKED DEFECTS CLOSED and EVERY ONE HAD A WRONG RECORDED DIAGNOSIS - a timeout ceiling read as a measurement, a bug deleted three days earlier, a rate wrong by 3x, a race a comment declared impossible, and an assertion excluded from failing at the type level; in three of them the false claim sat in a comment that read like evidence. FOUR GUARD DEFECTS SHARE ONE SHAPE - the population a guard acts on is not the population that pays for it (#38 fixed, #39 and #40 open). Phase 19 details follow. WAS: - all four remaining waves landed 2026-08-03, tsc 0, node 138 files 1936 passed 2 skipped. A phase is done when a verifier says so, not when its plans are, so it is NOT counted yet. WHAT THE PHASE ESTABLISHED - the third leg of the signing triangle is wired at fabric-node.ts:1543 and browser-node.ts:1078 and verifies across real processes against nothing but the provider's public key; criterion 3's CLI half is MET off a spawned driver's own stdout; the demo names who ran a cube from statements it checked. WHAT IT DID NOT - VER-03 has NO across-process reading of rule 2 at all, because bin/agent.ts cannot produce a via-relay node, and 19-08's P5 proved only the in-process fabric carries that claim; VER-04's gate is reached by no MEASURED runnable entry point; VER-09/VER-10 stay untickd because every reading in existence is of a public job while VER-09's wording is about a sovereign one. All four moved off 'Built, not wired', which had become false the moment 19-06 gave composeQuorum a production caller. FOUR DEFECTS WERE CLOSED AND THE BEST OF THEM WAS NOT A FEATURE - NET-05's ~20% flake was a LOST WAKEUP: agent.ts subscribed its refusal listener after FabricNode.start, the relay dial happens inside start, and onFailure had no replay, so the refusal was recorded and never printed; the comment directly above that subscription asserted the opposite and was the defect, written down and shipped. Also closed - the pre-commit guard's trigger was narrower than its own git ls-files corpus, so a violation committed in a root-level .md ran no guard at all and then blocked an unrelated agent; same shape as Phase 18's ledger guard, where editing a row exempted it. THE PHASE'S REAL OUTPUT IS STILL THE HABIT - fourteen consecutive executors each found at least one proof in their own plan that COULD NOT FAIL, several found their plan's own interfaces block asserting things measured FALSE, and 19-12 recorded the greens as ledger entries in their own right rather than erasing them. Wave 5 was resequenced before dispatch because 19-15 had to precede the two plans that read receipt strength - depends_on could not catch it, the dependency ran through node behaviour rather than a file or an API. WAVE 5 WAS RESEQUENCED BEFORE DISPATCH AND THAT IS THE REUSABLE PART - 19-15 ran first and alone because attestResults was composed nowhere in production, so receiptFor returned holds-no-verified-attestation for every shard and 19-08's and 19-10's assertions on receipt strength were unreachable; depends_on could not catch it because the dependency ran through node behaviour rather than through a file or an API. THE THIRD LEG IS NOW WIRED at fabric-node.ts:1543 and browser-node.ts:1078, measured across real processes against nothing but the provider's public key. CRITERION 3's CLI HALF IS MET - a spawned bin/bench.ts --quick --discover prints owner-attested at the 1-node real rung, independent at the 2-node one, and a named absence at every memory rung, all three read off the child's own stdout. CRITERION 1 IS HALF-MEASURED - anti-affinity has a cross-process reading; the shared-relay half does not, because bin/agent.ts cannot produce a via-relay node (port defaults to 0 and the listen address is passed unconditionally, so canRelay is always true), which the plan's own interface block claimed the opposite of and which was measured false. NET-05 HAS A REAL DEFECT, not a flake - roughly one node in five that connects to a full relay is never told it was refused; the armed instrument caught agent b's entire stderr as 'no relay granted a reservation yet; still serving directly', which proves the dial SUCCEEDED and RESERVATION_REFUSED never arrived at all, so no larger timeout can fix it. The signing triangle's third leg exists - a node signs its result with the nodeKey its provider-issued certificate carries, and the combine result is signed on the same terms, so a third party holding only the provider's public key can verify a result came from a node that provider enrolled running code that provider published. composeQuorum and attestationReceipt have their first production callers. Criterion 4 is MET across three browser engines with no harness dial. FIVE RULINGS ARE RECORDED IN THE TREE - the signing triangle; no blockchain with revocation as non-renewal and lifetimes explicitly NOT part of the cost argument; VER-03 reworded to eclipse resistance because the seed-based anchor rule I proposed keyed on node kind and was retracted in 0314208; the quorum is the default and OPTIONAL with a JobSpec.onQuorumShortfall dial; and the aggregate issuance budget's enrolment-denial exposure accepted and named. AN INCIDENT WORTH THE LESSON - git stash on a path you do not own reverted ~250 lines of a concurrent executor's work; resolved with nothing lost, verified rather than assumed, and the defence is git add immediately after each edit group because staged content lives where a working-tree revert cannot reach it. Nine consecutive executors found proofs in their own plans that COULD NOT FAIL and reported them rather than recording a green. Phase 18 was VERIFIED at 8/9 and UNCOUNTED by owner ruling 2026-08-02 applying RULING A, and is now CLOSED AT 9/9 - second amendment 2026-08-04, the day WIRE-04 landed, which is the day criterion 2b's tripwire was written to turn red on. Thirteen plans, thirteen summaries, one verification amended once. The first independent pass scored 7/9 and found the thing that mattered - criterion 2b's absence-instrument COULD NOT FAIL. RULING A had accepted 2b at PARTIAL on one condition, that the missing re-pick was held by a reading which turns red the day WIRE-04 lands; it would not have. The assertion read verification.agreeing, whose length is redundancy, and the status==='agreed' narrowing three lines above excluded zero - a tautology, confirmed at the type level, not a weak guard. Plans 18-12 and 18-13 closed both gaps with ZERO production change; re-verification moved 2b FAILED->PARTIAL and criterion 3 PARTIAL->MET. Ledger entries M36 and M37 pin the two new instruments and were run as ledger data, both caught. THE PHASE DOES NOT CLOSE ON 2b - the re-pick is WIRE-04's, scheduled to Phase 20 criterion 1, and the tripwire now fires when it lands. Three findings outlived the phase and are tracked, not fixed - admit at bin/bench.ts:723 can be deleted with the whole suite green and is the SOLE production caller behind SCHED-02's runnable-entry-point claim; tools/aot/lift.node.test.ts failed WORSE alone on a quiet host than under load, contradicting its own recorded diagnosis; and 23 of ~45 ledger citations had outrun the tree, nine of them inside the very plan written to correct drift.
-last_updated: "2026-08-06T22:30:00.000Z"
+stopped_at: >-
+  PHASE 24 IS EXECUTED AND VERIFIED AT 0 OF 1, AND IT IS NOT COUNTED - four plans, four summaries,
+  `24-VERIFICATION.md` dated 2026-08-06 at `753d298`, `status` reading `gaps_found`. THE COUNT IS
+  10 OF 15 - PHASE 24 CLOSED 2026-08-06 AT 1/1 by a dated amendment at `580e461`, its criterion 8
+  re-scored MET WITH A STATED BOUND after four gap-closure plans removed the STRUCTURAL half of
+  the PARTIAL: `bin/seed.ts` now takes a repeatable `--admit-issuer` and `SeedServerOptions`
+  carries the required field, so the bound is a deployment posture an operator can state rather
+  than an impossibility - which is the disposition the 0-of-1 pass itself named as the one that
+  would make MET available. THE BOUND IS PART OF THE VERDICT AND NOT A FOOTNOTE: the default
+  posture of `bin/agent.ts`, `bin/seed.ts` and `bin/bench.ts` stays OPEN and must, 19 + 3 argv
+  sites, with `reservation-exhaustion` arm A a live behavioural guard on it. PHASE 17 CRITERION 3
+  AND PHASE 19 CRITERION 5 CAN NOW CLOSE TOO - both were carried INTO criterion 8 - but neither
+  has moved, because each needs its own dated amendment on the 16/18 precedent and each must carry
+  the bound VERBATIM, a carried criterion inheriting no more than its destination delivered. That
+  would read 12 OF 15. AND THE VERIFIER FOUND THE RECURRING SHAPE AN EIGHTH TIME, by planting:
+  `CLOSED_RELAY_CAPABLE`'s docblock claims a participant added to `standUp` but not to `closedSet`
+  reddens, and IT DOES NOT - it catches the opposite case, so the "every relay-capable peer"
+  population is a hand-maintained literal rather than one derived from the fabric that exists.
+  Recorded as a warning, not a blocker. PHASE 16 CLOSED THE SAME DAY AT 4/4, by a dated amendment
+  to `16-VERIFICATION.md` rather than a table edit. Its criterion 3 closes on Phase 20 criterion
+  6, whose arriving-late reading is STRONGER than the clause carried to it: a SIGSTOPped
+  `bin/agent.ts` child, awaited to `ps` state T, resumed after `executeReduce` had already
+  RETURNED, with unsolicitedness asserted by construction. Two plants were watched red and
+  restored by `cp` + `cmp`. ONE CLAUSE DOES NOT MATCH LITERALLY AND THE VERDICT TURNS ON IT -
+  "because it carries the same CID" is causally INERT on the late path, since `rpc.ts` drops the
+  frame on a missing correlation entry BEFORE the payload matters, and no assertion anywhere reads
+  the late frame's CID; the verifier closed on the reading that the duplicate is harmless because
+  content-addressing makes it redundant, and an owner who reads it the other way should say so.
+  THE FIVE STILL UNCOUNTED ARE 17 (2/3), 19 (4/5), 20 (6/7), 21 (2/3) AND 24 (0/1). Criterion 8 is
+  the phase's ONLY criterion, carried into it from Phase 19 criterion 5 and Phase 17 criterion 3,
+  so a score reads out of 1 and never out of 8 - and it verifies PARTIAL, not NOT MET. THE
+  MECHANISM IS REAL AND ARMED - `connectionGater.denyInboundRelayReservation` on `fabric-node.ts`
+  asks a joining peer for its records over the fabric's own RPC, verifies the certificate offline
+  against a pinned issuer set, refuses inside libp2p's own 5000 ms ceiling, and every path out of
+  it is a decision; it refuses and admits by certificate across SIX real `bin/agent.ts` processes
+  and three browser engines, and mutation M66 was planted and caught by the verifier itself. WHAT
+  DOES NOT HOLD IS THE CRITERION'S OWN WORD, FABRIC. The evidence reads "cannot join a relay that
+  has been told to close". Admission is per-relay by construction, and the enrolment provider a
+  joiner MUST dial in order to be certified is itself an open door, so a refused joiner reserves
+  there - demonstrated twice in one run, once by accident. 24-04 argued the clause still held
+  because `stranger` is nowhere; the verifier falsified that using 24-04's own run, because the
+  in-process `reader` is ALSO a node handed no `enrollment` option and holding no certificate, and
+  its id is the second entry in `openProviderHolds`, so what separates the node that is out from
+  the node that is in is not the certificate but which peers each happened to dial. AND
+  `bin/seed.ts` CANNOT BE TOLD TO CLOSE - no `--admit-issuer` flag, no `SeedServerOptions` field,
+  `relayAdmission` hardcoded `'admits-any-peer'` at `seed-server.ts`'s `FabricNode.start` call -
+  so the bound is STRUCTURAL rather than a deployment posture an operator can remove, and the seed
+  is the relay every browser tab reserves on and the source of `BootstrapInfo.peerAddrs`, the one
+  advertisement surface no test in the tree reads as a gated one and the one `demo/main.ts`
+  consumes for peer discovery. SO PHASE 19 CRITERION 5 AND PHASE 17 CRITERION 3 DO NOT CLOSE
+  EITHER - RULING A, a carried criterion stays PARTIAL until its destination lands, and its
+  destination landed PARTIAL. Neither phase's score moves. AUTH-02 AND AUTH-04 STAY `[ ]` AND STAY
+  `Partial`; both traceability rows were extended 2026-08-06 with what Phase 24 measured and with
+  the three things it does not close. The refuse-over-mint residual is UNCHANGED on two
+  independent readings at different host loads - 3.070 by 24-04 and 3.0895 by the verifier, both
+  inside Phase 19's 2.96-3.16 band - so Phase 19's economics survive on an armed tree;
+  refuse-over-replay reads above its band for a reason that is about the clock and not the code.
+  THREE OWNER RULINGS ARE PENDING, all named in `24-VERIFICATION.md` - whether a seed may be told
+  which issuers it admits, whether Phase 22 still runs next now that it will certify a fabric
+  gated at agent relays and open at every seed, and the `**Mode -** mvp` label on Phase 24's
+  roadmap block, which cannot be verified under MVP mode's User Flow Coverage contract because the
+  phase goal is a security property rather than a User Story. Three stale source comments were
+  repaired in the same pass - `fabric-node.ts`'s "Nothing reads this yet", `relay-admission.ts`'s
+  "Consulted by nothing", and a process count of five that was wrong in the test's own Budget
+  section and twice in `24-04-SUMMARY.md`. NEXT IS PHASE 22, which runs LAST, then the v1.1
+  milestone audit. Phase 23's notes follow and are superseded wherever they disagree with the
+  above. WAS - PHASE 23 IS COMPLETE AND COUNTED - 5/5 criteria MET, `23-VERIFICATION.md` dated
+  2026-08-06, `status` reading `human_needed` only because a verifier may not apply the ledger
+  edits it recommends, and this STATE.md update is one of them. THE COUNT IS 8 OF 15 - 11, 12, 13,
+  13.1, 14, 15, 18 and 23 are closed; 16 (3/4), 17 (2/3), 19 (4/5), 20 (6/7) and 21 (2/3) are each
+  verified and each UNCOUNTED on one criterion; 22 has four plans and no execution; 24 is 1 of 4
+  and running. RULING A has now held across six phases without being bent once. WHAT MOVED SINCE
+  2026-08-04 - 13.1 IS 7/7, criterion 7's at-rest half having landed 2026-08-02, so this
+  frontmatter read 6/7 for four days while the body two paragraphs below already said it had
+  landed; 18 IS 9/9 AND CLOSED by the second amendment of 2026-08-04, the day WIRE-04 landed,
+  which is criterion 2b's tripwire doing exactly what RULING A required of it; 17 IS 2/3, amended
+  up 2026-08-05, with criterion 3's COST clause carried to Phase 24 criterion 8. PHASE 23 MEASURED
+  THE CLAIM THIS PROJECT EXISTS TO MAKE AND THE NUMBER IS SMALLER THAN THE STORY - N real OS
+  processes with published pids per rung (`nodes + 1`, submitter in-process), makespan 1591.1 ms
+  at N=1 falling to 590.0 ms at N=8, a 2.70x speedup re-derived from `.planning/bench/raw.json`
+  rather than transcribed, against an ideal bound of 9.78x (`sum / max` over 16 calibrations).
+  THREE EARLIER PUBLISHED BOUNDS ARE VOID and were withdrawn rather than reconciled - the old
+  bound averaged sixteen calibration calls THAT NEVER RAN, because `Task.label` is optional
+  in-process and REQUIRED at the wire while `execute` returns `{ok:false}` instead of throwing, so
+  all sixteen failed silently and every one was counted as a success. TWO OF THE PHASE'S OWN
+  HEADLINE HYPOTHESES CAME BACK FALSE AND WERE PUBLISHED AS FALSE - the recorded cause for the
+  excluded 16-node rung was REFUTED by the phase's own eight-cell factorial, since outcomes
+  partition on DIAL DIRECTION and a live node announces `inboundConnectionThreshold=15` rather
+  than the blamed 5; and WHETHER THE TWO DRIVERS DIFFER AT ALL IS UNSETTLED and is published as
+  unsettled, three runs with the curves crossing twice and the spread between runs exceeding the
+  difference between drivers. Criterion 3 passes on its FIRST disjunct, so the refutation costs
+  the phase nothing and the criterion takes a dated correction note rather than a rewrite.
+  BENCH-07 CLOSED 2026-08-06. AUTH-03 STAYS `Partial` - its requestor half now has production
+  callers, `bin/bench.ts` calling `delegate` twice and shipping a `'sovereign'` shard, which is
+  more than it had and is still not the reachability question; that ruling belongs to Phase 22
+  criterion 1. NEXT IS PHASE 24, 1 of 4 with three plans amended and ready, AND IT HAS A
+  PRE-EXECUTION BLOCKER recorded under Session Continuity. Order is 24, then 22, then the
+  milestone audit. Two older readings carried forward and NOT re-checked since 2026-08-04 - TEN
+  TRACKED DEFECTS CLOSED and every one had a wrong recorded diagnosis, and FOUR GUARD DEFECTS
+  SHARE ONE SHAPE, the population a guard acts on not being the population that pays for it
+  (defect 38 fixed, defects 39 and 40 open). Phase 19's notes follow and are superseded wherever
+  they disagree with the above. WAS - PHASE 19 IS CLOSED, verified twice, 4/5 MET, 1 PARTIAL, 0
+  FAILED, and NOT COUNTED, following 13.1 (then 6/7, now 7/7), 16 (3/4), 17 (then 1/3, now 2/3)
+  and 18 (then 8/9, now 9/9 and closed): a phase at less than full marks stays uncounted until its
+  last criterion is settled. Criterion 5 needs an OWNER RULING - the N-th identity is refused
+  inside the window, not priced, and both routes are open. PHASE 20 IS EXECUTED AND VERIFIED AT
+  6/7 - 13 plans, 13 summaries, `20-VERIFICATION.md` dated 2026-08-05, ten plants each watched red
+  and restored by `cp` + `cmp`. This clause used to read "PHASE 20 IS PLANNED (13 plans, 7 waves,
+  none executed)". Criterion 7's checkpoint-WRITE half has NO production submitter - no shipped
+  entry point supplies a `checkpoints` sink and no guard pins the set, so CHURN-03 stays Partial
+  and the phase does not close. Its planner had surfaced two further rulings: the roadmap
+  Research:None line is measured FALSE about lease renewal (LeaseTable.renew has no caller
+  anywhere and runResilient never renews, so renewal needs BUILDING), and CHURN-03 sits on the
+  Requirements line and on none of the six criteria so a verifier will not score it. PHASE 21 IS 5
+  OF 5 PLANS AND VERIFIED AT 2/3 - this clause used to read "2 OF 5 PLANS (wave 1 done)". The
+  owner ruling of 2026-08-05 recorded criterion 2's re-tag refusal as a MEASURED NEGATIVE on
+  AOT-05's precedent; the clause is CARRIED, not cleared, and the score did NOT move. TEN TRACKED
+  DEFECTS CLOSED and EVERY ONE HAD A WRONG RECORDED DIAGNOSIS - a timeout ceiling read as a
+  measurement, a bug deleted three days earlier, a rate wrong by 3x, a race a comment declared
+  impossible, and an assertion excluded from failing at the type level; in three of them the false
+  claim sat in a comment that read like evidence. FOUR GUARD DEFECTS SHARE ONE SHAPE - the
+  population a guard acts on is not the population that pays for it (#38 fixed, #39 and #40 open).
+  Phase 19 details follow. WAS: - all four remaining waves landed 2026-08-03, tsc 0, node 138
+  files 1936 passed 2 skipped. A phase is done when a verifier says so, not when its plans are, so
+  it is NOT counted yet. WHAT THE PHASE ESTABLISHED - the third leg of the signing triangle is
+  wired at fabric-node.ts:1543 and browser-node.ts:1078 and verifies across real processes against
+  nothing but the provider's public key; criterion 3's CLI half is MET off a spawned driver's own
+  stdout; the demo names who ran a cube from statements it checked. WHAT IT DID NOT - VER-03 has
+  NO across-process reading of rule 2 at all, because bin/agent.ts cannot produce a via-relay
+  node, and 19-08's P5 proved only the in-process fabric carries that claim; VER-04's gate is
+  reached by no MEASURED runnable entry point; VER-09/VER-10 stay untickd because every reading in
+  existence is of a public job while VER-09's wording is about a sovereign one. All four moved off
+  'Built, not wired', which had become false the moment 19-06 gave composeQuorum a production
+  caller. FOUR DEFECTS WERE CLOSED AND THE BEST OF THEM WAS NOT A FEATURE - NET-05's ~20% flake
+  was a LOST WAKEUP: agent.ts subscribed its refusal listener after FabricNode.start, the relay
+  dial happens inside start, and onFailure had no replay, so the refusal was recorded and never
+  printed; the comment directly above that subscription asserted the opposite and was the defect,
+  written down and shipped. Also closed - the pre-commit guard's trigger was narrower than its own
+  git ls-files corpus, so a violation committed in a root-level .md ran no guard at all and then
+  blocked an unrelated agent; same shape as Phase 18's ledger guard, where editing a row exempted
+  it. THE PHASE'S REAL OUTPUT IS STILL THE HABIT - fourteen consecutive executors each found at
+  least one proof in their own plan that COULD NOT FAIL, several found their plan's own interfaces
+  block asserting things measured FALSE, and 19-12 recorded the greens as ledger entries in their
+  own right rather than erasing them. Wave 5 was resequenced before dispatch because 19-15 had to
+  precede the two plans that read receipt strength - depends_on could not catch it, the dependency
+  ran through node behaviour rather than a file or an API. WAVE 5 WAS RESEQUENCED BEFORE DISPATCH
+  AND THAT IS THE REUSABLE PART - 19-15 ran first and alone because attestResults was composed
+  nowhere in production, so receiptFor returned holds-no-verified-attestation for every shard and
+  19-08's and 19-10's assertions on receipt strength were unreachable; depends_on could not catch
+  it because the dependency ran through node behaviour rather than through a file or an API. THE
+  THIRD LEG IS NOW WIRED at fabric-node.ts:1543 and browser-node.ts:1078, measured across real
+  processes against nothing but the provider's public key. CRITERION 3's CLI HALF IS MET - a
+  spawned bin/bench.ts --quick --discover prints owner-attested at the 1-node real rung,
+  independent at the 2-node one, and a named absence at every memory rung, all three read off the
+  child's own stdout. CRITERION 1 IS HALF-MEASURED - anti-affinity has a cross-process reading;
+  the shared-relay half does not, because bin/agent.ts cannot produce a via-relay node (port
+  defaults to 0 and the listen address is passed unconditionally, so canRelay is always true),
+  which the plan's own interface block claimed the opposite of and which was measured false.
+  NET-05 HAS A REAL DEFECT, not a flake - roughly one node in five that connects to a full relay
+  is never told it was refused; the armed instrument caught agent b's entire stderr as 'no relay
+  granted a reservation yet; still serving directly', which proves the dial SUCCEEDED and
+  RESERVATION_REFUSED never arrived at all, so no larger timeout can fix it. The signing
+  triangle's third leg exists - a node signs its result with the nodeKey its provider-issued
+  certificate carries, and the combine result is signed on the same terms, so a third party
+  holding only the provider's public key can verify a result came from a node that provider
+  enrolled running code that provider published. composeQuorum and attestationReceipt have their
+  first production callers. Criterion 4 is MET across three browser engines with no harness dial.
+  FIVE RULINGS ARE RECORDED IN THE TREE - the signing triangle; no blockchain with revocation as
+  non-renewal and lifetimes explicitly NOT part of the cost argument; VER-03 reworded to eclipse
+  resistance because the seed-based anchor rule I proposed keyed on node kind and was retracted in
+  0314208; the quorum is the default and OPTIONAL with a JobSpec.onQuorumShortfall dial; and the
+  aggregate issuance budget's enrolment-denial exposure accepted and named. AN INCIDENT WORTH THE
+  LESSON - git stash on a path you do not own reverted ~250 lines of a concurrent executor's work;
+  resolved with nothing lost, verified rather than assumed, and the defence is git add immediately
+  after each edit group because staged content lives where a working-tree revert cannot reach it.
+  Nine consecutive executors found proofs in their own plans that COULD NOT FAIL and reported them
+  rather than recording a green. Phase 18 was VERIFIED at 8/9 and UNCOUNTED by owner ruling
+  2026-08-02 applying RULING A, and is now CLOSED AT 9/9 - second amendment 2026-08-04, the day
+  WIRE-04 landed, which is the day criterion 2b's tripwire was written to turn red on. Thirteen
+  plans, thirteen summaries, one verification amended once. The first independent pass scored 7/9
+  and found the thing that mattered - criterion 2b's absence-instrument COULD NOT FAIL. RULING A
+  had accepted 2b at PARTIAL on one condition, that the missing re-pick was held by a reading
+  which turns red the day WIRE-04 lands; it would not have. The assertion read
+  verification.agreeing, whose length is redundancy, and the status==='agreed' narrowing three
+  lines above excluded zero - a tautology, confirmed at the type level, not a weak guard. Plans
+  18-12 and 18-13 closed both gaps with ZERO production change; re-verification moved 2b
+  FAILED->PARTIAL and criterion 3 PARTIAL->MET. Ledger entries M36 and M37 pin the two new
+  instruments and were run as ledger data, both caught. THE PHASE DOES NOT CLOSE ON 2b - the
+  re-pick is WIRE-04's, scheduled to Phase 20 criterion 1, and the tripwire now fires when it
+  lands. Three findings outlived the phase and are tracked, not fixed - admit at bin/bench.ts:723
+  can be deleted with the whole suite green and is the SOLE production caller behind SCHED-02's
+  runnable-entry-point claim; tools/aot/lift.node.test.ts failed WORSE alone on a quiet host than
+  under load, contradicting its own recorded diagnosis; and 23 of ~45 ledger citations had outrun
+  the tree, nine of them inside the very plan written to correct drift.
+last_updated: "2026-08-07T04:15:00.000Z"
 last_activity: 2026-08-06
 progress:
   total_phases: 15
-  completed_phases: 8
-  total_plans: 99
-  completed_plans: 99
-  percent: 53
+  completed_phases: 10
+  total_plans: 103
+  completed_plans: 103
+  percent: 67
 ---
 
 <!--
@@ -25,12 +218,70 @@ independent pass then scored 3/3 against the amended text. It counts now because
 verifier said so, which is the rule: a phase is done when a verifier says so, not when
 its plans are.
 
-**`completed_phases` is 8 as of 2026-08-06.** The eight are 11, 12, 13, **13.1**, 14, 15,
-**18** and **23**. 18 joined on 2026-08-04 when WIRE-04 landed and its second amendment
-moved it 8/9 → 9/9; 23 joined on 2026-08-06 at 5/5. The verified-but-uncounted phases are
-now **six**: 16 (3/4), 17 (2/3), 19 (4/5), 20 (6/7), 21 (2/3) and **24 (0/1)** — one
-PARTIAL criterion each, every one of them **carried** to a named destination rather than
-rewritten.
+**`completed_phases` is 10 as of 2026-08-06.** The ten are 11, 12, 13, **13.1**, 14, 15,
+**16**, **18**, **23** and **24**. 18 joined on 2026-08-04 when WIRE-04 landed and its
+second amendment moved it 8/9 → 9/9; 23 joined on 2026-08-06 at 5/5; **16 and 24 joined
+the same day**, 16 at 4/4 and **24 at 1/1**. The verified-but-uncounted phases are now
+**four**: 17 (2/3), 19 (4/5), 20 (6/7) and 21 (2/3) — one PARTIAL criterion each, every
+one of them **carried** to a named destination rather than rewritten.
+
+**Phase 24 closed at 1/1 on the same day it was scored 0/1, and the difference is not a
+rewrite.** The 0-of-1 pass refused it on one thing: criterion 8 says *"the fabric"* while
+the evidence read *"a relay that has been told to close"*, and `bin/seed.ts` could not be
+told to close **at all** — no flag, no field, `relayAdmission` hardcoded. That made the
+bound **structural** rather than a deployment posture, and the pass wrote exactly what
+would change its mind: *"'Pass-with-a-stated-bound' would be the right disposition if the
+bound were a deployment posture an operator can remove. It is not: for the seed there is
+no knob."* Four gap-closure plans built the knob, and the dated amendment at `580e461`
+re-scored it **MET, 1 of 1**.
+
+**The bound is part of the verdict, not a footnote.** The default posture of
+`bin/agent.ts`, `bin/seed.ts` and `bin/bench.ts` stays **open and must** — 19 + 3 argv
+sites, with `reservation-exhaustion.node.test.ts` arm A a live behavioural guard on it. So
+"the fabric" was read as *a fabric this repository can be deployed and operated as, with a
+posture stated on every relay-capable door* — **not** the default argv of its binaries. The
+verifier gave four grounds and the load-bearing one is that **both option types make
+`relayAdmission` required with no default, so the API cannot express silence**; only argv
+has a default. Criterion 8's wording is unedited and was normalised against both quoted
+copies before scoring.
+
+**17 and 19 can now close too, and neither has moved.** Both carried their open criterion
+*into* criterion 8, so RULING A's precondition is satisfied — but each needs its **own
+dated amendment**, on the 16/18 precedent, and **each must carry the bound verbatim**: a
+carried criterion cannot inherit more than its destination delivered. That would read
+**12 of 15**. Ticking them from this file instead would be the exact move RULING A exists
+to prevent.
+
+**And the recurring shape turned up an eighth time, found by a plant rather than a read.**
+`CLOSED_RELAY_CAPABLE`'s docblock claims a participant added to `standUp` but not to
+`closedSet` reddens. **It does not** — it catches the opposite case. The verifier added a
+seventh, *open*, relay-capable agent to the fabric, left it out of `closedSet`, and **both
+population assertions stayed green**; what reddened was the control, incidentally. So the
+"every relay-capable peer" population is a **hand-maintained literal**, not one derived
+from the fabric that exists. Recorded as a warning rather than a blocker, because the run
+it qualifies is green on a set that was correct when written — but this is the eighth time
+*the population a guard acts on is not the population that pays for it*.
+
+**Phase 16 closed 2026-08-06 by a dated amendment, and it is the second time RULING A has
+paid out rather than cost anything.** Its criterion 3 was carried to Phase 20 criterion 6
+on 2026-07-31; Phase 20 scored that criterion MET; the amendment re-measured it rather than
+transcribing the earlier verdict. **`criterion_text_unchanged: true`** — both texts were
+extracted to files and `cmp`'d at exit 0, and `git log -L` returns exactly one commit for
+each line, so neither was ever edited. The destination's reading is **stronger** than the
+clause carried into it: a spawned `bin/agent.ts` child SIGSTOPped and *awaited to `ps` state
+`T`*, resumed only after `executeReduce` had already **returned**, with unsolicitedness
+asserted by construction rather than by timing. Two mutations were planted, watched red, and
+restored by `cp` + `cmp`.
+
+**One clause does not match literally, the amendment says so, and the verdict turns on it.**
+Criterion 3 reads *"discarded harmlessly **because it carries the same CID**"*, and on the
+late path that causal claim is **inert**: `rpc.ts` drops the frame because the correlation
+entry is gone, *before* the payload matters, so a late reply carrying a **different** CID
+would be dropped identically — and no assertion anywhere reads the late frame's CID at all.
+The verifier closed on the reading *"the duplicate is harmless because content-addressing
+makes it redundant"*, and stated plainly that the stricter reading would demand a mechanism
+that should not exist. **An owner who reads it the other way should say so**; that would move
+16 back to 3/4 and the count back to 8.
 
 **Phase 24 joined that list on 2026-08-06 and it did NOT join the count.** It has exactly
 one criterion, numbered 8, and `24-VERIFICATION.md` scores it **0 of 1 — PARTIAL**: the
@@ -53,13 +304,15 @@ closed the criterion and reintroduced the unbounded per-frame scan `egress.ts` f
 name. The durable set is keyed on CID and answers by lookup; the guard stays keyed on payload
 and stays job-scoped. Two mechanisms, each cheap at its own question — do not merge them.
 
-**The count is over criteria, never over requirements, and Phases 16 and 15 are the
-pair that shows why.** 16 is uncounted because one of its own **criteria** is PARTIAL.
+**The count is over criteria, never over requirements, and Phases 24 and 15 are the
+pair that shows why.** 24 is uncounted because its own single **criterion** is PARTIAL.
 Phase 15 is counted because all three of its criteria are MET — even though its
 requirement, AUTH-03, is *also* Partial. A requirement can outlive the phase that opened
-it; a criterion cannot. **13.1 was the left-hand example of this pair until 2026-08-02 and
-is not any more** — it closed at 7/7, which is what the rule looks like when it is
-satisfied rather than when it bites. AUTH-03's requestor half was scheduled, by owner ruling, to Phase
+it; a criterion cannot. **The left-hand example of this pair has now been three different
+phases, and each one leaving it is the rule being satisfied rather than repealed** — 13.1
+held the slot until 2026-08-02 and closed at 7/7, **16 held it until 2026-08-06 and closed
+at 4/4**, and 24 holds it now. The slot is not supposed to stay empty and it is not supposed
+to keep the same occupant. AUTH-03's requestor half was scheduled, by owner ruling, to Phase
 23 criterion 5, and Phase 23 **delivered it** on 2026-08-06 — `bin/bench.ts` calls
 `delegate` twice, hands a `(nodeId) => CapabilitySupplier` to `discoverCandidates`, and
 ships `shards: [{ value: row, label: 'sovereign', ownerId: BENCH_OWNER_KEY }]`. **The row
@@ -99,7 +352,7 @@ directory and should be checked against each other.
 21 5/5, **22 4/0**, 23 **6**/6, **24 4/1** = **99 plans, 96 summaries**. **Re-counted again
 after Phase 24 finished executing, 2026-08-06: 24 is now 4/4, so the summaries figure is
 99 and `completed_plans` moved 96 → 99.** The plans figure did not move — Phase 24 minted
-no new plan — and `percent` is phases and not plans, so it stays 53. Phase 18 went
+no new plan — and `percent` is phases and not plans, so it stayed 53 at that point. **Recounted on disk again 2026-08-06 after Phase 24's four gap-closure plans landed: 24 is 8/8, so both figures move 99 → 103**, and they are equal because every plan in the milestone except Phase 22's four now carries a numbered summary. `percent` is 10/15 = 67. The count excludes Phase 19's four `defect-NN-SUMMARY.md` files, which have no plan of their own; a glob that catches them reads 107 and disagrees with `ROADMAP.md`'s own comment, so the two ledgers count different populations on purpose. Phase 18 went
 11 → 13 when 18-12 and 18-13 landed as gap-closure plans, so the "all eleven merged"
 reading above is now historical and must not be re-derived from it. **Phase 22 is the only
 directory with plans and no summaries** — four planned, none executed, and it runs last.
@@ -170,13 +423,18 @@ other phases wire. **The premise that ruling rested on has moved and needs re-co
 22 was put after 24 so the reachability guard would certify a *gated* fabric, and it will
 now certify a fabric gated at agent relays and open at every seed.
 
-**Six phases are verified and stay uncounted, and that is the rule working rather than
-the rule failing**: 16 at 3/4, 17 at 2/3, 19 at 4/5, 20 at 6/7, 21 at 2/3 and **24 at
-0/1**. Each has exactly one PARTIAL criterion, and each of those was **carried to a named
-destination rather than rewritten** — 16's to Phase 20 criterion 6, 17's and 19's to Phase
-24 criterion 8, 20's to a checkpoint sink no shipped entry point supplies, 21's recorded as
-a measured negative on AOT-05's precedent, and **24's own criterion 8 to a fabric-wide
-admission that has not landed**. Phase 15 is counted at 3/3 despite a Partial
+**Four phases are verified and stay uncounted, and that is the rule working rather than
+the rule failing**: 17 at 2/3, 19 at 4/5, 20 at 6/7 and 21 at 2/3. Each has exactly one
+PARTIAL criterion, and each of those was **carried to a named destination rather than
+rewritten** — 17's and 19's to Phase 24 criterion 8, 20's to a checkpoint sink no shipped
+entry point supplies, and 21's recorded as a measured negative on AOT-05's precedent.
+**This read "six … 16 at 3/4" and then "five … 24 at 0/1" on the same day**, and both
+moved for the same reason: a carried criterion closed once its destination actually
+landed MET. **17 and 19 are next and are one amendment each away** — their destination,
+criterion 8, is now MET, so RULING A's precondition is satisfied for both. Neither is
+ticked here, because a criterion closes when a verifier says so and not when a
+bookkeeping file does; and each must carry criterion 8's **stated bound** verbatim, since
+a carried criterion inherits no more than its destination delivered. Phase 15 is counted at 3/3 despite a Partial
 *requirement*. **The count is over criteria, never over requirements** — a requirement can
 outlive the phase that opened it; a criterion cannot. **RULING A**: a criterion is not
 rewritten to let a phase close, and a carried criterion stays PARTIAL until its destination
@@ -195,12 +453,36 @@ ruling anticipated.
 
 ## Current Position
 
-Phase: 24 (Certificate-Gated Admission) — **0/1 on criteria, NOT closed and NOT counted**
-Status: 4 plans, 4 summaries, `24-VERIFICATION.md` dated 2026-08-06 at `753d298`,
-`status: gaps_found`. **The phase has exactly one criterion, numbered 8**, carried into it
-from Phase 19 criterion 5 and Phase 17 criterion 3 by owner ruling 2026-08-04, so a score
-reads **out of 1 and never out of 8**. The verdict is **PARTIAL, not NOT MET**, and the
-distinction is the whole of what this entry records.
+Phase: 24 (Certificate-Gated Admission) — **1/1 on criteria, CLOSED and COUNTED**
+Status: **8 plans, 8 summaries**, `24-VERIFICATION.md` dated 2026-08-06, scored **0/1** at
+`753d298` and re-scored **1/1 MET** by the dated amendment at `580e461`. **The phase has
+exactly one criterion, numbered 8**, carried into it from Phase 19 criterion 5 and Phase
+17 criterion 3 by owner ruling 2026-08-04, so a score reads **out of 1 and never out of
+8**. **This block read "0/1 on criteria, NOT closed and NOT counted" until 2026-08-06,
+while four other places in this same file already said 1/1** — recorded rather than
+quietly overwritten, because a file disagreeing with itself is the defect this milestone
+keeps finding, and it found it here in its own bookkeeping.
+
+**MET carries a stated bound and the bound is part of the verdict.** The default posture
+of `bin/agent.ts`, `bin/seed.ts` and `bin/bench.ts` is **open and must be** — 19 + 3 argv
+sites, with `reservation-exhaustion.node.test.ts` arm A a live behavioural guard on it.
+*"The fabric"* was read as **a fabric this repository can be deployed and operated as,
+with an admission posture stated on every relay-capable door** — not the default argv of
+its binaries.
+
+**Of the two criteria carried into it, one closed and one declined — the same day, by two
+independent verifiers.** Phase 19 criterion 5 closed at **5/5** (`ac7b214`), carrying the
+bound verbatim. **Phase 17 criterion 3 DECLINED and stays 2/3** (`a3d2215`) — the first
+time RULING A has held against a destination that actually landed MET, and it declined for
+a reason worth more than the verdict: criterion 3 is about **mass** creation, and bounded
+issuance plus *"an unissued identity buys nothing"* only yields a per-identity price **if
+one certificate admits exactly one identity**. That binding exists in `fabric-node.ts` and
+**no test observes it** — neutralising it stays green across 8 files and 5 runs, while the
+control plant reddens, so the silence is a fact about the corpus rather than about the day.
+
+**Both carried criteria arguably rest on that same unguarded binding, and the two verdicts
+disagree. That is an owner adjudication and is recorded as one** rather than settled by
+whichever pass ran last.
 
 **The mechanism is real, armed and measured.** `RelayAdmission` is a required named union
 at 70 construction sites; `relayAdmissionGate` reads it and returns *no gater method at
@@ -497,20 +779,44 @@ issuer. The insecure-origin path 17-01 left unmeasured is now measured in three 
 
 **⚠ ONE DEFECT IS OPEN AND NEEDS AN OWNER DECISION — see Pending Todos.**
 
-Previous phase: 16 (Decomposable Tree-Reduce Wiring) — **3/4 on criteria, NOT closed**
+Previous phase: 16 (Decomposable Tree-Reduce Wiring) — **4/4 on criteria, CLOSED 2026-08-06**
 Status: 4 planned plans + 2 gap-closure plans (16-05, 16-06), 6 summaries, 1 verification
-pass. Criteria 1, 2 and 4 MET; **criterion 3 PARTIAL** — its dedupe half is proven across
-nine real `bin/agent.ts` processes, its *"arriving late"* half is not, because
-`executeReduce` stops at `wanted` replicas and has no channel on which a late result could
-arrive at all. Scheduled to **Phase 20 criterion 6** by owner ruling rather than rewritten.
-**MR-04 stays open**; nothing was ticked.
+pass **amended once**. Criteria 1, 2 and 4 were MET on the original pass; **criterion 3 was
+PARTIAL** — its dedupe half proven across nine real `bin/agent.ts` processes, its
+*"arriving late"* half not, because `executeReduce` stops at `wanted` replicas and had no
+channel on which a late result could arrive at all. Scheduled to **Phase 20 criterion 6** by
+owner ruling rather than rewritten, and **closed there**.
 
-**Uncounted for the same reason 17, 19, 20 and 21 are, and it is worth seeing the pair
-together.** Phase 15 was counted with a Partial *requirement* because all its *criteria*
-were MET. Phase 16 is uncounted because one of its own *criteria* is PARTIAL. The rule
-does not bend for how nearly done a phase looks. **This paragraph paired 16 with 13.1
-until 2026-08-06**; 13.1 closed at 7/7 on 2026-08-02 and is no longer an example of the
-rule biting — which is the point of writing the destination down rather than the excuse.
+**The amendment re-measured; it did not transcribe.** `criterion_text_unchanged: true`, both
+texts `cmp`'d at exit 0, and `git log -L` returns one commit per line — neither was ever
+edited. Phase 20's reading is *stronger* than the clause carried into it: a spawned agent
+SIGSTOPped and awaited to `ps` state `T`, resumed only after `executeReduce` had **returned**,
+unsolicitedness asserted by construction. Two plants watched red, restored by `cp` + `cmp`.
+The numbers differ from `20-VERIFICATION.md`'s — 3 asks and 3 late replies against its 2 and
+2 — and that is correct rather than alarming, because the assertion is a **relation inside
+the run** (`late.length === victimAsks.length`), so a different rendezvous draw moves both
+sides together.
+
+**The one clause that does not match literally is recorded, not smoothed over.** *"because it
+carries the same CID"* is causally **inert** on the late path — `rpc.ts` drops the frame on a
+missing correlation entry before the payload matters, and nothing reads the late frame's CID.
+Closed on the reading that the duplicate is harmless because content-addressing makes it
+redundant. **The verdict turns on that choice and an owner may overturn it**, which would
+return the phase to 3/4.
+
+**MR-04 and MR-07 stay `Partial` and nothing was ticked** — deliberately. Both rows already
+record the arriving-late closure; what keeps them open is the **demo** half, which is WIRE-02
+and Phase 22's. Ticking either would contradict its own row and redden
+`acceptance-traceability.node.test.ts`.
+
+**Two attribution facts worth keeping.** The owner ruling and `ROADMAP.md` both say *"Phase 16
+keeps **MR-04** open on this account"* while `16-VERIFICATION.md` attributes criterion 3 to
+**MR-07**; `REQUIREMENTS.md` extended both rows identically, and the destination spec names
+both cases. And `late-combine.node.test.ts`'s own header claim — that this was *"the first
+time in this file's history that `expect(arrived)` had ever actually failed"* — is **false**:
+`20-03-SUMMARY.md` records that same assertion failing under the SIGCONT-withheld plant, the
+file contradicts itself thirty lines earlier, and the amendment's second plant reproduced it.
+Documentary only; tracked, not fixed.
 
 **One finding was closed after the verifier wrote its report:** 16-06 bounded the combine
 branch at the `capacity` hook, closing the widened fetch surface that routing combine
@@ -570,13 +876,35 @@ at load 6.6-10.5 once the competing build finished.
 ### v1.0 carried forward, unarchived
 
 ```
-Ledger      35 / 72 wired · 27 built-not-wired · 6 partial · 4 open: hosting, a
-            measured negative, and two whose cross-machine halves are descoped to
-            one host (2026-07-28) and recorded as unmeasured, not met
-v1.1        9 of 50 requirements closed
-Whole file  40 of 82 ticked (35 in the v1 section + 5 in v1.1's)
+Checkboxes  v1 section    45 of 72 ticked · 27 open
+            v1.1 section   9 of 10 ticked ·  1 open (WIRE-02)
+            whole file    54 of 82
+Markers     76 traceability rows: 48 Done · 22 Partial · 1 Built, not wired
+            (MR-02) · 5 neither — AOT-03, BENCH-06, NET-03, VER-02, WIRE-02
+v1.1        9 of 50 requirements closed  (numerator NOT recomputed — see below)
 Historical  v1.0 closed at 112 test files / 1673 tests; 122 / 1775 on 2026-07-28
 ```
+
+**Recounted on disk 2026-08-06, and every field of the previous block was stale.** It
+read *"35 / 72 wired · 27 built-not-wired · 6 partial · 4 open"* and *"Whole file 40 of 82
+ticked (35 in the v1 section + 5 in v1.1's)"*. Measured: **45** ticked in the v1 section,
+**9** in v1.1's, **54** whole-file; and on the traceability rows, built-not-wired is down
+to **1** while Partial is up to **22**. `REQUIREMENTS.md`'s own header already said
+*"45 of 72 are `[x]`"* — so **the ledger was current and this summary of it was not**,
+which is the same shape as the progress table that said "Not started" for seven finished
+phases. A file that summarises another file needs an owner too.
+
+**The old line merged two populations and that is why it drifted unnoticed.** *"35 / 72"*
+counts **checkboxes in the v1 section**; *"27 built-not-wired · 6 partial"* counts
+**markers on traceability rows**, a different set with a different denominator (76 rows
+against 82 requirements — six requirements carry no row). They are split above so the next
+reader cannot re-merge them.
+
+**`v1.1 9 of 50` was deliberately NOT recomputed.** Its numerator's definition is contested
+*inside this same file*: the paragraph above says the four IDs 13.1 closed are among the ten
+new ones and so "do not move this numerator", while WIRE-01 — also a new ID — is counted in
+it. Recomputing under a guessed definition would replace a stale number with a wrong one.
+This needs the definition settled first, and that is an owner's call, not a recount.
 
 **The 27 and the 6 moved together and the ticked counts did not.** Phase 15 took AUTH-03
 off *Built, not wired* and onto **Partial** without closing it: its serving half is wired
@@ -1410,6 +1738,59 @@ so `tsc` and `vitest` verify the wrong tree and report clean without reading the
 changes. Every executor built a resolver farm and proved it with
 `createRequire().resolve()` before editing. Second, **each wave's prompt carried the prior
 wave's corrections**, because a correction recorded in a SUMMARY reaches no sibling plan.
+
+### Off-roadmap work, 2026-08-06 — the technical peer comparison
+
+Not attributable to any phase. `docs/business/o2-vs-peers-study.md` joins the AWS study as the
+second business document: an apples-to-apples technical comparison of o2 **as specified when
+complete** against wasmCloud, Cloudflare Workers, the Internet Computer, Bacalhau/Fluence, BOINC
+and Apple Private Cloud Compute. Eight parallel research streams, primary sources, tier-tagged.
+
+Four findings bear on decisions outside the document and are recorded here so they are not lost
+with it:
+
+- **BOINC's fix for the redundancy tax.** Twenty years of measurement: *"at least 50% of total
+  CPU time is spent checking result validity."* Their answer was **reputation-gated selective
+  replication at 5-10%**, not uniform 2-3×. This project has the primitives BOINC lacked —
+  enrolment, certificates, per-node signed results. Highest-leverage change identified.
+- **Cross-architecture NaN divergence in V8 was measured**, closing the open question recorded in
+  `CLAUDE.md` ("no measurement found"). Identical wasm bytes, identical V8 12.9.202.28, arm64 vs
+  x86-64: **6 of 10 primitive float ops produce different bits**, stable across 2M iterations and
+  both JIT tiers — a mixed-architecture quorum yields a **permanent 2-2 split**, not a flaky
+  minority. Binaryen `denan` v131 made all ten bit-identical at ~3.0-3.6× on float-saturated
+  code. **Caveat: the x86-64 side ran under Rosetta 2 (`hw.optional.fma: 0`); native confirmation
+  is owed before this is quoted as settled.** Open design question this raises: DAG-CBOR at the
+  serialization boundary fails closed on a NaN-*valued* output, but a NaN-*influenced* output —
+  one flowing through a comparison, bitcast or branch to a finite-but-different number per
+  architecture — would encode happily. If quorums can ever span arm64 and x86-64 this wants a
+  ruling.
+- **Public IPFS retrieval is not a viable artifact path.** Cloudflare's gateway ended 2024-08-14,
+  Brave removed `ipfs://` 2024-08-22, the IPFS Foundation's own docs say public gateways are
+  *"not intended to be part of your critical path or production infrastructure"*, and Filecoin's
+  measured network-wide retrieval success rate was **12.8%** (Sept 2024). Bluesky/atproto solves
+  this in production with a **CDN keyed by CID** — content addressing preserved, and the V8
+  code-caching path with it.
+- **There is nothing to adopt for the decentralized DB.** Measured by commits, not `pushed_at`
+  (which misleads): OrbitDB **0 commits since 2026-05-15** and version-incompatible anyway
+  (`multiformats@^13`/`uint8arrays@^5`/`helia@^6` against this project's 14/6/7 — the exact
+  `CID instanceof` boundary `CLAUDE.md` warns about), with open issue **#1255 "Sync never
+  delivers the first entry to a reader connected only through a relay"** sitting on this
+  project's own topology. GUN: 4 commits in 12 months. Ceramic: 0 since 2025-10-20. Calibration:
+  `ipfs/helia` logged 56 commits in the trailing 90 days. Build it; the category vacated.
+
+Two corrections the owner made during the work, both recorded because they are the recurring
+failure mode: the supply model is **any device with a JS engine** — browser, Node, and embedded
+in a host app — not "browser tabs"; and native mobile embedding is **not** a weak leg, because
+`nodejs-mobile`'s *"On iOS, WASM is unsupported"* is that library's build configuration, not a
+platform limit. WASM has run on iPhone since 2019, and both embedding paths (in-process V8,
+embedded WebView) are owner-tested. **A library's disabled build flag is not a platform
+prohibition.** Only watchOS is genuinely closed (`ENABLE(WEBASSEMBLY) && !PLATFORM(WATCHOS)`).
+
+Licensing is excluded from the study's structural ranking by owner decision — the licence is
+planned to change. With it out, the top structural weakness is **`operatorId` being a
+requester-chosen free-text string the provider signs without verifying**, which is the same
+defect as the absent commit-reveal seen from another angle: nothing makes an identity scarce, so
+"independent agreement" is an assertion rather than a measurement. Open for an owner ruling.
 
 ### Off-roadmap work, 2026-07-29 → 2026-07-31
 

@@ -7,7 +7,10 @@ import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import { peerIdFromString } from '@libp2p/peer-id'
-import type { RpcEndpoint } from '@o2/net'
+import { EnrollmentAuthority, MemoryNetwork, publishCapabilities, requestEnrollment } from '@o2/core'
+import type { NodeRecords, PublicKeyHex } from '@o2/core'
+import { SEED_BYTES, identityFromSeed } from '@o2/libp2p'
+import { RpcEndpoint, encodeResponse, parseRequest } from '@o2/net'
 import { FabricNode, relayAdmissionGate } from './fabric-node.ts'
 import type { AdmissionDecision } from './fabric-node.ts'
 import { SeedServer } from './seed-server.ts'
@@ -135,7 +138,29 @@ const DECLARATION = `readonly ${FIELD}:`
 interface PostureSite {
   readonly file: string
   readonly open: number
+  /**
+   * Raw {@link ANY_POSTURE} occurrences in this file — **not** the census's posture count.
+   *
+   * The distinction was latent until 2026-08-06 and cost a run to find: {@link census}
+   * subtracts {@link DECLARATION} to get posture *sites*, while the row below compares this
+   * number against the **unsubtracted** count. For every file that declares nothing the two
+   * are the same number, which is why no row had ever had to say which it was.
+   * `seed-server.ts` now declares the forwarded field, so they differ there by one, and this
+   * field is documented rather than quietly re-fitted.
+   */
   readonly total: number
+  /**
+   * How many of {@link PostureSite.total} are the field's own **declaration** rather than a
+   * site stating a posture — so `total - declares` is what the file actually constructs.
+   *
+   * **Added 2026-08-06 by Plan 24-06, and required on every row rather than defaulted.**
+   * Without it a row reading `total: 2` cannot distinguish one declaration beside one
+   * construction site from two construction sites, and those are different claims about a
+   * deployment. Every row states it, including the three that state `0`: a default here would
+   * be the silent-default shape this option's own docblock forbids, applied to the guard that
+   * watches it.
+   */
+  readonly declares: number
   readonly reason: string
 }
 
@@ -165,10 +190,29 @@ interface PostureSite {
 const PRODUCTION_SITES: readonly PostureSite[] = [
   {
     file: 'packages/node/src/seed-server.ts',
-    open: 1,
-    total: 1,
+    // **Moved 2026-08-06 by Plan 24-06, on the owner ruling of that date.** `open` is now
+    // **0** and `total` is unchanged at 1. This file no longer writes the bare open literal:
+    // it forwards `SeedServerOptions.relayAdmission` to `FabricNode.start`, so the front door
+    // of the LAN demo is a deployment choice rather than a constant. The two occurrences the
+    // census sees here are the forwarded field's own declaration — subtracted, see
+    // {@link DECLARATION} — and the one construction site that reads it.
+    open: 0,
+    total: 2,
+    declares: 1,
     reason:
-      'the seed binds a real listening socket, so it relays, so this is the value that will decide who joins through it — the front door of the LAN demo and the one a browser tab reaches first',
+      'the seed binds a real listening socket, so it relays, so this is the value that decides who joins through it — the front door of the LAN demo and the one a browser tab reaches first. Its posture now comes from its operator, through SeedServerOptions.relayAdmission, so this file states no posture of its own and the door is a deployment choice rather than a literal',
+  },
+  {
+    // **Added 2026-08-06 by Plan 24-06.** After that plan this binary contains one
+    // `ANY_POSTURE` occurrence and zero `OPEN_POSTURE` ones — **counted on the edited tree,
+    // not predicted** — and it is a production entry point, so leaving it out would create the
+    // first unguarded production posture site in the repository.
+    file: 'packages/node/src/bin/seed.ts',
+    open: 0,
+    total: 1,
+    declares: 0,
+    reason:
+      'the LAN demo’s entry point, and the second production binary that can be told to close a door — --admit-issuer reaches the required key through a ternary whose absent arm is the open literal, so nineteen bin/agent.ts and three bin/seed.ts argv sites keep working unchanged and a seed told nothing is byte-identical to the seed before the flag existed; whether it should instead refuse to start when an operator states neither an issuer nor an open posture is the same open owner ruling stated at bin/agent.ts, and it is not this row’s to decide',
   },
   {
     file: 'packages/node/src/bin/agent.ts',
@@ -187,6 +231,7 @@ const PRODUCTION_SITES: readonly PostureSite[] = [
     // the first production site in this repository that can be told to refuse somebody.
     open: 0,
     total: 2,
+    declares: 0,
     reason:
       'the production Node entry point, and the first that can be told to close a door — --admit-issuer reaches the required key through a ternary whose absent arm is the open literal, and the posture is published on the handshake line so a spawned closed arm can be asserted closed; whether it should instead refuse to start when an operator states neither an issuer nor an open posture is an open owner ruling, costed and deliberately not decided',
   },
@@ -236,6 +281,7 @@ const RIG_SITES: readonly PostureSite[] = [
     file: 'packages/node/src/bin/bench.ts',
     open: 3,
     total: 3,
+    declares: 0,
     reason:
       'the in-process rig behind both published curves: the --discover arm’s provider, the N workers the curve is a curve of, and the requestor — three sites, three decisions, each stating at its own line what its numbers do not claim about admission',
   },
@@ -243,6 +289,7 @@ const RIG_SITES: readonly PostureSite[] = [
     file: 'packages/node/src/bench-fabric.ts',
     open: 1,
     total: 1,
+    declares: 0,
     reason:
       'BENCH-07’s process-per-node rig, in-process half. Its other half is the spawned bin/agent.ts, whose posture is stated at that binary and owned by Plan 24-03; this row is the reason the rig is not half-guarded',
   },
@@ -351,9 +398,18 @@ describe('the scan looked at the repository it claims to have looked at', () => 
 // to assemble it from fragments the way the case titles below do).
 describe('every relay-capable site states a posture, and not all of them are open', () => {
   for (const site of PRODUCTION_SITES) {
-    it(`${site.file} states its posture, and it is open`, () => {
+    // **Retitled 2026-08-06 by Plan 24-06.** It read `states its posture, and it is open`,
+    // which stopped being true of `bin/agent.ts` when 24-03 gave that binary a ternary and
+    // stopped being true of both seed rows here. A title that names a value the row does not
+    // assert is a title a reader trusts instead of reading the row, so it now names what the
+    // row actually does: the counts are whatever the row records, and `open` is one of them.
+    it(`${site.file} states the posture this list records for it`, () => {
       expect(occurrences(code(site.file), ANY_POSTURE)).toBe(site.total)
       expect(occurrences(code(site.file), OPEN_POSTURE)).toBe(site.open)
+      // See {@link PostureSite.declares}. Pinned per file, so `total - declares` is the number
+      // of places this file actually decides who gets in, and a declaration migrating into or
+      // out of a production file cannot be absorbed by the raw count above.
+      expect(occurrences(code(site.file), DECLARATION)).toBe(site.declares)
       expect(site.reason.length).toBeGreaterThan(20)
     })
   }
@@ -362,6 +418,7 @@ describe('every relay-capable site states a posture, and not all of them are ope
     it(`${site.file} states a rig posture, and it is open`, () => {
       expect(occurrences(code(site.file), ANY_POSTURE)).toBe(site.total)
       expect(occurrences(code(site.file), OPEN_POSTURE)).toBe(site.open)
+      expect(occurrences(code(site.file), DECLARATION)).toBe(site.declares)
       expect(site.reason.length).toBeGreaterThan(20)
     })
   }
@@ -445,12 +502,77 @@ describe('every relay-capable site states a posture, and not all of them are ope
     expect(agent).toContain("values['admit-issuer']")
   })
 
-  it('declares the field in exactly one type, so two factories cannot drift', () => {
-    // See {@link DECLARATION}. One declaration is what makes the arithmetic above a
-    // statement about call sites; a second would be a second answer to "who does this node
-    // admit", which is the shape `fabric-node.ts`'s "why relaying is derived and not
-    // configured" section exists to keep out of this option.
-    expect(REPO.declarations).toBe(1)
+  /**
+   * **SPLIT, not raised, 2026-08-06 by Plan 24-06 — and a reader who meets a `1` becoming a
+   * `2` will read it as a bar being lowered unless this paragraph is here.**
+   *
+   * This row read `expect(REPO.declarations).toBe(1)`, and its stated purpose was that *"two
+   * factories cannot drift"*. Plan 24-06 gave `SeedServerOptions` a forwarded
+   * `FabricNodeOptions['relayAdmission']`, which takes the repository-wide count to 2. That
+   * forward is **not** a second factory — it is definitionally the same type, and it exists
+   * precisely so that `seed-server.ts` states no second answer to *"who does this node
+   * admit"*. But the census reads text and cannot tell the two apart, **so the repair goes on
+   * this side rather than in the bar**: bumping the number to 2 would have closed a gap by
+   * widening what passes, which is the move this repository forbids by name.
+   *
+   * So the count is **split by shape** instead of raised:
+   *
+   *   - a **defining** declaration is the field followed by the union type name;
+   *   - a **forwarding** declaration is the field followed by an indexed access into
+   *     `FabricNodeOptions`.
+   *
+   * **This is strictly stronger than the row it replaces, and here is the state that proves
+   * it.** Under `toBe(1)`, a hand-written `readonly relayAdmission: 'yes' | 'no'` sitting
+   * alone in `fabric-node.ts` counted as one declaration and **passed**. Under the split it
+   * does not: the one declaration must be the union *by name*. And a **third** shape — a
+   * hand-written union anywhere in the repository, which is exactly the second answer this row
+   * has always been about — fails the closing sum by name, where under a `toBe(2)` it would
+   * have passed silently.
+   *
+   * Both needles are assembled from {@link FIELD} for that constant's stated reason: this file
+   * is inside its own jurisdiction, and a needle written whole makes the census report itself.
+   */
+  it('declares the field once by name and forwards it by indexed access, so no third shape can appear', () => {
+    // Assembled, never written whole. See {@link FIELD}.
+    const DEFINING = `${DECLARATION} RelayAdmission`
+    const FORWARDING = `${DECLARATION} FabricNodeOptions['${FIELD}']`
+
+    /** Which files carry a declaration of this shape, and how many — SELF excluded exactly as
+     *  {@link census} excludes it, so the closing sum below is comparable to `REPO.declarations`. */
+    const declaring = (needle: string): { readonly files: readonly string[]; readonly count: number } => {
+      let count = 0
+      const files: string[] = []
+      for (const [file, source] of REPO.stripped) {
+        if (file === SELF) continue
+        const here = occurrences(source, needle)
+        if (here === 0) continue
+        count += here
+        files.push(file)
+      }
+      return { files: [...files].sort(), count }
+    }
+
+    const defining = declaring(DEFINING)
+    const forwarding = declaring(FORWARDING)
+
+    // Exactly one type *defines* the field, and it is the node factory's own options.
+    expect(defining.count).toBe(1)
+    expect(defining.files).toEqual(['packages/node/src/fabric-node.ts'])
+
+    // Every other declaration forwards, and the file set is pinned exactly rather than
+    // bounded — the same idiom `has exactly one production caller for the predicate` uses
+    // below, and for the same reason: a new forwarder is a decision somebody took, and it
+    // should have to be recorded here rather than absorbed.
+    expect(forwarding.files).toEqual(['packages/node/src/seed-server.ts'])
+
+    // **The closing sum, and it is the half that makes this a repair.** Defining plus
+    // forwarding must account for *every* declaration the census found. A hand-written union
+    // anywhere — the second answer this row has always existed to forbid — is neither shape,
+    // so it lands outside the sum and fails here by name.
+    expect(defining.count + forwarding.count).toBe(REPO.declarations)
+
+    // And the factory still declares it once, which is the half of the old row that was
+    // always right.
     expect(occurrences(code('packages/node/src/fabric-node.ts'), DECLARATION)).toBe(1)
   })
 
@@ -640,6 +762,11 @@ describe('AUTH-02 — a seed can be told its issuers, separately from its build 
         httpPort: 0,
         wsPort: 0,
         trustAnchors: 'runs-unsigned-artifacts',
+        // AUTH-02 — required since Plan 24-06, and **open in BOTH arms deliberately**. This
+        // block's subject is `trustedIssuers`, which is selection; varying admission at the
+        // same time would make the divergence below attributable to either field. The two
+        // arms differ in exactly one option, which is what makes the comparison a reading.
+        relayAdmission: 'admits-any-peer',
       })
       seeds.push(open)
 
@@ -651,6 +778,9 @@ describe('AUTH-02 — a seed can be told its issuers, separately from its build 
         wsPort: 0,
         trustAnchors: 'runs-unsigned-artifacts',
         trustedIssuers: [SOME_ISSUER],
+        // Open — see arm A. The peer below holds no certificate, so a pinned set here would
+        // refuse it a reservation and the verdict this arm reads would never be reached.
+        relayAdmission: 'admits-any-peer',
       })
       seeds.push(pinned)
 
@@ -991,10 +1121,86 @@ describe('AUTH-02 — the relay consults RelayAdmission at the reservation, and 
 
       const about = (peer: FabricNode) => relay.admissionDecisions.find((d) => d.peerId === peer.peerId)
 
+      /**
+       * **A refusal, read VERDICT-FIRST and STORE-SECOND — and the order is the whole of
+       * what a red here is worth.**
+       *
+       * ## The ambiguity this removes, priced by the run that paid for it
+       *
+       * Both refusing arms used to open with `expect(relay.reservedPeerIds).not.toContain(…)`
+       * and reach the decision record three lines later. So the first — and, because vitest
+       * stops at the first failed assertion, the *only* — thing a red said was *"a peer that
+       * should be out is in"*. That sentence cannot distinguish:
+       *
+       *   **(a) the gate ANSWERED ADMIT** — `relayAdmissionGate` returned "allow" for a peer
+       *   this relay pins against. A defect in admission itself, and the event Phase 24
+       *   criterion 8 says cannot happen.
+       *   **(b) an entry appeared WITHOUT a grant** — the gate refused and a reservation
+       *   exists anyway. A defect in `@libp2p/circuit-relay-v2` or in this fixture, and *not*
+       *   a statement about the gate at all.
+       *
+       * On 2026-08-06 that ambiguity turned a probable orchestration artefact — a concurrent
+       * agent's live plant in `fabric-node.ts`, observed by another agent as a red here — into
+       * a reported security defect that was escalated to the owner. Resolving it cost **111
+       * executions**, a patch to `node_modules/@libp2p/circuit-relay-v2` to read the gater's
+       * return value directly, and a reading of the library's call ordering to establish that
+       * branch (b) is unreachable by construction: the gater is awaited strictly before
+       * `reservationStore.reserve(…)`, and `reserve()` has exactly one caller. Every one of
+       * those steps was answering a question this assertion order answers on the first red.
+       *
+       * The gate already carried the evidence the whole time. `relayAdmissionGate` produces
+       * `{admitted, reason}` through `decide(…)` and hands it to an `onDecision` callback this
+       * file already uses — so nothing new is measured here. It is read in the order that makes
+       * it explain rather than merely accompany.
+       *
+       * ## Why it is a helper rather than two hand-written orderings
+       *
+       * Both refusing arms have the identical shape, and the defect was that one of them had
+       * the order backwards. Two hand-written copies is exactly how they diverged once already;
+       * a shared reading cannot.
+       */
+      const refusedAtTheDoor = (peer: FabricNode, name: string): AdmissionDecision => {
+        const verdict = about(peer)
+        // Nothing above narrows this, so the missing-verdict case gets its own sentence: a
+        // gate that never ran is neither (a) nor (b), and reporting it as either would name a
+        // cause that is not the cause. The `until` above waits for exactly this record, so a
+        // red here means the wait was satisfied by a decision about somebody else.
+        expect(
+          verdict,
+          `THE GATE REACHED NO VERDICT ABOUT ${name} — neither branch below can be attributed, ` +
+            'because the relay has no decision record for this peer at all',
+        ).toBeDefined()
+        if (verdict === undefined) throw new Error(`no admission decision about ${name}`)
+
+        // **(a) first.** If the gate said yes, that is the finding, and any store entry below
+        // is its consequence rather than an independent fact.
+        expect(
+          verdict.admitted,
+          `(a) THE GATE ANSWERED ADMIT for ${name} — relayAdmissionGate returned "allow" for a ` +
+            `peer this relay pins against. This is an admission defect in the gate; a ` +
+            `reservation ${name} holds follows FROM it and does not need separate explaining. ` +
+            `Reason the gate gave: ${JSON.stringify(verdict.reason)}`,
+        ).toBe(false)
+
+        // **(b) second, and only now meaningful.** The verdict is established as refuse one
+        // line up, so an entry here cannot have come from this gate saying yes.
+        expect(
+          relay.reservedPeerIds,
+          `(b) A RESERVATION EXISTS THAT NO GRANT EXPLAINS — the gate REFUSED ${name} ` +
+            `(asserted immediately above: admitted === false, reason ` +
+            `${JSON.stringify(verdict.reason)}), and a reservation exists anyway. This is NOT ` +
+            'an admission defect: look at @libp2p/circuit-relay-v2 and at this fixture. Note ' +
+            'that this branch was established unreachable by construction on 2026-08-06 — the ' +
+            'gater is awaited strictly before reservationStore.reserve(), which has one caller ' +
+            '— so a red here is first of all a reason to check whether another agent is ' +
+            'holding a plant in the tree',
+        ).not.toContain(peer.peerId)
+
+        return verdict
+      }
+
       // ---- arm 1: no certificate at all. ----------------------------------------------
-      expect(relay.reservedPeerIds).not.toContain(bare.peerId)
-      expect(about(bare)?.admitted).toBe(false)
-      expect(about(bare)?.reason).toContain('holds no provider-issued certificate')
+      expect(refusedAtTheDoor(bare, 'bare').reason).toContain('holds no provider-issued certificate')
 
       // ---- arm 3: a certificate, from the wrong issuer. --------------------------------
       // **The load-bearing arm.** Without it the gate might be checking that a certificate
@@ -1002,10 +1208,9 @@ describe('AUTH-02 — the relay consults RelayAdmission at the reservation, and 
       // *distinguish* this from arm 1 — an operator who cannot tell "brought nothing" from
       // "brought the wrong thing" cannot act on either.
       expect(theirs.certificate).not.toBeNull()
-      expect(relay.reservedPeerIds).not.toContain(theirs.peerId)
-      expect(about(theirs)?.admitted).toBe(false)
-      expect(about(theirs)?.reason).toContain('not a pinned provider')
-      expect(about(theirs)?.reason).not.toContain('holds no provider-issued certificate')
+      const theirsRefusal = refusedAtTheDoor(theirs, 'theirs')
+      expect(theirsRefusal.reason).toContain('not a pinned provider')
+      expect(theirsRefusal.reason).not.toContain('holds no provider-issued certificate')
 
       // ---- and the admission itself is named too, not merely implied by presence. ------
       expect(about(mine)?.admitted).toBe(true)
@@ -1104,6 +1309,205 @@ describe('AUTH-02 — the relay consults RelayAdmission at the reservation, and 
     // And it stayed inside its budget, which is what keeps it inside libp2p's own 5 s
     // reservation ceiling. Sited against the deadline it was given, not against the clock.
     expect(pending[0]?.ms).toBeLessThan(400 * 4)
+  })
+
+  /**
+   * AUTH-04 — **the borrowed certificate, at the door**, and the reason this case had to be
+   * written rather than inherited.
+   *
+   * ## The gap, measured rather than argued
+   *
+   * `relayAdmissionGate` derives `expected` from the asking peer id and refuses a certificate
+   * whose `nodeKey` names a different key. Its docblock says why that is not redundant with
+   * the signature check, and it is right: `verifyCertificate` is handed a certificate and an
+   * issuer set, and **cannot know which peer is holding it**.
+   *
+   * Until this case existed, nothing read that line. Neutralising the comparison to
+   * `certificate.nodeKey !== expected && expected === ''` — every type, symbol and refusal
+   * string left byte-intact — stayed **green across eight admission specs and five runs**,
+   * while a control plant on `enrollment.ts`'s aggregate budget reddened at exit 1 against a
+   * matched clean baseline. So the instrument read, and the silence was a fact about the
+   * corpus rather than about the day.
+   *
+   * The borrowed case exists exactly once in this repository, at
+   * `peer-verifier.node.test.ts`'s `nodeKey-mismatch` row. **That guards SELECTION** — who a
+   * node will *use* as a block source. Every door reading — the three arms above,
+   * `closed-fabric-agents.node.test.ts`, `gated-admission.e2e.test.ts`, `gated-seed.e2e.test.ts`
+   * — has an **enrolled-versus-unenrolled** axis and never a **borrowed** one, so not one of
+   * them can tell *"one certificate admits one identity"* from *"one certificate admits
+   * anybody who can copy it off the wire"*.
+   *
+   * ## Why that distinction is the whole of a per-identity price
+   *
+   * Bounded issuance prices identity creation only while one certificate admits exactly one
+   * peer. Remove this binding and a single legitimately-issued certificate admits an unbounded
+   * number of peers through every closed door in this fabric — and the issuance budget, which
+   * is the thing doing the pricing, prices nothing at all.
+   *
+   * ## Why a hand-built answer rather than a fourth live joiner
+   *
+   * This case needs a peer that **lies** — one that answers a `records` ask about its own key
+   * with somebody else's certificate. `peer-verifier.node.test.ts` records the standing ruling
+   * for exactly that need: a lying mode on `FabricNode` would be a test-only branch in
+   * production code, and 17-CONTEXT.md forbids a `--forge` flag on any binary. So the answer is
+   * built directly and served over `MemoryNetwork` through the same `parseRequest` /
+   * `encodeResponse` pair production uses, and the subject is `relayAdmissionGate` itself — the
+   * door's own predicate, the instrument the three-disposition case above already uses, for the
+   * reason stated there.
+   *
+   * ## What makes the refusal attributable to THIS check and to no sibling of it
+   *
+   * Two readings in one run, over **one certificate**: the borrower is refused and the refusal
+   * names both keys; and the peer that certificate actually names, asked by the same gate
+   * against the same pinned issuer set moments later, is **admitted**. The second is what makes
+   * the first a reading — a certificate that is admitted cannot be unsigned, cannot be expired
+   * and cannot be from an unpinned issuer, so the borrower's refusal has nowhere else to come
+   * from. The negative on `refused:` closes it from the other side: every failure
+   * `verifyCertificate` produces reaches an operator through that prefix, and this one does not
+   * carry it.
+   *
+   * ## What this cannot show
+   *
+   * It cannot show libp2p really consults the gate at a reservation — that is the three-arm
+   * live case above, and this one deliberately shares no fixture with it.
+   */
+  it('refuses a peer presenting a certificate issued to a different peer, and admits the peer that certificate names', async () => {
+    // Fixed patterns, not random — a failing run must be reproducible. These four are local
+    // to this case: no other fixture in this file mints an identity, so there is no shared
+    // seed table to drift from.
+    const RIGHTFUL_SEED = new Uint8Array(SEED_BYTES).fill(0xb1)
+    const BORROWER_SEED = new Uint8Array(SEED_BYTES).fill(0xb2)
+    const PROVIDER_SEED = new Uint8Array(SEED_BYTES).fill(0xb3)
+    const USER_SEED = new Uint8Array(SEED_BYTES).fill(0xb4)
+
+    const rightful = await identityFromSeed(RIGHTFUL_SEED)
+    const borrower = await identityFromSeed(BORROWER_SEED)
+    // The premise, asserted rather than assumed: two identities, and the peer ids really do
+    // imply different node keys. Two seeds that collided would make every reading below pass
+    // for a reason having nothing to do with the door.
+    expect(borrower.nodeKey).not.toBe(rightful.nodeKey)
+    expect(borrower.peerId).not.toBe(rightful.peerId)
+
+    // One real provider, one real enrolment. **Nothing here is forged** — that is the point:
+    // only the *presenter* is wrong.
+    const authority = new EnrollmentAuthority({
+      providerPrivateKey: PROVIDER_SEED,
+      certificateLifetimeMs: 30 * 24 * 3_600_000,
+      maxIssuedPerWindow: 'issues-without-an-aggregate-budget',
+      issuance: 'remembers-only-within-this-process',
+    })
+    const issued = authority.enrol(
+      requestEnrollment(RIGHTFUL_SEED, USER_SEED, {
+        operatorId: 'harbour-ops',
+        discoverability: 'seed',
+        relayIds: [],
+      }),
+      Date.now(),
+    )
+    if (!issued.ok) throw new Error(`fixture enrolment refused: ${issued.reason}`)
+    const { certificate } = issued
+    expect(certificate.nodeKey).toBe(rightful.nodeKey)
+    expect(certificate.expiresAt).toBeGreaterThan(Date.now())
+
+    const records: NodeRecords = {
+      certificate,
+      capabilities: publishCapabilities(RIGHTFUL_SEED, {
+        features: [],
+        sovereignFor: [],
+        issuedAt: certificate.issuedAt,
+        expiresAt: certificate.expiresAt,
+      }),
+    }
+
+    /**
+     * One network, two serving peers, **one certificate between them**.
+     *
+     * Each answers every `records` ask with the same bytes, so the borrower is doing the one
+     * thing a copied certificate lets a peer do: replying to a question about its own key with
+     * a document about somebody else's. The key it was asked about is recorded, because the
+     * whole claim is that the gate derived `expected` from the peer id it was gating.
+     */
+    const network = new MemoryNetwork()
+    const endpoints: RpcEndpoint[] = []
+    const asked = new Map<string, PublicKeyHex[]>()
+    const serveAt = (address: string): void => {
+      const keys: PublicKeyHex[] = []
+      asked.set(address, keys)
+      const server = new RpcEndpoint(network.connect(address))
+      server.serve(async (_from, body) => {
+        const request = parseRequest(body)
+        if (request === null || request.kind !== 'records') {
+          return encodeResponse({ kind: 'error', reason: `unexpected request ${String(request?.kind)}` })
+        }
+        keys.push(request.nodeKey)
+        return encodeResponse({ kind: 'records', records })
+      })
+      endpoints.push(server)
+    }
+    serveAt(borrower.peerId)
+    serveAt(rightful.peerId)
+
+    const relayRpc = new RpcEndpoint(network.connect('the-relay'))
+    endpoints.push(relayRpc)
+
+    try {
+      const decisions: AdmissionDecision[] = []
+      const gate = relayAdmissionGate({
+        admission: new Set([authority.issuerKey]),
+        rpc: () => relayRpc,
+        deadlineMs: 5_000,
+        attemptMs: 2_000,
+        retryGapMs: 20,
+        onDecision: (d) => decisions.push(d),
+      })
+      expect(gate, 'a pinned issuer set must build a gate').toBeTypeOf('function')
+
+      // ---- arm 1: the borrower. `true` denies. -----------------------------------------
+      expect(await gate?.(peerIdFromString(borrower.peerId))).toBe(true)
+
+      // ---- arm 2: the peer the certificate names, same gate, same pinned set. -----------
+      // Ordered second on purpose. An absence is only a reading once the fixture has been
+      // shown capable of producing a presence, and this arm is that presence.
+      expect(await gate?.(peerIdFromString(rightful.peerId))).toBe(false)
+
+      const about = (peerId: string): AdmissionDecision | undefined =>
+        decisions.find((d) => d.peerId === peerId)
+
+      // ---- arm 2 read first, because it is what licenses arm 1's attribution. -----------
+      expect(about(rightful.peerId)?.admitted).toBe(true)
+      expect(about(rightful.peerId)?.reason).toContain('from a pinned issuer')
+      // Admitted **by a lookup** rather than by a default — the shape a fail-open gate takes.
+      expect(about(rightful.peerId)?.attempts).toBeGreaterThan(0)
+
+      // ---- arm 1, and the refusal names both keys. --------------------------------------
+      const refusal = about(borrower.peerId)
+      expect(refusal?.admitted).toBe(false)
+      expect(refusal?.attempts).toBeGreaterThan(0)
+      expect(refusal?.reason).toContain(`presented a certificate for ${rightful.nodeKey}`)
+      expect(refusal?.reason).toContain(`its peer id implies ${borrower.nodeKey}`)
+
+      // **The attribution, from the other side.** Every refusal `verifyCertificate` produces
+      // reaches an operator through the `refused:` prefix, and every one of the two remaining
+      // door refusals has its own sentence. A case that passed by way of any of them would be
+      // passing for the wrong reason and would leave this binding unguarded exactly as before.
+      expect(refusal?.reason).not.toContain('refused:')
+      expect(refusal?.reason).not.toContain('not a pinned provider')
+      expect(refusal?.reason).not.toContain('holds no provider-issued certificate')
+
+      // And the two verdicts really are about the same document. Without this the arms could
+      // diverge because the fixture minted twice.
+      expect(asked.get(borrower.peerId)).toEqual([borrower.nodeKey])
+      expect(asked.get(rightful.peerId)).toEqual([rightful.nodeKey])
+      // The gate asked the borrower about the borrower's own key — so `expected` came from the
+      // peer id being gated, which is the fact the whole refusal rests on.
+      expect(asked.get(borrower.peerId)).not.toContain(rightful.nodeKey)
+
+      // One certificate, one identity. Stated as the arithmetic the criterion is about rather
+      // than left implied by two booleans.
+      expect(decisions.filter((d) => d.admitted).map((d) => d.peerId)).toEqual([rightful.peerId])
+    } finally {
+      for (const endpoint of endpoints) endpoint.close()
+    }
   })
 })
 
@@ -1304,7 +1708,7 @@ describe('AUTH-02 — a spawned agent is a fixture rather than a constant', () =
    * least chance of checking, and until this assertion existed it was one edit from being
    * false again with nothing to notice.
    */
-  it('has no banner in either binary saying certificate-gated admission is not armed', () => {
+  it('has no banner in either binary saying certificate-gated admission is not armed, and the seed’s says which arm it is in', () => {
     for (const file of ['packages/node/src/bin/seed.ts', 'packages/node/src/bin/agent.ts']) {
       // Stripped, so the correction note *recording* the old wording is not read as the
       // wording. This is the same hazard, and the same answer, that this file's own matchers
@@ -1312,8 +1716,349 @@ describe('AUTH-02 — a spawned agent is a fixture rather than a constant', () =
       const stripped = stripComments(readFileSync(join(ROOT, file), 'utf8'))
       expect(stripped, `${file} still tells an operator the gate is unarmed`).not.toContain('is not armed')
     }
-    // And the seed still says something about admission rather than saying nothing — a line
-    // deleted would satisfy the negative above perfectly.
-    expect(code('packages/node/src/bin/seed.ts')).toContain('admits     every peer that completes a handshake')
+    // **TWO-ARMED since Plan 24-06, and the second arm is not decoration.** This was a single
+    // positive reading the open text, which a line deleted would have failed and a banner
+    // grown a second posture would have *passed* — while lying to every operator in the other
+    // arm. `bin/seed.ts` can now be told to close, so both arms must exist in its source.
+    const seed = code('packages/node/src/bin/seed.ts')
+    // The open arm, byte-identical to the text this row has always read, so a guard reading it
+    // still finds it and the default's own wording is pinned as unmoved.
+    expect(seed).toContain('admits     every peer that completes a handshake')
+    // The closed arm, which must name the flag it came from and the keys it pinned — a fixture
+    // spawning a closed seed reads this line to assert the arm is really closed.
+    expect(seed).toContain('admits     only peers certified by')
+    expect(seed).toContain('(from --admit-issuer)')
+    // And the deployment requirement rides on the closed arm, where an operator who has just
+    // shut a door meets it. T-24-06-05 is accepted-and-documented, and this is the documenting.
+    expect(seed).toContain('must serve enrolment itself or name a provider a joining peer can reach without a reservation')
   })
+
+  /**
+   * The three flags are still three on the **second** binary, read as source text.
+   *
+   * This is `wires the new flag to admission alone` above, extended to `bin/seed.ts` by Plan
+   * 24-06. `trust-anchors.node.test.ts` already compares that binary's two older flags'
+   * default expressions textually and reddened when 24-01 planted a cross-wiring between them;
+   * this reads the third. `--admit-issuer` must reach `relayAdmission` and must reach nothing
+   * else, and neither of the other two may reach it.
+   *
+   * The cross-wiring negatives are **regexes rather than substrings**, and that was forced by
+   * measurement rather than taste: the ternary is wrapped across two lines by the formatter, so
+   * a contiguous `'relayAdmission: values[…]'` needle cannot match it and a cross-wire written
+   * the same way would slip past a substring negative in silence.
+   */
+  it('wires the seed’s new flag to admission alone, and neither of the other two to it', () => {
+    const seed = code('packages/node/src/bin/seed.ts')
+    // It reaches the required key, through a ternary rather than a conditional spread — the
+    // same shape, asserted the same way, as `bin/agent.ts`'s above.
+    expect(seed).toMatch(
+      /relayAdmission:\s*\n?\s*values\['admit-issuer'\] === undefined \? 'admits-any-peer' : new Set\(values\['admit-issuer'\]\)/,
+    )
+    // The hex validator, the ternary's two halves and the banner. A count rather than a
+    // presence, so deleting the validator loop is visible here as well as at the spawn arm.
+    const consumers = seed.split("values['admit-issuer']").length - 1
+    expect(consumers).toBeGreaterThanOrEqual(4)
+    // The two older flags still reach their own options.
+    expect(seed).toContain("trustedIssuers: values['trusted-issuer']")
+    expect(seed).toMatch(/trustAnchors\s*=\s*values\['trust-anchor'\]/)
+    // And nothing crosses, in either direction, between any two of the three.
+    expect(seed).not.toMatch(/trustedIssuers:\s*\n?\s*values\['admit-issuer'\]/)
+    expect(seed).not.toMatch(/trustAnchors\s*[:=]\s*\n?\s*values\['admit-issuer'\]/)
+    expect(seed).not.toMatch(/relayAdmission:\s*\n?\s*values\['trusted-issuer'\]/)
+    expect(seed).not.toMatch(/relayAdmission:\s*\n?\s*values\['trust-anchor'\]/)
+  })
+})
+
+/**
+ * AUTH-02 — **the seed can now be told to close, and this is the block that watches it close.**
+ *
+ * ## The gap this closes, stated so it is not re-argued
+ *
+ * `seed-server.ts` wrote `relayAdmission: 'admits-any-peer'` as a *literal* and
+ * `SeedServerOptions` carried no field that could change it, so the relay every browser tab in
+ * this fabric reserves on — and the source of `BootstrapInfo.peerAddrs` — was *"not merely
+ * left open, it cannot be told to close"*. That is the structural fact `24-VERIFICATION.md`
+ * scored criterion 8 PARTIAL on, in the verifier's own words: *"'Pass-with-a-stated-bound'
+ * would be the right disposition if the bound were a deployment posture an operator can
+ * remove. It is not: for the seed there is no knob."* Plan 24-06 built the knob; this block is
+ * the reading that it turns.
+ *
+ * ## Two arms, open first, and the ordering is the reading rather than a convenience
+ *
+ * The closed arm's claim is an **absence** — no circuit — and an absence read on its own is
+ * also what a fixture that never got there looks like. So the open arm runs first and
+ * establishes that *this* uncertificated node can obtain a circuit from a `bin/seed.ts` on
+ * *this* host in *this* run. Only against that is the closed arm's absence attributable to the
+ * flag.
+ *
+ * ## The posture is read off the seed's own banner, never off the argv this file passed
+ *
+ * A typo in a spawn argument otherwise produces an open seed and the reading passes for the
+ * wrong reason — the single most likely way a cross-process admission proof lies, and this
+ * repository has already carried two criteria at PARTIAL for exactly that shape. Plan 24-05
+ * watched that mitigation fire as a plant: its posture guard reddened *before* the assertion
+ * the plan had predicted would.
+ *
+ * ## What this block does NOT show
+ *
+ * It closes **one** seed. It says nothing about a fabric in which every door is closed, which
+ * is 24-07's and 24-08's reading, and nothing about the browser tier. And it is not a claim
+ * that a closed seed is a good deployment: 24-05 measured that enrolment survives a closed
+ * *provider*, but a closed seed with no reachable provider at all strands every new tab, which
+ * is why that sentence is printed in the closed arm's own banner.
+ *
+ * Node-only by necessity: the subject is an operating-system process.
+ */
+describe('AUTH-02 — a spawned seed is a fixture rather than a constant', () => {
+  const SEED = fileURLToPath(new URL('./bin/seed.ts', import.meta.url))
+  /** Any well-formed key nobody holds — the joiners below carry no certificate at all. */
+  const PINNED = 'f'.repeat(64)
+  /** The seed prints this last, so waiting on it gets the whole banner rather than a prefix. */
+  const SENTINEL = 'Ctrl-C to stop.'
+
+  const children: ChildProcess[] = []
+  const dirs: string[] = []
+  const nodes: FabricNode[] = []
+
+  const madeDir = async (name: string): Promise<string> => {
+    const dir = await mkdtemp(join(tmpdir(), `o2-seed-admit-${name}-`))
+    dirs.push(dir)
+    return dir
+  }
+
+  /**
+   * SIGTERM with a SIGKILL fallback, rather than `reservation-exhaustion.node.test.ts`'s
+   * straight kill: a seed holds a Vite dev server and two bound listeners, and SIGKILL runs no
+   * handler. The fallback is what stops a wedged child turning into a hung hook.
+   */
+  const cleanUp = async (): Promise<void> => {
+    await Promise.all(
+      children.splice(0).map(
+        (child) =>
+          new Promise<void>((resolve) => {
+            if (child.exitCode !== null || child.signalCode !== null) return resolve()
+            const timer = setTimeout(() => {
+              child.kill('SIGKILL')
+              resolve()
+            }, 10_000)
+            child.on('exit', () => {
+              clearTimeout(timer)
+              resolve()
+            })
+            child.kill('SIGTERM')
+          }),
+      ),
+    )
+    await Promise.all(nodes.splice(0).map((n) => n.stop().catch(() => {})))
+    await Promise.all(dirs.splice(0).map((d) => rm(d, { recursive: true, force: true })))
+  }
+
+  /**
+   * Spawn one seed and resolve its complete banner, or its refusal.
+   *
+   * `stdio: ['pipe', 'pipe', 'pipe']` throughout, and fd 0 is load-bearing rather than
+   * cosmetic: both binaries arm an orphan leash by watching fd 0, and `'ignore'` hands them a
+   * character device, which opts the leash out. `orphan-leash.node.test.ts` fails any spawn
+   * site that does.
+   */
+  async function spawnSeed(
+    args: readonly string[],
+  ): Promise<{ banner: string; stderr: string; code: number | null }> {
+    const child = spawn(process.execPath, [SEED, ...args], { stdio: ['pipe', 'pipe', 'pipe'] })
+    children.push(child)
+    return new Promise((resolve, reject) => {
+      let stdout = ''
+      let stderr = ''
+      const timer = setTimeout(
+        () => reject(new Error(`the seed neither announced nor exited: ${stderr}`)),
+        90_000,
+      )
+      child.stderr?.on('data', (chunk: Buffer) => {
+        stderr += chunk.toString()
+      })
+      child.stdout?.on('data', (chunk: Buffer) => {
+        stdout += chunk.toString()
+        if (!stdout.includes(SENTINEL)) return
+        clearTimeout(timer)
+        resolve({ banner: stdout, stderr, code: null })
+      })
+      // A refusal is a legitimate outcome here — one case below is about exactly that — so an
+      // exit before the sentinel resolves rather than rejecting.
+      child.on('exit', (exitCode: number | null) => {
+        clearTimeout(timer)
+        resolve({ banner: stdout, stderr, code: exitCode })
+      })
+    })
+  }
+
+  /**
+   * Poll until `predicate` holds, naming what was observed at the throw.
+   *
+   * Its own copy rather than the one in the block above, which is scoped to that `describe`.
+   * **`observed` is awaited**, on 24-05's recorded finding: a promise stringifies to `{}`, so
+   * an un-awaited thunk turns the one message a timeout has into a vacuous one — the exact
+   * failure the thunk exists to prevent, and it was found by a plant rather than by reading.
+   */
+  async function until(
+    predicate: () => boolean,
+    timeoutMs: number,
+    what: string,
+    observed?: () => unknown | Promise<unknown>,
+  ): Promise<void> {
+    const deadline = Date.now() + timeoutMs
+    while (Date.now() < deadline) {
+      if (predicate()) return
+      await new Promise((r) => setTimeout(r, 50))
+    }
+    const tail = observed === undefined ? '' : `; observed ${JSON.stringify(await observed())}`
+    throw new Error(`timed out waiting for ${what}${tail}`)
+  }
+
+  /** The banner line whose label is the seed's admission posture, trimmed. */
+  const admitsLine = (banner: string): string =>
+    (banner.split('\n').find((l) => l.trim().startsWith('admits ')) ?? '<no admits line>').trim()
+
+  /** The peer id the seed reports for itself. */
+  const peerIdOf = (banner: string): string =>
+    (banner.split('\n').find((l) => l.trim().startsWith('peer id ')) ?? '')
+      .trim()
+      .slice('peer id '.length)
+      .trim()
+
+  /**
+   * The **loopback** relay address, off the banner rather than rebuilt here.
+   *
+   * The seed binds `0.0.0.0` and libp2p expands that per interface, so the listing also
+   * carries LAN addresses a CI host may not be able to dial back to itself. This is the same
+   * narrowing `reservation-exhaustion.node.test.ts` takes, for the same measured reason.
+   */
+  const loopbackRelay = (banner: string): string | undefined =>
+    banner
+      .split('\n')
+      .map((l) => l.trim())
+      .filter((l) => l.startsWith('relay '))
+      .map((l) => l.slice('relay '.length).trim())
+      .find((addr) => addr.includes('/ip4/127.0.0.1/'))
+
+  /** An uncertificated node pointed at one relay address, holding no certificate at all. */
+  async function joinerAt(name: string, door: string): Promise<FabricNode> {
+    const node = await FabricNode.start({
+      relayAdmission: 'admits-any-peer',
+      startReporting: 'reports-its-own-start',
+      listen: [],
+      relayAddrs: [door],
+      rpcTimeoutMs: 20_000,
+      trustAnchors: 'runs-unsigned-artifacts',
+      blockstoreDir: await madeDir(name),
+    })
+    nodes.push(node)
+    return node
+  }
+
+  it('grants a circuit when told nothing, and none when told an issuer nobody holds — both arms read off the seed’s own banner', async () => {
+    try {
+      // ---- the OPEN arm, first. ------------------------------------------------------
+      // This is the arm that must not have moved: no `--admit-issuer`, so the binary's
+      // ternary takes its absent arm and the seed is byte-identical to the seed before the
+      // flag existed. It also establishes that this fixture's uncertificated node can obtain
+      // a circuit from a `bin/seed.ts` on this host at all, without which the closed arm's
+      // absence below would be unattributable.
+      const open = await spawnSeed(['--dir', await madeDir('open'), '--port', '0', '--ws-port', '0'])
+      expect(open.code, `the open seed exited: ${open.stderr}`).toBeNull()
+      // **The posture, off the seed's own line and never off the argv above.**
+      expect(admitsLine(open.banner)).toContain('every peer that completes a handshake')
+      expect(admitsLine(open.banner)).not.toContain('only peers certified by')
+
+      const openDoor = loopbackRelay(open.banner)
+      expect(openDoor, `no loopback relay address in the open seed's banner:\n${open.banner}`).toBeDefined()
+      const openJoiner = await joinerAt('open-joiner', openDoor as string)
+      await until(
+        () => openJoiner.circuitAddrs.length > 0,
+        60_000,
+        'the open seed to grant a circuit to an uncertificated peer',
+        () => ({ circuits: openJoiner.circuitAddrs, peers: openJoiner.transport.peers }),
+      )
+      expect(openJoiner.circuitAddrs[0]).toContain('/p2p-circuit')
+
+      // ---- the CLOSED arm. ------------------------------------------------------------
+      const closed = await spawnSeed([
+        '--dir',
+        await madeDir('closed'),
+        '--port',
+        '0',
+        '--ws-port',
+        '0',
+        '--admit-issuer',
+        PINNED,
+      ])
+      expect(closed.code, `the closed seed exited: ${closed.stderr}`).toBeNull()
+      // The posture again off the banner — and this arm asserts it pinned **what it was
+      // told**, not merely that it pinned something, which is what a typo in the argv above
+      // would otherwise buy.
+      expect(admitsLine(closed.banner)).toContain('only peers certified by')
+      expect(admitsLine(closed.banner)).toContain(PINNED)
+      expect(admitsLine(closed.banner)).toContain('1 pinned admission issuer')
+      expect(admitsLine(closed.banner)).not.toContain('every peer that completes a handshake')
+
+      const closedDoor = loopbackRelay(closed.banner)
+      expect(closedDoor, `no loopback relay address in the closed seed's banner:\n${closed.banner}`).toBeDefined()
+      const closedJoiner = await joinerAt('closed-joiner', closedDoor as string)
+
+      // The plain connection stands. That is what keeps enrolment reachable through a closed
+      // door, and it is asserted before the absence so that "no circuit" cannot be satisfied
+      // by a peer that never reached the seed at all.
+      const closedSeedPeerId = peerIdOf(closed.banner)
+      expect(closedSeedPeerId).not.toBe('')
+      await until(
+        () => closedJoiner.transport.peers.includes(closedSeedPeerId),
+        60_000,
+        'the uncertificated peer to connect to the closed seed',
+        () => ({ peers: closedJoiner.transport.peers, want: closedSeedPeerId }),
+      )
+
+      // And it never obtains a circuit. **Held over a window rather than sampled once**: an
+      // absence read once is also what a fabric that has not got there yet looks like, and the
+      // open arm above has already shown how long "got there" takes on this host.
+      const deadline = Date.now() + 8_000
+      while (Date.now() < deadline) {
+        expect(closedJoiner.circuitAddrs).toEqual([])
+        await new Promise((r) => setTimeout(r, 100))
+      }
+      // The comparative statement in one line: the same fixture, the same host, the same run —
+      // one seed granted a circuit and the other did not, and the only difference between them
+      // is the flag.
+      expect(openJoiner.circuitAddrs.length > 0).not.toBe(closedJoiner.circuitAddrs.length > 0)
+    } finally {
+      await cleanUp()
+    }
+  }, 240_000)
+
+  it('refuses a value that is not hex, naming the flag it came from and not its sibling', async () => {
+    try {
+      const bad = await spawnSeed([
+        '--dir',
+        await madeDir('bad'),
+        '--port',
+        '0',
+        '--ws-port',
+        '0',
+        '--admit-issuer',
+        'nothex',
+      ])
+      expect(bad.code).toBe(2)
+      expect(bad.banner).not.toContain(SENTINEL)
+      expect(bad.stderr).toContain('--admit-issuer')
+      expect(bad.stderr).toContain('nothex')
+      // It names the **right** flag. `bin/seed.ts`'s two validator loops are separate rather
+      // than merged for exactly this: an operator who passed both must not be sent to the
+      // wrong one. Asserted on the refusal line, mirroring the narrowing the agent arm above
+      // records having been forced into by `refuse` also printing a usage string.
+      const refusal = bad.stderr.split('\n').find((l) => l.startsWith('seed.ts:')) ?? ''
+      expect(refusal).toContain('--admit-issuer')
+      expect(refusal).toContain('nothex')
+      expect(refusal).not.toContain('--trusted-issuer')
+    } finally {
+      await cleanUp()
+    }
+  }, 120_000)
 })

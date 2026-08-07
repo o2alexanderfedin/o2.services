@@ -20,15 +20,26 @@
  * the certificate is the next step and is not folded in here: it changes `payloadOf`
  * and therefore the signed shape of every certificate in this repository.
  *
- * ## The replay gap, stated rather than left to be found
+ * ## The replay gap, and where it was closed
  *
  * `possessionChallenge` encodes `{purpose, nodeKey, userKey}` and nothing else — no
- * nonce, no validity window. A captured `(nodeKey, proofOfPossession, userKey,
- * ownerProof)` tuple stays valid forever and can be resubmitted to consume the
- * victim's window. That is the same denial as before, now requiring the attacker to
- * first observe one real enrollment of that node. Closing it means a validity window
- * inside the challenge checked against `enrol`'s `now`, or per-`nodeKey` idempotent
- * issuance; both change the limiter's semantics and belong to their own requirement.
+ * nonce, no validity window — so a captured `(nodeKey, proofOfPossession, userKey,
+ * ownerProof)` tuple stays valid for that pair **forever**. Anybody who observed one real
+ * enrollment held a frame they could resubmit verbatim to spend the provider's budget
+ * again. That challenge is deliberately **still** static, and the freshness is a second,
+ * separate signature: see {@link ChallengeAnswer}, {@link EnrollmentAuthority.mintChallenge}
+ * and {@link EnrollmentAuthority.redeemChallenge}. A provider hands out a nonce, the joiner
+ * signs *that* with the same node key, and the provider spends the nonce once.
+ *
+ * **Where the check runs, said here because it is not here.** `enrol` below verifies who
+ * is entitled to a certificate, which is a question about the request alone. Freshness is a
+ * property of an **exchange**, and `enrol` has no exchange — it is a pure function of
+ * `(request, now)` that an in-process caller invokes with the authority object already in
+ * hand, and against such a caller replay protection means nothing: they can simply call it
+ * again. The one place a stranger's bytes become a request is `serveAgent`'s `enrol` branch
+ * in `@o2/net`, and that branch redeems the challenge before it calls `enrol`. The residual
+ * is exact and is not hidden: **a host that wires `enrol` to a transport of its own gets no
+ * freshness from this module.** `serveAgent` is the only such wiring in this repository.
  *
  * **The private key never leaves the device.** `enrol` takes a public key and a
  * self-signed proof of possession; there is no code path here that accepts, transports,
@@ -93,10 +104,14 @@
  * node. Revocation is **non-renewal on the certificate's own clock**, not a list and not
  * a shorter clock; `certificateLifetimeMs` keeps its default.
  *
- * Pure module.
+ * Pure module, with **one** stated exception: {@link EnrollmentAuthority.mintChallenge}
+ * draws random bytes, because a nonce a caller could predict is not a nonce. Nothing else
+ * here reads a clock, a random source, or a platform API — `enrol` still takes `now` as a
+ * parameter so the limiter stays deterministic under test.
  */
 
 import { ed25519 } from '@noble/curves/ed25519.js'
+import { randomBytes } from '@noble/hashes/utils.js'
 import { NotEncodableError, encodeCanonical } from './canonical/encode.ts'
 import type { CanonicalValue } from './canonical/encode.ts'
 import { fromHex, toHex } from './capability.ts'
@@ -184,6 +199,82 @@ export function possessionChallenge(nodeKey: PublicKeyHex, userKey: PublicKeyHex
   return encoded.bytes
 }
 
+/**
+ * How long a minted challenge stays spendable.
+ *
+ * Sized against the exchange it bounds and nothing else: one round trip on a fabric whose
+ * slowest measured leg is a cold browser↔browser WebRTC handshake (~1.04 s), so a minute
+ * is roughly two orders of magnitude of headroom for a joiner that has already dialled.
+ * It is **not** a security parameter in the way the nonce is — an unexpired nonce is still
+ * single-use — it only bounds how long an unanswered mint sits in the provider's map.
+ *
+ * Exported as a value because the refusal carries it: a joiner told its challenge went
+ * stale needs to know the window it missed, and a threshold readable only from the
+ * provider's source is not stated to the peer that hit it.
+ */
+export const ENROLLMENT_CHALLENGE_TTL_MS = 60_000
+
+/**
+ * A provider's one-shot invitation to enrol.
+ *
+ * `nonce` is 32 bytes from the platform CSPRNG, hex-encoded. Its size is chosen so that
+ * *guessing* one is not an attack worth describing; what makes it useful is not secrecy
+ * but that the provider **remembers issuing it and spends it once**.
+ */
+export interface EnrollmentChallenge {
+  readonly nonce: PublicKeyHex
+  /** After this instant the provider will refuse it. See {@link ENROLLMENT_CHALLENGE_TTL_MS}. */
+  readonly expiresAt: number
+}
+
+/**
+ * The bytes a node signs to show it is answering a challenge **this** provider minted.
+ *
+ * Separate bytes from {@link possessionChallenge}, deliberately, and the alternative is
+ * worth naming because it looks tidier: folding the nonce into the possession challenge
+ * would change the signed shape of the one thing every honest node already produces, and
+ * `possessionChallenge` is also what `result-attestation.ts` copies its shape from. Two
+ * challenges with two purposes keep the *entitlement* question ("does this node hold this
+ * key, and did the named user consent") answerable from the request alone, which is what
+ * lets `enrol` stay a pure function of `(request, now)`.
+ *
+ * `nodeKey` and `userKey` are inside because the answer must not be transplantable. An
+ * answer that signed only the nonce could be lifted off one request and pasted onto
+ * another naming different keys, and the provider would accept it.
+ */
+export function challengeAnswerBytes(
+  nonce: PublicKeyHex,
+  nodeKey: PublicKeyHex,
+  userKey: PublicKeyHex,
+): Uint8Array<ArrayBuffer> {
+  const encoded = encodeCanonical({ purpose: 'o2-enrol-challenge', nonce, nodeKey, userKey })
+  if (!encoded.ok) throw new NotEncodableError('challenge-answer', encoded.error)
+  return encoded.bytes
+}
+
+/** A node's answer to one minted challenge. */
+export interface ChallengeAnswer {
+  /** The nonce being spent — the provider looks this up in what it minted. */
+  readonly nonce: PublicKeyHex
+  /** Signature over {@link challengeAnswerBytes}, by the node's own private key. */
+  readonly proof: string
+}
+
+/**
+ * Whether a request answers a live challenge, or says by name that it answers none.
+ *
+ * A required union with an explicit sentinel rather than an optional field, on the same
+ * reasoning {@link IssuanceHistory} gives: an omitted optional would let a request that
+ * proves nothing about freshness look exactly like one that was never asked to, and the
+ * one reader that has to tell them apart would have to guess. The sentinel is what
+ * {@link requestEnrollment} produces, because at the moment a node signs its own keys it
+ * has not yet spoken to any provider and has no nonce to answer.
+ */
+export type Freshness =
+  | ChallengeAnswer
+  /** This request answers no provider's challenge. Refused at any wire boundary. */
+  | 'answers-no-challenge'
+
 /** What a node sends to enrol. Contains a public key and a proof, never a secret. */
 export interface EnrollmentRequest {
   readonly nodeKey: PublicKeyHex
@@ -202,6 +293,33 @@ export interface EnrollmentRequest {
    * encoding to keep canonical.
    */
   readonly ownerProof: string
+  /**
+   * The provider-minted nonce this request spends, or the named admission that it spends
+   * none. See {@link Freshness}, and {@link EnrollmentAuthority.redeemChallenge} for who
+   * checks it.
+   */
+  readonly freshness: Freshness
+}
+
+/**
+ * A request that has been signed but not yet addressed to a provider.
+ *
+ * It **is** an {@link EnrollmentRequest} — everything an authority needs to decide
+ * entitlement is already signed — plus the one thing that can only be done after a
+ * provider has spoken: answering the nonce it mints. Modelled as a subtype rather than as
+ * a fourth parameter to {@link requestEnrollment} so that the two-round-trip exchange
+ * could be introduced without moving the node's private key any closer to the network:
+ * `enrolOverRpc` receives the ability to sign one specific challenge, and never the key.
+ *
+ * **`answering` returns the answer, not a finished request**, and that is load-bearing
+ * rather than stylistic. A closure that rebuilt the whole request would snapshot the
+ * fields as they were at signing time, so `{...pending, ownerProof: forged}` — how every
+ * negative case in this repository is written — would be silently undone on the way to the
+ * wire and the case would pass while measuring nothing.
+ */
+export interface PendingEnrollment extends EnrollmentRequest {
+  /** Sign one provider's challenge with the node key this request already names. */
+  readonly answering: (challenge: EnrollmentChallenge) => ChallengeAnswer
 }
 
 /**
@@ -215,8 +333,11 @@ export interface EnrollmentRequest {
 export function requestEnrollment(
   nodePrivateKey: Uint8Array,
   userPrivateKey: Uint8Array,
-  fields: Omit<EnrollmentRequest, 'nodeKey' | 'userKey' | 'proofOfPossession' | 'ownerProof'>,
-): EnrollmentRequest {
+  fields: Omit<
+    EnrollmentRequest,
+    'nodeKey' | 'userKey' | 'proofOfPossession' | 'ownerProof' | 'freshness'
+  >,
+): PendingEnrollment {
   const nodeKey = toHex(ed25519.getPublicKey(nodePrivateKey))
   const userKey = toHex(ed25519.getPublicKey(userPrivateKey))
   const challenge = possessionChallenge(nodeKey, userKey)
@@ -224,8 +345,15 @@ export function requestEnrollment(
     ...fields,
     nodeKey,
     userKey,
+    // The sentinel, not a nonce: nothing has been asked of a provider yet. A caller that
+    // sends this over a wire is refused by name — see `Freshness`.
+    freshness: 'answers-no-challenge',
     proofOfPossession: toHex(ed25519.sign(challenge, nodePrivateKey)),
     ownerProof: toHex(ed25519.sign(challenge, userPrivateKey)),
+    answering: (minted) => ({
+      nonce: minted.nonce,
+      proof: toHex(ed25519.sign(challengeAnswerBytes(minted.nonce, nodeKey, userKey), nodePrivateKey)),
+    }),
   }
 }
 
@@ -245,10 +373,28 @@ export type EnrollmentRefusal =
    * finds another.
    */
   | { readonly kind: 'issuance-budget-exhausted'; readonly limit: number; readonly windowMs: number; readonly retryAfterMs: number }
+  /**
+   * The nonce this request spends is not one this provider is still holding.
+   *
+   * **One kind for three states, and that is honest rather than lazy**: answered no
+   * challenge at all, answered one that expired, and answered one already spent are
+   * indistinguishable *to the provider*, because spending a nonce is deleting it. Keeping
+   * them apart would mean retaining every nonce ever redeemed — unbounded state, in
+   * exchange for telling an attacker which of their guesses was closest.
+   *
+   * Names no key, for {@link EnrollmentRefusal}'s `issuance-budget-exhausted` reason: a
+   * joiner whose challenge went stale did nothing wrong, and the next action is the same
+   * in all three cases — ask for a challenge and enrol again. `ttlMs` is carried so that
+   * next attempt knows the window it has to answer within.
+   */
+  | { readonly kind: 'stale-challenge'; readonly ttlMs: number }
 
 export type EnrollmentResult =
   | { readonly ok: true; readonly certificate: NodeCertificate }
   | { readonly ok: false; readonly refusal: EnrollmentRefusal; readonly reason: string }
+
+/** The refused half of {@link EnrollmentResult}, named so a refusal can be returned alone. */
+export type EnrollmentRefused = Extract<EnrollmentResult, { readonly ok: false }>
 
 /**
  * How many certificates one authority will sign in a window, **to anybody**.
@@ -374,6 +520,19 @@ export interface AuthorityOptions {
    */
   readonly windowMs?: number
   readonly certificateLifetimeMs?: number
+  /**
+   * How long a minted challenge stays spendable. Defaults to
+   * {@link ENROLLMENT_CHALLENGE_TTL_MS}.
+   *
+   * Optional, unlike {@link AuthorityOptions.issuance} above, and the asymmetry is the
+   * point rather than an inconsistency. That field is required because forgetting issuance
+   * history **accepts more**: an omitted value would switch a bound off with nothing
+   * anywhere failing, which Phase 17 measured. Forgetting a challenge **accepts less** — an
+   * unknown nonce is refused — so every way of getting this one wrong, omission included,
+   * fails closed. A required sentinel here would be ceremony charged to forty-odd
+   * construction sites against a hazard that does not exist.
+   */
+  readonly challengeTtlMs?: number
 }
 
 /**
@@ -391,6 +550,27 @@ export class EnrollmentAuthority {
   readonly #lifetimeMs: number
   /** The host's issuance history. **Not this object's** — see {@link IssuanceHistory}. */
   readonly #issuance: IssuanceLedger
+  readonly #challengeTtlMs: number
+  /**
+   * Challenges minted and not yet spent: nonce → the instant it stops being spendable.
+   *
+   * **This object's own heap, and deliberately not a host port** — the opposite call from
+   * {@link IssuanceHistory} one field up, for the opposite reason. Issuance history is
+   * handed to the host because a provider that restarts must be given back what it already
+   * signed; a restart that forgot it would issue past its budget. A restart that forgets
+   * *these* refuses every nonce it minted before going down, and a joiner mid-exchange asks
+   * for another one. **Forgetting is the safe direction**, so making it durable would buy
+   * nothing and would cost the one thing worth protecting: an outstanding challenge written
+   * to disk is an attacker's window widened from a minute to however long that row survives.
+   *
+   * Same map on both tiers, and that is the browser-tier answer in full: there is no
+   * storage port to implement, no IndexedDB row, and nothing for a tab to do differently
+   * from a server. A browser provider mints, remembers and spends exactly as this does.
+   *
+   * Growth is bounded by mint rate × TTL and is pruned on every mint — see
+   * {@link EnrollmentAuthority.mintChallenge}.
+   */
+  readonly #challenges = new Map<PublicKeyHex, number>()
 
   constructor(options: AuthorityOptions) {
     this.#privateKey = options.providerPrivateKey
@@ -399,6 +579,7 @@ export class EnrollmentAuthority {
     this.#maxIssuedPerWindow = options.maxIssuedPerWindow
     this.#windowMs = options.windowMs ?? DEFAULT_ISSUANCE_WINDOW_MS
     this.#lifetimeMs = options.certificateLifetimeMs ?? 30 * 24 * 3_600_000
+    this.#challengeTtlMs = options.challengeTtlMs ?? ENROLLMENT_CHALLENGE_TTL_MS
     this.#issuance =
       options.issuance === 'remembers-only-within-this-process'
         ? new InProcessIssuance()
@@ -433,6 +614,113 @@ export class EnrollmentAuthority {
   /** Issue timestamps for anybody, pruned to the window. */
   #recentForAnybody(now: number): number[] {
     return this.#issuance.issuedToAnybody().filter((at) => at > now - this.#windowMs)
+  }
+
+  /**
+   * Minted challenges that have not been spent and have not expired.
+   *
+   * The sibling of {@link issuedToAnybodyWithin}, and it exists for the same stated reason:
+   * a provider that cannot report the size of its own state cannot be measured from
+   * outside, and a bound nobody can read is a bound nobody can check. It is also the only
+   * way a test can see that spending a nonce *removes* it rather than merely refusing it.
+   */
+  outstandingChallenges(now: number): number {
+    let live = 0
+    for (const expiresAt of this.#challenges.values()) if (expiresAt > now) live++
+    return live
+  }
+
+  /**
+   * Mint a challenge, remember it, and drop whatever has expired — AUTH-01 freshness.
+   *
+   * **The one impure function in this module.** `randomBytes` is the platform CSPRNG
+   * (`crypto.getRandomValues` on both tiers, present on insecure origins as well as
+   * secure ones), and it is here rather than behind a port because a nonce a caller can
+   * supply is a nonce an attacker can supply. There is no injectable-seed variant for
+   * tests: a test that could fix the nonce would be measuring a different mechanism.
+   *
+   * **Pruning happens here, not on a timer.** A timer would be a platform dependency in a
+   * module that has none, and would run in a browser tab that is not enrolling anybody.
+   * Sweeping on mint bounds the map by the mint rate over one TTL, and an authority nobody
+   * asks stops growing altogether — which is the correct behaviour and not a coincidence:
+   * the sweep is paid for by the request that made it necessary.
+   *
+   * **Minting is deliberately free and unauthenticated**, matching the enrol branch it
+   * serves. See this module's header on the accepted DoS surface: a peer that mints
+   * without answering costs this provider 32 random bytes and one map entry for a minute,
+   * which is strictly less than the two signature verifications an unanswerable enrolment
+   * frame already costs it.
+   */
+  mintChallenge(now: number): EnrollmentChallenge {
+    for (const [nonce, expiresAt] of this.#challenges) {
+      if (expiresAt <= now) this.#challenges.delete(nonce)
+    }
+    const nonce = toHex(randomBytes(32))
+    const expiresAt = now + this.#challengeTtlMs
+    this.#challenges.set(nonce, expiresAt)
+    return { nonce, expiresAt }
+  }
+
+  /**
+   * Spend the challenge a request answers, or say why it could not be spent.
+   *
+   * `null` means *spent, proceed* — the caller then calls {@link enrol}, which decides
+   * entitlement. Splitting the two is what this module's header explains: freshness is a
+   * property of an exchange and `enrol` has no exchange. **A wire boundary must call this
+   * first**; `serveAgent`'s `enrol` branch is the only one in this repository that has to.
+   *
+   * Three orderings here were chosen rather than fallen into:
+   *
+   * - **Verify the answer's signature before deleting the nonce.** Deleting first would let
+   *   anybody holding a live nonce burn it with a junk signature. That is only reachable
+   *   for a nonce the attacker minted themselves — which is theirs to waste — but the
+   *   cheap ordering is also the correct one.
+   * - **Delete on the way to `enrol`, not after it succeeds.** A nonce is spent by being
+   *   *answered*, not by being certified. Holding it back on a rate-limited refusal would
+   *   leave that request replayable until the TTL ran out, which is the defect in miniature.
+   * - **Expiry is checked against the caller's `now`**, the same clock `enrol` is given, so
+   *   a test that moves time moves both.
+   */
+  redeemChallenge(request: EnrollmentRequest, now: number): EnrollmentRefused | null {
+    const stale = (why: string): EnrollmentRefused => ({
+      ok: false,
+      refusal: { kind: 'stale-challenge', ttlMs: this.#challengeTtlMs },
+      reason: `enrolment challenge ${why}; ask this provider for another and answer it within ${this.#challengeTtlMs}ms`,
+    })
+
+    const { freshness } = request
+    if (freshness === 'answers-no-challenge') return stale('was never asked for')
+
+    const expiresAt = this.#challenges.get(freshness.nonce)
+    // One reason for both, because the provider genuinely cannot tell them apart: spending
+    // a nonce deletes it, so "already used" and "never minted here" are the same lookup.
+    if (expiresAt === undefined) return stale('is not one this provider is holding')
+    if (expiresAt <= now) return stale('expired')
+
+    let answered = false
+    try {
+      answered = ed25519.verify(
+        fromHex(freshness.proof),
+        challengeAnswerBytes(freshness.nonce, request.nodeKey, request.userKey),
+        fromHex(request.nodeKey),
+      )
+    } catch {
+      answered = false
+    }
+    // Not `stale-challenge`: the nonce was live and this is a claim about the *key*, so it
+    // is the same event `enrol` reports when possession does not check out. Telling a
+    // joiner its challenge went stale when its signature was wrong would send it to fetch
+    // another nonce for ever.
+    if (!answered) {
+      return {
+        ok: false,
+        refusal: { kind: 'bad-proof-of-possession', nodeKey: request.nodeKey },
+        reason: `node ${request.nodeKey} did not prove possession of its key`,
+      }
+    }
+
+    this.#challenges.delete(freshness.nonce)
+    return null
   }
 
   enrol(request: EnrollmentRequest, now: number): EnrollmentResult {

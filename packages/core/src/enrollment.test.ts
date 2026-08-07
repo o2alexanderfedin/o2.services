@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import { toHex } from './capability.ts'
 import {
   EnrollmentAuthority,
+  challengeAnswerBytes,
   possessionChallenge,
   requestEnrollment,
   resolveReplicaSets,
@@ -169,6 +170,10 @@ describe('AUTH-04 — a certificate names the user who consented to it', () => {
       proofOfPossession: toHex(ed25519.sign(challenge, attackerNode.priv)),
       // Signed by the attacker's node key, which is not alice's.
       ownerProof: toHex(ed25519.sign(challenge, attackerNode.priv)),
+      // The sentinel, because `enrol` decides *entitlement* and takes no view on
+      // freshness — see this module's header on why that check lives at the wire
+      // boundary instead. A value here would not change this reading either way.
+      freshness: 'answers-no-challenge' as const,
     }
 
     const result = auth.enrol(forged, NOW)
@@ -199,6 +204,7 @@ describe('AUTH-04 — a certificate names the user who consented to it', () => {
           relayIds: [],
           proofOfPossession: toHex(ed25519.sign(challenge, attackerNode.priv)),
           ownerProof: toHex(ed25519.sign(challenge, attackerNode.priv)),
+          freshness: 'answers-no-challenge',
         },
         NOW,
       )
@@ -677,5 +683,172 @@ describe('all nodes have equal functionality', () => {
     if (!result.ok) return
     const understated = { ...result.certificate, relayIds: [] }
     expect(verifyCertificate(understated, new Set([auth.issuerKey]), NOW).ok).toBe(false)
+  })
+})
+
+/**
+ * AUTH-01 freshness — the nonce, and the state that makes it one.
+ *
+ * `enrol-agent.test.ts` holds the end-to-end reading: a captured frame, resent by a peer
+ * holding no key, refused. These are the unit-level facts that reading rests on, and each
+ * is here because it is invisible from the wire.
+ *
+ * **A nonce a provider does not remember is not a nonce**, so what is actually asserted
+ * below is the *memory*: that a mint is held, that redeeming removes it rather than merely
+ * refusing the second attempt, that the removal is observable in a count, and that a
+ * second authority — which is what a restarted provider is — holds none of the first's.
+ * That last case is the restart behaviour, and it fails **closed**: the successor refuses a
+ * nonce it never minted, which is one round trip of cost to an honest joiner and no
+ * exposure at all.
+ */
+describe('AUTH-01 — an enrolment challenge is minted once and spent once', () => {
+  const NONCE_TTL = 60_000
+
+  /** A request that answers `minted`, signed by the node that request names. */
+  function answering(auth: EnrollmentAuthority, seed: number, at: number) {
+    const node = keypair(seed)
+    const pending = requestEnrollment(node.priv, alice.priv, {
+      operatorId: 'alice-op',
+      discoverability: 'seed',
+      relayIds: [],
+    })
+    const minted = auth.mintChallenge(at)
+    return { node, minted, request: { ...pending, freshness: pending.answering(minted) } }
+  }
+
+  it('refuses a request that answers no challenge, and states the window it needed', () => {
+    const auth = authority()
+    const pending = requestEnrollment(keypair(200).priv, alice.priv, {
+      operatorId: 'alice-op',
+      discoverability: 'seed',
+      relayIds: [],
+    })
+
+    // What `requestEnrollment` produces before it has spoken to anybody. It is a valid
+    // request in every other respect — `enrol` itself certifies it, which is the split
+    // this module's header describes — and it is refused the moment freshness is asked for.
+    expect(auth.enrol(pending, NOW).ok).toBe(true)
+
+    const refused = auth.redeemChallenge(pending, NOW)
+    expect(refused).not.toBeNull()
+    expect(refused?.refusal).toEqual({ kind: 'stale-challenge', ttlMs: NONCE_TTL })
+    // The threshold is carried, not merely implied: a joiner told its challenge went stale
+    // has to know the window its next attempt must answer within, and a window readable
+    // only from the provider's source is not stated to the peer that hit it.
+    expect(refused?.reason).toContain(`${NONCE_TTL}ms`)
+  })
+
+  it('spends a challenge by deleting it, so the identical answer fails the second time', () => {
+    const auth = authority()
+    const { request } = answering(auth, 201, NOW)
+
+    expect(auth.outstandingChallenges(NOW)).toBe(1)
+    expect(auth.redeemChallenge(request, NOW)).toBeNull()
+    // **Deleted, not marked.** The count is the assertion: a provider that merely refused
+    // a repeat would still be holding the nonce, and would grow one entry per enrolment
+    // for ever. This is also why the three stale states share one refusal kind — after
+    // this line the provider genuinely cannot tell a spent nonce from one it never minted.
+    expect(auth.outstandingChallenges(NOW)).toBe(0)
+
+    const replayed = auth.redeemChallenge(request, NOW)
+    expect(replayed?.refusal).toEqual({ kind: 'stale-challenge', ttlMs: NONCE_TTL })
+  })
+
+  it('refuses an answer signed by a key other than the one the request names', () => {
+    const auth = authority()
+    const { minted, request } = answering(auth, 202, NOW)
+    const impostor = keypair(203)
+
+    // A well-formed signature over the right nonce and the right two keys, by somebody who
+    // does not hold `nodeKey`. Refused as `bad-proof-of-possession` and **not** as
+    // `stale-challenge`: the nonce was live, and this is a claim about the key. Telling
+    // this joiner its challenge went stale would send it to fetch another one for ever.
+    const lifted = {
+      ...request,
+      freshness: {
+        nonce: minted.nonce,
+        proof: toHex(
+          ed25519.sign(challengeAnswerBytes(minted.nonce, request.nodeKey, request.userKey), impostor.priv),
+        ),
+      },
+    }
+    expect(auth.redeemChallenge(lifted, NOW)?.refusal.kind).toBe('bad-proof-of-possession')
+
+    // And the nonce survived the bad answer, so a junk signature cannot burn a live
+    // challenge out from under the node that was going to answer it.
+    expect(auth.outstandingChallenges(NOW)).toBe(1)
+    expect(auth.redeemChallenge(request, NOW)).toBeNull()
+  })
+
+  it('refuses an answer transplanted onto a request naming different keys', () => {
+    const auth = authority()
+    const first = answering(auth, 204, NOW)
+    const second = answering(auth, 205, NOW)
+
+    // `second`'s request, carrying `first`'s answer. Both answers are genuine and both
+    // nonces are live — what fails is the binding: `challengeAnswerBytes` signs the nonce
+    // *together with* the keys, so an answer cannot be lifted between requests. An answer
+    // over the bare nonce would make this line accept.
+    const transplanted = { ...second.request, freshness: first.request.freshness }
+    expect(auth.redeemChallenge(transplanted, NOW)?.refusal.kind).toBe('bad-proof-of-possession')
+  })
+
+  it('refuses a challenge answered after its window, and stops counting it as outstanding', () => {
+    const auth = authority()
+    const { request } = answering(auth, 206, NOW)
+
+    expect(auth.outstandingChallenges(NOW + NONCE_TTL - 1)).toBe(1)
+    expect(auth.redeemChallenge(request, NOW + NONCE_TTL - 1)).toBeNull()
+
+    const later = answering(auth, 207, NOW)
+    expect(auth.outstandingChallenges(NOW + NONCE_TTL)).toBe(0)
+    expect(auth.redeemChallenge(later.request, NOW + NONCE_TTL)?.refusal).toEqual({
+      kind: 'stale-challenge',
+      ttlMs: NONCE_TTL,
+    })
+  })
+
+  it('sweeps expired challenges out of the map when the next one is minted', () => {
+    const auth = authority()
+    for (let i = 0; i < 5; i++) auth.mintChallenge(NOW)
+    expect(auth.outstandingChallenges(NOW)).toBe(5)
+
+    // Bounded by mint rate × TTL rather than by lifetime. The sweep is paid for by the
+    // request that made it necessary, which is also why an authority nobody asks stops
+    // growing rather than needing a timer this module has no way to own.
+    auth.mintChallenge(NOW + NONCE_TTL)
+    expect(auth.outstandingChallenges(NOW + NONCE_TTL)).toBe(1)
+  })
+
+  it('gives a restarted provider none of its predecessor’s outstanding challenges', () => {
+    const before = authority()
+    const { request } = answering(before, 208, NOW)
+
+    // A second authority over the same signing key and the same issuance ledger — which is
+    // what a restarted provider is. It holds no challenge, because challenges live in this
+    // object's heap and deliberately not in the host port beside them: forgetting issuance
+    // history accepts *more*, forgetting a challenge accepts *less*.
+    const restarted = authority()
+    expect(restarted.outstandingChallenges(NOW)).toBe(0)
+    expect(restarted.redeemChallenge(request, NOW)?.refusal).toEqual({
+      kind: 'stale-challenge',
+      ttlMs: NONCE_TTL,
+    })
+
+    // The cost of that, stated so it is not mistaken for a fault: one extra round trip for
+    // an honest joiner, which asks the successor for a challenge and enrols.
+    const afterRestart = answering(restarted, 209, NOW)
+    expect(restarted.redeemChallenge(afterRestart.request, NOW)).toBeNull()
+    expect(restarted.enrol(afterRestart.request, NOW).ok).toBe(true)
+  })
+
+  it('mints an unpredictable nonce rather than a derivable one', () => {
+    const auth = authority()
+    // Same authority, same clock, twenty mints: twenty distinct nonces. A nonce derived
+    // from anything a caller can see — the keys, the time, a counter — would be one an
+    // attacker could answer in advance, and this is the cheapest reading that catches it.
+    const minted = new Set(Array.from({ length: 20 }, () => auth.mintChallenge(NOW).nonce))
+    expect(minted.size).toBe(20)
+    for (const nonce of minted) expect(nonce).toMatch(/^[0-9a-f]{64}$/)
   })
 })

@@ -123,19 +123,60 @@ export interface SeedServerOptions {
    *
    * **This is a selection gate, not an admission one, and the difference matters here more
    * than anywhere else.** Pinning an issuer changes which peers this seed will fetch a
-   * *block* from. It does **not** decide who may join: this seed keeps granting circuit
-   * reservations to every peer that completes a handshake, and keeps publishing all of
-   * them through `BootstrapInfo.peerAddrs`. Who gets *in* is
-   * {@link FabricNodeOptions.relayAdmission}, which the construction below states as open —
-   * **and which is now read.** That clause said *"and which nothing reads yet"* until
-   * 2026-08-06; Plan 24-03 armed `connectionGater.denyInboundRelayReservation` on
-   * `FabricNode`, so the open posture below is a live decision rather than a dormant value.
-   * **`SeedServerOptions` carries no field that could change it and `bin/seed.ts` has no
-   * `--admit-issuer`**, so a seed is not merely left open, it *cannot be told to close* —
-   * which is why `24-VERIFICATION.md` scores criterion 8 PARTIAL rather than passing it with
-   * a stated bound, and it is a pending owner ruling rather than a defect of the gate.
+   * *block* from. It does **not** decide who may join: a seed given this flag alone keeps
+   * granting circuit reservations to every peer that completes a handshake, and keeps
+   * publishing all of them through `BootstrapInfo.peerAddrs`. Who gets *in* is
+   * {@link SeedServerOptions.relayAdmission} immediately below — **and it is read.** That
+   * clause said *"and which nothing reads yet"* until 2026-08-06; Plan 24-03 armed
+   * `connectionGater.denyInboundRelayReservation` on `FabricNode`, so a seed's posture is a
+   * live decision rather than a dormant value.
+   *
+   * **Corrected 2026-08-06 by Plan 24-06, and recorded rather than swapped in silently.**
+   * This paragraph ended: *"`SeedServerOptions` carries no field that could change it and
+   * `bin/seed.ts` has no `--admit-issuer`, so a seed is not merely left open, it cannot be
+   * told to close"*. Both halves are now false — the field is the next one down and the flag
+   * is `bin/seed.ts --admit-issuer` — and the correction is written out because a comment
+   * asserting a mechanism is absent is the exact shape this repository has been bitten by: a
+   * reader who believes it stops looking. What has **not** changed is the default: a seed
+   * told nothing still admits every peer that completes a handshake, and `24-VERIFICATION.md`
+   * scores criterion 8 on a reading over a fabric rather than on this field existing.
    */
   readonly trustedIssuers?: FabricNodeOptions['trustedIssuers']
+  /**
+   * Who gets a circuit reservation on this seed — AUTH-02 / AUTH-04.
+   *
+   * **The subject is a peer asking to come in.** A seed binds a real listening socket, so it
+   * relays, so this is the value that decides who may join *through* it — and because both
+   * advertisement surfaces are derived from the reservation store, a peer this refuses is
+   * absent from `BootstrapInfo.peerAddrs` structurally rather than by a filter.
+   *
+   * **Admission, where {@link SeedServerOptions.trustedIssuers} immediately above is
+   * selection**, and the two must never be folded together — the one-sentence form
+   * `bin/agent.ts` carries for its three flags: `trustAnchors` pins whose *build* this seed
+   * runs a module for, `trustedIssuers` pins whose word it takes about *a peer it is already
+   * talking to*, and this pins whose certificate gets *a peer asking to come in* a
+   * reservation. Three subjects; a key pinned for one says nothing about the others.
+   *
+   * **Required, with no `?`**, and passed straight through to
+   * {@link FabricNodeOptions.relayAdmission} — the indexed access above is deliberate, so
+   * this interface states no second answer to *"who does this node admit"*. The argument for
+   * requiring it is written out at {@link RelayAdmission} in `@o2/libp2p` and again at
+   * `FabricNodeOptions.relayAdmission`, and it is cited here rather than restated: silence
+   * and consent must not be indistinguishable at the one boundary where the difference is the
+   * whole security claim.
+   *
+   * **The deployment requirement a seed that pins issuers takes on:** *a relay that pins
+   * issuers must either serve enrolment itself, or name a provider a joining peer can reach
+   * without a reservation.* That is not a hope — Plan 24-05 measured it across real
+   * processes: a joiner whose enrolment provider was spawned `--admit-issuer` with a
+   * well-formed key nobody holds still came away holding a valid certificate signed by that
+   * same provider, with `relays === []` and `PERMISSION_DENIED` on its stderr, because
+   * `resolveCertificate` enrols over a plain dial and there is no reservation anywhere in
+   * that path. What the mechanism cannot detect is a closed seed with **no** reachable
+   * provider at all; that is an operator error, and it is why this sentence is printed in the
+   * seed's own banner as well as written here.
+   */
+  readonly relayAdmission: FabricNodeOptions['relayAdmission']
   readonly maxReservations?: number
   /**
    * Hostnames the page may be requested by.
@@ -261,32 +302,31 @@ export class SeedServer {
     // listen list rather than from an option, so there is nothing further to switch
     // on.
     const node = await FabricNode.start({
-      // AUTH-02 — **the door this seed holds open, stated by name rather than by
-      // omission.** A seed binds a real listening socket, so it relays, so this value is
-      // the one that decides who may join through it. **It is read**: 24-03 armed
-      // `connectionGater.denyInboundRelayReservation` on `FabricNode`, and this comment
-      // read *"once something reads it. Nothing does yet"* until 2026-08-06.
+      // AUTH-02 — **the door this seed holds, and its posture comes from the operator.**
+      // A seed binds a real listening socket, so it relays, so this value is the one that
+      // decides who may join through it. **It is read**: 24-03 armed
+      // `connectionGater.denyInboundRelayReservation` on `FabricNode`.
       //
-      // `'admits-any-peer'` is what this process does today and is written here rather
-      // than derived from `trustedIssuers` below, because the two are different questions
-      // and collapsing them would be the mistake that field exists to prevent: pinning an
-      // issuer says whose certificate this node *believes about a peer it is already
-      // talking to*, and this says who is let in at all. A seed that pinned issuers and
-      // silently closed its door would strand every browser tab that had not yet enrolled
-      // — and a relay that pins issuers must serve enrolment itself or name a reachable
-      // provider, which is a deployment requirement stated in full at `RelayAdmission`.
+      // **Rewritten 2026-08-06 by Plan 24-06, on the owner ruling of that date.** This block
+      // argued at length that pinning was *"a later decision and is deliberately not taken
+      // here"* and that the deferral *"now has a measured price"* — `24-VERIFICATION.md`
+      // scoring criterion 8 PARTIAL because `SeedServerOptions` had no field and
+      // `bin/seed.ts` no `--admit-issuer`, so the posture was not a deployment choice an
+      // operator could reverse. Both sentences are now false: the line below reads
+      // `SeedServerOptions.relayAdmission`, and `bin/seed.ts --admit-issuer` is where an
+      // operator states it. What is unchanged is the *default* — that binary's ternary has
+      // the open literal as its absent arm, so a seed told nothing behaves byte-identically
+      // to the seed before this field existed.
       //
-      // Pinning it is a later decision and is deliberately not taken here — **and the
-      // deferral now has a measured price.** `24-VERIFICATION.md` (2026-08-06) scores
-      // criterion 8 PARTIAL on exactly this: `SeedServerOptions` has no `relayAdmission`
-      // field and `bin/seed.ts` has no `--admit-issuer`, so this posture is not a
-      // deployment choice an operator can reverse. The seed is the relay every browser tab
-      // reserves on and the source of `BootstrapInfo.peerAddrs` — the one advertisement
-      // surface no test in the tree reads as a gated one — so an uncertificated peer that
-      // reserves here is advertised here, by construction. Closing it is an owner ruling
-      // (`SeedServerOptions.relayAdmission` + `bin/seed.ts --admit-issuer`), and it is the
-      // ruling under which criterion 8 can reach MET.
-      relayAdmission: 'admits-any-peer',
+      // **Still not derived from `trustedIssuers`, and that is the load-bearing half of this
+      // comment.** Collapsing the two is the conflation that field exists to prevent:
+      // pinning an issuer says whose certificate this node *believes about a peer it is
+      // already talking to*, and this says who is let in at all. A seed that silently closed
+      // its door because it had been told whom to believe would strand every browser tab that
+      // had not yet enrolled — and a relay that pins issuers must serve enrolment itself or
+      // name a reachable provider, a deployment requirement stated in full at
+      // `RelayAdmission`, at `SeedServerOptions.relayAdmission`, and in this binary's banner.
+      relayAdmission: options.relayAdmission,
       // BROW-01 — open, and on this node the reason is sharper than on the agent. A seed
       // is what every tab in the fabric reserves on, so it is the one peer a blocked
       // visitor is most likely to have reached; a seed that withheld its own row would
