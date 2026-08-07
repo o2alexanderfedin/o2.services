@@ -1536,7 +1536,51 @@ It lands **here** rather than in Phase 15 for one reason: this phase already rew
 
         NOT MEASURED YET, and it is the number the demo-service idea turns on: the module size
         of that clangd build. Wasmer's clang is ~100 MB uncompressed; assume the same order until
-        this repository's artifact is actually weighed. -->
+        this repository's artifact is actually weighed.
+     11. THE COST ESTIMATE COLLAPSED ON 2026-08-07, and the two hardest unknowns are now
+        resolved — both MEASURED, neither assumed.
+
+        (i) LLVM IS ALREADY CROSS-COMPILED TO WASM ON THIS MACHINE. The owner pointed at
+        `/Volumes/ProjectsSSD/Projects/hupyy/libclang-wasm`, whose `build-llvm.sh` (adapted from
+        `jprendes/emception`) has already produced **66 static archives, 71 MB of `libLLVM*.a`**,
+        and a working **`libclang.wasm` of 34 075 902 bytes** carrying real wasm magic
+        (`00 61 73 6d 01 00 00 00`). `CMakeCache.txt` confirms the Emscripten toolchain file,
+        `LLVM_TARGETS_TO_BUILD=WebAssembly`, and — the delta this phase predicted —
+        **`LLVM_ENABLE_THREADS:BOOL=OFF`**, which is what removes SharedArrayBuffer and the
+        COOP/COEP requirement entirely. It needs ONE small patch (`getMainExecutable` returning a
+        fixed path under `__EMSCRIPTEN__`) plus `CXXFLAGS=-Dwait4=__syscall_wait4`.
+        **34 MB, not the ~100 MB assumed from Wasmer** — so the demo-service size question has a
+        real answer and it is three times better than the placeholder.
+
+        (ii) elfconv AND remill ARE ALREADY PORTABLE. Measured by replaying every entry of
+        `build/compile_commands.json` through `em++ -fsyntax-only`: **22 of 22 non-test TUs pass,
+        0 fail**, with NO source patch — only `-DREMILL_ARCH`, `-DREMILL_OS` and the
+        `REMILL_ON_*` set supplied on the command line. Without them, 17 of 27 fail on exactly
+        two `#error` lines (`Arch/Name.h:82` "Cannot infer current architecture",
+        `OS/OS.h:51` "Cannot infer current OS"), and BOTH sit inside `#ifndef REMILL_ARCH` /
+        `#ifndef REMILL_OS` guards — so this is a FLAGS problem, not a portability problem. The
+        remaining failures were all in `backend/remill/tests/AArch64/`, which this phase does not
+        need.
+
+        WHAT IS ACTUALLY LEFT, now that LLVM is not the problem:
+          - **LLVM 16 -> 17 API skew.** The prebuilt wasm LLVM is **17.0.6**; elfconv's scripts
+            say `LLVM_VERSION=16`. But `backend/remill/CMakeLists.txt` uses
+            `find_package(LLVM CONFIG REQUIRED)` and DERIVES `REMILL_LLVM_VERSION`, so the
+            version is not pinned in the build. One major step; testable, not a wall.
+          - **Six non-LLVM dependencies still need wasm builds**: `-lbfd`, `-ldwarf`, `-lelf`,
+            gflags, glog, XED. **This is now the main remaining work.**
+          - **HIGHEST-LEVERAGE IDEA, and it deletes three of those six.** BFD, libdwarf and libelf
+            exist only to parse the ELF and recover functions. LLVM already ships
+            `llvm::object::ELFObjectFile` and `DWARFContext`, and they are IN the wasm build
+            already sitting on disk. Porting elfconv's loader onto LLVM's own object/DWARF
+            readers removes three ports rather than performing them. Measure before committing,
+            but this is the first thing to try.
+
+        A CAVEAT THAT MUST NOT BE LOST: those artifacts live in a NEIGHBOURING working tree
+        (`Projects/hupyy/...`), outside this repository and not committed here. Depending on
+        another checkout is a spike, not a build system. This phase must either vendor the build
+        recipe and reproduce it, or pin and publish the archives — a green build that only works
+        on one laptop is the thing this project's conventions exist to refuse. -->
 
 ### v1.0 (Phases 1-10)
 
