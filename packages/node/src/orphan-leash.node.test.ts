@@ -443,14 +443,59 @@ describe('every bin either arms the leash or says why not', () => {
   /**
    * Binaries that legitimately do not arm it, each with the reason.
    *
-   * `bench.ts` is one-shot: it is `await main()` at module scope over the memory transport,
-   * it binds no socket, and the process ends when the work does. There is nothing to
-   * outlive a parent. **This changes when it grows `--discover`** — plan 18-06 has it
-   * spawning agents, at which point it is both a parent and long-lived, and this entry
-   * should be deleted rather than amended.
+   * ## `bench.ts`'s ground is FALSE and its own trigger has fired — defect #94
+   *
+   * **The claim this paragraph replaced, quoted rather than dropped**, because a reader
+   * tracing the exemption needs the sentence that stopped being true: *"`bench.ts` is
+   * one-shot: it is `await main()` at module scope over the memory transport, it binds no
+   * socket, and the process ends when the work does. There is nothing to outlive a parent.
+   * **This changes when it grows `--discover`** — plan 18-06 has it spawning agents, at
+   * which point it is both a parent and long-lived, and this entry should be deleted rather
+   * than amended."* The `why` field read *"one-shot: await main() at module scope, no
+   * listener, exits when the work does"*.
+   *
+   * **Measured 2026-08-06. The trigger has fired and both load-bearing clauses are false —
+   * and they are false on the DEFAULT arm, not only under the flag:**
+   *
+   * - `--discover` exists. `bin/bench.ts` reads it as
+   *   `process.argv.includes('--discover')`, so the condition the paragraph above named as
+   *   the moment to delete this entry has already happened.
+   * - **"no listener" / "binds no socket" is false.** `processFabric` (`bench-fabric.ts`)
+   *   builds the submitting `FabricNode` **inside this driver's own process** with
+   *   `listen: ['/ip4/127.0.0.1/tcp/0']` — under `'workers-to-submitter'` that node is the
+   *   one every agent dials, which is why it cannot be a child. `bin/bench.ts` reaches that
+   *   call from two sites and **neither is gated on `--discover`**.
+   * - **"nothing to outlive a parent" is false.** The same call spawns real `bin/agent.ts`
+   *   children through `spawnAgent`, so the driver is a parent; and the process-per-node
+   *   speedup ladder is minutes of work, so it is long-lived. Both halves of *"it is both a
+   *   parent and long-lived"* now hold.
+   * - **"over the memory transport" is false of the arm that matters.** The process driver
+   *   is real libp2p over loopback TCP.
+   * - **The leash would arm if it were called** — this is the part that makes the entry
+   *   costly rather than merely wrong. All three spawn sites of this binary hand it a pipe
+   *   on fd 0: `discover-arm.node.test.ts`, `bench-attestation.node.test.ts` and
+   *   `coverage-agents.node.test.ts` each spawn with `stdio: ['pipe', 'pipe', 'pipe']`,
+   *   which is the socket row of the module comment's table — the row that arms.
+   *
+   * **So there is no true ground, and the instruction quoted above stands: delete this
+   * entry.** What deletion needs first is the one production line that makes it green —
+   * `bin/bench.ts` calling `armOrphanLeash` — and that is a change to a binary, not to a
+   * guard's exemption table. Deleting the entry without it turns this row red against a
+   * repository that still leaks, which reports the defect by breaking the build rather than
+   * by fixing it.
+   *
+   * The `why` below therefore states the **debt** rather than a reason. An exemption
+   * carrying a false reason reads as audited and is not; one that says it has no ground is
+   * at least honest about what it is suppressing.
    */
   const EXEMPT: readonly { readonly bin: string; readonly why: string }[] = [
-    { bin: 'bench.ts', why: 'one-shot: await main() at module scope, no listener, exits when the work does' },
+    {
+      bin: 'bench.ts',
+      why:
+        'NO VALID GROUND — defect #94, see the docblock above. It binds a loopback TCP listener ' +
+        'in its own process and spawns agent children, on the default arm as well as under ' +
+        '--discover. Delete this entry once bin/bench.ts calls armOrphanLeash.',
+    },
   ]
 
   it('arms it in every binary that outlives its own startup', async () => {

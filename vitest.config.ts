@@ -783,6 +783,45 @@ const MEASURED_NODE_SPANS: readonly (readonly [string, number])[] = [
   // ---- below the cut; listed so the boundary is visible, not excluded ----
   ['packages/net/src/reduce-job.test.ts', 997],
   ['packages/node/src/rendezvous-wire.node.test.ts', 940],
+  // **THIS FIGURE IS WRONG BY ~23x AND IS LEFT IN PLACE DELIBERATELY — read before trusting
+  // it.** Measured 2026-08-06: this file's reporter span is **20 773 ms** and **21 197 ms**
+  // over two solo `--project node` runs. `923` is not a stale reading of the same file; the
+  // file grew Phase 24's behavioural gate arms, which stand up real relays and enrolled peers.
+  //
+  // **No hook shadow, so the reporter figure is the whole cost.** The sum of case durations
+  // equals the span to within **2 ms and 1 ms** respectively — the same internal-consistency
+  // check the `enrolment-needs-no-reservation` block above applies. Cross-checked against
+  // `/usr/bin/time -p` solo: `real 23.00 / user 7.07 / sys 1.47` and
+  // `real 23.18 / user 7.18 / sys 1.48`. Less the **0.90–1.13 s** boot floor this file's own
+  // earlier blocks measured — **not re-measured in this session, and said rather than
+  // implied** — that is ~21.9–22.3 s, agreeing with the reporter to within ~5 %.
+  // `(user+sys)/real` is **0.37**: the behavioural arms spawn peers and wait out reservation
+  // deadlines, so most of the wall clock is waiting rather than computing. A comparability
+  // key, not a verdict. Load was not pinned; two runs 4 minutes apart agreed to within 2 %.
+  //
+  // **Why it was not simply corrected: the correction is a ruling, not an edit, and it is
+  // NOT this pass's to make.** `923` is below `SLOW_CUTOFF_MS` and the true figure is 21x
+  // above it, so re-siting the row moves the file into `SLOW_NODE_SPECS` and out of
+  // `test:unit`. The two options, with what each costs:
+  //
+  //   A. **Re-site to ~21 197.** `test:unit` stops paying ~21 s it currently pays and does
+  //      not account for. Cost: this file leaves the pre-commit fast loop, and with it the
+  //      **only admission coverage that loop still has** — both the posture census and
+  //      Phase 24's behavioural gate arms live in this one file. Also requires
+  //      `unitFiles` 111 → 110 and `sumOfFileSpansMs` 1_465_924 → 1_486_198.
+  //   B. **Leave the row at 923.** Admission stays in the commit loop. Cost:
+  //      `sumOfFileSpansMs` and every figure derived from it understate the node project by
+  //      ~20 s, and `test:unit` silently pays a cost its own accounting denies.
+  //
+  // **A correction to the premise, measured rather than assumed:** the case for A is
+  // *smaller* than it was put to this pass. The other two admission fixtures —
+  // `admission-agents.node.test.ts` (34 973) and `admission.node.test.ts` (11 104) — are
+  // already above `SLOW_CUTOFF_MS` and therefore **already excluded**. Re-siting this row
+  // removes one file from the fast loop, not three.
+  //
+  // `slow-specs.node.test.ts` is green either way and always was: it re-reads none of these
+  // numbers, so a span can be wrong by 23x and no guard notices. That is the defect this
+  // comment exists to stop being silent, and it is not fixed by the comment.
   ['packages/node/src/relay-admission.node.test.ts', 923],
   ['packages/aot/src/wasi-real.node.test.ts', 919],
   ['packages/core/src/discovery.test.ts', 884],
