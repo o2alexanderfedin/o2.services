@@ -160,8 +160,57 @@ const NODE_MEASUREMENT = {
    * file should add `['packages/node/src/enrolment-needs-no-reservation.node.test.ts', 19_202]`
    * to the table, add the same figure to `sumOfFileSpansMs`, and drop `unitFiles` by one — or
    * re-measure.
+   *
+   * ## 166 → 167 on 2026-08-06 by Plan 24-07, and the whole delta is this plan's own file
+   *
+   * `packages/node/src/closed-fabric-agents.node.test.ts`. Two routes that share no code
+   * agree, and they disagree by exactly the untracked file, which is the shape they are
+   * supposed to have:
+   *
+   * | route | reading |
+   * |---|---|
+   * | the filesystem walk `slow-specs.node.test.ts` derives `NODE_PROJECT_FILES` from | **167** |
+   * | `git ls-files packages tools` filtered by the same globs | **166 tracked** |
+   * | `git status --porcelain` untracked, filtered by the same globs | **1** — the file above |
+   *
+   * **No foreign arrival this time.** The one other file a concurrent agent added while this
+   * plan ran is `packages/node/src/gated-seed.e2e.test.ts`, which the `node` project excludes
+   * by suffix and which therefore moves nothing here. The count was **derived on the edited
+   * tree rather than predicted**, which is how the previous re-site found that it was wrong by
+   * one.
+   *
+   * **The span, measured rather than estimated, and it is a WALL CLOCK reading rather than a
+   * reporter span — deliberately, and the gap is the finding.** `--reporter=json` attributes no
+   * hook time, and this file's whole nine-process fixture is a single `beforeAll`. The reporter
+   * says **10 136 ms** (sum of the two case durations, 10 136 ms, agreeing to within 1 ms — so
+   * the reporter is internally consistent and still blind). `/usr/bin/time -p` solo says
+   * `real 17.59 / user 9.44 / sys 1.65` and `real 17.43 / user 9.23 / sys 1.63` on two runs,
+   * less a boot floor of **0.90 s** measured by bracketing the pair with two solo runs of
+   * `packages/core/src/blockstore/memory.test.ts` (`real 0.93` and `0.87`) in the same session.
+   * That gives **16 690 ms** and 16 530 ms. **The reporter is short by ~6.5 s, i.e. it cannot
+   * see 39 % of this file's cost** — which is precisely the hook shadow
+   * {@link NODE_MEASUREMENT.hookShadowCandidates} exists to count, reproduced by design rather
+   * than discovered by accident, and disclosed in the file's own header before its readings.
+   *
+   * Load was 3.82 → 9.16, 1-minute average on an 8-core host. `(user+sys)/real` is **0.63**:
+   * eight child processes, two enrolments and a 5 s absence window, so a large share of that
+   * wall clock is waiting rather than computing. A comparability key, not a verdict.
+   *
+   * **Recorded here rather than in `MEASURED_NODE_SPANS`, for the live rule Plan 24-05 hit at
+   * this exact spot**: the file is **untracked** — 24-07 runs in a shared checkout and is
+   * forbidden `git add`, `git commit` and `git stash` — while `slow-specs.node.test.ts` asserts
+   * as an equality that every path in that table is a committed file. Listing it would redden
+   * that guard; counting it here is required by the same guard's filesystem-derived population.
+   * Both rules are right and they point opposite ways, exactly as this docblock already records
+   * for `job-entry-points`, `opt-in-only-sources` and `enrolment-needs-no-reservation`.
+   *
+   * It is above `SLOW_CUTOFF_MS` by a factor of 17, so **it pays its 16.7 s into every
+   * `test:unit` run** until it is committed and a row can land. Whoever commits it should add
+   * `['packages/node/src/closed-fabric-agents.node.test.ts', 16_690]` to the table with a
+   * `// wall clock, hook-shadowed` note, add the same figure to `sumOfFileSpansMs`, and drop
+   * `unitFiles` by one — or re-measure.
    */
-  files: 166,
+  files: 167,
   tests: 2240,
   /**
    * Sum of the per-file costs the table below records — reporter spans for the files the
@@ -274,10 +323,40 @@ const NODE_MEASUREMENT = {
    * unchanged and is now two re-sites deep: it is still a derivation, and the
    * `npm run test:unit` cross-check that would make it a measurement has still not been
    * retaken.
+   *
+   * **110 → 111 on 2026-08-06 by Plan 24-07, and this one WAS observed directly — the first
+   * time in three re-sites.** `files` moved 166 → 167 while `EXCLUDED.length` did not move,
+   * because this plan's file is untracked and therefore cannot be listed in the table, so
+   * `files - EXCLUDED.length` grows by the full one. The derivation says 111; a direct
+   * `npm run test:unit` run against this table says {@link NODE_MEASUREMENT.unitTests} below,
+   * and the reading beside it is recorded there. Running it was safe to do while a concurrent
+   * agent worked in the same checkout **for a checked reason rather than by luck**: the two
+   * specs that snapshot `git status --porcelain` around themselves —
+   * `bench-attestation.node.test.ts` and `discover-arm.node.test.ts` — are both above the cut
+   * and are therefore both **excluded** from `test:unit`, which was verified against the
+   * derived exclusion list before the run rather than assumed.
    */
-  unitFiles: 110,
-  unitTests: 1650,
-  unitWallClockMs: 7_750,
+  unitFiles: 111,
+  /**
+   * **1650 → 1716 and 7 750 → 25 950 on 2026-08-06 by Plan 24-07, both OBSERVED on one green
+   * run**, which is the retake the `unitFiles` docblock above has been asking for since the
+   * `bench-reduce` failure that blocked it. `npm run test:unit` exited **0** reporting
+   * `Test Files 111 passed (111)` and `Tests 1715 passed | 1 skipped (1716)`, at
+   * `real 25.95 user 58.30 sys 10.44`, 1-minute load **9.21 → 11.56** on an 8-core host.
+   *
+   * **The wall clock is not comparable with the 5.96 … 7.75 s history above, and saying so is
+   * the point of writing it down.** Roughly **16.7 s of the 25.95 s is one file** —
+   * `closed-fabric-agents.node.test.ts`, untracked and therefore unlistable in the table
+   * below, so `test:unit` runs it. See {@link NODE_MEASUREMENT.files}. Subtract it and the
+   * fast loop is ~9.3 s, which *is* comparable and sits inside the recorded band at this load.
+   *
+   * `(user+sys)/real` is **2.65**, against **4.34** on the last green reading. The fall is the
+   * same one file: it spawns nine children and holds a 5 s window, so it adds wall clock
+   * without adding CPU. Measured as a process rather than as a machine, exactly as the rule in
+   * this object's own docblock requires.
+   */
+  unitTests: 1716,
+  unitWallClockMs: 25_950,
 } as const
 
 /**

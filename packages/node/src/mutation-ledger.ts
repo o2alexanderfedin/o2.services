@@ -1592,6 +1592,41 @@ export const MUTATIONS: readonly Mutation[] = [
     signatureSource: 'test-title',
   },
   {
+    id: 'M67',
+    why:
+      'AUTH-02 / criterion 8 — **the one line that decides whether the seed’s door can be ' +
+      'closed at all.** `seed-server.ts` held `relayAdmission: \'admits-any-peer\'` as a literal ' +
+      'until Plan 24-06, which is the structural fact `24-VERIFICATION.md` scored criterion 8 ' +
+      'PARTIAL on in its own words: *"for the seed there is no knob"*. This plant puts the ' +
+      'literal back while leaving **everything else in place** — `SeedServerOptions` still ' +
+      'declares the required field, `bin/seed.ts` still parses `--admit-issuer`, still ' +
+      'validates its hex, and still prints the closed arm of its banner naming the pinned ' +
+      'keys. So the operator is told the door is shut and the door is open, which is the ' +
+      'exact class of defect an operator has no way to detect from outside the process. ' +
+      '**Measured rather than predicted, which guards move and which do not.** The two ' +
+      'declaration guards stay green: the field is still declared once as a definition in ' +
+      '`fabric-node.ts` and once as a forwarding indexed access in `seed-server.ts`, and this ' +
+      'plant touches neither. The `bin/seed.ts` census row stays green: that file is unedited. ' +
+      'What moves is the `seed-server.ts` `PRODUCTION_SITES` row, whose census counts raw ' +
+      '`OPEN_POSTURE` occurrences in **text** and reads 1 where the repaired tree reads 0 — ' +
+      'and, on the other side of the process boundary and sharing no code with it, the ' +
+      'spawned-seed case named below, whose uncertificated joiner obtains real circuit ' +
+      'multiaddrs through a seed that was told to close. A source census and a live libp2p ' +
+      'node reddening on one defect is what makes the wiring claim real rather than textual. ' +
+      '**`packages/node/src/closed-fabric-agents.node.test.ts` was ALSO measured to catch ' +
+      'this** — Plan 24-07 planted exactly this edit and watched `/bootstrap.json` advertise ' +
+      'an uncertificated peer and the whole-set reading name `door: "seed"` — but that file ' +
+      'is untracked at the time this entry was written and `mutation-guard.node.test.ts` ' +
+      'requires every path named here to be git-tracked. Whoever commits it should add it to ' +
+      '`caughtBy`; the reading is recorded in `24-07-SUMMARY.md` as plants Pb and Pb′.',
+    file: 'packages/node/src/seed-server.ts',
+    find: '      relayAdmission: options.relayAdmission,',
+    replace: "      relayAdmission: 'admits-any-peer',",
+    caughtBy: ['packages/node/src/relay-admission.node.test.ts'],
+    signature: 'and none when told an issuer nobody holds',
+    signatureSource: 'test-title',
+  },
+  {
     id: 'P1',
     why:
       'SCHED-06 on the **fourth** production `serveAgent` file, and the entry exists because ' +
