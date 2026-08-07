@@ -1365,6 +1365,123 @@ It lands **here** rather than in Phase 15 for one reason: this phase already rew
      numbers this phase owes, not caveats it may inherit. -->
 
 
+### Phase 26: elfconv Compiled to Wasm — Translation as a Fabric Workload
+**Goal**: The AOT translator runs as a wasm module on any node, so producing a lifted artifact stops being a Docker-host privilege and becomes a job the fabric can schedule — closing the asymmetry where the fabric can RUN lifted artifacts anywhere but only PRODUCE them on one machine
+**Depends on**: the `third_party/elfconv` submodule (added 2026-08-07); no phase depends on this
+**Requirements**: none yet — this phase opens them
+**Research**: measured 2026-08-07 against `ghcr.io/yomaytk/elfconv:amd64`, recorded below
+
+<!-- FILED 2026-08-07 BY OWNER INSTRUCTION ("compile to Wasm"). NOT scheduled into v1.1.
+
+     THE POINT, so nobody re-derives it: a node can already execute a lifted `.wasm`. It cannot
+     PRODUCE one without Docker, a native LLVM and an x86-64-or-arm64 host. That asymmetry is
+     what makes AOT a build-machine privilege. It also means a RISC-V host can run fabric work
+     but can never contribute translation — which is where this started.
+
+     WHAT WAS MEASURED, not assumed. Every line below is a reading, not a plan.
+
+     1. THE LLVM ARCHIVES CANNOT BE REUSED. `/usr/lib/llvm-16/lib/*.a` are host objects —
+        `readelf -h` on a member reports `Machine: Advanced Micro Devices X86-64`. LLVM must be
+        CROSS-COMPILED to wasm32-wasi from source. This is the dominant cost of the phase and
+        it is not avoidable by linking what the image already ships.
+
+     2. THE FULL DEPENDENCY SET, read off the real link line in `build.ninja` rather than
+        guessed: `libLLVM-16.so.1`, `-lbfd`, `-ldwarf`, `-lelf`, and the vendored
+        `libgflags.a`, `libglog.a`, `libxed.a`. Seven ports, of which LLVM is the large one and
+        binutils BFD is the least obviously portable.
+
+     3. THREADS WORK. `wasm32-wasi-threads` + `-pthread` built a `std::thread`/`std::mutex`
+        program at 1 175 165 bytes. wasi-sdk-24.0 ships `wasm32-wasi`, `wasm32-wasi-threads`,
+        `wasm32-wasip1`, `wasm32-wasip1-threads` and `wasm32-wasip2` sysroots.
+
+     4. C++ EXCEPTIONS DO NOT. `wasm-ld: undefined symbol: __cxa_allocate_exception` — wasi-sdk
+        24's libc++ is built without EH. **This is survivable and the codebase already knows
+        it**: `utils/Util.cpp:11`'s `elfconv_runtime_error` carries a
+        `#if defined(__wasm__)` branch that `vprintf`s and `abort()`s instead of throwing, so
+        all 17 throw/error sites funnel through a helper that is already wasm-aware. LLVM's own
+        defaults are `LLVM_ENABLE_EH=OFF` / `LLVM_ENABLE_RTTI=OFF`, so LLVM does not need them
+        either.
+
+     5. MEMORY64 IS NOT AVAILABLE, AND THIS CLOSES AN OPEN QUESTION. The handoff carried
+        *"wasm32's 4 GB ceiling for LLVM passes — Memory64 is reportedly stable in browsers,
+        verify against wasi-sdk, not a blog."* Verified: wasi-sdk-24.0 has **no `wasm64-wasi`
+        sysroot at all** — a `--target=wasm64-wasi` build fails at `'memory' file not found`.
+        So the 4 GB address space is a HARD BOUND for this toolchain no matter what browsers
+        support. Whether it binds in practice is a separate measurement this phase owes: the
+        900-function static-glibc lift produces 4.4 MB of bitcode, so peak LLVM residency may
+        sit well under the ceiling for modest inputs. Size the claim to what is measured.
+
+     WHAT THIS PHASE MUST NOT DO. It must not report success on a module that was never run.
+     The deliverable is a wasm module that lifts a real ELF and produces bitcode a native
+     elfconv would also produce — compared byte-for-byte where possible, exactly as the AArch64
+     non-regression check for the amd64 front-end work was done (`sha256` on the `.bc`).
+
+     A NOTE ON THE SECOND STAGE, because "elfconv to wasm" understates the target. The pipeline
+     is ELF -> bitcode (`elflift`) and then bitcode -> wasm (`wasi-sdk clang++` + `lld`). BOTH
+     halves are LLVM. A node that can only run the first half still needs a toolchain host for
+     the second, so the phase should state up front whether it is shipping the lifter alone or
+     the whole toolchain, and price them separately.
+
+     6. PRIOR ART EXISTS AND IT SETTLES FEASIBILITY, but not on an ABI this project can use.
+        Wasmer ships the FULL clang compiled to WebAssembly and runs it in Chrome, Safari and
+        Firefox (https://wasmer.io/posts/clang-in-browser). So "LLVM cannot be compiled to
+        wasm" is FALSE and must not be written down as a blocker. Two details bound what can be
+        borrowed:
+          - It targets **WASIX**, not plain WASI, and it is **~100 MB uncompressed**.
+          - WASIX is a SUPERSET of WASI preview1 adding fork/exec, signals, sockets and
+            setjmp/longjmp-via-asyncify (https://wasmer.io/posts/announcing-wasix). Preview1
+            has none of those.
+        **This matters because o2's execution tier is preview1**: V8's built-in `WebAssembly`
+        plus `@bjorn3/browser_wasi_shim`, per the stack decision in CLAUDE.md. A WASIX module
+        does not run there — it needs a WASIX runtime. So Wasmer's artifact proves the concept
+        and is NOT a drop-in for the fabric.
+
+     7. THE LIKELY REASON CLANG NEEDED WASIX DOES NOT APPLY TO elflift, and this is the single
+        most useful thing to test first. **INFERRED, NOT YET MEASURED** — say so until it is.
+        The clang DRIVER spawns subprocesses (`cc1`, then the linker), which is fork/exec and is
+        exactly what preview1 lacks. `elflift` is not a driver: it links LLVM as a LIBRARY,
+        reads one ELF and writes one `.bc`, in a single process. If it needs no fork/exec, no
+        signals and no longjmp, it may fit plain wasm32-wasi where the clang driver cannot.
+        **First experiment of this phase: build elflift for wasm32-wasi and find out**, because
+        a negative here changes the whole shape of the work.
+
+     8. THE SECOND STAGE MAY AVOID THE DRIVER TOO — also inferred, also to be measured. Stage 2
+        needs bitcode -> object -> wasm, which is `llc` and `wasm-ld`; both are single-process
+        library-shaped tools, unlike the driver. And elfconv's stage 2 additionally compiles its
+        C++ RUNTIME sources (`Entry.cpp`, `Memory.cpp`, `Runtime.cpp`, `VmIntrinsics.cpp`,
+        `Util.cpp`, `elfconv.cpp`, `SyscallWasi.cpp`) — but those DO NOT CHANGE PER JOB, so they
+        can be compiled to bitcode ONCE, natively, and shipped as a fixed input. That removes
+        the C++ frontend from the fabric path entirely and leaves only `llc` + `wasm-ld`.
+        If it holds, the fabric never needs a compiler frontend, only a backend and a linker.
+
+     9. OWNER IDEA 2026-08-07: "clang in wasm" AS A DEMO SERVICE. Recorded here rather than in a
+        notes file because it shares this phase's dependency and inherits its bounds.
+
+        WHY IT FITS, and it fits better than most demo candidates. Compilation is embarrassingly
+        parallel across translation units, which is the shape this project's core value claim
+        needs. And it lands the SOVEREIGNTY story cleanly rather than by analogy: the source IS
+        the owner's data, so it compiles on the owner's node under `owner-attested` and only the
+        artifact crosses the egress boundary — the exact split PROJECT.md describes, on a
+        workload people already care about.
+
+        WHAT BLOCKS IT TODAY, measured above and not negotiable by wanting it: Wasmer's clang is
+        **WASIX**, and this fabric executes **preview1** (V8 + `@bjorn3/browser_wasi_shim`). So
+        the artifact that exists cannot run on the tier that exists. Three routes, and they are
+        not equal:
+          a. Build clang for plain wasm32-wasi — blocked on the DRIVER's fork/exec (item 7).
+          b. Ship `llc` + `wasm-ld` only, with the C++ frontend left off the fabric (item 8).
+             This is the cheapest route and it is ALSO the honest one for a demo: it compiles
+             BITCODE, not C++, and the demo must say so rather than imply a full compiler.
+          c. Teach the executor a WASIX shim — **rejected unless argued explicitly**, because
+             WASIX adds fork/exec and sockets to guest code, which is a sandbox surface this
+             project spent Phase 13.1 and Phase 24 narrowing. Do not widen it for a demo.
+
+        TWO SIZING FACTS ALREADY IN HAND. The artifact is ~100 MB uncompressed, against a
+        browser mesh whose data path cannot carry bulk (16 KiB WebRTC messages, 128 KiB relay
+        limit) — so it must come over the CID-keyed CDN path the peer study identified, not over
+        the mesh. And wasm32's 4 GB ceiling (item 5) is a real bound for a compiler, which is
+        one of the few workloads that can genuinely reach it. -->
+
 ### v1.0 (Phases 1-10)
 
 72 of 72 v1 requirements mapped, each to exactly one phase.
