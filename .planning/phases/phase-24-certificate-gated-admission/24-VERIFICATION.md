@@ -1,8 +1,20 @@
 ---
 phase: phase-24-certificate-gated-admission
 verified: 2026-08-06T21:55:21Z
-status: gaps_found
-score: 0/1 criteria MET — criterion 8 verifies PARTIAL
+status: human_needed
+score: >-
+  1/1 criteria MET — criterion 8 verified PARTIAL on 2026-08-06 (0/1) and was re-scored
+  MET by the dated amendment of the same day. THE VERDICT CARRIES A STATED BOUND and the
+  bound is part of it, not a footnote: the default posture of `bin/agent.ts`,
+  `bin/seed.ts` and `bin/bench.ts` is OPEN and must be — 19 + 3 argv sites, with
+  `reservation-exhaustion.node.test.ts` arm A a live behavioural guard on it. "The
+  fabric" is read as a fabric this repository can be DEPLOYED AND OPERATED as, with an
+  admission posture stated on every relay-capable door — NOT the default argv of its
+  binaries. THIS FRONTMATTER READ `gaps_found` / `0/1 … PARTIAL` UNTIL 2026-08-06 and
+  was contradicted by its own body from `580e461` onward; corrected here rather than in
+  the amendment, because a verifier appends and does not rewrite. The original verdict
+  and every word of its reasoning remain in the body, unedited.
+superseded_score: 0/1 criteria MET — criterion 8 verifies PARTIAL (2026-08-06, pre-amendment)
 criteria_count: 1
 criterion_label: 8
 overrides_applied: 0
