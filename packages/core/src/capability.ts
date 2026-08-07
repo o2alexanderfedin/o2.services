@@ -96,6 +96,35 @@ export type ChainFailure =
   | { readonly kind: 'missing-ability'; readonly index: number; readonly ability: Ability }
   | { readonly kind: 'not-delegable'; readonly index: number }
   | { readonly kind: 'wrong-audience'; readonly expected: PublicKeyHex; readonly found: PublicKeyHex }
+  | { readonly kind: 'too-deep'; readonly depth: number; readonly limit: number }
+
+/**
+ * The most links a chain may carry. Its length comes off the wire, so it is an input.
+ *
+ * **Sited, not picked.** The deepest chain anywhere in this repository is **two** —
+ * owner → coordinator → worker, in `capability.test.ts`. Production builds **one**:
+ * `bin/bench.ts` delegates owner → node. Eight is 4× the deepest the tree has ever
+ * constructed. If a real topology needs more, move the constant and update this comment;
+ * discovering the bound because an attacker found it first is the alternative.
+ *
+ * **Two separate things needed this**, and the second is the one that bites:
+ *
+ * 1. The loop is unbounded. That alone is mild — it fails fast at the first link whose
+ *    issuer does not match, so an attacker cannot spend a verifier's CPU beyond the valid
+ *    prefix they actually hold.
+ * 2. `expiresAt` was folded with `Math.min(...chain.map(…))`, and **spreading a
+ *    wire-length array into a call blows the argument stack**. Measured on this host:
+ *    100 000 elements fine, **200 000 raises `RangeError: Maximum call stack size
+ *    exceeded`**. That is a *throw* on the **success** path of a security check, where
+ *    whatever the caller's `catch` does becomes part of the trust decision. Reaching it
+ *    needed a fully valid chain, so it was privilege abuse rather than a remote crash —
+ *    narrow, not absent.
+ *
+ * The fold below is now a `reduce`, so **neither control depends on the other**. The depth
+ * bound already makes the spread unreachable; leaving a landmine armed behind a guard is
+ * how the next person who raises the constant gets hurt.
+ */
+export const MAX_CHAIN_DEPTH = 8
 
 /** A human-readable account of a refusal, naming the link that broke. */
 export function describeFailure(failure: ChainFailure): string {
@@ -118,6 +147,8 @@ export function describeFailure(failure: ChainFailure): string {
       return `link ${failure.index} was re-delegated, but its issuer was never granted "delegate"`
     case 'wrong-audience':
       return `chain ends at ${failure.found}, but this node is ${failure.expected}`
+    case 'too-deep':
+      return `chain carries ${failure.depth} links, more than the ${failure.limit} allowed`
   }
 }
 
@@ -153,6 +184,12 @@ export function verifyChain(chain: readonly Delegation[], options: VerifyOptions
   })
 
   if (chain.length === 0) return fail({ kind: 'empty-chain' })
+
+  // Before any signature work: the length is attacker-supplied, and this is the cheapest
+  // possible refusal. See MAX_CHAIN_DEPTH for why the bound exists and how it was sited.
+  if (chain.length > MAX_CHAIN_DEPTH) {
+    return fail({ kind: 'too-deep', depth: chain.length, limit: MAX_CHAIN_DEPTH })
+  }
 
   let expectedIssuer = options.ownerKey
 
@@ -210,6 +247,11 @@ export function verifyChain(chain: readonly Delegation[], options: VerifyOptions
   }
 
   // The chain is only valid until its earliest expiry.
-  const expiresAt = Math.min(...chain.map((link) => link.expiresAt))
+  //
+  // `reduce`, not `Math.min(...chain.map(…))`. The spread put a wire-length array into a
+  // call's argument list, which raises `RangeError: Maximum call stack size exceeded` past
+  // ~200 000 elements — a throw on this function's SUCCESS path. MAX_CHAIN_DEPTH now makes
+  // that unreachable; this makes it impossible, so the two controls are independent.
+  const expiresAt = chain.reduce((earliest, link) => Math.min(earliest, link.expiresAt), Infinity)
   return { ok: true, audience: expectedIssuer, expiresAt }
 }

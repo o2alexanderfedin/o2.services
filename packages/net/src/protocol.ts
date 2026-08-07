@@ -68,10 +68,12 @@ import type {
   CapabilityRecord,
   Delegation,
   Discoverability,
+  EnrollmentChallenge,
   EnrollmentRefusal,
   EnrollmentRequest,
   EnrollmentResult,
   ExecutionOutcome,
+  Freshness,
   NameRecord,
   NodeCapacity,
   NodeCertificate,
@@ -136,6 +138,18 @@ export type AgentRequest =
    * possession would be able to impersonate every node it ever certified.
    */
   | { readonly kind: 'enrol'; readonly request: EnrollmentRequest }
+  /**
+   * AUTH-01 freshness: mint me a nonce, so the request I send next cannot be replayed.
+   *
+   * Carries **nothing**, and there is deliberately nowhere to put anything. A joiner has
+   * not proved who it is at this point and would only be asking the provider to trust a
+   * field; binding the nonce to a claimed key would let a stranger have nonces minted
+   * against somebody else's identity, which is a name for a problem this exchange does not
+   * otherwise have. The binding happens on the way back — the *answer* signs the nonce
+   * together with the keys the request names ({@link challengeAnswerBytes}), so an answer
+   * cannot be lifted onto a different request.
+   */
+  | { readonly kind: 'enrol-challenge' }
 
 export type AgentResponse =
   | { readonly kind: 'exec'; readonly outcome: ExecutionOutcome }
@@ -214,6 +228,15 @@ export type AgentResponse =
    * the answering node, not about the request.
    */
   | { readonly kind: 'enrol'; readonly result: EnrollmentResult }
+  /**
+   * A nonce the answering provider has minted and is holding, and when it stops holding it.
+   *
+   * A node that issues no certificates answers `error` here, exactly as it does to `enrol`,
+   * and for the same reason: it is a fact about the answering node rather than about the
+   * request. There is no refusal arm — minting is unconditional for a provider that mints
+   * at all, so nothing about *this* frame can be wrong.
+   */
+  | { readonly kind: 'enrol-challenge'; readonly challenge: EnrollmentChallenge }
   | { readonly kind: 'error'; readonly reason: string }
 
 /** Copy any byte view into a plainly-owned ArrayBuffer-backed one. */
@@ -361,6 +384,19 @@ function parseAttestation(value: CanonicalValue | undefined): AttestedResult | n
   return { certificate, signature }
 }
 
+/**
+ * Encode an enrollment request.
+ *
+ * `freshness` crosses as **the type's own literal** on the sentinel arm, the way
+ * `attestationToValue` sends `'signed-by-nobody'`, rather than as a `found:`-style
+ * discriminant. It is not a nested-or-absent value: *this request answers no challenge* is
+ * a first-class state with a name, and spelling it identically on the wire and in the type
+ * keeps a reader of a frame and a reader of `enrollment.ts` looking at one word.
+ *
+ * A request carrying the sentinel is well-formed and encodes without complaint. It is
+ * refused one layer in, by `EnrollmentAuthority.redeemChallenge` — a parser that pre-empted
+ * that would be answering an entitlement question, which is not a parser's.
+ */
 function enrollmentRequestToValue(request: EnrollmentRequest): CanonicalValue {
   return {
     nodeKey: request.nodeKey,
@@ -370,7 +406,30 @@ function enrollmentRequestToValue(request: EnrollmentRequest): CanonicalValue {
     relayIds: [...request.relayIds],
     proofOfPossession: request.proofOfPossession,
     ownerProof: request.ownerProof,
+    freshness:
+      request.freshness === 'answers-no-challenge'
+        ? 'answers-no-challenge'
+        : { nonce: request.freshness.nonce, proof: request.freshness.proof },
   }
+}
+
+/**
+ * Parse the freshness arm, or refuse the frame.
+ *
+ * **Required at the wire, and `null` rather than the sentinel on anything malformed.** The
+ * safe-looking alternative — degrade a broken freshness field to `'answers-no-challenge'`
+ * and let the authority refuse it — reports a peer's *protocol error* as a *stale
+ * challenge*, which is the same substitution `parseAttestation` refuses one screen up. The
+ * joiner would then go and fetch another nonce, answer it with the same broken encoder, and
+ * loop. Absent and malformed are different answers and only a parser can tell them apart.
+ */
+function parseFreshness(value: CanonicalValue | undefined): Freshness | null {
+  if (value === 'answers-no-challenge') return 'answers-no-challenge' satisfies Freshness
+  const record = value === undefined ? null : asRecord(value)
+  if (record === null) return null
+  const { nonce, proof } = record
+  if (typeof nonce !== 'string' || typeof proof !== 'string') return null
+  return { nonce, proof }
 }
 
 /**
@@ -397,6 +456,8 @@ function parseEnrollmentRequest(value: CanonicalValue | undefined): EnrollmentRe
   if (discoverability !== 'seed' && discoverability !== 'via-relay') return null
   const relayIds = asKeyList(record['relayIds'])
   if (relayIds === null) return null
+  const freshness = parseFreshness(record['freshness'])
+  if (freshness === null) return null
   return {
     nodeKey,
     userKey,
@@ -405,6 +466,7 @@ function parseEnrollmentRequest(value: CanonicalValue | undefined): EnrollmentRe
     relayIds,
     proofOfPossession,
     ownerProof,
+    freshness,
   }
 }
 
@@ -444,6 +506,12 @@ function enrollmentResultToValue(result: EnrollmentResult): CanonicalValue {
         retryAfterMs: refusal.retryAfterMs,
       },
     }
+  }
+  // `ttlMs` and no key of any kind, for `issuance-budget-exhausted`'s reason: a joiner
+  // whose nonce went stale is not what went wrong, and the one number it needs is the
+  // window its next attempt has to answer within.
+  if (refusal.kind === 'stale-challenge') {
+    return { ...base, refusal: { kind: refusal.kind, ttlMs: refusal.ttlMs } }
   }
   return {
     ...base,
@@ -497,6 +565,11 @@ function parseEnrollmentRefusal(value: CanonicalValue | undefined): EnrollmentRe
     // No key is read, and none is carried. A peer that received one anyway is talking
     // about somebody the provider had no business naming here.
     return { kind, limit, windowMs, retryAfterMs }
+  }
+  if (kind === 'stale-challenge') {
+    const ttlMs = asFiniteNumber(record['ttlMs'])
+    if (ttlMs === null) return null
+    return { kind, ttlMs }
   }
   if (kind !== 'rate-limited') return null
   const userKey = record['userKey']
@@ -660,6 +733,9 @@ export function encodeRequest(request: AgentRequest): CanonicalValue {
   }
   if (request.kind === 'enrol') {
     return { kind: 'enrol', request: enrollmentRequestToValue(request.request) }
+  }
+  if (request.kind === 'enrol-challenge') {
+    return { kind: 'enrol-challenge' }
   }
   const { task } = request
   const base: { readonly [k: string]: CanonicalValue } = {
@@ -868,6 +944,10 @@ export function parseRequest(body: CanonicalValue): AgentRequest | null {
     return { kind: 'enrol', request }
   }
 
+  if (record['kind'] === 'enrol-challenge') {
+    return { kind: 'enrol-challenge' }
+  }
+
   if (record['kind'] !== 'exec') return null
   const moduleCid = CID.asCID(record['moduleCid'] ?? null)
   const inputCid = CID.asCID(record['inputCid'] ?? null)
@@ -976,6 +1056,12 @@ export function encodeResponse(response: AgentResponse): CanonicalValue {
           }
     case 'enrol':
       return enrollmentResultToValue(response.result)
+    case 'enrol-challenge':
+      return {
+        kind: 'enrol-challenge',
+        nonce: response.challenge.nonce,
+        expiresAt: response.challenge.expiresAt,
+      }
     case 'reservations':
       return { kind: 'reservations', peerIds: [...response.peerIds] }
     case 'combine':
@@ -1069,6 +1155,15 @@ export function parseResponse(body: CanonicalValue): AgentResponse | null {
       const result = parseEnrollmentResult(record)
       if (result === null) return null
       return { kind: 'enrol', result }
+    }
+    case 'enrol-challenge': {
+      const nonce = record['nonce']
+      const expiresAt = asFiniteNumber(record['expiresAt'])
+      // Refused rather than defaulted on either half. A nonce with no expiry would be
+      // answered by a joiner that could not tell it had already gone stale, and an expiry
+      // with no nonce is nothing at all.
+      if (typeof nonce !== 'string' || nonce.length === 0 || expiresAt === null) return null
+      return { kind: 'enrol-challenge', challenge: { nonce, expiresAt } }
     }
     case 'report': {
       const counts = parseCounts(record['counts'])

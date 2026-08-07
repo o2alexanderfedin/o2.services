@@ -44,6 +44,13 @@ beforeAll(async () => {
     blockstoreDir: join(workdir, 'blocks'),
     maxReservations: 32,
     trustAnchors: [KERNEL_TRUST_ANCHOR],
+    // AUTH-02 — required since Plan 24-06, and open for the same reason `trustAnchors` above
+    // is the demo's own set: this file is the closest thing in the repository to a picture of
+    // what `bin/seed.ts` with no flags does, and with no flags that binary's ternary takes
+    // exactly this arm. A pinned set here would make this file a picture of a deployment
+    // nobody runs — and the browser tab it drives holds no certificate, so it would be
+    // refused a circuit and every reading below would be about admission instead of discovery.
+    relayAdmission: 'admits-any-peer',
   })
   browser = await chromium.launch()
   context = await browser.newContext()

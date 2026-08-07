@@ -443,15 +443,32 @@ describe('every bin either arms the leash or says why not', () => {
   /**
    * Binaries that legitimately do not arm it, each with the reason.
    *
-   * `bench.ts` is one-shot: it is `await main()` at module scope over the memory transport,
-   * it binds no socket, and the process ends when the work does. There is nothing to
-   * outlive a parent. **This changes when it grows `--discover`** — plan 18-06 has it
-   * spawning agents, at which point it is both a parent and long-lived, and this entry
-   * should be deleted rather than amended.
+   * **Deliberately empty since 2026-08-07, and the emptiness is the state of the tree rather
+   * than a disabled control.** Every binary in `bin/` arms the leash; the machinery below
+   * stays because the next binary added to that directory fails this guard until somebody
+   * decides which of the two it is, and that decision is cheap to make and expensive to
+   * forget.
+   *
+   * ## What was here: `bench.ts`, defect #94, closed by the line rather than by the entry
+   *
+   * The last entry's own `why` began **NO VALID GROUND**, which is an unusual thing for an
+   * exemption to say and was the honest disposition at the time. Its original ground —
+   * *"one-shot: `await main()` at module scope over the memory transport, it binds no
+   * socket, and the process ends when the work does"* — had been measured false on the
+   * **default** arm, not merely under `--discover`: `processFabric` builds the submitting
+   * `FabricNode` inside the driver's own process on `/ip4/127.0.0.1/tcp/0`, `spawnAgent`
+   * gives it real `bin/agent.ts` children, and the speedup ladder runs for minutes. The
+   * original text had even named its own trigger — *"this entry should be deleted rather
+   * than amended"* once the driver grew `--discover`.
+   *
+   * **It stayed anyway, and the reason it stayed is the part worth keeping.** Deleting an
+   * exemption before the production line exists turns this row red against a repository that
+   * still leaks: it reports the defect by breaking the build instead of by fixing it. So the
+   * entry was left carrying its debt in plain words until `bin/bench.ts` called
+   * `armOrphanLeash`, which it now does. The row went green by the code changing, which is
+   * the only way a guard's green is worth anything.
    */
-  const EXEMPT: readonly { readonly bin: string; readonly why: string }[] = [
-    { bin: 'bench.ts', why: 'one-shot: await main() at module scope, no listener, exits when the work does' },
-  ]
+  const EXEMPT: readonly { readonly bin: string; readonly why: string }[] = []
 
   it('arms it in every binary that outlives its own startup', async () => {
     const bins = (await readdir(BIN_DIR)).filter((name) => name.endsWith('.ts')).sort()

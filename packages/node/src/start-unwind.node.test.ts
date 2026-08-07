@@ -245,6 +245,10 @@ describe('a rejected seed start leaves nothing listening either', () => {
       blockstoreDir: mkdtempSync(join(tmpdir(), 'o2-seed-live-')),
       wsPort,
       trustAnchors: UNWIND_ANCHORS,
+      // AUTH-02 — required since Plan 24-06, and open because this case's subject is a bound
+      // socket, not a door. Nobody ever asks this seed for a reservation; a pinned set here
+      // would state a posture this case does not exercise and cannot read.
+      relayAdmission: 'admits-any-peer',
     })
     expect(await isFree(wsPort, ANY)).toBe(false)
 
@@ -259,6 +263,11 @@ describe('a rejected seed start leaves nothing listening either', () => {
       blockstoreDir: mkdtempSync(join(tmpdir(), 'o2-seed-unwind-')),
       wsPort,
       trustAnchors: UNWIND_ANCHORS,
+      // AUTH-02 — open, for the reason the live case above gives, and with one more that is
+      // specific to a failure path: this seed never finishes starting, so the posture is
+      // never consulted at all. Stating the open one keeps the two cases identical in every
+      // respect except the port that makes one of them fail.
+      relayAdmission: 'admits-any-peer',
       // Past the 16-bit port space. Vite reports `No available ports found between
       // 70000 and 65535` — a failure arriving after `FabricNode.start` has bound both
       // of the seed's listeners.

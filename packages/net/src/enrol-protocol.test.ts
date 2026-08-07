@@ -50,11 +50,25 @@ function authority(seed: Uint8Array = provider.priv): EnrollmentAuthority {
  * reason unrelated to what is under test.
  */
 function buildRequest(): EnrollmentRequest {
-  return requestEnrollment(node.priv, user.priv, {
+  const pending = requestEnrollment(node.priv, user.priv, {
     operatorId: 'op-a',
     discoverability: 'via-relay',
     relayIds: ['12D3KooWRelayOne', '12D3KooWRelayTwo'],
   })
+  // The **wire** request, which is the pending one having answered a challenge.
+  //
+  // Two things are being kept straight here. `answering` is the ability to sign one
+  // provider's nonce with the node's private key — it is deliberately not a wire field,
+  // and a fixture that left it attached would compare a parse against something no frame
+  // can carry. And the answered arm is the one worth round-tripping: the sentinel is a
+  // bare string, so a codec that dropped the nested `{nonce, proof}` entirely would still
+  // look correct if this fixture never produced one.
+  //
+  // The nonce is arbitrary and no authority minted it, which is right for a parser test:
+  // whether a provider is holding a nonce is `redeemChallenge`'s question, and a parser
+  // that pre-empted it would be answering an entitlement question.
+  const { answering, ...wire } = pending
+  return { ...wire, freshness: answering({ nonce: toHex(new Uint8Array(32).fill(0xa7)), expiresAt: NOW + 60_000 }) }
 }
 
 /** The encoded request's inner record, for the field-by-field omission loop. */
@@ -88,6 +102,12 @@ describe('the enrol request survives the wire intact', () => {
     'relayIds',
     'proofOfPossession',
     'ownerProof',
+    // AUTH-01 freshness. Required at the wire like the two proofs beside it, and for the
+    // same reason: a parser that admitted a request with no freshness field — or that
+    // degraded a broken one to the sentinel — would report a peer's *protocol error* as a
+    // *stale challenge*, and the joiner would fetch another nonce, answer it with the same
+    // broken encoder, and loop.
+    'freshness',
   ] as const
 
   for (const field of FIELDS) {

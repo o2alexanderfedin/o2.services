@@ -231,3 +231,179 @@ precise refusals**.
    hash + altered runtime envelope.
 
 > Then the architecture can be not only discussed, but run through an independent validator.
+
+---
+
+# Third message — same reviewer, 2026-08-06 18:17
+
+**This message changes the reviewer's verdict and supersedes the "next commit" proposal at the
+end of the second message.** It arrived in reply to a push-back from the owner, quoted by
+Telegram as *"ты несколько упускаешь из виду то, что сертификаты и безопасно…"* (truncated in
+the client). The reviewer **accepts the correction** and restates what they are and are not
+approving.
+
+## Verbatim (ru)
+
+> Да, принимаю поправку. Я слишком смешала **audit текущего кода** и **review проектируемого
+> security-протокола** — будто RFC обязан уже совпадать с имплементацией. Для дизайна это
+> неверный стандарт: расхождение здесь не дефект, а очередь работы.
+>
+> Тогда мой verdict проще:
+>
+> **Я одобряю направление RFC v0.2 как основу для имплементации**, с одним условием: перед кодом
+> превратить спорные места не в «общее согласие», а в короткий implementable security contract.
+>
+> Минимум, который я бы зафиксировала в RFC/отдельном `SECURITY-PROPERTIES.md`:
+>
+> 1. **Trust bootstrap:** откуда клиент получает/пинит CR, что именно означает смена root и кто
+>    подтверждает её локально.
+> 2. **Effective authority:** полномочие запроса = пересечение ограничений по цепочке; ни один
+>    CM/CU не может расширить родителя.
+> 3. **Execution binding:** подпись/разрешение относится к хэшу артефакта **и** envelope: runtime,
+>    capabilities, input/output commitments, egress, limits, expiry.
+> 4. **Freshness:** конкретные правила для nonce, epoch/sequence, expiry, replay и rollback — с
+>    точкой хранения состояния.
+> 5. **Recovery:** отдельно описать routine rotation, revoke, root rollover и account recovery;
+>    для наиболее сильных операций — явный кворум, задержка и журнал.
+> 6. **Acceptance boundary:** валидная цепочка доказывает криптографический факт, но локальная
+>    policy всё ещё решает, исполнять ли код.
+>
+> Если вы это фиксируете, я бы не ждала «идеальной завершённости» и запускала вертикальный slice:
+> выпуск CR→CM→CU, локальная валидация цепочки, capability attenuation, registration/discovery с
+> freshness и набор отрицательных тестов.
+>
+> A formal verification пусть начинается не после «объятий взаимопонимания», а параллельно с этим
+> slice: сначала маленькая модель цепочки и инварианты `no escalation`, `expired/revoked reject`,
+> `replay cannot replace newer registration`. Тогда дизайн быстро встретится с тем, что реально
+> можно доказать.
+>
+> То есть: **аппрув на направление — да. Аппрув на "безопасность доказана" — пока, конечно, нет.**
+
+## English rendering
+
+> Yes, I accept the correction. I over-mixed **an audit of the current code** with **a review of
+> a security protocol still being designed** — as though the RFC were obliged to match the
+> implementation already. For a design that is the wrong standard: a divergence here is **not a
+> defect, it is a work queue.**
+
+Then the verdict is simpler:
+
+> **I approve the direction of RFC v0.2 as a basis for implementation**, on one condition: before
+> code, turn the contested places into a short **implementable security contract** rather than
+> into "general agreement".
+
+The minimum they would pin down, in the RFC or in a separate `SECURITY-PROPERTIES.md`:
+
+1. **Trust bootstrap** — where a client obtains/pins CR, what exactly a root change *means*, and
+   who confirms it locally.
+2. **Effective authority** — a request's authority = the **intersection of the restrictions along
+   the chain**; no CM/CU may widen its parent.
+3. **Execution binding** — the signature/permission applies to the artifact hash **and** the
+   envelope: runtime, capabilities, input/output commitments, egress, limits, expiry.
+4. **Freshness** — concrete rules for nonce, epoch/sequence, expiry, replay and rollback,
+   **together with where the state is stored**.
+5. **Recovery** — describe routine rotation, revoke, root rollover and account recovery
+   *separately*; for the strongest operations, an explicit quorum, a delay, and a log.
+6. **Acceptance boundary** — a valid chain proves a **cryptographic fact**; local policy still
+   decides whether to execute the code.
+
+> If you pin that down, I would not wait for "ideal completeness" — I would run a **vertical
+> slice**: issue CR→CM→CU, local chain validation, capability attenuation, registration/discovery
+> with freshness, and a set of negative tests.
+>
+> And let **formal verification** begin not after "hugs of mutual understanding" but **in parallel
+> with that slice**: first a small model of the chain and the invariants `no escalation`,
+> `expired/revoked reject`, `replay cannot replace newer registration`. Then the design meets what
+> can actually be proven, quickly.
+>
+> That is: **approval of the direction — yes. Approval of "security is proven" — not yet, of
+> course not.**
+
+---
+
+## What this changes on our side
+
+**The deliverable named at the end of the second message is superseded.** That message asked for
+an *RFC-0003 testable profile* (AuthorityRule schema + freshness table + six adversarial
+fixtures). This one asks for something broader and better-shaped: a **`SECURITY-PROPERTIES.md`
+implementable security contract** in six named sections, and it explicitly says **not** to wait
+for completeness before cutting a vertical slice. The six fixtures survive **inside** item 6's
+negative-test set rather than as the headline artefact.
+
+**Three of the six are already partly answered by measurement, and the answers are not the
+obvious ones.** These are recorded in full in `RFC-0003-RESPONSE-01` and `-02`; in brief:
+
+- **Item 2 (effective authority) is already satisfied here — by a different mechanism than the
+  one the reviewer assumes.** There is no `attenuates(parent, child)` in this codebase, and its
+  absence is a **feature**, not the gap it looks like. `verifyChain` never compares a link to its
+  parent; it tests the **requested** ability against **every** link and folds expiry with
+  `Math.min`. That *is* "the intersection of the restrictions along the chain", computed
+  directly. A child that widens its abilities is therefore **inert**, and a soundness bug in a
+  subset check would be issuance-time hygiene rather than privilege escalation. The repository
+  reached the monotonicity property without going looking for it. **Do not add `attenuates` as
+  the enforcement point** — the fold is the boundary.
+- **Item 4 (freshness) has one real defect and one larger hole than the one asked about.**
+  `possessionChallenge` is `encodeCanonical({ purpose: 'o2-enrol', nodeKey, userKey })` — static,
+  no nonce, no timestamp, no server input, so an observed enrolment request is a fixed replayable
+  byte string. Separately, `peer-verifier.ts` records that *"a settled acceptance is never
+  re-asked"*: for block-fetch selection the revocation window is the **connection lifetime**, not
+  the certificate lifetime. `expired` sits outside `FINAL` so a refusal can be promoted, but
+  nothing demotes an acceptance.
+- **Item 6 (acceptance boundary) is already the shape of this system and should be stated as
+  such rather than designed.** `verifyCertificate` takes its anchors as an argument and dials no
+  authority; every verifier is this project's own code against pinned anchors. The cryptographic
+  fact and the local policy decision are already separate objects here.
+
+**One structural finding the contract must absorb:** §9's registration protocol cannot be
+implemented as written. `denyInboundRelayReservation` receives a `PeerId` **and nothing else**;
+the HOP `RESERVE` message carries no certificate field and there is no reply channel for a
+challenge. What exists instead is stronger — a peer id derived from an Ed25519 key *is* the node
+key, already proved over Noise, available with zero I/O, and channel-bound in a way a
+nonce-signature is not.
+
+## Owner ruling of 2026-08-06 — X.509 is adopted
+
+Recorded here because it governs how the contract below gets encoded, and because it was taken
+**against the standing recommendation**, which is worth leaving legible rather than tidying away.
+
+The recommendation was to keep `@noble/curves` + `@ipld/dag-cbor` — both already present — and
+to document the divergence from X.509, on the ground that adopting X.509 ships `pkijs` + `asn1js`
+into the **browser** trust path: a few hundred KB of exactly the code that generates CVE classes,
+at the one boundary that must fail closed. The supporting argument was that `critical` extensions
+buy little here, because there is **no generic validator** anywhere in this system, while the one
+place a standard validator would sit — §2's optional external CA — is guaranteed to reject a
+chain carrying critical unknown extensions. §2 and §4 pull against each other.
+
+**The owner ruled to adopt X.509 anyway.** That decision stands and the work proceeds under it.
+What it obliges, and what item 7 of the second message already demanded, is that the
+cryptographic-profile spec becomes **load-bearing rather than advisory**: permitted algorithms,
+bans on SHA-1 and weak curves, DER canonicalisation rules, certificate parsing limits, a
+**maximum chain depth** — `verifyChain` currently has no depth bound at all and takes its length
+from the wire — extension size limits, and strict handling of duplicate extensions. Under this
+ruling *"reject on ambiguity"* is not a principle to state; it is the set of precise refusals
+that keeps an ASN.1 parser in a browser from being the weakest thing in the design.
+
+### Correction, 2026-08-07 — one item on that list was already built
+
+Appended rather than edited into the paragraph above, because that paragraph is a dated review
+record and its claims are worth being able to read as they were made.
+
+**The chain-depth clause is false against the tree and was false when it was written.**
+`packages/core/src/capability.ts:127` defines `MAX_CHAIN_DEPTH = 8`, and `:190` enforces it
+**before any signature work**, with the comment stating the reason in the same terms the review
+does: *"the length is attacker-supplied, and this is the cheapest possible refusal."* The
+companion hazard is closed too — `:255` folds `expiresAt` with `reduce` rather than
+`Math.min(...chain.map(…))`, specifically because the spread raised `RangeError: Maximum call
+stack size exceeded` past ~200 000 elements, *on the success path*. The two controls are
+deliberately independent: the bound makes the overflow unreachable, the fold makes it
+impossible.
+
+So of the seven obligations the ruling names, **one is delivered and guarded, and six are not.**
+
+**The six that remain do not attach to anything yet, and that is the honest status.** No ASN.1
+or X.509 parser is installed — no `pkijs`, `asn1js`, `node-forge` or `@peculiar/*` in the root
+manifest or any workspace package. Certificates today are Ed25519 over `@noble/curves`
+(`packages/core/src/enrollment.ts:113`), not DER. DER canonicalisation, parsing limits,
+extension size limits and duplicate-extension handling are therefore **rules for a parser that
+does not exist**, which is an argument for specifying them before it arrives rather than after —
+and an argument that this is phase-sized work rather than a patch.

@@ -298,7 +298,11 @@ export {
   // as well as by the authority — see `IssuanceLedger` for why a host that guessed it
   // would widen a budget with nothing failing.
   DEFAULT_ISSUANCE_WINDOW_MS,
+  // How long a minted enrolment challenge stays spendable, and the number a
+  // `stale-challenge` refusal carries so the joiner it refused knows the window it missed.
+  ENROLLMENT_CHALLENGE_TTL_MS,
   EnrollmentAuthority,
+  challengeAnswerBytes,
   possessionChallenge,
   requestEnrollment,
   resolveReplicaSets,
@@ -308,9 +312,17 @@ export type {
   AuthorityOptions,
   CertificateFailure,
   CertificateResult,
+  // The freshness half of AUTH-01: what a provider mints, what a node signs back, and the
+  // not-yet-addressed request that can answer one. See `enrollment.ts`' header for why
+  // this is checked at the wire boundary rather than inside `enrol`.
+  ChallengeAnswer,
+  EnrollmentChallenge,
   EnrollmentRefusal,
+  EnrollmentRefused,
   EnrollmentRequest,
   EnrollmentResult,
+  Freshness,
+  PendingEnrollment,
   // The issuance budget and the port both budgets read. A host supplies the second; how
   // it makes a write durable is the host's problem, on each tier.
   IssuanceBudget,

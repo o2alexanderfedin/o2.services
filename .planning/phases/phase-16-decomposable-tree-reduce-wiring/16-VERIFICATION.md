@@ -532,3 +532,369 @@ processes; the arrival path is not, because there is none.
 
 _Verified: 2026-08-01T06:30:00Z_
 _Verifier: Claude (gsd-verifier)_
+
+---
+
+## Amendment — 2026-08-06: criterion 3 is MET, and the score is 4/4 criteria
+
+**Score: 3/4 → 4/4 criteria.** Everything above is the 2026-08-01 initial pass and is left
+standing; nothing in it is retracted. The frontmatter above still reads `score: 3/4 criteria met
+(1 partial)` and `status: gaps_found`, and **only the first of those changes here**. What moves is
+criterion 3 (PARTIAL → **MET**). What does not move is `status`, and the reason is recorded under
+*"What this amendment does NOT close"* below: two of the three `gaps:` entries above are **not
+criteria**, they were re-measured today, and they are unchanged.
+
+This is a re-verification triggered by the destination phase landing, on the pattern
+`18-VERIFICATION.md` set on 2026-08-04. It is an independent pass: **every reading below was
+executed in this verifier's own process** and none of it is transcribed from
+`20-VERIFICATION.md`, `20-03-SUMMARY.md` or any summary.
+
+### The criterion text is unchanged, checked rather than assumed
+
+`.planning/ROADMAP.md:478` and the quotation at `16-VERIFICATION.md:153` were extracted to files
+and byte-compared: `cmp` **exit 0**. `git log -L478,478:.planning/ROADMAP.md` returns exactly one
+commit — `c3e6fe1` *("docs: create milestone v1.1 roadmap")* — so the line has never been edited
+since the milestone was written.
+
+> 3. A duplicate combine result arriving late from a recovered node is discarded harmlessly
+>    because it carries the same CID — observable as the job completing without double-counting
+>    or erroring
+
+`criterion_text_unchanged: true`. This amendment scores against the same contract the 2026-08-01
+pass did.
+
+### The destination, and why the bar lifted
+
+The carry is an owner ruling with a commit behind it, not a summary sentence. `a3fc168`
+(2026-07-31, *"docs(roadmap): Phase 16's unmeasurable clause goes to Phase 20, not into a softer
+criterion"*) adds `.planning/ROADMAP.md:945` and nothing else:
+
+> 6. **A combine result arriving from a recovered node *after* `executeReduce` has already
+>    collected its `wanted` replicas is received and discarded harmlessly** — an unsolicited late
+>    duplicate, not one the test asked for. Routed here by owner ruling 2026-07-31 from Phase 16's
+>    criterion 3, which scored PARTIAL for this clause alone
+
+`git log -L945,945` returns that one commit; the destination text has not been edited either. Its
+message states the scope: *"Owner ruling 2026-07-31: schedule it, do not rewrite it… Phase 16
+keeps MR-04 open on this account."*
+
+`20-VERIFICATION.md` (2026-08-05, head `8616049`) scores criterion 6 **MET** at 6/7 overall.
+RULING A's condition is criterion-level, not phase-level — the STATE.md text is *"a carried
+criterion stays PARTIAL until its destination **phase lands**"*, and the Phase 24 precedent applies
+it per criterion (*"criterion 8 landed PARTIAL, and so all three stay PARTIAL together"*), while
+Phase 18 closed at 9/9 on 2026-08-04 with Phase 20 not yet verified at all. So Phase 20 standing at
+6/7 on **criterion 7** does not hold this one open. Criterion 6 landed, and it landed MET.
+
+### The crux: do the two clauses actually match?
+
+This is the question that could have gone the other way, and it was asked of the source rather
+than of the two roadmap sentences.
+
+**Criterion 3 decomposes into five parts.** Where each is measured, and whether the reading can
+fail:
+
+| # | Clause of Phase 16 criterion 3 | Measured where | Falsifiable? |
+|---|---|---|---|
+| a | "A duplicate combine result" | P16 `tree-reduce-agents.node.test.ts` (two independent producers, one CID); P20 `late-combine.node.test.ts` MR-07 (the combine the paused peer was asked for was completed by another peer, `paused.combines === tree.nodes.length`) | yes |
+| b | "arriving late from a recovered node" | **P20 only** — this is the carried clause | yes — **M2 below** |
+| c | "is discarded harmlessly" | P20 `rpc.ts`'s `late or duplicate reply` drop; `rejections.seen` empty | yes — **M1 below** |
+| d | "because it carries the same CID" | **P16 only** — `expect(duplicateProduct?.cid).toBe(firstProduct?.cid)` with probe-store deltas `+1 / +0 / +1` | yes |
+| e | "the job completing without double-counting or erroring" | P16 (probe `+0`, two holders at redundancy 2); P20 MR-07 (`ok`, `rootCid === healthyRoot`, `failed []`, `disagreements []`, `executedBy` omits the victim, `recomputes 3 against 0`) | **partly** — see below |
+
+**Clause (b) is what Phase 20 measured, and it is the clause, not a neighbour.** Read in
+`packages/node/src/late-combine.node.test.ts`:
+
+- **recovered node, not a substitute for one** — `pauseAgent` sends `SIGSTOP` to a spawned
+  `bin/agent.ts` child and *waits for `ps` to report state `T`*, so the freeze precedes the dial;
+  `resumeAgent` sends `SIGCONT` and waits for the state to leave `T`.
+- **late, against a requestor that stopped waiting** — the reply frame is timestamped and filtered
+  by `repliesFrom(frames, victimId, reduceReturnedAt)`, a window that opens when `executeReduce`
+  *returned*.
+- **unsolicited, by construction rather than by argument** — `expect(asked.filter((e) => e.atMs >
+  reduceReturnedAt)).toEqual([])`, where `asked` is the complete record because the wrapper is the
+  only thing `executeReduce` dispatches through and it cannot run after `executeReduce` returned.
+  This is precisely the property Phase 16 said its own duplicate lacked.
+
+None of that is adjacent to the carried clause. It is stronger than the clause: criterion 3 says
+"arriving late", and the destination additionally proves nobody asked for it.
+
+**Clause (d) is the one finding that cuts against the criterion's own wording, and it is recorded
+rather than smoothed over.** On the late path, CID identity is **causally inert**. `rpc.ts:280`
+drops the frame because `this.#pending.get(key)` returns `undefined` — the correlation entry was
+deleted by the timeout — and it does so *before* the payload matters. A late reply carrying a
+*different* CID would be discarded identically. The instrument agrees: `watchInbound` records only
+`from`, `kind` and `atMs`, never the decoded CID, so **no assertion anywhere in the tree reads the
+late frame's CID**. The same-CID property is measured on a *re-dispatch after the resume*
+(`afterProduct?.cid === healthyProduct?.cid` in MR-04; `revived?.cid === referenceCombine(...)` in
+MR-07) and, falsifiably, in Phase 16's probe-store case — never on the late frame itself.
+
+Two readings of "because it carries the same CID" are available and they score differently:
+
+1. *"the drop is triggered by CID comparison"* — **false of this build**, and it should be. It
+   would require a mechanism that does not exist and whose absence is what makes the discard
+   unconditional.
+2. *"the duplicate is harmless because content-addressing makes it redundant"* — **true, and
+   measured**: an independent producer answers with the identical CID (P16, `+0` against `+1`/`+1`
+   controls), and the run in which the late frame arrives is identical to an unpaused control of
+   the same tree in the same run (P20 MR-07).
+
+**This amendment takes reading 2**, and says so out loud rather than letting the "because" pass
+unexamined. Under reading 1 the criterion could never close on any build that is correct, which is
+not a bar the project set. This is the one place where the union of the two phases does not
+literally exhibit criterion 3's own sentence, and an owner who disagrees with reading 2 should say
+so — the verdict below turns on it.
+
+**Clause (e) is measured, but its counting half is structurally unfalsifiable in the late case,
+and that is disclosed by the tree already.** `late-combine.node.test.ts`'s own header carries a
+table of which harmlessness readings moved under a plant, and records `rootCid`, `minReplicas`,
+`combines` and `disagreements` as **not** movable — because `executeReduce` has already returned
+before the frame lands, so no expression remains that could fold it into a count.
+`.planning/REQUIREMENTS.md`'s MR-04 and MR-07 rows record the same limit in the same words. The
+"without double-counting" observable in the **late** case is therefore carried by the readings that
+*can* fail — the arrival count, `executedBy` omitting the recovered peer, `recomputes` strictly
+above the unpaused run's, and `asked` empty after the resume — and by Phase 16's probe-store `+0`
+for the dedupe itself. Stated plainly: the unfalsifiable four are comparative controls, not the
+proof, and the file says so about itself.
+
+### What was run, with exit codes read directly
+
+`EXIT=$?` on the line immediately after each command. No pipes, no trailing `tail`, no `echo` on
+the same line. Every invocation used `--project node`; no bare-path run was made. Every command
+was wrapped in `/usr/bin/time -p`.
+
+| # | Command | Result | `real` / `user` / `sys` | Exit |
+|---|---|---|---|---|
+| 1 | `npx vitest run --project node packages/node/src/late-combine.node.test.ts --reporter=verbose` | `Test Files 1 passed (1)` / `Tests 2 passed (2)` | 14.35 / 12.94 / 2.57 | **0** |
+| 2 | the same, **M1 planted** in `packages/net/src/rpc.ts` | `Test Files 1 failed (1)` / `Tests 2 failed (2)` | 12.21 / 12.63 / 2.90 | **1** |
+| 3 | the same, `-t 'delivers a reply the requestor had already timed out'`, **M2 planted** in the spec | `Test Files 1 failed (1)` / `Tests 1 failed \| 1 skipped (2)` | 21.02 / 7.15 / 1.66 | **1** |
+| 4 | `npx vitest run --project node packages/node/src/tree-reduce-agents.node.test.ts --reporter=verbose` (Phase 16's own four cases, regression check) | `Test Files 1 passed (1)` / `Tests 4 passed (4)` | 17.65 / 39.93 / 6.54 | **0** |
+| 5 | run 1 repeated after both restores | `Test Files 1 passed (1)` / `Tests 2 passed (2)` | 9.45 / 10.75 / 1.96 | **0** |
+
+**Host conditions, recorded beside the timings because this host is shared.** `uptime` read
+immediately before runs 1, 4 and 5: load averages **44.47**, **14.26** and **21.74** on 8 cores.
+The ambient load was not another test suite: eight
+`transpilers/cpp-to-rust/…/test_c_corpus_parity` processes at 70–77 % of a core each, unrelated to
+this repository and **not signalled or killed**. `(user+sys)/real` was 1.08 on run 1 and 2.63 on
+run 4 (run 4 spawns nine children and reaps their CPU); run 3's 0.42 is the 15 000 ms arrival
+`waitFor` polling, i.e. waiting rather than starving. **No verdict here rests on a duration.**
+
+The readings this pass took are **not** the readings `20-VERIFICATION.md` recorded, which is what
+makes them a measurement rather than a transcription. Its harmlessness line read `paused peer asked
+2×, late replies 2 at +163,163ms`; this pass read:
+
+```
+[criterion 6 / arrival] standUp 1744ms, map 413ms, cold combines [71,71,78,80,118,142]ms floor 71ms,
+paused dispatch 1501ms against rpcTimeoutMs 1500, pause 1874ms, late replies 1 at +222ms,
+send window 1722ms of 20000, frames from the paused peer [req,req,req,req,res]
+
+[criterion 6 / harmlessness] tree 3 combines, paused peer asked 3× spread over 1654ms,
+late replies 3 at +166,169,169ms, send window 3381ms of 20000, recomputes 3 against 0 unpaused
+```
+
+Three asks and three late replies against their two and two: the assertion is
+`expect(late).toHaveLength(victimAsks.length)`, a relation taken inside the run, so a different
+rendezvous draw changes both sides together. `[req,req,req,req,res]` is the resumed process
+fetching the four partials it had never seen and only then answering — independent evidence that
+the combine request crossed the pause rather than being re-sent.
+
+### The two mutations, planted one at a time and watched go red
+
+Backups taken to `/tmp/o2-verify16-baseline/` before either plant; each restored with `cp` and
+confirmed byte-identical with `cmp` (exit 0) and `md5`. **No `git add`, `git commit`, `git stash`,
+`git checkout --`, `git restore`, `git reset` or branch switch was run at any point.** `HEAD` was
+`8d6ae20` at entry and `8d6ae20` at exit.
+
+#### M1 — the silent drop made loud (re-execution of `20-VERIFICATION.md`'s P5, not a transcription)
+
+`packages/net/src/rpc.ts:280`,
+`if (entry === undefined) return // late or duplicate reply`
+→
+`if (entry === undefined) throw new Error('late or duplicate reply')`.
+
+Observed, verbatim:
+
+```
+FAIL |node| …/late-combine.node.test.ts > MR-04 — a paused process answers after the request
+     that asked for it gave up > delivers a reply the requestor had already timed out…
+AssertionError: expected [ 'Error: late or duplicate reply' ] to deeply equal []
+
+FAIL |node| …/late-combine.node.test.ts > MR-07 — the late duplicate is unsolicited, and it
+     costs nothing > leaves the root CID, the executor record and the process error state
+     identical to an unpaused run
+AssertionError: expected [ …(3) ] to deeply equal []
+
+Test Files  1 failed (1)      Tests  2 failed (2)
+```
+
+Exit **1**. This reproduces P5 independently, down to the failure text. It proves the *harmlessly*
+half is load-bearing: `#receive` is invoked as `void this.#receive(...)`, so a throw at that line
+has no caller left and becomes an unhandled rejection — and it reddens **only if the frame actually
+arrived**, which makes one plant prove the channel and the disposition together.
+
+#### M2 — the recovered node never recovers (novel; the instrument that carries the carried clause)
+
+The spec's own header makes two claims about `expect(arrived)` that **cannot both be true**: at
+`:70-73` it says the SIGCONT-withheld plant *"was watched"* going red at `expected false to be
+true`, and at `:111-115` it says a later `RPC_TIMEOUT_MS = 12 000` experiment was *"the first time
+in this file's history that `expect(arrived)` had ever actually failed."* Rather than pick one, the
+plant was re-run.
+
+`packages/node/src/late-combine.node.test.ts:1132`, MR-04: `await resumeAgent(victim)` removed, so
+the paused agent is never SIGCONTed. Observed, verbatim:
+
+```
+[criterion 6 / arrival] standUp 1168ms, map 399ms, cold combines [24,25,25,25,28,42]ms floor 24ms,
+paused dispatch 1501ms against rpcTimeoutMs 1500, pause 1671ms, late replies 0 at +ms,
+send window NaNms of 20000, frames from the paused peer []
+
+FAIL |node| …/late-combine.node.test.ts > MR-04 … > delivers a reply the requestor had already
+     timed out, and the pause is what caused it
+AssertionError: no late reply; frames from the paused peer [] — empty means the send was aborted,
+non-empty means it ran and did not finish: expected false to be true // Object.is equality
+ ❯ packages/node/src/late-combine.node.test.ts:1178:100
+
+Test Files  1 failed (1)      Tests  1 failed | 1 skipped (2)
+```
+
+Exit **1**. **The reading that carries the carried clause is not vacuous.** Withhold the recovery
+and the arrival count reads zero, the frame list from the paused peer is empty, and the case goes
+red at the named assertion. `20-03-SUMMARY.md`'s plant table row **A** records the same result, so
+the `:70-73` sentence is the correct one and the `:111-115` *"first time"* claim is inaccurate —
+raising `RPC_TIMEOUT_MS` to 12 000 is itself a plant. Documentary only; recorded below.
+
+#### Restoration proof
+
+```
+$ md5 packages/net/src/rpc.ts packages/node/src/late-combine.node.test.ts
+41c1e75e4cdc7244fb620ecf81d58ef4  packages/net/src/rpc.ts
+abd5a3a820651893cd4e4c32f940fd0d  packages/node/src/late-combine.node.test.ts
+   (identical to /tmp/o2-verify16-baseline/*; cmp exit 0 on both)
+$ git status --short
+ M .planning/STATE.md          ← a concurrent agent's edit, present before this pass and untouched by it
+$ git rev-parse --short HEAD
+8d6ae20                        ← unchanged from entry
+```
+
+### Regression check on the three criteria that were already MET
+
+`tree-reduce-agents.node.test.ts` — the file every one of Phase 16's four criteria rests on —
+was re-run this pass and is **4 passed, exit 0** (run 4 above), including its own
+*"MR-07 — two replicas dedupe, and a duplicate from a fresh process costs nothing"* case, which is
+where clause (d) lives. No regression. The 2026-08-01 pass's ⚠️ WARNING about that file's **stale
+header** is additionally **CLOSED**: the header now opens *"HISTORY. Nothing below is skipped and
+all three criteria pass — this section records why they did not"*, which is the correction that
+pass asked for.
+
+### What this amendment does NOT close
+
+**Two of the three `gaps:` entries in the frontmatter above are unchanged, and both were
+re-measured today rather than assumed.** Neither is a criterion, so neither affects the 4/4 count —
+*"the count is over criteria, never over requirements"*, and Phase 15 is counted at 3/3 despite a
+Partial requirement — but `status:` stays `gaps_found` because they are still `failed`.
+
+| Gap | Re-measured 2026-08-06 | Verdict |
+|---|---|---|
+| *"A test fails the day `CombineWork` gains a field that could carry sovereignty"* | `capability-authorizer.test.ts:198-199` still reads `const combineKeys: (keyof AuthorizedWorkCombine['combine'])[] = ['combineId','inputCids','level']` compared to the identical literal. The tautology M2 of the 2026-08-01 pass falsified is byte-for-byte intact. | **STILL OPEN** |
+| *"A deployment can refuse combines by supplying an authorizer that does"* | `FabricNodeOptions` was enumerated field by field: **25 fields, no `authorize` among them**. `fabric-node.ts` still hardcodes `authorize: authorizeCapability({…})` at its `serveAgent` call, as does `browser-node.ts`. No node startable from `bin/agent.ts` can refuse a combine. | **STILL OPEN** |
+
+Both remain owner decisions, exactly as the 2026-08-01 pass framed them.
+
+**Also unchanged and not this amendment's:** MR-04 and MR-07 stay `[ ]` / **Partial** in
+`.planning/REQUIREMENTS.md`, and correctly so — their rows already record *"The arriving late
+clause is closed as of 2026-08-05 (Plan 20-03), and it was the clause Phase 16 kept this row open
+for"*, and what keeps them open now is the **demo half** (`answerOf` in `packages/demo/src/job.ts`
+still merges by linear scan), which is WIRE-02, Phase 22. **No `REQUIREMENTS.md` edit is
+recommended by this amendment.**
+
+### Findings that contradict claims already recorded in the tree
+
+1. **`late-combine.node.test.ts:111-115` — *"the first time in this file's history that
+   `expect(arrived)` had ever actually failed"* is false.** `20-03-SUMMARY.md`'s plant table row A
+   records the SIGCONT-withheld plant failing at that exact assertion, and M2 above reproduced it
+   today. The file's own `:70-73` says so too, so the header contradicts itself. ℹ️ INFO —
+   documentary; the substance is settled by measurement either way.
+2. **Owner ruling `a3fc168` says *"Phase 16 keeps MR-04 open on this account"*, and
+   `ROADMAP.md:985` repeats it; `16-VERIFICATION.md` attributes criterion 3 to **MR-07**
+   (*"Dedupe measured; 'arriving late' not expressible"*), listing MR-04 as established for the
+   aggregation path.** Both are defensible — `REQUIREMENTS.md` extended **both** rows with the
+   identical closure paragraph, and the destination spec names its two cases `MR-04` and `MR-07` —
+   but the ruling's singular attribution is narrower than what the ledger actually did. ℹ️ INFO.
+3. **The instruction that prompted this amendment stated `16-VERIFICATION.md` contains zero
+   occurrences of *"amend"*. It contains one**, at frontmatter line 45: *"or a ROADMAP amendment
+   narrowing criterion 3 to the dedupe property that is measurable"* — i.e. the route this
+   amendment did **not** take. ℹ️ INFO, and worth noting precisely because that line is the
+   rewrite RULING A forbids: the criterion was scheduled instead, and it closes here on its
+   original wording.
+
+### Verdict
+
+**Criterion 3 — MET.** The clause the owner carried is the clause the destination measured; the
+destination's verdict was re-executed rather than read; the reading that carries it goes red when
+the recovery is withheld; and the disposition it depends on goes red when the silent drop is made
+loud. Criteria 1, 2 and 4 were MET on 2026-08-01 and their file was re-run green this pass.
+
+**Score: 4/4 criteria.**
+
+`status:` in the frontmatter above is **left at `gaps_found`**, and deliberately: the two
+non-criterion gaps are still failed and still need an owner. The count this project keeps is over
+criteria, and on criteria Phase 16 is complete.
+
+---
+
+## LEDGER EDITS RECOMMENDED (not applied)
+
+A verifier does not apply the ledger edits it recommends. **Nothing below was edited by this pass**
+— `.planning/STATE.md`, `.planning/ROADMAP.md` and `.planning/REQUIREMENTS.md` were read only.
+Note that `.planning/STATE.md` currently carries a **concurrent agent's uncommitted edit**; whoever
+applies these should re-read it first rather than patching against what is quoted here.
+
+**1. `.planning/ROADMAP.md` — progress table, the Phase 16 row (currently line 1139).**
+Third column, from:
+
+> 3 of 4 criteria — criterion 3's "arriving late" clause was not expressible on the build it was
+> written against and was carried to Phase 20 criterion 6, **which is now MET**. No amendment has
+> been written to `16-VERIFICATION.md`, and until one is this row does not move: a phase closes
+> when a verifier says so
+
+to:
+
+> Complete — 4 of 4 criteria. Criterion 3 closed 2026-08-06 by a dated amendment to
+> `16-VERIFICATION.md` after Phase 20 criterion 6 landed MET; the amendment re-executed the
+> destination's evidence and planted two mutations, one of them novel. Two **non-criterion** gaps
+> stay open and tracked, not scored: the tautological `CombineWork` key-set guard, and the absent
+> `authorize` injection point on `FabricNodeOptions`
+
+Second column stays `4/4` (it counts plans). Date column, from `2026-08-01` to `2026-08-06`.
+
+**2. `.planning/STATE.md` — frontmatter `stopped_at` (line 6).** Two edits inside that one string:
+
+- `THE COUNT STAYS 8 OF 15` → `THE COUNT IS 9 OF 15` (and the later
+  `THE COUNT IS 8 OF 15 - 11, 12, 13, 13.1, 14, 15, 18 and 23 are closed` →
+  `… 11, 12, 13, 13.1, 14, 15, 16, 18 and 23 are closed`).
+- `16 (3/4), 17 (2/3), 19 (4/5), 20 (6/7) and 21 (2/3) are each verified and each UNCOUNTED on one
+  criterion` → drop `16 (3/4), ` and read `17 (2/3), 19 (4/5), 20 (6/7) and 21 (2/3) …`.
+
+**3. `.planning/STATE.md` — the uncounted-phases paragraph (around line 172).** From:
+
+> **Six phases are verified and stay uncounted…**: 16 at 3/4, 17 at 2/3, 19 at 4/5, 20 at 6/7,
+> 21 at 2/3 and **24 at 0/1**. Each has exactly one PARTIAL criterion, and each of those was
+> **carried to a named destination rather than rewritten** — 16's to Phase 20 criterion 6, 17's
+> and 19's to Phase 24 criterion 8, …
+
+to **five** phases — 17, 19, 20, 21, 24 — removing `16 at 3/4` from the list and `16's to Phase 20
+criterion 6` from the destinations clause, and adding, in the project's own voice, that **Phase 16
+is the second proof that RULING A costs nothing in the end**: it sat at 3/4 for five days and
+closed at 4/4 on the amendment that followed its destination criterion landing, exactly as Phase 18
+did on 2026-08-04.
+
+**4. `.planning/STATE.md` — line 31,** `now **six**: 16 (3/4), 17 (2/3), 19 (4/5), 20 (6/7), 21
+(2/3) and **24 (0/1)**` → `now **five**: 17 (2/3), 19 (4/5), 20 (6/7), 21 (2/3) and **24 (0/1)**`.
+
+**5. `.planning/REQUIREMENTS.md` — no edit.** MR-04 and MR-07 already record the arriving-late
+closure and stay Partial on the demo half (WIRE-02, Phase 22). Ticking either would contradict its
+own row text and would turn `acceptance-traceability.node.test.ts` red.
+
+---
+*Amended: 2026-08-07T01:22:14Z (2026-08-06 18:22 local)*
+*Verifier: Claude (gsd-verifier), independent goal-backward re-verification after Phase 20 criterion 6*
+*Working tree: `HEAD` `8d6ae20` at entry and exit; `rpc.ts` and `late-combine.node.test.ts` restored and `cmp`-verified; nothing staged, committed, stashed, reverted or branch-switched; the one entry in `git status --short` is a concurrent agent's `.planning/STATE.md` edit, untouched here*

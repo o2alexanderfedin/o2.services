@@ -1592,6 +1592,41 @@ export const MUTATIONS: readonly Mutation[] = [
     signatureSource: 'test-title',
   },
   {
+    id: 'M67',
+    why:
+      'AUTH-02 / criterion 8 — **the one line that decides whether the seed’s door can be ' +
+      'closed at all.** `seed-server.ts` held `relayAdmission: \'admits-any-peer\'` as a literal ' +
+      'until Plan 24-06, which is the structural fact `24-VERIFICATION.md` scored criterion 8 ' +
+      'PARTIAL on in its own words: *"for the seed there is no knob"*. This plant puts the ' +
+      'literal back while leaving **everything else in place** — `SeedServerOptions` still ' +
+      'declares the required field, `bin/seed.ts` still parses `--admit-issuer`, still ' +
+      'validates its hex, and still prints the closed arm of its banner naming the pinned ' +
+      'keys. So the operator is told the door is shut and the door is open, which is the ' +
+      'exact class of defect an operator has no way to detect from outside the process. ' +
+      '**Measured rather than predicted, which guards move and which do not.** The two ' +
+      'declaration guards stay green: the field is still declared once as a definition in ' +
+      '`fabric-node.ts` and once as a forwarding indexed access in `seed-server.ts`, and this ' +
+      'plant touches neither. The `bin/seed.ts` census row stays green: that file is unedited. ' +
+      'What moves is the `seed-server.ts` `PRODUCTION_SITES` row, whose census counts raw ' +
+      '`OPEN_POSTURE` occurrences in **text** and reads 1 where the repaired tree reads 0 — ' +
+      'and, on the other side of the process boundary and sharing no code with it, the ' +
+      'spawned-seed case named below, whose uncertificated joiner obtains real circuit ' +
+      'multiaddrs through a seed that was told to close. A source census and a live libp2p ' +
+      'node reddening on one defect is what makes the wiring claim real rather than textual. ' +
+      '**`packages/node/src/closed-fabric-agents.node.test.ts` was ALSO measured to catch ' +
+      'this** — Plan 24-07 planted exactly this edit and watched `/bootstrap.json` advertise ' +
+      'an uncertificated peer and the whole-set reading name `door: "seed"` — but that file ' +
+      'is untracked at the time this entry was written and `mutation-guard.node.test.ts` ' +
+      'requires every path named here to be git-tracked. Whoever commits it should add it to ' +
+      '`caughtBy`; the reading is recorded in `24-07-SUMMARY.md` as plants Pb and Pb′.',
+    file: 'packages/node/src/seed-server.ts',
+    find: '      relayAdmission: options.relayAdmission,',
+    replace: "      relayAdmission: 'admits-any-peer',",
+    caughtBy: ['packages/node/src/relay-admission.node.test.ts'],
+    signature: 'and none when told an issuer nobody holds',
+    signatureSource: 'test-title',
+  },
+  {
     id: 'P1',
     why:
       'SCHED-06 on the **fourth** production `serveAgent` file, and the entry exists because ' +
@@ -2783,6 +2818,116 @@ export const MUTATIONS: readonly Mutation[] = [
     // `expected [ 'executeReduce', …(5) ] to strictly equal [ 'executeReduce', …(4) ]`,
     // with `+ "runResilient"` in the printed diff.
     signature: 'exports submitJob and no second job runner beside it',
+    signatureSource: 'test-title',
+  },
+  {
+    id: 'M68',
+    why:
+      'AUTH-04 / criterion 3 — **the certificate-to-peer binding at the relay door, which was ' +
+      'guarded by nothing at all until 2026-08-06.** `relayAdmissionGate` derives `expected` ' +
+      'from the asking peer id and refuses a certificate naming a different key. That is not ' +
+      'redundant with the signature check and the difference is the whole of what admission ' +
+      'means: `verifyCertificate` is handed a certificate and an issuer set and **cannot know ' +
+      'which peer is holding it**. This exact plant was measured against the tree before the ' +
+      'case below existed and stayed **green across eight admission specs and five runs**, ' +
+      'while a control plant on `enrollment.ts`’s aggregate budget reddened at exit 1 — so the ' +
+      'silence was a fact about the corpus, not about the day. **The near-miss form is ' +
+      'deliberate**: `&& expected === \'\'` leaves every type, symbol and refusal string ' +
+      'byte-intact, so the gate is still installed, still consulted, still asks, still records ' +
+      'a decision — and admits any peer that can replay somebody else’s certificate. Every ' +
+      'structural guard survives it: `relay-admission.node.test.ts`’s census counts postures ' +
+      'and call sites rather than verdicts, and the three live arms above vary ' +
+      'enrolled-versus-unenrolled, never **borrowed**. **Why it matters beyond one line:** ' +
+      'bounded issuance prices identity creation only while one certificate admits exactly one ' +
+      'peer. Planted, one legitimately-issued certificate admits an unbounded number of peers ' +
+      'through every closed door in this fabric, and the issuance budget prices nothing. ' +
+      '**Independence measured in both directions, not assumed.** The identical edit in ' +
+      '`peer-verifier.ts:527` — the SELECTION-side copy, guarded since 17-05 — leaves the case ' +
+      'below green while reddening `peer-verifier.node.test.ts`’s borrowed-certificate row; ' +
+      'this plant reddens the case below and not that one. Two copies of one comparison, two ' +
+      'separate guards, neither standing in for the other.',
+    file: 'packages/node/src/fabric-node.ts',
+    find: '      if (certificate.nodeKey !== expected) {',
+    replace: "      if (certificate.nodeKey !== expected && expected === '') {",
+    caughtBy: ['packages/node/src/relay-admission.node.test.ts'],
+    // Observed 2026-08-06, exit 1, `1 failed | 37 skipped`, 54 ms of test time on a host at
+    // 1-minute load 13.46. Rendered: `AssertionError: expected false to be true` at
+    // `relay-admission.node.test.ts:1391` — arm 1, the borrower, admitted by a door that had
+    // stopped reading who was holding the certificate.
+    signature: 'refuses a peer presenting a certificate issued to a different peer, and admits the peer that certificate names',
+    signatureSource: 'test-title',
+  },
+  {
+    id: 'G1',
+    why:
+      '**The population a guard acts on must be the population that pays for it — the eighth ' +
+      'instance of that shape in this repository** (priors: #38, #39, #66, `bench-reduce`, ' +
+      'WIRE-04 / `@o2/net`, `orphan-leash`, the five `advertisedBy` sites). ' +
+      '`closed-fabric-agents.node.test.ts` reads criterion 8 over *"a fabric whose every ' +
+      'relay-capable peer was told to close"*, and until 2026-08-06 it read it over a ' +
+      'hand-written literal of five participants sitting beside the spawns. ' +
+      '`CLOSED_RELAY_CAPABLE`’s docblock claimed that a participant added to `standUp` without ' +
+      'being added to that literal would redden. **Measured false**: a verifier added a ' +
+      'seventh, open, relay-capable agent to the fixture, never added it to `closedSet`, and ' +
+      '**both population assertions stayed green** — the guard caught only the opposite case, a ' +
+      'set naming a peer that was not there. So the file described a redness it did not have, ' +
+      'which is worse than a gap it reported: the next person to add a peer would believe a ' +
+      'guard was watching them. The repair was not a better literal but the removal of the ' +
+      'literal — the set is now derived from the processes that actually stood up, with `door` ' +
+      'the default disposition, so an added participant is dialled, asked and counted whether ' +
+      'or not anybody meant it to be. **This entry is that plant, kept**: it is the exact case ' +
+      'the docblock describes, and a fixture whose claim is again untested would repeat the ' +
+      'original defect rather than fix it.',
+    file: 'packages/node/src/closed-fabric-agents.node.test.ts',
+    find: "  const openControl = await spawnAgent('open-control', ['--port', '0'])\n",
+    replace:
+      "  const openControl = await spawnAgent('open-control', ['--port', '0'])\n" +
+      "  await spawnAgent('PLANT-open-seventh', ['--port', '0'])\n",
+    caughtBy: ['packages/node/src/closed-fabric-agents.node.test.ts'],
+    // Observed 2026-08-06, exit 1, `1 failed | 1 passed (2)`, `real 13.87 user 9.44 sys 1.76`
+    // on a host at 1-minute load 8.58. Rendered: the assertion names the intruder and its peer
+    // id — `+ [ "PLANT-open-seventh (12D3KooWSEAkQEaniQ4FpryKqiPRLi2wHxdQBuVGtGojnUm5MyeP)" ]`.
+    // The same plant made **closed** (`--admit-issuer issuer`) reddens the counted budget
+    // instead — `expected [ 'provider', 'relay', …(4) ] to have a length of 5 but got 6` — so
+    // both directions are covered and neither is the other's restatement.
+    signature: 'a relay-capable peer is standing in this fabric with an OPEN posture and is not the control',
+    signatureSource: 'test-title',
+  },
+  {
+    id: 'G2',
+    why:
+      '**An instrument that reddens without saying which of two unrelated defects it found, ' +
+      'priced at 111 executions.** Arm 3 of the live admission reading asserted the reservation ' +
+      'store *before* the decision record, so its only failure text was *"a peer that should be ' +
+      'out is in"* — which cannot distinguish **(a) the gate ANSWERED ADMIT**, a defect in ' +
+      'admission and the event criterion 8 says cannot happen, from **(b) an entry appeared ' +
+      'WITHOUT a grant**, a defect in `@libp2p/circuit-relay-v2` or in the fixture and no ' +
+      'statement about the gate at all. On 2026-08-06 that ambiguity turned a concurrent ' +
+      'agent’s live plant into a reported security defect escalated to the owner; refuting it ' +
+      'cost 111 executions across loads 5.45–37.76, a patch to `node_modules` to read the ' +
+      'gater’s return value directly, and a reading of the library’s call ordering to establish ' +
+      'that branch (b) is unreachable by construction — the gater is awaited strictly before ' +
+      '`reservationStore.reserve(…)`, and `reserve()` has one caller. The gate had carried the ' +
+      'evidence the whole time: `decide(…)` produces `{admitted, reason}` through an ' +
+      '`onDecision` callback the file already used. Reading the verdict first costs nothing and ' +
+      'answers on the first red. **This plant is the proof that it does.** It admits `theirs` ' +
+      'honestly — by pinning provider B’s issuer alongside provider A’s — so the relay really ' +
+      'does grant a reservation to a peer the arm expects refused, which is byte-for-byte the ' +
+      'state a fail-open gate would produce at the assertion site.',
+    file: 'packages/node/src/relay-admission.node.test.ts',
+    find: '        relayAdmission: new Set([pinned as string]),',
+    replace: '        relayAdmission: new Set([pinned as string, providerB.issuerKey as string]),',
+    caughtBy: ['packages/node/src/relay-admission.node.test.ts'],
+    // Observed 2026-08-06, exit 1, `1 failed | 37 passed (38)` — the census rows are untouched,
+    // because this file excludes itself from its own counting. The rendered message names the
+    // branch and quotes the gate's own words back: `(a) THE GATE ANSWERED ADMIT for theirs —
+    // relayAdmissionGate returned "allow" for a peer this relay pins against. … Reason the gate
+    // gave: "12D3KooW… holds a certificate from a pinned issuer"`.
+    // **The comparative half, same plant, same host, same session:** with the old store-first
+    // order restored the identical run rendered `AssertionError: expected [ …(2) ] to not
+    // include '12D3KooWKQKmVeG78VhHz5P9tJPTronZ1YwdM…'` — both arrays elided, the peer id
+    // truncated, and no statement about the gate. That is the difference this entry protects.
+    signature: '(a) THE GATE ANSWERED ADMIT for',
     signatureSource: 'test-title',
   },
 ]

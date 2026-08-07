@@ -1,10 +1,38 @@
 # Business case studies
 
-Costed comparisons of building a real product on this project's peer-to-peer cloud against
-building the same product the conventional way. Written for a founder and a technical
-co-founder to read end to end and act on.
+Comparisons of this project's peer-to-peer cloud against the alternatives — one costed against
+the conventional way of building the same product, one technical against the project's peers.
+Written for a founder and a technical co-founder to read end to end and act on.
 
-## Read this
+Two studies, and they answer different questions. **Read the AWS study to decide what to build
+on; read the peers study to decide what to say when a buyer names a competitor.**
+
+## Also read this — the technical peer comparison
+
+**[o2.services vs the WASM cloud and its neighbours](o2-vs-peers-study.md)** — ~3,700 words,
+eight sections, one comparison matrix. Assumes o2 is *complete* — every roadmap phase executed,
+Helia/IPFS integrated, RFC-0003 certificates implemented, decentralized DB and blob storage
+shipped — and asks how it then weighs against wasmCloud, Cloudflare Workers, the Internet
+Computer, Bacalhau/Fluence, BOINC and Apple Private Cloud Compute.
+
+Its finding, in one line: **the WASM-cloud category solved deployable server-side Wasm and has
+no answer to an executor that lies** — their sandbox protects the host from the guest, this one
+protects the requester from the host, and those are inverse problems. It identifies four claims
+no competitor occupies, and ranks the structural weaknesses that survive completion. Like the
+AWS study it argues against the platform in places: §7 carries the negative evidence on
+volunteer-compute supply, including that Folding@home is 99.4% below its 2020 peak and that paid
+consumer capacity has overtaken all unpaid volunteer computing.
+
+Produced by eight parallel research streams against primary sources, each claim tier-tagged by
+whether the agent verified it with its own tool call. §8 lists what is unverified, what was
+retracted, and what must not be quoted — including one stream that wrote up delegated topics
+whose agents never reported, disclosed it, and retracted ~30 claims. It also closes an open
+question in `CLAUDE.md` with an original measurement: cross-architecture NaN divergence in V8 is
+real, systematic, and produces a permanent quorum split rather than a flaky minority.
+
+*No renderings are checked in for this one — it has no diagrams and the markdown is canonical.*
+
+## Read this — the costed architecture study
 
 **[Building on a P2P Cloud vs. Building on AWS](o2-vs-aws-study.md)** — ~20,800 words,
 thirteen sections, three architecture diagrams, a 65-term glossary, and every price cited to

@@ -23,11 +23,23 @@
  * ## THE GATED RELAY IS AN AGENT PROCESS, AND IT IS NOT A SEED
  *
  * **A `bin/seed.ts` passed `--trusted-issuer` is not a gated relay**, and a reading that
- * assumed otherwise would grade the wrong door. 24-01 hardcoded the seed's `relayAdmission`
- * posture **open** at `seed-server.ts`'s `FabricNode.start` — *"not derived from
- * `trustedIssuers` … because the two are different questions"* — and 24-03 kept a seed-side
- * admission flag out of scope. `--trusted-issuer` on a seed picks whose certificate it
- * *believes about a peer it is already talking to*; who gets **in** is `relayAdmission`.
+ * assumed otherwise would grade the wrong door. That much is unchanged and is why the relay
+ * below is an agent: `--trusted-issuer` on a seed picks whose certificate it *believes about a
+ * peer it is already talking to*; who gets **in** is `relayAdmission`. The two are different
+ * questions and 24-01's *"not derived from `trustedIssuers`"* still stands.
+ *
+ * **Corrected 2026-08-06 by Plan 24-07, and the replaced sentence is quoted rather than swapped
+ * out.** This paragraph continued: *"24-01 hardcoded the seed's `relayAdmission` posture
+ * **open** at `seed-server.ts`'s `FabricNode.start` … and 24-03 kept a seed-side admission flag
+ * out of scope."* The second half is now false. Plan 24-06 added
+ * `SeedServerOptions.relayAdmission` as a **required** field and `bin/seed.ts --admit-issuer`,
+ * so `seed-server.ts` reads an operator's value where it once held a literal, and a seed **can**
+ * be told to close. The correction is written out rather than applied silently, because a
+ * comment asserting a mechanism is absent is the exact shape this repository has been bitten by:
+ * a reader who believes it stops looking. What did **not** change is the default — that
+ * binary's ternary has the open literal as its absent arm — so every reading in this file
+ * stands unaltered. The fabric-wide reading that turns the new knob is
+ * `closed-fabric-agents.node.test.ts`.
  *
  * So the relay below is `bin/agent.ts --port 0 --admit-issuer <hex>`, which 24-03 task 2A
  * built for exactly this reading, and its posture is asserted **off its own handshake line**
@@ -244,33 +256,58 @@ async function stopAgent(agent: Agent): Promise<void> {
  *
  * Defined locally rather than imported: importing a helper from another `.test.ts`
  * re-registers that file's whole suite — see the note in `certificate-verification.node.test.ts`.
+ *
+ * ## `observed` is AWAITED, and the correction that made it so is recorded rather than swapped
+ *
+ * `24-05-SUMMARY.md`'s R1 asked for this repair here, and stated its reason as: *"Its `until`
+ * and `stays` take `observed?: () => unknown` and are passed **async** thunks at four call
+ * sites"*. **That sentence is false about this file, and it was checked mechanically before it
+ * was acted on rather than inherited.** Every one of the eight `observed` thunks in this file
+ * is synchronous; what is async is the *predicate*, which both helpers already awaited. So the
+ * `{}` failure 24-05 measured could not occur here as written.
+ *
+ * What *was* wrong is narrower and was found by looking: at the five sites whose predicate is a
+ * round trip through {@link advertisedBy}, the `observed` thunk reported
+ * `{ memberRelays: member.relays }` — a **handshake snapshot taken at spawn and never updated**
+ * — while the thing being waited on is the relay's *live* advertisement. For an admitted arm
+ * that snapshot is a non-empty circuit list, so a timeout there printed a value that **looks
+ * like success** beside a reading that had failed. That is worse than vacuous: `{}` says
+ * nothing, and a stale success says the wrong thing. Those five thunks now read the
+ * advertisement they are waiting on, keep the snapshot beside it so nothing is lost, and are
+ * therefore async — which is what makes this `await` load-bearing rather than prospective.
+ *
+ * No assertion in this file was changed by that repair, and none of its measurements moved.
  */
 async function until(
   predicate: () => boolean | Promise<boolean>,
   timeoutMs: number,
   what: string,
-  observed?: () => unknown,
+  observed?: () => unknown | Promise<unknown>,
 ): Promise<void> {
   const deadline = Date.now() + timeoutMs
   while (Date.now() < deadline) {
     if (await predicate()) return
     await new Promise((r) => setTimeout(r, 100))
   }
-  const tail = observed === undefined ? '' : `; observed ${JSON.stringify(observed())}`
+  const tail = observed === undefined ? '' : `; observed ${JSON.stringify(await observed())}`
   throw new Error(`timed out waiting for ${what}${tail}`)
 }
 
-/** Hold `predicate` false for the whole window, or fail naming when it first became true. */
+/**
+ * Hold `predicate` false for the whole window, or fail naming when it first became true.
+ *
+ * `observed` is awaited for the reason written out at {@link until} immediately above.
+ */
 async function stays(
   predicate: () => boolean | Promise<boolean>,
   windowMs: number,
   what: string,
-  observed?: () => unknown,
+  observed?: () => unknown | Promise<unknown>,
 ): Promise<void> {
   const started = Date.now()
   while (Date.now() - started < windowMs) {
     if (await predicate()) {
-      const tail = observed === undefined ? '' : `; observed ${JSON.stringify(observed())}`
+      const tail = observed === undefined ? '' : `; observed ${JSON.stringify(await observed())}`
       throw new Error(`${what} stopped holding after ${Date.now() - started}ms${tail}`)
     }
     await new Promise((r) => setTimeout(r, 100))
@@ -550,10 +587,18 @@ describe('criterion 8 — the three clauses, across real processes, in three arm
    *
    * The instrument is the relay's `reservations` answer taken over the fabric's own RPC —
    * the surface `findReservedPeers` reads and the only advertisement surface a gated relay
-   * has. The seed's `/bootstrap.json` is the other, and it is **not read here**: a seed's
+   * has. The seed's `/bootstrap.json` is the other, and it is **not read here**: this fixture
+   * builds no seed, and pointing joiners at a seed they never reserved on would produce an
+   * absence for want of asking rather than for want of a certificate.
+   *
+   * **Corrected 2026-08-06 by Plan 24-07.** The reason given here was: *"a seed's
    * `relayAdmission` is hardcoded open (`seed-server.ts`), so it advertises an uncertificated
-   * peer that reserved on it, and pointing joiners at a seed they never reserved on would
-   * produce an absence for want of asking rather than for want of a certificate.
+   * peer that reserved on it"*. That premise is now false — Plan 24-06 made the field a
+   * required `SeedServerOptions` option and added `bin/seed.ts --admit-issuer` — so the reason
+   * this case does not read `/bootstrap.json` is the fixture's shape and not the seed's posture.
+   * The reading itself is unchanged and no assertion below moved.
+   * `closed-fabric-agents.node.test.ts` reads `/bootstrap.json` off a **closed** seed process,
+   * with a paired presence and absence.
    *
    * **Every absence is paired with a presence in the same list, in the same run**, so the
    * reading cannot be satisfied by an empty list.
@@ -572,7 +617,7 @@ describe('criterion 8 — the three clauses, across real processes, in three arm
       async () => (await advertisedBy(reader, relay.peerId)).includes(member.peerId),
       RESERVATION_BUDGET_MS,
       'the enrolled arm to appear in the relay’s advertisement',
-      () => ({ memberRelays: member.relays }),
+      async () => ({ relayHolds: await advertisedBy(reader, relay.peerId).catch(String), memberRelays: member.relays }),
     )
 
     const advertised = await advertisedBy(reader, relay.peerId)
@@ -614,7 +659,7 @@ describe('criterion 8 — the three clauses, across real processes, in three arm
       async () => (await advertisedBy(reader, relay.peerId)).includes(member.peerId),
       RESERVATION_BUDGET_MS,
       'the enrolled arm to appear in the relay’s advertisement',
-      () => ({ memberRelays: member.relays }),
+      async () => ({ relayHolds: await advertisedBy(reader, relay.peerId).catch(String), memberRelays: member.relays }),
     )
 
     // Everything the reader knows about anybody, derived from the one answer it was given.
@@ -669,13 +714,16 @@ describe('criterion 8 — the three clauses, across real processes, in three arm
       async () => (await advertisedBy(reader, relay.peerId)).includes(member.peerId),
       RESERVATION_BUDGET_MS,
       'the enrolled arm to obtain a reservation',
-      () => ({ memberRelays: member.relays }),
+      async () => ({ relayHolds: await advertisedBy(reader, relay.peerId).catch(String), memberRelays: member.relays }),
     )
     await stays(
       async () => (await advertisedBy(reader, relay.peerId)).includes(outsider.peerId),
       ABSENCE_WINDOW_MS,
       'the wrong-issuer arm staying out of the reservation store',
-      () => ({ outsiderRelays: outsider.relays }),
+      async () => ({
+        relayHolds: await advertisedBy(reader, relay.peerId).catch(String),
+        outsiderRelays: outsider.relays,
+      }),
     )
 
     // It really did enrol, against a provider that really is a different one.
@@ -735,8 +783,21 @@ describe('criterion 8 — the three clauses, across real processes, in three arm
    * refused, and it gets in nowhere. The clause holds. What it does **not** license is reading
    * "cannot join the fabric" as a property of the fabric rather than of a relay: any
    * relay-capable peer an unadmitted node can reach and that has not been told to close will
-   * admit it. In this repository that includes every `bin/agent.ts --port` without
-   * `--admit-issuer`, and **every `bin/seed.ts`**, whose posture 24-01 hardcoded open.
+   * admit it. In this repository that includes every `bin/agent.ts --port` and every
+   * `bin/seed.ts` that was **not passed `--admit-issuer`**.
+   *
+   * **Corrected 2026-08-06 by Plan 24-07, with the replaced clause quoted.** That sentence
+   * ended: *"and **every `bin/seed.ts`**, whose posture 24-01 hardcoded open."* The word doing
+   * the work there was *every*, and it is now false: Plan 24-06 gave `SeedServerOptions` a
+   * required `relayAdmission` and `bin/seed.ts` an `--admit-issuer`, so a seed's posture is a
+   * deployment choice like an agent's. The **default** did not move — a seed told nothing still
+   * admits every peer that completes a handshake — so this case's own finding is untouched and
+   * so is the fixture it measures, in which nobody was told to close.
+   *
+   * What follows from the correction is that "the fabric is only as closed as its most open
+   * relay" is a statement about a **deployment** rather than about a mechanism that has no
+   * knob. `closed-fabric-agents.node.test.ts` builds the other deployment — every relay-capable
+   * peer told to close — and reads the absence over the whole set.
    *
    * Not a defect of the gate. `denyInboundRelayReservation` is per-relay by construction and
    * 24-CONTEXT chose it for exactly that property. It is a statement about deployment, and it
@@ -761,7 +822,11 @@ describe('criterion 8 — the three clauses, across real processes, in three arm
       async () => (await advertisedBy(reader, otherProvider.peerId)).includes(outsider.peerId),
       RESERVATION_BUDGET_MS,
       'the arm the gate refused to turn up in the open provider’s reservation store',
-      () => ({ outsiderRelays: outsider.relays, stderr: outsider.stderr().slice(-300) }),
+      async () => ({
+        openProviderHolds: await advertisedBy(reader, otherProvider.peerId).catch(String),
+        outsiderRelays: outsider.relays,
+        stderr: outsider.stderr().slice(-300),
+      }),
     )
 
     // eslint-disable-next-line no-console -- the topology IS this case's product; a reading

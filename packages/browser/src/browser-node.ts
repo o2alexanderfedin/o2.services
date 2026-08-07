@@ -305,6 +305,40 @@ export interface BrowserNodeOptions {
    * node kind to do it; four mechanisms were simply absent here, and an absence
    * partitions just as effectively as a branch.
    *
+   * ## That clause is still false in one direction — CORRECTED 2026-08-06
+   *
+   * *"all nodes have equal functionality, and the only difference is discovery"* is quoted
+   * from the paragraph above, and *"the one this option exists to make true again"*
+   * overstates what this field achieved. It is corrected here rather than deleted because
+   * the argument it makes is the right one and a reader needs the sentence that outran the
+   * code.
+   *
+   * **What this field closed is the half where a tab could not *be* verified.** A tab can
+   * now hold a certificate, so a Node peer started with `--trusted-issuer` will take blocks
+   * from it. That half is real and it is what AUTH-01 asked for.
+   *
+   * **The other half is open, and this module is the reason.** Measured on this file:
+   * nothing here constructs a peer verifier, `#compose` installs no selection gate, and
+   * `PeerVerifier` appears in this file only in the paragraph above — as prose. So **a tab
+   * takes blocks from any peer**, while the Node peer it just enrolled with may be refusing
+   * half the fabric. The verification is one-way, and the docblock above argues against
+   * exactly the asymmetry the code below has.
+   *
+   * **It is structural rather than a branch on node kind, which is the same shape the
+   * paragraph above describes.** `PeerVerifier` lives in `@o2/node`; `@o2/browser` does not
+   * depend on that package and must not, so the absence here is a package boundary and not
+   * a decision about tabs — the identical *"four mechanisms were simply absent"* argument,
+   * one mechanism later.
+   *
+   * **Not settled here, and deliberately not.** This is `DEFICIENCIES.md` **D09** (*"the
+   * browser tier structurally cannot verify peers, because `PeerVerifier` lives in
+   * `@o2/node`"*) and the remaining leg of `REQUIREMENTS.md` **AUTH-02**, which records
+   * *"the browser tier verifies nobody … it does not verify in return, and that asymmetry
+   * is the remaining leg."* **Phase 22 owns the move**, and 24-03, 24-04 and 24-08 each
+   * re-state that owner rather than acting on it. This correction changes what the comment
+   * claims; it changes nothing about what the code does, and the field's shape below is
+   * unaffected.
+   *
    * **`userPrivateKey`, not a `userKey` hex string, and the difference is load-bearing.**
    * `EnrollmentAuthority.enrol` requires an `ownerProof` — the *user's* signature over
    * the same challenge the node signs — and refuses by name as `bad-owner-proof` without
