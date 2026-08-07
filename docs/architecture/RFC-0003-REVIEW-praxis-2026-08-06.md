@@ -130,3 +130,104 @@ Otherwise a legitimate bundle can be run in a **more privileged environment**, o
 Recorded 2026-08-06. Solutions to the four points are under investigation; findings will be
 written up separately rather than folded silently into the RFC, so the review and the response
 stay distinguishable.
+
+---
+
+# Second message — same reviewer, 2026-08-06 16:51
+
+## Verbatim (ru)
+
+> **5. CM-Recovery — самый опасный сертификат в дереве.**
+> Он сейчас описан как emergency rotation/recovery/revocation, то есть потенциально способен
+> переписать доверие целиком. Я бы отделила:
+> - routine rotation;
+> - emergency revoke;
+> - root rollover;
+> - account recovery.
+>
+> Для CR/CM-Recovery очень хочется threshold/M-of-N, задержку на root rollover, независимый
+> recovery key и прозрачный append-only log. Иначе компрометация одной recovery-ветки — это
+> аккуратно оформленный master key.
+>
+> **6. Relay registration защищает доказательство владения ключом, но не объявленные endpoints.**
+> Nonce + timestamp защищают от прямого replay, однако нужен policy на endpoint takeover: TTL
+> регистрации, sequence number/monotonic generation, запрет старой записи перетирать новую,
+> привязка endpoint-claim к конкретной сессии/transport key и лимиты на churn. И не давать relay
+> превращаться в oracle: ответы о существовании node/application тоже могут быть чувствительными
+> метаданными.
+>
+> **7. Нужна отдельная спецификация криптографических профилей.**
+> Вопрос "choice of algorithms" пока в open questions, но до реализации нужно назвать минимум:
+> допустимые algorithms, запреты на SHA-1/слабые curves, правила DER canonicalization,
+> certificate parsing limits, максимальную глубину цепи, лимиты размеров extensions и strict
+> handling duplicate extensions. Парсер X.509 — огромная поверхность атак; "reject on ambiguity"
+> должен стать набором точных отказов.
+>
+> Что бы я сделала следующим коммитом: не код, а маленький **RFC-0003 testable profile** с тремя
+> вещами:
+> - точной схемой `AuthorityRule` и алгоритмом attenuation;
+> - таблицей freshness/revocation policy для каждого типа операций;
+> - набором adversarial fixtures: widened wildcard, expired parent + live child, stale epoch
+>   replay, duplicate extension, same issuer key/different parent cert, valid code hash +
+>   altered runtime envelope.
+>
+> Тогда архитектуру можно будет не только обсуждать, но и гонять через независимый validator.
+
+---
+
+## English rendering
+
+### 5. CM-Recovery is the most dangerous certificate in the tree
+
+It is currently described as emergency rotation / recovery / revocation — i.e. potentially able
+to **rewrite trust entirely**. These should be separated:
+
+- routine rotation
+- emergency revoke
+- root rollover
+- account recovery
+
+For CR and CM-Recovery one badly wants **threshold / M-of-N**, a **delay on root rollover**, an
+**independent recovery key**, and a **transparent append-only log**. Otherwise compromise of a
+single recovery branch is *a neatly packaged master key*.
+
+### 6. Relay registration protects proof of key possession, but not the announced endpoints
+
+Nonce + timestamp defend against direct replay, but a policy on **endpoint takeover** is needed:
+
+- registration TTL
+- sequence number / monotonic generation
+- a prohibition on an old record overwriting a newer one
+- binding the endpoint-claim to a **specific session / transport key**
+- churn limits
+
+And: **do not let the relay become an oracle.** Answers about the existence of a node or an
+application are themselves potentially sensitive metadata.
+
+### 7. A separate cryptographic-profile specification is needed
+
+"Choice of algorithms" currently sits in open questions, but before implementation the minimum
+must be named:
+
+- permitted algorithms
+- bans on SHA-1 and weak curves
+- DER canonicalisation rules
+- certificate parsing limits
+- **maximum chain depth**
+- extension size limits
+- strict handling of **duplicate extensions**
+
+An X.509 parser is an enormous attack surface; *"reject on ambiguity"* has to become a **set of
+precise refusals**.
+
+### What the reviewer would do in the next commit
+
+**Not code — a small RFC-0003 *testable profile*** with three things:
+
+1. an exact `AuthorityRule` schema and attenuation algorithm;
+2. a **freshness / revocation policy table per operation type**;
+3. a set of **adversarial fixtures**: widened wildcard · expired parent + live child · stale
+   epoch replay · duplicate extension · same issuer key but different parent cert · valid code
+   hash + altered runtime envelope.
+
+> Then the architecture can be not only discussed, but run through an independent validator.
