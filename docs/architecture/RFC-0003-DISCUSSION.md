@@ -136,22 +136,33 @@ the conversation.
 > boundary test vectors. Otherwise a bug in the subset check is **privilege escalation**, not
 > merely a bug.
 
-> **o2.services** — Agreed, and there is a live defect here rather than only a specification gap.
+> **o2.services** — Agreed on the remedy, but we want to push back on the framing, because the
+> investigation reversed our own first answer.
 >
-> §5 says a child's actions must be a subset of its parent's. **The verifier does not check
-> that.** `verifyChain` checks, per link: signature, `expiresAt > now`,
-> `link.abilities.includes(options.ability)`, `link.ownerId === options.ownerId`, and that the
-> previous link granted `delegate`. It does **not** check that a child's ability set ⊆ its
-> parent's. A link can widen abilities it was never granted; the widening is merely masked for the
-> single ability actually requested through that chain.
+> **First, the RFC contradicts itself eight lines apart.** §5's bullets describe a *pairwise,
+> issuance-time* check enforced by the issuer. The "Conceptually: `effective authority =
+> intersection(...)`" line describes a *whole-chain fold* enforced by the verifier. **Only the
+> second is enforceable without trusting every intermediate**, and that ambiguity — not the match
+> operators — is the real escalation surface.
 >
-> So the RFC must say **verification-time**, in the imperative. Issuance-time is unenforceable —
-> the issuer is the attacker.
+> **Second: `attenuates` does not exist in this codebase, and its absence turns out to be a
+> feature.** Our first reading was that the missing subset check is a live defect. It isn't.
+> `verifyChain` never compares link *i* to link *i−1*. It tests the **requested** ability against
+> **every** link, and folds expiry with `Math.min` under its own comment *"The chain is only valid
+> until its earliest expiry."* So a child link that widens its abilities is **inert, not
+> dangerous** — nothing can be exercised through the chain that every link did not independently
+> grant. The repo reached Biscuit's monotonicity property without going looking for it.
 >
-> The good news is that the intersection rule §5 states is **literally what the code already
-> computes**: `verifyChain` requires the ability in every link and returns
-> `expiresAt = Math.min(...chain.map(link => link.expiresAt))`. For capabilities specifically,
-> adopting the RFC is a re-encoding rather than a redesign.
+> That matters for your framing directly: **with the fold as the security boundary, a soundness
+> bug in `attenuates` is not a privilege escalation.** It is an issuance-time hygiene failure. We
+> recommend keeping the fold as the boundary and demoting `attenuates` to hygiene, rather than
+> making the pairwise check load-bearing and inheriting the escalation risk you're warning about.
+>
+> The caveat is that this is only sound *today* because `Ability` is three atoms matched by
+> equality. The moment richer match operators arrive — which is exactly what your point asks for —
+> the fold needs the same care. TUF is the useful precedent here: it enforces attenuation by
+> **chain intersection with no subset requirement at all**, which is the design we've effectively
+> already shipped.
 >
 > Two things we'd add to your list:
 >

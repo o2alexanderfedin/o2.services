@@ -347,8 +347,10 @@ Also forbidden:
    `prefix([])` normalises to `any`. `cidr` host bits are zeroed. `/0` normalises to `any`.
 3. Path segments are percent-decoded **exactly once**, then re-encoded canonically. A `%` that
    survives one decode is a literal `%`. Double decoding is forbidden.
-4. Segments equal to `.` or `..` are **refused at parse**, not resolved. Resolving is where
-   differential-parsing bugs live; refusing is decidable and has no ambiguity.
+4. Segments equal to `.` or `..`, **and empty interior segments**, are **refused at parse**, not
+   resolved or collapsed. Resolving is where differential-parsing bugs live; refusing is decidable
+   and has no ambiguity. Empty segments are named explicitly because collapsing them is the
+   intuitive fix and it is wrong — see vector `PP-01b`.
 5. No case folding, ever. Unicode case folding is version- and locale-dependent, so folding would
    reintroduce reason 3 above by a different route. Matching is byte-exact after step 3.
 
@@ -399,6 +401,30 @@ permits". Kinds must match, or the parent must be `any`.
 | `cidr(4,…)` | `cidr(6,…)` | **false** — see vector `CI-05` |
 | `quota(p)` | `quota(c)` | `c ≤ p` |
 | any other kind pair | | **false** |
+
+#### Two implementation traps, both with recent CVEs, both live in the loop above
+
+**Trap 1 — the existential/universal confusion.** The loop is `for d in dimensions(P)` with an
+early `return false`, i.e. a **universal** quantifier. Writing it as "does *some* dimension
+contain?" inverts the check. This is not a hypothetical slip: CVE-2026-43886 (Outline, CVSS 8.2,
+2026) is exactly this — `Array.some()` where `Array.every()` was required in an OAuth scope subset
+check, so `scope=read *` short-circuits on `read` and returns the array **still containing** `*`.
+Normative for implementers: the subset check is `every`, and a test must exist whose only
+difference from a passing case is a second dimension that fails.
+
+**Trap 2 — vacuous truth over an empty or absent constraint.** `∀x ∈ ∅` is true, so a check
+written over "the constraints the child mentions" passes trivially when the child mentions none.
+AWS documents this as shipped behaviour for `ForAllValues`: *"It also returns `true` if there are
+no context keys in the request"* — an **absent** attribute satisfies an **arbitrarily restrictive**
+constraint, and AWS's answer is a manual `Null`-check workaround rather than a fix.
+
+This is precisely why §A.4.2 iterates `dimensions(P)` — the **parent's** dimensions — and not the
+child's, and why an absent child dimension resolves to `pc` (inherit) rather than to `TOP(d)`.
+Iterating the child's dimensions would make an empty child rule attenuate anything. The related
+widening trap is AWS's incomplete-ARN rule (*"specifying `arn:aws:sqs` is equivalent to
+`arn:aws:sqs:*:*:*`"*): **under-specification silently widens to maximal.** A capability format
+must do the opposite, which is what §A.4.1's fail-closed unknown-kind rule and this loop's
+direction together achieve.
 
 #### The monotonicity property `attenuates` must preserve
 
@@ -456,7 +482,16 @@ Why fold rather than pairwise, in order:
    because the parent link is also evaluated. This is the same guarantee Biscuit obtains from
    append-only blocks, and it means `attenuates` can be demoted to an **issuance-time hygiene
    check** whose failure costs a confusing credential, not a breach.
-4. **Fold is associative and commutative, so it is order-independent**, and cannot be confused by
+4. **A deployed spec already does exactly this, and its wording should be borrowed.** TUF contains
+   **no subset requirement on delegations at all**; attenuation is enforced entirely client-side:
+   *"Clients MUST check that a target is in one of the trusted paths of **all roles in a delegation
+   chain**, not just in a trusted path of the role that describes the target file."* A TUF
+   delegatee may declare `paths: ["**"]` and nothing rejects it — a conforming client refuses
+   anything outside the delegator's paths regardless. That is "an amplifying link is inert",
+   shipped. It also carries the honest caveat this RFC must repeat: the guarantee **rests entirely
+   on client conformance**, which is acceptable here only because the verifier is the party being
+   protected.
+5. **Fold is associative and commutative, so it is order-independent**, and cannot be confused by
    a reordered chain. (Reordering is separately prevented by the `broken-link` check, so this is
    belt and braces — which is the correct amount for an authorization decision.)
 
@@ -551,7 +586,8 @@ carries no claim.
 
 | id | parent | child | expect | why |
 |---|---|---|---|---|
-| `PP-01` | `prefix(["a"])` | `prefix(["ab"])` | **FAIL** | The canonical bug. String-prefix says pass (`"/a"` is a prefix of `"/ab"`); segment-prefix compares `"a" !== "ab"`. Any implementation that passes this is escalating. |
+| `PP-01` | `prefix(["a"])` | `prefix(["ab"])` | **FAIL** | The canonical bug. String-prefix says pass (`"/a"` is a prefix of `"/ab"`); segment-prefix compares `"a" !== "ab"`. Any implementation that passes this is escalating. See the evidence below — this is not hypothetical. |
+| `PP-01b` | `prefix(["admin"])` | request path `//admin` | **FAIL to match the parent, and REJECT AT PARSE** | Empty segments. A naive split on `/` yields `["", "admin"]`, which is *not* under `["admin"]` — so a **deny** rule silently stops applying. Normalisation MUST refuse empty interior segments rather than collapse them; collapsing re-creates the same divergence one layer down. |
 | `PP-02` | `prefix(["a"])` | `prefix(["a","b"])` | PASS | `/a/b` is under `/a`. |
 | `PP-03` | `prefix(["a"])` | `prefix(["a"])` from input `"/a/"` | PASS | Trailing separator normalises away; the two encode identically (tests §A.4.1 invariant). |
 | `PP-04` | `prefix(["a"])` | input `"/a/../b"` | **REJECT AT PARSE** | `..` refused, not resolved. Returns a parse failure, not `false`, so the two outcomes stay distinguishable. |
@@ -561,6 +597,37 @@ carries no claim.
 | `PP-08` | `prefix(["a","b"])` | `prefix(["a"])` | **FAIL** | Child broader. |
 | `PP-09` | `prefix([])` ≡ `any` | anything | PASS | Top. |
 | `PP-10` | `prefix(["a"])` | `set(["a/b"])` after decode → atom containing `/` | **FAIL** | Same trap as `PP-06`, via the one admitted cross-kind rule. |
+
+**`PP-01` is the single most-evidenced failure in the corpus, and the RFC should say so.** Four
+independent confirmations, each of a different kind:
+
+1. **A capability spec forbids it normatively.** UCAN 1.0's `cmd` rule: *"Shorter Commands prove
+   longer paths… `/crypto` MAY be used to prove `/crypto/sign` but MUST NOT prove `/stack/pop` or
+   `/cryptocurrency`."* `/crypto` vs `/cryptocurrency` **is** `/a` vs `/ab`, called out and
+   forbidden inside a delegation format.
+2. **The nearest prior art has the bug.** SPKI's `(* prefix <byte-string>)` is defined over byte
+   strings — a raw string prefix. §A.4's design takes SPKI's structure and **must not** take its
+   prefix semantics.
+3. **Kubernetes' own privilege-escalation guard has the bug.** `nonResourceURLCovers` in
+   `policy_comparator.go` is `strings.HasSuffix(ownerPath, "*") && strings.HasPrefix(subPath, …)`
+   — raw `strings.HasPrefix`, so `/metrics*` covers `/metricsXYZ`. There is no CVE (the surface is
+   admin-controlled and the behaviour is intended), and that is exactly why it belongs here: this
+   shape of check survives review *inside an escalation guard* because it looks correct.
+4. **`PP-01b`'s variant shipped as a CVE.** Istio CVE-2021-31920: a `DENY` policy on `/admin`
+   fails to block `//admin`.
+
+And the reason `PP-04`/`PP-05` **reject** rather than normalise is itself borrowed: SPIRE
+CVE-2021-27099 was fixed by rejecting non-canonical identifiers at the API boundary rather than
+normalising them during the check. Normalising during the check means two code paths must agree
+about canonical form; rejecting at the boundary means only one has to.
+
+The general lesson the RFC should state in one line, evidenced by Apache Shiro's **six** CVEs in
+two years (CVE-2020-1957, -11989, -13933, -17510, CVE-2021-41303, CVE-2022-32532): the bug was
+never in either path matcher. It was in **assuming two independently-written matchers agree about
+set membership.** This is the same failure mode as the TUF divergence in §B.6.2, where python-tuf
+(`fnmatch`, case-insensitive on Windows) and tuf-js (segment-count + `minimatch`) make **different
+authorization decisions on identical metadata**. It is why §A.4.1 forbids regex on cross-engine
+grounds and why the matcher must be pinned normatively, not left to "a path match".
 
 #### Wildcard vs literal
 
@@ -958,10 +1025,30 @@ Normative constraints:
 - `requiredFeatures` **MUST** be derived from the artifact's own `target_features` section, never
   hand-written. `readTargetFeatures` already does this and already refuses a truncated section
   rather than reporting "needs nothing".
+- **`featureVocabulary` MUST be named explicitly, and this is not pedantry — five vocabularies
+  disagree on the same features.** In the `target_features` dialect SIMD is `simd128` and threads
+  is **`atomics`**; in `wasm-feature-detect` the same two are `simd` and `threads`. `gc` has no
+  `target_features` spelling at all. An RFC that writes "forbid `threads`" while the artifact
+  declares `atomics` has written a rule that **never fires**. Normative: the envelope carries
+  `featureVocabulary: "target_features"`, all names in `requiredFeatures`/`forbiddenFeatures` are
+  in that vocabulary, and the runtime probe result is translated into it through an explicit
+  mapping table — never compared string-to-string.
 - `requiredFeatures ∩ forbiddenFeatures` **MUST** be empty; a violation is a refusal, not a
   precedence question.
-- `forbiddenFeatures` **MUST** contain `relaxed-simd` and `threads` for any artifact whose output
-  is compared across nodes under N-version redundancy.
+- `forbiddenFeatures` **MUST** contain `relaxed-simd` and `atomics` for any artifact whose output
+  is compared across nodes under N-version redundancy. (`atomics` is the `target_features`
+  spelling of threads; see above.)
+- **`target_features` is publish-time metadata that no engine enforces.** It is a custom section,
+  so V8 never reads it. It states the requirement; `wasm-feature-detect` plus the refusal in
+  §B.4.2 is what enforces it. The RFC must not imply the section constrains anything by itself.
+- One discrepancy to check before this is implemented, flagged rather than asserted: the WebAssembly
+  tool-conventions `Linking.md` layout documents **two** prefix bytes, `0x2b` (`+`) and `0x2d`
+  (`-`), while `tools/aot/features.ts` in this repository implements three —
+  `FeatureUse = 'used' | 'disallowed' | 'required'` with `=` for the third. Either the repository
+  parses a historical LLVM prefix the current document dropped, or it accepts a byte the format
+  does not define. **Unverified in either direction**; `readTargetFeatures`'s
+  `{ kind: 'unknown-prefix' }` failure means the fail-closed behaviour is already there whichever
+  answer is right.
 - `dependencies.imports` **MUST** equal `WebAssembly.Module.imports(module)` computed locally by
   the executing node. This is the one dependency claim in the whole envelope that **any node can
   verify for itself, offline**, and it should therefore be the normative one — see §B.7 for why
@@ -1073,25 +1160,61 @@ the policy into the signed envelope makes a violation **attributable**; it does 
 
 ## B.6 Prior art — what transfers to a browser + Node fabric with no always-online authority
 
-> Citations below are given by spec and field name. Field names marked **(verify)** were written
-> from recall and MUST be checked against the specification before they are quoted normatively in
-> the RFC. Doing that check is a follow-up item, not a completed one.
+> Field names and quotations below were checked against the specifications. Items that could
+> **not** be verified are listed in §B.6.3 and MUST NOT be quoted as fact.
+
+### B.6.1 Capability algebra (point 3)
 
 | system | model | verdict |
 |---|---|---|
-| **UCAN 0.x** — `iss`/`aud`/`att`/`prf`/`exp`/`nnc`, attenuation as "subset of `att`" | leaves the subset relation over arbitrary resource/ability strings to the resource server | **DOES NOT TRANSFER as-is** — it is the option the review is warning against, and it is the reason §A.3 Option 1 is rejected. What transfers is the *envelope*: `aud` ≡ our audience binding, `nnc` ≡ `jobNonce`, `prf` ≡ the chain |
-| **UCAN 1.0 policy direction** — replaced ad-hoc `att` subsetting with a small predicate language over the invocation **(verify: operator list)** | evaluate every policy in the chain against the concrete invocation; never decide policy-implies-policy | **TRANSFERS — and it is the chain rule of §A.4.3.** Independent confirmation that "evaluate at every link against the request" is the tractable answer |
-| **Biscuit** — append-only blocks, each may only add checks; monotonic Datalog | attenuation sound by construction, no subset predicate exists | **PARTIALLY TRANSFERS** — the *property* is adopted (§A.4.3 point 3); the *mechanism* is rejected for bundle size, unbounded verification cost, and non-enumerability |
-| **Macaroons** — first-party caveats AND-composed; third-party caveats need a discharge | AND-composition makes attenuation trivially sound; the hard part is the caveat *language* | **PARTIALLY TRANSFERS** — AND-composition is what §A.4.1 does. **Third-party caveats DO NOT TRANSFER**: a discharge macaroon requires an online third party, which this fabric does not have |
-| **SPKI/SDSI (RFC 2693)** — 5-tuple (issuer, subject, delegation, authorization, validity); tuple reduction; tag intersection with `(* set …)`, `(* prefix …)`, `(* range …)` **(verify: exact star-forms)** | closed, typed intersection over a small kind set, with no authority server | **TRANSFERS — the closest prior art to §A.4.** It is the same design: a small closed kind set with a defined intersection, precisely so that reduction is decidable offline. §A.4's kinds are SPKI's plus `cidr`, `window` and `quota` |
-| **in-toto attestation** — `Statement { _type, subject[].digest, predicateType, predicate }`; DSSE PAE | typed statement about a digest, verifiable offline with a key | **PARTIALLY TRANSFERS** — the *shape* is adopted in §B.4.1; the *serialization* is rejected in §B.4.4 |
-| **SLSA provenance v1** — `buildDefinition.buildType`, `.externalParameters`, `.resolvedDependencies[]`, `runDetails.builder.id` **(verify)** | describes how an artifact was produced | **PARTIALLY TRANSFERS.** `resolvedDependencies` ≈ our `dependencies`; `buildType` ≈ `TranslationKey.target`; `builder.id` has **no analogue** here and should not be invented — there is no privileged builder in a fabric with no authority. Note it answers *how it was built*, not *how it may run*, which is the question point 4 actually asks |
-| **Sigstore bundle** | keyless mode requires Fulcio + Rekor to be reachable | **DOES NOT TRANSFER in keyless mode** — needs an always-online authority. The keyed mode is just a detached signature and offers nothing over what `capability.ts` already does with ed25519 |
-| **TUF targets metadata** — threshold signing, expiry, `custom` field | strong rollback and freshness properties | **DOES NOT TRANSFER for this question** — TUF's value is *repository freshness*, which is review point 2's territory, and its snapshot/timestamp roles assume a repository with a publishing cadence |
-| **OCI image manifest + `subject`/referrers (OCI 1.1)** | attach an attestation to a digest, discoverable by API | **PARTIALLY TRANSFERS** — the *pattern* (an object that references another by digest) is exactly `TranslationRecord`. The *referrers API* does not transfer: it is an HTTP registry API, and this fabric resolves by CID |
-| **WASI Preview 2 / component model (WIT worlds)** | a typed interface description that could give an ABI identity | **DOES NOT TRANSFER YET** — preview1 is what the toolchain emits (`CLAUDE.md`), and there is no widely-adopted canonical hash of a WIT world to put in `runtime.abiImplCid`. See §B.7 |
-| **WASM `target_features` custom section** | the producer's own declaration of the feature set | **TRANSFERS — and is already implemented** (`readTargetFeatures`, `FeatureSet.required`). This is the concrete answer to "bind the runtime/ABI" for the feature-set half |
-| **Attestation nonce practice (confidential computing)** | a freshness nonce inside the signed quote | **TRANSFERS** — it is why `jobNonce` and `notBefore/notAfter` are in `Invocation` rather than alongside it |
+| **UCAN v0.10** — `{ $RESOURCE: { $ABILITY: [ $CAVEATS ] } }` | *"a validator SHOULD NOT reject UCANs with resources that it does not know how to interpret"* — a **fail-open instruction at the validator layer**. And caveats were **disjunctive**: *"the caveat array MUST be treated as a logically disjunct (an 'OR', NOT an 'and')"* | **DOES NOT TRANSFER.** It is §A.3 Option 1, and it is worse than the review implies — the unknown-resource rule fails *open*, and OR-composition means adding a caveat can *widen*. §A.4.1's AND-composition and fail-closed unknown-kind rule are the direct inversions of both |
+| **UCAN 1.0** — payload `iss`, `aud`, `sub`, `cmd`, `pol`, `nonce`, `meta`, `nbf`, `exp`; `pol` has 12 operators: `==`, `!=`, `<`, `<=`, `>`, `>=`, `like`, `and`, `or`, `not`, `all`, `any` | *"Policies are syntactically driven, and MUST constrain the `args` field of an eventual Invocation"* — evaluate every policy against the concrete invocation; never decide policy-implies-policy | **TRANSFERS — it is the chain rule of §A.4.3, independently arrived at.** Its `cmd` rule is also the normative statement of vector `PP-01`; quoted in §A.4.6 |
+| **Biscuit** — append-only blocks; monotone by **two** mechanisms | (1) cryptographic: signed payload includes `\0PREVSIG\0 sig_n`, so blocks cannot be stripped or truncated; (2) **logical origin scoping** — *"a rule, check or policy only trusts facts defined: in the authority block; in the authorizer; in the same block."* Datalog **omits negation** (*"This simplifies its implementation and makes the check more precise"*), so stratification is moot | **PARTIALLY TRANSFERS** — the *property* is adopted (§A.4.3 point 3); the *mechanism* is rejected. Note the signature chain **alone would not** stop a holder appending `right("everything")`; origin scoping is load-bearing, not an optimisation. Also: CVE-2022-31053 forged v1's aggregated signatures, and **no published formal audit exists** — do not call Biscuit audited |
+| **Macaroons** — `sig′ = MAC(sig, vId ‖ cId)`, first-party being the degenerate `vId = 0` | AND-composition makes attenuation trivially sound. Verification is fail-closed **by the shape of the check** (build the validated-predicate set, then test membership), **not by a normative MUST** — an implementer who restructures it as "iterate caveats, skip unparseable ones" fails open | **DOES NOT TRANSFER** — corrected from an earlier draft of this document. Verification requires the shared root key, so **every verifier is also a minter**; mutually-untrusting peers cannot verify without gaining forgery power. The paper says so itself: macaroons *"have the clear disadvantage of being verifiable only by the target service."* Third-party caveats additionally need an online discharger |
+| **SPKI/SDSI (RFC 2693)** — 5-tuple `⟨Issuer, Subject, Delegation, Authorization, Validity⟩`; reduction `⟨I1,S1,D1,A1,V1⟩ + ⟨I2,S2,D2,A2,V2⟩ → ⟨I1,S2,D2,AIntersect(A1,A2),VIntersect(V1,V2)⟩` provided `S1 = I2` and `D1 = TRUE`. Star-forms: `(*)`, `(* set …)`, `(* prefix <byte-string>)`, `(* range <ordering> <lower>? <upper>?)`, orderings `alpha numeric time binary date` | closed, typed intersection over a small kind set, no authority server | **TRANSFERS — the closest prior art to §A.4**, and §A.4's kinds are SPKI's plus `cidr`, `window`, `quota`. **But note the flaw this design must not inherit:** `(* prefix …)` is defined over **byte strings**, i.e. a raw string prefix, not segment-aware. **SPKI has precisely the `PP-01` hazard** that UCAN 1.0's `cmd` rule later fixed. The nearest prior art is also the cautionary tale |
+| **Kubernetes RBAC escalation prevention** — *"You can only create/update a role if… You already have all the permissions contained in the role"*, with `escalate` and `bind` as the only named, grantable, auditable exemptions | the one design in the corpus with no CVE against its covers-check | **TRANSFERS as a pattern.** But its own `nonResourceURLCovers` uses raw `strings.HasPrefix` — see `PP-01` in §A.4.6 |
+| **TUF delegation** — see §B.6.2; its attenuation rule is a chain intersection | | **TRANSFERS** — quoted in §A.4.3 as the second independent precedent for the fold |
+
+### B.6.2 Execution envelope (point 4)
+
+| system | model | verdict |
+|---|---|---|
+| **in-toto Statement v1 + DSSE** — `_type`, `subject[]`, `predicateType`, `predicate`; `ResourceDescriptor { name, uri, digest, content, downloadLocation, mediaType, annotations }`; envelope `payload`, `payloadType`, `signatures[].sig`, `signatures[].keyid` | `PAE(type, body) = "DSSEv1" ‖ SP ‖ LEN(type) ‖ SP ‖ type ‖ SP ‖ LEN(body) ‖ SP ‖ body` | **PARTIALLY TRANSFERS** — the *shape* is adopted in §B.4.1; the *serialization* is argued against in §B.4.4, where DSSE's own counter-argument is engaged rather than ignored. Two corrections worth carrying: the digest form is a **bare algorithm key with a bare lowercase-hex value** — the `"sha256:…"` prefixed form **does not exist** — and the wire key is `signatures` (plural) despite singular prose. Hard MUST to copy: *"Implementations MUST NOT re-parse the envelope after verification to pull out the payload."* |
+| **SLSA provenance** — current is **v1.2**; v1.0 and v1.1 are **Retired**. `buildDefinition.{buildType, externalParameters, internalParameters, resolvedDependencies}`, `runDetails.builder.{id, builderDependencies, version}`, `runDetails.{metadata, byproducts}` | *"the parameters SHOULD only contain the actual values passed in through the interface… Metadata about those parameter values, particularly digests of artifacts referenced by those parameters, SHOULD instead go in `resolvedDependencies`"* | **PARTIALLY TRANSFERS.** Three findings that change §B.4.1's framing: (1) **there is NO runtime/ABI field** — `environment` existed in v0.2 and was *renamed to `internalParameters`*; SLSA intends the runtime to be implicit in the `buildType` URI, which is exactly the under-specification point 4 objects to. (2) **there is no `entryPoint` field in v1** — the spec says *"Use `externalParameters[<name>]` instead"*. (3) `builder.id` is *"the sole determiner of the SLSA Build level"* and has **no analogue here** — there is no privileged builder in a fabric of mutually-untrusted volunteers, and inventing one would undo the architecture. SLSA answers *how it was built*, not *how it may run* |
+| **Sigstore bundle** — `Bundle { media_type, verification_material, content: message_signature \| dsse_envelope }`; current media type `application/vnd.dev.sigstore.bundle.v0.3+json` | a ≥v0.2 bundle embeds a Merkle `inclusion_proof` and signed `checkpoint` | **PARTIALLY TRANSFERS** — corrected from an earlier draft. **Bundle + a pre-provisioned `trusted_root.json` verifies genuinely offline**; bundle alone does not, because the keys come from a TUF trust root whose `timestamp.json` is on a ~7-day cycle. Two things that do not transfer: offline verification **cannot detect a split view** (an inclusion proof proves membership in a tree whose head you must independently trust), and `@sigstore/verify` binds to Node's *synchronous* `crypto`, so a browser port is a rewrite, not a polyfill. `@sigstore/bundle` alone has zero Node builtins, so the data model is browser-safe |
+| **TUF targets metadata** — `targets: TARGETPATH → {length, hashes, custom}`; `custom` is *"opaque to the framework"* yet covered by the threshold signature | **the spec contains NO subset requirement on delegations.** Attenuation is enforced client-side: *"Clients MUST check that a target is in one of the trusted paths of **all roles in a delegation chain**, not just in a trusted path of the role that describes the target file"* | **PARTIALLY TRANSFERS.** The delegation rule is **the fold of §A.4.3 in a deployed spec** — a delegatee *may declare* `paths: ["**"]` and nothing rejects it, yet a conforming client refuses anything outside the delegator's paths anyway. That is exactly "an amplifying link is inert". `custom` is also the precedent for putting opaque app semantics under a threshold signature. The **freshness half does not transfer** — that is review point 2 |
+| **OCI 1.1 `subject` / referrers** — `subject` is *"a **weak association** to a separate Merkle DAG structure"*, naming the target **by digest only**; `GET /v2/<name>/referrers/<digest>`, header `OCI-Filters-Applied` | pointing the attestation at the artifact breaks the circularity of embedding a signature in the thing signed | **PARTIALLY TRANSFERS** — the `subject` pointer needs no server and is exactly `TranslationRecord`'s shape. **The part that does not survive is completeness**: a registry can say "here are *all* attestations for this digest" because it saw every write; a fabric can only say "here are the ones I found." **If any part of this design ever treats the *absence* of an attestation as meaningful — revocation especially — that requirement does not transfer.** Also: naming a digest in `subject` is not evidence about it; anyone can mint such an object |
+| **WASI P2 / component model** — `interfacename ::= <namespace> <words> <projection> <interfaceversion>?`, e.g. `wasi:http/types@0.2.6`; validation rule *"the `externname`s of all imports… must be strongly-unique"* | | **PARTIALLY TRANSFERS. There is NO standard world hash — it does not exist.** `Binary.md` states nothing about canonical or deterministic encoding: no type ordering, no dedup rule. WIT's "canonical" means *fully resolved*, a semantic claim, not a byte-level one, and the Canonical ABI is **itself unversioned**. Two further hazards: the spec is **actively moving where the version lives** (under `canonical interface names`, `@0.2.6` becomes `@0.2` plus a non-identity-bearing suffix, so a hash pinned to the patch version breaks), and for core modules WIT rides in a `^component-type` custom section that is **strippable with no semantic effect**. Interim recommendation for `runtime.abiImplCid`: hash the **sorted set of validated `externname` strings in canonicalised form**, keep full semver as a separate non-identity field, and label the scheme fabric-local |
+| **WASM `target_features` custom section** — vector of `{prefix, feature}`; 16 feature strings including `simd128`, `relaxed-simd`, `atomics`, `tail-call` | the producer's own declaration | **TRANSFERS — and is already implemented** (`readTargetFeatures`, `FeatureSet.required`). Two constraints now folded into §B.4.1: **no engine reads it** (custom sections have no semantic effect, so V8 ignores it — it is publish-time metadata, never enforcement), and **the vocabularies disagree** (`simd128`/`atomics` here vs `simd`/`threads` in `wasm-feature-detect`, with `gc` unnameable in `target_features` at all). Separately relevant to the determinism constraint: `wasmparser` ships a `floats` validator flag documented *"Floats in WebAssembly can have different NaN patterns across hosts which can lead to host-dependent execution"* — an existing, maintained publish-time enforcement of the "forbid floats" option `CLAUDE.md` lists |
+| **RATS (RFC 9334) + EAT (RFC 9711)** — roles Attester/Verifier/Relying Party/Endorser/Reference Value Provider/…; freshness by §10.1 synchronised clocks, §10.2 nonces, §10.3 epoch IDs | §12.2: *"must support end-to-end integrity protection and replay attack prevention"*; §10.2: the nonce is *"signed and included along with the Claims"*, so *"the appraising entity knows that the Claims were signed after the nonce was generated"* | **TRANSFERS** — see §B.4.3 for the sourcing correction and §B.7 for the trap it exposes |
+
+### B.6.3 Claims that could NOT be verified — do not publish these as fact
+
+Listed because an unverified citation in an authorization RFC is worse than a missing one.
+
+- **UCAN's rationale for abandoning general `att` subsetting.** The structural change from v0.10 to
+  v1.0 is real and was confirmed by diffing the spec texts. The *reason* — undecidability or
+  unimplementability — appears in **neither** spec. **Argue it in this project's own voice; do not
+  attribute it to the UCAN working group.** §A.4.1's regex argument is made independently and does
+  not rest on this.
+- **SPKI `gt`/`lt` orderings.** `ge`/`le` were recovered from RFC 2693's own example
+  (`(tag (* range numeric ge #30# le #39# ))`), not from a normative keyword table. Whether
+  `gt`/`lt` exist is unconfirmed.
+- **RFC 6749 §6's re-issuance rule** (*"The requested scope MUST NOT include any scope not
+  originally granted"*) was confirmed only via a third-party reproduction. Re-check against
+  rfc-editor before quoting. §3.3's *"The strings are defined by the authorization server… each
+  string adds an additional access range"* is directly confirmed, and the pair is the point: a
+  normative subset requirement over a relation the spec never defines.
+- **A quotable sentence in the Macaroons paper declining to specify a caveat language.** This is an
+  inference from the construction, not a quotation.
+- **Any advisory in which `read:x` matched `read:xy` by prefix or substring.** None found. Do not
+  assert that OAuth scope prefix-confusion has a CVE.
+- **The `target_features` `=` prefix discrepancy** of §B.4.1 — unresolved in either direction.
+
+Two famous CVEs are deliberately **excluded** from the evidence in §A.4.6 despite their fame:
+CVE-2018-1002105 (Kubernetes) is a connection-lifecycle bug, and Keycloak CVE-2026-1035 is a race
+condition. Both are real; neither is a containment bug, and citing them here would weaken the
+argument rather than strengthen it.
 
 ## B.7 UNRESOLVED (point 4)
 
