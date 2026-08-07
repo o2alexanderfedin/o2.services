@@ -821,3 +821,442 @@ something. That is Phase 24 criterion 8 by owner ruling, and Phase 17 does not c
 
 _Amended: 2026-08-05T02:11:20Z_
 _Verifier: Claude (gsd-verifier), goal-backward re-verification_
+
+---
+
+## Amendment — 2026-08-06: criterion 3 stays **PARTIAL**, and the score stays **2/3**
+
+**Score: 2/3 → 2/3 criteria.** Everything above — the 2026-08-01 initial pass and the
+2026-08-05 amendment — is left standing; **nothing in either is retracted**, and the frontmatter
+above is untouched. This amendment adds a reading and changes no score.
+
+This is a re-verification triggered by the destination phase landing: `24-VERIFICATION.md`'s
+dated amendment of 2026-08-06 (`580e461`) re-scored Phase 24 criterion 8 from PARTIAL to **MET**,
+which is RULING A's precondition for the criterion carried into it. It is an independent pass:
+**every reading below was executed in this verifier's own process** and none of it is transcribed
+from `24-VERIFICATION.md`, from any `24-*-SUMMARY.md`, or from `STATE.md`. Both plants below are
+this verifier's own; neither is `M54`, `M66` nor `R2`.
+
+**Re-verified:** 2026-08-06/07 (UTC `2026-08-07T04:31:56Z`), at `1028cc1`, working tree clean
+before and after, `git status --porcelain` empty at both ends.
+**Verdict:** criterion 3 **PARTIAL**, phase **2/3**, `status: gaps_found` — unchanged.
+
+**The short form.** The carry is sound and its precondition is satisfied. The clauses genuinely
+match, and the match is mechanical rather than rhetorical — this verifier found the exact
+production line that turns criterion 8's *"an unissued identity buys nothing"* into criterion 3's
+*"mass fake-node creation is costly"*, and read it. **What it then found is that nothing observes
+that line.** Removing it leaves eight test files and every one of their tests green across five
+independent runs. Criterion 3's own word is *measurably*, and the link that carries the cost is
+**unmeasured**. Separately, the file that owns the door's refusal reasons reddens **fail-open**
+on an unmutated tree, twice in twelve executions, and no artifact in `.planning/` records it.
+
+---
+
+### The criterion text is unchanged — checked rather than assumed
+
+`.planning/ROADMAP.md:491` was extracted to a file, and the two quotations of it inside this
+document — at `17-VERIFICATION.md:175-177` (initial pass) and `17-VERIFICATION.md:568-570`
+(2026-08-05 amendment) — were extracted and byte-compared against it:
+
+```
+CMP_ROADMAP_VS_ORIGINAL=0
+CMP_ROADMAP_VS_AMENDMENT=0
+```
+
+`git log -L491,491:.planning/ROADMAP.md` returns **exactly one commit** —
+`c3e6fe1adf86356d261d3e2a791d2afc908209ae` (2026-07-27, *"docs: create milestone v1.1 roadmap
+(12 phases, 44 requirements)"*) — and the diff hunk it prints is the line's **addition**. The
+line has never been edited since the milestone was written.
+
+> 3. Attempting to enroll many node identities in a burst through the same entry point is
+>    rate-limited — refused beyond a stated threshold rather than accepted unbounded — making
+>    mass fake-node creation measurably costly
+
+`criterion_text_unchanged: true`. This amendment scores against the same contract the 2026-08-01
+pass did, and it does not rewrite it. **RULING A is honoured in both directions**: the criterion
+was not softened to let the phase close, and it was not stretched to keep the phase open.
+
+### The destination, quoted, and its verdict read at the source
+
+`.planning/ROADMAP.md:1189` was extracted and byte-compared against the quotation carried at
+`24-VERIFICATION.md:173-177`: `CMP_CRIT8=0`. `git log -L1189,1189:.planning/ROADMAP.md` returns
+exactly one commit — `3cc5a83` (2026-08-04) — so criterion 8's words are unedited too.
+
+> 8. Enrolment's cost is bounded by admission, not by a counter: a node that cannot present a
+>    provider-issued certificate cannot join the fabric, advertise itself, or be dialled by
+>    another node — so an identity that was never issued buys nothing, and the N-th identity
+>    costs an attacker a provider's willingness to sign it
+
+`git show --stat 580e461` — *"verify(24): criterion 8 is MET with a stated bound — 0/1 becomes
+1/1"*, 2026-08-06 21:10:56 -0700, **one file changed, 513 insertions, 0 deletions**. It is an
+append-only dated amendment to `24-VERIFICATION.md`, exactly as claimed; no existing line of that
+file was rewritten. Criterion 8 reads **MET**, at 1/1, on the evidence of four gap-closure plans
+(`68be6a9`, `afe8b0b`, `241a9cc`, `1b7f99d`), two of the destination verifier's own plants, and a
+`--project e2e` reading in three engines.
+
+### The bound criterion 8's MET carries, quoted verbatim
+
+This is reproduced word for word from `24-VERIFICATION.md:819-826`, because a carried criterion
+cannot inherit more than its destination delivered and this amendment would have to carry it if
+it closed:
+
+> **The bound this MET carries, stated at the verdict rather than in a footnote.** The default
+> posture of `bin/agent.ts`, `bin/seed.ts` and `bin/bench.ts` is **open**, and must be: nineteen
+> `bin/agent.ts` and three `bin/seed.ts` argv sites depend on it, and
+> `reservation-exhaustion.node.test.ts` arm A is a **live behavioural guard** on it — read at the
+> source, lines 285-317: *"a seed whose no-flag posture had become anything but
+> `'admits-any-peer'` reddens here, by name, before B is ever read"*, backed by
+> `expect(a.stderr()).not.toContain('PERMISSION_DENIED')`. Criterion 8 is MET **of a fabric an
+> operator has closed**, and this repository ships open by default on purpose.
+
+**This verifier checked the bound's substance rather than accepting the sentence.** The
+default-open ternary is real and is in both binaries — `packages/node/src/bin/seed.ts:197-198`
+and `packages/node/src/bin/agent.ts:900-901`, both reading
+`values['admit-issuer'] === undefined ? 'admits-any-peer' : new Set(values['admit-issuer'])` —
+and `reservation-exhaustion.node.test.ts:285-317` does contain arm A in the words quoted, with
+the `PERMISSION_DENIED` assertion at the line. The arithmetic *"nineteen plus three"* originates
+in `24-06-PLAN.md:275` and is carried by the destination; this verifier did **not** independently
+recount it and does not certify the two integers.
+
+The bound is not why criterion 3 stays open. It is recorded because the ledger edits below need
+it, and because if a later verifier does close criterion 3 it must carry the block above intact.
+
+---
+
+### The crux: do the two clauses actually match? **Yes — and the match is mechanical**
+
+This is the question that could have gone the other way, and it was asked of the source rather
+than of the two roadmap sentences.
+
+**Criterion 3's carried half is its cost clause**, and the 2026-08-05 amendment above named
+precisely what was missing from it, in its own words at `17-VERIFICATION.md:637-639`:
+
+> The aggregate budget bounds **how many certificates a provider signs**. The criterion asks that
+> **mass fake-node creation** be costly. Those are the same thing only if a node without a
+> certificate cannot be a node.
+
+Criterion 8 delivers exactly that conjunct — *"a node that cannot present a provider-issued
+certificate cannot join the fabric, advertise itself, or be dialled by another node"*. It is the
+same proposition, not an adjacent one, and the three specific facts the 2026-08-05 amendment
+listed as falsifying it (`peer-verifier.ts` failing open, `FabricNodeOptions.trustedIssuers`
+optional, `seed-server.ts` with no certificate check) are the three the destination phase closed.
+**The clauses match. The routing was correct and the owner ruling of 2026-08-04 was not a
+rewrite.**
+
+**And the composition needs a third link that neither roadmap sentence names.** Criterion 3 is
+about *mass* creation — the marginal cost of the N-th identity. Bounded issuance plus "an
+unissued identity buys nothing" only yields a per-identity price if **one certificate admits
+exactly one identity**. If a certificate could be presented at the door by a second peer id, an
+attacker buys one signature and mints N nodes, and the N-th identity is free again — which is
+verbatim the defect the 2026-08-01 pass recorded.
+
+**That link exists in production source, and this verifier found and read it.**
+`packages/node/src/fabric-node.ts:899` derives `expected = nodeKeyForPeerId(peerId)` — the node
+key the joining peer already proved possession of over Noise — and `:949-958` refuses when the
+presented certificate names a different one:
+
+```ts
+      if (certificate.nodeKey !== expected) {
+        // Not redundant with the signature check below, and the difference is the whole of
+        // what admission means: the peer proved possession of exactly one key over Noise, so
+        // a certificate naming a different one is somebody else's, presented perhaps by a
+        // node that copied it off the wire.
+        return decide(
+          false,
+          `${peerId} presented a certificate for ${certificate.nodeKey}, but its peer id implies ${expected}`,
+        )
+      }
+```
+
+The docblock states the check is load-bearing and **not** redundant with the signature check
+below it, and it is right: `verifyCertificate(certificate, issuers, now)` takes the certificate
+and the pinned issuer set and cannot know which peer is holding it.
+
+---
+
+### Why criterion 3 still does not close: **the composing link is unmeasured**
+
+**Plant P1 — this verifier's own, unledgered.** `packages/node/src/fabric-node.ts`, in
+`relayAdmissionGate`, the certificate-to-peer binding neutralised while leaving every type,
+every symbol and both refusal strings byte-for-byte intact:
+
+```diff
+-      if (certificate.nodeKey !== expected) {
++      if (certificate.nodeKey !== expected && expected === '') {
+```
+
+`expected` is a 64-character lowercase hex string at that point (it is null-checked at `:900`),
+so the guard is dead and a certificate naming **any** node key is carried straight to
+`verifyCertificate`. A relay that pins issuer A now admits any peer that presents *any*
+A-signed certificate, including one lifted off the wire from a node that legitimately holds it.
+
+**It was not caught. Five runs, eight files, all green.**
+
+| Run | Command (all `npx vitest run --project node`) | Exit | Result |
+|---|---|---|---|
+| P1-a | `relay-admission.node.test.ts` | **0** | 37 passed |
+| P1-b | `relay-admission.node.test.ts` | **0** | 37 passed |
+| P1-c | `relay-admission.node.test.ts` | **0** | 37 passed |
+| P1-d | `relay-admission.node.test.ts` | **0** | 37 passed |
+| P1-wide | `closed-fabric-agents` + `admission` + `admission-agents` + `enrol-through-a-closed-door` + `enrolment-needs-no-reservation` + `reservation-exhaustion` + `peer-verifier` | **0** | **7 files, 43 passed** |
+
+Every exit code read with `EXIT=$?` on the immediately following line. The plant was restored
+with `cp`, confirmed with `cmp` **exit 0**, `git diff --quiet` over the **whole tree** exit 0, and
+`shasum -a 256` back to `d6688f731cd472525ef21f1f331e708465686005c7c27ade7788da106ca15648`.
+
+**The absence was then confirmed from the other direction, by reading rather than by grepping
+for green.** The borrowed-certificate case does exist in this repository — exactly once, at
+`packages/node/src/peer-verifier.node.test.ts:448`, *"refuses a certificate borrowed from another
+node as nodeKey-mismatch, naming both keys"*, and `17-05-SUMMARY.md:304` records this phase's own
+executor planting `peer-verifier.ts`'s copy of the check and watching it redden. **That guards
+`PeerVerifier`, which is SELECTION.** The relay gate's copy — ADMISSION — has no counterpart:
+neither `relay-admission.node.test.ts`, nor `closed-fabric-agents.node.test.ts`, nor
+`gated-admission.e2e.test.ts`, nor `gated-seed.e2e.test.ts` contains a peer that presents a
+certificate it does not own. Their axis is *enrolled versus unenrolled* — presence and absence —
+and the borrowed axis is not on it. A grep of `.planning/` for `nodeKey !== expected`,
+`its peer id implies` and `presented a certificate for` returns three hits, **all three about
+`peer-verifier.ts`**, none about the door.
+
+**The judgement, and it is this verifier's own.** Criterion 3's verb is *"making mass fake-node
+creation **measurably** costly"*. On a closed fabric the price of the N-th identity is a
+provider's signature **only while a signature cannot be re-presented**, and that premise is
+carried by one unobserved `if`. This repository's own convention is *"a proof that cannot fail is
+not a proof"* and *"unmeasured is not met"*. The cost clause is therefore still **not measured**,
+and criterion 3 is **PARTIAL**.
+
+This is not a claim that the mechanism is wrong. It is correct by reading, its docblock states
+its purpose accurately, and this verifier believes it works. It is a claim that **nothing in the
+repository would notice if it stopped**, which is the difference between a delivered property and
+a believed one — and the whole reason RULING A exists.
+
+---
+
+### A second finding, recorded in no artifact: the door's own test reddens **fail-open**
+
+While establishing the baseline for P1, `relay-admission.node.test.ts` failed **on an unmutated
+tree**, at the assertion the file's own comment calls *"the load-bearing arm"*:
+
+```
+ FAIL  |node| packages/node/src/relay-admission.node.test.ts > AUTH-02 — the relay consults
+ RelayAdmission at the reservation, and only there > refuses a peer with no certificate, admits
+ one from the pinned issuer, and refuses one from another — each by name
+AssertionError: expected [ …(2) ] to not include '12D3KooWGBms8uwLisZMUcZs3HoNfuL3ws4oc…'
+ ❯ packages/node/src/relay-admission.node.test.ts:1132:41
+    1131|       expect(theirs.certificate).not.toBeNull()
+    1132|       expect(relay.reservedPeerIds).not.toContain(theirs.peerId)
+```
+
+`theirs` is a node enrolled with **providerB**, meeting a relay that pins **providerA**. The
+observed event is that it **held a reservation** — the exact thing criterion 8 says cannot
+happen, on a tree whose two mutated files were `shasum`-confirmed identical to `HEAD`.
+
+**Frequency, measured rather than guessed.** Twelve executions of that arm across this session —
+one four-file run, one three-file run and ten single-file runs, six on the clean tree and four
+under P1 (P1 provably does not change that arm's expected outcome, since a certificate from an
+unpinned issuer is refused by `verifyCertificate` either way): **2 failures in 12**, both with the
+identical assertion and the identical shape, at host loads of 7.54 and 10.90 with passes observed
+at loads from 6.78 to 15.60. Load does not separate them.
+
+**What this verifier did not establish** is whether the race is in the fixture or in the gate —
+whether `theirs` reached the reservation before `denyInboundRelayReservation` was consulted, or
+whether the fixture read `reservedPeerIds` at a moment the store had not yet settled. Both
+readings are available and neither was measured. **Severity: WARNING**, not a blocker for
+criterion 8 — that verdict is the destination phase's and this pass does not re-adjudicate it.
+But it is a counter-observation against the property criterion 3's cost clause would inherit, it
+was reproduced twice from a clean tree, and it appears in **no** `.planning/` artifact:
+`24-VERIFICATION.md` contains no occurrence of `flak`, `intermittent` or `nondeterministic`.
+
+---
+
+### The watched red that does work — criterion 3's rate-limiting half is genuinely load-bearing
+
+Because a plant that stays green is worth nothing unless the instrument is shown to read at all,
+a second plant was made on the half of criterion 3 that **is** met.
+
+**Plant P2 — this verifier's own, unledgered.** `packages/core/src/enrollment.ts:509`, the
+aggregate issuance budget neutralised without deleting a symbol:
+
+```diff
+-      if (issued.length >= this.#maxIssuedPerWindow) {
++      if (issued.length >= this.#maxIssuedPerWindow && this.#windowMs < 0) {
+```
+
+**Matched clean baseline**, same three files, same command, tree `shasum`-identical:
+`P2_MATCHED_BASELINE_EXIT=0` — **39 passed (39)**, `real 8.54 user 12.53 sys 2.36`, load 11.86.
+
+**Planted:** `PLANTED_P2_EXIT=1` — **10 failed | 29 passed (39)**, `real 6.14`, load 6.15. The
+cross-process one died at exactly the step that carries the claim:
+
+```
+ FAIL  packages/node/src/enrollment-cost.node.test.ts > AUTH-04 — criterion 5, across real
+ bin/agent.ts processes > refuses by name past its stated budget, and still refuses after being
+ restarted on the same directory
+Error: agent in /var/folders/.../o2-cost-1Ceia3/n2 announced instead of leaving — it was
+certified where a refusal was expected: {"peerId":"12D3KooWG4RP7ugou3aQnYhkZb1zKuFoqtkHN1qn7rt…",
+"certificate":{"nodeKey":"5cbfe2e1…","issuer":"b0adfa66…", …}}
+```
+
+and nine more by name, including *"refuses past its stated number however many free keygens the
+requester mints"*, *"names the provider's own budget and says nothing about the requester"*,
+*"slides the aggregate window rather than closing the provider forever"*, *"refuses on
+reconstruction from the same directory, having forgotten nothing"* and *"refuses at the same
+point whether or not the stale entries were dropped"*.
+
+Restored with `cp`, `cmp` **exit 0**, `shasum -a 256` back to
+`fc69e72d112e4d248dbdb94312d44cc58d4a48dc2ec8a460f1e97cb4b638f0f6`.
+
+**So the instrument reads.** A mutation to the aggregate budget reddens ten tests across three
+files in two seconds. A mutation to the admission binding reddens nothing across eight files in
+five runs. The contrast is the finding, and it is why P1's silence is a measurement rather than
+an absence of effort.
+
+---
+
+### What this amendment does **not** dispute
+
+Recorded plainly so a later reader does not re-open settled ground.
+
+| Claim | Disposition |
+|---|---|
+| Criterion 3's **rate-limiting** clause is MET, durable, and stated on the wire | **Confirmed, re-run.** 19 tests, exit 0 — see the table below |
+| Criterion 8 is **MET** | **Not disputed.** That verdict is `24-VERIFICATION.md`'s and this pass does not re-adjudicate it |
+| RULING A's precondition is satisfied for criterion 3 | **Confirmed.** The destination landed, and it landed MET |
+| Criterion 3's cost clause and criterion 8 are the **same** clause, not adjacent ones | **Confirmed at the source**, and this verifier went looking for the adjacency and did not find it |
+| Criterion 3's text is unchanged | **Confirmed**, `cmp` exit 0 twice and one commit in `git log -L` |
+| Criteria 1 and 2 | **Not re-opened.** Untouched by this pass |
+
+**The disagreement is narrow and it is a single word.** Not *whether* the carry was right — it
+was — but whether what the destination delivered reaches criterion 3's *measurably*. It does not,
+by one unobserved `if`.
+
+### What closing criterion 3 requires
+
+One test, and it is cheap. At a relay pinning issuer A, a peer that holds a genuine, unexpired,
+A-signed certificate **for a different node key** asks for a reservation and is refused by name,
+against a control in the same run that is admitted — the `peer-verifier.node.test.ts:448` shape,
+moved to the door. It must redden when `fabric-node.ts:949` is neutralised, and that must be
+watched rather than assumed.
+
+Once that exists, criterion 3 closes at **3/3** by a further dated amendment **carrying criterion
+8's stated bound verbatim** — the block quoted above, unabridged.
+
+The flake in `relay-admission.node.test.ts` arm 3 should be diagnosed in the same pass, because
+the two questions touch the same door and a closure written over an unexplained fail-open reading
+would be worth less than the reading.
+
+---
+
+### What this verifier ran, and read directly
+
+Every exit code was captured with `EXIT=$?` on the line **immediately** following the command —
+no pipes, no trailing filter, no `tail`. Host: 8 cores, `uptime` load average recorded per row.
+Runs are `npx vitest run --project node <paths>` unless stated; **the full node project was never
+run**, and `bench-attestation.node.test.ts` and `discover-arm.node.test.ts` were never invoked —
+a sibling verifier was working Phase 19 in this same tree and both of those snapshot
+`git status --porcelain` around themselves.
+
+| # | Command | Exit | Result | `/usr/bin/time -p` | load |
+|---|---|---|---|---|---|
+| 1 | `npx tsc --noEmit` | **0** | zero output | `real 1.22 user 2.00 sys 0.46` | 8.62 |
+| 2 | `enrollment` + `enrollment-cost` + `fs-issuance` `--reporter=verbose` | **0** | 3 files, **19 passed** | `real 12.77 user 27.22 sys 5.06` | 9.61 |
+| 3 | `closed-fabric-agents` + `relay-admission` + `reservation-exhaustion` + `enrol-through-a-closed-door` | **0** | 4 files, **45 passed** | `real 60.75 user 20.85 sys 3.78` | 10.53 |
+| 4 | **P1 planted** — `relay-admission` + `closed-fabric-agents` + `enrol-through-a-closed-door` | **1** | 1 failed / 43 passed | `real 61.10` | 10.90 |
+| 5 | **restored** — `relay-admission` | **1** | **1 failed / 36 passed — same assertion, clean tree** | `real 22.97 user 7.27 sys 1.40` | 7.54 |
+| 6 | **restored** — `relay-admission` | **0** | 37 passed | `real 23.58 user 7.21 sys 1.48` | 6.78 |
+| 7-10 | **restored** — `relay-admission` ×4 | **0**×4 | 37 passed ×4 | — | 15.60 / 11.22 / 11.53 / 11.10 |
+| 11-14 | **P1 re-planted** — `relay-admission` ×4 | **0**×4 | **37 passed ×4 — the plant is not caught** | — | 11.21 / 11.02 / 9.98 / 8.98 |
+| 15 | **P1 planted** — 7-file admission + verifier suite | **0** | **7 files, 43 passed** | `real 62.71 user 61.00 sys 10.84` | 9.19 |
+| 16 | **P2 planted** — `enrollment-cost` + `fs-issuance` + `core/enrollment.test.ts` | **1** | **10 failed / 29 passed** | `real 6.14 user 9.03 sys 1.70` | 6.15 |
+| 17 | **restored, matched baseline** — same three files as row 16 | **0** | **39 passed** | `real 8.54 user 12.53 sys 2.36` | 11.86 |
+
+Row 4's red and row 5's red are **the same event**, and rows 11-14 are what attribute it: the
+plant does not move that arm, so the failure in row 4 was the flake and not the mutation. Row 16's
+red *is* attributable — row 17 is its matched clean baseline on a `shasum`-identical tree.
+
+Rows 2, 3 and 17 are spawn- and network-bound (six real `bin/agent.ts` processes in row 3), so
+`real` legitimately exceeds CPU time; the ratios are recorded as a comparability key, not as a
+verdict.
+
+**Tree discipline.** `git status --porcelain` was empty before the session, before every restore,
+and at the end. Baselines were taken with `cp` into `/tmp/p17-baseline/`, every restore confirmed
+with `cmp` **exit 0** and `shasum -a 256` back to the pre-plant digest, and `git diff --quiet`
+over the whole tree read **exit 0** after each. **No `git add`, `commit`, `stash`, `checkout --`,
+`restore`, `reset` or `clean` was used at any point**, and no process this verifier did not start
+was signalled. Before each plant, `git status --porcelain <file>` was read to confirm the file
+was not mid-edit by the sibling agent.
+
+---
+
+### LEDGER EDITS RECOMMENDED (not applied)
+
+A verifier may not write `.planning/STATE.md`, `.planning/ROADMAP.md` or
+`.planning/REQUIREMENTS.md`. Each of these is a **false or stale** statement at `1028cc1`, not a
+matter of taste.
+
+**L1 — `.planning/ROADMAP.md:1140`, the Phase 17 row. Its verdict is right and its reason is
+false.** It reads *"Phase 24 landed 2026-08-06 and criterion 8 verified PARTIAL, so criterion 3
+does NOT close"*. Criterion 8 verified **MET** on 2026-08-06 (`580e461`), and line 1147 of the
+same file says so. The score stays 2/3 but the reason must be replaced: *"criterion 8 landed MET
+on 2026-08-06 and RULING A's precondition is satisfied; criterion 3 nonetheless stays PARTIAL by
+the amendment of 2026-08-06 to `17-VERIFICATION.md` — the link that composes criterion 8's MET
+into this criterion's cost clause (`fabric-node.ts:949`, one certificate admits one identity) is
+present in source and observed by no test, so the cost is not **measurably** carried."* This is
+the urgent one: a reader who believes criterion 8 is PARTIAL stops looking, which is the precise
+shape this repository has been bitten by.
+
+**L2 — `.planning/ROADMAP.md:1147`, the Phase 24 row.** It states *"Phase 17 criterion 3 and
+Phase 19 criterion 5 were both carried into criterion 8 and **can now close**"*. For criterion 3
+that anticipation is now falsified by an actual attempt. Append: *"Phase 17's amendment of
+2026-08-06 declined to close criterion 3 — the carry is sound and the precondition is met, but
+the admission gate's certificate-to-peer binding is unobserved, so the inherited cost is not
+measured. See `17-VERIFICATION.md`'s third amendment."* Phase 19's half is untouched by this pass
+and is its own verifier's to answer.
+
+**L3 — `.planning/STATE.md:456`, Current Position.** Reads *"Phase: 24 … **0/1 on criteria, NOT
+closed and NOT counted**"*, contradicting lines 9, 224, 228 and 236 of the same file, which record
+24 closed at 1/1 on 2026-08-06. Stale; correct to 1/1 with the bound named.
+
+**L4 — `.planning/STATE.md:426-447`, the uncounted-phases paragraph.** It says 17 and 19 *"are
+next and are one amendment each away"*. That amendment has now been written for 17 and it did not
+close. Correct to: *"17 stays 2/3 — its amendment of 2026-08-06 found the carry sound and the
+precondition met, and declined anyway, on an unobserved link. RULING A held a third time, and this
+is the first time it held against a destination that landed MET."*
+
+**L5 — no `REQUIREMENTS.md` edit is recommended.** AUTH-04's disposition is unchanged by this
+pass.
+
+**RECOMMENDED source/test repairs — not ledger, but they belong in the same pass:**
+
+- **S1** — the missing test named under *"What closing criterion 3 requires"* above. Without it
+  `fabric-node.ts:949` is an unguarded load-bearing line, and its own docblock says it is
+  load-bearing.
+- **S2** — diagnose `relay-admission.node.test.ts` arm 3's fail-open flake, 2 in 12 here. If the
+  race is in the gate rather than the fixture it is a criterion 8 defect; if it is in the fixture
+  the file needs a settle-and-re-read, because as written it can report a closed door open.
+- **S3** — `CLOSED_RELAY_CAPABLE`'s docblock in `closed-fabric-agents.node.test.ts` was already
+  recorded by the destination verifier (W6) as describing a protection it does not have. Still
+  true at `1028cc1`. Unrelated to this criterion; restated so it is not lost.
+
+---
+
+### Verdict
+
+| | |
+|---|---|
+| **Criterion 1** | MET — unchanged, not re-opened |
+| **Criterion 2** | MET — unchanged, not re-opened |
+| **Criterion 3** | **PARTIAL** — rate-limiting clause MET and re-run green; cost clause carried to Phase 24 criterion 8, whose MET is real but whose composition into *"mass fake-node creation"* rests on an unobserved line |
+| **Score** | **2 / 3** |
+| **Phase** | `gaps_found` — unchanged |
+
+**2/3**
+
+---
+
+_Amended: 2026-08-06 (UTC `2026-08-07T04:31:56Z`) at `1028cc1`, working tree clean before and
+after; both plants restored with `cp`, confirmed with `cmp` exit 0, `shasum -a 256` back to the
+pre-plant digest, and `git diff --quiet` over the whole tree exit 0._
+_Verifier: Claude (gsd-verifier), third pass — goal-backward re-verification against the
+destination phase._
+_No source, test, ledger, roadmap or state file was modified. Nothing was staged, committed or
+stashed. Every exit code above was read with `EXIT=$?` on the immediately following line._
