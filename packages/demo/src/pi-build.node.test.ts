@@ -1,6 +1,9 @@
 import { readFileSync } from 'node:fs'
+import { ed25519 } from '@noble/curves/ed25519.js'
+import { MemoryBlockstore, SignedNameResolver, toHex } from '@o2/core'
 import { describe, expect, it } from 'vitest'
 import { compileKernel } from '../scripts/compile-kernel.mjs'
+import { KERNEL_TRUST_ANCHOR, PI_NAME, PI_RECORD } from './kernel-record.ts'
 import { PI_WASM_BASE64 } from './pi-bytes.ts'
 import { PI_SCALE, piKernelBytes } from './pi.ts'
 
@@ -101,5 +104,44 @@ describe('the source of truth is genuinely tracked', () => {
      */
     const source = wat.replace(/;;[^\n]*/g, '')
     expect(source.match(/\bf(?:32|64)\b/g) ?? []).toEqual([])
+  })
+})
+
+/**
+ * `PI_RECORD` is checked rather than trusted — added 2026-08-08 with the record itself.
+ *
+ * The record is a **generated literal**. Nothing about reading `kernel-record.ts` says the CID in
+ * it is the CID of the `pi.wasm` committed beside it, and a record naming the wrong bytes is not a
+ * broken build — it is a module the fabric will refuse at dispatch, far from here, with an error
+ * about provenance rather than about a stale literal. `kernel-build.node.test.ts` has made exactly
+ * this check for the colouring record since Phase 14; the pi record shipped without it for the
+ * length of one commit.
+ *
+ * The fourth case is the one with no counterpart there, and it is the reason this file changed at
+ * all: **both records must carry the same anchor.** `bin/agent.ts` and `bin/seed.ts` default to a
+ * single `KERNEL_TRUST_ANCHOR`, so a pi record signed by a second key would be refused by every
+ * stock node — a failure that would appear only when somebody ran the pi workload on a default
+ * agent, which is the worst possible place to discover it.
+ */
+describe('the pi record names the committed bytes, under the one anchor', () => {
+  it('maps PI_NAME to the CID of the committed pi.wasm', async () => {
+    const cid = await new MemoryBlockstore().put(piKernelBytes)
+    expect(PI_RECORD.cid.toString()).toBe(cid.toString())
+    expect(PI_RECORD.name).toBe(PI_NAME)
+  })
+
+  it('verifies against the committed trust anchor', () => {
+    expect(new SignedNameResolver([KERNEL_TRUST_ANCHOR]).accept(PI_RECORD, Date.now()).ok).toBe(true)
+  })
+
+  it('is refused by a resolver pinned to any other key', () => {
+    // The negative control, as `kernel-build.node.test.ts` carries: without it the acceptance
+    // above would pass against a resolver that accepted anything handed to it.
+    const impostor = toHex(ed25519.getPublicKey(new Uint8Array(32).fill(9)))
+    expect(new SignedNameResolver([impostor]).accept(PI_RECORD, Date.now()).ok).toBe(false)
+  })
+
+  it('shares its anchor with the colouring record, which is what makes one --trust-anchor enough', () => {
+    expect(PI_RECORD.signer).toBe(KERNEL_TRUST_ANCHOR)
   })
 })
