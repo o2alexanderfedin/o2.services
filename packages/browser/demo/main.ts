@@ -553,11 +553,32 @@ const api: TabApi = {
     try {
       const response = await fetch('/bootstrap.json', { cache: 'no-store' })
       if (response.ok) {
-        const info = (await response.json()) as { relayAddrs?: unknown }
+        const info = (await response.json()) as {
+          relayAddrs?: unknown
+          enrollmentProvider?: unknown
+        }
         const addrs = Array.isArray(info.relayAddrs)
           ? info.relayAddrs.filter((a): a is string => typeof a === 'string')
           : []
-        if (addrs.length > 0) return { source: 'origin' as const, relayAddrs: addrs }
+        if (addrs.length > 0) {
+          // AUTH-01/04 — where to enrol, learned from the origin that served this page.
+          //
+          // **Discovery, and the distinction from configuration is the whole reason this is
+          // one address.** A seed may publish where a joiner should knock; it may not publish
+          // *who the joiner is*. `operatorId` and `userPrivateKey` are the visitor's and are
+          // never read from here — which is why `autoStart` below still passes no `enrollment`
+          // and must not grow a parameter for one.
+          //
+          // Narrowed rather than cast: `/bootstrap.json` is a network response, and a static
+          // host answering with something else must not put a non-string on a dial path.
+          return {
+            source: 'origin' as const,
+            relayAddrs: addrs,
+            ...(typeof info.enrollmentProvider === 'string' && info.enrollmentProvider !== ''
+              ? { enrollmentProvider: info.enrollmentProvider }
+              : {}),
+          }
+        }
       }
     } catch {
       // A static host answers 404, or HTML, or nothing. Not an error — just means

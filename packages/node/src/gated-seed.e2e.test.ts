@@ -336,6 +336,15 @@ beforeAll(async () => {
     blockstoreDir: join(workdir, 'seed'),
     maxReservations: 32,
     trustAnchors: TRUST_ANCHORS,
+    // AUTH-01/04 — **the seed names the provider, so the tab below never has to be told it.**
+    //
+    // This is the deployment requirement `SeedServerOptions.relayAdmission` states in its own
+    // words — *a relay that pins issuers must either serve enrolment itself, or name a provider
+    // a joining peer can reach without a reservation* — satisfied for the first time by a
+    // mechanism rather than by a harness. Before 2026-08-08 no such field existed, and this
+    // file passed `providerAddr` into the page through `page.evaluate`, which made the fixture
+    // prove less than it looked like it proved: a visitor has no Playwright.
+    enrollmentProvider: providerAddr,
   })
   seedRelayAddr = `/ip4/127.0.0.1/tcp/${seed.wsPort}/ws/p2p/${seed.node.peerId}`
   pageUrl = `http://127.0.0.1:${seed.httpPort}${PAGE_PATH}`
@@ -408,27 +417,43 @@ async function openTab(engine: string, type: BrowserType): Promise<{ browser: Br
  * **`relayAddrs` comes from the tab's own `discoverRelays()`**, never from a value this file
  * passed it. A page handed a relay address out of band is not reading the production
  * discovery path, and the production discovery path is the whole subject of this file.
+ *
+ * **And since 2026-08-08 the provider's address comes from there too.** It used to arrive
+ * through `page.evaluate`, which hid the gap the v1.1 audit found as G1: the seed stated a
+ * deployment requirement to name a provider, no field existed with which to name one, and this
+ * fixture supplied the missing value from Node so nothing went red. A visitor has no
+ * Playwright. The tab now refuses to enrol against an address the origin did not publish, so
+ * deleting `SeedServer`'s `enrollmentProvider` reddens this file instead of passing quietly.
+ *
+ * **What is still injected, and why that is correct:** `operatorId` and `userPrivateKey`. Those
+ * are the *visitor's*, a certificate is signed over them, and no seed holds them or may supply
+ * them — `demo/main.ts` states it as *"a page that was found rather than configured must not be
+ * configurable by whatever found it"*. Discovering an address is not being handed an identity,
+ * and the whole of G1's remedy sits on that line.
  */
 async function startTabNode(page: Page, blockstoreName: string, enrol: boolean): Promise<string> {
   return page.evaluate(
     async (options) => {
-      const { source, relayAddrs } = await window.o2.discoverRelays()
+      const { source, relayAddrs, enrollmentProvider } = await window.o2.discoverRelays()
       if (source !== 'origin') {
         throw new Error(`the tab learned its relay from '${source}', not from its own origin`)
+      }
+      if (options.enrol && enrollmentProvider === undefined) {
+        throw new Error('the origin published no enrollmentProvider, so this tab cannot enrol')
       }
       return window.o2.start({
         relayAddrs,
         blockstoreName: options.blockstoreName,
         // The seed persists in this origin's IndexedDB under `blockstoreName`, so the restart
         // below reuses it and both arms are the same node. That identity is the transition.
-        ...(options.enrol
+        ...(options.enrol && enrollmentProvider !== undefined
           ? {
               enrollment: {
-                // **Separated**: the provider's address, which is not the relay's. The door a
-                // tab is refused at is not the door it enrols through, and 24-05 measured
-                // that this works because enrolment is a plain dial with no reservation in
-                // its path.
-                providerAddr: options.providerAddr,
+                // **Separated, and now discovered**: the provider's address, which is not the
+                // relay's. The door a tab is refused at is not the door it enrols through, and
+                // 24-05 measured that this works because enrolment is a plain dial with no
+                // reservation in its path. The seed publishes it; this file no longer passes it.
+                providerAddr: enrollmentProvider,
                 operatorId: options.operatorId,
                 userPrivateKey: options.userKey,
               },
@@ -439,7 +464,6 @@ async function startTabNode(page: Page, blockstoreName: string, enrol: boolean):
     {
       blockstoreName,
       enrol,
-      providerAddr,
       operatorId: OPERATOR_ID,
       // Playwright serialises `page.evaluate` arguments as JSON, so a typed array would arrive
       // as a plain `{"0":…}` object and `ed25519.getPublicKey` would derive a key from

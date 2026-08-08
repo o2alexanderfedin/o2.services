@@ -103,6 +103,20 @@ const { values } = parseArgs({
     // serves blocks, answers records and relays identically whatever is passed here. What
     // differs is who may reserve a circuit *through* it.
     'admit-issuer': { type: 'string', multiple: true },
+    // AUTH-01/04 — where a peer this seed will not yet admit should go to be enrolled.
+    //
+    // **The companion of `--admit-issuer` above, and only meaningful beside it.** Pinning an
+    // admission issuer closes the door; this names the door a joiner is meant to knock on
+    // first. Without it a closed seed is joinable by nobody who is not already certificated,
+    // which the option's docblock has always called operator error — and which, until this
+    // flag existed, an operator had no way to avoid.
+    //
+    // **Singular, where the two issuer flags are repeatable**, and the asymmetry is deliberate
+    // rather than an oversight. Pinning several issuers is ordinary — a fabric can believe more
+    // than one authority — but publishing several provider addresses would make a joining page
+    // choose between them with no basis on which to choose, and a page that picks the wrong one
+    // reports a dial timeout. One address, or none.
+    'enrollment-provider': { type: 'string' },
   },
 })
 
@@ -138,6 +152,28 @@ for (const issuer of values['trusted-issuer'] ?? []) {
 for (const issuer of values['admit-issuer'] ?? []) {
   if (parseKeyHex(issuer) === null) {
     refuse(`--admit-issuer ${issuer} is not 64 lowercase hex characters`)
+  }
+}
+
+// AUTH-01/04 — the shape of `--enrollment-provider`, and **only** its shape.
+//
+// Reachability is deliberately not checked. A provider on another network is unreachable
+// *from this seed* and perfectly reachable from the phone that will use it, so a connectivity
+// probe here would refuse correct configurations and is the wrong test at the wrong end.
+//
+// What is checked is what a mistyped value costs: the page dials it verbatim, and a multiaddr
+// with no `/p2p/` component names a host without naming a peer, so libp2p cannot authenticate
+// whoever answers. That failure surfaces in a browser tab as a dial timeout with no reason —
+// the same silent shape `--admit-issuer`'s validator exists to prevent one tier down.
+const enrollmentProvider = values['enrollment-provider']
+if (enrollmentProvider !== undefined) {
+  if (!enrollmentProvider.startsWith('/')) {
+    refuse(`--enrollment-provider ${enrollmentProvider} is not a multiaddr (it must start with /)`)
+  }
+  if (!enrollmentProvider.includes('/p2p/')) {
+    refuse(
+      `--enrollment-provider ${enrollmentProvider} names no peer — it needs a /p2p/<peerId> component`,
+    )
   }
 }
 
@@ -196,6 +232,9 @@ seed = await SeedServer.start({
   // and every browser tab that has not yet enrolled behaving identically.
   relayAdmission:
     values['admit-issuer'] === undefined ? 'admits-any-peer' : new Set(values['admit-issuer']),
+  // Conditional spread, so an unnamed provider leaves the option absent rather than
+  // `undefined` — `BootstrapInfo` distinguishes the two and a page reads that distinction.
+  ...(enrollmentProvider === undefined ? {} : { enrollmentProvider }),
 })
 
 const line = (text = ''): void => {
@@ -295,6 +334,31 @@ line(
     : `  admits     only peers certified by ${admitIssuers.length} pinned admission issuer${admitIssuers.length === 1 ? '' : 's'} (from --admit-issuer): ${admitIssuers.join(' ')}` +
         ` — a relay that pins issuers must serve enrolment itself or name a provider a joining peer can reach without a reservation`,
 )
+
+// AUTH-01/04 — **which of the two states the sentence above leaves this seed in, resolved.**
+//
+// The `admits` line states a deployment requirement; until 2026-08-08 it stated one an operator
+// could not satisfy, and could not tell whether they had. This line answers it by name.
+//
+// Printed only when it carries information. An open seed admits every peer and needs no
+// provider, so a line there would be an answer to a question nobody asked — the same argument
+// `SeedServerOptions.enrollmentProvider` makes for not defaulting the field.
+//
+// **Carries neither `trusts` nor `issuers`.** `trust-anchors.node.test.ts` locates the anchor
+// line by searching for `trusts`, and `issuers` already belongs to `--trusted-issuer`; a line
+// here holding either word would be found first by half the runs. `enrol at` shares no word
+// with either label.
+if (admitIssuers.length > 0 || enrollmentProvider !== undefined) {
+  line(
+    enrollmentProvider === undefined
+      ? '  enrol at   NOBODY — this seed admits only certificated peers and names no provider,' +
+          ' so no new peer can join it (pass --enrollment-provider)'
+      : `  enrol at   ${enrollmentProvider} (from --enrollment-provider)` +
+          (admitIssuers.length === 0
+            ? ' — published for joiners, though this seed admits every peer anyway'
+            : ''),
+  )
+}
 line()
 line('  Open on another device:')
 line(`    ${seed.joinUrl}`)

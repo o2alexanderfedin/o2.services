@@ -85,6 +85,26 @@ export interface BootstrapInfo {
    * which one it is.
    */
   readonly peerAddrs: readonly string[]
+  /**
+   * Where a peer this seed will **not** yet admit can go to be enrolled — AUTH-01 / AUTH-04.
+   *
+   * Present only when the operator named one. **Absent is a real answer**: an open seed admits
+   * every peer and needs no provider, so a page must be able to tell *"there is no provider
+   * here"* from *"the provider is X"*. Publishing `''` or the seed's own address would collapse
+   * that distinction, so the key is omitted rather than emptied.
+   *
+   * **Discovery, not configuration**, and the line between them is the reason this is one
+   * string. A page learns an *address* from the origin that served it, exactly as it learns
+   * {@link BootstrapInfo.relayAddrs}. It does not learn an identity: a certificate is signed
+   * over the visitor's own key, which no seed holds and none may supply. `demo/main.ts`'s
+   * `autoStart` therefore still passes no `enrollment` and must not grow a parameter for one.
+   *
+   * **Not host-derived, and it is the only address here that is not.** The other two are
+   * rewritten through the request's `Host` so a phone on `laptop.local` is never handed
+   * `127.0.0.1`. A provider is a different node on a different host — often not on this LAN —
+   * so the same rewrite would corrupt it.
+   */
+  readonly enrollmentProvider?: string
 }
 
 export interface SeedServerOptions {
@@ -177,6 +197,29 @@ export interface SeedServerOptions {
    * seed's own banner as well as written here.
    */
   readonly relayAdmission: FabricNodeOptions['relayAdmission']
+  /**
+   * The provider a joining peer should enrol through, published to the page — AUTH-01/04.
+   *
+   * **This field exists because the requirement two paragraphs up was unsatisfiable.**
+   * {@link SeedServerOptions.relayAdmission} takes on the deployment obligation *"a relay that
+   * pins issuers must either serve enrolment itself, or name a provider a joining peer can
+   * reach without a reservation"* — and until 2026-08-08 there was no field, no flag and no
+   * `BootstrapInfo` member with which to name one. A stated requirement with no mechanism is
+   * worse than an absent one: it reads as though a mechanism exists, and the v1.1 milestone
+   * audit found it as *"a closed seed is unjoinable by the demo page"*.
+   *
+   * **Optional, and the absence is stated rather than defaulted** — the same argument
+   * {@link SeedServerOptions.trustedIssuers} makes. An open seed needs no provider, so a
+   * default here would be an answer to a question that was not asked. What the mechanism still
+   * cannot detect is the case the docblock above already calls operator error: a seed that
+   * pins issuers, names nobody, and is therefore joinable by no new peer. **It is now
+   * detectable by the operator** — the banner says which of the two states this seed is in.
+   *
+   * Passed through verbatim. It is not validated as reachable here and could not be: a
+   * provider on another network is unreachable *from the seed* and perfectly reachable from
+   * the phone that will use it. `bin/seed.ts` checks its **shape** and nothing more.
+   */
+  readonly enrollmentProvider?: string
   readonly maxReservations?: number
   /**
    * Hostnames the page may be requested by.
@@ -204,6 +247,52 @@ function hostWithoutPort(host: string): string {
 }
 
 /** Build a browser-dialable multiaddr for the host the client actually used. */
+/** Everything `/bootstrap.json` is built from, gathered so the payload can be built without a server. */
+export interface BootstrapInput {
+  /** The request's `Host` header. Every seed address below is expressed through it. */
+  readonly host: string
+  readonly wsPort: number
+  readonly seedPeerId: string
+  /** Live reservation holders, straight from `FabricNode.reservedPeerIds`. */
+  readonly reservedPeerIds: readonly string[]
+  /** See {@link BootstrapInfo.enrollmentProvider}. Omitted means no provider was named. */
+  readonly enrollmentProvider?: string
+}
+
+/**
+ * Build the `/bootstrap.json` payload.
+ *
+ * **Extracted from the route closure 2026-08-08, and the extraction is the point.** The payload
+ * was assembled inside a `configureServer` callback, so nothing could assert its shape without
+ * standing up an HTTP server and a libp2p node — which is why every guarantee it makes was
+ * carried by e2e specs, and why a missing field went unnoticed. A pure function is reachable
+ * from a node spec in milliseconds.
+ */
+export function bootstrapInfoFor(input: BootstrapInput): BootstrapInfo {
+  const seedAddr = relayAddrForHost(input.host, input.wsPort, input.seedPeerId)
+  return {
+    relayAddrs: [seedAddr],
+    seedPeerId: input.seedPeerId,
+    // Expressed through the same host the client reached us by, so a phone on
+    // `laptop.local` is never handed a `127.0.0.1` circuit.
+    peerAddrs: [
+      // This node first, dialled directly over WebSockets. A lone visitor has a peer
+      // from the moment they join, without waiting for a second device to appear —
+      // and it is the same address they reserved on, because it is the same node.
+      seedAddr,
+      // Then everyone holding a reservation, reached through the circuit that will
+      // carry their WebRTC handshake.
+      ...input.reservedPeerIds.map((peerId) => `${seedAddr}/p2p-circuit/webrtc/p2p/${peerId}`),
+    ],
+    // Spread rather than assigned, so an unnamed provider leaves no key at all. A page
+    // distinguishes "no provider here" from "the provider is X", and `enrollmentProvider:
+    // undefined` would serialise to neither.
+    ...(input.enrollmentProvider === undefined
+      ? {}
+      : { enrollmentProvider: input.enrollmentProvider }),
+  }
+}
+
 export function relayAddrForHost(host: string, wsPort: number, peerId: string): string {
   const bare = hostWithoutPort(host)
   // A literal IPv4 needs /ip4; anything else is a name and needs /dns4. Getting this
@@ -377,25 +466,17 @@ export class SeedServer {
                 // Derived from the Host header, so the client is told to dial the
                 // same name it already reached us by.
                 const host = request.headers.host ?? `127.0.0.1:${options.httpPort ?? 0}`
-                const seedAddr = relayAddrForHost(host, boundWsPort, seedPeerId)
-                const info: BootstrapInfo = {
-                  relayAddrs: [seedAddr],
+                const info = bootstrapInfoFor({
+                  host,
+                  wsPort: boundWsPort,
                   seedPeerId,
-                  // Expressed through the same host the client reached us by, so a
-                  // phone on `laptop.local` is never handed a `127.0.0.1` circuit.
-                  peerAddrs: [
-                    // This node first, dialled directly over WebSockets. A lone
-                    // visitor has a peer from the moment they join, without waiting
-                    // for a second device to appear — and it is the same address
-                    // they reserved on, because it is the same node.
-                    seedAddr,
-                    // Then everyone holding a reservation, reached through the
-                    // circuit that will carry their WebRTC handshake.
-                    ...node.reservedPeerIds.map(
-                      (peerId) => `${seedAddr}/p2p-circuit/webrtc/p2p/${peerId}`,
-                    ),
-                  ],
-                }
+                  // Read per request, never captured: a peer that reserved a second ago
+                  // must appear in the next page's list.
+                  reservedPeerIds: node.reservedPeerIds,
+                  ...(options.enrollmentProvider === undefined
+                    ? {}
+                    : { enrollmentProvider: options.enrollmentProvider }),
+                })
                 response.setHeader('content-type', 'application/json')
                 // A joining phone must never be handed a stale relay address.
                 response.setHeader('cache-control', 'no-store')

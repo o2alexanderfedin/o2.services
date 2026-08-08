@@ -518,8 +518,21 @@ export interface TabApi {
    * `source` is `'query'` when relays came from `?relay=<multiaddr>`, `'origin'` when
    * they came from a same-origin `/bootstrap.json`, and `'none'` when neither is
    * available — which is the normal state on a static host with no relay configured.
+   *
+   * `enrollmentProvider` is present only when the origin named one — AUTH-01/04. A seed that
+   * pins admission issuers is meant to publish where a joiner can enrol, because the peers
+   * that need it are exactly the ones it will not yet admit. Absent means the origin named
+   * nobody, which is the ordinary state of an open seed and of every static host.
+   *
+   * **An address, and never an identity.** A certificate is signed over the visitor's own key;
+   * `operatorId` and `userPrivateKey` come from the visitor and can come from nowhere else, so
+   * discovering this does not make a tab enrollable by whatever served it.
    */
-  discoverRelays(): Promise<{ source: 'query' | 'origin' | 'none'; relayAddrs: string[] }>
+  discoverRelays(): Promise<{
+    source: 'query' | 'origin' | 'none'
+    relayAddrs: string[]
+    enrollmentProvider?: string
+  }>
   /**
    * Dial every peer the origin says is here, that this tab is not already on.
    *

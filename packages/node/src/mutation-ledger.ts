@@ -2984,6 +2984,53 @@ export const MUTATIONS: readonly Mutation[] = [
     signature: '(a) THE GATE ANSWERED ADMIT for',
     signatureSource: 'test-title',
   },
+  {
+    id: 'M72',
+    why:
+      'AUTH-01/04 — **the audit finding G1: a stated deployment requirement with no mechanism.** ' +
+      "`SeedServerOptions.relayAdmission` obliges a closed seed to *\"serve enrolment itself, or " +
+      'name a provider a joining peer can reach without a reservation"*, and no field, flag or ' +
+      '`BootstrapInfo` member existed with which to name one — a requirement that reads as ' +
+      'though a mechanism exists is worse than an absent one. This plant stops the seed ' +
+      'publishing the provider it was given. **It must redden the browser tier, not merely the ' +
+      'unit**: the claim is that a *tab* learns the address from its own origin, and before ' +
+      '2026-08-08 `gated-seed.e2e.test.ts` supplied that value from Node through `page.evaluate`, ' +
+      'so the whole path was green with nothing publishing anything.',
+    file: 'packages/node/src/seed-server.ts',
+    find: '      : { enrollmentProvider: input.enrollmentProvider }),',
+    replace: '      : {}),',
+    caughtBy: [
+      'packages/node/src/seed-enrollment-provider.node.test.ts',
+      'packages/node/src/gated-seed.e2e.test.ts',
+    ],
+    // Observed 2026-08-08. Unit: exit 1, `2 failed | 2 passed (4)`. E2E: exit 1, **all three
+    // engines**, `page.evaluate: Error: the origin published no enrollmentProvider, so this tab
+    // cannot enrol` — chromium, firefox and webkit each. Restored by the surgical inverse and
+    // `cmp` against the pre-plant snapshot returned 0, sha256 back to 2826344a.
+    signature: 'the origin published no enrollmentProvider',
+    signatureSource: 'test-title',
+  },
+  {
+    id: 'M73',
+    why:
+      'AUTH-01/04 — **the operator half of the same finding, which no test reached.** The seed ' +
+      'banner is the only surface telling an operator which of the two states their closed seed ' +
+      'is in: a named provider, or the case `relayAdmission`’s docblock calls **operator ' +
+      'error**. A line nothing reads is a line that rots, and this repository has shipped ' +
+      'exactly that before. Disabling the branch must redden both banner cases while leaving ' +
+      "the file's other 27 untouched — a plant that reddens everything proves only that the " +
+      'file runs.',
+    file: 'packages/node/src/bin/seed.ts',
+    find: 'if (admitIssuers.length > 0 || enrollmentProvider !== undefined) {',
+    replace: 'if (false && (admitIssuers.length > 0 || enrollmentProvider !== undefined)) {',
+    caughtBy: ['packages/node/src/trust-anchors.node.test.ts'],
+    // Observed 2026-08-08: exit 1, `2 failed | 27 passed (29)`, both failures reading
+    // `expected '<no enrol line>' to contain 'NOBODY'` and `… to contain '/ip4/127.0.0.1/…'`.
+    // The 27 that stayed green are the point: the plant hit its own two cases and nothing else.
+    // Restored by the surgical inverse; `cmp` returned 0, sha256 back to 6b5e4619.
+    signature: 'a closed seed naming no provider says so in the banner',
+    signatureSource: 'test-title',
+  },
 ]
 
 /**
