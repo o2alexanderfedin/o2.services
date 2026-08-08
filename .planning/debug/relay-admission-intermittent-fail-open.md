@@ -1,9 +1,25 @@
 ---
-status: investigating
+status: resolved
 trigger: "Live intermittent fail-open in packages/node/src/relay-admission.node.test.ts:1132 — `theirs` (enrolled providerB) holds a reservation on a relay pinning providerA. 2 failures in 12 executions. Is the race in the FIXTURE or the GATE?"
 created: 2026-08-06T21:51:00Z
-updated: 2026-08-06T21:51:00Z
+updated: 2026-08-08T12:30:00Z
 ---
+
+## RESOLVED 2026-08-08 — it was neither the fixture nor the gate
+
+**The intermittent fail-open was another agent's live planted mutation, observed mid-plant.** Two
+verifier agents were launched in parallel and both planted `packages/node/src/fabric-node.ts`;
+one read the other's plant as an intermittent fail-open in the admission gate, and it was
+escalated as a possible security defect. Refuting it took 111 executions, a patch to
+`node_modules`, and a reading of the library's call ordering.
+
+The finding is recorded in `CLAUDE.md` § Conventions, where it became the standing rule:
+**agents that plant must not run in parallel on shared source**, and *"an observation taken while
+another agent holds a plant is not a measurement of the tree."* Checking that two plans'
+`files_modified` are disjoint is NOT sufficient, because a plant can touch any file.
+
+No defect in `relay-admission.node.test.ts` and none in `relayAdmissionGate`. Closed against the
+v1.1 milestone audit's tech-debt sweep.
 
 ## Current Focus
 

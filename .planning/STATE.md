@@ -190,6 +190,21 @@ posture. **Criterion 8 is also where Phase 19's criterion 5 and Phase 17's crite
 carried**, so under RULING A neither of those closes either, and neither phase's score
 moves. A destination that lands PARTIAL settles nothing.
 
+**SUPERSEDED 2026-08-08 — `bin/seed.ts` CAN be told to close, and has been able to since
+`afe8b0b`.** The three passages in this file that say otherwise (here, under Phase 24's block, and
+in Session Continuity) were true when written and are now false. Measured directly rather than
+inferred: `bin/seed.ts` takes a repeatable, hex-validated `--admit-issuer`;
+`SeedServerOptions.relayAdmission` is a **required** field, so there is no key to omit; and
+`seed-server.ts` passes it straight through as `relayAdmission: options.relayAdmission`. Criterion
+8 was re-scored **MET** at `580e461`. Found by the v1.1 milestone audit's cross-phase integration
+pass, which was briefed with the stale account and corrected it. **The file disagreeing with
+itself is the defect this milestone keeps finding, and it found it here three times over.** What
+is genuinely asymmetric now is `bin/bench.ts`, which hard-codes `'admits-any-peer'` at three sites
+and has no flag mechanism — and leaving it open is a deliberate trade with a stated cost, because
+`relayAdmissionGate`'s own header records that 24-02's pre-gate baseline *"stays comparable only
+while that remains true."*
+
+
 **Phase 13.1 joined on 2026-08-02**: it was verified 2026-07-31 at `gaps_found` 6/7 with DATA-10
 open, and criterion 7's at-rest half has now landed — a durable per-node sovereign-CID set
 (`sovereign-cids.ts`, `idb-sovereign-cids.ts`) registered at `submit.ts`'s blockstore-put and
@@ -431,7 +446,9 @@ and holding no certificate, and its id is the second entry in `openProviderHolds
 nodes, the same clause, opposite answers, and the difference between them is not the
 certificate but which peers each happened to dial.
 
-**And `bin/seed.ts` cannot be told to close.** No `--admit-issuer` flag, no
+**And `bin/seed.ts` cannot be told to close.** *(SUPERSEDED 2026-08-08 — see the correction
+under Current Position. It can, since `afe8b0b`. The paragraph is kept because the reasoning it
+records is why the flag was added.)* No `--admit-issuer` flag, no
 `SeedServerOptions` field, and `seed-server.ts` writes `relayAdmission: 'admits-any-peer'`
 at its `FabricNode.start` call. So the bound is **structural**, not a deployment posture an
 operator can remove — which is why this verifies PARTIAL rather than passing with a stated
@@ -1640,7 +1657,9 @@ it is narrower and worse.** The blocker read that 24-03 would arm the gate on
 now takes a hex-validated, repeatable `--admit-issuer`, writes
 `relayAdmission: new Set(values['admit-issuer'])`, and publishes its posture as a sorted
 array on the handshake line — verified by the phase's own census. **The other half is not,
-and it cannot be closed by a flag that does not exist**: `bin/seed.ts` has no
+and it cannot be closed by a flag that does not exist** *(SUPERSEDED 2026-08-08: the flag now
+exists — `afe8b0b` — and criterion 8 was re-scored MET at `580e461`. Kept because it records
+what was owed and why)*: `bin/seed.ts` has no
 `--admit-issuer`, `SeedServerOptions` has no `relayAdmission` field, and `seed-server.ts`
 writes `relayAdmission: 'admits-any-peer'` at its `FabricNode.start` call. `--trusted-issuer`
 threads to `trustedIssuers` — *selection* — and never to `relayAdmission`, which is the

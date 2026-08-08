@@ -1,9 +1,26 @@
 ---
-status: investigating
+status: resolved
 trigger: "Retake MEASURED_NODE_SPANS: slow-specs.node.test.ts is RED — the node project holds 157 test files, the recorded measurement covered 150. Drift 7 against FILE_COUNT_TOLERANCE = 5. Guard is in .githooks/pre-commit so every commit touching a node spec is refused."
 created: 2026-08-05T14:24:00Z
-updated: 2026-08-05T14:30:00Z
+updated: 2026-08-08T12:30:00Z
 ---
+
+## RESOLVED 2026-08-08 — the retake happened, and this session re-measured to confirm
+
+The symptom recorded here was a drift of **7** — *"the node project holds 157 test files, the
+recorded measurement covered 150"* — against `FILE_COUNT_TOLERANCE = 5`, refusing every commit
+that touched a node spec.
+
+`MEASURED_NODE_SPANS` and `NODE_MEASUREMENT` were retaken on **2026-08-07**, and
+`slow-specs.node.test.ts` has run green on every invocation since. Verified again on 2026-08-08
+while Plan 22-04 added two rows to the same table: drift measured **2**, inside tolerance, and
+the guard passes. The table now records `files: 171`, `unitFiles: 111`, `unitTests: 1697`,
+`unitWallClockMs: 23_340`, each re-measured rather than inherited.
+
+The procedure in the docblock — *"So this is the procedure, and it is not optional"* — was
+followed for both new rows: solo `/usr/bin/time -p`, `(user+sys)/real` recorded, reporter span
+cross-checked against wall clock for hook shadowing. Closed against the v1.1 milestone audit's
+tech-debt sweep.
 
 ## Current Focus
 
