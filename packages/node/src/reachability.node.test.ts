@@ -6,16 +6,22 @@ import { fileURLToPath } from 'node:url'
 import { SymbolFlags } from 'typescript/unstable/sync'
 import { describe, expect, it } from 'vitest'
 import {
-  ENTRY_POINTS,
+  type CallGraph,
   type ClassifiedExport,
+  ENTRY_POINTS,
   type ExportFacts,
   barrelExports,
   barrelNameOf,
   barrelPathsIn,
+  buildCallGraph,
   callableConstsIn,
   censusOf,
   classify,
   classifyAll,
+  fileOf,
+  nodeId,
+  reachableFrom,
+  resolveSpecifier,
   typescriptVersionIn,
 } from './reachability.ts'
 
@@ -303,5 +309,453 @@ describe('the instrument can fail — proved against planted input, not assumed'
     // loader at a root with no tsconfig.json, which is the same shape as the contract shifting.
     const nowhere = mkdtempSync(join(tmpdir(), 'o2-reachability-noconfig-'))
     expect(() => barrelExports({ root: nowhere, packagesDir: join(ROOT, 'packages') })).toThrow()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Task 2 — the call graph
+// ---------------------------------------------------------------------------
+
+/**
+ * Graph shape, measured 2026-08-08 at `fa9820c` — floors, for the reason the corpus floors are.
+ *
+ * `files` is walked from disk rather than read off `program.getSourceFileNames()`, and that is
+ * not a style choice: the program's file list **grows lazily** as more files are touched — the
+ * same call returned 907 and then 963 within one session. A corpus that changes size depending
+ * on what you looked at first cannot carry a floor.
+ */
+const FILE_FLOOR = 139
+const NODE_FLOOR = 1800
+const CALLER_FLOOR = 690
+
+/** Anchors that must be REACHED, each chosen for a different edge class. Re-measured 2026-08-08. */
+const KNOWN_TRUE: readonly (readonly [string, string])[] = [
+  ['node', 'FabricNode'], // member-expression entry from bin/agent.ts
+  ['core', 'submitJob'],
+  ['net', 'reduceJob'], // called from bin/bench.ts
+  ['core', 'runTaskAndPost'], // through the worker edges
+  ['aot', 'translationCid'], // through tools/aot/lift.ts
+  ['core', 'MemoryNetwork'], // through a FUNCTION REFERENCE — see the reference-edge case
+]
+
+/**
+ * Anchors that must be unreached — and **`core/delegate` is deliberately not among them**.
+ *
+ * The plan named `delegate` as its known-FALSE anchor, on the reading that its only callers sat
+ * in `capability-fixture.ts`, which no entry point imports. **That has changed sides**, exactly
+ * as the plan warned it might: `bin/bench.ts` now calls it at module scope, so it is reachable
+ * from an entry point without passing through anything. Phase 23 criterion 5 delivered that, and
+ * the plan's own instruction is that a moved anchor is *a finding to report, not an assertion to
+ * quietly adjust*. It is reported in `22-01-SUMMARY.md` and asserted below in its new direction.
+ *
+ * Both replacements were verified **independently of this instrument**, by grepping the tree for
+ * call sites: neither has one anywhere outside a spec.
+ */
+const KNOWN_FALSE: readonly (readonly [string, string])[] = [
+  ['demo', 'estimatePi'],
+  ['demo', 'piErrorBound'],
+]
+
+let graphCache: CallGraph | undefined
+function graph(): CallGraph {
+  graphCache ??= buildCallGraph()
+  return graphCache
+}
+
+/**
+ * How many callable barrel exports one graph reports unreached.
+ *
+ * A **comparative** reading by construction: every ablation below asserts this against the
+ * baseline taken in the same run, never against an absolute. An absolute would encode the tree
+ * on the day it was written, which is exactly what 22-01's own stale corpus numbers demonstrate.
+ */
+function unreachedCount(built: CallGraph): number {
+  const reached = reachableFrom(built.calls, built.roots)
+  let count = 0
+  for (const one of corpus()) {
+    if (one.kind !== 'callable') continue
+    if (!reached.has(nodeId(relativeToRoot(one.declaredIn), one.name))) count += 1
+  }
+  return count
+}
+
+/** A barrel export's declaration node id, or `undefined` if it is not a callable export. */
+function nodeFor(barrel: string, name: string): string | undefined {
+  const found = corpus().find(
+    (one) => one.barrel === barrel && one.name === name && one.kind === 'callable',
+  )
+  if (found === undefined) return undefined
+  return nodeId(relativeToRoot(found.declaredIn), name)
+}
+
+/**
+ * The API hands back lowercased absolute paths; the graph keys on disk-cased repo-relative ones.
+ * Kept here as one expression so the spec compares the same way the module does.
+ */
+function relativeToRoot(absolute: string): string {
+  const base = ROOT.endsWith('/') ? ROOT : `${ROOT}/`
+  return absolute.toLowerCase().startsWith(base.toLowerCase()) ? absolute.slice(base.length) : absolute
+}
+
+describe('the call graph: a path through functions, not through modules', () => {
+  it('walks the production corpus and finds declarations and callers', () => {
+    const built = graph()
+    expect(built.files.length).toBeGreaterThanOrEqual(FILE_FLOOR)
+    expect(built.nodes.size).toBeGreaterThanOrEqual(NODE_FLOOR)
+    expect(built.calls.size).toBeGreaterThanOrEqual(CALLER_FLOOR)
+    expect(built.roots.length).toBe(5)
+    // Specs are outside the graph on purpose: a test calling something does not make it
+    // entry-point reachable, and counting it would make this whole file vacuous.
+    expect(built.files.filter((file) => file.endsWith('.test.ts'))).toEqual([])
+  })
+
+  it('reports every known-TRUE anchor reachable', () => {
+    const reached = reachableFrom(graph().calls, graph().roots)
+    for (const [barrel, name] of KNOWN_TRUE) {
+      const id = nodeFor(barrel, name)
+      expect(id, `${barrel}/${name} is not a callable barrel export any more`).toBeDefined()
+      expect(reached.has(id ?? ''), `${barrel}/${name} (${id ?? '?'}) should be reachable`).toBe(true)
+    }
+  })
+
+  it('reports every known-FALSE anchor unreachable', () => {
+    const reached = reachableFrom(graph().calls, graph().roots)
+    for (const [barrel, name] of KNOWN_FALSE) {
+      const id = nodeFor(barrel, name)
+      expect(id, `${barrel}/${name} is not a callable barrel export any more`).toBeDefined()
+      expect(reached.has(id ?? ''), `${barrel}/${name} (${id ?? '?'}) should NOT be reachable`).toBe(false)
+    }
+  })
+
+  it('records that core/delegate changed sides, rather than adjusting around it', () => {
+    // The plan's known-FALSE anchor, asserted in the direction the tree now supports. If this
+    // ever flips back, that is a Phase 23 regression and it must be loud rather than absorbed.
+    const reached = reachableFrom(graph().calls, graph().roots)
+    const id = nodeFor('core', 'delegate')
+    expect(id).toBe('packages/core/src/capability.ts#delegate')
+    expect(
+      reached.has(id ?? ''),
+      'core/delegate was the plan\'s known-FALSE anchor and is now reachable from bin/bench.ts ' +
+        'at module scope — Phase 23 criterion 5 delivered that. A flip back is a regression.',
+    ).toBe(true)
+  })
+
+  it('separates a declaration from its module — estimatePi, both halves in one case', () => {
+    // THE case that decides granularity. If the declaration half ever reports reached, the
+    // tracer has degraded to module granularity and Task 3's reading becomes a tautology.
+    const built = graph()
+    const reached = reachableFrom(built.calls, built.roots)
+    const modules = reachableFrom(built.imports, built.roots.map(fileOf))
+
+    const id = nodeFor('demo', 'estimatePi')
+    expect(id).toBe('packages/demo/src/pi.ts#estimatePi')
+    expect(reached.has(id ?? ''), 'estimatePi is called by nothing and must read unreached').toBe(false)
+    expect(
+      modules.has('packages/demo/src/pi.ts'),
+      'pi.ts must be a reachable MODULE — without that half this case proves nothing',
+    ).toBe(true)
+  })
+
+  it('pins the declarations merged by sharing a file and a name', () => {
+    // Merging can only ever over-connect, so it is bounded and named rather than left to grow.
+    const built = graph()
+    expect(built.collisions.length).toBeLessThanOrEqual(12)
+    expect(built.collisions).toContain('packages/core/src/discovery.ts#providers')
+  })
+})
+
+describe('each edge class is load-bearing — one ablation per class', () => {
+  /**
+   * A single "disable everything" plant proves only that the graph exists. Each class is turned
+   * off on its own and required to flip **its own** anchor while leaving the others alone, which
+   * is the only arrangement that says the classes are independent rather than jointly decorative.
+   */
+  const MEMBER_OBJECT = 'packages/node/src/fabric-node.ts#FabricNode'
+  const MEMBER_METHOD = 'packages/node/src/fabric-node.ts#start'
+  const VITE_WORKER = 'packages/browser/src/task-executor.worker.ts#<module>'
+  const URL_WORKER = 'packages/node/src/task-executor.worker-thread.ts#<module>'
+
+  it('member-expression: the METHOD half of FabricNode.start goes unreachable', () => {
+    // `FabricNode.start(…)` contributes two edges from two different classes, and the split is
+    // the finding: the OBJECT half (`FabricNode`) is an ordinary value reference, while the
+    // METHOD half (`start`) exists only because this class reads property access. So the anchor
+    // is the method, not the class — asserting the class here would have been satisfied by the
+    // reference class and proved nothing.
+    const off = buildCallGraph({ memberEdges: false })
+    const reachedOff = reachableFrom(off.calls, off.roots)
+    expect(reachedOff.has(MEMBER_METHOD)).toBe(false)
+    expect(reachedOff.has(MEMBER_OBJECT)).toBe(true)
+    // The other classes' anchors are untouched — that is what makes this ablation this class's.
+    expect(reachedOff.has(VITE_WORKER)).toBe(true)
+    expect(reachedOff.has(URL_WORKER)).toBe(true)
+  })
+
+  it('measures what member-expression is worth when references are not there to cover it', () => {
+    // Measured, and it corrects the plan. 22-01 attributes most of the naive tracer's 102 false
+    // findings to this one missing class — true of a tracer with NO reference edges, and false
+    // of this one: with references present, dropping member edges changes **no** barrel verdict,
+    // because a class named in `X.y()` is already referenced by name. The class holds its place
+    // on the METHOD edge above and on this comparison, not on the headline count.
+    const withoutReferences = unreachedCount(buildCallGraph({ referenceEdges: false }))
+    const withoutEither = unreachedCount(buildCallGraph({ referenceEdges: false, memberEdges: false }))
+    expect(withoutEither).toBeGreaterThan(withoutReferences + 40)
+    // And the honest other half of that sentence, asserted so it cannot rot into folklore:
+    expect(unreachedCount(buildCallGraph({ memberEdges: false }))).toBe(unreachedCount(graph()))
+  })
+
+  it('Vite ?worker: the browser worker module goes unreachable and nothing else does', () => {
+    const off = buildCallGraph({ viteWorkerEdges: false })
+    const reachedOff = reachableFrom(off.calls, off.roots)
+    expect(reachedOff.has(VITE_WORKER)).toBe(false)
+    expect(reachedOff.has(URL_WORKER)).toBe(true)
+    expect(reachedOff.has(MEMBER_METHOD)).toBe(true)
+  })
+
+  it('new URL worker entry: the Node worker module goes unreachable and nothing else does', () => {
+    const off = buildCallGraph({ urlWorkerEdges: false })
+    const reachedOff = reachableFrom(off.calls, off.roots)
+    expect(reachedOff.has(URL_WORKER)).toBe(false)
+    expect(reachedOff.has(VITE_WORKER)).toBe(true)
+    expect(reachedOff.has(MEMBER_METHOD)).toBe(true)
+  })
+
+  it('static import: both worker modules go unreachable, the member entry does not', () => {
+    const off = buildCallGraph({ importEdges: false })
+    const reachedOff = reachableFrom(off.calls, off.roots)
+    expect(reachedOff.has(VITE_WORKER)).toBe(false)
+    expect(reachedOff.has(URL_WORKER)).toBe(false)
+    // `FabricNode.start` survives because callees are resolved through the CHECKER, not by
+    // following imports — which is also why a barrel never appears as a caller.
+    expect(reachedOff.has(MEMBER_METHOD)).toBe(true)
+  })
+
+  it('function references: MemoryNetwork needs them, estimatePi must not', () => {
+    // The fifth class, added after measurement rather than from the plan. `bin/bench.ts` writes
+    // `runnerFor(memoryFabric)` — a function handed over rather than called — and without this
+    // class `MemoryNetwork` reads unreached while a real benchmark constructs one every run.
+    // That is an UNDER-connection, and it manufactures findings that are not real.
+    const off = buildCallGraph({ referenceEdges: false })
+    const reachedOff = reachableFrom(off.calls, off.roots)
+    expect(reachedOff.has('packages/core/src/transport/memory.ts#MemoryNetwork')).toBe(false)
+    expect(unreachedCount(off)).toBeGreaterThan(unreachedCount(graph()))
+
+    // The other direction, and it is the one that keeps this class from becoming the 54-answer:
+    // a barrel's `export { estimatePi } from …` names the symbol without using it, so import and
+    // export statements contribute no reference edges. Without that exclusion `estimatePi` reads
+    // REACHED and the granularity case above silently becomes a tautology.
+    const reached = reachableFrom(graph().calls, graph().roots)
+    expect(reached.has('packages/demo/src/pi.ts#estimatePi')).toBe(false)
+  })
+
+  it('THE FIVE-MODULE ENTRY SET NO LONGER HOLDS SILENTLY — it is now an owner question', () => {
+    // 22-CONTEXT.md pinned this reading on 2026-08-04: adding the three runnable-but-unnamed
+    // modules "gains 4 modules and ZERO exclusive callable barrel exports, so no verdict changes
+    // today", and instructed that when it stopped being true the pin should redden and the entry
+    // set become an owner question rather than a silent inheritance.
+    //
+    // **It has stopped being true.** Measured 2026-08-08: the three rescue exactly four symbols,
+    // all in `@o2/aot`, all reached from `tools/aot/bench-lifted.ts`. So the five-module list is
+    // no longer defensible on the grounds the context document gave for it, and whether
+    // `bench-lifted.ts` is an entry point is a judgement for the owner — 22-03 is the plan that
+    // stops for one. This case asserts the DIFFERENCE, so neither the count nor the membership
+    // can drift without saying so.
+    const wider = buildCallGraph({
+      entryPoints: [
+        ...ENTRY_POINTS,
+        'packages/node/src/mutation-guard.mutate.ts',
+        'tools/aot/bench-lifted.ts',
+        'tools/aot/measure-wasi.ts',
+      ],
+    })
+    expect(wider.roots.length).toBe(8)
+
+    const reachedWide = reachableFrom(wider.calls, wider.roots)
+    const reachedFive = reachableFrom(graph().calls, graph().roots)
+    const rescued = corpus()
+      .filter((one) => one.kind === 'callable')
+      .filter((one) => {
+        const id = nodeId(relativeToRoot(one.declaredIn), one.name)
+        return !reachedFive.has(id) && reachedWide.has(id)
+      })
+      .map((one) => `${one.barrel}/${one.name}`)
+      .sort()
+    expect(rescued).toEqual([
+      'aot/pinnedWasiImports',
+      'aot/seededStream',
+      'aot/shardArgv',
+      'aot/taskSeed',
+    ])
+  })
+})
+
+describe('the traversal can fail — driven with planted graphs, no build involved', () => {
+  /**
+   * `reachableFrom` is pure over its arguments precisely so these four cases exist. Three of the
+   * four ways this instrument can report a clean tree while broken are checked here, and none of
+   * them needs a real graph: an empty edge set, an empty root set, and a graph whose edges do
+   * not connect to the roots.
+   */
+  it('lets a known-FALSE anchor be made to go green, so it is a check and not a restatement', () => {
+    // A known-FALSE assertion that could never flip is a description of today's tree rather than
+    // a check on it. `reachableFrom` is pure over its arguments precisely so this is reachable:
+    // plant one edge from a root to `estimatePi` and it must report reached.
+    const built = graph()
+    const planted = new Map(built.calls)
+    const root = built.roots[0] ?? ''
+    planted.set(root, new Set([...(built.calls.get(root) ?? []), 'packages/demo/src/pi.ts#estimatePi']))
+    expect(reachableFrom(planted, built.roots).has('packages/demo/src/pi.ts#estimatePi')).toBe(true)
+    // And unplanted it must still be unreached, in the same run, so the two readings are comparable.
+    expect(reachableFrom(built.calls, built.roots).has('packages/demo/src/pi.ts#estimatePi')).toBe(false)
+  })
+
+  it('reaches nothing but the roots when the edge set is empty', () => {
+    expect([...reachableFrom(new Map(), ['a#<module>'])]).toEqual(['a#<module>'])
+  })
+
+  it('reaches nothing at all when the root set is empty', () => {
+    const edges = new Map([['a#<module>', new Set(['b#f'])]])
+    expect(reachableFrom(edges, []).size).toBe(0)
+  })
+
+  it('follows a planted chain and stops at the end of it', () => {
+    const edges = new Map([
+      ['a#<module>', new Set(['b#f'])],
+      ['b#f', new Set(['c#g'])],
+      ['d#orphan', new Set(['e#h'])],
+    ])
+    const reached = reachableFrom(edges, ['a#<module>'])
+    expect([...reached].sort()).toEqual(['a#<module>', 'b#f', 'c#g'])
+    expect(reached.has('e#h')).toBe(false)
+  })
+
+  it('terminates on a cycle rather than spinning', () => {
+    const edges = new Map([
+      ['a#f', new Set(['b#g'])],
+      ['b#g', new Set(['a#f'])],
+    ])
+    expect(reachableFrom(edges, ['a#f']).size).toBe(2)
+  })
+
+  it('resolves the specifier forms the four edge classes are written in', () => {
+    // Pure over its arguments, so each form is checked directly rather than inferred from a
+    // reachability verdict two layers away.
+    expect(resolveSpecifier('packages/browser/src/worker-factory.ts', './task-executor.worker.ts?worker')).toBe(
+      'packages/browser/src/task-executor.worker.ts',
+    )
+    expect(resolveSpecifier('packages/node/src/worker-thread.ts', './task-executor.worker-thread.ts')).toBe(
+      'packages/node/src/task-executor.worker-thread.ts',
+    )
+    expect(resolveSpecifier('packages/node/src/bin/agent.ts', '../fabric-node.ts')).toBe(
+      'packages/node/src/fabric-node.ts',
+    )
+    expect(resolveSpecifier('packages/node/src/bin/agent.ts', '@o2/core')).toBe('packages/core/src/index.ts')
+    // Off the map, and deliberately: node_modules is never followed, because in a worktree it is
+    // a tree of symlinks into another checkout.
+    expect(resolveSpecifier('packages/core/src/reduce.ts', 'node:fs')).toBeUndefined()
+    expect(resolveSpecifier('packages/core/src/reduce.ts', 'multiformats/cid')).toBeUndefined()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Task 3 — resolving power: the same corpus at two granularities, in one run
+// ---------------------------------------------------------------------------
+
+/**
+ * The gap floor, sited against **58**, measured 2026-08-08 at `fa9820c` with Phases 20, 21, 23
+ * and 24 landed and Phase 22 unbuilt.
+ *
+ * **The value that would break this reading is 0** — the two arms returning the same set means
+ * the declaration arm has degraded to module granularity, and the phase would have built the
+ * 3-answer while believing it built the other. The floor sits well below the measurement rather
+ * than at it, deliberately: wiring work that legitimately reaches some of these symbols must be
+ * able to land without reddening a guard about the *instrument*. A collapse to module
+ * granularity does not go from 58 to 40; it goes to 0.
+ */
+const GAP_FLOOR = 20
+
+/** Both arms over one graph, in one traversal each — never two graphs, which would agree by construction. */
+function twoArms(built: CallGraph): {
+  readonly declarationUnreached: readonly string[]
+  readonly moduleUnreached: readonly string[]
+  readonly gap: readonly string[]
+} {
+  const reached = reachableFrom(built.calls, built.roots)
+  const modules = reachableFrom(built.imports, built.roots.map(fileOf))
+  const declarationUnreached: string[] = []
+  const moduleUnreached: string[] = []
+  const gap: string[] = []
+  for (const one of corpus()) {
+    if (one.kind !== 'callable') continue
+    const file = relativeToRoot(one.declaredIn)
+    const label = `${one.barrel}/${one.name}`
+    const byDeclaration = reached.has(nodeId(file, one.name))
+    const byModule = modules.has(file)
+    if (!byDeclaration) declarationUnreached.push(label)
+    if (!byModule) moduleUnreached.push(label)
+    if (!byDeclaration && byModule) gap.push(label)
+  }
+  return { declarationUnreached, moduleUnreached, gap }
+}
+
+describe('resolving power — measured, not assumed', () => {
+  it('separates the two granularities by more than the floor, in one run', () => {
+    const arms = twoArms(graph())
+    expect(
+      arms.gap.length,
+      `module granularity called ${arms.gap.length} symbols reached that declaration ` +
+        `granularity does not. Floor ${GAP_FLOOR}; the breaking value is 0, which would mean ` +
+        'the declaration arm has collapsed into the module arm and this phase is measuring nothing.',
+    ).toBeGreaterThanOrEqual(GAP_FLOOR)
+
+    // Stated rather than left implicit: on this tree the module arm reaches EVERYTHING, because
+    // every entry point imports a barrel and a barrel imports its whole package. So module
+    // granularity answers "0 unreached" — which is the 3-answer's failure in its purest form,
+    // and the reason the plan refuses to let it be the instrument.
+    expect(arms.moduleUnreached.length).toBeLessThan(arms.declarationUnreached.length)
+  })
+
+  it('is red when the two arms agree because nothing connects at all', () => {
+    // The other direction, and the one that stops the gap floor being satisfiable by a broken
+    // instrument. With no edges every symbol is unreached under BOTH arms, the arms agree
+    // perfectly, and a floor that only knew how to detect over-connection would sail through.
+    const empty: CallGraph = {
+      nodes: graph().nodes,
+      calls: new Map(),
+      imports: new Map(),
+      files: graph().files,
+      roots: graph().roots,
+      collisions: [],
+    }
+    const arms = twoArms(empty)
+    expect(arms.declarationUnreached.length).toBe(arms.moduleUnreached.length)
+    expect(arms.gap.length).toBe(0)
+    expect(arms.gap.length).toBeLessThan(GAP_FLOOR)
+  })
+
+  it('is red when the declaration arm is made to delegate to the module arm', () => {
+    // The single most important plant in the plan, and it is a standing case rather than a
+    // source mutation because `twoArms` reads a graph handed to it. A declaration arm that
+    // answered by module would report the same set as the module arm and the gap would vanish.
+    const built = graph()
+    const collapsed = new Map(built.calls)
+    // Give every declaration node an edge from its own module node: reaching the module now
+    // reaches every declaration in it, which IS module granularity wearing declaration clothes.
+    for (const node of built.nodes) {
+      const moduleNode = nodeId(fileOf(node), '<module>')
+      const set = new Set(collapsed.get(moduleNode) ?? [])
+      set.add(node)
+      collapsed.set(moduleNode, set)
+    }
+    const arms = twoArms({ ...built, calls: collapsed })
+    expect(arms.gap.length).toBe(0)
+    expect(arms.gap.length).toBeLessThan(GAP_FLOOR)
+  })
+
+  it('reports the findings as symbols, not as a number', () => {
+    // A count with no names cannot be acted on, and 22-03 has to grant dispositions per symbol.
+    const arms = twoArms(graph())
+    expect(arms.declarationUnreached).toContain('demo/estimatePi')
+    expect(arms.declarationUnreached).not.toContain('core/delegate')
+    for (const symbol of arms.declarationUnreached) expect(symbol).toMatch(/^[a-z0-9]+\/\S+$/)
   })
 })

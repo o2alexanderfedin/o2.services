@@ -1,7 +1,25 @@
-import { existsSync, readFileSync, readdirSync } from 'node:fs'
-import { join } from 'node:path'
+import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs'
+import { dirname, join, normalize } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { API, SignatureKind, SymbolFlags } from 'typescript/unstable/sync'
+import {
+  type Node,
+  isArrowFunction,
+  isCallExpression,
+  isClassDeclaration,
+  isFunctionDeclaration,
+  isFunctionExpression,
+  isGetAccessorDeclaration,
+  isExportDeclaration,
+  isIdentifier,
+  isImportDeclaration,
+  isMethodDeclaration,
+  isNewExpression,
+  isPropertyAccessExpression,
+  isSetAccessorDeclaration,
+  isStringLiteral,
+  isVariableDeclaration,
+} from 'typescript/unstable/ast'
+import { API, SignatureKind, type Symbol as TsSymbol, SymbolFlags } from 'typescript/unstable/sync'
 
 /**
  * The instrument Phase 22 reads: what this repository publishes, and — from Task 2 — what
@@ -335,6 +353,452 @@ export function callableConstsIn(options: BarrelExportOptions = {}): string[] {
       }
     }
     return found.sort()
+  } finally {
+    api.close()
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Task 2 — the call graph
+// ---------------------------------------------------------------------------
+
+/**
+ * The member name of the node holding a module's own top-level code.
+ *
+ * Top-level code is a caller like any other, and it has to be one: `bin/bench.ts` calls
+ * `delegate` at module scope, and a graph whose only callers were named functions would report
+ * that symbol unreached while it runs on every invocation of the binary.
+ */
+export const MODULE_MEMBER = '<module>'
+
+/** A graph node: a **declaration**, not a file — `packages/demo/src/pi.ts#estimatePi`. */
+export function nodeId(relFile: string, member: string): string {
+  return `${relFile}#${member}`
+}
+
+/** The file half of a node id. */
+export function fileOf(id: string): string {
+  const hash = id.lastIndexOf('#')
+  return hash < 0 ? id : id.slice(0, hash)
+}
+
+/**
+ * One declaration-level call graph over the repository's own TypeScript.
+ *
+ * `calls` already carries the module→module import edges as edges between the two files'
+ * {@link MODULE_MEMBER} nodes, so {@link reachableFrom} is a single plain traversal that a test
+ * can drive with a hand-built `Map`. `imports` keeps the same relation file-to-file, because
+ * Task 3's module arm has to traverse it *without* the call edges — two traversals of one graph,
+ * which is the only arrangement under which comparing them means anything.
+ */
+export interface CallGraph {
+  /** Every declaration node discovered, whether or not anything calls it. */
+  readonly nodes: ReadonlySet<string>
+  /** Caller node → callee nodes, including module→module import edges. */
+  readonly calls: ReadonlyMap<string, ReadonlySet<string>>
+  /** Importing file → imported files. Import edges only, for the module arm. */
+  readonly imports: ReadonlyMap<string, ReadonlySet<string>>
+  /** Repo-relative source files walked. */
+  readonly files: readonly string[]
+  /** {@link ENTRY_POINTS} as module nodes. */
+  readonly roots: readonly string[]
+  /**
+   * Declarations sharing a file and a name, merged into one node — reported rather than hidden.
+   *
+   * Two `start` methods on two classes in one file become one node, which can only ever
+   * *over*-connect. Measured rather than assumed: the spec pins the count so a refactor that
+   * made this common would be a finding instead of a silent loss of resolution.
+   */
+  readonly collisions: readonly string[]
+}
+
+/**
+ * Everything reachable from `roots` — **pure over its arguments**, so a planted `Map` can be
+ * handed straight to it.
+ *
+ * That purity is the whole reason this is a separate function. Four of this instrument's
+ * failure modes produce a clean verdict — an empty corpus, an empty entry set, an empty edge
+ * set, and an edge builder that over-connects — and the first three are only checkable if the
+ * traversal can be driven without building a real graph first.
+ */
+export function reachableFrom(
+  edges: ReadonlyMap<string, ReadonlySet<string>>,
+  roots: readonly string[],
+): Set<string> {
+  const seen = new Set<string>()
+  const queue = [...roots]
+  while (queue.length > 0) {
+    const here = queue.pop()
+    if (here === undefined || seen.has(here)) continue
+    seen.add(here)
+    for (const next of edges.get(here) ?? []) if (!seen.has(next)) queue.push(next)
+  }
+  return seen
+}
+
+/**
+ * Which package barrel a repo-relative path belongs to, or `undefined` outside `packages/`.
+ *
+ * Used to turn `@o2/core` into the file that publishes it. A barrel is a **conduit, never a
+ * caller** — every statement in all eight is `export … from`, so nothing in one ever appears as
+ * the source of a call edge. It appears only as an import target, which is correct: importing a
+ * barrel really does run every module it re-exports.
+ */
+function barrelFileFor(specifier: string): string | undefined {
+  const scope = '@o2/'
+  if (!specifier.startsWith(scope)) return undefined
+  const pkg = specifier.slice(scope.length)
+  if (pkg.length === 0 || pkg.includes('/')) return undefined
+  return `packages/${pkg}/src/index.ts`
+}
+
+/**
+ * A module specifier resolved to a repo-relative file, or `undefined` when it leaves the repo.
+ *
+ * Two of the four edge classes live here. **The `?worker` query is stripped**: Vite's
+ * `./task-executor.worker.ts?worker` is a real static edge wearing a suffix, and a resolver that
+ * does not strip it drops the only path to `runTask` and `runTaskAndPost` — the fabric's entire
+ * execution path — and reports the kernel's task runner dead.
+ *
+ * `node:` builtins and npm packages resolve to `undefined` deliberately. `node_modules` is never
+ * followed: in a git worktree it is a tree of symlinks into another checkout, and following it
+ * would make this instrument report on code that is not the code under test.
+ */
+export function resolveSpecifier(fromRelFile: string, specifier: string): string | undefined {
+  const query = specifier.indexOf('?')
+  const clean = query < 0 ? specifier : specifier.slice(0, query)
+  if (clean.startsWith('.')) {
+    return normalize(join(dirname(fromRelFile), clean)).split('\\').join('/')
+  }
+  return barrelFileFor(clean)
+}
+
+const SKIP_DIRS: readonly string[] = ['node_modules', '.git', 'dist', 'coverage', '.vite']
+
+/**
+ * An absolute path made repo-relative, **case-insensitively**.
+ *
+ * Two traps, both measured rather than guessed, and each of which produced a graph with zero
+ * edges before it was found:
+ *
+ * 1. `REPO_ROOT` comes from `fileURLToPath(new URL('../../..', …))` and **carries a trailing
+ *    slash** — `purity.node.test.ts` records the same fact about its own `ROOT`. Slicing
+ *    `root.length + 1` therefore eats the first character of every path, and `getSourceFile`
+ *    then returns `undefined` for the entire corpus. Everything reads unreachable, which is the
+ *    loud direction and is how this was caught.
+ * 2. **The API lowercases `NodeHandle.path`** — it returns `/volumes/projectsssd/…` for a repo
+ *    at `/Volumes/ProjectsSSD/…`. A case-sensitive comparison against a disk walk therefore
+ *    matches nothing on a host whose path has any capital in it.
+ */
+function relativeTo(root: string, absolute: string): string {
+  const base = root.endsWith('/') ? root : `${root}/`
+  if (!absolute.toLowerCase().startsWith(base.toLowerCase())) return absolute
+  return absolute.slice(base.length)
+}
+
+/** Repo-relative `.ts` under `roots`, excluding specs, declarations and the skip list. */
+function sourceFilesUnder(root: string, roots: readonly string[]): string[] {
+  const found: string[] = []
+  const walk = (dir: string): void => {
+    for (const entry of readdirSync(dir)) {
+      if (SKIP_DIRS.includes(entry)) continue
+      const path = join(dir, entry)
+      if (statSync(path).isDirectory()) walk(path)
+      else if (entry.endsWith('.ts') && !entry.endsWith('.d.ts') && !entry.endsWith('.test.ts')) {
+        found.push(relativeTo(root, path))
+      }
+    }
+  }
+  for (const dir of roots) walk(join(root, dir))
+  return found.sort()
+}
+
+/**
+ * The declaration kinds that own the calls written inside them.
+ *
+ * Narrowed with the AST's own `isX` type guards rather than by comparing `kind` and reaching for
+ * properties the base `Node` does not declare — the guards are what make `.name` and
+ * `.initializer` legal to read at all, and this repository forbids the assertion that would
+ * otherwise be needed.
+ */
+function declaredNameOf(node: Node): string | undefined {
+  if (
+    isFunctionDeclaration(node) ||
+    isClassDeclaration(node) ||
+    isMethodDeclaration(node) ||
+    isGetAccessorDeclaration(node) ||
+    isSetAccessorDeclaration(node)
+  ) {
+    const name = node.name
+    return name !== undefined && isIdentifier(name) ? name.text : undefined
+  }
+  // A `const f = () => {}` owns its body too — the arrow is the declaration in all but name, and
+  // `classify` already records that this repository writes callables in both forms.
+  if (isVariableDeclaration(node)) {
+    const initializer = node.initializer
+    if (initializer === undefined) return undefined
+    if (!isArrowFunction(initializer) && !isFunctionExpression(initializer)) return undefined
+    return isIdentifier(node.name) ? node.name.text : undefined
+  }
+  return undefined
+}
+
+/** Every callee identifier in a subtree, paired with the declaration that wrote the call. */
+interface CallSite {
+  readonly caller: string
+  readonly callee: Node
+  /** True when this identifier came from a property access — `X.y()` contributes two sites. */
+  readonly member: boolean
+}
+
+/**
+ * `new URL('<rel>', import.meta.url)` — the fourth edge class, and not an import at all.
+ *
+ * `worker-thread.ts` writes `const ENTRY = new URL('./task-executor.worker-thread.ts',
+ * import.meta.url)` and then `new Worker(ENTRY)`. No import statement mentions that file, so a
+ * resolver reading only `sourceFile.imports` never sees the Node tier's worker entry.
+ */
+function workerUrlSpecifier(node: Node): string | undefined {
+  if (!isNewExpression(node)) return undefined
+  const callee = node.expression
+  if (!isIdentifier(callee) || callee.text !== 'URL') return undefined
+  const first = node.arguments?.at(0)
+  if (first === undefined || !isStringLiteral(first)) return undefined
+  return first.text
+}
+
+/**
+ * Walk one file: collect call sites attributed to their enclosing declaration, the declaration
+ * nodes themselves, and any `new URL` module edge.
+ *
+ * **A member call is an edge to both halves.** `FabricNode.start(…)` reaches `FabricNode` *and*
+ * `start`, because a bare `NAME(` detector excludes static-method entry by construction — and
+ * that single omission is most of the naive tracer's 102 false findings.
+ */
+function walkFile(
+  statements: readonly Node[],
+  relFile: string,
+  calls: CallSite[],
+  references: CallSite[],
+  declared: string[],
+  urlEdges: string[],
+): void {
+  const visit = (node: Node, caller: string, inSpecifierStatement: boolean): void => {
+    let here = caller
+    // An `import { X } from …` or `export { X } from …` NAMES a symbol without using it. Letting
+    // those contribute reference edges would make a barrel a CALLER, which is the one thing this
+    // repository has already settled: every statement in all eight barrels is `export … from`, so
+    // counting one as a caller makes every exported symbol look wired and the guard vacuous.
+    // Measured: without this exclusion `estimatePi` — which nothing anywhere calls — reads
+    // REACHED, because `@o2/demo`'s barrel re-exports it by name.
+    const specifierStatement =
+      inSpecifierStatement || isImportDeclaration(node) || isExportDeclaration(node)
+    const name = declaredNameOf(node)
+    if (name !== undefined) {
+      here = nodeId(relFile, name)
+      declared.push(here)
+    }
+    const workerSpecifier = workerUrlSpecifier(node)
+    if (workerSpecifier !== undefined) urlEdges.push(workerSpecifier)
+
+    // A bare identifier that is not the callee of this node. In JavaScript, holding a reference
+    // to a function IS how you call it later — `bench.ts` writes `runnerFor(memoryFabric)`, and
+    // a tracer that only sees `NAME(` reports `memoryFabric` and everything below it dead. That
+    // is an UNDER-connection, and under-connection is the dangerous direction for a guard that
+    // gates commits: it manufactures findings that are not real, and a guard that cries wolf
+    // gets deleted. Kept switchable so its cost is measured rather than assumed.
+    if (isIdentifier(node) && !specifierStatement) {
+      references.push({ caller: here, callee: node, member: false })
+    }
+
+    if (isCallExpression(node) || isNewExpression(node)) {
+      const callee = node.expression
+      if (isIdentifier(callee)) {
+        calls.push({ caller: here, callee, member: false })
+      } else if (isPropertyAccessExpression(callee)) {
+        // Both halves. `FabricNode.start(…)` reaches the class AND the method — a bare `NAME(`
+        // detector excludes static-method entry by construction, and that one omission is most
+        // of the naive tracer's 102 false findings.
+        const member = callee.name
+        if (isIdentifier(member)) calls.push({ caller: here, callee: member, member: true })
+        const object = callee.expression
+        if (isIdentifier(object)) calls.push({ caller: here, callee: object, member: true })
+      }
+    }
+    // The `.name` half of `X.y` belongs to the MEMBER class, never to the reference class.
+    // Without this split the two are not separable: collecting `start` from `FabricNode.start`
+    // as a bare reference made the member ablation change nothing at all, so a class the plan
+    // calls load-bearing could not be shown to be. The object half (`FabricNode`) IS a genuine
+    // reference and keeps its own edge, which is why the two ablations flip different anchors.
+    if (isPropertyAccessExpression(node)) {
+      visit(node.expression, here, specifierStatement)
+      return
+    }
+    node.forEachChild((child) => {
+      visit(child, here, specifierStatement)
+      return undefined
+    })
+  }
+  for (const statement of statements) visit(statement, nodeId(relFile, MODULE_MEMBER), false)
+}
+
+/** What {@link buildCallGraph} may be pointed at. */
+export interface CallGraphOptions {
+  readonly root?: string
+  /** Directories walked for source. Defaults to `packages` and `tools`. */
+  readonly sourceRoots?: readonly string[]
+  /** Entry-point modules. Defaults to {@link ENTRY_POINTS}. */
+  readonly entryPoints?: readonly string[]
+  /** Include `new URL(…)` worker edges. Default `true` — a switch so the class can be planted off. */
+  readonly urlWorkerEdges?: boolean
+  /** Include `?worker` import edges. Default `true` — likewise. */
+  readonly viteWorkerEdges?: boolean
+  /** Resolve member-expression calls. Default `true` — likewise. */
+  readonly memberEdges?: boolean
+  /** Resolve static import / barrel re-export edges. Default `true` — likewise. */
+  readonly importEdges?: boolean
+  /**
+   * Treat a reference to a callable declaration as an edge. Default `true`.
+   *
+   * The fifth class, and it is not in 22-01's plan because the plan did not know it was needed.
+   * It was added after measurement, not before: without it `bin/bench.ts`'s
+   * `runnerFor(memoryFabric)` creates no edge and `MemoryNetwork` reads unreached while a real
+   * benchmark builds one on every run. The spec records what turning it off costs.
+   */
+  readonly referenceEdges?: boolean
+}
+
+/**
+ * Build the graph — the second of this module's two loaders.
+ *
+ * Callees are resolved **through the checker**, in one batched request per file, not by matching
+ * names. That is what makes a barrel a conduit for free: a call to `submitJob` in a file that
+ * imported `@o2/core` resolves straight to `packages/core/src/job/submit.ts#submitJob`, and the
+ * barrel never appears as a caller. It is also what makes `FabricNode.start` land on the method
+ * rather than on a same-named method somewhere else in the tree.
+ */
+export function buildCallGraph(options: CallGraphOptions = {}): CallGraph {
+  const root = options.root ?? REPO_ROOT
+  const sourceRoots = options.sourceRoots ?? ['packages', 'tools']
+  const entryPoints = options.entryPoints ?? ENTRY_POINTS
+  const wantUrlWorker = options.urlWorkerEdges ?? true
+  const wantViteWorker = options.viteWorkerEdges ?? true
+  const wantMember = options.memberEdges ?? true
+  const wantImports = options.importEdges ?? true
+  const wantReferences = options.referenceEdges ?? true
+
+  const files = sourceFilesUnder(root, sourceRoots)
+  // Lower-cased index, for the reason {@link relativeTo} records: the API hands back lowercased
+  // paths, so membership has to be asked case-insensitively while the graph keeps disk casing.
+  const fileIndex = new Map(files.map((file) => [file.toLowerCase(), file]))
+  const inCorpus = (candidate: string): string | undefined => fileIndex.get(candidate.toLowerCase())
+  const api = new API({ cwd: root })
+  try {
+    const projects = api.updateSnapshot({ openProjects: [join(root, 'tsconfig.json')] }).getProjects()
+    const project = projects[0]
+    if (projects.length !== 1 || project === undefined) {
+      throw new Error(`expected exactly 1 project, got ${projects.length}`)
+    }
+    const checker = project.checker
+
+    const nodes = new Set<string>()
+    const calls = new Map<string, Set<string>>()
+    const imports = new Map<string, Set<string>>()
+    const seenNames = new Map<string, number>()
+    const collisions: string[] = []
+
+    const addEdge = (map: Map<string, Set<string>>, from: string, to: string): void => {
+      if (from === to) return
+      const set = map.get(from) ?? new Set<string>()
+      set.add(to)
+      map.set(from, set)
+    }
+
+    for (const relFile of files) {
+      const sourceFile = project.program.getSourceFile(join(root, relFile))
+      if (sourceFile === undefined) continue
+      const moduleNode = nodeId(relFile, MODULE_MEMBER)
+      nodes.add(moduleNode)
+
+      // --- module → module, three of the four edge classes ---
+      for (const specifier of sourceFile.imports ?? []) {
+        if (!isStringLiteral(specifier)) continue
+        const text = specifier.text
+        const isViteWorker = text.includes('?worker')
+        if (isViteWorker && !wantViteWorker) continue
+        if (!isViteWorker && !wantImports) continue
+        const resolvedSpecifier = resolveSpecifier(relFile, text)
+        const target = resolvedSpecifier === undefined ? undefined : inCorpus(resolvedSpecifier)
+        if (target === undefined) continue
+        addEdge(imports, relFile, target)
+        addEdge(calls, moduleNode, nodeId(target, MODULE_MEMBER))
+      }
+
+      // --- declarations and call sites ---
+      const callSites: CallSite[] = []
+      const referenceSites: CallSite[] = []
+      const declared: string[] = []
+      const urlEdges: string[] = []
+      walkFile([...(sourceFile.statements ?? [])], relFile, callSites, referenceSites, declared, urlEdges)
+      // References are resolved in the same batch as calls, and only kept when the resolved
+      // symbol is itself CALLABLE — a reference to a type or a constant is not a call path.
+      const sites: CallSite[] = wantReferences ? [...callSites, ...referenceSites] : callSites
+
+      for (const declaredId of declared) {
+        const count = (seenNames.get(declaredId) ?? 0) + 1
+        seenNames.set(declaredId, count)
+        if (count === 2) collisions.push(declaredId)
+        nodes.add(declaredId)
+      }
+
+      if (wantUrlWorker) {
+        for (const specifier of urlEdges) {
+          const resolvedSpecifier = resolveSpecifier(relFile, specifier)
+          const target = resolvedSpecifier === undefined ? undefined : inCorpus(resolvedSpecifier)
+          if (target === undefined) continue
+          addEdge(imports, relFile, target)
+          addEdge(calls, moduleNode, nodeId(target, MODULE_MEMBER))
+        }
+      }
+
+      if (sites.length === 0) continue
+      const resolved: (TsSymbol | undefined)[] = checker.getSymbolAtLocation(
+        sites.map((site) => site.callee),
+      )
+      for (let i = 0; i < sites.length; i++) {
+        const site = sites[i]
+        let symbol = resolved[i]
+        if (site === undefined || symbol === undefined) continue
+        // The member-expression edge class, switchable so it can be planted off on its own.
+        if (site.member && !wantMember) continue
+        if ((symbol.flags & SymbolFlags.Alias) !== 0) symbol = checker.getAliasedSymbol(symbol)
+        const declaration = symbol.declarations[0]
+        if (declaration === undefined) continue
+        // A reference only counts when what it names can actually be called. Referencing a type
+        // or a plain constant is not a path to anything, and counting it would rebuild the
+        // 54-answer: "the name appears somewhere in a reachable module".
+        if (i >= callSites.length && classify({ barrel: '', name: symbol.name, flags: symbol.flags, declaredIn: '' }) !== 'callable') {
+          continue
+        }
+        // Only edges into the walked corpus. A call into `node:fs` or a dependency is real and
+        // is deliberately not a node here: this instrument answers a question about this
+        // repository's own declarations.
+        const target = inCorpus(relativeTo(root, declaration.path))
+        if (target === undefined) continue
+        const calleeId = nodeId(target, symbol.name)
+        addEdge(calls, site.caller, calleeId)
+        nodes.add(calleeId)
+      }
+    }
+
+    return {
+      nodes,
+      calls,
+      imports,
+      files,
+      roots: entryPoints.map((entry) => nodeId(entry, MODULE_MEMBER)),
+      collisions: collisions.sort(),
+    }
   } finally {
     api.close()
   }
