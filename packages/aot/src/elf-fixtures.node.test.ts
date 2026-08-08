@@ -63,6 +63,11 @@ const REQUIRED: readonly { readonly path: string; readonly minBytes: number; rea
   },
   { path: join(ELF, 'hello_dynamic'), minBytes: 10_000, why: 'default-gcc PIE — refused on three counts' },
   { path: join(ELF, 'hello_static_pie'), minBytes: 100_000, why: 'static-PIE with no interpreter — refused' },
+  {
+    path: join(ELF, 'ls_dynamic'),
+    minBytes: 100_000,
+    why: 'a distribution binary nobody here built — the provenance case, absent until 2026-08-07',
+  },
   { path: join(R1, 'hello.wasm'), minBytes: 1_000_000, why: 'a real elfconv artifact, as the fabric sees it' },
 ]
 
@@ -111,38 +116,42 @@ describe('the real-artifact fixtures are built on a host that could build them',
   })
 })
 
-describe('the one fixture that is deliberately absent stays declared', () => {
+describe('the distribution binary is still a distribution binary', () => {
   /**
-   * `ls_dynamic` is a binary taken from a Linux distribution, and the case that reads it
-   * is about **provenance** — a binary nobody here compiled, carrying whatever a
-   * packager's toolchain did to it.
+   * `ls_dynamic` is the one fixture that is COPIED rather than compiled: the build image's
+   * own Debian coreutils `ls`. The case that reads it -- *"refuses a distribution binary
+   * this repo did not build"* -- is about **provenance**, so the failure worth guarding is
+   * not absence (`REQUIRED` covers that now) but SUBSTITUTION. Swapping in something built
+   * by `build-elf-fixtures.mjs` would leave the case's title intact, silently remove its
+   * subject, and read as covered.
    *
-   * It is not committed, and the reason is licensing rather than difficulty. Every
-   * candidate — coreutils, busybox, anything in a base image — is copyleft, and this
-   * repository preserves a commercial licence track. Vendoring a GPL executable to satisfy
-   * one assertion trades a licensing problem for a test.
-   *
-   * Substituting one built here would be worse than skipping: the case would keep its
-   * title, lose its subject, and read as covered.
-   *
-   * So this is a **declared** exception. The assertion is that it is still exactly one
-   * case and still named — if somebody commits an `ls_dynamic`, this fails and they are
-   * made to think about the licence; if somebody adds a *second* unbuildable fixture, the
-   * count moves and this fails too.
+   * This case skipped on every host from the day it was written until 2026-08-07, because
+   * nothing produced the fixture. It was recorded as a deliberate licensing exception; the
+   * licence question is moot here, since `tools/aot/fixtures/elf/` is gitignored and no
+   * binary is vendored into the repository at all.
    */
-  it('is ls_dynamic, is not committed, and is the only one', () => {
-    expect(existsSync(join(ELF, 'ls_dynamic'))).toBe(false)
+  const BUILT_HERE = [
+    'hello_static',
+    'hello_static_stripped',
+    'hello_no_unwind',
+    'hello_dynamic',
+    'hello_static_pie',
+  ] as const
+
+  it.skipIf(!CAN_BUILD)('is not any of the binaries this repository builds', () => {
+    const distro = readFileSync(join(ELF, 'ls_dynamic'))
+    for (const name of BUILT_HERE) {
+      expect(
+        Buffer.compare(distro, readFileSync(join(ELF, name))),
+        `ls_dynamic is byte-identical to ${name} — the provenance case has lost its subject`,
+      ).not.toBe(0)
+    }
 
     const source = readFileSync(join(ROOT, 'packages/aot/src/elf.real.node.test.ts'), 'utf8')
     // Counted off the source rather than written down here: the number is a fact about
     // that file, and a copy of it would be a second place for it to drift.
-    //
-    // The `it.skipIf(...)` form specifically, not every mention — the body of that case
-    // also narrows with `if (SYSTEM_BINARY === undefined) return`, which is a type guard
-    // rather than a second exception, and counting both said 2 where the truth is 1.
     const gated = source.match(/it\.skipIf\([A-Z_]+ === undefined\)/g) ?? []
     expect(gated.length).toBeGreaterThan(0)
-    const bySystemBinary = gated.filter((line) => line.includes('SYSTEM_BINARY'))
-    expect(bySystemBinary).toHaveLength(1)
+    expect(gated.filter((line) => line.includes('SYSTEM_BINARY'))).toHaveLength(1)
   })
 })

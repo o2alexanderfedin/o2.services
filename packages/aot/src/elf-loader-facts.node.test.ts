@@ -19,9 +19,11 @@ import { describe, expect, it } from 'vitest'
  * harness silently loses its teeth and every downstream verdict keeps reading green. These
  * cases go red instead, and name what was lost.
  *
- * Every number below was measured from the committed bytes, not predicted. The fixtures are
- * checked in and byte-stable, so exact equality is the right assertion here rather than a
- * ratio — there is no machine, load or clock in this measurement to cancel out.
+ * Every number below was measured from the fixture bytes, not predicted. Exact equality is the
+ * right assertion here rather than a ratio: there is no machine, load or clock in this
+ * measurement to cancel out, and `build-elf-fixtures.mjs` pins its toolchain to `gcc:15` so a
+ * rebuild reproduces the same binaries. They are NOT committed -- that directory is
+ * gitignored -- which is why every case below is gated on the fixture being present.
  *
  * The reader is local to this file on purpose. `packages/aot/src/elf.ts` screens ELFs for the
  * production admission path and deliberately reads only headers, program headers and section
@@ -114,9 +116,25 @@ function readSymbols(bytes: Buffer, sections: readonly Section[], kind: number):
   })
 }
 
-function fixture(name: string): ElfFixture {
+/**
+ * Returns `undefined` when the fixture is absent rather than throwing.
+ *
+ * `tools/aot/fixtures/elf/` is GITIGNORED -- the fixtures are rebuilt by
+ * `tools/aot/build-elf-fixtures.mjs`, on the stated ground that an opaque artifact in the
+ * repository is worse than one reproducible from its source. So on a fresh clone these
+ * files do not exist, and an unguarded `readFileSync` here would throw during collection
+ * and take the whole file down. `elf-fixtures.node.test.ts` is what fails loudly, with the
+ * rebuild command in the message, on a host that could have built them and did not; this
+ * file skips instead, which is the same division of labour `elf.real.node.test.ts` uses.
+ */
+function fixture(name: string): ElfFixture | undefined {
   const path = fileURLToPath(new URL(`../../../tools/aot/fixtures/elf/${name}`, import.meta.url))
-  const bytes = readFileSync(path)
+  let bytes: Buffer
+  try {
+    bytes = readFileSync(path)
+  } catch {
+    return undefined
+  }
   const sections = readSections(bytes)
   return {
     sections,
@@ -124,6 +142,12 @@ function fixture(name: string): ElfFixture {
     dynsym: readSymbols(bytes, sections, SHT_DYNSYM),
   }
 }
+
+const STATIC = fixture('hello_static')
+const STRIPPED = fixture('hello_static_stripped')
+const NO_UNWIND = fixture('hello_no_unwind')
+const STATIC_PIE = fixture('hello_static_pie')
+const DYNAMIC = fixture('hello_dynamic')
 
 /** The loader's own filter, transcribed: STT_FUNC, or literally named `_start`. */
 function pickedByLoader(elf: ElfFixture): readonly Symbol[] {
@@ -149,86 +173,102 @@ function hasSection(elf: ElfFixture, name: string): boolean {
   return elf.sections.some((s) => s.name === name && s.size > 0)
 }
 
-/** Measured 2026-08-07 from the committed bytes of `hello_static` and `hello_static_pie`. */
+/** Measured 2026-08-07 from the bytes of `hello_static` and `hello_static_pie`. */
 const IFUNC_COUNT = 10
 /** Addresses in `hello_static` carrying more than one symbol the loader picks. */
 const TIED_ADDRESS_COUNT = 176
 
-describe('the .symtab fixture exercises the path that broke, and still can', () => {
-  const elf = fixture('hello_static')
+/** Narrows the fixture and fails with a rebuild command rather than a TypeError. */
+function required(elf: ElfFixture | undefined, name: string): ElfFixture {
+  if (elf === undefined) {
+    throw new Error(`${name} is missing — run: node tools/aot/build-elf-fixtures.mjs`)
+  }
+  return elf
+}
 
-  it('has a static symbol table, so the loader takes the .symtab path and not .eh_frame', () => {
-    // `symbol_table_size == 0` is exactly the loader's stripped test.
-    expect(elf.symtab.length).toBeGreaterThan(1)
-    expect(pickedByLoader(elf).length).toBe(1208)
-  })
+describe.skipIf(STATIC === undefined)(
+  'the .symtab fixture exercises the path that broke, and still can',
+  () => {
+    it('has a static symbol table, so the loader takes the .symtab path and not .eh_frame', () => {
+      // `symbol_table_size == 0` is exactly the loader's stripped test.
+      const elf = required(STATIC, 'hello_static')
+      expect(elf.symtab.length).toBeGreaterThan(1)
+      expect(pickedByLoader(elf).length).toBe(1208)
+    })
 
-  it('carries STT_GNU_IFUNC symbols — the class whose mis-admission produced wrong bitcode', () => {
-    // The first build of the port admitted these because bfd's source flags them
-    // BSF_FUNCTION. The bfd in the build image does not, so the original loader admitted
-    // none of them. Admitting 10 extra symbols shifted every later index and, through an
-    // unstable sort over tied addresses, changed which alias named each lifted function --
-    // while the function COUNT stayed identical. A count-only check passes that defect.
-    //
-    // If this ever reads 0, the differential harness can no longer catch that class at all.
-    const ifuncs = elf.symtab.filter((s) => s.type === STT_GNU_IFUNC)
-    expect(ifuncs.length).toBe(IFUNC_COUNT)
-    expect(ifuncs.map((s) => s.name)).toContain('memcpy')
+    it('carries STT_GNU_IFUNC symbols — the class whose mis-admission produced wrong bitcode', () => {
+      // The first build of the port admitted these because bfd's source flags them
+      // BSF_FUNCTION. The bfd in the build image does not, so the original loader admitted
+      // none of them. Admitting 10 extra symbols shifted every later index and, through an
+      // unstable sort over tied addresses, changed which alias named each lifted function --
+      // while the function COUNT stayed identical. A count-only check passes that defect.
+      //
+      // If this ever reads 0, the differential harness can no longer catch that class at all.
+      const elf = required(STATIC, 'hello_static')
+      const ifuncs = elf.symtab.filter((s) => s.type === STT_GNU_IFUNC)
+      expect(ifuncs.length).toBe(IFUNC_COUNT)
+      expect(ifuncs.map((s) => s.name)).toContain('memcpy')
 
-    // ...and the loader must NOT pick them, which is what makes their presence a live test.
-    const picked = new Set(pickedByLoader(elf).map((s) => s.name))
-    for (const ifunc of ifuncs) {
-      expect(picked.has(ifunc.name)).toBe(false)
-    }
-  })
+      // ...and the loader must NOT pick them, which is what makes their presence a live test.
+      const picked = new Set(pickedByLoader(elf).map((s) => s.name))
+      for (const ifunc of ifuncs) {
+        expect(picked.has(ifunc.name)).toBe(false)
+      }
+    })
 
-  it('puts several symbols on one address, so an unstable sort has ties to reorder', () => {
-    const perAddress = new Map<number, number>()
-    for (const s of pickedByLoader(elf)) {
-      perAddress.set(s.value, (perAddress.get(s.value) ?? 0) + 1)
-    }
-    const tied = [...perAddress.values()].filter((n) => n > 1)
-    expect(tied.length).toBe(TIED_ADDRESS_COUNT)
-  })
+    it('puts several symbols on one address, so an unstable sort has ties to reorder', () => {
+      const elf = required(STATIC, 'hello_static')
+      const perAddress = new Map<number, number>()
+      for (const s of pickedByLoader(elf)) {
+        perAddress.set(s.value, (perAddress.get(s.value) ?? 0) + 1)
+      }
+      const tied = [...perAddress.values()].filter((n) => n > 1)
+      expect(tied.length).toBe(TIED_ADDRESS_COUNT)
+    })
 
-  it('proves the bfd-era name join was lossy, which is why sizing moved to the symbol', () => {
-    // bfd could not report a symbol's size, so the loader rejoined sizes by NAME. Where one
-    // name occurs twice with different sizes the join returns the wrong function's length,
-    // and TraceManager prefers that length over section arithmetic -- so the lifter read the
-    // wrong number of bytes. Reading st_size off the symbol in hand removes the join.
-    const map = bfdEraSizeMap(elf)
-    const divergent = pickedByLoader(elf).filter((s) => (map.get(s.name) ?? 0) !== s.size)
-    expect(divergent.length).toBeGreaterThan(0)
-    expect(divergent.length).toBe(2)
-  })
-})
+    it('proves the bfd-era name join was lossy, which is why sizing moved to the symbol', () => {
+      // bfd could not report a symbol's size, so the loader rejoined sizes by NAME. Where one
+      // name occurs twice with different sizes the join returns the wrong function's length,
+      // and TraceManager prefers that length over section arithmetic -- so the lifter read the
+      // wrong number of bytes. Reading st_size off the symbol in hand removes the join.
+      const elf = required(STATIC, 'hello_static')
+      const map = bfdEraSizeMap(elf)
+      const divergent = pickedByLoader(elf).filter((s) => (map.get(s.name) ?? 0) !== s.size)
+      expect(divergent.length).toBeGreaterThan(0)
+      expect(divergent.length).toBe(2)
+    })
+  },
+)
 
-describe('the other fixtures pin the loader paths that .symtab never reaches', () => {
-  it('hello_static_stripped has no symbol table but does have .eh_frame — the libdwarf path', () => {
-    const elf = fixture('hello_static_stripped')
-    expect(elf.symtab.length).toBe(0)
-    expect(hasSection(elf, '.eh_frame')).toBe(true)
-  })
+describe.skipIf(STRIPPED === undefined)(
+  'the other fixtures pin the loader paths that .symtab never reaches',
+  () => {
+    it('hello_static_stripped has no symbol table but does have .eh_frame — the libdwarf path', () => {
+      const elf = required(STRIPPED, 'hello_static_stripped')
+      expect(elf.symtab.length).toBe(0)
+      expect(hasSection(elf, '.eh_frame')).toBe(true)
+    })
 
-  it('hello_no_unwind is the CONJUNCTION the loader must refuse: stripped AND no unwind tables', () => {
-    // Recorded in CLAUDE.md against a real binary: "unstripped" was the wrong reading. A
-    // binary with no .symtab lifts fine as long as .eh_frame survives. The refusal is the
-    // conjunction, and this fixture is the only one that satisfies it.
-    const elf = fixture('hello_no_unwind')
-    expect(elf.symtab.length).toBe(0)
-    expect(hasSection(elf, '.eh_frame')).toBe(false)
-  })
+    it('hello_no_unwind is the CONJUNCTION the loader must refuse: stripped AND no unwind tables', () => {
+      // Recorded in CLAUDE.md against a real binary: "unstripped" was the wrong reading. A
+      // binary with no .symtab lifts fine as long as .eh_frame survives. The refusal is the
+      // conjunction, and this fixture is the only one that satisfies it.
+      const elf = required(NO_UNWIND, 'hello_no_unwind')
+      expect(elf.symtab.length).toBe(0)
+      expect(hasSection(elf, '.eh_frame')).toBe(false)
+    })
 
-  it('hello_static_pie carries the same ifunc population, so PIE is not a weaker subject', () => {
-    const elf = fixture('hello_static_pie')
-    expect(elf.symtab.filter((s) => s.type === STT_GNU_IFUNC).length).toBe(IFUNC_COUNT)
-  })
+    it('hello_static_pie carries the same ifunc population, so PIE is not a weaker subject', () => {
+      const elf = required(STATIC_PIE, 'hello_static_pie')
+      expect(elf.symtab.filter((s) => s.type === STT_GNU_IFUNC).length).toBe(IFUNC_COUNT)
+    })
 
-  it('hello_dynamic has no ifuncs, so it cannot stand in for the static subject', () => {
-    // Stated so nobody swaps the differential harness onto the cheaper fixture: this one
-    // would not have caught the defect that harness caught.
-    const elf = fixture('hello_dynamic')
-    expect(elf.symtab.filter((s) => s.type === STT_GNU_IFUNC).length).toBe(0)
-    expect(pickedByLoader(elf).length).toBe(13)
-  })
-})
+    it('hello_dynamic has no ifuncs, so it cannot stand in for the static subject', () => {
+      // Stated so nobody swaps the differential harness onto the cheaper fixture: this one
+      // would not have caught the defect that harness caught.
+      const elf = required(DYNAMIC, 'hello_dynamic')
+      expect(elf.symtab.filter((s) => s.type === STT_GNU_IFUNC).length).toBe(0)
+      expect(pickedByLoader(elf).length).toBe(13)
+    })
+  },
+)
