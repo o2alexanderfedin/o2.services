@@ -122,8 +122,9 @@ landed and its second amendment moved it 8/9 → 9/9; 23 joined on 2026-08-06 at
 and 24 joined the same day**, 16 at 4/4, 19 at 5/5 and **24 at 1/1**; **17 joined on
 2026-08-07 at 3/3, having been declined the day before** — the only phase in this milestone
 to be refused by a verifier and then close, and it closed because a test was written rather
-than because a verdict was re-read. The verified-but-uncounted phases are now **three**:
-20 (6/7), 21 (2/3) and **22 (2/3, executed and verified 2026-08-08)** — one PARTIAL or declined
+than because a verdict was re-read. The verified-but-uncounted phases are now **four**:
+**13 (0/3 — REOPENED by owner ruling 2026-08-08)**, 20 (6/7), 21 (2/3) and **22 (2/3, executed
+and verified 2026-08-08)** — one PARTIAL or declined
 criterion each, all **carried** to a named destination rather than rewritten. **This sentence read
 *"now two … Phase 22 is neither: it has four plans and no execution"* until 2026-08-08**, which was
 true when written and stopped being true at `fee26c2`. Phase 22 is 4/4 on summaries and its
@@ -388,8 +389,17 @@ ruling anticipated.
 
 ## Current Position
 
-**THE COUNT IS 12 OF 15**, as of 2026-08-07. Closed and counted: 11, 12, 13, 13.1, 14, 15,
-16, **17**, 18, 19, 23, 24. Uncounted: 20 (6/7), 21 (2/3), 22 (planned, 4 plans, 0 summaries,
+**THE COUNT IS 11 OF 15**, as of 2026-08-08 — **down one, by owner ruling, not by a regression.**
+Phase 13's own verification reads `criteria_met: 0`, `criteria_partial: 3`, *"all three met in
+strictly weaker forms than written"*, while this file had been counting it closed. Audit finding
+L3 put the contradiction to the owner and the owner ruled **the verification is authoritative**:
+a phase whose three criteria are each satisfied in a weaker form than written is not a phase that
+closed. It rejoins the counted set when those three are met as written, and not before.
+**The previous reading follows, unedited, because a count that changes silently is the defect this
+milestone keeps finding.**
+
+**THE COUNT WAS 12 OF 15**, as of 2026-08-07. Closed and counted: 11, 12, 13.1, 14, 15,
+16, **17**, 18, 19, 23, 24. (**13 removed 2026-08-08** — see above.) Uncounted: 20 (6/7), 21 (2/3), 22 (planned, 4 plans, 0 summaries,
 runs last). The block below describes Phase 24 and remains accurate about it.
 
 Phase: 24 (Certificate-Gated Admission) — **1/1 on criteria, CLOSED and COUNTED**

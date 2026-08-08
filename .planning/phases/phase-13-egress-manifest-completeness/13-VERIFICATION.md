@@ -6,6 +6,13 @@ criteria_met: 0
 criteria_partial: 3
 criteria_total: 3
 score: 0/3 criteria fully verified — all three met in strictly weaker forms than written
+reopened: 2026-08-08
+reopened_by: owner ruling on audit finding L3
+reopened_note: >-
+  STATE.md counted this phase among the closed while this file read 0/3. The contradiction was put
+  to the owner and resolved IN THIS FILE'S FAVOUR: the verification is authoritative, the milestone
+  count drops 12 -> 11, and Phase 13 rejoins the counted set when its three criteria are met AS
+  WRITTEN rather than in the weaker forms recorded below. Nothing in the scoring was edited.
 baseline:
   test_files: 122
   tests: 1775
