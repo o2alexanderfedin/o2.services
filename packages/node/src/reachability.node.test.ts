@@ -68,6 +68,23 @@ const ROOT = fileURLToPath(new URL('../../..', import.meta.url))
 const MEASURED_TS_VERSION = '7.0.2'
 
 /**
+ * Headroom for every case that builds or reads the call graph — which is most of this file.
+ *
+ * **Not a measurement of the work, and the difference matters.** The graph builds in a few
+ * seconds on an idle host. This exists because the host is not always idle: on 2026-08-08 this
+ * file was read at `real 286 s` with `user+sys` of just 34.6 s — a CPU ratio of **0.12**, i.e. a
+ * process that was starved rather than slow, while another workload held the machine at load
+ * average 175. Under the 5 000 ms default that reads as five arbitrary failures with no
+ * indication that the cause was outside the repository.
+ *
+ * So a genuine regression still fails — it will exceed 60 s of its *own* work — while a
+ * contended run reports the verdict it was asked for. Applied file-wide rather than to the one
+ * describe block that failed first: the cases differ in degree, not in kind, and fixing only the
+ * observed red is how this same defect surfaced twice in one day.
+ */
+const GRAPH_TIMEOUT_MS = 60_000
+
+/**
  * Callable exports per barrel, measured 2026-08-08 — **floors**.
  *
  * Sited against: `feature/phase-18-discovery-capacity-placement` at `822b072`, with Phases 20,
@@ -156,7 +173,7 @@ describe('the corpus: every callable export the eight barrels publish', () => {
     for (const barrel of Object.keys(CALLABLE_FLOOR)) {
       expect(found, `@o2/${barrel} publishes no src/index.ts`).toContain(barrel)
     }
-  })
+  }, GRAPH_TIMEOUT_MS)
 
   it('counts callable exports per package at or above the measured floor', () => {
     const census = censusOf(corpus())
@@ -168,7 +185,7 @@ describe('the corpus: every callable export the eight barrels publish', () => {
         `@o2/${barrel} published ${row?.callable ?? 0} callable exports, floor ${floor}`,
       ).toBeGreaterThanOrEqual(floor)
     }
-  })
+  }, GRAPH_TIMEOUT_MS)
 
   it('counts total exports per package at or above the measured floor', () => {
     const census = censusOf(corpus())
@@ -180,7 +197,7 @@ describe('the corpus: every callable export the eight barrels publish', () => {
         `@o2/${barrel} published ${row?.total ?? 0} exports, floor ${floor}`,
       ).toBeGreaterThanOrEqual(floor)
     }
-  })
+  }, GRAPH_TIMEOUT_MS)
 
   it('states the type-only exclusion at the line and pins its size', () => {
     const all = corpus()
@@ -199,7 +216,7 @@ describe('the corpus: every callable export the eight barrels publish', () => {
     const other = all.filter((one) => one.kind === 'other-value')
     expect(typeOnly.length + callable.length + other.length).toBe(all.length)
     expect(other.length).toBeGreaterThan(0)
-  })
+  }, GRAPH_TIMEOUT_MS)
 
   it('resolves every export to a declaring file', () => {
     // `declaredIn` is what Task 2's graph keys its nodes on. An empty string here is a symbol
@@ -208,7 +225,7 @@ describe('the corpus: every callable export the eight barrels publish', () => {
       .filter((one) => one.declaredIn === '')
       .map((one) => `${one.barrel}/${one.name}`)
     expect(homeless).toEqual([])
-  })
+  }, GRAPH_TIMEOUT_MS)
 
   it('names five entry-point modules that exist on disk', () => {
     // Task 2 roots its graph here. A typo in one of these paths would silently remove a root
@@ -234,14 +251,14 @@ describe('the instrument can fail — proved against planted input, not assumed'
     const found = barrelExports({ packagesDir: empty })
     expect(found).toEqual([])
     expect(censusOf(found)).toEqual([])
-  })
+  }, GRAPH_TIMEOUT_MS)
 
   it('throws rather than returning nothing when the discovery root is gone', () => {
     // `readdirSync` throwing is the wanted behaviour, not an inconvenience: a scanned root that
     // has been moved must fail by name rather than contribute zero and let the floors carry an
     // unchanged assertion. Same reasoning as `sourceFiles` in `purity.node.test.ts`.
     expect(() => barrelPathsIn(join(ROOT, 'packages-that-do-not-exist'))).toThrow()
-  })
+  }, GRAPH_TIMEOUT_MS)
 
   it('classifies a type-only barrel as zero callable, and moves when given a callable', () => {
     // Two directions in one case, deliberately. A predicate that answered "callable" for
@@ -263,7 +280,7 @@ describe('the instrument can fail — proved against planted input, not assumed'
     const after = censusOf(withOne)[0]
     expect(after?.callable).toBe(1)
     expect(after?.typeOnly).toBe(3)
-  })
+  }, GRAPH_TIMEOUT_MS)
 
   it('classifies a class as callable even though it also matches the type mask', () => {
     // `SymbolFlags.Type` is a composite that INCLUDES `Class`, so `classify`'s two tests are
@@ -280,7 +297,7 @@ describe('the instrument can fail — proved against planted input, not assumed'
     // export is a value with no call path this predicate can see, which is a different fact
     // from "it is a type".
     expect(classify(planted('planted', 'DEFAULTS', SymbolFlags.BlockScopedVariable))).toBe('other-value')
-  })
+  }, GRAPH_TIMEOUT_MS)
 
   it('alias resolution changes the reading, and by how much', () => {
     // The step is load-bearing and this case is what makes saying so honest. A barrel entry's
@@ -301,7 +318,7 @@ describe('the instrument can fail — proved against planted input, not assumed'
       `alias resolution moved ${resolvedCallable - unresolvedCallable} exports into "callable" ` +
         `(${unresolvedCallable} without it, ${resolvedCallable} with it)`,
     ).toBeGreaterThan(100)
-  })
+  }, GRAPH_TIMEOUT_MS)
 
   it('the callable-const understatement is one named symbol', () => {
     // `classify` reads declaration flags, so `export const f = () => {}` is `other-value`
@@ -311,7 +328,7 @@ describe('the instrument can fail — proved against planted input, not assumed'
     // finding in its own prose.
     const hidden = callableConstsIn()
     expect(hidden).toEqual(['core/fabricCombiner'])
-  })
+  }, GRAPH_TIMEOUT_MS)
 
   it('asserts the TypeScript version its API contract was measured against', () => {
     // Plant target: change MEASURED_TS_VERSION by one patch digit and this must redden naming
@@ -324,7 +341,7 @@ describe('the instrument can fail — proved against planted input, not assumed'
         `but ${installed} is installed — re-verify openProjects, program/checker and SymbolFlags ` +
         'before trusting any count in this file',
     ).toBe(MEASURED_TS_VERSION)
-  })
+  }, GRAPH_TIMEOUT_MS)
 
   it('refuses to read past a snapshot that did not open exactly one project', () => {
     // The worst failure available to this instrument, and the one the plan says to stop on: a
@@ -430,7 +447,7 @@ describe('the call graph: a path through functions, not through modules', () => 
     // Specs are outside the graph on purpose: a test calling something does not make it
     // entry-point reachable, and counting it would make this whole file vacuous.
     expect(built.files.filter((file) => file.endsWith('.test.ts'))).toEqual([])
-  })
+  }, GRAPH_TIMEOUT_MS)
 
   it('reports every known-TRUE anchor reachable', () => {
     const reached = reachableFrom(graph().calls, graph().roots)
@@ -439,7 +456,7 @@ describe('the call graph: a path through functions, not through modules', () => 
       expect(id, `${barrel}/${name} is not a callable barrel export any more`).toBeDefined()
       expect(reached.has(id ?? ''), `${barrel}/${name} (${id ?? '?'}) should be reachable`).toBe(true)
     }
-  })
+  }, GRAPH_TIMEOUT_MS)
 
   it('reports every known-FALSE anchor unreachable', () => {
     const reached = reachableFrom(graph().calls, graph().roots)
@@ -448,7 +465,7 @@ describe('the call graph: a path through functions, not through modules', () => 
       expect(id, `${barrel}/${name} is not a callable barrel export any more`).toBeDefined()
       expect(reached.has(id ?? ''), `${barrel}/${name} (${id ?? '?'}) should NOT be reachable`).toBe(false)
     }
-  })
+  }, GRAPH_TIMEOUT_MS)
 
   it('records that core/delegate changed sides, rather than adjusting around it', () => {
     // The plan's known-FALSE anchor, asserted in the direction the tree now supports. If this
@@ -461,7 +478,7 @@ describe('the call graph: a path through functions, not through modules', () => 
       'core/delegate was the plan\'s known-FALSE anchor and is now reachable from bin/bench.ts ' +
         'at module scope — Phase 23 criterion 5 delivered that. A flip back is a regression.',
     ).toBe(true)
-  })
+  }, GRAPH_TIMEOUT_MS)
 
   it('separates a declaration from its module — estimatePi, both halves in one case', () => {
     // THE case that decides granularity. If the declaration half ever reports reached, the
@@ -477,7 +494,7 @@ describe('the call graph: a path through functions, not through modules', () => 
       modules.has('packages/demo/src/pi.ts'),
       'pi.ts must be a reachable MODULE — without that half this case proves nothing',
     ).toBe(true)
-  })
+  }, GRAPH_TIMEOUT_MS)
 
   it('pins the declarations merged by sharing a file and a name', () => {
     // Merging can only ever over-connect, so it is bounded and named rather than left to grow.
@@ -509,7 +526,7 @@ describe('each edge class is load-bearing — one ablation per class', () => {
    * fourteen other things, which is the distinction `CLAUDE.md` draws between measuring the
    * process and measuring the machine. A case that genuinely regresses will blow through 60 s.
    */
-  const ABLATION_TIMEOUT_MS = 60_000
+  const ABLATION_TIMEOUT_MS = GRAPH_TIMEOUT_MS
   const MEMBER_OBJECT = 'packages/node/src/fabric-node.ts#FabricNode'
   const MEMBER_METHOD = 'packages/node/src/fabric-node.ts#start'
   const VITE_WORKER = 'packages/browser/src/task-executor.worker.ts#<module>'
@@ -646,16 +663,16 @@ describe('the traversal can fail — driven with planted graphs, no build involv
     expect(reachableFrom(planted, built.roots).has('packages/demo/src/pi.ts#estimatePi')).toBe(true)
     // And unplanted it must still be unreached, in the same run, so the two readings are comparable.
     expect(reachableFrom(built.calls, built.roots).has('packages/demo/src/pi.ts#estimatePi')).toBe(false)
-  })
+  }, GRAPH_TIMEOUT_MS)
 
   it('reaches nothing but the roots when the edge set is empty', () => {
     expect([...reachableFrom(new Map(), ['a#<module>'])]).toEqual(['a#<module>'])
-  })
+  }, GRAPH_TIMEOUT_MS)
 
   it('reaches nothing at all when the root set is empty', () => {
     const edges = new Map([['a#<module>', new Set(['b#f'])]])
     expect(reachableFrom(edges, []).size).toBe(0)
-  })
+  }, GRAPH_TIMEOUT_MS)
 
   it('follows a planted chain and stops at the end of it', () => {
     const edges = new Map([
@@ -666,7 +683,7 @@ describe('the traversal can fail — driven with planted graphs, no build involv
     const reached = reachableFrom(edges, ['a#<module>'])
     expect([...reached].sort()).toEqual(['a#<module>', 'b#f', 'c#g'])
     expect(reached.has('e#h')).toBe(false)
-  })
+  }, GRAPH_TIMEOUT_MS)
 
   it('terminates on a cycle rather than spinning', () => {
     const edges = new Map([
@@ -674,7 +691,7 @@ describe('the traversal can fail — driven with planted graphs, no build involv
       ['b#g', new Set(['a#f'])],
     ])
     expect(reachableFrom(edges, ['a#f']).size).toBe(2)
-  })
+  }, GRAPH_TIMEOUT_MS)
 
   it('resolves the specifier forms the four edge classes are written in', () => {
     // Pure over its arguments, so each form is checked directly rather than inferred from a
@@ -752,7 +769,7 @@ describe('resolving power — measured, not assumed', () => {
     // granularity answers "0 unreached" — which is the 3-answer's failure in its purest form,
     // and the reason the plan refuses to let it be the instrument.
     expect(arms.moduleUnreached.length).toBeLessThan(arms.declarationUnreached.length)
-  })
+  }, GRAPH_TIMEOUT_MS)
 
   it('is red when the two arms agree because nothing connects at all', () => {
     // The other direction, and the one that stops the gap floor being satisfiable by a broken
@@ -770,7 +787,7 @@ describe('resolving power — measured, not assumed', () => {
     expect(arms.declarationUnreached.length).toBe(arms.moduleUnreached.length)
     expect(arms.gap.length).toBe(0)
     expect(arms.gap.length).toBeLessThan(GAP_FLOOR)
-  })
+  }, GRAPH_TIMEOUT_MS)
 
   it('is red when the declaration arm is made to delegate to the module arm', () => {
     // The single most important plant in the plan, and it is a standing case rather than a
@@ -789,7 +806,7 @@ describe('resolving power — measured, not assumed', () => {
     const arms = twoArms({ ...built, calls: collapsed })
     expect(arms.gap.length).toBe(0)
     expect(arms.gap.length).toBeLessThan(GAP_FLOOR)
-  })
+  }, GRAPH_TIMEOUT_MS)
 
   it('reports the findings as symbols, not as a number', () => {
     // A count with no names cannot be acted on, and 22-03 has to grant dispositions per symbol.

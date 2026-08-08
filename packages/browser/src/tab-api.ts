@@ -243,6 +243,41 @@ export interface TabStartReport {
 }
 
 /** DEMO-01/DEMO-02 — one run of the colouring search across the fabric. */
+/**
+ * What a pi run looks like from outside the tab — MR-03…MR-07, and the demo's one
+ * **verified** aggregation.
+ *
+ * The three booleans are separate on purpose and collapsing them would misreport a run.
+ * `reduceAttempted` says a reduce could be started at all; `combined` says combines actually
+ * produced an aggregate. `reduceJob` documents on its own type that `ok` means only the former,
+ * so a run where every combine failed is `{ok: true}` with `outcome.ok === false` —
+ * `bin/bench.ts` makes the identical distinction at its own call site, for the identical reason.
+ */
+export interface TabPiRun {
+  readonly terms: number
+  readonly shards: number
+  /** Every shard reached agreement between its replicas — the MAP half. */
+  readonly complete: boolean
+  /** False for a lone tab: the submitter is excluded from the combine executor set. */
+  readonly reduceAttempted: boolean
+  /** The fabric's own words when it could not start — e.g. `no executor to combine on`. */
+  readonly reduceReason: string | null
+  /** Combines produced an aggregate. Distinct from {@link TabPiRun.reduceAttempted}. */
+  readonly combined: boolean
+  readonly treeDepth: number
+  readonly combines: number
+  /**
+   * pi, as the fabric aggregated it — **fetched from the store, never recomputed locally.**
+   * `null` whenever there is no aggregate to read; the flags above say which case it was.
+   */
+  readonly estimate: number | null
+  /** The Madhava-Leibniz remainder bound for this term count, for comparison against published pi. */
+  readonly errorBound: number
+  readonly elapsedMs: number
+  /** DATA-05/DATA-06, as {@link TabJobReport.egress}. */
+  readonly egress: EgressManifest
+}
+
 export interface TabColouringRun {
   readonly n: number
   readonly cubes: number
@@ -381,6 +416,24 @@ export interface TabApi {
     redundancy: number
     peerIds: string[]
   }): Promise<TabColouringRun>
+  /**
+   * MR-03…MR-07. Estimate pi across shards and merge with a **verified tree-reduce**.
+   *
+   * The companion of {@link TabApi.runColouring} and deliberately not a replacement for it.
+   * A colouring is first-found-wins, so its merge is a scan and there is nothing to aggregate;
+   * pi is a sum, so it is the workload the fabric's combiner exists for. Audit findings G3 and
+   * G4 were one piece of work for exactly this reason.
+   *
+   * **Needs a peer.** `reduceJob` excludes the submitter from its executor set by contract, so
+   * a lone tab gets `reduceAttempted: false` with the fabric's own reason carried through in
+   * `reduceReason`. That is the ordinary state of the first tab on the page, not a failure.
+   */
+  runPi(options: {
+    terms: number
+    shards: number
+    redundancy: number
+    peerIds: string[]
+  }): Promise<TabPiRun>
   /**
    * DEMO-02. Check the last answer here, from the definition.
    *

@@ -41,8 +41,9 @@
  * a third party I was here".
  */
 
-import { verifyCertificate } from '@o2/core'
+import { decodeCanonical, verifyCertificate } from '@o2/core'
 import type {
+  Blockstore,
   CanonicalValue,
   NodeCertificate,
   NodeDescriptor,
@@ -57,15 +58,23 @@ import {
   findReservedPeers,
   parseResponse,
   publishStartOutcome,
+  reduceJob,
   submitJobWithEgress,
 } from '@o2/net'
 import {
   DEFAULT_BUDGET,
   KERNEL_RECORD,
+  PI_RECORD,
   KERNEL_TRUST_ANCHOR,
   answerOf,
   buildInput,
+  buildPiInput,
+  estimatePi,
   kernelBytes,
+  piErrorBound,
+  piKernelBytes,
+  PI_PARTIAL_KEY,
+  projectPiPartial,
   readPartial,
   verifyColouring,
 } from '@o2/demo'
@@ -393,6 +402,50 @@ async function attestedNodes(
   )
 }
 
+/**
+ * Read the reduce's aggregate back out of the store, or `null` if there is nothing to read.
+ *
+ * **Fetched, never recomputed.** `ReduceOutcome` carries a `rootCid` and not a value, and the
+ * temptation is to sum the partials locally — which would report a number this tab calculated
+ * while claiming it came from the fabric. The block is read back through the same blockstore the
+ * combine nodes wrote into, so what is displayed is what was aggregated.
+ *
+ * Every `null` arm is a real state rather than a swallowed error: no reduce attempted (a lone
+ * visitor), a reduce whose combines all failed, a root that names no block, or an aggregate whose
+ * shape is not the combiner's. The caller distinguishes them from the flags beside this value.
+ */
+async function piTotalFrom(
+  reduced: Awaited<ReturnType<typeof reduceJob>>,
+  store: Blockstore,
+): Promise<number | null> {
+  if (!reduced.ok || !reduced.outcome.ok || reduced.outcome.rootCid === null) return null
+  // Dynamic, **following this file's existing convention** at the two `runJob` sites
+  // (`main.ts` already reaches `CID` this way twice and holds no static import of it).
+  //
+  // A static import was written here first and reverted. The comment that replaced it claimed
+  // the static form had been *measured* to slow the reachability instrument from ~6 s to ~250 s
+  // — **that attribution was wrong and is corrected rather than deleted.** The slow readings
+  // were taken while this host carried a load average of 175 from another workload, and the
+  // process held 12% CPU (`user+sys / real` = 34.6 s / 286 s). That is a starved measurement,
+  // not a slow one. The revert stands on the convention alone, which is reason enough.
+  const { CID } = await import('multiformats/cid')
+  const bytes = await store.get(CID.parse(reduced.outcome.rootCid))
+  if (bytes === undefined) return null
+  // `decodeCanonical` returns the value directly and throws on malformed input rather than
+  // answering a result type, so the guard is a try rather than an `.ok` check.
+  let value: CanonicalValue
+  try {
+    value = decodeCanonical(bytes)
+  } catch {
+    return null
+  }
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return null
+  const counts = (value as { counts?: unknown }).counts
+  if (typeof counts !== 'object' || counts === null || Array.isArray(counts)) return null
+  const total = (counts as Record<string, unknown>)[PI_PARTIAL_KEY]
+  return typeof total === 'number' ? total : null
+}
+
 const api: TabApi = {
   onChange(listener) {
     listeners.add(listener)
@@ -680,6 +733,115 @@ const api: TabApi = {
       // named a family this build has never heard of is a finding, and dropping it here
       // would delete the finding at the one place a person looks.
       byBrowser: result.report.byBrowser,
+    }
+  },
+
+  /**
+   * MR-03…MR-07 — the demo's **verified tree-reduce**, and the workload that can carry one.
+   *
+   * Audit findings G3 and G4 turned out to be one piece of work, and π is why. `runColouring`
+   * merges with `answerOf`, a linear scan, and **that is correct for it**: a colouring job is
+   * first-found-wins, so there is nothing to aggregate and a reduce over peers would be
+   * ceremony. π is a sum — every shard contributes a scaled partial that must be added — so it
+   * is the workload the fabric's combiner was built for. `pi.ts` says as much in its own words:
+   * it exists to *"project a partial into the partial shape the fabric's one combiner accepts"*.
+   *
+   * So this closes both: the π workload gains a runnable path (G4), and the demo gains a merge
+   * that is **verified rather than trusted** (G3).
+   *
+   * ## The two things this reports separately, because they answer different questions
+   *
+   * `reduceJob` documents on its own type that `ok` means only *a reduce could be attempted*.
+   * A run where every combine failed is `{ok: true}` with `outcome.ok === false`, and
+   * `bin/bench.ts` makes exactly this distinction at its own call site for exactly this reason.
+   * Collapsing the two would let the page report an aggregation that never happened.
+   *
+   * ## A lone visitor cannot run it, and is told so rather than shown a blank panel
+   *
+   * `ReduceJobOptions.executors` is *"peer ids of the connected agents — the submitter is NOT
+   * among them"*, and `reduce-job.ts` answers an empty set with
+   * `{ok: false, reason: 'no executor to combine on'}`. That is the ordinary state of the first
+   * tab to open the page. The reason is passed through verbatim: the honest statement is that
+   * this claim needs a second device, not that the run failed.
+   *
+   * ## What the aggregate is checked against
+   *
+   * `estimatePi` converts the scaled total, and `piErrorBound` gives the remainder bound for the
+   * term count — so the page compares a fabric-computed answer against a **published constant**
+   * with a stated tolerance, rather than against itself. `pi.ts` records why that oracle is
+   * necessary and not sufficient, and the shard-count invariance it does not replace.
+   */
+  async runPi(options) {
+    const node = required()
+    const started = performance.now()
+    const terms = options.terms
+    const input = buildPiInput(terms)
+    const moduleCid = await node.store.put(piKernelBytes)
+    // The same guard `runColouring` carries one module over: a rebuilt kernel that was not
+    // re-signed produces a provenance refusal at dispatch, and this says so here instead.
+    if (moduleCid.toString() !== PI_RECORD.cid.toString()) {
+      throw new Error(
+        `the bundled pi kernel hashes to ${moduleCid.toString()} but the committed record ` +
+          `vouches for ${PI_RECORD.cid.toString()} — rebuilt without re-signing; run ` +
+          '`npm run sign:kernel --workspace @o2/demo`',
+      )
+    }
+    const executors = [
+      node.signingExecutor,
+      ...options.peerIds.map((id) => new RemoteExecutor(id, node.rpc, 'dispatches-unauthenticated')),
+    ]
+    const result = await submitJobWithEgress(
+      {
+        moduleCid,
+        moduleRecord: PI_RECORD,
+        shards: Array.from({ length: options.shards }, () => ({ value: input, label: 'public' as const })),
+        executors,
+        nodes: await attestedNodes(node, executors),
+        redundancy: options.redundancy,
+        onQuorumShortfall: 'runs-at-available-redundancy',
+      },
+      node.store,
+      [node.egress],
+      { checkpoints: 'checkpoints-nothing' },
+    )
+    if (!result.ok) throw new Error(`pi submit failed: ${JSON.stringify(result.error)}`)
+    const manifest = result.manifests[0]
+    if (manifest === undefined) throw new Error('unreachable: no manifest for the sole guard')
+
+    // The map is done; this is the part `runColouring` has no counterpart for.
+    const reduced = await reduceJob(result.job, {
+      rpc: node.rpc,
+      // The submitter is excluded by contract, so this is the peer set and not `executors`.
+      executors: options.peerIds,
+      // The tab's own store: it is what this node's `serveAgent` answers block requests from,
+      // so it is where combine nodes fetch the leaves and where each combine's result returns.
+      blockstore: node.store,
+      project: projectPiPartial,
+      redundancy: options.redundancy,
+      // A visitor's tab pins no combine issuer, and saying so by name beats passing an empty
+      // set that would silently refuse every combine. The page states this limit on screen.
+      trustedIssuers: 'checks-no-combine-signatures',
+    })
+
+    // The aggregate's VALUE, fetched rather than assumed. `ReduceOutcome` carries `rootCid`
+    // and not the number — the combined block lives in the store like any other, and reading
+    // it back through the same blockstore the combines wrote to is what makes this the
+    // fabric's answer rather than a local recomputation.
+    const scaled = await piTotalFrom(reduced, node.store)
+    return {
+      terms,
+      shards: options.shards,
+      complete: result.job.complete,
+      // `ok` and `outcome.ok` are distinct answers — see the docblock.
+      reduceAttempted: reduced.ok,
+      reduceReason: reduced.ok ? null : reduced.reason,
+      combined: reduced.ok && reduced.outcome.ok,
+      treeDepth: reduced.ok ? reduced.tree.depth : 0,
+      combines: reduced.ok && reduced.outcome.ok ? reduced.outcome.combines : 0,
+      estimate: scaled === null ? null : estimatePi(scaled),
+      errorBound: piErrorBound(terms),
+      elapsedMs: performance.now() - started,
+      egress: manifest,
     }
   },
 

@@ -59,6 +59,20 @@ import {
 const ROOT = fileURLToPath(new URL('../../..', import.meta.url))
 
 /**
+ * Every case here builds or reads the call graph, and none of them carried a timeout.
+ *
+ * The sibling `reachability.node.test.ts` hit this on 2026-08-08 under full-suite contention;
+ * this file hit it the same day for a smaller reason — **wiring one more workload into the demo
+ * grew the graph just enough to cross the 5 000 ms default.** A guard whose own runtime sits on a
+ * cliff reports a timeout instead of a verdict, which is the least useful failure it could give.
+ *
+ * Sized as headroom against a loaded machine, not as a measurement of the work: a case that
+ * genuinely regresses will blow through 60 s, while a contended one that would have taken 6 s
+ * simply passes.
+ */
+const GRAPH_TIMEOUT_MS = 60_000
+
+/**
  * Corpus floors, measured 2026-08-08 at `7f8a74b`, with Phases 20, 21, 23 and 24 landed and
  * Phase 22 otherwise unbuilt. Set **well below** the reading, per
  * `acceptance-traceability.node.test.ts` — a floor catches a collapse, an equality freezes a
@@ -99,7 +113,7 @@ describe('the failure names the symbol and the barrel, not just a count', () => 
     expect(line).toContain('neverDeclared')
     expect(line).toContain('@o2/nowhere')
     expect(line).toContain('no production code calls it')
-  })
+  }, GRAPH_TIMEOUT_MS)
 
   it('distinguishes "nothing calls it" from "its callers are unreachable too"', () => {
     // Two different defects needing two different pieces of work. Collapsing them into one
@@ -111,18 +125,18 @@ describe('the failure names the symbol and the barrel, not just a count', () => 
     expect(orphan).toContain('no production code calls it')
     expect(chained).toContain('its only callers are themselves unreachable')
     expect(chained).toContain('packages/core/src/other.ts#caller')
-  })
+  }, GRAPH_TIMEOUT_MS)
 
   it('names how many entry points were searched, so the reason is checkable', () => {
     const [line] = describeUnreachable([verdict('net', 'someSymbol')])
     expect(line).toContain(`${ENTRY_POINTS.length} entry points`)
-  })
+  }, GRAPH_TIMEOUT_MS)
 
   it('renders nothing for an empty verdict list', () => {
     // The other direction. A renderer that emitted a line for everything would satisfy every
     // case above while being useless. `purity.node.test.ts` carries the same pair.
     expect(describeUnreachable([])).toEqual([])
-  })
+  }, GRAPH_TIMEOUT_MS)
 
   it('renders a browser finding and a node finding identically', () => {
     // The cardinal rule, asserted rather than trusted: nothing in the verdict or the message
@@ -133,7 +147,7 @@ describe('the failure names the symbol and the barrel, not just a count', () => 
     expect(browser?.replace('@o2/browser', 'X').replace('packages/browser/', 'packages/X/')).toBe(
       node?.replace('@o2/node', 'X').replace('packages/node/', 'packages/X/'),
     )
-  })
+  }, GRAPH_TIMEOUT_MS)
 })
 
 describe('the guard cannot report clean because it looked at nothing', () => {
@@ -148,7 +162,7 @@ describe('the guard cannot report clean because it looked at nothing', () => {
     expect(callable.length).toBeGreaterThanOrEqual(CALLABLE_FLOOR)
     expect(graph().files.length).toBeGreaterThanOrEqual(FILE_FLOOR)
     expect(graph().roots.length).toBe(ENTRY_POINTS.length)
-  })
+  }, GRAPH_TIMEOUT_MS)
 
   it('finds nothing when the corpus is empty — the failure that reads exactly like success', () => {
     // An empty corpus produces an empty verdict list, which is indistinguishable from a clean
@@ -156,19 +170,19 @@ describe('the guard cannot report clean because it looked at nothing', () => {
     // really does collapse to nothing, so the floor is the only thing standing between the guard
     // and a silent pass. `disclosure-gate.node.test.ts` shipped this exact shape once.
     expect(unreachableExports([], graph(), ROOT)).toEqual([])
-  })
+  }, GRAPH_TIMEOUT_MS)
 
   it('reports EVERY callable unreachable when the entry set is empty — the loud direction', () => {
     const callable = corpus().filter((one) => one.kind === 'callable')
     const rootless: CallGraph = { ...graph(), roots: [] }
     expect(unreachableExports(corpus(), rootless, ROOT).length).toBe(callable.length)
-  })
+  }, GRAPH_TIMEOUT_MS)
 
   it('reports EVERY callable unreachable when the edge set is empty', () => {
     const callable = corpus().filter((one) => one.kind === 'callable')
     const edgeless: CallGraph = { ...graph(), calls: new Map() }
     expect(unreachableExports(corpus(), edgeless, ROOT).length).toBe(callable.length)
-  })
+  }, GRAPH_TIMEOUT_MS)
 
   it('is defended against over-connection by a symbol that must stay unreachable', () => {
     // THE case that matters, and the hardest to catch, because an over-connected graph is what a
@@ -185,7 +199,7 @@ describe('the guard cannot report clean because it looked at nothing', () => {
     connected.set(root, new Set([...(graph().calls.get(root) ?? []), KNOWN_FALSE_ANCHOR]))
     const overConnected = unreachableExports(corpus(), { ...graph(), calls: connected }, ROOT)
     expect(overConnected.map((one) => `${one.barrel}/${one.symbol}`)).not.toContain('demo/estimatePi')
-  })
+  }, GRAPH_TIMEOUT_MS)
 
   it('renders every real finding with its symbol and its barrel', () => {
     // The naming clause on a REAL walk rather than on a planted object — Task 1 proved the
@@ -201,7 +215,7 @@ describe('the guard cannot report clean because it looked at nothing', () => {
       expect(line).toContain(one.symbol)
       expect(line).toContain(`@o2/${one.barrel}`)
     }
-  })
+  }, GRAPH_TIMEOUT_MS)
 
   it('does not report a wired capability unreachable', () => {
     // The known-TRUE side, at guard level rather than only in the tracer's own spec. Each of
@@ -212,7 +226,7 @@ describe('the guard cannot report clean because it looked at nothing', () => {
     for (const wired of ['aot/translationCid', 'node/FabricNode', 'core/submitJob', 'net/reduceJob', 'core/runTaskAndPost']) {
       expect(reported.has(wired), `${wired} is wired and must not be reported unreachable`).toBe(false)
     }
-  })
+  }, GRAPH_TIMEOUT_MS)
 
   it('refuses to let the finding list grow silently past its stated size', () => {
     // The anti-vacuity ceiling, and it is the second half of criterion 2: a NEW
@@ -237,7 +251,7 @@ describe('the guard cannot report clean because it looked at nothing', () => {
         `run the guard and read the list. A LOWER number is wiring work landing and the ceiling ` +
         'should be lowered to match it, which is 22-03\'s register rather than an edit here.',
     ).toBeLessThanOrEqual(67)
-  })
+  }, GRAPH_TIMEOUT_MS)
 
   it('separates findings that have callers from findings that have none', () => {
     // The split is the guard's contribution over `requirements-ledger.node.test.ts`, which reads
@@ -246,7 +260,7 @@ describe('the guard cannot report clean because it looked at nothing', () => {
     const found = unreachableExports(corpus(), graph(), ROOT)
     expect(found.filter((one) => one.callers.length === 0).length).toBeGreaterThan(0)
     expect(found.filter((one) => one.callers.length > 0).length).toBeGreaterThan(0)
-  })
+  }, GRAPH_TIMEOUT_MS)
 })
 
 // ---------------------------------------------------------------------------
@@ -273,7 +287,7 @@ describe('the disposition register describes the tree, or it reddens', () => {
       stale,
       'these symbols carry a disposition but the guard now reaches them — delete the entries',
     ).toEqual([])
-  })
+  }, GRAPH_TIMEOUT_MS)
 
   it('holds no entry for a symbol that is no longer a callable barrel export', () => {
     // The other way an entry rots: the symbol is renamed or stops being exported, and the entry
@@ -283,7 +297,7 @@ describe('the disposition register describes the tree, or it reddens', () => {
     )
     const orphaned = [...disposedKeys()].filter((key) => !callable.has(key)).sort()
     expect(orphaned, 'these disposition entries name nothing the barrels export').toEqual([])
-  })
+  }, GRAPH_TIMEOUT_MS)
 
   it('grants every disposition on a mechanism, never on a tier', () => {
     // The criterion, asserted rather than trusted. A cause that named a package or a node kind
@@ -310,7 +324,7 @@ describe('the disposition register describes the tree, or it reddens', () => {
       DISPOSITIONS.filter((one) => one.cause === 'global-object-hop').map((one) => one.barrel),
     )
     expect(hopBarrels.size).toBeGreaterThan(1)
-  })
+  }, GRAPH_TIMEOUT_MS)
 
   it('cannot grow the register silently', () => {
     expect(
@@ -318,7 +332,7 @@ describe('the disposition register describes the tree, or it reddens', () => {
       `the register holds ${DISPOSITIONS.length} entries against a ceiling of ${DISPOSITION_CEILING}`,
     ).toBeLessThanOrEqual(DISPOSITION_CEILING)
     expect(new Set(disposedKeys()).size).toBe(DISPOSITIONS.length)
-  })
+  }, GRAPH_TIMEOUT_MS)
 
   it('reports the residue as open findings and holds it still', () => {
     // **Criterion 1 does not pass clean on this tree, and this case is where that is said.**
@@ -335,7 +349,7 @@ describe('the disposition register describes the tree, or it reddens', () => {
       `${open.length} unreachable callable barrel exports carry no disposition, against a ` +
         `ceiling of ${OPEN_FINDING_CEILING}. A HIGHER number means a new one arrived: ${open.join(', ')}`,
     ).toBeLessThanOrEqual(OPEN_FINDING_CEILING)
-  })
+  }, GRAPH_TIMEOUT_MS)
 
   it('renders an open finding as a sentence naming the symbol and the barrel', () => {
     // The register does not change the message contract — an open finding reads exactly like any
@@ -350,5 +364,5 @@ describe('the disposition register describes the tree, or it reddens', () => {
     if (first === undefined || line === undefined) return
     expect(line).toContain(first.symbol)
     expect(line).toContain(`@o2/${first.barrel}`)
-  })
+  }, GRAPH_TIMEOUT_MS)
 })
