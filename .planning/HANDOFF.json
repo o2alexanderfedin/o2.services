@@ -10,7 +10,7 @@
   "status": "paused",
   "head": "8211d3c",
   "branch": "feature/phase-18-discovery-capacity-placement",
-  "branch_state": "16 ahead of origin, unpushed; working tree clean; nothing WIP",
+  "branch_state": "unpushed; working tree clean; nothing WIP. Ahead-count deliberately not recorded as a number: it was wrong twice this session because writing it down is itself a commit, so read it with git rev-list --count origin/main..HEAD",
   "suite": "tsc exit 0; npm run test:unit exit 0, 112 files, 1708 passed",
   "progress": { "findings_total": 17, "closed": 10, "auto_fixable_remaining": 4, "manual_only": 4 },
   "reachability": { "unreachable": 66, "disposed": 24, "open": 42, "ceiling": 42 },
