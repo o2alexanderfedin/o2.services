@@ -310,6 +310,25 @@ function trackedSources(): readonly string[] {
     .filter((path) => /\.(ts|mts|js|mjs)$/.test(path))
 }
 
+/**
+ * Files that may declare a `stripComments` of their own, each with the reason.
+ *
+ * Data rather than a chain of `continue`s, for the reason `vocabulary.node.test.ts` gives
+ * about its own exemptions: a rule that cannot express its exceptions gets deleted the
+ * first time it fires wrongly, and an exception nobody wrote a reason beside is one
+ * nobody can audit later.
+ *
+ * **What this list is not.** It is not a way to opt a *guard* out of the migration. Every
+ * entry here is outside the migration's subject — the module that defines the shared
+ * stripper, and code this repository did not write — and a new entry that is neither of
+ * those is the failure this guard exists to catch.
+ */
+const MAY_DECLARE_A_STRIPPER: Readonly<Record<string, string>> = {
+  'packages/node/src/strip-comments.ts': 'the module the migration moved every guard onto',
+  'docs/design/mockups/o2-fabric-demo/support.js':
+    "the Claude Design `dc-runtime`, generated and vendored verbatim beside the mockup it renders — its stripper lexes the mockup's own templates in a browser and is not a guard, not this repository's code, and not editable without breaking re-import",
+}
+
 describe('the migration is complete, and BLINDABLE stayed where it was put', () => {
   it('leaves no guard on a locally-defined stripper', () => {
     // The recorded way this fix fails open: a PARTIAL migration. Five call sites, and
@@ -325,11 +344,32 @@ describe('the migration is complete, and BLINDABLE stayed where it was put', () 
     // every migrated guard makes for stripping in the first place.
     const offenders: string[] = []
     for (const file of trackedSources()) {
-      if (file === 'packages/node/src/strip-comments.ts') continue
+      if (MAY_DECLARE_A_STRIPPER[file] !== undefined) continue
       const source = stripComments(readFileSync(join(ROOT, file), 'utf8'))
       if (/(?:function|const|let)\s+stripComments\b/.test(source)) offenders.push(file)
     }
     expect(offenders).toEqual([])
+  })
+
+  it('carries no exclusion that has stopped excusing anything', () => {
+    // The other direction, and the one an exclusion list fails in silently. An entry
+    // whose file no longer declares a stripper — or no longer exists — is a hole left
+    // open for a reason that has expired, and nothing above would ever report it: the
+    // scan simply skips the path and passes. `vocabulary.node.test.ts` holds its own
+    // exemptions to exactly this and calls a stale one dead; the word is the same here.
+    const tracked = new Set(trackedSources())
+    const dead: string[] = []
+    for (const [file, why] of Object.entries(MAY_DECLARE_A_STRIPPER)) {
+      if (!tracked.has(file)) {
+        dead.push(`${file} — not a tracked source; delete this entry (was: ${why})`)
+        continue
+      }
+      const source = stripComments(readFileSync(join(ROOT, file), 'utf8'))
+      if (!/(?:function|const|let)\s+stripComments\b/.test(source)) {
+        dead.push(`${file} — declares no stripper any more; delete this entry (was: ${why})`)
+      }
+    }
+    expect(dead).toEqual([])
   })
 
   it('is imported by the guards it was written for', () => {
