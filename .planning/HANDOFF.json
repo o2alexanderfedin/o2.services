@@ -1,122 +1,69 @@
 {
   "version": "1.0",
-  "timestamp": "2026-08-08T10:09:27.000Z",
-  "phase": "22",
-  "phase_name": "Reachability Guard",
-  "phase_dir": ".planning/phases/phase-22-reachability-guard",
-  "plan": 1,
-  "task": 1,
-  "total_tasks": 3,
+  "timestamp": "2026-08-08T12:50:00.000Z",
+  "context": "milestone",
+  "milestone": "v1.1",
+  "milestone_name": "Wire What Was Built",
+  "work": "audit-fix over .planning/v1.1-MILESTONE-AUDIT.md",
+  "phase": null,
+  "phase_note": "NOT phase work. All 15 v1.1 phases have verifications. Phase 22 is COMPLETE at 2/3 (fee26c2) and its .continue-here.md was corrected from 'task 1 of 3, not_started' to COMPLETE in this same pause.",
   "status": "paused",
-  "context_note": "Phase 22 is the LAST unexecuted v1.1 phase: 4 plans, 0 summaries, 0 verification. Its requirement WIRE-02 is the milestone's last unticked ID. The count is 12 of 15. This handoff replaces one that claimed 'Phase 26, task 2 of 7' and had been false for about thirteen hours.",
+  "head": "3a66549",
+  "branch": "feature/phase-18-discovery-capacity-placement",
+  "branch_state": "12 ahead of origin, unpushed; working tree clean; nothing WIP",
+  "suite": "tsc exit 0; npm run test:unit exit 0, 111 files, 1702 passed",
+  "progress": { "findings_total": 17, "closed": 9, "auto_fixable_remaining": 5, "manual_only": 4 },
+  "reachability": { "unreachable": 66, "disposed": 24, "open": 42, "ceiling": 42 },
   "completed_tasks": [
-    {
-      "id": 0,
-      "name": "Pre-task: verify 22-01's <interfaces> claims before building on them",
-      "status": "done",
-      "progress": "The plan says its own interface block is 'a starting point, not an authority' and names the failure that would invalidate the phase. Every structural claim HOLDS: typescript 7.0.2; typescript/unstable/sync exports API + SymbolFlags; openProjects with a BARE PATH STRING returns 1 project (the critical one); project.program and project.checker are fields and getProgram is undefined; 8 barrels found on disk. Every COUNT has drifted upward - see the blocking constraint."
-    }
+    { "id": "G2", "name": "AOT publish path no longer stops at the bytes", "commit": "0c43b14", "status": "done" },
+    { "id": "G12", "name": "hasSeed deleted — zero callers, zero tests", "commit": "36c2800", "status": "done" },
+    { "id": "G8/G9/G10/G11", "name": "disposed under a new deferred-in-source cause, each quoting its own source", "commit": "36c2800", "status": "done" },
+    { "id": "L1", "name": "six missing traceability rows, written from measurement", "commit": "3a66549", "status": "done" },
+    { "id": "L2", "name": "STATE.md seed self-contradiction corrected in three places", "commit": "3a66549", "status": "done" },
+    { "id": "L4", "name": "two stale debug sessions closed with evidence", "commit": "3a66549", "status": "done" },
+    { "id": "phase-22", "name": "Reachability Guard built, armed and verified 2/3", "commit": "fee26c2", "status": "done" }
   ],
   "remaining_tasks": [
     {
-      "id": 1,
-      "name": "22-01 Task 1 - the corpus: every callable barrel export, counted, type-only exclusion stated at the line",
-      "status": "not_started",
-      "note": "Floors, not equalities. Barrels derived from disk, not hand-listed. Aliases resolved via getAliasedSymbol BEFORE classifying - the flags on the barrel entry itself are Alias flags. Four plants required, each watched red."
+      "id": "G1",
+      "severity": "blocker",
+      "name": "A closed seed is unjoinable by the demo page",
+      "note": "The seed's own banner names two remedies and neither exists: SeedServerOptions has no issuesCertificates, BootstrapInfo carries no provider address, and demo/main.ts's autoStart forwards only relayAddrs and blockstoreName — the enrollment block on start has NO CALLER in the page. gated-seed.e2e.test.ts is green only because the HARNESS injects providerAddr from Node, which is what hides the gap.",
+      "affects": ["AUTH-01", "AUTH-02", "AUTH-04", "DEMO-01"]
     },
-    {
-      "id": 2,
-      "name": "22-01 Task 2 - the call graph: four edge classes, a static-method entry, anchors in both directions",
-      "status": "not_started",
-      "note": "Declaration nodes (<file>#<name>), not modules. ONE PLANT PER EDGE CLASS - a single disable-everything plant proves only that the graph exists. RE-MEASURE every anchor: phases 20, 21 and 23 landed after this plan was written and all three move these symbols."
-    },
-    {
-      "id": 3,
-      "name": "22-01 Task 3 - resolving power: the same corpus at two granularities in one run",
-      "status": "not_started",
-      "note": "THE task that stops the phase being a tautology. arm A identical to arm B is RED. Assert a floor on the GAP, never an absolute finding count. Cost via /usr/bin/time -p with (user+sys)/real, never real alone and never load average."
-    },
-    {
-      "id": 4,
-      "name": "22-02 - the guard (wave 2)",
-      "status": "not_started",
-      "note": "Must be watched red BOTH ways, and must redden on an empty corpus, an empty entry set and an empty edge set."
-    },
-    {
-      "id": 5,
-      "name": "22-03 - dispositions register (wave 3) - autonomous: false, STOPS FOR THE OWNER",
-      "status": "not_started",
-      "note": "Criteria forbid granting a disposition on the basis of which tier or which factory a symbol belongs to. That is an owner judgement, not an executor's."
-    },
-    {
-      "id": 6,
-      "name": "22-04 - wire into the gate (wave 4)",
-      "status": "not_started",
-      "note": "Touches vitest.config.ts and slow-specs.node.test.ts - the same span ledger updated on 2026-08-07 for the elfconv differential. RE-MEASURE; do not inherit those figures."
-    }
+    { "id": "G3", "severity": "major", "name": "The demo merges with answerOf (linear scan) rather than reduceJob", "affects": ["MR-03", "MR-04", "MR-05", "MR-06", "MR-07"] },
+    { "id": "G6", "severity": "major", "name": "The Node tier never calls findReservedPeers; only demo/main.ts does", "affects": ["NET-03"] },
+    { "id": "G7", "severity": "major", "name": "FallbackRecordIndex/MemoryRecordIndex built and never composed", "note": "A real composition needs a genuine second source. An empty memo in front of the RPC index would be decoration.", "affects": ["NET-06"] },
+    { "id": "G13", "severity": "major", "name": "The demo returns an egress manifest and index.html never shows it", "affects": ["DATA-05", "DATA-06"] },
+    { "id": "G4", "severity": "manual", "name": "π and primes workloads wholly unwired — wire a second workload into the demo, or retire them" },
+    { "id": "G5", "severity": "manual", "name": "discoverCandidates reaches production only behind bin/bench.ts --discover; SCHED-01's row calls the intent unsettled" },
+    { "id": "L3", "severity": "manual", "name": "Phase 13 reads 0/3 fully verified while STATE.md counts it closed — the counting convention is the owner's" },
+    { "id": "residue", "severity": "manual", "name": "42 open unreachable exports, held still by OPEN_FINDING_CEILING. Lowering it is the work." }
   ],
   "blockers": [
     {
-      "description": "22-03 is autonomous: false and will stop for an owner decision on dispositions.",
-      "type": "human_action",
-      "workaround": "Waves 1 and 2 can complete without it."
+      "description": "A finding classified auto-fixable may be a documented decision. Four were this session — churn.ts defers the EgressRefusal classification and names the remedy; checkBlockstoreConformance FAILS any non-empty store so it cannot run at construction; @o2/bench's barrel says sweepNodeCount is not settled. Read the module that would do the wiring before wiring it.",
+      "type": "technical"
     },
     {
-      "description": "Debug session 'retake-measured-node-spans' is OPEN (status: investigating) against the exact vitest.config.ts span table that 22-04 will edit.",
-      "type": "technical",
-      "workaround": "Read .planning/debug/retake-measured-node-spans.md BEFORE wave 4, not after."
-    }
-  ],
-  "human_actions_pending": [
-    {
-      "action": "Ruling 2 - `**Mode:** mvp` on 25 roadmap blocks",
-      "context": "The only one of five rulings never taken. Phase 24 could not be verified under MVP mode's User Flow Coverage contract because its goal is a security property.",
-      "blocking": false
-    },
-    {
-      "action": "The graduated-cost reading of Phase 17 criterion 3's word 'costly'",
-      "context": "The 3/3 close is a bound-plus-devaluation, not a rising per-identity price. Escalated by the verifier, not settled.",
-      "blocking": false
-    },
-    {
-      "action": "AUTH-02 browser-pinning leg",
-      "context": "Carried unresolved since 2026-08-05.",
-      "blocking": false
-    },
-    {
-      "action": "Decide whether to keep ~/Projects/hapyy -> /Volumes/ProjectsSSD/Projects/hupyy",
-      "context": "A subagent created it because the prebuilt LLVM's CMake exports hard-code a typo'd path. Outside this repository.",
-      "blocking": false
-    },
-    {
-      "action": "Three upstream elfconv PRs are open with NO CI run",
-      "context": "yomaytk/elfconv #263, #264, #265. 'no checks reported' on all three - likely awaiting first-time-contributor approval. Nothing to do but wait.",
-      "blocking": false
+      "description": "Do not write a ledger row to satisfy a checker. acceptance-traceability's CHECKBOXES_WITHOUT_A_ROW docblock names the failure: 'the only way to go green would be to invent rows'. The six written this session cite a symbol and a file each, and NET-09 went in as Partial with its checkbox taken OFF — that asymmetry is the evidence they were measured.",
+      "type": "technical"
     }
   ],
   "decisions": [
-    {
-      "decision": "Phase 22 chosen over closing 20/21's PARTIAL criteria, settling rulings, or running the milestone audit",
-      "rationale": "It is the last unexecuted v1.1 phase, it runs last by design because it certifies what every other phase wired, and WIRE-02 is the milestone's last unticked requirement.",
-      "phase": "22"
-    },
-    {
-      "decision": "Execute Phase 22 INLINE and sequentially, not via spawned executor agents",
-      "rationale": "execute-phase.md sanctions this: 'Other runtimes: use sequential inline execution as the fallback.' Also avoids the workflow's gsd-sdk state writers, which CLAUDE.md bans after three separate corruptions of STATE.md.",
-      "phase": "22"
-    },
-    {
-      "decision": "The elfconv loader port and the function-sizing fix are TWO commits, never one",
-      "rationale": "The port's entire warrant is 'nothing changed' - byte-identical bitcode and wasm on both loader paths. The sizing fix deliberately changes output. Both claims cannot hold in one patch.",
-      "phase": null
-    },
-    {
-      "decision": "Upstream PRs exclude our build-system changes",
-      "rationale": "Trimming llvm_map_components_to_libnames and gating tests behind REMILL_ENABLE_TESTING serve a downstream WebAssembly build, not upstream. Offered in the PR body rather than pushed.",
-      "phase": null
-    }
+    { "decision": "The entry-point set stays at five", "rationale": "tools/aot/bench-lifted.ts rescues four @o2/aot symbols and is a benchmark driver, not a way the fabric is entered. Owner ruling 2026-08-08." },
+    { "decision": "Only symbols with a stated cause get a disposition", "rationale": "Owner ruling 2026-08-08. Everything else stays an open finding, which is why criterion 1 is DECLINED rather than closed — disposing the rest would make the guard decoration." },
+    { "decision": "The window.o2 hop is disposed on the MECHANISM, not the tier", "rationale": "Extracting index.html's inline script would close it properly and is a change to the demo, not to a guard. The cause is a hop, so it does not violate the ban on tier-based dispositions." },
+    { "decision": "bin/bench.ts staying 'admits-any-peer' is a deliberate trade — do not fix it", "rationale": "relayAdmissionGate's header records that 24-02's pre-gate baseline 'stays comparable only while that remains true'. Arming it would invalidate the milestone's speedup baseline." }
+  ],
+  "instrument_facts": [
+    "gsd-sdk init.milestone-op reported all_phases_complete:true with Phase 22 at 1 of 4 summaries, and roadmap.analyze returned an EMPTY phases array. Both false. Derive phase state from disk.",
+    "zsh does not word-split unquoted variables — a comparative measurement passed both arms through $GATE, vitest got one filter, and arm A 'passed' at 0.64s having run nothing. Caught by reading EXIT=$?.",
+    "fromHex NEVER returns null; it parseInts each byte pair and turns garbage into 0. fromHex(x) === null is a check that cannot fail.",
+    "program.getSourceFileNames() grows lazily — 907 then 963 in one session. Walk the corpus from disk.",
+    "typescript/unstable/ast does not EXPORT forEachChild, but every node has it as a METHOD. That is what makes a precise AST walk possible instead of a text scan.",
+    "The vocabulary guard refuses 'earn' and 'token'. Both caught me this session."
   ],
   "uncommitted_files": [],
-  "next_action": "Execute 22-01 Task 1: build packages/node/src/reachability.ts exporting barrelExports/reachableFrom/ENTRY_POINTS, keeping every function pure over its arguments except one thin loader so the test can hand planted source straight to the predicate. Pin the corpus as FLOORS using the freshly measured numbers (217 callable / 604 total across 8 barrels), not the plan's stale 209/581. Then run all four of Task 1's plants and record the observed red text for each.",
-  "context_notes": "The approach that paid off all session: treat every document's claim about the code as a hypothesis and measure it. Six claims turned out false this session - elfconv's README on x86, the praxis review on verifyChain, two of my own comments written before verification, a commit message asserting Phase 26 items were deleted when they are live, and 22-01's own corpus counts. The single most valuable habit is the watched-red plant: it caught a green build with a correct function count and wrong bitcode, which no count-based check would have seen. Phase 22 is ABOUT that failure mode - three cheap tracers scored the same corpus 54, 3 and 102 - so its Task 3 two-granularity reading is not ceremony, it is the only thing standing between this phase and a tautology."
+  "next_action": "Start with G1. Read packages/node/src/seed-server.ts (SeedServerOptions, BootstrapInfo) and packages/browser/demo/main.ts (autoStart, and the enrollment block on start that has no caller). The shape: a seed that pins issuers must either serve enrolment itself or publish a provider address a joining tab can reach without a reservation — the seed's banner already says so, and neither field exists. Decide which remedy to build, then make gated-seed.e2e.test.ts green WITHOUT the harness injecting providerAddr, because that injection is what currently hides the gap."
 }
