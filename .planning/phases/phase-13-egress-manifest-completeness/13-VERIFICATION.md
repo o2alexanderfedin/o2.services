@@ -6,13 +6,18 @@ criteria_met: 0
 criteria_partial: 3
 criteria_total: 3
 score: 0/3 criteria fully verified — all three met in strictly weaker forms than written
-reopened: 2026-08-08
-reopened_by: owner ruling on audit finding L3
-reopened_note: >-
-  STATE.md counted this phase among the closed while this file read 0/3. The contradiction was put
-  to the owner and resolved IN THIS FILE'S FAVOUR: the verification is authoritative, the milestone
-  count drops 12 -> 11, and Phase 13 rejoins the counted set when its three criteria are met AS
-  WRITTEN rather than in the weaker forms recorded below. Nothing in the scoring was edited.
+superseded_by: 13-VERIFICATION-2.md
+superseded_note: >-
+  THIS FILE IS PASS 1 AND IS NOT THE PHASE'S VERDICT. `13-VERIFICATION-2.md` is pass 2, same day,
+  and scores 3/3 on the criteria AS AMENDED in ROADMAP.md, with 8 verifier-planted mutations. Plans
+  13-04, 13-05 and 13-07 landed between the two passes and closed the gaps recorded below: the job
+  now fails as `insufficient` rather than completing `agreed`, two spawned `bin/agent.ts` processes
+  are exercised, and the detection granularity is stated honestly in DATA-05's ledger row.
+  A `reopened:` block stood here for part of 2026-08-08. IT WAS WRONG AND IS RETRACTED. Audit
+  finding L3 compared STATE.md against this file alone, the directory was never globbed, and a
+  decision was put to the owner on that basis. Reading one of two verification files and reporting
+  a contradiction is the error; it is recorded rather than erased so the next reader checks for a
+  pass 2 before trusting a pass 1.
 baseline:
   test_files: 122
   tests: 1775
