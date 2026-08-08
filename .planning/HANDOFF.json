@@ -14,9 +14,9 @@
   "suite": "tsc exit 0; vitest --project node exit 0, 172 files, 2432 passed, 1 skipped. NOTE: npm run test:unit EXCLUDES the slow specs and passed over a red one for six commits — run --project node in full before believing the tree is clean.",
   "progress": {
     "findings_total": 17,
-    "closed": 13,
+    "closed": 14,
     "auto_fixable_remaining": 0,
-    "manual_only": 3,
+    "manual_only": 1,
     "withdrawn": 1
   },
   "reachability": {
@@ -94,6 +94,12 @@
       "commit": "97a127d",
       "status": "done",
       "note": "Owner decision 2026-08-08: leave uncomposed. A fallback chain needs a genuine second source; an empty MemoryRecordIndex in front of the RPC index composes the types and demonstrates nothing. NET-06 stays open. OPEN_FINDING_CEILING ratcheted 42->40, measured by setting it to 0 and reading the guard's own verdict."
+    },
+    {
+      "id": "G5",
+      "name": "Off by default is SETTLED — and it already was",
+      "status": "done",
+      "note": "Owner ruling 2026-08-08 confirms the existing reading rather than changing it. SCHED-01's row already read 'Done — 2026-08-02, plan 18-06' with the reason stated: off by default 'so a published curve is not reshaped by an undeclared change'. The audit called the intent unsettled; it was not. Reason recorded durably in bin/bench.ts's DISCOVER docblock. The capability's existence is proven by discovery-agents.node.test.ts across seven real bin/agent.ts processes — what is opt-in is the BENCHMARK's configuration."
     }
   ],
   "remaining_tasks": [
@@ -116,11 +122,6 @@
       "severity": "manual",
       "name": "π and primes workloads wholly unwired — wire a second workload into the demo, or retire them",
       "merged_into": "G3+G4 are ONE feature — see pi_reduce_design"
-    },
-    {
-      "id": "G5",
-      "severity": "manual",
-      "name": "discoverCandidates reaches production only behind bin/bench.ts --discover; SCHED-01's row calls the intent unsettled"
     },
     {
       "id": "residue",
