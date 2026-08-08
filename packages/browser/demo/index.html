@@ -374,6 +374,46 @@
                 `${plural(attestation.operators.length, 'operator')}.`,
             ]
 
+      // DATA-05/DATA-06 — the egress manifest, rendered. **This is the sovereignty claim's
+      // only operator-facing surface**, and until 2026-08-08 it did not exist: every run
+      // produced a manifest and the page displayed none of it, so the one property this
+      // project puts first was the one thing a visitor could not see.
+      //
+      // ## It states what it can prove and refuses the stronger reading
+      //
+      // Every cube `runColouring` submits is `label: 'public'`, so **nothing is registered
+      // as sovereign on this path** and `violations` is empty by construction. Printing
+      // "0 refused" alone would read as a sovereignty proof and would be a lie by omission —
+      // the guard withheld nothing because it was given nothing to withhold. So the panel
+      // says that, in those words. What it *does* establish is real and worth showing: the
+      // guard is genuinely in the transport, and it counted every byte that left.
+      //
+      // `runJob` — the path that registers owner rows and can produce a non-empty
+      // `violations` — has no caller in this page. That is audit finding G4, and it is
+      // deliberately not papered over here: this block reads whichever manifest it is
+      // given, so wiring that path in later makes the refusal branch below live with no
+      // change to this code.
+      const egressLines = (egress) => {
+        if (egress === undefined || egress === null) return []
+        const out = [
+          '',
+          'What left this device:',
+          `  ${plural(egress.entries.length, 'frame')} sent, ${egress.totalBytes} byte(s) total.`,
+        ]
+        if (egress.violations.length === 0) {
+          out.push(
+            '  0 withheld — and this run registered no sovereign data, so that is the',
+            '  guard reporting it had nothing to hold back, not a proof of sovereignty.',
+          )
+        } else {
+          out.push(
+            `  ${plural(egress.violations.length, 'frame')} WITHHELD: ${egress.violations.join(', ')}.`,
+            '  Those bytes are still on this device. They were not sent anywhere.',
+          )
+        }
+        return out
+      }
+
       $('run').addEventListener('click', async () => {
         $('run').disabled = true
         // Refreshed rather than reused: a device may have joined since the last
@@ -434,6 +474,7 @@
               .map((who, i) => `  cube ${i}: ${who.length === 0 ? 'no agreement' : who.join(' + ')}`),
           )
           if (best.agreeing.length > 8) lines.push(`  … and ${best.agreeing.length - 8} more`)
+          lines.push(...egressLines(best.egress))
           lines.push('', 'This answer has not been checked. The button below checks it.')
         }
 

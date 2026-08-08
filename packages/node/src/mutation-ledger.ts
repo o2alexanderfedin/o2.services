@@ -3031,6 +3031,27 @@ export const MUTATIONS: readonly Mutation[] = [
     signature: 'a closed seed naming no provider says so in the banner',
     signatureSource: 'test-title',
   },
+  {
+    id: 'M74',
+    why:
+      'DATA-05/DATA-06 — **the sovereignty claim\'s only operator-facing surface.** Every run of ' +
+      'the demo produced an egress manifest and the page displayed none of it: `index.html` held ' +
+      'zero occurrences of `egress`, `withheld` or `sovereign`, so the property this project ' +
+      'puts first was the one thing a visitor could not see. Audit finding G13. The plant feeds ' +
+      'the renderer `undefined` instead of the run\'s own manifest — the failure mode that ' +
+      'matters, because a panel wired to nothing looks identical to a panel wired correctly on a ' +
+      'run that happened to send no frames.',
+    file: 'packages/browser/demo/index.html',
+    find: '          lines.push(...egressLines(best.egress))',
+    replace: '          lines.push(...egressLines(undefined))',
+    caughtBy: ['packages/node/src/attestation-ui.e2e.test.ts'],
+    // Observed 2026-08-08: exit 1, `1 failed | 3 passed (4)`, reading `expected '0 peer(s) · 8
+    // cubes per rung\n\nn =  …' to contain 'What left this device:'`. The 3 that stayed green
+    // are the point — the plant hit the egress panel and left every attestation reading alone.
+    // Restored by surgical inverse; cmp exit 0, sha256 back to 8d369d3e.
+    signature: 'What left this device:',
+    signatureSource: 'test-title',
+  },
 ]
 
 /**
