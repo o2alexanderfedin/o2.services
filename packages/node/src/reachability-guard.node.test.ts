@@ -11,6 +11,12 @@ import {
   nodeId,
   unreachableExports,
 } from './reachability.ts'
+import {
+  DISPOSITIONS,
+  DISPOSITION_CEILING,
+  OPEN_FINDING_CEILING,
+  disposedKeys,
+} from './reachability-dispositions.ts'
 
 /**
  * The reachability guard — Plan 22-02.
@@ -240,5 +246,109 @@ describe('the guard cannot report clean because it looked at nothing', () => {
     const found = unreachableExports(corpus(), graph(), ROOT)
     expect(found.filter((one) => one.callers.length === 0).length).toBeGreaterThan(0)
     expect(found.filter((one) => one.callers.length > 0).length).toBeGreaterThan(0)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Plan 22-03 — the register, checked in both directions
+// ---------------------------------------------------------------------------
+
+describe('the disposition register describes the tree, or it reddens', () => {
+  /**
+   * A register is exactly how a guard becomes decoration, so every defence `22-CONTEXT.md` asks
+   * for has its own case here. The one that matters most is the first: an entry that has stopped
+   * being true is a defect, not a comment.
+   */
+
+  it('holds no entry for a symbol that has become reachable', () => {
+    // The mirror of `mutation-guard.node.test.ts`'s cheap layer asking whether each entry still
+    // DESCRIBES the source. If the demo's inline script is ever extracted, or `bench-lifted.ts`
+    // is ever made a root, the symbols below become reachable and their entries must be removed
+    // — this case is what stops them sitting there excusing something that no longer needs it.
+    const reported = new Set(
+      unreachableExports(corpus(), graph(), ROOT).map((one) => `${one.barrel}/${one.symbol}`),
+    )
+    const stale = [...disposedKeys()].filter((key) => !reported.has(key)).sort()
+    expect(
+      stale,
+      'these symbols carry a disposition but the guard now reaches them — delete the entries',
+    ).toEqual([])
+  })
+
+  it('holds no entry for a symbol that is no longer a callable barrel export', () => {
+    // The other way an entry rots: the symbol is renamed or stops being exported, and the entry
+    // silently stops applying to anything at all.
+    const callable = new Set(
+      corpus().filter((one) => one.kind === 'callable').map((one) => `${one.barrel}/${one.name}`),
+    )
+    const orphaned = [...disposedKeys()].filter((key) => !callable.has(key)).sort()
+    expect(orphaned, 'these disposition entries name nothing the barrels export').toEqual([])
+  })
+
+  it('grants every disposition on a mechanism, never on a tier', () => {
+    // The criterion, asserted rather than trusted. A cause that named a package or a node kind
+    // would be exactly the rule retracted at `0314208`.
+    // Compared as whole kebab-case WORDS, not as substrings. The substring form was written
+    // first and was wrong in the direction that matters least but still matters: it refused
+    // `benchmark-driver-only` because `bench` sits inside `benchmark`, while the cause names a
+    // driver under `tools/aot/` and no barrel at all. A check that cries wolf gets deleted, and
+    // this one would have taken the criterion's only enforcement with it.
+    const barrels = new Set(corpus().map((one) => one.barrel))
+    for (const one of DISPOSITIONS) {
+      for (const word of one.cause.split('-')) {
+        expect(
+          barrels.has(word),
+          `cause "${one.cause}" names the barrel ${word} — a disposition may not be granted on ` +
+            'the basis of which tier a symbol belongs to',
+        ).toBe(false)
+      }
+      expect(one.owner.length).toBeGreaterThan(20)
+    }
+    // And the positive form: the same cause is granted across more than one barrel, which a
+    // tier-based rule could not do.
+    const hopBarrels = new Set(
+      DISPOSITIONS.filter((one) => one.cause === 'global-object-hop').map((one) => one.barrel),
+    )
+    expect(hopBarrels.size).toBeGreaterThan(1)
+  })
+
+  it('cannot grow the register silently', () => {
+    expect(
+      DISPOSITIONS.length,
+      `the register holds ${DISPOSITIONS.length} entries against a ceiling of ${DISPOSITION_CEILING}`,
+    ).toBeLessThanOrEqual(DISPOSITION_CEILING)
+    expect(new Set(disposedKeys()).size).toBe(DISPOSITIONS.length)
+  })
+
+  it('reports the residue as open findings and holds it still', () => {
+    // **Criterion 1 does not pass clean on this tree, and this case is where that is said.**
+    // 47 callable barrel exports have no production caller at all, in a milestone named "Wire
+    // What Was Built". They are not disposed — the owner ruled on 2026-08-08 that only symbols
+    // with a stated cause get an entry — so they sit here, counted, named on demand, and unable
+    // to grow while nobody is looking. Lowering this number is the work.
+    const disposed = disposedKeys()
+    const open = unreachableExports(corpus(), graph(), ROOT)
+      .map((one) => `${one.barrel}/${one.symbol}`)
+      .filter((key) => !disposed.has(key))
+    expect(
+      open.length,
+      `${open.length} unreachable callable barrel exports carry no disposition, against a ` +
+        `ceiling of ${OPEN_FINDING_CEILING}. A HIGHER number means a new one arrived: ${open.join(', ')}`,
+    ).toBeLessThanOrEqual(OPEN_FINDING_CEILING)
+  })
+
+  it('renders an open finding as a sentence naming the symbol and the barrel', () => {
+    // The register does not change the message contract — an open finding reads exactly like any
+    // other, so a reader picking one up gets the same sentence whether or not a sibling is disposed.
+    const disposed = disposedKeys()
+    const open = unreachableExports(corpus(), graph(), ROOT).filter(
+      (one) => !disposed.has(`${one.barrel}/${one.symbol}`),
+    )
+    expect(open.length).toBeGreaterThan(0)
+    const [line] = describeUnreachable(open)
+    const first = open[0]
+    if (first === undefined || line === undefined) return
+    expect(line).toContain(first.symbol)
+    expect(line).toContain(`@o2/${first.barrel}`)
   })
 })
