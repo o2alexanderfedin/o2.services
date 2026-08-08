@@ -27,7 +27,7 @@
  *   hello_dynamic          default-gcc PIE, dynamically linked — REFUSED on three counts
  *   hello_static_pie       static-PIE, no interpreter — REFUSED
  *
- * `ls_dynamic` is deliberately **not** built here; see the note at the bottom.
+ * `ls_dynamic` is copied, not compiled; see the note at the bottom.
  *
  * ## Reproducibility
  *
@@ -85,8 +85,14 @@ gcc -pie -fPIE -o hello_dynamic hello.c
 
 gcc -static-pie -o hello_static_pie hello.c
 
+# A binary this repository did NOT build. Its whole subject is provenance: the image's own
+# Debian coreutils, carrying whatever a packager's toolchain did to it -- PIE, dynamically
+# linked against an interpreter, and stripped. Nothing built above has that combination, so
+# a locally compiled substitute would keep the case's title and lose its subject.
+cp /bin/ls ls_dynamic
+
 rm -f hello.c
-chmod 0644 hello_static hello_static_stripped hello_no_unwind hello_dynamic hello_static_pie
+chmod 0644 hello_static hello_static_stripped hello_no_unwind hello_dynamic hello_static_pie ls_dynamic
 `
 
 execFileSync(
@@ -100,24 +106,21 @@ for (const name of readdirSync(OUT).sort()) {
 }
 
 /*
- * ## `ls_dynamic`, and why it is not built or committed here
+ * ## `ls_dynamic`, and why it is copied rather than compiled
  *
- * One case — *"refuses a distribution binary this repo did not build"* — reads a binary
+ * One case -- *"refuses a distribution binary this repo did not build"* -- reads a binary
  * taken from a Linux distribution. Its whole subject is **provenance**: a binary nobody
- * here compiled, with whatever a packager's toolchain happened to do to it.
+ * here compiled, with whatever a packager's toolchain happened to do to it. This image's
+ * own `/bin/ls` is exactly that -- Debian coreutils, ET_DYN with an interpreter, stripped.
+ * No binary compiled above carries that combination, so a locally built substitute would
+ * keep the case's title and lose its subject, which reads as covered and is worse than a
+ * skip.
  *
- * It is not produced by this script and not committed, and the reason is licensing rather
- * than difficulty. Every candidate — coreutils' `ls`, busybox, anything in a base image —
- * is copyleft, and this repository preserves a commercial licence track (`CLAUDE.md`:
- * contributions are not accepted for exactly that reason). Vendoring a GPL executable into
- * it to satisfy one assertion would trade a licensing problem for a test.
+ * It is copied out of the image rather than committed, but so is every other fixture here:
+ * `tools/aot/fixtures/elf/` is gitignored on the stated ground that an opaque artifact in
+ * the repository is worse than one reproducible from its source. Nothing is vendored.
  *
- * Substituting a binary built here would also not do: it would still be a binary this repo
- * built, so the case would keep its title and lose its subject, which is worse than
- * skipping because it reads as covered.
- *
- * So that one case stays conditional, and `O2_ELF_FIXTURES` still overrides the directory
- * for anyone who wants to point it at a tree that has one. `elf-fixtures.node.test.ts`
- * asserts *which* fixtures are expected to be present, so this exception is a declared
- * one rather than a silence.
+ * This case skipped on every host from the day it was written until 2026-08-07, because
+ * the fixture was never produced by anything. `elf-fixtures.node.test.ts` now requires it
+ * like the rest, so its absence is a failure with a rebuild command rather than a silence.
  */

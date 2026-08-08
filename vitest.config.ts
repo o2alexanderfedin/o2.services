@@ -409,21 +409,28 @@ const NODE_MEASUREMENT = {
    * mostly wait. It is also why the ~21 s this row was hiding never showed up as 21 s of
    * anybody's wall clock, and why it went unnoticed for as long as it did.
    */
-  // 1685 -> 1693 and 24 590 -> 33 680 on 2026-08-07, both OBSERVED on one GREEN
-  // `npm run test:unit`: 111 files, 1692 passed | 1 skipped, Duration 33.68 s
-  // (/usr/bin/time -p real 35.10, user 57.37, sys 11.17 -- (user+sys)/real 1.95).
-  // The +8 is elf-loader-facts' eight cases; the differential's six do not appear here
-  // because it is excluded from this loop, which is the whole reason it was measured.
+  // 1685 -> 1694 and 24 590 -> 22 390 on 2026-08-07, both OBSERVED on one GREEN
+  // `npm run test:unit`: 111 files, **1694 passed, 0 skipped**, Duration 22.39 s
+  // (/usr/bin/time -p real 23.02, user 50.98, sys 9.25 -- (user+sys)/real 2.62).
   //
-  // TREAT THIS FIGURE AS SOFT. A first run of the same table on the same host read
-  // 25.69 s -- a 31 % spread between two runs minutes apart, so any comparison against
-  // this number that turns on less than a third of it is reading the host's weather.
-  // It is recorded because the field is defined as a wall clock, not because a wall
-  // clock is a good instrument. That first reading is also NOT the one recorded here:
-  // it came from a run in which slow-specs itself was red, and a figure from a failing
-  // run is not a measurement of this suite.
-  unitTests: 1693,
-  unitWallClockMs: 33_680,
+  // The +9 is elf-loader-facts' eight cases plus one in elf-fixtures, which now REQUIRES
+  // `ls_dynamic`. The differential's six do not appear here because it is excluded from
+  // this loop, which is the whole reason it was measured.
+  //
+  // THE SUITE NOW HAS NO SKIPPED CASE AT ALL. It read `1 skipped` until 2026-08-07:
+  // elf.real's "refuses a distribution binary this repo did not build", gated on a
+  // fixture that NOTHING PRODUCED, so it had skipped on every host since it was written.
+  // `build-elf-fixtures.mjs` now copies one out of the build image. If this line ever
+  // regains a skip, something has gone inert -- that is the reading to take from it.
+  //
+  // TREAT THE WALL CLOCK AS SOFT. Three readings of the same table on the same host
+  // within the hour: 25.69 s, 33.68 s, 22.39 s -- a 1.5x spread end to end. Any
+  // comparison against this number that turns on less than half of it is reading the
+  // host's weather. It is recorded because the field is defined as a wall clock, not
+  // because a wall clock is a good instrument. The 25.69 reading is additionally NOT a
+  // measurement of this suite: it came from a run in which slow-specs itself was red.
+  unitTests: 1694,
+  unitWallClockMs: 22_390,
 } as const
 
 /**
