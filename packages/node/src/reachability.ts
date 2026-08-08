@@ -17,6 +17,8 @@ import {
   isPropertyAccessExpression,
   isSetAccessorDeclaration,
   isStringLiteral,
+  isTypeQueryNode,
+  isTypeReferenceNode,
   isVariableDeclaration,
 } from 'typescript/unstable/ast'
 import { API, SignatureKind, type Symbol as TsSymbol, SymbolFlags } from 'typescript/unstable/sync'
@@ -591,8 +593,17 @@ function walkFile(
     // counting one as a caller makes every exported symbol look wired and the guard vacuous.
     // Measured: without this exclusion `estimatePi` — which nothing anywhere calls — reads
     // REACHED, because `@o2/demo`'s barrel re-exports it by name.
+    // A TYPE POSITION is not a call path, and this is the second thing that had to be excluded
+    // for the reference class to mean anything. `bin/agent.ts` writes `let node: FabricNode |
+    // undefined`; counting that annotation as a reference kept `FabricNode` reachable even with
+    // its only real call site removed, so PLANT A AT `FabricNode.start` CHANGED NOTHING AT ALL.
+    // The plant is what found it — reading the code did not.
     const specifierStatement =
-      inSpecifierStatement || isImportDeclaration(node) || isExportDeclaration(node)
+      inSpecifierStatement ||
+      isImportDeclaration(node) ||
+      isExportDeclaration(node) ||
+      isTypeReferenceNode(node) ||
+      isTypeQueryNode(node)
     const name = declaredNameOf(node)
     if (name !== undefined) {
       here = nodeId(relFile, name)
@@ -802,4 +813,90 @@ export function buildCallGraph(options: CallGraphOptions = {}): CallGraph {
   } finally {
     api.close()
   }
+}
+
+// ---------------------------------------------------------------------------
+// Plan 22-02 — the verdict, and the sentence a reader can act on
+// ---------------------------------------------------------------------------
+
+/** One unreachable barrel export, as data rather than as a rendered string. */
+export interface UnreachableVerdict {
+  /** The package barrel that publishes it — `core`, `browser`, … */
+  readonly barrel: string
+  /** The exported name. */
+  readonly symbol: string
+  /** Repo-relative file the declaration lives in. */
+  readonly declaredIn: string
+  /**
+   * Production callers the graph found, if any. Empty means nothing in the tree calls it;
+   * non-empty means it is called, but only from somewhere itself unreachable — a materially
+   * different fact, and one a reader has to have in order to act.
+   */
+  readonly callers: readonly string[]
+}
+
+/**
+ * One line per finding: the symbol, the barrel it came from, and the reason.
+ *
+ * **Pure over a plain object.** No path, no file system, no walk — so a planted verdict can be
+ * handed straight to it. That is `purity.node.test.ts`'s reason for splitting `violationsIn` out
+ * of its scan, and it is the only thing that makes `expect(list).toEqual([])` mean *"looked and
+ * saw nothing"* rather than *"did not look"*.
+ *
+ * The message names both halves because a count cannot be acted on: this corpus is 604 exports
+ * across eight barrels, and *"a violation was found"* would leave a reader grepping. The two
+ * reasons are kept distinct for the same purpose — *"nothing calls it"* and *"its only callers
+ * are themselves unreachable"* need different work from whoever picks them up.
+ *
+ * **Nothing here keys on node kind.** A finding about `browser/BrowserNode` and one about
+ * `node/FabricNode` render identically and are excused on identical terms — see `22-CONTEXT.md`
+ * § the cardinal rule, and the retraction at `0314208`.
+ */
+export function describeUnreachable(verdicts: readonly UnreachableVerdict[]): string[] {
+  return verdicts.map((verdict) => {
+    const reason =
+      verdict.callers.length === 0
+        ? 'no production code calls it'
+        : `its only callers are themselves unreachable (${verdict.callers.slice(0, 2).join(', ')})`
+    return (
+      `@o2/${verdict.barrel} exports "${verdict.symbol}" (${verdict.declaredIn}) — ` +
+      `${reason}, so no path reaches it from any of the ${ENTRY_POINTS.length} entry points`
+    )
+  })
+}
+
+/**
+ * The guard's reading: every callable barrel export with no traced path from an entry point.
+ *
+ * Pure over the three things it needs, so the guard can drive it with a planted corpus, a planted
+ * graph, or both — which is what makes the empty-corpus and empty-edge-set cases checkable at all.
+ */
+export function unreachableExports(
+  exports: readonly ClassifiedExport[],
+  graph: CallGraph,
+  root: string,
+): UnreachableVerdict[] {
+  const reached = reachableFrom(graph.calls, graph.roots)
+  const callers = new Map<string, string[]>()
+  for (const [from, targets] of graph.calls) {
+    for (const target of targets) {
+      const list = callers.get(target) ?? []
+      list.push(from)
+      callers.set(target, list)
+    }
+  }
+  const found: UnreachableVerdict[] = []
+  for (const one of exports) {
+    if (one.kind !== 'callable') continue
+    const file = relativeTo(root, one.declaredIn)
+    const id = nodeId(file, one.name)
+    if (reached.has(id)) continue
+    found.push({
+      barrel: one.barrel,
+      symbol: one.name,
+      declaredIn: file,
+      callers: (callers.get(id) ?? []).filter((caller) => fileOf(caller) !== file).sort(),
+    })
+  }
+  return found.sort((a, b) => `${a.barrel}/${a.symbol}`.localeCompare(`${b.barrel}/${b.symbol}`))
 }
