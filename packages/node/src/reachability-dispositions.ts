@@ -38,7 +38,10 @@
  */
 
 /** Why the guard cannot reach a symbol. A mechanism, never a tier. */
-export type DispositionCause = 'global-object-hop' | 'benchmark-driver-only'
+export type DispositionCause =
+  | 'global-object-hop'
+  | 'benchmark-driver-only'
+  | 'deferred-in-source'
 
 /** One disposed symbol. */
 export interface Disposition {
@@ -106,6 +109,38 @@ const BENCHMARK_DRIVER_ONLY: readonly string[] = [
   'aot/taskSeed',
 ]
 
+/**
+ * Not wired **because the source that would wire it says not to, in writing**.
+ *
+ * These are the ones the v1.1 audit reported as unwired and that turned out, on reading, to be
+ * deliberate deferrals with a stated reason and a stated remedy. A guard that reports a
+ * documented decision as a defect trains its reader to ignore it, so each carries the sentence
+ * that defers it — and if that sentence is ever deleted or reversed, the entry stops describing
+ * the tree and the register goes red.
+ *
+ * - `net/EgressRefusal` — `packages/net/src/churn.ts` states that an `EgressRefusal` on this
+ *   node's own outbound request arrives as `send-failed` and classifies `'node'`, *"and it is
+ *   stated here deliberately rather than left to be inferred. If a later phase decides an egress
+ *   refusal deserves `'sender'`, it makes `EgressRefusal` carry the `SendRefused` marker; it does
+ *   not widen this branch back onto `send-failed`."* Catching it by name is the change that
+ *   comment declines.
+ * - `net/checkBlockstoreConformance` — it fails any store whose `size !== 0`, so it **cannot**
+ *   run at construction on a node that already holds blocks. It is a conformance harness over a
+ *   fresh store by construction, not a runtime check, and wiring it into a factory would refuse
+ *   every restart.
+ * - `bench/sweepNodeCount` — `packages/bench/src/index.ts` says of it, in its own words, that it
+ *   *"is a separate question and is not settled here"*. `bin/bench.ts` writes its own ladder
+ *   because it varies redundancy per rung, which this signature cannot express.
+ * - `net/remoteDispatch` — carries NET-09's `'sender'` classification, which is the same deferral
+ *   as `EgressRefusal` seen from the other end.
+ */
+const DEFERRED_IN_SOURCE: readonly string[] = [
+  'bench/sweepNodeCount',
+  'net/EgressRefusal',
+  'net/checkBlockstoreConformance',
+  'net/remoteDispatch',
+]
+
 /** The register: one entry per symbol, with its cause and its owner. */
 export const DISPOSITIONS: readonly Disposition[] = [
   ...GLOBAL_OBJECT_HOP.map((entry) => ({
@@ -120,6 +155,12 @@ export const DISPOSITIONS: readonly Disposition[] = [
     cause: 'benchmark-driver-only' as const,
     owner: 'owner ruled 2026-08-08 that tools/aot/bench-lifted.ts is not an entry point',
   })),
+  ...DEFERRED_IN_SOURCE.map((entry) => ({
+    barrel: entry.split('/')[0] ?? '',
+    symbol: entry.split('/')[1] ?? '',
+    cause: 'deferred-in-source' as const,
+    owner: 'the module that would wire it states why it does not; reversing that is a phase decision',
+  })),
 ]
 
 /**
@@ -131,7 +172,7 @@ export const DISPOSITIONS: readonly Disposition[] = [
  *
  * **Lowering it is the work.** Raising it needs a reason written next to it.
  */
-export const OPEN_FINDING_CEILING = 47
+export const OPEN_FINDING_CEILING = 42
 
 /**
  * How large the register may grow before something reddens.
@@ -140,7 +181,7 @@ export const OPEN_FINDING_CEILING = 47
  * mutation ledger's floor stale at 23 while the ledger held 42, and nothing said so. Set two
  * above the current 20 so a genuinely-forced addition lands, and a third one has to argue.
  */
-export const DISPOSITION_CEILING = 22
+export const DISPOSITION_CEILING = 26
 
 /** `barrel/symbol` for every disposed entry — the form the guard's verdict list uses. */
 export function disposedKeys(register: readonly Disposition[] = DISPOSITIONS): Set<string> {
