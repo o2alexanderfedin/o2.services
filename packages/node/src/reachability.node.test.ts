@@ -72,6 +72,27 @@ const MEASURED_TS_VERSION = '7.0.2'
  *
  * Sited against: `feature/phase-18-discovery-capacity-placement` at `822b072`, with Phases 20,
  * 21, 23 and 24 landed and Phase 22 unbuilt.
+ *
+ * ## `node` re-sited 16 → 15 and 42 → 41, 2026-08-08, and how it went unnoticed
+ *
+ * `36c2800` deleted `hasSeed` to close audit finding G12 — zero callers, zero tests, a
+ * deliberate removal — and did not move these two floors with it. A floor is a claim about the
+ * tree, so a legitimate deletion lowers it; what is *not* legitimate is leaving it stale, which
+ * turns a real guard into a red that the next person is tempted to widen.
+ *
+ * **It survived six commits because this spec is excluded from the fast loop.** It measures
+ * ~6 s, so `MEASURED_NODE_SPANS` puts it past `SLOW_CUTOFF_MS` and `npm run test:unit` does not
+ * run it; the `reachability` entry among the pre-commit cheap guards is
+ * `reachability-guard.node.test.ts`, a different file that asserts nothing about these census
+ * figures. So six green `test:unit` runs and six green commit hooks all reported success over a
+ * failing spec. **That is the cost of the exclusion, recorded here rather than in a postmortem**
+ * — and it is the argument for running `--project node` in full before believing a milestone is
+ * clean, which is how this was actually caught.
+ *
+ * The aggregate floors below did **not** move, and that is a reading rather than an oversight:
+ * `CALLABLE_TOTAL_FLOOR` still passes, so the one symbol `node` lost was offset elsewhere in the
+ * corpus. Only the per-barrel claim was falsified, which is exactly what a per-barrel floor is
+ * for.
  */
 const CALLABLE_FLOOR: Readonly<Record<string, number>> = {
   aot: 13,
@@ -81,7 +102,8 @@ const CALLABLE_FLOOR: Readonly<Record<string, number>> = {
   demo: 16,
   libp2p: 9,
   net: 32,
-  node: 16,
+  // 16 until 2026-08-08; `hasSeed` deleted at `36c2800` (finding G12). See the note above.
+  node: 15,
 }
 
 /** Total exports per barrel, same run, same siting — also floors. */
@@ -93,7 +115,8 @@ const TOTAL_FLOOR: Readonly<Record<string, number>> = {
   demo: 40,
   libp2p: 29,
   net: 78,
-  node: 42,
+  // 42 until 2026-08-08, same deletion, same commit.
+  node: 41,
 }
 
 const CALLABLE_TOTAL_FLOOR = 217
@@ -469,7 +492,24 @@ describe('each edge class is load-bearing — one ablation per class', () => {
    * A single "disable everything" plant proves only that the graph exists. Each class is turned
    * off on its own and required to flip **its own** anchor while leaving the others alone, which
    * is the only arrangement that says the classes are independent rather than jointly decorative.
+   *
+   * ## Every case here carries {@link ABLATION_TIMEOUT_MS}, added 2026-08-08
+   *
+   * **Found by running `--project node` in full, which nothing in the fast loop does.** The
+   * heaviest case below — the one that builds the graph four times — took **6 350 ms against the
+   * 5 000 ms default** under full-suite contention and failed as `Test timed out in 5000ms`. Alone
+   * it fits, which is exactly what made it invisible: `test:unit` excludes this file for being
+   * slow, so the only run that exercises it is the one nobody does before committing.
+   *
+   * **The timeout is on every case in the block, not only the one that failed.** Each constructs
+   * at least one fresh `buildCallGraph`, so they differ from the failing case in degree and not
+   * in kind; fixing the single observed red would leave four cases sitting at the same cliff and
+   * would turn the next contended run into the same investigation. Sizing is deliberate: this is
+   * **not** a measurement of how long the work takes, it is headroom against a machine doing
+   * fourteen other things, which is the distinction `CLAUDE.md` draws between measuring the
+   * process and measuring the machine. A case that genuinely regresses will blow through 60 s.
    */
+  const ABLATION_TIMEOUT_MS = 60_000
   const MEMBER_OBJECT = 'packages/node/src/fabric-node.ts#FabricNode'
   const MEMBER_METHOD = 'packages/node/src/fabric-node.ts#start'
   const VITE_WORKER = 'packages/browser/src/task-executor.worker.ts#<module>'
@@ -488,7 +528,7 @@ describe('each edge class is load-bearing — one ablation per class', () => {
     // The other classes' anchors are untouched — that is what makes this ablation this class's.
     expect(reachedOff.has(VITE_WORKER)).toBe(true)
     expect(reachedOff.has(URL_WORKER)).toBe(true)
-  })
+  }, ABLATION_TIMEOUT_MS)
 
   it('measures what member-expression is worth when references are not there to cover it', () => {
     // Measured, and it corrects the plan. 22-01 attributes most of the naive tracer's 102 false
@@ -501,7 +541,7 @@ describe('each edge class is load-bearing — one ablation per class', () => {
     expect(withoutEither).toBeGreaterThan(withoutReferences + 40)
     // And the honest other half of that sentence, asserted so it cannot rot into folklore:
     expect(unreachedCount(buildCallGraph({ memberEdges: false }))).toBe(unreachedCount(graph()))
-  })
+  }, ABLATION_TIMEOUT_MS)
 
   it('Vite ?worker: the browser worker module goes unreachable and nothing else does', () => {
     const off = buildCallGraph({ viteWorkerEdges: false })
@@ -509,7 +549,7 @@ describe('each edge class is load-bearing — one ablation per class', () => {
     expect(reachedOff.has(VITE_WORKER)).toBe(false)
     expect(reachedOff.has(URL_WORKER)).toBe(true)
     expect(reachedOff.has(MEMBER_METHOD)).toBe(true)
-  })
+  }, ABLATION_TIMEOUT_MS)
 
   it('new URL worker entry: the Node worker module goes unreachable and nothing else does', () => {
     const off = buildCallGraph({ urlWorkerEdges: false })
@@ -517,7 +557,7 @@ describe('each edge class is load-bearing — one ablation per class', () => {
     expect(reachedOff.has(URL_WORKER)).toBe(false)
     expect(reachedOff.has(VITE_WORKER)).toBe(true)
     expect(reachedOff.has(MEMBER_METHOD)).toBe(true)
-  })
+  }, ABLATION_TIMEOUT_MS)
 
   it('static import: both worker modules go unreachable, the member entry does not', () => {
     const off = buildCallGraph({ importEdges: false })
@@ -527,7 +567,7 @@ describe('each edge class is load-bearing — one ablation per class', () => {
     // `FabricNode.start` survives because callees are resolved through the CHECKER, not by
     // following imports — which is also why a barrel never appears as a caller.
     expect(reachedOff.has(MEMBER_METHOD)).toBe(true)
-  })
+  }, ABLATION_TIMEOUT_MS)
 
   it('function references: MemoryNetwork needs them, estimatePi must not', () => {
     // The fifth class, added after measurement rather than from the plan. `bin/bench.ts` writes
@@ -545,7 +585,7 @@ describe('each edge class is load-bearing — one ablation per class', () => {
     // REACHED and the granularity case above silently becomes a tautology.
     const reached = reachableFrom(graph().calls, graph().roots)
     expect(reached.has('packages/demo/src/pi.ts#estimatePi')).toBe(false)
-  })
+  }, ABLATION_TIMEOUT_MS)
 
   it('THE FIVE-MODULE ENTRY SET NO LONGER HOLDS SILENTLY — it is now an owner question', () => {
     // 22-CONTEXT.md pinned this reading on 2026-08-04: adding the three runnable-but-unnamed

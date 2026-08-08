@@ -136,6 +136,14 @@ const BENCHMARK_DRIVER_ONLY: readonly string[] = [
  */
 const DEFERRED_IN_SOURCE: readonly string[] = [
   'bench/sweepNodeCount',
+  // Audit finding G7, owner decision 2026-08-08. `discovery.ts`'s docblock now carries the
+  // whole argument: a fallback chain needs a genuine second source, and an empty
+  // `MemoryRecordIndex` in front of the RPC index would compose the types and demonstrate
+  // nothing, because a first link that is always empty always falls through. Composed on
+  // those terms the finding would go green and NET-06 would be no truer, so it stays open
+  // and says so. **Disposed on the source's stated deferral, not on the finding being tiresome.**
+  'core/FallbackRecordIndex',
+  'core/MemoryRecordIndex',
   'net/EgressRefusal',
   'net/checkBlockstoreConformance',
   'net/remoteDispatch',
@@ -171,8 +179,20 @@ export const DISPOSITIONS: readonly Disposition[] = [
  * *"Wire What Was Built"* residue, held still so it cannot grow while nobody is looking.
  *
  * **Lowering it is the work.** Raising it needs a reason written next to it.
+ *
+ * ## Ratcheted 42 → 40, measured 2026-08-08
+ *
+ * G7's pair moved from open to disposed, so the open count genuinely fell. **Measured, not
+ * derived**: `OPEN_FINDING_CEILING` was temporarily set to 0 and the guard's own verdict read
+ * *"40 unreachable callable barrel exports carry no disposition"*, naming all forty. The ceiling
+ * follows the measurement down, because a ceiling with slack in it stops binding — a regression
+ * of two would have passed silently against 42.
+ *
+ * **The owner ruled 2026-08-08 to hold this residue rather than work it down.** That governs the
+ * *backlog*, not the guard: holding the count still and letting the ceiling drift above it are
+ * different things, and only the first was asked for.
  */
-export const OPEN_FINDING_CEILING = 42
+export const OPEN_FINDING_CEILING = 40
 
 /**
  * How large the register may grow before something reddens.

@@ -319,6 +319,23 @@ export interface IndexSource {
  * An index that is available but knows nothing is not authoritative: the chain falls
  * through to the next one rather than reporting an empty answer, because partial
  * local knowledge is the normal condition for a node that just joined.
+ *
+ * ## Deliberately uncomposed, by owner decision 2026-08-08 — audit finding G7
+ *
+ * **This class and {@link MemoryRecordIndex} have no production caller, and that is a
+ * decision rather than an oversight.** The v1.1 milestone audit raised it as an unwired
+ * capability and the honest answer was to leave it unwired: **a fallback chain needs a
+ * genuine second source, and this repository does not have one yet.**
+ *
+ * What was rejected, and why it is worth naming: putting an empty `MemoryRecordIndex` in
+ * front of the RPC index would compose the types, satisfy the finding, and demonstrate
+ * nothing — a chain whose first link is always empty always falls through, so no test
+ * could distinguish it from calling the RPC index directly. That is decoration, and this
+ * repository's own rule is that **descoped is not satisfied**.
+ *
+ * The candidate second source is a node's own store answering without a round trip. It is
+ * real work with a real test — the fallback must be *observed* to fire — and it is not
+ * scheduled here. Until it is, NET-06 stays open and says so.
  */
 export class FallbackRecordIndex implements RecordIndex {
   readonly #sources: readonly IndexSource[]
