@@ -12,27 +12,125 @@
   "branch": "feature/phase-18-discovery-capacity-placement",
   "branch_state": "unpushed; working tree clean; nothing WIP. Ahead-count deliberately not recorded as a number: it was wrong twice this session because writing it down is itself a commit, so read it with git rev-list --count origin/main..HEAD",
   "suite": "tsc exit 0; npm run test:unit exit 0, 112 files, 1708 passed",
-  "progress": { "findings_total": 17, "closed": 10, "auto_fixable_remaining": 4, "manual_only": 4 },
-  "reachability": { "unreachable": 66, "disposed": 24, "open": 42, "ceiling": 42 },
+  "progress": {
+    "findings_total": 17,
+    "closed": 12,
+    "auto_fixable_remaining": 0,
+    "manual_only": 5
+  },
+  "reachability": {
+    "unreachable": 66,
+    "disposed": 24,
+    "open": 42,
+    "ceiling": 42
+  },
   "completed_tasks": [
-    { "id": "G2", "name": "AOT publish path no longer stops at the bytes", "commit": "0c43b14", "status": "done" },
-    { "id": "G12", "name": "hasSeed deleted — zero callers, zero tests", "commit": "36c2800", "status": "done" },
-    { "id": "G8/G9/G10/G11", "name": "disposed under a new deferred-in-source cause, each quoting its own source", "commit": "36c2800", "status": "done" },
-    { "id": "L1", "name": "six missing traceability rows, written from measurement", "commit": "3a66549", "status": "done" },
-    { "id": "L2", "name": "STATE.md seed self-contradiction corrected in three places", "commit": "3a66549", "status": "done" },
-    { "id": "L4", "name": "two stale debug sessions closed with evidence", "commit": "3a66549", "status": "done" },
-    { "id": "phase-22", "name": "Reachability Guard built, armed and verified 2/3", "commit": "fee26c2", "status": "done" },
-    { "id": "G1", "name": "A closed seed can name where to enrol — and the finding was partly reframed", "commit": "8211d3c", "status": "done", "note": "Two halves of the original finding were correct DECISIONS, not defects: autoStart forwarding no enrollment is stated design, and a closed seed refusing an anonymous visitor IS AUTH-02 working. The real defect: relayAdmission's docblock obliges a closed seed to name a provider and no field, flag or BootstrapInfo member existed to name one. Added SeedServerOptions.enrollmentProvider, --enrollment-provider, a banner line naming which state the seed is in, and origin-side discovery. issuesCertificates deliberately NOT added. The e2e no longer injects providerAddr." }
+    {
+      "id": "G2",
+      "name": "AOT publish path no longer stops at the bytes",
+      "commit": "0c43b14",
+      "status": "done"
+    },
+    {
+      "id": "G12",
+      "name": "hasSeed deleted — zero callers, zero tests",
+      "commit": "36c2800",
+      "status": "done"
+    },
+    {
+      "id": "G8/G9/G10/G11",
+      "name": "disposed under a new deferred-in-source cause, each quoting its own source",
+      "commit": "36c2800",
+      "status": "done"
+    },
+    {
+      "id": "L1",
+      "name": "six missing traceability rows, written from measurement",
+      "commit": "3a66549",
+      "status": "done"
+    },
+    {
+      "id": "L2",
+      "name": "STATE.md seed self-contradiction corrected in three places",
+      "commit": "3a66549",
+      "status": "done"
+    },
+    {
+      "id": "L4",
+      "name": "two stale debug sessions closed with evidence",
+      "commit": "3a66549",
+      "status": "done"
+    },
+    {
+      "id": "phase-22",
+      "name": "Reachability Guard built, armed and verified 2/3",
+      "commit": "fee26c2",
+      "status": "done"
+    },
+    {
+      "id": "G1",
+      "name": "A closed seed can name where to enrol — and the finding was partly reframed",
+      "commit": "8211d3c",
+      "status": "done",
+      "note": "Two halves of the original finding were correct DECISIONS, not defects: autoStart forwarding no enrollment is stated design, and a closed seed refusing an anonymous visitor IS AUTH-02 working. The real defect: relayAdmission's docblock obliges a closed seed to name a provider and no field, flag or BootstrapInfo member existed to name one. Added SeedServerOptions.enrollmentProvider, --enrollment-provider, a banner line naming which state the seed is in, and origin-side discovery. issuesCertificates deliberately NOT added. The e2e no longer injects providerAddr."
+    },
+    {
+      "id": "G13",
+      "name": "The egress manifest reaches the screen, and says what it cannot prove",
+      "commit": "7b779ab",
+      "status": "done",
+      "note": "index.html held zero occurrences of egress/withheld/sovereign. The panel refuses the stronger reading: every cube runColouring submits is label:'public', so violations is empty by construction and the page says WHY zero is zero rather than printing it as a sovereignty proof. The refusal branch is written and unreachable from the page because runJob has no caller there — that is G4, not papered over."
+    },
+    {
+      "id": "G6",
+      "name": "NOT A DEFECT — mis-attributed requirement, already-disposed symbol, stated design",
+      "status": "done",
+      "note": "NET-03 is AutoTLS and is excluded from v1.1 as a hosting decision. findReservedPeers is already disposed as global-object-hop: it IS reached via demo/main.ts behind window.o2. rendezvous.ts's header says the origin route is the better answer on a LAN and the wire route exists for static hosts. A Node agent takes --relay-addr."
+    }
   ],
   "remaining_tasks": [
-    { "id": "G3", "severity": "major", "name": "The demo merges with answerOf (linear scan) rather than reduceJob", "affects": ["MR-03", "MR-04", "MR-05", "MR-06", "MR-07"] },
-    { "id": "G6", "severity": "major", "name": "The Node tier never calls findReservedPeers; only demo/main.ts does", "affects": ["NET-03"] },
-    { "id": "G7", "severity": "major", "name": "FallbackRecordIndex/MemoryRecordIndex built and never composed", "note": "A real composition needs a genuine second source. An empty memo in front of the RPC index would be decoration.", "affects": ["NET-06"] },
-    { "id": "G13", "severity": "major", "name": "The demo returns an egress manifest and index.html never shows it", "affects": ["DATA-05", "DATA-06"] },
-    { "id": "G4", "severity": "manual", "name": "π and primes workloads wholly unwired — wire a second workload into the demo, or retire them" },
-    { "id": "G5", "severity": "manual", "name": "discoverCandidates reaches production only behind bin/bench.ts --discover; SCHED-01's row calls the intent unsettled" },
-    { "id": "L3", "severity": "manual", "name": "Phase 13 reads 0/3 fully verified while STATE.md counts it closed — the counting convention is the owner's" },
-    { "id": "residue", "severity": "manual", "name": "42 open unreachable exports, held still by OPEN_FINDING_CEILING. Lowering it is the work." }
+    {
+      "id": "G3",
+      "severity": "manual",
+      "name": "The demo merges with answerOf (linear scan) rather than reduceJob",
+      "affects": [
+        "MR-03",
+        "MR-04",
+        "MR-05",
+        "MR-06",
+        "MR-07"
+      ],
+      "note": "RECLASSIFIED out of auto-fixable 2026-08-08. Nothing is unreachable: bin/bench.ts:1963 calls reduceJob in production and bin/agent.ts serves the other half. MR-03..07 each already read Partial naming answerOf. A ledgered Partial, not a hidden gap — closing it gives the visitor demo a verified tree-reduce, which changes what the demo COMPUTES. A feature, and the owner's call."
+    },
+    {
+      "id": "G7",
+      "severity": "manual",
+      "name": "FallbackRecordIndex/MemoryRecordIndex built and never composed",
+      "note": "A real composition needs a genuine second source. An empty memo in front of the RPC index would be decoration.",
+      "affects": [
+        "NET-06"
+      ]
+    },
+    {
+      "id": "G4",
+      "severity": "manual",
+      "name": "π and primes workloads wholly unwired — wire a second workload into the demo, or retire them"
+    },
+    {
+      "id": "G5",
+      "severity": "manual",
+      "name": "discoverCandidates reaches production only behind bin/bench.ts --discover; SCHED-01's row calls the intent unsettled"
+    },
+    {
+      "id": "L3",
+      "severity": "manual",
+      "name": "Phase 13 reads 0/3 fully verified while STATE.md counts it closed — the counting convention is the owner's"
+    },
+    {
+      "id": "residue",
+      "severity": "manual",
+      "name": "42 open unreachable exports, held still by OPEN_FINDING_CEILING. Lowering it is the work."
+    }
   ],
   "blockers": [
     {
@@ -45,10 +143,22 @@
     }
   ],
   "decisions": [
-    { "decision": "The entry-point set stays at five", "rationale": "tools/aot/bench-lifted.ts rescues four @o2/aot symbols and is a benchmark driver, not a way the fabric is entered. Owner ruling 2026-08-08." },
-    { "decision": "Only symbols with a stated cause get a disposition", "rationale": "Owner ruling 2026-08-08. Everything else stays an open finding, which is why criterion 1 is DECLINED rather than closed — disposing the rest would make the guard decoration." },
-    { "decision": "The window.o2 hop is disposed on the MECHANISM, not the tier", "rationale": "Extracting index.html's inline script would close it properly and is a change to the demo, not to a guard. The cause is a hop, so it does not violate the ban on tier-based dispositions." },
-    { "decision": "bin/bench.ts staying 'admits-any-peer' is a deliberate trade — do not fix it", "rationale": "relayAdmissionGate's header records that 24-02's pre-gate baseline 'stays comparable only while that remains true'. Arming it would invalidate the milestone's speedup baseline." }
+    {
+      "decision": "The entry-point set stays at five",
+      "rationale": "tools/aot/bench-lifted.ts rescues four @o2/aot symbols and is a benchmark driver, not a way the fabric is entered. Owner ruling 2026-08-08."
+    },
+    {
+      "decision": "Only symbols with a stated cause get a disposition",
+      "rationale": "Owner ruling 2026-08-08. Everything else stays an open finding, which is why criterion 1 is DECLINED rather than closed — disposing the rest would make the guard decoration."
+    },
+    {
+      "decision": "The window.o2 hop is disposed on the MECHANISM, not the tier",
+      "rationale": "Extracting index.html's inline script would close it properly and is a change to the demo, not to a guard. The cause is a hop, so it does not violate the ban on tier-based dispositions."
+    },
+    {
+      "decision": "bin/bench.ts staying 'admits-any-peer' is a deliberate trade — do not fix it",
+      "rationale": "relayAdmissionGate's header records that 24-02's pre-gate baseline 'stays comparable only while that remains true'. Arming it would invalidate the milestone's speedup baseline."
+    }
   ],
   "instrument_facts": [
     "gsd-sdk init.milestone-op reported all_phases_complete:true with Phase 22 at 1 of 4 summaries, and roadmap.analyze returned an EMPTY phases array. Both false. Derive phase state from disk.",
