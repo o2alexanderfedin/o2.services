@@ -226,6 +226,22 @@ const EXEMPT_LINES: readonly LineExemption[] = [
     phrase: 'https://aws.amazon.com/startups/credits',
     reason: 'generated from the exempted markdown by docs/story/build-standalone.mjs',
   },
+  // The two below are the CSS sense of the word — custom properties on `:root` — in a
+  // stylesheet imported verbatim from the Claude Design project that produced the demo
+  // mockup. Listed as lines rather than by exempting the vendored `_ds/` tree, for the
+  // reason the two entries above give: a tree exemption would also cover whatever prose
+  // a future re-import brings with it, and the mockup's own copy is held to the rule.
+  // Both fire today; if a re-import reworks these comments the dead-exemption check says so.
+  {
+    file: 'docs/design/mockups/o2-fabric-demo/_ds/industry-4b1f0d05-e62b-453f-afb5-717eabafadb4/styles.css',
+    phrase: 'design-system tokens',
+    reason: 'the CSS sense: the file header naming the `--color-*`/`--space-*` custom properties it defines',
+  },
+  {
+    file: 'docs/design/mockups/o2-fabric-demo/_ds/industry-4b1f0d05-e62b-453f-afb5-717eabafadb4/styles.css',
+    phrase: 'the tokens above',
+    reason: 'the CSS sense: the components banner pointing back at those same custom properties',
+  },
 ]
 
 /**

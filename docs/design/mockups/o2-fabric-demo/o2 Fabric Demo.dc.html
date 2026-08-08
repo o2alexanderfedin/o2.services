@@ -1,0 +1,950 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="_ds/industry-4b1f0d05-e62b-453f-afb5-717eabafadb4/styles.css">
+<script src="_ds/industry-4b1f0d05-e62b-453f-afb5-717eabafadb4/_ds_bundle.js"></script>
+<style>
+body { margin: 0; background: var(--color-bg); }
+@keyframes o2pulse { 0%, 100% { opacity: 1 } 50% { opacity: 0.2 } }
+</style>
+</helmet>
+
+<div style="min-height:100vh;background:var(--color-bg);color:var(--color-text);font-family:var(--font-body);padding-bottom:180px;overflow-x:hidden">
+
+<sc-if value="{{ showGate }}" hint-placeholder-val="{{ false }}">
+<div style="max-width:760px;margin:0 auto;padding:64px 20px 80px">
+<div style="font-family:var(--font-heading);font-size:13px;letter-spacing:.16em;text-transform:uppercase;color:var(--color-accent-700);margin-bottom:20px">o2.services · peer-to-peer compute fabric</div>
+<div class="card blueprint" style="padding:32px 28px;gap:24px">
+<i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
+<h1 style="font-size:clamp(28px,4.4vw,42px);margin:0;max-width:16ch">{{ gateHeadline }}</h1>
+<div style="display:grid;gap:18px">
+<sc-for list="{{ gateLines }}" as="line" hint-placeholder-count="5">
+<div style="display:grid;grid-template-columns:minmax(0,1fr);gap:4px;border-top:1px solid var(--color-divider);padding-top:14px">
+<div style="font-family:var(--font-heading);font-size:17px">{{ line.question }}</div>
+<div style="font-size:14px;line-height:1.6;opacity:.85;text-wrap:pretty">{{ line.answer }}</div>
+</div>
+</sc-for>
+</div>
+<label style="display:flex;gap:12px;align-items:flex-start;border:1px solid var(--color-divider);padding:14px;cursor:pointer">
+<input type="checkbox" checked="{{ reporting }}" onChange="{{ toggleReporting }}" style="margin-top:4px;accent-color:var(--color-accent);width:16px;height:16px;flex:none">
+<span style="display:grid;gap:4px">
+<span style="font-family:var(--font-heading);font-size:15px">{{ gateReportQ }}</span>
+<span style="font-size:13px;line-height:1.6;opacity:.8">{{ gateReportA }}</span>
+</span>
+</label>
+<div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center">
+<button class="btn btn-primary blueprint" onClick="{{ allow }}" style="padding:12px 20px;font-size:15px">
+<i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
+{{ gateAffirm }}
+</button>
+<button class="btn btn-secondary" onClick="{{ decline }}" style="padding:12px 22px;font-size:15px">{{ gateDecline }}</button>
+</div>
+<div style="font-size:12px;color:var(--color-neutral-700);border-top:1px solid var(--color-divider);padding-top:12px">Disclosure version {{ disclosureVersion }} — first published disclosure. Nothing is contacted before you answer, not even the relay bootstrap file.</div>
+</div>
+<sc-if value="{{ declined }}" hint-placeholder-val="{{ false }}">
+<div style="margin-top:20px;border-left:2px solid var(--color-accent);padding:8px 0 8px 16px;font-size:14px;line-height:1.6;max-width:60ch">You declined. Nothing started and nothing was contacted. You can still read the page; the node controls stay uncalled until you say otherwise.</div>
+</sc-if>
+</div>
+</sc-if>
+
+<sc-if value="{{ showApp }}" hint-placeholder-val="{{ true }}">
+<div>
+
+<div class="nav" style="border-bottom:1px solid var(--color-divider);flex-wrap:wrap;gap:16px;padding:14px 20px;position:sticky;top:0;background:var(--color-bg);z-index:20">
+<div class="nav-brand" style="margin-right:auto;display:flex;align-items:baseline;gap:10px">
+<span>o2.services</span>
+<span style="font-family:var(--font-body);font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--color-neutral-700)">pre-cooked workloads</span>
+</div>
+<div style="display:flex;flex-wrap:nowrap;gap:2px;overflow-x:auto;max-width:100%;-webkit-overflow-scrolling:touch;scrollbar-width:none">
+<sc-for list="{{ screens }}" as="s" hint-placeholder-count="6">
+<button onClick="{{ s.go }}" aria-current="{{ s.current }}" class="btn btn-ghost" style="border:1px solid transparent;font-size:13px;padding:10px 12px;letter-spacing:.04em;white-space:nowrap;flex:none">{{ s.label }}</button>
+</sc-for>
+</div>
+</div>
+
+<div style="max-width:1240px;margin:0 auto;padding:28px 20px 40px">
+
+<sc-if value="{{ isColouring }}" hint-placeholder-val="{{ true }}">
+<div style="display:grid;gap:28px">
+
+<div style="display:grid;gap:10px;max-width:74ch">
+<div style="font-family:var(--font-heading);font-size:12px;letter-spacing:.16em;text-transform:uppercase;color:var(--color-accent-700)">Workload A · Pythagorean-triple 2-colouring</div>
+<h2 style="font-size:clamp(26px,3.6vw,36px);margin:0">Capacity grows with participants, and it grows in steps.</h2>
+<p style="font-size:15px;line-height:1.65;opacity:.85;margin:0;text-wrap:pretty">Colour every whole number from 1 to N red or blue so that no three numbers with a² + b² = c² share a colour. Finding a colouring is expensive. Checking one takes milliseconds, from the definition alone, in your own tab.</p>
+</div>
+
+<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:20px;align-items:start">
+
+<div class="card blueprint" style="padding:20px;gap:18px">
+<i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
+<div class="card-kicker">Inputs</div>
+<div style="display:grid;gap:14px">
+<div style="display:grid;gap:6px">
+<div style="display:flex;justify-content:space-between;align-items:baseline;font-size:12px;color:var(--color-neutral-700)"><span>cubes</span><span>reach at the shipped budget: n = {{ reachNow }}</span></div>
+<div style="display:flex;flex-wrap:wrap;gap:6px">
+<sc-for list="{{ cubeChoices }}" as="c" hint-placeholder-count="6">
+<button onClick="{{ c.pick }}" class="btn btn-secondary" style="font-size:13px;padding:6px 12px;background:{{ c.bg }};color:{{ c.fg }}">{{ c.label }}</button>
+</sc-for>
+</div>
+</div>
+<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:12px;border-top:1px solid var(--color-divider);padding-top:14px">
+<div style="display:grid;gap:2px"><span style="font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--color-neutral-700)">redundancy</span><span style="font-family:var(--font-heading);font-size:22px">{{ redundancy }}</span><span style="font-size:11px;color:var(--color-neutral-700)">min(2, 1 + peers)</span></div>
+<div style="display:grid;gap:2px"><span style="font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--color-neutral-700)">budget</span><span style="font-family:var(--font-heading);font-size:22px">5,000,000</span><span style="font-size:11px;color:var(--color-neutral-700)">backtracks, fixed, travels in the input</span></div>
+<div style="display:grid;gap:2px"><span style="font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--color-neutral-700)">MAX_N</span><span style="font-family:var(--font-heading);font-size:22px">8192</span><span style="font-size:11px;color:var(--color-neutral-700)">above it the guest returns "unknown"</span></div>
+</div>
+<div style="font-size:12px;line-height:1.6;color:var(--color-neutral-700);border-top:1px solid var(--color-divider);padding-top:12px">One input block, ~165 KiB at MAX_N, content-addressed once. Every shard receives the same bytes and reads only an integer through <code style="font-family:ui-monospace,monospace">partition()</code>. Splitting costs zero bytes on the wire.</div>
+<button class="btn btn-primary blueprint" onClick="{{ runLadder }}" disabled="{{ colBusy }}" style="padding:12px 18px;font-size:15px;justify-self:start">
+<i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
+{{ runLadderLabel }}
+</button>
+</div>
+</div>
+
+<div class="card blueprint" style="padding:20px;gap:16px">
+<i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
+<div class="card-kicker">Measured reach — cubes to the largest N the fabric settles</div>
+<div style="display:grid;gap:8px">
+<sc-for list="{{ staircase }}" as="row" hint-placeholder-count="5">
+<div style="display:grid;grid-template-columns:64px 1fr 52px;gap:10px;align-items:center">
+<div style="font-family:ui-monospace,monospace;font-size:12px;text-align:right;color:var(--color-neutral-700)">{{ row.cubes }}</div>
+<div style="height:22px;border:1px solid var(--color-divider);position:relative">
+<div style="position:absolute;left:0;top:0;bottom:0;width:{{ row.pct }}%;background:{{ row.fill }}"></div>
+</div>
+<div style="font-family:var(--font-heading);font-size:17px">{{ row.n }}</div>
+</div>
+</sc-for>
+</div>
+<div style="font-size:12px;line-height:1.6;color:var(--color-neutral-700);border-top:1px solid var(--color-divider);padding-top:12px">Eight-fold more cubes buys nothing between 8 and 64, then n = 600 arrives at 256. Ordering by constraint is load-bearing: under naive increasing order the same search stalls at n = 205, because 1 and 2 appear in no triple at all.</div>
+</div>
+</div>
+
+<div class="card blueprint" style="padding:20px;gap:18px">
+<i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
+<div style="display:flex;flex-wrap:wrap;gap:12px;align-items:baseline;justify-content:space-between">
+<div class="card-kicker">The ladder — 300, 400, 500, 600, stopping at the first rung the fabric cannot settle</div>
+<div style="font-size:12px;color:var(--color-neutral-700)">{{ cubes }} cubes × redundancy {{ redundancy }}</div>
+</div>
+<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px">
+<sc-for list="{{ rungs }}" as="r" hint-placeholder-count="4">
+<div style="border:1px solid var(--color-divider);padding:14px;display:grid;gap:6px;min-height:104px;background:{{ r.bg }}">
+<div style="font-family:var(--font-heading);font-size:30px;line-height:1;color:{{ r.fg }}">n = {{ r.n }}</div>
+<div style="font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:{{ r.fg }};opacity:.75">{{ r.statusLabel }}</div>
+<div style="font-size:12px;color:{{ r.fg }};opacity:.7">{{ r.detail }}</div>
+</div>
+</sc-for>
+</div>
+</div>
+
+<sc-if value="{{ hasReport }}" hint-placeholder-val="{{ false }}">
+<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:20px;align-items:start">
+
+<div class="card blueprint" style="padding:20px;gap:16px">
+<i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
+<div class="card-kicker">Per-cube status at n = {{ report.n }} — three values, never two</div>
+<div style="display:flex;flex-wrap:wrap;gap:4px">
+<sc-for list="{{ report.cells }}" as="cell" hint-placeholder-count="32">
+<div style="width:15px;height:15px">
+<sc-if value="{{ cell.isFound }}" hint-placeholder-val="{{ false }}"><div style="width:15px;height:15px;background:var(--color-accent)"></div></sc-if>
+<sc-if value="{{ cell.isExhausted }}" hint-placeholder-val="{{ false }}"><div style="width:15px;height:15px;background:var(--color-neutral-300)"></div></sc-if>
+<sc-if value="{{ cell.isBudget }}" hint-placeholder-val="{{ false }}"><div style="width:15px;height:15px;border:1px dashed var(--color-accent-700)"></div></sc-if>
+</div>
+</sc-for>
+</div>
+<div style="font-size:11px;color:var(--color-neutral-700)">{{ report.cellsNote }}</div>
+<div style="display:grid;gap:10px;border-top:1px solid var(--color-divider);padding-top:14px">
+<div style="display:grid;grid-template-columns:18px 1fr;gap:10px;align-items:start">
+<div style="width:15px;height:15px;background:var(--color-accent);margin-top:3px"></div>
+<div style="font-size:13px;line-height:1.5"><b style="font-family:var(--font-heading);font-weight:600">found</b> — a valid colouring, returned as a 1024-byte packed bitfield. <span style="color:var(--color-neutral-700)">{{ report.foundCount }} cubes</span></div>
+</div>
+<div style="display:grid;grid-template-columns:18px 1fr;gap:10px;align-items:start">
+<div style="width:15px;height:15px;background:var(--color-neutral-300);margin-top:3px"></div>
+<div style="font-size:13px;line-height:1.5"><b style="font-family:var(--font-heading);font-weight:600">exhausted</b> — proof this cube contains no valid colouring. <span style="color:var(--color-neutral-700)">{{ report.exhaustedCount }} cubes</span></div>
+</div>
+<div style="display:grid;grid-template-columns:18px 1fr;gap:10px;align-items:start">
+<div style="width:15px;height:15px;border:1px dashed var(--color-accent-700);margin-top:3px"></div>
+<div style="font-size:13px;line-height:1.5"><b style="font-family:var(--font-heading);font-weight:600">budget</b> — ran out of steps. I do not know. <span style="color:var(--color-neutral-700)">{{ report.budgetCount }} cubes</span></div>
+</div>
+</div>
+<div style="font-size:12px;line-height:1.6;color:var(--color-neutral-700);border-top:1px solid var(--color-divider);padding-top:12px">Collapsing <i>budget</i> into <i>exhausted</i> would turn a shortage of compute into a mathematical claim. The budget is fixed and travels inside the input, so "unknown" is deterministic rather than a race against a clock.</div>
+</div>
+
+<div class="card blueprint" style="padding:20px;gap:14px">
+<i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
+<div class="card-kicker">Run report</div>
+<table class="table">
+<tbody>
+<sc-for list="{{ report.fields }}" as="f" hint-placeholder-count="7">
+<tr><td style="color:var(--color-neutral-700);font-family:ui-monospace,monospace;font-size:12px;width:44%">{{ f.k }}</td><td style="font-family:var(--font-heading);font-size:15px">{{ f.v }}</td></tr>
+</sc-for>
+</tbody>
+</table>
+<div style="border-top:1px solid var(--color-divider);padding-top:12px;display:grid;gap:6px">
+<div style="font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--color-neutral-700)">agreeing — placement made visible</div>
+<div style="display:flex;flex-wrap:wrap;gap:6px">
+<sc-for list="{{ report.agreeing }}" as="a" hint-placeholder-count="2">
+<span class="tag tag-accent" style="font-family:ui-monospace,monospace">{{ a }}</span>
+</sc-for>
+</div>
+</div>
+</div>
+</div>
+</sc-if>
+
+<div class="card blueprint" style="padding:24px;gap:16px">
+<i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
+<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:20px;align-items:center">
+<div style="display:grid;gap:8px">
+<div class="card-kicker">Nothing here has to be believed</div>
+<h3 style="margin:0;font-size:26px">Check this answer yourself.</h3>
+<p style="margin:0;font-size:14px;line-height:1.6;opacity:.85;text-wrap:pretty">Re-derives every Pythagorean triple from a² + b² = c² in this tab. No node, no peer, no network — it works with the fabric disconnected.</p>
+<div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center">
+<button class="btn btn-primary blueprint" onClick="{{ runCheck }}" style="padding:11px 18px;font-size:15px">
+<i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
+<span style="white-space:nowrap">Check n = {{ checkN }} in this tab</span>
+</button>
+<button class="btn btn-secondary" onClick="{{ cycleCheckN }}" style="font-size:13px">try another N</button>
+</div>
+</div>
+<div style="border:1px solid var(--color-divider);padding:16px;min-height:132px;display:grid;align-content:center;gap:8px">
+<sc-if value="{{ checkDone }}" hint-placeholder-val="{{ false }}">
+<div style="display:grid;gap:8px">
+<div style="font-family:var(--font-heading);font-size:28px;line-height:1.1">{{ check.verdict }}</div>
+<div style="font-family:ui-monospace,monospace;font-size:12px;line-height:1.7;color:var(--color-neutral-800)">ok: {{ check.ok }}<br>n: {{ check.n }}<br>triplesChecked: {{ check.triples }}<br>violation: {{ check.violation }}</div>
+<div style="font-size:12px;color:var(--color-neutral-700)">{{ check.ms }} ms in this browser tab.</div>
+</div>
+</sc-if>
+<sc-if value="{{ checkIdle }}" hint-placeholder-val="{{ true }}">
+<div style="font-size:13px;line-height:1.6;color:var(--color-neutral-700)">The checker returns <code style="font-family:ui-monospace,monospace">{ok, triplesChecked, n, violation}</code>. A bad claim is refuted by name: <i>violation</i> carries the triple that breaks it.</div>
+</sc-if>
+</div>
+</div>
+</div>
+
+<div style="font-size:12px;line-height:1.6;color:var(--color-neutral-700);max-width:80ch">Merge type: first-found-wins linear scan. There is nothing to aggregate, so this workload does not exercise the reduce tree — workload C does.</div>
+</div>
+</sc-if>
+
+<sc-if value="{{ isPrimes }}" hint-placeholder-val="{{ false }}">
+<div style="display:grid;gap:24px">
+<div style="display:grid;gap:10px;max-width:74ch">
+<div style="font-family:var(--font-heading);font-size:12px;letter-spacing:.16em;text-transform:uppercase;color:var(--color-accent-700)">Workload B · prime counting π(x)</div>
+<h2 style="font-size:clamp(26px,3.6vw,36px);margin:0">An oracle nothing here produced.</h2>
+<p style="font-size:15px;line-height:1.65;opacity:.85;margin:0;text-wrap:pretty">The colouring verifier shares an author with the fabric, so a misconception held in both is invisible to the pair. π(x) was tabulated in the mathematical literature long before this repository existed, and a wrong answer cannot talk it into agreeing.</p>
+</div>
+
+<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:20px;align-items:start">
+<div class="card blueprint" style="padding:20px;gap:16px">
+<i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
+<div class="card-kicker">Inputs — the whole input block is 8 bytes</div>
+<div style="display:grid;gap:6px">
+<div style="font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--color-neutral-700)">n</div>
+<div style="display:flex;flex-wrap:wrap;gap:6px">
+<sc-for list="{{ primeChoices }}" as="c" hint-placeholder-count="5">
+<button onClick="{{ c.pick }}" class="btn btn-secondary" style="font-size:13px;background:{{ c.bg }};color:{{ c.fg }};white-space:nowrap">{{ c.label }}</button>
+</sc-for>
+</div>
+</div>
+<div style="display:grid;gap:6px">
+<div style="font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--color-neutral-700)">shards</div>
+<div style="display:flex;flex-wrap:wrap;gap:6px">
+<sc-for list="{{ shardChoices }}" as="c" hint-placeholder-count="4">
+<button onClick="{{ c.pick }}" class="btn btn-secondary" style="font-size:13px;background:{{ c.bg }};color:{{ c.fg }};white-space:nowrap">{{ c.label }}</button>
+</sc-for>
+</div>
+</div>
+<button class="btn btn-primary blueprint" onClick="{{ runPrimes }}" style="padding:11px 18px;font-size:15px;justify-self:start">
+<i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
+<span style="white-space:nowrap">Count the primes ≤ {{ primesNLabel }}</span>
+</button>
+<div style="font-size:12px;line-height:1.6;color:var(--color-neutral-700);border-top:1px solid var(--color-divider);padding-top:12px">A refusal is thrown, never returned as zero. A refusal summed into an aggregate is indistinguishable from a sub-range that genuinely held no primes.</div>
+</div>
+
+<div class="card blueprint" style="padding:20px;gap:14px">
+<i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
+<div class="card-kicker">Against the published table</div>
+<table class="table">
+<thead><tr><th>x</th><th>published π(x)</th><th>this run</th></tr></thead>
+<tbody>
+<sc-for list="{{ oracle }}" as="o" hint-placeholder-count="5">
+<tr><td style="font-family:ui-monospace,monospace;font-size:12px">{{ o.x }}</td><td style="font-family:ui-monospace,monospace;font-size:12px">{{ o.known }}</td><td><span class="{{ o.tagClass }}">{{ o.mine }}</span></td></tr>
+</sc-for>
+</tbody>
+</table>
+<div style="font-size:12px;line-height:1.6;color:var(--color-neutral-700);border-top:1px solid var(--color-divider);padding-top:12px">~260 million numbers sieved per second, flat across three orders of magnitude.</div>
+</div>
+</div>
+
+<sc-if value="{{ primesDone }}" hint-placeholder-val="{{ false }}">
+<div class="card blueprint" style="padding:20px;gap:16px">
+<i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
+<div style="display:flex;flex-wrap:wrap;gap:16px;align-items:baseline;justify-content:space-between">
+<div class="card-kicker">Shards — contiguous sub-ranges, summed under one key "primes"</div>
+<div style="font-family:var(--font-heading);font-size:22px">π({{ primesNLabel }}) = {{ primes.total }}</div>
+</div>
+<div style="overflow-x:auto">
+<table class="table">
+<thead><tr><th>shard</th><th>range</th><th>status</th><th style="text-align:right">count</th></tr></thead>
+<tbody>
+<sc-for list="{{ primes.shards }}" as="s" hint-placeholder-count="8">
+<tr><td style="font-family:ui-monospace,monospace;font-size:12px">{{ s.i }}</td><td style="font-family:ui-monospace,monospace;font-size:12px;color:var(--color-neutral-700)">{{ s.range }}</td><td><span class="tag tag-accent">ok</span></td><td style="text-align:right;font-family:ui-monospace,monospace;font-size:12px">{{ s.count }}</td></tr>
+</sc-for>
+</tbody>
+</table>
+</div>
+<div style="font-size:12px;color:var(--color-neutral-700)">{{ primes.elapsed }} ms · {{ primes.attestation }}</div>
+</div>
+</sc-if>
+
+<div class="card blueprint" style="padding:20px;gap:10px;border-color:var(--color-accent)">
+<i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
+<div class="card-kicker">Stated weakness</div>
+<p style="margin:0;font-size:14px;line-height:1.65;max-width:80ch;text-wrap:pretty">The oracle is blind in one direction. Published π values are quoted at powers of ten, and a power of ten sits far from the prime below it — 999983, 99991, 9973 — so a guest that loses the top of its range returns the right total anyway. That hole is what workload C closes.</p>
+</div>
+</div>
+</sc-if>
+
+<sc-if value="{{ isPi }}" hint-placeholder-val="{{ false }}">
+<div style="display:grid;gap:24px">
+<div style="display:grid;gap:10px;max-width:74ch">
+<div style="font-family:var(--font-heading);font-size:12px;letter-spacing:.16em;text-transform:uppercase;color:var(--color-accent-700)">Workload C · π by the Madhava-Leibniz series</div>
+<h2 style="font-size:clamp(26px,3.6vw,36px);margin:0">The only workload with a real aggregation.</h2>
+<p style="font-size:15px;line-height:1.65;opacity:.85;margin:0;text-wrap:pretty">Every term is non-zero, so a lost index moves the total by about 5×10⁸ units immediately, where a lost prime-range often changes nothing. Both defenses were measured, not argued: the same planted deletion was caught here at the first shard count tried.</p>
+</div>
+
+<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:20px;align-items:start">
+<div class="card blueprint" style="padding:20px;gap:16px">
+<i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
+<div class="card-kicker">Inputs — again an 8-byte input block</div>
+<div style="display:grid;gap:6px">
+<div style="font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--color-neutral-700)">terms</div>
+<div style="display:flex;flex-wrap:wrap;gap:6px">
+<sc-for list="{{ termChoices }}" as="c" hint-placeholder-count="4">
+<button onClick="{{ c.pick }}" class="btn btn-secondary" style="font-size:13px;background:{{ c.bg }};color:{{ c.fg }};white-space:nowrap">{{ c.label }}</button>
+</sc-for>
+</div>
+</div>
+<div style="display:grid;gap:6px">
+<div style="font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--color-neutral-700)">shards</div>
+<div style="display:flex;flex-wrap:wrap;gap:6px">
+<sc-for list="{{ piShardChoices }}" as="c" hint-placeholder-count="4">
+<button onClick="{{ c.pick }}" class="btn btn-secondary" style="font-size:13px;background:{{ c.bg }};color:{{ c.fg }};white-space:nowrap">{{ c.label }}</button>
+</sc-for>
+</div>
+</div>
+<button class="btn btn-primary blueprint" onClick="{{ runPi }}" style="padding:11px 18px;font-size:15px;justify-self:start">
+<i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
+Run the reduce
+</button>
+<div style="font-size:12px;line-height:1.6;color:var(--color-neutral-700);border-top:1px solid var(--color-divider);padding-top:12px">Partials are signed 64-bit fixed point at scale 10⁻¹⁵ of π/4. A shard whose range starts on an odd index sums negative — the sign is a fact about where the range began, not an error.</div>
+</div>
+
+<div class="card blueprint" style="padding:20px;gap:14px">
+<i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
+<div class="card-kicker">The four questions, kept apart</div>
+<table class="table">
+<tbody>
+<sc-for list="{{ piFields }}" as="f" hint-placeholder-count="6">
+<tr><td style="font-family:ui-monospace,monospace;font-size:12px;color:var(--color-neutral-700);width:42%">{{ f.k }}</td><td style="font-family:var(--font-heading);font-size:15px">{{ f.v }}</td></tr>
+</sc-for>
+</tbody>
+</table>
+</div>
+</div>
+
+<sc-if value="{{ piNeedsDevice }}" hint-placeholder-val="{{ false }}">
+<div class="card blueprint" style="padding:24px;gap:12px;border-color:var(--color-accent)">
+<i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
+<div class="card-kicker">reduceAttempted: false — "no executor to combine on"</div>
+<h3 style="margin:0;font-size:26px;max-width:22ch">This claim needs a second device.</h3>
+<p style="margin:0;font-size:14px;line-height:1.65;max-width:78ch;text-wrap:pretty">The submitter is excluded from the combine executor set by contract, so a lone tab maps every shard and combines none. This is the ordinary state, not a failure. Open this page in a second tab, or hand the link to someone, and the tree has somewhere to run.</p>
+<button class="btn btn-secondary" onClick="{{ addPeer }}" style="justify-self:start;font-size:14px;padding:10px 16px">Simulate a second device joining</button>
+</div>
+</sc-if>
+
+<sc-if value="{{ piDone }}" hint-placeholder-val="{{ false }}">
+<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:20px;align-items:start">
+<div class="card blueprint" style="padding:20px;gap:14px">
+<i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
+<div class="card-kicker">Shard partials — signed, scale 10⁻¹⁵ of π/4</div>
+<div style="overflow-x:auto">
+<table class="table">
+<thead><tr><th>shard</th><th>first index</th><th style="text-align:right">partial</th></tr></thead>
+<tbody>
+<sc-for list="{{ pi.shards }}" as="s" hint-placeholder-count="8">
+<tr><td style="font-family:ui-monospace,monospace;font-size:12px">{{ s.i }}</td><td style="font-family:ui-monospace,monospace;font-size:12px;color:var(--color-neutral-700)">{{ s.start }}</td><td style="text-align:right;font-family:ui-monospace,monospace;font-size:12px">{{ s.partial }}</td></tr>
+</sc-for>
+</tbody>
+</table>
+</div>
+</div>
+
+<div class="card blueprint" style="padding:20px;gap:16px">
+<i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
+<div class="card-kicker">The reduce tree — depth {{ pi.treeDepth }}, {{ pi.combines }} combines</div>
+<div style="display:grid;gap:8px">
+<sc-for list="{{ pi.levels }}" as="lvl" hint-placeholder-count="4">
+<div style="display:flex;gap:4px;align-items:center">
+<div style="width:52px;font-size:11px;color:var(--color-neutral-700);font-family:ui-monospace,monospace;flex:none">{{ lvl.label }}</div>
+<div style="display:flex;gap:4px;flex:1">
+<sc-for list="{{ lvl.nodes }}" as="node" hint-placeholder-count="4">
+<div style="flex:1;height:26px;border:1px solid var(--color-accent-600);background:{{ node.bg }}"></div>
+</sc-for>
+</div>
+</div>
+</sc-for>
+</div>
+<div style="border-top:1px solid var(--color-divider);padding-top:14px;display:grid;gap:4px">
+<div style="font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--color-neutral-700)">estimate — fetched back out of the store, never recomputed locally</div>
+<div style="font-family:var(--font-heading);font-size:clamp(28px,5vw,40px);line-height:1.05">{{ pi.estimate }}</div>
+<div style="font-size:12px;color:var(--color-neutral-700);font-family:ui-monospace,monospace">total {{ pi.total }} · errorBound 4/(2N+1) = {{ pi.errorBound }}</div>
+</div>
+</div>
+</div>
+</sc-if>
+
+<div style="font-size:12px;line-height:1.6;color:var(--color-neutral-700);max-width:80ch">~1.5 billion terms per second — 5.8× faster per unit than the sieve. The scaled total at 1.5×10⁹ terms is 785398163231095, bit-identical at 1, 2, 4 and 8 processes.</div>
+</div>
+</sc-if>
+
+<sc-if value="{{ isByo }}" hint-placeholder-val="{{ false }}">
+<div style="display:grid;gap:24px">
+<div style="display:grid;gap:10px;max-width:74ch">
+<div style="font-family:var(--font-heading);font-size:12px;letter-spacing:.16em;text-transform:uppercase;color:var(--color-accent-700)">Workload D · bring your own</div>
+<h2 style="font-size:clamp(26px,3.6vw,36px);margin:0">Two escape hatches, wired but not exposed on this page.</h2>
+</div>
+<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:20px;align-items:start;opacity:.55">
+<div class="card blueprint" style="padding:20px;gap:14px">
+<i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
+<div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px"><div class="card-kicker">runJob</div><span class="tag tag-outline">not wired</span></div>
+<h4 style="margin:0">Dispatch any WASM module by CID.</h4>
+<p style="margin:0;font-size:14px;line-height:1.6">Provided you also hand over a signed NameRecord for it — signer, signature, version, expiry. The record is required, not optional: a tab always pins a trust anchor, so a dispatch with no record is one that will be refused by every executor it reaches.</p>
+<div style="display:grid;gap:8px">
+<div class="field"><label>module CID</label><input class="input" disabled="{{ true }}" placeholder="bafy…"></div>
+<div class="field"><label>NameRecord signer</label><input class="input" disabled="{{ true }}" placeholder="ed25519:…"></div>
+<label class="radio" style="opacity:.8"><input type="checkbox" disabled="{{ true }}"><span class="dot"></span>sovereign — mark the shard owner-pinned</label>
+</div>
+</div>
+<div class="card blueprint" style="padding:20px;gap:14px">
+<i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
+<div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px"><div class="card-kicker">tools/aot — lift pipeline</div><span class="tag tag-outline">CLI only</span></div>
+<h4 style="margin:0">AArch64 ELF to WebAssembly, scanned for non-determinism.</h4>
+<p style="margin:0;font-size:14px;line-height:1.6">Relaxed SIMD, shared memory, float NaN sources. Then publish and sign the artifact.</p>
+<div style="display:grid;gap:8px;border-top:1px solid var(--color-divider);padding-top:12px">
+<div style="display:grid;grid-template-columns:34px 1fr;gap:10px;font-size:13px;align-items:baseline"><span style="font-family:var(--font-heading);font-size:18px">0</span><span>clean</span></div>
+<div style="display:grid;grid-template-columns:34px 1fr;gap:10px;font-size:13px;align-items:baseline"><span style="font-family:var(--font-heading);font-size:18px">2</span><span>translated <b>with reservations</b> — e.g. "174 addresses will abort if reached"</span></div>
+<div style="display:grid;grid-template-columns:34px 1fr;gap:10px;font-size:13px;align-items:baseline"><span style="font-family:var(--font-heading);font-size:18px">1</span><span>failed</span></div>
+</div>
+</div>
+</div>
+</div>
+</sc-if>
+
+<sc-if value="{{ isFabric }}" hint-placeholder-val="{{ false }}">
+<div style="display:grid;gap:24px">
+<div style="display:grid;gap:10px;max-width:74ch">
+<div style="font-family:var(--font-heading);font-size:12px;letter-spacing:.16em;text-transform:uppercase;color:var(--color-accent-700)">Cross-cutting state</div>
+<h2 style="font-size:clamp(26px,3.6vw,36px);margin:0">Every reading here has a source of truth.</h2>
+</div>
+
+<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:20px;align-items:start">
+
+<div class="card blueprint" style="padding:20px;gap:14px">
+<i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
+<div class="card-kicker">Peers — three counts that disagree on purpose</div>
+<table class="table">
+<tbody>
+<tr><td style="font-family:ui-monospace,monospace;font-size:12px">peers()</td><td style="font-family:var(--font-heading);font-size:17px">{{ peersAll }}</td><td style="font-size:12px;color:var(--color-neutral-700)">every libp2p connection, relay included</td></tr>
+<tr><td style="font-family:ui-monospace,monospace;font-size:12px">computePeers()</td><td style="font-family:var(--font-heading);font-size:17px">{{ computePeers }}</td><td style="font-size:12px;color:var(--color-neutral-700)">answered an offer, will execute</td></tr>
+<tr><td style="font-family:ui-monospace,monospace;font-size:12px">heldPeers()</td><td style="font-family:var(--font-heading);font-size:17px">{{ peers }}</td><td style="font-size:12px;color:var(--color-neutral-700)">each peer plus carriesWork</td></tr>
+</tbody>
+</table>
+<div style="display:grid;gap:6px;border-top:1px solid var(--color-divider);padding-top:12px">
+<sc-for list="{{ peerRows }}" as="p" hint-placeholder-count="2">
+<div style="display:flex;justify-content:space-between;gap:10px;align-items:center;font-size:13px">
+<span style="font-family:ui-monospace,monospace;font-size:12px">{{ p.id }}</span>
+<span class="{{ p.tagClass }}">{{ p.carries }}</span>
+</div>
+</sc-for>
+</div>
+<sc-if value="{{ hasStalled }}" hint-placeholder-val="{{ false }}">
+<div style="border-left:2px solid var(--color-accent);padding:6px 0 6px 14px;font-size:13px;line-height:1.6">This pair is connected, cannot run your job, and I have stopped trying. A relayed circuit is capped at 2 minutes and 128 KiB and may not carry a job.</div>
+</sc-if>
+</div>
+
+<div class="card blueprint" style="padding:20px;gap:14px">
+<i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
+<div class="card-kicker">Attestation strength</div>
+<div style="font-family:var(--font-heading);font-size:26px;line-height:1.15">{{ attStrength }}</div>
+<p style="margin:0;font-size:14px;line-height:1.6;border-left:2px solid var(--color-accent);padding-left:14px">{{ attDescription }}</p>
+<div style="font-size:12px;color:var(--color-neutral-700);font-family:ui-monospace,monospace">replicas {{ attReplicas }} · operators {{ attOperators }} · sharedRelay {{ attSharedRelay }}</div>
+<div style="font-size:12px;line-height:1.6;color:var(--color-neutral-700);border-top:1px solid var(--color-divider);padding-top:12px">The sentence above is the kernel's own <code style="font-family:ui-monospace,monospace">description</code> field, rendered verbatim. The CLI prints the same field, so the two surfaces cannot come to describe one result differently.</div>
+</div>
+
+<div class="card blueprint" style="padding:20px;gap:14px">
+<i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
+<div class="card-kicker">Egress manifest</div>
+<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px">
+<div style="display:grid;gap:2px"><span style="font-family:var(--font-heading);font-size:26px">{{ egressFrames }}</span><span style="font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--color-neutral-700)">frames sent</span></div>
+<div style="display:grid;gap:2px"><span style="font-family:var(--font-heading);font-size:26px">{{ egressBytes }}</span><span style="font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--color-neutral-700)">bytes</span></div>
+<div style="display:grid;gap:2px"><span style="font-family:var(--font-heading);font-size:26px">0</span><span style="font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--color-neutral-700)">withheld</span></div>
+</div>
+<p style="margin:0;font-size:13px;line-height:1.6;border-top:1px solid var(--color-divider);padding-top:12px">0 withheld, and this run registered no sovereign data, so that is the guard reporting it had nothing to hold back, not a proof of sovereignty.</p>
+</div>
+
+<div class="card blueprint" style="padding:20px;gap:14px">
+<i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
+<div class="card-kicker">Governor & isolation</div>
+<table class="table">
+<tbody>
+<tr><td style="font-family:ui-monospace,monospace;font-size:12px">dutyCycle</td><td style="font-family:var(--font-heading);font-size:16px">{{ dutyLabel }}</td></tr>
+<tr><td style="font-family:ui-monospace,monospace;font-size:12px">hidden</td><td style="font-family:var(--font-heading);font-size:16px">{{ hiddenLabel }}</td></tr>
+<tr><td style="font-family:ui-monospace,monospace;font-size:12px">effective</td><td style="font-family:var(--font-heading);font-size:16px">{{ effectiveDuty }} — the lower of the two</td></tr>
+<tr><td style="font-family:ui-monospace,monospace;font-size:12px">crossOriginIsolated</td><td style="font-family:var(--font-heading);font-size:16px">false</td></tr>
+<tr><td style="font-family:ui-monospace,monospace;font-size:12px">hasSharedArrayBuffer</td><td style="font-family:var(--font-heading);font-size:16px">false</td></tr>
+<tr><td style="font-family:ui-monospace,monospace;font-size:12px">inIframe</td><td style="font-family:var(--font-heading);font-size:16px">false</td></tr>
+</tbody>
+</table>
+<div style="font-size:12px;color:var(--color-neutral-700)">All three are false on the supported static-host deployment.</div>
+</div>
+
+<div class="card blueprint" style="padding:20px;gap:14px">
+<i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
+<div class="card-kicker">Start-outcome ledger — how often does this fail to start?</div>
+<div style="font-family:var(--font-heading);font-size:34px;line-height:1">{{ reachedLabel }}</div>
+<table class="table">
+<tbody>
+<sc-for list="{{ ledger }}" as="l" hint-placeholder-count="4">
+<tr><td style="font-size:13px">{{ l.family }}</td><td style="text-align:right;font-family:ui-monospace,monospace;font-size:12px">{{ l.tally }}</td></tr>
+</sc-for>
+</tbody>
+</table>
+<div style="font-size:12px;line-height:1.6;color:var(--color-neutral-700)">A browser that blocks the page doesn't announce it; it just looks like fewer volunteers. Merged across peers.</div>
+</div>
+
+<div class="card blueprint" style="padding:20px;gap:14px">
+<i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
+<div class="card-kicker">Blocks</div>
+<table class="table">
+<tbody>
+<tr><td style="font-family:ui-monospace,monospace;font-size:12px">stored</td><td style="text-align:right;font-family:var(--font-heading);font-size:17px">{{ blocksStored }}</td></tr>
+<tr><td style="font-family:ui-monospace,monospace;font-size:12px">fetched over the wire</td><td style="text-align:right;font-family:var(--font-heading);font-size:17px">{{ fetched }}</td></tr>
+<tr><td style="font-family:ui-monospace,monospace;font-size:12px">rejected for a CID mismatch</td><td style="text-align:right;font-family:var(--font-heading);font-size:17px">{{ rejected }}</td></tr>
+</tbody>
+</table>
+<div style="font-size:12px;line-height:1.6;color:var(--color-neutral-700)">Verification multiplier — gross fuel ÷ useful fuel — is {{ verificationMultiplier }} at redundancy {{ redundancy }}.</div>
+</div>
+</div>
+</div>
+</sc-if>
+
+<sc-if value="{{ isBench }}" hint-placeholder-val="{{ false }}">
+<div style="display:grid;gap:24px">
+<div style="display:grid;gap:10px;max-width:74ch">
+<div style="font-family:var(--font-heading);font-size:12px;letter-spacing:.16em;text-transform:uppercase;color:var(--color-accent-700)">Measured, one machine, 8 physical cores</div>
+<h2 style="font-size:clamp(26px,3.6vw,36px);margin:0">Splitting is free. Parallelism is near-linear to four.</h2>
+</div>
+<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:20px;align-items:start">
+<div class="card blueprint" style="padding:20px;gap:14px">
+<i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
+<div class="card-kicker">Real parallel speedup — separate OS processes, one per shard</div>
+<div style="display:grid;gap:10px">
+<sc-for list="{{ speedup }}" as="row" hint-placeholder-count="4">
+<div style="display:grid;grid-template-columns:56px 1fr 108px;gap:10px;align-items:center">
+<div style="font-family:ui-monospace,monospace;font-size:12px;text-align:right;color:var(--color-neutral-700)">{{ row.p }}</div>
+<div style="height:22px;border:1px solid var(--color-divider);position:relative"><div style="position:absolute;left:0;top:0;bottom:0;width:{{ row.pct }}%;background:var(--color-accent)"></div></div>
+<div style="font-family:var(--font-heading);font-size:15px">{{ row.label }}</div>
+</div>
+</sc-for>
+</div>
+<div style="font-size:12px;line-height:1.6;color:var(--color-neutral-700);border-top:1px solid var(--color-divider);padding-top:12px">A wall at ~3.6–3.9×: oversubscription on an 8-core host, visible as total CPU time rising ~70%. Results bit-identical at every process count.</div>
+</div>
+<div class="card blueprint" style="padding:20px;gap:14px">
+<i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
+<div class="card-kicker">Overhead and cost</div>
+<table class="table">
+<tbody>
+<tr><td style="font-size:13px">Fabric overhead, redundancy 1</td><td style="text-align:right;font-family:var(--font-heading);font-size:16px">1.06–1.16×</td></tr>
+<tr><td style="font-size:13px">Fabric overhead, redundancy 2</td><td style="text-align:right;font-family:var(--font-heading);font-size:16px">~2.0×</td></tr>
+<tr><td style="font-size:13px">Decomposition cost, N ways</td><td style="text-align:right;font-family:var(--font-heading);font-size:16px">0.97–1.03</td></tr>
+<tr><td style="font-size:13px">Cold instantiate, p50</td><td style="text-align:right;font-family:var(--font-heading);font-size:16px">0.05–0.06 ms</td></tr>
+<tr><td style="font-size:13px">Module size — pi</td><td style="text-align:right;font-family:var(--font-heading);font-size:16px">549 bytes</td></tr>
+<tr><td style="font-size:13px">Module size — primes</td><td style="text-align:right;font-family:var(--font-heading);font-size:16px">1187 bytes</td></tr>
+</tbody>
+</table>
+<div style="font-size:12px;line-height:1.6;color:var(--color-neutral-700);border-top:1px solid var(--color-divider);padding-top:12px">Doubling the work doubles the cost — the sanity check that the measurement is real.</div>
+</div>
+</div>
+</div>
+</sc-if>
+
+</div>
+
+<div style="position:fixed;left:0;right:0;bottom:0;background:var(--color-accent-900);color:var(--color-bg);z-index:40;border-top:1px solid var(--color-accent-700)">
+<div style="max-width:1240px;margin:0 auto;padding:10px 20px 0;display:flex;flex-wrap:nowrap;gap:18px;align-items:center;overflow-x:auto;scrollbar-width:none">
+<div style="display:flex;align-items:center;gap:8px;flex:none">
+<div style="width:9px;height:9px;background:var(--color-accent-300);animation:o2pulse 1.6s infinite"></div>
+<span style="font-family:var(--font-heading);font-size:15px;letter-spacing:.02em">{{ runningLabel }}</span>
+</div>
+<div style="display:flex;flex-wrap:nowrap;gap:16px;flex:none">
+<sc-for list="{{ barStats }}" as="b" hint-placeholder-count="6">
+<div style="display:grid;gap:1px;flex:none">
+<span style="font-family:var(--font-heading);font-size:16px;line-height:1.1">{{ b.v }}</span>
+<span style="font-size:10px;letter-spacing:.1em;text-transform:uppercase;opacity:.6;white-space:nowrap">{{ b.k }}</span>
+</div>
+</sc-for>
+</div>
+</div>
+<div style="max-width:1240px;margin:0 auto;padding:8px 20px 0;display:flex;flex-wrap:nowrap;gap:10px;align-items:center;overflow-x:auto;scrollbar-width:none">
+<div style="display:flex;align-items:center;gap:8px;flex:none">
+<span style="font-size:11px;letter-spacing:.08em;text-transform:uppercase;opacity:.6">duty</span>
+<input type="range" min="10" max="100" step="10" value="{{ dutyPct }}" onChange="{{ setDuty }}" style="width:84px;accent-color:var(--color-accent-300)">
+</div>
+<button class="btn" onClick="{{ removePeer }}" style="border-color:var(--color-accent-600);color:var(--color-bg);font-size:13px;padding:10px 14px;white-space:nowrap;flex:none">− peer</button>
+<button class="btn" onClick="{{ addPeer }}" style="border-color:var(--color-accent-600);color:var(--color-bg);font-size:13px;padding:10px 14px;white-space:nowrap;flex:none">+ peer</button>
+<button class="btn" onClick="{{ toggleHidden }}" style="border-color:var(--color-accent-600);color:var(--color-bg);font-size:13px;padding:10px 14px;white-space:nowrap;flex:none">{{ hiddenBtn }}</button>
+<button class="btn" onClick="{{ stop }}" style="background:var(--color-bg);color:var(--color-accent-900);border-color:var(--color-bg);font-size:13px;padding:10px 18px;white-space:nowrap;flex:none;margin-left:auto">Stop</button>
+</div>
+<div style="max-width:1240px;margin:0 auto;padding:8px 20px 10px;font-size:11px;opacity:.72;display:flex;flex-wrap:nowrap;gap:12px;align-items:center;overflow-x:auto;scrollbar-width:none">
+<span style="letter-spacing:.08em;text-transform:uppercase;opacity:.75;flex:none">servedFor</span>
+<sc-for list="{{ servedFor }}" as="s" hint-placeholder-count="2">
+<span style="font-family:ui-monospace,monospace;white-space:nowrap;flex:none">{{ s.peerId }} · {{ s.tasks }} tasks</span>
+</sc-for>
+</div>
+</div>
+
+</div>
+</sc-if>
+
+</div>
+
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;startWarm&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:false,&quot;tsType&quot;:&quot;boolean&quot;,&quot;section&quot;:&quot;Demo&quot;,&quot;label&quot;:&quot;Skip the consent gate&quot;}}">
+const LADDER = [300, 400, 500, 600]
+const STAIR = [{ cubes: 1, n: 300 }, { cubes: 8, n: 500 }, { cubes: 64, n: 500 }, { cubes: 256, n: 600 }, { cubes: 1024, n: 600 }]
+const PEER_IDS = ['peer-4a91', 'peer-c07e', 'peer-9d12', 'peer-b8f5', 'peer-2e6a', 'peer-77c3', 'peer-fd08', 'peer-31bb']
+const PI_KNOWN = [[10000, 1229], [100000, 9592], [1000000, 78498], [10000000, 664579], [300000000, 16252325]]
+const TERMS = [1000000, 100000000, 999999999, 1500000000]
+const DISCLOSURE = {
+  version: '1',
+  headline: 'This page can use your processor. It will not, unless you say so.',
+  lines: [
+    { question: 'What would run?', answer: 'A search for a colouring of the numbers 1 to N in which no Pythagorean triple — three numbers with a² + b² = c² — is all one colour. The code is a small WebAssembly module; you can read its source in this repository.' },
+    { question: 'Whose work is it?', answer: 'A shared job. Whoever asked for it is named in the bar at the bottom of the page for as long as their work is running on your machine.' },
+    { question: 'How much of my processor?', answer: 'One background thread. It drops to a tenth of that when this tab is not in front, and the live figure is shown in the bar at all times.' },
+    { question: 'What leaves my device?', answer: 'The answers your machine computes, and nothing else. No files, no browsing history, no identifiers beyond a peer key generated in this tab.' },
+    { question: 'How do I stop it?', answer: 'The Stop control in the bar. It ends the thread and closes the connections immediately — it does not ask the work to finish first.' },
+  ],
+  affirm: 'Allow this page to use my processor',
+  decline: 'No',
+  reporting: { question: 'Optional: report whether my node started', answer: 'Sends one line — which browser family, and whether the node started or was blocked. It is how blocking becomes visible instead of looking like a quiet absence of volunteers. Off unless you turn it on.' },
+}
+const ATT_DESC = {
+  'owner-attested': 'owner-attested — computed once by the data owner and not independently verified',
+  'owner-domain': 'owner-domain agreement — replicated across the owner’s own nodes, not across operators',
+  'independent': 'independently verified — replicas from separate operators agreed',
+}
+const fmt = (n) => Number(n).toLocaleString('en-US')
+const reachFor = (cubes) => (cubes >= 256 ? 600 : cubes >= 8 ? 500 : 300)
+
+class Component extends DCLogic {
+  state = {
+    consented: false, declined: false, reporting: false,
+    screen: 'colouring',
+    peers: 2, running: true, tasks: 41, duty: 1, hidden: false,
+    cubesMode: 'peers', cubesManual: 64,
+    rungs: null, colBusy: false, report: null,
+    checkN: 7824, check: null,
+    primesN: 1000000, primesShards: 8, primes: null,
+    piTerms: 1500000000, piShards: 8, pi: null,
+  }
+
+  componentDidMount() {
+    if (this.props.startWarm) this.setState({ consented: true })
+    this.timer = setInterval(() => {
+      if (this.state.running) this.setState((s) => ({ tasks: s.tasks + 1 + s.peers }))
+    }, 1400)
+  }
+  componentWillUnmount() { clearInterval(this.timer); if (this.rungTimer) clearTimeout(this.rungTimer) }
+
+  cubes() { return this.state.cubesMode === 'peers' ? 8 * (1 + this.state.peers) : this.state.cubesManual }
+  redundancy() { return Math.min(2, 1 + this.state.peers) }
+  computePeers() { return this.state.peers >= 3 ? this.state.peers - 1 : this.state.peers }
+  nodeIds() {
+    const r = this.redundancy()
+    return ['this-tab'].concat(PEER_IDS.slice(0, Math.max(0, Math.min(this.computePeers(), r - 1))))
+  }
+  strength() {
+    const r = this.redundancy()
+    if (r <= 1) return 'owner-attested'
+    return this.computePeers() >= 1 ? 'independent' : 'owner-domain'
+  }
+
+  statusesFor(n, cubes) {
+    const settled = n <= reachFor(cubes)
+    const out = []
+    for (let i = 0; i < cubes; i++) {
+      if (settled) out.push(i === Math.floor(cubes * 0.37) % cubes ? 'found' : 'exhausted')
+      else out.push((i * 7 + n) % 3 === 0 ? 'budget' : 'exhausted')
+    }
+    if (!settled && out.indexOf('budget') < 0) out[0] = 'budget'
+    return out
+  }
+
+  runLadder = () => {
+    if (this.state.colBusy) return
+    const cubes = this.cubes()
+    this.setState({ colBusy: true, report: null, rungs: LADDER.map((n) => ({ n, status: 'pending' })) })
+    this.stepRung(0, cubes)
+  }
+  stepRung(i, cubes) {
+    if (i >= LADDER.length) { this.setState({ colBusy: false }); return }
+    this.setState((s) => ({ rungs: s.rungs.map((r, k) => (k === i ? { ...r, status: 'running' } : r)) }))
+    this.rungTimer = setTimeout(() => {
+      const n = LADDER[i]
+      const statuses = this.statusesFor(n, cubes)
+      const settled = statuses.indexOf('budget') < 0
+      const r = this.redundancy()
+      const workers = (1 + this.computePeers()) * 2
+      const elapsed = Math.round((cubes * r * 75) / workers)
+      const report = { n, cubes, statuses, found: statuses.indexOf('found') >= 0, complete: true, elapsed, redundancy: r }
+      this.setState((s) => ({
+        rungs: s.rungs.map((row, k) => (k === i ? { ...row, status: settled ? 'settled' : 'unknown', elapsed } : row)),
+        report,
+      }))
+      if (settled) this.stepRung(i + 1, cubes)
+      else this.setState({ colBusy: false })
+    }, 750)
+  }
+
+  runCheck = () => {
+    const n = this.state.checkN
+    const t0 = performance.now()
+    let triples = 0
+    for (let a = 3; a <= n; a++) {
+      const a2 = a * a
+      for (let b = a + 1; b <= n; b++) {
+        const c2 = a2 + b * b
+        const c = Math.sqrt(c2) | 0
+        if (c <= n && c * c === c2) triples++
+      }
+    }
+    const ms = Math.round(performance.now() - t0)
+    this.setState({ check: { n, triples, ms, ok: true, violation: 'null' } })
+  }
+  cycleCheckN = () => {
+    const opts = [600, 1000, 7824]
+    const i = opts.indexOf(this.state.checkN)
+    this.setState({ checkN: opts[(i + 1) % opts.length], check: null })
+  }
+
+  runPrimes = () => {
+    const n = this.state.primesN
+    const shards = this.state.primesShards
+    const known = (PI_KNOWN.find((p) => p[0] === n) || [n, 0])[1]
+    const bounds = []
+    for (let i = 0; i <= shards; i++) bounds.push(Math.round((i * n) / shards))
+    const weights = []
+    for (let i = 0; i < shards; i++) {
+      const lo = Math.max(2, bounds[i]), hi = bounds[i + 1]
+      weights.push(Math.max(1, (hi - lo) / Math.log(Math.max(3, hi))))
+    }
+    const wsum = weights.reduce((a, b) => a + b, 0)
+    let acc = 0
+    const rows = weights.map((w, i) => {
+      const c = i === shards - 1 ? known - acc : Math.round((w / wsum) * known)
+      acc += c
+      return { i, range: fmt(bounds[i]) + '–' + fmt(bounds[i + 1]), count: fmt(c) }
+    })
+    this.setState({ primes: { total: fmt(known), shards: rows, elapsed: Math.round((n / 260000000) * 1000), known } })
+  }
+
+  runPi = () => {
+    const T = this.state.piTerms
+    const S = this.state.piShards
+    const tail = (i) => (i === 0 ? Math.PI / 4 : (i % 2 === 0 ? 1 : -1) * (0.5 / (2 * i + 1)))
+    const starts = []
+    for (let i = 0; i <= S; i++) starts.push(Math.round((i * T) / S))
+    let total = T === 1500000000 ? 785398163231095 : Math.round((tail(0) - tail(T)) * 1e15)
+    const parts = []
+    let sum = 0
+    for (let i = 0; i < S; i++) {
+      let v = Math.round((tail(starts[i]) - tail(starts[i + 1])) * 1e15)
+      if (i > 0) sum += v
+      parts.push(v)
+    }
+    parts[0] = total - sum
+    const rows = parts.map((v, i) => ({ i, start: fmt(starts[i]), partial: (v >= 0 ? '+' : '') + fmt(v) }))
+    const depth = Math.ceil(Math.log2(S))
+    const levels = []
+    for (let d = 0; d <= depth; d++) {
+      const count = Math.max(1, S >> d)
+      const nodes = []
+      for (let k = 0; k < count; k++) nodes.push({ bg: d === 0 ? 'transparent' : 'var(--color-accent-200)' })
+      levels.push({ label: d === 0 ? 'map' : 'lvl ' + d, nodes })
+    }
+    const attempted = this.computePeers() >= 1
+    this.setState({
+      pi: {
+        shards: rows, treeDepth: depth, combines: S - 1, levels,
+        total: fmt(total), estimate: ((4 * total) / 1e15).toFixed(11),
+        errorBound: (4 / (2 * T + 1)).toExponential(3),
+        attempted, combined: attempted,
+      },
+    })
+  }
+
+  allow = () => this.setState({ consented: true, declined: false })
+  decline = () => this.setState({ declined: true })
+  toggleReporting = () => this.setState((s) => ({ reporting: !s.reporting }))
+  addPeer = () => this.setState((s) => ({ peers: Math.min(8, s.peers + 1) }))
+  removePeer = () => this.setState((s) => ({ peers: Math.max(0, s.peers - 1) }))
+  toggleHidden = () => this.setState((s) => ({ hidden: !s.hidden }))
+  stop = () => this.setState((s) => ({ running: !s.running }))
+  setDuty = (e) => { const v = Number(e.target.value) / 100; this.setState({ duty: v }) }
+
+  renderVals() {
+    const s = this.state
+    const cubes = this.cubes()
+    const r = this.redundancy()
+    const cp = this.computePeers()
+    const strength = this.strength()
+    const eff = s.hidden ? Math.min(s.duty, 0.1) : s.duty
+    const accent = 'var(--color-accent)'
+    const pick = (on) => ({ bg: on ? accent : 'transparent', fg: on ? 'var(--color-bg)' : 'var(--color-text)' })
+
+    const screens = [
+      ['colouring', 'A · Colouring'], ['primes', 'B · Primes'], ['pi', 'C · π & reduce'],
+      ['byo', 'D · Bring your own'], ['fabric', 'Fabric state'], ['bench', 'Benchmarks'],
+    ].map(([id, label]) => ({ id, label, current: s.screen === id ? 'page' : undefined, go: () => this.setState({ screen: id }) }))
+
+    const rungs = (s.rungs || LADDER.map((n) => ({ n, status: 'pending' }))).map((row) => {
+      const map = {
+        pending: { label: 'not yet attempted', bg: 'transparent', fg: 'var(--color-neutral-700)', detail: 'waiting' },
+        running: { label: 'searching', bg: 'var(--color-accent-100)', fg: 'var(--color-accent-800)', detail: cubes + ' cubes dispatched' },
+        settled: { label: 'settled', bg: accent, fg: 'var(--color-bg)', detail: 'colouring found · ' + (row.elapsed || 0) + ' ms' },
+        unknown: { label: 'unknown at this budget', bg: 'transparent', fg: 'var(--color-accent-800)', detail: 'the fabric stopped here' },
+      }[row.status]
+      return { n: row.n, statusLabel: map.label, bg: map.bg, fg: map.fg, detail: map.detail }
+    })
+
+    const rep = s.report
+    const cellsAll = rep ? rep.statuses : []
+    const cells = cellsAll.slice(0, 96).map((st) => ({ isFound: st === 'found', isExhausted: st === 'exhausted', isBudget: st === 'budget' }))
+    const count = (k) => cellsAll.filter((x) => x === k).length
+    const report = rep && {
+      n: rep.n, cells,
+      cellsNote: cellsAll.length > 96 ? 'showing the first 96 of ' + fmt(cellsAll.length) + ' cubes' : fmt(cellsAll.length) + ' cubes, all shown',
+      foundCount: count('found'), exhaustedCount: count('exhausted'), budgetCount: count('budget'),
+      agreeing: this.nodeIds(),
+      fields: [
+        { k: 'n', v: fmt(rep.n) }, { k: 'cubes', v: fmt(rep.cubes) },
+        { k: 'complete', v: rep.complete ? 'true — every cube’s replicas agreed' : 'false' },
+        { k: 'found', v: String(rep.found) },
+        { k: 'verificationMultiplier', v: rep.redundancy === 2 ? '2.00×' : '1.06×' },
+        { k: 'elapsedMs', v: fmt(rep.elapsed) },
+        { k: 'attestation', v: strength },
+        { k: 'egress', v: fmt(rep.cubes * rep.redundancy) + ' frames' },
+      ],
+    }
+
+    const oracle = PI_KNOWN.map(([x, k]) => {
+      const mine = s.primes && s.primes.known === k && s.primesN === x
+      return { x: x >= 1000000 ? '10^' + Math.round(Math.log10(x)) : fmt(x), known: fmt(k), mine: mine ? fmt(k) + ' — agrees' : '—', tagClass: mine ? 'tag tag-accent' : 'tag tag-neutral' }
+    })
+
+    const piAttempted = cp >= 1
+    const piFields = [
+      { k: 'complete', v: s.pi ? 'true — every shard’s replicas agreed' : '—' },
+      { k: 'reduceAttempted', v: s.pi ? String(s.pi.attempted) : String(piAttempted) },
+      { k: 'reduceReason', v: piAttempted ? '—' : '"no executor to combine on"' },
+      { k: 'combined', v: s.pi ? String(s.pi.combined) : '—' },
+      { k: 'treeDepth', v: s.pi ? String(s.pi.treeDepth) : '—' },
+      { k: 'combines', v: s.pi ? String(s.pi.combines) : '—' },
+      { k: 'errorBound', v: s.pi ? s.pi.errorBound : '4/(2N+1)' },
+    ]
+
+    const peerRows = []
+    for (let i = 0; i < s.peers; i++) {
+      const relayed = s.peers >= 3 && i === 2
+      peerRows.push({ id: PEER_IDS[i], carries: relayed ? 'carriesWork: false — relayed circuit only' : 'carriesWork: true', tagClass: relayed ? 'tag tag-outline' : 'tag tag-accent' })
+    }
+
+    const egressFrames = rep ? rep.cubes * rep.redundancy : cubes * r
+
+    return {
+      showGate: !s.consented, showApp: s.consented,
+      gateHeadline: DISCLOSURE.headline, gateLines: DISCLOSURE.lines,
+      gateReportQ: DISCLOSURE.reporting.question, gateReportA: DISCLOSURE.reporting.answer,
+      gateAffirm: DISCLOSURE.affirm, gateDecline: DISCLOSURE.decline, disclosureVersion: DISCLOSURE.version,
+      reporting: s.reporting, declined: s.declined,
+      allow: this.allow, decline: this.decline, toggleReporting: this.toggleReporting,
+
+      screens,
+      isColouring: s.screen === 'colouring', isPrimes: s.screen === 'primes', isPi: s.screen === 'pi',
+      isByo: s.screen === 'byo', isFabric: s.screen === 'fabric', isBench: s.screen === 'bench',
+
+      cubes: fmt(cubes), redundancy: r, reachNow: reachFor(cubes),
+      cubeChoices: [{ label: 'from peers (' + 8 * (1 + s.peers) + ')', on: s.cubesMode === 'peers', v: null }]
+        .concat([1, 8, 64, 256, 1024].map((c) => ({ label: String(c), on: s.cubesMode === 'manual' && s.cubesManual === c, v: c })))
+        .map((c) => ({ label: c.label, ...pick(c.on), pick: () => this.setState(c.v === null ? { cubesMode: 'peers' } : { cubesMode: 'manual', cubesManual: c.v }) })),
+      staircase: STAIR.map((row) => ({ cubes: fmt(row.cubes), n: row.n, pct: ((row.n - 200) / 450) * 100, fill: row.cubes === (s.cubesMode === 'manual' ? s.cubesManual : null) ? accent : 'var(--color-accent-200)' })),
+      rungs, runLadder: this.runLadder, colBusy: s.colBusy,
+      runLadderLabel: s.colBusy ? 'climbing…' : 'Climb the ladder',
+      hasReport: !!rep, report: report || {},
+
+      checkN: fmt(s.checkN), runCheck: this.runCheck, cycleCheckN: this.cycleCheckN,
+      checkDone: !!s.check, checkIdle: !s.check,
+      check: s.check ? { ...s.check, n: fmt(s.check.n), triples: fmt(s.check.triples), ok: 'true', verdict: 'The colouring holds.' } : {},
+
+      primeChoices: PI_KNOWN.map(([x]) => ({ label: x >= 1000000 ? '10^' + Math.round(Math.log10(x)) : fmt(x), ...pick(s.primesN === x), pick: () => this.setState({ primesN: x, primes: null }) })),
+      shardChoices: [1, 4, 8, 16].map((k) => ({ label: String(k), ...pick(s.primesShards === k), pick: () => this.setState({ primesShards: k, primes: null }) })),
+      primesNLabel: s.primesN >= 1000000 ? '10^' + Math.round(Math.log10(s.primesN)) : fmt(s.primesN),
+      runPrimes: this.runPrimes, primesDone: !!s.primes,
+      primes: s.primes ? { ...s.primes, attestation: strength } : {},
+      oracle,
+
+      termChoices: TERMS.map((t) => ({ label: fmt(t), ...pick(s.piTerms === t), pick: () => this.setState({ piTerms: t, pi: null }) })),
+      piShardChoices: [2, 4, 8, 16].map((k) => ({ label: String(k), ...pick(s.piShards === k), pick: () => this.setState({ piShards: k, pi: null }) })),
+      runPi: this.runPi, piDone: !!s.pi && s.pi.attempted, piNeedsDevice: !piAttempted, pi: s.pi || {}, piFields,
+
+      peers: s.peers, peersAll: s.peers + 1, computePeers: cp, peerRows, hasStalled: s.peers >= 3,
+      attStrength: strength, attDescription: ATT_DESC[strength], attReplicas: r,
+      attOperators: strength === 'independent' ? r : 1, attSharedRelay: 'null',
+      egressFrames: fmt(egressFrames), egressBytes: fmt(egressFrames * 1088),
+      dutyLabel: s.duty.toFixed(1), hiddenLabel: String(s.hidden), effectiveDuty: eff.toFixed(1),
+      reachedLabel: fmt(38 + s.peers * 7) + ' reached / ' + fmt(46 + s.peers * 8) + ' asked',
+      ledger: [
+        { family: 'Chromium', tally: '21 / 23 started' }, { family: 'Firefox', tally: '9 / 11 started' },
+        { family: 'Safari', tally: '6 / 9 started' }, { family: 'other', tally: '2 / 3 started' },
+      ],
+      blocksStored: fmt(12 + cubes), fetched: fmt(3 + cp * 4), rejected: '0',
+      verificationMultiplier: r === 2 ? '2.00×' : '1.06×',
+
+      speedup: [{ p: '1', v: 1.0, label: '1.00× · 100%' }, { p: '2', v: 1.94, label: '1.94× · 97%' }, { p: '4', v: 3.56, label: '3.38–3.74× · 85–93%' }, { p: '8', v: 3.76, label: '3.64–3.88× · 46–49%' }]
+        .map((row) => ({ ...row, pct: (row.v / 4) * 100 })),
+
+      runningLabel: s.running ? 'running' : 'stopped',
+      barStats: [
+        { k: 'tasks executed', v: fmt(s.tasks) }, { k: 'duty cycle', v: eff.toFixed(1) },
+        { k: 'hidden', v: String(s.hidden) }, { k: 'peers', v: String(s.peers) },
+        { k: 'fetched', v: fmt(3 + cp * 4) }, { k: 'rejected', v: '0' },
+      ],
+      dutyPct: Math.round(s.duty * 100), setDuty: this.setDuty,
+      addPeer: this.addPeer, removePeer: this.removePeer, toggleHidden: this.toggleHidden, stop: this.stop,
+      hiddenBtn: s.hidden ? 'Tab visible' : 'Tab hidden',
+      servedFor: PEER_IDS.slice(0, Math.max(1, cp)).map((id, i) => ({ peerId: id, tasks: Math.max(1, Math.round(s.tasks / (i + 2))) })),
+    }
+  }
+}
+
+</script>
+</body>
+</html>
