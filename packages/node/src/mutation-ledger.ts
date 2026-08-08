@@ -2858,6 +2858,60 @@ export const MUTATIONS: readonly Mutation[] = [
     signatureSource: 'test-title',
   },
   {
+    id: 'M69',
+    why:
+      'WIRE-02 / Phase 22 — **the order of `classify`\'s two branches, which is load-bearing and ' +
+      'does not look it.** `SymbolFlags.Type` is a COMPOSITE mask and it includes ' +
+      '`SymbolFlags.Class`: `Type & Class === 32`, measured rather than assumed. So an exported ' +
+      'class matches BOTH tests, and swapping them moves every exported class out of the guard\'s ' +
+      'jurisdiction and into `type-only`. **Measured when planted: callable fell 217 -> 171** — 46 ' +
+      'classes — while the TOTAL export count did not move at all, which is why no total-based ' +
+      'floor could see it. The jurisdiction empties and the guard keeps reading clean.',
+    file: 'packages/node/src/reachability.ts',
+    find: '  if ((flags & (SymbolFlags.Function | SymbolFlags.Class | SymbolFlags.Method)) !== 0) {',
+    replace: '  if ((flags & (SymbolFlags.Interface | SymbolFlags.TypeAlias)) !== 0) {',
+    caughtBy: ['packages/node/src/reachability.node.test.ts'],
+    // Observed 2026-08-08, not predicted: three cases failed, and this is the one that names
+    // the mechanism rather than the count.
+    signature: 'classifies a class as callable even though it also matches the type mask',
+    signatureSource: 'test-title',
+  },
+  {
+    id: 'M70',
+    why:
+      'WIRE-02 / Phase 22 — **alias resolution, without which the guard\'s jurisdiction is empty ' +
+      'and its totals are right.** A barrel entry\'s own flags are `SymbolFlags.Alias`, which ' +
+      'matches neither the callable mask nor the type mask, so every export classifies as ' +
+      '`other-value`. **Measured when planted: callable 0, type-only 0, and the 604-export total ' +
+      'STILL SATISFIED** — the exact silent failure `22-CONTEXT.md` names, where the instrument ' +
+      'stops looking and the numbers still look like numbers.',
+    file: 'packages/node/src/reachability.ts',
+    find: '  const resolveAliases = options.resolveAliases ?? true',
+    replace: '  const resolveAliases = false',
+    caughtBy: ['packages/node/src/reachability.node.test.ts'],
+    // Observed 2026-08-08: three cases failed, including the two per-package floors.
+    signature: 'alias resolution changes the reading, and by how much',
+    signatureSource: 'test-title',
+  },
+  {
+    id: 'M71',
+    why:
+      'WIRE-02 / Phase 22 — **criterion 2\'s first half, at a real production call site.** ' +
+      'Commenting out a wired call must turn the guard red naming the symbol AND the barrel it ' +
+      'came from, so a reader is not left grepping a corpus of 604 exports across eight barrels. ' +
+      '`tools/aot/lift.ts` is the site: it is single-line, and `tools/` is the least contended ' +
+      'tree here. **Measured when planted: two cases failed and the finding count moved 58 -> 60**, ' +
+      'so the guard saw the wiring regression rather than merely failing.',
+    file: 'tools/aot/lift.ts',
+    find: '    const named = await translationCid(translationKeyOf(lifted))',
+    replace: '    const named = await PLANTED_translationCid(translationKeyOf(lifted))',
+    caughtBy: ['packages/node/src/reachability-guard.node.test.ts'],
+    // Observed 2026-08-08 verbatim: "aot/translationCid is wired and must not be reported
+    // unreachable". The title below is the case that carried it.
+    signature: 'does not report a wired capability unreachable',
+    signatureSource: 'test-title',
+  },
+  {
     id: 'G1',
     why:
       '**The population a guard acts on must be the population that pays for it — the eighth ' +

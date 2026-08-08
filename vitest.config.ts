@@ -214,7 +214,7 @@ const NODE_MEASUREMENT = {
   // tests. One of them, the differential, is above SLOW_CUTOFF_MS and so joins EXCLUDED;
   // the other is not. So `files` grows by two while `EXCLUDED.length` grows by one, and
   // `unitFiles` by one -- the derivation the guard checks.
-  files: 169,
+  files: 171,
   tests: 2240,
   /**
    * Sum of the per-file costs the table below records — reporter spans for the files the
@@ -242,7 +242,7 @@ const NODE_MEASUREMENT = {
   // `/usr/bin/time -p`, real 331.01) and + 158 for elf-loader-facts (reporter, solo).
   // Added rather than re-summed from a fresh full-suite run, which is the same method the
   // 2026-08-06 re-siting used; the guard requires only that this cover the listed spans.
-  sumOfFileSpansMs: 1_817_366,
+  sumOfFileSpansMs: 1_824_386,
   /**
    * What `--reporter=json` alone said the same run summed to, i.e. the same number with
    * the three hook-shadowed files left at the value the reporter gave them.
@@ -429,8 +429,8 @@ const NODE_MEASUREMENT = {
   // host's weather. It is recorded because the field is defined as a wall clock, not
   // because a wall clock is a good instrument. The 25.69 reading is additionally NOT a
   // measurement of this suite: it came from a run in which slow-specs itself was red.
-  unitTests: 1694,
-  unitWallClockMs: 22_390,
+  unitTests: 1697,
+  unitWallClockMs: 23_340,
 } as const
 
 /**
@@ -873,6 +873,14 @@ const MEASURED_NODE_SPANS: readonly (readonly [string, number])[] = [
   // within 1 %. No hook shadow: its `beforeEach` makes a temp directory and nothing else.
   ['packages/node/src/enrolment-residual.node.test.ts', 7_022],
   ['packages/node/src/checkpoint-agents.node.test.ts', 6_465],
+  // Added 2026-08-08 by Plan 22-04 with the reachability tracer. Solo `/usr/bin/time -p`:
+  // real 6.90, user 12.73, sys 3.06 -> (user+sys)/real = 2.29, which is a CPU-bound reading
+  // and not a waiting one: the TypeScript API server is a separate process, so its work shows
+  // in `user` while the wall clock overlaps it. The reporter said 5.98 s against a solo real
+  // of 6.90 less the ~1.2 s boot floor, so the two agree and no hook-shadow note is owed --
+  // this file registers no top-level `beforeAll`. Above the cutoff by a factor of 6, so it is
+  // excluded from `test:unit`, which is why it is measured rather than left off the table.
+  ['packages/node/src/reachability.node.test.ts', 5_980],
   ['packages/node/src/discover-arm.node.test.ts', 5_603],
   ['packages/node/src/node-records.node.test.ts', 4_978],
   ['packages/node/src/trust-anchors.node.test.ts', 4_937],
@@ -894,6 +902,12 @@ const MEASURED_NODE_SPANS: readonly (readonly [string, number])[] = [
   ['packages/core/src/enrollment.test.ts', 1_329],
   ['packages/core/src/job/submit.test.ts', 1_098],
   ['packages/node/src/disclosure-gate.node.test.ts', 1_063],
+  // Added 2026-08-08 by Plan 22-04. Solo real 1.91 / user 2.60 / sys 0.62. It sits just over
+  // the cutoff, like `purity` and `disclosure-gate` immediately around it, and like both of
+  // those it runs in `.githooks/pre-commit` rather than in `test:unit` -- so being excluded
+  // here is the arrangement rather than a gap. Its cost inside the gate is a COMPARATIVE
+  // reading, recorded in the hook: 2.96 / 3.13 s without it against 3.40 s with it.
+  ['packages/node/src/reachability-guard.node.test.ts', 1_040],
   ['packages/node/src/purity.node.test.ts', 1_014],
   ['packages/node/src/sovereign-block-refusal.node.test.ts', 1_013],
   // ---- below the cut; listed so the boundary is visible, not excluded ----
