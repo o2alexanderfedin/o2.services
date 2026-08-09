@@ -1658,7 +1658,27 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-08-08T13:23:00.000Z
+Last session: 2026-08-09T20:20:00.000Z
+Stopped at: **Session resumed at `40141fc` from `.planning/HANDOFF.json`, which is now consumed
+and deleted.** Context is **phase work, not the audit**: Phases 25, 26 and 27 are the open set,
+all three discussed, 25 also researched, **none planned**. No implementation has started
+anywhere, so this is a clean boundary. Proceeding to **`/gsd-plan-phase 25`** (X.509 Certificate
+Profile) — `has_context` and `has_research` are both true, so it goes straight to the planner,
+which must mint `X509-01…07` one per obligation and record obligation 5 (`MAX_CHAIN_DEPTH = 8`,
+`capability.ts:127/190`) as **delivered-with-evidence** rather than planning it as work.
+Resume file: `.planning/phases/phase-25-x509-certificate-profile/.continue-here.md` — it carries
+**two blocking constraints** that each produced a wrong answer before being caught (quoted
+history reading as present tense; a blanket `node_modules` symlink in a worktree making guards
+verify the main checkout).
+
+**The "10 open phases" premise was false and is corrected here.** Phases 1–10 are complete v1.0
+work whose directories are empty, so every directory heuristic reports them as open. The
+genuinely open set is **25, 26, 27**, confirmed against `### Phase N:` headings in ROADMAP.md
+rather than against directories — `gsd-sdk query roadmap.analyze` returns `phase_count: 0` on
+this roadmap, and `phase.add` numbers from directories (it returned 25 for what had to be 27).
+
+### Prior session (2026-08-08T13:23:00.000Z)
+
 Stopped at: **Session resumed at `d7b52e3`. Context is the v1.1 MILESTONE AUDIT-FIX, not phase
 work** — all 15 v1.1 phases have verifications, Phase 22 included (2/3, `fee26c2`). Open work is
 `.planning/v1.1-MILESTONE-AUDIT.md`: **9 of 17 findings closed**, 5 auto-fixable remaining
