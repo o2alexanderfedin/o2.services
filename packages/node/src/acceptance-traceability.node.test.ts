@@ -159,21 +159,26 @@ const RECOGNISED_STATUSES: readonly string[] = [
 const delivered = (status: string): boolean => status.startsWith('Done')
 
 /**
- * Checkbox ids the traceability table has no row for, as measured on 2026-07-30.
+ * Checkbox ids the traceability table has no row for. **Empty as of 2026-08-08.**
  *
- * Recorded as a set rather than asserted away. Demanding a row for every checkbox
- * fails today for six ids minted with v1.1, and the only way to go green would be to
- * invent rows — a ledger edited to satisfy its own checker. Holding the set instead
- * means deleting a row cannot silence the join: the set changes and this fails.
+ * It held six — `SCHED-06`, `NET-08`, `NET-09`, `NET-10`, `DATA-10`, `BENCH-07`, all minted with
+ * v1.1 — and the reason given for holding them was exactly right: *"the only way to go green
+ * would be to invent rows — a ledger edited to satisfy its own checker."*
+ *
+ * **The rows were written rather than invented, which is the distinction that sentence turns
+ * on.** The v1.1 milestone audit's three-source cross-reference read the checklist and this
+ * table as two independent sources, found the six, and a cross-phase integration pass then
+ * located each mechanism by symbol and file — `CountingExecutor` composed outermost for
+ * SCHED-06, `readMessage`'s ceiling on the receive path for NET-08, the named `reason` on
+ * `AgentResponse` for NET-10, `withholdingFrom` as the block source in both factories for
+ * DATA-10, `processRunnerFor` → a spawned `bin/agent.ts` for BENCH-07. Each row states what was
+ * found. NET-09 went in as **Partial**, not Done, and its checkbox came *off* — which is the
+ * evidence that these were measured rather than fitted to the checker.
+ *
+ * Kept as an empty set rather than deleted: the assertion below is an equality, so a row
+ * disappearing still fails here rather than silently re-opening the hole.
  */
-const CHECKBOXES_WITHOUT_A_ROW: readonly string[] = [
-  'SCHED-06',
-  'NET-08',
-  'NET-09',
-  'NET-10',
-  'DATA-10',
-  'BENCH-07',
-]
+const CHECKBOXES_WITHOUT_A_ROW: readonly string[] = []
 
 const TRACEABILITY_FLOOR = 60
 

@@ -24,7 +24,6 @@ export {
   IDENTITY_FILE,
   MalformedSeedFileError,
   PROVIDER_FILE,
-  hasSeed,
   loadCertificate,
   loadOrCreateSeed,
   saveCertificate,

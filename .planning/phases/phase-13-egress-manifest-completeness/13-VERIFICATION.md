@@ -6,6 +6,18 @@ criteria_met: 0
 criteria_partial: 3
 criteria_total: 3
 score: 0/3 criteria fully verified — all three met in strictly weaker forms than written
+superseded_by: 13-VERIFICATION-2.md
+superseded_note: >-
+  THIS FILE IS PASS 1 AND IS NOT THE PHASE'S VERDICT. `13-VERIFICATION-2.md` is pass 2, same day,
+  and scores 3/3 on the criteria AS AMENDED in ROADMAP.md, with 8 verifier-planted mutations. Plans
+  13-04, 13-05 and 13-07 landed between the two passes and closed the gaps recorded below: the job
+  now fails as `insufficient` rather than completing `agreed`, two spawned `bin/agent.ts` processes
+  are exercised, and the detection granularity is stated honestly in DATA-05's ledger row.
+  A `reopened:` block stood here for part of 2026-08-08. IT WAS WRONG AND IS RETRACTED. Audit
+  finding L3 compared STATE.md against this file alone, the directory was never globbed, and a
+  decision was put to the owner on that basis. Reading one of two verification files and reporting
+  a contradiction is the error; it is recorded rather than erased so the next reader checks for a
+  pass 2 before trusting a pass 1.
 baseline:
   test_files: 122
   tests: 1775

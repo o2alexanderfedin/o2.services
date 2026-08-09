@@ -101,8 +101,19 @@ const CHECKPOINT_OPTOUTS: readonly {
   },
   {
     file: 'packages/browser/demo/main.ts',
-    count: 2,
-    role: 'the demo page, twice: runColouring and the sovereign run — the only durable store',
+    // **Two until 2026-08-08.** `runPi` is the third, and it is the case this pin exists to
+    // make somebody state out loud: a browser tab is the only durable store in the fabric,
+    // so an opt-out here is the one that could actually lose work. It is correct for the
+    // same reason the other two are — a π run is one submit with no resumable partial, and
+    // `reduceJob` re-derives the tree from the job rather than from a checkpoint.
+    //
+    // The count moved because `0d1fcb5` added the site and left the pin at 2, so this guard
+    // was red at that commit. It was found by the v1.1 re-audit running the node suite, not
+    // at the time — which is the guard working and the commit not reading it.
+    count: 3,
+    role:
+      'the demo page, three times: runColouring, runPi and the sovereign run — the only' +
+      ' durable store',
   },
 ]
 

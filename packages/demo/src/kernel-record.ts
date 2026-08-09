@@ -43,14 +43,33 @@ import { CID } from 'multiformats/cid'
 export const KERNEL_NAME: string = 'o2-demo-colouring-kernel'
 
 /** The public half of the key that signed {@link KERNEL_RECORD}. Pin this, nothing else. */
-export const KERNEL_TRUST_ANCHOR: PublicKeyHex = '769c7b0d9c10ceaf172ddb99d24ee37d65e7dbdac129641eabbf4c1aead3c729'
+export const KERNEL_TRUST_ANCHOR: PublicKeyHex = '3ac7f97fa636fbacbfa8e00aa466f191e4335cd1ef5f19477e2c26587d64a6e5'
 
 /** The signed mapping from {@link KERNEL_NAME} to the CID of the committed `kernel.wasm`. */
 export const KERNEL_RECORD: NameRecord = {
   name: KERNEL_NAME,
   cid: CID.parse('bafyreihyux7jlsrv4sbeyqucghtarabmugo322frpsc5h2ed4ezb3omm5m'),
   version: 1,
-  expiresAt: 1820090841471,
+  expiresAt: 1820787234025,
   signer: KERNEL_TRUST_ANCHOR,
-  signature: '1cfeccd29988f1bb74b5d85e4adb6d5cdc0b2035495da665e1989bad9abefe9a270623521e23766fe4445a4e6de1417172987798c3fa01b08be5e773b3dd3b02',
+  signature: 'afd956f2ccf5e57bf1ce0273064f8633feb1178d0abb29b8e5d7a5c670692b91b03ee92ba060acbe001a64b90426f3175fc8cb3422c7ddc2020232e357e1040c',
+}
+
+/** The name the demo's pi-estimating module is published under. */
+export const PI_NAME: string = 'o2-demo-pi-kernel'
+
+/**
+ * The signed mapping from {@link PI_NAME} to the CID of the committed `pi.wasm`.
+ *
+ * **Signed by {@link KERNEL_TRUST_ANCHOR}, the same anchor as {@link KERNEL_RECORD}**, because
+ * both node binaries default to exactly one anchor and a second key would be refused by every
+ * stock node. `sign-kernel.ts` asserts the two signers match before writing this file.
+ */
+export const PI_RECORD: NameRecord = {
+  name: PI_NAME,
+  cid: CID.parse('bafyreig6lnlp4lpsj62grhjmljdzjrgyuawaa6pb2gkivuhwldqrrmisga'),
+  version: 1,
+  expiresAt: 1820787234025,
+  signer: KERNEL_TRUST_ANCHOR,
+  signature: '27443297576ec78757ecb651fc7133e9c09942fc2c6bc747ce86efbc19ccef508b507c251cccb477ca769c6aed93db61cd8ef518fad290c2df4c30c87cb3c408',
 }

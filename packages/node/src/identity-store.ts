@@ -26,7 +26,7 @@
  * only symptom would be that nobody talks to it any more.
  */
 
-import { mkdir, readFile, rename, stat, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { SEED_BYTES, generateSeed, parseKeyHex } from '@o2/libp2p'
 import { parseCertificate } from '@o2/net'
@@ -160,17 +160,6 @@ export async function loadCertificate(dir: string): Promise<NodeCertificate | nu
     if (parseKeyHex(key) === null) return null
   }
   return certificate
-}
-
-/** Whether a seed file already exists, without creating one. */
-export async function hasSeed(dir: string, file: string): Promise<boolean> {
-  try {
-    await stat(join(dir, file))
-    return true
-  } catch (cause) {
-    if (isNotFound(cause)) return false
-    throw cause
-  }
 }
 
 function isNotFound(cause: unknown): boolean {

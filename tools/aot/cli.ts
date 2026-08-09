@@ -66,6 +66,8 @@
 import { realpathSync } from 'node:fs'
 import { writeFile } from 'node:fs/promises'
 import { pathToFileURL } from 'node:url'
+import { MemoryBlockstore, decodeNameRecord, encodeNameRecord, signName } from '@o2/core'
+import type { NameRecord } from '@o2/core'
 import { describeLift, describeLiftFailure, liftElf } from './lift.ts'
 
 const EXIT_CLEAN = 0
@@ -83,7 +85,12 @@ const USAGE =
   // with no elfconv image present.
   '  --image  the toolchain image to lift with; a tag whose RepoDigests name another\n' +
   '           repository is refused rather than run under the borrowed name\n' +
-  '  --docker the program to run instead of `docker`'
+  '  --docker the program to run instead of `docker`\n' +
+  // The publish step. Without it a lifted artifact cannot be dispatched to any node that pins
+  // a build authority, because `guardModuleProvenance` refuses a bare CID.
+  '  --publish-as   name to sign the artifact under; needs --signing-key\n' +
+  '  --signing-key  the build authority seed, 64 lowercase hex\n' +
+  '  --record-out   where the signed record goes (default <out>.record.json)'
 
 /**
  * Why the arguments could not be used.
@@ -107,6 +114,16 @@ export type ArgFailure =
    */
   | { readonly kind: 'missing-flag-value'; readonly flag: string }
   | { readonly kind: 'flag-in-input-position'; readonly argument: string }
+  /**
+   * `--publish-as` without `--signing-key`, or the reverse.
+   *
+   * Refused rather than defaulted, and the reason is the whole point of the publish step: a
+   * record signed by a key nobody pinned vouches for nothing, and a name with no signature is
+   * the bare CID `guardModuleProvenance` already refuses. Half a publish is not a publish.
+   */
+  | { readonly kind: 'half-a-publish'; readonly given: string; readonly missing: string }
+  /** `--signing-key` that is not 64 lowercase hex characters. */
+  | { readonly kind: 'bad-signing-key' }
 
 /**
  * A usable invocation, or the reason there isn't one.
@@ -128,6 +145,12 @@ export type AotArgs =
       readonly out: string
       readonly image?: string
       readonly docker?: string
+      /** The name to publish the artifact under. Requires `--signing-key`. */
+      readonly publishAs?: string
+      /** The build authority's 64-hex ed25519 seed. */
+      readonly signingKey?: string
+      /** Where the signed record goes. Defaults to `<out>.record.json`. */
+      readonly recordOut?: string
     }
   | { readonly ok: false; readonly failure: ArgFailure }
 
@@ -139,6 +162,14 @@ export function describeArgFailure(failure: ArgFailure): string {
       return `${failure.flag} was given with no value after it`
     case 'flag-in-input-position':
       return `${failure.argument} is not a path — the input binary comes first, or after --out <path>`
+    case 'half-a-publish':
+      return (
+        `${failure.given} was given without ${failure.missing} — publishing needs both. ` +
+        'A record signed by a key nobody pinned vouches for nothing, and a name with no ' +
+        'signature is the bare CID a node already refuses.'
+      )
+    case 'bad-signing-key':
+      return '--signing-key is not 64 lowercase hex characters'
   }
 }
 
@@ -148,7 +179,14 @@ export function describeArgFailure(failure: ArgFailure): string {
  * A table rather than three `indexOf` calls, so adding a fourth flag is an entry here
  * and nothing else. The order is the order they are documented in {@link USAGE}.
  */
-const VALUE_FLAGS = ['--out', '--image', '--docker'] as const
+const VALUE_FLAGS = [
+  '--out',
+  '--image',
+  '--docker',
+  '--publish-as',
+  '--signing-key',
+  '--record-out',
+] as const
 
 /**
  * `process.argv.slice(2)` into an input path, an output path, and the two overrides.
@@ -198,14 +236,92 @@ export function parseAotArgs(argv: readonly string[]): AotArgs {
 
   const image = values.get('--image')
   const docker = values.get('--docker')
+  const publishAs = values.get('--publish-as')
+  const signingKey = values.get('--signing-key')
+
+  if (publishAs !== undefined && signingKey === undefined) {
+    return { ok: false, failure: { kind: 'half-a-publish', given: '--publish-as', missing: '--signing-key' } }
+  }
+  if (signingKey !== undefined && publishAs === undefined) {
+    return { ok: false, failure: { kind: 'half-a-publish', given: '--signing-key', missing: '--publish-as' } }
+  }
+  if (signingKey !== undefined && !/^[0-9a-f]{64}$/.test(signingKey)) {
+    return { ok: false, failure: { kind: 'bad-signing-key' } }
+  }
+
+  const out = values.get('--out') ?? `${input}.wasm`
+  const recordOut = values.get('--record-out')
   return {
     ok: true,
     input,
-    out: values.get('--out') ?? `${input}.wasm`,
+    out,
     // Omitted rather than `undefined` — see {@link AotArgs}.
     ...(image === undefined ? {} : { image }),
     ...(docker === undefined ? {} : { docker }),
+    ...(publishAs === undefined ? {} : { publishAs }),
+    ...(signingKey === undefined ? {} : { signingKey }),
+    ...(recordOut === undefined ? {} : { recordOut: recordOut ?? `${out}.record.json` }),
+    ...(publishAs !== undefined && recordOut === undefined ? { recordOut: `${out}.record.json` } : {}),
   }
+}
+
+/** What {@link publishArtifact} returns — the record, its wire text, or why neither exists. */
+export type PublishResult =
+  | { readonly ok: true; readonly record: NameRecord; readonly text: string }
+  | { readonly ok: false; readonly reason: string }
+
+/**
+ * Turn lifted bytes into a **signed name record**, which is the step this tool did not have.
+ *
+ * `guardModuleProvenance` refuses a task whose module arrives as a bare CID — *"a bare CID names
+ * bytes, not a publisher"* — so before this existed, nothing `aot:lift` produced could be
+ * dispatched to any node that pins a build authority, which is every node not explicitly
+ * `runs-unsigned-artifacts`. The lift → sign → dispatch path had no second step outside a test:
+ * `aot-dispatch.node.test.ts` supplied its own private `recordFor`, and that private helper WAS
+ * the missing production capability. This is it, promoted.
+ *
+ * The CID is derived from the bytes through the same `MemoryBlockstore().put` that `bin/bench.ts`
+ * uses for its fixtures, so a record vouches for the artifact rather than for a name.
+ *
+ * **The text is round-tripped before it is returned.** `encodeNameRecord` and
+ * `decodeNameRecord` are two halves of a format with one producer, and a format that cannot be
+ * read back is a file that looks like a publish and is not one. Encoding, decoding and comparing
+ * costs nothing here and is the only thing that makes the codec's two halves check each other.
+ */
+export async function publishArtifact(
+  bytes: Uint8Array,
+  options: { readonly name: string; readonly signingKey: string; readonly validForMs?: number; readonly now?: number },
+): Promise<PublishResult> {
+  // Copied into a fresh buffer rather than passed through. `LiftedArtifact.bytes` is a plain
+  // `Uint8Array` over an `ArrayBufferLike`, and the blockstore's contract is the narrower
+  // `ArrayBuffer` — the same copy discipline `loadOrCreateSeed` and `FsBlockstore.get` keep,
+  // for the same reason: a caller must not be able to mutate what was hashed after hashing.
+  const owned = new Uint8Array(bytes.length)
+  owned.set(bytes)
+  const cid = await new MemoryBlockstore().put(owned)
+  const now = options.now ?? Date.now()
+  const record = signName(fromHexKey(options.signingKey), {
+    name: options.name,
+    cid,
+    version: 1,
+    expiresAt: now + (options.validForMs ?? 3_600_000),
+  })
+  const text = encodeNameRecord(record)
+  const readBack = decodeNameRecord(text)
+  if (readBack === null) {
+    return { ok: false, reason: 'the signed record could not be read back after encoding' }
+  }
+  if (!readBack.cid.equals(record.cid) || readBack.signature !== record.signature) {
+    return { ok: false, reason: 'the signed record did not survive its own encoding' }
+  }
+  return { ok: true, record, text }
+}
+
+/** 64 hex characters to 32 bytes. The parser has already refused anything else. */
+function fromHexKey(hex: string): Uint8Array<ArrayBuffer> {
+  const bytes = new Uint8Array(32)
+  for (let i = 0; i < 32; i++) bytes[i] = Number.parseInt(hex.slice(i * 2, i * 2 + 2), 16)
+  return bytes
 }
 
 async function main(argv: readonly string[]): Promise<number> {
@@ -235,6 +351,23 @@ async function main(argv: readonly string[]): Promise<number> {
   await writeFile(args.out, outcome.artifact.bytes)
   process.stdout.write(`${describeLift(outcome.artifact)}\n`)
   process.stdout.write(`  written to ${args.out}\n`)
+
+  if (args.publishAs !== undefined && args.signingKey !== undefined && args.recordOut !== undefined) {
+    const published = await publishArtifact(outcome.artifact.bytes, {
+      name: args.publishAs,
+      signingKey: args.signingKey,
+    })
+    if (!published.ok) {
+      process.stderr.write(`${published.reason}\n`)
+      return EXIT_FAILED
+    }
+    await writeFile(args.recordOut, published.text)
+    process.stdout.write(`  published as "${args.publishAs}" — ${published.record.cid.toString()}\n`)
+    process.stdout.write(`  record written to ${args.recordOut}\n`)
+    // The operator's next step, printed because it is the one thing they cannot derive from
+    // the file: a serving node runs this artifact only if it pins THIS key.
+    process.stdout.write(`  pin this build authority on serving nodes: --trust-anchor ${published.record.signer}\n`)
+  }
 
   return outcome.verdict === 'clean' ? EXIT_CLEAN : EXIT_RESERVATIONS
 }

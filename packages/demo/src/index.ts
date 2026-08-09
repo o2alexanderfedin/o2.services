@@ -57,7 +57,9 @@ export { kernelBytes } from './kernel.ts'
 // key a node pins so `guardModuleProvenance` can accept `KERNEL_RECORD` and refuse
 // everything else. Generated and committed by `scripts/sign-kernel.ts`; read that
 // file's header before regenerating, because both node binaries default to this anchor.
-export { KERNEL_NAME, KERNEL_RECORD, KERNEL_TRUST_ANCHOR } from './kernel-record.ts'
+// `PI_RECORD` shares `KERNEL_TRUST_ANCHOR` — one key signs both, because both node binaries
+// default to exactly one anchor and a second key would be refused by every stock node.
+export { KERNEL_NAME, KERNEL_RECORD, KERNEL_TRUST_ANCHOR, PI_NAME, PI_RECORD } from './kernel-record.ts'
 
 // Host-side job construction and result reading.
 export {

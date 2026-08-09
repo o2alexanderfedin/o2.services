@@ -137,6 +137,22 @@ import { armOrphanLeash } from '../orphan-leash.ts'
  * **a `--discover` run must not be published beside a default one.** The report line says
  * so rather than leaving it to whoever reads the numbers.
  *
+ * ## Off by default is SETTLED, by owner ruling 2026-08-08 — audit finding G5
+ *
+ * The v1.1 milestone audit raised this flag being off by default as an unwired capability and
+ * called SCHED-01's intent *unsettled*. **It was already settled and the ledger already said so**:
+ * SCHED-01's traceability row reads `Done — 2026-08-02, plan 18-06` and gives the reason in the
+ * same breath — off by default *"so a published curve is not reshaped by an undeclared change"*.
+ * The ruling confirms that reading rather than changing it.
+ *
+ * **The reason is the one two paragraphs up, not shyness about discovery.** Discovery is real work
+ * on the timed path, so turning it on by default would silently move every published number and
+ * make this milestone's curves incomparable with the ones already recorded. That is the same trade
+ * `relayAdmissionGate`'s header records for this file's admission posture, and it is declined for
+ * the same reason. The behaviour half is proven regardless — `discovery-agents.node.test.ts` runs
+ * it across seven real `bin/agent.ts` processes — so what is opt-in here is the *benchmark's*
+ * configuration, never the capability's existence.
+ *
  * ## Read the same way `--quick` is read
  *
  * `process.argv.includes`, not `parseArgs`. The plan called for `parseArgs`, and this file

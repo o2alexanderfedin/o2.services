@@ -2,7 +2,7 @@ import { ed25519 } from '@noble/curves/ed25519.js'
 import { describe, expect, it } from 'vitest'
 import { toHex } from './capability.ts'
 import { canonicalCid } from './canonical/encode.ts'
-import { SignedNameResolver, signName } from './naming.ts'
+import { decodeNameRecord, encodeNameRecord, SignedNameResolver, signName } from './naming.ts'
 
 /**
  * DATA-07 / DATA-08 — provenance, which content addressing does not provide.
@@ -137,5 +137,83 @@ describe('trust anchors are fixed at construction', () => {
     // whatever taught it. There is deliberately no method to do so.
     expect('addTrustAnchor' in resolver).toBe(false)
     expect('trust' in resolver).toBe(false)
+  })
+})
+
+describe('a signed record survives leaving the process', () => {
+  /**
+   * The publish path's wire form. `tools/aot/cli.ts` writes one of these beside every artifact
+   * it lifts, because `guardModuleProvenance` refuses a bare CID — *"a bare CID names bytes, not
+   * a publisher"* — so before this format existed nothing the lifter produced could be dispatched
+   * to a node that pins a build authority.
+   */
+  const seed = new Uint8Array(32).fill(9)
+
+  async function aRecord() {
+    const hashed = await canonicalCid({ bytes: new Uint8Array([1, 2, 3]) })
+    if (!hashed.ok) throw new Error('the fixture could not be hashed')
+    return signName(seed, {
+      name: 'a-published-artifact',
+      cid: hashed.cid,
+      version: 4,
+      expiresAt: 1_800_000_000_000,
+    })
+  }
+
+  it('round-trips every field, including the CID', async () => {
+    const record = await aRecord()
+    const back = decodeNameRecord(encodeNameRecord(record))
+    expect(back).not.toBeNull()
+    expect(back?.name).toBe(record.name)
+    expect(back?.cid.toString()).toBe(record.cid.toString())
+    expect(back?.version).toBe(record.version)
+    expect(back?.expiresAt).toBe(record.expiresAt)
+    expect(back?.signer).toBe(record.signer)
+    expect(back?.signature).toBe(record.signature)
+  })
+
+  it('is still accepted by the resolver after the round trip', async () => {
+    // The assertion that makes the format worth having: a record that survives encoding but
+    // stops verifying is a file that looks like a publish and is not one.
+    const record = await aRecord()
+    const back = decodeNameRecord(encodeNameRecord(record))
+    expect(back).not.toBeNull()
+    if (back === null) return
+    const resolver = new SignedNameResolver([record.signer])
+    expect(resolver.accept(back, record.expiresAt - 1).ok).toBe(true)
+  })
+
+  it('refuses text that is not a record, rather than half-decoding it', () => {
+    // Every rejection is `null`, on the ground `asNodeRecords` gives: a partially-formed record
+    // hands the resolver something to verify that is not a record.
+    expect(decodeNameRecord('not json at all')).toBeNull()
+    expect(decodeNameRecord('[]')).toBeNull()
+    expect(decodeNameRecord('null')).toBeNull()
+    expect(decodeNameRecord('{}')).toBeNull()
+  })
+
+  it('refuses a signer or signature that is not hex, which fromHex would have admitted', async () => {
+    // THE case that carries the validation. `fromHex` never rejects — it runs `Number.parseInt`
+    // per byte pair and turns anything unparseable into 0 — so a check written as
+    // `fromHex(x) === null` cannot fail, and reads exactly like validation while admitting
+    // everything. That check was written here first and this is what replaced it.
+    const record = await aRecord()
+    const good: Record<string, unknown> = JSON.parse(encodeNameRecord(record))
+
+    expect(decodeNameRecord(JSON.stringify({ ...good, signer: 'zz'.repeat(32) }))).toBeNull()
+    expect(decodeNameRecord(JSON.stringify({ ...good, signer: 'ABCD'.repeat(16) }))).toBeNull()
+    expect(decodeNameRecord(JSON.stringify({ ...good, signer: 'ab' }))).toBeNull()
+    expect(decodeNameRecord(JSON.stringify({ ...good, signature: 'nothex' }))).toBeNull()
+    // And the other direction, so the predicate is not simply refusing everything.
+    expect(decodeNameRecord(JSON.stringify(good))).not.toBeNull()
+  })
+
+  it('refuses a malformed CID, a negative version and a non-finite expiry', async () => {
+    const record = await aRecord()
+    const good: Record<string, unknown> = JSON.parse(encodeNameRecord(record))
+    expect(decodeNameRecord(JSON.stringify({ ...good, cid: 'not-a-cid' }))).toBeNull()
+    expect(decodeNameRecord(JSON.stringify({ ...good, version: -1 }))).toBeNull()
+    expect(decodeNameRecord(JSON.stringify({ ...good, version: 1.5 }))).toBeNull()
+    expect(decodeNameRecord(JSON.stringify({ ...good, name: '' }))).toBeNull()
   })
 })
