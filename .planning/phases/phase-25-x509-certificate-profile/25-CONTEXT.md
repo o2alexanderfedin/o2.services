@@ -77,6 +77,72 @@ unknown extensions — and nothing in this phase attempts to reconcile them.
   the 2026-08-07 measurement, and is not re-implemented. The review's claim that
   *"verifyChain currently has no depth bound at all"* was false when written.
 
+### The verification backend — OWNER RULING 2026-08-09
+
+**`crypto.subtle` Ed25519 when available; libsodium (WASM) as the fallback when it is not.**
+
+This is not part of the seven obligations. It arrived from a question about
+`MAX_CHAIN_DEPTH` and lands here because obligation 1 is *permitted algorithms*, and how
+those algorithms are **verified** is the same surface. It touches `verifyChain`
+(`capability.ts`) and `verifyCertificate` (`enrollment.ts`), not the DER decoder.
+
+**What was measured, on this host, 2026-08-09:**
+
+| Backend | Per verify | Depth-8 chain | Insecure origin | Bundle |
+|---|---|---|---|---|
+| `@noble/curves` (today) | 1.348 ms | 10.78 ms | ✅ works | 0 KB marginal — transitive dep of `libp2p-noise` |
+| `crypto.subtle` chromium | **0.0393 ms** | 0.31 ms | ❌ `undefined` | 0 KB |
+| `crypto.subtle` firefox | 0.0800 ms | 0.64 ms | ❌ `undefined` | 0 KB |
+| `crypto.subtle` webkit | 0.1100 ms | 0.88 ms | ❌ `undefined` | 0 KB |
+| **libsodium (WASM)** | **0.0887 ms** | 0.71 ms | ✅ works | **314.9 KB gzip** |
+
+**Why a fallback is needed at all — the tier split.** `crypto.subtle` is not merely
+missing Ed25519 outside a secure context; the whole interface is absent. Measured
+`undefined` in chromium, firefox and webkit at `http://10.144.82.249:8799`. That is the
+origin `bin/seed.ts` prints in its banner and encodes in its QR code — the multi-device
+LAN demo, the path that demonstrates the project's core claim. HTTPS and `localhost` are
+secure; a LAN IP and a `.local` name are not.
+
+**Why libsodium works there and `crypto.subtle` does not:** libsodium is WASM, and WASM
+carries no secure-context requirement. This is already proven in this repository rather
+than assumed — the demo instantiated the colouring kernel and settled n = 500 over that
+exact LAN HTTP origin on 2026-08-08.
+
+**Taken against the standing recommendation, which is recorded because it was overruled.**
+The recommendation was `subtle → noble`: noble is already in the dependency graph at zero
+marginal cost, while libsodium is 314.9 KB gzip against a total demo bundle of 168.93 KB —
+**1.9× the whole application** — to buy ~10 ms per verification on the single tier that
+pays it, on a path research already proved is **off** the per-task execution path (all five
+`verifyCertificate` call sites sit outside `exec → WebAssembly.instantiate`). The owner
+ruled libsodium. The work proceeds under it.
+
+**What the ruling obliges:**
+
+1. **Lazy `import()` behind the capability check.** No secure-context tier may fetch
+   libsodium. `globalThis.crypto?.subtle` decides, and the 314.9 KB is reachable only on
+   the arm that needs it. A static import would put the cost on every tier and is the one
+   way this ruling becomes indefensible.
+2. **A differential-conformance guard, and it is the non-negotiable part.** Every enabled
+   backend must return the **identical verdict** over one shared vector set — and the
+   vectors that matter are the **rejections**, not the acceptances. Agreement on the happy
+   path is already established: a noble signature verifies under libsodium and a libsodium
+   signature verifies under noble, both directions, same RFC 8032. Disagreement on a
+   *malformed* input is what would let one origin accept what another refuses, and that is
+   the hazard a second implementation in a trust path introduces.
+3. **`subtle.verify` is async and `verifyChain` is synchronous.** The real cost of this
+   change is the signature of a security-critical function and every caller with it. Price
+   it in planning rather than discovering it in execution.
+4. **The measurements above are one host, one run.** They were not taken with the
+   comparative-ratio discipline this repository requires of a perf claim. Re-measure before
+   any of them is quoted as settled.
+
+**A cheaper route exists and is not chosen here, but should be named:** AutoTLS
+(`@ipshipyard/libp2p-auto-tls`, already in the stack table) would give the seed a real
+`<peerId>.libp2p.direct` certificate, making every tier a secure context and letting
+`crypto.subtle` be unconditional with no fallback and no second implementation. It is
+blocked on the same thing `NET-03` is — a publicly reachable host — and that requirement
+now has a second reason to matter.
+
 ### Claude's Discretion
 
 Module placement, decoder internals, the exact numeric ceilings (to be sited against real
