@@ -13,12 +13,13 @@ human_verification:
   - test: "Decide whether the browser factory's authorizer behaviour may stay unmeasured at phase close."
     expected: "A dispatch to a live BrowserNode's serveAgent handler, with and without a valid chain, refused and accepted respectively."
     why_human: "Cannot be verified programmatically today. A BrowserNode listens on ['/p2p-circuit', '/webrtc'] alone (browser-node.ts:378); with no relay reservation it has no dialable address, and the browser vitest project cannot host a Circuit Relay v2 server. Re-measured here: a fully scrambled browser authorizer leaves tsc at exit 0 and 345 browser tests green in three engines."
+resolved_after_verification:
   - test: "Resolve the AUTH-03 ledger inconsistency."
-    expected: "One consistent statement of AUTH-03's status across 15-04-SUMMARY.md, REQUIREMENTS.md:186 and REQUIREMENTS.md:567."
-    why_human: "15-04-SUMMARY.md frontmatter declares requirements-completed: [AUTH-03], which contradicts the owner ruling at ROADMAP.md:442-446. REQUIREMENTS.md:186 correctly still shows AUTH-03 open, but its ledger row at :567 still reads 'RemoteExecutor sends no capability field and no node installs an authorizer', which is now false for the serving half. This verification is forbidden from ticking AUTH-03 and did not edit either file."
+    resolved_on: "2026-08-09"
+    evidence: "All three sources named by the item now agree. 15-04-SUMMARY.md reads `requirements-completed: []`; REQUIREMENTS.md's AUTH-03 row reads **Partial** with the serving/requestor split stated; and the ':567' clause *'RemoteExecutor sends no capability field'* survives in exactly one place — a paragraph that quotes it as expired and records the measurement that killed it. Checkbox unmoved, as the item required."
   - test: "Decide whether a shipped source comment stating a mechanism that does not exist must be corrected before phase close."
-    expected: "capability-authorizer.ts:17-23 either corrected or removed."
-    why_human: "It names registerSovereignInputs, a function that exists nowhere in this repository, and asserts 'nothing is registered' on a refusal. Verified false: takeSovereignHold runs at agent.ts:382-388, before the authorize call at :402-408. 15-04 recorded the correction in capability-dispatch.node.test.ts:133-142 and left the shipped comment unchanged. No behavioural impact; it is a documentation defect in production source."
+    resolved_on: "2026-08-09"
+    evidence: "capability-authorizer.ts is corrected and dated 2026-07-31 in the file: it now records that the comment *claimed* `registerSovereignInputs` never runs, that no such function exists, and that `takeSovereignHold` runs before `options.authorize`. `registerSovereignInputs` appears in three files repo-wide and every one narrates the false claim rather than asserting it. The project rule this follows is CLAUDE.md's: when a comment and a requirement disagree, the requirement wins and the comment gets fixed."
 warnings:
   - "Browser tier: the capability mechanism is behaviourally verified in three engines, but browser-node.ts's wiring of it is held only by a source-text argument-equality check."
   - "capability-authorizer.ts:17-23 ships a false mechanism claim naming a non-existent function."
