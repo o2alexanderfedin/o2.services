@@ -1582,6 +1582,90 @@ It lands **here** rather than in Phase 15 for one reason: this phase already rew
         recipe and reproduce it, or pin and publish the archives — a green build that only works
         on one laptop is the thing this project's conventions exist to refuse. -->
 
+### Phase 27: The Demo UI, Driven by the Real Fabric
+**Goal**: The demo page shows every workload the fabric can already run, in the imported mockup's design, with every figure on screen produced by a live `TabApi` reading — so the gap closes between what this project can do and what a visitor can see it do
+**Depends on**: nothing scheduled. Every API it consumes exists — `runColouring`, `runPi`, `runJob`, `activity`, `heldPeers`, `capacity`, `governor`, `startReport`, `verifyAnswer`. This phase writes no fabric code; it is a wiring and rendering phase
+**Requirements**: no new IDs. It closes the *demo half* of **MR-03…MR-07**, whose ledger rows already name this exact gap — *"The demo still merges with a linear scan: `answerOf` in `packages/demo/src/job.ts`, called from `packages/browser/demo/main.ts`"* — and widens **DEMO-01**/**DEMO-02** past the one workload they were written against. Audit finding **G4** (`runJob` has no caller in the page) closes here or is restated with a reason
+**Research**: measured 2026-08-08 against both artifacts, recorded below
+
+<!-- FILED 2026-08-08 BY OWNER INSTRUCTION ("integrate our actual p2p cloud into this"), after
+     importing the mockup. NOT scheduled into v1.1 — v1.1's span is phases 11-22 and this sits
+     outside it, exactly as 23-26 do. It is the most natural v1.1-completing candidate on the
+     board, because it closes ledger rows v1.1 opened; scheduling it is the owner's call.
+
+     THE ASYMMETRY, stated once so nobody re-derives it. The fabric runs three kernels and a
+     bring-your-own path. The page runs ONE of them and prints the result into a `<pre>`. So
+     the project's own demo understates the project, and the understatement is invisible from
+     inside the page — nothing is broken, there is simply no surface.
+
+     WHAT WAS MEASURED 2026-08-08, not assumed. Both artifacts were driven under Playwright.
+
+     1. THE MOCKUP CONTAINS NO FABRIC AND MUST NOT BE MISTAKEN FOR ONE.
+        `docs/design/mockups/o2-fabric-demo/`, instrumented before page load and clicked through
+        its gate: hosts contacted are itself, `fonts.googleapis.com`, `fonts.gstatic.com`,
+        `unpkg.com` — no relay, no seed, no peer. `WebSocket` constructions: 0.
+        `RTCPeerConnection` constructions: 0. `WebAssembly.instantiate` calls: 0. `window.o2`:
+        `undefined`. Its peers are eight literals (`peer-4a91`, `peer-c07e`, …) and its figures
+        are `data-props` defaults. It is a drawing. Its VALUE is that it is a drawing of the
+        right thing — six surfaces, four of which have no implementation anywhere.
+
+     2. THE SHIPPED PAGE GENUINELY WORKS, so this phase is not a rescue. Driven against a real
+        `bin/seed.ts` relay: consented, joined, `2 node(s) computing`, ladder FOUND at n=300,
+        400 and 500, `no answer` at 600, verification cost 2.00x, and the local verifier
+        re-derived 386 triples and accepted. Zero console errors. The mechanism is sound; only
+        the surface is thin.
+
+     3. WHAT THE PAGE ALREADY HAS AND DOES NOT SHOW. `runPi` landed 2026-08-08 (f42e985) with a
+        verified tree-reduce behind it and has NO BUTTON. `runJob` — the bring-your-own path,
+        signed record required, `sovereign` label available — has no caller in the page at all;
+        that is audit finding G4, and the mockup draws a screen for it. The primes workload has
+        no page-side entry point of any kind. Three of the mockup's six surfaces are therefore
+        WIRING; one (`Benchmarks`) is rendering a document that already exists at
+        `docs/perf/prime-and-pi-benchmarks.md`; one (`Fabric state`) is rendering readings
+        `TabApi` already returns.
+
+     4. A MOBILE DEFECT WAS FOUND WHILE MEASURING, and it belongs to this phase because this
+        phase rewrites the element. At a 393px iPhone viewport the always-visible bar is 500px
+        wide: `#bar-what` and `#bar-stats` are flex children that do not wrap, so the page
+        scrolls sideways and `#stop` sits past x=482 — OFF SCREEN. Stop is the control the
+        consent gate promises in writing ("The Stop control in the bar. It ends the thread and
+        closes the connections immediately"). `index.html` already carries a comment about a
+        previous `#bar` defect *"Reported from an iPhone; not caught here, because the tests
+        asserted the `hidden` attribute rather than whether anything was on screen."* This is
+        the same blind spot one property over: nothing asserts the bar FITS. The fix is small;
+        the spec that stops it recurring is the deliverable.
+
+     THE ONE RULE THIS PHASE MUST NOT BREAK, and it is the whole risk of the work. A mockup is
+     full of plausible numbers, and the way this phase fails is by shipping any of them. Every
+     figure rendered must come from a `TabApi` reading or be a NAMED ABSENCE — never a default,
+     never a placeholder that survived, never a value the page computed a second opinion about.
+     The repository already states this rule at the two places it matters and both must hold:
+     `TabColouringRun.attestation` says the page renders the kernel's own `description` and
+     "composes none of its own, which is the only arrangement in which the CLI and this page
+     cannot come to describe one result differently"; and the egress panel says "0 withheld"
+     ONLY together with the sentence explaining it registered no sovereign data, because the
+     bare figure "would read as a sovereignty proof and would be a lie by omission".
+
+     So the guard this phase owes is a spec that FAILS when a placeholder reaches the screen —
+     drive the page with the fabric stopped and assert every figure region reads as an absence
+     rather than a number. Without it, "the mockup is now wired" is satisfiable by CSS.
+
+     A NOTE ON WHERE THE DESIGN LIVES. The mockup is a `<x-dc>` template rendered by a vendored
+     `dc-runtime` that fetches React and Babel from unpkg at runtime. THAT IS NOT SHIPPABLE as
+     the demo — the demo is a static-host page with no build-time CDN dependency and no React.
+     This phase takes the mockup's LAYOUT AND WORDING, not its runtime. Two guards already name
+     paths inside the mockup directory (`vocabulary`, `strip-comments`); porting the design out
+     of it must not disturb them, and if the mockup directory is later deleted both guards say
+     so through their dead-entry checks rather than going quietly green.
+
+     SEQUENCING, suggested rather than fixed: the bar fix and its fits-the-viewport spec first
+     (smallest, and it is a live defect on a promised control); then the placeholder guard,
+     because it must exist BEFORE the screens land or it will be written to fit them; then pi
+     and primes, which are buttons over APIs that already return the right shapes; then
+     bring-your-own, which is the only one with a real design question in it — a page that
+     accepts a module CID must also accept a signed record, and `runJob` requires one by
+     construction. Benchmarks last: it renders a committed document and blocks nothing. -->
+
 ### v1.0 (Phases 1-10)
 
 72 of 72 v1 requirements mapped, each to exactly one phase.
@@ -1633,7 +1717,6 @@ and **AOT-03** (Phase 10) — both rewritten 2026-07-28 to what one host establi
 their cross-machine halves **descoped and unmeasured, not met** — and **AOT-05** (Phase 10
 — a measured negative, reported unmet rather than reworded).
 
----
 
 ## Milestone v1.1 — Wire What Was Built (Phases 11-22)
 

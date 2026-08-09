@@ -1042,6 +1042,20 @@ that straggler-dominated distributions have meaningless means.
 
 ## Accumulated Context
 
+### Roadmap Evolution
+
+- **Phase 27 added 2026-08-08** — *The Demo UI, Driven by the Real Fabric.* Filed by owner
+  instruction after a UI mockup covering all four workloads was imported to
+  `docs/design/mockups/o2-fabric-demo/`. Closes the demo half of MR-03…MR-07, whose ledger rows
+  already name the gap, and audit finding G4. Not scheduled into v1.1, whose span is phases
+  11-22 — the same treatment phases 23-26 have.
+  **Numbering was corrected by hand and the reason is worth keeping**: `gsd-sdk query phase.add`
+  returned **25**, because it takes the next number from the phase *directories* (highest
+  `phase-24`) rather than from ROADMAP.md (highest `Phase 26`). Phases 25 and 26 are filed as
+  roadmap entries with no directory, so the SDK produced a duplicate `### Phase 25` and placed
+  it inside the requirement-coverage section. Any future `phase.add` on this repository will do
+  the same until every roadmap phase has a directory — check the heading it writes.
+
 ### Decisions
 
 Decisions are logged in PROJECT.md Key Decisions table.
