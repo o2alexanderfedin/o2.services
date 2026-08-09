@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { ALLOWED_TAGS, MAX_CERTIFICATE_BYTES, decodeDer, preParseCheck } from './x509.ts'
+import { ALLOWED_TAGS, MAX_CERTIFICATE_BYTES, checkDerCanonical, decodeDer, preParseCheck } from './x509.ts'
 
 /**
  * X509-04 — the DER decoder's foundation: a certificate-size gate checked before any
@@ -175,5 +175,63 @@ describe('decodeDer decodes well-formed nested structures faithfully', () => {
     expect(third).toMatchObject({ tag: 0x30, constructed: true })
     expect(third!.children).toHaveLength(1)
     expect(Array.from(third!.children[0]!.content)).toEqual([0x07])
+  })
+})
+
+/**
+ * X509-03 mechanism — DER canonicalisation proved by re-encode/byte-compare, one
+ * planted byte-level mutation per RESEARCH.md §2 divergence row. `checkDerCanonical`
+ * is standalone and unit-tested here; Plan 25-02 wires it as a certificate-level gate.
+ */
+describe('canonical DER re-encoding round trip (X509-03 mechanism)', () => {
+  it('is not canonical when a length uses long form where short form would fit', () => {
+    // 127 content bytes encoded with an explicit long-form length (0x81 0x7f) instead
+    // of the minimal short form (0x7f). A lenient BER-tolerant comparator would treat
+    // these as equal since they decode to the same value; this round trip must not.
+    const content = new Uint8Array(127).fill(0x41)
+    const nonMinimalLength = new Uint8Array([0x04, 0x81, 0x7f, ...content])
+    expect(checkDerCanonical(nonMinimalLength)).toBe(false)
+  })
+
+  it('is not canonical when an INTEGER carries a redundant leading 0x00', () => {
+    // 0x00 0x7f: the leading zero is redundant since the next byte's high bit is
+    // already 0. A lenient parser accepts it as the value 0x7f; DER requires the
+    // shorter minimal form.
+    const bytes = tlv(0x02, [0x00, 0x7f])
+    expect(checkDerCanonical(bytes)).toBe(false)
+  })
+
+  it('is canonical when an INTEGER\'s leading 0x00 disambiguates a positive value', () => {
+    // 0x00 0x80: here the leading zero is NOT redundant -- without it, 0x80 alone
+    // would read as a negative two's-complement value. DER requires keeping it, so
+    // this input is already canonical and must round-trip byte-identical.
+    const bytes = tlv(0x02, [0x00, 0x80])
+    expect(checkDerCanonical(bytes)).toBe(true)
+  })
+
+  it('is not canonical when a BIT STRING\'s padding bits are not zeroed', () => {
+    // unused-bits count 0x03 (the last 3 bits of the final content byte are padding),
+    // and that final byte is 0xff -- so 3 padding bits carry garbage instead of zero.
+    // A lenient parser ignores padding-bit content entirely, since it plays no part
+    // in the represented value; DER's canonical encoding zeroes it.
+    const bytes = tlv(0x03, [0x03, 0xff])
+    expect(checkDerCanonical(bytes)).toBe(false)
+  })
+
+  it('is not canonical when a BOOLEAN TRUE is not exactly 0xff', () => {
+    // 0x01 is BER-legal for TRUE (any nonzero byte is); DER requires exactly 0xff.
+    const bytes = tlv(0x01, [0x01])
+    expect(checkDerCanonical(bytes)).toBe(false)
+  })
+
+  it('is canonical for a fully DER-canonical input: minimal lengths, no INTEGER padding, zeroed BIT STRING padding, 0xff BOOLEAN', () => {
+    // The "other half" of the round-trip check -- without this case, an encodeDer
+    // that always returned an empty Uint8Array would make every refusal test above
+    // pass for the wrong reason (everything would mismatch, including canonical input).
+    const canonicalInteger = tlv(0x02, [0x01])
+    const canonicalBoolean = tlv(0x01, [0xff])
+    const canonicalBitString = tlv(0x03, [0x00, 0xab, 0xcd]) // unused=0, byte-aligned
+    const bytes = tlv(0x30, concatBytes(canonicalInteger, canonicalBoolean, canonicalBitString))
+    expect(checkDerCanonical(bytes)).toBe(true)
   })
 })
