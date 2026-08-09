@@ -215,7 +215,30 @@ export function revokeConsent(store: ConsentStore): void {
 export function localConsentStore(): ConsentStore {
   const backing = (): Storage | null => {
     try {
-      return globalThis.localStorage ?? null
+      const candidate: unknown = globalThis.localStorage
+      if (candidate === undefined || candidate === null) return null
+      // **Present is not the same as usable, and a third host proved it.** This read
+      // `globalThis.localStorage ?? null` until 2026-08-08, which trusts any value bound
+      // to that name to be a `Storage`. Node 25 binds one that is not: it exposes
+      // `localStorage` as a global and then, started without `--localstorage-file`,
+      // leaves it without the methods, so `backing()?.getItem` threw
+      // `getItem is not a function` — from the one function whose whole contract is that
+      // absent storage reads as "no consent" rather than throwing. The project targets
+      // Node 24 LTS, so this host is ahead of the declared runtime; the defect is still
+      // this file's, because "the global exists" was never the property being relied on.
+      //
+      // Duck-typed on the three methods actually called rather than `instanceof Storage`:
+      // that constructor is not a global in every host this package runs in, and a check
+      // that throws on the way to deciding whether something might throw is not a check.
+      const storage = candidate as Partial<Storage>
+      if (
+        typeof storage.getItem !== 'function' ||
+        typeof storage.setItem !== 'function' ||
+        typeof storage.removeItem !== 'function'
+      ) {
+        return null
+      }
+      return storage as Storage
     } catch {
       // Access itself throws, not just returns undefined: Safari private browsing and
       // a third-party frame with storage blocked both do this. Collapsed to `null`
