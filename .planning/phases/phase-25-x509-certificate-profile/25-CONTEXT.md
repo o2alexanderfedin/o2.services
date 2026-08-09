@@ -132,9 +132,62 @@ ruled libsodium. The work proceeds under it.
 3. **`subtle.verify` is async and `verifyChain` is synchronous.** The real cost of this
    change is the signature of a security-critical function and every caller with it. Price
    it in planning rather than discovering it in execution.
+   **SETTLED BY OWNER RULING 2026-08-09 (second ruling, same day): use an adapter pattern.**
+   Priced first, as this obligation required — 9 production call sites, of which 6 are
+   mechanical and 3 near-mechanical, plus one genuine structural obstacle:
+   `PeerVerifier.verifiedPeers` is a **synchronous getter** feeding the block-fetch path
+   (`RpcBlockSource` / `FetchingBlockstore`), which cannot become async without redesigning
+   the interface. The owner ruled the adapter rather than the migration, and the ruling
+   dissolves the obstacle instead of paying for it. See the sub-section below.
 4. **The measurements above are one host, one run.** They were not taken with the
    comparative-ratio discipline this repository requires of a perf claim. Re-measure before
    any of them is quoted as settled.
+
+### The adapter — OWNER RULING 2026-08-09 (second ruling, same day)
+
+**The port is a synchronous `verify`, behind an asynchronous one-time `init`.** Asked
+whether Phase 25 should perform the async migration, ship unwired, or convert only the
+mechanical sites, the owner ruled: *"ideally, we should use an adapter pattern."*
+
+**Why that dissolves the obstacle rather than deferring it.** Measured by execution on this
+host, 2026-08-09, Node v25.9.0 — not inferred from documentation:
+
+| Backend | `verify(...)` returns | `instanceof Promise` |
+|---|---|---|
+| `@noble/curves` | `boolean` | **false** |
+| libsodium (after one `await sodium.ready`) | `boolean` | **false** |
+| `crypto.subtle` | `object` | **true** |
+
+libsodium's WASM instantiation is the only asynchronous part of it, and it happens **once**,
+at `ready`. After that `crypto_sign_verify_detached` is an ordinary synchronous call. So a
+port shaped `{ init(): Promise<void>; verify(sig, msg, key): boolean }` has **two**
+conforming implementations. `verifyChain` stays synchronous, the 9 call sites do not change,
+and `PeerVerifier.verifiedPeers` stays a synchronous getter. The interface redesign that
+made this a scope question does not need to happen.
+
+**The consequence, stated rather than buried: `crypto.subtle` cannot implement the
+synchronous port.** A Promise cannot be awaited synchronously in JavaScript, and no
+portable trick changes that (`Atomics.wait` is unavailable on the main thread and needs
+cross-origin isolation, which `GitHub Pages` cannot supply — the same constraint that
+already rules out WASM threads for this project). Therefore:
+
+- the **synchronous** trust path — `verifyChain` and everything reached from
+  `PeerVerifier.verifiedPeers` — runs on **libsodium-or-noble**, selected at `init`;
+- `crypto.subtle` serves only call sites that are **already asynchronous**, through a
+  separate async port, where its 0.0393 ms genuinely lands.
+
+This **scopes** the first ruling rather than reversing it: *"`crypto.subtle` first"* still
+holds wherever subtle can be called at all. What it cannot do is win on the sync path
+without the migration the second ruling declined to buy. An owner who intended subtle
+everywhere, sync path included, should say so — that reopens the 9-call-site migration and
+the `PeerVerifier` redesign, and it is a different phase's worth of work.
+
+**What the adapter obliges the planner to keep:** the lazy-`import()` requirement is
+unchanged and still non-negotiable — libsodium's 314.9 KB gzip must be reachable only on
+the arm that needs it, decided inside `init` by `globalThis.crypto?.subtle`. The
+differential-conformance guard is unchanged and still weighted toward **rejection** vectors;
+if anything the adapter raises its importance, because the sync and async ports must not
+disagree about a malformed input. And the re-measurement obligation is unchanged.
 
 **A cheaper route exists and is not chosen here, but should be named:** AutoTLS
 (`@ipshipyard/libp2p-auto-tls`, already in the stack table) would give the seed a real
