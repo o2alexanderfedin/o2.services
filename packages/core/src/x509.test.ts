@@ -51,6 +51,7 @@ describe('MAX_CERTIFICATE_BYTES is a bound, not a ban (X509-04)', () => {
     expect(failure).not.toBeNull()
     if (!failure) return
     expect(failure.kind).toBe('certificate-too-large')
+    if (failure.kind !== 'certificate-too-large') return
     expect(failure.bytes).toBe(MAX_CERTIFICATE_BYTES + 1)
     expect(failure.limit).toBe(MAX_CERTIFICATE_BYTES)
   })

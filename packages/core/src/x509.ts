@@ -149,12 +149,157 @@ export const ID_AT_COMMON_NAME = '2.5.4.3'
  * caller rather than hidden inside a callee.
  */
 export function preParseCheck(bytes: Uint8Array): X509Failure | null {
-  throw new Error('not implemented — Task 2/3 of 25-01')
+  if (bytes.length > MAX_CERTIFICATE_BYTES) {
+    return { kind: 'certificate-too-large', bytes: bytes.length, limit: MAX_CERTIFICATE_BYTES }
+  }
+  return null
+}
+
+/** A tag byte's low 5 bits all `1` — ASN.1's high-tag-number form. None of this profile's 12 tags need it. */
+function isHighTagNumberForm(tagByte: number): boolean {
+  return (tagByte & 0x1f) === 0x1f
+}
+
+/** Bit 0x20 of the tag byte — set for constructed encodings (SEQUENCE, SET, [0]/[3] EXPLICIT). */
+function isConstructed(tagByte: number): boolean {
+  return (tagByte & 0x20) !== 0
+}
+
+type ReadTlvResult = { readonly ok: true; readonly node: DerNode; readonly next: number } | { readonly ok: false; readonly failure: X509Failure }
+
+/**
+ * Read one TLV from `bytes`, starting at `offset` and never reading at or past
+ * `limit`. `limit` bounds recursion into a constructed node's own content region, so
+ * every `offset` reported in a refusal stays absolute against the original buffer
+ * rather than relative to whatever nesting level produced it.
+ *
+ * Bounds are explicit at every step — this function's whole job is to be safe against
+ * an attacker-supplied length, never trusting a declared length until it has been
+ * checked against what is actually present.
+ */
+function readTlv(bytes: Uint8Array, offset: number, limit: number): ReadTlvResult {
+  if (offset >= limit) {
+    return { ok: false, failure: { kind: 'malformed-der', detail: 'truncated input: expected a tag byte', offset } }
+  }
+
+  const tagByte = bytes[offset] as number
+
+  if (isHighTagNumberForm(tagByte)) {
+    return {
+      ok: false,
+      failure: {
+        kind: 'malformed-der',
+        detail: `high-tag-number form is out of profile (tag byte 0x${tagByte.toString(16)})`,
+        offset,
+      },
+    }
+  }
+
+  if (!ALLOWED_TAGS.has(tagByte)) {
+    return {
+      ok: false,
+      failure: {
+        kind: 'malformed-der',
+        detail: `tag byte 0x${tagByte.toString(16)} is not in this profile's 12 allowed tags`,
+        offset,
+      },
+    }
+  }
+
+  const lengthOffset = offset + 1
+  if (lengthOffset >= limit) {
+    return { ok: false, failure: { kind: 'malformed-der', detail: 'truncated input: expected a length octet', offset: lengthOffset } }
+  }
+
+  const firstLengthByte = bytes[lengthOffset] as number
+
+  // BER's indefinite-length marker. DER forbids it outright (X.690 §10.1) — refuse on
+  // sight of the byte, before attempting to scan for a terminating 00 00.
+  if (firstLengthByte === 0x80) {
+    return {
+      ok: false,
+      failure: {
+        kind: 'malformed-der',
+        detail: 'indefinite-length form (0x80) is BER-only; DER forbids it',
+        offset: lengthOffset,
+      },
+    }
+  }
+
+  let contentLength: number
+  let contentOffset: number
+
+  if (firstLengthByte <= 0x7f) {
+    // Short form: the byte itself is the length. Decoded leniently here (long-form
+    // non-minimal lengths are accepted too, below) — RESEARCH.md §2's strategy is
+    // "decode faithfully, then re-serialize canonically, then compare bytes", and
+    // refusing non-minimal length at decode time would short-circuit that mechanism
+    // before Task 3 can prove it.
+    contentLength = firstLengthByte
+    contentOffset = lengthOffset + 1
+  } else {
+    // Long form: the low 7 bits of the first length byte count how many further
+    // length bytes follow, big-endian.
+    const byteCount = firstLengthByte & 0x7f
+    const lengthBytesStart = lengthOffset + 1
+    const lengthBytesEnd = lengthBytesStart + byteCount
+    if (lengthBytesEnd > limit) {
+      return {
+        ok: false,
+        failure: {
+          kind: 'malformed-der',
+          detail: 'truncated input: declared long-form length runs past the buffer',
+          offset: lengthBytesStart,
+        },
+      }
+    }
+    contentLength = 0
+    for (let i = lengthBytesStart; i < lengthBytesEnd; i++) {
+      contentLength = contentLength * 256 + (bytes[i] as number)
+    }
+    contentOffset = lengthBytesEnd
+  }
+
+  const contentEnd = contentOffset + contentLength
+  if (contentEnd > limit) {
+    return {
+      ok: false,
+      failure: {
+        kind: 'malformed-der',
+        detail: `declared length ${contentLength} runs past the end of the buffer`,
+        offset: contentOffset,
+      },
+    }
+  }
+
+  if (isConstructed(tagByte)) {
+    const children: DerNode[] = []
+    let childOffset = contentOffset
+    while (childOffset < contentEnd) {
+      const child = readTlv(bytes, childOffset, contentEnd)
+      if (!child.ok) return child
+      children.push(child.node)
+      childOffset = child.next
+    }
+    return {
+      ok: true,
+      node: { tag: tagByte, constructed: true, content: new Uint8Array(0), children },
+      next: contentEnd,
+    }
+  }
+
+  return {
+    ok: true,
+    node: { tag: tagByte, constructed: false, content: bytes.subarray(contentOffset, contentEnd), children: [] },
+    next: contentEnd,
+  }
 }
 
 /** Decode one TLV tree from `bytes`, refusing anything outside the 12-tag profile. */
 export function decodeDer(bytes: Uint8Array): { ok: true; node: DerNode } | { ok: false; failure: X509Failure } {
-  throw new Error('not implemented — Task 2/3 of 25-01')
+  const result = readTlv(bytes, 0, bytes.length)
+  if (!result.ok) return result
+  return { ok: true, node: result.node }
 }
 
 /** Re-serialize a DerNode tree in this profile's one canonical form (X.690 DER). */
