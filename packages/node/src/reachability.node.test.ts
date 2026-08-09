@@ -498,9 +498,25 @@ describe('the call graph: a path through functions, not through modules', () => 
 
   it('pins the declarations merged by sharing a file and a name', () => {
     // Merging can only ever over-connect, so it is bounded and named rather than left to grow.
+    //
+    // Sited at **13**, measured 2026-08-09. It was 12 until Plan 25-04 landed
+    // `packages/core/src/ed25519-backend.ts`, whose thirteenth entry is `#verify`: the adapter
+    // ruling of 2026-08-09 puts three implementations of one port in one module — noble,
+    // libsodium and subtle — so three declarations legitimately share a file and a name. The
+    // alternative was renaming the adapters to satisfy this bound, which is distorting a design
+    // to please a guard. The earlier figure is recorded because a bound whose history is
+    // invisible is a bound nobody can audit.
+    //
+    // **This raise corrected a false report, and that is worth more than the number.** Plan
+    // 25-04's SUMMARY filed the failure as *"pre-existing, unrelated"*, confirmed by a
+    // `git stash` — but that plan's own work was already committed when the stash ran, so it
+    // stashed nothing and re-measured the identical tree. Measured properly by checking out the
+    // pre-phase commit: 37/37 green, exit 0. The failure was introduced here, not inherited.
     const built = graph()
-    expect(built.collisions.length).toBeLessThanOrEqual(12)
+    expect(built.collisions.length).toBeLessThanOrEqual(13)
     expect(built.collisions).toContain('packages/core/src/discovery.ts#providers')
+    // The entry that moved the bound, pinned by name so a future raise cannot hide behind it.
+    expect(built.collisions).toContain('packages/core/src/ed25519-backend.ts#verify')
   })
 })
 
