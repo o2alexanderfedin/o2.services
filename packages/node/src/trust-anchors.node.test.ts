@@ -590,6 +590,43 @@ describe('the seed pins what it says it pins, in a real process', () => {
     // or `toContain('the demo default')` would pass no matter which one ran.
     expect(line).not.toContain('the demo default')
   }, 120_000)
+
+  /**
+   * AUTH-01/04 — the `enrol at` line, **here because `bannerOf` is here**.
+   *
+   * Off this describe's stated theme by a little, and the alternative was worse: the only other
+   * home would have carried a second copy of the spawn harness above, and a duplicated fixture
+   * that arms an orphan leash is exactly the thing `orphan-leash.node.test.ts` enforces across
+   * *every* spawn site. One harness, stated reuse.
+   *
+   * What these two cases are for: `SeedServerOptions.relayAdmission` states a deployment
+   * requirement — *a relay that pins issuers must either serve enrolment itself, or name a
+   * provider a joining peer can reach without a reservation* — and calls the un-named case
+   * **operator error**. An operator could not previously satisfy it or even tell which state
+   * they were in. The banner now answers it, and an answer nothing reads is not an answer.
+   */
+  function enrolLine(banner: string): string {
+    return (banner.split('\n').find((l) => l.includes('enrol at')) ?? '<no enrol line>').trim()
+  }
+
+  it('a closed seed naming no provider says so in the banner, by name', async () => {
+    const line = enrolLine(await bannerOf(['--admit-issuer', KERNEL_TRUST_ANCHOR]))
+
+    expect(line).toContain('NOBODY')
+    // The remedy, not merely the diagnosis. An operator reading this must not have to go
+    // looking for which flag fixes it.
+    expect(line).toContain('--enrollment-provider')
+  }, 120_000)
+
+  it('a closed seed given a provider publishes that address instead', async () => {
+    const provider = '/ip4/127.0.0.1/tcp/4001/ws/p2p/12D3KooWJvyP3VJYymTqG7eH4PM5rcTrGkYCRDLTBLxeANWgJs2W'
+    const line = enrolLine(await bannerOf(['--admit-issuer', KERNEL_TRUST_ANCHOR, '--enrollment-provider', provider]))
+
+    expect(line).toContain(provider)
+    // Anti-vacuity for the case above: the two branches must print different sentences, or
+    // `toContain('NOBODY')` would pass whichever one ran.
+    expect(line).not.toContain('NOBODY')
+  }, 120_000)
 })
 
 interface CensusEntry {

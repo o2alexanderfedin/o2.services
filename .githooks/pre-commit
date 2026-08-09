@@ -87,8 +87,31 @@ fi
 #
 # Deliberately not run here: `tsc --noEmit` (~10 s) and the full node suite
 # (~290 s). A hook slow enough to be resented is a hook that gets disabled with
-# `--no-verify`, and then it guards nothing at all. These three take about 1.5 s of
-# test time.
+# `--no-verify`, and then it guards nothing at all.
+#
+# ## What the reachability guard costs, as a COMPARATIVE reading rather than a claim
+#
+# Added 2026-08-08 by Plan 22-04. Measured in one run window, `/usr/bin/time -p`:
+#
+#   six guards        real 2.96 and 3.13   user+sys 3.20 and 3.42   241 tests
+#   plus reachability real 3.40            user+sys 5.97            261 tests
+#
+# **+12% wall clock, +80% CPU.** The two numbers disagree on purpose and the reason is
+# the reading: the TypeScript API this guard drives runs in a SEPARATE process, so its
+# work lands in `user` while the wall clock overlaps it. Wall clock is what a committer
+# waits for and is the number that decides whether this hook survives.
+#
+# **The value that would break it: if the seven-guard arm ever reads more than twice the
+# six-guard arm in the same window, take it out of the hook** and run it in the phase
+# gate instead. It is at 1.12x today. An absolute threshold is not used here, for the
+# reason CLAUDE.md § Measurement gives — it would encode this machine and this day.
+#
+# ## WHY IT IS IN THIS HOOK AND NOT IN CI, again, because it is the obvious question
+#
+# There is no CI and there must not be one. `disclosure-gate.node.test.ts` asserts that
+# `.github/workflows` does not exist — DEMO-04, and the reason is above. So "run the
+# reachability guard on the merge" is not available, and this hook is the only gate this
+# repository has. That is a constraint recorded here rather than an omission to fix.
 
 if [ "$O2_SKIP_GUARDS" = "1" ]; then
   echo "⏭️  O2_SKIP_GUARDS=1 — skipping the cheap guards"
@@ -192,7 +215,7 @@ git diff-index --cached --name-only --no-relative --no-renames --diff-filter=ACM
   "$BASE" > "$SCOPE_FILE"
 export O2_COMMIT_PATHS_FILE="$SCOPE_FILE"
 
-echo "🔍 cheap guards (vocabulary, purity, mutation-ledger, disclosure, ledgers)…"
+echo "🔍 cheap guards (vocabulary, purity, mutation-ledger, disclosure, ledgers, reachability)…"
 
 # One vitest invocation, not four: process startup dominates the wall clock here.
 # `--project node` is required — four projects exist, and a bare path argument runs
@@ -207,7 +230,8 @@ echo "🔍 cheap guards (vocabulary, purity, mutation-ledger, disclosure, ledger
   packages/node/src/mutation-guard.node.test.ts \
   packages/node/src/disclosure-gate.node.test.ts \
   packages/node/src/requirements-ledger.node.test.ts \
-  packages/node/src/slow-specs.node.test.ts
+  packages/node/src/slow-specs.node.test.ts \
+  packages/node/src/reachability-guard.node.test.ts
 GUARD_STATUS=$?
 
 if [ "$GUARD_STATUS" -ne 0 ]; then

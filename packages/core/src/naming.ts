@@ -59,6 +59,98 @@ export function signName(
   return { ...unsigned, signature: toHex(ed25519.sign(payloadOf(unsigned), privateKey)) }
 }
 
+/**
+ * A signed name record as a line of JSON, so a publisher can hand one to an operator.
+ *
+ * **This exists because the publish path used to stop at the bytes.** `tools/aot/cli.ts` wrote a
+ * `.wasm` and printed a summary; nothing turned that into a record, and
+ * `guardModuleProvenance` refuses a task whose module arrives as a bare CID — *"a bare CID names
+ * bytes, not a publisher"*. So a lifted artifact could not be dispatched to any node that pins a
+ * build authority, which is every node that is not explicitly `runs-unsigned-artifacts`. The
+ * missing step was a **signed record leaving the process**, and this is its wire form.
+ *
+ * `CID` is written as its canonical string because JSON has no CID. Everything else is already
+ * JSON-safe: `version` and `expiresAt` are numbers, the rest are hex strings.
+ *
+ * The signature covers the DAG-CBOR payload, never this text — {@link signName} and
+ * {@link SignedNameResolver.accept} both hash `payloadOf`, so re-formatting this JSON cannot
+ * change whether a record verifies.
+ */
+export function encodeNameRecord(record: NameRecord): string {
+  return JSON.stringify(
+    {
+      name: record.name,
+      cid: record.cid.toString(),
+      version: record.version,
+      expiresAt: record.expiresAt,
+      signer: record.signer,
+      signature: record.signature,
+    },
+    null,
+    2,
+  )
+}
+
+/**
+ * The inverse, returning `null` rather than throwing on anything malformed.
+ *
+ * `null` for every rejection, on the same ground `asNodeRecords` in `net/src/protocol.ts` gives:
+ * a partially-formed record would hand {@link SignedNameResolver} something to verify that is not
+ * a record, and a half-decoded one is worse than none. A caller that wants a reason has the file.
+ *
+ * **Decoding does not verify.** It says the text is shaped like a record, never that the
+ * signature holds — that is {@link SignedNameResolver.accept}'s job, and separating them is what
+ * keeps a decoder from becoming a second, weaker verifier.
+ */
+function isHex(value: unknown, length: number): value is string {
+  if (typeof value !== 'string' || value.length !== length) return false
+  for (const character of value) {
+    const code = character.charCodeAt(0)
+    const digit = code >= 0x30 && code <= 0x39
+    const lower = code >= 0x61 && code <= 0x66
+    if (!digit && !lower) return false
+  }
+  return true
+}
+
+export function decodeNameRecord(text: string): NameRecord | null {
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(text)
+  } catch {
+    return null
+  }
+  if (typeof parsed !== 'object' || parsed === null) return null
+  const value: Record<string, unknown> = { ...parsed }
+
+  const name = value['name']
+  const cidText = value['cid']
+  const version = value['version']
+  const expiresAt = value['expiresAt']
+  const signer = value['signer']
+  const signature = value['signature']
+
+  if (typeof name !== 'string' || name.length === 0) return null
+  if (typeof cidText !== 'string') return null
+  if (typeof version !== 'number' || !Number.isInteger(version) || version < 0) return null
+  if (typeof expiresAt !== 'number' || !Number.isFinite(expiresAt)) return null
+  // Checked with a REAL predicate, not with `fromHex`. `fromHex` never rejects — it runs
+  // `Number.parseInt` per byte pair and turns anything unparseable into 0 — so
+  // `fromHex(x) === null` is a comparison that cannot fail, which is worse than no check at
+  // all: it reads like validation and admits everything. Written that way first, and caught
+  // by reading `fromHex`'s body rather than its name.
+  if (!isHex(signer, 64)) return null
+  if (!isHex(signature, 128)) return null
+
+  let cid: CID
+  try {
+    cid = CID.parse(cidText)
+  } catch {
+    return null
+  }
+  return { name, cid, version, expiresAt, signer, signature }
+}
+
 export type ResolveFailure =
   | { readonly kind: 'unknown-name'; readonly name: string }
   | { readonly kind: 'untrusted-signer'; readonly name: string; readonly signer: PublicKeyHex }

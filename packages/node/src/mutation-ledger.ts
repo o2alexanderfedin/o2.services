@@ -2858,6 +2858,60 @@ export const MUTATIONS: readonly Mutation[] = [
     signatureSource: 'test-title',
   },
   {
+    id: 'M69',
+    why:
+      'WIRE-02 / Phase 22 — **the order of `classify`\'s two branches, which is load-bearing and ' +
+      'does not look it.** `SymbolFlags.Type` is a COMPOSITE mask and it includes ' +
+      '`SymbolFlags.Class`: `Type & Class === 32`, measured rather than assumed. So an exported ' +
+      'class matches BOTH tests, and swapping them moves every exported class out of the guard\'s ' +
+      'jurisdiction and into `type-only`. **Measured when planted: callable fell 217 -> 171** — 46 ' +
+      'classes — while the TOTAL export count did not move at all, which is why no total-based ' +
+      'floor could see it. The jurisdiction empties and the guard keeps reading clean.',
+    file: 'packages/node/src/reachability.ts',
+    find: '  if ((flags & (SymbolFlags.Function | SymbolFlags.Class | SymbolFlags.Method)) !== 0) {',
+    replace: '  if ((flags & (SymbolFlags.Interface | SymbolFlags.TypeAlias)) !== 0) {',
+    caughtBy: ['packages/node/src/reachability.node.test.ts'],
+    // Observed 2026-08-08, not predicted: three cases failed, and this is the one that names
+    // the mechanism rather than the count.
+    signature: 'classifies a class as callable even though it also matches the type mask',
+    signatureSource: 'test-title',
+  },
+  {
+    id: 'M70',
+    why:
+      'WIRE-02 / Phase 22 — **alias resolution, without which the guard\'s jurisdiction is empty ' +
+      'and its totals are right.** A barrel entry\'s own flags are `SymbolFlags.Alias`, which ' +
+      'matches neither the callable mask nor the type mask, so every export classifies as ' +
+      '`other-value`. **Measured when planted: callable 0, type-only 0, and the 604-export total ' +
+      'STILL SATISFIED** — the exact silent failure `22-CONTEXT.md` names, where the instrument ' +
+      'stops looking and the numbers still look like numbers.',
+    file: 'packages/node/src/reachability.ts',
+    find: '  const resolveAliases = options.resolveAliases ?? true',
+    replace: '  const resolveAliases = false',
+    caughtBy: ['packages/node/src/reachability.node.test.ts'],
+    // Observed 2026-08-08: three cases failed, including the two per-package floors.
+    signature: 'alias resolution changes the reading, and by how much',
+    signatureSource: 'test-title',
+  },
+  {
+    id: 'M71',
+    why:
+      'WIRE-02 / Phase 22 — **criterion 2\'s first half, at a real production call site.** ' +
+      'Commenting out a wired call must turn the guard red naming the symbol AND the barrel it ' +
+      'came from, so a reader is not left grepping a corpus of 604 exports across eight barrels. ' +
+      '`tools/aot/lift.ts` is the site: it is single-line, and `tools/` is the least contended ' +
+      'tree here. **Measured when planted: two cases failed and the finding count moved 58 -> 60**, ' +
+      'so the guard saw the wiring regression rather than merely failing.',
+    file: 'tools/aot/lift.ts',
+    find: '    const named = await translationCid(translationKeyOf(lifted))',
+    replace: '    const named = await PLANTED_translationCid(translationKeyOf(lifted))',
+    caughtBy: ['packages/node/src/reachability-guard.node.test.ts'],
+    // Observed 2026-08-08 verbatim: "aot/translationCid is wired and must not be reported
+    // unreachable". The title below is the case that carried it.
+    signature: 'does not report a wired capability unreachable',
+    signatureSource: 'test-title',
+  },
+  {
     id: 'G1',
     why:
       '**The population a guard acts on must be the population that pays for it — the eighth ' +
@@ -2928,6 +2982,74 @@ export const MUTATIONS: readonly Mutation[] = [
     // include '12D3KooWKQKmVeG78VhHz5P9tJPTronZ1YwdM…'` — both arrays elided, the peer id
     // truncated, and no statement about the gate. That is the difference this entry protects.
     signature: '(a) THE GATE ANSWERED ADMIT for',
+    signatureSource: 'test-title',
+  },
+  {
+    id: 'M72',
+    why:
+      'AUTH-01/04 — **the audit finding G1: a stated deployment requirement with no mechanism.** ' +
+      "`SeedServerOptions.relayAdmission` obliges a closed seed to *\"serve enrolment itself, or " +
+      'name a provider a joining peer can reach without a reservation"*, and no field, flag or ' +
+      '`BootstrapInfo` member existed with which to name one — a requirement that reads as ' +
+      'though a mechanism exists is worse than an absent one. This plant stops the seed ' +
+      'publishing the provider it was given. **It must redden the browser tier, not merely the ' +
+      'unit**: the claim is that a *tab* learns the address from its own origin, and before ' +
+      '2026-08-08 `gated-seed.e2e.test.ts` supplied that value from Node through `page.evaluate`, ' +
+      'so the whole path was green with nothing publishing anything.',
+    file: 'packages/node/src/seed-server.ts',
+    find: '      : { enrollmentProvider: input.enrollmentProvider }),',
+    replace: '      : {}),',
+    caughtBy: [
+      'packages/node/src/seed-enrollment-provider.node.test.ts',
+      'packages/node/src/gated-seed.e2e.test.ts',
+    ],
+    // Observed 2026-08-08. Unit: exit 1, `2 failed | 2 passed (4)`. E2E: exit 1, **all three
+    // engines**, `page.evaluate: Error: the origin published no enrollmentProvider, so this tab
+    // cannot enrol` — chromium, firefox and webkit each. Restored by the surgical inverse and
+    // `cmp` against the pre-plant snapshot returned 0, sha256 back to 2826344a.
+    signature: 'the origin published no enrollmentProvider',
+    signatureSource: 'test-title',
+  },
+  {
+    id: 'M73',
+    why:
+      'AUTH-01/04 — **the operator half of the same finding, which no test reached.** The seed ' +
+      'banner is the only surface telling an operator which of the two states their closed seed ' +
+      'is in: a named provider, or the case `relayAdmission`’s docblock calls **operator ' +
+      'error**. A line nothing reads is a line that rots, and this repository has shipped ' +
+      'exactly that before. Disabling the branch must redden both banner cases while leaving ' +
+      "the file's other 27 untouched — a plant that reddens everything proves only that the " +
+      'file runs.',
+    file: 'packages/node/src/bin/seed.ts',
+    find: 'if (admitIssuers.length > 0 || enrollmentProvider !== undefined) {',
+    replace: 'if (false && (admitIssuers.length > 0 || enrollmentProvider !== undefined)) {',
+    caughtBy: ['packages/node/src/trust-anchors.node.test.ts'],
+    // Observed 2026-08-08: exit 1, `2 failed | 27 passed (29)`, both failures reading
+    // `expected '<no enrol line>' to contain 'NOBODY'` and `… to contain '/ip4/127.0.0.1/…'`.
+    // The 27 that stayed green are the point: the plant hit its own two cases and nothing else.
+    // Restored by the surgical inverse; `cmp` returned 0, sha256 back to 6b5e4619.
+    signature: 'a closed seed naming no provider says so in the banner',
+    signatureSource: 'test-title',
+  },
+  {
+    id: 'M74',
+    why:
+      'DATA-05/DATA-06 — **the sovereignty claim\'s only operator-facing surface.** Every run of ' +
+      'the demo produced an egress manifest and the page displayed none of it: `index.html` held ' +
+      'zero occurrences of `egress`, `withheld` or `sovereign`, so the property this project ' +
+      'puts first was the one thing a visitor could not see. Audit finding G13. The plant feeds ' +
+      'the renderer `undefined` instead of the run\'s own manifest — the failure mode that ' +
+      'matters, because a panel wired to nothing looks identical to a panel wired correctly on a ' +
+      'run that happened to send no frames.',
+    file: 'packages/browser/demo/index.html',
+    find: '          lines.push(...egressLines(best.egress))',
+    replace: '          lines.push(...egressLines(undefined))',
+    caughtBy: ['packages/node/src/attestation-ui.e2e.test.ts'],
+    // Observed 2026-08-08: exit 1, `1 failed | 3 passed (4)`, reading `expected '0 peer(s) · 8
+    // cubes per rung\n\nn =  …' to contain 'What left this device:'`. The 3 that stayed green
+    // are the point — the plant hit the egress panel and left every attestation reading alone.
+    // Restored by surgical inverse; cmp exit 0, sha256 back to 8d369d3e.
+    signature: 'What left this device:',
     signatureSource: 'test-title',
   },
 ]

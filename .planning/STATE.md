@@ -22,8 +22,12 @@ stopped_at: >-
   than at a live reservation, so the close rests on a conjunction with the file's live-relay
   arms; and this is a BOUND PLUS DEVALUATION, not a graduated price, so a reader taking costly
   to require a rising per-identity price gets the 2026-08-01 answer and that reading is
-  ESCALATED rather than settled. THE THREE STILL UNCOUNTED ARE 20 (6/7), 21 (2/3) AND 22
-  (planned, 4 plans, 0 summaries, runs last). FOUR OWNER RULINGS WERE TAKEN 2026-08-07 AND THREE
+  ESCALATED rather than settled. THE THREE STILL UNCOUNTED ARE 20 (6/7), 21 (2/3) AND 22 - and
+  AS OF 2026-08-08 ALL THREE ARE VERIFIED RATHER THAN PENDING: 22 EXECUTED AND SCORED 2/3 at
+  fee26c2, 4 plans and 4 summaries, ITS CRITERION 1 DECLINED BECAUSE THE GUARD DOES NOT PASS
+  CLEAN. This field read "22 (planned, 4 plans, 0 summaries, runs last)" until then. THE V1.1
+  MILESTONE AUDIT HAS RUN and the open work is its gap list, NOT A PHASE: 17 findings, 9 CLOSED,
+  G1 (a closed seed is unjoinable by the demo page) the blocker. FOUR OWNER RULINGS WERE TAKEN 2026-08-07 AND THREE
   ARE ALREADY EXECUTED. RULING 1, THE READING OF THE FABRIC in criterion 8: NARROW - a fabric
   this repository can be deployed and operated as, with an admission posture stated on every
   relay-capable door, NOT the default argv. The wider reading was available and would have
@@ -118,9 +122,13 @@ landed and its second amendment moved it 8/9 → 9/9; 23 joined on 2026-08-06 at
 and 24 joined the same day**, 16 at 4/4, 19 at 5/5 and **24 at 1/1**; **17 joined on
 2026-08-07 at 3/3, having been declined the day before** — the only phase in this milestone
 to be refused by a verifier and then close, and it closed because a test was written rather
-than because a verdict was re-read. The verified-but-uncounted phases are now **two**:
-20 (6/7) and 21 (2/3) — one PARTIAL criterion each, both **carried** to a named destination
-rather than rewritten. Phase 22 is neither: it has four plans and no execution.
+than because a verdict was re-read. The verified-but-uncounted phases are now **three**:
+20 (6/7), 21 (2/3) and **22 (2/3, executed and verified 2026-08-08)** — one PARTIAL or declined
+criterion each, all **carried** to a named destination rather than rewritten. **This sentence read
+*"now two … Phase 22 is neither: it has four plans and no execution"* until 2026-08-08**, which was
+true when written and stopped being true at `fee26c2`. Phase 22 is 4/4 on summaries and its
+criterion 1 is **DECLINED** — the guard does not pass clean, and disposing the remaining findings
+to make it pass would have made the guard decoration.
 
 **Phase 24 closed at 1/1 on the same day it was scored 0/1, and the difference is not a
 rewrite.** The 0-of-1 pass refused it on one thing: criterion 8 says *"the fabric"* while
@@ -190,6 +198,21 @@ posture. **Criterion 8 is also where Phase 19's criterion 5 and Phase 17's crite
 carried**, so under RULING A neither of those closes either, and neither phase's score
 moves. A destination that lands PARTIAL settles nothing.
 
+**SUPERSEDED 2026-08-08 — `bin/seed.ts` CAN be told to close, and has been able to since
+`afe8b0b`.** The three passages in this file that say otherwise (here, under Phase 24's block, and
+in Session Continuity) were true when written and are now false. Measured directly rather than
+inferred: `bin/seed.ts` takes a repeatable, hex-validated `--admit-issuer`;
+`SeedServerOptions.relayAdmission` is a **required** field, so there is no key to omit; and
+`seed-server.ts` passes it straight through as `relayAdmission: options.relayAdmission`. Criterion
+8 was re-scored **MET** at `580e461`. Found by the v1.1 milestone audit's cross-phase integration
+pass, which was briefed with the stale account and corrected it. **The file disagreeing with
+itself is the defect this milestone keeps finding, and it found it here three times over.** What
+is genuinely asymmetric now is `bin/bench.ts`, which hard-codes `'admits-any-peer'` at three sites
+and has no flag mechanism — and leaving it open is a deliberate trade with a stated cost, because
+`relayAdmissionGate`'s own header records that 24-02's pre-gate baseline *"stays comparable only
+while that remains true."*
+
+
 **Phase 13.1 joined on 2026-08-02**: it was verified 2026-07-31 at `gaps_found` 6/7 with DATA-10
 open, and criterion 7's at-rest half has now landed — a durable per-node sovereign-CID set
 (`sovereign-cids.ts`, `idb-sovereign-cids.ts`) registered at `submit.ts`'s blockstore-put and
@@ -246,13 +269,16 @@ directory and should be checked against each other.
 **Recounted on disk again 2026-08-06**, four days stale and off by 23 plans. Counting
 `*-NN-PLAN.md` and `*-NN-SUMMARY.md` per directory: 11 1/1, 12 4/4, 13 7/7, 13.1 5/5,
 14 5/5, 15 4/**5**, 16 4/**6**, 17 5/**6**, 18 **13**/13, 19 **19**/19, 20 **13**/13,
-21 5/5, **22 4/0**, 23 **6**/6, **24 4/1** = **99 plans, 96 summaries**. **Re-counted again
+21 5/5, **22 4/4** *(was `4/0` until 2026-08-08)*, 23 **6**/6, **24 4/1** = **99 plans, 96
+summaries** *(the historical reading; the 2026-08-08 count is 103/107)*. **Re-counted again
 after Phase 24 finished executing, 2026-08-06: 24 is now 4/4, so the summaries figure is
 99 and `completed_plans` moved 96 → 99.** The plans figure did not move — Phase 24 minted
 no new plan — and `percent` is phases and not plans, so it stayed 53 at that point. **Recounted on disk again 2026-08-06 after Phase 24's four gap-closure plans landed: 24 is 8/8, so both figures move 99 → 103**, and they are equal because every plan in the milestone except Phase 22's four now carries a numbered summary. `percent` is 10/15 = 67. The count excludes Phase 19's four `defect-NN-SUMMARY.md` files, which have no plan of their own; a glob that catches them reads 107 and disagrees with `ROADMAP.md`'s own comment, so the two ledgers count different populations on purpose. Phase 18 went
 11 → 13 when 18-12 and 18-13 landed as gap-closure plans, so the "all eleven merged"
-reading above is now historical and must not be re-derived from it. **Phase 22 is the only
-directory with plans and no summaries** — four planned, none executed, and it runs last.
+reading above is now historical and must not be re-derived from it. **Phase 22 was the only
+directory with plans and no summaries until 2026-08-08; it is now 4/4.** Re-counted on disk that
+day, phase by phase rather than derived from the delta: **103 plans, 107 summaries** — the two
+figures are no longer equal, because 22's four summaries landed on top of an already-equal pair.
 `percent` is phases, not plans: 8/15 = 53%.
 
 **`completed_plans` counts summaries, and in three phases that is MORE than the plans.**
@@ -318,8 +344,9 @@ elfconv cannot lift x86-64 today, because `lifter/TraceManager.cpp`'s entry-poin
 is hardcoded AArch64 byte patterns with no amd64 branch — **not** instruction semantics,
 which Remill has had for years, and **not** the build, which CI publishes as `:amd64`.
 elfconv is now a submodule pinned at the commit both images report, so that is readable
-in-tree. Next is **Phase 22 (Reachability Guard), which runs last**, then the v1.1
-milestone audit. That order
+in-tree. **Phase 22 (Reachability Guard) ran last and landed 2026-08-08 at 2/3, and the v1.1
+milestone audit has since run** (`.planning/v1.1-MILESTONE-AUDIT.md`, `gaps_found`, 17 findings).
+The open work is that gap list, **not** a phase. That order
 is an owner ruling of 2026-08-05, which inserted 24 ahead of 22; 22 was already last, because
 it is the guard that rules on everything the other phases wire. **The premise that ruling
 rested on was re-confirmed 2026-08-07**: the narrow reading of *"the fabric"* stands, so 22
@@ -361,7 +388,26 @@ ruling anticipated.
 
 ## Current Position
 
-**THE COUNT IS 12 OF 15**, as of 2026-08-07. Closed and counted: 11, 12, 13, 13.1, 14, 15,
+**THE COUNT IS 12 OF 15**, as of 2026-08-07 — **and a 2026-08-08 attempt to make it 11 was
+RETRACTED the same day, on discovering the reopen rested on half the evidence.**
+
+Audit finding L3 reported that `13-VERIFICATION.md` reads `criteria_met: 0` while this file counted
+Phase 13 closed. That is true of that file and **irrelevant**, because the phase has **two**
+verification files and the second is the live one: `13-VERIFICATION-2.md`, pass 2, same day,
+**`score: 3/3 amended criteria verified`**, 8 verifier-planted mutations, and an explicit
+`re_verification` block reading *"previous_score: 0/3 against the ORIGINAL criteria"* and *"this
+pass verifies the criteria as amended in ROADMAP.md, not the wording 13-VERIFICATION.md quotes"*.
+Plans 13-04, 13-05 and 13-07 landed between the two passes and closed exactly the gaps the first
+one named.
+
+**So there was never a contradiction, and the count never should have moved.** The error was
+mine: I read `13-VERIFICATION.md`, did not glob the directory, and put a decision to the owner on
+that basis. The owner ruled to reopen — on evidence that was wrong — and the ruling is void
+because its premise was. Recorded here rather than quietly reverted, because a count that moves
+without an audit trail is the defect this milestone keeps finding, and that applies to moving it
+*back*.
+
+**THE COUNT WAS 12 OF 15**, as of 2026-08-07. Closed and counted: 11, 12, 13, 13.1, 14, 15,
 16, **17**, 18, 19, 23, 24. Uncounted: 20 (6/7), 21 (2/3), 22 (planned, 4 plans, 0 summaries,
 runs last). The block below describes Phase 24 and remains accurate about it.
 
@@ -431,7 +477,9 @@ and holding no certificate, and its id is the second entry in `openProviderHolds
 nodes, the same clause, opposite answers, and the difference between them is not the
 certificate but which peers each happened to dial.
 
-**And `bin/seed.ts` cannot be told to close.** No `--admit-issuer` flag, no
+**And `bin/seed.ts` cannot be told to close.** *(SUPERSEDED 2026-08-08 — see the correction
+under Current Position. It can, since `afe8b0b`. The paragraph is kept because the reasoning it
+records is why the flag was added.)* No `--admit-issuer` flag, no
 `SeedServerOptions` field, and `seed-server.ts` writes `relayAdmission: 'admits-any-peer'`
 at its `FabricNode.start` call. So the bound is **structural**, not a deployment posture an
 operator can remove — which is why this verifies PARTIAL rather than passing with a stated
@@ -1610,7 +1658,20 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-08-07T08:35:00.000Z
+Last session: 2026-08-08T13:23:00.000Z
+Stopped at: **Session resumed at `d7b52e3`. Context is the v1.1 MILESTONE AUDIT-FIX, not phase
+work** — all 15 v1.1 phases have verifications, Phase 22 included (2/3, `fee26c2`). Open work is
+`.planning/v1.1-MILESTONE-AUDIT.md`: **9 of 17 findings closed**, 5 auto-fixable remaining
+(G1 blocker, G3, G6, G7, G13) and 4 needing an owner call (G4, G5, L3, the 42-symbol residue).
+Proceeding to **G1** — a closed seed is unjoinable by the demo page.
+Resume file: `.planning/HANDOFF.json` + `.planning/.continue-here.md`.
+
+**Five claims in this file said Phase 22 had four plans and no execution; all five were corrected
+2026-08-08 and each correction is marked in place.** The plan/summary count was re-measured on
+disk phase by phase — **103 plans, 107 summaries** — rather than derived from the delta.
+
+### Prior session (2026-08-07T08:35:00.000Z)
+
 Stopped at: **Phase 17 re-verified and CLOSED at 3/3** (`17-VERIFICATION.md`, fourth
 amendment, 2026-08-07, `human_needed`), and its ledger edits applied — this file is one of
 them. **The count is 12 of 15.** Four owner rulings were taken the same session and three
@@ -1639,8 +1700,11 @@ is elfconv's own thrown `runtime_error`) and the compiler (clang control). Fixin
 **writing amd64 entry-point discovery**, upstream or as a patch in the submodule — tractable,
 not small, and upstream has not done it.
 
-Next unit: **Phase 22 (Reachability Guard)** — 4 plans, no summaries, and
-it runs last. **The ordering ruling was re-confirmed 2026-08-07 and no longer blocks it.**
+Next unit *(as of 2026-08-07)*: **Phase 22 (Reachability Guard)** — 4 plans, no summaries, and
+it runs last. **SUPERSEDED 2026-08-08 — Phase 22 is DONE at 2/3 (`fee26c2`), 4 plans and 4
+summaries. Do not resume into it.** The paragraph below is kept because its instruction to
+`22-VERIFICATION.md` was carried out, not because the phase is still open.
+**The ordering ruling was re-confirmed 2026-08-07 and no longer blocks it.**
 22 was placed after 24 so the guard would certify a *gated* fabric; under the narrow reading
 of criterion 8 it will certify a fabric with an admission posture stated on every
 relay-capable door, which is what the 2026-08-05 ruling assumed. `22-VERIFICATION.md` should
@@ -1654,7 +1718,9 @@ it is narrower and worse.** The blocker read that 24-03 would arm the gate on
 now takes a hex-validated, repeatable `--admit-issuer`, writes
 `relayAdmission: new Set(values['admit-issuer'])`, and publishes its posture as a sorted
 array on the handshake line — verified by the phase's own census. **The other half is not,
-and it cannot be closed by a flag that does not exist**: `bin/seed.ts` has no
+and it cannot be closed by a flag that does not exist** *(SUPERSEDED 2026-08-08: the flag now
+exists — `afe8b0b` — and criterion 8 was re-scored MET at `580e461`. Kept because it records
+what was owed and why)*: `bin/seed.ts` has no
 `--admit-issuer`, `SeedServerOptions` has no `relayAdmission` field, and `seed-server.ts`
 writes `relayAdmission: 'admits-any-peer'` at its `FabricNode.start` call. `--trusted-issuer`
 threads to `trustedIssuers` — *selection* — and never to `relayAdmission`, which is the

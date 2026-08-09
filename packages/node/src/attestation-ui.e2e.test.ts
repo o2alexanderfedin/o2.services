@@ -432,6 +432,25 @@ describe('VER-09/VER-10 criterion 3 — the demo page says how strongly its answ
     // The shipped overstatement is gone. This run placed one replica per cube, and the
     // old line told the visitor there were two.
     expect(report).not.toContain(THE_OLD_CLAIM)
+
+    // ## DATA-05/DATA-06 — the egress manifest is on screen, **asserted on this run**
+    //
+    // Off this describe's stated theme, and deliberately so: this ladder costs up to seven
+    // minutes and already produces the report the panel is rendered into. A dedicated case
+    // would buy a second identical run and nothing else. `runTheLadder` returns the same
+    // `#run-report` either way.
+    //
+    // Audit finding G13 was that every run produced a manifest and the page displayed none
+    // of it — the sovereignty claim's only operator-facing surface stopped at `window.o2`.
+    expect(report).toContain('What left this device:')
+    expect(report).toMatch(/\d+ byte\(s\) total/)
+
+    // **The honesty half, and it is the half worth having.** Every cube here is
+    // `label: 'public'`, so `violations` is empty by construction. A panel printing only
+    // "0 withheld" would read as a sovereignty proof it cannot support, so the page says
+    // why the number is zero. This asserts the disclaimer, not just the digit.
+    expect(report).toContain('0 withheld')
+    expect(report).toContain('registered no sovereign data')
   }, 900_000)
 
   it('states the absence, naming the peer, when nobody enrolled that peer', async () => {

@@ -263,7 +263,13 @@ export { delegate, describeFailure, fromHex, toHex, verifyChain } from './capabi
 export type { Ability, ChainFailure, ChainResult, Delegation, PublicKeyHex, VerifyOptions } from './capability.ts'
 
 // Signed artifact names — DATA-07, DATA-08.
-export { describeResolveFailure, SignedNameResolver, signName } from './naming.ts'
+export {
+  decodeNameRecord,
+  describeResolveFailure,
+  encodeNameRecord,
+  SignedNameResolver,
+  signName,
+} from './naming.ts'
 export type { NameRecord, ResolveFailure, ResolveResult } from './naming.ts'
 
 // Decomposable tree-reduce — MR-02 through MR-07.

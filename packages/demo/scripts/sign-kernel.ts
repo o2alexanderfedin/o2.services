@@ -48,11 +48,22 @@ import { MemoryBlockstore, signName } from '@o2/core'
 import { writeFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { kernelBytes } from '../src/kernel.ts'
+import { piKernelBytes } from '../src/pi.ts'
 
 const SRC = fileURLToPath(new URL('../src/', import.meta.url))
 
 /** The name the demo resolves. One artifact, one name. */
 const KERNEL_NAME = 'o2-demo-colouring-kernel'
+
+/**
+ * The second artifact's name — added 2026-08-08 by owner ruling, audit findings G3/G4.
+ *
+ * **Both records are signed by ONE key, and that is forced rather than chosen.**
+ * `bin/agent.ts` and `bin/seed.ts` each default to a single `KERNEL_TRUST_ANCHOR`, so a pi
+ * record signed by a second key would be refused by every stock node. One key, one anchor,
+ * two records, committed together.
+ */
+const PI_NAME = 'o2-demo-pi-kernel'
 
 /**
  * How long the record stays good.
@@ -72,6 +83,9 @@ const DAY_MS = 24 * 60 * 60 * 1000
 // from it. `FsBlockstore` and `IdbBlockstore` each carry a comment saying they compute
 // the same thing; this relies on that rather than restating the scheme.
 const cid = await new MemoryBlockstore().put(kernelBytes)
+// The same code path for the second artifact, for the same reason: the CID a runtime
+// compares against is the one `store.put()` produces, and a second scheme here would drift.
+const piCid = await new MemoryBlockstore().put(piKernelBytes)
 
 const expiresAt = Date.now() + LIFETIME_DAYS * DAY_MS
 
@@ -91,14 +105,30 @@ function quoted(text: string): string {
   return `'${text}'`
 }
 
-// The private half exists only inside this expression. Nothing below it can reach the
-// binding, and nothing writes it anywhere.
-const record = signName(ed25519.utils.randomSecretKey(), {
-  name: KERNEL_NAME,
-  cid,
-  version: 1,
-  expiresAt,
-})
+/**
+ * One key, two records — and the property this weakens is stated rather than left to be noticed.
+ *
+ * **This binding used to not exist.** The key was generated inside the `signName(...)` call so
+ * that no name in this file could reach the private half. Signing a second artifact under the
+ * same anchor makes that impossible: the key must outlive one call to reach the next.
+ *
+ * What is unchanged, and it is the part that matters: **the private half is never written
+ * anywhere.** It lives in this module scope for two statements and dies with the process. There
+ * is still no way to re-sign later, so regenerating still means a new key, a new anchor and both
+ * records replaced together.
+ *
+ * What is genuinely lost: a reader could previously see at a glance that no binding held the
+ * secret. Now they have to read two lines to confirm it. That is the cost of the second artifact
+ * and it is smaller than the alternative, which was a second anchor no stock node would pin.
+ */
+const signingKey = ed25519.utils.randomSecretKey()
+
+const record = signName(signingKey, { name: KERNEL_NAME, cid, version: 1, expiresAt })
+const piRecord = signName(signingKey, { name: PI_NAME, cid: piCid, version: 1, expiresAt })
+
+if (piRecord.signer !== record.signer) {
+  throw new Error('the two records disagree on their signer — they must share one anchor')
+}
 
 writeFileSync(
   `${SRC}kernel-record.ts`,
@@ -158,6 +188,25 @@ export const KERNEL_RECORD: NameRecord = {
   signer: KERNEL_TRUST_ANCHOR,
   signature: ${quoted(record.signature)},
 }
+
+/** The name the demo's pi-estimating module is published under. */
+export const PI_NAME: string = ${quoted(PI_NAME)}
+
+/**
+ * The signed mapping from {@link PI_NAME} to the CID of the committed \`pi.wasm\`.
+ *
+ * **Signed by {@link KERNEL_TRUST_ANCHOR}, the same anchor as {@link KERNEL_RECORD}**, because
+ * both node binaries default to exactly one anchor and a second key would be refused by every
+ * stock node. \`sign-kernel.ts\` asserts the two signers match before writing this file.
+ */
+export const PI_RECORD: NameRecord = {
+  name: PI_NAME,
+  cid: CID.parse(${quoted(piRecord.cid.toString())}),
+  version: ${piRecord.version},
+  expiresAt: ${piRecord.expiresAt},
+  signer: KERNEL_TRUST_ANCHOR,
+  signature: ${quoted(piRecord.signature)},
+}
 `,
 )
 
@@ -166,4 +215,8 @@ console.log(`  name                ${KERNEL_NAME}`)
 console.log(`  cid                 ${record.cid.toString()}`)
 console.log(`  anchor              ${record.signer}`)
 console.log(`  expires             ${new Date(expiresAt).toISOString()} (${LIFETIME_DAYS} days)`)
-console.log(`  private key         discarded — regenerating produces a new anchor`)
+console.log(`src/kernel-record.ts  ${piKernelBytes.length} bytes signed (pi)`)
+console.log(`  name                ${PI_NAME}`)
+console.log(`  cid                 ${piRecord.cid.toString()}`)
+console.log(`  anchor              ${piRecord.signer}  (shared — asserted equal above)`)
+console.log(`  private key         discarded — regenerating produces a new anchor for BOTH`)
