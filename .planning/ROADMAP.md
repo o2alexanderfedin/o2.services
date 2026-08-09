@@ -1328,12 +1328,12 @@ cost of the 2026-08-09 Ed25519 backend ruling (`crypto.subtle` first, libsodium
 fallback), priced by call-site count rather than wired into `verifyChain`/
 `verifyCertificate` in this phase.
 
-**Plans:** 4 plans, 3 waves
+**Plans:** 2/4 plans executed
 
 Plans:
 **Wave 1**
-- [ ] 25-01-PLAN.md — X.509 DER engine: type contracts, bounded TLV decode/encode, certificate-size gate (X509-04)
-- [ ] 25-04-PLAN.md — Ed25519 dual-backend verifier: lazy WebCrypto/libsodium selection, differential-conformance guard, async-migration pricing (not wired into verifyChain/verifyCertificate this phase)
+- [x] 25-01-PLAN.md — X.509 DER engine: type contracts, bounded TLV decode/encode, certificate-size gate (X509-04)
+- [x] 25-04-PLAN.md — Ed25519 dual-backend verifier: lazy WebCrypto/libsodium selection, differential-conformance guard, async-migration pricing (not wired into verifyChain/verifyCertificate this phase)
 
 **Wave 2** *(blocked on Wave 1 completion)*
 - [ ] 25-02-PLAN.md — profile semantics: algorithm allow-list and named bans, extension rules, duplicate detection, canonicalisation wired as a certificate gate, requirement family minted (X509-01, X509-02, X509-03, X509-05, X509-06, X509-07)

@@ -310,8 +310,22 @@ as unsafe and maintain it by hand:**
   block: four owner rulings, the AOT-06 located negative, the Phase 17 close, all of it. It
   did not error. Caught by the `git diff` this very list prescribes, reverted whole-file, and
   the two fields it was asked for were then written by hand.
+- `gsd-sdk query state.record-session` (2026-08-09, Plan 25-04's executor, run right after
+  `state.record-metric` above) — **the fifth writer, same family.** Asked only for
+  `--stopped-at`/`--resume-file`, it reported success and wrote a diff of **57 insertions
+  against 105 deletions**: deleted the entire `stopped_at` frontmatter block a second time
+  (same content named above, still present at HEAD until this call), flipped `status:
+  executing` to `status: verifying` unasked, regressed `last_activity` from 2026-08-09 to
+  2026-08-06, and rewrote every `progress:` count to fabricated values (`total_phases` 15→27,
+  `completed_plans` 103→112, `percent` 80→100 — none of which this session provided or
+  computed). Caught the same way as every entry above: `git diff .planning/STATE.md` before
+  committing, not by either tool call reporting failure. Reverted whole-file
+  (`git checkout -- .planning/STATE.md`, safe because `git status` was clean before either
+  call), and the metrics row, the decision, and this session's continuity fields were then
+  all written by hand rather than risking a sixth corruption trying `record-session` again.
 
-`roadmap.update-plan-progress` is the one measured exception and is safe.
+`roadmap.update-plan-progress` and `state.add-decision` are the two measured exceptions and
+are safe — both ran this same session with a clean, correctly-scoped diff each time.
 
 **If you must add a metrics row, write it by hand.** And after any tool touches
 `.planning/`, `git diff .planning/STATE.md` before committing — every one of these was
@@ -1093,6 +1107,7 @@ that straggler-dominated distributions have meaningless means.
 | Phase 13 P02 | 7min | 2 tasks | 2 files |
 | Phase 13 P03 | 25min | 2 tasks | 1 files |
 | Phase 18 P03 | 25min | 2 tasks | 5 files |
+| Phase 25 P04 | 8min | 3 tasks | 8 files |
 
 ## Accumulated Context
 
@@ -1492,6 +1507,10 @@ Recent decisions affecting current work:
   adapter in three places is not the same as wiring it; it went to Phase 23 criterion 5,
   where `bin/bench.ts` is already being rewritten and the most contended file in the
   repository is fought once rather than twice.
+- **[Phase 25-04]: Ed25519 dual-port adapter (noble/libsodium sync, subtle/libsodium
+  async) shipped complete and tested but unwired — verifyChain/verifyCertificate
+  wiring deferred to a future phase pending a bootstrap-ordering decision across three
+  runtime entry points.**
 
 ### Pending Todos
 
@@ -1664,8 +1683,15 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-08-09T21:45:00.000Z
-Stopped at: **PHASE 25 IS PLANNED — 4 plans, 3 waves, `X509-01…07` minted, status Ready to
+Last session: 2026-08-09T23:15:00.000Z
+Stopped at: **UPDATED 2026-08-09: Wave 1 of Phase 25 has now executed — both 25-01 (DER
+decoder) and 25-04 (Ed25519 dual-port adapter) are committed, with 25-04-SUMMARY.md
+filed. 27/27 node + 81/81 browser tests green for `ed25519-backend.test.ts`, `npx tsc
+--noEmit` clean. Neither `verifyChain` nor `verifyCertificate` is wired to the new
+port — stated by name in the summary as a deferred bootstrap-ordering decision, not
+this plan's to make. Wave 2 (`25-02`) and wave 3 (`25-03`) remain to execute. The
+paragraph below is kept as the pre-execution planning record it was written as.**
+**PHASE 25 IS PLANNED — 4 plans, 3 waves, `X509-01…07` minted, status Ready to
 execute.** Wave 1 is `25-01` (DER engine) and `25-04` (Ed25519 adapter), which have disjoint
 `files_modified`; wave 2 is `25-02` (profile semantics + the ledger mint); wave 3 is `25-03`
 (bundle-cost guard). Obligation 5 is recorded **delivered-with-evidence** against
