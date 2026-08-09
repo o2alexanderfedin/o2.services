@@ -302,12 +302,108 @@ export function decodeDer(bytes: Uint8Array): { ok: true; node: DerNode } | { ok
   return { ok: true, node: result.node }
 }
 
+/** The fewest bytes that represent `contentLength`: short form for <=127, minimal long form otherwise. */
+function minimalLength(contentLength: number): Uint8Array {
+  if (contentLength <= 0x7f) return new Uint8Array([contentLength])
+  const lengthBytes: number[] = []
+  let n = contentLength
+  while (n > 0) {
+    lengthBytes.unshift(n & 0xff)
+    n = Math.floor(n / 256)
+  }
+  return new Uint8Array([0x80 | lengthBytes.length, ...lengthBytes])
+}
+
+/**
+ * DER's minimal two's-complement `INTEGER` form (RESEARCH.md §2 row 3): strip a
+ * leading `0x00` when the following byte's high bit is already `0` (redundant — the
+ * value is unambiguously non-negative without it), or a leading `0xFF` when the
+ * following byte's high bit is `1` (redundant for the equivalent negative case).
+ * `serialNumber` is this profile's only standalone `INTEGER` field that can carry
+ * either form; `version`'s `INTEGER` is always a small non-negative literal. Both
+ * directions are implemented since this byte-level rule does not know which field it
+ * is canonicalising.
+ */
+function canonicalizeInteger(content: Uint8Array): Uint8Array {
+  let start = 0
+  while (start < content.length - 1) {
+    const leading = content[start] as number
+    const next = content[start + 1] as number
+    const redundantZero = leading === 0x00 && (next & 0x80) === 0
+    const redundantFF = leading === 0xff && (next & 0x80) !== 0
+    if (!redundantZero && !redundantFF) break
+    start++
+  }
+  return content.subarray(start)
+}
+
+/**
+ * DER requires a byte-aligned `BIT STRING`'s trailing padding bits to read as `0`
+ * (RESEARCH.md §2 row 4). The first content byte is the unused-bits count; this
+ * masks that many low bits of the last content byte to zero and leaves everything
+ * else — including the unused-bits count itself — untouched.
+ */
+function canonicalizeBitString(content: Uint8Array): Uint8Array {
+  const unusedBits = content[0]
+  if (content.length <= 1 || !unusedBits) return content
+  const out = new Uint8Array(content)
+  const lastIndex = out.length - 1
+  const mask = (0xff << unusedBits) & 0xff
+  out[lastIndex] = (out[lastIndex] as number) & mask
+  return out
+}
+
+/** DER requires `BOOLEAN` TRUE to be exactly `0xFF` (BER permits any nonzero byte). */
+function canonicalizeBoolean(content: Uint8Array): Uint8Array {
+  return new Uint8Array([content[0] ? 0xff : 0x00])
+}
+
 /** Re-serialize a DerNode tree in this profile's one canonical form (X.690 DER). */
 export function encodeDer(node: DerNode): Uint8Array {
-  throw new Error('not implemented — Task 2/3 of 25-01')
+  let content: Uint8Array
+
+  if (node.constructed) {
+    const parts = node.children.map((child) => encodeDer(child))
+    let total = 0
+    for (const part of parts) total += part.length
+    content = new Uint8Array(total)
+    let offset = 0
+    for (const part of parts) {
+      content.set(part, offset)
+      offset += part.length
+    }
+  } else if (node.tag === 0x02) {
+    content = canonicalizeInteger(node.content)
+  } else if (node.tag === 0x03) {
+    content = canonicalizeBitString(node.content)
+  } else if (node.tag === 0x01) {
+    content = canonicalizeBoolean(node.content)
+  } else {
+    // Every other tag's canonicalisation is structural, not per-byte — e.g. this
+    // profile refuses multi-valued SETs outright (RESEARCH.md §2 row 5) rather than
+    // sorting them, so encodeDer never needs SET OF ordering logic.
+    content = node.content
+  }
+
+  const lengthBytes = minimalLength(content.length)
+  const out = new Uint8Array(1 + lengthBytes.length + content.length)
+  out[0] = node.tag
+  out.set(lengthBytes, 1)
+  out.set(content, 1 + lengthBytes.length)
+  return out
 }
 
 /** decode(bytes) -> encode(that tree) -> byte-compare against `bytes`. True iff identical. */
 export function checkDerCanonical(bytes: Uint8Array): boolean {
-  throw new Error('not implemented — Task 2/3 of 25-01')
+  const decoded = decodeDer(bytes)
+  if (!decoded.ok) return false
+  // Built above any comparison, matching capability.ts's payload-built-above-the-try
+  // pattern: a codec defect in the re-encoder must never be misreported as "the input
+  // was non-canonical".
+  const reencoded = encodeDer(decoded.node)
+  if (reencoded.length !== bytes.length) return false
+  for (let i = 0; i < bytes.length; i++) {
+    if (reencoded[i] !== bytes[i]) return false
+  }
+  return true
 }
