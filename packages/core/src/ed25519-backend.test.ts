@@ -1,3 +1,192 @@
+/**
+ * Task 3 of the 25-04 adapter revision — the record, the re-measurement, and the
+ * wiring decision. Dated 2026-08-09. This docblock is the planning-time deliverable
+ * this revision produces; the tests below it are Tasks 1 and 2's.
+ *
+ * ## Part 1 — the record that selected this design (preserved, reframed, re-derived this revision)
+ *
+ * This paragraph was originally written as a pricing obligation under the first owner
+ * ruling's item 3 ("price this in planning; count the call sites and say the number").
+ * The second owner ruling, same day, chose an adapter instead of the migration this
+ * priced — so what follows is no longer live scope, it is the **evidence** that
+ * selected the adapter, kept because deleting it would erase the reason for the
+ * decision. A prior draft of this docblock counted 9 sites; that count was wrong — it
+ * double-counted two `agent.ts` lines that call the `Authorizer` abstraction rather
+ * than `verifyChain` itself, and it missed two real call sites — and this revision
+ * corrects it. Re-derive the number below rather than transcribing it:
+ *
+ * ```
+ * grep -rn -E "\b(verifyChain|verifyCertificate|verifyResultAttestation|verifyCombineAttestation)\(" \
+ *   --include="*.ts" packages bin tools \
+ *   | grep -v -E "\.test\.ts:|node_modules" \
+ *   | grep -v -E ":(export )?(async )?function |: \* |:\s*\*"
+ * ```
+ *
+ * Run this session, 2026-08-09: **11 raw matches.** One is not a call:
+ * `packages/node/src/mutation-ledger.ts:1473` is a quoted string literal inside a
+ * mutation-ledger `find:` entry (concatenated with `'\n' +`), recording a line of
+ * source *about* a call rather than the call itself — this repository's own "quoted
+ * history reads as present tense" hazard, live in this file. Excluded by reading, not
+ * by pattern — a grep-based exclusion for it would just be a second pattern to go
+ * stale. The remaining **10 lines are real production call expressions, across 9
+ * files, in 4 packages** (`browser`, `core`, `net`, `node`; `peer-verifier.ts` holds
+ * two).
+ *
+ * Adopting a single async `verifyEd25519Async` inside `verifyChain` (`capability.ts`)
+ * and `verifyCertificate` (`enrollment.ts`) would have required both functions to
+ * become `async`, propagating to every caller transitively until an already-async
+ * boundary absorbed it. All ten, by file:line:
+ *
+ * **Already inside an `async` function — mechanical `await` only, no signature change
+ * anywhere in the chain:**
+ * - `discovery.ts:264` — inside `discoverExecutors` (`export async function
+ *   discoverExecutors`, `discovery.ts:241`).
+ * - `main.ts:350` — inside `peerCertificate` (`async function peerCertificate`,
+ *   `browser/demo/main.ts:315`).
+ * - `peer-verifier.ts:688` — inside `verify()` (`verify(peerId): Promise<PeerVerdict>`,
+ *   already async, `peer-verifier.ts:599`).
+ * - `fabric-node.ts:960` — inside an already-`async` arrow closure
+ *   (`return async (source: PeerId): Promise<boolean> => {`, `fabric-node.ts:881`).
+ *
+ * **Currently synchronous, but resolving mechanically one or two levels further up an
+ * already-`async` caller:**
+ * - `reduce-job.ts:321` (`verifyCombineAttestation`, inside `aggregateAttestationOf` —
+ *   not `async` — whose one call site is inside `reduceJob`, `export async function
+ *   reduceJob`, already `async`, at `reduce-job.ts:488` — mechanical one level up; the
+ *   site a prior draft of this record omitted entirely).
+ * - `capability-authorizer.ts:132` (`verifyChain`, inside `authorizeCapability`'s
+ *   returned closure — not `async` — promoting it is one change; its two call sites,
+ *   `agent.ts:541` and `agent.ts:1014`, already call it through the `Authorizer`
+ *   interface (`interface Authorizer`, `agent.ts:121`) inside `async` functions, so
+ *   both would need only `await` — these two `agent.ts` lines are **not** among the
+ *   10, since they call the `Authorizer` abstraction rather than
+ *   `verifyChain`/`verifyCertificate` directly, but they are the concrete downstream
+ *   cost of promoting `capability-authorizer.ts:132`, so they are named here rather
+ *   than silently absorbed).
+ * - `enrollment.ts:926` (`resolveReplicaSets`, `enrollment.ts:919`, currently
+ *   synchronous — would itself need to become `async`, with its one call site at
+ *   `discover-candidates.ts:263`, inside `discoverCandidates`, `export async function
+ *   discoverCandidates` at `discover-candidates.ts:190`, already `async` — mechanical
+ *   one level up).
+ * - `result-attestation.ts:483` (inside `verifyResultAttestation`,
+ *   `result-attestation.ts:408`, currently synchronous — would need to become
+ *   `async`) chained with `job/submit.ts:1114` (`verifyResultAttestation`'s own call,
+ *   inside `receiptFor`, `job/submit.ts:1084`, itself synchronous, so `receiptFor`
+ *   would need to become `async` too — but `receiptFor`'s own one call site, inside
+ *   `submitJob` at `job/submit.ts:3071`, `export async function submitJob` at
+ *   `job/submit.ts:2389`, is already `async`, so the chain terminates there,
+ *   mechanical two levels up from `result-attestation.ts:483`).
+ *
+ * **Not mechanical at all — the one finding the adapter dissolves rather than pays
+ * for:**
+ * - `peer-verifier.ts:557` (inside `#demoteIfExpired`, `peer-verifier.ts:552`, called
+ *   only from `#refresh` at `peer-verifier.ts:479` (call site `peer-verifier.ts:492`),
+ *   called only from the **synchronous getter** `verifiedPeers` at
+ *   `peer-verifier.ts:433` — see below; the site a prior draft of this record also
+ *   omitted, folding it silently into the `:688` entry although the two are reached
+ *   through entirely different paths).
+ *
+ * **Total: 10 production call sites across 9 files in 4 packages**, of which 4 are
+ * already inside an `async` function (mechanical, no promotion needed), 5 require
+ * promoting a currently-synchronous function to `async` — each resolving mechanically
+ * one or two levels further up an already-`async` caller — and 1
+ * (`peer-verifier.ts:557`) is not mechanical: it is reachable only through the same
+ * synchronous `verifiedPeers` getter named below, which cannot be made `async` without
+ * an interface-shape change.
+ *
+ * **The structural obstacle, named precisely, because it is the one the adapter
+ * dissolves:** `packages/node/src/peer-verifier.ts:433`'s `PeerVerifier.verifiedPeers`
+ * is a **synchronous getter**, not a function — `get verifiedPeers(): readonly
+ * string[]`. A getter cannot be made `async` without changing its return type from
+ * `readonly string[]` to `Promise<readonly string[]>`, an interface-shape change, not
+ * a mechanical `await`. That would break `RpcBlockSource`'s constructor contract — it
+ * is consumed as a synchronous thunk (`peers: () => requestor.verifiedPeers`,
+ * `packages/node/src/bin/bench.ts:1353`; `new RpcBlockSource(rpc, () =>
+ * verifier.verifiedPeers)`, `fabric-node.ts:2107`), the path supplying a task's input
+ * blocks, which this phase's own locked decision requires staying off the execution
+ * path. The getter reaches `verifyCertificate` through exactly one path —
+ * `verifiedPeers` (`peer-verifier.ts:433`) -> `#refresh` (its only call site,
+ * `peer-verifier.ts:436`) -> `#demoteIfExpired` -> `verifyCertificate`
+ * (`peer-verifier.ts:557`) — so making `verifyCertificate` async would force
+ * `#demoteIfExpired`, `#refresh`, and `verifiedPeers` itself to become async, which is
+ * materially more than an `await` migration and was not scoped or budgeted by this
+ * phase's `25-CONTEXT.md`.
+ *
+ * **The verdict this measurement produced, and how the second ruling answers it — not
+ * by paying the cost, by not incurring it.** Under a single async
+ * `verifyEd25519Async`, this pricing would have blocked the migration from landing
+ * inside Phase 25. Under the adapter's synchronous port, none of it is paid:
+ * `verifyChain` and `PeerVerifier.verifiedPeers` can call
+ * `getSyncVerifier().verify(...)` and remain exactly as synchronous as they are
+ * today — no function in the 10-call-site chain above needs to change signature. The
+ * obstacle this section priced is real and correctly measured; it is also no longer
+ * the cost of adopting this module, because the module this plan now ships is not the
+ * one that was priced.
+ *
+ * ## Part 2 — re-measurement (ruling item 4, unchanged obligation)
+ *
+ * Re-measured this session, this host (Node v25.9.0), `performance.now()` throughout —
+ * never `Date.now()` — 20 000 iterations after a 1 000-iteration warmup, comparing a
+ * direct `@noble/curves` `ed25519.verify(...)` call against
+ * `getSyncVerifier().verify(...)` under whichever backend `initEd25519()` selected on
+ * this host (this host: `noble` — `crypto.subtle` is Ed25519-capable here, so the sync
+ * port picked noble, same as the direct call, isolating the adapter's own try/catch
+ * overhead rather than a cross-backend difference):
+ *
+ * - `@noble/curves` direct: **1.3204 ms** per verify.
+ * - `getSyncVerifier().verify(...)`: **1.3257 ms** per verify.
+ * - Ratio (port / direct): **1.004** — the adapter's try/catch wrapper costs
+ *   approximately 0.4% over the bare library call, on this host, this run. This is a
+ *   distinct measurement from `25-CONTEXT.md`'s 2026-08-09 table (which compared
+ *   *backends* — noble vs. libsodium vs. subtle — not the port's own overhead over its
+ *   selected backend); it is added beside that table as a second, independently-dated
+ *   data point, not a replacement for it. `25-CONTEXT.md`'s own table already recorded
+ *   its numbers as "one host, one run, without this repository's comparative-ratio
+ *   discipline" — this measurement supplies the ratio that discipline asks for, for
+ *   the one comparison this plan's own port introduces (port overhead vs. bare call),
+ *   which `25-CONTEXT.md`'s table did not and could not cover, since the port did not
+ *   exist yet when it was written.
+ *
+ * **Re-checked, not re-derived**, the `instanceof Promise` table from
+ * `25-CONTEXT.md`'s adapter sub-section, run against every backend this host makes
+ * available: `@noble/curves`'s `ed25519.verify(...)` -> `false`; libsodium's
+ * `crypto_sign_verify_detached(...)` (post-`ready`) -> `false`;
+ * `crypto.subtle.verify(...)` -> `true`. Unchanged from the cited table — the
+ * empirical claim the entire port design rests on holds on this host, this session.
+ *
+ * ## Part 3 — the wiring decision, stated by name (new obligation this revision adds)
+ *
+ * Stated plainly: `verifyChain` (`capability.ts`) and `verifyCertificate`
+ * (`enrollment.ts`) are **not** wired to the new port in this phase — **not planned as
+ * execution work in Phase 25.** This is out of scope for this revision, and the
+ * reason is not the async-migration cost priced in Part 1 above — the adapter
+ * dissolves that. The reason is a decision Part 1's pricing never had to make and this
+ * plan's obligations do not cover: **where each of three runtime entry points
+ * (`packages/net`'s agent bootstrap, `packages/node`'s `fabric-node.ts`,
+ * `packages/browser`'s `browser-node.ts`) calls `initEd25519()` before first use, and
+ * what a verification arriving before that promise resolves should do** (block on it,
+ * fail closed, or fail open with a documented reason — an actual trust-path design
+ * choice). Deciding that inside a single-plan revision would be replanning the phase,
+ * which this revision is explicitly told not to do.
+ *
+ * What a future wiring pass needs to do: call `initEd25519()` once per process at
+ * startup, at each of the three entry points named above; decide and test the
+ * pre-init behaviour described above; replace `capability.ts:219`'s
+ * `ed25519.verify(...)` call and `enrollment.ts`'s four `ed25519.verify(...)` call
+ * sites (`enrollment.ts:702`, `enrollment.ts:740`, `enrollment.ts:759`,
+ * `enrollment.ts:874`) with `getSyncVerifier().verify(...)`; update
+ * `capability.test.ts` and `enrollment.test.ts` accordingly.
+ *
+ * This module carries no requirement ID (`requirements: []` in 25-04-PLAN.md's
+ * frontmatter, unchanged this revision), and `.planning/REQUIREMENTS.md` needs no edit
+ * as a result of this revision — nothing ledgers this module as delivering a
+ * requirement yet, and the ledger claim that matters here is honesty about "Built, not
+ * wired", which this section states rather than implies. Wiring the sync port into
+ * `verifyChain`/`verifyCertificate` is not planned as execution work in Phase 25 — the
+ * module ships complete, tested, and ready to be adopted by whichever future phase
+ * makes the bootstrap-ordering decision above.
+ */
+
 import { ed25519 } from '@noble/curves/ed25519.js'
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import { createLibsodiumSyncVerifier, createNobleSyncVerifier, createSubtleAsyncVerifier } from './ed25519-backend.ts'
