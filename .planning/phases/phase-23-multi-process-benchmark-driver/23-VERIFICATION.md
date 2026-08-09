@@ -18,9 +18,10 @@ human_verification:
   - test: "Owner ruling on the criterion-3 wording correction"
     expected: "ROADMAP criterion 3 carries a dated note recording that its second disjunct's premise — 'the per-host inbound cap is still the cause' — was refuted by measurement, and that the criterion passes on its first disjunct"
     why_human: "Changing the text of a success criterion after the fact is an owner ruling, not a verifier's edit. The precedent is the existing 'Corrected 2026-08-05' note in the same criterion."
+resolved_after_verification:
   - test: "Correct two stale claims that live in production source and will mislead Phase 22"
-    expected: "`packages/net/src/remote-executor.ts`'s class comment (lines beginning 'AUTH-03: the *minting* side of this is still entry-point-unreachable') and `packages/bench/src/index.ts`'s 'Exported here with no production caller yet. Plan 23-03 supplies it' are corrected"
-    why_human: "Source edits. Both are now measurably false, and the first asserts precedence over the roadmap while carrying a decision the owner overruled on 2026-07-31."
+    resolved_on: "2026-08-09"
+    evidence: "Both named comments are corrected. `remote-executor.ts` now opens *'AUTH-03: the minting side **is reached from production**, as of Phase 23'* and spends a paragraph on what the old text claimed, why three of its four clauses were false, and why the precedence clause was deleted rather than re-pointed — *'a comment does not outrank a requirement in this repository'*. The `packages/bench/src/index.ts` phrase *'Exported here with no production caller yet'* returns zero matches repo-wide. Neither is merely reworded: each records the measurement that refuted it."
 deferred:
   - truth: "AUTH-03's checkbox ticks"
     addressed_in: "Phase 22"
