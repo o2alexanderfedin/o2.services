@@ -1,187 +1,81 @@
 {
   "version": "1.0",
-  "timestamp": "2026-08-08T13:45:00.000Z",
-  "context": "milestone",
-  "milestone": "v1.1",
-  "milestone_name": "Wire What Was Built",
-  "work": "audit-fix over .planning/v1.1-MILESTONE-AUDIT.md",
-  "phase": null,
-  "phase_note": "NOT phase work. All 15 v1.1 phases have verifications. Phase 22 is COMPLETE at 2/3 (fee26c2) and its .continue-here.md was corrected from 'task 1 of 3, not_started' to COMPLETE in this same pause.",
+  "timestamp": "2026-08-09T19:50:12.856Z",
+  "phase": "25",
+  "phase_name": "X.509 Certificate Profile",
+  "phase_dir": ".planning/phases/phase-25-x509-certificate-profile",
+  "plan": 0,
+  "task": 0,
+  "total_tasks": 0,
   "status": "paused",
-  "head": "97a127d",
-  "branch": "feature/phase-18-discovery-capacity-placement",
-  "branch_state": "unpushed; working tree clean; nothing WIP. Ahead-count deliberately not recorded as a number: it was wrong twice this session because writing it down is itself a commit, so read it with git rev-list --count origin/main..HEAD",
-  "suite": "tsc exit 0; vitest --project node exit 0, 172 files, 2432 passed, 1 skipped. NOTE: npm run test:unit EXCLUDES the slow specs and passed over a red one for six commits — run --project node in full before believing the tree is clean.",
-  "progress": {
-    "findings_total": 17,
-    "closed": 14,
-    "auto_fixable_remaining": 0,
-    "manual_only": 1,
-    "withdrawn": 1
-  },
-  "reachability": {
-    "unreachable": 66,
-    "disposed": 24,
-    "open": 42,
-    "ceiling": 42
-  },
   "completed_tasks": [
-    {
-      "id": "G2",
-      "name": "AOT publish path no longer stops at the bytes",
-      "commit": "0c43b14",
-      "status": "done"
-    },
-    {
-      "id": "G12",
-      "name": "hasSeed deleted — zero callers, zero tests",
-      "commit": "36c2800",
-      "status": "done"
-    },
-    {
-      "id": "G8/G9/G10/G11",
-      "name": "disposed under a new deferred-in-source cause, each quoting its own source",
-      "commit": "36c2800",
-      "status": "done"
-    },
-    {
-      "id": "L1",
-      "name": "six missing traceability rows, written from measurement",
-      "commit": "3a66549",
-      "status": "done"
-    },
-    {
-      "id": "L2",
-      "name": "STATE.md seed self-contradiction corrected in three places",
-      "commit": "3a66549",
-      "status": "done"
-    },
-    {
-      "id": "L4",
-      "name": "two stale debug sessions closed with evidence",
-      "commit": "3a66549",
-      "status": "done"
-    },
-    {
-      "id": "phase-22",
-      "name": "Reachability Guard built, armed and verified 2/3",
-      "commit": "fee26c2",
-      "status": "done"
-    },
-    {
-      "id": "G1",
-      "name": "A closed seed can name where to enrol — and the finding was partly reframed",
-      "commit": "8211d3c",
-      "status": "done",
-      "note": "Two halves of the original finding were correct DECISIONS, not defects: autoStart forwarding no enrollment is stated design, and a closed seed refusing an anonymous visitor IS AUTH-02 working. The real defect: relayAdmission's docblock obliges a closed seed to name a provider and no field, flag or BootstrapInfo member existed to name one. Added SeedServerOptions.enrollmentProvider, --enrollment-provider, a banner line naming which state the seed is in, and origin-side discovery. issuesCertificates deliberately NOT added. The e2e no longer injects providerAddr."
-    },
-    {
-      "id": "G13",
-      "name": "The egress manifest reaches the screen, and says what it cannot prove",
-      "commit": "7b779ab",
-      "status": "done",
-      "note": "index.html held zero occurrences of egress/withheld/sovereign. The panel refuses the stronger reading: every cube runColouring submits is label:'public', so violations is empty by construction and the page says WHY zero is zero rather than printing it as a sovereignty proof. The refusal branch is written and unreachable from the page because runJob has no caller there — that is G4, not papered over."
-    },
-    {
-      "id": "G6",
-      "name": "NOT A DEFECT — mis-attributed requirement, already-disposed symbol, stated design",
-      "status": "done",
-      "note": "NET-03 is AutoTLS and is excluded from v1.1 as a hosting decision. findReservedPeers is already disposed as global-object-hop: it IS reached via demo/main.ts behind window.o2. rendezvous.ts's header says the origin route is the better answer on a LAN and the wire route exists for static hosts. A Node agent takes --relay-addr."
-    },
-    {
-      "id": "G7",
-      "name": "Disposed on a stated cause, written into discovery.ts first",
-      "commit": "97a127d",
-      "status": "done",
-      "note": "Owner decision 2026-08-08: leave uncomposed. A fallback chain needs a genuine second source; an empty MemoryRecordIndex in front of the RPC index composes the types and demonstrates nothing. NET-06 stays open. OPEN_FINDING_CEILING ratcheted 42->40, measured by setting it to 0 and reading the guard's own verdict."
-    },
-    {
-      "id": "G5",
-      "name": "Off by default is SETTLED — and it already was",
-      "status": "done",
-      "note": "Owner ruling 2026-08-08 confirms the existing reading rather than changing it. SCHED-01's row already read 'Done — 2026-08-02, plan 18-06' with the reason stated: off by default 'so a published curve is not reshaped by an undeclared change'. The audit called the intent unsettled; it was not. Reason recorded durably in bin/bench.ts's DISCOVER docblock. The capability's existence is proven by discovery-agents.node.test.ts across seven real bin/agent.ts processes — what is opt-in is the BENCHMARK's configuration."
-    }
+    { "id": 1, "name": "Phase 25 smart discuss — 3 grey areas accepted", "status": "done", "commit": "a2cbd1e" },
+    { "id": 2, "name": "Phase 26 smart discuss — 3 grey areas accepted", "status": "done", "commit": "6eb763e" },
+    { "id": 3, "name": "Phase 27 smart discuss — 2 grey areas accepted", "status": "done", "commit": "1497b02" },
+    { "id": 4, "name": "Phase 25 research — 25-RESEARCH.md", "status": "done", "commit": "7d88294" },
+    { "id": 5, "name": "Owner ruling: Ed25519 backend (subtle -> libsodium)", "status": "done", "commit": "2dfa994" }
   ],
   "remaining_tasks": [
-    {
-      "id": "G3",
-      "severity": "manual",
-      "name": "The demo merges with answerOf (linear scan) rather than reduceJob",
-      "affects": [
-        "MR-03",
-        "MR-04",
-        "MR-05",
-        "MR-06",
-        "MR-07"
-      ],
-      "note": "RECLASSIFIED out of auto-fixable 2026-08-08. Nothing is unreachable: bin/bench.ts:1963 calls reduceJob in production and bin/agent.ts serves the other half. MR-03..07 each already read Partial naming answerOf. A ledgered Partial, not a hidden gap — closing it gives the visitor demo a verified tree-reduce, which changes what the demo COMPUTES. A feature, and the owner's call.",
-      "merged_into": "G3+G4 are ONE feature — see pi_reduce_design"
-    },
-    {
-      "id": "G4",
-      "severity": "manual",
-      "name": "π and primes workloads wholly unwired — wire a second workload into the demo, or retire them",
-      "merged_into": "G3+G4 are ONE feature — see pi_reduce_design"
-    },
-    {
-      "id": "residue",
-      "severity": "manual",
-      "name": "42 open unreachable exports, held still by OPEN_FINDING_CEILING. Lowering it is the work."
-    }
+    { "id": 6, "name": "Plan phase 25", "status": "not_started" },
+    { "id": 7, "name": "Execute phase 25 + code review", "status": "not_started" },
+    { "id": 8, "name": "Plan phase 26 (gated on the wasm32-wasi fork/exec experiment)", "status": "not_started" },
+    { "id": 9, "name": "Execute phase 26", "status": "not_started" },
+    { "id": 10, "name": "Plan phase 27", "status": "not_started" },
+    { "id": 11, "name": "Execute phase 27", "status": "not_started" },
+    { "id": 12, "name": "Milestone lifecycle: audit -> complete -> cleanup", "status": "not_started" }
   ],
   "blockers": [
     {
-      "description": "A finding classified auto-fixable may be a documented decision. Four were this session — churn.ts defers the EgressRefusal classification and names the remedy; checkBlockstoreConformance FAILS any non-empty store so it cannot run at construction; @o2/bench's barrel says sweepNodeCount is not settled. Read the module that would do the wiring before wiring it.",
-      "type": "technical"
+      "description": "Phase 26 is gated by design on its first experiment: build elflift for wasm32-wasi and determine whether it needs fork/exec. Its roadmap entry states a negative changes the whole shape of the work.",
+      "type": "technical",
+      "workaround": "Do not plan waves past the experiment. A measured negative is a valid phase outcome."
     },
     {
-      "description": "Do not write a ledger row to satisfy a checker. acceptance-traceability's CHECKBOXES_WITHOUT_A_ROW docblock names the failure: 'the only way to go green would be to invent rows'. The six written this session cite a symbol and a file each, and NET-09 went in as Partial with its checkbox taken OFF — that asymmetry is the evidence they were measured.",
-      "type": "technical"
+      "description": "Phase 25's DECODER_BUDGET_BYTES bundle ceiling cannot be set until the decoder exists to measure.",
+      "type": "technical",
+      "workaround": "Leave unset. Guard asserts a delta against the measured 168.93 KB gzip baseline once there is something to measure."
+    },
+    {
+      "description": "gsd-sdk phase discovery is unreliable on this roadmap: roadmap.analyze returns phase_count 0, and phase.add numbers from directories rather than ROADMAP.md headings.",
+      "type": "external",
+      "workaround": "Read '### Phase N:' headings from ROADMAP.md directly; verify any number the SDK returns before using it."
+    }
+  ],
+  "human_actions_pending": [
+    {
+      "action": "Decide whether the Ed25519 verification-backend ruling should become its own phase rather than living inside Phase 25",
+      "context": "It is not one of the seven X.509 obligations. It was filed under Phase 25 because obligation 1 is permitted algorithms and this is how they are verified, and it touches verifyChain/verifyCertificate rather than the DER decoder.",
+      "blocking": false
+    },
+    {
+      "action": "Rule on two audit-uat items overtaken by events",
+      "context": "'Rule on whether the seed may be told which issuers it admits' — bin/seed.ts --admit-issuer now exists. 'Decide whether Phase 22 still runs after Phase 24' — Phase 22 ran and scored 2/3. Both are decisions reality already made.",
+      "blocking": false
     }
   ],
   "decisions": [
     {
-      "decision": "The entry-point set stays at five",
-      "rationale": "tools/aot/bench-lifted.ts rescues four @o2/aot symbols and is a benchmark driver, not a way the fabric is entered. Owner ruling 2026-08-08."
+      "decision": "X.509 adopted as a format, not as a parser dependency — a bounded hand-written DER decoder for exactly this profile",
+      "rationale": "The owner ruling names the hazard: a few hundred KB of exactly the code that generates CVE classes, at the one boundary that must fail closed. A decoder that accepts one profile is smaller than one that accepts all of X.509 and is then constrained.",
+      "phase": "25"
     },
     {
-      "decision": "Only symbols with a stated cause get a disposition",
-      "rationale": "Owner ruling 2026-08-08. Everything else stays an open finding, which is why criterion 1 is DECLINED rather than closed — disposing the rest would make the guard decoration."
+      "decision": "Ed25519 verification: crypto.subtle when available, libsodium (WASM) as the fallback",
+      "rationale": "Owner ruling 2026-08-09, taken against the standing recommendation of subtle -> noble. Measured: noble 1.348 ms/verify = 99.23% of a chain link; subtle 0.0393 chromium / 0.08 firefox / 0.11 webkit but entirely undefined outside a secure context, including the LAN origin bin/seed.ts advertises; libsodium 0.0887 ms, WASM so no secure context needed, but 314.9 KB gzip against a 168.93 KB total demo bundle. Mitigated by lazy import behind the capability check.",
+      "phase": "25"
     },
     {
-      "decision": "The window.o2 hop is disposed on the MECHANISM, not the tier",
-      "rationale": "Extracting index.html's inline script would close it properly and is a change to the demo, not to a guard. The cause is a hop, so it does not violate the ban on tier-based dispositions."
+      "decision": "Phase 26 ships stage 1 only, and everything is gated on the first experiment",
+      "rationale": "The roadmap entry states a negative on the fork/exec question changes the whole shape of the work, and requires the two pipeline stages be priced separately.",
+      "phase": "26"
     },
     {
-      "decision": "bin/bench.ts staying 'admits-any-peer' is a deliberate trade — do not fix it",
-      "rationale": "relayAdmissionGate's header records that 24-02's pre-gate baseline 'stays comparable only while that remains true'. Arming it would invalidate the milestone's speedup baseline."
+      "decision": "Phase 27's anti-placeholder guard lands before the screens",
+      "rationale": "A mockup is full of plausible numbers and the phase fails by shipping any of them. Written after the screens, the guard gets written to fit them and 'wired' becomes satisfiable by CSS.",
+      "phase": "27"
     }
-  ],
-  "instrument_facts": [
-    "gsd-sdk init.milestone-op reported all_phases_complete:true with Phase 22 at 1 of 4 summaries, and roadmap.analyze returned an EMPTY phases array. Both false. Derive phase state from disk.",
-    "zsh does not word-split unquoted variables — a comparative measurement passed both arms through $GATE, vitest got one filter, and arm A 'passed' at 0.64s having run nothing. Caught by reading EXIT=$?.",
-    "fromHex NEVER returns null; it parseInts each byte pair and turns garbage into 0. fromHex(x) === null is a check that cannot fail.",
-    "program.getSourceFileNames() grows lazily — 907 then 963 in one session. Walk the corpus from disk.",
-    "typescript/unstable/ast does not EXPORT forEachChild, but every node has it as a METHOD. That is what makes a precise AST walk possible instead of a text scan.",
-    "The vocabulary guard refuses 'earn' and 'token'. Both caught me this session."
   ],
   "uncommitted_files": [],
-  "next_action": "Start with G1. Read packages/node/src/seed-server.ts (SeedServerOptions, BootstrapInfo) and packages/browser/demo/main.ts (autoStart, and the enrollment block on start that has no caller). The shape: a seed that pins issuers must either serve enrolment itself or publish a provider address a joining tab can reach without a reservation — the seed's banner already says so, and neither field exists. Decide which remedy to build, then make gated-seed.e2e.test.ts green WITHOUT the harness injecting providerAddr, because that injection is what currently hides the gap. — SUPERSEDED: G1 is CLOSED at 8211d3c. Next is G13, the cheapest of the four remaining auto-fixable findings: the demo returns an egress manifest and index.html never displays it, so the sovereignty claim's only operator-facing surface stops at window.o2. CARRY G1'S LESSON INTO IT — read what the source already decided before wiring, and expect part of the finding to be a correct decision rather than a defect. That was true of G1 and of G8/G9/G10/G11 before it, which is five of ten closures where the audit's framing was partly wrong. G3, G6 and G7 remain; G7 still needs a genuine second source or it is decoration.",
-  "pi_reduce_design": {
-    "summary": "G3 and G4 converge. packages/demo/src/pi.ts exists to 'project a partial into the partial shape the fabric's one combiner accepts' — pi IS a reduce workload. Colouring cannot demonstrate a verified reduce because it is first-found-wins, which is why answerOf is correct for it. Wiring pi as a second demo workload whose merge goes through reduceJob closes G4 (the workload) AND G3 (the verified tree-reduce), and moves the demo half of MR-03..MR-07 off Partial.",
-    "shape": "submit pi shards (same input block, partitioned) -> reduceJob(result.job, {rpc: node.rpc, executors: peerIds, blockstore: node.store, project: projectPiPartial, trustedIssuers}) -> estimatePi(scaledTotal) checked against piErrorBound(terms).",
-    "blocker_1_trust_root": "THERE IS NO SIGNED RECORD FOR THE PI KERNEL, and this is the hard part. packages/demo/src/kernel-record.ts is GENERATED and states that sign-kernel.ts 'generates a new ed25519 key on every run and discards the private half immediately'. There is exactly one anchor. bin/agent.ts and bin/seed.ts BOTH default to KERNEL_TRUST_ANCHOR, so a pi record signed by any other key is refused by a stock agent. Adding pi therefore means extending sign-kernel.ts to sign BOTH kernels under one new key and committing the new anchor plus both records TOGETHER — a change to the demo's trust root that alters what every stock node will run. NEEDS EXPLICIT OWNER SIGN-OFF before anyone builds it.",
-    "blocker_2_solo_visitor": "reduce-job.ts:385 returns {ok:false, reason:'no executor to combine on'} when executors is empty, and ReduceJobOptions says 'the submitter is NOT among them'. So a lone visitor cannot run the reduce at all. This is clean and the panel should render the named reason — but it means the milestone's headline claim only renders when a second device is present. runColouring's analogous answer is onQuorumShortfall:'runs-at-available-redundancy'; the reduce path has no such degradation.",
-    "note": "G13's egress panel already reads whichever manifest it is handed, so this work makes its WITHHELD branch live with no change to that code."
-  },
-  "retractions": [
-    {
-      "id": "L3",
-      "withdrawn_on": "2026-08-08",
-      "what": "Audit finding L3 — 'Phase 13 verification reads 0/3 while STATE.md counts it closed' — was FALSE, and a decision was put to the owner on it.",
-      "why": "Phase 13 has TWO verification files. 13-VERIFICATION-2.md is pass 2, same day, score 3/3 on the criteria AS AMENDED in ROADMAP.md, 8 verifier-planted mutations, with an explicit re_verification block reading 'previous_score: 0/3 against the ORIGINAL criteria'. Plans 13-04/13-05/13-07 landed between passes and closed the first pass's gaps. The directory was never globbed; one file was read and a contradiction reported.",
-      "cost": "The owner ruled to reopen Phase 13 on false evidence, the milestone count moved 12 -> 11, and all of it was retracted the same day. STATE.md, 13-VERIFICATION.md and the audit each carry the retraction in place rather than a silent revert.",
-      "rule": "Enumerate a phase's verification files before comparing one against a count. A pass 1 is not a verdict when a pass 2 exists."
-    }
-  ]
+  "next_action": "/gsd-plan-phase 25 — has_context and has_research are both true, so it goes straight to the planner. Success criteria must be one per obligation, minting X509-01..07, with obligation 5 (MAX_CHAIN_DEPTH) recorded as delivered-with-evidence rather than planned as work.",
+  "context_notes": "No implementation started anywhere — a clean boundary. The session's through-line was that the record lags the tree: it appeared in the milestone audit under-reporting its own closures, in two count-pin guards left red by the commit that broke them, in three UAT items describing finished work, and in roadmap.analyze reporting no phases at all. Expect more; the fix is always to measure the tree rather than transcribe a summary. Two blocking anti-patterns are in .continue-here.md and must be acknowledged before proceeding: quoted history reading as present tense (it produced a false finding that was reported and retracted), and blanket node_modules symlinks in a worktree making guards verify the wrong tree."
 }
