@@ -233,11 +233,14 @@ describe('the guard cannot report clean because it looked at nothing', () => {
     // exported-but-uncalled function is a defect that no known-TRUE anchor can catch, because it
     // adds a finding rather than removing a path.
     //
-    // Sited at **67**, measured 2026-08-08 with Phases 20, 21, 23 and 24 landed. It read 58 for
-    // about an hour, until PLANT A AT `FabricNode.start` failed to redden anything and exposed
-    // that type annotations were being counted as call paths; excluding type positions moved it
-    // to 67. The earlier figure is recorded because a ceiling whose history is invisible is a
-    // ceiling nobody can audit.
+    // Sited at **73**, measured 2026-08-09 (Plan 25-04). It was 67 from 2026-08-08 with Phases
+    // 20, 21, 23 and 24 landed — that reading itself moved from 58 after PLANT A AT
+    // `FabricNode.start` failed to redden anything and exposed that type annotations were being
+    // counted as call paths; excluding type positions moved it to 67. Raised to 73 when
+    // `packages/core/src/ed25519-backend.ts`'s seven barrel exports (the Ed25519 dual-port
+    // verifier) landed with no production caller yet by design — see that module's own docblock
+    // for why. The earlier figures are recorded because a ceiling whose history is invisible is
+    // a ceiling nobody can audit.
     // The ceiling is an equality-ish bound on purpose and it is the crude form of what 22-03
     // replaces it with: a per-symbol register with a reason for each. Until that lands, this is
     // the only thing standing between the guard and a new dead export arriving unnoticed.
@@ -247,10 +250,10 @@ describe('the guard cannot report clean because it looked at nothing', () => {
     expect(
       found.length,
       `the guard found ${found.length} unreachable callable barrel exports; the reading recorded ` +
-        'on 2026-08-08 was 67. A HIGHER number means a new exported-but-uncalled symbol arrived — ' +
+        'on 2026-08-09 was 73. A HIGHER number means a new exported-but-uncalled symbol arrived — ' +
         `run the guard and read the list. A LOWER number is wiring work landing and the ceiling ` +
         'should be lowered to match it, which is 22-03\'s register rather than an edit here.',
-    ).toBeLessThanOrEqual(67)
+    ).toBeLessThanOrEqual(73)
   }, GRAPH_TIMEOUT_MS)
 
   it('separates findings that have callers from findings that have none', () => {
