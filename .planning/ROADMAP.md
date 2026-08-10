@@ -1829,9 +1829,29 @@ being real-but-unledgered code
 
      ONE. TWO OVERLAPPING Ed25519 IMPLEMENTATIONS NOW LIVE IN `packages/core`.
      `ed25519-backend.ts` (Phase 25, verified 7/7, subtle -> libsodium) and `cert-lifecycle.ts`
-     (subtle -> noble). Both are correct and separately tested. Having both is the defect: two
-     implementations in one trust path is exactly the hazard the differential-conformance guard
-     was written to police, and it now has to police a seam nobody chose.
+     (subtle -> noble). Both are correct and separately tested.
+
+     >>> CORRECTED 2026-08-10, THE SAME DAY IT WAS WRITTEN, BY READING THE TREE. The sentence
+     >>> that stood here was:
+     >>>
+     >>>   "Having both is the defect: two implementations in one trust path is exactly the
+     >>>    hazard the differential-conformance guard was written to police, and it now has to
+     >>>    police a seam nobody chose."
+     >>>
+     >>> IT IS WRONG, and it is wrong in the direction that overstates the danger. NEITHER
+     >>> implementation is in the trust path. Production verification calls `@noble/curves`
+     >>> DIRECTLY at six sites — `capability.ts:219`, `enrollment.ts:702`, `:740`, `:759`,
+     >>> `:874`, and `discovery.ts:122`. So the arrangement is THREE, not two: a direct noble
+     >>> path that production actually uses, plus two selection layers that nothing in
+     >>> production calls.
+     >>>
+     >>> WHAT THIS CHANGES, both ways. It makes the merge SAFER than filed — behaviour-neutral
+     >>> in production, because no production caller routes through either layer. It also CAPS
+     >>> WHAT THE PHASE MAY CLAIM: this is a duplication-and-ledger cleanup, NOT the removal of
+     >>> a live hazard in the trust path, and it must not be written up as the latter.
+     >>>
+     >>> Kept rather than deleted, per the house pattern: a claim that moved is exactly what a
+     >>> later reader benefits from finding explained rather than silently absent.
 
      TWO. THE FACADES ARE BUILT, TESTED, MERGED — AND UNLEDGERED. 28 node tests, 114 browser
      tests across chromium/firefox/webkit, `tsc` clean, merged at `db89ad2`. No requirement id,
@@ -1874,16 +1894,49 @@ being real-but-unledgered code
        5. the measured bundle delta of the removal, guarded the way 25-03 guards the decoder's
        6. the WebKit signature-nondeterminism finding carried into a guard, not just a docblock
 
+     TWO GUARD DEFECTS THE PLANNER MUST CLOSE, found 2026-08-10 while gathering context. Both
+     are consequences of the removal rather than pre-existing faults, so neither is visible in
+     the tree today:
+       - OBLIGATION 4 GAINS A VACUITY HOLE. With libsodium gone, a host where `crypto.subtle`
+         is absent is left with exactly ONE backend, and every "the backends disagreed" loop
+         then passes by comparing a backend with itself. Nothing currently asserts a minimum
+         count. Latent rather than live — every host measured so far is Ed25519-capable, so
+         this is marked INFERRED — but obligation 4 must add a `backends.length >= 2` floor or
+         the guard it promises to preserve becomes unfalsifiable on exactly the tier libsodium
+         was bought for.
+       - OBLIGATION 5's GUARD SHAPE DOES NOT TRANSFER. 25-03 guards an ADDITION with
+         `toBeLessThanOrEqual`, which is sound for a ceiling. A ceiling on a REMOVAL is
+         satisfiable by doing nothing at all. The bundle-delta guard needs a different form —
+         assert the absence directly, and assert the size moved DOWN by a floor, not up by a
+         cap.
+
      WHAT THIS PHASE DOES NOT DECIDE, and must not quietly decide by implementing:
-       - whether `verifyChain`/`verifyCertificate` get wired to a port at all. Phase 25 left them
-         unwired and the reason CHANGED during that phase: the adapter dissolved the async-cost
-         argument, leaving a genuine open question — where each of three runtime entry points
-         calls `init` before first use, and what a verification arriving before it resolves
-         should do. Block, fail closed, or fail open is an OWNER ruling, not an implementation
-         detail. If wiring proceeds, the staleness window it introduces (moving `#refresh` off
-         the `verifiedPeers` read) is a security parameter and needs a sited constant.
-       - whether the facades should be exported from the barrel. Exporting moves the
-         `reachability-guard` ceiling, currently 75 and verified tight. -->
+       - whether the Ed25519 PORT gets wired to the trust path at all.
+         >>> CORRECTED 2026-08-10, same day, by grep. This read "whether `verifyChain`/
+         >>> `verifyCertificate` get wired to a port at all. Phase 25 left them unwired" — and
+         >>> `verifyChain` IS WIRED. It has a production caller at
+         >>> `packages/net/src/capability-authorizer.ts:132`, `verifyCertificate` has six, and
+         >>> `REQUIREMENTS.md:803` already recorded this. What is unwired is the PORT: nothing
+         >>> anywhere calls `initEd25519` or `getSyncVerifier`.
+         The open question survives the correction intact, because it was never about those two
+         functions having callers — it is where each of three runtime entry points calls `init`
+         before first use, and what a verification arriving before it resolves should do. Block,
+         fail closed, or fail open is an OWNER ruling, not an implementation detail. If wiring
+         proceeds, the staleness window it introduces (moving `#refresh` off the `verifiedPeers`
+         read) is a security parameter and needs a sited constant.
+       - whether THE FACADES are exported from the barrel.
+         >>> CORRECTED 2026-08-10, same day. This said "the facades should be exported from the
+         >>> barrel. Exporting moves the `reachability-guard` ceiling, currently 75 and verified
+         >>> tight" — which silently lumped two files together. `ed25519-backend.ts` is ALREADY
+         >>> barrel-exported (`index.ts:386-397`, seven symbols, already counted inside the
+         >>> ceilings). Only `cert-lifecycle.ts` is absent from the barrel, so the ruling applies
+         >>> to the facades ALONE.
+         The cost of exporting them is 12 callable exports: 75 -> 87 and `OPEN_FINDING_CEILING`
+         49 -> 61. INFERRED — counted from declarations, not obtained by running the guard.
+
+     ONE NON-BLOCKING DRIFT, recorded so it is not rediscovered as a defect:
+     `reachability-guard.node.test.ts:350` and `REQUIREMENTS.md:790` both still say "47" against
+     an `OPEN_FINDING_CEILING` that is now 49. Comment drift only — nothing reddens. -->
 
 
 ## Milestone v1.1 — Wire What Was Built (Phases 11-22)
