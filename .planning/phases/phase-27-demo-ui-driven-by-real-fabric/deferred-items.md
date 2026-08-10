@@ -318,3 +318,91 @@ for *the spec said this element does not count*.
 
 **What would close it:** either a `control` row for `#run-status` in UI-SPEC section 4.2 with
 the surface tally moved to 22, or P2 run on a populated page with a stated exemption list.
+
+## Three π sentences were composed, because the catalogue's arm is false in that arm
+
+**Found during:** 27-05 Task 1.
+
+UI-SPEC §4.4 gives P7 one `unavailable` sentence — *No aggregate: a reduce was started and
+no combine produced one.* — and §5.3 names it explicitly as the **sibling** of the lone-tab
+case, i.e. the case where a reduce *was* started. In the lone-tab arm the sentence is simply
+untrue, and a false sentence is worse than a composed one. Two more sit beside it. All three
+are marked `COMPOSED` in `packages/browser/demo/surfaces/pi.ts`:
+
+- `pi/combined`, lone-tab arm — *No aggregate: no reduce was attempted — see above.*
+- `pi/combines`, reduce-started-and-nothing-combined arm — *No count: a reduce was started
+  and no combine produced an aggregate, so the fabric reported no combine count.* `runPi`
+  maps `combines` to `0` whenever `outcome.ok` is false, so the zero there is a sentinel and
+  not a count.
+- `pi/combines`, single-partial arm — *No combine was needed: a single partial is itself the
+  aggregate.* `deriveReduceTree` promotes a lone child rather than wrapping it in a pointless
+  combine, so this zero is *true* and still reads as a failure beside `combined: true`.
+
+None is in `REGIONS`: the catalogue's `unavailable` arm is defined as *the arm UI-SPEC names
+a literal sentence for*, and UI-SPEC names none for these three states. This is the same
+shape as C15 and C17 one plan earlier.
+
+**Coverage, stated:** the first is asserted by `demo-pi.e2e.test.ts`'s lone arm on a real
+page. The second and third are reached only by `pi-surface.node.test.ts` — the two-tab
+fixture combined, so no browser has rendered either.
+
+**What would close it:** UI-SPEC §4.4 quoting sentences for P7's not-attempted arm and P9's
+two zero-valued arms, or adopting these three.
+
+## The reduce-tree diagram draws `treeDepth + 1` rows, not `treeDepth`
+
+**Found during:** 27-05 Task 1.
+
+UI-SPEC §4.4 says the diagram *"may render `treeDepth` rows"* and, one clause later, that
+*"each row is labelled `map` / `lvl 1` …"*. The two cannot both hold. `ReduceTree.depth`
+counts the combine layers **above** the leaves — `depth: level - 1` in
+`packages/core/src/reduce.ts`, where `level` starts at 1 for the first combine layer — so
+`map` plus one row per layer is `depth + 1` rows. Drawing exactly `depth` rows would mean
+either dropping the `map` row the same sentence asks for, or drawing one fewer combine layer
+than the fabric built.
+
+Measured on the two-tab run: `treeDepth=2 combines=4` over twelve leaves, which at the
+default fanout is three combines at the first layer and one above them. The diagram drew
+`depth 2 / map / lvl 1 / lvl 2`, and `demo-pi.e2e.test.ts` asserts that row set against the
+depth the run reported rather than against a literal.
+
+**What would close it:** UI-SPEC §4.4 saying `depth + 1` rows, or saying the row count is the
+map layer plus the depth.
+
+## `#pi-status` is digit-free by hand, and nothing enforces it
+
+**Found during:** 27-05 Task 2.
+
+The deferred item above about `#run-status` says the same thing about the colouring surface:
+a status element inside `#main` carries no `data-region`, and P2 runs on the stopped page, so
+an undeclared digit written there after a run is invisible to the guard. `#pi-status` was
+written digit-free on purpose — `dispatching…`, `mapped — the reduce needs a second device`,
+`an aggregate was produced`, `a reduce ran and produced no aggregate`, `the run stopped` —
+and a comment beside the element says why, but **that is a convention and not a check**.
+
+**What would close it:** the same thing that would close `#run-status` — P2 run on a
+populated page with a stated exemption list, or a `control` row for each status element.
+
+## P5's exempt set is 15 on the driven surfaces, and 27-04 recorded it as two
+
+**Found during:** 27-05 Task 2, counting the set rather than reading the note about it.
+
+27-04 logged that P5b exempts a region whose catalogue entry holds no `unavailable` arm, that
+*"exactly two colouring regions are in that position today"* — C15 and C17 — and that the
+exemption *"grows on its own … and nothing reports that it grew"*. The second half is right
+and the first is wrong, which is exactly what the second half predicted would go unnoticed.
+
+Counted from the committed catalogue, over the two surfaces P5 now drives:
+
+| surface | exempt readings | count |
+|---|---|---|
+| colouring | `rung-300`, `rung-400`, `rung-500`, `attestation`, `egress`, `verify-verdict`, `verify-n`, `verify-triples` | **8** |
+| pi | `terms`, `shards`, `complete`, `reduce-attempted`, `error-bound`, `elapsed`, `egress` | **7** |
+
+So the set was already **8** when 27-04 called it two — the three lower rungs take C9's
+sentence and the three verify readings share `COLOURING_NOT_CHECKED` in both arms — and π adds
+seven more. Every one of the seven π regions is asserted by name in `demo-pi.e2e.test.ts`,
+which is the same remedy and the same reason it is still worth logging.
+
+**What would close it:** the assertion 27-04 already asked for, bounding the exempt set
+against a committed list — with the list started at the fifteen above rather than at two.
