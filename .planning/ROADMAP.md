@@ -1395,8 +1395,9 @@ Plans:
 ### Phase 26: elfconv Compiled to Wasm — Translation as a Fabric Workload
 **Goal**: The AOT translator runs as a wasm module on any node, so producing a lifted artifact stops being a Docker-host privilege and becomes a job the fabric can schedule — closing the asymmetry where the fabric can RUN lifted artifacts anywhere but only PRODUCE them on one machine
 **Depends on**: the `third_party/elfconv` submodule (added 2026-08-07); no phase depends on this
-**Requirements**: none yet — this phase opens them
-**Research**: measured 2026-08-07 against `ghcr.io/yomaytk/elfconv:amd64`, recorded below
+**Requirements**: AOTW-01, AOTW-02, AOTW-03, AOTW-04, AOTW-05, AOTW-06 (minted at plan time 2026-08-10; AOTW-06 is the phase deliverable and opens unmet by design — everything before it exists to decide whether it is reachable)
+**Research**: measured 2026-08-07 against `ghcr.io/yomaytk/elfconv:amd64`, recorded below; toolchain preconditions re-measured on this host 2026-08-10 and recorded in `26-CONTEXT.md`
+**Plans**: 3 plans, 3 waves, strictly sequential — 26-01 pins the toolchain by image digest and measures what preview1 provides; 26-02 is the gate (elflift's own TUs compiled for `wasm32-wasi`, and the unresolvable symbol residue named); 26-03 writes the verdict, mints the ids, and hands the decision back. Nothing past the gate is planned, deliberately
 
 <!-- FILED 2026-08-07 BY OWNER INSTRUCTION ("compile to Wasm"). NOT scheduled into v1.1.
 
@@ -1463,14 +1464,40 @@ Plans:
         does not run there — it needs a WASIX runtime. So Wasmer's artifact proves the concept
         and is NOT a drop-in for the fabric.
 
-     7. THE LIKELY REASON CLANG NEEDED WASIX DOES NOT APPLY TO elflift, and this is the single
-        most useful thing to test first. **INFERRED, NOT YET MEASURED** — say so until it is.
-        The clang DRIVER spawns subprocesses (`cc1`, then the linker), which is fork/exec and is
-        exactly what preview1 lacks. `elflift` is not a driver: it links LLVM as a LIBRARY,
-        reads one ELF and writes one `.bc`, in a single process. If it needs no fork/exec, no
-        signals and no longjmp, it may fit plain wasm32-wasi where the clang driver cannot.
-        **First experiment of this phase: build elflift for wasm32-wasi and find out**, because
-        a negative here changes the whole shape of the work.
+     7. ~~THE LIKELY REASON CLANG NEEDED WASIX DOES NOT APPLY TO elflift~~ — **MEASURED
+        2026-08-10 (Plan 26-02) AND IT DID NOT HOLD.** The item is kept verbatim below rather
+        than deleted, because it was the phase's central hypothesis and a reader tracing the
+        argument needs to see what was tested.
+
+        **The original item, unedited:**
+
+        > THE LIKELY REASON CLANG NEEDED WASIX DOES NOT APPLY TO elflift, and this is the single
+        > most useful thing to test first. **INFERRED, NOT YET MEASURED** — say so until it is.
+        > The clang DRIVER spawns subprocesses (`cc1`, then the linker), which is fork/exec and is
+        > exactly what preview1 lacks. `elflift` is not a driver: it links LLVM as a LIBRARY,
+        > reads one ELF and writes one `.bc`, in a single process. If it needs no fork/exec, no
+        > signals and no longjmp, it may fit plain wasm32-wasi where the clang driver cannot.
+        > **First experiment of this phase: build elflift for wasm32-wasi and find out**, because
+        > a negative here changes the whole shape of the work.
+
+        WHY IT IS FALSE. The inference turns on "driver spawns, library does not". The fork/exec
+        is not a property of being a driver — **it is inside LLVMSupport's `Program.cpp`, which
+        `elflift` links as a LIBRARY.** `fork`, `execve` and `posix_spawn` each read `count: 1`
+        in both alive readings of `gate.json`, every one attributed to `Program.cpp.o`. Linking
+        LLVM as a library therefore does not avoid the process family; it imports it.
+
+        WHAT THAT DOES NOT SAY, because the measurement is an upper bound in one direction only.
+        A residue read out of an ARCHIVE is what the archive references, and `wasm-ld` pulls in
+        only the members it needs — so this does not establish that the elflift link drags
+        `Program.cpp.o` in. Nothing was linked. And elflift's OWN demand for fork/exec is
+        unmeasured entirely, because the compile stops at glog before any of the lifter's code is
+        type-checked.
+
+        THE EXPERIMENT RAN AND ITS ANSWER IS A NO-GO, for a cause this item did not predict:
+        **glog**, which has no `__wasi__` platform branch at all. 21 of 27 non-test TUs do not
+        compile; the `wasm32-wasi-threads` arm moves the error from `glog/logging.h:51` to
+        `glog/platform.h:58` ("Platform not supported by glog") and fixes nothing. See
+        `.planning/phases/phase-26-elfconv-compiled-to-wasm/26-GATE.md`.
 
      8. THE SECOND STAGE MAY AVOID THE DRIVER TOO — also inferred, also to be measured. Stage 2
         needs bitcode -> object -> wasm, which is `llc` and `wasm-ld`; both are single-process
@@ -1564,8 +1591,22 @@ Plans:
         NOT MEASURED YET, and it is the number the demo-service idea turns on: the module size
         of that clangd build. Wasmer's clang is ~100 MB uncompressed; assume the same order until
         this repository's artifact is actually weighed.
-     11. THE COST ESTIMATE COLLAPSED ON 2026-08-07, and the two hardest unknowns are now
-        resolved — both MEASURED, neither assumed.
+     11. ~~THE COST ESTIMATE COLLAPSED ON 2026-08-07~~ — **BOTH SUB-ITEMS WERE OVERTAKEN BY
+        MEASUREMENT ON 2026-08-10.** The heading is struck and the two sub-items are corrected
+        in place below, each keeping its original text. (ii) is FALSIFIED; (i) is WEAKENED
+        rather than falsified, and the difference is stated in its own paragraph. The original
+        heading, unedited: *"THE COST ESTIMATE COLLAPSED ON 2026-08-07, and the two hardest
+        unknowns are now resolved — both MEASURED, neither assumed."*
+
+        **WEAKENED 2026-08-10, on (i).** The neighbouring wasm LLVM is **Emscripten-targeted**
+        (`26-CONTEXT.md` precondition 3: `CMAKE_TOOLCHAIN_FILE=.../Platform/Emscripten.cmake`),
+        so its output needs JS glue and cannot be guest code under this project's preview1
+        sandbox. It served Phase 26 as a **measuring instrument** — reading C of the symbol
+        residue — and as nothing else. It supplies **none** of the pieces stage 1 is missing:
+        it is LLVM 17.0.6 against the image's 16.0.6, it has zero AArch64 and zero X86 archives
+        (precondition 4), it is missing `libLLVMPasses.a`, and it lives in a neighbouring
+        checkout this repository may not depend on. **A wasm32-wasi LLVM still does not exist
+        and still has to be built from source**, which is the cost this item said had collapsed.
 
         (i) LLVM IS ALREADY CROSS-COMPILED TO WASM ON THIS MACHINE. The owner pointed at
         `/Volumes/ProjectsSSD/Projects/hupyy/libclang-wasm`, whose `build-llvm.sh` (adapted from
@@ -1579,15 +1620,44 @@ Plans:
         **34 MB, not the ~100 MB assumed from Wasmer** — so the demo-service size question has a
         real answer and it is three times better than the placeholder.
 
-        (ii) elfconv AND remill ARE ALREADY PORTABLE. Measured by replaying every entry of
-        `build/compile_commands.json` through `em++ -fsyntax-only`: **22 of 22 non-test TUs pass,
-        0 fail**, with NO source patch — only `-DREMILL_ARCH`, `-DREMILL_OS` and the
-        `REMILL_ON_*` set supplied on the command line. Without them, 17 of 27 fail on exactly
-        two `#error` lines (`Arch/Name.h:82` "Cannot infer current architecture",
-        `OS/OS.h:51` "Cannot infer current OS"), and BOTH sit inside `#ifndef REMILL_ARCH` /
-        `#ifndef REMILL_OS` guards — so this is a FLAGS problem, not a portability problem. The
-        remaining failures were all in `backend/remill/tests/AArch64/`, which this phase does not
-        need.
+        (ii) ~~elfconv AND remill ARE ALREADY PORTABLE~~ — **THE POPULATION WAS WRONG.
+        CORRECTED 2026-08-10 (Plan 26-02).** Kept verbatim below, because a wrong finding is
+        worth more visible than deleted, and because the mechanism that made it wrong is
+        reusable.
+
+        **The original item, unedited:**
+
+        > (ii) elfconv AND remill ARE ALREADY PORTABLE. Measured by replaying every entry of
+        > `build/compile_commands.json` through `em++ -fsyntax-only`: **22 of 22 non-test TUs pass,
+        > 0 fail**, with NO source patch — only `-DREMILL_ARCH`, `-DREMILL_OS` and the
+        > `REMILL_ON_*` set supplied on the command line. Without them, 17 of 27 fail on exactly
+        > two `#error` lines (`Arch/Name.h:82` "Cannot infer current architecture",
+        > `OS/OS.h:51` "Cannot infer current OS"), and BOTH sit inside `#ifndef REMILL_ARCH` /
+        > `#ifndef REMILL_OS` guards — so this is a FLAGS problem, not a portability problem. The
+        > remaining failures were all in `backend/remill/tests/AArch64/`, which this phase does not
+        > need.
+
+        WHY IT IS WRONG, and it is the population rather than the arithmetic.
+        `backend/remill/cmake/settings.cmake:25` sets `CMAKE_EXPORT_COMPILE_COMMANDS` as a
+        **directory-scoped normal variable inside remill's own `project()`**, so the
+        `compile_commands.json` cmake writes by default covers **only the remill subtree**. The
+        twenty-two therefore **never included elflift's own five sources** —
+        `lifter/Binary/Loader.cpp`, `lifter/MainLifter.cpp`, `lifter/TraceManager.cpp`,
+        `lifter/Lift.cpp` and `utils/Util.cpp`. Passing `-DCMAKE_EXPORT_COMPILE_COMMANDS=ON` on
+        the cmake command line writes the **cache** variable at top-level scope, which `lifter/`
+        and `tests/` inherit: the database grows **27 entries → 38** and the five appear.
+
+        THE REAL FIGURE, for `wasm32-wasi` with the pinned wasi-sdk: **6 pass / 21 fail of 27
+        non-test TUs.** The 21 all stop at the same first error with the same include-chain root,
+        `glog/logging.h:51`, and four of elflift's own five sources are among them. The six that
+        produce an object are exactly the six that never reach glog.
+
+        NOTE WHAT SURVIVES AND WHAT DOES NOT. The flags finding survives and was independently
+        re-measured: `REMILL_ARCH` / `REMILL_OS` / the `REMILL_ON_*` set are still needed, and a
+        control recompile that withholds them still dies at `Arch/Name.h:82` "Cannot infer
+        current architecture". What does not survive is "already portable" — that was a reading
+        of remill under Emscripten, not of elfconv under WASI, and the two differ on the wall
+        that matters.
 
         WHAT IS ACTUALLY LEFT, now that LLVM is not the problem:
           - **LLVM 16 -> 17 API skew.** The prebuilt wasm LLVM is **17.0.6**; elfconv's scripts
