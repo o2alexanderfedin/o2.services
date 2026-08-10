@@ -476,7 +476,16 @@ pre, .text-view {
   #stop      { grid-column: 3; }
 }
 
-/* The bar's pulse dot is the only animation on the page, and it must stay the only one. */
+/*
+  The bar's pulse dot is the only animation on the page, and it must stay the only one.
+
+  **It is declared here and not mounted by this plan, which is a decision rather than an
+  oversight.** `#bar` is a grid with three explicitly placed children, and
+  `demo-viewport.e2e.test.ts`'s B2b and B2c iterate `#bar.children` and measure each one
+  against the bar's padding box. A fourth grid item would be auto-placed into a track
+  nobody assigned it, moving geometry Plan 27-01 measured at five widths in two states —
+  so the dot goes in with the surface that has a reason to mount it, not with the port.
+*/
 @keyframes o2pulse { 0%, 100% { opacity: 1 } 50% { opacity: 0.2 } }
 .pulse {
   display: inline-block; width: 9px; height: 9px; flex: none;

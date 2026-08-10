@@ -4,145 +4,27 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>o2.services — node</title>
-    <style>
-      :root { color-scheme: light dark; }
-      /*
-        The browser's own `[hidden] { display: none }` is an attribute selector, so
-        *any* id or class rule that sets `display` silently outranks it. `#bar` set
-        `display: flex` and the always-visible bar became the always-visible bar in
-        the literal sense — shown, reading "idle", offering to Stop a node that did
-        not exist. Reported from an iPhone; not caught here, because the tests
-        asserted the `hidden` *attribute* rather than whether anything was on screen.
-        One rule closes the whole class.
-      */
-      [hidden] { display: none !important; }
-      body {
-        font: 15px/1.55 ui-monospace, SFMono-Regular, Menlo, monospace;
-        margin-inline: auto; max-width: 46rem;
-        /*
-          Bottom padding clears the fixed bar, so nothing it covers is unreachable.
-          8.5rem is what the bar can occupy at its tallest: two wrapped lines of
-          `#bar-what`, a wrapped `#bar-stats` beneath it, and a 44px Stop control, plus
-          the block padding. The safe-area inset is added rather than folded in, because
-          on a device with a home indicator the bar's own bottom padding grows by exactly
-          that amount and the page has to grow with it. B5 in
-          `demo-viewport.e2e.test.ts` is what measures whether it is enough.
-        */
-        padding: 2rem 1.25rem calc(env(safe-area-inset-bottom, 0px) + 8.5rem);
-      }
-      h1 { font-size: 1.1rem; margin: 0 0 .25rem; letter-spacing: .02em; }
-      h2 { font-size: 1rem; margin: 0 0 1rem; font-weight: 600; }
-      .sub { opacity: .65; margin: 0 0 1.75rem; font-size: .85rem; }
-      .state {
-        border: 1px solid currentColor; border-radius: 6px;
-        padding: .85rem 1rem; margin-bottom: 1.25rem;
-      }
-      .state[data-tone='idle']    { opacity: .7; }
-      .state[data-tone='working'] { border-color: #b58900; }
-      .state[data-tone='live']    { border-color: #2aa198; }
-      .state[data-tone='blocked'] { border-color: #cb4b16; }
-      dl { display: grid; grid-template-columns: max-content 1fr; gap: .3rem .9rem; margin: 0 0 1.25rem; }
-      dt { opacity: .6; }
-      dd { margin: 0; overflow-wrap: anywhere; }
-      button {
-        font: inherit; padding: .45rem 1rem; border-radius: 5px;
-        border: 1px solid currentColor; background: transparent; color: inherit;
-        cursor: pointer;
-      }
-      button[disabled] { opacity: .4; cursor: default; }
-      .note { font-size: .85rem; opacity: .75; }
-      /* A rule above it, so it reads as a footer rather than as one more paragraph
-         of whichever section happens to be visible at the time. */
-      #measurements {
-        margin-top: 2.5rem; padding-top: 1rem;
-        border-top: 1px solid color-mix(in srgb, currentColor 20%, transparent);
-      }
-      .note code {
-        background: color-mix(in srgb, currentColor 12%, transparent);
-        padding: .1em .35em; border-radius: 3px;
-      }
-      pre { font: inherit; white-space: pre-wrap; opacity: .8; margin: 0; }
+    <!--
+      The whole of the page's design, ported from the mockup and served from this origin.
+      There is no `<style>` block left here and there must not be one: `demo.css` carries
+      the deviations from the imported source with the reason for each beside it, and a
+      second place to put a rule is a second place for the two to disagree.
 
-      /* The consent gate. Nothing behind it runs, and nothing behind it is dialled. */
-      #gate {
-        border: 1px solid currentColor; border-radius: 6px;
-        padding: 1.25rem 1.25rem .35rem;
-      }
-      #gate dl { grid-template-columns: 1fr; gap: .15rem; }
-      #gate dt { opacity: 1; font-weight: 600; }
-      #gate dd { margin: 0 0 .9rem; opacity: .8; }
-      #gate label { display: block; margin: 0 0 .35rem; cursor: pointer; }
-      .controls { display: flex; gap: .6rem; align-items: center; margin: 1.1rem 0 .6rem; }
-
-      /*
-        BROW-04. Fixed, and with no control that hides it: the requirement says a
-        persistent, always-visible surface, so a collapse affordance would be the
-        first thing to remove it.
-
-        The layout is UI-SPEC section 6.2's grid contract, and it replaced a wrapping
-        flex row after a 2026-08-08 reading from a 393px iPhone put `#bar` at 500px with
-        `#stop` past x=482 — off screen, and Stop is the control the consent gate
-        promises in writing. `packages/node/src/demo-viewport.e2e.test.ts` holds the
-        geometry now: five widths, two bar states, every surface the page offers. The
-        colours here are deliberately untouched — `background: Canvas` stays until the
-        palette is ported, so a contrast regression and a layout regression cannot be
-        confused for one another.
-      */
-      #bar {
-        position: fixed; inset: auto 0 0 0;
-        box-sizing: border-box; width: 100%; max-width: 100%;
-        display: grid;
-        grid-template-columns: minmax(0, 1fr) auto;   /* content | Stop */
-        gap: 4px 12px;
-        padding: 10px 12px max(10px, env(safe-area-inset-bottom)) 12px;
-        border-top: 1px solid currentColor;
-        background: Canvas; color: CanvasText;
-        font-size: .85rem;
-      }
-      /*
-        `min-width: 0` is INERT here, and it is written down as inert rather than left to
-        be assumed. UI-SPEC section 6.2 calls it load-bearing and says its removal must
-        turn the geometry spec red; it was planted three ways on 2026-08-10 — removed from
-        `#bar-what`, removed with `white-space: nowrap` forced on, and removed from the
-        `#bar-stats` row that spans both tracks — and not one box moved by a pixel. A grid
-        item's automatic minimum size is content-based only when it spans a track whose
-        MIN track sizing function is `auto`, and `minmax(0, 1fr)` above fixes that min at
-        0. The line stays because it costs nothing and becomes load-bearing again the day
-        that track definition changes.
-
-        `overflow-wrap: anywhere` is the half that does work: it makes the wrap floor one
-        character wide rather than one word, which is what a peer id or a multiaddr in
-        this bar would otherwise cost. Force `white-space: nowrap` on either child and B2c
-        in `demo-viewport.e2e.test.ts` goes red at 320, 360 and 393 — that is the plant
-        that holds this block.
-      */
-      #bar-what  { grid-column: 1; min-width: 0; overflow-wrap: anywhere; }
-      #bar-stats { grid-column: 1 / -1; min-width: 0; overflow-wrap: anywhere;
-                   font-size: 12px; opacity: .75; }
-      /*
-        44x44 overrides the shared `button` padding ramp deliberately — that ramp is
-        sized for a pointer and this is the one control a phone has to hit. B3 in
-        `demo-viewport.e2e.test.ts` is what holds it; before this line the button
-        measured 66.77 x 37.44 at every width.
-      */
-      #stop      { grid-column: 2; grid-row: 1; justify-self: end; align-self: start;
-                   min-width: 44px; min-height: 44px;
-                   border-color: #cb4b16; color: #cb4b16; }
-      @media (min-width: 40rem) {
-        #bar { grid-template-columns: minmax(0, auto) minmax(0, 1fr) auto; }
-        #bar-what  { grid-column: 1; }
-        #bar-stats { grid-column: 2; grid-row: 1; }
-        #stop      { grid-column: 3; }
-      }
-      #bar strong { font-weight: 600; }
-    </style>
+      Same-origin, and P10 in `built-bundle.e2e.test.ts` asserts that every request the
+      page makes during load and before consent is same-origin — over the whole request
+      set, not a filtered slice.
+    -->
+    <link rel="stylesheet" href="./demo.css" />
   </head>
   <body>
-    <h1>o2.services — peer-to-peer compute node</h1>
-    <p class="sub">
-      This page can become a compute node in a peer-to-peer fabric.
-      Nothing runs, and nothing is contacted, until you allow it.
-    </p>
+    <header class="wrap masthead">
+      <p class="kicker">o2.services · peer-to-peer compute fabric</p>
+      <h1>o2.services — peer-to-peer compute node</h1>
+      <p class="lede">
+        This page can become a compute node in a peer-to-peer fabric.
+        Nothing runs, and nothing is contacted, until you allow it.
+      </p>
+    </header>
 
     <!--
       BROW-01. The gate is the first thing rendered and the only thing that starts
@@ -151,67 +33,306 @@
       visitor is present before the visitor agrees. Everything below `#main` stays
       hidden — and, more to the point, uncalled — until consent exists.
     -->
-    <section id="gate" hidden>
+    <section id="gate" class="blueprint" hidden>
+      <i class="corner tl"></i><i class="corner tr"></i>
+      <i class="corner bl"></i><i class="corner br"></i>
       <h2 id="gate-headline"></h2>
       <dl id="gate-terms"></dl>
       <label><input type="checkbox" id="reporting" /> <span id="reporting-question"></span></label>
       <p class="note" id="reporting-answer"></p>
       <p class="controls">
-        <button id="allow"></button>
-        <button id="decline"></button>
+        <button id="allow" class="btn btn-primary"></button>
+        <button id="decline" class="btn btn-secondary"></button>
       </p>
       <p class="note" id="gate-version"></p>
     </section>
 
     <section id="main" hidden>
-      <div class="state" id="state" data-tone="idle">checking for a relay…</div>
+      <!--
+        The session header sits OUTSIDE the surfaces, and that is a guard constraint
+        before it is a design one. `#state`, `#join` and `#explain` are read and
+        *clicked* by `built-bundle.e2e.test.ts` with locator clicks, which require
+        actionability, and a control behind a navigation choice is not actionable.
+        `#peers` joins them because `attestation-ui.e2e.test.ts` reads it. Beyond the
+        guards: the node's own status is not a property of whichever workload happens
+        to be on screen.
+      -->
+      <header class="wrap session">
+        <div class="state" id="state" data-tone="idle">checking for a relay…</div>
 
-      <p><button id="join" disabled>Start node</button></p>
+        <p class="controls">
+          <button id="join" class="btn btn-primary" disabled>Start node</button>
+          <!--
+            Two positions, and `#run-report` is visible in both. See the note in
+            `nav.ts`: `attestation-ui.e2e.test.ts` asserts `isVisible('#run-report')`
+            after a run, so a toggle able to hide a text view would make that guard
+            pass or fail on whichever state a test happened to land in.
+          -->
+          <span id="view-mode" class="seg" role="radiogroup" aria-label="View">
+            <label class="seg-opt">
+              <input type="radio" name="view-mode" value="both" checked />
+              <span>Rendered and text</span>
+            </label>
+            <label class="seg-opt">
+              <input type="radio" name="view-mode" value="text" />
+              <span>Text only</span>
+            </label>
+          </span>
+        </p>
 
-      <dl id="facts"></dl>
+        <dl id="facts"></dl>
 
-      <p class="note" id="explain"></p>
-      <p class="note" id="peers"></p>
+        <p class="note" id="explain"></p>
+        <p class="note" id="peers"></p>
+      </header>
 
-      <h2>The job</h2>
-      <p class="note">
-        Colour every whole number from 1 to N red or blue so that no three numbers
-        with a² + b² = c² end up the same colour. The search is split into
-        independent cubes and spread across this tab and every peer it can reach.
-        With a peer connected, every cube is run on two of them and the two must
-        agree; alone, this tab runs each cube once. The report below says which
-        happened, and how far that goes.
-      </p>
-      <p class="note">
-        N climbs until the fabric cannot settle a rung. Each cube fixes the colours
-        of the most constrained numbers and searches the rest, so more cubes reach
-        further — with more peers connected, more cubes run, and the answer gets
-        better. N = 7824 is the largest that admits a colouring at all; 7825 does
-        not, which took a cluster and a 200-terabyte proof to establish. This will
-        not get near either.
-      </p>
-      <p class="controls">
-        <button id="run" disabled>Run the search</button>
-        <span class="note" id="run-status">start a node first</span>
-      </p>
-      <pre id="run-report"></pre>
+      <nav id="surfaces" role="tablist" aria-label="Workloads">
+        <button type="button" role="tab" id="nav-colouring" aria-controls="s-colouring" aria-selected="true" tabindex="0">A · Colouring</button>
+        <button type="button" role="tab" id="nav-primes" aria-controls="s-primes" aria-selected="false" tabindex="-1">B · Primes</button>
+        <button type="button" role="tab" id="nav-pi" aria-controls="s-pi" aria-selected="false" tabindex="-1">C · π &amp; reduce</button>
+        <button type="button" role="tab" id="nav-byo" aria-controls="s-byo" aria-selected="false" tabindex="-1">D · Bring your own</button>
+        <button type="button" role="tab" id="nav-fabric" aria-controls="s-fabric" aria-selected="false" tabindex="-1">Fabric state</button>
+        <button type="button" role="tab" id="nav-bench" aria-controls="s-bench" aria-selected="false" tabindex="-1">Benchmarks</button>
+      </nav>
 
-      <p class="note">
-        Nothing above needs to be believed. The check below re-derives every
-        Pythagorean triple from the definition and tests the answer against it, here,
-        in this tab — no node's word, no published table, no trust in this site.
-      </p>
-      <p class="controls"><button id="verify" disabled>Check this answer myself</button></p>
-      <pre id="verify-report"></pre>
+      <!--
+        Colouring is the default surface, because `colouring-demo.e2e.test.ts` and
+        `attestation-ui.e2e.test.ts` locator-click `#run` and `#verify` without
+        navigating first. Everything inside it below is today's copy, moved and not
+        reworded: `attestation-ui.e2e.test.ts` reads eleven substrings out of
+        `#run-report` and `colouring-demo.e2e.test.ts` four more, and Plan 27-04 owns
+        this surface's content.
+      -->
+      <section class="wrap" id="s-colouring" role="tabpanel" tabindex="0" aria-labelledby="nav-colouring">
+        <div class="surface-head">
+          <p class="kicker">Workload A · Pythagorean-triple 2-colouring</p>
+          <h2>Capacity grows with participants, and it grows in steps.</h2>
+        </div>
 
-      <h2>How often does this fail to start?</h2>
-      <p class="note">
-        A browser that blocks this page does not announce it — it looks like fewer
-        volunteers. These are the reports this node has heard, including what they
-        cannot see.
-      </p>
-      <pre id="report">not asked yet</pre>
-      <p class="controls"><button id="refresh-report">Refresh</button></p>
+        <div class="card blueprint rendered-only">
+          <i class="corner tl"></i><i class="corner tr"></i>
+          <i class="corner bl"></i><i class="corner br"></i>
+          <h3 class="card-title">The job</h3>
+          <p class="card-body">
+            Colour every whole number from 1 to N red or blue so that no three numbers
+            with a² + b² = c² end up the same colour. The search is split into
+            independent cubes and spread across this tab and every peer it can reach.
+            With a peer connected, every cube is run on two of them and the two must
+            agree; alone, this tab runs each cube once. The report below says which
+            happened, and how far that goes.
+          </p>
+          <p class="card-body">
+            N climbs until the fabric cannot settle a rung. Each cube fixes the colours
+            of the most constrained numbers and searches the rest, so more cubes reach
+            further — with more peers connected, more cubes run, and the answer gets
+            better. N = 7824 is the largest that admits a colouring at all; 7825 does
+            not, which took a cluster and a 200-terabyte proof to establish. This will
+            not get near either.
+          </p>
+        </div>
+
+        <p class="controls">
+          <button id="run" class="btn btn-primary" disabled>Run the search</button>
+          <span class="note" id="run-status" role="status">start a node first</span>
+        </p>
+        <pre id="run-report" class="text-view"></pre>
+
+        <div class="card blueprint rendered-only">
+          <i class="corner tl"></i><i class="corner tr"></i>
+          <i class="corner bl"></i><i class="corner br"></i>
+          <h3 class="card-title">Nothing here has to be believed</h3>
+          <p class="card-body">
+            Nothing above needs to be believed. The check below re-derives every
+            Pythagorean triple from the definition and tests the answer against it, here,
+            in this tab — no node's word, no published table, no trust in this site.
+          </p>
+        </div>
+        <p class="controls"><button id="verify" class="btn btn-secondary" disabled>Check this answer myself</button></p>
+        <pre id="verify-report" class="text-view"></pre>
+      </section>
+
+      <!--
+        The five surfaces below carry their heading, their kicker and the mockup's prose,
+        and NOT ONE FIGURE. The mockup's peers are eight literals and its numbers are
+        template defaults; a plausible figure with no reading behind it is the exact class
+        of thing this phase exists to keep off the screen. Plan 27-03 declares the regions
+        and Plans 27-04 onward wire them. Where the mockup's own prose carried a figure,
+        the clause carrying it was dropped rather than transcribed — a number in prose is
+        still a number on screen.
+      -->
+      <section class="wrap" id="s-primes" role="tabpanel" tabindex="0" aria-labelledby="nav-primes" hidden>
+        <div class="surface-head">
+          <p class="kicker">Workload B · prime counting π(x)</p>
+          <h2>An oracle nothing here produced.</h2>
+          <p class="lede">
+            The colouring verifier shares an author with the fabric, so a misconception
+            held in both is invisible to the pair. π(x) was tabulated in the mathematical
+            literature long before this repository existed, and a wrong answer cannot talk
+            it into agreeing.
+          </p>
+        </div>
+
+        <div class="cards rendered-only">
+          <div class="card blueprint">
+            <i class="corner tl"></i><i class="corner tr"></i>
+            <i class="corner bl"></i><i class="corner br"></i>
+            <p class="card-kicker">Shards — contiguous sub-ranges, summed under one key</p>
+            <p class="card-body">
+              A refusal is thrown, never returned as a zero. A refusal summed into an
+              aggregate is indistinguishable from a sub-range that genuinely held no
+              primes.
+            </p>
+          </div>
+          <div class="card blueprint card-accent">
+            <i class="corner tl"></i><i class="corner tr"></i>
+            <i class="corner bl"></i><i class="corner br"></i>
+            <p class="card-kicker">Stated weakness</p>
+            <p class="card-body">
+              The oracle is blind in one direction. Published π values are quoted at
+              powers of ten, and a power of ten sits far from the prime below it, so a
+              guest that loses the top of its range returns the right total anyway. That
+              hole is what the π series closes.
+            </p>
+          </div>
+        </div>
+        <pre id="primes-report" class="text-view">Nothing to report: this surface has not been wired to a reading yet.</pre>
+      </section>
+
+      <section class="wrap" id="s-pi" role="tabpanel" tabindex="0" aria-labelledby="nav-pi" hidden>
+        <div class="surface-head">
+          <p class="kicker">Workload C · π by the Madhava-Leibniz series</p>
+          <h2>The only workload with a real aggregation.</h2>
+          <p class="lede">
+            Every term is non-zero, so a lost index moves the total immediately, where a
+            lost prime-range often changes nothing. Both defences were measured rather
+            than argued: the same planted deletion was caught here at the first shard
+            count tried.
+          </p>
+        </div>
+
+        <div class="cards rendered-only">
+          <div class="card blueprint">
+            <i class="corner tl"></i><i class="corner tr"></i>
+            <i class="corner bl"></i><i class="corner br"></i>
+            <p class="card-kicker">Partials — signed fixed point, at a scale of π over four</p>
+            <p class="card-body">
+              A shard whose range starts on an odd index sums negative. The sign is a fact
+              about where the range began, not an error.
+            </p>
+          </div>
+          <div class="card blueprint card-accent">
+            <i class="corner tl"></i><i class="corner tr"></i>
+            <i class="corner bl"></i><i class="corner br"></i>
+            <p class="card-kicker">The lone-tab case, which is not a failure</p>
+            <h3 class="card-title">This claim needs a second device.</h3>
+            <p class="card-body">
+              The submitter is excluded from the combine executor set by contract, so a
+              lone tab maps every shard and combines none. This is the ordinary state of
+              the first tab on the page, not a failure. Open this page on another device,
+              in another browser, or in a private window, and the tree has somewhere to
+              run.
+            </p>
+          </div>
+        </div>
+        <pre id="pi-report" class="text-view">Nothing to report: this surface has not been wired to a reading yet.</pre>
+      </section>
+
+      <section class="wrap" id="s-byo" role="tabpanel" tabindex="0" aria-labelledby="nav-byo" hidden>
+        <div class="surface-head">
+          <p class="kicker">Workload D · bring your own</p>
+          <h2>Two escape hatches, wired but not exposed on this page.</h2>
+        </div>
+
+        <div class="cards rendered-only">
+          <div class="card blueprint">
+            <i class="corner tl"></i><i class="corner tr"></i>
+            <i class="corner bl"></i><i class="corner br"></i>
+            <p class="card-kicker">runJob</p>
+            <h3 class="card-title">Dispatch any WASM module by CID.</h3>
+            <p class="card-body">
+              Provided you also hand over a signed NameRecord for it — signer, signature,
+              version, expiry. The record is required, not optional: a tab always pins a
+              trust anchor, so a dispatch with no record is one that will be refused by
+              every executor it reaches, including this tab's own.
+            </p>
+          </div>
+          <div class="card blueprint">
+            <i class="corner tl"></i><i class="corner tr"></i>
+            <i class="corner bl"></i><i class="corner br"></i>
+            <p class="card-kicker">tools/aot — the lift pipeline</p>
+            <h3 class="card-title">AArch64 ELF to WebAssembly, scanned for non-determinism.</h3>
+            <p class="card-body">
+              Relaxed SIMD, shared memory, float NaN sources. Then publish and sign the
+              artifact. This is a build-time pipeline with no page-side reading, and it
+              says so rather than drawing one.
+            </p>
+          </div>
+        </div>
+        <pre id="byo-report" class="text-view">Nothing to report: this surface has not been wired to a reading yet.</pre>
+      </section>
+
+      <section class="wrap" id="s-fabric" role="tabpanel" tabindex="0" aria-labelledby="nav-fabric" hidden>
+        <div class="surface-head">
+          <p class="kicker">Cross-cutting state</p>
+          <h2>Every reading here has a source of truth.</h2>
+        </div>
+
+        <div class="card blueprint rendered-only">
+          <i class="corner tl"></i><i class="corner tr"></i>
+          <i class="corner bl"></i><i class="corner br"></i>
+          <h3 class="card-title">How often does this fail to start?</h3>
+          <p class="card-body">
+            A browser that blocks this page does not announce it — it looks like fewer
+            volunteers. These are the reports this node has heard, including what they
+            cannot see.
+          </p>
+        </div>
+        <!--
+          `#report` and `#refresh-report` moved here from the colouring section, and the
+          move is safe for a specific reason that must STAY true: `peer-ledger.e2e.test.ts`
+          and `two-tabs.e2e.test.ts` reach them with `getElementById(...).click()` and
+          `textContent`, both of which work on a panel that is `hidden`. Do not convert
+          either of those to a locator click without also making this panel the default.
+
+          **`#report`'s initial text is exactly `not asked yet` — lowercase, no full stop.**
+          UI-SPEC section 4.6's F18 row says `Not asked yet.` and UI-SPEC is wrong: both
+          specs above wait on `textContent !== 'not asked yet'`, so a page rendering
+          UI-SPEC's string satisfies that wait immediately and both specs would read a
+          panel that had not been refreshed. Do not "fix" the capitalisation.
+        -->
+        <pre id="report" class="text-view">not asked yet</pre>
+        <p class="controls"><button id="refresh-report" class="btn btn-secondary">Refresh</button></p>
+        <pre id="fabric-report" class="text-view">Nothing to report: this surface has not been wired to a reading yet.</pre>
+      </section>
+
+      <section class="wrap" id="s-bench" role="tabpanel" tabindex="0" aria-labelledby="nav-bench" hidden>
+        <div class="surface-head">
+          <p class="kicker">Measured elsewhere, on one machine, in a recorded run</p>
+          <h2>Splitting is free. Parallelism is near-linear to four.</h2>
+          <p class="lede">
+            Every figure this surface will carry comes from a recorded run and none of them
+            is a reading from your tab. The figures themselves land with Plan 27-09, which
+            transcribes them from the committed document rather than from this page's
+            memory of it — until then this surface states its provenance and shows no
+            number at all.
+          </p>
+        </div>
+        <div class="card blueprint rendered-only">
+          <i class="corner tl"></i><i class="corner tr"></i>
+          <i class="corner bl"></i><i class="corner br"></i>
+          <p class="card-kicker">Provenance</p>
+          <p class="card-body">
+            <a href="./perf/">Prime counting and a π series on this fabric</a> — throughput,
+            decomposition cost, fabric overhead and real parallel speedup, with the method
+            and the numbers that disagreed with the prediction.
+          </p>
+        </div>
+        <!--
+          Benchmarks gets NO text view, and that is deliberate rather than an omission:
+          UI-SPEC section 2.2 lists six and this surface is not among them. Nothing here
+          is a reading, so there is no reading to render twice.
+        -->
+      </section>
     </section>
 
     <!--
@@ -227,14 +348,26 @@
     </footer>
 
     <!-- BROW-04. Rendered only while a node exists; never dismissible while it does. -->
-    <div id="bar" hidden>
-      <strong id="bar-what">idle</strong>
-      <span id="bar-stats"></span>
+    <div id="bar" role="status" hidden>
+      <strong id="bar-what" aria-live="polite">idle</strong>
+      <!-- `aria-live="off"`: these counters change about once a second, and a screen
+           reader announcing a task counter continuously is worse than silence. -->
+      <span id="bar-stats" aria-live="off"></span>
       <button id="stop">Stop</button>
     </div>
 
     <script type="module" src="./main.ts"></script>
     <script type="module">
+      // The in-page navigation and the view toggle, imported from a sibling module.
+      //
+      // Importing here rather than inlining the code is deliberate twice over: it keeps
+      // the driver below about the node rather than about the DOM, and it proves the
+      // BUILT bundle resolves a relative import out of an inline module script —
+      // `built-bundle.e2e.test.ts` runs `vite build` and serves `dist/` from a dumb
+      // static server, so a bundler that dropped this import would be caught there and
+      // nowhere else. Plans 27-03 onward depend on that path working.
+      import { installNav, installViewToggle } from './nav.ts'
+
       const $ = (id) => document.getElementById(id)
       const gateEl = $('gate')
       const mainEl = $('main')
@@ -244,6 +377,12 @@
       const joinEl = $('join')
       const explainEl = $('explain')
       const reportEl = $('report')
+
+      // Before the gate is rendered, and before `window.o2` exists: both touch
+      // attributes only, and neither needs a node. A visitor who deep-links to
+      // `#/fabric` and then consents lands on the surface they asked for.
+      installNav()
+      installViewToggle()
 
       const setState = (tone, text) => {
         stateEl.dataset.tone = tone
