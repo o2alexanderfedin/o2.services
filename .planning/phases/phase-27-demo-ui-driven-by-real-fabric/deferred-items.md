@@ -483,3 +483,159 @@ floor. What has no guard is the other direction, for colouring and π.
 **What would close it:** a committed expectation in `demo-liveness.e2e.test.ts` — the set of
 surfaces that must be exercised and the set that must be skipped, each named, so a surface
 crossing between them reddens and has to be explained.
+
+## UI-SPEC §4.5's Y4 gives `-1` one meaning, and `runJob` produces it for two
+
+**Found during:** 27-07 Task 1, and confirmed by measurement in Task 3.
+
+Y4's row says *"`.partitions[]` (`-1` renders as `no agreement`, never as a number)"*. The
+second half is absolute and is honoured. The first half is false of any module that does not
+write a partition index: `main.ts`'s expression is
+
+```ts
+partitions: result.job.shards.map((s) =>
+  s.verification.status === 'agreed' ? partitionOf(s.verification.output) : -1)
+```
+
+and `partitionOf` returns `-1` whenever `output.p` is not a four-byte value — which is every
+module except `MODULE_WRITES_PARTITION`, the core fixture the field was written against.
+
+**Measured 2026-08-10, twice.** Off a bench probe first: the demo's colouring kernel answers
+`runJob`'s canonical `{a: <shard index>}` with `{c: 1024 zero bytes, s: [2]}` — a well-formed
+partial at status `budget`, deterministic, no `p`. Then on a real two-tab dispatch:
+`complete=true`, `failures=0`, and `partitions=[-1,-1,-1,-1,-1,-1]` with **six of six shards
+agreeing**. Rendering UI-SPEC's sentence there would say *no agreement* directly beside
+`every shard agreed: true`.
+
+`surfaces/byo.ts` therefore reads `partitions[i]` beside `agreeing[i]`: `no agreement` when the
+shard did not agree, and the composed *no partition index — this module's output carries no
+such field* when it did. Both are asserted per shard in `demo-byo.e2e.test.ts`, which also
+prints how many shards were in the second case.
+
+**What would close it:** a second sentence in UI-SPEC §4.5's Y4 cell for the agreed-with-no-
+index case, or a `TabJobReport` that distinguishes the two sentinels at source rather than
+overloading `-1`.
+
+## Two more sentinel zeros on the bring-your-own reading, and one true zero beside them
+
+**Found during:** 27-07 Task 3, reading the refused arm off the screen.
+
+Same shape as Y4 and both were on screen before they were caught:
+
+| field | how the sentinel is produced | what it rendered |
+|---|---|---|
+| `replicas[i]` | `main.ts`: `status === 'agreed' ? s.verification.replicas : 0` | `shard 0: 0` beside eighteen refusals |
+| `verificationMultiplier` | `submit.ts:3218`: `useful === 0 ? 0 : gross / useful` | `0.00×` — *verification was free* |
+
+Both now read as sentences. `NO_COST_MEASURED` is **composed**, because UI-SPEC's Y7 row names
+no unavailable arm — the same position C15/C17 and π's three were in.
+
+**And the sweep that catches them has two stated exemptions**, because `byo/fetched` and
+`byo/rejected` are `blockstore` counters whose zero is a real observation: this tab pulled no
+block and refused none. Replacing those with prose would be replacing a measurement with a
+sentence. `demo-byo.e2e.test.ts` names them and asserts each equals the run's own figure, so
+the exemption is not a hole.
+
+**What would close it:** UI-SPEC §4.5 quoting a sentence for Y7's nothing-agreed arm, or
+adopting this one.
+
+## The egress panel's withheld branch is still unreachable, and now for a measured reason
+
+**Found during:** 27-07 Task 3. This is the branch Plan 27-07 was expected to make live.
+
+`egressLines`' comment says the withheld branch has no caller because every cube
+`runColouring` submits is `label: 'public'`, and that *"wiring `runJob` in later makes the
+refusal branch live with no change to this code"*. `runJob` is wired. The branch did not fire,
+and the reason is two layers deep — both measured on a real two-tab dispatch:
+
+| owner id submitted | what happened | frames / bytes / violations |
+|---|---|---|
+| `o2-demo-byo-owner` | every shard **unplaceable** | 0 / 0 / 0 |
+| `public` | placed, then refused at authorization | 12 / 6276 / **0** |
+
+1. **`attestedNodes` in `packages/browser/demo/main.ts` hardcodes `ownerId: 'public'` on every
+   descriptor it builds.** `eligibleNodes` (`packages/core/src/sovereignty.ts`) places a
+   sovereign shard only on a node whose `ownerId` *equals* the shard's, so the only owner id a
+   dispatch from this page can be placed for is the literal `public`, and every other one is
+   correctly reported unplaceable — *a stalled sovereign shard is the correct outcome*.
+2. **Even placed, the executors refuse before the input crosses.** The rendered reasons are
+   `sovereignty violation: node … is not cleared to execute sovereign data for owner public`
+   and `unauthorized: no pinned owner key for public on this node`. The twelve frames that left
+   are dispatch RPC; the shard's canonical bytes never reached a peer, so the egress guard had
+   nothing to hold back and reported none.
+
+**The consequence worth stating plainly: `egressLines`' sentence *"this run registered no
+sovereign data"* is not reliable on this path.** That run submitted six sovereign shards. The
+sentence is true of what the guard *saw* and false of what the run *submitted*, and
+`EgressManifest` carries no field that would let the function tell the two apart. It was left
+alone on purpose — UI-SPEC §5.2 fixes that copy verbatim, P7 asserts against those exact
+words, and four surfaces render it, so forking or rewording it here would be a second author
+of the sentence that carries the sovereignty claim. The bring-your-own card says the limit in
+its own prose instead, and `demo-byo.e2e.test.ts` records the branch on every run.
+
+**What would close it:** either a `registered` count on `EgressManifest` and a third arm in
+`egressLines` (with UI-SPEC §5.2 and P7 amended together, in one change), or a tab that can be
+handed a real owner identity — which today `TabApi.start` deliberately has no parameter for,
+and which is an owner decision rather than a plan's.
+
+## P5b's exempt set grew by nine with bring-your-own, and P5 still does not report it
+
+**Found during:** 27-07's plant C.
+
+The entry above about the exempt set predicted this and it happened. Dropping
+`byo/verification-multiplier` from the surface's record left that region painted with its
+`stopped` sentence on a page that had just dispatched — and `demo-liveness.e2e.test.ts`
+**stayed green at exit 0**, because Y7's catalogue entry holds no `unavailable` arm and P5b
+exempts exactly those. Nine of the eleven bring-your-own readings are in that position (Y3,
+Y4, Y5, Y7, Y8, Y9, Y11, Y12, Y13), so the set is now **24** across the three driven surfaces
+rather than the fifteen counted in 27-05.
+
+Two things did move and neither is asserted: `[P5] 37 of 39` fell to `36 of 39`, and
+`[P6] examined 5` fell to `4`. Both are reported to stderr and read by a human.
+
+What caught the plant was `demo-byo.e2e.test.ts`, at exit 1 in two cases — the same remedy π
+used, and the same reason it is still worth logging: the coverage is in the surface's own spec
+rather than in the property that claims to be generic.
+
+**What would close it:** the assertion 27-04 first asked for, bounding the exempt set against a
+committed list — started at the twenty-four above — plus a floor on `[P5] N of M` so a
+population that falls reddens instead of being printed.
+
+## The attestation hook is one value and there are now two attestation regions
+
+**Found during:** 27-07 Task 2, watching `[P8] examined 1` become `2`.
+
+P8 compares **every** populated `/attestation` region against a single reading, taken from
+`window.__o2LastAttestation` **after the whole P5 loop has finished**. With one such region on
+the page that was exact. With two it is not: `demo-liveness.e2e.test.ts` snapshots the
+colouring panel before it drives bring-your-own, so P8 compares a receipt rendered from the
+colouring run against a hook holding the bring-your-own run's.
+
+It passes today, and it passes for a reason that is close to luck: both runs are the same two
+tabs at redundancy two with neither enrolled, so both produce the same absence arm and the same
+`reason` naming the same two node ids in the same order. A run where the two differ — a
+different peer set, a different order, one surface enrolling — would redden P8 with a message
+about a page that has composed a sentence of its own, which would be false.
+
+**What would close it:** a per-surface hook. The page publishes
+`window.__o2LastAttestation` as a map keyed by surface, and `p8` in
+`demo-region-properties.ts` reads `bySurface[region.surface]` with the flat value as a
+fallback. Both harnesses pass the hook through as an opaque JSON string, so neither
+`demo-liveness.e2e.test.ts` nor `demo-regions.e2e.test.ts` needs an edit.
+
+## `#byo-status` is the third digit-free-by-hand status element
+
+**Found during:** 27-07 Task 2.
+
+`#run-status` and `#pi-status` already have entries above. `#byo-status` is the third: it sits
+inside `#main`, carries no `data-region`, and P2 runs on the stopped page where it reads `start
+a node first`. Its strings are digit-free by hand — `dispatching…`, `every shard agreed`, `the
+fabric refused at least one shard — its own words are below`, `the run stopped`, `ready` — and
+a comment beside the element says why, but that is a convention and not a check.
+
+`#byo-validity` is a fourth element of the same kind, and it is worse in one respect: its text
+is composed at runtime from field labels, so a future field whose label carried a digit would
+put one on screen with nothing to notice. Every label today is digit-free.
+
+**What would close it:** the same thing that would close the other two — P2 run on a populated
+page with a stated exemption list, or a `control` row for each status element.
