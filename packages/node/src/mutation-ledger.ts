@@ -3041,14 +3041,28 @@ export const MUTATIONS: readonly Mutation[] = [
       'the renderer `undefined` instead of the run\'s own manifest — the failure mode that ' +
       'matters, because a panel wired to nothing looks identical to a panel wired correctly on a ' +
       'run that happened to send no frames.',
-    file: 'packages/browser/demo/index.html',
-    find: '          lines.push(...egressLines(best.egress))',
-    replace: '          lines.push(...egressLines(undefined))',
+    // **Moved by Plan 27-04, not weakened.** The line was `lines.push(...egressLines(best.egress))`
+    // in `index.html`'s `#run` handler until the colouring surface got a formatter of its own;
+    // the call it plants is the same call, one file over, and it still feeds the renderer
+    // `undefined` instead of the run's own manifest. The one thing the move changes is reach:
+    // the binding now feeds BOTH the text view and the C17 region, so the plant takes out the
+    // rendered card as well as the block `attestation-ui.e2e.test.ts` reads.
+    file: 'packages/browser/demo/surfaces/colouring.ts',
+    find: '  const egress = egressLines(best.egress)',
+    replace: '  const egress = egressLines(undefined)',
     caughtBy: ['packages/node/src/attestation-ui.e2e.test.ts'],
-    // Observed 2026-08-08: exit 1, `1 failed | 3 passed (4)`, reading `expected '0 peer(s) · 8
-    // cubes per rung\n\nn =  …' to contain 'What left this device:'`. The 3 that stayed green
-    // are the point — the plant hit the egress panel and left every attestation reading alone.
-    // Restored by surgical inverse; cmp exit 0, sha256 back to 8d369d3e.
+    // Observed 2026-08-08 at the old site: exit 1, `1 failed | 3 passed (4)`, reading `expected
+    // '0 peer(s) · 8 cubes per rung\n\nn =  …' to contain 'What left this device:'`. The 3 that
+    // stayed green were the point — the plant hit the egress panel and left every attestation
+    // reading alone. Restored by surgical inverse; cmp exit 0, sha256 back to 8d369d3e.
+    //
+    // Re-observed 2026-08-10 at the NEW site, because an observation about a different file is
+    // not an observation about this one: exit 1, `Tests 1 failed | 3 passed (4)`, reading
+    // `AssertionError: expected '0 peer(s) · 8 cubes per rung\n\nn =  …' to contain 'What left
+    // this device:'`. Identical to the 2026-08-08 reading in every respect including the split
+    // — the plant still hits the egress panel alone. Restored by the surgical inverse of that
+    // one line and verified with `cmp` against a snapshot taken immediately before planting;
+    // `cmp` exit 0.
     signature: 'What left this device:',
     signatureSource: 'test-title',
   },

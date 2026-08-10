@@ -176,10 +176,188 @@
           </p>
         </div>
 
+        <!--
+          C1 through C5 — the two arguments this page WOULD send, and the three constants
+          the shipped code fixes. Every one of the five is `control` or `constant` rather
+          than `reading`: nothing has been asked of the fabric yet, so there is nothing to
+          read, and a constant is always present and is never described as a result.
+
+          The explanatory clauses live in the `card-note` under each list rather than in the
+          `<dt>`. That is a layout constraint, not a style preference: `dl`'s first column is
+          `max-content`, so a long term establishes a floor wider than a 320px viewport and
+          B1 in `demo-viewport.e2e.test.ts` goes red.
+        -->
+        <div class="cards rendered-only">
+          <div class="card blueprint">
+            <i class="corner tl"></i><i class="corner tr"></i>
+            <i class="corner bl"></i><i class="corner br"></i>
+            <p class="card-kicker">What this page will send</p>
+            <dl>
+              <dt>cubes</dt>
+              <dd
+                data-region="colouring/cubes-arg"
+                data-kind="control"
+                data-source="the argument this page will send: 8 x (1 + computePeers().length)"
+              >Nothing dispatched yet — this is what would be sent.</dd>
+              <dt>redundancy</dt>
+              <dd
+                data-region="colouring/redundancy-arg"
+                data-kind="control"
+                data-source="the argument this page will send: min(2, 1 + computePeers().length)"
+              >Nothing dispatched yet — this is what would be sent.</dd>
+            </dl>
+            <p class="card-note">
+              More peers, more cubes. A cube fixes the colours of the most constrained
+              numbers and searches the rest, so cubes are not merely parallelism — they are
+              how far the search reaches. Both figures move as peers join, before anything is
+              dispatched.
+            </p>
+          </div>
+          <div class="card blueprint">
+            <i class="corner tl"></i><i class="corner tr"></i>
+            <i class="corner bl"></i><i class="corner br"></i>
+            <p class="card-kicker">Fixed by the shipped code</p>
+            <dl>
+              <dt>budget</dt>
+              <dd data-region="colouring/budget" data-kind="constant" data-source="@o2/demo.DEFAULT_BUDGET"></dd>
+              <dt>MAX_N</dt>
+              <dd data-region="colouring/max-n" data-kind="constant" data-source="@o2/demo.MAX_N"></dd>
+              <dt>input bytes</dt>
+              <dd data-region="colouring/input-bytes" data-kind="constant" data-source="@o2/demo.buildInput(MAX_N, DEFAULT_BUDGET).length"></dd>
+            </dl>
+            <p class="card-note">
+              The budget is backtracks, it is fixed, and it travels inside the input. Above
+              MAX_N the guest returns “unknown”. The byte count is
+              <code>buildInput(MAX_N, DEFAULT_BUDGET).length</code>, computed here from the
+              shipped builder rather than written down.
+            </p>
+          </div>
+        </div>
+
         <p class="controls">
           <button id="run" class="btn btn-primary" disabled>Run the search</button>
           <span class="note" id="run-status" role="status">start a node first</span>
         </p>
+
+        <!--
+          C6 through C9. The caption is a declared `prose` region because it names the four
+          rungs and a number in a sentence is still a number on screen; the row headers are
+          then digit-free, which is what keeps P2 green without four more declarations. See
+          the catalogue entry for `colouring/prose-ladder`.
+        -->
+        <div class="card blueprint rendered-only">
+          <i class="corner tl"></i><i class="corner tr"></i>
+          <i class="corner bl"></i><i class="corner br"></i>
+          <div class="scroller">
+            <table class="table">
+              <caption
+                class="card-kicker"
+                data-region="colouring/prose-ladder"
+                data-kind="prose"
+                data-source="the rungs of the ladder this page climbs, in the order it climbs them"
+              >The ladder — 300, 400, 500, 600 in that order, stopping at the first rung the fabric cannot settle</caption>
+              <thead>
+                <tr><th scope="col">rung</th><th scope="col">outcome</th></tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <th scope="row">first rung</th>
+                  <td data-region="colouring/rung-300" data-kind="reading" data-source="TabApi.runColouring().found with .statuses and .elapsedMs"></td>
+                </tr>
+                <tr>
+                  <th scope="row">second rung</th>
+                  <td data-region="colouring/rung-400" data-kind="reading" data-source="TabApi.runColouring().found with .statuses and .elapsedMs"></td>
+                </tr>
+                <tr>
+                  <th scope="row">third rung</th>
+                  <td data-region="colouring/rung-500" data-kind="reading" data-source="TabApi.runColouring().found with .statuses and .elapsedMs"></td>
+                </tr>
+                <tr>
+                  <th scope="row">fourth rung</th>
+                  <td data-region="colouring/rung-600" data-kind="reading" data-source="TabApi.runColouring().found with .statuses and .elapsedMs"></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!--
+          C10 through C17. Every one of them reads the last SETTLED run, which is `best`
+          throughout UI-SPEC section 4.2, and every one of them is written by
+          `applyRender('colouring', …)` out of the same record that writes `#run-report`
+          below — so neither view can format anything the other does not have.
+        -->
+        <div class="cards rendered-only">
+          <div class="card blueprint">
+            <i class="corner tl"></i><i class="corner tr"></i>
+            <i class="corner bl"></i><i class="corner br"></i>
+            <p class="card-kicker">Per-cube status — three values, never two</p>
+            <div class="scroller">
+              <pre data-region="colouring/cube-grid" data-kind="reading" data-source="TabApi.runColouring().statuses"></pre>
+            </div>
+            <p class="card-body" data-region="colouring/status-counts" data-kind="reading" data-source="TabApi.runColouring().statuses"></p>
+            <p class="card-note">
+              ■ found — a valid colouring. □ exhausted — proof this cube contains no valid
+              colouring. ▧ budget — it ran out of steps, so the answer here is unknown. The
+              shape and the word both carry the status, so colour is never the only carrier.
+              Collapsing budget into exhausted would turn a shortage of compute into a
+              mathematical claim.
+            </p>
+          </div>
+          <div class="card blueprint">
+            <i class="corner tl"></i><i class="corner tr"></i>
+            <i class="corner bl"></i><i class="corner br"></i>
+            <p class="card-kicker">The rung that settled</p>
+            <dl>
+              <dt>settled n</dt>
+              <dd data-region="colouring/best-n" data-kind="reading" data-source="TabApi.runColouring().n"></dd>
+              <dt>cubes agreed</dt>
+              <dd data-region="colouring/complete" data-kind="reading" data-source="TabApi.runColouring().complete"></dd>
+              <dt>verification cost</dt>
+              <dd data-region="colouring/verification-multiplier" data-kind="reading" data-source="TabApi.runColouring().verificationMultiplier"></dd>
+            </dl>
+            <p class="card-note">
+              The cost is gross fuel over useful fuel — measured, and correct at any
+              redundancy. It says how much work was spent checking; it does not say how the
+              work was placed. That is the card below.
+            </p>
+          </div>
+        </div>
+
+        <div class="cards rendered-only">
+          <div class="card blueprint">
+            <i class="corner tl"></i><i class="corner tr"></i>
+            <i class="corner bl"></i><i class="corner br"></i>
+            <p class="card-kicker">How strongly it was checked</p>
+            <p class="quote" data-region="colouring/attestation" data-kind="reading" data-source="TabApi.runColouring().attestation"></p>
+            <p class="card-note">
+              The sentence above is the kernel's own <code>description</code>, rendered
+              verbatim. The command-line tool prints the same field, so the two surfaces
+              cannot come to describe one result differently, and this page composes no
+              sentence of its own here.
+            </p>
+          </div>
+          <div class="card blueprint">
+            <i class="corner tl"></i><i class="corner tr"></i>
+            <i class="corner bl"></i><i class="corner br"></i>
+            <p class="card-kicker">Where the last rung ran — placement made visible</p>
+            <div class="scroller">
+              <pre data-region="colouring/agreeing" data-kind="reading" data-source="TabApi.runColouring().agreeing"></pre>
+            </div>
+          </div>
+          <div class="card blueprint">
+            <i class="corner tl"></i><i class="corner tr"></i>
+            <i class="corner bl"></i><i class="corner br"></i>
+            <p class="card-kicker">What left this device</p>
+            <pre data-region="colouring/egress" data-kind="reading" data-source="TabApi.runColouring().egress"></pre>
+            <p class="card-note">
+              The withheld count and the sentence beside it are one region and one function,
+              because the figure on its own would read as a proof of sovereignty and this run
+              may simply have had nothing to hold back.
+            </p>
+          </div>
+        </div>
+
         <pre id="run-report" class="text-view" data-region="colouring/run-report" data-kind="text-view" data-source="the #run-report text view — the colouring run, rendered as lines"></pre>
 
         <div class="card blueprint rendered-only">
@@ -193,6 +371,29 @@
           </p>
         </div>
         <p class="controls"><button id="verify" class="btn btn-secondary" disabled>Check this answer myself</button></p>
+
+        <!--
+          C18 through C21. **This card is never disabled because the fabric is stopped**, and
+          its copy never says the node is — `verifyAnswer()` needs no node, no peer and no
+          network, and `colouring-demo.e2e.test.ts` presses `#verify` after stopping the node
+          and reads the result. The catalogue's sentence for all four is *no answer has been
+          produced to check*, in both arms, for exactly that reason.
+        -->
+        <div class="card blueprint rendered-only">
+          <i class="corner tl"></i><i class="corner tr"></i>
+          <i class="corner bl"></i><i class="corner br"></i>
+          <p class="card-kicker">The check, run in this tab</p>
+          <dl>
+            <dt>verdict</dt>
+            <dd data-region="colouring/verify-verdict" data-kind="reading" data-source="TabApi.verifyAnswer().ok"></dd>
+            <dt>n checked</dt>
+            <dd data-region="colouring/verify-n" data-kind="reading" data-source="TabApi.verifyAnswer().n"></dd>
+            <dt>triples</dt>
+            <dd data-region="colouring/verify-triples" data-kind="reading" data-source="TabApi.verifyAnswer().triplesChecked"></dd>
+            <dt>refutation</dt>
+            <dd data-region="colouring/verify-violation" data-kind="reading" data-source="TabApi.verifyAnswer().violation"></dd>
+          </dl>
+        </div>
         <pre id="verify-report" class="text-view" data-region="colouring/verify-report" data-kind="text-view" data-source="the #verify-report text view — TabApi.verifyAnswer(), rendered as lines"></pre>
       </section>
 
@@ -417,12 +618,27 @@
       // `textContent` only — see that file's header for why `verbatim` is the word that
       // makes `innerHTML` look correct here and is not.
       import {
-        attestationLines,
-        egressLines,
+        applyRender,
         paintAbsence,
         paintSurfaceAbsence,
         writeReading,
       } from './render.ts'
+      // The colouring surface's formatter — UI-SPEC section 4.2's C1 through C21. It is
+      // pure: one reading in, one record of already-formatted strings out, and `applyRender`
+      // writes that one record into both the regions and the text view. `attestationLines`
+      // and `egressLines` are called from in there rather than from here, so the sentence a
+      // visitor reads has one author on both surfaces.
+      import {
+        COLOURING_STOP_ABSENCE_IDS,
+        LADDER,
+        bestOf,
+        cubesFor,
+        format,
+        formatArgs,
+        formatConstants,
+        formatVerification,
+        redundancyFor,
+      } from './surfaces/colouring.ts'
 
       const $ = (id) => document.getElementById(id)
       const gateEl = $('gate')
@@ -443,6 +659,14 @@
       // used to leave three empty `dd`s here, and an empty `dd` is exactly the blank a
       // named absence replaces.
       paintSurfaceAbsence('session', 'stopped')
+      // Same rule, one surface over: all 21 colouring readings paint their stopped sentence
+      // before anything runs. C18-C21's stopped sentence IS their initial one — *no answer
+      // has been produced to check* — so painting them here says nothing untrue about a
+      // control that works with the fabric disconnected.
+      paintSurfaceAbsence('colouring', 'stopped')
+      // C3, C4 and C5 are constants: always present, never a result, and never an absence.
+      // C5 is computed here from the shipped builder rather than transcribed.
+      for (const [id, text] of Object.entries(formatConstants())) writeReading(id, text)
 
       const setState = (tone, text) => {
         stateEl.dataset.tone = tone
@@ -561,6 +785,12 @@
         // catalogue's stopped sentences instead: a visitor who presses Stop is told what
         // each reading no longer has and why, rather than shown three blanks.
         paintSurfaceAbsence('session', 'stopped')
+        // Stopped wins on the colouring surface too — **except for C18 through C21**, which
+        // are deliberately not in this list. `verifyAnswer()` needs no node, so a verdict
+        // already on screen is still true, and `colouring-demo.e2e.test.ts` presses `#verify`
+        // in exactly this state. Repainting them would replace a true reading with a sentence
+        // saying there is nothing to check.
+        for (const id of COLOURING_STOP_ABSENCE_IDS) paintAbsence(id, 'stopped')
         joinEl.disabled = false
         $('stop').disabled = false
       })
@@ -569,15 +799,15 @@
 
       // ---- the job, and checking it -------------------------------------------
 
-      // Measured rungs. The wall is real and moves with cube count, so the ladder
-      // stops where the fabric stops rather than where a number would look good.
-      const LADDER = [300, 400, 500, 600]
-
-      // `plural`, `attestationLines` and `egressLines` moved to `./render.ts`, body and
-      // comments line for line. They are the shared formatters — UI-SPEC section 5.1's
-      // attestation block and section 5.2's egress block — and every surface this phase
-      // adds renders them, so a copy per surface would be a copy per surface of a sentence
-      // whose whole design is that it has one author.
+      // `LADDER`, `plural`, `attestationLines`, `egressLines` and the whole of the line
+      // construction below moved out of this file — the first into `./surfaces/colouring.ts`
+      // and the rest into `./render.ts`, body and comments line for line. What is left here
+      // is the dispatch: gather the outcomes, hand them to one pure formatter, and let
+      // `applyRender` write the regions and the text view from the one record it returns.
+      //
+      // The point of the move is UI-SPEC section 2.2's: **neither view can format anything
+      // the other does not have.** While the lines were built here and the cards were not
+      // built at all, that property was true by having only one view.
 
       $('run').addEventListener('click', async () => {
         $('run').disabled = true
@@ -586,78 +816,46 @@
         // dispatch to a peer that has gone.
         await findPeers()
         const peerIds = computePeers
-        // More peers, more cubes. This is the whole arc: a cube fixes the most
-        // constrained numbers, so cubes are not merely parallelism — they are how
-        // far the search reaches.
-        const cubes = 8 * (1 + peerIds.length)
-        const lines = [`${peerIds.length} peer(s) · ${cubes} cubes per rung`, '']
-        let best = null
+        // `cubesFor` and `redundancyFor` are the same expressions C1 and C2 display, imported
+        // from where those regions are formatted. Two copies of the formula would be two
+        // things that can disagree about what the page said it would send.
+        const cubes = cubesFor(peerIds.length)
+        const redundancy = redundancyFor(peerIds.length)
+        const rungs = []
 
         for (const n of LADDER) {
           $('run-status').textContent = `n = ${n}…`
           try {
-            const run = await window.o2.runColouring({
-              n,
-              cubes,
-              redundancy: Math.min(2, 1 + peerIds.length),
-              peerIds,
-            })
-            const found = run.statuses.filter((s) => s === 'found').length
-            const exhausted = run.statuses.filter((s) => s === 'exhausted').length
-            const unknown = run.statuses.filter((s) => s === 'budget').length
-            lines.push(
-              `n = ${String(n).padStart(4)}  ${run.found ? 'FOUND   ' : 'no answer'}  ` +
-                `${found} found · ${exhausted} proved empty · ${unknown} out of budget  ` +
-                `${Math.round(run.elapsedMs)}ms`,
-            )
-            if (!run.found) {
-              // 'budget' means "I ran out of steps", not "there is none". Saying so
-              // is the difference between a limit and a claim.
-              lines.push('', `Stopped here. ${unknown} cube(s) ran out of steps — that is a`)
-              lines.push('shortage of search, not a proof that no colouring exists.')
-              break
-            }
-            best = run
+            const run = await window.o2.runColouring({ n, cubes, redundancy, peerIds })
+            rungs.push({ n, run })
+            // 'budget' means "I ran out of steps", not "there is none". The ladder stops
+            // where the fabric stops, and the formatter says which of the two it was.
+            if (!run.found) break
           } catch (error) {
-            lines.push(`n = ${n}: ${error instanceof Error ? error.message : String(error)}`)
+            rungs.push({ n, error: error instanceof Error ? error.message : String(error) })
             break
           }
         }
 
-        if (best !== null) {
-          lines.push('')
-          lines.push(`Best settled: n = ${best.n}, every cube agreed: ${best.complete}`)
-          // VER-06. Gross fuel over useful fuel — measured, correct at any redundancy,
-          // and the half of the old line that was never in doubt.
-          lines.push(`Verification cost ${best.verificationMultiplier.toFixed(2)}×.`)
-          lines.push(...attestationLines(best.attestation))
-          lines.push('')
-          lines.push('Where the last rung ran:')
-          lines.push(
-            ...best.agreeing
-              .slice(0, 8)
-              .map((who, i) => `  cube ${i}: ${who.length === 0 ? 'no agreement' : who.join(' + ')}`),
-          )
-          if (best.agreeing.length > 8) lines.push(`  … and ${best.agreeing.length - 8} more`)
-          lines.push(...egressLines(best.egress))
-          lines.push('', 'This answer has not been checked. The button below checks it.')
-        }
-
+        const state = { peers: peerIds.length, rungs }
+        const best = bestOf(state)
+        // The hook `demo-regions.e2e.test.ts`'s P8 asserts the existence of: it compares the
+        // rendered attestation region against a FRESH reading taken in the same page, and
+        // there is no `TabApi` accessor for the last run's receipt — a run returns it once.
+        // Without this line P8 reddens naming this exact property, which is how Plan 27-03
+        // made it a forcing function rather than a vacuous pass.
+        window.__o2LastAttestation = best === null ? null : best.attestation
         $('run-status').textContent = best === null ? 'nothing settled' : `settled n = ${best.n}`
-        $('run-report').textContent = lines.join('\n')
+        applyRender('colouring', format(state), 'colouring/run-report')
         $('run').disabled = false
       })
 
       $('verify').addEventListener('click', () => {
-        const verdict = window.o2.verifyAnswer()
-        if (!verdict.checked) {
-          $('verify-report').textContent = 'nothing to check yet'
-          return
-        }
-        $('verify-report').textContent = verdict.ok
-          ? `Correct. ${verdict.triplesChecked} Pythagorean triples up to ${verdict.n} were ` +
-            're-derived here and every one has two colours among its three numbers.'
-          : `REFUTED. ${verdict.violation} is all one colour.`
+        // No guard on `activity()` and none wanted: UI-SPEC section 5.4, and
+        // `colouring-demo.e2e.test.ts` presses this with the fabric stopped and every peer
+        // gone. The formatter's own absence arm says *no answer has been produced to check*
+        // rather than anything about a node.
+        applyRender('colouring', formatVerification(window.o2.verifyAnswer()), 'colouring/verify-report')
       })
 
       // Peers that will actually run a task, kept here so the job and the display
@@ -672,6 +870,13 @@
         try {
           const found = await window.o2.connectDiscoveredPeers()
           computePeers = await window.o2.computePeers()
+          // C1 and C2, refreshed on every discovery round. They are what makes *more peers,
+          // more cubes* visible BEFORE anything is dispatched — the arc this workload exists
+          // to show — and they carry the arguments the next run will actually send, because
+          // the run handler builds them from the same two functions.
+          for (const [id, text] of Object.entries(formatArgs(computePeers.length))) {
+            writeReading(id, text)
+          }
           const connected = window.o2.peers().length
           // Counted *including this tab*, because this tab is a node and runs the
           // work too — a peer count silently excludes the reader from the fabric

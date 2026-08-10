@@ -198,6 +198,12 @@ export const WIRED_SURFACES: readonly SurfaceId[] = [
   // that landed this catalogue, so the mechanism is proved against readings that already
   // existed before any new surface depends on it.
   'session',
+  // Plan 27-04 — all 21 of UI-SPEC section 4.2, wired through `demo/surfaces/colouring.ts`
+  // and `applyRender`. This one line turns the guard's *every catalogue entry resolves to an
+  // element* half on for every one of them at once, which is the point: colouring cannot
+  // half-land. It is also the surface Plan 27-04's P5 drives, so it is the first surface
+  // whose regions are asserted to STOP reading as absent.
+  'colouring',
 ]
 
 // ---------------------------------------------------------------------------------------
@@ -1420,6 +1426,20 @@ export const REGIONS: readonly Region[] = [
     // `1` in "from 1 to N", and the superscripts in `a² + b² = c²`.
     source:
       'the definition of a Pythagorean triple, and the lower bound of the range being coloured',
+  },
+  {
+    id: 'colouring/prose-ladder',
+    surface: 'colouring',
+    kind: 'prose',
+    // `300`, `400`, `500`, `600` — the ladder itself, in the caption of the table whose four
+    // rows are C6 through C9.
+    //
+    // **Declared rather than repeated per row, and the choice is P2's.** The obvious markup
+    // labels each rung card `n = 300`, which puts four undeclared digits on screen; the
+    // alternative is four near-identical prose entries for four labels. One caption naming the
+    // rungs in order, with the rows labelled `first rung` … `fourth rung`, says the same thing
+    // with one declaration and gives the table the caption UI-SPEC section 7.1 asks of it.
+    source: 'the rungs of the ladder this page climbs, in the order it climbs them',
   },
   {
     id: 'colouring/prose-bound',
