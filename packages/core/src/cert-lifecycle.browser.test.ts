@@ -26,7 +26,10 @@
 import { sha256 } from '@noble/hashes/sha2.js'
 import { describe, expect, it } from 'vitest'
 import { toHex } from './capability.ts'
-import { createCryptoBackend, nobleCryptoBackend, subtleCryptoBackend } from './cert-lifecycle.ts'
+// The crypto-backend port moved to `./ed25519-backend.ts` in Phase 28, Plan 28-01,
+// which merged this package's two Ed25519 selection paths into one. Import-path edit
+// only — not one assertion in this file changed.
+import { createCryptoBackend, nobleCryptoBackend, subtleCryptoBackend } from './ed25519-backend.ts'
 
 describe('cert-lifecycle backend selection — browser tier', () => {
   it('runs in a secure context, so the real probe is expected to select subtle', async () => {

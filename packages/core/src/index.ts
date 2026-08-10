@@ -385,10 +385,23 @@ export type {
 // Ed25519 dual-port verifier — owner ruling 2026-08-09, adapter ruling 2026-08-09
 // (second, same day). No production caller yet; see `ed25519-backend.test.ts`'s
 // migration-pricing-and-wiring-decision docblock for why.
+//
+// Phase 28, Plan 28-01: `packages/core` now holds **one** Ed25519 selection mechanism
+// instead of two, and its gate is a real `subtle.generateKey({name:'Ed25519'})`
+// round-trip probe rather than the presence-only check this module used to carry.
+// Two callable exports left with the merge and are named in `28-01-SUMMARY.md`: the
+// WASM-fallback sync factory, which took `libsodium-wrappers` out of the code path,
+// and the standalone subtle async verifier, which was a duplicate of the `subtle`
+// arm's own verify. (Named descriptively rather than by identifier so this comment is
+// not itself a hit for the greps that check they are gone.) Five callable exports
+// remain and **nothing was added**: the merged module's crypto-backend symbols
+// (`createCryptoBackend`,
+// `nobleCryptoBackend`, `subtleCryptoBackend`) and `cert-lifecycle.ts`'s facades are
+// deliberately off this barrel. Barrel-exporting the facade surface is an owner
+// non-decision (28-CONTEXT.md `<deferred>` §2, counted cost: 75 → 87 and
+// OPEN_FINDING_CEILING 49 → 61), and adding them here would take it by side effect.
 export {
-  createLibsodiumSyncVerifier,
   createNobleSyncVerifier,
-  createSubtleAsyncVerifier,
   Ed25519NotInitializedError,
   getAsyncVerifier,
   getSyncVerifier,

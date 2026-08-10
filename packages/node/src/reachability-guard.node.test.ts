@@ -250,6 +250,20 @@ describe('the guard cannot report clean because it looked at nothing', () => {
     // only its bundle cost is measured, in Plan 25-03), matching the ed25519-backend.ts
     // precedent immediately above. The earlier figures are recorded because a ceiling
     // whose history is invisible is a ceiling nobody can audit.
+    //
+    // **Lowered 75 → 73, measured 2026-08-10 (Phase 28, Plan 28-01).** Two callable
+    // barrel exports left `@o2/core` and none arrived: `core/createLibsodiumSyncVerifier`
+    // and `core/createSubtleAsyncVerifier`. The first took `libsodium-wrappers` out of
+    // the code path; the second was a duplicate `subtle` verify implementation sitting
+    // beside the surviving arm's own. **Measured, not derived**: this ceiling was
+    // temporarily set to 0 before the merge and the guard reported 75, and again after
+    // the merge and it reported 73 — a within-run pair, so the difference is the merge
+    // and not the machine. This is a lowering from cleanup adjacent to wiring, not from
+    // wiring: nothing became reachable. The assertion message below says a LOWER reading
+    // means the ceiling comes down, and this is that, taken rather than left as slack.
+    // Nothing was added here on purpose — the merged module's `createCryptoBackend`,
+    // `nobleCryptoBackend` and `subtleCryptoBackend` are deliberately off the barrel,
+    // because barrel-exporting that surface is an owner non-decision priced at 75 → 87.
     // The ceiling is an equality-ish bound on purpose and it is the crude form of what 22-03
     // replaces it with: a per-symbol register with a reason for each. Until that lands, this is
     // the only thing standing between the guard and a new dead export arriving unnoticed.
@@ -259,10 +273,10 @@ describe('the guard cannot report clean because it looked at nothing', () => {
     expect(
       found.length,
       `the guard found ${found.length} unreachable callable barrel exports; the reading recorded ` +
-        'on 2026-08-09 was 75. A HIGHER number means a new exported-but-uncalled symbol arrived — ' +
+        'on 2026-08-10 was 73. A HIGHER number means a new exported-but-uncalled symbol arrived — ' +
         `run the guard and read the list. A LOWER number is wiring work landing and the ceiling ` +
         'should be lowered to match it, which is 22-03\'s register rather than an edit here.',
-    ).toBeLessThanOrEqual(75)
+    ).toBeLessThanOrEqual(73)
   }, GRAPH_TIMEOUT_MS)
 
   it('separates findings that have callers from findings that have none', () => {
@@ -352,6 +366,14 @@ describe('the disposition register describes the tree, or it reddens', () => {
     // What Was Built". They are not disposed — the owner ruled on 2026-08-08 that only symbols
     // with a stated cause get an entry — so they sit here, counted, named on demand, and unable
     // to grow while nobody is looking. Lowering this number is the work.
+    //
+    // That "47" was **drift** until 2026-08-10: it was written against a residue of 47, went
+    // stale when Plan 25-02 raised `OPEN_FINDING_CEILING` to 49, and said nothing because it is
+    // a comment. It reads true again today by coincidence, not by correction — Phase 28's merge
+    // measured the residue back down to 47. Restated here with its date so the next reader does
+    // not re-find it as a defect, and so nobody reads the agreement as evidence: see
+    // `reachability-dispositions.ts`'s 49 → 47 note for why the coincidence is not the proof.
+    // (`.planning/REQUIREMENTS.md:790`'s matching 67/20/47 triple is Plan 28-04's to correct.)
     const disposed = disposedKeys()
     const open = unreachableExports(corpus(), graph(), ROOT)
       .map((one) => `${one.barrel}/${one.symbol}`)

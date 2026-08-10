@@ -33,10 +33,12 @@ import {
   createSubject,
   createVerifier,
   deriveKeySeeds,
-  nobleCryptoBackend,
   signCertificate,
-  subtleCryptoBackend,
 } from './cert-lifecycle.ts'
+// The crypto-backend port moved to `./ed25519-backend.ts` in Phase 28, Plan 28-01,
+// which merged this package's two Ed25519 selection paths into one. Import-path edit
+// only — not one assertion in this file changed.
+import { nobleCryptoBackend, subtleCryptoBackend } from './ed25519-backend.ts'
 
 const T0 = 1_000_000
 const HOUR = 3_600_000

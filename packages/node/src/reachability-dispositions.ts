@@ -218,8 +218,29 @@ export const DISPOSITIONS: readonly Disposition[] = [
  * `MAX_CERTIFICATE_BYTES`/`MAX_EXTENSION_BYTES`/`MAX_EXTENSION_COUNT` are `const` value
  * exports rather than functions/classes and never entered the "callable" corpus this
  * guard walks.
+ *
+ * ## Lowered 49 → 47, measured 2026-08-10 (Phase 28, Plan 28-01)
+ *
+ * `core/createLibsodiumSyncVerifier` and `core/createSubtleAsyncVerifier` left the barrel when
+ * Plan 28-01 merged `packages/core`'s two Ed25519 selection paths into one. Both were undisposed
+ * findings, so the residue falls by exactly two and nothing arrived to offset it. The five
+ * remaining `ed25519-backend.ts` findings — `core/createNobleSyncVerifier`,
+ * `core/Ed25519NotInitializedError`, `core/getAsyncVerifier`, `core/getSyncVerifier`,
+ * `core/initEd25519` — stay open and stay undisposed for the reason the 40 → 47 note above
+ * already gives: the port still has no production caller, and the merge did not change that.
+ * The merge is behaviour-neutral in production; it removed a duplication from the package, not a
+ * hazard from a trust path, and this lowering should be read as exactly that much.
+ *
+ * **Measured, not derived, and the arithmetic here is a trap worth naming.** The ceiling was set
+ * to 0 before the merge and the guard reported *"49 unreachable callable barrel exports carry no
+ * disposition"*, and again after and it reported *"47"*, naming all forty-seven with the two
+ * departed symbols visibly absent — a within-run pair, so the difference is the merge. 49 − 2 is
+ * also 47, and `reachability-guard.node.test.ts:350` and `.planning/REQUIREMENTS.md:790` have
+ * both *said* "47" since before this phase, staled against the 47 → 49 raise above and describing
+ * a different population. **Agreement with a stale comment is not confirmation and was not taken
+ * as any**; the number here is the one the guard printed.
  */
-export const OPEN_FINDING_CEILING = 49
+export const OPEN_FINDING_CEILING = 47
 
 /**
  * How large the register may grow before something reddens.

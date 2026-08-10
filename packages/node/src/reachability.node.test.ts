@@ -503,7 +503,9 @@ describe('the call graph: a path through functions, not through modules', () => 
     // `packages/core/src/cert-lifecycle.ts`, whose `CryptoBackend` port has two
     // implementations in one module — the subtle arm and the noble arm — each defining
     // `signEd25519`, `verifyEd25519` and `agreeX25519` as object-literal methods alongside the
-    // interface's own method signatures of the same names. Same shape as the 12→13 raise
+    // interface's own method signatures of the same names — the two object-literal methods are
+    // what make the entry; the interface signatures beside them count for nothing, measured in
+    // Phase 28 below and wrong in this sentence until then. Same shape as the 12→13 raise
     // below: an adapter pattern, not an accident, and renaming either arm's methods to dodge
     // this guard would be distorting the design to please it rather than reading true. It was
     // 12 until Plan 25-04 landed `packages/core/src/ed25519-backend.ts`, whose thirteenth entry
@@ -518,14 +520,41 @@ describe('the call graph: a path through functions, not through modules', () => 
     // `git stash` — but that plan's own work was already committed when the stash ran, so it
     // stashed nothing and re-measured the identical tree. Measured properly by checking out the
     // pre-phase commit: 37/37 green, exit 0. The failure was introduced here, not inherited.
+    //
+    // ## Phase 28, Plan 28-01, measured 2026-08-10: the reading is **15**
+    //
+    // The merge collapsed `packages/core`'s two Ed25519 selection paths into
+    // `ed25519-backend.ts`. A collision entry is a NAME IN A FILE, so moving a declaration
+    // moves its entry rather than creating or destroying one: `#signEd25519`, `#verifyEd25519`
+    // and `#agreeX25519` simply changed file, three out and three in, net zero. The bound stays
+    // at 16 with the same slack it had.
+    //
+    // **One entry did disappear, and the plan that predicted otherwise was wrong — this is the
+    // measurement, not the prediction.** `ed25519-backend.ts#verify` is no longer a collision
+    // and its pin is deleted rather than propped up. It existed because the module held three
+    // object-literal `verify(...)` METHODS — the noble, WASM-fallback and subtle adapters. Two
+    // of those three were deleted by the merge, leaving one, and one is not a collision.
+    // `declaredNameOf` (`reachability.ts:526-546`) counts function/class/method declarations,
+    // accessors, and `const f = () => {}` — it does **not** count an interface method signature
+    // or an object-literal `verify: (…) => …` property assignment, so neither
+    // `Ed25519SyncVerifier.verify`/`Ed25519AsyncVerifier.verify` nor the async adapter written
+    // in `initEd25519` contributes. Read from the extractor after the reading disagreed with
+    // the expectation, not before. Contriving a third declaration to keep the pin alive would
+    // have been distorting the design to please the guard, which is the failure the 12→13 and
+    // 13→16 notes above both refuse.
+    //
+    // Full measured list, 15 entries: `aot/wasi-executor.ts` #fd_fdstat_get / #fd_filestat_get /
+    // #fd_write / #length / #text; `browser/browser-node.ts#dutyCycle`; `core/discovery.ts`
+    // #providers / #recordsFor; `core/ed25519-backend.ts` #agreeX25519 / #signEd25519 /
+    // #verifyEd25519; `core/transport/memory.ts#peers`; `node/bin/bench.ts#acquire`;
+    // `tools/aot/bench-lifted.ts` #fd_fdstat_get / #fd_write.
     const built = graph()
     expect(built.collisions.length).toBeLessThanOrEqual(16)
     expect(built.collisions).toContain('packages/core/src/discovery.ts#providers')
     // The entries that moved the bound, pinned by name so a future raise cannot hide behind them.
-    expect(built.collisions).toContain('packages/core/src/ed25519-backend.ts#verify')
-    expect(built.collisions).toContain('packages/core/src/cert-lifecycle.ts#signEd25519')
-    expect(built.collisions).toContain('packages/core/src/cert-lifecycle.ts#verifyEd25519')
-    expect(built.collisions).toContain('packages/core/src/cert-lifecycle.ts#agreeX25519')
+    expect(built.collisions).toContain('packages/core/src/ed25519-backend.ts#signEd25519')
+    expect(built.collisions).toContain('packages/core/src/ed25519-backend.ts#verifyEd25519')
+    expect(built.collisions).toContain('packages/core/src/ed25519-backend.ts#agreeX25519')
   })
 })
 
