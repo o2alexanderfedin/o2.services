@@ -66,7 +66,7 @@
  * composed sentence when it did and the module wrote no index.
  */
 
-import { KERNEL_RECORD, KERNEL_TRUST_ANCHOR } from '@o2/demo'
+import { KERNEL_RECORD, KERNEL_TRUST_ANCHOR, PI_RECORD, kernelBytes, piKernelBytes } from '@o2/demo'
 import { REGIONS } from '../../src/demo-regions.ts'
 import type { Region } from '../../src/demo-regions.ts'
 import type { TabJobReport, TabNameRecord } from '../../src/tab-api.ts'
@@ -108,6 +108,20 @@ const NO_PARTITION_FIELD = 'no partition index — this module’s output carrie
 
 /** UI-SPEC's Y4 sentence for the case it names: the shard reached no agreement. */
 const NO_AGREEMENT = 'no agreement'
+
+/**
+ * COMPOSED — Y7, and the third sentinel this surface had to separate from a quantity.
+ *
+ * `submitJob` computes `verificationMultiplier` as `useful === 0 ? 0 : gross / useful`
+ * (`packages/core/src/job/submit.ts`), so a run where nothing produced an answer reports
+ * **zero** — a sentinel for *there was nothing to divide by*, not a measured cost of zero.
+ * Measured on a refused dispatch: `0.00×` on screen beside eighteen refusals, which reads as
+ * *verification was free* and means the opposite. UI-SPEC's Y7 row names no unavailable arm,
+ * so this sentence is composed here and logged in `deferred-items.md`.
+ */
+const NO_COST_MEASURED =
+  'No cost measured: no shard produced an answer, so there is no verified work to divide the ' +
+  'total by.'
 
 /** The seven required inputs, in the order the form presents them. */
 export const REQUIRED_FIELDS: readonly {
@@ -166,6 +180,25 @@ export const DEFAULT_FORM: ByoForm = {
 
 /** Y1 — the anchor `start()` pins when none is supplied. */
 export const PINNED_ANCHOR: string = KERNEL_TRUST_ANCHOR
+
+/**
+ * The modules whose **bytes** ship in this bundle, by CID.
+ *
+ * A dispatch names a module by CID and carries no bytes, so the bytes have to already be
+ * somewhere the fabric can fetch them from — `runColouring` and `runPi` both `store.put` their
+ * own kernel before dispatching, for exactly this reason. This form has no such kernel of its
+ * own, so it puts whichever bundled module the CID names and nothing else.
+ *
+ * **Measured before it was written.** Without this the default dispatch came back with every
+ * shard refused for `module block missing: bafyrei…` — a true refusal, rendered correctly, and
+ * a dead end for the one module a visitor can actually dispatch. Recorded here rather than
+ * fixed silently, because the same refusal is the *correct* answer for a CID this bundle does
+ * not ship, and a reader needs to be able to tell the two apart.
+ */
+export const BUNDLED_MODULES: ReadonlyMap<string, Uint8Array> = new Map([
+  [KERNEL_RECORD.cid.toString(), kernelBytes],
+  [PI_RECORD.cid.toString(), piKernelBytes],
+])
 
 /** Whether the form may be dispatched, and the reason when it may not. */
 export type Validity =
@@ -300,9 +333,15 @@ export interface ByoState {
   readonly sovereign: { readonly ownerId: string } | null
 }
 
-/** `2.00×`. One binding, used by the region and by the text view — P6 asserts the consequence. */
+/**
+ * Y7 — the verification cost, or the sentence for the sentinel.
+ *
+ * One binding, used by the region and by the text view — P6 asserts the consequence.
+ */
 function multiplierOf(report: TabJobReport): string {
-  return `${report.verificationMultiplier.toFixed(2)}×`
+  return report.verificationMultiplier === 0
+    ? NO_COST_MEASURED
+    : `${report.verificationMultiplier.toFixed(2)}×`
 }
 
 /**
@@ -341,8 +380,16 @@ export function format(state: ByoState): SurfaceRender {
 
   regions['byo/complete'] = complete
   regions['byo/partitions'] = partitionRows(report)
+  // Y5, and the second sentinel this surface separates from a quantity. `main.ts` maps a
+  // shard that did not agree to `replicas: 0` — so the zero is *no agreement*, not a count of
+  // zero replicas, and printing it beside eighteen refusals would say the fabric measured
+  // nothing rather than that nothing was measurable. Read beside `agreeing[i]`, as Y4 is.
   regions['byo/replicas'] = report.replicas
-    .map((replicas, index) => `shard ${index}: ${replicas}`)
+    .map((replicas, index) =>
+      (report.agreeing[index] ?? []).length === 0
+        ? `shard ${index}: ${NO_AGREEMENT}`
+        : `shard ${index}: ${replicas}`,
+    )
     .join('\n')
   regions['byo/verification-multiplier'] = multiplier
   regions['byo/fetched'] = fetched
