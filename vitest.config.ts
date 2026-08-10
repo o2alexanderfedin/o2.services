@@ -244,7 +244,43 @@ const NODE_MEASUREMENT = {
   // and every span in the table other than the one row added by this plan still describe the
   // **2026-08-05** run as amended by the 08-06/08-07 passes. This field, `sumOfFileSpansMs` and
   // `unitFiles` are the only ones that moved.
-  files: 176,
+  //
+  // ## 176 -> 177 on 2026-08-10 by Plan 26-02, and the one is this plan's own spec
+  //
+  // The block above closes by predicting this exact move -- *"Plan 26-02 adds one more and would
+  // go red"* -- which is why 26-01 retook the count rather than widening the tolerance. It did
+  // not go red, because the count it left behind was the true one.
+  //
+  // **Two routes that share no code, taken again -- and taken TWICE, because staging moved one
+  // of them and reporting only the second reading would have hidden that:**
+  //
+  // | route | before `git add` | after `git add` |
+  // |---|---|---|
+  // | the filesystem walk `slow-specs.node.test.ts` derives `NODE_PROJECT_FILES` from | **177** | **177** |
+  // | `git ls-files packages tools` filtered by the same globs | 176 tracked | **177 tracked** |
+  // | `git status --porcelain` untracked, same globs | 1 -- this plan's spec | **0** |
+  //
+  // Both readings resolve to 177 and the walk never moved. The delta is 1 + 0: no drift arrived
+  // under this plan the way four had arrived under 26-01's.
+  //
+  // **The staging was not optional and is worth recording.** `slow-specs.node.test.ts:316`
+  // asserts every path in `MEASURED_NODE_SPANS` is a file *git knows about* -- a span for an
+  // untracked path is a typo, and a typo there attributes a finding to a file that does not
+  // exist. So the row below cannot land until the spec is staged, which is why this plan's
+  // spec IS listed in the table while `closed-fabric-agents.node.test.ts` -- untracked, and
+  // written by an agent forbidden `git add` -- still is not.
+  //
+  // **`unitFiles` does NOT move, and that is arithmetic rather than an oversight.** This plan's
+  // spec measured **137 130 ms**, which is above `SLOW_CUTOFF_MS` by a factor of 137, so it adds
+  // a row to the table AND a member to `EXCLUDED`. `files - EXCLUDED.length` is therefore
+  // unchanged. Contrast 26-01's row at 970 ms, which was below the cut and moved `unitFiles` by
+  // the full five.
+  //
+  // **What was NOT retaken by this plan, said plainly.** Nothing was re-timed except this plan's
+  // own file. `tests`, `load`, `loadPeak`, `wallClockMs`, `sumOfReportedSpansMs`, the
+  // hook-shadow counts, `unitTests` and `unitWallClockMs` all still describe the runs recorded
+  // beside them. This field and `sumOfFileSpansMs` are the only two that moved.
+  files: 177,
   tests: 2240,
   /**
    * Sum of the per-file costs the table below records — reporter spans for the files the
@@ -275,7 +311,12 @@ const NODE_MEASUREMENT = {
   // 1 824 386 -> 1 825 356 on 2026-08-10 by Plan 26-01: + 970 for the preview1 surface spec
   // (wall clock less boot floor -- see its row), and nothing else. The 7 943 ms discrepancy
   // above is still carried and still unreconciled, four passes deep now.
-  sumOfFileSpansMs: 1_825_356,
+  // 1 825 356 -> 1 962 486 the same day by Plan 26-02: + 137 130 for the elflift wasm32-wasi
+  // gate (wall clock less boot floor -- see its row), and nothing else. The 7 943 ms
+  // discrepancy is still carried and still unreconciled, five passes deep now, and this pass
+  // declines to absorb it for the reason every previous pass gave: it predates them all and
+  // folding it into an addition would hide it.
+  sumOfFileSpansMs: 1_962_486,
   /**
    * What `--reporter=json` alone said the same run summed to, i.e. the same number with
    * the three hook-shadowed files left at the value the reporter gave them.
@@ -405,6 +446,20 @@ const NODE_MEASUREMENT = {
    * `test:unit` has been running four more files than this object admitted since 2026-08-07.
    * See {@link NODE_MEASUREMENT.files} for the decomposition and for why they are counted here
    * but absent from the table.
+   *
+   * **116 -> 116 on 2026-08-10 by Plan 26-02, i.e. it did not move, and the reason is recorded
+   * because a field that stays put across a re-site looks like a field nobody checked.** `files`
+   * moved 176 -> 177 and `EXCLUDED.length` moved with it, because this plan's spec measured
+   * **137 130 ms** -- 137x above `SLOW_CUTOFF_MS`, so the row it adds is also an exclusion. That
+   * is the first re-site in this list where the two move together and cancel.
+   *
+   * **The direct `npm run test:unit` cross-check was NOT retaken by this plan**, and this field
+   * therefore still rests on 26-01's reading of the same 116. That is a real weakening and it is
+   * named as one rather than left implicit: the derivation is unchanged, the observation is
+   * inherited. It is inherited on a checkable ground rather than a hopeful one -- the derivation
+   * `files - EXCLUDED.length` produces the same 116 it produced when the observation was taken,
+   * so the two have not drifted apart, which is exactly the condition under which reusing an
+   * observation is legitimate.
    */
   unitFiles: 116,
   /**
@@ -853,6 +908,30 @@ const MEASURED_NODE_SPANS: readonly (readonly [string, number])[] = [
   // silently added five and a half minutes to every pre-commit run.
   ['tools/aot/elfconv-differential.node.test.ts', 331_010],
   ['tools/aot/echo-guest.node.test.ts', 255_540],  // wall clock; reporter said 600
+  // Added 2026-08-10 by Plan 26-02 with the elflift wasm32-wasi gate. **A WALL CLOCK reading,
+  // and the hook shadow here is the largest this table has ever recorded**: the file's entire
+  // cost is one `docker run` inside a top-level `beforeAll`, which `--reporter=json` attributes
+  // to nothing at all. The reporter says the file spans **16.7 ms** (sum of its eight case
+  // durations 16.1 ms -- internally consistent and completely blind). `/usr/bin/time -p` solo
+  // says `real 138.15 / user 0.87 / sys 0.29` and `real 136.77 / user 0.87 / sys 0.27` on two
+  // runs, less a boot floor of **1.02 s** measured by bracketing them with two solo runs of
+  // `packages/core/src/blockstore/memory.test.ts` (`real 1.00` and `1.03`) in the same session
+  // at 1-minute load 7.70 -> 5.61 on an 8-core host. That gives 137 130 ms and 135 750 ms; the
+  // larger is recorded, as the table's convention is the span a reader would observe rather
+  // than the kinder of two. **The reporter is short by a factor of 8 200** -- against the 195x
+  // the preview1 surface row below records, and for the same structural reason.
+  //
+  // `(user+sys)/real` is **0.008**: the container does every scrap of the work and this process
+  // waits on it. A comparability key, not an alarm -- the same 0.003 shape the differential row
+  // above carries.
+  //
+  // **What is inside those 137 s**, so the figure is auditable rather than a wall: one cmake
+  // reconfigure of the elfconv fork, **fifty-four** single-translation-unit `clang++` compiles
+  // across two target arms, one control recompile, and four `llvm-nm` sweeps over 3 963 + 10 844
+  // + 2 116 symbols. No ninja, no link. It is above the cutoff by a factor of 137, so it is
+  // excluded from `test:unit` -- which is the point of measuring it rather than leaving it off
+  // the table, where it would have added two and a quarter minutes to every pre-commit run.
+  ['tools/aot/elflift-wasi-gate.node.test.ts', 137_130],  // wall clock; reporter said 17
   ['packages/node/src/discovery-agents.node.test.ts', 86_064],
   // Added 2026-08-06 by Plan 24-03 — see NODE_MEASUREMENT.files on what was retaken with
   // it. Reporter span, solo, no hook shadow: this file registers a `beforeEach` (a cheap
