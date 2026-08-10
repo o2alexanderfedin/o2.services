@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { defineConfig } from 'vite'
-import type { Plugin } from 'vite'
+import type { Plugin, UserConfig } from 'vite'
 
 /**
  * The one committed copy of the performance report, as an absolute path.
@@ -93,8 +93,14 @@ export function perfReport(): Plugin {
  * `base: './'` keeps every asset reference relative, which is what a project page
  * served from a `/<repo>/` subpath needs. Building is *not* deploying: this produces
  * a directory and publishes nothing.
+ *
+ * Bound to a named, explicitly-typed constant rather than exported inline. `tsconfig.json`
+ * sets `isolatedDeclarations`, under which an inferred default export is an error — and this
+ * file became subject to it the moment `demo-bench.e2e.test.ts` imported {@link perfReport}
+ * from it, which is the point of importing it there: the spec checks the configuration the
+ * real build uses rather than a fixture written to agree with it.
  */
-export default defineConfig({
+const config: UserConfig = defineConfig({
   root: new URL('./demo', import.meta.url).pathname,
   base: './',
   plugins: [perfReport()],
@@ -104,3 +110,5 @@ export default defineConfig({
     target: 'es2023',
   },
 })
+
+export default config
