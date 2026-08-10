@@ -100,12 +100,21 @@
         font-size: .85rem;
       }
       /*
-        `min-width: 0` on both text children is the line most likely to be removed by
-        someone tidying up, and it is here on purpose: a grid item's automatic minimum
-        size is its min-content size, so without it a child refuses to shrink below its
-        content's floor and pushes Stop off the edge. `overflow-wrap: anywhere` is the
-        other half — it is what makes that floor one character wide rather than one word,
-        which is what a peer id or a multiaddr in this bar would otherwise cost.
+        `min-width: 0` is INERT here, and it is written down as inert rather than left to
+        be assumed. UI-SPEC section 6.2 calls it load-bearing and says its removal must
+        turn the geometry spec red; it was planted three ways on 2026-08-10 — removed from
+        `#bar-what`, removed with `white-space: nowrap` forced on, and removed from the
+        `#bar-stats` row that spans both tracks — and not one box moved by a pixel. A grid
+        item's automatic minimum size is content-based only when it spans a track whose
+        MIN track sizing function is `auto`, and `minmax(0, 1fr)` above fixes that min at
+        0. The line stays because it costs nothing and becomes load-bearing again the day
+        that track definition changes.
+
+        `overflow-wrap: anywhere` is the half that does work: it makes the wrap floor one
+        character wide rather than one word, which is what a peer id or a multiaddr in
+        this bar would otherwise cost. Force `white-space: nowrap` on either child and B2c
+        in `demo-viewport.e2e.test.ts` goes red at 320, 360 and 393 — that is the plant
+        that holds this block.
       */
       #bar-what  { grid-column: 1; min-width: 0; overflow-wrap: anywhere; }
       #bar-stats { grid-column: 1 / -1; min-width: 0; overflow-wrap: anywhere;

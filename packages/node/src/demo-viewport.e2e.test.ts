@@ -89,6 +89,39 @@ import { FabricNode } from './fabric-node.ts'
  * this file replaces, which is why the plant that proves this spec turns B6 red **while
  * B1 stays green**.
  *
+ * ## What the plants established, including the one that came back green
+ *
+ * Six arms, one at a time, each restored by the surgical inverse of its own edit and each
+ * verified with `cmp` against a snapshot taken immediately before it. Full text of every
+ * observed failure is in 27-01-SUMMARY.md; the verdicts:
+ *
+ * | plant | result |
+ * |---|---|
+ * | remove `min-width: 0` from `#bar-what` | **green — nothing moved at all** |
+ * | add `overflow-x: hidden` to `body` | **B6 red at all five widths, B1 green in the same run** |
+ * | `white-space: nowrap` on `#bar-what`, `min-width: 0` kept | B2c red at 320/360/393; B2b green |
+ * | `white-space: nowrap` on `#bar-what`, `min-width: 0` removed | **byte-identical readings to the arm above** |
+ * | `white-space: nowrap` on `#bar-stats`, `min-width: 0` removed | B2c red at four widths; B2b green |
+ * | `width: 600px` on `#bar-what` | B2b red at 320/360/393; B1, B2, B3 green |
+ *
+ * **`min-width: 0` is inert here, and that is a measurement rather than an opinion.**
+ * UI-SPEC section 6.2 says the line is load-bearing and that "its removal must turn
+ * section 6.3 red". It does not. Removing it changed not one box on either text child,
+ * with wrapping content or with `white-space: nowrap` forced on — the two nowrap arms
+ * produced identical numbers to the pixel. The reason is in the track definition, not the
+ * child rule: a grid item's automatic minimum size is content-based only when it spans a
+ * track whose **min** track sizing function is `auto`, and `minmax(0, 1fr)` fixes that min
+ * at 0. The line is kept because it costs nothing and becomes load-bearing again the day
+ * the track definition changes; it is documented here as inert so that nobody reads a
+ * green plant as a passing spec.
+ *
+ * **What does carry the claim is B2c**, and after it B3's 44px target and B4's hit test.
+ * The last arm is the sharpest thing in this table: a 600px child inside a 320px viewport
+ * left B1, B2 and B3 green, because a fixed element's overflow reaches neither the
+ * document's scroll width nor its own border box nor the grid tracks that place Stop.
+ * Every property UI-SPEC section 6.3 lists was green over a bar three hundred pixels too
+ * wide.
+ *
  * ## Why every property is a soft assertion
  *
  * `expect.soft`, so one run reports every violated property at every width in both states
@@ -169,6 +202,14 @@ interface Reading {
   readonly childLeft: number | null
   readonly barPadRight: number | null
   readonly barPadLeft: number | null
+  /**
+   * Per child of `#bar`: how wide its content is against how wide its box is.
+   *
+   * B2b measures BOXES and is blind to a child whose box fits while its text hangs out of
+   * it — which is exactly what `min-width: 0` produces when the content cannot wrap.
+   * Measured, not assumed; see the three-arm plant recorded in 27-01-SUMMARY.md.
+   */
+  readonly childContent: readonly { readonly name: string; readonly scrollWidth: number; readonly clientWidth: number }[]
   /** After scrolling to the end of the page: the bottom of `#main`'s last element child. */
   readonly mainLastBottom: number | null
   readonly mainLastTag: string | null
@@ -367,6 +408,13 @@ async function measure(page: Page, state: BarState, surfaceIndex: number): Promi
           barRect === null || barStyle === null
             ? null
             : barRect.left + Number.parseFloat(barStyle.paddingLeft),
+        // Grid items are blockified, so `clientWidth`/`scrollWidth` are meaningful here
+        // even on the `<strong>` and `<span>` the bar is built from.
+        childContent: children.map((child) => ({
+          name: `${child.tagName.toLowerCase()}${child.id === '' ? '' : `#${child.id}`}`,
+          scrollWidth: child.scrollWidth,
+          clientWidth: child.clientWidth,
+        })),
         mainLastBottom: null as number | null,
         mainLastTag: null as string | null,
         barTopAtEnd: null as number | null,
@@ -501,6 +549,28 @@ describe('UI-SPEC section 6.3 — the bar fits, and Stop is reachable', () => {
               `x=${(reading.childLeft ?? 0).toFixed(2)}, left of #bar's padding box at ` +
               `x=${(reading.barPadLeft ?? 0).toFixed(2)}`,
           ).toBeGreaterThanOrEqual((reading.barPadLeft ?? 0) - 1)
+
+          // B2c — and each child's CONTENT is inside that child.
+          //
+          // Added because Plant 1 came back green and the plan's own instruction for that
+          // case is to widen rather than to record a gap. `min-width: 0` lets a grid item
+          // shrink to its track; when the item's content cannot wrap, the item's BOX then
+          // fits while its text hangs off the right of it — B2b measures boxes and cannot
+          // see that, B1 and B2 are blind to it for the fixed-element reason above, and
+          // Stop stays put because the track sizes are unaffected. Every property in
+          // UI-SPEC 6.3's table stays green over a bar whose text is off screen. This is
+          // the one that reddens. The three-arm plant that establishes it — nowrap alone,
+          // nowrap without `min-width: 0`, and both restored — is in 27-01-SUMMARY.md.
+          if (reading.childContent.length > 0) {
+            const worst = reading.childContent.reduce((a, b) =>
+              b.scrollWidth - b.clientWidth > a.scrollWidth - a.clientWidth ? b : a,
+            )
+            expect.soft(
+              worst.scrollWidth,
+              `B2c ${where}: ${worst.name}'s content measures ${worst.scrollWidth}px ` +
+                `inside a ${worst.clientWidth}px box — the text overflows its own child`,
+            ).toBeLessThanOrEqual(worst.clientWidth + 1)
+          }
 
           // B3 — the promised control is wholly on screen, at a size a finger can hit.
           expect.soft(
