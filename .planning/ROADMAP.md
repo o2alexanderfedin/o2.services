@@ -1682,8 +1682,51 @@ Plans:
 ### Phase 27: The Demo UI, Driven by the Real Fabric
 **Goal**: The demo page shows every workload the fabric can already run, in the imported mockup's design, with every figure on screen produced by a live `TabApi` reading — so the gap closes between what this project can do and what a visitor can see it do
 **Depends on**: nothing scheduled. Every API it consumes exists — `runColouring`, `runPi`, `runJob`, `activity`, `heldPeers`, `capacity`, `governor`, `startReport`, `verifyAnswer`. This phase writes no fabric code; it is a wiring and rendering phase
-**Requirements**: no new IDs. It closes the *demo half* of **MR-03…MR-07**, whose ledger rows already name this exact gap — *"The demo still merges with a linear scan: `answerOf` in `packages/demo/src/job.ts`, called from `packages/browser/demo/main.ts`"* — and widens **DEMO-01**/**DEMO-02** past the one workload they were written against. Audit finding **G4** (`runJob` has no caller in the page) closes here or is restated with a reason
+**Requirements**: no new IDs — **amended 2026-08-10 by Plan 27-10, and one id was minted after all.** The original line read: *"It closes the demo half of MR-03…MR-07, whose ledger rows already name this exact gap — 'The demo still merges with a linear scan: `answerOf` in `packages/demo/src/job.ts`, called from `packages/browser/demo/main.ts`' — and widens DEMO-01/DEMO-02 past the one workload they were written against. Audit finding G4 (`runJob` has no caller in the page) closes here or is restated with a reason."* What actually happened, row by row:
+- **MR-03…MR-07** — the demo clause is amended rather than closed. The demo's *aggregation* workload is π: it merges through `reduceJob`, Plan 27-05 gave it a run control, and `packages/node/src/demo-pi.e2e.test.ts` presses that control on a real two-tab page and reads the tree off the screen. The demo's *colouring* merge is still `answerOf` and **stays that way on purpose** — a colouring is first-found-wins, so there is nothing to aggregate; it is a scan by shape rather than unwired residue, and calling it residue was half of what these rows had wrong. **All five stay `[ ]` Partial**, each now stating per row what no surface exercises. `MR-03` is the only one of the five whose criterion a page button reaches; whether that is enough to tick it is an owner decision, recorded in `27-OPEN-ITEMS.md` rather than taken by the reconciliation wave.
+- **DEMO-01 / DEMO-02** — widened, and both stay `[x]` **Done**. Five surfaces now carry live readings driven through the page's own controls, held by two guards that fail on an absent region after a run and on an undeclared number anywhere inside `#main`.
+- **G4** — *"closes here or is restated with a reason"* and it did **both**, which is why it is now split in the audit. The **`runJob` half is closed**: `#byo-form`'s submit handler calls `window.o2.runJob`, driven on four arms by `packages/node/src/demo-byo.e2e.test.ts`, including a module signed by a key this tab does not pin, refused in the fabric's own words in 142 ms against an accepted dispatch's 271 ms in the same run. The **primes half is restated with a reason and stays open** — see the disposition below.
+- **EGR-01, minted** — the egress reading cannot tell *the run registered no sovereign data* from *the guard saw none leave*, and one sentence covers both on five surfaces. Measured three times by three plans and correctly deferred all three; minted as an id so the fourth time is a decision. `[ ]` **Not started**, decider owner.
 **Research**: measured 2026-08-08 against both artifacts, recorded below
+
+**THE PRIMES DISPOSITION — written here so a reader who opens no plan file still gets the true version.** This phase shipped a Primes **surface** and did **not** ship a Primes **workload**. Twelve regions render, eight of them are permanent named absences, the published π(x) oracle is shown as a citation with its provenance in the same region, and `#s-primes` carries **zero buttons of any class**. Nothing on it runs. The roadmap calls Primes one of two load-bearing surfaces and this phase did not make it run anything, so *descoped is not satisfied* applies to it in full.
+
+The reason is measured rather than asserted: there is no signed record for the prime-counting module (`kernel-record.ts` exports two and no third, and a tab pins one anchor, so every executor refuses a prime-counting dispatch for a provenance failure); `runJob` cannot carry the input (its shards are `{ value: { a: i } }` and the kernel reads an eight-byte block from `buildPrimesInput`); and re-signing is not free, because `scripts/sign-kernel.ts` discards its private half on every run, so a third record means a **new trust anchor** and a change to what a stock `o2 agent` and a stock `o2 seed` will run. That last clause is why **Option A is an owner decision and was not begun** — it touches the trust root. Option B, shipping the absence honestly, is what landed.
+
+The absence is held mechanically rather than by this paragraph. `packages/node/src/demo-primes.e2e.test.ts` re-runs the caller measurement on every run — **17 matches of five symbols across 5 files, 11 on a code line in 2 files, production callers 0**, read 2026-08-10 — and its header states that it is **expected to FAIL** the day somebody wires the workload, at which point the surface stops being honest and must be replanned. A planted `runPrimes` on `window.o2` turns sixteen assertions red across two files. Full cost, blocker and decider: `27-OPEN-ITEMS.md`, item 1.
+
+**Plans:** 10/10 plans executed
+
+Plans:
+**Wave 1**
+- [x] 27-01-PLAN.md — the activity bar fits and Stop is a 44×44 target: UI-SPEC §6.2's grid contract, and B1–B7 plus B2b/B2c at five widths in two bar states
+
+**Wave 2** *(blocked on Wave 1)*
+- [x] 27-02-PLAN.md — the mockup's design as plain CSS with no framework, no CDN and no remote font; six surfaces behind a hash-driven tab strip; P10 over the whole pre-consent request set
+
+**Wave 3** *(blocked on Wave 2)*
+- [x] 27-03-PLAN.md — the 91-region catalogue, the region writer, and the anti-placeholder guard landed **before** the screens it holds; the session header wired through it
+
+**Wave 4** *(blocked on Wave 3)*
+- [x] 27-04-PLAN.md — the Colouring surface's 21 regions from one pure formatter, and P5, the liveness property that stops P2/P3/P4 being satisfiable by a page rendering nothing
+
+**Wave 5** *(blocked on Wave 4)*
+- [x] 27-05-PLAN.md — the π and reduce surface: 14 regions, a run control, and a lone tab that reads the reduce it cannot run as a condition of the topology rather than as a failure
+
+**Wave 6** *(blocked on Wave 5)*
+- [x] 27-06-PLAN.md — the Primes surface as a named absence: twelve regions, no run control, and four mechanisms that keep G4's primes half visible **(the workload itself is OPEN — see the disposition above)**
+
+**Wave 7** *(blocked on Wave 6)*
+- [x] 27-07-PLAN.md — bring-your-own: a caller for `runJob` in the page, a form that requires a complete signed record, and three sentinel zeros caught by reading the screen
+
+**Wave 8** *(blocked on Wave 7)*
+- [x] 27-08-PLAN.md — fabric state: twenty-one readings, a duty-cycle slider, per-reading `try`/`catch` proved by a plant that froze the surface, and the per-surface attestation hook
+
+**Wave 9** *(blocked on Wave 8)*
+- [x] 27-09-PLAN.md — Benchmarks: 181 figures transcribed and every one checked against the committed document read off disk; `./perf/` packaged from one committed source; B5 un-vacuumed
+
+**Wave 10** *(blocked on Wave 9)*
+- [x] 27-10-PLAN.md — the ledger reconciliation: G4 split, the MR and DEMO rows amended, `EGR-01` minted, and `27-OPEN-ITEMS.md`
 
 <!-- FILED 2026-08-08 BY OWNER INSTRUCTION ("integrate our actual p2p cloud into this"), after
      importing the mockup. NOT scheduled into v1.1 — v1.1's span is phases 11-22 and this sits
