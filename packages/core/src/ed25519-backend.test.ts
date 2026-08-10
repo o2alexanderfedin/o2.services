@@ -190,9 +190,9 @@
  * makes the bootstrap-ordering decision above.
  */
 
-import { ed25519 } from '@noble/curves/ed25519.js'
+import { ed25519, x25519 } from '@noble/curves/ed25519.js'
 import { afterEach, beforeAll, describe, expect, it } from 'vitest'
-import { createNobleSyncVerifier, subtleCryptoBackend } from './ed25519-backend.ts'
+import { createNobleSyncVerifier, nobleCryptoBackend, subtleCryptoBackend } from './ed25519-backend.ts'
 import type { Ed25519Backend } from './ed25519-backend.ts'
 
 /**
@@ -310,6 +310,24 @@ it('there are at least 7 reject vectors, including the non-canonical S case', ()
 })
 
 /**
+ * The rejection weighting, asserted rather than left as an artefact of how many vectors
+ * somebody happened to write.
+ *
+ * Agreement on the happy path is already established — every backend accepts a valid
+ * signature or it would not be a backend. The hazard a second implementation introduces
+ * is **disagreement on a malformed input**, so the corpus has to stay heavier on the
+ * rejection side. Until Plan 28-03 that weighting was true (7 reject against 5 accept)
+ * and unasserted: adding three accept vectors would have silently inverted it with
+ * nothing going red. Read 2026-08-10: 7 reject, 5 accept.
+ */
+it('the vector corpus stays weighted toward rejection', () => {
+  expect(
+    REJECT_VECTORS.length,
+    `the corpus must stay heavier on the rejection side: ${REJECT_VECTORS.length} reject vs ${ACCEPT_VECTORS.length} accept`,
+  ).toBeGreaterThan(ACCEPT_VECTORS.length)
+})
+
+/**
  * A real round-trip probe, not a presence check — an engine can advertise
  * `SubtleCrypto` and reject the `Ed25519` algorithm name specifically. The
  * differential-conformance guard needs to tell "genuinely unavailable" apart from
@@ -378,10 +396,72 @@ describe('differential-conformance guard — every backend this host can run', (
     // absent, per the plan's own requirement. Phase 28 removed the WASM arm, so
     // the list is at most two: noble always, subtle when this host's own round-trip
     // probe passes. Read 2026-08-10 on Node v25.9.0 and on all three browser engines:
-    // `noble, subtle`. Plan 28-03 sites its minimum-count floor against those readings
-    // — this file deliberately does not assert a floor yet, so 28-03 can watch one go
-    // red on a single-backend host rather than inherit it already green.
+    // `noble, subtle`. The floor below is sited against exactly those readings.
     console.log(`ed25519-backend.test.ts: backends available this run: ${backends.map((b) => b.name).join(', ')}`)
+  })
+
+  /**
+   * The floor, and it is its own case on purpose: a failure here has to name the floor,
+   * not a vector.
+   *
+   * ## What it closes
+   *
+   * `availableBackends()` pushes noble unconditionally and subtle only when this file's
+   * own round-trip probe passes. Before Phase 28 it also pushed a WASM arm
+   * unconditionally, so the list could never fall below two. **With that arm removed, a
+   * host whose `crypto.subtle` is absent or Ed25519-incapable leaves exactly one
+   * backend** — and then every loop below that says "the backends disagreed" passes by
+   * comparing noble with itself. Both loops iterate `backends`; neither asserts a
+   * cardinality. That is the *"proof that cannot fail"* CLAUDE.md § Proofs refuses, and
+   * it would become unfalsifiable on precisely the tier the deleted arm had been bought
+   * for.
+   *
+   * ## Sited, not picked — and it does not bind on any measured host
+   *
+   * Two is the count every host measured so far reports. 28-01 recorded this file's own
+   * `availableBackends` console line, verbatim and identical on all four:
+   *
+   * ```
+   * ed25519-backend.test.ts: backends available this run: noble, subtle
+   * ```
+   *
+   * — node (Node v25.9.0), browser/chromium, browser/firefox, browser/webkit, all read
+   * 2026-08-10. So this floor is **slack on every host anybody has run**, and that is
+   * stated rather than hidden: it is a guard against a future host, not a fix for a
+   * current failure. The hazard itself is **INFERRED** — read out of the selection logic
+   * above, never observed, because no measured engine here refuses Ed25519.
+   *
+   * ## Watched red, so it is not itself a proof that cannot fail
+   *
+   * `availableBackends()` was planted to `return backends` immediately after the noble
+   * push, i.e. to report the one-backend host this floor exists for. Observed verbatim,
+   * `--project node --reporter=verbose`, 2026-08-10, exit 1:
+   *
+   * ```
+   * ed25519-backend.test.ts: backends available this run: noble
+   *
+   *  FAIL  |node| packages/core/src/ed25519-backend.test.ts > differential-conformance guard — every backend this host can run > refuses to run against fewer than two backends
+   * AssertionError: a differential guard needs two implementations to differ — this host offered 1: noble. Every "the backends disagreed" loop below would pass by comparing a backend with itself.: expected 1 to be greater than or equal to 2
+   *  ❯ packages/core/src/ed25519-backend.test.ts:464:7
+   *
+   *  Test Files  1 failed (1)
+   *       Tests  1 failed | 31 passed (32)
+   * ```
+   *
+   * **All five accept-vector cases and all seven reject-vector cases stayed green under
+   * that same plant** — 1 failed, 31 passed — which is the whole argument for this case
+   * existing: the vacuity it closes is invisible to every other case in the block, and
+   * to the two cardinality assertions above it as well. Restored by the surgical inverse
+   * of that one-line insertion and `cmp`-verified byte-identical against a snapshot taken
+   * immediately before planting.
+   */
+  it('refuses to run against fewer than two backends', () => {
+    expect(
+      backends.length,
+      `a differential guard needs two implementations to differ — this host offered ${backends.length}: ` +
+        `${backends.map((b) => b.name).join(', ')}. Every "the backends disagreed" loop below would pass ` +
+        'by comparing a backend with itself.',
+    ).toBeGreaterThanOrEqual(2)
   })
 
   describe('accept vectors — every backend must agree true', () => {
@@ -406,6 +486,144 @@ describe('differential-conformance guard — every backend this host can run', (
         ).toBe(false)
       }
     })
+  })
+})
+
+/**
+ * Which engine printed a line, so the byte-match verdict below is attributable rather
+ * than three anonymous lines in one browser run.
+ *
+ * Order matters and is not cosmetic: Chrome's user-agent string contains `AppleWebKit`,
+ * so a webkit test written before the chromium test misattributes every chromium run.
+ */
+function engineLabel(): string {
+  const agent = globalThis.navigator?.userAgent
+  if (agent === undefined || agent === '') return 'unknown-engine'
+  if (agent.includes('Firefox')) return 'firefox'
+  if (agent.includes('Chrome') || agent.includes('Chromium')) return 'chromium'
+  if (agent.includes('AppleWebKit')) return 'webkit'
+  if (agent.includes('Node')) return 'node'
+  return agent
+}
+
+/**
+ * **Ed25519 signature bytes are not a stable identifier in this fabric**, and this is
+ * the behavioural half of that claim. The source-level half is
+ * `packages/node/src/one-crypto-implementation.node.test.ts`.
+ *
+ * RFC 8032 defines one canonical deterministic nonce derivation but does not require
+ * every conforming implementation to use exactly it; some harden against fault attacks
+ * with a synthetic/hedged nonce instead. Measured in this repository:
+ * `cert-lifecycle.ts:47-61` and `cert-lifecycle.browser.test.ts:79-88` record that Node,
+ * chromium and firefox's `subtle` produced signatures byte-identical to noble's and
+ * **WebKit's did not** — a different, still-valid signature over the same seed and
+ * message, verified successfully by both arms.
+ *
+ * So the relation asserted here is **mutual verifiability, in all four directions, over
+ * several seeds** — and byte-equality of Ed25519 signatures is asserted in *neither*
+ * direction, deliberately. `toEqual` would be red on webkit; `not.toEqual` would be red
+ * on node, chromium and firefox. Either one would be a guard that encodes an engine
+ * rather than a property. Whether the two arms happened to match is `console.log`ged
+ * beside the engine name, so the divergence stays visible in test output on the run
+ * where it happens, and nothing depends on the answer.
+ *
+ * **Re-measured by this block, 2026-08-10**, four seeds (7, 11, 13, 17), one run each of
+ * `--project node` and `--project browser`. Every one of the four all-directions
+ * verification assertions passed on every engine; the reported byte-match verdict was:
+ *
+ * | Engine | seeds 7 / 11 / 13 / 17 |
+ * |---|---|
+ * | node (v25.9.0) | MATCHED ×4 |
+ * | chromium | MATCHED ×4 |
+ * | firefox | MATCHED ×4 |
+ * | **webkit** | **DIFFERED ×4** |
+ *
+ * Four seeds rather than one, so webkit's divergence reads as its nonce construction
+ * rather than as a coincidence on a single input. Had this block asserted equality it
+ * would be red four times on webkit; had it asserted inequality it would be red twelve
+ * times across node, chromium and firefox.
+ *
+ * **X25519 is the contrast case, and it is why this block does not read as "cross-arm
+ * agreement is impossible".** Agreement is plain scalar multiplication with no
+ * randomness anywhere in it, so it has exactly one correct output per input pair — that
+ * *is* asserted byte-identical, and it is the only byte-identity claim in this block.
+ * The Ed25519 divergence is specific to signature nonces, not general to the two arms.
+ */
+describe('cross-arm signing is mutually verifiable, never byte-identical (CRYPTO-06)', () => {
+  const noble = nobleCryptoBackend()
+  let subtleCapable = false
+
+  beforeAll(async () => {
+    // The same real round-trip probe `availableBackends` uses, for the same reason: an
+    // engine can advertise `SubtleCrypto` and refuse `Ed25519`, and constructing
+    // `subtleCryptoBackend()` against such an engine would fail for a reason that is not
+    // this block's subject.
+    subtleCapable = await subtleSupportsEd25519()
+  })
+
+  /** Three seeds minimum, per the plan; four, so a one-off coincidence is visible. */
+  const SEEDS: readonly number[] = [7, 11, 13, 17]
+
+  it.each(SEEDS.map((seed) => [seed] as const))(
+    'seed %i: every signature verifies on both arms, and the byte-match verdict is reported not asserted',
+    async (seed) => {
+      const privateSeed = new Uint8Array(32).fill(seed)
+      const publicKey = ed25519.getPublicKey(privateSeed)
+      const message = new TextEncoder().encode(`cross-arm vector, seed ${seed}`)
+
+      const fromNoble = await noble.signEd25519(privateSeed, message)
+      expect(await noble.verifyEd25519(publicKey, fromNoble, message)).toBe(true)
+
+      if (!subtleCapable) {
+        console.log(
+          `ed25519-backend.test.ts: cross-arm seed ${seed} on ${engineLabel()}: subtle arm skipped — this engine's Ed25519 round-trip probe failed`,
+        )
+        return
+      }
+
+      const subtle = subtleCryptoBackend()
+      const fromSubtle = await subtle.signEd25519(privateSeed, message)
+
+      // All four directions. A signature made on either arm is valid under both.
+      expect(await subtle.verifyEd25519(publicKey, fromNoble, message), 'subtle must verify a noble signature').toBe(
+        true,
+      )
+      expect(await subtle.verifyEd25519(publicKey, fromSubtle, message), 'subtle must verify its own signature').toBe(
+        true,
+      )
+      expect(await noble.verifyEd25519(publicKey, fromSubtle, message), 'noble must verify a subtle signature').toBe(
+        true,
+      )
+
+      // Reported, never asserted — see this block's docblock for why an assertion in
+      // either direction would encode an engine rather than a property.
+      const identical =
+        fromNoble.length === fromSubtle.length && fromNoble.every((byte, index) => byte === fromSubtle[index])
+      console.log(
+        `ed25519-backend.test.ts: cross-arm seed ${seed} on ${engineLabel()}: noble and subtle signature bytes ${
+          identical ? 'MATCHED' : 'DIFFERED'
+        } (both verified by both arms)`,
+      )
+    },
+  )
+
+  it('X25519 agreement IS byte-identical across arms — the contrast case', async () => {
+    if (!subtleCapable) {
+      console.log(`ed25519-backend.test.ts: X25519 cross-arm check skipped on ${engineLabel()} — no Ed25519 subtle`)
+      return
+    }
+    const subtle = subtleCryptoBackend()
+    const ourSeed = new Uint8Array(32).fill(23)
+    const peerSeed = new Uint8Array(32).fill(29)
+    const peerPublicKey = x25519.getPublicKey(peerSeed)
+
+    const viaNoble = await noble.agreeX25519(ourSeed, peerPublicKey)
+    const viaSubtle = await subtle.agreeX25519(ourSeed, peerPublicKey)
+
+    // The one byte-identity claim in this block, and it holds on every engine measured.
+    expect(Array.from(viaSubtle), 'X25519 agreement has exactly one correct output per input pair').toEqual(
+      Array.from(viaNoble),
+    )
   })
 })
 
