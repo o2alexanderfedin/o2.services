@@ -666,3 +666,247 @@ describe('UI-SPEC section 6.3 — the bar fits, and Stop is reachable', () => {
     }, 300_000)
   }
 })
+
+/**
+ * The WCAG 2.1 contrast ratio between two opaque sRGB triples.
+ *
+ * Duplicated into the page rather than imported, because it runs inside
+ * `page.evaluate` where nothing from this module exists. Kept here as well so the
+ * arithmetic can be read without opening a browser.
+ */
+function contrastRatio(a: readonly number[], b: readonly number[]): number {
+  const channel = (value: number): number => {
+    const s = value / 255
+    return s <= 0.04045 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4
+  }
+  const luminance = (rgb: readonly number[]): number =>
+    0.2126 * channel(rgb[0] ?? 0) + 0.7152 * channel(rgb[1] ?? 0) + 0.0722 * channel(rgb[2] ?? 0)
+  const first = luminance(a)
+  const second = luminance(b)
+  return (Math.max(first, second) + 0.05) / (Math.min(first, second) + 0.05)
+}
+
+interface Pair {
+  /** What this pair is, in the failure message. */
+  readonly name: string
+  /** The selector the foreground was read from, or `probe` when one was injected. */
+  readonly where: string
+  readonly fontSizePx: number
+  readonly foreground: readonly number[]
+  readonly background: readonly number[]
+  readonly found: boolean
+}
+
+interface ContrastReading {
+  readonly pairs: readonly Pair[]
+  /** `--color-accent` as the page resolves it, and every small element wearing it. */
+  readonly accent: readonly number[]
+  readonly accentOffenders: readonly { readonly selector: string; readonly fontSizePx: number }[]
+  readonly tabCount: number
+  readonly selectedTabs: number
+  readonly navPresent: boolean
+}
+
+describe('the ported palette, measured on the rendered page rather than read off the stylesheet', () => {
+  /**
+   * B7 above degrades to a pass when `#surfaces` does not exist, and said so in its own
+   * failure message for the whole of Plan 27-01. This is the assertion that stops it
+   * being a promise: six tabs, six panels, exactly one selected. Without it, deleting the
+   * nav would turn B7 vacuous again and every run would stay green.
+   */
+  it('offers six surfaces with one selected, so B7 above is a reading and not a vacuous pass', async () => {
+    const page = await openAt({ width: 1280, height: 720, deviceScaleFactor: 1 })
+    const shape = await page.evaluate(() => ({
+      navPresent: document.getElementById('surfaces') !== null,
+      tabs: document.querySelectorAll('nav#surfaces [role="tab"]').length,
+      panels: document.querySelectorAll('#main [role="tabpanel"]').length,
+      selected: document.querySelectorAll('nav#surfaces [role="tab"][aria-selected="true"]').length,
+      visiblePanels: Array.from(document.querySelectorAll<HTMLElement>('#main [role="tabpanel"]'))
+        .filter((panel) => !panel.hidden)
+        .map((panel) => panel.id),
+    }))
+
+    expect(shape.navPresent, 'B7 has nothing to measure: nav#surfaces is absent').toBe(true)
+    expect(shape.tabs, 'UI-SPEC section 2.1 fixes the surface count at six').toBe(6)
+    expect(shape.panels, 'one role=tabpanel per tab').toBe(6)
+    expect(shape.selected, 'exactly one tab carries aria-selected="true" at load').toBe(1)
+    // Colouring, because `colouring-demo.e2e.test.ts` and `attestation-ui.e2e.test.ts`
+    // locator-click `#run` and `#verify` without navigating, and a locator click needs an
+    // actionable element.
+    expect(shape.visiblePanels, 'Colouring is the default surface').toEqual(['s-colouring'])
+    await page.close()
+  }, 300_000)
+
+  /**
+   * UI-SPEC section 7.2's table is a **prediction** and this is the measurement.
+   *
+   * Every ratio below is computed from `getComputedStyle` on the live page, never from a
+   * literal in the stylesheet, and the difference is not pedantry: `--color-muted` is
+   * `color-mix(in srgb, var(--color-text) 70%, transparent)`, which resolves at render
+   * time and carries an alpha, so its rendered colour depends on whatever is painted
+   * behind it. A stylesheet-level assertion would be an assertion about what somebody
+   * believed that resolves to.
+   *
+   * **Compositing is done by the browser, on a canvas, rather than by arithmetic here.**
+   * The effective background is built by painting white, then every ancestor's
+   * `background-color` from the document element down, then reading the pixel; the
+   * foreground is the same stack with the text colour painted on top. That handles
+   * translucent layers, and it accepts whatever serialisation the engine chose for a
+   * `color-mix` — `rgba(...)`, `color(srgb ...)` or anything else — without this file
+   * having to parse CSS Color 4.
+   *
+   * The threshold is WCAG 2.1 AA read literally: 4.5:1 below 24px, 3:1 at or above it.
+   */
+  it('clears 4.5:1 on every text pair below 24px, and never puts the accent under one', async () => {
+    const page = await openAt({ width: 1280, height: 720, deviceScaleFactor: 1 })
+
+    const reading: ContrastReading = await page.evaluate(() => {
+      const canvas = document.createElement('canvas')
+      canvas.width = 1
+      canvas.height = 1
+      const ctx = canvas.getContext('2d')
+      if (ctx === null) throw new Error('no 2d context to composite colours on')
+
+      /** Paint the layers bottom-first and read the resulting opaque pixel. */
+      const paint = (layers: readonly string[]): number[] => {
+        ctx.clearRect(0, 0, 1, 1)
+        // White first: it is what the browser paints under a page that declares nothing.
+        ctx.fillStyle = '#ffffff'
+        ctx.fillRect(0, 0, 1, 1)
+        for (const layer of layers) {
+          ctx.fillStyle = layer
+          ctx.fillRect(0, 0, 1, 1)
+        }
+        const data = ctx.getImageData(0, 0, 1, 1).data
+        return [data[0] ?? 0, data[1] ?? 0, data[2] ?? 0]
+      }
+
+      /** Every ancestor background from the document element down to the element itself. */
+      const backgroundStack = (element: Element): string[] => {
+        const chain: Element[] = []
+        for (let node: Element | null = element; node !== null; node = node.parentElement) {
+          chain.push(node)
+        }
+        return chain.reverse().map((node) => getComputedStyle(node).backgroundColor)
+      }
+
+      const measure = (name: string, selector: string, element: Element | null): Pair => {
+        if (element === null) {
+          return { name, where: selector, fontSizePx: 0, foreground: [0, 0, 0], background: [0, 0, 0], found: false }
+        }
+        const style = getComputedStyle(element)
+        const layers = backgroundStack(element)
+        return {
+          name,
+          where: selector,
+          fontSizePx: Number.parseFloat(style.fontSize),
+          background: paint(layers),
+          foreground: paint([...layers, style.color]),
+          found: true,
+        }
+      }
+
+      const q = (selector: string): Element | null => document.querySelector(selector)
+
+      // A table header has no element on the page yet — no surface ships a table until a
+      // later plan wires one. The rule is ported and is what a future table will wear, so
+      // it is measured through a probe MOUNTED IN THE REAL PAGE: same cascade, same
+      // inherited ground, same resolution of every custom property. The selector below
+      // prefers a real header the day one exists, and the probe is removed either way.
+      let probe: HTMLElement | null = null
+      let header = q('#main .table th')
+      if (header === null) {
+        probe = document.createElement('div')
+        probe.innerHTML =
+          '<table class="table"><thead><tr><th id="contrast-probe-th">probe</th></tr></thead></table>'
+        document.getElementById('s-colouring')?.append(probe)
+        header = document.getElementById('contrast-probe-th')
+      }
+
+      const pairs: Pair[] = [
+        measure('body prose on the page ground', '#s-colouring .card-body', q('#s-colouring .card-body')),
+        measure('a caption in --color-muted', '#main .note', q('#main .note')),
+        measure('a table header', probe === null ? '#main .table th' : 'probe: .table th', header),
+        measure("the bar's headline on the bar's ground", '#bar-what', q('#bar-what')),
+        measure("the bar's counters on the bar's ground", '#bar-stats', q('#bar-stats')),
+        measure("#stop's label on #stop's background", '#stop', q('#stop')),
+        // Not in UI-SPEC section 7.2's table, and added because the port has to choose a
+        // colour for it: the primary run control is `--color-bg` on an accent, and which
+        // accent decides whether its label is readable.
+        measure('the primary run control', '.btn-primary', q('#main .btn-primary')),
+      ]
+      probe?.remove()
+
+      // The specific trap UI-SPEC section 1.5 measured: `--color-accent` is 3.70:1 on the
+      // page ground, which is enough for a border and not enough for a word.
+      const accentLiteral = getComputedStyle(document.documentElement)
+        .getPropertyValue('--color-accent')
+        .trim()
+      const accent = paint([accentLiteral])
+      const offenders: { selector: string; fontSizePx: number }[] = []
+      for (const element of Array.from(document.querySelectorAll('#main *'))) {
+        const style = getComputedStyle(element)
+        const size = Number.parseFloat(style.fontSize)
+        if (!(size < 24)) continue
+        const colour = paint([style.color])
+        if (colour[0] === accent[0] && colour[1] === accent[1] && colour[2] === accent[2]) {
+          offenders.push({
+            selector: `${element.tagName.toLowerCase()}${element.id === '' ? '' : `#${element.id}`}`,
+            fontSizePx: size,
+          })
+        }
+      }
+
+      return {
+        pairs,
+        accent,
+        accentOffenders: offenders,
+        tabCount: document.querySelectorAll('nav#surfaces [role="tab"]').length,
+        selectedTabs: document.querySelectorAll('nav#surfaces [role="tab"][aria-selected="true"]').length,
+        navPresent: document.getElementById('surfaces') !== null,
+      }
+    })
+
+    const hex = (rgb: readonly number[]): string =>
+      `#${rgb.map((c) => c.toString(16).padStart(2, '0')).join('')}`
+
+    // Recorded, not only asserted. UI-SPEC section 7.2 predicts these; a reader comparing
+    // the two needs the measurement in front of them and not only the verdict.
+    process.stderr.write('contrast, measured on the rendered page at 1280px:\n')
+    for (const pair of reading.pairs) {
+      if (!pair.found) {
+        process.stderr.write(`  ${pair.name}: NO ELEMENT at ${pair.where}\n`)
+        continue
+      }
+      process.stderr.write(
+        `  ${pair.name} (${pair.where}, ${pair.fontSizePx}px): ` +
+          `${hex(pair.foreground)} on ${hex(pair.background)} = ` +
+          `${contrastRatio(pair.foreground, pair.background).toFixed(2)}:1\n`,
+      )
+    }
+
+    for (const pair of reading.pairs) {
+      // A pair whose element is missing is a gap in the reading, not a pass.
+      expect.soft(pair.found, `contrast: no element matched ${pair.where} for "${pair.name}"`).toBe(true)
+      if (!pair.found) continue
+      const ratio = contrastRatio(pair.foreground, pair.background)
+      const floor = pair.fontSizePx < 24 ? 4.5 : 3
+      expect.soft(
+        ratio,
+        `contrast: ${pair.name} (${pair.where}) measures ${ratio.toFixed(2)}:1 — ` +
+          `${hex(pair.foreground)} on ${hex(pair.background)} at ${pair.fontSizePx}px, ` +
+          `under the ${floor.toFixed(1)}:1 floor for that size`,
+      ).toBeGreaterThanOrEqual(floor)
+    }
+
+    expect.soft(
+      reading.accentOffenders,
+      `contrast: --color-accent (${hex(reading.accent)}) is 3.70:1 on the page ground and is ` +
+        'used as the text colour of ' +
+        reading.accentOffenders.map((o) => `${o.selector} at ${o.fontSizePx}px`).join(', ') +
+        ' — small accent text uses --color-accent-700',
+    ).toEqual([])
+
+    await page.close()
+  }, 300_000)
+})

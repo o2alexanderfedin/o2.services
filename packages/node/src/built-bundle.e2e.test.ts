@@ -144,6 +144,82 @@ describe('BROW-01 — nothing runs, and nothing is contacted, before consent', (
     await page.close()
   }, 180_000)
 
+  /**
+   * P10, UI-SPEC section 9 — and the shape of it is the point, not the assertion.
+   *
+   * The case immediately above collects every request and then asserts on **two filtered
+   * slices** of the collection: `bootstrap.json` and anything starting `ws`. Those two
+   * filters are exactly right about what the *node* would do and structurally blind to
+   * everything else, because a filter can only refuse what it was told to look for.
+   *
+   * That blindness had a live subject. The mockup stylesheet this page's design was
+   * ported from opens its second line with a font import from a Google host; porting the
+   * file verbatim would have made the page fetch a font at load — before consent, from a
+   * third party, on a page whose gate promises in writing that nobody learns a visitor is
+   * present until they agree. Neither filter above would have seen it, and nothing else
+   * in this suite looks at the request list at all.
+   *
+   * So this case asserts on the WHOLE SET: every request the page makes, from `goto`
+   * until it is sitting at the gate, has the page's own origin. `about:`, `data:` and
+   * `blob:` are excepted because they are not requests to anybody — they never leave the
+   * process.
+   *
+   * The floor underneath it matters as much as the assertion: an empty request list
+   * satisfies "no foreign origin" perfectly, so the collection is also required to
+   * contain the page's own assets. A page that fetched nothing would be a broken
+   * instrument reporting a clean result.
+   */
+  it('makes no request to any origin but its own, over the whole request set', async () => {
+    const page = await browser.newPage()
+    const requested: string[] = []
+    page.on('request', (request) => requested.push(request.url()))
+
+    await page.goto(baseUrl)
+    await page.waitForFunction(() => typeof window.o2 !== 'undefined', null, { timeout: 60_000 })
+    await page.waitForFunction(
+      () => document.getElementById('gate')?.hasAttribute('hidden') === false,
+      null,
+      { timeout: 30_000 },
+    )
+    // Long enough that a font, an icon set, or a discovery fetch would have gone out.
+    await page.waitForTimeout(1_500)
+
+    // Before consent, and measured rather than assumed: this is the window the claim is
+    // about, and a page that had already been consented to would be measuring nothing.
+    expect(await page.isVisible('#gate')).toBe(true)
+    expect(await page.isVisible('#main')).toBe(false)
+
+    const origin = new URL(baseUrl).origin
+    const inProcess = /^(?:about|data|blob):/
+    const foreign = requested.filter((url) => {
+      if (inProcess.test(url)) return false
+      try {
+        return new URL(url).origin !== origin
+      } catch {
+        // A URL this test cannot parse is a URL it cannot vouch for.
+        return true
+      }
+    })
+    expect(
+      foreign,
+      `P10: the page contacted ${String(foreign.length)} foreign origin(s) before consent — ` +
+        `${[...new Set(foreign.map((url) => new URL(url).origin))].join(', ')}. Every request ` +
+        `during load must have the page's own origin (${origin}); the gate promises in writing ` +
+        'that nobody learns a visitor is present until they agree.',
+    ).toEqual([])
+
+    // The floor: the set is a real reading and not an empty list.
+    const own = requested.filter((url) => url.startsWith(origin))
+    expect(
+      own.length,
+      `P10: the request collector saw ${String(requested.length)} request(s) in total and ` +
+        'none of them same-origin — the page did not load, so the clean result above is an ' +
+        'artefact of the instrument rather than a property of the page',
+    ).toBeGreaterThan(1)
+
+    await page.close()
+  }, 180_000)
+
   it('refuses to discover or start until consent is granted', async () => {
     const page = await browser.newPage()
     await page.goto(baseUrl)
