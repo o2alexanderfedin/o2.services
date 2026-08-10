@@ -1,0 +1,50 @@
+# Phase 28 — deferred items
+
+Out-of-scope discoveries logged rather than fixed, per CLAUDE.md's scope boundary
+(only issues DIRECTLY caused by the current task's changes are auto-fixed).
+
+## 1. `demo-viewport.e2e.test.ts` B5 fails at 393 CSS pixels — pre-existing, attributed by measurement
+
+**Found during:** Plan 28-02, the full `--project e2e` run (the first full e2e run this
+phase has recorded; 28-01 verified `node` and `browser` in full but ran only targeted
+e2e files, so this failure was carried, not introduced).
+
+**Failure, verbatim:**
+
+```
+FAIL  |e2e| packages/node/src/demo-viewport.e2e.test.ts > UI-SPEC section 6.3 — the bar fits, and Stop is reachable > holds B1-B7 at 393 CSS pixels, in both bar states
+AssertionError: B5 393px / idle / surface 5 of 6: at the end of the page, #main's last child (section#s-fabric) has its bottom at y=953.03, below #bar's top at y=632.41 — the bar covers it: expected 953.03125 to be less than or equal to 632.40625
+ ❯ packages/node/src/demo-viewport.e2e.test.ts:668:13
+```
+
+**Attributed by measurement, not by plausibility** (CLAUDE.md § Measurement: *"'passes in
+isolation' is a claim to verify, not a diagnosis"*). A two-arm control was run on
+2026-08-10, both arms a single-file `--project e2e` run of the spec:
+
+| Arm | `libsodium-wrappers` state | Result |
+|---|---|---|
+| A | removed (this plan's end state) | 1 failed / 6 passed, y=953.03 vs y=632.41 |
+| B | reinstalled via `npm install`, `node_modules/libsodium-wrappers` present | 1 failed / 6 passed, y=953.03 vs y=632.41 |
+
+Byte-identical assertion text in both arms. The failure is therefore independent of
+Plan 28-02's dependency removal. Arm B was created by the surgical inverse of this plan's
+own one-line manifest edit and reverted the same way; `packages/core/package.json` and
+`package-lock.json` were both `cmp`-verified byte-identical to their pre-experiment
+snapshots afterwards, and the bare-specifier resolution throws again.
+
+**Not fixed here.** It is a demo-page layout defect in `packages/browser/demo/` — the
+`#s-fabric` section overflows under `#bar` at a 393 px viewport — and belongs to whoever
+owns the UI-SPEC section 6.3 surface. Nothing in Phase 28's scope touches demo layout.
+
+**Note for the next agent who runs the full e2e project:** it is **not** green on
+`feature/phase-28-one-cryptographic-implementation`. Baseline as measured on 2026-08-10:
+**28 files, 1 failed / 27 passed; 183 tests, 1 failed / 182 passed**, `real 455.10`.
+
+## 2. `npm audit` reports 1 high-severity advisory — pre-existing, unrelated
+
+`npm install` printed "1 high severity vulnerability" both before and after this plan's
+removal. Identified as `nanoid` (GHSA-2v37-7h3g-55p8, "custom generators can loop
+indefinitely when size is zero"), a transitive dependency with no relationship to
+libsodium. Vulnerability counts were unchanged by the removal
+(`{"info":0,"low":0,"moderate":0,"high":1,"critical":0,"total":1}`). Not addressed —
+out of scope for a crypto de-duplication phase.
