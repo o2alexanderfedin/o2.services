@@ -406,3 +406,80 @@ which is the same remedy and the same reason it is still worth logging.
 
 **What would close it:** the assertion 27-04 already asked for, bounding the exempt set
 against a committed list — with the list started at the fifteen above rather than at two.
+
+## The v1.1 audit's G4 row says "two places only", and the tree now says five
+
+**Found during:** 27-06 Task 2, running the audit's own grep rather than quoting its result.
+
+The amended G4 row (`.planning/v1.1-MILESTONE-AUDIT.md` line 187) states that the five primes
+symbols *"appear outside `packages/demo/src/primes.ts` in two places only — the barrel
+`packages/demo/src/index.ts`, and one doc comment in `pi.ts`"*. Re-measured on 2026-08-10 over
+`packages/` and `tools/`, `*.ts`, tests and `dist/` excluded:
+
+| file | matches | on a code line | what it is |
+|---|---|---|---|
+| `packages/demo/src/primes.ts` | 6 | 6 | the definitions |
+| `packages/demo/src/index.ts` | 5 | 5 | the barrel's re-export |
+| `packages/demo/src/pi.ts` | 1 | 0 | the doc comment the row names |
+| `packages/browser/src/demo-regions.ts` | 1 | 0 | **new** — Plan 27-03's Option B decision block |
+| `packages/browser/demo/surfaces/primes.ts` | 4 | 0 | **new** — Plan 27-06's surface header |
+
+**The row's conclusion is still exactly true and its arithmetic is stale.** *Zero production
+callers* holds: eleven code-line matches, all of them in the module and the barrel, and neither
+is a call. What has changed is that two later files now *name* the symbols in prose, both of
+them explaining why nothing calls them — which is the phase doing what it was asked to do, and
+is also how a mention count drifts away from a caller count without anybody noticing.
+
+`demo-primes.e2e.test.ts` measures both numbers separately for that reason, and asserts the
+file set rather than the count in each.
+
+**What would close it:** an edit to G4's row replacing *"two places only"* with the mention set
+and the caller set as two figures — or, better, a pointer to the spec, since the spec is
+re-measured on every run and the row is not.
+
+## The new `.citation` treatment is not in the contrast block's asserted pairs
+
+**Found during:** 27-06 Task 1, adding the visual half of UI-SPEC section 0's cited/measured
+split.
+
+UI-SPEC section 4.3 requires N10 to render *"in the citation treatment
+(`--color-neutral-700`), never in the Heading-size figure treatment a live reading uses"*, so
+that a published figure and a measured one are distinguishable without reading the label. There
+was no such class: `demo.css` had `--color-neutral-700` on `.card-note` and `.table th` only. A
+`.citation` rule was added and `primes/oracle-table` carries it.
+
+`demo-viewport.e2e.test.ts`'s contrast block asserts seven named pairs and **`.citation` is not
+one of them.** The colour is the same custom property the table-header row measures at 5.87:1,
+at 11px, and `.citation` renders at 13px — so it clears AA by more than the measured row does,
+by arithmetic rather than by measurement. Nothing on the page is wrong; what is missing is the
+assertion.
+
+Nor does anything assert the *negative* half — that a `cited` region does not render in the
+live-figure treatment. That is the half UI-SPEC actually cares about, and it is currently held
+by the markup alone.
+
+**What would close it:** an eighth pair in `demo-viewport.e2e.test.ts`'s contrast list naming
+`#s-primes .citation`, and a property over every `[data-kind="cited"]` element asserting its
+computed colour is `--color-neutral-700` and its font size is not the heading scale. Plan 27-09
+lands the second block of cited figures and is the natural place for both.
+
+## Nothing asserts that a surface in `WIRED_SURFACES` with no run control is *deliberately* so
+
+**Found during:** 27-06 Task 1, reading P5's skip list after `primes` joined it.
+
+P5 reports `[P5] skipped (no primary run control on the surface): session, primes` and asserts
+nothing about the membership of that list. The skip is visible to a human reading the output and
+invisible to the suite: a surface that *should* have a run control and lost it to a refactor
+would move from `exercised` to `skipped` and the run would stay green, because
+`expect(exercised.length).toBeGreaterThanOrEqual(1)` is satisfied by the other two.
+
+That floor was right when one surface was driven. With four wired and two driven it is now weak
+in a specific way — it cannot notice a driven surface becoming an undriven one.
+
+`primes` being on that list is asserted indirectly and adequately by
+`demo-primes.e2e.test.ts`'s *carries no run control at all* case, which also carries its own
+floor. What has no guard is the other direction, for colouring and π.
+
+**What would close it:** a committed expectation in `demo-liveness.e2e.test.ts` — the set of
+surfaces that must be exercised and the set that must be skipped, each named, so a surface
+crossing between them reddens and has to be explained.
