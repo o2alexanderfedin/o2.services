@@ -600,6 +600,18 @@ describe('the fabric-state surface, on a real page', () => {
       held: window.o2.heldPeers(),
     }))
 
+    // Every one of the twenty-one, verbatim, on every run. A summary that lists which
+    // regions carry a reading and which carry a named absence should be quoting this
+    // rather than deriving it — *never write a measured span you did not measure* applies
+    // to a table of sentences exactly as it does to a number.
+    for (const region of FABRIC_READINGS) {
+      const dom = regions.find((entry) => entry.id === region.id)
+      const absent = absenceSentences(region).includes(dom?.text ?? '')
+      process.stderr.write(
+        `[region] ${region.id} | ${absent ? 'ABSENCE' : 'reading'} | ${(dom?.text ?? '').replace(/\n/g, ' ⏎ ')}\n`,
+      )
+    }
+
     process.stderr.write(
       `[two tabs] capacity: dutyCycle=${fresh.capacity.dutyCycle} slots=${fresh.capacity.slots}\n` +
         `[two tabs] governor: hidden=${fresh.governor.hidden} dutyCycle=${fresh.governor.dutyCycle}` +
