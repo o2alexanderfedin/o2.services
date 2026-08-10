@@ -209,6 +209,20 @@ export const WIRED_SURFACES: readonly SurfaceId[] = [
   // controls by asking the page for `#s-<surface> .btn-primary` over this array, so appending
   // here is what makes π the second surface that property drives — with no edit to it.
   'pi',
+  // Plan 27-06 — all 12 of UI-SPEC section 4.3, wired through `demo/surfaces/primes.ts`.
+  //
+  // **This surface has no run control, and that is the point of it rather than an omission.**
+  // Under Option B (UI-SPEC section 10, and the decision block at the primes entries above)
+  // there is no dispatch path from a tab, so there is nothing for P5 to drive: appending here
+  // turns on the guard's *every catalogue entry resolves to an element* half for all twelve
+  // regions, and it puts `primes` in P5's **skipped** list — reported by name on stderr, which
+  // is the difference between a surface P5 chose not to drive and a surface P5 never saw.
+  //
+  // The alternative was to leave it out of this array on the grounds that a surface with no
+  // readings has nothing to keep alive. That would have been the wrong trade: it would also
+  // have switched off P1b for these twelve, so a primes region could silently lose its element
+  // and nothing would say so. A surface that is deliberately absent still has to be *there*.
+  'primes',
 ]
 
 // ---------------------------------------------------------------------------------------
@@ -244,8 +258,20 @@ const COLOURING_NO_SETTLED =
  */
 const COLOURING_NOT_CHECKED = 'Not checked: no answer has been produced to check.'
 
-/** The `Nothing dispatched yet` copy every argument control carries — C1, C2, N1, N2, P1, P2. */
-const ARG_NOT_DISPATCHED = 'Nothing dispatched yet — this is what would be sent.'
+/**
+ * The `Nothing dispatched yet` copy every argument control carries — C1, C2, N1, N2, P1, P2.
+ *
+ * **Exported since Plan 27-06**, and the reason is worth a line. A `control` region holds no
+ * `absence` block — nothing has been asked of the fabric, so there is no reading to be absent
+ * — which left this string with no reader: every control that carried it carried a hand-typed
+ * copy in `index.html`, and this constant was cited only in comments. That is tolerable while
+ * the copy is transient (C1, C2, P1 and P2 are overwritten with a figure the moment a peer
+ * list is discovered), and it is not tolerable on the Primes surface, where N1 and N2 render
+ * this sentence **permanently** because there is no dispatch to overwrite it with. A permanent
+ * sentence with two authors is two sentences waiting to differ by a comma, so
+ * `demo/surfaces/primes.ts` reads this one and the Primes markup carries no literal.
+ */
+export const ARG_NOT_DISPATCHED: string = 'Nothing dispatched yet — this is what would be sent.'
 
 // ---------------------------------------------------------------------------------------
 // The catalogue.

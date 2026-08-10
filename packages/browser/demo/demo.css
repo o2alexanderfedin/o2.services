@@ -292,6 +292,22 @@ button:disabled, .btn:disabled { opacity: 0.45; cursor: not-allowed; }
 /* Any block quoting the fabric's own words — a description, a reduceReason, a refusal. */
 .quote { border-left: 2px solid var(--color-accent); padding-left: var(--space-4); margin: 0; }
 
+/*
+  A `cited` region — a figure published somewhere else, never a reading of this tab.
+
+  `--color-neutral-700` and the body size, deliberately NOT the heading font and NOT the
+  larger figure treatment a live reading gets. UI-SPEC section 0 splits the three classes of
+  on-screen number and this is the visual half of that split: a reader must be able to tell a
+  published figure from a measured one WITHOUT reading the label beside it, because the label
+  is exactly what gets skimmed. Measured 5.87:1 against the page ground at the table-header
+  size (`deferred-items.md`, the section-7.2 entry), so it clears AA at this larger size by
+  more than that.
+
+  Added by Plan 27-06 for the Primes surface's published oracle, which is the first `cited`
+  region on the page with numbers in it. Plan 27-09's Benchmarks figures are the next.
+*/
+.citation { color: var(--color-neutral-700); }
+
 /* — tags — */
 .tag {
   display: inline-flex; align-items: center; font-size: 11px;

@@ -406,6 +406,22 @@
         the clause carrying it was dropped rather than transcribed — a number in prose is
         still a number on screen.
       -->
+      <!--
+        PRIMES — UI-SPEC section 4.3's twelve, under **Option B**: the named absence.
+
+        **There is no `.btn-primary` in this section and there must not be one.** Not a
+        disabled one either — UI-SPEC section 4.3 calls a disabled control with no
+        explanation *a placeholder wearing a different hat*, and section 10 refuses outright
+        to specify a control that produces refusals discovered as timeouts. Every executor in
+        this fabric refuses the prime-counting module for a provenance failure, so a button
+        here would hang and then fail, which is worse than no button. Its absence is also
+        exactly what puts `primes` in P5's SKIPPED list in `demo-liveness.e2e.test.ts`,
+        reported by name on stderr rather than passed over in silence.
+
+        Every string below that is not structural comes from `./surfaces/primes.ts` — the
+        panel, the twelve regions and the text view — for the reason Plan 27-05 removed the
+        lone-tab card's static copy: a sentence a spec asserts must have one author.
+      -->
       <section class="wrap" id="s-primes" role="tabpanel" tabindex="0" aria-labelledby="nav-primes" hidden>
         <div class="surface-head">
           <p class="kicker">Workload B · prime counting π(x)</p>
@@ -418,7 +434,56 @@
           </p>
         </div>
 
+        <!--
+          The surface-level panel, UI-SPEC section 4.3 verbatim. Ordinary prose in the page's
+          normal tone and deliberately NOT in the refusal colour: section 1.5 reserves accent
+          and refusal for a withheld frame, a refuted verdict, a provenance refusal in
+          bring-your-own, and a blocked state. **An absence is not an error** — nothing here
+          failed, because nothing was attempted.
+
+          It carries no `data-region`, and that is UI-SPEC's own arithmetic rather than an
+          oversight: this surface is twelve regions and the catalogue's tally is ninety-one.
+          A thirteenth would move both.
+        -->
+        <div class="card blueprint rendered-only">
+          <i class="corner tl"></i><i class="corner tr"></i>
+          <i class="corner bl"></i><i class="corner br"></i>
+          <p class="card-kicker">Why this surface has no run control</p>
+          <p class="quote" id="primes-absence"></p>
+          <p class="card-note">
+            The module is here and it runs — in the Node test suite, and in the recorded run
+            the figures below come from. What is missing is a signed record a tab's executor
+            would accept, and minting one means a new trust anchor for every kernel this
+            project ships. That is a decision about the trust root rather than a wiring job,
+            it is stated in the interface contract as an open question, and it is not taken
+            on this page.
+          </p>
+        </div>
+
         <div class="cards rendered-only">
+          <!--
+            N1 and N2 — the arguments a dispatch WOULD send, permanently at
+            `Nothing dispatched yet`. `control` regions, like C1/C2 and P1/P2, because nothing
+            has been asked of the fabric; unlike those four, nothing will ever overwrite these.
+            The literal is NOT typed here: it is `ARG_NOT_DISPATCHED`, exported from
+            `../src/demo-regions.ts` and written by `applyRender`, because a permanent sentence
+            with two authors is two sentences waiting to differ by a comma.
+          -->
+          <div class="card blueprint">
+            <i class="corner tl"></i><i class="corner tr"></i>
+            <i class="corner bl"></i><i class="corner br"></i>
+            <p class="card-kicker">What a dispatch would send</p>
+            <dl>
+              <dt>N</dt>
+              <dd data-region="primes/n-arg" data-kind="control" data-source="the argument this page would send under Option A"></dd>
+              <dt>shards</dt>
+              <dd data-region="primes/shards-arg" data-kind="control" data-source="the argument this page would send under Option A"></dd>
+            </dl>
+            <p class="card-note">
+              The shape of the request is known. Only the path to send it is missing, and
+              these two rows say so rather than showing a default that was never sent.
+            </p>
+          </div>
           <div class="card blueprint">
             <i class="corner tl"></i><i class="corner tr"></i>
             <i class="corner bl"></i><i class="corner br"></i>
@@ -429,19 +494,126 @@
               primes.
             </p>
           </div>
+        </div>
+
+        <!--
+          N3 through N8 — every reading, at its unavailable sentence, permanently. The
+          catalogue marks all eight `permanentlyUnavailable`, and their `data-source` names
+          `TabApi.runPrimes()`, a method that does not exist. **That is deliberate and it is a
+          claim, not a mistake:** P4b in `demo-regions.e2e.test.ts` asserts that `window.o2`
+          does NOT have it, so the day Option A lands the guard reddens and this surface is
+          forced back onto the board instead of quietly staying absent.
+        -->
+        <div class="cards rendered-only">
+          <div class="card blueprint">
+            <i class="corner tl"></i><i class="corner tr"></i>
+            <i class="corner bl"></i><i class="corner br"></i>
+            <p class="card-kicker">The count, and whether it was taken</p>
+            <dl>
+              <dt>count</dt>
+              <dd data-region="primes/total" data-kind="reading" data-source="TabApi.runPrimes().total"></dd>
+              <dt>all agreed</dt>
+              <dd data-region="primes/complete" data-kind="reading" data-source="TabApi.runPrimes().complete"></dd>
+              <dt>elapsed</dt>
+              <dd data-region="primes/elapsed" data-kind="reading" data-source="TabApi.runPrimes().elapsedMs"></dd>
+            </dl>
+            <p class="card-note">
+              Three readings a run would produce and no run produced. They are not blank and
+              they are not zero: a blank invites a reader to supply their own reason, and a
+              zero is a quantity that was never measured.
+            </p>
+          </div>
+          <div class="card blueprint">
+            <i class="corner tl"></i><i class="corner tr"></i>
+            <i class="corner bl"></i><i class="corner br"></i>
+            <p class="card-kicker">The reduce, the receipt, and what left this device</p>
+            <dl>
+              <dt>reduce</dt>
+              <dd data-region="primes/reduce-state" data-kind="reading" data-source="TabApi.runPrimes().reduceAttempted with .reduceReason and .combined"></dd>
+              <dt>receipt</dt>
+              <dd data-region="primes/attestation" data-kind="reading" data-source="TabApi.runPrimes().attestation"></dd>
+            </dl>
+            <pre data-region="primes/egress" data-kind="reading" data-source="TabApi.runPrimes().egress"></pre>
+            <p class="card-note">
+              Nothing left this device for this workload, and that is not a sovereignty
+              result — it is what happens when nothing is dispatched. The egress guard counts
+              bytes that go past it; none went past it here because none was offered.
+            </p>
+          </div>
+        </div>
+
+        <!--
+          N9 — the pattern for "the mockup drew something the reading does not carry". The
+          mockup's per-shard table is not available from any `TabApi` shape. It is not
+          silently dropped and it is not filled with plausible rows: it states which reading
+          it would need. Its sentence is a different one from the other seven, because its
+          reason is different — the field does not exist, so there is nothing to wait for.
+        -->
+        <div class="cards rendered-only">
+          <div class="card blueprint">
+            <i class="corner tl"></i><i class="corner tr"></i>
+            <i class="corner bl"></i><i class="corner br"></i>
+            <p class="card-kicker">Per-shard counts</p>
+            <p class="quote" data-region="primes/per-shard" data-kind="reading" data-source="TabApi.runPrimes().perShard — no such field exists on any reading this page receives"></p>
+            <p class="card-note">
+              The mockup drew a table of them. Two rows of it would have been a table a
+              reader could believe, so what stands here instead is the name of the field it
+              would need — and there is none on any reading this page receives, under either
+              disposition.
+            </p>
+          </div>
           <div class="card blueprint card-accent">
             <i class="corner tl"></i><i class="corner tr"></i>
             <i class="corner bl"></i><i class="corner br"></i>
             <p class="card-kicker">Stated weakness</p>
-            <p class="card-body">
-              The oracle is blind in one direction. Published π values are quoted at
-              powers of ten, and a power of ten sits far from the prime below it, so a
-              guest that loses the top of its range returns the right total anyway. That
-              hole is what the π series closes.
+            <p class="card-body" id="primes-weakness"></p>
+            <p class="card-note">
+              This is the sentence that makes the oracle worth reaching, and it is why the
+              surface is not simply deleted. The check whose authority does not come from
+              this repository is real, is quoted below, and currently has nothing to check.
             </p>
           </div>
         </div>
-        <pre id="primes-report" class="text-view" data-region="primes/report" data-kind="text-view" data-source="the #primes-report text view">Nothing to report: this surface has not been wired to a reading yet.</pre>
+
+        <!--
+          N10 and N11 — the published oracle, and the comparison there is nothing to make.
+          N10 is `cited`: it renders in the citation treatment (`--color-neutral-700`, the
+          `.citation` rule in demo.css) and never in the Heading-size figure treatment a live
+          reading uses, so a published figure and a measured one are distinguishable on this
+          page without reading the label.
+        -->
+        <div class="cards rendered-only">
+          <div class="card blueprint">
+            <i class="corner tl"></i><i class="corner tr"></i>
+            <i class="corner bl"></i><i class="corner br"></i>
+            <p class="card-kicker">The published oracle</p>
+            <div class="scroller">
+              <pre class="citation" data-region="primes/oracle-table" data-kind="cited" data-source="published values of the prime-counting function at powers of ten"></pre>
+            </div>
+            <p class="card-note">
+              Every figure in this block was published before this repository existed. The
+              provenance travels inside the same region as the numbers, so a figure cannot be
+              lifted out of this page without the statement of where it came from.
+            </p>
+          </div>
+          <div class="card blueprint">
+            <i class="corner tl"></i><i class="corner tr"></i>
+            <i class="corner bl"></i><i class="corner br"></i>
+            <p class="card-kicker">This tab's count, against the published one</p>
+            <p class="quote" data-region="primes/oracle-compare" data-kind="reading" data-source="TabApi.runPrimes().total against primes/oracle-table for the same x"></p>
+            <dl>
+              <dt>largest N</dt>
+              <dd data-region="primes/max-n" data-kind="constant" data-source="@o2/demo.PRIME_MAX_N"></dd>
+            </dl>
+            <p class="card-note">
+              The comparison is the whole reason this workload is in the roadmap, and it is
+              the one thing this surface cannot show: an independent oracle is only a check
+              if something reaches it. The bound beside it is a constant of the shipped
+              module, imported rather than transcribed, and it is not a result.
+            </p>
+          </div>
+        </div>
+        <pre id="primes-report" class="text-view" data-region="primes/report" data-kind="text-view" data-source="the #primes-report text view"></pre>
       </section>
 
       <section class="wrap" id="s-pi" role="tabpanel" tabindex="0" aria-labelledby="nav-pi" hidden>
@@ -823,6 +995,19 @@
         shardsFor,
         termsFor,
       } from './surfaces/pi.ts'
+      // The Primes surface's formatter — UI-SPEC section 4.3's N1 through N12, under
+      // **Option B: the named absence**. It is the one formatter on this page that takes no
+      // argument, and that signature IS the surface's claim: there is no reading to pass it.
+      // Read that file's header before concluding from twelve tidy regions that the
+      // prime-counting workload shipped — it did not, and the header says why in three
+      // measured facts. Renamed on import for the same reason π's is: `applyRender` throws
+      // when one surface's formatter reaches another surface's regions, and two modules
+      // exporting `format` should not rely on that throw to notice a mix-up.
+      import {
+        NO_DISPATCH_PATH,
+        STATED_WEAKNESS,
+        format as formatPrimes,
+      } from './surfaces/primes.ts'
 
       const $ = (id) => document.getElementById(id)
       const gateEl = $('gate')
@@ -851,6 +1036,28 @@
       // Same rule again for π. All twelve of its readings paint their stopped sentence before
       // anything runs; P1 and P2 are controls and carry their own literal in the markup.
       paintSurfaceAbsence('pi', 'stopped')
+      // Primes, and this call is a different kind of thing from the three above it.
+      //
+      // For session, colouring and π it paints a sentence that a run will replace. Here it
+      // paints the one every primes reading will carry for as long as Option B stands:
+      // `paintSurfaceAbsence` gives a `permanentlyUnavailable` region its `unavailable` arm
+      // whatever state it is asked for, which is what *renders its unavailable copy
+      // permanently* means. Called for the `data-absence` mirror it writes — `applyRender`
+      // below writes the same eight sentences into `textContent` out of the one record, read
+      // from the same catalogue, so the two cannot disagree; only this one also leaves the
+      // attribute a reader can inspect in the DOM.
+      paintSurfaceAbsence('primes', 'stopped')
+      // The whole Primes surface, before consent and before any node — because none of it
+      // depends on either. It takes no reading, it will never take a reading, and there is no
+      // handler anywhere below that repaints it: this line is the only writer of those twelve
+      // regions and of `#primes-report`. Nothing here is re-run on Stop for the same reason.
+      applyRender('primes', formatPrimes(), 'primes/report')
+      // The two paragraphs of the surface that are prose rather than regions — UI-SPEC section
+      // 4.3's panel and the mockup's stated-weakness note. Written from the module rather than
+      // typed into the markup so the spec asserting them compares the screen against one
+      // author. Both are digit-free, so P2 is unaffected by their being undeclared.
+      $('primes-absence').textContent = NO_DISPATCH_PATH
+      $('primes-weakness').textContent = STATED_WEAKNESS
       // C3, C4 and C5 are constants: always present, never a result, and never an absence.
       // C5 is computed here from the shipped builder rather than transcribed.
       for (const [id, text] of Object.entries(formatConstants())) writeReading(id, text)
