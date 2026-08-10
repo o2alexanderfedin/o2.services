@@ -1328,7 +1328,7 @@ cost of the 2026-08-09 Ed25519 backend ruling (`crypto.subtle` first, libsodium
 fallback), priced by call-site count rather than wired into `verifyChain`/
 `verifyCertificate` in this phase.
 
-**Plans:** 2/4 plans executed
+**Plans:** 4/4 plans executed
 
 Plans:
 **Wave 1**
@@ -1336,10 +1336,10 @@ Plans:
 - [x] 25-04-PLAN.md — Ed25519 dual-backend verifier: lazy WebCrypto/libsodium selection, differential-conformance guard, async-migration pricing (not wired into verifyChain/verifyCertificate this phase)
 
 **Wave 2** *(blocked on Wave 1 completion)*
-- [ ] 25-02-PLAN.md — profile semantics: algorithm allow-list and named bans, extension rules, duplicate detection, canonicalisation wired as a certificate gate, requirement family minted (X509-01, X509-02, X509-03, X509-05, X509-06, X509-07)
+- [x] 25-02-PLAN.md — profile semantics: algorithm allow-list and named bans, extension rules, duplicate detection, canonicalisation wired as a certificate gate, requirement family minted (X509-01, X509-02, X509-03, X509-05, X509-06, X509-07)
 
 **Wave 3** *(blocked on Wave 2 completion)*
-- [ ] 25-03-PLAN.md — bundle-cost guard: the decoder's real, measured, guarded contribution to the browser tier
+- [x] 25-03-PLAN.md — bundle-cost guard: the decoder's real, measured, guarded contribution to the browser tier
 
 <!-- FILED 2026-08-07 BY OWNER RULING. Not scheduled into v1.1 — v1.1 is "Wire What Was Built"
      and this builds something new. It is filed rather than left in a review document because a

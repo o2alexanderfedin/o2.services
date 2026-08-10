@@ -1683,14 +1683,64 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-08-09T23:15:00.000Z
-Stopped at: **UPDATED 2026-08-09: Wave 1 of Phase 25 has now executed — both 25-01 (DER
-decoder) and 25-04 (Ed25519 dual-port adapter) are committed, with 25-04-SUMMARY.md
-filed. 27/27 node + 81/81 browser tests green for `ed25519-backend.test.ts`, `npx tsc
---noEmit` clean. Neither `verifyChain` nor `verifyCertificate` is wired to the new
-port — stated by name in the summary as a deferred bootstrap-ordering decision, not
-this plan's to make. Wave 2 (`25-02`) and wave 3 (`25-03`) remain to execute. The
-paragraph below is kept as the pre-execution planning record it was written as.**
+Last session: 2026-08-10T01:20:00.000Z
+Stopped at: **PHASE 25 IS EXECUTED — 4 of 4 plans across 3 waves, on branch
+`feature/phase-25-x509-certificate-profile`. NOT YET VERIFIED.** Both post-wave gates are
+green and were measured rather than assumed: full `--project node` at **174 files / 2502
+passed / 1 skipped, EXIT=0**, `real 381.47 user 385.11 sys 52.82` (CPU ratio 1.15 at load 6.6,
+comparable to the 394.54 s / 1.10 baseline, so no regression hides behind contention); full
+`--project e2e` at **19 files / 85 passed, EXIT=0**, `real 416.74`, CPU ratio 0.33 — legitimate
+for specs that spawn browsers and relays and spend their wall clock waiting.
+
+**What landed.** `packages/core/src/x509.ts`, a bounded hand-written DER decoder for exactly
+this profile, with all seven obligations as refusals: Ed25519-only allow-list;
+SHA-1/P-192/P-224/RSA refused **by name**, each with its own test; pre-parse byte ceilings;
+extension count and size rules; duplicate-`extnID` refusal; canonicalisation as the final gate,
+proved by byte-identical re-encode. Plus `packages/core/src/ed25519-backend.ts`, the adapter
+the second owner ruling required. No `pkijs`, `asn1js`, `node-forge` or `@peculiar/*` was
+added — the locked decision held.
+
+**Six of the seven X509 rows are `[ ] Built, not wired`, and that is the honest state rather
+than a shortfall.** `decodeX509Certificate` has no production caller this phase, and this
+repository marks `[x]` **iff** reachable from a runnable entry point. Only X509-05 is `[x]`,
+recorded delivered-with-evidence against `capability.ts:127/190/255` rather than re-built.
+
+**THE LEDGER PARSER COULD NOT SEE ITS OWN NEW ROWS, caught before the mint landed.**
+`acceptance-traceability.node.test.ts` matched requirement ids with `[A-Z]+-\d+` — letters
+only — so `X509-01` died at the `5` and all seven rows would have been **invisible** to the
+guard, which would then have exited 0 by omission. That file's docblock exists because of a
+prior incident of this exact shape. Both regexes widened to `[A-Z][A-Z0-9-]*-\d+` (the pattern
+`requirements-ledger.node.test.ts` already used) **in the same commit as the mint**, gated on
+an observed matched-row count of **82 → 89**, verified independently. A green run cannot
+distinguish *checked and passing* from *invisible*.
+
+**A failure was reported as "pre-existing" and it was ours.** Plan 25-04's summary filed
+`reachability.node.test.ts`'s 13-vs-12 collision failure as pre-existing, confirmed by
+`git stash` — but that plan's work was already committed, so the stash was a **no-op** and it
+compared the tree to itself. Measured with a real control (detached to the pre-phase commit
+`10b32ad`): **37/37 green, exit 0**, and still green at the end of 25-01. Cause:
+`ed25519-backend.ts#verify` — the adapter ruling puts three implementations of one port in one
+module, so three declarations legitimately share a file and a name. Bound raised 12 → 13
+carrying its history, the new entry **pinned by name**, and the false claim retracted in place
+rather than deleted.
+
+**Four bounds moved this phase and every one was proved TIGHT by planting.** Unreachable
+barrel exports 67 → 73 → 75; `OPEN_FINDING_CEILING` 40 → 47 → 49; collisions 12 → 13. Each was
+planted one lower, watched red at `PLANTED_EXIT=1`, restored by surgical inverse and
+`cmp`-verified. None had slack — slack is the next unwired export slipping in unnoticed.
+
+**The bundle number the ruling demanded: 19 064 bytes gzip**, taken as a delta between two
+Vite library builds **within one run** rather than against a hardcoded total, guarded at
+`DECODER_BUDGET_BYTES = 25600` (~1.34× headroom, sited). It is deliberately the **conservative
+of two honest numbers**: it counts the decoder's transitive `dag-cbor` + `multiformats` graph,
+which a page already loading dag-cbor would not pay twice. A real-bundle diff today would
+tree-shake to a **false near-zero** — recorded rather than exploited.
+
+**Three further STATE.md corruptions occurred during this phase**, all caught by `git diff`,
+none of which errored: `state.planned-phase`, `state.record-session`, `state.advance-plan`.
+The unsafe-writer list above now stands at **six verbs**.
+
+**The paragraph below is kept as the pre-execution planning record it was written as.**
 **PHASE 25 IS PLANNED — 4 plans, 3 waves, `X509-01…07` minted, status Ready to
 execute.** Wave 1 is `25-01` (DER engine) and `25-04` (Ed25519 adapter), which have disjoint
 `files_modified`; wave 2 is `25-02` (profile semantics + the ledger mint); wave 3 is `25-03`
