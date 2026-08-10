@@ -393,6 +393,18 @@ file, so the node project is inside its drift tolerance of five.
 `pi/reduce-attempted`. Static copy on a surface whose reduce has just combined is a placeholder
 that used to be true, and a spec asserting a static sentence asserts the markup.
 
+### `[Rule 1 - bug] this summary tripped the vocabulary guard, as 27-04's did`
+
+- **Found during:** committing this file. The T-27-19 row used one of the five banned stems in
+  its lexer sense — a unit of source text — to describe the `window` identifier.
+- **Issue:** the guard is keyed on the word appearing anywhere in a tracked file, deliberately —
+  a reviewer greps, and a grep does not read the sentence around the hit. Exit 1,
+  `1 failed | 266 passed (267)`, naming this file and the line.
+- **Fix:** the row names the identifier without the noun. **The first draft of this very entry
+  reddened again**, because it quoted the sentence it was reporting; the entry now describes the
+  word instead of spelling it, which is what 27-04's equivalent entry had to do as well.
+- **Files:** this summary.
+
 ### `[deviation - method] `.scroller` rather than the plan's inline `overflow-x:auto``
 
 The plan's Task 2 says to wrap the diagram and any table in `<div style="overflow-x:auto">`.
