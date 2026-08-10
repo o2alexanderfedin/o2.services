@@ -231,6 +231,18 @@ interface Reading {
   /** `#bar`'s top, read in the same frame as {@link mainLastBottom}. */
   readonly barTopAtEnd: number | null
   /**
+   * How far short of its end the page was **at the instant the boxes above were read** —
+   * `scrollMax - scrollY`, in CSS pixels, read in the same synchronous turn as the boxes.
+   *
+   * B5's whole sentence begins *with the page scrolled to its end*, and until Phase 28
+   * nothing checked that the page still was. It is asserted, because the number is the
+   * difference between measuring the property and measuring a page that slid out from
+   * under the scroll: every viewport-space box below the fold is displaced downward by
+   * exactly this much, so a non-zero shortfall makes an uncovered element read as covered.
+   * See the note on the scroll in {@link measure} for the measurement that forced it.
+   */
+  readonly endShortfall: number
+  /**
    * The bottom of `#measurements`, the footer that sits OUTSIDE `#main`.
    *
    * Recorded and not asserted. B5 is defined by UI-SPEC section 6.3 against `#main`'s last
@@ -442,10 +454,38 @@ async function measure(page: Page, state: BarState, surfaceIndex: number): Promi
       // **This arithmetic holds only while the surface nav is `position: sticky` rather
       // than `fixed`** (UI-SPEC section 6.4). A second fixed element would add a term
       // this comparison does not carry, and would make a covered element look clear.
-      window.scrollTo(0, document.body.scrollHeight)
-      await frame()
+      //
+      // **The scroll and every box below it are one synchronous turn, and that is the
+      // whole of Phase 28's repair.** This read used to be `scrollTo`, then two
+      // `requestAnimationFrame`s, then the boxes — and the page is LIVE across those two
+      // frames. `reconcile` runs on a 1000 ms interval and rewrites the fabric surface
+      // from the node's own readings, so while `#s-fabric` is on screen and the node is
+      // still acquiring its relay and WebRTC addresses, `fabric/addresses`,
+      // `fabric/peer-rows` and `fabric/relayed-only` turn from one-line absence sentences
+      // into multi-line lists and the document grows by hundreds of pixels *inside that
+      // window* — 703 px measured at 393, 663 px at 360. Chromium leaves `scrollY` where
+      // it was, so the page is no longer at its end, and EVERY viewport-space box below
+      // the fold is displaced downward by exactly the shortfall. B5 then compared a
+      // displaced box against a fixed bar and reported a covering that was not there.
+      //
+      // Nothing can mutate the document between a synchronous `scrollTo` and a
+      // synchronous `getBoundingClientRect`: a timer callback cannot interleave, and both
+      // `scrollHeight` and the rects flush style and layout before they answer. So the
+      // boxes below are read at the end of the page by construction — and
+      // {@link Reading.endShortfall} proves it on every run rather than assuming it.
+      //
+      // Two smaller corrections ride along, each of which could have produced the same
+      // silent mismeasurement on its own: the target is the SCROLLING ELEMENT's
+      // `scrollHeight` rather than `document.body`'s, which in standards mode is the body's
+      // own content box and can be shorter than the document's scrollable height; and
+      // `behavior: 'instant'` so the synchronous guarantee does not depend on the page
+      // never setting `scroll-behavior: smooth`.
       apply()
       await frame()
+
+      const scroller = document.scrollingElement ?? document.documentElement
+      window.scrollTo({ top: scroller.scrollHeight, left: 0, behavior: 'instant' })
+      const endShortfall = scroller.scrollHeight - scroller.clientHeight - window.scrollY
       // The last RENDERED element child, not the literal last one. `getClientRects()` is
       // empty for a `display: none` box and non-empty for anything laid out, so this
       // selects the surface panel the visitor is actually looking at. See the note on
@@ -462,6 +502,7 @@ async function measure(page: Page, state: BarState, surfaceIndex: number): Promi
           last === null ? null : `${last.tagName.toLowerCase()}${last.id === '' ? '' : `#${last.id}`}`,
         barTopAtEnd: barAtEnd === null ? null : barAtEnd.y,
         footerBottom: boxOf(document.getElementById('measurements'))?.bottom ?? null,
+        endShortfall,
       }
     },
     [state, surfaceIndex, LOADED_WHAT, LOADED_STATS] as const,
@@ -645,12 +686,27 @@ describe('UI-SPEC section 6.3 — the bar fits, and Stop is reachable', () => {
           // deferred items instead.
           // What B5 actually measured, printed on every combination. Without it the
           // property's vacuity is invisible: a hidden element's box is all zeros, and
-          // `0 <= barTop` is green without measuring anything.
+          // `0 <= barTop` is green without measuring anything. `short` is printed for the
+          // same reason one property up: a reading taken off the end of the page is not a
+          // weaker reading of B5, it is a reading of a different page position.
           process.stderr.write(
             `[B5] ${where}: measured ${String(reading.mainLastTag)} ` +
               `bottom=${(reading.mainLastBottom ?? Number.NaN).toFixed(2)} ` +
-              `barTop=${(reading.barTopAtEnd ?? Number.NaN).toFixed(2)}\n`,
+              `barTop=${(reading.barTopAtEnd ?? Number.NaN).toFixed(2)} ` +
+              `short=${reading.endShortfall.toFixed(2)} ` +
+              `footerBottom=${(reading.footerBottom ?? Number.NaN).toFixed(2)}\n`,
           )
+          // B5's precondition, measured rather than assumed — the sentence starts "with
+          // the page scrolled to its end" and until Phase 28 nothing established that it
+          // was. A non-zero shortfall displaces every box below the fold downward by
+          // exactly that much, which is how a live surface growing under the scroll made
+          // an element 181 px clear of the bar read as 341 px under it.
+          expect.soft(
+            reading.endShortfall,
+            `B5 ${where}: the boxes were read ${reading.endShortfall.toFixed(2)}px short of ` +
+              'the end of the page, so every measurement below the fold is displaced by ' +
+              'that much and the comparison against #bar is not the property',
+          ).toBeLessThanOrEqual(1)
           expect.soft(
             reading.mainLastBottom,
             `B5 ${where}: #main has no last element child to measure`,
