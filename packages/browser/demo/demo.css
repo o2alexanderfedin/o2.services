@@ -308,6 +308,38 @@ button:disabled, .btn:disabled { opacity: 0.45; cursor: not-allowed; }
 */
 .citation { color: var(--color-neutral-700); }
 
+/*
+  Refusal prose — a provenance refusal or a shard failure, in bring-your-own.
+
+  UI-SPEC section 1.5 reserves `--color-refusal` for a withheld frame, a refuted verdict, a
+  provenance refusal in bring-your-own, and `state[data-tone='blocked']`. Section 7.2 then
+  fixes HOW: `#cb4b16` measures 4.05:1 against the page ground, which is enough for a border
+  and not enough for body text, so **refusal prose is `--color-text` with a refusal-coloured
+  left rule** and the colour never carries the meaning on its own. `.quote` is the same shape
+  in accent, for the fabric's own words when they are not a refusal.
+
+  Added by Plan 27-07, which lands the first region UI-SPEC assigns this treatment to
+  (`byo/failures`). It is deliberately NOT used anywhere else: `demo-pi.e2e.test.ts` and
+  `demo-primes.e2e.test.ts` both assert that nothing on their surface carries the refusal
+  colour, because an absence is not an error.
+*/
+.refusal {
+  border-left: 2px solid var(--color-refusal); padding-left: var(--space-4);
+  margin: 0; color: var(--color-text);
+}
+
+/*
+  The bring-your-own form — UI-SPEC section 7.5.
+
+  A plain stacked grid rather than `.cards`, and the difference is measured rather than
+  stylistic: `.cards` is `repeat(auto-fit, minmax(300px, 1fr))`, and a form is a single column
+  of full-width inputs at every width this page is asserted at. `max-width: 74ch` matches
+  `.lede` and `.surface-head`, so the seven inputs do not stretch to a laptop's full column.
+*/
+.form-grid { display: grid; gap: var(--space-3); max-width: 74ch; }
+/* The sovereign pair, rendered together because the contract makes them inseparable. */
+.check { display: flex; align-items: center; gap: var(--space-2); font-size: 14px; }
+
 /* — tags — */
 .tag {
   display: inline-flex; align-items: center; font-size: 11px;

@@ -827,38 +827,317 @@
         <pre id="pi-report" class="text-view" data-region="pi/report" data-kind="text-view" data-source="the #pi-report text view">nothing dispatched yet</pre>
       </section>
 
+      <!--
+        BRING YOUR OWN — UI-SPEC section 4.5's thirteen, over `TabApi.runJob`.
+
+        **This section is the caller audit finding G4 says the page does not have.** The
+        heading said *"wired but not exposed on this page"* until Plan 27-07, which was true
+        when it was written and is now false; `runJob` has a caller and it is `#byo-form`'s
+        submit handler below.
+
+        **Seven inputs, all required, and the copy above them says so before anything is
+        submitted.** `runJob` requires `moduleRecord` by construction — its own docblock gives
+        the reason, that making the field optional *would let a caller write the refusal
+        rather than the job and discover it as a timeout*. A CID-only form here would produce
+        nothing but refusals discovered as timeouts. So the control stays disabled until all
+        seven are present and the record's cid matches the module cid, and `#byo-validity`
+        names what is missing rather than leaving a disabled control with no explanation.
+
+        The form ships filled with **this bundle's own** module and record. Not a convenience:
+        `scripts/sign-kernel.ts` discards its private half on every run, so nobody outside this
+        repository can sign under the anchor this tab pins, and an empty form would open at a
+        state no visitor could leave. `surfaces/byo.ts`'s header carries the whole argument.
+      -->
       <section class="wrap" id="s-byo" role="tabpanel" tabindex="0" aria-labelledby="nav-byo" hidden>
         <div class="surface-head">
           <p class="kicker">Workload D · bring your own</p>
-          <h2>Two escape hatches, wired but not exposed on this page.</h2>
+          <h2>Dispatch a module of your own, and read the provenance check.</h2>
+          <p class="lede">
+            One of the two escape hatches is on this page now. The other is a build-time
+            pipeline with nothing to read here, and it says so rather than drawing a figure.
+          </p>
         </div>
 
+        <!--
+          UI-SPEC section 4.5's copy, above the form and before anything is submitted, because
+          discovering it as a timeout is the failure this surface exists to prevent. Written
+          from `surfaces/byo.ts` into an empty paragraph rather than typed here, for the reason
+          Plan 27-05 removed the lone-tab card's static copy: a sentence a spec asserts must
+          have one author. Digit-free, so its being undeclared does not concern P2.
+        -->
+        <div class="card blueprint card-accent">
+          <i class="corner tl"></i><i class="corner tr"></i>
+          <i class="corner bl"></i><i class="corner br"></i>
+          <p class="card-kicker">runJob</p>
+          <h3 class="card-title">Dispatch any WASM module by CID — with a record that vouches for it.</h3>
+          <p class="card-body" id="byo-notice"></p>
+        </div>
+
+        <!--
+          The form. Not `.rendered-only`: a control a visitor uses must survive the text-view
+          toggle, exactly as `#run` and `#run-pi` do.
+
+          Every input has a visible `<label for=...>` — UI-SPEC section 7.5 — and no
+          placeholder stands in for one. The submit's `aria-describedby` points at the reason
+          element, and the form's points at the refusal region, so the fabric's own words are
+          associated with the form that produced them.
+        -->
+        <form id="byo-form" class="form-grid" aria-describedby="byo-failures">
+          <div class="field">
+            <label for="byo-module-cid">module CID</label>
+            <input class="input mono" id="byo-module-cid" name="moduleCid" type="text" autocomplete="off" spellcheck="false">
+          </div>
+          <div class="field">
+            <label for="byo-record-name">record name</label>
+            <input class="input mono" id="byo-record-name" name="name" type="text" autocomplete="off" spellcheck="false">
+          </div>
+          <div class="field">
+            <label for="byo-record-cid">record CID</label>
+            <input class="input mono" id="byo-record-cid" name="cid" type="text" autocomplete="off" spellcheck="false">
+          </div>
+          <div class="field">
+            <label for="byo-record-version">record version</label>
+            <input class="input mono" id="byo-record-version" name="version" type="text" inputmode="numeric" autocomplete="off" spellcheck="false">
+          </div>
+          <div class="field">
+            <label for="byo-record-expires">record expiry</label>
+            <input class="input mono" id="byo-record-expires" name="expiresAt" type="text" inputmode="numeric" autocomplete="off" spellcheck="false">
+          </div>
+          <div class="field">
+            <label for="byo-record-signer">record signer</label>
+            <input class="input mono" id="byo-record-signer" name="signer" type="text" autocomplete="off" spellcheck="false">
+          </div>
+          <div class="field">
+            <label for="byo-record-signature">record signature</label>
+            <input class="input mono" id="byo-record-signature" name="signature" type="text" autocomplete="off" spellcheck="false">
+          </div>
+
+          <!--
+            The sovereign option is ONE control pair and the two halves are never separable.
+            `TabApi.runJob`'s `sovereign` field is one object for the same reason: `submitJob`
+            refuses a sovereign shard with no owner by name (`shard-missing-owner`), and *a
+            pair of loose optionals is a way to spell a refusal rather than a job*. So the
+            checkbox and the owner id are rendered together and validated together.
+          -->
+          <div class="field">
+            <label class="check" for="byo-sovereign">
+              <input type="checkbox" id="byo-sovereign" name="sovereign">
+              <span>sovereign — submit every shard owner-pinned rather than public</span>
+            </label>
+          </div>
+          <div class="field">
+            <label for="byo-owner-id">owner id</label>
+            <input class="input mono" id="byo-owner-id" name="ownerId" type="text" autocomplete="off" spellcheck="false">
+          </div>
+          <p class="card-note">
+            An owner-pinned shard is placed only on a node that declares the same owner, and
+            no node in this fabric declares one for a visitor — so a sovereign dispatch from
+            here is reported as unplaceable rather than run somewhere it should not be. That
+            refusal is the property working, and it is shown below in the fabric's own words
+            rather than left to be discovered.
+          </p>
+
+          <p class="controls">
+            <button id="run-byo" type="submit" class="btn btn-primary" disabled aria-describedby="byo-validity">Dispatch this module</button>
+            <!--
+              Digit-free in every state it can reach, as `#pi-status` is and for the same
+              reason: it carries no `data-region`, and P2 runs on the stopped page where it
+              reads `start a node first`. Logged in `deferred-items.md` beside the other two.
+            -->
+            <span class="note" id="byo-status" role="status">start a node first</span>
+          </p>
+          <!--
+            The disabled state's visible reason, and it is never empty. It names every missing
+            field, or the cid disagreement, or — when the form is complete and the node is not
+            running — which of the two is actually blocking. A disabled control with no reason
+            is the same defect as a placeholder.
+          -->
+          <p class="note" id="byo-validity"></p>
+        </form>
+
+        <!--
+          Y1 and Y2 — the two constants. Both `.mono`, which carries `overflow-wrap: anywhere`,
+          because a 64-character anchor in a card at 320 CSS pixels is exactly the string that
+          would push B1 red.
+        -->
         <div class="cards rendered-only">
           <div class="card blueprint">
             <i class="corner tl"></i><i class="corner tr"></i>
             <i class="corner bl"></i><i class="corner br"></i>
-            <p class="card-kicker">runJob</p>
-            <h3 class="card-title">Dispatch any WASM module by CID.</h3>
-            <p class="card-body">
-              Provided you also hand over a signed NameRecord for it — signer, signature,
-              version, expiry. The record is required, not optional: a tab always pins a
-              trust anchor, so a dispatch with no record is one that will be refused by
-              every executor it reaches, including this tab's own.
+            <p class="card-kicker">What this tab pins, and what each shard receives</p>
+            <dl>
+              <dt>build authority</dt>
+              <dd class="mono" data-region="byo/pinned-anchor" data-kind="constant" data-source="@o2/demo.KERNEL_TRUST_ANCHOR"></dd>
+              <dt>shard input</dt>
+              <dd class="mono" data-region="byo/shard-input" data-kind="constant" data-source="packages/browser/demo/main.ts runJob() — the per-shard literal { a: &lt;shard index&gt; }"></dd>
+            </dl>
+            <p class="card-note">
+              A supplied anchor list replaces this one rather than joining it, and no value
+              enterable above changes either of these. The module named in the form is this
+              bundle's own, which is the one record in existence that the authority above
+              vouches for — the key that signed it was discarded at signing time.
+            </p>
+            <p class="card-note">
+              A dispatch names a module and carries no bytes. This page holds the bytes of the
+              modules it ships and puts them in this tab's store before dispatching; a CID
+              naming anything else has to be reachable already, and the fabric answers
+              <code>module block missing</code> when it is not.
             </p>
           </div>
           <div class="card blueprint">
             <i class="corner tl"></i><i class="corner tr"></i>
             <i class="corner bl"></i><i class="corner br"></i>
-            <p class="card-kicker">tools/aot — the lift pipeline</p>
-            <h3 class="card-title" data-region="byo/prose-lift-target" data-kind="prose" data-source="the name of the instruction set architecture the lift pipeline reads">AArch64 ELF to WebAssembly, scanned for non-determinism.</h3>
-            <p class="card-body">
-              Relaxed SIMD, shared memory, float NaN sources. Then publish and sign the
-              artifact. This is a build-time pipeline with no page-side reading, and it
-              says so rather than drawing one.
+            <p class="card-kicker">The dispatch</p>
+            <dl>
+              <dt>every shard agreed</dt>
+              <dd data-region="byo/complete" data-kind="reading" data-source="TabApi.runJob().complete"></dd>
+              <dt>verification cost</dt>
+              <dd data-region="byo/verification-multiplier" data-kind="reading" data-source="TabApi.runJob().verificationMultiplier"></dd>
+              <dt>blocks pulled</dt>
+              <dd data-region="byo/fetched" data-kind="reading" data-source="TabApi.runJob().fetched"></dd>
+              <dt>blocks refused</dt>
+              <dd data-region="byo/rejected" data-kind="reading" data-source="TabApi.runJob().rejected"></dd>
+            </dl>
+            <p class="card-note">
+              A block is refused when its bytes do not hash to the CID that was asked for.
+              That count is this tab's own, over the whole of its life, and not only over
+              this dispatch.
             </p>
           </div>
         </div>
-        <pre id="byo-report" class="text-view" data-region="byo/report" data-kind="text-view" data-source="the #byo-report text view">Nothing to report: this surface has not been wired to a reading yet.</pre>
+
+        <!--
+          Y4, Y5, Y6 — per shard. `-1` is never rendered as a number: it is `no agreement`
+          where the shard reached none, and a named absence where the shard agreed on an
+          output that carries no partition field. `surfaces/byo.ts`'s header records the
+          measurement that separates the two.
+        -->
+        <div class="cards rendered-only">
+          <div class="card blueprint">
+            <i class="corner tl"></i><i class="corner tr"></i>
+            <i class="corner bl"></i><i class="corner br"></i>
+            <p class="card-kicker">Per shard</p>
+            <p class="card-note">partition index</p>
+            <div class="scroller">
+              <pre class="mono" data-region="byo/partitions" data-kind="reading" data-source="TabApi.runJob().partitions"></pre>
+            </div>
+            <p class="card-note">replicas that agreed</p>
+            <div class="scroller">
+              <pre class="mono" data-region="byo/replicas" data-kind="reading" data-source="TabApi.runJob().replicas"></pre>
+            </div>
+          </div>
+          <div class="card blueprint">
+            <i class="corner tl"></i><i class="corner tr"></i>
+            <i class="corner bl"></i><i class="corner br"></i>
+            <p class="card-kicker">Placement — which nodes agreed on which shard</p>
+            <div class="scroller">
+              <pre class="mono" data-region="byo/agreeing" data-kind="reading" data-source="TabApi.runJob().agreeing"></pre>
+            </div>
+            <p class="card-note">
+              Placement is reported rather than requested. Nothing in the form chooses a
+              node, and the executor set is every peer that answered an offer plus this tab.
+            </p>
+          </div>
+        </div>
+
+        <!--
+          Y10 and Y11. The refusal block is UI-SPEC section 1.5's one bring-your-own use of
+          `--color-refusal`, and section 7.2 fixes how: the prose is `--color-text` with a
+          refusal-coloured left rule, never refusal-coloured text. Every string in it is the
+          fabric's own, verbatim, into `textContent`.
+        -->
+        <div class="cards rendered-only">
+          <div class="card blueprint">
+            <i class="corner tl"></i><i class="corner tr"></i>
+            <i class="corner bl"></i><i class="corner br"></i>
+            <p class="card-kicker">Refusals, in the fabric's own words</p>
+            <div class="scroller">
+              <pre class="mono refusal" id="byo-failures" data-region="byo/failures" data-kind="reading" data-source="TabApi.runJob().failures"></pre>
+            </div>
+            <p class="card-note">
+              A refusal here is quoted and never paraphrased. The page has no better words
+              for one than the node that issued it, and a provenance refusal names the anchor
+              it could not find rather than saying that something went wrong.
+            </p>
+          </div>
+          <div class="card blueprint">
+            <i class="corner tl"></i><i class="corner tr"></i>
+            <i class="corner bl"></i><i class="corner br"></i>
+            <p class="card-kicker">How strongly the answer was attested</p>
+            <p class="quote" data-region="byo/attestation" data-kind="reading" data-source="TabApi.runJob().attestation"></p>
+            <p class="card-note">
+              The kernel's own sentence, passed through. The command line prints the same
+              field from the same value, so there is one author of these words and neither
+              surface holds a copy of them.
+            </p>
+          </div>
+        </div>
+
+        <!--
+          Y12 and Y13 — and this is the one egress panel in the demo whose withheld branch can
+          actually fire. Every cube the colouring surface submits is `label: 'public'`, so
+          `violations` is empty there by construction; a sovereign dispatch from this form
+          registers owner rows and makes the refusal arm of `egressLines` live, with no change
+          to that function.
+        -->
+        <div class="cards rendered-only">
+          <div class="card blueprint">
+            <i class="corner tl"></i><i class="corner tr"></i>
+            <i class="corner bl"></i><i class="corner br"></i>
+            <p class="card-kicker">What left this device</p>
+            <pre data-region="byo/egress" data-kind="reading" data-source="TabApi.runJob().egress"></pre>
+            <p class="card-note">
+              The withheld count and the sentence beside it are one region and one function,
+              because the figure on its own would read as a proof of sovereignty and a run
+              may simply have had nothing to hold back.
+            </p>
+            <p class="card-note">
+              Measured, and worth knowing before reading the count: no owner-pinned shard
+              dispatched from this page has yet reached the point where a byte of it could
+              leave. A sovereign shard is placed only on a node that declares the same owner,
+              and every executor here refuses one it holds no owner key for — so the work is
+              refused above the guard rather than withheld by it, and the sentence beside the
+              count reports what the guard saw rather than what the run submitted.
+            </p>
+          </div>
+          <div class="card blueprint">
+            <i class="corner tl"></i><i class="corner tr"></i>
+            <i class="corner bl"></i><i class="corner br"></i>
+            <p class="card-kicker">How the shards were labelled</p>
+            <p class="card-body" data-region="byo/sovereign-label" data-kind="reading" data-source="TabApi.runJob().egress — whether the submitted job carried sovereign"></p>
+            <p class="card-note">
+              Read from what was submitted rather than from what the form says now, so
+              editing the checkbox after a dispatch cannot change what this panel says about
+              the job that ran.
+            </p>
+          </div>
+        </div>
+
+        <!--
+          The mockup's second bring-your-own card. It ports as prose with **no figure
+          regions**: UI-SPEC section 4.5 says so, and the reason is that it describes a
+          build-time pipeline with no page-side reading. The mockup drew three exit codes
+          beside it; they are dropped rather than transcribed, because a number a page cannot
+          read is a number that should not be on it.
+        -->
+        <div class="card blueprint rendered-only">
+          <i class="corner tl"></i><i class="corner tr"></i>
+          <i class="corner bl"></i><i class="corner br"></i>
+          <p class="card-kicker">tools/aot — the lift pipeline, command line only</p>
+          <h3 class="card-title" data-region="byo/prose-lift-target" data-kind="prose" data-source="the name of the instruction set architecture the lift pipeline reads">AArch64 ELF to WebAssembly, scanned for non-determinism.</h3>
+          <p class="card-body">
+            Relaxed SIMD, shared memory, float NaN sources. Then publish and sign the
+            artifact. This is a build-time pipeline with no page-side reading, and it
+            says so rather than drawing one.
+          </p>
+          <p class="card-note">
+            Its exit code is not trusted and is not shown: the driver measures the module it
+            produced, because the tool has been observed exiting cleanly on a binary it could
+            not fully translate.
+          </p>
+        </div>
+
+        <pre id="byo-report" class="text-view" data-region="byo/report" data-kind="text-view" data-source="the #byo-report text view">nothing dispatched yet</pre>
       </section>
 
       <section class="wrap" id="s-fabric" role="tabpanel" tabindex="0" aria-labelledby="nav-fabric" hidden>
@@ -1008,6 +1287,22 @@
         STATED_WEAKNESS,
         format as formatPrimes,
       } from './surfaces/primes.ts'
+      // The bring-your-own surface — UI-SPEC section 4.5's Y1 through Y13, over
+      // `TabApi.runJob`. **This import is the caller audit finding G4 says this page does not
+      // have.** Same shape as the three above: one reading in, one record out, and the form's
+      // validity model beside it as a second pure function so the disabled reason is written
+      // in one place rather than assembled at the DOM.
+      import {
+        BUNDLED_MODULES,
+        BYO_READING_IDS,
+        DEFAULT_FORM,
+        PROVENANCE_NOTICE,
+        format as formatByo,
+        formatConstants as formatByoConstants,
+        recordOf,
+        shardsFor as byoShardsFor,
+        validity as byoValidity,
+      } from './surfaces/byo.ts'
 
       const $ = (id) => document.getElementById(id)
       const gateEl = $('gate')
@@ -1058,6 +1353,14 @@
       // author. Both are digit-free, so P2 is unaffected by their being undeclared.
       $('primes-absence').textContent = NO_DISPATCH_PATH
       $('primes-weakness').textContent = STATED_WEAKNESS
+      // Bring-your-own, same rule as the three surfaces above: every reading paints its
+      // stopped sentence before anything runs. Unlike primes these are ordinary absences that
+      // a dispatch replaces.
+      paintSurfaceAbsence('byo', 'stopped')
+      // Y1 and Y2 are constants: always present, never a result, never an absence.
+      for (const [id, text] of Object.entries(formatByoConstants())) writeReading(id, text)
+      // UI-SPEC section 4.5's copy above the form, from the module rather than the markup.
+      $('byo-notice').textContent = PROVENANCE_NOTICE
       // C3, C4 and C5 are constants: always present, never a result, and never an absence.
       // C5 is computed here from the shipped builder rather than transcribed.
       for (const [id, text] of Object.entries(formatConstants())) writeReading(id, text)
@@ -1148,6 +1451,62 @@
           ` · ${activity.fetched} block(s) in`
       }
 
+      // ---- the bring-your-own form, and the reason its control is disabled ------
+      //
+      // UI-SPEC section 4.5 and section 7.5. The validity model itself is
+      // `./surfaces/byo.ts`'s — a pure function over seven strings and the sovereign pair —
+      // and everything here is the DOM half of it: read the inputs, ask, write the answer.
+      //
+      // **The reason element is never empty**, in any state. A disabled control with no
+      // explanation is the same defect as a placeholder, and there are two different reasons
+      // this control can be disabled: a field the form is missing, and a node that is not
+      // running. The field is named first because it is the one a visitor can act on here.
+      const BYO_INPUTS = {
+        moduleCid: 'byo-module-cid',
+        name: 'byo-record-name',
+        cid: 'byo-record-cid',
+        version: 'byo-record-version',
+        expiresAt: 'byo-record-expires',
+        signer: 'byo-record-signer',
+        signature: 'byo-record-signature',
+        ownerId: 'byo-owner-id',
+      }
+
+      /** Digit-free, as every string written into `#byo-validity` must be — see P2. */
+      const BYO_READY =
+        'Ready — every field is present and the record’s cid matches the module cid.'
+      const BYO_STOPPED =
+        'Not dispatchable — this tab’s node is stopped, so there is nothing to dispatch through.'
+
+      const readByoForm = () => {
+        const form = { sovereign: $('byo-sovereign').checked }
+        for (const [key, id] of Object.entries(BYO_INPUTS)) form[key] = $(id).value
+        return form
+      }
+
+      // This bundle's own module and the record that vouches for it. The form opens on it
+      // because nobody outside this repository can sign under the anchor this tab pins —
+      // `sign-kernel.ts` discards its private half — so an empty form would open at a state
+      // no visitor could leave. `surfaces/byo.ts`'s header carries the whole argument, and
+      // the validity model below is exercised by editing these values rather than by
+      // arriving at them.
+      for (const [key, id] of Object.entries(BYO_INPUTS)) $(id).value = DEFAULT_FORM[key]
+      $('byo-sovereign').checked = DEFAULT_FORM.sovereign
+
+      const refreshByo = () => {
+        const check = byoValidity(readByoForm())
+        const running = window.o2.activity() !== null
+        $('run-byo').disabled = !check.ok || !running
+        $('byo-validity').textContent = check.ok ? (running ? BYO_READY : BYO_STOPPED) : check.reason
+      }
+
+      // Every input and the checkbox, on the same listener: the pair is validated together
+      // because `submitJob` refuses a sovereign shard with no owner by name, and a form that
+      // let that through would spell a refusal rather than a job.
+      $('byo-form').addEventListener('input', refreshByo)
+      $('byo-form').addEventListener('change', refreshByo)
+      refreshByo()
+
       const reconcile = () => {
         const consent = window.o2.consentState()
         // Consent is per-origin, so another tab granting or revoking it changes
@@ -1169,6 +1528,13 @@
         $('run-pi').disabled = activity === null
         if (activity !== null && $('pi-status').textContent === 'start a node first') {
           $('pi-status').textContent = 'ready'
+        }
+        // Bring-your-own is the one surface whose control is gated on the form as well as on
+        // the node, so the reconciler asks the validity model rather than setting `disabled`
+        // itself. Two rules about one control would be two things that can disagree.
+        refreshByo()
+        if (activity !== null && $('byo-status').textContent === 'start a node first') {
+          $('byo-status').textContent = 'ready'
         }
         // Enabled because an answer exists, not because this page produced it.
         $('verify').disabled = !window.o2.verifyAnswer().checked
@@ -1195,6 +1561,13 @@
         // a node.
         paintSurfaceAbsence('pi', 'stopped')
         $('pi-status').textContent = 'start a node first'
+        // Bring-your-own, with no exception list either: every one of its readings is a
+        // property of a dispatch, and there is no dispatch without a node. The form keeps
+        // whatever the visitor typed — the values are theirs and stopping a node is not a
+        // reason to discard them — and `refreshByo` in the reconciler disables the control
+        // and says which of the two things is now blocking it.
+        paintSurfaceAbsence('byo', 'stopped')
+        $('byo-status').textContent = 'start a node first'
         joinEl.disabled = false
         $('stop').disabled = false
       })
@@ -1307,6 +1680,98 @@
           $('pi-status').textContent = 'the run stopped'
         }
         $('run-pi').disabled = false
+      })
+
+      // ---- bring your own, and the caller audit finding G4 named as missing -------
+      //
+      // DET-03, DATA-08, DATA-10, WIRE-03. **`window.o2.runJob` has a caller in this page as
+      // of this line**, which is the half of G4 the roadmap names. The dispatch and nothing
+      // else lives here: the arguments come from the form the visitor filled and from the
+      // same peer list the other two surfaces dispatch against, the reading goes to one pure
+      // formatter, and `applyRender` writes the thirteen regions and `#byo-report` from the
+      // one record it returns.
+      //
+      // `redundancyFor` is the colouring surface's, imported rather than re-derived, for the
+      // reason the π handler gives: there is no cause for this page to hold two rules about
+      // how many replicas it asks for.
+      $('byo-form').addEventListener('submit', async (event) => {
+        // First statement in the handler. A form whose default action can still fire is a
+        // control that navigates away from the reading it just produced.
+        event.preventDefault()
+        const form = readByoForm()
+        // Belt and braces. The control is already disabled in this state — but a form can be
+        // submitted by pressing Enter, and a handler that trusted the attribute would be
+        // trusting the DOM to enforce a rule the validity model owns.
+        const check = byoValidity(form)
+        if (!check.ok) {
+          refreshByo()
+          return
+        }
+        $('run-byo').disabled = true
+        // A dispatch names a module by CID and carries no bytes, so the bytes have to already
+        // be somewhere the fabric can fetch them from — `runColouring` and `runPi` both put
+        // their own kernel before dispatching, for exactly this reason. When the form names a
+        // module this bundle ships, the page puts it here. When it names anything else, the
+        // bytes must already be in reach, and the fabric says `module block missing` if they
+        // are not — which is a true refusal and NOT a defect in this form. Measured: without
+        // this line the default dispatch produced that refusal on every shard.
+        const bundled = BUNDLED_MODULES.get(form.moduleCid.trim())
+        if (bundled !== undefined) await window.o2.putModule([...bundled])
+        // Refreshed rather than reused, for the reason the other two handlers give: a stale
+        // peer list either wastes a device that joined or dispatches to one that has gone.
+        await findPeers()
+        const peerIds = computePeers
+        const shards = byoShardsFor(peerIds.length)
+        const redundancy = redundancyFor(peerIds.length)
+        // The sovereign option as ONE value, exactly as `TabApi.runJob` declares it. It is
+        // read once, here, and passed to both the dispatch and the formatter — so Y13 reports
+        // what was submitted rather than what the checkbox says by the time the run returns.
+        const sovereign = form.sovereign ? { ownerId: form.ownerId.trim() } : null
+        // Digit-free, always. See the note beside `#byo-status` in the markup.
+        $('byo-status').textContent = 'dispatching…'
+        try {
+          const report = await window.o2.runJob({
+            moduleCid: form.moduleCid.trim(),
+            moduleRecord: recordOf(form),
+            peerIds,
+            shards,
+            redundancy,
+            // This tab contributes its own compute, as it does on the other two surfaces —
+            // and here it is also what makes the copy above the form true of the run: a
+            // module signed by an unpinned key is refused by every executor it reaches,
+            // *including this tab's own*.
+            includeSelf: true,
+            ...(sovereign === null ? {} : { sovereign }),
+          })
+          // The hook `demo-byo.e2e.test.ts` compares every screen reading against — the same
+          // forcing function `window.__o2LastPiRun` is one surface over. A run returns its
+          // report once and there is no `TabApi` accessor for the last one, so without this
+          // the spec could only compare the page against itself.
+          window.__o2LastByoRun = report
+          // P8's hook, and it is the LAST run's receipt by definition of its own name. This
+          // surface is the second on the page to render an attestation, so it publishes one
+          // for the same reason the colouring handler does: P8 compares a rendered receipt
+          // against a fresh reading taken in the same page, and a region populated with no
+          // hook to check it against would make P8 compare the page with itself.
+          window.__o2LastAttestation = report.attestation
+          $('byo-status').textContent = report.complete
+            ? 'every shard agreed'
+            : 'the fabric refused at least one shard — its own words are below'
+          applyRender('byo', formatByo({ report, sovereign }), 'byo/report')
+        } catch (error) {
+          // Section 11's error state: the fabric's own words, verbatim, with the page adding
+          // only the prefix that says a run stopped. Every reading, so none is left holding a
+          // figure from a previous dispatch beside a surface that has just failed.
+          const message = error instanceof Error ? error.message : String(error)
+          // Cleared rather than left holding the previous run: a hook a spec compares the
+          // screen against must never outlive the screen it describes.
+          window.__o2LastByoRun = null
+          const sentence = `The run stopped: ${message}.`
+          for (const id of BYO_READING_IDS) paintAbsence(id, 'unavailable', sentence)
+          writeReading('byo/report', sentence)
+          $('byo-status').textContent = 'the run stopped'
+        }
+        refreshByo()
       })
 
       $('verify').addEventListener('click', () => {

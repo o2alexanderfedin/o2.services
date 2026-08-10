@@ -223,6 +223,19 @@ export const WIRED_SURFACES: readonly SurfaceId[] = [
   // have switched off P1b for these twelve, so a primes region could silently lose its element
   // and nothing would say so. A surface that is deliberately absent still has to be *there*.
   'primes',
+  // Plan 27-07 — all 13 of UI-SPEC section 4.5, wired through `demo/surfaces/byo.ts` over
+  // `TabApi.runJob`. **This is the line that closes the `runJob` half of audit finding G4**:
+  // the entry above it records a surface with no dispatch path, and this one records the
+  // opposite — a surface whose whole point is that a dispatch path exists and that its
+  // provenance check is readable rather than discoverable as a timeout.
+  //
+  // Its other effect is on P5, and it is the third surface that property drives: appending
+  // here is what makes `demo-liveness.e2e.test.ts` find `#s-byo .btn-primary` and press it,
+  // with no edit to that file. That works only because the form opens on this bundle's own
+  // record — a control disabled pending seven inputs is a control no generic liveness
+  // property could ever drive, and `demo/surfaces/byo.ts`'s header records why an empty form
+  // would have been a state no visitor could leave either.
+  'byo',
 ]
 
 // ---------------------------------------------------------------------------------------
