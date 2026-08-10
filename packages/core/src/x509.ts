@@ -732,6 +732,58 @@ export function describeX509Failure(failure: X509Failure): string {
  * Task 2 wires the algorithm allow-list into effect and the extension rules; Task 3
  * wires the canonicalisation gate.
  */
-export function decodeX509Certificate(_bytes: Uint8Array): X509Result {
-  throw new Error('not implemented — Task 1 of 25-02')
+export function decodeX509Certificate(bytes: Uint8Array): X509Result {
+  const fail = (failure: X509Failure): X509Result => ({ ok: false, failure, reason: describeX509Failure(failure) })
+
+  // Before any parsing at all: the length is attacker-supplied, and this is the
+  // cheapest possible refusal — the same ordering MAX_CHAIN_DEPTH established at
+  // capability.ts:186-192, and Plan 25-01's own reason for keeping preParseCheck a
+  // standalone function rather than folding it into decodeDer.
+  const sizeFailure = preParseCheck(bytes)
+  if (sizeFailure) return fail(sizeFailure)
+
+  const decoded = decodeDer(bytes)
+  if (!decoded.ok) return fail(decoded.failure)
+
+  const root = decoded.node
+  if (root.tag !== 0x30 || root.children.length !== 3) {
+    return fail(malformed('expected a Certificate SEQUENCE with exactly 3 children (tbsCertificate, signatureAlgorithm, signatureValue)', 0))
+  }
+  const [tbsNode, outerAlgNode, sigNode] = root.children as [DerNode, DerNode, DerNode]
+  if (tbsNode.tag !== 0x30) return fail(malformed('expected TBSCertificate SEQUENCE', 0))
+
+  const tbs = assembleTbs(tbsNode)
+  if (isX509Failure(tbs)) return fail(tbs)
+
+  if (outerAlgNode.tag !== 0x30) {
+    return fail(malformed('expected Certificate.signatureAlgorithm AlgorithmIdentifier SEQUENCE', 0))
+  }
+  // Algorithm OID validated by Task 2's `checkAlgorithm` (X509-01/02) — structural
+  // shape only in this commit.
+
+  if (sigNode.tag !== 0x03 || sigNode.content.length !== 65) {
+    return fail(malformed('expected a 64-byte Ed25519 signature in signatureValue BIT STRING (65 bytes with the unused-bits octet)', 0))
+  }
+  const signature = toHex(sigNode.content.subarray(1))
+
+  // Extension processing (X509-06/07) is Task 2's wiring; this commit always reports
+  // the four custom fields empty regardless of whether an [3] extensions block is
+  // present, since nothing yet reads its contents.
+  const certificate: X509Certificate = {
+    version: tbs.version,
+    serialNumber: tbs.serialNumber,
+    issuerCommonName: tbs.issuerCommonName,
+    notBefore: tbs.notBefore,
+    notAfter: tbs.notAfter,
+    subjectCommonName: tbs.subjectCommonName,
+    subjectPublicKey: tbs.subjectPublicKey,
+    userKey: '',
+    operatorId: '',
+    discoverability: 'seed',
+    relayIds: [],
+    signature,
+  }
+
+  // The canonicalisation gate (X509-03) is Task 3's wiring — not run in this commit.
+  return { ok: true, certificate }
 }
