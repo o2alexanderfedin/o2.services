@@ -92,3 +92,58 @@ implying the roadmap's reading is under guard.
 repository has no harness for. Worth stating that the `browser` project already runs webkit
 via Playwright — but desktop WebKit does not implement shrink-to-fit either, so adding an
 engine to the `e2e` project would not close this.
+
+## B5 went partly vacuous the day the six panels landed
+
+**Found during:** 27-02 Task 2, reading B5 against the new page shape rather than assuming
+it survived the restructure.
+
+B5 measures `document.getElementById('main')?.lastElementChild`. Before Plan 27-02 that was
+the start-outcome block, always rendered. It is now `#s-bench`, the last of six
+`role="tabpanel"` sections — and five of every six passes select a *different* panel, so
+`#s-bench` carries the `hidden` attribute, `getBoundingClientRect()` returns all zeros, and
+`0 <= barTopAtEnd` passes without measuring anything.
+
+**So B5 is a real reading on the sixth surface pass and a vacuous one on the other five**,
+at each of five widths in each of two states. It is not *lost* — the pass that selects
+Benchmarks measures a visible panel against the bar exactly as before — but the count of
+honest B5 readings per width went from two to two-of-twelve, and nothing in the file says
+so at the point of the assertion.
+
+**Not fixed here** for the same reason the footer gap was not fixed in 27-01: B5's subject
+is UI-SPEC §6.3's wording (`#main`'s last element child), and widening it mid-plan would
+make this plan's green depend on a property UI-SPEC has not agreed. Two edits would close
+it together, which is an argument for doing them in one change rather than two:
+
+**What would close it:** redefine B5 against *the last VISIBLE rendered element of the
+page* — which subsumes the footer gap logged above — and assert that the element measured
+was actually laid out (a non-zero box) so a `display: none` subject cannot satisfy it.
+
+## UI-SPEC §7.2's contrast table is a prediction, and three of its rows are off
+
+**Found during:** 27-02 Task 3, measuring the ported palette on the rendered page.
+
+Measured at 1280px through `getComputedStyle`, composited on a canvas, WCAG 2.1:
+
+| pair | UI-SPEC §7.2 predicts | measured | verdict |
+|---|---|---|---|
+| `--color-text` on `--color-bg` | 15.9:1 | **14.79:1** | both pass |
+| `--color-muted` (70% mix) on `--color-bg` | 6.28:1 | **5.83:1** | both pass |
+| `--color-bg` on `--color-accent-900` (the bar) | 14.6:1 | **12.56:1** | both pass |
+| `--color-accent-700` on `--color-bg` | 5.79:1 | 5.78:1 | agrees |
+| `--color-neutral-700` on `--color-bg` | 5.84:1 | 5.87:1 | agrees |
+
+Every row still clears its threshold, so nothing is broken and nothing was changed on
+account of it. What is worth recording is that the three disagreements all run the same
+way — the prediction is optimistic — so a *future* pair predicted at just over 4.5:1 should
+not be trusted to clear it without being measured.
+
+**And one pair the table does not carry at all**, which the port had to decide:
+`--color-bg` on `--color-accent` — the `.btn-primary` combination UI-SPEC §1.5 reserves the
+accent for — measures **3.71:1** and fails at the 14px label size. `.btn-primary` therefore
+takes `--color-accent-700` (measured 5.78:1) and the contrast block asserts that pair by
+name.
+
+**What would close it:** an edit to UI-SPEC §7.2 replacing the predicted column with the
+measured one, and adding the `.btn-primary` row. That is UI-SPEC's edit to make, not this
+plan's.
