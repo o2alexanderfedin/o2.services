@@ -1395,8 +1395,9 @@ Plans:
 ### Phase 26: elfconv Compiled to Wasm — Translation as a Fabric Workload
 **Goal**: The AOT translator runs as a wasm module on any node, so producing a lifted artifact stops being a Docker-host privilege and becomes a job the fabric can schedule — closing the asymmetry where the fabric can RUN lifted artifacts anywhere but only PRODUCE them on one machine
 **Depends on**: the `third_party/elfconv` submodule (added 2026-08-07); no phase depends on this
-**Requirements**: none yet — this phase opens them
-**Research**: measured 2026-08-07 against `ghcr.io/yomaytk/elfconv:amd64`, recorded below
+**Requirements**: AOTW-01, AOTW-02, AOTW-03, AOTW-04, AOTW-05, AOTW-06 (minted at plan time 2026-08-10; AOTW-06 is the phase deliverable and opens unmet by design — everything before it exists to decide whether it is reachable)
+**Research**: measured 2026-08-07 against `ghcr.io/yomaytk/elfconv:amd64`, recorded below; toolchain preconditions re-measured on this host 2026-08-10 and recorded in `26-CONTEXT.md`
+**Plans**: 3 plans, 3 waves, strictly sequential — 26-01 pins the toolchain by image digest and measures what preview1 provides; 26-02 is the gate (elflift's own TUs compiled for `wasm32-wasi`, and the unresolvable symbol residue named); 26-03 writes the verdict, mints the ids, and hands the decision back. Nothing past the gate is planned, deliberately
 
 <!-- FILED 2026-08-07 BY OWNER INSTRUCTION ("compile to Wasm"). NOT scheduled into v1.1.
 
