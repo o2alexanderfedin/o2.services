@@ -55,9 +55,10 @@ import { beforeAll, describe, expect, it, vi } from 'vitest'
  *   `__c_longjmp` — all four ARE in `provided.txt`, measured. The C names never appear as
  *   archive symbols at all. Read this row as "not a libc symbol", never as "no non-local jump".
  * - `__cxa_allocate_exception` and `__cxa_throw` read **absent, and that absence is real**.
- *   It is corroborated rather than assumed: twenty other `__cxa_*` symbols (`__cxa_atexit`,
- *   `__cxa_guard_acquire`, `__cxa_rethrow_primary_exception`, …) ARE present in the same scan,
- *   so libc++abi was demonstrably read. This matches the roadmap's recorded
+ *   It is corroborated rather than assumed: **32** other `__cxa_*` symbols (`__cxa_atexit`,
+ *   `__cxa_guard_acquire`, `__cxa_rethrow_primary_exception`, `__cxa_demangle`, …) ARE present
+ *   in the same scan — `grep -c '^__cxa' provided.txt` reads 32, and neither probed symbol is
+ *   among them — so libc++abi was demonstrably read. This matches the roadmap's recorded
  *   `wasm-ld: undefined symbol: __cxa_allocate_exception`, and it is why 26-CONTEXT.md's
  *   "C++ exceptions stay off" is a measurement rather than a preference.
  *
