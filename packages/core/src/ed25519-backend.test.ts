@@ -319,8 +319,20 @@ it('there are at least 7 reject vectors, including the non-canonical S case', ()
  * rejection side. Until Plan 28-03 that weighting was true (7 reject against 5 accept)
  * and unasserted: adding three accept vectors would have silently inverted it with
  * nothing going red. Read 2026-08-10: 7 reject, 5 accept.
+ *
+ * **The id in the title is load-bearing and was demanded by a guard, not decorated in.**
+ * Plan 28-04 minted `CRYPTO-04` as `[x]`, and `acceptance-traceability.node.test.ts`
+ * immediately failed with *"CRYPTO-04 — marked [x] at .planning/REQUIREMENTS.md:727, and
+ * no tracked test file names it"*: the requirement's whole subject is this guard, and no
+ * title anywhere named the requirement. The two ways to make that green without doing the
+ * work were to add the id to `EXPECTED_ABSENT` or to un-tick the box, and both are the
+ * widening-what-counts-as-passing move this repository refuses. This case is the carrier
+ * because it asserts one of the requirement's three named clauses literally — *weighted
+ * toward rejection* — rather than merely running nearby. It is deliberately NOT put on the
+ * `describe` above, whose title is quoted verbatim in a recorded plant output at `:443`;
+ * editing that quote would be rewriting an observation nobody re-took.
  */
-it('the vector corpus stays weighted toward rejection', () => {
+it('the vector corpus stays weighted toward rejection (CRYPTO-04)', () => {
   expect(
     REJECT_VECTORS.length,
     `the corpus must stay heavier on the rejection side: ${REJECT_VECTORS.length} reject vs ${ACCEPT_VECTORS.length} accept`,

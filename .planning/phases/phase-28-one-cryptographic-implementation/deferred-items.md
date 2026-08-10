@@ -48,3 +48,25 @@ indefinitely when size is zero"), a transitive dependency with no relationship t
 libsodium. Vulnerability counts were unchanged by the removal
 (`{"info":0,"low":0,"moderate":0,"high":1,"critical":0,"total":1}`). Not addressed —
 out of scope for a crypto de-duplication phase.
+
+## 3. `packages/core/src/index.ts:401-402` still quotes the pre-merge barrel price
+
+**Found during:** Plan 28-04, Task 1, while writing `CRYPTO-03`'s verdict.
+
+The comment records the cost of barrel-exporting the certificate-lifecycle facades as
+**"75 → 87 and OPEN_FINDING_CEILING 49 → 61"**. Both left-hand figures are pre-merge.
+Plan 28-01 lowered the unreachable ceiling 75 → 73 and `OPEN_FINDING_CEILING` 49 → 47, and
+Plan 28-04 re-derived both against the live tree on 2026-08-10 and read **73 unreachable of
+225 callable barrel exports, 26 disposed, 47 open**, each sitting exactly at its bound. So
+the same `+12` price is today **73 → 85 and 47 → 59**.
+
+**Not fixed here.** `packages/core/src/index.ts` is outside this plan's `files_modified`
+(`.planning/REQUIREMENTS.md` only), and the drift is in a comment rather than in an
+assertion — nothing goes red because of it, which is precisely the 19-12 shape the
+repository already has a name for. It is recorded in the `CRYPTO-03` traceability row as
+well as here, so the next agent to touch that barrel finds it stated rather than having to
+re-find it.
+
+**This is the third copy of the same triple.** `reachability-guard.node.test.ts:350` was
+corrected by Plan 28-01, `.planning/REQUIREMENTS.md`'s WIRE-02 row by Plan 28-04, and this
+one is still open. A figure duplicated into three places drifts in three places.
