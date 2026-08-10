@@ -210,9 +210,40 @@ describe('CRYPTO-01 — exactly one production file performs WebCrypto Ed25519 o
    * ## The planted-mutation proof, watched red — `stripComments` is load-bearing
    *
    * `stripComments(readFileSync(path, 'utf8'))` was replaced by `readFileSync(path,
-   * 'utf8')` and this case watched fail. Verbatim, `--project node`, 2026-08-10:
+   * 'utf8')` — one line, in this file, touching no production source — and this case
+   * watched fail. Verbatim, `--project node`, 2026-08-10, exit 1:
    *
-   * PLACEHOLDER-STRIPCOMMENTS-PLANT
+   * ```
+   *  FAIL  |node| packages/node/src/one-crypto-implementation.node.test.ts > CRYPTO-01 — exactly one production file performs WebCrypto Ed25519 operations > the matching set is exactly one file, named by path
+   * AssertionError: expected [ …(4) ] to deeply equal [ Array(1) ]
+   *
+   * - Expected
+   * + Received
+   *
+   *   [
+   * +   "packages/core/src/cert-lifecycle.ts",
+   *     "packages/core/src/ed25519-backend.ts",
+   * +   "packages/core/src/index.ts",
+   * +   "packages/libp2p/src/identity.ts",
+   *   ]
+   *
+   *  ❯ packages/node/src/one-crypto-implementation.node.test.ts:218:46
+   *
+   *  Test Files  1 failed (1)
+   *       Tests  1 failed | 23 passed (24)
+   * ```
+   *
+   * **Three extra files, and not one of them contains such a call.**
+   * `packages/libp2p/src/identity.ts:70` is the docblock the plan predicted;
+   * `packages/core/src/cert-lifecycle.ts:453` and `packages/core/src/index.ts:390` are
+   * two more comments, both written by Plan 28-01 to record *where the block moved to*.
+   * An unstripped scan therefore reports **four** WebCrypto Ed25519 implementations in a
+   * tree that has one, and the newest three of those false reports were created by the
+   * very phase this guard closes. That is why `stripComments` is load-bearing here rather
+   * than tidy.
+   *
+   * Restored by the surgical inverse of that one-line edit and `cmp`-verified
+   * byte-identical against a snapshot taken immediately before planting.
    */
   it('the matching set is exactly one file, named by path', () => {
     expect(filesMatching(WEBCRYPTO_ED25519)).toEqual(ONE_WEBCRYPTO_IMPLEMENTATION)
@@ -340,7 +371,54 @@ function firstArgumentAt(line: string, open: number): string {
  * a crippled matcher there passed 8 of 9 cases vacuously.
  */
 export function findSignatureIdentityConstructs(file: string, stripped: string): readonly Finding[] {
-  throw new Error(`findSignatureIdentityConstructs is not implemented (${file}, ${String(stripped.length)} chars)`)
+  const findings: Finding[] = []
+  const lines = stripped.split('\n')
+
+  lines.forEach((line, index) => {
+    const lineNumber = index + 1
+
+    // --- arm 1: equality between two operands, one of which names a signature ---
+    // Exclusion (a) is line-scoped on purpose: `typeof a !== 'string' || typeof
+    // signature !== 'string'` is one guard written on one line, and scoping the rule to
+    // the operand would report half of it.
+    const isTypeGuard = /\btypeof\b/.test(line)
+    for (const match of line.matchAll(EQUALITY)) {
+      const left = match[1] ?? ''
+      const operator = match[2] ?? ''
+      const right = match[3] ?? ''
+      if (!NAMES_A_SIGNATURE.test(left) && !NAMES_A_SIGNATURE.test(right)) continue
+      if (isTypeGuard) continue
+      // Exclusion (b): a comparison against a quoted literal is a discriminant check,
+      // never a byte comparison — bytes are not string literals in this codebase.
+      if (QUOTED_LITERAL.test(left) || QUOTED_LITERAL.test(right)) continue
+      findings.push({ file, line: lineNumber, kind: 'equality', text: `${left} ${operator} ${right}` })
+    }
+
+    // --- arm 2: a collection keyed, or membership-tested, by a signature ---
+    for (const call of KEYING_CALLS) {
+      let at = line.indexOf(call)
+      while (at !== -1) {
+        const argument = firstArgumentAt(line, at + call.length - 1)
+        if (NAMES_A_SIGNATURE.test(argument)) {
+          findings.push({
+            file,
+            line: lineNumber,
+            kind: 'keyed',
+            text: `${call.trim()}${argument.trim()})`.replace(/\s+/g, ' '),
+          })
+        }
+        at = line.indexOf(call, at + 1)
+      }
+    }
+
+    // --- arm 3: a converted signature used as a computed key ---
+    const conversion = CONVERSION_KEY.exec(line)
+    if (conversion !== null) {
+      findings.push({ file, line: lineNumber, kind: 'conversion-key', text: conversion[0].replace(/\s+/g, ' ') })
+    }
+  })
+
+  return findings
 }
 
 // --- the matcher's own fixtures, before any live reading is believed ---
@@ -465,6 +543,54 @@ const SIGNATURE_COMPARISON_CEILING = 2
 function keyOf(one: { readonly file: string; readonly text: string }): string {
   return `${one.file}::${one.text}`
 }
+
+/**
+ * ## Both directions of the set equality, each watched red — 2026-08-10, `--project node`
+ *
+ * A one-directional check would let the register rot in whichever direction it did not
+ * look, so both were planted. Both plants live inside this file; no production source
+ * was touched. Each was restored by the surgical inverse of its own edit and
+ * `cmp`-verified byte-identical against a snapshot taken immediately before it.
+ *
+ * ### Direction 1 — an unregistered finding fails
+ *
+ * Exclusion (b) was disabled (`if (false && (QUOTED_LITERAL.test(left) || …)) continue`),
+ * which makes three real discriminant-against-literal lines read as findings. **4 failed
+ * | 20 passed**, and the two exclusion fixtures reddened alongside the live scan:
+ *
+ * ```
+ * AssertionError: these treat signature bytes as an identity and are not in the register: expected [ …(3) ] to deeply equal []
+ * + [
+ * +   "packages/net/src/reduce-job.ts::trustedIssuers === 'checks-no-combine-signatures'",
+ * +   "packages/node/src/mutation-ledger.ts::entry.signatureSource === 'rendered-at-runtime'",
+ * +   "packages/node/src/mutation-ledger.ts::entry.signatureSource === 'test-title'",
+ * + ]
+ * ```
+ *
+ * That plant doubles as the proof that **exclusion (b) is load-bearing on the real tree**
+ * and not defensive decoration. Exclusion (a) is not independently load-bearing here and
+ * this is said rather than implied: all five `typeof signature !== 'string'` lines in
+ * `protocol.ts` are *also* caught by (b), because `'string'` is a quoted literal. (a) is
+ * held by its two fixtures alone, and it keeps its place by naming the intent — a type
+ * guard is not a byte comparison — so a future rewrite of (b) does not silently take
+ * five type guards with it.
+ *
+ * ### Direction 2 — a stale register entry fails
+ *
+ * The register's anchor text was changed to `record.signatureBytes`, an expression the
+ * tree does not contain. **3 failed | 21 passed**:
+ *
+ * ```
+ * AssertionError: the register may not carry a permission the live scan no longer finds: expected [ Array(1) ] to deeply equal []
+ * + [
+ * +   "tools/aot/cli.ts::readBack.signature !== record.signatureBytes",
+ * + ]
+ * ```
+ *
+ * Both directions plus the `toEqual` reddened on that one, which is the intended
+ * over-reporting: a stale entry is simultaneously a permission for nothing and a real
+ * finding left unregistered.
+ */
 
 describe('CRYPTO-06 — signature bytes are not an identifier outside the register', () => {
   const live: readonly Finding[] = CORPUS.flatMap(([path, source]) => findSignatureIdentityConstructs(path, source))
