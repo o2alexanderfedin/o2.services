@@ -14,7 +14,9 @@ import {
   UI_SPEC_TALLY,
   WIRED_SURFACES,
 } from '../../browser/src/demo-regions.ts'
-import type { Region, SurfaceId } from '../../browser/src/demo-regions.ts'
+import type { Region } from '../../browser/src/demo-regions.ts'
+import { ATTESTATION_HOOK, absenceSentences, methodOf, p6, p7, p8 } from './demo-region-properties.ts'
+import type { DomRegion } from './demo-region-properties.ts'
 
 /**
  * The anti-placeholder guard — UI-SPEC section 9's P1, P2, P3, P4, P6, P7 and P8.
@@ -67,39 +69,23 @@ import type { Region, SurfaceId } from '../../browser/src/demo-regions.ts'
  * population, so they are vacuously true today, and they will be true of pi, bring-your-own
  * and fabric-state the moment those land with no edit to this file. That is the difference
  * between a guard written before the screens and a guard written about them.
+ *
+ * ## Where P6, P7 and P8 actually live now — Plan 27-04
+ *
+ * Their bodies moved to `./demo-region-properties.ts` and this file calls them. The reason is
+ * a fact about **this page** rather than about how they were written: it has no relay and no
+ * node, so no region is ever populated here, so all three are vacuously true here **and always
+ * will be**. `demo-liveness.e2e.test.ts` drives a real two-tab run and calls the same three
+ * functions against a page that carries readings, which is where they have something to
+ * measure. One implementation, two harnesses — two copies of a property are two properties
+ * that can come to disagree about what they check.
+ *
+ * The three cases below are kept rather than deleted, and they now say `examined: 0` out loud.
+ * A property whose vacuity is asserted is a property nobody can mistake for coverage.
  */
 
 const ROOT = fileURLToPath(new URL('../../..', import.meta.url))
 const PAGE = 'packages/browser/demo/index.html'
-
-/**
- * The page-side hook P8 needs, named here so a surface cannot populate an attestation region
- * without also making P8 real.
- *
- * P8 compares a rendered attestation against **a fresh reading taken in the same page**, and
- * there is no `TabApi` accessor for *the last run's receipt* — a run returns it once. So the
- * plan that lands the first attestation region publishes the reading it rendered under this
- * name, and P8 goes from vacuous to live with no edit here. Until then P8 asserts its own
- * precondition: a populated attestation region with no hook is a failure naming this string.
- */
-const ATTESTATION_HOOK = '__o2LastAttestation'
-
-/** What P6 quantifies over: field names, not surfaces. UI-SPEC section 9's P6 row names these four. */
-const P6_FIELDS: readonly string[] = ['n', 'verificationMultiplier', 'estimate', 'totalBytes']
-
-/** UI-SPEC section 5.2's two sentences. A withheld count may never appear without one of them. */
-const EGRESS_SENTENCES: readonly string[] = [
-  'registered no sovereign data',
-  'They were not sent anywhere.',
-]
-
-interface DomRegion {
-  readonly id: string
-  readonly kind: string | null
-  readonly source: string | null
-  readonly text: string
-  readonly outer: string
-}
 
 interface UndeclaredText {
   readonly text: string
@@ -123,32 +109,6 @@ let snapshot: PageSnapshot
 
 const catalogue: ReadonlyMap<string, Region> = new Map(REGIONS.map((r) => [r.id, r]))
 const figures: readonly Region[] = REGIONS.filter((r) => FIGURE_KINDS.includes(r.kind))
-
-/** `TabApi.runColouring().n` -> `runColouring`. `null` when the string is not of that form. */
-function methodOf(source: string | null): string | null {
-  if (source === null) return null
-  const match = /^TabApi\.([A-Za-z][A-Za-z0-9]*)\(/.exec(source)
-  return match?.[1] ?? null
-}
-
-/** Every sentence the catalogue holds for a region. A populated region equals none of them. */
-function absenceSentences(region: Region): readonly string[] {
-  const absence = region.absence
-  if (absence === undefined) return []
-  const out = [absence.initial, absence.stopped]
-  if (absence.unavailable !== undefined) out.push(absence.unavailable)
-  return out
-}
-
-function isPopulated(region: Region, dom: DomRegion): boolean {
-  if (dom.text === '') return false
-  return !absenceSentences(region).includes(dom.text)
-}
-
-/** The one text view declared for a surface, or `undefined` while that surface has none. */
-function textViewOf(surface: SurfaceId): Region | undefined {
-  return REGIONS.find((r) => r.surface === surface && r.kind === 'text-view')
-}
 
 describe('the catalogue checks itself, with no browser', () => {
   it('has unique ids, each prefixed by its own surface', () => {
@@ -502,93 +462,27 @@ describe('the page, with the fabric stopped', () => {
     expect(problems).toEqual([])
   })
 
+  // P6, P7 and P8 are `./demo-region-properties.ts`'s, called here and called again against a
+  // real two-tab run in `demo-liveness.e2e.test.ts`. On this page nothing is populated, so all
+  // three examine zero regions — which is asserted below rather than reported as a pass.
   it('P6 — a populated figure also occurs in its own surface text view', () => {
-    // Quantified over the named field set and over the region's own surface. No surface is
-    // named in this body, so pi, bring-your-own and fabric-state inherit it unwritten.
-    const problems: string[] = []
-    for (const dom of snapshot.regions) {
-      const region = catalogue.get(dom.id)
-      if (region === undefined || region.kind !== 'reading') continue
-      if (!P6_FIELDS.some((field) => region.source.endsWith(`.${field}`))) continue
-      if (!isPopulated(region, dom)) continue
-
-      const view = textViewOf(region.surface)
-      if (view === undefined) {
-        problems.push(`${region.id} is populated and its surface declares no text view to render it twice`)
-        continue
-      }
-      const viewText = snapshot.regions.find((other) => other.id === view.id)?.text
-      if (viewText === undefined) {
-        problems.push(`${region.id} is populated and its text view ${view.id} is not on the page`)
-        continue
-      }
-      if (!viewText.includes(dom.text)) {
-        problems.push(
-          `${region.id} renders "${dom.text}" and ${view.id} does not contain that string — one value, two formatters`,
-        )
-      }
-    }
-    expect(problems).toEqual([])
+    const result = p6(snapshot.regions)
+    expect(result.problems).toEqual([])
+    // Vacuity, stated as a measurement. This page has no node, so it stays 0 here forever;
+    // `demo-liveness.e2e.test.ts` asserts the same function examined more than nothing.
+    expect(result.examined).toBe(0)
   })
 
   it('P7 — a withheld count never appears without the sentence that explains it', () => {
-    // Quantified over id suffix. UI-SPEC section 5.2: the count and its sentence are ONE
-    // region and ONE template function, because the bare figure reads as a sovereignty proof.
-    const problems: string[] = []
-    for (const dom of snapshot.regions) {
-      const region = catalogue.get(dom.id)
-      if (region === undefined) continue
-      if (!region.id.endsWith('/egress') && !region.id.endsWith('-withheld')) continue
-      if (!isPopulated(region, dom)) continue
-      if (!/withheld/i.test(dom.text) || !DIGIT.test(dom.text)) continue
-      if (!EGRESS_SENTENCES.some((sentence) => dom.text.includes(sentence))) {
-        problems.push(
-          `${region.id} shows a withheld count with neither "${EGRESS_SENTENCES[0]}" nor "${EGRESS_SENTENCES[1]}" beside it — the figure alone is a lie by omission`,
-        )
-      }
-    }
-    expect(problems).toEqual([])
+    const result = p7(snapshot.regions)
+    expect(result.problems).toEqual([])
+    expect(result.examined).toBe(0)
   })
 
   it("P8 — an attestation region carries the fabric's own words and no sentence of the page's", () => {
-    // Quantified over id suffix, and it asserts its own precondition: a populated attestation
-    // region with no page-side reading published makes this red rather than vacuous.
-    const populated = snapshot.regions.filter((dom) => {
-      const region = catalogue.get(dom.id)
-      if (region === undefined) return false
-      if (!region.id.endsWith('/attestation') && !region.id.endsWith('/attestation-description')) {
-        return false
-      }
-      return isPopulated(region, dom)
-    })
-
-    if (populated.length === 0) {
-      // Vacuous, and said out loud rather than reported as a pass about nothing.
-      expect(populated).toEqual([])
-      return
-    }
-
-    expect(
-      snapshot.attestationHook,
-      `an attestation region is populated and the page publishes no window.${ATTESTATION_HOOK}; P8 compares a rendered receipt against a fresh reading taken in the same page, and without one it would be comparing the page against itself`,
-    ).not.toBeNull()
-
-    const reading = JSON.parse(snapshot.attestationHook ?? 'null') as
-      | { description?: string; reason?: string }
-      | null
-    const problems: string[] = []
-    for (const dom of populated) {
-      const receipt = reading?.description
-      const absence = reading?.reason
-      const ok =
-        (receipt !== undefined && dom.text === receipt) ||
-        (absence !== undefined && dom.text.includes(absence))
-      if (!ok) {
-        problems.push(
-          `${dom.id} reads "${dom.text}", which is neither attestation.description verbatim nor a block containing attestation.reason — the page has composed a sentence of its own`,
-        )
-      }
-    }
-    expect(problems).toEqual([])
+    const result = p8(snapshot.regions, snapshot.attestationHook)
+    expect(result.hookProblem).toBeNull()
+    expect(result.problems).toEqual([])
+    expect(result.examined).toBe(0)
   })
 })

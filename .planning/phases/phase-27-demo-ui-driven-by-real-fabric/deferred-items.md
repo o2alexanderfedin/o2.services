@@ -259,3 +259,62 @@ point is that every figure is declared, is the wrong thing to leave behind. `#st
 **What would close it:** a sixth session region in UI-SPEC section 4.0 if the secure-context
 reading is judged worth declaring — `TabApi.isolation()` already carries neighbouring facts
 on the Fabric-state surface.
+
+## C15 and C17 have no catalogue sentence for "the ladder settled nothing"
+
+**Found during:** 27-04 Task 1.
+
+UI-SPEC section 4.2 gives C15's unavailable arm as *"the absence arm, rendered per §5.1"* — a
+sentence the kernel composes from a receipt — and leaves C17's unavailable cell empty. Both
+read `best.*`, and when the ladder settles no rung at all there is no `best`, so there is no
+receipt and no manifest and **no sentence in the catalogue for the state**. Rendering the
+`initial` arm there would say *the search has not been run* immediately after running it,
+which is the class of untruth this phase exists to remove. So two were composed, both marked
+`COMPOSED` in `packages/browser/demo/surfaces/colouring.ts`:
+
+- `colouring/attestation` — *Not established: the fabric settled no rung, so no run produced a
+  receipt to read.*
+- `colouring/egress` — *Not read: the fabric settled no rung, so no manifest was read back for
+  this workload.*
+
+Neither is in `REGIONS`, because the catalogue's `unavailable` arm is defined as *the arm
+UI-SPEC names a literal sentence for*, and UI-SPEC names none here.
+
+**Untested, and said rather than left to be found:** the two-tab run in
+`demo-liveness.e2e.test.ts` settles, so this branch is reached only by
+`colouring-surface.node.test.ts`'s *says the fabric settled nothing rather than that nothing was
+run* case, in a unit context. No browser has rendered either sentence.
+
+**What would close it:** UI-SPEC section 4.2 quoting a sentence in C15's and C17's unavailable
+cells, or adopting these two.
+
+## P5b exempts the two regions whose catalogue entry holds no unavailable arm
+
+**Found during:** 27-04 Task 3.
+
+P5's second arm — *no reading region still equals its `initial` or its `stopped` sentence after
+a run* — cannot apply to a region the catalogue gives no third sentence, because there would be
+nothing else for the page to render. Today that exempts exactly `colouring/attestation` and
+`colouring/egress`, and both are covered by name in the specific-assertion block instead. The
+exemption is derived from the catalogue rather than from a list, so it shrinks on its own if
+UI-SPEC ever supplies those two cells — but it also grows on its own if a later surface lands a
+reading with no unavailable arm, and nothing reports that it grew.
+
+**What would close it:** an assertion bounding the exempt set, once the surfaces that would
+populate it exist.
+
+## `#run-status` puts an undeclared digit on screen after a run
+
+**Found during:** 27-04 Task 2.
+
+`#run-status` reads `settled n = 500` once the ladder stops. UI-SPEC section 4.2 lists it under
+*"unchanged and not counted as figure regions"*, alongside `#run` and the two text views, so it
+carries no `data-region`. P2 does not catch it because P2 runs on the stopped page, where the
+same element reads `start a node first`.
+
+It is not a placeholder — the figure is a real reading of the run that just finished — but it
+is a number inside `#main` with no declared ancestor, and the rule P2 enforces has no exception
+for *the spec said this element does not count*.
+
+**What would close it:** either a `control` row for `#run-status` in UI-SPEC section 4.2 with
+the surface tally moved to 22, or P2 run on a populated page with a stated exemption list.
