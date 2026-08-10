@@ -147,3 +147,115 @@ name.
 **What would close it:** an edit to UI-SPEC §7.2 replacing the predicted column with the
 measured one, and adding the `.btn-primary` row. That is UI-SPEC's edit to make, not this
 plan's.
+
+## UI-SPEC section 9's P3, as written, cannot fail — measured under a plant
+
+**Found during:** 27-03 Task 3, arranging P3 before writing it.
+
+Section 9 states P3 as *"every `data-kind="reading"` region's trimmed text equals its
+`data-absence`, and matches `/^\D*$/`"*. `render.ts`'s `paintAbsence` writes the sentence
+into `textContent` and mirrors it onto `data-absence` in the same call — it must, because a
+region has three different absence sentences for three different states — so the first half
+of that comparison is true by construction.
+
+**Measured, not argued.** One plant, `sentenceFor` returning
+`.replace('node is stopped', 'node is off')`, and both formulations read against the same
+page in the same planted state:
+
+| formulation | regions examined | violations | exit |
+|---|---|---|---|
+| UI-SPEC's, `text === data-absence` | 4 | **0** | 0 |
+| the guard's, `text === REGIONS[id].absence.stopped` | 4 | **4** | 1 |
+
+`demo-regions.e2e.test.ts` therefore compares against the committed catalogue and nowhere
+uses `getAttribute('data-absence')` as an expected value; a grep acceptance clause holds it
+at 0. The `data-absence` attribute stays, as a mirror a reader can inspect.
+
+**What would close it:** an edit to UI-SPEC section 9's P3 row replacing *its `data-absence`*
+with *the catalogue's sentence for its current state*, and to section 3, which describes
+`data-absence` as if a region had one sentence rather than three.
+
+## UI-SPEC section 3 puts the catalogue where no spec can import it
+
+**Found during:** 27-03 Task 1.
+
+Section 3 says *"the catalogue lives at `packages/browser/demo/regions.ts`"*. Two reasons it
+cannot: `tab-api.ts`'s own opening docblock gives the rule for `src/` — one definition for the
+page and the harness, because a mismatch otherwise surfaces only as a timeout inside
+`page.evaluate` — and, decisively, `demo/` is outside **every** vitest project's include glob
+(`packages/*/src/**`), so a catalogue there could not be imported by the guard at all. It
+lives at `packages/browser/src/demo-regions.ts`.
+
+**What would close it:** an edit to UI-SPEC section 3's path.
+
+## UI-SPEC section 4.4's shard-partials absence has copy, no row, and no place in the 91
+
+**Found during:** 27-03 Task 1, transcribing the pi surface.
+
+Section 4.4's prose names an absence — *"No per-shard partials: the reading this page
+receives carries the aggregate and not the shard rows."* — and gives it no row in the table
+and no place in the tally. The table is P1..P14 and the closing paragraph counts pi at 14.
+Adding it would make the surface 15 and the catalogue 92, against a tally UI-SPEC states
+about itself and the guard checks. It is **not** in `REGIONS`; the pattern it belongs to is
+still under guard through `primes/per-shard` (N9), which does have a row.
+
+**What would close it:** either a P15 row in section 4.4 with the tally moved to 92, or a
+sentence in section 4.4 saying the shard-partials copy is prose rather than a region.
+
+## Three of UI-SPEC section 4.6's cells describe a state rather than quoting a sentence
+
+**Found during:** 27-03 Task 1.
+
+F17's two cells read *"always readable — three booleans, no node needed"* and *"unchanged"*;
+F18's stopped cell reads *"readable with no node: `asked` is zero and the copy says nobody was
+asked"*; F19's says *"as F18"*. Every reading needs a sentence to paint before it has a
+reading, so three were composed and each is marked `COMPOSED` at its entry rather than passed
+off as a transcription:
+
+- `fabric/isolation`, both arms — *Not read: the page has not yet taken this tab's isolation reading.*
+- `fabric/start-reached` and `fabric/start-tallies`, stopped — *Nobody was asked: no peer has been asked for a start outcome.*
+
+**What would close it:** UI-SPEC section 4.6 quoting a sentence in those three cells, or
+adopting these.
+
+## `session/relay`'s unavailable arm is unreachable
+
+**Found during:** 27-03 Task 2, writing the stopped-wins rule.
+
+UI-SPEC H3's unavailable copy — *No relay: this page was served by a static host, which runs
+none.* — is shown when `discoverRelays()` reports `source: 'none'`. But a page with no relay
+cannot start a node, so `activity()` is null in exactly the states in which that sentence is
+true, and the writer's stopped-wins rule paints the stopped sentence instead. The arm is in
+the catalogue, is digit-free, ends in a full stop, and nothing renders it.
+
+Stopped-wins is deliberate and is not the thing to change: without it a safe reading could
+paint an unavailable arm while the node is stopped, and P3 would have to accept two sentences
+per region.
+
+**What would close it:** either UI-SPEC dropping H3's unavailable arm, or a state in which a
+node outlives its relay discovery — which would also make it reachable.
+
+## The Benchmarks lede quotes a planning identifier on a visitor-facing page
+
+**Found during:** 27-03 Task 2, reading P2's offender list.
+
+`#s-bench`'s lede says *"The figures themselves land with Plan 27-09"*. P2 found it because
+`27-09` carries digits. It is declared as `bench/prose-provenance` rather than reworded:
+rewording another plan's surface to make this plan's guard green is the failure this guard
+exists to prevent, one level up. A visitor has no way to resolve a plan identifier.
+
+**What would close it:** Plan 27-09 replacing that sentence when it lands the figures.
+
+## Two diagnostic pairs were dropped from the session header
+
+**Found during:** 27-03 Task 2.
+
+`setFacts` rendered `relay source` and `secure context` beside the three declared readings.
+Neither is among UI-SPEC section 4.0's five regions and no spec reads `#facts`, so both are
+gone: an undeclared pair sitting beside three declared ones, on the one header whose whole
+point is that every figure is declared, is the wrong thing to leave behind. `#state` and
+`#explain` carry what a blocked visitor needs.
+
+**What would close it:** a sixth session region in UI-SPEC section 4.0 if the secure-context
+reading is judged worth declaring — `TabApi.isolation()` already carries neighbouring facts
+on the Fabric-state surface.
