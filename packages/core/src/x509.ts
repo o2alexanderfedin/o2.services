@@ -29,11 +29,13 @@
  * the profile's semantic refusals (X509-01, 02, 06, 07, and X509-03 wired as a
  * certificate-level gate) as pure composition over the engine this file proves correct.
  *
- * Pure module: no platform imports. (The one platform-adjacent thing this project
- * tolerates inside a "pure" module — a lazy `import()` behind a runtime capability
- * check, as Plan 25-04 adds elsewhere — has no occasion here: this file never needs to
- * reach outside itself.)
+ * Pure module: no platform imports. `@ipld/dag-cbor` (Plan 25-02) is a library
+ * dependency, not a platform one — the same distinction `canonical/encode.ts` already
+ * draws for the identical import, and this file still never reaches outside itself for
+ * clock, randomness, or I/O.
  */
+
+import * as dagCbor from '@ipld/dag-cbor'
 
 /** One decoded TLV node, faithful to what was read — no canonicalisation applied yet. */
 export interface DerNode {
@@ -562,6 +564,163 @@ function checkAlgorithm(node: DerNode): X509Failure | null {
   return null
 }
 
+/**
+ * `operatorId`'s byte cap. `enrollment.ts` places no length limit on this field today
+ * (RESEARCH.md §3/Pitfall 3 — this is a new constraint being introduced, not an
+ * existing bound being encoded). 64 bytes is RESEARCH.md §4's worked figure for a
+ * reasonable free-text operator name.
+ */
+const MAX_OPERATOR_ID_BYTES = 64
+
+/**
+ * `relayIds`' item-count cap. `enrollment.ts` places no cap on this field today
+ * (RESEARCH.md §3/§4 — also a new constraint, not an existing one). 8 matches
+ * RESEARCH.md §4's worked total and this profile's own `MAX_EXTENSION_COUNT` headroom
+ * philosophy: enough relays for a realistic dependency list without the array itself
+ * becoming the padding vector `MAX_EXTENSION_BYTES` already bounds from outside.
+ */
+const MAX_RELAY_ID_COUNT = 8
+
+/** Per-relay-ID byte cap, RESEARCH.md §4's worked figure for a realistic relay identifier. */
+const MAX_RELAY_ID_BYTES = 128
+
+interface ExtensionFields {
+  readonly userKey: string
+  readonly operatorId: string
+  readonly discoverability: 'seed' | 'via-relay'
+  readonly relayIds: readonly string[]
+}
+
+interface RawExtension {
+  readonly extnId: string
+  readonly extnValue: Uint8Array
+}
+
+/**
+ * Parse the `[3]`-wrapped `Extensions` `SEQUENCE` into a flat list of `{extnId,
+ * extnValue}`. `Extension.critical BOOLEAN DEFAULT FALSE` is DER-omitted when false, so
+ * a well-formed `Extension` SEQUENCE has either 2 children (no critical) or 3 (critical
+ * present) — never fewer, never more.
+ */
+function parseExtensionList(extensionsNode: DerNode): readonly RawExtension[] | X509Failure {
+  const wrapped = extensionsNode.children[0]
+  if (!wrapped || wrapped.tag !== 0x30) {
+    return malformed('expected an Extensions SEQUENCE inside the [3] EXPLICIT wrapper', 0)
+  }
+  const raw: RawExtension[] = []
+  for (const ext of wrapped.children) {
+    if (ext.tag !== 0x30) return malformed('expected an Extension SEQUENCE', 0)
+    let extnIdNode: DerNode | undefined
+    let extnValueNode: DerNode | undefined
+    if (ext.children.length === 2) {
+      extnIdNode = ext.children[0]
+      extnValueNode = ext.children[1]
+    } else if (ext.children.length === 3) {
+      extnIdNode = ext.children[0]
+      const criticalNode = ext.children[1]
+      if (!criticalNode || criticalNode.tag !== 0x01) return malformed('expected Extension.critical BOOLEAN', 0)
+      extnValueNode = ext.children[2]
+    } else {
+      return malformed('expected an Extension SEQUENCE with 2 or 3 children', 0)
+    }
+    if (!extnIdNode || extnIdNode.tag !== 0x06) return malformed('expected Extension.extnID OBJECT IDENTIFIER', 0)
+    if (!extnValueNode || extnValueNode.tag !== 0x04) return malformed('expected Extension.extnValue OCTET STRING', 0)
+    raw.push({ extnId: decodeOid(extnIdNode.content), extnValue: extnValueNode.content })
+  }
+  return raw
+}
+
+/**
+ * Extension rules (X509-06/07) plus the four custom extension decoders (RESEARCH.md
+ * §3). Order matters and matches this task's own `<action>` text: `too-many-extensions`
+ * is checked against the parsed list length *before* the per-extension loop runs; inside
+ * the loop, `duplicate-extension` is checked before `extension-too-large`, which is
+ * checked before `unrecognised-extension`, which is checked before that extension's
+ * payload is decoded at all.
+ */
+function readExtensions(extensionsNode: DerNode): ExtensionFields | X509Failure {
+  const list = parseExtensionList(extensionsNode)
+  if (isX509Failure(list)) return list
+
+  if (list.length > MAX_EXTENSION_COUNT) {
+    return { kind: 'too-many-extensions', count: list.length, limit: MAX_EXTENSION_COUNT }
+  }
+
+  let userKey = ''
+  let operatorId = ''
+  let discoverability: 'seed' | 'via-relay' = 'seed'
+  let relayIds: readonly string[] = []
+  const seen = new Set<string>()
+
+  for (const ext of list) {
+    if (seen.has(ext.extnId)) return { kind: 'duplicate-extension', oid: ext.extnId }
+    seen.add(ext.extnId)
+
+    if (ext.extnValue.length > MAX_EXTENSION_BYTES) {
+      return { kind: 'extension-too-large', oid: ext.extnId, bytes: ext.extnValue.length, limit: MAX_EXTENSION_BYTES }
+    }
+
+    switch (ext.extnId) {
+      case EXT_USER_KEY: {
+        if (ext.extnValue.length !== 32) return malformed('userKey extension must be exactly 32 raw bytes', 0)
+        userKey = toHex(ext.extnValue)
+        break
+      }
+      case EXT_OPERATOR_ID: {
+        let decoded: unknown
+        try {
+          decoded = dagCbor.decode(ext.extnValue)
+        } catch (cause) {
+          return malformed(`operatorId extension is not valid dag-cbor: ${cause instanceof Error ? cause.message : String(cause)}`, 0)
+        }
+        if (typeof decoded !== 'string') return malformed('operatorId extension must decode to a string', 0)
+        // Independent of the outer extnValue ceiling just checked above -- the decoded
+        // *string's* own byte length is capped separately, per this task's own
+        // <action> text: "the two ceilings are independent and both apply."
+        const bytes = new TextEncoder().encode(decoded).length
+        if (bytes > MAX_OPERATOR_ID_BYTES) {
+          return { kind: 'extension-too-large', oid: ext.extnId, bytes, limit: MAX_OPERATOR_ID_BYTES }
+        }
+        operatorId = decoded
+        break
+      }
+      case EXT_DISCOVERABILITY: {
+        if (ext.extnValue.length !== 1 || (ext.extnValue[0] !== 0x00 && ext.extnValue[0] !== 0x01)) {
+          return malformed('discoverability extension must be a single 0x00 or 0x01 byte', 0)
+        }
+        discoverability = ext.extnValue[0] === 0x00 ? 'seed' : 'via-relay'
+        break
+      }
+      case EXT_RELAY_IDS: {
+        let decoded: unknown
+        try {
+          decoded = dagCbor.decode(ext.extnValue)
+        } catch (cause) {
+          return malformed(`relayIds extension is not valid dag-cbor: ${cause instanceof Error ? cause.message : String(cause)}`, 0)
+        }
+        if (!Array.isArray(decoded) || !decoded.every((item) => typeof item === 'string')) {
+          return malformed('relayIds extension must decode to an array of strings', 0)
+        }
+        if (decoded.length > MAX_RELAY_ID_COUNT) {
+          return { kind: 'extension-too-large', oid: ext.extnId, bytes: decoded.length, limit: MAX_RELAY_ID_COUNT }
+        }
+        for (const id of decoded as readonly string[]) {
+          const idBytes = new TextEncoder().encode(id).length
+          if (idBytes > MAX_RELAY_ID_BYTES) {
+            return { kind: 'extension-too-large', oid: ext.extnId, bytes: idBytes, limit: MAX_RELAY_ID_BYTES }
+          }
+        }
+        relayIds = decoded as readonly string[]
+        break
+      }
+      default:
+        return { kind: 'unrecognised-extension', oid: ext.extnId }
+    }
+  }
+
+  return { userKey, operatorId, discoverability, relayIds }
+}
+
 interface TbsFields {
   readonly version: number
   readonly serialNumber: string
@@ -601,8 +760,8 @@ function assembleTbs(tbs: DerNode): TbsFields | X509Failure {
   if (!tbsAlgNode || tbsAlgNode.tag !== 0x30) {
     return malformed('expected TBSCertificate.signature AlgorithmIdentifier SEQUENCE', 0)
   }
-  // Algorithm OID validated by Plan 25-02 Task 2's `checkAlgorithm` (X509-01/02), wired
-  // in below `assembleTbs` once the allow-list lands — this commit is structural only.
+  const tbsAlgFailure = checkAlgorithm(tbsAlgNode)
+  if (tbsAlgFailure) return tbsAlgFailure
 
   const issuerResult = readName(children[i])
   i++
@@ -641,7 +800,8 @@ function assembleTbs(tbs: DerNode): TbsFields | X509Failure {
   if (spkiAlgNode.tag !== 0x30) {
     return malformed('expected SubjectPublicKeyInfo.algorithm AlgorithmIdentifier SEQUENCE', 0)
   }
-  // Algorithm OID validated by Task 2's `checkAlgorithm`, same as the TBS-inner field above.
+  const spkiAlgFailure = checkAlgorithm(spkiAlgNode)
+  if (spkiAlgFailure) return spkiAlgFailure
   const spkiKeyNode = spkiNode.children[1] as DerNode
   // BIT STRING content = 1 unused-bits byte + the raw 32-byte Ed25519 key, no OCTET
   // STRING wrapper (RESEARCH.md Pitfall 2 — the private-key wrapping habit does not
@@ -758,17 +918,21 @@ export function decodeX509Certificate(bytes: Uint8Array): X509Result {
   if (outerAlgNode.tag !== 0x30) {
     return fail(malformed('expected Certificate.signatureAlgorithm AlgorithmIdentifier SEQUENCE', 0))
   }
-  // Algorithm OID validated by Task 2's `checkAlgorithm` (X509-01/02) — structural
-  // shape only in this commit.
+  const outerAlgFailure = checkAlgorithm(outerAlgNode)
+  if (outerAlgFailure) return fail(outerAlgFailure)
 
   if (sigNode.tag !== 0x03 || sigNode.content.length !== 65) {
     return fail(malformed('expected a 64-byte Ed25519 signature in signatureValue BIT STRING (65 bytes with the unused-bits octet)', 0))
   }
   const signature = toHex(sigNode.content.subarray(1))
 
-  // Extension processing (X509-06/07) is Task 2's wiring; this commit always reports
-  // the four custom fields empty regardless of whether an [3] extensions block is
-  // present, since nothing yet reads its contents.
+  let extensions: ExtensionFields = { userKey: '', operatorId: '', discoverability: 'seed', relayIds: [] }
+  if (tbs.extensionsNode) {
+    const result = readExtensions(tbs.extensionsNode)
+    if (isX509Failure(result)) return fail(result)
+    extensions = result
+  }
+
   const certificate: X509Certificate = {
     version: tbs.version,
     serialNumber: tbs.serialNumber,
@@ -777,10 +941,10 @@ export function decodeX509Certificate(bytes: Uint8Array): X509Result {
     notAfter: tbs.notAfter,
     subjectCommonName: tbs.subjectCommonName,
     subjectPublicKey: tbs.subjectPublicKey,
-    userKey: '',
-    operatorId: '',
-    discoverability: 'seed',
-    relayIds: [],
+    userKey: extensions.userKey,
+    operatorId: extensions.operatorId,
+    discoverability: extensions.discoverability,
+    relayIds: extensions.relayIds,
     signature,
   }
 
