@@ -802,3 +802,69 @@ The labels are terse now and the explanation is in the card note, which wraps.
 Worth recording only because the rule is invisible at the call site and the failure looks like a
 responsive-layout problem rather than a copy-length one. B1 is a real guard here and it fired
 before anything shipped.
+
+## B5 measured a hidden box on 50 of 60 combinations, and `#measurements` is still outside it
+
+**Found during:** 27-09 Task 1, by printing what B5 measured rather than by a failure.
+
+`demo-viewport.e2e.test.ts` took `#main`'s literal `lastElementChild`, which is
+`section#s-bench`. That panel is `hidden` on five of every six passes of the surface loop, and a
+`display: none` box measures all zeros — so `mainLastBottom` read `0.00` and `0 <= barTop` was
+green without measuring anything. Observed, before the fix:
+
+```
+[B5] 320px / idle / surface 1 of 6: measured section#s-bench bottom=0.00 barTop=632.41
+```
+
+**Fixed here**, by taking the last child of `#main` with a client rect — the panel the visitor is
+looking at. After: `0` of 60 combinations read zero, and the tag varies per pass
+(`section#s-colouring`, `section#s-primes`, …). Recorded rather than left silent because the fix
+edits a spec outside this plan's `files_modified`, and because it is the second time this file's
+readings have been more vacuous than they looked.
+
+**Still open, and unchanged by that fix:** `#measurements` — the footer carrying the link to the
+perf report — is a **sibling** of `#main`, not a child, so B5 is silent about it in both forms.
+27-01 measured the footer's bottom under the bar at all three narrow widths with B5 green
+throughout. `footerBottom` is still read and still not asserted. Closing it needs UI-SPEC §6.3 to
+say whether B5 is about `#main` or about the end of the page.
+
+## The bar's three regions are declared but nothing checks their elements
+
+**Found during:** 27-09 Task 1, while appending `'bar'` to `WIRED_SURFACES`.
+
+B1, B2 and B3 have been in the catalogue since 27-03 and until this plan **no element on the page
+carried their `data-region` ids**. The attributes went onto `#bar-what`, `#bar-stats` and `#stop`
+so that appending `'bar'` was a true admission rather than a greppable one.
+
+**It buys no coverage today, measured rather than assumed.** P1b is the only property scoped to
+`WIRED_SURFACES`, and it runs in `demo-regions.e2e.test.ts` on a page with **no node**, where
+`#bar` is absent and `absenceMode: 'element-removed'` skips all three. The examined count moved
+`99 → 102` — bench's two regions and its prose line — and *not* by the bar's three:
+`[P1b] examined 102 of 105 catalogue entries (… #bar absent)`.
+
+**What would close it:** a P1b pass on a page with a node running. `demo-liveness.e2e.test.ts`
+already has that page and already imports `REGIONS` and `WIRED_SURFACES`; the missing piece is one
+case there asserting every catalogue entry of a wired surface resolves to exactly one element while
+`#bar` is visible. That is the only run in which the bar's three regions are checkable at all.
+
+## The Benchmarks surface's provenance line does not match the document's own sentence
+
+**Found during:** 27-09 Task 1, comparing UI-SPEC §4.7 requirement 1 against the committed
+document's header.
+
+The document opens *"Measured 2026-08-02 on one machine: 8 physical cores, Node 23.11, V8's
+built-in WebAssembly. Every number below was produced by a run recorded here; none is an estimate,
+and the ones that disagreed with what was predicted are marked as such."*
+
+UI-SPEC's fixed copy is *"Measured 2026-08-02 on one machine — 8 physical cores, Node 23.11, V8's
+built-in WebAssembly. Every figure on this screen comes from that recorded run. None of them is a
+reading from your tab."*
+
+They differ in the punctuation of the first sentence and entirely in the second. **UI-SPEC's is
+what ships**, because §11 fixes it and a plan that quietly reworded a fixed string would be editing
+the copywriting contract from inside a surface. The disagreement is reported here rather than
+reconciled. Every figure in the shipped line — the date, the core count, the engine version —
+occurs in the document, so P9 covers it either way.
+
+**What would close it:** one edit to UI-SPEC §4.7 stating that the line is the contract's own
+wording and not a quotation of the document's header.
