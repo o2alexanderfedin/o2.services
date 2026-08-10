@@ -63,6 +63,32 @@ export interface PropertyResult {
  */
 export const ATTESTATION_HOOK = '__o2LastAttestation'
 
+/**
+ * The hook's shape, as of Plan 27-08 — the flat receipt, **and** a map keyed by surface.
+ *
+ * ## Why it grew a map, measured rather than argued
+ *
+ * With one attestation region on the page, one value was exact. Plan 27-07 landed a second
+ * and logged what that did: {@link p8} reads the hook **once**, after the whole P5 loop has
+ * finished, so it was comparing a receipt rendered by the colouring panel against a reading
+ * produced by the bring-your-own run that came after it. It passed, and it passed *close to
+ * luck* — both runs were the same two unenrolled tabs, so both produced the same absence arm
+ * naming the same node ids in the same order. A run where they differed would have reddened
+ * P8 with a message about a page that had composed a sentence of its own, which would have
+ * been false.
+ *
+ * Plan 27-08 lands a third — `fabric/attestation-description`, the cross-cutting view — and
+ * applies the fix that item wrote out. The page publishes what **each** surface rendered
+ * under its own key; this function prefers `bySurface[region.surface]` and falls back to the
+ * flat fields, which still carry the last receipt the page rendered anywhere. Both harnesses
+ * pass the hook through as an opaque JSON string, so **neither needed an edit**.
+ */
+interface AttestationHook {
+  readonly description?: string
+  readonly reason?: string
+  readonly bySurface?: Readonly<Record<string, { description?: string; reason?: string } | null>>
+}
+
 /** What P6 quantifies over: field names, not surfaces. UI-SPEC section 9's P6 row names these four. */
 export const P6_FIELDS: readonly string[] = ['n', 'verificationMultiplier', 'estimate', 'totalBytes']
 
@@ -212,17 +238,23 @@ export function p8(regions: readonly DomRegion[], hook: string | null): Attestat
     }
   }
 
-  const reading = JSON.parse(hook) as { description?: string; reason?: string } | null
+  const reading = JSON.parse(hook) as AttestationHook | null
   const problems: string[] = []
   for (const dom of populated) {
-    const receipt = reading?.description
-    const absence = reading?.reason
+    // Per surface first, flat second. See {@link AttestationHook} for the measurement that
+    // made the first necessary and why the second stays: a page that publishes only the
+    // flat value is still checked, against the last receipt it rendered anywhere.
+    const surface = CATALOGUE.get(dom.id)?.surface
+    const perSurface = surface === undefined ? undefined : reading?.bySurface?.[surface]
+    const source = perSurface ?? reading
+    const receipt = source?.description
+    const absence = source?.reason
     const ok =
       (receipt !== undefined && dom.text === receipt) ||
       (absence !== undefined && dom.text.includes(absence))
     if (!ok) {
       problems.push(
-        `${dom.id} reads "${dom.text}", which is neither attestation.description verbatim nor a block containing attestation.reason — the page has composed a sentence of its own`,
+        `${dom.id} reads "${dom.text}", which is neither attestation.description verbatim nor a block containing attestation.reason${perSurface === undefined || perSurface === null ? '' : ` (compared against window.${ATTESTATION_HOOK}.bySurface.${surface})`} — the page has composed a sentence of its own`,
       )
     }
   }

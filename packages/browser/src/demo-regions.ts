@@ -236,6 +236,25 @@ export const WIRED_SURFACES: readonly SurfaceId[] = [
   // property could ever drive, and `demo/surfaces/byo.ts`'s header records why an empty form
   // would have been a state no visitor could leave either.
   'byo',
+  // Plan 27-08 — all 21 of UI-SPEC section 4.6, wired through `demo/surfaces/fabric.ts`.
+  //
+  // **This surface has no run control either, and unlike primes that is not a limitation.**
+  // UI-SPEC section 11 gives it none by design — *Fabric state — none; the surface reads,
+  // it does not run* — so appending here puts `fabric` in P5's **skipped** list beside
+  // `session` and `primes`, reported by name on stderr.
+  //
+  // Two consequences worth writing down rather than discovering, because both are about
+  // what this line does NOT buy:
+  //
+  // 1. It turns on the guard's *every catalogue entry resolves to exactly one element* half
+  //    for all twenty-one, which is the whole reason a surface with no run control still
+  //    belongs in this array — the argument the primes entry above makes.
+  // 2. It does **not** put these regions under P5a or P5b. `demo-liveness.e2e.test.ts`
+  //    collects `[data-region]` elements from the panels it *drove*, so a skipped surface
+  //    contributes nothing to either arm. Sixteen of these twenty-one hold no `unavailable`
+  //    sentence in the catalogue and would be exempt from P5b even if they were collected;
+  //    they are covered instead by `demo-fabric.e2e.test.ts`, region by region and by name.
+  'fabric',
 ]
 
 // ---------------------------------------------------------------------------------------

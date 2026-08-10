@@ -1146,6 +1146,230 @@
           <h2>Every reading here has a source of truth.</h2>
         </div>
 
+        <!--
+          F1 through F5 — who this tab is connected to, and which of those connections can
+          actually carry a job. The second question is the one `peers()` cannot answer:
+          `libp2p.getPeers()` counts a peer reachable over nothing but a limited relay
+          circuit as connected, so a page with only that reading says two nodes are
+          computing about a pair that cannot run the work. `heldPeers().carriesWork` is a
+          positive test and F4 renders it per peer.
+        -->
+        <div class="cards rendered-only">
+          <div class="card blueprint">
+            <i class="corner tl"></i><i class="corner tr"></i>
+            <i class="corner bl"></i><i class="corner br"></i>
+            <p class="card-kicker">Connections, and which of them can work</p>
+            <!--
+              **Every `<dt>` on this surface is terse, and that is a layout constraint
+              rather than a style.** `demo.css`'s `dl` is
+              `grid-template-columns: max-content 1fr`, so a `<dt>` never wraps: its whole
+              phrase sets the first track's width. The first draft used sentences here —
+              *peers held over a connection that can carry a job* — and B1 in
+              `demo-viewport.e2e.test.ts` went red at both 320 and 360 with
+              `documentElement.scrollWidth 388`, the same figure at both widths because it
+              is an intrinsic width and not a viewport one. The explanation belongs in the
+              note below, which wraps.
+
+              Not "every libp2p connection" either, which is the accurate phrase and
+              carries a digit inside the library's name. P2 caught that one: a number on
+              screen with no declared ancestor is a number nothing states the source of,
+              and the guard has no exception for a digit that is part of a word.
+            -->
+            <dl>
+              <dt>connections</dt>
+              <dd data-region="fabric/peers-all" data-kind="reading" data-source="TabApi.peers().length"></dd>
+              <dt>answered an offer</dt>
+              <dd data-region="fabric/compute-peers" data-kind="reading" data-source="TabApi.computePeers().length"></dd>
+              <dt>can carry a job</dt>
+              <dd data-region="fabric/held-peers" data-kind="reading" data-source="TabApi.heldPeers().length"></dd>
+            </dl>
+            <p class="card-note">
+              The first is every connection this tab holds and always includes the relay,
+              because holding a reservation is a connection. The second is the peers that
+              answered an offer — established by asking, never by classifying, because a
+              relay signals and does not compute. The third is the subset this tab holds
+              over a connection that can carry work.
+            </p>
+          </div>
+          <div class="card blueprint">
+            <i class="corner tl"></i><i class="corner tr"></i>
+            <i class="corner bl"></i><i class="corner br"></i>
+            <p class="card-kicker">Peers this tab holds</p>
+            <div class="scroller">
+              <pre class="mono" data-region="fabric/peer-rows" data-kind="reading" data-source="TabApi.heldPeers().peer with .carriesWork"></pre>
+            </div>
+            <p class="card-note">A pair that is connected and cannot carry a job</p>
+            <p class="mono" data-region="fabric/relayed-only" data-kind="reading" data-source="TabApi.connectDiscoveredPeers().relayedOnly with .stalled"></p>
+            <p class="card-note">
+              A relayed circuit is a signalling channel with a duration and a data limit,
+              which this project's constraints say may not carry a job. A pair can end up
+              holding nothing else after a simultaneous mutual dial. This reading is the
+              last discovery round the page ran on its own timer — nothing on this surface
+              dials, because a display that caused what it displays would be reporting
+              itself.
+            </p>
+          </div>
+        </div>
+
+        <!--
+          F6, F7, F8 — the last receipt any surface in this tab produced, and F7 is
+          `attestation.description` VERBATIM. UI-SPEC section 5.1: the page composes no
+          sentence of its own here. It goes through `render.ts`'s `attestationLines`, the
+          same function the colouring and bring-your-own surfaces call, so one result
+          cannot be described two ways on one page.
+
+          F9, F10, F11 — the manifest of that same run. F11 is ONE region, count and
+          sentence together, section 5.2.
+        -->
+        <div class="cards rendered-only">
+          <div class="card blueprint">
+            <i class="corner tl"></i><i class="corner tr"></i>
+            <i class="corner bl"></i><i class="corner br"></i>
+            <p class="card-kicker">How strongly the last answer was attested</p>
+            <dl>
+              <dt>strength</dt>
+              <dd class="mono" data-region="fabric/attestation-strength" data-kind="reading" data-source="TabApi.runColouring().attestation.strength"></dd>
+            </dl>
+            <p class="quote" data-region="fabric/attestation-description" data-kind="reading" data-source="TabApi.runColouring().attestation.description"></p>
+            <p class="card-note" data-region="fabric/attestation-counts" data-kind="reading" data-source="TabApi.runColouring().attestation.replicas with .operators and .sharedRelay"></p>
+            <p class="card-note">
+              Whichever surface ran last. The kernel's own sentence, passed through — the
+              command line prints the same field from the same value, so there is one
+              author of these words and no surface holds a copy of them.
+            </p>
+          </div>
+          <div class="card blueprint">
+            <i class="corner tl"></i><i class="corner tr"></i>
+            <i class="corner bl"></i><i class="corner br"></i>
+            <p class="card-kicker">What left this device on that run</p>
+            <dl>
+              <dt>frames sent</dt>
+              <dd data-region="fabric/egress-frames" data-kind="reading" data-source="TabApi.runColouring().egress.entries.length"></dd>
+              <dt>bytes sent</dt>
+              <dd data-region="fabric/egress-bytes" data-kind="reading" data-source="TabApi.runColouring().egress.totalBytes"></dd>
+            </dl>
+            <pre data-region="fabric/egress-withheld" data-kind="reading" data-source="TabApi.runColouring().egress.violations"></pre>
+            <p class="card-note">
+              The withheld count and the sentence beside it are one region and one
+              function, because the figure on its own would read as a proof of sovereignty
+              and a run may simply have had nothing to hold back.
+            </p>
+            <p class="card-note">
+              A limit this surface inherits rather than introduces, and it is a claim about
+              sovereignty so it is stated here: the sentence reports what the egress guard
+              saw, not what the run submitted. A dispatch whose shards were owner-pinned
+              but refused above the guard leaves it saying that nothing sovereign was
+              registered. The manifest carries no field that would let the sentence tell
+              those apart, and rewording it on this surface alone would make this page a
+              second author of the sentence that carries the claim.
+            </p>
+          </div>
+        </div>
+
+        <!--
+          F12 through F16, and the surface's one input. The slider is a control and NOT a
+          `.btn-primary`: UI-SPEC section 11 gives this surface no primary CTA, and
+          `demo-liveness.e2e.test.ts` discovers run controls by asking for
+          `#s-fabric .btn-primary` — finding one here would make it drive a surface that
+          runs nothing.
+
+          Not `.rendered-only`, for the reason the bring-your-own form is not: a control a
+          visitor uses must survive the text-view toggle.
+        -->
+        <div class="cards">
+          <div class="card blueprint">
+            <i class="corner tl"></i><i class="corner tr"></i>
+            <i class="corner bl"></i><i class="corner br"></i>
+            <p class="card-kicker">This tab's capacity, and the cap you set</p>
+            <dl>
+              <dt>effective rate</dt>
+              <dd data-region="fabric/duty-user" data-kind="reading" data-source="TabApi.capacity().dutyCycle"></dd>
+              <dt>slots advertised</dt>
+              <dd data-region="fabric/slots" data-kind="reading" data-source="TabApi.capacity().slots"></dd>
+            </dl>
+            <p class="field">
+              <label for="duty-slider">your CPU cap for this tab</label>
+              <!--
+                The slider's own value is deliberately not echoed anywhere as text. The
+                effective rate is `capacity().dutyCycle` — the lower of this cap and the
+                visibility governor's — and it is the declared region above. A second
+                figure beside it would be an undeclared copy of a declared reading, and it
+                would disagree with it whenever the tab is in the background.
+              -->
+              <input type="range" id="duty-slider" min="5" max="100" step="5" value="100" disabled>
+            </p>
+            <!--
+              Digit-free in every state it can reach EXCEPT one, and the exception is
+              stated rather than left to be found: a `RangeError` from the governor is
+              rendered here verbatim and that message names the value it refused. It
+              carries no `data-region`, and P2 runs on the stopped page where this reads
+              the sentence below, so nothing catches a digit written here after a refusal.
+              Logged in `deferred-items.md` beside `#run-status`, `#pi-status` and
+              `#byo-status`.
+            -->
+            <p class="note" id="duty-status" role="status"></p>
+          </div>
+          <div class="card blueprint rendered-only">
+            <i class="corner tl"></i><i class="corner tr"></i>
+            <i class="corner bl"></i><i class="corner br"></i>
+            <p class="card-kicker">The visibility governor</p>
+            <dl>
+              <dt>in the background</dt>
+              <dd data-region="fabric/governor-hidden" data-kind="reading" data-source="TabApi.governor().hidden"></dd>
+              <dt>governor rate</dt>
+              <dd data-region="fabric/governor-duty" data-kind="reading" data-source="TabApi.governor().dutyCycle"></dd>
+              <dt>transitions</dt>
+              <dd data-region="fabric/governor-transitions" data-kind="reading" data-source="TabApi.governor().transitions with .sleptMs"></dd>
+            </dl>
+            <p class="card-note">
+              Whether this tab is in the background, the rate the governor is asking for,
+              and how many times it has changed its mind — with the time it has spent
+              asleep. The governor and your cap compose by taking the lower of the two, so
+              a backgrounded tab throttles whatever you set here.
+            </p>
+          </div>
+        </div>
+
+        <!--
+          F17 — the only reading on this surface that needs no node, and the one row where
+          "stopped wins" had to be decided. `render.ts`'s header names this reading in that
+          rule and P3 enforces it, so the booleans are on screen while a node is running
+          and the catalogue's sentence is on screen when there is none. The page does not
+          take the reading while stopped, because that sentence says it has not.
+
+          F20, F21 — blocks held, and where this tab can be dialled.
+        -->
+        <div class="cards rendered-only">
+          <div class="card blueprint">
+            <i class="corner tl"></i><i class="corner tr"></i>
+            <i class="corner bl"></i><i class="corner br"></i>
+            <p class="card-kicker">The page hosting this node</p>
+            <p class="mono" data-region="fabric/isolation" data-kind="reading" data-source="TabApi.isolation().crossOriginIsolated with .hasSharedArrayBuffer and .inIframe"></p>
+            <p class="card-note">
+              Cross-origin isolation would unlock shared memory and WebAssembly threads. It
+              needs response headers a static host does not send, and threads are a source
+              of non-determinism anyway, so this page expects to read no on all three.
+            </p>
+          </div>
+          <div class="card blueprint">
+            <i class="corner tl"></i><i class="corner tr"></i>
+            <i class="corner bl"></i><i class="corner br"></i>
+            <p class="card-kicker">Blocks, and how this tab can be reached</p>
+            <dl>
+              <dt>blocks held</dt>
+              <dd data-region="fabric/blocks" data-kind="reading" data-source="TabApi.storedBlocks() with activity().fetched and .rejected"></dd>
+            </dl>
+            <div class="scroller">
+              <pre class="mono" data-region="fabric/addresses" data-kind="reading" data-source="TabApi.addresses().peerId with .webrtc and .circuit"></pre>
+            </div>
+            <p class="card-note">
+              A block is refused when its bytes do not hash to the CID that was asked for.
+              The first line is this tab's peer id; the rest are the addresses another
+              device can dial it on.
+            </p>
+          </div>
+        </div>
+
         <div class="card blueprint rendered-only">
           <i class="corner tl"></i><i class="corner tr"></i>
           <i class="corner bl"></i><i class="corner br"></i>
@@ -1154,6 +1378,26 @@
             A browser that blocks this page does not announce it — it looks like fewer
             volunteers. These are the reports this node has heard, including what they
             cannot see.
+          </p>
+          <dl>
+            <dt>peers that answered</dt>
+            <!--
+              F18. The cliff — every peer asked, none answered — is NAMED here rather than
+              rendered as a zero. `TabStartReport`'s own docblock calls that pair the
+              blocklist seen from the inside, and it is the most actionable condition on
+              this surface; behind a figure a reader has to interpret, it is not reported
+              at all.
+            -->
+            <dd data-region="fabric/start-reached" data-kind="reading" data-source="TabApi.startReport().reached with .asked"></dd>
+          </dl>
+          <p class="card-note">One row per browser family, merged across every peer that answered</p>
+          <div class="scroller">
+            <pre class="mono" data-region="fabric/start-tallies" data-kind="reading" data-source="TabApi.startReport().byBrowser"></pre>
+          </div>
+          <p class="card-note">
+            A family this tab is not is the reading that carries the criterion. There is no
+            expression on this page that could produce such a row, so it can only have come
+            from a peer's own ledger.
           </p>
         </div>
         <!--
@@ -1168,10 +1412,26 @@
           specs above wait on `textContent !== 'not asked yet'`, so a page rendering
           UI-SPEC's string satisfies that wait immediately and both specs would read a
           panel that had not been refreshed. Do not "fix" the capitalisation.
+
+          **There are TWO `<pre class="text-view">` elements on this one surface and they
+          are not interchangeable.** This is exactly the arrangement in which somebody
+          later merges them, so each says what it is:
+
+          - `#report` is `describeStartReport`'s own output, plus one line naming how many
+            peers the rows came from. **Reformatted by nobody.** The command line renders
+            the same function's output, so a second formatter here would be a second place
+            the same sentence is written.
+          - `#fabric-report` below is this surface's text view, written by `applyRender`
+            out of the same record that writes the twenty-one regions — which is what
+            makes P6 assertable. Nothing in it is `describeStartReport`'s.
+
+          `#refresh-report` is a `.btn-secondary` and there is deliberately no
+          `.btn-primary` anywhere in this panel. UI-SPEC section 11: *Fabric state — none;
+          the surface reads, it does not run.*
         -->
         <pre id="report" class="text-view" data-region="fabric/start-outcome-text" data-kind="text-view" data-source="the #report text view — describeStartReport() output, reformatted by nobody">not asked yet</pre>
         <p class="controls"><button id="refresh-report" class="btn btn-secondary">Refresh</button></p>
-        <pre id="fabric-report" class="text-view" data-region="fabric/report" data-kind="text-view" data-source="the #fabric-report text view">Nothing to report: this surface has not been wired to a reading yet.</pre>
+        <pre id="fabric-report" class="text-view" data-region="fabric/report" data-kind="text-view" data-source="the #fabric-report text view">This tab's node is stopped. Start it from the panel at the top of the page to take a reading.</pre>
       </section>
 
       <section class="wrap" id="s-bench" role="tabpanel" tabindex="0" aria-labelledby="nav-bench" hidden>
@@ -1303,6 +1563,18 @@
         shardsFor as byoShardsFor,
         validity as byoValidity,
       } from './surfaces/byo.ts'
+      // The fabric-state surface — UI-SPEC section 4.6's F1 through F21. It is the only
+      // formatter on this page that takes a **record of readings** rather than one run's
+      // report, and that shape is the whole of its error discipline: the `try`/`catch` is
+      // per reading at the call site below, so a governor that throws is one region's
+      // named reason and not twenty blanks. Renamed on import for the reason the other
+      // three are — `applyRender` throws when one surface's formatter reaches another
+      // surface's regions, and four modules exporting `format` should not lean on it.
+      import {
+        DUTY_APPLIED,
+        DUTY_STOPPED,
+        format as formatFabric,
+      } from './surfaces/fabric.ts'
 
       const $ = (id) => document.getElementById(id)
       const gateEl = $('gate')
@@ -1361,6 +1633,14 @@
       for (const [id, text] of Object.entries(formatByoConstants())) writeReading(id, text)
       // UI-SPEC section 4.5's copy above the form, from the module rather than the markup.
       $('byo-notice').textContent = PROVENANCE_NOTICE
+      // Fabric state, same rule as the four surfaces above: every reading paints its
+      // stopped sentence before anything is read. **Including F17**, the isolation reading
+      // that needs no node — `render.ts`'s header names it in the stopped-wins rule and P3
+      // enforces that rule on a page with no node, so the booleans appear once a node is
+      // up and not before. `refreshFabric` below does not call `isolation()` while the node
+      // is stopped, because the sentence this line paints says the page has not read it.
+      paintSurfaceAbsence('fabric', 'stopped')
+      $('duty-status').textContent = DUTY_STOPPED
       // C3, C4 and C5 are constants: always present, never a result, and never an absence.
       // C5 is computed here from the shipped builder rather than transcribed.
       for (const [id, text] of Object.entries(formatConstants())) writeReading(id, text)
@@ -1507,6 +1787,159 @@
       $('byo-form').addEventListener('change', refreshByo)
       refreshByo()
 
+      // ---- P8's hook, keyed by surface -----------------------------------------------
+      //
+      // `window.__o2LastAttestation` was one value and there are now THREE regions on this
+      // page whose text P8 compares against it — colouring's, bring-your-own's, and this
+      // plan's `fabric/attestation-description`. Plan 27-07 measured the consequence and
+      // logged it: P8 reads the hook once, after the whole P5 loop, so it was comparing a
+      // receipt rendered by one surface against a reading produced by another. It passed
+      // because both runs were the same two unenrolled tabs and therefore produced the
+      // same absence arm — *close to luck* is how the deferred item put it, and a run where
+      // the two differed would have reddened P8 with a message about a page composing a
+      // sentence of its own, which would be false.
+      //
+      // The fix that item wrote out, applied here: the page publishes a map keyed by
+      // surface, and `p8` in `demo-region-properties.ts` reads `bySurface[region.surface]`
+      // with the flat value as a fallback. The flat fields stay on the object, so a reader
+      // that only knows the old shape still gets the last receipt this page rendered
+      // anywhere, and **neither harness needed an edit** — both pass the hook through as an
+      // opaque JSON string.
+      const receiptsBySurface = {}
+      /** The last receipt produced anywhere in this tab. What the fabric surface renders. */
+      let lastAttestation = null
+      /** The last manifest produced anywhere in this tab — colouring, π or bring-your-own. */
+      let lastEgress = null
+      const publishReceipt = (surface, attestation) => {
+        receiptsBySurface[surface] = attestation ?? null
+        window.__o2LastAttestation =
+          lastAttestation === null || lastAttestation === undefined
+            ? { bySurface: { ...receiptsBySurface } }
+            : { ...lastAttestation, bySurface: { ...receiptsBySurface } }
+      }
+
+      // ---- fabric state, and the try/catch that is per reading rather than per pass ----
+      //
+      // UI-SPEC section 4.6. Eight of these calls end in `required()` and throw `node not
+      // started` with no node, so each is made **only when `activity() !== null`** and each
+      // is caught **on its own**: one throwing call is one region's named reason, never
+      // twenty blanks and never a value left over from the last pass. `surfaces/fabric.ts`
+      // formats whichever of the two it is handed and composes nothing.
+      //
+      // Three readings are taken from what the page already did rather than issued here,
+      // and that is not a shortcut — it is the only correct arrangement for each:
+      //
+      // - `connectDiscoveredPeers()` **dials**. A render pass that dialled would make the
+      //   display a cause of the thing it displays. `findPeers` runs it on its own timer.
+      // - `computePeers()` sends an offer to every connected peer. At this loop's cadence
+      //   that is an RPC storm in service of a caption.
+      // - `startReport()` **publishes this tab's outcome to every peer**. Polling it would
+      //   turn a reading into a broadcast. It is read on join and on `#refresh-report`,
+      //   which is the control UI-SPEC gives this surface for exactly that purpose.
+      /** The last discovery round, or the Error `findPeers` caught. Undefined before the first. */
+      let lastRound
+      /** The peer list of that same round. Undefined until one has run — never an empty count. */
+      let lastComputePeers
+      /** The last start-outcome report, from `refreshReport`. Undefined until one was asked for. */
+      let lastStartReport
+
+      /** One reading, or the Error it threw. The catch is here, once per call. */
+      const attempt = (read) => {
+        try {
+          return read()
+        } catch (error) {
+          return error instanceof Error ? error : new Error(String(error))
+        }
+      }
+      const attemptAsync = async (read) => {
+        try {
+          return await read()
+        } catch (error) {
+          return error instanceof Error ? error : new Error(String(error))
+        }
+      }
+
+      /** Back to the effective rate. A refused cap is not partly applied, so it may not look it. */
+      const snapSlider = () => {
+        const capacity = attempt(() => window.o2.capacity())
+        if (!(capacity instanceof Error)) {
+          $('duty-slider').value = String(Math.round(capacity.dutyCycle * 100))
+        }
+      }
+
+      let fabricInFlight = false
+      const refreshFabric = async () => {
+        // A pass already running is the pass this caller wants. `reconcile` fires on every
+        // change notification as well as on the one-second tick, and two overlapping passes
+        // would interleave their writes.
+        if (fabricInFlight) return
+        fabricInFlight = true
+        try {
+          const activity = window.o2.activity()
+          if (activity === null) {
+            // **Stopped wins**, and this branch passes NOTHING but the null activity — not
+            // even the readings that are safe with no node. `render.ts`'s header states the
+            // rule and names `isolation` and `startReport` in it; P3 in
+            // `demo-regions.e2e.test.ts` asserts it against a page with no node. Handing
+            // over a cached round here would render a peer list for a fabric this tab has
+            // left.
+            $('duty-slider').disabled = true
+            $('duty-status').textContent = DUTY_STOPPED
+            // The `data-absence` mirror a reader can inspect in the DOM. `applyRender`
+            // below writes the same twenty-one sentences into `textContent` out of the one
+            // record, read from the same catalogue, so the two cannot disagree.
+            paintSurfaceAbsence('fabric', 'stopped')
+            applyRender('fabric', formatFabric({ activity: null }), 'fabric/report')
+            return
+          }
+          $('duty-slider').disabled = false
+          const storedBlocks = await attemptAsync(() => window.o2.storedBlocks())
+          // What this surface is about to render, published under its own key. Without it
+          // P8 would check the fabric surface's receipt against whichever surface last ran.
+          publishReceipt('fabric', lastAttestation)
+          applyRender(
+            'fabric',
+            formatFabric({
+              activity,
+              isolation: attempt(() => window.o2.isolation()),
+              startReport: lastStartReport,
+              peers: attempt(() => window.o2.peers()),
+              computePeers: lastComputePeers,
+              heldPeers: attempt(() => window.o2.heldPeers()),
+              discovery: lastRound,
+              capacity: attempt(() => window.o2.capacity()),
+              governor: attempt(() => window.o2.governor()),
+              storedBlocks,
+              addresses: attempt(() => window.o2.addresses()),
+              attestation: lastAttestation,
+              egress: lastEgress,
+            }),
+            'fabric/report',
+          )
+        } finally {
+          fabricInFlight = false
+        }
+      }
+
+      // SCHED-04. The surface's one input, and it is a control rather than a run: there is
+      // no `.btn-primary` in this panel and there is not meant to be.
+      //
+      // The `RangeError` is the governor's own and is rendered **verbatim**. The slider then
+      // goes back to `capacity().dutyCycle`, because `setDutyCycle`'s docblock says a tab
+      // whose call threw is unchanged — *there is no partial application of a cap* — and a
+      // slider left sitting at the refused position would imply one.
+      $('duty-slider').addEventListener('change', () => {
+        const asked = Number($('duty-slider').value) / 100
+        try {
+          window.o2.setDutyCycle(asked)
+          $('duty-status').textContent = DUTY_APPLIED
+        } catch (error) {
+          $('duty-status').textContent = error instanceof Error ? error.message : String(error)
+          snapSlider()
+        }
+        void refreshFabric()
+      })
+
       const reconcile = () => {
         const consent = window.o2.consentState()
         // Consent is per-origin, so another tab granting or revoking it changes
@@ -1538,6 +1971,10 @@
         }
         // Enabled because an answer exists, not because this page produced it.
         $('verify').disabled = !window.o2.verifyAnswer().checked
+        // The fabric-state surface, on the same notification and the same slow tick as the
+        // bar — not on a faster timer. Chromium throttles timers in a tab that is not in
+        // front, and this surface has no reason to poll harder than the counters do.
+        void refreshFabric()
       }
 
       $('stop').addEventListener('click', async () => {
@@ -1568,6 +2005,21 @@
         // and says which of the two things is now blocking it.
         paintSurfaceAbsence('byo', 'stopped')
         $('byo-status').textContent = 'start a node first'
+        // Fabric state, and the caches it reads from go with it. Every one of them
+        // describes a fabric this tab has left: a discovery round it is no longer in, a
+        // peer list it no longer holds, a start report it can no longer refresh, and the
+        // receipt and manifest of a run made by a node that no longer exists. Keeping any
+        // of them would put a true-looking figure on a stopped surface the moment the
+        // visitor started again, which is the *retained previous value* UI-SPEC section 4
+        // names beside the blank and the number.
+        lastRound = undefined
+        lastComputePeers = undefined
+        lastStartReport = undefined
+        lastAttestation = null
+        lastEgress = null
+        paintSurfaceAbsence('fabric', 'stopped')
+        $('duty-slider').disabled = true
+        $('duty-status').textContent = DUTY_STOPPED
         joinEl.disabled = false
         $('stop').disabled = false
       })
@@ -1621,9 +2073,19 @@
         // there is no `TabApi` accessor for the last run's receipt — a run returns it once.
         // Without this line P8 reddens naming this exact property, which is how Plan 27-03
         // made it a forcing function rather than a vacuous pass.
-        window.__o2LastAttestation = best === null ? null : best.attestation
+        //
+        // **Published through `publishReceipt` now, and the flat field is unchanged.** The
+        // hook grew a `bySurface` map because three regions on this page compare against
+        // it; `publishReceipt`'s own comment carries the measurement that made that
+        // necessary. Nothing a reader of the old shape saw has moved.
+        lastAttestation = best === null ? null : best.attestation
+        lastEgress = best === null ? null : best.egress
+        publishReceipt('colouring', lastAttestation)
         $('run-status').textContent = best === null ? 'nothing settled' : `settled n = ${best.n}`
         applyRender('colouring', format(state), 'colouring/run-report')
+        // The cross-cutting surface reads this run's receipt and manifest, so it is
+        // repainted here rather than waiting for the next tick to notice.
+        void refreshFabric()
         $('run').disabled = false
       })
 
@@ -1660,6 +2122,12 @@
           // the wrong object* is the divergence class this repository's ledger records
           // against this tier.
           window.__o2LastPiRun = run
+          // π produces no receipt — `TabPiRun` carries no `attestation` field, because the
+          // map half's receipt is not the aggregate's and `reduce.ts` says so about itself.
+          // It does produce a manifest, and F9-F11 are about the last run whichever surface
+          // ran it, so the manifest is carried across and the receipt is deliberately not.
+          lastEgress = run.egress
+          void refreshFabric()
           $('pi-status').textContent = run.combined
             ? 'an aggregate was produced'
             : run.reduceAttempted
@@ -1753,7 +2221,15 @@
           // for the same reason the colouring handler does: P8 compares a rendered receipt
           // against a fresh reading taken in the same page, and a region populated with no
           // hook to check it against would make P8 compare the page with itself.
-          window.__o2LastAttestation = report.attestation
+          //
+          // Through `publishReceipt` now — see its comment above the fabric wiring for the
+          // measurement that made a per-surface map necessary. This call is the reason it
+          // was: with two surfaces publishing one field, P8 was comparing whichever ran
+          // last against whichever it had snapshotted.
+          lastAttestation = report.attestation
+          lastEgress = report.egress
+          publishReceipt('byo', lastAttestation)
+          void refreshFabric()
           $('byo-status').textContent = report.complete
             ? 'every shard agreed'
             : 'the fabric refused at least one shard — its own words are below'
@@ -1794,6 +2270,12 @@
         try {
           const found = await window.o2.connectDiscoveredPeers()
           computePeers = await window.o2.computePeers()
+          // F5 and F2. The fabric-state surface reads the round this call performed rather
+          // than starting one of its own — `connectDiscoveredPeers` dials, and a render
+          // pass that dialled would be a cause of what it reports. Set together, so the
+          // two readings on that surface describe one round.
+          lastRound = found
+          lastComputePeers = computePeers
           // C1 and C2, refreshed on every discovery round. They are what makes *more peers,
           // more cubes* visible BEFORE anything is dispatched — the arc this workload exists
           // to show — and they carry the arguments the next run will actually send, because
@@ -1858,6 +2340,12 @@
             'unavailable',
             error instanceof Error ? error.message : String(error),
           )
+          // F5 gets the same treatment on the same failure: the thrown message, and never
+          // the round before it. F2's cache is cleared rather than given the error, because
+          // `computePeers` and `connectDiscoveredPeers` are two calls and only one of them
+          // is known to have thrown.
+          lastRound = error instanceof Error ? error : new Error(String(error))
+          lastComputePeers = undefined
         }
       }
 
@@ -1901,6 +2389,12 @@
         // rows, so that ceiling does not meaningfully bound it. Closing it is a
         // decision nobody has taken, and this note is here so nobody assumes it was.
         showReport(report)
+        // F18 and F19 read this. `startReport()` publishes this tab's outcome to every
+        // peer, so it is not something a render loop may poll — it is read here, on the
+        // join and on the control UI-SPEC gives this surface for the purpose, and the
+        // fabric panel renders whatever the last ask returned.
+        lastStartReport = report
+        void refreshFabric()
       }
       $('refresh-report').addEventListener('click', refreshReport)
 
