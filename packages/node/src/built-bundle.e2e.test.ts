@@ -144,6 +144,82 @@ describe('BROW-01 — nothing runs, and nothing is contacted, before consent', (
     await page.close()
   }, 180_000)
 
+  /**
+   * P10, UI-SPEC section 9 — and the shape of it is the point, not the assertion.
+   *
+   * The case immediately above collects every request and then asserts on **two filtered
+   * slices** of the collection: `bootstrap.json` and anything starting `ws`. Those two
+   * filters are exactly right about what the *node* would do and structurally blind to
+   * everything else, because a filter can only refuse what it was told to look for.
+   *
+   * That blindness had a live subject. The mockup stylesheet this page's design was
+   * ported from opens its second line with a font import from a Google host; porting the
+   * file verbatim would have made the page fetch a font at load — before consent, from a
+   * third party, on a page whose gate promises in writing that nobody learns a visitor is
+   * present until they agree. Neither filter above would have seen it, and nothing else
+   * in this suite looks at the request list at all.
+   *
+   * So this case asserts on the WHOLE SET: every request the page makes, from `goto`
+   * until it is sitting at the gate, has the page's own origin. `about:`, `data:` and
+   * `blob:` are excepted because they are not requests to anybody — they never leave the
+   * process.
+   *
+   * The floor underneath it matters as much as the assertion: an empty request list
+   * satisfies "no foreign origin" perfectly, so the collection is also required to
+   * contain the page's own assets. A page that fetched nothing would be a broken
+   * instrument reporting a clean result.
+   */
+  it('makes no request to any origin but its own, over the whole request set', async () => {
+    const page = await browser.newPage()
+    const requested: string[] = []
+    page.on('request', (request) => requested.push(request.url()))
+
+    await page.goto(baseUrl)
+    await page.waitForFunction(() => typeof window.o2 !== 'undefined', null, { timeout: 60_000 })
+    await page.waitForFunction(
+      () => document.getElementById('gate')?.hasAttribute('hidden') === false,
+      null,
+      { timeout: 30_000 },
+    )
+    // Long enough that a font, an icon set, or a discovery fetch would have gone out.
+    await page.waitForTimeout(1_500)
+
+    // Before consent, and measured rather than assumed: this is the window the claim is
+    // about, and a page that had already been consented to would be measuring nothing.
+    expect(await page.isVisible('#gate')).toBe(true)
+    expect(await page.isVisible('#main')).toBe(false)
+
+    const origin = new URL(baseUrl).origin
+    const inProcess = /^(?:about|data|blob):/
+    const foreign = requested.filter((url) => {
+      if (inProcess.test(url)) return false
+      try {
+        return new URL(url).origin !== origin
+      } catch {
+        // A URL this test cannot parse is a URL it cannot vouch for.
+        return true
+      }
+    })
+    expect(
+      foreign,
+      `P10: the page contacted ${String(foreign.length)} foreign origin(s) before consent — ` +
+        `${[...new Set(foreign.map((url) => new URL(url).origin))].join(', ')}. Every request ` +
+        `during load must have the page's own origin (${origin}); the gate promises in writing ` +
+        'that nobody learns a visitor is present until they agree.',
+    ).toEqual([])
+
+    // The floor: the set is a real reading and not an empty list.
+    const own = requested.filter((url) => url.startsWith(origin))
+    expect(
+      own.length,
+      `P10: the request collector saw ${String(requested.length)} request(s) in total and ` +
+        'none of them same-origin — the page did not load, so the clean result above is an ' +
+        'artefact of the instrument rather than a property of the page',
+    ).toBeGreaterThan(1)
+
+    await page.close()
+  }, 180_000)
+
   it('refuses to discover or start until consent is granted', async () => {
     const page = await browser.newPage()
     await page.goto(baseUrl)
@@ -202,6 +278,52 @@ describe('BROW-01 — nothing runs, and nothing is contacted, before consent', (
 })
 
 describe('the built bundle on a static host', () => {
+  /**
+   * The `./perf/index.html` link the footer and the Benchmarks surface both render.
+   *
+   * Until Plan 27-09 the footer read `./perf/` and the bundle held no `perf/` directory at
+   * all — UI-SPEC section 10 records the gap and leaves the packaging to the plan. The fix
+   * is one committed source (`docs/perf/prime-and-pi-benchmarks.html`, written by
+   * `docs/perf/build-report.py`) emitted into the bundle by a plugin in
+   * `packages/browser/vite.config.ts`, with the build failing if that source is absent.
+   *
+   * **The body check names a section heading rather than a figure, deliberately.** P9 in
+   * `demo-bench.e2e.test.ts` is the property about figures, and it reads the committed
+   * markdown to hold it. A figure asserted here as well would be a second, weaker copy of
+   * that property — weaker because this file has no document to compare against and would
+   * be asserting a number against a literal typed into a spec.
+   */
+  it('serves ./perf/index.html — the committed report, emitted into the bundle', async () => {
+    const emitted = join(DIST, 'perf', 'index.html')
+    const bytes = await readFile(emitted, 'utf8').catch(() => null)
+    expect(
+      bytes,
+      `${emitted} is not in the bundle: the footer and the Benchmarks surface both link ` +
+        './perf/index.html, and a link that resolves nowhere is the state this case exists ' +
+        'to keep closed',
+    ).not.toBeNull()
+    expect((bytes ?? '').length).toBeGreaterThan(1_000)
+
+    // And the static host actually hands it over, at the URL the page links. The server
+    // above does no directory-index resolution — which is why the link names the file.
+    const page = await browser.newPage()
+    const response = await page.goto(`${baseUrl}/perf/index.html`)
+    expect(response?.status(), 'GET /perf/index.html on the built bundle').toBe(200)
+    const body = (await page.content()) ?? ''
+    expect(body).toContain('Real parallel speedup')
+    expect(body).toContain('Fabric overhead')
+
+    // One source, not two: what the bundle serves is byte-identical to what is committed.
+    const committed = await readFile(join(ROOT, 'docs', 'perf', 'prime-and-pi-benchmarks.html'), 'utf8')
+    expect(
+      bytes,
+      'the emitted report differs from the committed one — there are now two copies, and ' +
+        'docs/perf/build-report.py writes only one of them',
+    ).toBe(committed)
+
+    await page.close()
+  }, 180_000)
+
   it('loads and runs with no module server behind it', async () => {
     const page = await browser.newPage()
     const errors: string[] = []

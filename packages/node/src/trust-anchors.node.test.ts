@@ -328,8 +328,24 @@ describe('the provenance opt-out is written down only where it is a decision', (
     // generous bound is a test that fails when the opt-out starts spreading. The figure
     // is a configuration choice, not a measurement — it says "well above where we are,
     // well below every test file in the package".
+    //
+    // **Raised 40 → 48 on 2026-08-10 (Plan 27-10), and how long it had been red is the
+    // part worth recording.** `packages/node/src/demo-viewport.e2e.test.ts` landed in
+    // Plan 27-01's first commit (`d7a20f0`) and took the population from 39 to **40**,
+    // which is not less than 40. The suite was therefore red from that commit onward and
+    // **nine waves did not notice**, because this file is not one of the seven cheap
+    // guards the pre-commit hook runs and no wave ran `--project node` in full — Plan
+    // 27-09 tried and gave up at a ten-minute command timeout. The run that found it
+    // took 388.15 s real / 404.13 user / 55.93 sys.
+    //
+    // The new member is legitimate rather than spread: it starts a real relay in a
+    // Playwright harness and names the opt-out for the same reason the other thirty-nine
+    // do. Re-sited against the population as it stands today — **40 of 217 tracked test
+    // files repo-wide, 111 of them in `packages/node/src`** — so 48 is still "well above
+    // where we are, well below every test file in the package", with headroom of eight
+    // rather than of one.
     const optingOut = REPO.naming.filter((file) => file.endsWith('.test.ts'))
-    expect(optingOut.length).toBeLessThan(40)
+    expect(optingOut.length).toBeLessThan(48)
   })
 })
 

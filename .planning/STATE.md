@@ -324,8 +324,26 @@ as unsafe and maintain it by hand:**
   call), and the metrics row, the decision, and this session's continuity fields were then
   all written by hand rather than risking a sixth corruption trying `record-session` again.
 
-`roadmap.update-plan-progress` and `state.add-decision` are the two measured exceptions and
-are safe — both ran this same session with a clean, correctly-scoped diff each time.
+- `gsd-sdk query roadmap.update-plan-progress 27` (2026-08-10, Plan 27-01's executor) —
+  **writer number six, and it was on the SAFE list when it did this.** It reported
+  `updated: true` and rewrote this file: a `stopped_at` block truncated mid-sentence and
+  **97 lines dropped**. It did not error. Caught by the same `git diff` every entry above was
+  caught by. Reverted whole-file and verified byte-identical to HEAD — safe here only because
+  `git status` was clean immediately before the call, which is the sole condition under which
+  `git checkout --` on a shared file is permissible.
+
+~~`roadmap.update-plan-progress` and `state.add-decision` are the two measured exceptions and
+are safe — both ran this same session with a clean, correctly-scoped diff each time.~~
+
+**THAT SENTENCE WAS FALSIFIED 2026-08-10 and is struck rather than deleted, because how it
+came to be written is the reusable part.** `roadmap.update-plan-progress` was granted "safe"
+on the strength of observed clean diffs on an earlier session's STATE.md. That is evidence
+about the runs that were watched, not a property of the verb — and this file's shape has
+changed since. **A verb
+that has behaved is not a verb that is safe**, and a safe-list entry is exactly the kind of
+claim that stops anyone running the `git diff` that would catch it. The list is now
+**seven verbs**, and the only remaining unfalsified entry is `state.add-decision`, which
+should be read as *not yet observed to corrupt this file* rather than as safe.
 
 **If you must add a metrics row, write it by hand.** And after any tool touches
 `.planning/`, `git diff .planning/STATE.md` before committing — every one of these was

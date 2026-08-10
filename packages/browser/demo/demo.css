@@ -1,0 +1,564 @@
+/*
+  The o2.services demo page, dressed in the mockup's design.
+
+  Ported — as a COPY, never a move — from
+  `docs/design/mockups/o2-fabric-demo/_ds/industry-4b1f0d05-e62b-453f-afb5-717eabafadb4/styles.css`.
+  That directory stays exactly where it is: `vocabulary.node.test.ts` names two lines
+  inside that stylesheet and `strip-comments.node.test.ts` names its `support.js`, both
+  guards have dead-entry checks, and relocating the source would redden two of them
+  rather than tidy anything.
+
+  Six deviations from the imported source, each with its reason beside it rather than
+  left for whoever re-imports next to rediscover:
+
+    1. The source's SECOND LINE is a CSS at-rule importing two display faces from
+       Google's font host. It is deleted, and this comment deliberately does not spell
+       either the at-rule or the host, because Task 1's acceptance clause greps this
+       file for both and a quotation would be indistinguishable from a relapse.
+       A page that fetches a font at load contacts a third party before
+       the visitor has consented, which is precisely what the gate promises does not
+       happen. P10 in `built-bundle.e2e.test.ts` asserts that every request made during
+       load and before consent is same-origin, over the whole request set rather than a
+       filtered slice — so restoring that line turns a spec red instead of going
+       unnoticed. `--font-heading` and `--font-body` take one system stack; the source's
+       condensed display face does not ship, and headings are distinguished by size,
+       weight and tracking instead.
+    2. Both of the source's header comments name its `--color-*` / `--space-*`
+       declarations with a word `vocabulary.node.test.ts` bans repo-wide. Those two
+       lines are exempt AT THE MOCKUP'S PATH ONLY — each exemption is keyed to a phrase
+       AND a file — so the same sentence here would be an unexempted violation of a
+       repo-wide rule. They are reworded to say *custom properties*.
+    3. `--space-1` through `--space-8` are re-based from the source's 3.4px base to
+       4 / 8 / 12 / 16 / 24 / 32px. Every step of the source ramp lands on a fractional
+       pixel, and this phase asserts geometry — `demo-viewport.e2e.test.ts` measures
+       boxes at two device pixel ratios — so fractional accumulation would make one
+       property read differently per device for no reader's benefit.
+    4. `--color-muted` is new, a 70% mix, and replaces every use of the source's
+       `.text-muted` 55% mix. The 55% mix measures 3.70:1 against the page ground and
+       fails at the caption size where this page puts its named absences.
+    5. `--color-refusal` is new, taken from today's `#stop` rule. Reserved for a
+       withheld frame, a refuted verdict, a provenance refusal or shard failure, and
+       `state[data-tone='blocked']`. Never a control, and never an absence — an absence
+       is not an error.
+    6. `color-scheme: light`, one palette, explicit colours everywhere. The page's
+       `light dark` plus `Canvas` / `CanvasText` in the bar goes away, because a
+       half-ported dark mode is how the bar's ground and its Stop control end up at a
+       contrast ratio nobody measured. A dark map of the eight base properties is a
+       named follow-up, not this phase.
+
+  One rule about how this file dims text, because it is what makes the contrast block
+  in `demo-viewport.e2e.test.ts` an honest instrument: **text is dimmed with a colour,
+  never with `opacity`.** `getComputedStyle` reports the declared colour and knows
+  nothing about an ancestor's opacity, so an `opacity: .6` caption measures as
+  full-strength text and passes a check it would visibly fail on screen. The one
+  surviving `opacity` is on a DISABLED control, where WCAG's contrast minimum does not
+  apply and the dimming is the affordance.
+*/
+
+/*
+  The browser's own `[hidden] { display: none }` is an attribute selector, so
+  *any* id or class rule that sets `display` silently outranks it. `#bar` set
+  `display: flex` and the always-visible bar became the always-visible bar in
+  the literal sense — shown, reading "idle", offering to Stop a node that did
+  not exist. Reported from an iPhone; not caught here, because the tests
+  asserted the `hidden` *attribute* rather than whether anything was on screen.
+  One rule closes the whole class.
+
+  It is the first rule in this file deliberately, and the in-page tab navigation
+  depends on it: `nav.ts` shows and hides six panels with nothing but this attribute.
+*/
+[hidden] { display: none !important; }
+
+:root {
+  color-scheme: light;
+
+  --color-bg: #f2f2f3;
+  --color-surface: #e9e9ea;
+  --color-text: #1d1f20;
+  --color-accent: #5980a6;
+  --color-accent-2: #728fab;
+  --color-divider: color-mix(in srgb, #1d1f20 16%, transparent);
+
+  /* Tonal ramps — generated in OKLCH on one shared lightness scale, so the
+     same step of any role matches the others in visual value. */
+  --color-neutral-100: #f5f5f8;
+  --color-neutral-200: #e7e7ea;
+  --color-neutral-300: #d4d4d7;
+  --color-neutral-400: #b7b7ba;
+  --color-neutral-500: #98989b;
+  --color-neutral-600: #7a7a7d;
+  --color-neutral-700: #5d5d60;
+  --color-neutral-800: #424244;
+  --color-neutral-900: #2b2b2d;
+
+  --color-accent-100: #eef6ff;
+  --color-accent-200: #d6ebff;
+  --color-accent-300: #b5d9fd;
+  --color-accent-400: #94bce3;
+  --color-accent-500: #749dc4;
+  --color-accent-600: #597ea3;
+  --color-accent-700: #416180;
+  --color-accent-800: #2c455d;
+  --color-accent-900: #1d2d3d;
+
+  --color-accent-2-100: #eef6ff;
+  --color-accent-2-200: #d6ebff;
+  --color-accent-2-300: #bdd8f2;
+  --color-accent-2-400: #9ebbd8;
+  --color-accent-2-500: #7e9cb8;
+  --color-accent-2-600: #627d98;
+  --color-accent-2-700: #486077;
+  --color-accent-2-800: #314457;
+  --color-accent-2-900: #1f2d3a;
+
+  /* Deviation 4. Replaces the source's `.text-muted` 55% mix everywhere. */
+  --color-muted: color-mix(in srgb, var(--color-text) 70%, transparent);
+  /* Deviation 5. Lifted verbatim from the `#stop` rule this page already shipped. */
+  --color-refusal: #cb4b16;
+
+  /* Deviation 1. One stack, no remote face, no self-hosted face either. */
+  --font-heading: ui-sans-serif, system-ui, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --font-heading-weight: 600;
+  --font-body: ui-sans-serif, system-ui, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  /* Every machine value: peer ids, CIDs, multiaddrs, counts in tables, both text views. */
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  /* Deviation 3. */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-6: 24px;
+  --space-8: 32px;
+
+  --radius-sm: 2px;
+  --radius-md: 4px;
+  --radius-lg: 7px;
+
+  /* Elevation — derived from the ground: soft ink-tinted shadows on a light theme. */
+  --shadow-sm: 0 1px 2px color-mix(in srgb, #2b2b2d 14%, transparent);
+  --shadow-md: 0 3px 10px color-mix(in srgb, #2b2b2d 16%, transparent);
+  --shadow-lg: 0 12px 32px color-mix(in srgb, #2b2b2d 22%, transparent);
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   Components — built with the custom properties above. Plain CSS on plain
+   HTML: no framework, no CDN, no build step beyond Vite's asset pipeline.
+   ══════════════════════════════════════════════════════════════════════ */
+
+*, *::before, *::after { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-family: var(--font-body);
+  font-size: 15px;
+  line-height: 1.55;
+  font-weight: 400;
+  /*
+    Bottom padding clears the fixed bar, so nothing it covers is unreachable.
+    8.5rem is what the bar can occupy at its tallest: two wrapped lines of
+    `#bar-what`, a wrapped `#bar-stats` beneath it, and a 44px Stop control, plus
+    the block padding. The safe-area inset is added rather than folded in, because
+    on a device with a home indicator the bar's own bottom padding grows by exactly
+    that amount and the page has to grow with it. B5 in
+    `demo-viewport.e2e.test.ts` is what measures whether it is enough.
+  */
+  padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 8.5rem);
+}
+
+/* UI-SPEC 1.3: four roles, two weights. Display / Heading / Body / Small. */
+h1, h2, h3, h4 {
+  font-family: var(--font-heading); font-weight: var(--font-heading-weight);
+  line-height: 1.15; letter-spacing: -0.015em; margin: 0 0 var(--space-2);
+}
+h1 { font-size: clamp(22px, 3.2vw, 28px); }
+h2 { font-size: clamp(24px, 4vw, 32px); }
+h3 { font-size: 20px; line-height: 1.2; }
+h4 { font-size: 17px; line-height: 1.2; }
+p { margin: 0 0 var(--space-3); }
+a { color: var(--color-accent-700); text-underline-offset: 3px; }
+img { display: block; max-width: 100%; }
+
+/* The 10% accent is never used for text below 24px — measured 3.70:1. Small accent
+   text uses `--color-accent-700` at 5.78:1, and the contrast block in
+   `demo-viewport.e2e.test.ts` asserts the rule rather than trusting this comment. */
+.kicker {
+  font-family: var(--font-heading); font-size: 12px; font-weight: 600;
+  letter-spacing: .16em; text-transform: uppercase;
+  color: var(--color-accent-700); margin: 0;
+}
+.muted, .note { color: var(--color-muted); font-size: 13px; line-height: 1.6; }
+.lede { font-size: 15px; line-height: 1.65; color: var(--color-muted); max-width: 74ch; }
+.mono { font-family: var(--font-mono); overflow-wrap: anywhere; }
+:focus { outline: none; }
+:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
+::selection { background: color-mix(in srgb, var(--color-accent) 30%, transparent); }
+
+/* The content column, UI-SPEC 6.4. */
+.wrap {
+  max-width: 1240px; margin-inline: auto; padding-inline: var(--space-4);
+}
+
+/* — the blueprint frame: components are wireframe objects, square and hairlined — */
+.blueprint { position: relative; border: 1px solid var(--color-divider); border-radius: 0; }
+.blueprint > .corner {
+  position: absolute; width: 11px; height: 11px;
+  color: color-mix(in srgb, var(--color-text) 55%, transparent);
+}
+.blueprint > .corner::before, .blueprint > .corner::after {
+  content: ""; position: absolute; background: currentColor;
+}
+.blueprint > .corner::before { left: 5px; top: 0; width: 1px; height: 100%; }
+.blueprint > .corner::after  { top: 5px; left: 0; width: 100%; height: 1px; }
+.blueprint > .corner.tl { top: -6px; left: -6px; }
+.blueprint > .corner.tr { top: -6px; right: -6px; }
+.blueprint > .corner.bl { bottom: -6px; left: -6px; }
+.blueprint > .corner.br { bottom: -6px; right: -6px; }
+
+/* — rules — */
+.hr { height: 1px; border: 0; margin: var(--space-4) 0; background: var(--color-divider); }
+
+/* — buttons — */
+button, .btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  cursor: pointer; text-decoration: none;
+  font-family: var(--font-heading); font-weight: var(--font-heading-weight);
+  font-size: 14px; line-height: 1.2; color: var(--color-text);
+  background: transparent; border: 1px solid var(--color-divider); border-radius: 0;
+  padding: var(--space-2) calc(var(--space-3) * 1.2);
+  /* UI-SPEC 7.3: 40px in the smaller dimension for every control that is not `#stop`. */
+  min-height: 40px;
+}
+button:disabled, .btn:disabled { opacity: 0.45; cursor: not-allowed; }
+/*
+  `--color-accent-700` rather than `--color-accent`, and the swap is a measurement.
+  UI-SPEC 1.5 reserves the accent for the primary run control, and UI-SPEC 7.2's table
+  does not carry the pair this produces: `--color-bg` on `--color-accent` is **3.71:1**,
+  which fails at the 14px label size this control uses. Contrast is symmetric, so
+  `--color-bg` on `--color-accent-700` is the same 5.78:1 that makes accent-700 the safe
+  colour for small accent TEXT. The contrast block measures this pair by name.
+*/
+.btn-primary {
+  background: var(--color-accent-700); color: var(--color-bg);
+  border-color: var(--color-accent-700);
+}
+.btn-primary:hover:not(:disabled) { background: var(--color-accent-800); }
+.btn-primary:active:not(:disabled) { background: var(--color-accent-900); }
+.btn-secondary:hover:not(:disabled) { background: color-mix(in srgb, var(--color-text) 7%, transparent); }
+.btn-ghost { color: var(--color-accent-700); border-color: transparent; padding-inline: var(--space-1); }
+.btn-ghost:hover:not(:disabled) { background: color-mix(in srgb, var(--color-accent) 10%, transparent); }
+
+/* — forms — */
+.field > label { display: block; font-size: 12px; margin-bottom: 5px; color: var(--color-muted); }
+.input {
+  width: 100%; min-height: 40px; padding: 6px 10px; font: inherit; font-size: 14px;
+  color: var(--color-text); caret-color: var(--color-accent);
+  background: var(--color-surface);
+  border: 1px solid var(--color-divider); border-radius: 0;
+}
+.input:focus-visible { border-color: var(--color-accent); outline-offset: 0; }
+
+/* — the two-position view toggle — */
+.seg { display: inline-flex; border: 1px solid var(--color-divider); border-radius: 0; }
+.seg-opt {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 9px 12px; font-size: 13px; cursor: pointer; min-height: 40px;
+}
+.seg-opt + .seg-opt { border-left: 1px solid var(--color-divider); }
+.seg-opt input { position: absolute; opacity: 0; width: 0; height: 0; pointer-events: none; }
+.seg-opt:has(input:checked) { background: var(--color-accent-700); color: var(--color-bg); }
+.seg-opt:has(input:focus-visible) { outline: 2px solid var(--color-accent); outline-offset: -2px; }
+
+/* — cards — */
+.cards {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: var(--space-6); align-items: start;
+}
+.card {
+  display: flex; flex-direction: column; gap: var(--space-2);
+  padding: var(--space-4); border-radius: 0;
+  background: transparent; border: 1px solid var(--color-divider);
+}
+.card-kicker {
+  font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase;
+  color: var(--color-accent-700);
+}
+.card-title { font-family: var(--font-heading); font-weight: var(--font-heading-weight); font-size: 17px; line-height: 1.2; }
+.card-body { margin: 0; font-size: 14px; color: var(--color-text); }
+.card-note { margin: 0; font-size: 12px; line-height: 1.6; color: var(--color-neutral-700); }
+.card-accent { border-color: var(--color-accent); }
+/* Any block quoting the fabric's own words — a description, a reduceReason, a refusal. */
+.quote { border-left: 2px solid var(--color-accent); padding-left: var(--space-4); margin: 0; }
+
+/*
+  A `cited` region — a figure published somewhere else, never a reading of this tab.
+
+  `--color-neutral-700` and the body size, deliberately NOT the heading font and NOT the
+  larger figure treatment a live reading gets. UI-SPEC section 0 splits the three classes of
+  on-screen number and this is the visual half of that split: a reader must be able to tell a
+  published figure from a measured one WITHOUT reading the label beside it, because the label
+  is exactly what gets skimmed. Measured 5.87:1 against the page ground at the table-header
+  size (`deferred-items.md`, the section-7.2 entry), so it clears AA at this larger size by
+  more than that.
+
+  Added by Plan 27-06 for the Primes surface's published oracle, which is the first `cited`
+  region on the page with numbers in it. Plan 27-09's Benchmarks figures are the next.
+*/
+.citation { color: var(--color-neutral-700); }
+
+/*
+  The Benchmarks surface's two cited tables — Plan 27-09.
+
+  The `pre` rule below sets `white-space: pre-wrap; overflow-wrap: anywhere`, which is right
+  for a text view of prose lines and wrong for a fixed-width table: a wrapped row puts one
+  record's cells on two lines and stacks two different records' columns under each other,
+  producing a table that says something the committed document does not. So these two do not
+  wrap; they scroll inside their `.scroller`, which is `overflow-x: auto`.
+
+  `min-width: 0` on the card is the line that makes that work, and it was arrived at by
+  measurement rather than by reasoning. The first draft of this rule set `white-space: pre`
+  and nothing else, on the belief that a card is a plain block whose width comes from its
+  column. It is not: `[role="tabpanel"] { display: grid }` makes every direct child of a
+  surface a GRID ITEM, and a grid item's automatic minimum size is its content's — so the
+  widest table row set the track, the track set the page, and `demo-viewport.e2e.test.ts`
+  reported `B1 … documentElement.scrollWidth 830 exceeds innerWidth 320 + 1` at 320, 360,
+  393 and 768 in both bar states, exit 1, four cases red. The same figure at four widths is
+  an intrinsic width, which is what named the cause.
+*/
+.bench-table { white-space: pre; overflow-wrap: normal; }
+#s-bench > .card { min-width: 0; }
+
+/*
+  Refusal prose — a provenance refusal or a shard failure, in bring-your-own.
+
+  UI-SPEC section 1.5 reserves `--color-refusal` for a withheld frame, a refuted verdict, a
+  provenance refusal in bring-your-own, and `state[data-tone='blocked']`. Section 7.2 then
+  fixes HOW: `#cb4b16` measures 4.05:1 against the page ground, which is enough for a border
+  and not enough for body text, so **refusal prose is `--color-text` with a refusal-coloured
+  left rule** and the colour never carries the meaning on its own. `.quote` is the same shape
+  in accent, for the fabric's own words when they are not a refusal.
+
+  Added by Plan 27-07, which lands the first region UI-SPEC assigns this treatment to
+  (`byo/failures`). It is deliberately NOT used anywhere else: `demo-pi.e2e.test.ts` and
+  `demo-primes.e2e.test.ts` both assert that nothing on their surface carries the refusal
+  colour, because an absence is not an error.
+*/
+.refusal {
+  border-left: 2px solid var(--color-refusal); padding-left: var(--space-4);
+  margin: 0; color: var(--color-text);
+}
+
+/*
+  The bring-your-own form — UI-SPEC section 7.5.
+
+  A plain stacked grid rather than `.cards`, and the difference is measured rather than
+  stylistic: `.cards` is `repeat(auto-fit, minmax(300px, 1fr))`, and a form is a single column
+  of full-width inputs at every width this page is asserted at. `max-width: 74ch` matches
+  `.lede` and `.surface-head`, so the seven inputs do not stretch to a laptop's full column.
+*/
+.form-grid { display: grid; gap: var(--space-3); max-width: 74ch; }
+/* The sovereign pair, rendered together because the contract makes them inseparable. */
+.check { display: flex; align-items: center; gap: var(--space-2); font-size: 14px; }
+
+/* — tags — */
+.tag {
+  display: inline-flex; align-items: center; font-size: 11px;
+  letter-spacing: 0.02em; padding: 3px 10px; border-radius: 0;
+}
+.tag-accent { background: var(--color-accent-100); color: var(--color-accent-800); }
+.tag-neutral { background: var(--color-neutral-100); color: var(--color-neutral-800); }
+.tag-outline { border: 1px solid var(--color-accent-700); color: var(--color-accent-700); }
+
+/* — tables — */
+.scroller { overflow-x: auto; }
+.table { width: 100%; border-collapse: collapse; font-size: 14px; }
+/*
+  `--color-neutral-700` rather than the source's 60% mix. Measured on the rendered page:
+  the 60% mix is 4.23:1 at this 11px size and fails; neutral-700 is 5.87:1. UI-SPEC 7.2
+  names table headers as a neutral-700 role for exactly this reason.
+*/
+.table th {
+  text-align: left; font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase;
+  color: var(--color-neutral-700);
+  padding: var(--space-2); border-bottom: 1px solid var(--color-divider);
+}
+.table td {
+  padding: var(--space-2);
+  border-bottom: 1px solid color-mix(in srgb, var(--color-text) 8%, transparent);
+}
+
+/* — the definition lists the session header renders its facts into — */
+dl { display: grid; grid-template-columns: max-content 1fr; gap: var(--space-1) var(--space-3); margin: 0 0 var(--space-4); }
+dt { color: var(--color-muted); }
+dd { margin: 0; font-family: var(--font-mono); overflow-wrap: anywhere; }
+
+/* — the node's own status, which is not a property of whichever workload is on screen — */
+.state {
+  border: 1px solid var(--color-divider); border-radius: 0;
+  padding: var(--space-3) var(--space-4); margin-bottom: var(--space-4);
+}
+.state[data-tone='idle']    { color: var(--color-muted); }
+.state[data-tone='working'] { border-color: #b58900; }
+.state[data-tone='live']    { border-color: #2aa198; }
+.state[data-tone='blocked'] { border-color: var(--color-refusal); }
+.controls { display: flex; flex-wrap: wrap; gap: var(--space-3); align-items: center; margin: var(--space-4) 0; }
+
+/* — the surface tab strip — */
+/*
+  `position: sticky`, never `fixed`. B5 in `demo-viewport.e2e.test.ts` compares the
+  bottom of `#main`'s last child against the top of the one fixed element on the page;
+  a second fixed element would add a term that comparison does not carry, and a covered
+  element would then measure as clear. UI-SPEC 6.4 says so by name.
+*/
+nav#surfaces {
+  position: sticky; top: 0; z-index: 20;
+  display: flex; gap: 2px; align-items: stretch;
+  max-width: 1240px; margin-inline: auto;
+  padding-inline: var(--space-4);
+  background: var(--color-bg);
+  border-bottom: 1px solid var(--color-divider);
+  /* The strip may scroll WITHIN ITSELF on a narrow viewport. It may never cause
+     page-level horizontal scroll — B1 forbids that, and B7 measures this box. */
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+nav#surfaces [role="tab"] {
+  flex: none; white-space: nowrap;
+  border: 1px solid transparent; border-bottom: 2px solid transparent;
+  background: transparent; color: var(--color-text);
+  font-size: 13px; letter-spacing: .04em; padding: 10px 12px;
+  /* UI-SPEC 7.3: 44px tall below 40rem. Stated unconditionally — a tab is a touch
+     target on a phone and a pointer target on a laptop, and 44px costs the laptop
+     nothing. */
+  min-height: 44px;
+}
+nav#surfaces [role="tab"][aria-selected="true"] {
+  color: var(--color-accent-700);
+  border-bottom-color: var(--color-accent);
+}
+[role="tabpanel"] { display: grid; gap: var(--space-6); padding-block: var(--space-6) var(--space-8); }
+[role="tabpanel"]:focus-visible { outline: 2px solid var(--color-accent); outline-offset: -2px; }
+.surface-head { display: grid; gap: var(--space-2); max-width: 74ch; }
+
+/* — the two text views, and the toggle that may never hide one — */
+/*
+  The toggle has two positions and `#run-report` is visible in both. There is no rule
+  anywhere in this file that hides `.text-view`, and there must not be:
+  `attestation-ui.e2e.test.ts` asserts `isVisible('#run-report')` after a run, and a
+  toggle able to hide it would make that guard pass or fail on whichever state a test
+  happened to land in.
+*/
+pre, .text-view {
+  font-family: var(--font-mono); font-size: 13px; line-height: 1.5;
+  white-space: pre-wrap; overflow-wrap: anywhere;
+  color: var(--color-text); margin: 0;
+}
+#main[data-view='text'] .rendered-only { display: none; }
+
+/* — the consent gate. Nothing behind it runs, and nothing behind it is dialled. — */
+#gate {
+  border: 1px solid var(--color-divider); border-radius: 0;
+  padding: var(--space-6) var(--space-6) var(--space-3);
+  max-width: 760px; margin-inline: auto;
+}
+#gate dl { grid-template-columns: 1fr; gap: var(--space-1); }
+#gate dt { color: var(--color-text); font-family: var(--font-heading); font-weight: 600; font-size: 17px; }
+#gate dd { margin: 0 0 var(--space-4); font-family: var(--font-body); color: var(--color-muted); }
+#gate label { display: block; margin: 0 0 var(--space-1); cursor: pointer; }
+
+/* A rule above it, so it reads as a footer rather than as one more paragraph
+   of whichever section happens to be visible at the time. */
+#measurements {
+  max-width: 1240px; margin-inline: auto; padding-inline: var(--space-4);
+  margin-top: var(--space-8); padding-top: var(--space-4);
+  border-top: 1px solid var(--color-divider);
+}
+.note code, .card-note code {
+  font-family: var(--font-mono);
+  background: color-mix(in srgb, var(--color-text) 12%, transparent);
+  padding: .1em .35em;
+}
+
+/*
+  BROW-04. Fixed, and with no control that hides it: the requirement says a
+  persistent, always-visible surface, so a collapse affordance would be the
+  first thing to remove it.
+
+  The layout is UI-SPEC section 6.2's grid contract, and it replaced a wrapping
+  flex row after a 2026-08-08 reading from a 393px iPhone put `#bar` at 500px with
+  `#stop` past x=482 — off screen, and Stop is the control the consent gate
+  promises in writing. `packages/node/src/demo-viewport.e2e.test.ts` holds the
+  geometry: five widths, two bar states, every surface the page offers. The
+  geometry declarations below are unchanged from Plan 27-01 — only the colours moved,
+  from `Canvas` / `CanvasText` onto the palette, which is what deviation 6 above is for.
+*/
+#bar {
+  position: fixed; inset: auto 0 0 0;
+  box-sizing: border-box; width: 100%; max-width: 100%;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;   /* content | Stop */
+  gap: 4px 12px;
+  padding: 10px 12px max(10px, env(safe-area-inset-bottom)) 12px;
+  border-top: 1px solid var(--color-accent-700);
+  background: var(--color-accent-900); color: var(--color-bg);
+  font-size: 14px;
+  z-index: 40;
+}
+/*
+  `min-width: 0` is INERT here, and it is written down as inert rather than left to
+  be assumed. UI-SPEC section 6.2 calls it load-bearing and says its removal must
+  turn the geometry spec red; it was planted three ways on 2026-08-10 — removed from
+  `#bar-what`, removed with `white-space: nowrap` forced on, and removed from the
+  `#bar-stats` row that spans both tracks — and not one box moved by a pixel. A grid
+  item's automatic minimum size is content-based only when it spans a track whose
+  MIN track sizing function is `auto`, and `minmax(0, 1fr)` above fixes that min at
+  0. The line stays because it costs nothing and becomes load-bearing again the day
+  that track definition changes.
+
+  `overflow-wrap: anywhere` is the half that does work: it makes the wrap floor one
+  character wide rather than one word, which is what a peer id or a multiaddr in
+  this bar would otherwise cost. Force `white-space: nowrap` on either child and B2c
+  in `demo-viewport.e2e.test.ts` goes red at 320, 360 and 393 — that is the plant
+  that holds this block.
+*/
+#bar-what  { grid-column: 1; min-width: 0; overflow-wrap: anywhere;
+             font-family: var(--font-heading); font-weight: 600; }
+/* `--color-accent-200` on the bar's ground measures 11.49:1, so the counters read as
+   secondary without being dimmed by an `opacity` the contrast block cannot see. */
+#bar-stats { grid-column: 1 / -1; min-width: 0; overflow-wrap: anywhere;
+             font-size: 12px; color: var(--color-accent-200); }
+/*
+  44x44 overrides the shared button padding ramp deliberately — that ramp is
+  sized for a pointer and this is the one control a phone has to hit. B3 in
+  `demo-viewport.e2e.test.ts` is what holds it; before this line the button
+  measured 66.77 x 37.44 at every width.
+*/
+#stop      { grid-column: 2; grid-row: 1; justify-self: end; align-self: start;
+             min-width: 44px; min-height: 44px;
+             background: var(--color-bg); color: var(--color-accent-900);
+             border: 1px solid var(--color-bg); }
+@media (min-width: 40rem) {
+  #bar { grid-template-columns: minmax(0, auto) minmax(0, 1fr) auto; }
+  #bar-what  { grid-column: 1; }
+  #bar-stats { grid-column: 2; grid-row: 1; }
+  #stop      { grid-column: 3; }
+}
+
+/*
+  The bar's pulse dot is the only animation on the page, and it must stay the only one.
+
+  **It is declared here and not mounted by this plan, which is a decision rather than an
+  oversight.** `#bar` is a grid with three explicitly placed children, and
+  `demo-viewport.e2e.test.ts`'s B2b and B2c iterate `#bar.children` and measure each one
+  against the bar's padding box. A fourth grid item would be auto-placed into a track
+  nobody assigned it, moving geometry Plan 27-01 measured at five widths in two states —
+  so the dot goes in with the surface that has a reason to mount it, not with the port.
+*/
+@keyframes o2pulse { 0%, 100% { opacity: 1 } 50% { opacity: 0.2 } }
+.pulse {
+  display: inline-block; width: 9px; height: 9px; flex: none;
+  background: var(--color-accent-300); animation: o2pulse 1.6s infinite;
+}
+@media (prefers-reduced-motion: reduce) { .pulse { animation: none; } }
