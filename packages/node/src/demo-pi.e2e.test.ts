@@ -171,6 +171,20 @@ async function piHook(page: Page): Promise<PiHook> {
   return JSON.parse(raw as string) as PiHook
 }
 
+/**
+ * Print every π region, verbatim, for the arm named.
+ *
+ * Not decoration. 27-04's summary had to be corrected because it *inferred* five regions from
+ * the shipped symbols and then said it had read them; the figures happened to be right, which
+ * is precisely why the habit is worth catching. A summary claiming what is on screen should be
+ * quoting this output and nothing else.
+ */
+function printRegions(arm: string, regions: readonly PiRegion[]): void {
+  for (const region of regions) {
+    process.stderr.write(`[${arm}] ${region.id} = ${region.text.replace(/\n/g, ' ⏎ ')}\n`)
+  }
+}
+
 function textOf(regions: readonly PiRegion[], id: string): string {
   const found = regions.find((region) => region.id === id)
   expect(found, `${id} is not on the pi surface at all`).toBeDefined()
@@ -284,6 +298,7 @@ describe('UI-SPEC section 5.3 — a lone tab cannot run the reduce, and is told 
       `[lone] terms=${hook.terms} shards=${hook.shards} complete=${hook.complete} ` +
         `reduceAttempted=${hook.reduceAttempted} reason="${hook.reduceReason ?? ''}"\n`,
     )
+    printRegions('lone', regions)
 
     const scan = await refusalScan(page)
     // The detector, shown working before its negative result is believed.
@@ -420,6 +435,7 @@ describe('two tabs — the reduce has somewhere to run', () => {
         `treeDepth=${hook.treeDepth} combines=${hook.combines} estimate=${String(hook.estimate)} ` +
         `bound=${hook.errorBound}\n`,
     )
+    printRegions('two-tab', regions)
   }, 900_000)
 
   it('attempted the reduce, and says so without the second-device panel', () => {
