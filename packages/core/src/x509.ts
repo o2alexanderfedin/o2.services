@@ -948,6 +948,18 @@ export function decodeX509Certificate(bytes: Uint8Array): X509Result {
     signature,
   }
 
-  // The canonicalisation gate (X509-03) is Task 3's wiring — not run in this commit.
+  // The canonicalisation gate (X509-03), placed LAST: every structural, algorithm, and
+  // extension check above already ran against the faithfully-decoded tree, so a
+  // semantic refusal (e.g. unrecognised-algorithm) still fires correctly and
+  // specifically on a non-canonical-but-otherwise-invalid input, rather than every
+  // malformed case collapsing into one generic "not canonical" reason
+  // (RESEARCH.md's strategy: decode faithfully first, canonicalise second).
+  if (!checkDerCanonical(bytes)) {
+    return fail({
+      kind: 'non-canonical-encoding',
+      reason: 'the certificate is not byte-identical to its own canonical DER re-encoding',
+    })
+  }
+
   return { ok: true, certificate }
 }

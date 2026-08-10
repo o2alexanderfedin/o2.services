@@ -74,8 +74,21 @@ interface Requirement {
  * mentions ids constantly (the traceability table names all 76), and a looser pattern
  * would harvest those as requirements and inflate the count that is supposed to prove
  * the parse is alive.
+ *
+ * **Widened from `[A-Z]+-\d+` to `[A-Z][A-Z0-9-]*-\d+`, 2026-08-09 (Plan 25-02).** The
+ * narrow form is uppercase letters only before the hyphen, so it could not match an id
+ * whose prefix carries a digit — `X509-01` dies at the `5`. Plan 25-02 needed to mint
+ * exactly such a family, and minting the rows without this fix would have made them
+ * pass every check in this file by being invisible to it, never checked at all — the
+ * "ledger edited to satisfy its own checker" failure mode this file's own docblock
+ * names as a prior real incident. `requirements-ledger.node.test.ts:457/800/826` already
+ * used this wider pattern; copied verbatim rather than inventing a second one. Every id
+ * the narrow pattern matched, the wider one still matches — the added middle class
+ * `[A-Z0-9-]*` is a strict superset of `[A-Z]*`, so no existing row lost its match.
+ * Measured directly rather than merely argued: 82 requirement rows matched before this
+ * widening and the X509-01…07 mint below, 89 after both, landed in the same commit.
  */
-const REQUIREMENT_ROW = /^-[ \t]+\[([ xX])\][ \t]+\*\*([A-Z]+-\d+)\*\*/gm
+const REQUIREMENT_ROW = /^-[ \t]+\[([ xX])\][ \t]+\*\*([A-Z][A-Z0-9-]*-\d+)\*\*/gm
 
 function parseLedger(markdown: string): Requirement[] {
   const found: Requirement[] = []
@@ -106,8 +119,14 @@ function parseLedger(markdown: string): Requirement[] {
  * names each `[x]` id, which a mechanism's own unit spec satisfies whether or not the
  * mechanism is reachable from anything a person can run. That is the difference
  * between "there is a test" and "the ledger agrees with itself".
+ *
+ * **Widened from `[A-Z]+-\d+` to `[A-Z][A-Z0-9-]*-\d+`, 2026-08-09 (Plan 25-02)** — the
+ * same fix, for the same reason, as `REQUIREMENT_ROW` immediately above. See that
+ * constant's docblock for the full account; the 82→89 measured count applies to both
+ * patterns identically, since every ledger id gets a checkbox row and a traceability
+ * row in the same commit.
  */
-const TRACEABILITY_ROW = /^\|\s*([A-Z]+-\d+)\s*\|([^|]*)\|([^|]*)\|/gm
+const TRACEABILITY_ROW = /^\|\s*([A-Z][A-Z0-9-]*-\d+)\s*\|([^|]*)\|([^|]*)\|/gm
 
 interface TraceabilityRow {
   readonly id: string
