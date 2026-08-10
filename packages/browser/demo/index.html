@@ -456,7 +456,47 @@
           </p>
         </div>
 
+        <!--
+          P1 and P2 — the two arguments this page WOULD send, on screen before anything is
+          dispatched. They are `control` regions for the same reason C1 and C2 are: nothing
+          has been asked of the fabric yet, so there is nothing to read.
+
+          The expressions, recorded here as well as in `surfaces/pi.ts` where they are
+          computed: shards = 4 x (1 + computePeers().length), terms = 250000 x shards. The
+          term count PER SHARD is therefore fixed, which is the arc this surface draws —
+          a second device does not only make the run shorter, it makes the claim tighter,
+          because the remainder bound is 4/(2N+1) over the total.
+
+          The explanatory clause is in the `card-note`, never in a `<dt>`: `dl`'s first
+          column is `max-content`, so a long term establishes a floor wider than a 320px
+          viewport and B1 in `demo-viewport.e2e.test.ts` goes red.
+        -->
         <div class="cards rendered-only">
+          <div class="card blueprint">
+            <i class="corner tl"></i><i class="corner tr"></i>
+            <i class="corner bl"></i><i class="corner br"></i>
+            <p class="card-kicker">What this page will send</p>
+            <dl>
+              <dt>terms</dt>
+              <dd
+                data-region="pi/terms-arg"
+                data-kind="control"
+                data-source="the argument this page will send: the term count"
+              >Nothing dispatched yet — this is what would be sent.</dd>
+              <dt>shards</dt>
+              <dd
+                data-region="pi/shards-arg"
+                data-kind="control"
+                data-source="the argument this page will send: the shard count"
+              >Nothing dispatched yet — this is what would be sent.</dd>
+            </dl>
+            <p class="card-note">
+              Every shard sums the same number of terms, so a second device adds terms
+              rather than only splitting them. The series remainder bound falls as the
+              total rises — more devices, a tighter claim. Both figures move as peers join,
+              before anything is dispatched.
+            </p>
+          </div>
           <div class="card blueprint">
             <i class="corner tl"></i><i class="corner tr"></i>
             <i class="corner bl"></i><i class="corner br"></i>
@@ -466,21 +506,153 @@
               about where the range began, not an error.
             </p>
           </div>
+        </div>
+
+        <p class="controls">
+          <button id="run-pi" class="btn btn-primary" disabled>Run the reduce</button>
+          <!--
+            Digit-free in every state it can reach, deliberately. `#run-status` on the
+            colouring surface reads `settled n = 500` after a run — an undeclared digit
+            inside `#main` that P2 does not catch because P2 runs on the stopped page. It
+            is logged in `deferred-items.md`, and this surface does not add a second one.
+          -->
+          <span class="note" id="pi-status" role="status">start a node first</span>
+        </p>
+
+        <!--
+          P3, P4, P5 — the MAP half, which even a lone tab really did do — and P6, the
+          reduce. Every one of them is written by `applyRender('pi', …)` out of the same
+          record that writes `#pi-report` below, so neither view can format anything the
+          other does not have.
+        -->
+        <div class="cards rendered-only">
+          <div class="card blueprint">
+            <i class="corner tl"></i><i class="corner tr"></i>
+            <i class="corner bl"></i><i class="corner br"></i>
+            <p class="card-kicker">The map — every shard, on some node</p>
+            <dl>
+              <dt>terms</dt>
+              <dd data-region="pi/terms" data-kind="reading" data-source="TabApi.runPi().terms"></dd>
+              <dt>shards</dt>
+              <dd data-region="pi/shards" data-kind="reading" data-source="TabApi.runPi().shards"></dd>
+              <dt>all agreed</dt>
+              <dd data-region="pi/complete" data-kind="reading" data-source="TabApi.runPi().complete"></dd>
+            </dl>
+            <p class="card-note">
+              This half needs no second device. Every shard is executed and its replicas
+              have to agree; what a lone tab cannot do is the combine above them.
+            </p>
+          </div>
           <div class="card blueprint card-accent">
             <i class="corner tl"></i><i class="corner tr"></i>
             <i class="corner bl"></i><i class="corner br"></i>
-            <p class="card-kicker">The lone-tab case, which is not a failure</p>
-            <h3 class="card-title">This claim needs a second device.</h3>
-            <p class="card-body">
-              The submitter is excluded from the combine executor set by contract, so a
-              lone tab maps every shard and combines none. This is the ordinary state of
-              the first tab on the page, not a failure. Open this page on another device,
-              in another browser, or in a private window, and the tree has somewhere to
-              run.
+            <p class="card-kicker">The reduce, and whether it could start</p>
+            <!--
+              The lone-tab copy USED TO STAND HERE as static prose, headline and all. It was
+              removed and is now rendered into the region below, out of the same record as
+              every other reading. Static copy would have said *this claim needs a second
+              device* to a visitor whose reduce had just run, and a spec asserting the
+              sentence would have been asserting the markup rather than the run.
+            -->
+            <p class="quote" data-region="pi/reduce-attempted" data-kind="reading" data-source="TabApi.runPi().reduceAttempted with .reduceReason"></p>
+            <p class="card-note">
+              There is no receipt on this surface, and the reason is the reading rather
+              than a choice: <code>runPi</code> returns no attestation field, so the
+              aggregation's own claim is carried by the reduce and what this page receives
+              does not include the map's receipt. The receipt on the colouring surface is a
+              receipt for a different job.
             </p>
           </div>
         </div>
-        <pre id="pi-report" class="text-view" data-region="pi/report" data-kind="text-view" data-source="the #pi-report text view">Nothing to report: this surface has not been wired to a reading yet.</pre>
+
+        <!--
+          P7, P8, P9 — the tree, and what the reading of it does and does not carry. The
+          diagram is text and CSS: rows in a `<pre>`, no SVG sprite and no icon font, and
+          no per-combine node state, because `TabPiRun` carries none to draw.
+        -->
+        <div class="cards rendered-only">
+          <div class="card blueprint">
+            <i class="corner tl"></i><i class="corner tr"></i>
+            <i class="corner bl"></i><i class="corner br"></i>
+            <p class="card-kicker">The reduce tree</p>
+            <div class="scroller">
+              <pre data-region="pi/tree-depth" data-kind="reading" data-source="TabApi.runPi().treeDepth"></pre>
+            </div>
+            <dl>
+              <dt>aggregate</dt>
+              <dd data-region="pi/combined" data-kind="reading" data-source="TabApi.runPi().combined"></dd>
+              <dt>combines</dt>
+              <dd data-region="pi/combines" data-kind="reading" data-source="TabApi.runPi().combines"></dd>
+            </dl>
+            <p class="card-note">
+              A depth and a count of combines are the whole of what this reading carries —
+              no per-node outcome and no per-node executor — so the rows above are layers
+              and not nodes, and nothing here draws a box whose state the page would have
+              had to invent. That a reduce started and that it produced an aggregate are
+              two different answers and they stay two rows.
+            </p>
+          </div>
+          <div class="card blueprint">
+            <i class="corner tl"></i><i class="corner tr"></i>
+            <i class="corner bl"></i><i class="corner br"></i>
+            <p class="card-kicker">Per-shard partials</p>
+            <p class="card-body">
+              No per-shard partials: the reading this page receives carries the aggregate
+              and not the shard rows.
+            </p>
+            <p class="card-note">
+              The mockup drew a table of them. It is neither dropped in silence nor filled
+              with plausible rows: what it would need is a per-shard field on
+              <code>TabPiRun</code>, and there is none.
+            </p>
+          </div>
+        </div>
+
+        <!--
+          P10, P11, P12 — the aggregate against a published constant, P13 and P14.
+        -->
+        <div class="cards rendered-only">
+          <div class="card blueprint">
+            <i class="corner tl"></i><i class="corner tr"></i>
+            <i class="corner bl"></i><i class="corner br"></i>
+            <p class="card-kicker">The aggregate, checked against published mathematics</p>
+            <dl>
+              <dt>estimate</dt>
+              <dd data-region="pi/estimate" data-kind="reading" data-source="TabApi.runPi().estimate"></dd>
+              <dt>bound</dt>
+              <dd data-region="pi/error-bound" data-kind="reading" data-source="TabApi.runPi().errorBound"></dd>
+            </dl>
+            <div class="scroller">
+              <pre data-region="pi/against-published" data-kind="reading" data-source="TabApi.runPi().estimate against the published constant, with .errorBound beside it"></pre>
+            </div>
+            <p class="card-note">
+              The estimate is fetched from the store the combines wrote to and is never
+              recomputed here, so this page has no second opinion to fall back on and says
+              so when there is nothing to read. The constant it is checked against is
+              published mathematics, quoted with its provenance beside it, and both
+              operands are on screen so the subtraction is one a reader can do.
+            </p>
+          </div>
+          <div class="card blueprint">
+            <i class="corner tl"></i><i class="corner tr"></i>
+            <i class="corner bl"></i><i class="corner br"></i>
+            <p class="card-kicker">What left this device</p>
+            <pre data-region="pi/egress" data-kind="reading" data-source="TabApi.runPi().egress"></pre>
+            <p class="card-note">
+              The withheld count and the sentence beside it are one region and one
+              function, because the figure on its own would read as a proof of sovereignty
+              and this run may simply have had nothing to hold back.
+            </p>
+          </div>
+          <div class="card blueprint">
+            <i class="corner tl"></i><i class="corner tr"></i>
+            <i class="corner bl"></i><i class="corner br"></i>
+            <p class="card-kicker">How long the whole dispatch took</p>
+            <p class="card-body" data-region="pi/elapsed" data-kind="reading" data-source="TabApi.runPi().elapsedMs"></p>
+          </div>
+        </div>
+
+        <pre id="pi-report" class="text-view" data-region="pi/report" data-kind="text-view" data-source="the #pi-report text view">nothing dispatched yet</pre>
       </section>
 
       <section class="wrap" id="s-byo" role="tabpanel" tabindex="0" aria-labelledby="nav-byo" hidden>
@@ -639,6 +811,18 @@
         formatVerification,
         redundancyFor,
       } from './surfaces/colouring.ts'
+      // The π surface's formatter — UI-SPEC section 4.4's P1 through P14, and section 5.3's
+      // second-device panel. Same shape as the colouring import above: one reading in, one
+      // record out. Renamed on import because both modules export `format` and `formatArgs`,
+      // and one surface's formatter reaching another surface's regions is a throw in
+      // `applyRender` rather than a silent cross-write.
+      import {
+        PI_READING_IDS,
+        format as formatPi,
+        formatArgs as formatPiArgs,
+        shardsFor,
+        termsFor,
+      } from './surfaces/pi.ts'
 
       const $ = (id) => document.getElementById(id)
       const gateEl = $('gate')
@@ -664,6 +848,9 @@
       // has been produced to check* — so painting them here says nothing untrue about a
       // control that works with the fabric disconnected.
       paintSurfaceAbsence('colouring', 'stopped')
+      // Same rule again for π. All twelve of its readings paint their stopped sentence before
+      // anything runs; P1 and P2 are controls and carry their own literal in the markup.
+      paintSurfaceAbsence('pi', 'stopped')
       // C3, C4 and C5 are constants: always present, never a result, and never an absence.
       // C5 is computed here from the shipped builder rather than transcribed.
       for (const [id, text] of Object.entries(formatConstants())) writeReading(id, text)
@@ -772,6 +959,10 @@
         if (activity !== null && $('run-status').textContent === 'start a node first') {
           $('run-status').textContent = 'ready'
         }
+        $('run-pi').disabled = activity === null
+        if (activity !== null && $('pi-status').textContent === 'start a node first') {
+          $('pi-status').textContent = 'ready'
+        }
         // Enabled because an answer exists, not because this page produced it.
         $('verify').disabled = !window.o2.verifyAnswer().checked
       }
@@ -791,6 +982,12 @@
         // in exactly this state. Repainting them would replace a true reading with a sentence
         // saying there is nothing to check.
         for (const id of COLOURING_STOP_ABSENCE_IDS) paintAbsence(id, 'stopped')
+        // Every π reading, with no exception list: unlike `verifyAnswer`, nothing on this
+        // surface can be read again with the node stopped — the estimate is fetched from the
+        // store the combines wrote to, and there is no combine and no store request without
+        // a node.
+        paintSurfaceAbsence('pi', 'stopped')
+        $('pi-status').textContent = 'start a node first'
         joinEl.disabled = false
         $('stop').disabled = false
       })
@@ -850,6 +1047,51 @@
         $('run').disabled = false
       })
 
+      // ---- π, and the one aggregation this fabric verifies -----------------------
+      //
+      // MR-03…MR-07. The dispatch and nothing else lives here: the arguments come from the
+      // same two functions P1 and P2 display, the reading goes to one pure formatter, and
+      // `applyRender` writes the fourteen regions and `#pi-report` from the one record it
+      // returns.
+      //
+      // **`redundancyFor` is the colouring surface's, imported rather than re-derived.** It
+      // is not a π region — nothing on this surface displays it — but there is no reason for
+      // this page to hold two rules about how many replicas it asks for, and two rules are
+      // two things that can disagree.
+      $('run-pi').addEventListener('click', async () => {
+        $('run-pi').disabled = true
+        // Refreshed rather than reused, for the reason the colouring handler gives: a stale
+        // peer list either wastes a device that joined or dispatches to one that has gone.
+        // It also repaints P1 and P2, so the arguments on screen are the ones about to be
+        // sent rather than the ones from the last discovery round.
+        await findPeers()
+        const peerIds = computePeers
+        const terms = termsFor(peerIds.length)
+        const shards = shardsFor(peerIds.length)
+        const redundancy = redundancyFor(peerIds.length)
+        // Digit-free, always. See the note beside `#pi-status` in the markup.
+        $('pi-status').textContent = 'dispatching…'
+        try {
+          const run = await window.o2.runPi({ terms, shards, redundancy, peerIds })
+          $('pi-status').textContent = run.combined
+            ? 'an aggregate was produced'
+            : run.reduceAttempted
+              ? 'a reduce ran and produced no aggregate'
+              : 'mapped — the reduce needs a second device'
+          applyRender('pi', formatPi({ peers: peerIds.length, run }), 'pi/report')
+        } catch (error) {
+          // Section 11's error state: the fabric's own words, verbatim, with the page adding
+          // only the prefix that says a run stopped. Every reading, so none is left holding a
+          // figure from a previous run beside a surface that has just failed.
+          const message = error instanceof Error ? error.message : String(error)
+          const sentence = `The run stopped: ${message}`
+          for (const id of PI_READING_IDS) paintAbsence(id, 'unavailable', sentence)
+          writeReading('pi/report', sentence)
+          $('pi-status').textContent = 'the run stopped'
+        }
+        $('run-pi').disabled = false
+      })
+
       $('verify').addEventListener('click', () => {
         // No guard on `activity()` and none wanted: UI-SPEC section 5.4, and
         // `colouring-demo.e2e.test.ts` presses this with the fabric stopped and every peer
@@ -875,6 +1117,11 @@
           // to show — and they carry the arguments the next run will actually send, because
           // the run handler builds them from the same two functions.
           for (const [id, text] of Object.entries(formatArgs(computePeers.length))) {
+            writeReading(id, text)
+          }
+          // P1 and P2, on the same round and for the same reason. The π handler builds its
+          // arguments from the same two functions, so what is on screen is what will be sent.
+          for (const [id, text] of Object.entries(formatPiArgs(computePeers.length))) {
             writeReading(id, text)
           }
           const connected = window.o2.peers().length

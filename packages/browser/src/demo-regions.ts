@@ -204,6 +204,11 @@ export const WIRED_SURFACES: readonly SurfaceId[] = [
   // half-land. It is also the surface Plan 27-04's P5 drives, so it is the first surface
   // whose regions are asserted to STOP reading as absent.
   'colouring',
+  // Plan 27-05 — all 14 of UI-SPEC section 4.4, wired through `demo/surfaces/pi.ts`. This is
+  // the line whose only other effect is on P5: `demo-liveness.e2e.test.ts` discovers run
+  // controls by asking the page for `#s-<surface> .btn-primary` over this array, so appending
+  // here is what makes π the second surface that property drives — with no edit to it.
+  'pi',
 ]
 
 // ---------------------------------------------------------------------------------------
