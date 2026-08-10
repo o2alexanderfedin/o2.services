@@ -1,5 +1,26 @@
+import { ed25519 } from '@noble/curves/ed25519.js'
+import * as dagCbor from '@ipld/dag-cbor'
 import { describe, expect, it } from 'vitest'
-import { ALLOWED_TAGS, MAX_CERTIFICATE_BYTES, checkDerCanonical, decodeDer, preParseCheck } from './x509.ts'
+import {
+  ALLOWED_TAGS,
+  EXT_DISCOVERABILITY,
+  EXT_OPERATOR_ID,
+  EXT_RELAY_IDS,
+  EXT_USER_KEY,
+  ID_AT_COMMON_NAME,
+  ID_ED25519,
+  MAX_CERTIFICATE_BYTES,
+  MAX_EXTENSION_BYTES,
+  MAX_EXTENSION_COUNT,
+  X509_EXTENSION_ARC,
+  checkDerCanonical,
+  decodeDer,
+  decodeX509Certificate,
+  describeX509Failure,
+  encodeDer,
+  preParseCheck,
+} from './x509.ts'
+import type { DerNode, X509Failure } from './x509.ts'
 
 /**
  * X509-04 — the DER decoder's foundation: a certificate-size gate checked before any
@@ -103,11 +124,18 @@ describe('decodeDer refuses BER indefinite length (X509-04 / T-25-01)', () => {
 })
 
 describe('decodeDer refuses out-of-profile tags by name', () => {
-  it('refuses a tag byte outside this profile\'s 12 allowed tags', () => {
-    // 0x05 is ASN.1 NULL -- not in ALLOWED_TAGS. A generic parser would decode it as
-    // a zero-length value; this decoder must refuse it by name instead.
-    expect(ALLOWED_TAGS.has(0x05)).toBe(false)
-    const bytes = tlv(0x05, [])
+  it('refuses a tag byte outside this profile\'s allowed tags', () => {
+    // 0x0a is ASN.1 ENUMERATED -- not in ALLOWED_TAGS. A generic parser would decode it
+    // as a plain value; this decoder must refuse it by name instead.
+    //
+    // This case used to plant 0x05 (NULL), which was itself out of profile in Plan
+    // 25-01. Plan 25-02 moved 0x05 INTO ALLOWED_TAGS (see that constant's own
+    // docblock) so a present-but-NULL Ed25519 `parameters` field can be refused by the
+    // specific `algorithm-parameters-present` kind instead of a generic tag refusal --
+    // so 0x05 is no longer a valid example of "outside the profile" and this case was
+    // re-aimed at a tag that still is.
+    expect(ALLOWED_TAGS.has(0x0a)).toBe(false)
+    const bytes = tlv(0x0a, [])
     const result = decodeDer(bytes)
     expect(result.ok).toBe(false)
     if (result.ok) return
@@ -233,5 +261,231 @@ describe('canonical DER re-encoding round trip (X509-03 mechanism)', () => {
     const canonicalBitString = tlv(0x03, [0x00, 0xab, 0xcd]) // unused=0, byte-aligned
     const bytes = tlv(0x30, concatBytes(canonicalInteger, canonicalBoolean, canonicalBitString))
     expect(checkDerCanonical(bytes)).toBe(true)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Certificate fixture builder (Plan 25-02) — shared across Tasks 1-3.
+//
+// Built through DerNode + encodeDer (Plan 25-01's own encoder), field by field per
+// RESEARCH.md §1's grammar, rather than hand-written hex, so every mutation test plants
+// exactly one field and leaves the rest of a genuinely valid certificate untouched.
+// ---------------------------------------------------------------------------
+
+/** Deterministic keys: seeded rather than random, matching capability.test.ts's `keypair`. */
+function keypair(seed: number): { priv: Uint8Array; pub: Uint8Array } {
+  const priv = new Uint8Array(32).fill(seed)
+  return { priv, pub: ed25519.getPublicKey(priv) }
+}
+
+const ISSUER = keypair(1) // the provider that signs the certificate
+const NODE = keypair(2) // the node the certificate is issued to
+
+const FIXTURE_NOW = 1_800_000_000_000
+const FIXTURE_LATER = FIXTURE_NOW + 30 * 24 * 60 * 60 * 1000 // 30-day lifetime, matching enrollment.ts's default
+
+function testHex(bytes: Uint8Array): string {
+  let out = ''
+  for (const byte of bytes) out += byte.toString(16).padStart(2, '0')
+  return out
+}
+
+function prim(tag: number, content: Uint8Array | readonly number[]): DerNode {
+  const bytes = content instanceof Uint8Array ? content : new Uint8Array(content)
+  return { tag, constructed: false, content: bytes, children: [] }
+}
+
+function cons(tag: number, children: readonly DerNode[]): DerNode {
+  return { tag, constructed: true, content: new Uint8Array(0), children }
+}
+
+/** Dotted-decimal OID -> DER content bytes. Independent of x509.ts's internal `decodeOid`, so a fixture never depends on the code under test to build itself. */
+function oidBytes(dotted: string): Uint8Array {
+  const parts = dotted.split('.').map((p) => BigInt(p))
+  const first = (parts[0] as bigint) * 40n + (parts[1] as bigint)
+  const out: number[] = [Number(first)]
+  for (let idx = 2; idx < parts.length; idx++) {
+    let n = parts[idx] as bigint
+    const chunk: number[] = [Number(n & 0x7fn)]
+    n >>= 7n
+    while (n > 0n) {
+      chunk.unshift(Number(n & 0x7fn) | 0x80)
+      n >>= 7n
+    }
+    out.push(...chunk)
+  }
+  return new Uint8Array(out)
+}
+
+function algId(oid: string, params?: DerNode): DerNode {
+  const children = params ? [prim(0x06, oidBytes(oid)), params] : [prim(0x06, oidBytes(oid))]
+  return cons(0x30, children)
+}
+
+function utcTimeBytes(ms: number): Uint8Array {
+  const d = new Date(ms)
+  const two = (n: number) => String(n).padStart(2, '0')
+  const text = `${two(d.getUTCFullYear() % 100)}${two(d.getUTCMonth() + 1)}${two(d.getUTCDate())}${two(d.getUTCHours())}${two(d.getUTCMinutes())}${two(d.getUTCSeconds())}Z`
+  return new TextEncoder().encode(text)
+}
+
+function rdnName(commonName: string, opts?: { multiValued?: boolean; valueTag?: number }): DerNode {
+  const value = prim(opts?.valueTag ?? 0x0c, new TextEncoder().encode(commonName))
+  const atv = cons(0x30, [prim(0x06, oidBytes(ID_AT_COMMON_NAME)), value])
+  const rdnChildren = opts?.multiValued ? [atv, atv] : [atv]
+  return cons(0x30, [cons(0x31, rdnChildren)])
+}
+
+function bitString(raw: Uint8Array, unusedBits = 0): DerNode {
+  return prim(0x03, new Uint8Array([unusedBits, ...raw]))
+}
+
+function extensionNode(oid: string, payload: Uint8Array): DerNode {
+  return cons(0x30, [prim(0x06, oidBytes(oid)), prim(0x04, payload)])
+}
+
+function defaultExtensions(): DerNode[] {
+  return [
+    extensionNode(EXT_USER_KEY, NODE.pub),
+    extensionNode(EXT_OPERATOR_ID, dagCbor.encode('test-operator')),
+    extensionNode(EXT_DISCOVERABILITY, new Uint8Array([0x00])),
+    extensionNode(EXT_RELAY_IDS, dagCbor.encode(['relay-a', 'relay-b'])),
+  ]
+}
+
+interface FixtureOverrides {
+  readonly version?: DerNode | 'omit'
+  readonly serialNumber?: Uint8Array
+  readonly tbsAlgorithm?: DerNode
+  readonly issuerName?: DerNode
+  readonly notBefore?: DerNode
+  readonly notAfter?: DerNode
+  readonly subjectName?: DerNode
+  readonly spkiAlgorithm?: DerNode
+  readonly subjectPublicKey?: DerNode
+  readonly issuerUniqueId?: DerNode
+  readonly subjectUniqueId?: DerNode
+  readonly extensions?: readonly DerNode[] | 'omit'
+  readonly outerAlgorithm?: DerNode
+  readonly signature?: DerNode
+}
+
+/**
+ * Assemble a full DER-encoded certificate matching this profile's grammar, with any
+ * field replaceable so a test can plant exactly one mutation and leave a genuinely
+ * valid certificate around it — the "restore by the surgical inverse" discipline
+ * applied to fixture construction rather than to a live edit.
+ */
+function buildCertificateFixture(overrides: FixtureOverrides = {}): Uint8Array {
+  const tbsChildren: DerNode[] = []
+
+  if (overrides.version !== 'omit') {
+    tbsChildren.push(overrides.version ?? cons(0xa0, [prim(0x02, [0x02])]))
+  }
+  tbsChildren.push(prim(0x02, overrides.serialNumber ?? new Uint8Array([0x01, 0x02, 0x03, 0x04])))
+  tbsChildren.push(overrides.tbsAlgorithm ?? algId(ID_ED25519))
+  tbsChildren.push(overrides.issuerName ?? rdnName(testHex(ISSUER.pub)))
+  tbsChildren.push(
+    cons(0x30, [
+      overrides.notBefore ?? prim(0x17, utcTimeBytes(FIXTURE_NOW)),
+      overrides.notAfter ?? prim(0x17, utcTimeBytes(FIXTURE_LATER)),
+    ]),
+  )
+  tbsChildren.push(overrides.subjectName ?? rdnName(testHex(NODE.pub)))
+  tbsChildren.push(
+    cons(0x30, [overrides.spkiAlgorithm ?? algId(ID_ED25519), overrides.subjectPublicKey ?? bitString(NODE.pub)]),
+  )
+  if (overrides.issuerUniqueId) tbsChildren.push(overrides.issuerUniqueId)
+  if (overrides.subjectUniqueId) tbsChildren.push(overrides.subjectUniqueId)
+  if (overrides.extensions !== 'omit') {
+    tbsChildren.push(cons(0xa3, [cons(0x30, overrides.extensions ?? defaultExtensions())]))
+  }
+
+  const tbs = cons(0x30, tbsChildren)
+  const tbsBytes = encodeDer(tbs)
+  const signatureRaw = ed25519.sign(tbsBytes, ISSUER.priv)
+
+  const certificate = cons(0x30, [
+    tbs,
+    overrides.outerAlgorithm ?? algId(ID_ED25519),
+    overrides.signature ?? bitString(signatureRaw),
+  ])
+
+  return encodeDer(certificate)
+}
+
+/**
+ * Task 1 — TBSCertificate assembly and RFC 5280 structural refusals. Algorithm
+ * validation and extension processing are Task 2's wiring, and the canonicalisation
+ * gate is Task 3's; fixtures below use `extensions: 'omit'` since Task 1's assembly
+ * does not yet read them.
+ */
+describe('TBSCertificate assembly (X509-04 grammar, RFC 5280 structural refusals)', () => {
+  it('refuses a certificate carrying an issuerUniqueID [1]', () => {
+    // RFC 5280 §4.1.2.8: "CAs conforming to this profile MUST NOT generate
+    // certificates with unique identifiers." A lenient decoder would silently skip an
+    // unrecognised optional field; this one refuses it by name.
+    const bytes = buildCertificateFixture({ issuerUniqueId: prim(0x81, [0x00, 0x01, 0x02, 0x03]), extensions: 'omit' })
+    const result = decodeX509Certificate(bytes)
+    expect(result.ok).toBe(false)
+    if (result.ok) return
+    expect(result.failure.kind).toBe('unique-identifier-present')
+  })
+
+  it('refuses a certificate carrying a subjectUniqueID [2]', () => {
+    // Distinct planted fixture from the issuerUniqueID case above — same refusal kind,
+    // different tag, so both halves of RFC 5280 §4.1.2.8's ban are proved separately.
+    const bytes = buildCertificateFixture({ subjectUniqueId: prim(0x82, [0x00, 0x04, 0x05]), extensions: 'omit' })
+    const result = decodeX509Certificate(bytes)
+    expect(result.ok).toBe(false)
+    if (result.ok) return
+    expect(result.failure.kind).toBe('unique-identifier-present')
+  })
+
+  it('refuses GeneralizedTime in notBefore', () => {
+    // RFC 5280 mandates GeneralizedTime only for dates >=2050; this profile's
+    // certificates never approach it, so a lenient parser accepting it as an alternate
+    // UTCTime encoding is exactly the gap this refusal closes.
+    const bytes = buildCertificateFixture({ notBefore: prim(0x18, utcTimeBytes(FIXTURE_NOW)), extensions: 'omit' })
+    const result = decodeX509Certificate(bytes)
+    expect(result.ok).toBe(false)
+    if (result.ok) return
+    expect(result.failure.kind).toBe('generalized-time-present')
+  })
+
+  it('refuses a multi-valued issuer RDN', () => {
+    // Sidesteps DER's SET OF canonical-ordering rule entirely (RESEARCH.md §1/§2 row
+    // 5) — a lenient parser would accept the second AttributeTypeAndValue and either
+    // use the first or the last; this profile refuses the ambiguity outright.
+    const bytes = buildCertificateFixture({ issuerName: rdnName(testHex(ISSUER.pub), { multiValued: true }), extensions: 'omit' })
+    const result = decodeX509Certificate(bytes)
+    expect(result.ok).toBe(false)
+    if (result.ok) return
+    expect(result.failure.kind).toBe('multi-valued-rdn')
+  })
+
+  it('refuses an AttributeTypeAndValue.value encoded as PrintableString instead of UTF8String', () => {
+    // Tag 0x13 (PrintableString) is outside ALLOWED_TAGS entirely, so decodeDer itself
+    // refuses it generically before assembly ever runs — folded into malformed-der
+    // rather than a dedicated kind, since this is a tag-shape violation at a fixed
+    // grammar position, not a semantic decision (per this task's own <action> text).
+    const bytes = buildCertificateFixture({ subjectName: rdnName(testHex(NODE.pub), { valueTag: 0x13 }), extensions: 'omit' })
+    const result = decodeX509Certificate(bytes)
+    expect(result.ok).toBe(false)
+    if (result.ok) return
+    expect(result.failure.kind).toBe('malformed-der')
+  })
+
+  it('decodes subjectPublicKey to exactly 64 hex characters (32 raw bytes), no OCTET STRING wrapper', () => {
+    // The concrete regression RESEARCH.md Pitfall 2 names: copying the private-key
+    // OCTET STRING wrapping habit into the public SPKI BIT STRING would leave a `04 20`
+    // prefix inside the decoded bytes and a content length of 34+ instead of 33.
+    const bytes = buildCertificateFixture({ extensions: 'omit' })
+    const result = decodeX509Certificate(bytes)
+    expect(result.ok, result.ok ? '' : result.reason).toBe(true)
+    if (!result.ok) return
+    expect(result.certificate.subjectPublicKey).toHaveLength(64)
+    expect(result.certificate.subjectPublicKey.startsWith('0420')).toBe(false)
+    expect(result.certificate.subjectPublicKey).toBe(testHex(NODE.pub))
   })
 })
