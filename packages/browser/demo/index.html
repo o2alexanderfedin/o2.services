@@ -1073,6 +1073,13 @@
         $('pi-status').textContent = 'dispatching…'
         try {
           const run = await window.o2.runPi({ terms, shards, redundancy, peerIds })
+          // The hook `demo-pi.e2e.test.ts` compares the screen against — the same forcing
+          // function `window.__o2LastAttestation` is for P8 one surface over. There is no
+          // `TabApi` accessor for the last π run (a run returns it once), so without this the
+          // spec could only compare the page against itself, and *the right value read from
+          // the wrong object* is the divergence class this repository's ledger records
+          // against this tier.
+          window.__o2LastPiRun = run
           $('pi-status').textContent = run.combined
             ? 'an aggregate was produced'
             : run.reduceAttempted
@@ -1084,6 +1091,9 @@
           // only the prefix that says a run stopped. Every reading, so none is left holding a
           // figure from a previous run beside a surface that has just failed.
           const message = error instanceof Error ? error.message : String(error)
+          // Cleared rather than left holding the previous run: a hook a spec compares the
+          // screen against must never outlive the screen it describes.
+          window.__o2LastPiRun = null
           const sentence = `The run stopped: ${message}`
           for (const id of PI_READING_IDS) paintAbsence(id, 'unavailable', sentence)
           writeReading('pi/report', sentence)
