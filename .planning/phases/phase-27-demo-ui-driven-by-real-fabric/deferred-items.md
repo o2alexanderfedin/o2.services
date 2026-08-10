@@ -639,3 +639,166 @@ put one on screen with nothing to notice. Every label today is digit-free.
 
 **What would close it:** the same thing that would close the other two — P2 run on a populated
 page with a stated exemption list, or a `control` row for each status element.
+
+## UI-SPEC §4.6's F17 cells say "always readable"; `render.ts`'s stopped-wins rule says otherwise
+
+**Found during:** 27-08 Task 1, checking the three F-row sentences Plan 27-03 composed against
+what this surface actually renders — which is the check 27-03's own entry above asked for.
+
+F17's cells read *"always readable — three booleans, no node needed"* and *"unchanged"*.
+`render.ts`'s header states the opposite rule and **names this reading in it**: *when
+`activity() === null`, every reading region paints its `stopped` sentence — including the
+readings that are safe to call with no node (`discoverRelays`, `verifyAnswer`, `isolation`,
+`startReport`)*. That is not decoration. P3 in `demo-regions.e2e.test.ts` runs on a page with no
+node and compares every reading region against the catalogue's stopped sentence.
+
+**Measured, both directions, under a plant.** Passing `isolation: window.o2.isolation()` into the
+stopped branch of `refreshFabric` — one line — turns both guards red with the same text:
+
+```
+fabric/isolation: on screen "cross-origin isolated: no · SharedArrayBuffer: no · in an iframe: no"
+  — the catalogue says "Not read: the page has not yet taken this tab's isolation reading."
+```
+
+`demo-regions.e2e.test.ts` exit **1** (`1 failed | 16 passed`), and `demo-fabric.e2e.test.ts`'s
+no-node arm exit **1** on the same line. So UI-SPEC's F17 cells, taken literally, are a page that
+fails a committed guard.
+
+**Stopped wins was chosen, and the page therefore does not take the reading while stopped.** The
+composed sentence says the page has not read it, and that sentence is true only if the page has
+not — calling `isolation()` and hiding the answer behind it would have been the cheaper
+arrangement and a false one. With a node running the three booleans are on screen and
+`demo-fabric.e2e.test.ts` asserts them character for character against a fresh reading.
+
+**What would close it:** UI-SPEC §4.6's F17 cells saying what the page does — *the booleans while
+a node is running; the stopped sentence otherwise, because stopped wins* — and adopting the
+composed sentence, or naming one. The same edit closes 27-03's *"Three of UI-SPEC section 4.6's
+cells describe a state rather than quoting a sentence"* for F17; F18's and F19's composed
+sentences were checked in the same pass and **are** what the page renders, both read off the
+screen (`Nobody was asked: no peer has been asked for a start outcome.`).
+
+## A whole surface — twenty-one regions — is outside P5, P6, P7 and P8
+
+**Found during:** 27-08 Task 2, measuring what appending `'fabric'` to `WIRED_SURFACES` bought.
+
+`demo-liveness.e2e.test.ts` collects `[data-region]` elements from the panels it **drove**, and it
+drives a surface only when that surface offers a `.btn-primary`. Fabric state offers none by
+design — UI-SPEC §11: *the surface reads, it does not run* — so it lands in P5's skipped list and
+contributes **nothing** to P5a, P5b, P6, P7 or P8. Measured before and after the surface landed,
+same run shape, unedited harness:
+
+| | before 27-08 | after 27-08 |
+|---|---|---|
+| `[P5] skipped` | `session, primes` | `session, primes, fabric` |
+| `[P5] N of M` | `37 of 39` | `37 of 39` |
+| `[P6] examined` | 5 | 5 |
+| `[P7] examined` | 3 | 3 |
+| `[P8] examined` | 2 | 2 |
+
+**So the P5b exempt-set count did not move: it is still twenty-four**, over the three driven
+surfaces. That number is now misleading in a way worth writing down, because the honest figure is
+larger and points somewhere else: **sixteen of the fabric surface's twenty-one readings hold no
+`unavailable` arm** — `peers-all`, `compute-peers`, `held-peers`, all three attestation regions,
+all three egress regions, `duty-user`, `slots`, all three governor regions, `isolation` and
+`blocks` — and they would every one of them be exempt if P5 ever saw them. Counting only the
+driven surfaces makes a surface that is *entirely* unguarded by P5 look like it costs nothing.
+
+Coverage is instead in `demo-fabric.e2e.test.ts`, which asserts all twenty-one by name in the
+stopped arm, asserts the live ones by convergence against a fresh `window.o2` reading, and runs
+P6, P7 and P8 over the panel itself (`examined 1 / 1 / 1` after a colouring run). That is the same
+remedy π, primes and bring-your-own each used, and the same reason it is still worth logging: the
+coverage is in the surface's own spec rather than in the property that claims to be generic.
+
+**What would close it:** the assertion 27-04 first asked for, bounding the exempt set against a
+committed list — and, for this case, a committed expectation of which surfaces P5 must exercise
+and which it must skip, so *the whole surface is invisible to five properties* is a stated fact
+rather than a thing somebody re-derives.
+
+## `#duty-status` is the fifth digit-free-by-hand status element, and the first that must carry a digit
+
+**Found during:** 27-08 Task 2.
+
+`#run-status`, `#pi-status`, `#byo-status` and `#byo-validity` already have entries above: inside
+`#main`, no `data-region`, and P2 runs on the stopped page where each reads a digit-free literal.
+`#duty-status` is the fifth and it differs in one respect that makes it worse. The other four are
+digit-free *by convention*; this one **renders a digit by design**. It carries the governor's
+`RangeError` verbatim, and that message names the value it refused:
+
+```
+dutyCycle must be in (0, 1], got 0
+```
+
+Read off the page, in the fabric's own words, by `demo-fabric.e2e.test.ts`. Paraphrasing it to
+avoid the digit would be the page composing a sentence over a refusal, which is the failure UI-SPEC
+§11's error-state row exists to prevent — so the digit stays and the gap is recorded instead.
+
+**What would close it:** the same thing that would close the other four — P2 run on a populated
+page with a stated exemption list — plus, for this element specifically, an exemption entry saying
+that a quoted refusal may carry a figure the fabric put in it.
+
+## `egressLines`' sovereign sentence now has a fifth renderer, and 27-08 deliberately did not fix it
+
+**Found during:** 27-08 Task 1. This restates the 27-07 entry above with what changed.
+
+The fabric surface's F11 renders `egressLines` over the **last run's** manifest, whichever surface
+produced it. When that run was a sovereign bring-your-own dispatch, this surface renders *"this
+run registered no sovereign data"* about a run that submitted owner-pinned shards — the exact
+unreliability 27-07 measured, now on one more screen. Read off the fabric panel after a colouring
+run, where the sentence is **true**:
+
+```
+What left this device:
+  34 frames sent, 31598 byte(s) total.
+  0 withheld — and this run registered no sovereign data, so that is the
+  guard reporting it had nothing to hold back, not a proof of sovereignty.
+```
+
+**It was left alone, and the reason is that fixing it here would have made it worse.** UI-SPEC §5.2
+fixes the copy verbatim, `EGRESS_SENTENCES` in `demo-region-properties.ts` asserts those exact
+words, and five surfaces now render them. A third arm added on this surface alone would make
+`surfaces/fabric.ts` a second author of the sentence that carries the project's core claim, which
+is precisely the failure the one-region-one-function rule exists to stop. The card states the limit
+in its own prose beside the reading instead.
+
+**What would close it, and it is one change across four contracts rather than four changes:** a
+`registered` count on `EgressManifest` (`packages/net/src/egress.ts`), counted where the guard
+registers a sovereign CID; a third arm in `egressLines`; the amended sentence in UI-SPEC §5.2; and
+the matching entry in `EGRESS_SENTENCES`, with `demo-byo.e2e.test.ts`, `demo-pi.e2e.test.ts`,
+`demo-fabric.e2e.test.ts` and `demo-liveness.e2e.test.ts` re-read in the same pass. It is a
+Rule 4 boundary — a new field on a type in another package — and Plan 27-10 is where it belongs.
+
+## `addresses().webrtc` reports one address twice, and F21 renders it twice
+
+**Found during:** 27-08 Task 3, reading F21 off the screen rather than counting its lines.
+
+The two-tab fixture's tab reported three dialable addresses and two of them are byte-identical:
+
+```
+/ip4/127.0.0.1/tcp/52359/ws/p2p/12D3KooWHRm…/p2p-circuit/webrtc/p2p/12D3KooWM2B…
+/ip4/127.0.0.1/tcp/52359/ws/p2p/12D3KooWHRm…/p2p-circuit/webrtc/p2p/12D3KooWM2B…
+/ip4/127.0.0.1/tcp/52359/ws/p2p/12D3KooWHRm…/p2p-circuit/p2p/12D3KooWM2B…
+```
+
+The duplicate is in `BrowserNode.webrtcAddrs`, not in the formatter — `surfaces/fabric.ts` joins
+the list it is handed and adds nothing. **It was not de-duplicated**, and that is a decision rather
+than an omission: the node really does advertise the address twice, and a page that quietly
+collapsed the list would be editing a reading to make it look tidier than the fabric is. A reader
+seeing it twice is seeing something true.
+
+**What would close it:** either `BrowserNode` de-duplicating what it advertises — which is where
+the duplicate is and where a fix would also change what peers are told — or a stated decision that
+F21 shows the advertised set as advertised, added to UI-SPEC §4.6.
+
+## `dl { grid-template-columns: max-content 1fr }` makes a long `<dt>` a B1 defect
+
+**Found during:** 27-08 Task 2, and B1 caught it, so this is a note rather than a gap.
+
+A `<dt>` never wraps under that rule: its whole phrase sets the first track's width. The fabric
+panel's first draft used sentences as labels — *peers held over a connection that can carry a job*
+— and `demo-viewport.e2e.test.ts` went red at 320 **and** 360 with `documentElement.scrollWidth
+388` at both, the same figure twice because it is an intrinsic width rather than a viewport one.
+The labels are terse now and the explanation is in the card note, which wraps.
+
+Worth recording only because the rule is invisible at the call site and the failure looks like a
+responsive-layout problem rather than a copy-length one. B1 is a real guard here and it fired
+before anything shipped.
