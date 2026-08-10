@@ -376,7 +376,10 @@ interface FixtureOverrides {
  * valid certificate around it — the "restore by the surgical inverse" discipline
  * applied to fixture construction rather than to a live edit.
  */
-function buildCertificateFixture(overrides: FixtureOverrides = {}): Uint8Array {
+function buildCertificateFixture(
+  overrides: FixtureOverrides = {},
+  serialize: (node: DerNode) => Uint8Array = encodeDer,
+): Uint8Array {
   const tbsChildren: DerNode[] = []
 
   if (overrides.version !== 'omit') {
@@ -402,6 +405,10 @@ function buildCertificateFixture(overrides: FixtureOverrides = {}): Uint8Array {
   }
 
   const tbs = cons(0x30, tbsChildren)
+  // Always signed over the canonical TBS encoding, regardless of `serialize` --
+  // decodeX509Certificate never cryptographically verifies this signature (that is a
+  // separate concern from this module's encoding-level profile), so a mutation
+  // targeting the final serialization step does not need a matching mutated signature.
   const tbsBytes = encodeDer(tbs)
   const signatureRaw = ed25519.sign(tbsBytes, ISSUER.priv)
 
@@ -411,7 +418,7 @@ function buildCertificateFixture(overrides: FixtureOverrides = {}): Uint8Array {
     overrides.signature ?? bitString(signatureRaw),
   ])
 
-  return encodeDer(certificate)
+  return serialize(certificate)
 }
 
 /**
@@ -669,5 +676,117 @@ describe('extension rules (X509-06/07) and custom extension mapping', () => {
     ]
     const reasons = cases.map((failure) => describeX509Failure(failure))
     expect(new Set(reasons).size).toBe(reasons.length)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Task 3 — canonicalisation gate, wired as decodeX509Certificate's final check.
+// ---------------------------------------------------------------------------
+
+function minimalLengthBytesTest(len: number): number[] {
+  if (len <= 0x7f) return [len]
+  const bytes: number[] = []
+  let n = len
+  while (n > 0) {
+    bytes.unshift(n & 0xff)
+    n = Math.floor(n / 256)
+  }
+  return [0x80 | bytes.length, ...bytes]
+}
+
+/**
+ * Like `encodeDer`, but never canonicalises a leaf's content (no INTEGER/BIT
+ * STRING/BOOLEAN normalisation) and, when `nonMinimalLengthAt` names a specific node
+ * instance, widens that one node's length octets by one extra byte beyond what its
+ * content strictly needs. Lets a test plant exactly one genuinely non-canonical field
+ * inside an otherwise well-formed certificate, with every ancestor SEQUENCE's length
+ * correctly re-derived from the actual (poisoned) content size -- no manual byte
+ * splicing, and no risk of the mutation being silently re-canonicalised away by the
+ * encoder under test.
+ */
+function encodeDerRaw(node: DerNode, nonMinimalLengthAt?: DerNode): Uint8Array {
+  let content: Uint8Array
+  if (node.constructed) {
+    const parts = node.children.map((child) => encodeDerRaw(child, nonMinimalLengthAt))
+    const total = parts.reduce((n, p) => n + p.length, 0)
+    content = new Uint8Array(total)
+    let offset = 0
+    for (const part of parts) {
+      content.set(part, offset)
+      offset += part.length
+    }
+  } else {
+    content = node.content
+  }
+
+  let lengthBytes: number[]
+  if (node === nonMinimalLengthAt) {
+    // Force long form with one more byte than the value strictly needs -- legal BER,
+    // illegal DER (RESEARCH.md §2 row 2).
+    const minimal = minimalLengthBytesTest(content.length)
+    lengthBytes = (minimal[0] as number) <= 0x7f ? [0x81, minimal[0] as number] : [0x80 | (minimal.length - 1 + 1), 0x00, ...minimal.slice(1)]
+  } else {
+    lengthBytes = minimalLengthBytesTest(content.length)
+  }
+
+  const out = new Uint8Array(1 + lengthBytes.length + content.length)
+  out[0] = node.tag
+  out.set(lengthBytes, 1)
+  out.set(content, 1 + lengthBytes.length)
+  return out
+}
+
+describe('golden minimal-valid-certificate fixture', () => {
+  it('decodes a fully conformant certificate, every field populated correctly', () => {
+    const bytes = buildCertificateFixture()
+    const result = decodeX509Certificate(bytes)
+    expect(result.ok, result.ok ? '' : result.reason).toBe(true)
+    if (!result.ok) return
+    expect(result.certificate.version).toBe(2)
+    expect(result.certificate.serialNumber).toBe('01020304')
+    expect(result.certificate.issuerCommonName).toBe(testHex(ISSUER.pub))
+    expect(result.certificate.subjectCommonName).toBe(testHex(NODE.pub))
+    // FIXTURE_NOW/FIXTURE_LATER are already whole-second unix-ms values, so the
+    // UTCTime round trip (YYMMDDHHMMSSZ, second precision) reconstructs them exactly.
+    expect(result.certificate.notBefore).toBe(FIXTURE_NOW)
+    expect(result.certificate.notAfter).toBe(FIXTURE_LATER)
+    expect(result.certificate.subjectPublicKey).toBe(testHex(NODE.pub))
+    expect(result.certificate.userKey).toBe(testHex(NODE.pub))
+    expect(result.certificate.operatorId).toBe('test-operator')
+    expect(result.certificate.discoverability).toBe('seed')
+    expect(result.certificate.relayIds).toEqual(['relay-a', 'relay-b'])
+    expect(result.certificate.signature).toHaveLength(128)
+  })
+})
+
+describe('certificate-level DER canonicalisation gate (X509-03)', () => {
+  it('refuses a certificate whose signatureValue length uses long form where short form would fit', () => {
+    // RESEARCH.md §2 row 2, applied at whole-certificate scope rather than a
+    // standalone TLV (Plan 25-01's own canonicalisation tests proved the mechanism in
+    // isolation; this proves it is actually wired into decodeX509Certificate).
+    const dummySignature = bitString(new Uint8Array(64).fill(0x11))
+    const bytes = buildCertificateFixture({ signature: dummySignature }, (node) => encodeDerRaw(node, dummySignature))
+    const result = decodeX509Certificate(bytes)
+    expect(result.ok).toBe(false)
+    if (result.ok) return
+    expect(result.failure.kind).toBe('non-canonical-encoding')
+  })
+
+  it('refuses a certificate whose serialNumber carries a redundant leading 0x00', () => {
+    const bytes = buildCertificateFixture({ serialNumber: new Uint8Array([0x00, 0x7f]) }, (node) => encodeDerRaw(node))
+    const result = decodeX509Certificate(bytes)
+    expect(result.ok).toBe(false)
+    if (result.ok) return
+    expect(result.failure.kind).toBe('non-canonical-encoding')
+  })
+
+  it('refuses a certificate whose subjectPublicKey BIT STRING padding bits are not zeroed', () => {
+    const poisoned = new Uint8Array(NODE.pub)
+    poisoned[31] = (poisoned[31] as number) | 0x07 // garbage in what should be zeroed padding
+    const bytes = buildCertificateFixture({ subjectPublicKey: bitString(poisoned, 3) }, (node) => encodeDerRaw(node))
+    const result = decodeX509Certificate(bytes)
+    expect(result.ok).toBe(false)
+    if (result.ok) return
+    expect(result.failure.kind).toBe('non-canonical-encoding')
   })
 })
