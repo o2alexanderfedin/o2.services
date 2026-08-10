@@ -110,7 +110,18 @@
           <dd data-region="session/webrtc-addr" data-kind="reading" data-source="TabApi.waitForWebrtcAddr()[0]"></dd>
         </dl>
 
-        <p class="note" id="explain"></p>
+        <!--
+          Declared prose. `#explain`'s no-relay copy names `Circuit Relay v2` and `o2 seed`,
+          and both carry a digit. A number in a sentence is legitimate and it is still
+          declared — that is what stops *wrap it in a paragraph* being the loophole.
+        -->
+        <p
+          class="note"
+          id="explain"
+          data-region="session/prose-explain"
+          data-kind="prose"
+          data-source="the version number in the Circuit Relay protocol name, and the name of this project"
+        ></p>
         <p
           class="note"
           id="peers"
@@ -139,7 +150,7 @@
       -->
       <section class="wrap" id="s-colouring" role="tabpanel" tabindex="0" aria-labelledby="nav-colouring">
         <div class="surface-head">
-          <p class="kicker">Workload A · Pythagorean-triple 2-colouring</p>
+          <p class="kicker" data-region="colouring/prose-kicker" data-kind="prose" data-source="the number of colours a 2-colouring uses, which is what the word means">Workload A · Pythagorean-triple 2-colouring</p>
           <h2>Capacity grows with participants, and it grows in steps.</h2>
         </div>
 
@@ -147,7 +158,7 @@
           <i class="corner tl"></i><i class="corner tr"></i>
           <i class="corner bl"></i><i class="corner br"></i>
           <h3 class="card-title">The job</h3>
-          <p class="card-body">
+          <p class="card-body" data-region="colouring/prose-problem" data-kind="prose" data-source="the definition of a Pythagorean triple, and the lower bound of the range being coloured">
             Colour every whole number from 1 to N red or blue so that no three numbers
             with a² + b² = c² end up the same colour. The search is split into
             independent cubes and spread across this tab and every peer it can reach.
@@ -155,7 +166,7 @@
             agree; alone, this tab runs each cube once. The report below says which
             happened, and how far that goes.
           </p>
-          <p class="card-body">
+          <p class="card-body" data-region="colouring/prose-bound" data-kind="prose" data-source="the published bound on the Boolean Pythagorean triples problem and the size of the proof that settled it">
             N climbs until the fabric cannot settle a rung. Each cube fixes the colours
             of the most constrained numbers and searches the rest, so more cubes reach
             further — with more peers connected, more cubes run, and the answer gets
@@ -294,7 +305,7 @@
             <i class="corner tl"></i><i class="corner tr"></i>
             <i class="corner bl"></i><i class="corner br"></i>
             <p class="card-kicker">tools/aot — the lift pipeline</p>
-            <h3 class="card-title">AArch64 ELF to WebAssembly, scanned for non-determinism.</h3>
+            <h3 class="card-title" data-region="byo/prose-lift-target" data-kind="prose" data-source="the name of the instruction set architecture the lift pipeline reads">AArch64 ELF to WebAssembly, scanned for non-determinism.</h3>
             <p class="card-body">
               Relaxed SIMD, shared memory, float NaN sources. Then publish and sign the
               artifact. This is a build-time pipeline with no page-side reading, and it
@@ -343,7 +354,7 @@
         <div class="surface-head">
           <p class="kicker">Measured elsewhere, on one machine, in a recorded run</p>
           <h2>Splitting is free. Parallelism is near-linear to four.</h2>
-          <p class="lede">
+          <p class="lede" data-region="bench/prose-provenance" data-kind="prose" data-source="the identifier of the plan that transcribes this surface's committed figures">
             Every figure this surface will carry comes from a recorded run and none of them
             is a reading from your tab. The figures themselves land with Plan 27-09, which
             transcribes them from the committed document rather than from this page's

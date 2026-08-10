@@ -1389,9 +1389,30 @@ export const REGIONS: readonly Region[] = [
   // *wrap it in a paragraph* is the loophole that makes the no-undeclared-digit property
   // unenforceable, and `#main` already carries four such sentences.
   //
-  // Each of these was found by running the guard's P2 against the page rather than by
-  // reading the markup, and each `source` names where its number comes from.
+  // **Every one of these six was found by running the guard's P2 against the page**, not by
+  // reading the markup. Reading found four of them; P2 found six, and then found a seventh
+  // after its own truncation defect was fixed. Two of the three the reading missed are the
+  // interesting ones — `2-colouring` in a surface kicker, and `v2` in a protocol name — and
+  // they are why the rule is over glyphs rather than over anything a person is asked to spot.
+  //
+  // Each `source` names where its number comes from.
   // =====================================================================================
+  {
+    id: 'session/prose-explain',
+    surface: 'session',
+    kind: 'prose',
+    // `v2` in "Circuit Relay v2", and `o2` in "o2 seed". Both are names, and a name with a
+    // digit in it is still a digit on screen.
+    source:
+      'the version number in the Circuit Relay protocol name, and the name of this project',
+  },
+  {
+    id: 'colouring/prose-kicker',
+    surface: 'colouring',
+    kind: 'prose',
+    // `2` in "2-colouring".
+    source: 'the number of colours a 2-colouring uses, which is what the word means',
+  },
   {
     id: 'colouring/prose-problem',
     surface: 'colouring',
@@ -1414,5 +1435,15 @@ export const REGIONS: readonly Region[] = [
     kind: 'prose',
     // `64` in AArch64.
     source: 'the name of the instruction set architecture the lift pipeline reads',
+  },
+  {
+    id: 'bench/prose-provenance',
+    surface: 'bench',
+    kind: 'prose',
+    // `27-09` in "Plan 27-09". A planning identifier quoted on a visitor-facing page is odd
+    // copy and it is Plan 27-09's to replace when it lands this surface's figures; it is
+    // declared here rather than reworded, because rewording another plan's surface to make
+    // this plan's guard green is the failure this guard exists to prevent, one level up.
+    source: 'the identifier of the plan that transcribes this surface\'s committed figures',
   },
 ]
