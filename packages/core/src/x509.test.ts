@@ -489,3 +489,185 @@ describe('TBSCertificate assembly (X509-04 grammar, RFC 5280 structural refusals
     expect(result.certificate.subjectPublicKey).toBe(testHex(NODE.pub))
   })
 })
+
+// ---------------------------------------------------------------------------
+// Task 2 — algorithm allow-list, extension rules, custom extension mapping.
+// ---------------------------------------------------------------------------
+
+/** SHA-1-with-RSA, this profile's SHA-1 test vector (RESEARCH.md §1). */
+const SHA1_WITH_RSA_OID = '1.2.840.113549.1.1.5'
+/** id-ecPublicKey — the outer OID this profile refuses regardless of the curve named in `parameters`. */
+const EC_PUBLIC_KEY_OID = '1.2.840.10045.2.1'
+/** secp192r1 / P-192, carried as `parameters` under id-ecPublicKey. */
+const P192_OID = '1.2.840.10045.3.1.1'
+/** secp224r1 / P-224, carried as `parameters` under id-ecPublicKey. */
+const P224_OID = '1.3.132.0.33'
+/** rsaEncryption, this profile's RSA<2048 test vector — the OID alone refuses; modulus size is never inspected. */
+const RSA_ENCRYPTION_OID = '1.2.840.113549.1.1.1'
+
+/** `count` distinct Extension nodes under dummy OIDs outside this profile's 4-member registry, each a 1-byte payload. */
+function fillerExtensions(count: number): DerNode[] {
+  return Array.from({ length: count }, (_, i) => extensionNode(`${X509_EXTENSION_ARC}.${100 + i}`, new Uint8Array([0x00])))
+}
+
+describe('algorithm allow-list (X509-01/02)', () => {
+  it('refuses a present (even NULL) parameters field on the Ed25519 AlgorithmIdentifier', () => {
+    // RFC 8410 §10's named legacy-tolerant trap: "It is possible to find systems that
+    // require the parameters to be present... due to either a defect in the original
+    // 1997 syntax or a programming error." This profile refuses even the NULL case.
+    const bytes = buildCertificateFixture({ spkiAlgorithm: algId(ID_ED25519, prim(0x05, [])) })
+    const result = decodeX509Certificate(bytes)
+    expect(result.ok).toBe(false)
+    if (result.ok) return
+    expect(result.failure.kind).toBe('algorithm-parameters-present')
+    if (result.failure.kind !== 'algorithm-parameters-present') return
+    expect(result.failure.oid).toBe(ID_ED25519)
+  })
+
+  it('refuses SHA-1 (sha1WithRSAEncryption) by name', () => {
+    const bytes = buildCertificateFixture({ spkiAlgorithm: algId(SHA1_WITH_RSA_OID) })
+    const result = decodeX509Certificate(bytes)
+    expect(result.ok).toBe(false)
+    if (result.ok) return
+    expect(result.failure.kind).toBe('unrecognised-algorithm')
+    if (result.failure.kind !== 'unrecognised-algorithm') return
+    expect(result.failure.oid).toBe(SHA1_WITH_RSA_OID)
+  })
+
+  it('refuses P-192 (id-ecPublicKey with secp192r1 parameters) by the outer OID', () => {
+    // The outer id-ecPublicKey OID mismatch already refuses before `parameters` (the
+    // curve) would ever matter — deliberate minimalism per RESEARCH.md §1: "the
+    // decoder never needs SHA-1, P-192, P-224, or any RSA OID branch implemented at
+    // all." The curve is planted anyway so this is a genuinely distinct fixture from
+    // the P-224 case below, not the same bytes read twice.
+    const bytes = buildCertificateFixture({
+      spkiAlgorithm: algId(EC_PUBLIC_KEY_OID, prim(0x06, oidBytes(P192_OID))),
+    })
+    const result = decodeX509Certificate(bytes)
+    expect(result.ok).toBe(false)
+    if (result.ok) return
+    expect(result.failure.kind).toBe('unrecognised-algorithm')
+    if (result.failure.kind !== 'unrecognised-algorithm') return
+    expect(result.failure.oid).toBe(EC_PUBLIC_KEY_OID)
+  })
+
+  it('refuses P-224 (id-ecPublicKey with secp224r1 parameters) by the outer OID', () => {
+    // Distinct planted fixture (different parameter bytes) from P-192, even though both
+    // reach the identical refusal path -- satisfying 25-CONTEXT.md's "each with its own test".
+    const bytes = buildCertificateFixture({
+      spkiAlgorithm: algId(EC_PUBLIC_KEY_OID, prim(0x06, oidBytes(P224_OID))),
+    })
+    const result = decodeX509Certificate(bytes)
+    expect(result.ok).toBe(false)
+    if (result.ok) return
+    expect(result.failure.kind).toBe('unrecognised-algorithm')
+    if (result.failure.kind !== 'unrecognised-algorithm') return
+    expect(result.failure.oid).toBe(EC_PUBLIC_KEY_OID)
+  })
+
+  it('refuses RSA (rsaEncryption) by name, without ever inspecting modulus size', () => {
+    const bytes = buildCertificateFixture({ spkiAlgorithm: algId(RSA_ENCRYPTION_OID) })
+    const result = decodeX509Certificate(bytes)
+    expect(result.ok).toBe(false)
+    if (result.ok) return
+    expect(result.failure.kind).toBe('unrecognised-algorithm')
+    if (result.failure.kind !== 'unrecognised-algorithm') return
+    expect(result.failure.oid).toBe(RSA_ENCRYPTION_OID)
+  })
+})
+
+describe('extension rules (X509-06/07) and custom extension mapping', () => {
+  it('refuses a duplicate extnID outright, never last-wins', () => {
+    const bytes = buildCertificateFixture({
+      extensions: [extensionNode(EXT_USER_KEY, NODE.pub), extensionNode(EXT_USER_KEY, NODE.pub)],
+    })
+    const result = decodeX509Certificate(bytes)
+    expect(result.ok).toBe(false)
+    if (result.ok) return
+    expect(result.failure.kind).toBe('duplicate-extension')
+    if (result.failure.kind !== 'duplicate-extension') return
+    expect(result.failure.oid).toBe(EXT_USER_KEY)
+  })
+
+  it('accepts exactly MAX_EXTENSION_COUNT extensions at the count gate (proved by the next refusal being unrecognised-extension, not too-many-extensions)', () => {
+    // This profile's closed registry has only 4 legal extensions, so a certificate
+    // carrying MAX_EXTENSION_COUNT (8) genuinely-accepted extensions cannot be built —
+    // the two-sided bound is proved at the mechanism level instead: the count gate runs
+    // BEFORE the per-extension membership loop (Task 2's own <action> text), so 8
+    // distinct-OID filler extensions must clear the count gate and fail one entry later,
+    // on the first one's unrecognised OID, not on the count.
+    const bytes = buildCertificateFixture({ extensions: fillerExtensions(MAX_EXTENSION_COUNT) })
+    const result = decodeX509Certificate(bytes)
+    expect(result.ok).toBe(false)
+    if (result.ok) return
+    expect(result.failure.kind).toBe('unrecognised-extension')
+  })
+
+  it('refuses MAX_EXTENSION_COUNT + 1 extensions by name, naming the count and the limit', () => {
+    const bytes = buildCertificateFixture({ extensions: fillerExtensions(MAX_EXTENSION_COUNT + 1) })
+    const result = decodeX509Certificate(bytes)
+    expect(result.ok).toBe(false)
+    if (result.ok) return
+    expect(result.failure.kind).toBe('too-many-extensions')
+    if (result.failure.kind !== 'too-many-extensions') return
+    expect(result.failure.count).toBe(MAX_EXTENSION_COUNT + 1)
+    expect(result.failure.limit).toBe(MAX_EXTENSION_COUNT)
+  })
+
+  it('accepts an extension of exactly MAX_EXTENSION_BYTES at the size gate (proved the same way: the next refusal is unrecognised-extension, not extension-too-large)', () => {
+    const oid = `${X509_EXTENSION_ARC}.200`
+    const bytes = buildCertificateFixture({ extensions: [extensionNode(oid, new Uint8Array(MAX_EXTENSION_BYTES))] })
+    const result = decodeX509Certificate(bytes)
+    expect(result.ok).toBe(false)
+    if (result.ok) return
+    expect(result.failure.kind).toBe('unrecognised-extension')
+  })
+
+  it('refuses an extension one byte past MAX_EXTENSION_BYTES, naming the OID, the size, and the limit', () => {
+    const oid = `${X509_EXTENSION_ARC}.201`
+    const bytes = buildCertificateFixture({ extensions: [extensionNode(oid, new Uint8Array(MAX_EXTENSION_BYTES + 1))] })
+    const result = decodeX509Certificate(bytes)
+    expect(result.ok).toBe(false)
+    if (result.ok) return
+    expect(result.failure.kind).toBe('extension-too-large')
+    if (result.failure.kind !== 'extension-too-large') return
+    expect(result.failure.oid).toBe(oid)
+    expect(result.failure.bytes).toBe(MAX_EXTENSION_BYTES + 1)
+    expect(result.failure.limit).toBe(MAX_EXTENSION_BYTES)
+  })
+
+  it('refuses an extnID outside this profile\'s four recognised extensions, by name', () => {
+    const oid = `${X509_EXTENSION_ARC}.202`
+    const bytes = buildCertificateFixture({ extensions: [extensionNode(oid, new Uint8Array([0x01]))] })
+    const result = decodeX509Certificate(bytes)
+    expect(result.ok).toBe(false)
+    if (result.ok) return
+    expect(result.failure.kind).toBe('unrecognised-extension')
+    if (result.failure.kind !== 'unrecognised-extension') return
+    expect(result.failure.oid).toBe(oid)
+  })
+
+  it('decodes all four conformant custom extensions into their matching X509Certificate fields', () => {
+    const bytes = buildCertificateFixture() // defaultExtensions(): userKey, operatorId, discoverability, relayIds
+    const result = decodeX509Certificate(bytes)
+    expect(result.ok, result.ok ? '' : result.reason).toBe(true)
+    if (!result.ok) return
+    expect(result.certificate.userKey).toBe(testHex(NODE.pub))
+    expect(result.certificate.operatorId).toBe('test-operator')
+    expect(result.certificate.discoverability).toBe('seed')
+    expect(result.certificate.relayIds).toEqual(['relay-a', 'relay-b'])
+  })
+
+  it('gives a distinct reason for every failure kind (mirrors capability.test.ts:187-199)', () => {
+    const cases: X509Failure[] = [
+      { kind: 'algorithm-parameters-present', oid: ID_ED25519 },
+      { kind: 'unrecognised-algorithm', oid: SHA1_WITH_RSA_OID },
+      { kind: 'too-many-extensions', count: MAX_EXTENSION_COUNT + 1, limit: MAX_EXTENSION_COUNT },
+      { kind: 'duplicate-extension', oid: EXT_USER_KEY },
+      { kind: 'extension-too-large', oid: EXT_USER_KEY, bytes: MAX_EXTENSION_BYTES + 1, limit: MAX_EXTENSION_BYTES },
+      { kind: 'unrecognised-extension', oid: `${X509_EXTENSION_ARC}.203` },
+    ]
+    const reasons = cases.map((failure) => describeX509Failure(failure))
+    expect(new Set(reasons).size).toBe(reasons.length)
+  })
+})
