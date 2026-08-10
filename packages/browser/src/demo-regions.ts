@@ -255,6 +255,28 @@ export const WIRED_SURFACES: readonly SurfaceId[] = [
   //    sentence in the catalogue and would be exempt from P5b even if they were collected;
   //    they are covered instead by `demo-fabric.e2e.test.ts`, region by region and by name.
   'fabric',
+  // Plan 27-09 — UI-SPEC section 4.7's K1 and K2, wired through `demo/surfaces/bench.ts`.
+  //
+  // The last surface, and the only one on the page whose regions are both `cited`. It reads
+  // nothing, blocks nothing and has no run control, so — like `primes` and `fabric` — it
+  // lands in P5's **skipped** list, reported by name.
+  'bench',
+  // Plan 27-09 — UI-SPEC section 4.1's B1, B2 and B3, and this entry is the one that took a
+  // decision rather than a transcription.
+  //
+  // **It waited eight plans because the bar's three elements carried no `data-region` until
+  // this one.** Appending `'bar'` while they did not would have been the greppable admission
+  // that a surface had arrived over three regions that existed only in the catalogue — the
+  // exact silence the array is supposed to break. The attributes went onto `#bar-what`,
+  // `#bar-stats` and `#stop` in the same commit as this line.
+  //
+  // **What it does NOT buy, measured rather than assumed.** P1b is the only property scoped
+  // to this array, and it runs in `demo-regions.e2e.test.ts` on a page with **no node**,
+  // where `#bar` is absent and `absenceMode: 'element-removed'` skips all three. So the
+  // examined count does not move by three, it moves by two — `bench`'s pair — and these
+  // three are covered only the day a spec runs P1b with a node up. That is written down
+  // here, and in `deferred-items.md`, rather than left for a reader to infer from a count.
+  'bar',
 ]
 
 // ---------------------------------------------------------------------------------------
@@ -1523,10 +1545,16 @@ export const REGIONS: readonly Region[] = [
     id: 'bench/prose-provenance',
     surface: 'bench',
     kind: 'prose',
-    // `27-09` in "Plan 27-09". A planning identifier quoted on a visitor-facing page is odd
-    // copy and it is Plan 27-09's to replace when it lands this surface's figures; it is
-    // declared here rather than reworded, because rewording another plan's surface to make
-    // this plan's guard green is the failure this guard exists to prevent, one level up.
-    source: 'the identifier of the plan that transcribes this surface\'s committed figures',
+    // Replaced by Plan 27-09, which is the plan the previous source named. What stood here
+    // declared `27-09` in the words "Plan 27-09" — a planning identifier on a visitor-facing
+    // page, left declared rather than reworded because rewording another plan's surface to
+    // make this plan's guard green is the failure this guard exists to prevent.
+    //
+    // It now carries UI-SPEC section 4.7 requirement 1 verbatim, whose three figures — the
+    // date, the core count and the engine version — all occur in the committed document.
+    // Still `prose` and not `cited`: it is a sentence about where the figures came from
+    // rather than a figure, and the tally of 91 depends on it staying prose.
+    source:
+      'docs/perf/prime-and-pi-benchmarks.md — the date, the machine and the engine of the recorded run',
   },
 ]

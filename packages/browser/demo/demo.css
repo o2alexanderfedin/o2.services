@@ -309,6 +309,28 @@ button:disabled, .btn:disabled { opacity: 0.45; cursor: not-allowed; }
 .citation { color: var(--color-neutral-700); }
 
 /*
+  The Benchmarks surface's two cited tables — Plan 27-09.
+
+  The `pre` rule below sets `white-space: pre-wrap; overflow-wrap: anywhere`, which is right
+  for a text view of prose lines and wrong for a fixed-width table: a wrapped row puts one
+  record's cells on two lines and stacks two different records' columns under each other,
+  producing a table that says something the committed document does not. So these two do not
+  wrap; they scroll inside their `.scroller`, which is `overflow-x: auto`.
+
+  `min-width: 0` on the card is the line that makes that work, and it was arrived at by
+  measurement rather than by reasoning. The first draft of this rule set `white-space: pre`
+  and nothing else, on the belief that a card is a plain block whose width comes from its
+  column. It is not: `[role="tabpanel"] { display: grid }` makes every direct child of a
+  surface a GRID ITEM, and a grid item's automatic minimum size is its content's — so the
+  widest table row set the track, the track set the page, and `demo-viewport.e2e.test.ts`
+  reported `B1 … documentElement.scrollWidth 830 exceeds innerWidth 320 + 1` at 320, 360,
+  393 and 768 in both bar states, exit 1, four cases red. The same figure at four widths is
+  an intrinsic width, which is what named the cause.
+*/
+.bench-table { white-space: pre; overflow-wrap: normal; }
+#s-bench > .card { min-width: 0; }
+
+/*
   Refusal prose — a provenance refusal or a shard failure, in bring-your-own.
 
   UI-SPEC section 1.5 reserves `--color-refusal` for a withheld frame, a refuted verdict, a

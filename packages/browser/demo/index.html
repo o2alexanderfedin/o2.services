@@ -1434,26 +1434,93 @@
         <pre id="fabric-report" class="text-view" data-region="fabric/report" data-kind="text-view" data-source="the #fabric-report text view">This tab's node is stopped. Start it from the panel at the top of the page to take a reading.</pre>
       </section>
 
+      <!--
+        Benchmarks — UI-SPEC section 4.7. Two `cited` region groups and nothing else.
+
+        Three things about this markup are decisions rather than defaults:
+
+        1. **Nothing here is `rendered-only`.** Every other surface marks its cards so the
+           "Text only" position of `#view-mode` collapses them, which is safe there because
+           each of those surfaces has a `<pre class="text-view">` left standing. This one
+           does not — UI-SPEC section 2.2 lists six text views and Benchmarks is not among
+           them — so `rendered-only` here would make "Text only" show an empty surface.
+           The figures are already monospace text; there is nothing to collapse to.
+        2. **The two region elements are `<pre class="citation">` inside a `.scroller`**,
+           which is the pattern Plan 27-06 established for the Primes surface's published
+           oracle: `render.ts` writes with `textContent` and never `innerHTML`, so a cited
+           table is text, and `.citation` is `--color-neutral-700` at body size rather than
+           the Heading-size figure treatment a live reading gets. That is UI-SPEC section
+           4.7 requirement 2 — a reader can tell a cited figure from a measured one without
+           reading the label beside it.
+        3. **Both `<pre>` elements are empty in the markup.** Every character in them is
+           written from `./surfaces/bench.ts`, which transcribes
+           `docs/perf/prime-and-pi-benchmarks.md`. A figure typed here would be a figure
+           with a second author, and P9 exists because that is the defect UI-SPEC says this
+           surface is most likely to introduce.
+      -->
       <section class="wrap" id="s-bench" role="tabpanel" tabindex="0" aria-labelledby="nav-bench" hidden>
         <div class="surface-head">
           <p class="kicker">Measured elsewhere, on one machine, in a recorded run</p>
           <h2>Splitting is free. Parallelism is near-linear to four.</h2>
-          <p class="lede" data-region="bench/prose-provenance" data-kind="prose" data-source="the identifier of the plan that transcribes this surface's committed figures">
-            Every figure this surface will carry comes from a recorded run and none of them
-            is a reading from your tab. The figures themselves land with Plan 27-09, which
-            transcribes them from the committed document rather than from this page's
-            memory of it — until then this surface states its provenance and shows no
-            number at all.
+          <!--
+            UI-SPEC section 4.7 requirement 1: the provenance line sits at the TOP of the
+            surface, before the first card, and never in a footnote. Written from
+            `surfaces/bench.ts` rather than typed here, so the sentence UI-SPEC section 11
+            fixes has one author; `demo-bench.e2e.test.ts` compares the screen against that
+            same export. It carries three figures — the date, the core count and the engine
+            version — and every one of them occurs in the committed document, so P9 covers
+            this paragraph as well as the two tables.
+          -->
+          <p class="lede citation" data-region="bench/prose-provenance" data-kind="prose" data-source="docs/perf/prime-and-pi-benchmarks.md — the date, the machine and the engine of the recorded run"></p>
+        </div>
+        <div class="card blueprint">
+          <i class="corner tl"></i><i class="corner tr"></i>
+          <i class="corner bl"></i><i class="corner br"></i>
+          <!--
+            The kicker spells its section number as a word. P2 forbids an undeclared digit
+            anywhere inside `#main`, and a card kicker is not a region — so `section 5`
+            here would be a number on screen that nothing declares, which is precisely the
+            property this surface is the most likely to trip. The digits live inside the
+            region, where the citation block names the section again.
+          -->
+          <p class="card-kicker">Real parallel speedup · section five of the document</p>
+          <div class="scroller">
+            <pre class="citation bench-table" data-region="bench/speedup" data-kind="cited" data-source="docs/perf/prime-and-pi-benchmarks.md section 5 — Real parallel speedup"></pre>
+          </div>
+          <p class="card-note">
+            Separate operating-system processes, one per shard, each competing for a real
+            core — not the in-process fabric, which shares one event loop and would report
+            a flat makespan as a consequence of the process model. The speedup and
+            efficiency columns are the document's own; nothing on this page divides one
+            number by another.
           </p>
         </div>
-        <div class="card blueprint rendered-only">
+        <div class="card blueprint">
+          <i class="corner tl"></i><i class="corner tr"></i>
+          <i class="corner bl"></i><i class="corner br"></i>
+          <p class="card-kicker">Overhead and cost · sections two, three and four</p>
+          <div class="scroller">
+            <pre class="citation bench-table" data-region="bench/overhead" data-kind="cited" data-source="docs/perf/prime-and-pi-benchmarks.md sections 2, 3 and 4 — decomposition cost, cold instantiate, fabric overhead"></pre>
+          </div>
+          <p class="card-note">
+            The fabric's cost over local execution, the cost of splitting a domain, and what
+            it costs to bring a guest module up cold. The overhead table's local column is a
+            same-moment reference measured seconds from the fabric reading, because absolute
+            milliseconds on a shared machine do not carry a claim and a ratio between two
+            things measured seconds apart does.
+          </p>
+        </div>
+        <div class="card blueprint">
           <i class="corner tl"></i><i class="corner tr"></i>
           <i class="corner bl"></i><i class="corner br"></i>
           <p class="card-kicker">Provenance</p>
           <p class="card-body">
-            <a href="./perf/">Prime counting and a π series on this fabric</a> — throughput,
-            decomposition cost, fabric overhead and real parallel speedup, with the method
-            and the numbers that disagreed with the prediction.
+            <a href="./perf/index.html">Prime counting and a π series on this fabric</a> —
+            throughput, decomposition cost, fabric overhead and real parallel speedup, with
+            the method, the reading that was thrown away, and the numbers that disagreed
+            with the prediction. The same report the footer links, served from this origin:
+            it is emitted into the bundle at build time from the one committed copy, and the
+            build fails rather than shipping a link to nothing.
           </p>
         </div>
         <!--
@@ -1470,19 +1537,50 @@
       before running anything is exactly the reader who has not pressed the button,
       so a link inside either section would be invisible to the only audience for it.
     -->
+    <!--
+      `./perf/index.html`, not `./perf/`, and the difference was measured rather than
+      chosen. Until Plan 27-09 this link read `./perf/` and the built bundle contained no
+      `perf/` directory at all, so it resolved nowhere — UI-SPEC section 10 records the gap
+      and leaves the packaging to the plan. The file now exists: `vite.config.ts` emits
+      `docs/perf/prime-and-pi-benchmarks.html` into the bundle as `perf/index.html` and
+      serves the same committed file at `/perf/` in dev, from one source and with the build
+      failing if that source is absent.
+
+      The trailing `index.html` is explicit because a directory URL only resolves where the
+      host performs directory-index resolution. GitHub Pages does; the deliberately dumb
+      static server in `built-bundle.e2e.test.ts` does not, and making that server smarter
+      to satisfy a link would be widening the instrument to fit the page. Naming the file
+      resolves on both, and `built-bundle.e2e.test.ts` measures it on the dumb one.
+    -->
     <footer class="note" id="measurements">
       Measured, with the method and the numbers that disagreed with the prediction:
-      <a href="./perf/">prime counting and a pi series on this fabric</a> — throughput,
-      decomposition cost, fabric overhead and real parallel speedup.
+      <a href="./perf/index.html">prime counting and a pi series on this fabric</a> —
+      throughput, decomposition cost, fabric overhead and real parallel speedup.
     </footer>
 
-    <!-- BROW-04. Rendered only while a node exists; never dismissible while it does. -->
+    <!--
+      BROW-04. Rendered only while a node exists; never dismissible while it does.
+
+      **The three `data-region` attributes are new in Plan 27-09 and they were the
+      precondition for putting `bar` into `WIRED_SURFACES` at all.** UI-SPEC section 4.1
+      enumerates B1, B2 and B3 as three of the 91 and the catalogue has held them since
+      Plan 27-03, and until now no element on this page carried their ids — so appending
+      `'bar'` to that array would have been a greppable admission that a surface had
+      arrived over three regions that existed only in the catalogue. The attributes come
+      first; the array entry follows them.
+
+      The bar's absence copy is the element not being there — `activity() === null` removes
+      it — which is what `absenceMode: 'element-removed'` says, and it is why these three
+      carry no `data-absence`. The bar also sits OUTSIDE `#main`, so P2 does not walk it and
+      the counters it renders are not undeclared digits under that property; declaring them
+      here is about P1, not about P2.
+    -->
     <div id="bar" role="status" hidden>
-      <strong id="bar-what" aria-live="polite">idle</strong>
+      <strong id="bar-what" aria-live="polite" data-region="bar/what" data-kind="reading" data-source="TabApi.activity().servedFor with .peers">idle</strong>
       <!-- `aria-live="off"`: these counters change about once a second, and a screen
            reader announcing a task counter continuously is worse than silence. -->
-      <span id="bar-stats" aria-live="off"></span>
-      <button id="stop">Stop</button>
+      <span id="bar-stats" aria-live="off" data-region="bar/stats" data-kind="reading" data-source="TabApi.activity().dutyCycle with .hidden, .tasksExecuted and .fetched"></span>
+      <button id="stop" data-region="bar/stop" data-kind="control" data-source="the Stop control, calling TabApi.stop()">Stop</button>
     </div>
 
     <script type="module" src="./main.ts"></script>
@@ -1575,6 +1673,13 @@
         DUTY_STOPPED,
         format as formatFabric,
       } from './surfaces/fabric.ts'
+      // The Benchmarks surface — UI-SPEC section 4.7's K1 and K2, both `cited`. It is the
+      // second formatter on this page that takes no argument, and here the reason is
+      // stronger than on Primes: there is no reading to pass it and there is no call it
+      // could make. Every figure it returns is transcribed from
+      // `docs/perf/prime-and-pi-benchmarks.md`, and `demo-bench.e2e.test.ts` reads that
+      // document and requires every figure string on screen to occur in it.
+      import { format as formatBench } from './surfaces/bench.ts'
 
       const $ = (id) => document.getElementById(id)
       const gateEl = $('gate')
@@ -1641,6 +1746,25 @@
       // is stopped, because the sentence this line paints says the page has not read it.
       paintSurfaceAbsence('fabric', 'stopped')
       $('duty-status').textContent = DUTY_STOPPED
+      // The whole Benchmarks surface, before consent and before any node — because none of
+      // it depends on either, and because a visitor who wants to know what this thing costs
+      // before running anything is exactly the visitor who has not pressed the button.
+      //
+      // **`writeReading` rather than `applyRender`, and that is the surface's shape rather
+      // than a shortcut.** `applyRender`'s last parameter is a text-view id and this surface
+      // has none: UI-SPEC section 2.2 lists six text views and Benchmarks is not among them,
+      // because a text view exists to stop two formatters of one READING disagreeing and
+      // nothing here is a reading. `surfaces/bench.ts` returns an empty `text` for the same
+      // reason and its header says so at length.
+      //
+      // `paintSurfaceAbsence('bench', …)` is deliberately NOT called. It skips every kind
+      // but `reading` and this surface has none — both regions are `cited`, always present,
+      // never absent, with no absence copy in the catalogue — so the call would be a no-op
+      // that read as though this surface had an absent state. It has none.
+      //
+      // This line is the only writer of those regions. Nothing below repaints them, and
+      // nothing re-runs them on Stop, because no state they show can change.
+      for (const [id, text] of Object.entries(formatBench().regions)) writeReading(id, text)
       // C3, C4 and C5 are constants: always present, never a result, and never an absence.
       // C5 is computed here from the shipped builder rather than transcribed.
       for (const [id, text] of Object.entries(formatConstants())) writeReading(id, text)
