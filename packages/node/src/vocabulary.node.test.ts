@@ -242,6 +242,22 @@ const EXEMPT_LINES: readonly LineExemption[] = [
     phrase: 'the tokens above',
     reason: 'the CSS sense: the components banner pointing back at those same custom properties',
   },
+  // The lending sense of the word, in an owner-authored RFC. `credit` is banned here as a
+  // CURRENCY word — the fabric settles nothing, and BOINC-style points invite result-forging.
+  // "credit evaluation" is creditworthiness assessment, listed beside insurance underwriting
+  // and inter-bank analysis as a workload two distrustful parties might run inside a Digital
+  // White Room. It names a use case the protocol serves, not a thing the fabric pays anyone.
+  //
+  // Exempted as a LINE rather than by rewording, and rather than by exempting the document:
+  // the RFC is the owner's authored text and editing an author's prose to satisfy a lint is
+  // not the guard's business, while a whole-file exemption would also cover whatever a future
+  // revision brings. Sole occurrence in the file as of 2026-08-09; the dead-exemption check
+  // reports it if a later revision drops the line.
+  {
+    file: 'docs/architecture/Digital_White_Room_RFC_Alexander_Fedin_v0.1.md',
+    phrase: 'credit evaluation',
+    reason: 'the lending sense: a due-diligence workload example, not a fabric currency',
+  },
 ]
 
 /**
