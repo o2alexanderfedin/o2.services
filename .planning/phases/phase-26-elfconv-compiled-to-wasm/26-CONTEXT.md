@@ -134,6 +134,69 @@ of the priced-but-unbuilt stage-2 estimate, and test file placement.
   in the stage-2 estimate.
 </specifics>
 
+<preconditions>
+## Toolchain preconditions — MEASURED 2026-08-10, on this machine, before planning
+
+Every line here is a reading taken on the host this phase will run on. They are recorded
+because three of them change the shape of Wave 1, and because the roadmap's cost estimate
+was written against a neighbouring checkout that turns out not to supply what stage 1 needs.
+
+1. **`wasi-sdk` IS NOT INSTALLED.** No `/opt/wasi-sdk*`, no `~/wasi-sdk*`, no
+   `/usr/local/wasi-sdk*`. The gating experiment ("build `elflift` for `wasm32-wasi`")
+   therefore has an **acquisition step before it** — wasi-sdk-24 must be fetched and pinned.
+   This is not a blocker; it is an unbudgeted first task that must appear in the plan rather
+   than be discovered during it.
+
+2. **Emscripten is not on `PATH`** (`emcc`, `em++`, `emcmake` all not found), but **three
+   emsdk checkouts exist**: `/Users/alexanderfedin/Projects/hapyy/emsdk`,
+   `/Users/alexanderfedin/Projects/hupyy/emsdk`, `/Volumes/ProjectsSSD/Projects/hupyy/emsdk`.
+   The hupyy `CMakeCache.txt` points at the **`hapyy`** one (note the spelling — it is a
+   different directory from the `hupyy` tree that contains the build). Any attempt to
+   reproduce that build must resolve which emsdk it actually was.
+
+3. **THE PREBUILT LLVM IS EMSCRIPTEN, NOT WASI — so it cannot be reused for the gating
+   experiment at all.** `out/build/CMakeCache.txt` reports
+   `CMAKE_TOOLCHAIN_FILE=.../emscripten/cmake/Modules/Platform/Emscripten.cmake`. Roadmap
+   delta (a) framed Emscripten-vs-WASI as a decision still to be made; on this machine the
+   decision is already forced for anything that reuses these archives, because Emscripten
+   output needs its JS glue and cannot be guest code under this project's preview1 sandbox.
+   **Stage 1 as a sandboxed guest job needs a wasm32-wasi LLVM that does not exist yet.**
+
+4. **`LLVM_TARGETS_TO_BUILD=WebAssembly` — and there are ZERO AArch64 or X86 archives.**
+   Verified by listing both `out/install/lib` and `out/build/lib`: no `libLLVMAArch64*.a`,
+   no `libLLVMX86*.a`. Roadmap delta (c) said "measure which are actually referenced before
+   enabling three targets' worth of size"; the measurement says the prebuilt set supplies
+   **none** of the source-architecture target data Remill's `Arch::Build` may want. If
+   `elflift` needs AArch64 target data to lift an AArch64 ELF, **LLVM must be rebuilt**, and
+   the "LLVM is already cross-compiled, the cost collapsed" premise in roadmap item 11(i)
+   does not carry stage 1 on its own. Confirm what `elflift` actually references before
+   sizing a rebuild.
+
+5. **LLVM is 17.0.6** (`CMAKE_PROJECT_VERSION:STATIC=17.0.6`), against elfconv's scripted
+   `LLVM_VERSION=16`. The 16→17 API skew named in roadmap item 11 is real and confirmed.
+
+6. **`LLVM_ENABLE_THREADS=OFF`** in that build — which is the setting that removes
+   SharedArrayBuffer and the COOP/COEP requirement. This part of item 11(i) holds.
+
+7. **193 `.a` files exist across the tree, but only 2 in `out/install/lib`**
+   (`libLLVMSupport.a`, `libLLVMDemangle.a`). The usable set is the **build** tree, not the
+   install tree — so "66 static archives, 71 MB" describes an uninstalled build directory.
+   This sharpens the roadmap's own caveat: depending on it is a spike, not a build system.
+
+8. **Docker 29.4.0 is available**, so the native elfconv baseline needed for the `sha256`
+   bitcode comparison is reachable without building a native toolchain by hand.
+
+9. **The `third_party/elfconv` submodule is present and checked out** at
+   `9655e33c3948b1562dd80f368577e53a2f67f938` (`v1.0.0-30-g9655e33`).
+
+**What these preconditions do to Wave 1.** They do not change the gate — the first
+experiment is still "build `elflift` for `wasm32-wasi` and find out what it needs". They
+change what the gate *costs*: acquiring wasi-sdk, and establishing whether a wasi LLVM must
+be built from source before the experiment can even be attempted. The plan must treat
+"can the experiment be run at all" as its own answerable question, and a measured negative
+there is still a valid phase outcome under the precedent this context already cites.
+</preconditions>
+
 <deferred>
 ## Deferred Ideas
 
