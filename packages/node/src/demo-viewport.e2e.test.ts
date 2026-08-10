@@ -210,7 +210,22 @@ interface Reading {
    * Measured, not assumed; see the three-arm plant recorded in 27-01-SUMMARY.md.
    */
   readonly childContent: readonly { readonly name: string; readonly scrollWidth: number; readonly clientWidth: number }[]
-  /** After scrolling to the end of the page: the bottom of `#main`'s last element child. */
+  /**
+   * After scrolling to the end of the page: the bottom of the last element child of `#main`
+   * **that is rendered**.
+   *
+   * Not the literal `lastElementChild`, and the change is Plan 27-09's, made because the
+   * literal reading had gone vacuous and the run said so. `#main`'s last element child is
+   * `section#s-bench`, which is `hidden` on five of every six passes of the surface loop;
+   * a `display: none` element's bounding box is all zeros, so `mainLastBottom` read
+   * **0.00** and `0 <= barTop` was green without measuring anything. Observed on the run
+   * before the fix: fifty of the sixty combinations printed
+   * `[B5] … measured section#s-bench bottom=0.00`.
+   *
+   * A hidden panel cannot be covered by the bar, so measuring it is not a weaker version of
+   * the property — it is not the property at all. The visible panel is the one a visitor is
+   * looking at when they scroll to the end, and it is the one B5 was about.
+   */
   readonly mainLastBottom: number | null
   readonly mainLastTag: string | null
   /** `#bar`'s top, read in the same frame as {@link mainLastBottom}. */
@@ -431,7 +446,13 @@ async function measure(page: Page, state: BarState, surfaceIndex: number): Promi
       await frame()
       apply()
       await frame()
-      const last = document.getElementById('main')?.lastElementChild ?? null
+      // The last RENDERED element child, not the literal last one. `getClientRects()` is
+      // empty for a `display: none` box and non-empty for anything laid out, so this
+      // selects the surface panel the visitor is actually looking at. See the note on
+      // `mainLastBottom` in the `Reading` interface for the measurement that forced it.
+      const mainChildren = Array.from(document.getElementById('main')?.children ?? [])
+      const rendered = mainChildren.filter((child) => child.getClientRects().length > 0)
+      const last = rendered[rendered.length - 1] ?? null
       const lastBox = boxOf(last)
       const barAtEnd = boxOf(document.getElementById('bar'))
       return {
@@ -622,6 +643,14 @@ describe('UI-SPEC section 6.3 — the bar fits, and Stop is reachable', () => {
           // not asserted here — widening a property mid-plan would make this file's red
           // depend on a figure UI-SPEC has not agreed. It is carried to the phase's
           // deferred items instead.
+          // What B5 actually measured, printed on every combination. Without it the
+          // property's vacuity is invisible: a hidden element's box is all zeros, and
+          // `0 <= barTop` is green without measuring anything.
+          process.stderr.write(
+            `[B5] ${where}: measured ${String(reading.mainLastTag)} ` +
+              `bottom=${(reading.mainLastBottom ?? Number.NaN).toFixed(2)} ` +
+              `barTop=${(reading.barTopAtEnd ?? Number.NaN).toFixed(2)}\n`,
+          )
           expect.soft(
             reading.mainLastBottom,
             `B5 ${where}: #main has no last element child to measure`,

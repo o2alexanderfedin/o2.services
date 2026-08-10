@@ -345,11 +345,16 @@ describe('the page, with the fabric stopped', () => {
     for (const dom of snapshot.regions) counts.set(dom.id, (counts.get(dom.id) ?? 0) + 1)
 
     const problems: string[] = []
+    // How many catalogue entries this property actually looked at, out of the catalogue's
+    // whole length. Reported because "P1b is on for this surface" is a claim about a
+    // COUNT, and a property that skipped every entry would report no problems at all.
+    let examined = 0
     for (const region of REGIONS) {
       if (!WIRED_SURFACES.includes(region.surface)) continue
       // UI-SPEC section 4.1: with no node the bar is not rendered at all, so its regions
       // having no element IS their reading.
       if (region.absenceMode === 'element-removed' && !snapshot.barVisible) continue
+      examined += 1
       const found = counts.get(region.id) ?? 0
       if (found !== 1) {
         problems.push(
@@ -357,6 +362,10 @@ describe('the page, with the fabric stopped', () => {
         )
       }
     }
+    process.stderr.write(
+      `[P1b] examined ${examined} of ${REGIONS.length} catalogue entries ` +
+        `(wired: ${WIRED_SURFACES.join(', ')}; #bar ${snapshot.barVisible ? 'visible' : 'absent'})\n`,
+    )
     expect(problems).toEqual([])
   })
 
