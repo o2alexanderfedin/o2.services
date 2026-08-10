@@ -19,8 +19,16 @@
       body {
         font: 15px/1.55 ui-monospace, SFMono-Regular, Menlo, monospace;
         margin-inline: auto; max-width: 46rem;
-        /* Bottom padding clears the fixed bar, so nothing it covers is unreachable. */
-        padding: 2rem 1.25rem 7rem;
+        /*
+          Bottom padding clears the fixed bar, so nothing it covers is unreachable.
+          8.5rem is what the bar can occupy at its tallest: two wrapped lines of
+          `#bar-what`, a wrapped `#bar-stats` beneath it, and a 44px Stop control, plus
+          the block padding. The safe-area inset is added rather than folded in, because
+          on a device with a home indicator the bar's own bottom padding grows by exactly
+          that amount and the page has to grow with it. B5 in
+          `demo-viewport.e2e.test.ts` is what measures whether it is enough.
+        */
+        padding: 2rem 1.25rem calc(env(safe-area-inset-bottom, 0px) + 8.5rem);
       }
       h1 { font-size: 1.1rem; margin: 0 0 .25rem; letter-spacing: .02em; }
       h2 { font-size: 1rem; margin: 0 0 1rem; font-weight: 600; }
@@ -70,19 +78,54 @@
         BROW-04. Fixed, and with no control that hides it: the requirement says a
         persistent, always-visible surface, so a collapse affordance would be the
         first thing to remove it.
+
+        The layout is UI-SPEC section 6.2's grid contract, and it replaced a wrapping
+        flex row after a 2026-08-08 reading from a 393px iPhone put `#bar` at 500px with
+        `#stop` past x=482 — off screen, and Stop is the control the consent gate
+        promises in writing. `packages/node/src/demo-viewport.e2e.test.ts` holds the
+        geometry now: five widths, two bar states, every surface the page offers. The
+        colours here are deliberately untouched — `background: Canvas` stays until the
+        palette is ported, so a contrast regression and a layout regression cannot be
+        confused for one another.
       */
       #bar {
         position: fixed; inset: auto 0 0 0;
-        display: flex; flex-wrap: wrap; gap: .5rem 1.1rem; align-items: center;
-        padding: .7rem 1.1rem;
+        box-sizing: border-box; width: 100%; max-width: 100%;
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;   /* content | Stop */
+        gap: 4px 12px;
+        padding: 10px 12px max(10px, env(safe-area-inset-bottom)) 12px;
         border-top: 1px solid currentColor;
         background: Canvas; color: CanvasText;
         font-size: .85rem;
       }
+      /*
+        `min-width: 0` on both text children is the line most likely to be removed by
+        someone tidying up, and it is here on purpose: a grid item's automatic minimum
+        size is its min-content size, so without it a child refuses to shrink below its
+        content's floor and pushes Stop off the edge. `overflow-wrap: anywhere` is the
+        other half — it is what makes that floor one character wide rather than one word,
+        which is what a peer id or a multiaddr in this bar would otherwise cost.
+      */
+      #bar-what  { grid-column: 1; min-width: 0; overflow-wrap: anywhere; }
+      #bar-stats { grid-column: 1 / -1; min-width: 0; overflow-wrap: anywhere;
+                   font-size: 12px; opacity: .75; }
+      /*
+        44x44 overrides the shared `button` padding ramp deliberately — that ramp is
+        sized for a pointer and this is the one control a phone has to hit. B3 in
+        `demo-viewport.e2e.test.ts` is what holds it; before this line the button
+        measured 66.77 x 37.44 at every width.
+      */
+      #stop      { grid-column: 2; grid-row: 1; justify-self: end; align-self: start;
+                   min-width: 44px; min-height: 44px;
+                   border-color: #cb4b16; color: #cb4b16; }
+      @media (min-width: 40rem) {
+        #bar { grid-template-columns: minmax(0, auto) minmax(0, 1fr) auto; }
+        #bar-what  { grid-column: 1; }
+        #bar-stats { grid-column: 2; grid-row: 1; }
+        #stop      { grid-column: 3; }
+      }
       #bar strong { font-weight: 600; }
-      #bar .spacer { flex: 1 1 auto; }
-      #bar-stats { opacity: .75; }
-      #stop { border-color: #cb4b16; color: #cb4b16; }
     </style>
   </head>
   <body>
@@ -178,7 +221,6 @@
     <div id="bar" hidden>
       <strong id="bar-what">idle</strong>
       <span id="bar-stats"></span>
-      <span class="spacer"></span>
       <button id="stop">Stop</button>
     </div>
 
