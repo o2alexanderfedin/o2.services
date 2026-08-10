@@ -1817,12 +1817,37 @@ their cross-machine halves **descoped and unmeasured, not met** — and **AOT-05
 
 ### Phase 28: One Cryptographic Implementation, and the Facades Ledgered
 
-**Goal**: `packages/core` holds exactly one Ed25519 implementation in the trust path rather
-than two, libsodium leaves the dependency tree, and the certificate-lifecycle facades stop
-being real-but-unledgered code
+**Goal**: `packages/core` holds exactly one Ed25519 implementation rather than two, libsodium
+leaves the dependency tree, and the certificate-lifecycle facades stop being
+real-but-unledgered code
+
+*(Goal amended 2026-08-10: it read "one Ed25519 implementation **in the trust path**", which
+inherited the same error the entry's finding ONE carried — neither implementation is in the
+trust path. See the correction below. The duplication is real; its location was not what was
+written.)*
+
 **Depends on**: Phase 25 (which shipped both of the implementations this phase reconciles)
-**Requirements**: none yet — this phase opens `CRYPTO-01…NN`
-**Success Criteria** (what must be TRUE): to be derived at plan time, one per obligation below
+**Requirements**: `CRYPTO-01`…`CRYPTO-06`
+**Success Criteria** (what must be TRUE):
+  1. `packages/core` holds exactly one Ed25519 selection path, and the surviving gate is the
+     **round-trip probe** (`subtle.generateKey({name:'Ed25519'})`) rather than the presence-only
+     check — a presence check passes on engines that expose `subtle.sign` without Ed25519
+  2. `libsodium-wrappers` appears in no manifest, no lockfile and no built bundle, and a bare
+     specifier resolution for it **throws**
+  3. `CRYPTO-01…06` exist in the ledger with honest `[ ]`/`[x]` status, and both ledger parsers
+     read them
+  4. The differential-conformance guard survives, still weighted toward REJECTION vectors —
+     asserted rather than incidental — and still covers the sync/async port boundary
+  5. The bundle delta is measured and guarded in the **removal** form: absence asserted
+     directly, size asserted to have moved DOWN. A ceiling alone is satisfiable by doing nothing
+  6. The WebKit signature-nondeterminism finding is a guard, not a docblock: signature bytes are
+     **not a stable identifier in this fabric**, and the one legitimate comparison
+     (`tools/aot/cli.ts:314`, a single-process round-trip fidelity check) sits in a bounded
+     register rather than being exempted by silence
+
+**Plans**: `28-01` (one module, one selection, one gate) → `28-02` (libsodium leaves, measured
+and guarded; **alone in its wave** because it runs `npm install`) → `28-03` (the two guards) →
+`28-04` (the `CRYPTO` mint). Strictly sequential — four tasks touch `ed25519-backend.ts`.
 
 <!-- FILED 2026-08-10, as the direct consequence of the night Phase 25 landed. Two things came
      out of that session that belong to no phase, and both get worse the longer they sit.
