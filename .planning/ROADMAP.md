@@ -1745,6 +1745,77 @@ their cross-machine halves **descoped and unmeasured, not met** — and **AOT-05
 — a measured negative, reported unmet rather than reworded).
 
 
+### Phase 28: One Cryptographic Implementation, and the Facades Ledgered
+
+**Goal**: `packages/core` holds exactly one Ed25519 implementation in the trust path rather
+than two, libsodium leaves the dependency tree, and the certificate-lifecycle facades stop
+being real-but-unledgered code
+**Depends on**: Phase 25 (which shipped both of the implementations this phase reconciles)
+**Requirements**: none yet — this phase opens `CRYPTO-01…NN`
+**Success Criteria** (what must be TRUE): to be derived at plan time, one per obligation below
+
+<!-- FILED 2026-08-10, as the direct consequence of the night Phase 25 landed. Two things came
+     out of that session that belong to no phase, and both get worse the longer they sit.
+
+     ONE. TWO OVERLAPPING Ed25519 IMPLEMENTATIONS NOW LIVE IN `packages/core`.
+     `ed25519-backend.ts` (Phase 25, verified 7/7, subtle -> libsodium) and `cert-lifecycle.ts`
+     (subtle -> noble). Both are correct and separately tested. Having both is the defect: two
+     implementations in one trust path is exactly the hazard the differential-conformance guard
+     was written to police, and it now has to police a seam nobody chose.
+
+     TWO. THE FACADES ARE BUILT, TESTED, MERGED — AND UNLEDGERED. 28 node tests, 114 browser
+     tests across chromium/firefox/webkit, `tsc` clean, merged at `db89ad2`. No requirement id,
+     no verification, no roadmap entry. Under this repository's own conventions that is the
+     *built, not wired, and not counted* shape this milestone exists to eliminate, and it was
+     produced by the milestone's own work. They are deliberately NOT exported from
+     `packages/core/src/index.ts`, which keeps the honest status honest but also keeps them
+     invisible to every guard that reads the barrel.
+
+     WHAT DROPPING libsodium IS WORTH, MEASURED RATHER THAN ASSUMED:
+       - 314.9 KB gzip against a whole-demo bundle of 168.93 KB — 1.9x the application
+       - its ONLY consumer is `ed25519-backend.ts`; nothing else in `packages/*/src` imports it
+       - the replacement costs ~nothing: `@chainsafe/libp2p-noise` already imports
+         `@noble/curves/ed25519.js`, the exact module, so noble is in the browser bundle graph
+         before this project writes a line
+       - and it deletes the lazy-`import()` obligation entirely, which was the single most
+         fragile requirement in the Phase 25 design, along with the import-counter test guarding it
+
+     PER-VERIFY COST, measured in real Playwright-driven engines 2026-08-10:
+       chromium 0.048 ms subtle / 0.494 ms noble · webkit 0.140 / 0.845 · firefox 0.125 / 1.520.
+     The deepest capability chain anywhere in this repository is TWO and production builds ONE
+     (`capability.ts:101-127`), so a real chain on the fallback arm is ~1-3 ms, not the 10.78 ms
+     that `MAX_CHAIN_DEPTH x 1.348` implies. That figure is a bound and has never been observed.
+
+     A FINDING THIS PHASE MUST NOT LOSE: **Ed25519 signatures are not byte-identical across
+     engines.** WebKit hardens against fault attacks with a synthetic/hedged nonce rather than
+     RFC 8032's deterministic one, so a subtle-signed and a noble-signed signature over the same
+     message differ — both valid. Caught by watching a browser run go red, not by reasoning.
+     Consequence beyond this phase: **signature bytes are not a stable identifier in this
+     fabric**, so anything that dedupes, caches or compares attestations by signature bytes works
+     in Node and CI and breaks in Safari. X25519 agreement IS byte-identical everywhere.
+
+     THE OBLIGATIONS:
+       1. one Ed25519 implementation in `packages/core`, not two
+       2. `libsodium-wrappers` removed from `@o2/core`'s manifest and from the lockfile
+       3. `CRYPTO-01…NN` minted for the facades, with honest `[ ]`/`[x]` status under the
+          entry-point-reachability convention
+       4. the differential-conformance guard survives the merge, still weighted toward REJECTION
+          vectors, and still covers the sync/async port boundary
+       5. the measured bundle delta of the removal, guarded the way 25-03 guards the decoder's
+       6. the WebKit signature-nondeterminism finding carried into a guard, not just a docblock
+
+     WHAT THIS PHASE DOES NOT DECIDE, and must not quietly decide by implementing:
+       - whether `verifyChain`/`verifyCertificate` get wired to a port at all. Phase 25 left them
+         unwired and the reason CHANGED during that phase: the adapter dissolved the async-cost
+         argument, leaving a genuine open question — where each of three runtime entry points
+         calls `init` before first use, and what a verification arriving before it resolves
+         should do. Block, fail closed, or fail open is an OWNER ruling, not an implementation
+         detail. If wiring proceeds, the staleness window it introduces (moving `#refresh` off
+         the `verifiedPeers` read) is a security parameter and needs a sited constant.
+       - whether the facades should be exported from the barrel. Exporting moves the
+         `reachability-guard` ceiling, currently 75 and verified tight. -->
+
+
 ## Milestone v1.1 — Wire What Was Built (Phases 11-22)
 
 **Added 2026-07-27, as the direct output of the v1.0 milestone audit.** Phases 11-22
