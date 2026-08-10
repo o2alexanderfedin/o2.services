@@ -58,7 +58,22 @@
         to be on screen.
       -->
       <header class="wrap session">
-        <div class="state" id="state" data-tone="idle">checking for a relay…</div>
+        <!--
+          UI-SPEC section 4.0's five regions, H1 through H5. Each carries `data-region`,
+          `data-kind` and `data-source`; **none of them carries `data-absence` or absence
+          text in this file**, and that is deliberate. The sentences live in
+          `../src/demo-regions.ts` and the writer paints both the text and the attribute
+          from there — a sentence written in two places is two things that can disagree,
+          and the copywriting contract is section 11's, not this file's.
+        -->
+        <div
+          class="state"
+          id="state"
+          data-tone="idle"
+          data-region="session/state"
+          data-kind="control"
+          data-source="the page state machine over TabApi.discoverRelays(), autoStart() and stop()"
+        >checking for a relay…</div>
 
         <p class="controls">
           <button id="join" class="btn btn-primary" disabled>Start node</button>
@@ -80,10 +95,29 @@
           </span>
         </p>
 
-        <dl id="facts"></dl>
+        <!--
+          Three fixed pairs, always rendered, rather than a list rebuilt per state. Today's
+          `setFacts([])` on stop emptied this element, and an empty `dd` is exactly the blank
+          a named absence replaces. The `dd`s start empty here and are painted from the
+          catalogue by the writer before anything else runs.
+        -->
+        <dl id="facts">
+          <dt>peer id</dt>
+          <dd data-region="session/peer-id" data-kind="reading" data-source="TabApi.autoStart().peerId"></dd>
+          <dt>relay</dt>
+          <dd data-region="session/relay" data-kind="reading" data-source="TabApi.discoverRelays().relayAddrs[0]"></dd>
+          <dt>address</dt>
+          <dd data-region="session/webrtc-addr" data-kind="reading" data-source="TabApi.waitForWebrtcAddr()[0]"></dd>
+        </dl>
 
         <p class="note" id="explain"></p>
-        <p class="note" id="peers"></p>
+        <p
+          class="note"
+          id="peers"
+          data-region="session/peers-sentence"
+          data-kind="reading"
+          data-source="TabApi.computePeers() with connectDiscoveredPeers() and peers()"
+        ></p>
       </header>
 
       <nav id="surfaces" role="tablist" aria-label="Workloads">
@@ -135,7 +169,7 @@
           <button id="run" class="btn btn-primary" disabled>Run the search</button>
           <span class="note" id="run-status" role="status">start a node first</span>
         </p>
-        <pre id="run-report" class="text-view"></pre>
+        <pre id="run-report" class="text-view" data-region="colouring/run-report" data-kind="text-view" data-source="the #run-report text view — the colouring run, rendered as lines"></pre>
 
         <div class="card blueprint rendered-only">
           <i class="corner tl"></i><i class="corner tr"></i>
@@ -148,7 +182,7 @@
           </p>
         </div>
         <p class="controls"><button id="verify" class="btn btn-secondary" disabled>Check this answer myself</button></p>
-        <pre id="verify-report" class="text-view"></pre>
+        <pre id="verify-report" class="text-view" data-region="colouring/verify-report" data-kind="text-view" data-source="the #verify-report text view — TabApi.verifyAnswer(), rendered as lines"></pre>
       </section>
 
       <!--
@@ -195,7 +229,7 @@
             </p>
           </div>
         </div>
-        <pre id="primes-report" class="text-view">Nothing to report: this surface has not been wired to a reading yet.</pre>
+        <pre id="primes-report" class="text-view" data-region="primes/report" data-kind="text-view" data-source="the #primes-report text view">Nothing to report: this surface has not been wired to a reading yet.</pre>
       </section>
 
       <section class="wrap" id="s-pi" role="tabpanel" tabindex="0" aria-labelledby="nav-pi" hidden>
@@ -234,7 +268,7 @@
             </p>
           </div>
         </div>
-        <pre id="pi-report" class="text-view">Nothing to report: this surface has not been wired to a reading yet.</pre>
+        <pre id="pi-report" class="text-view" data-region="pi/report" data-kind="text-view" data-source="the #pi-report text view">Nothing to report: this surface has not been wired to a reading yet.</pre>
       </section>
 
       <section class="wrap" id="s-byo" role="tabpanel" tabindex="0" aria-labelledby="nav-byo" hidden>
@@ -268,7 +302,7 @@
             </p>
           </div>
         </div>
-        <pre id="byo-report" class="text-view">Nothing to report: this surface has not been wired to a reading yet.</pre>
+        <pre id="byo-report" class="text-view" data-region="byo/report" data-kind="text-view" data-source="the #byo-report text view">Nothing to report: this surface has not been wired to a reading yet.</pre>
       </section>
 
       <section class="wrap" id="s-fabric" role="tabpanel" tabindex="0" aria-labelledby="nav-fabric" hidden>
@@ -300,9 +334,9 @@
           UI-SPEC's string satisfies that wait immediately and both specs would read a
           panel that had not been refreshed. Do not "fix" the capitalisation.
         -->
-        <pre id="report" class="text-view">not asked yet</pre>
+        <pre id="report" class="text-view" data-region="fabric/start-outcome-text" data-kind="text-view" data-source="the #report text view — describeStartReport() output, reformatted by nobody">not asked yet</pre>
         <p class="controls"><button id="refresh-report" class="btn btn-secondary">Refresh</button></p>
-        <pre id="fabric-report" class="text-view">Nothing to report: this surface has not been wired to a reading yet.</pre>
+        <pre id="fabric-report" class="text-view" data-region="fabric/report" data-kind="text-view" data-source="the #fabric-report text view">Nothing to report: this surface has not been wired to a reading yet.</pre>
       </section>
 
       <section class="wrap" id="s-bench" role="tabpanel" tabindex="0" aria-labelledby="nav-bench" hidden>
@@ -367,37 +401,41 @@
       // static server, so a bundler that dropped this import would be caught there and
       // nowhere else. Plans 27-03 onward depend on that path working.
       import { installNav, installViewToggle } from './nav.ts'
+      // The region writer, and the two formatters that moved out of this file. Every
+      // figure and every named absence on this page goes through it, and it writes with
+      // `textContent` only — see that file's header for why `verbatim` is the word that
+      // makes `innerHTML` look correct here and is not.
+      import {
+        attestationLines,
+        egressLines,
+        paintAbsence,
+        paintSurfaceAbsence,
+        writeReading,
+      } from './render.ts'
 
       const $ = (id) => document.getElementById(id)
       const gateEl = $('gate')
       const mainEl = $('main')
       const barEl = $('bar')
       const stateEl = $('state')
-      const factsEl = $('facts')
       const joinEl = $('join')
       const explainEl = $('explain')
       const reportEl = $('report')
 
-      // Before the gate is rendered, and before `window.o2` exists: both touch
-      // attributes only, and neither needs a node. A visitor who deep-links to
-      // `#/fabric` and then consents lands on the surface they asked for.
+      // Before the gate is rendered, and before `window.o2` exists: all three touch the
+      // DOM only, and none of them needs a node. A visitor who deep-links to `#/fabric`
+      // and then consents lands on the surface they asked for.
       installNav()
       installViewToggle()
+      // **Stopped wins.** There is no node at this point, so every session reading paints
+      // its stopped sentence from the catalogue rather than sitting blank. `setFacts([])`
+      // used to leave three empty `dd`s here, and an empty `dd` is exactly the blank a
+      // named absence replaces.
+      paintSurfaceAbsence('session', 'stopped')
 
       const setState = (tone, text) => {
         stateEl.dataset.tone = tone
         stateEl.textContent = text
-      }
-      const setFacts = (pairs) => {
-        factsEl.replaceChildren(
-          ...pairs.flatMap(([key, value]) => {
-            const dt = document.createElement('dt')
-            dt.textContent = key
-            const dd = document.createElement('dd')
-            dd.textContent = value
-            return [dt, dd]
-          }),
-        )
       }
 
       // Wait for the module script to install window.o2.
@@ -508,7 +546,10 @@
         await window.o2.stop()
         $('run-status').textContent = 'start a node first'
         setState('idle', 'stopped — the thread was ended and the connections closed')
-        setFacts([])
+        // `setFacts([])` stood here and emptied three `dd`s. The header now paints the
+        // catalogue's stopped sentences instead: a visitor who presses Stop is told what
+        // each reading no longer has and why, rather than shown three blanks.
+        paintSurfaceAbsence('session', 'stopped')
         joinEl.disabled = false
         $('stop').disabled = false
       })
@@ -521,88 +562,11 @@
       // stops where the fabric stops rather than where a number would look good.
       const LADDER = [300, 400, 500, 600]
 
-      const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`
-
-      // VER-09/VER-10, criterion 3 — how strongly the answer was attested, in the
-      // kernel's own words.
-      //
-      // **The page composes no sentence of its own here, and that is the whole
-      // design.** `description` is the string `attestationReceipt` filled from
-      // `describeAttestation`, carried onto `JobResult` and passed through
-      // `runColouring` untouched. `bin/bench.ts` prints the same field for the same
-      // reason, so the CLI and this page cannot come to describe one result
-      // differently — there is one source of the words and neither surface holds a
-      // copy. Nothing below is derived from `redundancy`, from `agreeing.length`, or
-      // from anything this page believes about its own topology.
-      //
-      // **What stood here before was a claim the page could not check.** The line
-      // read `Verification cost N× — each cube ran twice, on different nodes, and the
-      // two had to agree`, unconditionally, on every settled run. At `redundancy: 1`
-      // — a lone visitor, which is every visitor who opens this page first — it was
-      // simply false, and it was printed directly above a placement list showing one
-      // node per cube. The cost figure is measured and stays; the claim about how the
-      // work was placed is now the kernel's.
-      //
-      // **The absence arm is a statement, not a blank and not a weaker label.** A
-      // visitor told less than the truth and a visitor told something untrue are
-      // different failures, and only the first is acceptable. So it says how many
-      // replicas agreed, how many of those this tab could actually check, and the
-      // kernel's own reason naming each replica it could not — never a strength over
-      // whatever happened to check out.
-      const attestationLines = (attestation) =>
-        'kind' in attestation
-          ? [
-              'How strongly was it checked: nothing established. ' +
-                `${plural(attestation.agreeing, 'replica')} agreed on the least-attested ` +
-                `cube, and ${attestation.verified} of those produced a signed statement ` +
-                'this tab could check.',
-              attestation.reason,
-            ]
-          : [
-              `How strongly was it checked: ${attestation.description}`,
-              `Established over ${plural(attestation.replicas, 'replica')} from ` +
-                `${plural(attestation.operators.length, 'operator')}.`,
-            ]
-
-      // DATA-05/DATA-06 — the egress manifest, rendered. **This is the sovereignty claim's
-      // only operator-facing surface**, and until 2026-08-08 it did not exist: every run
-      // produced a manifest and the page displayed none of it, so the one property this
-      // project puts first was the one thing a visitor could not see.
-      //
-      // ## It states what it can prove and refuses the stronger reading
-      //
-      // Every cube `runColouring` submits is `label: 'public'`, so **nothing is registered
-      // as sovereign on this path** and `violations` is empty by construction. Printing
-      // "0 refused" alone would read as a sovereignty proof and would be a lie by omission —
-      // the guard withheld nothing because it was given nothing to withhold. So the panel
-      // says that, in those words. What it *does* establish is real and worth showing: the
-      // guard is genuinely in the transport, and it counted every byte that left.
-      //
-      // `runJob` — the path that registers owner rows and can produce a non-empty
-      // `violations` — has no caller in this page. That is audit finding G4, and it is
-      // deliberately not papered over here: this block reads whichever manifest it is
-      // given, so wiring that path in later makes the refusal branch below live with no
-      // change to this code.
-      const egressLines = (egress) => {
-        if (egress === undefined || egress === null) return []
-        const out = [
-          '',
-          'What left this device:',
-          `  ${plural(egress.entries.length, 'frame')} sent, ${egress.totalBytes} byte(s) total.`,
-        ]
-        if (egress.violations.length === 0) {
-          out.push(
-            '  0 withheld — and this run registered no sovereign data, so that is the',
-            '  guard reporting it had nothing to hold back, not a proof of sovereignty.',
-          )
-        } else {
-          out.push(
-            `  ${plural(egress.violations.length, 'frame')} WITHHELD: ${egress.violations.join(', ')}.`,
-            '  Those bytes are still on this device. They were not sent anywhere.',
-          )
-        }
-        return out
-      }
+      // `plural`, `attestationLines` and `egressLines` moved to `./render.ts`, body and
+      // comments line for line. They are the shared formatters — UI-SPEC section 5.1's
+      // attestation block and section 5.2's egress block — and every surface this phase
+      // adds renders them, so a copy per surface would be a copy per surface of a sentence
+      // whose whole design is that it has one author.
 
       $('run').addEventListener('click', async () => {
         $('run').disabled = true
@@ -723,18 +687,32 @@
             relayed +
             (found.dialed.length > 0 ? ` · just dialled ${found.dialed.length}` : '')
 
+          // H5. The sentence is unchanged, wording and all — `attestation-ui.e2e.test.ts`
+          // reads `1 node(s) computing` and `2 node(s) computing` out of it. What changed
+          // is that it goes through the writer, so the same element has a named absence to
+          // fall back to instead of an empty paragraph.
           if (!found.asked) {
-            $('peers').textContent =
+            writeReading(
+              'session/peers-sentence',
               `${computing} node(s) computing — this tab and ${computePeers.length} peer(s)${detail}` +
-              ' · no peer directory on this host, so open the page from a seed node to find others'
+                ' · no peer directory on this host, so open the page from a seed node to find others',
+            )
             return
           }
-          $('peers').textContent =
+          writeReading(
+            'session/peers-sentence',
             computePeers.length === 0
               ? `1 node computing — just this tab${detail}. Open this URL on another device.`
-              : `${computing} node(s) computing — this tab and ${computePeers.length} peer(s)${detail}`
+              : `${computing} node(s) computing — this tab and ${computePeers.length} peer(s)${detail}`,
+          )
         } catch (error) {
-          $('peers').textContent = error instanceof Error ? error.message : String(error)
+          // The fabric's own words, verbatim, as the region's named reason — never a
+          // number, never a blank, never the previous count left standing.
+          paintAbsence(
+            'session/peers-sentence',
+            'unavailable',
+            error instanceof Error ? error.message : String(error),
+          )
         }
       }
 
@@ -792,10 +770,12 @@
           // Saying so plainly beats a page that merely looks broken. A static host has
           // no seed node to ask, so the relay address has to come from the link.
           setState('blocked', 'no relay reachable from this page')
-          setFacts([
-            ['relay source', 'none'],
-            ['secure context', String(window.isSecureContext)],
-          ])
+          // The header keeps the stopped sentences painted at load. The two diagnostic
+          // pairs that stood here — `relay source` and `secure context` — are gone: they
+          // are not among UI-SPEC section 4.0's five regions, and an undeclared pair sitting
+          // beside three declared ones on the one header whose whole point is that every
+          // figure is declared is the wrong thing to leave behind. What a visitor needs is
+          // in `#state` and, at length, in `#explain` below.
           explainEl.innerHTML =
             'A browser cannot accept incoming connections, so two tabs need a publicly ' +
             'reachable <strong>Circuit Relay v2</strong> peer to exchange WebRTC ' +
@@ -805,10 +785,8 @@
             'that page serves its own relay address and needs no configuration.'
         } else {
           setState('idle', `relay found via ${source} — ready to start`)
-          setFacts([
-            ['relay', relayAddrs[0]],
-            ['relay source', source],
-          ])
+          // H3 has a reading now; H2 and H4 keep their stopped sentences until a node is up.
+          writeReading('session/relay', relayAddrs[0])
           joinEl.disabled = false
         }
 
@@ -819,11 +797,12 @@
             const { peerId } = await window.o2.autoStart({})
             const addrs = await window.o2.waitForWebrtcAddr(60_000)
             setState('live', 'node running — reachable by other tabs')
-            setFacts([
-              ['peer id', peerId],
-              ['relay', relayAddrs[0]],
-              ['address', addrs[0] ?? '(none yet)'],
-            ])
+            writeReading('session/peer-id', peerId)
+            writeReading('session/relay', relayAddrs[0])
+            // `(none yet)` stood here, which is a blank wearing a parenthesis. H4's own
+            // unavailable arm says which thing has not happened.
+            if (addrs[0] === undefined) paintAbsence('session/webrtc-addr', 'unavailable')
+            else writeReading('session/webrtc-addr', addrs[0])
             // **Not "another tab".** A node's identity lives in IndexedDB, which is scoped
             // to the origin and not to the tab, so a second tab of this page in the same
             // browser profile loads the SAME peer id — it is this node again, not a second
@@ -852,6 +831,11 @@
               `could not join: ${error instanceof Error ? error.message : String(error)}`,
             )
             joinEl.disabled = false
+            // The join threw, so `activity()` is null and stopped wins. `session/relay`
+            // keeps whatever discovery gave it above; the two readings the join would have
+            // produced go back to their named absences rather than staying blank.
+            paintAbsence('session/peer-id', 'stopped')
+            paintAbsence('session/webrtc-addr', 'stopped')
             // The failure is exactly what BROW-02 wants counted, so ask now.
             await refreshReport()
           }
