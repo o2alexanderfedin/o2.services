@@ -38,6 +38,16 @@ import { FabricNode } from './fabric-node.ts'
  * edit to this file**. If π's arrival needs an edit here, that is a defect in this property and
  * not in π.
  *
+ * **Corrected 2026-08-10 by Plan 27-05, and the correction is the interesting part.** The
+ * paragraph above was right about discovery and wrong about driving. When π landed the census
+ * did rise to two with no edit to this file — `[P5] exercised … colouring, pi` — and the run
+ * then failed at `page.click('#s-pi .btn-primary')` with `element is not visible`, because
+ * `nav.ts` hides every panel but the selected one. The property had been driving exactly one
+ * surface and that surface was the page's default, so *discovered from the DOM* had never been
+ * tested against a surface anywhere else. It drives its own navigation now, through the tab a
+ * visitor presses. This was a defect in P5, exactly as Plan 27-05's acceptance criterion said
+ * it would be if one appeared, and it is recorded rather than smoothed over.
+ *
  * A surface with no run control — `session` today, `fabric` and `bench` later — is skipped, and
  * **the skip is reported by name** in the output. A property that quietly covers nothing is
  * exactly the failure mode P5 exists to close, one level up: {@link exercised} asserts that at
@@ -291,6 +301,24 @@ describe('P5 — after a real two-tab run, a surface with a run control no longe
     // ---- drive ------------------------------------------------------------------------
     const collected: DomRegion[] = []
     for (const surface of exercised) {
+      // **A surface has to be on screen before it can be driven, and this property did not
+      // put it there.** Measured on 2026-08-10, the moment π became the second surface: the
+      // census above rose from one to two with no edit to this file, exactly as its header
+      // promised — `[P5] exercised … colouring, pi` — and then the click below timed out at
+      // 30 s with `element is not visible`, because `nav.ts` hides every panel but the
+      // selected one and the default selection is `colouring`. So this property had been
+      // *discovering* run controls generically and *driving* only the surface the page
+      // happens to open on; it would have failed on the second surface whichever one that
+      // was. That is a defect in P5 and it is fixed here rather than worked around in the
+      // surface it could not reach.
+      //
+      // The fix is the visitor's own path — press the tab. `nav.ts` writes `location.hash`
+      // and renders synchronously from it, so nothing here sets the hash, reaches into that
+      // module, or removes a `hidden` attribute by hand.
+      const tab = `#nav-${surface}`
+      if ((await a.page.locator(tab).count()) > 0) await a.page.click(tab)
+      await a.page.waitForSelector(`#s-${surface}`, { state: 'visible', timeout: 30_000 })
+
       const panelBefore = await readPanel(a.page, surface)
       const viewBefore = digestOf(panelBefore)
 
