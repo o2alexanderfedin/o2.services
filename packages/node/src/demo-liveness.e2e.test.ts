@@ -429,6 +429,16 @@ describe('P5 — after a real two-tab run, a surface with a run control no longe
     }
     expect(problems).toEqual([])
 
+    // The two controls and the three constants, read off the page rather than derived from the
+    // shipped symbols. They are not `reading` regions, so nothing above asserts them — and a
+    // figure nobody reads is a figure a summary can only claim.
+    process.stderr.write(
+      `[P5] arguments and constants on screen: ` +
+        ['cubes-arg', 'redundancy-arg', 'budget', 'max-n', 'input-bytes']
+          .map((field) => `${field}=${driven.find((d) => d.id === `colouring/${field}`)?.text}`)
+          .join(' · ') +
+        '\n',
+    )
     process.stderr.write(
       `[P5] settled n: ${driven.find((d) => d.id === 'colouring/best-n')?.text}\n` +
         `[P5] verification cost: ${driven.find((d) => d.id === 'colouring/verification-multiplier')?.text}\n` +

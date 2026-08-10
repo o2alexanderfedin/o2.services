@@ -99,6 +99,16 @@ are satisfied by a page that renders nothing, and that is now a reading rather t
 Taken off the page after the two-tab run, not reasoned about. **20 of 21 carry a reading; the
 twenty-first carries its own named `unavailable` arm, correctly.**
 
+**The first draft of this table inferred C1 through C5 from the shipped symbols and from the cube
+count, and then said it had read them.** It had not: the spec printed the twelve `reading`
+regions and nothing else. The spec now prints the two controls and the three constants too, and
+the row below is that output. The inferred figures happened to be right, which is exactly why
+the habit is worth catching — a claim that turns out true is still not a measurement.
+
+```
+[P5] arguments and constants on screen: cubes-arg=24 · redundancy-arg=2 · budget=5000000 · max-n=8192 · input-bytes=168828
+```
+
 | # | region | what it read on the run |
 |---|---|---|
 | C1 | `colouring/cubes-arg` | `24` — control, refreshed on every discovery round |
@@ -114,7 +124,7 @@ twenty-first carries its own named `unavailable` arm, correctly.**
 | C14 | `colouring/verification-multiplier` | `2.00×` (`1.96×` on a second run) |
 | C15 | `colouring/attestation` | the absence arm, naming both unaccounted replicas by peer id |
 | C16 | `colouring/agreeing` | one line per cube, `no agreement` where empty |
-| C17 | `colouring/egress` | `38 frames sent, 31756 byte(s) total. 0 withheld — and this run registered no sovereign data…` |
+| C17 | `colouring/egress` | `38 frames sent, 31756 byte(s) total. 0 withheld — and this run registered no sovereign data…` (four runs read 38/39/40 frames and 31756–32768 bytes; the frame count is a real per-run quantity, not a fixture) |
 | C18 | `colouring/verify-verdict` | `Correct` |
 | C19 | `colouring/verify-n` | `500` |
 | C20 | `colouring/verify-triples` | `386` |
