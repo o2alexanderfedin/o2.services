@@ -40,6 +40,19 @@ owns the UI-SPEC section 6.3 surface. Nothing in Phase 28's scope touches demo l
 `feature/phase-28-one-cryptographic-implementation`. Baseline as measured on 2026-08-10:
 **28 files, 1 failed / 27 passed; 183 tests, 1 failed / 182 passed**, `real 455.10`.
 
+> **CLOSED 2026-08-10 — this item is fixed and the note above is superseded.** The B5
+> failure was repaired on this branch by `dde1ff5`/`f42e985`: the instrument read the box
+> geometry two frames after scrolling and the page grew 703 px into that gap. Plan 28-03
+> recorded the first whole-project e2e run after the fix, and **Plan 28-04 re-measured it
+> independently: 28 files, 183 passed, exit 0, `real 468.53`, `(user+sys)/real` 0.51.** The
+> low CPU ratio is expected rather than a starvation reading — e2e is Playwright-driven with
+> `fileParallelism: false`, so the process spends most of `real` waiting on browsers and
+> servers. The repair is **not** Phase 28 work and this phase does not claim it; it is
+> recorded here only because this file is where the red baseline was written down, and a
+> deferred item that is silently fixed elsewhere is how a stale "known red" outlives the
+> defect. **Phase 27 merged with `--project e2e` red** because every invocation across its
+> ten summaries was file-scoped, which is the reading this item exists to prevent repeating.
+
 ## 2. `npm audit` reports 1 high-severity advisory — pre-existing, unrelated
 
 `npm install` printed "1 high severity vulnerability" both before and after this plan's
