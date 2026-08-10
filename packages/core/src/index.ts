@@ -262,6 +262,10 @@ export type {
 export { delegate, describeFailure, fromHex, toHex, verifyChain } from './capability.ts'
 export type { Ability, ChainFailure, ChainResult, Delegation, PublicKeyHex, VerifyOptions } from './capability.ts'
 
+// X.509 v3 certificate profile — X509-01…07, additive alongside NodeCertificate.
+export { decodeX509Certificate, describeX509Failure, MAX_CERTIFICATE_BYTES, MAX_EXTENSION_BYTES, MAX_EXTENSION_COUNT } from './x509.ts'
+export type { X509Certificate, X509Failure, X509Result } from './x509.ts'
+
 // Signed artifact names — DATA-07, DATA-08.
 export {
   decodeNameRecord,
@@ -377,3 +381,17 @@ export type {
   QuorumResult,
   QuorumRules,
 } from './quorum.ts'
+
+// Ed25519 dual-port verifier — owner ruling 2026-08-09, adapter ruling 2026-08-09
+// (second, same day). No production caller yet; see `ed25519-backend.test.ts`'s
+// migration-pricing-and-wiring-decision docblock for why.
+export {
+  createLibsodiumSyncVerifier,
+  createNobleSyncVerifier,
+  createSubtleAsyncVerifier,
+  Ed25519NotInitializedError,
+  getAsyncVerifier,
+  getSyncVerifier,
+  initEd25519,
+} from './ed25519-backend.ts'
+export type { Ed25519AsyncVerifier, Ed25519Backend, Ed25519SyncVerifier } from './ed25519-backend.ts'

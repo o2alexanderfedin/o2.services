@@ -1310,9 +1310,36 @@ It lands **here** rather than in Phase 15 for one reason: this phase already rew
 ### Phase 25: X.509 Certificate Profile
 **Goal**: The certificate envelope becomes X.509 v3 with a cryptographic profile that is load-bearing rather than advisory — a set of precise refusals, each guarded, such that an ASN.1 parser in the browser trust path is not the weakest thing in the design
 **Depends on**: Phase 24 (which armed the gate the profile governs); no phase depends on this
-**Requirements**: none yet — this phase opens them
-**Research**: `docs/architecture/RFC-0003-Decentralized-Cloud-Security-Architecture-v0.2.md` §4, the three RFC-0003 reviews of 2026-08-06, and the 2026-08-07 correction appended to the praxis review
-**Success Criteria** (what must be TRUE): to be derived at plan time, one per obligation below
+**Requirements**: X509-01, X509-02, X509-03, X509-04, X509-05, X509-06, X509-07 (minted at plan time 2026-08-09 — X509-05 recorded delivered-with-evidence, not built)
+**Research**: `docs/architecture/RFC-0003-Decentralized-Cloud-Security-Architecture-v0.2.md` §4, the three RFC-0003 reviews of 2026-08-06, the 2026-08-07 correction appended to the praxis review, and `25-RESEARCH.md` (2026-08-09)
+**Success Criteria** (what must be TRUE), one per obligation:
+1. A certificate whose signature/SPKI `AlgorithmIdentifier` OID is anything other than `1.3.101.112` (id-Ed25519) is refused, named `unrecognised-algorithm` (X509-01)
+2. SHA-1 (`1.2.840.113549.1.1.5`), P-192 and P-224 (both via `1.2.840.10045.2.1` with the respective curve OID in `parameters`), and RSA (`1.2.840.113549.1.1.1`) are each refused by name, each with its own planted-and-watched-red test (X509-02)
+3. A certificate is refused unless it is byte-identical to its own canonical DER re-encoding, proved by re-encode-and-compare rather than a prose checklist (X509-03)
+4. A certificate longer than a fixed, sited byte ceiling is refused before any parsing begins (X509-04)
+5. A capability chain deeper than a fixed bound is refused before any signature work — already delivered at `capability.ts:127/190`, recorded rather than re-implemented (X509-05)
+6. An oversized single extension, or more than a fixed count of extensions, is refused before extension contents are interpreted (X509-06)
+7. A certificate carrying two extensions with the same `extnID` is refused outright — never last-wins, never a warning (X509-07)
+
+Two further numbers this phase owes, per the owner ruling's own words (not separate
+requirement IDs — folded into the plan set that delivers them): the decoder's real,
+measured, guarded contribution to the browser bundle weight; and the async-migration
+cost of the 2026-08-09 Ed25519 backend ruling (`crypto.subtle` first, libsodium
+fallback), priced by call-site count rather than wired into `verifyChain`/
+`verifyCertificate` in this phase.
+
+**Plans:** 4/4 plans executed
+
+Plans:
+**Wave 1**
+- [x] 25-01-PLAN.md — X.509 DER engine: type contracts, bounded TLV decode/encode, certificate-size gate (X509-04)
+- [x] 25-04-PLAN.md — Ed25519 dual-backend verifier: lazy WebCrypto/libsodium selection, differential-conformance guard, async-migration pricing (not wired into verifyChain/verifyCertificate this phase)
+
+**Wave 2** *(blocked on Wave 1 completion)*
+- [x] 25-02-PLAN.md — profile semantics: algorithm allow-list and named bans, extension rules, duplicate detection, canonicalisation wired as a certificate gate, requirement family minted (X509-01, X509-02, X509-03, X509-05, X509-06, X509-07)
+
+**Wave 3** *(blocked on Wave 2 completion)*
+- [x] 25-03-PLAN.md — bundle-cost guard: the decoder's real, measured, guarded contribution to the browser tier
 
 <!-- FILED 2026-08-07 BY OWNER RULING. Not scheduled into v1.1 — v1.1 is "Wire What Was Built"
      and this builds something new. It is filed rather than left in a review document because a

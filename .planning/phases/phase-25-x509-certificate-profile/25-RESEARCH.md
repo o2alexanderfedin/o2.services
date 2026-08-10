@@ -605,7 +605,7 @@ rationale.
 | A3 | `DECODER_BUDGET_BYTES` guard threshold is unset — no comparable measurement exists to ground it | §5 | The bundle-cost guard cannot be written with a real threshold until the decoder itself exists and is measured; treating this as settled before then would be exactly the "reported, not guarded" failure mode the ruling names |
 | A4 | The "few hundred KB" figure in the ruling refers to browser-bundled min+gzip size, and the npm unpacked-size figures in §7 are directionally consistent but not the same measurement | §7 | If a reader treats the unpacked-size figures as the bundle-cost counterfactual directly, they would overstate the rejected alternative's actual browser cost; the gzip/minified figures should be re-fetched from bundlephobia (or measured directly by building a throwaway Vite bundle importing `pkijs`) once rate-limiting clears, to firm up the exact counterfactual number |
 
-## Open Questions
+## Open Questions (RESOLVED)
 
 1. **What is the exact `DECODER_BUDGET_BYTES` bundle-cost ceiling?**
    - What we know: the methodology (before/after delta against `dist/assets/index-*.js`,
@@ -616,6 +616,13 @@ rationale.
    - Recommendation: the planner should implement the decoder first (or in the same
      wave), measure the real delta, and set the ceiling from that measurement with
      stated headroom — not attempt to pre-guess a number now.
+   - **Resolved:** `DECODER_BUDGET_BYTES` is deliberately left unset by this
+     research and is not pre-guessed in any plan. Plan 25-03 Task 1 implements
+     exactly the recommended sequence — build the decoder (25-01/25-02), then
+     measure the real gzip delta of a synthetic dual Vite build in the same test
+     run, and site the constant against that measured number with a stated
+     headroom multiple (`packages/node/src/x509-bundle.e2e.test.ts`). See
+     `25-03-PLAN.md`'s objective and Task 1's `<action>`.
 
 2. **Should `MAX_EXTENSION_COUNT = 8` allow room for extensions this profile does not
    yet define** (e.g. a future `rotationEpoch`/`policyVersion` field, which RFC-0003
@@ -628,6 +635,12 @@ rationale.
    - Recommendation: 8 (2× today's 4) is proposed as reasonable headroom without being
      so generous it weakens the padding-attack bound; the planner should confirm this
      against any known near-term field additions.
+   - **Resolved:** the planner adopted the recommended value. `MAX_EXTENSION_COUNT
+     = 8` is defined in Plan 25-01 Task 1 (`packages/core/src/x509.ts`), sited
+     against today's 4 custom extensions with the stated 2× headroom multiple, and
+     enforced by Plan 25-02 Task 2's extension-count refusal. No near-term field
+     addition to `NodeCertificate` is known as of this phase; the choice stands
+     without a confirmed conflict.
 
 3. **Does the round-trip re-encode/compare check need to run on every `verifyCertificate`
    call, or only at issuance/first-sight** (matching `PeerVerifier`'s "a settled
@@ -644,6 +657,15 @@ rationale.
      affecting the phase's cost claims, but should state the choice explicitly per
      this repository's "a comment asserting a mechanism is inert... a reader who
      believes it stops looking" discipline.
+   - **Resolved:** moot this phase, stated explicitly rather than left implicit.
+     Plan 25-02 wires `checkDerCanonical` into `decodeX509Certificate` as a
+     per-decode gate (Task 3), but nothing in this phase calls
+     `decodeX509Certificate` from a production path yet — every X509-0N obligation
+     except X509-05 is minted `Built, not wired` in `REQUIREMENTS.md`. Call
+     frequency (every `verifyCertificate` vs. cached at issuance/first-sight) is
+     therefore a question for whichever future phase wires the decoder in, not for
+     this one — there is no call site yet whose frequency could be decided either
+     way.
 
 ## Environment Availability
 

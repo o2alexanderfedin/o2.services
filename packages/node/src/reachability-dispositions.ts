@@ -191,8 +191,35 @@ export const DISPOSITIONS: readonly Disposition[] = [
  * **The owner ruled 2026-08-08 to hold this residue rather than work it down.** That governs the
  * *backlog*, not the guard: holding the count still and letting the ceiling drift above it are
  * different things, and only the first was asked for.
+ *
+ * ## Raised 40 → 47, measured 2026-08-09 (Plan 25-04)
+ *
+ * Seven new callable barrel exports arrived at once: `core/createLibsodiumSyncVerifier`,
+ * `core/createNobleSyncVerifier`, `core/createSubtleAsyncVerifier`,
+ * `core/Ed25519NotInitializedError`, `core/getAsyncVerifier`, `core/getSyncVerifier`,
+ * `core/initEd25519` — the Ed25519 dual-port verifier `packages/core/src/ed25519-backend.ts`
+ * exports from `@o2/core`'s barrel. Not disposed: the module's own docblock already states why
+ * it has no production caller yet (a bootstrap-ordering decision across three runtime entry
+ * points, not a `deferred-in-source` one-line deferral this register's shape fits), and that
+ * statement is this plan's own deliverable rather than something to duplicate here as a second
+ * copy that can drift from the first. This is a raise, not a lowering — the residue is larger,
+ * honestly, until a future phase wires the port or a disposition is written for it.
+ *
+ * ## Raised 47 → 49, measured 2026-08-09 (Plan 25-02)
+ *
+ * `core/decodeX509Certificate` and `core/describeX509Failure` arrived when Plan 25-02
+ * barrel-exported `packages/core/src/x509.ts` for the first time. Not disposed, for the
+ * same shape of reason as the ed25519-backend.ts raise immediately above: this phase's
+ * X.509 profile is fully implemented and tested but has no production caller this
+ * phase by design (`.planning/REQUIREMENTS.md`'s X509-01…07 rows state it explicitly —
+ * this phase does not wire the decoder into enrollment, issuance, or the demo; that is
+ * out of its named scope, and only its bundle cost is measured, in Plan 25-03). Two
+ * exports moved the count by exactly two, not five, because
+ * `MAX_CERTIFICATE_BYTES`/`MAX_EXTENSION_BYTES`/`MAX_EXTENSION_COUNT` are `const` value
+ * exports rather than functions/classes and never entered the "callable" corpus this
+ * guard walks.
  */
-export const OPEN_FINDING_CEILING = 40
+export const OPEN_FINDING_CEILING = 49
 
 /**
  * How large the register may grow before something reddens.

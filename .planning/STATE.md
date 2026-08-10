@@ -95,8 +95,8 @@ stopped_at: >-
   while the handoff said 11 and Session Continuity said 8 - three counts in one file, none of
   them right, which is the defect this milestone keeps finding in its own bookkeeping and found
   here again.
-last_updated: "2026-08-07T10:15:00.000Z"
-last_activity: 2026-08-07
+last_updated: "2026-08-09T21:45:00.000Z"
+last_activity: 2026-08-09
 progress:
   total_phases: 15
   completed_phases: 12
@@ -304,8 +304,28 @@ as unsafe and maintain it by hand:**
 - `gsd-sdk query state.record-metric` (2026-08-01, found by plan 18-03) — asked for a
   single metrics row, it *also* rewrote `status` and `stopped_at`, regressed
   `last_activity`, and rewrote every progress count: **percent 36 to 74**.
+- `gsd-sdk query state.planned-phase` (2026-08-09) — **the worst of the four so far.** Asked
+  to record that Phase 25 is planned, it reported `{"updated": ["Status", "Last Activity"]}`
+  and wrote a diff of **51 insertions against 103 deletions**, deleting the whole `stopped_at`
+  block: four owner rulings, the AOT-06 located negative, the Phase 17 close, all of it. It
+  did not error. Caught by the `git diff` this very list prescribes, reverted whole-file, and
+  the two fields it was asked for were then written by hand.
+- `gsd-sdk query state.record-session` (2026-08-09, Plan 25-04's executor, run right after
+  `state.record-metric` above) — **the fifth writer, same family.** Asked only for
+  `--stopped-at`/`--resume-file`, it reported success and wrote a diff of **57 insertions
+  against 105 deletions**: deleted the entire `stopped_at` frontmatter block a second time
+  (same content named above, still present at HEAD until this call), flipped `status:
+  executing` to `status: verifying` unasked, regressed `last_activity` from 2026-08-09 to
+  2026-08-06, and rewrote every `progress:` count to fabricated values (`total_phases` 15→27,
+  `completed_plans` 103→112, `percent` 80→100 — none of which this session provided or
+  computed). Caught the same way as every entry above: `git diff .planning/STATE.md` before
+  committing, not by either tool call reporting failure. Reverted whole-file
+  (`git checkout -- .planning/STATE.md`, safe because `git status` was clean before either
+  call), and the metrics row, the decision, and this session's continuity fields were then
+  all written by hand rather than risking a sixth corruption trying `record-session` again.
 
-`roadmap.update-plan-progress` is the one measured exception and is safe.
+`roadmap.update-plan-progress` and `state.add-decision` are the two measured exceptions and
+are safe — both ran this same session with a clean, correctly-scoped diff each time.
 
 **If you must add a metrics row, write it by hand.** And after any tool touches
 `.planning/`, `git diff .planning/STATE.md` before committing — every one of these was
@@ -1087,6 +1107,7 @@ that straggler-dominated distributions have meaningless means.
 | Phase 13 P02 | 7min | 2 tasks | 2 files |
 | Phase 13 P03 | 25min | 2 tasks | 1 files |
 | Phase 18 P03 | 25min | 2 tasks | 5 files |
+| Phase 25 P04 | 8min | 3 tasks | 8 files |
 
 ## Accumulated Context
 
@@ -1486,6 +1507,10 @@ Recent decisions affecting current work:
   adapter in three places is not the same as wiring it; it went to Phase 23 criterion 5,
   where `bin/bench.ts` is already being rewritten and the most contended file in the
   repository is fought once rather than twice.
+- **[Phase 25-04]: Ed25519 dual-port adapter (noble/libsodium sync, subtle/libsodium
+  async) shipped complete and tested but unwired — verifyChain/verifyCertificate
+  wiring deferred to a future phase pending a bootstrap-ordering decision across three
+  runtime entry points.**
 
 ### Pending Todos
 
@@ -1658,7 +1683,125 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-08-08T13:23:00.000Z
+Last session: 2026-08-10T01:20:00.000Z
+Stopped at: **PHASE 25 IS EXECUTED — 4 of 4 plans across 3 waves, on branch
+`feature/phase-25-x509-certificate-profile`. NOT YET VERIFIED.** Both post-wave gates are
+green and were measured rather than assumed: full `--project node` at **174 files / 2502
+passed / 1 skipped, EXIT=0**, `real 381.47 user 385.11 sys 52.82` (CPU ratio 1.15 at load 6.6,
+comparable to the 394.54 s / 1.10 baseline, so no regression hides behind contention); full
+`--project e2e` at **19 files / 85 passed, EXIT=0**, `real 416.74`, CPU ratio 0.33 — legitimate
+for specs that spawn browsers and relays and spend their wall clock waiting.
+
+**What landed.** `packages/core/src/x509.ts`, a bounded hand-written DER decoder for exactly
+this profile, with all seven obligations as refusals: Ed25519-only allow-list;
+SHA-1/P-192/P-224/RSA refused **by name**, each with its own test; pre-parse byte ceilings;
+extension count and size rules; duplicate-`extnID` refusal; canonicalisation as the final gate,
+proved by byte-identical re-encode. Plus `packages/core/src/ed25519-backend.ts`, the adapter
+the second owner ruling required. No `pkijs`, `asn1js`, `node-forge` or `@peculiar/*` was
+added — the locked decision held.
+
+**Six of the seven X509 rows are `[ ] Built, not wired`, and that is the honest state rather
+than a shortfall.** `decodeX509Certificate` has no production caller this phase, and this
+repository marks `[x]` **iff** reachable from a runnable entry point. Only X509-05 is `[x]`,
+recorded delivered-with-evidence against `capability.ts:127/190/255` rather than re-built.
+
+**THE LEDGER PARSER COULD NOT SEE ITS OWN NEW ROWS, caught before the mint landed.**
+`acceptance-traceability.node.test.ts` matched requirement ids with `[A-Z]+-\d+` — letters
+only — so `X509-01` died at the `5` and all seven rows would have been **invisible** to the
+guard, which would then have exited 0 by omission. That file's docblock exists because of a
+prior incident of this exact shape. Both regexes widened to `[A-Z][A-Z0-9-]*-\d+` (the pattern
+`requirements-ledger.node.test.ts` already used) **in the same commit as the mint**, gated on
+an observed matched-row count of **82 → 89**, verified independently. A green run cannot
+distinguish *checked and passing* from *invisible*.
+
+**A failure was reported as "pre-existing" and it was ours.** Plan 25-04's summary filed
+`reachability.node.test.ts`'s 13-vs-12 collision failure as pre-existing, confirmed by
+`git stash` — but that plan's work was already committed, so the stash was a **no-op** and it
+compared the tree to itself. Measured with a real control (detached to the pre-phase commit
+`10b32ad`): **37/37 green, exit 0**, and still green at the end of 25-01. Cause:
+`ed25519-backend.ts#verify` — the adapter ruling puts three implementations of one port in one
+module, so three declarations legitimately share a file and a name. Bound raised 12 → 13
+carrying its history, the new entry **pinned by name**, and the false claim retracted in place
+rather than deleted.
+
+**Four bounds moved this phase and every one was proved TIGHT by planting.** Unreachable
+barrel exports 67 → 73 → 75; `OPEN_FINDING_CEILING` 40 → 47 → 49; collisions 12 → 13. Each was
+planted one lower, watched red at `PLANTED_EXIT=1`, restored by surgical inverse and
+`cmp`-verified. None had slack — slack is the next unwired export slipping in unnoticed.
+
+**The bundle number the ruling demanded: 19 064 bytes gzip**, taken as a delta between two
+Vite library builds **within one run** rather than against a hardcoded total, guarded at
+`DECODER_BUDGET_BYTES = 25600` (~1.34× headroom, sited). It is deliberately the **conservative
+of two honest numbers**: it counts the decoder's transitive `dag-cbor` + `multiformats` graph,
+which a page already loading dag-cbor would not pay twice. A real-bundle diff today would
+tree-shake to a **false near-zero** — recorded rather than exploited.
+
+**Three further STATE.md corruptions occurred during this phase**, all caught by `git diff`,
+none of which errored: `state.planned-phase`, `state.record-session`, `state.advance-plan`.
+The unsafe-writer list above now stands at **six verbs**.
+
+**The paragraph below is kept as the pre-execution planning record it was written as.**
+**PHASE 25 IS PLANNED — 4 plans, 3 waves, `X509-01…07` minted, status Ready to
+execute.** Wave 1 is `25-01` (DER engine) and `25-04` (Ed25519 adapter), which have disjoint
+`files_modified`; wave 2 is `25-02` (profile semantics + the ledger mint); wave 3 is `25-03`
+(bundle-cost guard). Obligation 5 is recorded **delivered-with-evidence** against
+`capability.ts:127/190/255` rather than re-implemented. Six of the seven obligations will ship
+`[ ] Built, not wired` — the decoder gets no production caller this phase, and under this
+repo's convention (`[x]` iff reachable from a runnable entry point) `[x]` would be false.
+
+**TWO OWNER RULINGS WERE TAKEN 2026-08-09, both recorded in `PROJECT.md` and `25-CONTEXT.md`.**
+The Ed25519 backend work stays inside Phase 25 rather than splitting to its own phase. And
+**the backend is reached through an adapter** — a synchronous `verify` behind an asynchronous
+one-time `init`. That second ruling **dissolves** the async migration rather than deferring it:
+measured by execution on Node v25.9.0, `noble.verify` and libsodium's
+`crypto_sign_verify_detached` both return a `boolean`, and libsodium's only asynchronous part
+is WASM instantiation, which happens **once** at `ready`. So the sync port has two conforming
+implementations, `verifyChain` stays synchronous, and `PeerVerifier.verifiedPeers` stays a
+synchronous getter. **The consequence is carried rather than buried: `crypto.subtle` cannot
+implement the sync port** — a Promise cannot be awaited synchronously — so subtle serves only
+the already-async call sites. That **scopes** the first ruling; it does not reverse it.
+
+**THE PLAN CHECKER RAN TWICE AND EACH PASS FOUND A REAL BLOCKER, both fixed.** Pass 1:
+`acceptance-traceability.node.test.ts:78/110` parse requirement ids with `[A-Z]+-\d+`, which
+**cannot match `X509-01`** — the pattern dies at the `5`. The guard would have exited 0 on all
+seven minted rows by **never seeing them**, which is the same shape as the incident that file's
+own docblock exists to record. `25-02` now widens both regexes to `[A-Z][A-Z0-9-]*-\d+` — the
+pattern `requirements-ledger.node.test.ts` already uses — in the **same commit** as the mint,
+gated on an observed matched-row count of **82 → 89** rather than a green suite, because a
+green run cannot distinguish *checked and passing* from *invisible*.
+
+Pass 2: `25-04`'s priced call-site count was **wrong in both directions**. It said 9 across 5
+files; it double-counted two `agent.ts` lines that are not direct calls, and missed two that
+are — `reduce-job.ts:321` and `peer-verifier.ts:557`. **Three different counts existed at once
+(9, and two different 10s), which is the finding.** Re-derived by execution: **10 real call
+sites across 9 files in 4 packages**, from 11 raw grep hits minus one that is
+`mutation-ledger.ts:1473`, **a quoted source line inside a ledger entry rather than a call** —
+the quoted-history-reads-as-present-tense hazard turning up unprompted inside the very count
+meant to settle the question. The plan now embeds the enumeration **command** so the figure is
+re-derivable instead of transcribed.
+
+**`gsd-sdk query state.planned-phase` CORRUPTED THIS FILE AND REPORTED SUCCESS — writer number
+four.** It returned `{"updated": ["Status", "Last Activity"]}` and produced a diff of 51
+insertions against **103 deletions**, deleting the entire `stopped_at` block: every owner
+ruling, the AOT-06 finding, the whole milestone history. Caught by `git diff` immediately after
+the call, exactly as the warning block above prescribes — *"every one of these was caught that
+way and not by the tool reporting a failure. None of them errored."* Reverted whole-file, which
+was safe only because `git status` was verifiably clean beforehand, so the sole uncommitted
+delta was the tool's own. **The Status and Last Activity updates were then applied by hand.**
+Add `state.planned-phase` to the unsafe list.
+Resume file: `.planning/phases/phase-25-x509-certificate-profile/.continue-here.md` — it carries
+**two blocking constraints** that each produced a wrong answer before being caught (quoted
+history reading as present tense; a blanket `node_modules` symlink in a worktree making guards
+verify the main checkout).
+
+**The "10 open phases" premise was false and is corrected here.** Phases 1–10 are complete v1.0
+work whose directories are empty, so every directory heuristic reports them as open. The
+genuinely open set is **25, 26, 27**, confirmed against `### Phase N:` headings in ROADMAP.md
+rather than against directories — `gsd-sdk query roadmap.analyze` returns `phase_count: 0` on
+this roadmap, and `phase.add` numbers from directories (it returned 25 for what had to be 27).
+
+### Prior session (2026-08-08T13:23:00.000Z)
+
 Stopped at: **Session resumed at `d7b52e3`. Context is the v1.1 MILESTONE AUDIT-FIX, not phase
 work** — all 15 v1.1 phases have verifications, Phase 22 included (2/3, `fee26c2`). Open work is
 `.planning/v1.1-MILESTONE-AUDIT.md`: **9 of 17 findings closed**, 5 auto-fixable remaining

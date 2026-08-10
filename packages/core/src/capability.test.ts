@@ -235,7 +235,7 @@ function chainOfDepth(depth: number): Delegation[] {
   return links
 }
 
-describe('chain depth is bounded', () => {
+describe('chain depth is bounded (X509-05 — max chain depth, delivered here, not re-implemented)', () => {
   it('accepts a chain exactly at the bound', () => {
     // The other half of the bound, and the half that makes it a bound rather than a ban.
     // Without this, narrowing MAX_CHAIN_DEPTH to 1 would leave the suite green.

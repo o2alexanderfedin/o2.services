@@ -233,11 +233,23 @@ describe('the guard cannot report clean because it looked at nothing', () => {
     // exported-but-uncalled function is a defect that no known-TRUE anchor can catch, because it
     // adds a finding rather than removing a path.
     //
-    // Sited at **67**, measured 2026-08-08 with Phases 20, 21, 23 and 24 landed. It read 58 for
-    // about an hour, until PLANT A AT `FabricNode.start` failed to redden anything and exposed
-    // that type annotations were being counted as call paths; excluding type positions moved it
-    // to 67. The earlier figure is recorded because a ceiling whose history is invisible is a
-    // ceiling nobody can audit.
+    // Sited at **75**, measured 2026-08-09 (Plan 25-02). It was 73 from the same day
+    // (Plan 25-04), which itself was 67 from 2026-08-08 with Phases 20, 21, 23 and 24
+    // landed — that reading moved from 58 after PLANT A AT `FabricNode.start` failed to
+    // redden anything and exposed that type annotations were being counted as call
+    // paths; excluding type positions moved it to 67, then to 73 when
+    // `packages/core/src/ed25519-backend.ts`'s seven barrel exports landed with no
+    // production caller yet by design. Raised to 75 (+2, not +5) when Plan 25-02 barrel-
+    // exported `x509.ts` for the first time: `decodeX509Certificate` and
+    // `describeX509Failure` are the two newly-unreachable callable exports —
+    // `MAX_CERTIFICATE_BYTES`/`MAX_EXTENSION_BYTES`/`MAX_EXTENSION_COUNT` are `const`
+    // value exports, not functions/classes, so they never entered this "callable"
+    // corpus at all, which is why five new exports moved the count by two rather than
+    // five. Neither new finding is disposed: this phase deliberately does not wire the
+    // decoder into enrollment, issuance, or the demo (out of this phase's named scope;
+    // only its bundle cost is measured, in Plan 25-03), matching the ed25519-backend.ts
+    // precedent immediately above. The earlier figures are recorded because a ceiling
+    // whose history is invisible is a ceiling nobody can audit.
     // The ceiling is an equality-ish bound on purpose and it is the crude form of what 22-03
     // replaces it with: a per-symbol register with a reason for each. Until that lands, this is
     // the only thing standing between the guard and a new dead export arriving unnoticed.
@@ -247,10 +259,10 @@ describe('the guard cannot report clean because it looked at nothing', () => {
     expect(
       found.length,
       `the guard found ${found.length} unreachable callable barrel exports; the reading recorded ` +
-        'on 2026-08-08 was 67. A HIGHER number means a new exported-but-uncalled symbol arrived — ' +
+        'on 2026-08-09 was 75. A HIGHER number means a new exported-but-uncalled symbol arrived — ' +
         `run the guard and read the list. A LOWER number is wiring work landing and the ceiling ` +
         'should be lowered to match it, which is 22-03\'s register rather than an edit here.',
-    ).toBeLessThanOrEqual(67)
+    ).toBeLessThanOrEqual(75)
   }, GRAPH_TIMEOUT_MS)
 
   it('separates findings that have callers from findings that have none', () => {
