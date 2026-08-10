@@ -10,34 +10,35 @@
  *
  * ## Backend: `crypto.subtle` primary, `@noble/curves` fallback — libsodium NOT used
  *
- * Owner ruling, 2026-08-10, superseding `ed25519-backend.ts`'s 2026-08-09 ruling for
- * this module specifically: `@chainsafe/libp2p-noise` already imports
+ * Owner ruling, 2026-08-10: `@chainsafe/libp2p-noise` already imports
  * `@noble/curves/ed25519.js` — the exact module this file imports — so noble is in
  * the browser bundle before this file is ever loaded, while libsodium-wrappers is
  * 314.9 KB gzip against a 168.93 KB app. noble covers both fallback cases (insecure
  * origin, and engines older than Chrome 137 / Firefox 129 / Safari 17) at ~zero
- * marginal bundle cost. `ed25519-backend.ts` is left exactly as it is — it is
- * Phase-25 code with its own 7/7 verification record, and it will be reconciled with
- * this module separately, not by editing either in place here.
+ * marginal bundle cost.
  *
- * The backend is selected once, by {@link createCryptoBackend}, an **async** factory —
+ * **The port itself no longer lives here.** This module carried its own copy of
+ * `CryptoBackend` and its own selection path until Phase 28, Plan 28-01, which merged
+ * it into `./ed25519-backend.ts` — the one module in this package that decides which
+ * Ed25519 implementation runs. The gate that survived the merge is **this module's**:
+ * the real round-trip probe, not the presence-only check the other path used. This
+ * file now imports `CryptoBackend` and `createCryptoBackend` and declares neither.
+ *
+ * The backend is selected once, by `createCryptoBackend`, an **async** factory —
  * never by a synchronous `getX()` that throws if some earlier `initX()` has not yet
  * resolved. The design probe removed that state machine on purpose (see its
  * `IssuerFacade.issue` docblock, ported below onto {@link IssuerFacade.issue}): every
  * facade method already returns a `Promise`, so there is no synchronous call site an
  * uninitialised-backend guard would ever need to protect, and therefore no reason to
- * carry the class of bug `Ed25519NotInitializedError` exists to catch.
+ * carry the class of bug `Ed25519NotInitializedError` exists to catch. The merged
+ * module keeps that error for its own synchronous port, which the facades do not use.
  *
- * Detection **probes, it does not infer from presence**: `crypto.subtle` exists on
- * engines that lack Ed25519 (this is the opposite failure mode from the one
- * `ed25519-backend.ts` guards against, where `subtle` reads `undefined` in its
- * entirety outside a secure context — here `subtle` can be *present* and still
- * algorithm-incapable), so {@link detectCryptoBackend} calls a real
- * `subtle.generateKey({name:'Ed25519'}, false, ['sign','verify'])` and catches.
- * Measured on this host (Node v25.9.0) tonight: `subtle` Ed25519 sign+verify
- * succeeds; the noble arm costs roughly 1.3 ms/verify against subtle's ~0.04-0.09 ms
- * across chromium/firefox/webkit (figures from the phase brief, re-measured below in
- * this module's own tests).
+ * Detection **probes, it does not infer from presence** — the reasoning now sits
+ * beside `detectCryptoBackend` in `ed25519-backend.ts`, where the code is. Measured
+ * on this host (Node v25.9.0): `subtle` Ed25519 sign+verify succeeds; the noble arm
+ * costs roughly 1.3 ms/verify against subtle's ~0.04-0.09 ms across
+ * chromium/firefox/webkit (figures from the phase brief, re-measured below in this
+ * module's own tests).
  *
  * ## One curve library derives every seed, on both arms
  *
@@ -137,8 +138,12 @@ import { ed25519, x25519 } from '@noble/curves/ed25519.js'
 import { argon2idAsync, type ArgonOpts } from '@noble/hashes/argon2.js'
 import { hkdf } from '@noble/hashes/hkdf.js'
 import { sha256 } from '@noble/hashes/sha2.js'
-import { toHex } from './capability.ts'
+import { fromBase64Url, toBase64Url, toHex } from './capability.ts'
 import { type CanonicalValue, NotEncodableError, canonicalCid, encodeCanonical } from './canonical/encode.ts'
+// The one crypto-backend port. Declared in `ed25519-backend.ts` since Phase 28 merged
+// this module's selection path into it; this module holds no selection of its own and
+// deliberately does not re-export what it imports here.
+import { type CryptoBackend, createCryptoBackend } from './ed25519-backend.ts'
 
 // ─── Byte helpers ──────────────────────────────────────────────────────────────
 
@@ -148,33 +153,8 @@ function bytesEqual(a: Uint8Array, b: Uint8Array): boolean {
   return true
 }
 
-/**
- * `BufferSource` wants a `Uint8Array<ArrayBuffer>` specifically; this module's public
- * contract accepts the wider `Uint8Array`. Same cast this package already uses at
- * this exact boundary — see `canonical/encode.ts:118`, `ed25519-backend.ts`,
- * `net/src/conformance.ts:62`.
- */
-function toBufferSource(bytes: Uint8Array): Uint8Array<ArrayBuffer> {
-  return bytes as Uint8Array<ArrayBuffer>
-}
-
 const textEncoder = new TextEncoder()
 const textDecoder = new TextDecoder()
-
-function toBase64Url(bytes: Uint8Array): string {
-  let binary = ''
-  for (const byte of bytes) binary += String.fromCharCode(byte)
-  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
-}
-
-function fromBase64Url(value: string): Uint8Array<ArrayBuffer> {
-  const normalized = value.replace(/-/g, '+').replace(/_/g, '/')
-  const padded = normalized + '='.repeat((4 - (normalized.length % 4)) % 4)
-  const binary = atob(padded)
-  const out = new Uint8Array(binary.length)
-  for (let i = 0; i < binary.length; i++) out[i] = binary.charCodeAt(i)
-  return out as Uint8Array<ArrayBuffer>
-}
 
 // ─── Vocabulary ──────────────────────────────────────────────────────────────
 
@@ -463,116 +443,16 @@ export function deriveKeySeeds(entropy: Uint8Array): { readonly signingSeed: Uin
  */
 export const ARGON2_PARAMS: ArgonOpts = { t: 2, m: 19_456, p: 1, dkLen: 32 }
 
-// ─── Crypto backend: subtle primary, noble fallback ──────────────────────────
-
-export type CryptoArm = 'subtle' | 'noble'
-
-export interface CryptoBackend {
-  readonly arm: CryptoArm
-  signEd25519(seed: Uint8Array, message: Uint8Array): Promise<Signature>
-  verifyEd25519(publicKey: Uint8Array, signature: Signature, message: Uint8Array): Promise<boolean>
-  agreeX25519(seed: Uint8Array, peerPublicKey: Uint8Array): Promise<Uint8Array>
-}
-
-function ed25519PrivateJwk(seed: Uint8Array, publicKey: Uint8Array): JsonWebKey {
-  return { kty: 'OKP', crv: 'Ed25519', d: toBase64Url(seed), x: toBase64Url(publicKey), key_ops: ['sign'], ext: true }
-}
-function x25519PrivateJwk(seed: Uint8Array, publicKey: Uint8Array): JsonWebKey {
-  return { kty: 'OKP', crv: 'X25519', d: toBase64Url(seed), x: toBase64Url(publicKey), key_ops: ['deriveBits'], ext: true }
-}
-function x25519PublicJwk(publicKey: Uint8Array): JsonWebKey {
-  return { kty: 'OKP', crv: 'X25519', x: toBase64Url(publicKey), ext: true }
-}
-
-/**
- * The noble arm — a plain static import (already in the bundle graph via
- * `@chainsafe/libp2p-noise`), used whenever `subtle` cannot do real Ed25519.
- */
-export function nobleCryptoBackend(): CryptoBackend {
-  return {
-    arm: 'noble',
-    async signEd25519(seed, message) {
-      return ed25519.sign(message, seed)
-    },
-    async verifyEd25519(publicKey, signature, message) {
-      try {
-        return ed25519.verify(signature, message, publicKey)
-      } catch {
-        // Structural rejection (wrong-length key/signature) reads as a refusal,
-        // never as an unhandled exception — same boundary as `ed25519-backend.ts`.
-        return false
-      }
-    },
-    async agreeX25519(seed, peerPublicKey) {
-      return x25519.getSharedSecret(seed, peerPublicKey)
-    },
-  }
-}
-
-/**
- * The subtle arm. Construction itself is unguarded — call this only after
- * {@link detectCryptoBackend}'s real capability probe has succeeded, or (in tests)
- * deliberately, to exercise this arm directly regardless of what the host would
- * auto-select.
- */
-export function subtleCryptoBackend(subtle: SubtleCrypto = globalThis.crypto.subtle): CryptoBackend {
-  return {
-    arm: 'subtle',
-    async signEd25519(seed, message) {
-      const publicKey = ed25519.getPublicKey(seed)
-      const key = await subtle.importKey('jwk', ed25519PrivateJwk(seed, publicKey), { name: 'Ed25519' }, false, ['sign'])
-      const signature = await subtle.sign({ name: 'Ed25519' }, key, toBufferSource(message))
-      return new Uint8Array(signature)
-    },
-    async verifyEd25519(publicKey, signature, message) {
-      try {
-        const key = await subtle.importKey('raw', toBufferSource(publicKey), { name: 'Ed25519' }, false, ['verify'])
-        return await subtle.verify({ name: 'Ed25519' }, key, toBufferSource(signature), toBufferSource(message))
-      } catch {
-        // Malformed-input rejection (wrong-length key/signature) or an
-        // unsupported-algorithm rejection both read as "not valid", never as a throw.
-        return false
-      }
-    },
-    async agreeX25519(seed, peerPublicKey) {
-      const publicKey = x25519.getPublicKey(seed)
-      const privateKey = await subtle.importKey('jwk', x25519PrivateJwk(seed, publicKey), { name: 'X25519' }, false, ['deriveBits'])
-      const peerKey = await subtle.importKey('jwk', x25519PublicJwk(peerPublicKey), { name: 'X25519' }, false, [])
-      const bits = await subtle.deriveBits({ name: 'X25519', public: peerKey }, privateKey, 256)
-      return new Uint8Array(bits)
-    },
-  }
-}
-
-let backendPromise: Promise<CryptoBackend> | undefined
-
-/**
- * Probe once, memoised, shared by every facade constructed through
- * {@link createSubject}, {@link createIssuer} and {@link createVerifier}. Calling this
- * concurrently before the first call's probe resolves performs the probe at most
- * once — the second caller receives the same in-flight promise.
- */
-export function createCryptoBackend(): Promise<CryptoBackend> {
-  backendPromise ??= detectCryptoBackend()
-  return backendPromise
-}
-
-async function detectCryptoBackend(): Promise<CryptoBackend> {
-  const subtle = globalThis.crypto?.subtle
-  if (subtle !== undefined) {
-    try {
-      // The real probe: `subtle` can be present and still Ed25519-incapable, so
-      // presence alone (`ed25519-backend.ts`'s own check, for a different question)
-      // is not sufficient here. Discarded on success — this call's only purpose is
-      // to observe whether it throws.
-      await subtle.generateKey({ name: 'Ed25519' }, false, ['sign', 'verify'])
-      return subtleCryptoBackend(subtle)
-    } catch {
-      // Falls through to noble.
-    }
-  }
-  return nobleCryptoBackend()
-}
+// ─── Crypto backend ──────────────────────────────────────────────────────────
+//
+// Declared in `./ed25519-backend.ts` and imported at the top of this file. Until
+// Phase 28 this module held its own copy of the port — `CryptoArm`, `CryptoBackend`,
+// three JWK helpers, `nobleCryptoBackend`, `subtleCryptoBackend`,
+// `createCryptoBackend` and `detectCryptoBackend` — sitting beside a *second*
+// selection mechanism in `ed25519-backend.ts`. Plan 28-01 moved this block there and
+// kept **this** module's gate, the real `subtle.generateKey({name:'Ed25519'})`
+// round-trip probe, over the presence-only check the other module used. Nothing is
+// re-exported from here: a second name for the same thing is what the merge removed.
 
 // ─── AEAD: xchacha20poly1305, unconditionally, on both arms ──────────────────
 

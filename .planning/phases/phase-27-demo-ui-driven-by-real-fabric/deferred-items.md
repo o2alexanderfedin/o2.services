@@ -868,3 +868,119 @@ occurs in the document, so P9 covers it either way.
 
 **What would close it:** one edit to UI-SPEC §4.7 stating that the line is the contract's own
 wording and not a quotation of the document's header.
+
+## 2026-08-10 — B5 read its boxes off the end of the page, and Phase 27 merged with `--project e2e` red
+
+**Found during:** Phase 28, by running `npx vitest run --project e2e` — exit 1, `28 files, 1
+failed / 27 passed`. **Fixed** in `dde1ff5`; this entry is the record, including the part that is
+about process rather than about pixels.
+
+### What it was
+
+`measure()` scrolled to the end of the page, yielded **two animation frames**, and only then read
+the boxes. The page is live across those frames. `reconcile` runs on a 1000 ms interval and
+rewrites the fabric surface from the node's own readings, so while `#s-fabric` is on screen and
+the node is still acquiring its relay and WebRTC addresses, `fabric/addresses`,
+`fabric/peer-rows` and `fabric/relayed-only` turn from one-line absence sentences into multi-line
+lists. Measured: **the document grew 703 px at 393 and 663 px at 360 inside that window.**
+Chromium leaves `scrollY` where it was, so the page was no longer at its end, and every
+viewport-space box below the fold was displaced downward by exactly the shortfall.
+
+### It was the assertion, not the page, and the arithmetic is what says so
+
+A temporary reading of `scrollY`, `scrollMax` and the document height was added on both sides of
+the two frames. **Every combination with `short=0.00` passed; only combinations with `short>0`
+failed, in every run.**
+
+```
+[B5diag] 360px / idle / surface 5 of 6: docH 5783->6446 scrollY=5376 max=5726 short=350.00
+[B5diag] 393px / idle / surface 5 of 6: docH 5450->6153 scrollY=4911 max=5433 short=522.00
+```
+
+Subtract the shortfall and the failing readings land inside the band their own width produced:
+
+| combination | reported bottom | shortfall | corrected | that width's band |
+|---|---|---|---|---|
+| 393 / idle / surface 5 | 973.83 | 522.00 | **451.83** | 451.47 – 452.25 |
+| 360 / idle / surface 5 | 802.06 | 350.00 | **452.06** | 451.42 – 452.20 |
+| 393 footer, same read | 1106.02 | 522.00 | **584.02** | 583.66 – 584.44 |
+| 360 footer, same read | 934.25 | 350.00 | **584.25** | 583.61 – 584.36 |
+
+Nothing was covered. **That it is not the panel's height is a second reading rather than an
+inference:** at 393/`loaded` the same panel is 172 px *taller* than the failing idle reading —
+5256.97 against 5085.22 — and B5 is green there, because at the true end of the page the last
+child's bottom is pinned by the document's trailing padding and the footer, not by the panel.
+
+**Shape of the failing set, which is the diagnostic.** One or two of 60, never more; always
+`section#s-fabric`, the one surface whose content arrives asynchronously; always the `idle` pass,
+which is the earlier of the two and runs while the addresses are still landing. It moved between
+runs — 393 alone in the first, 360 and 393 in the second — so it is a race, and a red that names
+a different combination each time was never going to be a layout constant.
+
+### The defect is older than the plan that exposed it
+
+`window.scrollTo(0, document.body.scrollHeight)` followed by two frames is **original to 27-01**
+(`d7a20f0`). It was harmless only because B5 measured a `display: none` box on 50 of 60
+combinations. 27-09 (`064d0fe`) made B5 measure a rendered box, and the pre-existing instrument
+defect became reachable — with the fabric surface, which had not been the measured child before,
+now the measured child on one pass in six. **27-09 did not introduce this; it removed the vacuity
+that was hiding it.** Its own "all 60 green in both runs" reading is consistent with that: the
+race needs the addresses to land inside a ~32 ms window, and it does not fire every run.
+
+### The fix, and what was deliberately not done
+
+The scroll and every box below it are now **one synchronous turn** — a timer callback cannot
+interleave between a synchronous `scrollTo` and a synchronous `getBoundingClientRect`, and both
+`scrollHeight` and the rects flush layout before they answer. Two latent instances of the same
+defect rode along: the target is now the **scrolling element's** `scrollHeight` rather than
+`document.body`'s, which in standards mode is the body's own content box and can be shorter than
+the document's scrollable height; and `behavior: 'instant'`, so the guarantee does not rest on the
+page never setting `scroll-behavior: smooth`.
+
+**Nothing was narrowed, and B5's precondition is now asserted rather than assumed.**
+`endShortfall` is read in the same turn as the boxes and required to be `<= 1`, so a reading taken
+off the end of the page reddens *by name* instead of arriving as a false covering. Relaxing B5
+back toward vacuity was available and was not taken — it is the failure this property has already
+had once.
+
+Three plants, one at a time, each restored by the surgical inverse of its own edit and verified
+with `cmp`:
+
+| plant | result |
+|---|---|
+| `#bar { min-height: 320px }` | **B5 red at all 60**, `short=0.00` throughout — the property still bites |
+| scroll to `scrollHeight - 200` | **green, and for the wrong reason**: `200 < clientHeight`, so it clamped to the end anyway. Written down rather than quietly re-rolled |
+| scroll to `scrollMax - 200` | **`endShortfall` red at all 60**, and it manufactured **54 false "the bar covers it" findings out of 60** — the observed bug, on demand |
+
+### The process finding, which matters as much as the fix
+
+**Phase 27 merged with `--project e2e` red, and no wave ran that project to completion.** Every
+e2e invocation recorded across all ten Phase 27 summaries is **file-scoped** — `--project e2e
+demo-viewport`, `--project e2e demo-regions`, `--project e2e` × 6 named files, and so on. A grep
+for a bare `--project e2e` with no file argument returns **nothing in any of the ten**. The merge
+commit says so in its own subject line: *"Merge Phase 27 — the demo driven by the real fabric, and
+the suite nobody ran"* (`5422f9e`).
+
+A per-file run cannot see this class of defect at all. The failure needs the whole project's
+timing — and more to the point, a suite that is only ever run in slices has no run in which
+"green" means the suite is green. The red then survives a merge, and the next phase inherits it
+and has to spend a control arm establishing that it did not cause it, which Phase 28 Plan 02 did.
+
+**What would close it:** one bare `npx vitest run --project e2e`, exit code read directly, as a
+gate before a phase merges — not a slice, and not a composite background command, which returned
+shell exit 0 while the e2e project inside it exited 1 during Phase 28.
+
+### And a sharper statement of the `#measurements` gap already logged above
+
+Planting `padding-bottom: 0` on the rule whose own comment reads *"Bottom padding clears the fixed
+bar… B5 in `demo-viewport.e2e.test.ts` is what measures whether it is enough"* put the footer
+under the bar on **all 60** combinations — `footerBottom` ~720 against `barTop` 592.75 / 606.03 /
+613.81 / 632.41 / 655.00, i.e. under by 65 to 127 px — and **B5 caught 6 of 60**, all at
+768/`loaded`, the one bar tall enough that `#main`'s own last child crossed it too.
+
+So the gap is not merely that B5 is silent about the footer. **Deleting the entire line the
+comment says B5 holds leaves B5 green on 54 of 60.** `footerBottom` is now printed on the `[B5]`
+line on every run so the number is in front of a reader rather than in an interface comment. It is
+still **not asserted**, for the reason 27-01 and 27-09 both gave: widening the property needs
+UI-SPEC §6.3 to say whether B5 is about `#main` or about the end of the page. **What would also
+close it:** correcting `demo.css`'s comment, which currently names a guard that does not hold it.

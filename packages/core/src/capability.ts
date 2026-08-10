@@ -42,6 +42,36 @@ export function fromHex(hex: string): Uint8Array<ArrayBuffer> {
   return bytes
 }
 
+/**
+ * base64url, the RFC 4648 §5 alphabet with padding stripped — the encoding JWK fields
+ * and sealed blobs both use.
+ *
+ * Declared here rather than in either consumer because Phase 28 needed it in two
+ * modules at once: `ed25519-backend.ts`'s JWK builders (the subtle arm's only way to
+ * import a seeded private key) and `cert-lifecycle.ts`'s sealed-blob encoding. It was
+ * `cert-lifecycle.ts`-private until then, and importing it back from there would have
+ * closed a cycle — `cert-lifecycle.ts` now imports `ed25519-backend.ts`. This module
+ * already holds `toHex`/`fromHex`, so it is where the package keeps byte codecs; it is
+ * deliberately **not** added to `index.ts`, so no barrel export is created by the move.
+ *
+ * `btoa`/`atob` are Web-standard globals present in Node and in every browser target,
+ * the same portability class as the `globalThis.crypto` this package already depends on.
+ */
+export function toBase64Url(bytes: Uint8Array): string {
+  let binary = ''
+  for (const byte of bytes) binary += String.fromCharCode(byte)
+  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
+}
+
+export function fromBase64Url(value: string): Uint8Array<ArrayBuffer> {
+  const normalized = value.replace(/-/g, '+').replace(/_/g, '/')
+  const padded = normalized + '='.repeat((4 - (normalized.length % 4)) % 4)
+  const binary = atob(padded)
+  const out = new Uint8Array(binary.length)
+  for (let i = 0; i < binary.length; i++) out[i] = binary.charCodeAt(i)
+  return out as Uint8Array<ArrayBuffer>
+}
+
 /** An ed25519 public key, hex-encoded. Serves as a principal's identity. */
 export type PublicKeyHex = string
 

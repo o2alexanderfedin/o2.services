@@ -138,7 +138,7 @@
  * - Ratio (port / direct): **1.004** — the adapter's try/catch wrapper costs
  *   approximately 0.4% over the bare library call, on this host, this run. This is a
  *   distinct measurement from `25-CONTEXT.md`'s 2026-08-09 table (which compared
- *   *backends* — noble vs. libsodium vs. subtle — not the port's own overhead over its
+ *   *backends* — noble vs. the WASM fallback vs. subtle — not the port's own overhead over its
  *   selected backend); it is added beside that table as a second, independently-dated
  *   data point, not a replacement for it. `25-CONTEXT.md`'s own table already recorded
  *   its numbers as "one host, one run, without this repository's comparative-ratio
@@ -148,11 +148,14 @@
  *   exist yet when it was written.
  *
  * **Re-checked, not re-derived**, the `instanceof Promise` table from
- * `25-CONTEXT.md`'s adapter sub-section, run against every backend this host makes
- * available: `@noble/curves`'s `ed25519.verify(...)` -> `false`; libsodium's
- * `crypto_sign_verify_detached(...)` (post-`ready`) -> `false`;
+ * `25-CONTEXT.md`'s adapter sub-section, run against every backend this host made
+ * available on 2026-08-09: `@noble/curves`'s `ed25519.verify(...)` -> `false`; the
+ * WASM fallback's detached-verify (post-`ready`) -> `false`;
  * `crypto.subtle.verify(...)` -> `true`. Unchanged from the cited table — the
  * empirical claim the entire port design rests on holds on this host, this session.
+ * (The middle row is history: Phase 28 removed that arm and this file no longer names
+ * the package, so the differential guard below reads two backends, not three. The name
+ * survives in `28-01-SUMMARY.md` and in this file's git history.)
  *
  * ## Part 3 — the wiring decision, stated by name (new obligation this revision adds)
  *
@@ -187,9 +190,9 @@
  * makes the bootstrap-ordering decision above.
  */
 
-import { ed25519 } from '@noble/curves/ed25519.js'
-import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
-import { createLibsodiumSyncVerifier, createNobleSyncVerifier, createSubtleAsyncVerifier } from './ed25519-backend.ts'
+import { ed25519, x25519 } from '@noble/curves/ed25519.js'
+import { afterEach, beforeAll, describe, expect, it } from 'vitest'
+import { createNobleSyncVerifier, nobleCryptoBackend, subtleCryptoBackend } from './ed25519-backend.ts'
 import type { Ed25519Backend } from './ed25519-backend.ts'
 
 /**
@@ -307,12 +310,46 @@ it('there are at least 7 reject vectors, including the non-canonical S case', ()
 })
 
 /**
- * A real round-trip probe, not a presence check — `createSubtleAsyncVerifier()`
- * returns a verifier whenever `subtle.verify` exists as a function (matching
- * `initEd25519`'s own presence-only gate), which is true even on an engine that
- * advertises `SubtleCrypto` but rejects the `Ed25519` algorithm name specifically.
- * The differential-conformance guard needs to tell "genuinely unavailable" apart from
- * "available and correctly refusing", so it skips a backend the same way this probes.
+ * The rejection weighting, asserted rather than left as an artefact of how many vectors
+ * somebody happened to write.
+ *
+ * Agreement on the happy path is already established — every backend accepts a valid
+ * signature or it would not be a backend. The hazard a second implementation introduces
+ * is **disagreement on a malformed input**, so the corpus has to stay heavier on the
+ * rejection side. Until Plan 28-03 that weighting was true (7 reject against 5 accept)
+ * and unasserted: adding three accept vectors would have silently inverted it with
+ * nothing going red. Read 2026-08-10: 7 reject, 5 accept.
+ *
+ * **The id in the title is load-bearing and was demanded by a guard, not decorated in.**
+ * Plan 28-04 minted `CRYPTO-04` as `[x]`, and `acceptance-traceability.node.test.ts`
+ * immediately failed with *"CRYPTO-04 — marked [x] at .planning/REQUIREMENTS.md:727, and
+ * no tracked test file names it"*: the requirement's whole subject is this guard, and no
+ * title anywhere named the requirement. The two ways to make that green without doing the
+ * work were to add the id to `EXPECTED_ABSENT` or to un-tick the box, and both are the
+ * widening-what-counts-as-passing move this repository refuses. This case is the carrier
+ * because it asserts one of the requirement's three named clauses literally — *weighted
+ * toward rejection* — rather than merely running nearby. It is deliberately NOT put on the
+ * `describe` above, whose title is quoted verbatim in a recorded plant output at `:443`;
+ * editing that quote would be rewriting an observation nobody re-took.
+ */
+it('the vector corpus stays weighted toward rejection (CRYPTO-04)', () => {
+  expect(
+    REJECT_VECTORS.length,
+    `the corpus must stay heavier on the rejection side: ${REJECT_VECTORS.length} reject vs ${ACCEPT_VECTORS.length} accept`,
+  ).toBeGreaterThan(ACCEPT_VECTORS.length)
+})
+
+/**
+ * A real round-trip probe, not a presence check — an engine can advertise
+ * `SubtleCrypto` and reject the `Ed25519` algorithm name specifically. The
+ * differential-conformance guard needs to tell "genuinely unavailable" apart from
+ * "available and correctly refusing", so it decides whether to include the subtle
+ * backend by probing.
+ *
+ * **Kept deliberately separate from the production module's own probe** (Phase 28
+ * merged that gate into `detectCryptoBackend`, which this file also exercises). The
+ * guard must reach its own verdict about this host rather than read the module's
+ * answer, or it would be validating the module against the module.
  */
 async function subtleSupportsEd25519(): Promise<boolean> {
   const subtle = globalThis.crypto?.subtle
@@ -345,12 +382,19 @@ async function availableBackends(): Promise<readonly Backend[]> {
   const noble = createNobleSyncVerifier()
   backends.push({ name: noble.backend, verify: noble.verify })
 
-  const libsodium = await createLibsodiumSyncVerifier()
-  backends.push({ name: libsodium.backend, verify: libsodium.verify })
-
-  const subtle = createSubtleAsyncVerifier()
-  if (subtle !== undefined && (await subtleSupportsEd25519())) {
-    backends.push({ name: 'subtle', verify: subtle.verify })
+  if (await subtleSupportsEd25519()) {
+    // Phase 28: the subtle arm is now reached through `subtleCryptoBackend()`, the one
+    // production implementation, rather than through the deleted
+    // `createSubtleAsyncVerifier()` — which was a *second* subtle verify path sitting
+    // beside it. The argument reorder happens here at the push site, because the port
+    // takes `verifyEd25519(publicKey, signature, message)` and this harness calls
+    // `verify(signature, message, publicKey)`. Adapting rather than hand-rolling the
+    // subtle calls again is what keeps the property stated above true.
+    const subtle = subtleCryptoBackend()
+    backends.push({
+      name: 'subtle',
+      verify: (signature, message, publicKey) => subtle.verifyEd25519(publicKey, signature, message),
+    })
   }
   return backends
 }
@@ -361,10 +405,75 @@ describe('differential-conformance guard — every backend this host can run', (
   beforeAll(async () => {
     backends = await availableBackends()
     // Recorded so a skipped backend is visible in test output rather than silently
-    // absent, per the plan's own requirement. This run, on Node v25.9.0: all three
-    // backends are available (noble, libsodium, subtle — Ed25519 WebCrypto support
-    // confirmed present on this host).
+    // absent, per the plan's own requirement. Phase 28 removed the WASM arm, so
+    // the list is at most two: noble always, subtle when this host's own round-trip
+    // probe passes. Read 2026-08-10 on Node v25.9.0 and on all three browser engines:
+    // `noble, subtle`. The floor below is sited against exactly those readings.
     console.log(`ed25519-backend.test.ts: backends available this run: ${backends.map((b) => b.name).join(', ')}`)
+  })
+
+  /**
+   * The floor, and it is its own case on purpose: a failure here has to name the floor,
+   * not a vector.
+   *
+   * ## What it closes
+   *
+   * `availableBackends()` pushes noble unconditionally and subtle only when this file's
+   * own round-trip probe passes. Before Phase 28 it also pushed a WASM arm
+   * unconditionally, so the list could never fall below two. **With that arm removed, a
+   * host whose `crypto.subtle` is absent or Ed25519-incapable leaves exactly one
+   * backend** — and then every loop below that says "the backends disagreed" passes by
+   * comparing noble with itself. Both loops iterate `backends`; neither asserts a
+   * cardinality. That is the *"proof that cannot fail"* CLAUDE.md § Proofs refuses, and
+   * it would become unfalsifiable on precisely the tier the deleted arm had been bought
+   * for.
+   *
+   * ## Sited, not picked — and it does not bind on any measured host
+   *
+   * Two is the count every host measured so far reports. 28-01 recorded this file's own
+   * `availableBackends` console line, verbatim and identical on all four:
+   *
+   * ```
+   * ed25519-backend.test.ts: backends available this run: noble, subtle
+   * ```
+   *
+   * — node (Node v25.9.0), browser/chromium, browser/firefox, browser/webkit, all read
+   * 2026-08-10. So this floor is **slack on every host anybody has run**, and that is
+   * stated rather than hidden: it is a guard against a future host, not a fix for a
+   * current failure. The hazard itself is **INFERRED** — read out of the selection logic
+   * above, never observed, because no measured engine here refuses Ed25519.
+   *
+   * ## Watched red, so it is not itself a proof that cannot fail
+   *
+   * `availableBackends()` was planted to `return backends` immediately after the noble
+   * push, i.e. to report the one-backend host this floor exists for. Observed verbatim,
+   * `--project node --reporter=verbose`, 2026-08-10, exit 1:
+   *
+   * ```
+   * ed25519-backend.test.ts: backends available this run: noble
+   *
+   *  FAIL  |node| packages/core/src/ed25519-backend.test.ts > differential-conformance guard — every backend this host can run > refuses to run against fewer than two backends
+   * AssertionError: a differential guard needs two implementations to differ — this host offered 1: noble. Every "the backends disagreed" loop below would pass by comparing a backend with itself.: expected 1 to be greater than or equal to 2
+   *  ❯ packages/core/src/ed25519-backend.test.ts:464:7
+   *
+   *  Test Files  1 failed (1)
+   *       Tests  1 failed | 31 passed (32)
+   * ```
+   *
+   * **All five accept-vector cases and all seven reject-vector cases stayed green under
+   * that same plant** — 1 failed, 31 passed — which is the whole argument for this case
+   * existing: the vacuity it closes is invisible to every other case in the block, and
+   * to the two cardinality assertions above it as well. Restored by the surgical inverse
+   * of that one-line insertion and `cmp`-verified byte-identical against a snapshot taken
+   * immediately before planting.
+   */
+  it('refuses to run against fewer than two backends', () => {
+    expect(
+      backends.length,
+      `a differential guard needs two implementations to differ — this host offered ${backends.length}: ` +
+        `${backends.map((b) => b.name).join(', ')}. Every "the backends disagreed" loop below would pass ` +
+        'by comparing a backend with itself.',
+    ).toBeGreaterThanOrEqual(2)
   })
 
   describe('accept vectors — every backend must agree true', () => {
@@ -393,6 +502,144 @@ describe('differential-conformance guard — every backend this host can run', (
 })
 
 /**
+ * Which engine printed a line, so the byte-match verdict below is attributable rather
+ * than three anonymous lines in one browser run.
+ *
+ * Order matters and is not cosmetic: Chrome's user-agent string contains `AppleWebKit`,
+ * so a webkit test written before the chromium test misattributes every chromium run.
+ */
+function engineLabel(): string {
+  const agent = globalThis.navigator?.userAgent
+  if (agent === undefined || agent === '') return 'unknown-engine'
+  if (agent.includes('Firefox')) return 'firefox'
+  if (agent.includes('Chrome') || agent.includes('Chromium')) return 'chromium'
+  if (agent.includes('AppleWebKit')) return 'webkit'
+  if (agent.includes('Node')) return 'node'
+  return agent
+}
+
+/**
+ * **Ed25519 signature bytes are not a stable identifier in this fabric**, and this is
+ * the behavioural half of that claim. The source-level half is
+ * `packages/node/src/one-crypto-implementation.node.test.ts`.
+ *
+ * RFC 8032 defines one canonical deterministic nonce derivation but does not require
+ * every conforming implementation to use exactly it; some harden against fault attacks
+ * with a synthetic/hedged nonce instead. Measured in this repository:
+ * `cert-lifecycle.ts:47-61` and `cert-lifecycle.browser.test.ts:79-88` record that Node,
+ * chromium and firefox's `subtle` produced signatures byte-identical to noble's and
+ * **WebKit's did not** — a different, still-valid signature over the same seed and
+ * message, verified successfully by both arms.
+ *
+ * So the relation asserted here is **mutual verifiability, in all four directions, over
+ * several seeds** — and byte-equality of Ed25519 signatures is asserted in *neither*
+ * direction, deliberately. `toEqual` would be red on webkit; `not.toEqual` would be red
+ * on node, chromium and firefox. Either one would be a guard that encodes an engine
+ * rather than a property. Whether the two arms happened to match is `console.log`ged
+ * beside the engine name, so the divergence stays visible in test output on the run
+ * where it happens, and nothing depends on the answer.
+ *
+ * **Re-measured by this block, 2026-08-10**, four seeds (7, 11, 13, 17), one run each of
+ * `--project node` and `--project browser`. Every one of the four all-directions
+ * verification assertions passed on every engine; the reported byte-match verdict was:
+ *
+ * | Engine | seeds 7 / 11 / 13 / 17 |
+ * |---|---|
+ * | node (v25.9.0) | MATCHED ×4 |
+ * | chromium | MATCHED ×4 |
+ * | firefox | MATCHED ×4 |
+ * | **webkit** | **DIFFERED ×4** |
+ *
+ * Four seeds rather than one, so webkit's divergence reads as its nonce construction
+ * rather than as a coincidence on a single input. Had this block asserted equality it
+ * would be red four times on webkit; had it asserted inequality it would be red twelve
+ * times across node, chromium and firefox.
+ *
+ * **X25519 is the contrast case, and it is why this block does not read as "cross-arm
+ * agreement is impossible".** Agreement is plain scalar multiplication with no
+ * randomness anywhere in it, so it has exactly one correct output per input pair — that
+ * *is* asserted byte-identical, and it is the only byte-identity claim in this block.
+ * The Ed25519 divergence is specific to signature nonces, not general to the two arms.
+ */
+describe('cross-arm signing is mutually verifiable, never byte-identical (CRYPTO-06)', () => {
+  const noble = nobleCryptoBackend()
+  let subtleCapable = false
+
+  beforeAll(async () => {
+    // The same real round-trip probe `availableBackends` uses, for the same reason: an
+    // engine can advertise `SubtleCrypto` and refuse `Ed25519`, and constructing
+    // `subtleCryptoBackend()` against such an engine would fail for a reason that is not
+    // this block's subject.
+    subtleCapable = await subtleSupportsEd25519()
+  })
+
+  /** Three seeds minimum, per the plan; four, so a one-off coincidence is visible. */
+  const SEEDS: readonly number[] = [7, 11, 13, 17]
+
+  it.each(SEEDS.map((seed) => [seed] as const))(
+    'seed %i: every signature verifies on both arms, and the byte-match verdict is reported not asserted',
+    async (seed) => {
+      const privateSeed = new Uint8Array(32).fill(seed)
+      const publicKey = ed25519.getPublicKey(privateSeed)
+      const message = new TextEncoder().encode(`cross-arm vector, seed ${seed}`)
+
+      const fromNoble = await noble.signEd25519(privateSeed, message)
+      expect(await noble.verifyEd25519(publicKey, fromNoble, message)).toBe(true)
+
+      if (!subtleCapable) {
+        console.log(
+          `ed25519-backend.test.ts: cross-arm seed ${seed} on ${engineLabel()}: subtle arm skipped — this engine's Ed25519 round-trip probe failed`,
+        )
+        return
+      }
+
+      const subtle = subtleCryptoBackend()
+      const fromSubtle = await subtle.signEd25519(privateSeed, message)
+
+      // All four directions. A signature made on either arm is valid under both.
+      expect(await subtle.verifyEd25519(publicKey, fromNoble, message), 'subtle must verify a noble signature').toBe(
+        true,
+      )
+      expect(await subtle.verifyEd25519(publicKey, fromSubtle, message), 'subtle must verify its own signature').toBe(
+        true,
+      )
+      expect(await noble.verifyEd25519(publicKey, fromSubtle, message), 'noble must verify a subtle signature').toBe(
+        true,
+      )
+
+      // Reported, never asserted — see this block's docblock for why an assertion in
+      // either direction would encode an engine rather than a property.
+      const identical =
+        fromNoble.length === fromSubtle.length && fromNoble.every((byte, index) => byte === fromSubtle[index])
+      console.log(
+        `ed25519-backend.test.ts: cross-arm seed ${seed} on ${engineLabel()}: noble and subtle signature bytes ${
+          identical ? 'MATCHED' : 'DIFFERED'
+        } (both verified by both arms)`,
+      )
+    },
+  )
+
+  it('X25519 agreement IS byte-identical across arms — the contrast case', async () => {
+    if (!subtleCapable) {
+      console.log(`ed25519-backend.test.ts: X25519 cross-arm check skipped on ${engineLabel()} — no Ed25519 subtle`)
+      return
+    }
+    const subtle = subtleCryptoBackend()
+    const ourSeed = new Uint8Array(32).fill(23)
+    const peerSeed = new Uint8Array(32).fill(29)
+    const peerPublicKey = x25519.getPublicKey(peerSeed)
+
+    const viaNoble = await noble.agreeX25519(ourSeed, peerPublicKey)
+    const viaSubtle = await subtle.agreeX25519(ourSeed, peerPublicKey)
+
+    // The one byte-identity claim in this block, and it holds on every engine measured.
+    expect(Array.from(viaSubtle), 'X25519 agreement has exactly one correct output per input pair').toEqual(
+      Array.from(viaNoble),
+    )
+  })
+})
+
+/**
  * `vi.resetModules()` plus a bare re-`import()` of the same specifier does not yield a
  * fresh module instance under real browser engines driven through vitest's browser
  * mode (measured this session: chromium, firefox and webkit all kept the memoised
@@ -409,131 +656,210 @@ async function freshEd25519Module(): Promise<typeof import('./ed25519-backend.ts
   return import(/* @vite-ignore */ specifier)
 }
 
-describe('initEd25519 — capability gate, secure-context arm', () => {
+/**
+ * Shadowing `crypto.subtle` — `Object.defineProperty(..., { value, configurable: true })`,
+ * never the JS `delete` operator applied to this same property path: `subtle` is an
+ * inherited accessor on `Crypto.prototype`, and removing the own property (there usually
+ * isn't one) leaves it reachable through the prototype regardless — silently exercising
+ * the other branch while reporting green.
+ *
+ * The trap is Phase 25's and it did not go away with the WASM arm; the discipline is kept
+ * verbatim. `install`/`restore` are shared by the two describes below because both now
+ * plant an engine rather than only removing one.
+ */
+function subtleShadow(): { install(value: unknown): void; restore(): void } {
+  let original: PropertyDescriptor | undefined
+  let installed = false
+  return {
+    install(value: unknown): void {
+      original = Object.getOwnPropertyDescriptor(globalThis.crypto, 'subtle')
+      Object.defineProperty(globalThis.crypto, 'subtle', { value, configurable: true })
+      installed = true
+    },
+    restore(): void {
+      if (!installed) return
+      if (original !== undefined) {
+        Object.defineProperty(globalThis.crypto, 'subtle', original)
+      } else {
+        // No own-property existed before shadowing (the common case: `subtle` was
+        // reachable only through `Crypto.prototype`) — remove the shadow entirely
+        // rather than leaving an own `undefined` behind.
+        Reflect.deleteProperty(globalThis.crypto, 'subtle')
+      }
+      installed = false
+      original = undefined
+    },
+  }
+}
+
+describe('the surviving gate probes, it does not infer from presence', () => {
+  // Phase 28, Plan 28-01. `packages/core` held two Ed25519 selection mechanisms with
+  // two different gates: this module's presence-only
+  // `typeof globalThis.crypto?.subtle?.sign === 'function'`, and `cert-lifecycle.ts`'s
+  // real `subtle.generateKey({name:'Ed25519'})` round trip. They are not equivalent.
+  // The probe survived the merge, and this block is the single behavioural reason it
+  // had to: the third case below plants an engine that satisfies the deleted gate and
+  // cannot do Ed25519, and requires the noble arm to be selected anyway.
+  const shadow = subtleShadow()
   afterEach(() => {
-    vi.doUnmock('libsodium-wrappers')
+    shadow.restore()
   })
 
-  it('never imports libsodium when crypto.subtle is Ed25519-capable, and picks noble for the sync port', async () => {
-    let libsodiumImportCount = 0
-    vi.doMock('libsodium-wrappers', () => {
-      libsodiumImportCount++
-      throw new Error('libsodium-wrappers must not be imported on the secure-context arm')
-    })
+  /** An engine that advertises `SubtleCrypto` and refuses the `Ed25519` algorithm. */
+  function ed25519IncapableSubtle(counter: { calls: number }): SubtleCrypto {
+    const refuse = (): Promise<never> =>
+      Promise.reject(new Error("NotSupportedError: Unrecognized algorithm name 'Ed25519'"))
+    return {
+      // Present as a function — this is exactly what the deleted presence-only gate
+      // read, and it is why that gate would have selected this engine.
+      sign: refuse,
+      verify: refuse,
+      importKey: refuse,
+      exportKey: refuse,
+      deriveBits: refuse,
+      generateKey: () => {
+        counter.calls++
+        return refuse()
+      },
+    } as unknown as SubtleCrypto
+  }
+
+  it('the arm it selects matches an independent round-trip probe of this host', async () => {
+    // Unconditional on purpose: the expectation is derived from this file's own probe
+    // rather than hard-coded to whichever arm this host happens to win, so the case
+    // binds on a capable engine and on an incapable one alike.
+    const capable = await subtleSupportsEd25519()
     const mod = await freshEd25519Module()
 
-    await mod.initEd25519()
+    const backend = await mod.createCryptoBackend()
+    expect(backend.arm).toBe(capable ? 'subtle' : 'noble')
 
-    expect(libsodiumImportCount).toBe(0)
-    // Not merely "resolves" — specifically noble, even though libsodium verifies
-    // faster. This is the case that proves the ruling is scoped, not reversed.
+    await mod.initEd25519()
+    // The deliberate inversion Phase 25 chose and Phase 28 keeps: even when subtle wins
+    // the async port, the sync port is noble, because a Promise cannot be awaited
+    // synchronously. Not "resolves" — specifically noble.
     expect(mod.getSyncVerifier().backend).toBe('noble')
   })
 
-  it('backs the async port with crypto.subtle, not libsodium, on the secure-context arm', async () => {
-    let libsodiumImportCount = 0
-    vi.doMock('libsodium-wrappers', () => {
-      libsodiumImportCount++
-      throw new Error('libsodium-wrappers must not be imported on the secure-context arm')
-    })
+  it('resolves the noble arm when crypto.subtle is absent entirely, and initEd25519() still resolves', async () => {
+    shadow.install(undefined)
     const mod = await freshEd25519Module()
 
+    const backend = await mod.createCryptoBackend()
+    expect(backend.arm).toBe('noble')
+    await expect(mod.initEd25519()).resolves.toBeUndefined()
+  })
+
+  it('resolves the noble arm on an engine that HAS crypto.subtle and refuses Ed25519 — the case a presence check gets wrong', async () => {
+    const counter = { calls: 0 }
+    shadow.install(ed25519IncapableSubtle(counter))
+
+    // The planted engine satisfies the deleted gate exactly. Asserted rather than
+    // asserted-by-comment: if a future edit made this engine fail the old check too,
+    // the case would stop being about the difference between the two gates.
+    expect(typeof globalThis.crypto.subtle.sign).toBe('function')
+
+    const mod = await freshEd25519Module()
+    const backend = await mod.createCryptoBackend()
+
+    // The arm first, deliberately. This is the claim; the probe count below is the
+    // mechanism. Asserting the mechanism first would short-circuit the claim out of the
+    // planted-mutation proof, and a claim nobody watched go red is not proved — measured:
+    // with the presence-only gate planted back in, the count assertion fired at line 535
+    // and the arm assertion was never reached.
+    expect(
+      backend.arm,
+      'an engine that advertises SubtleCrypto and refuses Ed25519 must select noble',
+    ).toBe('noble')
+    expect(counter.calls, 'the gate must actually call generateKey — a presence check would not').toBe(1)
+
+    // And the selected arm works, which is the point: a presence check here would have
+    // handed back a backend whose every operation rejects.
     await mod.initEd25519()
-    const asyncVerifier = mod.getAsyncVerifier()
-
-    if (await subtleSupportsEd25519()) {
-      const result = await asyncVerifier.verify(BASE.signature, BASE.message, BASE.pub)
-      expect(result).toBe(true)
-    }
-    expect(libsodiumImportCount).toBe(0)
-  })
-})
-
-describe('initEd25519 — capability gate, insecure-context arm (crypto.subtle absent)', () => {
-  // `Object.defineProperty(..., { value: undefined })`, never the JS `delete` operator
-  // applied to this same property path: `subtle` is an inherited accessor on
-  // `Crypto.prototype`, and removing the own property (there usually isn't one) leaves
-  // it reachable through the prototype regardless — silently exercising the
-  // secure-context branch while reporting green.
-  let originalSubtleDescriptor: PropertyDescriptor | undefined
-
-  afterEach(() => {
-    if (originalSubtleDescriptor !== undefined) {
-      Object.defineProperty(globalThis.crypto, 'subtle', originalSubtleDescriptor)
-    } else {
-      // No own-property existed before shadowing (the common case: `subtle` was
-      // reachable only through `Crypto.prototype`) — remove the shadow entirely
-      // rather than leaving an own `undefined` behind.
-      Reflect.deleteProperty(globalThis.crypto, 'subtle')
-    }
-    vi.doUnmock('libsodium-wrappers')
+    expect(await mod.getAsyncVerifier().verify(BASE.signature, BASE.message, BASE.pub)).toBe(true)
   })
 
-  function shadowSubtleAsAbsent(): void {
-    originalSubtleDescriptor = Object.getOwnPropertyDescriptor(globalThis.crypto, 'subtle')
-    Object.defineProperty(globalThis.crypto, 'subtle', { value: undefined, configurable: true })
-  }
-
-  it('imports libsodium exactly once, shared by both ports, and picks libsodium for the sync port', async () => {
-    // `vi.doMock('libsodium-wrappers', ...)` was tried two ways to count the import —
-    // on `freshEd25519Module`'s query-suffixed specifier, and (here) on this test's own
-    // plain, statically-analysable one. Measured this session: **neither** is
-    // intercepted under real chromium/firefox/webkit through vitest's browser mode;
-    // both are intercepted correctly under the `node` project. This is a platform
-    // limitation of `vi.doMock` against dynamic `import()` in browser mode generally,
-    // not specific to a non-literal specifier. So the counter below is asserted only
-    // under Node, where it is honestly measured; every engine (Node included) still
-    // gets the behavioural proof beneath it — both ports resolve correctly against a
-    // real vector, which cannot happen unless the sync port's `libsodium` selection
-    // actually completed. This is the only test in the file that calls
-    // `initEd25519()` on the plain specifier's module instance, so it is safe to rely
-    // on that instance being pristine (nothing else touches its module-level
-    // `syncVerifier`/`asyncVerifier`/`initPromise` state).
-    let libsodiumImportCount = 0
-    vi.doMock('libsodium-wrappers', async (importOriginal) => {
-      libsodiumImportCount++
-      return await importOriginal<typeof import('libsodium-wrappers')>()
-    })
-    shadowSubtleAsAbsent()
-    const mod = await import('./ed25519-backend.ts')
-
-    await mod.initEd25519()
-    expect(mod.getSyncVerifier().backend).toBe('libsodium')
-
-    // Exercise both ports; the counter (Node only, see above) must still read 1
-    // afterward — proving the async port wraps the same resolved instance rather than
-    // importing a second time.
-    const syncOk = mod.getSyncVerifier().verify(BASE.signature, BASE.message, BASE.pub)
-    const asyncOk = await mod.getAsyncVerifier().verify(BASE.signature, BASE.message, BASE.pub)
-    expect(syncOk).toBe(true)
-    expect(asyncOk).toBe(true)
-    if (typeof window === 'undefined') {
-      expect(libsodiumImportCount).toBe(1)
-    }
-
-    vi.doUnmock('libsodium-wrappers')
-  })
-
-  it('performs the import at most once when initEd25519() is called twice concurrently', async () => {
-    shadowSubtleAsAbsent()
+  it('runs the probe once when initEd25519() is called twice concurrently', async () => {
+    const counter = { calls: 0 }
+    shadow.install(ed25519IncapableSubtle(counter))
     const mod = await freshEd25519Module()
 
-    // Counting `import('libsodium-wrappers')` invocations via `vi.doMock` was tried
-    // first and dropped: measured this session, `vi.doMock` does not intercept a
-    // dynamically-constructed (query-suffixed) specifier's transitive imports under
-    // real chromium/firefox/webkit engines through vitest's browser mode, only under
-    // the `node` project — a platform-specific mocking limitation, not a defect in
-    // this module. The portable proof is a direct identity check instead: called
-    // before the first call's promise has settled, a second concurrent caller must
-    // observe the *exact same* in-flight promise — not a fresh one that would trigger
-    // its own independent `import('libsodium-wrappers')` — which is precisely what
-    // `initEd25519`'s `if (initPromise === undefined)` guard exists to guarantee.
     const first = mod.initEd25519()
     const second = mod.initEd25519()
     expect(second).toBe(first)
 
     await first
-    expect(mod.getSyncVerifier().backend).toBe('libsodium')
+    // Counted, not inferred. Two memos live in the merged module — `initPromise` and
+    // `createCryptoBackend`'s `backendPromise` — and this is the one that says the
+    // probe itself ran at most once.
+    expect(counter.calls).toBe(1)
+  })
+
+  it('the async port is an adapter over the same CryptoBackend, reordered in exactly one place', async () => {
+    const mod = await freshEd25519Module()
+    const backend = await mod.createCryptoBackend()
+    await mod.initEd25519()
+    const port = mod.getAsyncVerifier()
+
+    for (const vector of [...ACCEPT_VECTORS, ...REJECT_VECTORS]) {
+      const viaPort = await port.verify(vector.signature, vector.message, vector.publicKey)
+      const viaBackend = await backend.verifyEd25519(vector.publicKey, vector.signature, vector.message)
+      expect(viaPort, `port and backend disagreed on "${vector.name}"`).toBe(viaBackend)
+    }
+
+    // Agreement alone would hold vacuously against a *backwards* adapter, which makes
+    // every verdict `false` on both sides. The accept half is what refuses that: the
+    // reorder `(signature, message, publicKey)` -> `(publicKey, signature, message)`
+    // happens in one place and this is where getting it wrong is caught.
+    for (const vector of ACCEPT_VECTORS) {
+      expect(
+        await port.verify(vector.signature, vector.message, vector.publicKey),
+        `the async port must accept "${vector.name}" — a reversed adapter rejects everything`,
+      ).toBe(true)
+    }
+  })
+})
+
+describe('initEd25519 — capability gate, insecure-context arm (crypto.subtle absent)', () => {
+  const shadow = subtleShadow()
+  afterEach(() => {
+    shadow.restore()
+  })
+
+  it('picks noble for the sync port with subtle absent, and both ports verify a real vector', async () => {
+    // What the three deleted WASM-arm cases were really proving, kept: with `subtle`
+    // shadowed absent the module still settles, and both ports return a correct verdict
+    // against a real vector — which cannot happen unless the fallback selection
+    // actually completed. The import counters they carried are gone because the import
+    // they counted is gone; see this plan's SUMMARY for the coverage that leaves.
+    shadow.install(undefined)
+    const mod = await freshEd25519Module()
+
+    await mod.initEd25519()
+    expect(mod.getSyncVerifier().backend).toBe('noble')
+
+    const syncOk = mod.getSyncVerifier().verify(BASE.signature, BASE.message, BASE.pub)
+    const asyncOk = await mod.getAsyncVerifier().verify(BASE.signature, BASE.message, BASE.pub)
+    expect(syncOk).toBe(true)
+    expect(asyncOk).toBe(true)
+  })
+
+  it('performs the settlement at most once when initEd25519() is called twice concurrently', async () => {
+    shadow.install(undefined)
+    const mod = await freshEd25519Module()
+
+    // A direct identity check, portable across every engine: called before the first
+    // call's promise has settled, a second concurrent caller must observe the *exact
+    // same* in-flight promise — not a fresh one that would run its own independent
+    // settlement — which is precisely what `initEd25519`'s
+    // `if (initPromise === undefined)` guard exists to guarantee. (The companion case
+    // above counts the probe itself; this one pins the promise identity.)
+    const first = mod.initEd25519()
+    const second = mod.initEd25519()
+    expect(second).toBe(first)
+
+    await first
+    expect(mod.getSyncVerifier().backend).toBe('noble')
   })
 })
 

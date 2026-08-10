@@ -1,47 +1,92 @@
 /**
- * Ed25519 verification — a synchronous port and an asynchronous port, two adapters.
+ * Ed25519 and X25519 — **the** module that decides which implementation runs.
  *
- * This module implements `25-CONTEXT.md`'s "OWNER RULING 2026-08-09" (`crypto.subtle`
- * first, libsodium as the fallback when a host is not a secure context) as **scoped**
- * by that same document's "second ruling, same day": the adapter pattern. Read
- * together, not separately — the second ruling does not reverse the first, it decides
- * which of the two ports each backend is allowed to win on.
+ * Phase 28, Plan 28-01 merged two selection mechanisms into this one. Until then
+ * `packages/core` held two: this module's presence-only gate (Phase 25, Plan 25-04)
+ * with a lazily-imported libsodium fallback, and `cert-lifecycle.ts`'s real
+ * round-trip probe with a noble fallback (2026-08-10). **The two gates were not
+ * equivalent and the surviving one is the probe** — see
+ * {@link detectCryptoBackend}. The libsodium arm is gone; so is the second `subtle`
+ * verify implementation that sat beside {@link subtleCryptoBackend}'s.
  *
  * ## Why `crypto.subtle` cannot implement the synchronous port
  *
  * Measured by execution on this host, Node v25.9.0 (not inferred from documentation):
- * `@noble/curves`'s `ed25519.verify` and libsodium's `crypto_sign_verify_detached`
- * (after one `await sodium.ready`) both return a plain `boolean` —
- * `instanceof Promise` is `false` for both. `crypto.subtle.sign`/`.verify` return an
- * object where `instanceof Promise` is `true`. A Promise cannot be awaited
- * synchronously in JavaScript, and no portable trick changes that on this project's
- * declared targets (`Atomics.wait` needs cross-origin isolation, which GitHub Pages
- * cannot supply — the same constraint that already rules out WASM threads here). So
- * the synchronous port has exactly two conforming implementations, noble and
- * libsodium, and `crypto.subtle` is confined to the separate asynchronous port, for
- * call sites that are already inside an `async` function.
+ * `@noble/curves`'s `ed25519.verify` returns a plain `boolean` — `instanceof Promise`
+ * is `false`. `crypto.subtle.sign`/`.verify` return an object where
+ * `instanceof Promise` is `true`. A Promise cannot be awaited synchronously in
+ * JavaScript, and no portable trick changes that on this project's declared targets
+ * (`Atomics.wait` needs cross-origin isolation, which GitHub Pages cannot supply —
+ * the same constraint that already rules out WASM threads here). So `crypto.subtle`
+ * is confined to the asynchronous port, for call sites already inside an `async`
+ * function.
  *
- * ## No production caller yet
+ * **The conclusion changed with the merge and the type says so.** That argument was
+ * written when the synchronous port had *two* conforming implementations, noble and
+ * libsodium. It now has exactly **one**, noble, which is why {@link Ed25519Backend}
+ * is a one-member union. A one-member union reads oddly on purpose: it makes a future
+ * second arm a deliberate type edit rather than a quiet re-addition.
  *
- * This module ships complete, tested, and unwired. `verifyChain` (`capability.ts`)
- * and `verifyCertificate` (`enrollment.ts`) are not switched onto it in this phase —
- * not because of an async-migration cost (the adapter dissolves that; see this
- * package's `ed25519-backend.test.ts`, "Part 1" of its migration-pricing docblock),
- * but because of a bootstrap-ordering decision across three runtime entry points that
- * this plan's obligations do not cover. See that same test file's "Part 3" for the
- * decision stated by name and what a future wiring pass needs to do.
+ * ## No production caller yet — and the merge is behaviour-neutral in production
+ *
+ * Nothing in production calls {@link initEd25519}, {@link getSyncVerifier},
+ * {@link getAsyncVerifier} or {@link createCryptoBackend}. Production Ed25519
+ * verification calls `@noble/curves` **directly**, at six sites —
+ * `capability.ts:219`, `enrollment.ts:702`, `enrollment.ts:740`, `enrollment.ts:759`,
+ * `enrollment.ts:874`, `discovery.ts:122` — and routes through no selection layer at
+ * all. So collapsing the two layers into one changes no production behaviour. That is
+ * what makes the merge safe, and it is also the ceiling on what it may claim: **this
+ * removes a duplication from the package, not a hazard from the trust path.**
+ *
+ * Wiring the port into `verifyChain`/`verifyCertificate` remains unwired for a reason
+ * this module does not decide: where each of three runtime entry points calls
+ * `initEd25519()` before first use, and what a verification arriving before that
+ * promise resolves should do — block, fail closed, or fail open. That is a trust-path
+ * ruling. See `ed25519-backend.test.ts`'s "Part 3" for the decision stated by name.
+ *
+ * ## Ed25519 signature bytes are not a stable identifier in this fabric
+ *
+ * Carried forward from `cert-lifecycle.ts`, where it was measured. X25519 is plain
+ * scalar multiplication with no randomness anywhere in it, so {@link
+ * CryptoBackend.agreeX25519} genuinely has exactly one correct output per input pair,
+ * confirmed byte-identical noble-vs-subtle in Node and in chromium/firefox/webkit
+ * alike. **Ed25519 signing is a different claim.** RFC 8032 defines one canonical
+ * deterministic nonce derivation but does not require every conforming implementation
+ * to use exactly it; some harden against fault attacks with a synthetic/hedged nonce
+ * instead. Node, chromium and firefox's `subtle` produced signatures byte-identical to
+ * noble's in this project's own measurement; **WebKit's did not** — a different,
+ * still-valid signature for the same seed and message, verified successfully by both
+ * arms. So {@link CryptoBackend.signEd25519} across arms is proven only as "mutually
+ * verifiable", never as "byte-identical", and a caller that dedupes, caches or keys on
+ * signature bytes is green in Node and CI and broken in Safari.
+ *
+ * ## One curve library derives every seed, on both arms
+ *
+ * WebCrypto's `generateKey` cannot be seeded — there is no way to ask `subtle` for
+ * "the Ed25519 keypair whose private scalar is this exact 32 bytes". `@noble/curves`'
+ * pure scalar math (`ed25519.getPublicKey`, `x25519.getPublicKey`) is therefore used
+ * **unconditionally, on both arms**, to derive a public key from a seed and — on the
+ * subtle arm — to build the JWK `x` field WebCrypto's private-key import requires it
+ * to cross-check against `d`. This is not a fallback path; it is the only path,
+ * because no such path exists in WebCrypto at all.
  *
  * ## Pure module
  *
- * The only platform contact is `globalThis.crypto` (a portable Web-standard global
- * present in both Node and every browser target) and a lazy `import()`, gated behind
- * a capability check that runs before either executes, at most once, shared by both
- * ports.
+ * The only platform contact is `globalThis.crypto` — a portable Web-standard global
+ * present in both Node and every browser target — behind a capability probe that runs
+ * at most once, shared by every consumer. There is no dynamic `import()` in this
+ * module any more.
  */
 
-import { ed25519 } from '@noble/curves/ed25519.js'
+import { ed25519, x25519 } from '@noble/curves/ed25519.js'
+import { toBase64Url } from './capability.ts'
 
-export type Ed25519Backend = 'noble' | 'libsodium'
+/**
+ * The synchronous port has exactly one conforming implementation. See the docblock's
+ * "Why `crypto.subtle` cannot implement the synchronous port" for why it cannot be
+ * `subtle`, and Phase 28 for why it is no longer also `libsodium`.
+ */
+export type Ed25519Backend = 'noble'
 
 /**
  * The synchronous port. `verifyChain` and `PeerVerifier.verifiedPeers` can call this
@@ -53,9 +98,9 @@ export interface Ed25519SyncVerifier {
 }
 
 /**
- * The asynchronous port, for call sites already inside an `async` function.
- * `crypto.subtle` when available; the same lazily-loaded libsodium instance the sync
- * port uses otherwise (never a second, independent import).
+ * The asynchronous port, for call sites already inside an `async` function. Backed by
+ * an adapter over the single {@link CryptoBackend} — never by a second, independent
+ * `subtle` implementation.
  */
 export interface Ed25519AsyncVerifier {
   verify(signature: Uint8Array, message: Uint8Array, publicKey: Uint8Array): Promise<boolean>
@@ -104,111 +149,174 @@ export function createNobleSyncVerifier(): Ed25519SyncVerifier {
   }
 }
 
+// ─── Crypto backend: subtle primary, noble fallback ──────────────────────────
+//
+// Moved here verbatim from `cert-lifecycle.ts:466-575` by Plan 28-01, minus the
+// `Signature` alias (widened to its definition, `Uint8Array`, so the merged module
+// does not import a type back out of `cert-lifecycle.ts` and close a cycle).
+
+export type CryptoArm = 'subtle' | 'noble'
+
+export interface CryptoBackend {
+  readonly arm: CryptoArm
+  signEd25519(seed: Uint8Array, message: Uint8Array): Promise<Uint8Array>
+  verifyEd25519(publicKey: Uint8Array, signature: Uint8Array, message: Uint8Array): Promise<boolean>
+  agreeX25519(seed: Uint8Array, peerPublicKey: Uint8Array): Promise<Uint8Array>
+}
+
 /**
- * Performs the lazy `import('libsodium-wrappers')` and `await sodium.ready`. The
- * only asynchronous step either adapter has — after this resolves, `.verify()` is an
- * ordinary synchronous call.
- *
- * A genuine dynamic `import()`, never hoisted to a static import anywhere in this
- * module or re-exported eagerly from `index.ts` — that is what keeps libsodium's
- * 314.9 KB gzip off a secure-context tier's bundle. See `initEd25519` for the
- * capability check that decides whether this function is ever called at all.
+ * `BufferSource` wants a `Uint8Array<ArrayBuffer>` specifically; this module's public
+ * contract accepts the wider `Uint8Array`. Same cast this package already uses at
+ * this exact boundary — see `canonical/encode.ts:118`, `net/src/conformance.ts:62`.
  */
-export async function createLibsodiumSyncVerifier(): Promise<Ed25519SyncVerifier> {
-  const { default: sodium } = await import('libsodium-wrappers')
-  await sodium.ready
+function toBufferSource(bytes: Uint8Array): Uint8Array<ArrayBuffer> {
+  return bytes as Uint8Array<ArrayBuffer>
+}
+
+function ed25519PrivateJwk(seed: Uint8Array, publicKey: Uint8Array): JsonWebKey {
+  return { kty: 'OKP', crv: 'Ed25519', d: toBase64Url(seed), x: toBase64Url(publicKey), key_ops: ['sign'], ext: true }
+}
+function x25519PrivateJwk(seed: Uint8Array, publicKey: Uint8Array): JsonWebKey {
+  return { kty: 'OKP', crv: 'X25519', d: toBase64Url(seed), x: toBase64Url(publicKey), key_ops: ['deriveBits'], ext: true }
+}
+function x25519PublicJwk(publicKey: Uint8Array): JsonWebKey {
+  return { kty: 'OKP', crv: 'X25519', x: toBase64Url(publicKey), ext: true }
+}
+
+/**
+ * The noble arm — a plain static import (already in the bundle graph via
+ * `@chainsafe/libp2p-noise`), used whenever `subtle` cannot do real Ed25519.
+ */
+export function nobleCryptoBackend(): CryptoBackend {
   return {
-    backend: 'libsodium',
-    verify(signature, message, publicKey) {
-      // Same try/catch boundary as the noble adapter above: libsodium-wrappers
-      // throws on wrong-length inputs (measured: "invalid signature length",
-      // "invalid publicKey length") rather than returning `false` for them.
+    arm: 'noble',
+    async signEd25519(seed, message) {
+      return ed25519.sign(message, seed)
+    },
+    async verifyEd25519(publicKey, signature, message) {
       try {
-        return sodium.crypto_sign_verify_detached(signature, message, publicKey)
+        return ed25519.verify(signature, message, publicKey)
       } catch {
+        // Structural rejection (wrong-length key/signature) reads as a refusal,
+        // never as an unhandled exception — same boundary as the sync port above.
         return false
       }
+    },
+    async agreeX25519(seed, peerPublicKey) {
+      return x25519.getSharedSecret(seed, peerPublicKey)
     },
   }
 }
 
 /**
- * `undefined` if this host's `crypto.subtle` cannot verify Ed25519 (absent entirely,
- * or present but algorithm-incapable — both read the same way to a caller: a `verify`
- * call that cannot succeed).
+ * The subtle arm. Construction itself is unguarded — call this only after
+ * {@link detectCryptoBackend}'s real capability probe has succeeded, or (in tests)
+ * deliberately, to exercise this arm directly regardless of what the host would
+ * auto-select.
  */
-export function createSubtleAsyncVerifier(): Ed25519AsyncVerifier | undefined {
-  if (typeof globalThis.crypto?.subtle?.verify !== 'function') return undefined
-  const subtle = globalThis.crypto.subtle
+export function subtleCryptoBackend(subtle: SubtleCrypto = globalThis.crypto.subtle): CryptoBackend {
   return {
-    async verify(signature, message, publicKey) {
+    arm: 'subtle',
+    async signEd25519(seed, message) {
+      const publicKey = ed25519.getPublicKey(seed)
+      const key = await subtle.importKey('jwk', ed25519PrivateJwk(seed, publicKey), { name: 'Ed25519' }, false, ['sign'])
+      const signature = await subtle.sign({ name: 'Ed25519' }, key, toBufferSource(message))
+      return new Uint8Array(signature)
+    },
+    async verifyEd25519(publicKey, signature, message) {
       try {
-        // `BufferSource` wants a `Uint8Array<ArrayBuffer>` specifically; this port's
-        // public contract (matching the sync port and `Ed25519SyncVerifier`) accepts
-        // the wider `Uint8Array`. Same cast this package already uses at this exact
-        // boundary — see `canonical/encode.ts:118`, `net/src/conformance.ts:62`.
-        const key = await subtle.importKey(
-          'raw',
-          publicKey as Uint8Array<ArrayBuffer>,
-          { name: 'Ed25519' },
-          false,
-          ['verify'],
-        )
-        return await subtle.verify(
-          { name: 'Ed25519' },
-          key,
-          signature as Uint8Array<ArrayBuffer>,
-          message as Uint8Array<ArrayBuffer>,
-        )
+        const key = await subtle.importKey('raw', toBufferSource(publicKey), { name: 'Ed25519' }, false, ['verify'])
+        return await subtle.verify({ name: 'Ed25519' }, key, toBufferSource(signature), toBufferSource(message))
       } catch {
-        // Catches both a malformed-input rejection (wrong-length key, measured:
-        // "Ed25519 raw keys must be exactly 32-bytes") and an unsupported-algorithm
-        // rejection (some engines advertise `subtle` but not `Ed25519`) — the same
-        // "resolves false, never throws" contract as the sync adapters above.
+        // Malformed-input rejection (wrong-length key/signature) or an
+        // unsupported-algorithm rejection both read as "not valid", never as a throw.
         return false
       }
     },
+    async agreeX25519(seed, peerPublicKey) {
+      const publicKey = x25519.getPublicKey(seed)
+      const privateKey = await subtle.importKey('jwk', x25519PrivateJwk(seed, publicKey), { name: 'X25519' }, false, ['deriveBits'])
+      const peerKey = await subtle.importKey('jwk', x25519PublicJwk(peerPublicKey), { name: 'X25519' }, false, [])
+      const bits = await subtle.deriveBits({ name: 'X25519', public: peerKey }, privateKey, 256)
+      return new Uint8Array(bits)
+    },
   }
 }
+
+let backendPromise: Promise<CryptoBackend> | undefined
+
+/**
+ * Probe once, memoised, shared by every facade constructed through
+ * `createSubject`/`createIssuer`/`createVerifier` **and** by {@link initEd25519}.
+ * Calling this concurrently before the first call's probe resolves performs the probe
+ * at most once — the second caller receives the same in-flight promise.
+ */
+export function createCryptoBackend(): Promise<CryptoBackend> {
+  backendPromise ??= detectCryptoBackend()
+  return backendPromise
+}
+
+/**
+ * **The surviving gate.** Detection **probes, it does not infer from presence.**
+ *
+ * `crypto.subtle` exists on engines that lack Ed25519, so a presence check — a
+ * `typeof` test for `subtle.sign` being a function, which is what this module used
+ * until Phase 28 — selects a backend that cannot verify on exactly those
+ * engines. The two failure modes are opposite and both are real: outside a secure
+ * context `subtle` reads `undefined` *in its entirety* (25-CONTEXT.md's measurement,
+ * which a presence check does catch), and inside a secure context on an
+ * algorithm-incapable engine `subtle` is *present and refuses* `Ed25519` (which a
+ * presence check does not). A real `generateKey` catches both; presence catches one.
+ * Merging toward the presence check would have been merging toward the weaker gate.
+ *
+ * Measured on this host (Node v25.9.0): `subtle` Ed25519 sign+verify succeeds, so the
+ * subtle arm is selected here.
+ */
+async function detectCryptoBackend(): Promise<CryptoBackend> {
+  const subtle = globalThis.crypto?.subtle
+  if (subtle !== undefined) {
+    try {
+      // The real probe. Discarded on success — this call's only purpose is to
+      // observe whether it throws.
+      await subtle.generateKey({ name: 'Ed25519' }, false, ['sign', 'verify'])
+      return subtleCryptoBackend(subtle)
+    } catch {
+      // Falls through to noble.
+    }
+  }
+  return nobleCryptoBackend()
+}
+
+// ─── The two ports, both settled by the one probe above ──────────────────────
 
 let syncVerifier: Ed25519SyncVerifier | undefined
 let asyncVerifier: Ed25519AsyncVerifier | undefined
 let initPromise: Promise<void> | undefined
 
 /**
- * One capability check, run at most once, memoised. Decides both ports from the same
- * decision: `crypto.subtle` Ed25519-capable -> sync port = noble, async port =
- * subtle, libsodium never imported. Not capable -> sync port = libsodium, async port
- * wraps the same libsodium instance, imported exactly once for both.
+ * Settles both ports from {@link createCryptoBackend}'s single probe. This function
+ * holds **no capability decision of its own** — that is the point of the merge.
  *
- * The check is `typeof globalThis.crypto?.subtle?.sign === 'function'`, matching
- * `25-CONTEXT.md`'s measured finding that `subtle` reads `undefined` in its entirety
- * outside a secure context (not merely missing one algorithm) — so presence of the
- * object is the correct and sufficient gate for *this* decision, distinct from
- * {@link createSubtleAsyncVerifier}'s own per-call algorithm-capability handling.
+ * The sync port is always noble, because it is the only synchronous implementation
+ * (see the module docblock). The async port is an *adapter* over the probed
+ * {@link CryptoBackend}, reordering `(signature, message, publicKey)` to
+ * `verifyEd25519(publicKey, signature, message)` — this is the only place that
+ * reordering happens, and getting it backwards is the obvious defect
+ * `ed25519-backend.test.ts`'s port-agreement cases exist to catch.
  *
- * Calling this twice concurrently, before the first call's promise settles, performs
- * the import at most once: the second caller receives the same in-flight promise
- * rather than racing a second `import()`.
+ * **Two memos, each with a stated job.** `initPromise` keeps *this* function
+ * idempotent so two concurrent callers share one settlement; `createCryptoBackend`'s
+ * own `backendPromise` is what guarantees the *probe* runs at most once, including for
+ * callers that never touch these ports. Two memos with the same job is what Phase 28
+ * removed; two memos with different jobs is fine.
  */
 export function initEd25519(): Promise<void> {
   if (initPromise === undefined) {
     initPromise = (async () => {
-      const subtleCapable = typeof globalThis.crypto?.subtle?.sign === 'function'
-
-      if (subtleCapable) {
-        syncVerifier = createNobleSyncVerifier()
-        // Non-null: the same check that selected this branch guarantees
-        // `createSubtleAsyncVerifier()` finds `subtle.verify` present.
-        asyncVerifier = createSubtleAsyncVerifier()!
-      } else {
-        // The one arm that imports libsodium — exactly once, shared by both ports.
-        const libsodiumVerifier = await createLibsodiumSyncVerifier()
-        syncVerifier = libsodiumVerifier
-        asyncVerifier = {
-          verify: (signature, message, publicKey) =>
-            Promise.resolve(libsodiumVerifier.verify(signature, message, publicKey)),
-        }
+      const backend = await createCryptoBackend()
+      syncVerifier = createNobleSyncVerifier()
+      asyncVerifier = {
+        verify: (signature, message, publicKey) => backend.verifyEd25519(publicKey, signature, message),
       }
     })()
   }
