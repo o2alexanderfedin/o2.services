@@ -278,6 +278,52 @@ describe('BROW-01 — nothing runs, and nothing is contacted, before consent', (
 })
 
 describe('the built bundle on a static host', () => {
+  /**
+   * The `./perf/index.html` link the footer and the Benchmarks surface both render.
+   *
+   * Until Plan 27-09 the footer read `./perf/` and the bundle held no `perf/` directory at
+   * all — UI-SPEC section 10 records the gap and leaves the packaging to the plan. The fix
+   * is one committed source (`docs/perf/prime-and-pi-benchmarks.html`, written by
+   * `docs/perf/build-report.py`) emitted into the bundle by a plugin in
+   * `packages/browser/vite.config.ts`, with the build failing if that source is absent.
+   *
+   * **The body check names a section heading rather than a figure, deliberately.** P9 in
+   * `demo-bench.e2e.test.ts` is the property about figures, and it reads the committed
+   * markdown to hold it. A figure asserted here as well would be a second, weaker copy of
+   * that property — weaker because this file has no document to compare against and would
+   * be asserting a number against a literal typed into a spec.
+   */
+  it('serves ./perf/index.html — the committed report, emitted into the bundle', async () => {
+    const emitted = join(DIST, 'perf', 'index.html')
+    const bytes = await readFile(emitted, 'utf8').catch(() => null)
+    expect(
+      bytes,
+      `${emitted} is not in the bundle: the footer and the Benchmarks surface both link ` +
+        './perf/index.html, and a link that resolves nowhere is the state this case exists ' +
+        'to keep closed',
+    ).not.toBeNull()
+    expect((bytes ?? '').length).toBeGreaterThan(1_000)
+
+    // And the static host actually hands it over, at the URL the page links. The server
+    // above does no directory-index resolution — which is why the link names the file.
+    const page = await browser.newPage()
+    const response = await page.goto(`${baseUrl}/perf/index.html`)
+    expect(response?.status(), 'GET /perf/index.html on the built bundle').toBe(200)
+    const body = (await page.content()) ?? ''
+    expect(body).toContain('Real parallel speedup')
+    expect(body).toContain('Fabric overhead')
+
+    // One source, not two: what the bundle serves is byte-identical to what is committed.
+    const committed = await readFile(join(ROOT, 'docs', 'perf', 'prime-and-pi-benchmarks.html'), 'utf8')
+    expect(
+      bytes,
+      'the emitted report differs from the committed one — there are now two copies, and ' +
+        'docs/perf/build-report.py writes only one of them',
+    ).toBe(committed)
+
+    await page.close()
+  }, 180_000)
+
   it('loads and runs with no module server behind it', async () => {
     const page = await browser.newPage()
     const errors: string[] = []
