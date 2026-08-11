@@ -984,3 +984,62 @@ line on every run so the number is in front of a reader rather than in an interf
 still **not asserted**, for the reason 27-01 and 27-09 both gave: widening the property needs
 UI-SPEC §6.3 to say whether B5 is about `#main` or about the end of the page. **What would also
 close it:** correcting `demo.css`'s comment, which currently names a guard that does not hold it.
+
+## 2026-08-10 — three Phase 27 sentences corrected, and the one guard that was missing underneath them
+
+**Found during:** the goal-backward verification of phases 26, 27 and 28
+(`27-VERIFICATION.md` §"Anything overstated"), and corrected in the pass that follows it.
+Every count below was recomputed from `REGIONS` and from `index.html` in this pass rather
+than taken from the verification report.
+
+**1. *"Five surfaces now carry live readings driven through the page's own controls."*
+Direction: tighten the sentence — the code is right.** Three surfaces do. Measured:
+colouring **16** reading regions behind `#run`, pi **12** behind `#run-pi`, byo **11**
+behind `#run-byo`; **fabric 21 readings and no run control at all** — `index.html` carries
+no `.btn-primary` in `#s-fabric` and says in its own markup comment that finding one there
+would be a defect, UI-SPEC section 11 gives the surface no primary CTA, and P5 skips it by
+name; **bench 0 readings** — its three regions are 2 `cited` + 1 `prose`. Both are deliberate
+designs, so there is nothing to strengthen; the lead clause was simply counting surfaces and
+calling it controls. Corrected in `ROADMAP.md`'s Phase 27 Requirements line and in
+`REQUIREMENTS.md`'s `DEMO-01` row, originals kept in both.
+
+**2. `demo-liveness.e2e.test.ts`'s P5b exemption — *"Two colouring regions … C15 and C17."*
+Direction: correct the comment, and add the assertion that was never there.** Recomputed:
+**eight** colouring reading regions hold no `unavailable` arm — C6, C7, C8 (`rung-300`,
+`rung-400`, `rung-500`), C15 `attestation`, C17 `egress`, C18, C19, C20 — of which exactly
+**two** are named in the specific block the comment pointed at. Across the three surfaces P5
+drives the exempt set is **24**; catalogue-wide it is **44 of 74 reading regions**.
+
+**The missing guard, added.** Nothing anywhere read that set's size, so it went 2 → 8 → 24
+with nothing going red at any step. `demo-regions.e2e.test.ts`'s catalogue self-check now
+holds a ceiling of **44** on it, computed with P5b's own two `continue` conditions, and the
+failure message names the surfaces and the ids so a red says *which* region widened it.
+Placed there rather than in `demo-liveness.e2e.test.ts` because it is a property of the
+catalogue and that file's fixture is at module scope — a case there could not be reached
+without a relay, a Vite server and two browser contexts first. **Planted and watched red**:
+`colouring/rung-600`'s `unavailable` arm was removed, and the case failed with
+`45 reading regions are exempt from P5b (ceiling 44) … colouring 9 (…, colouring/rung-600, …)`,
+`GUARD_PLANT_EXIT=1` in 570 ms; restored by the surgical inverse and `cmp`-verified identical
+(`CMP_REGIONS=0`). It is a **ceiling and not an exact id set** on purpose: an exact set would
+also redden when a region *gains* an `unavailable` arm, which is the improvement it is trying
+to encourage. Growth is the hazard, so growth is what is asserted.
+
+**A denominator moved, recorded here so the next reader is not confused by it.**
+`demo-regions.e2e.test.ts` is **18 tests** from this change, not 17. The `17 passed` figures
+in `27-04-SUMMARY.md` and `27-VERIFICATION.md` are dated readings of runs that happened and
+are left alone. The plant-B argument they carry is unaffected — the new case is a catalogue
+check and passes identically over a page rendering nothing, which is the property plant B was
+demonstrating.
+
+**3. `STATE.md`'s Phase 27 roadmap-evolution entry** claimed the phase *"Closes the demo half
+of MR-03…MR-07 … and audit finding G4"*. Both clauses were false: all five MR rows stay
+Partial and G4 closed one of two halves. It was written as an intention before the phase ran
+and never revisited. Corrected **by hand**, original kept — no `gsd-sdk query state.*` verb
+was run, per section 9 of `27-OPEN-ITEMS.md`, which records seven of them measured to corrupt
+`STATE.md` while reporting success.
+
+**The pattern.** Six documents in this correction pass claimed more than their code. Three of
+the six were `file:line` citations that had drifted, and one was stale in the same commit that
+wrote it. The P5b case is the sharpest: the comment understated the exemption **fourfold**,
+and an understatement is the dangerous direction — it hides how much of the property has
+stopped applying, and nothing anywhere measured it.
