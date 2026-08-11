@@ -31,10 +31,15 @@
  *
  * Nothing in production calls {@link initEd25519}, {@link getSyncVerifier},
  * {@link getAsyncVerifier} or {@link createCryptoBackend}. Production Ed25519
- * verification calls `@noble/curves` **directly**, at six sites —
- * `capability.ts:219`, `enrollment.ts:702`, `enrollment.ts:740`, `enrollment.ts:759`,
- * `enrollment.ts:874`, `discovery.ts:122` — and routes through no selection layer at
- * all. So collapsing the two layers into one changes no production behaviour. That is
+ * verification calls `@noble/curves` **directly**, at six sites, **named by symbol
+ * rather than by line** — `verifyChain` in `capability.ts`; `redeemChallenge`, `enrol`
+ * (twice) and `verifyCertificate` in `enrollment.ts`; `verifyCapabilityRecord` in
+ * `discovery.ts` — and routes through no selection layer at all. The line numbers this
+ * list carried until 2026-08-10 are gone deliberately: it said `capability.ts:219`, the
+ * call is at `:249`, and it went stale **in the commit that wrote it** (`31b64a6` moved
+ * `toBase64Url`/`fromBase64Url` into that file in the same change), after which the
+ * number was copied to eight more places. A symbol survives the next such move; a line
+ * number is a claim about a file's layout that nothing re-measures. So collapsing the two layers into one changes no production behaviour. That is
  * what makes the merge safe, and it is also the ceiling on what it may claim: **this
  * removes a duplication from the package, not a hazard from the trust path.**
  *

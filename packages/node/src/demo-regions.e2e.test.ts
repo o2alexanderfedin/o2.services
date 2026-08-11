@@ -110,6 +110,33 @@ let snapshot: PageSnapshot
 const catalogue: ReadonlyMap<string, Region> = new Map(REGIONS.map((r) => [r.id, r]))
 const figures: readonly Region[] = REGIONS.filter((r) => FIGURE_KINDS.includes(r.kind))
 
+/**
+ * The P5b exemption's ceiling — **44**, read out of `REGIONS` on 2026-08-10, not chosen.
+ *
+ * `demo-liveness.e2e.test.ts`'s P5b skips any reading region whose catalogue entry holds no
+ * `unavailable` arm, on the stated ground that the catalogue itself admits there is no other
+ * sentence for it. The exemption is sound and its **size was unasserted**: it went from the
+ * two regions its docblock named, to eight on colouring alone, to 24 across the three
+ * surfaces P5 drives, to 44 catalogue-wide, and **nothing anywhere went red at any step**,
+ * because no case read the set's size. Each addition was individually defensible; the
+ * aggregate is that 44 of 74 reading regions are outside the one property that says a page
+ * which renders nothing is not passing.
+ *
+ * **Why a ceiling and not an exact set.** An exact id list would also redden when a region
+ * *gains* an `unavailable` arm, which is the improvement this is trying to encourage, and it
+ * would redden for every unrelated catalogue addition. Growth is the hazard, so growth is
+ * what is asserted. The failure message names the surfaces and the ids so the red says which
+ * region widened it rather than only that something did.
+ *
+ * **Why here and not in `demo-liveness.e2e.test.ts`.** This is a property of the catalogue
+ * and needs no browser; that file's fixture is at module scope, so a case there could not be
+ * reached without starting a relay, a Vite server and two browser contexts first.
+ *
+ * Raising this number is a decision, not a merge conflict: it means P5b covers less than it
+ * did, and the reason belongs beside the raise.
+ */
+const P5B_EXEMPT_CEILING = 44
+
 describe('the catalogue checks itself, with no browser', () => {
   it('has unique ids, each prefixed by its own surface', () => {
     const seen = new Set<string>()
@@ -160,6 +187,28 @@ describe('the catalogue checks itself, with no browser', () => {
       (r) => r.absenceMode === 'element-removed' && r.absence !== undefined,
     ).map((r) => r.id)
     expect(barWithAbsence, 'the bar has no absence copy: the element\'s existence IS the reading').toEqual([])
+  })
+
+  it('keeps the P5b exemption under its ceiling, so it cannot widen silently', () => {
+    // Exactly P5b's own two `continue`s, in `demo-liveness.e2e.test.ts`: no absence object at
+    // all, or an absence with no `unavailable` arm. Recomputed here rather than imported,
+    // because importing that file would drag its module-scope browser fixture in with it.
+    const exempt = REGIONS.filter(
+      (r) => r.kind === 'reading' && (r.absence === undefined || r.absence.unavailable === undefined),
+    )
+    const bySurface: Record<string, string[]> = {}
+    for (const region of exempt) (bySurface[region.surface] ??= []).push(region.id)
+
+    expect(
+      exempt.length,
+      `${String(exempt.length)} reading regions are exempt from P5b (ceiling ${String(P5B_EXEMPT_CEILING)}) — ` +
+        `a region with no 'unavailable' arm may fall back to its pre-run or stopped sentence after a real run ` +
+        `and P5b will not call it a survivor. The set: ` +
+        Object.entries(bySurface)
+          .map(([surface, ids]) => `${surface} ${String(ids.length)} (${ids.join(', ')})`)
+          .join(' · ') +
+        `. Give the new region an 'unavailable' sentence, or raise ${String(P5B_EXEMPT_CEILING)} deliberately and say why.`,
+    ).toBeLessThanOrEqual(P5B_EXEMPT_CEILING)
   })
 
   it('holds no digit in any absence sentence, and ends each one with a full stop', () => {

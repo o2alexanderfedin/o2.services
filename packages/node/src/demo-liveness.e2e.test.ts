@@ -74,9 +74,27 @@ import { FabricNode } from './fabric-node.ts'
  *
  *   **The exemption, stated rather than left implicit:** a region whose catalogue entry holds
  *   no `unavailable` arm at all is allowed to fall back, because the catalogue itself admits
- *   there is no other sentence for it. Two colouring regions are in that position — C15 and
- *   C17, whose UI-SPEC unavailable arms are a receipt the kernel composes and an empty cell —
- *   and both are covered by name in the specific block below instead.
+ *   there is no other sentence for it.
+ *
+ *   **How large that exemption is, recomputed from `REGIONS` on 2026-08-10 — and it is not
+ *   two.** This paragraph said *"Two colouring regions … C15 and C17"* from the day P5b was
+ *   written until now. Counted rather than remembered, **eight** colouring reading regions
+ *   hold no `unavailable` arm: C6, C7 and C8 (`rung-300`, `rung-400`, `rung-500` — C9 has an
+ *   arm of its own), C15 `attestation`, C17 `egress`, and C18, C19 and C20
+ *   (`verify-verdict`, `verify-n`, `verify-triples`). Only **two of the eight** — C15 and
+ *   C17 — are covered by name in the specific block below, which is the other half of what
+ *   the old sentence got wrong: it read as though the exempt set and the named set were the
+ *   same five-region-wide thing. Across the three surfaces P5 drives today the exempt set is
+ *   **24** of their reading regions, and **44** catalogue-wide once `fabric`'s 16 and
+ *   `session`/`bar`'s 2 each are included.
+ *
+ *   **It grew 2 → 8 → 24 with nothing going red**, because no assertion anywhere read its
+ *   size. That is now closed one level up rather than here:
+ *   `demo-regions.e2e.test.ts`'s catalogue self-check holds a ceiling on it, so the next
+ *   region added without an `unavailable` arm reddens a case instead of silently widening
+ *   this exemption. The ceiling lives there and not in this file because it is a property of
+ *   the catalogue, and this file cannot reach one without paying for a two-tab browser
+ *   fixture first.
  *
  * ## The fixture is `colouring-demo.e2e.test.ts`'s, with one difference
  *
@@ -410,8 +428,12 @@ describe('P5 — after a real two-tab run, a surface with a run control no longe
       const region = CATALOGUE.get(dom.id)
       if (region?.absence === undefined) continue
       // The stated exemption: where the catalogue holds no `unavailable` arm there is no
-      // other sentence for the page to render, so falling back is not a survivor. Both
-      // colouring regions in that position are asserted by name in the next case.
+      // other sentence for the page to render, so falling back is not a survivor. **Eight**
+      // colouring regions are in that position, not the two this comment claimed until
+      // 2026-08-10 (C6, C7, C8, C15, C17, C18, C19, C20 — recounted from `REGIONS`), and
+      // exactly two of them, C15 and C17, are asserted by name in the next case. Its size is
+      // held by a ceiling in `demo-regions.e2e.test.ts`'s catalogue self-check; see this
+      // file's P5b docblock.
       if (region.absence.unavailable === undefined) continue
       if (dom.text === region.absence.initial || dom.text === region.absence.stopped) {
         survivors.push(

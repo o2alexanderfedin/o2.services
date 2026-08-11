@@ -83,3 +83,43 @@ re-find it.
 **This is the third copy of the same triple.** `reachability-guard.node.test.ts:350` was
 corrected by Plan 28-01, `.planning/REQUIREMENTS.md`'s WIRE-02 row by Plan 28-04, and this
 one is still open. A figure duplicated into three places drifts in three places.
+
+## 2026-08-10 — nine copies of `capability.ts:219`, re-cited by symbol
+
+**Found during:** the goal-backward verification of phases 26, 27 and 28
+(`28-VERIFICATION.md`'s first INFO row), and corrected in the pass that follows it.
+
+**The true line is `capability.ts:249`, re-measured in this pass** —
+`valid = ed25519.verify(fromHex(link.signature), payload, fromHex(link.issuer))`, inside
+`verifyChain`, which begins at `:209`. The other five sites in the same list were checked and
+were all still right: `enrollment.ts:702` (`EnrollmentAuthority.redeemChallenge`), `:740` and
+`:759` (`EnrollmentAuthority.enrol`), `:874` (`verifyCertificate`), `discovery.ts:122`
+(`verifyCapabilityRecord`). One number in six drifted, and it drifted **30 lines in the same
+commit that wrote the citation** — `31b64a6` moved `toBase64Url`/`fromBase64Url` into
+`capability.ts` while 28-01 was writing the docblock that cited it.
+
+**Direction chosen: replace the line numbers with symbols, not just correct the digits.**
+Phase 27 converted its ledger citations to greppable symbols for exactly this reason, and
+this was the third `file:line` drift of the verification run. A symbol survives the next
+move; a line number is a claim about a file's layout that nothing re-measures and nothing
+reddens. All six sites are now cited as `verifyChain` / `redeemChallenge` / `enrol` (twice) /
+`verifyCertificate` / `verifyCapabilityRecord`, with the old number preserved beside the
+correction so the drift is visible rather than erased.
+
+**Nine live copies, not eight.** The verification named eight; a tenth grep in this pass found
+one more in a source file — `packages/core/src/ed25519-backend.test.ts:177`, in the docblock
+telling a future wiring pass which call sites to replace, which is the citation most likely to
+be acted on. Fixed with the other eight.
+
+**Three further copies are left alone, deliberately, and this is the line drawn.**
+`25-04-PLAN.md:555`, `25-04-PLAN.md:601` and `25-04-SUMMARY.md:14` also say
+`capability.ts:219` — and they were **true when they were written**, before `31b64a6` existed.
+Phase 28's copies were wrong from the hour they were typed; correcting those restores what
+their authors meant. Editing a Phase 25 record to reflect a commit that had not happened yet
+would be rewriting an accurate history to match a later tree, which is a worse defect than the
+one being fixed. Anyone grepping the string will find them, and will find this note.
+
+**The pattern.** Six documents in this correction pass claimed more than their code. **Three
+of the six were `file:line` citations that had drifted**, and this one was stale in the same
+commit that wrote it — then copied to eight further places before anybody re-read it. A line
+number is a measurement that expires silently; a symbol is one that does not.
