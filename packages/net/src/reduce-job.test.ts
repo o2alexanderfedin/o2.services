@@ -319,6 +319,8 @@ describe('MR-04 / MR-05 / MR-07 — eight shards reduce over eight peers that ca
         // statement of that — an issuer set would say this requestor checked signatures
         // and found none, which is a different (and false) claim about the run.
         trustedIssuers: 'checks-no-combine-signatures',
+        // MR-02 — public shards, so a partial is attributed to its own partition index.
+        contributors: 'attributes-each-shard-to-its-own-partition-index',
       })
 
       expect(result.ok).toBe(true)
@@ -422,6 +424,10 @@ describe('reduceJob names what it could not do, rather than presenting a partial
     // the option is required precisely so a caller cannot arrive at a receipt without
     // having said what it checks against.
     trustedIssuers: 'checks-no-combine-signatures' as const,
+    // MR-02 — these shards are the requestor's own and carry no owner, so each partial
+    // is attributed to its own partition index. Stated for the same reason as the line
+    // above: the option is required so a caller cannot arrive at a leaf key by default.
+    contributors: 'attributes-each-shard-to-its-own-partition-index' as const,
     ...over,
   })
 
@@ -752,6 +758,7 @@ describe('a reduction reports how strongly its own AGGREGATION is attested', () 
           project,
           redundancy,
           trustedIssuers: fabric.trustedIssuers,
+          contributors: 'attributes-each-shard-to-its-own-partition-index',
         })
         expect(result.ok).toBe(true)
         if (!result.ok) return
@@ -792,6 +799,8 @@ describe('a reduction reports how strongly its own AGGREGATION is attested', () 
         project,
         redundancy: 1,
         trustedIssuers: fabric.trustedIssuers,
+        // MR-02 — public shards, so a partial is attributed to its own partition index.
+        contributors: 'attributes-each-shard-to-its-own-partition-index',
       })
       expect(result.ok).toBe(true)
       if (!result.ok) return
@@ -833,6 +842,8 @@ describe('a reduction reports how strongly its own AGGREGATION is attested', () 
         project,
         redundancy: 2,
         trustedIssuers: fabric.trustedIssuers,
+        // MR-02 — public shards, so a partial is attributed to its own partition index.
+        contributors: 'attributes-each-shard-to-its-own-partition-index',
       })
       expect(result.ok).toBe(true)
       if (!result.ok) return
@@ -872,6 +883,8 @@ describe('a reduction reports how strongly its own AGGREGATION is attested', () 
         project,
         redundancy: 2,
         trustedIssuers: fabric.trustedIssuers,
+        // MR-02 — public shards, so a partial is attributed to its own partition index.
+        contributors: 'attributes-each-shard-to-its-own-partition-index',
       })
       expect(result.ok).toBe(true)
       if (!result.ok) return
@@ -902,6 +915,7 @@ describe('a reduction reports how strongly its own AGGREGATION is attested', () 
         blockstore: fabric.requestorStore,
         project,
         redundancy: 1,
+        contributors: 'attributes-each-shard-to-its-own-partition-index' as const,
       }
       const checking = await reduceJob(agreedJob(2), { ...common, trustedIssuers: fabric.trustedIssuers })
       const unchecking = await reduceJob(agreedJob(2), {
@@ -940,6 +954,8 @@ describe('a reduction reports how strongly its own AGGREGATION is attested', () 
         project,
         redundancy: 1,
         trustedIssuers: fabric.trustedIssuers,
+        // MR-02 — public shards, so a partial is attributed to its own partition index.
+        contributors: 'attributes-each-shard-to-its-own-partition-index',
       })
       expect(result.ok).toBe(true)
       if (!result.ok) return

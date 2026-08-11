@@ -616,6 +616,9 @@ describe('AUTH-03 / 16-05 — a real bin/agent.ts process answers a combine', ()
       blockstore: submitter.store,
       project,
       trustedIssuers: CHECKS_NO_COMBINE_SIGNATURES,
+      // MR-02 — public shards. See this file's header for what that costs and where the
+      // owner-pinned reading lives instead.
+      contributors: 'attributes-each-shard-to-its-own-partition-index',
     })
 
     expect(result.ok).toBe(true)
@@ -671,6 +674,9 @@ describe('MR-04…MR-07 — eight bin/agent.ts processes walk one derived tree',
       blockstore: submitter.store,
       project,
       trustedIssuers: CHECKS_NO_COMBINE_SIGNATURES,
+      // MR-02 — public shards. See this file's header for what that costs and where the
+      // owner-pinned reading lives instead.
+      contributors: 'attributes-each-shard-to-its-own-partition-index',
     })
 
     expect(result.ok).toBe(true)
@@ -773,6 +779,9 @@ describe('MR-05 / MR-06 — a combine node SIGKILLed mid-reduce is repaired else
       blockstore: submitter.store,
       project,
       trustedIssuers: CHECKS_NO_COMBINE_SIGNATURES,
+      // MR-02 — public shards. See this file's header for what that costs and where the
+      // owner-pinned reading lives instead.
+      contributors: 'attributes-each-shard-to-its-own-partition-index',
     })
     expect(healthy.ok).toBe(true)
     if (!healthy.ok) return
@@ -875,6 +884,9 @@ describe('MR-05 / MR-06 — a combine node SIGKILLed mid-reduce is repaired else
       blockstore: submitter.store,
       project,
       trustedIssuers: CHECKS_NO_COMBINE_SIGNATURES,
+      // MR-02 — public shards. See this file's header for what that costs and where the
+      // owner-pinned reading lives instead.
+      contributors: 'attributes-each-shard-to-its-own-partition-index',
     })
     expect(second.ok).toBe(true)
     if (!second.ok) return
@@ -943,6 +955,9 @@ describe('MR-07 — two replicas dedupe, and a duplicate from a fresh process co
       project,
       redundancy: 2,
       trustedIssuers: CHECKS_NO_COMBINE_SIGNATURES,
+      // MR-02 — public shards. See this file's header for what that costs and where the
+      // owner-pinned reading lives instead.
+      contributors: 'attributes-each-shard-to-its-own-partition-index',
     })
     expect(result.ok).toBe(true)
     if (!result.ok) return

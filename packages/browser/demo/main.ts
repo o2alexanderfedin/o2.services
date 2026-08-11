@@ -821,6 +821,12 @@ const api: TabApi = {
       // A visitor's tab pins no combine issuer, and saying so by name beats passing an empty
       // set that would silently refuse every combine. The page states this limit on screen.
       trustedIssuers: 'checks-no-combine-signatures',
+      // MR-02 — every shard this π job submits is `label: 'public'`, so its partials are
+      // the requestor's own and are attributed to nothing but their partition index. The
+      // sentinel is that fact stated, not a default: reading an owner into a public job's
+      // leaves would be a sovereignty claim about a page that made none. `reduceSovereignJob`
+      // is where a leaf is keyed on an owner.
+      contributors: 'attributes-each-shard-to-its-own-partition-index',
     })
 
     // The aggregate's VALUE, fetched rather than assumed. `ReduceOutcome` carries `rootCid`

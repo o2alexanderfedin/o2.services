@@ -293,14 +293,18 @@ describe('the guard cannot report clean because it looked at nothing', () => {
     // the only thing standing between the guard and a new dead export arriving unnoticed.
     // 19-12's finding is the reason it is asserted rather than commented: the mutation ledger's
     // floor sat stale at 23 against a ledger of 42, and nothing said so.
+    // **74 since 2026-08-11, and the one that moved it is named** — `net/reduceSovereignJob`,
+    // MR-02's sovereign aggregation arm. It is uncalled because no rig here stands up two
+    // owners; `reachability-dispositions.ts`'s `OPEN_FINDING_CEILING` note carries the
+    // measurement and why a disposition would be the wrong shape for it.
     const found = unreachableExports(corpus(), graph(), ROOT)
     expect(
       found.length,
       `the guard found ${found.length} unreachable callable barrel exports; the reading recorded ` +
-        'on 2026-08-10 was 73. A HIGHER number means a new exported-but-uncalled symbol arrived — ' +
+        'on 2026-08-11 was 74. A HIGHER number means a new exported-but-uncalled symbol arrived — ' +
         `run the guard and read the list. A LOWER number is wiring work landing and the ceiling ` +
         'should be lowered to match it, which is 22-03\'s register rather than an edit here.',
-    ).toBeLessThanOrEqual(73)
+    ).toBeLessThanOrEqual(74)
   }, GRAPH_TIMEOUT_MS)
 
   it('separates findings that have callers from findings that have none', () => {

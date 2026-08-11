@@ -256,6 +256,9 @@ async function runPi(
     // found none, which is a different and false claim about the run. This file measures
     // arithmetic across processes, not attestation.
     trustedIssuers: 'checks-no-combine-signatures',
+    // MR-02 — every shard here is public, so a partial is attributed to its own partition
+    // index and to no owner. `reduceSovereignJob` is where a leaf is keyed on an owner.
+    contributors: 'attributes-each-shard-to-its-own-partition-index',
   })
 
   expect(result.ok).toBe(true)
