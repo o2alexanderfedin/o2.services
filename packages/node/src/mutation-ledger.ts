@@ -3066,6 +3066,131 @@ export const MUTATIONS: readonly Mutation[] = [
     signature: 'What left this device:',
     signatureSource: 'test-title',
   },
+  {
+    id: 'M75',
+    why:
+      'VER-02, and the exact defect that got the previous ceremony deleted. `855cdf5` removed a ' +
+      'commit-reveal whose check compared a value with itself — the requestor minted the nonce, ' +
+      'computed the digest, recomputed it from the same two values and compared — so both ' +
+      'failure branches were unreachable, measured over 1171 tests with no reach. This line is ' +
+      'the correction: the requestor hashes the **revealed output it was handed** and compares ' +
+      'that against the digest the node published in round 1, which is a comparison it did not ' +
+      'author either side of. Replacing it with the stored digest restores the tautology exactly, ' +
+      'and the plant is therefore a direct re-run of the question that phase answered.',
+    file: 'packages/core/src/job/commit-reveal.ts',
+    find: '    const expected = await commitmentDigest(outcome.nonce, task, hashed.cid)',
+    replace: '    const expected = entry.digest',
+    caughtBy: ['packages/core/src/job/commit-reveal.test.ts'],
+    // Observed 2026-08-11: exit 1, `Tests 3 failed | 17 passed (20)`, the three being the
+    // plagiarist (`expected 2 to be 1`), the cross-shard replay (`expected 'disagreed' to be
+    // 'agreed'`) and the all-plagiarist case (`expected 'agreed' to be 'insufficient'`). The
+    // 17 that stayed green are the point: the plant hit the refusal and nothing else.
+    // Restored by the surgical inverse and `cmp`'d byte-identical against a snapshot taken
+    // immediately before planting; `cmp` exit 0.
+    signature: 'refuses a replica that reveals a peer answer it did not commit to',
+    signatureSource: 'test-title',
+  },
+  {
+    id: 'M76',
+    why:
+      'VER-02\u2019s **hiding** half, which is the half the deleted ceremony failed silently. Its ' +
+      'nonce was `nodeId:moduleCid:partitionIndex` \u2014 three public values \u2014 so anybody ' +
+      'holding a commitment could recompute the digest for a guessed answer and check it, and ' +
+      'a shard\u2019s output space is often a boolean or a small sum. Draw the nonce from anything ' +
+      'predictable and the commitment binds without hiding, which looks identical in every ' +
+      'happy-path assertion.',
+    file: 'packages/core/src/job/commit-reveal.ts',
+    find: '  nonce.set(randomBytes(CEREMONY_NONCE_BYTES))',
+    replace: '',
+    caughtBy: ['packages/core/src/job/commit-reveal.test.ts'],
+    // Observed 2026-08-11: exit 1, `Tests 2 failed | 18 passed (20)`, on the two hiding cases
+    // and on nothing else \u2014 every refusal case stayed green, which is exactly the point:
+    // a commitment that binds but does not hide passes every test about binding. Restored by
+    // the surgical inverse; `cmp` exit 0.
+    signature: 'gives two different digests for one answer, because the nonce is secret and fresh',
+    signatureSource: 'test-title',
+  },
+  {
+    id: 'M77',
+    why:
+      'VER-02\u2019s barrier, and the one property in that module with no branch to plant \u2014 ' +
+      'which is precisely why it needs an entry here. Round 2 begins only after every round-1 ' +
+      'answer has settled; a single `await executor.reveal(\u2026)` inside round 1 is the ' +
+      'interleaving somebody writes who does not know why the two passes are separate, and it ' +
+      'discloses one node\u2019s answer while another\u2019s is still unfixed. Nothing about the ' +
+      'happy path changes, and every digest still checks out.',
+    file: 'packages/core/src/job/commit-reveal.ts',
+    find: '      if (!outcome.ok) return { failed: outcome.reason }',
+    replace:
+      '      if (!outcome.ok) return { failed: outcome.reason }\n' +
+      '      await executor.reveal(outcome.handle)',
+    caughtBy: ['packages/core/src/job/commit-reveal.test.ts'],
+    // Observed 2026-08-11: exit 1, `Tests 2 failed | 18 passed (20)`, the barrier case reading
+    // `AssertionError: expected 3 to be greater than 4` \u2014 the first reveal entering the log
+    // at index 3 while the last commit did not leave until index 4. Restored by deleting the one
+    // inserted line; `cmp` exit 0.
+    signature: 'enters no reveal until every commit has returned',
+    signatureSource: 'test-title',
+  },
+  {
+    id: 'M78',
+    why:
+      'VER-02\u2019s serving half. A commitment only means something if the node holding the ' +
+      'unrevealed answer will not hand it to anybody else \u2014 a co-replica that could ask for a ' +
+      'peer\u2019s pending result would have the answer **before** revealing its own, which is the ' +
+      'plagiarism the ceremony exists to make detectable, arriving by a different door. This is ' +
+      'the only line that says no, and without it every requestor-side assertion still passes.',
+    file: 'packages/net/src/commit-store.ts',
+    find: '    if (pending.committedBy !== by) {',
+    replace: '    if (pending.committedBy !== by && false) {',
+    caughtBy: ['packages/net/src/commit-reveal-wire.test.ts'],
+    // Observed 2026-08-11: exit 1, `Tests 1 failed | 19 passed (20)`, reading `AssertionError:
+    // expected true to be false` \u2014 the second peer\u2019s reveal succeeding. The 19 that stayed
+    // green are the point: nothing else in the ceremony notices. Restored by the surgical
+    // inverse; `cmp` exit 0.
+    signature: 'commits to a real answer and reveals it only to the peer that asked',
+    signatureSource: 'test-title',
+  },
+  {
+    id: 'M79',
+    why:
+      'VER-02\u2019s **wiring**, which is the difference between a mechanism and a requirement. ' +
+      '`submitJob` picks the ceremony for a public shard at two or more replicas whose executors ' +
+      'speak both rounds, and falls through to the post-hoc comparison otherwise. Force the ' +
+      'selection false and every unit test of the ceremony still passes while no job ever runs ' +
+      'one \u2014 the *"built, not wired"* state this milestone exists to empty, reproduced in ' +
+      'the act of closing it.',
+    file: 'packages/core/src/job/submit.ts',
+    find: '          chosen.every((e) => isCommitting(e))\n        ) {',
+    replace: '          chosen.every((e) => isCommitting(e)) &&\n          false\n        ) {',
+    caughtBy: ['packages/net/src/commit-reveal-wire.test.ts'],
+    // Observed 2026-08-11: exit 1, `Tests 2 failed | 18 passed (20)`. The first reads `expected
+    // [ 'execute' ] to deeply equal [ 'commit', 'reveal' ]`; the second is the one worth
+    // recording \u2014 `expected 2 to be 1`, i.e. the same fixture reporting a forged answer as
+    // verified agreement between two independent replicas, silently. Restored by the surgical
+    // inverse; `cmp` exit 0.
+    signature: 'asks a public redundancy-2 shard for two rounds and never for a one-call execute',
+    signatureSource: 'test-title',
+  },
+  {
+    id: 'M80',
+    why:
+      'VER-02 across shards. The commitment preimage carries the shard\u2019s own identity, so one ' +
+      'digest cannot stand in for another shard of the same job. Without it a lazy executor ' +
+      'commits once, hands the same digest back for every remaining shard, reveals the same ' +
+      'nonce and output each time, and **every check passes** \u2014 a ceremony that is running ' +
+      'and establishing nothing, which is the failure mode this whole requirement was reopened ' +
+      'for.',
+    file: 'packages/core/src/job/commit-reveal.ts',
+    find: '  for (const part of [nonce, module, input, index, result]) {',
+    replace: '  for (const part of [nonce, module, input, result]) {',
+    caughtBy: ['packages/core/src/job/commit-reveal.test.ts'],
+    // Observed 2026-08-11: exit 1, `Tests 2 failed | 18 passed (20)` \u2014 the shard-binding
+    // case and the cross-shard replay, and nothing else. Restored by the surgical inverse;
+    // `cmp` exit 0.
+    signature: 'refuses a replica replaying one commitment across two shards',
+    signatureSource: 'test-title',
+  },
 ]
 
 /**
