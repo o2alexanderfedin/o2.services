@@ -67,10 +67,24 @@ export { reduceJob } from './reduce-job.ts'
 export type {
   AggregateAttestation,
   CombineTrustAnchors,
+  ContributorAttribution,
   NoVerifiedAggregation,
   ReduceJobOptions,
   ReduceJobResult,
 } from './reduce-job.ts'
+
+// The SOVEREIGN arm of the aggregation — MR-02. `reduceJob` above aggregates whatever
+// it is handed; this one aggregates owner-pinned partials and attaches the claim that
+// makes them sovereign. See `reduce-sovereign.ts` for what "verified aggregation" means.
+export { MIN_SOVEREIGN_COMBINE_REPLICAS, reduceSovereignJob } from './reduce-sovereign.ts'
+export type {
+  SovereignAggregate,
+  SovereignContribution,
+  SovereignEgressEvidence,
+  SovereignEgressReading,
+  SovereignReduceOptions,
+  SovereignReduceResult,
+} from './reduce-sovereign.ts'
 
 // Discovery and admission over RPC — SCHED-01, SCHED-03, NET-06.
 export { DEFAULT_PROBE_TIMEOUT_MS, RpcRecordIndex, rpcAdmission } from './discovery.ts'

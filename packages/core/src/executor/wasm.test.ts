@@ -12,6 +12,7 @@ import {
   MODULE_OUTPUT_THEN_OVER_CAP,
   MODULE_OVER_CAP_THEN_OUTPUT,
   MODULE_TRAPS,
+  MODULE_COUNTS_INPUT_BYTES,
   MODULE_WRITES_PARTITION,
 } from './fixtures.ts'
 import { WasmExecutor } from './wasm.ts'
@@ -39,6 +40,7 @@ describe('fixtures are genuinely valid WASM', () => {
   // Proves the hand-assembly is correct according to V8.
   it.each([
     ['writes-partition', MODULE_WRITES_PARTITION],
+    ['counts-input-bytes', MODULE_COUNTS_INPUT_BYTES],
     ['echoes-input', MODULE_ECHOES_INPUT],
     ['no-output', MODULE_NO_OUTPUT],
     ['traps', MODULE_TRAPS],

@@ -563,7 +563,41 @@ describe('CHURN-01 / criterion 2 — 30 % of the fabric dies mid-job and the ans
     expect(killCount).toBeGreaterThanOrEqual(2)
     // Enough distinct holders to draw from, so the rule below is a ranking rather than
     // "everything there was".
-    expect(new Set(holderOf.values()).size).toBeGreaterThanOrEqual(killCount)
+    //
+    /*
+     * **This precondition has been observed red, and the reading now names the census that
+     * failed it rather than a bare pair of integers.** Recorded 2026-08-11, on the precedent
+     * `late-combine.node.test.ts` sets for `runMap`: an assertion that prints only
+     * `expected 2 to be greater than or equal to 3` cannot be told apart from a slow host by
+     * anybody reading the log afterwards, and two agents in a row read it as one.
+     *
+     * **Measured, and it is NOT CPU starvation.** Sixteen solo runs of this file — eight on a
+     * quiet host at `(user+sys)/real` 0.93–1.59, eight against 24 CPU burners at 0.47–0.73 —
+     * gave distinct-holder counts of `[3,5,4,6,5,5,6,6]` and `[4,5,6,4,4,5,5,6]`. Not one
+     * fell below four, and the burner arm sits at half the CPU share of the whole-suite runs
+     * that failed. So a share of the machine's scarcity does not explain it, and saying "the
+     * host was busy" would have been the wrong attribution.
+     *
+     * **What it is instead: the whole-suite regime, with an identical signature both times.**
+     * Two full `--project node` runs reddened here, and both printed *participants 8, held
+     * `[1,7]`* — one node holding seven of the eight shards while a second held one. The
+     * repeat of that exact shape across two runs a day apart is what makes it a placement
+     * finding rather than a draw: solo, the eight to sixteen placements spread across five to
+     * nine participants and no node ever held more than five.
+     *
+     * It is **left red rather than relaxed**. Lowering this to two, or ranking over whatever
+     * holders exist, would delete the only signal that the scheduler concentrates under
+     * whole-suite conditions — and the criterion this file exists for, killing the
+     * participants that carried the most work, is not the same criterion once there are only
+     * two of them to choose from.
+     */
+    expect(
+      new Set(holderOf.values()).size,
+      `distinct holders ${new Set(holderOf.values()).size} over ${SHARDS} shards; ` +
+        `participants ${participants.size}/${AGENT_COUNT}; ` +
+        `held [${[...heldCount.values()].sort((x, y) => x - y).join(',')}]; ` +
+        `placed [${[...placedCount.values()].sort((x, y) => x - y).join(',')}]`,
+    ).toBeGreaterThanOrEqual(killCount)
 
     const victims = [...spawned]
       .filter((agent) => participants.has(agent.peerId))

@@ -76,6 +76,16 @@ import { FsBlockstore } from './fs-blockstore.ts'
  * whose inputs carry an owner label and land on that owner's node, with Phase 13's egress
  * guard refusing the raw input's egress and the coverage report naming what stayed home.
  *
+ * **That job now exists, and it is `packages/node/src/sovereign-aggregation.node.test.ts`
+ * (2026-08-11).** Two owners, one `bin/agent.ts` process each, each seeded with its own
+ * row and never the other's; a guest that emits `input_len()` rather than its partition
+ * index, so the aggregate is the sum of two row sizes each measured on a different
+ * process; `submitJobWithEgress` registering both rows on the requestor's guard; and
+ * `reduceSovereignJob` combining at two replicas with a complete coverage report. The
+ * paragraph above is left standing rather than rewritten, because it is still true of
+ * **this** file — nothing below it changed, and a header that claimed otherwise would be
+ * the second file describing a measurement it does not take.
+ *
  * ---
  *
  * **HISTORY. Nothing below is skipped and all three criteria pass — this section records
@@ -616,6 +626,9 @@ describe('AUTH-03 / 16-05 — a real bin/agent.ts process answers a combine', ()
       blockstore: submitter.store,
       project,
       trustedIssuers: CHECKS_NO_COMBINE_SIGNATURES,
+      // MR-02 — public shards. See this file's header for what that costs and where the
+      // owner-pinned reading lives instead.
+      contributors: 'attributes-each-shard-to-its-own-partition-index',
     })
 
     expect(result.ok).toBe(true)
@@ -671,6 +684,9 @@ describe('MR-04…MR-07 — eight bin/agent.ts processes walk one derived tree',
       blockstore: submitter.store,
       project,
       trustedIssuers: CHECKS_NO_COMBINE_SIGNATURES,
+      // MR-02 — public shards. See this file's header for what that costs and where the
+      // owner-pinned reading lives instead.
+      contributors: 'attributes-each-shard-to-its-own-partition-index',
     })
 
     expect(result.ok).toBe(true)
@@ -773,6 +789,9 @@ describe('MR-05 / MR-06 — a combine node SIGKILLed mid-reduce is repaired else
       blockstore: submitter.store,
       project,
       trustedIssuers: CHECKS_NO_COMBINE_SIGNATURES,
+      // MR-02 — public shards. See this file's header for what that costs and where the
+      // owner-pinned reading lives instead.
+      contributors: 'attributes-each-shard-to-its-own-partition-index',
     })
     expect(healthy.ok).toBe(true)
     if (!healthy.ok) return
@@ -875,6 +894,9 @@ describe('MR-05 / MR-06 — a combine node SIGKILLed mid-reduce is repaired else
       blockstore: submitter.store,
       project,
       trustedIssuers: CHECKS_NO_COMBINE_SIGNATURES,
+      // MR-02 — public shards. See this file's header for what that costs and where the
+      // owner-pinned reading lives instead.
+      contributors: 'attributes-each-shard-to-its-own-partition-index',
     })
     expect(second.ok).toBe(true)
     if (!second.ok) return
@@ -943,6 +965,9 @@ describe('MR-07 — two replicas dedupe, and a duplicate from a fresh process co
       project,
       redundancy: 2,
       trustedIssuers: CHECKS_NO_COMBINE_SIGNATURES,
+      // MR-02 — public shards. See this file's header for what that costs and where the
+      // owner-pinned reading lives instead.
+      contributors: 'attributes-each-shard-to-its-own-partition-index',
     })
     expect(result.ok).toBe(true)
     if (!result.ok) return

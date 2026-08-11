@@ -131,6 +131,43 @@ export const MODULE_WRITES_PARTITION: Uint8Array<ArrayBuffer> = build([
 ])
 
 /**
+ * The same `{"p": <4-byte LE>}` shape, carrying **the input's own byte count** — MR-02.
+ *
+ * **Why a second fixture rather than a flag on the first.** `MODULE_WRITES_PARTITION`
+ * emits a number the *host* supplied: the shard's position in the job. That is exactly
+ * right for every test about placement, dispatch and topology, and exactly wrong for the
+ * one claim MR-02 makes, which is that **an owner computes a partial over its own data**.
+ * A partial derived from the partition index is a pure function of an integer the
+ * requestor already holds, so a job whose guests never read a byte of anyone's row would
+ * produce the identical aggregate — and the sovereignty reading built on it would be
+ * measuring nothing. This guest reads the row.
+ *
+ * It is also the smallest honest summary: `input_len()` is one call, the answer is four
+ * bytes wide regardless of how large the row is, and **no byte of the row is in the
+ * output**. That is the map-side half of *nothing raw leaves* stated as a property of the
+ * guest rather than as a hope about it — an aggregation over these partials is an
+ * aggregation over row sizes, and row sizes are not rows.
+ *
+ * Deliberately **not** `MODULE_ECHOES_INPUT`, which is the same experiment with the
+ * opposite disposition: echoing a sovereign row back is precisely the frame
+ * `EgressGuard.send` refuses, and it is useful as a negative rather than as a map.
+ */
+export const MODULE_COUNTS_INPUT_BYTES: Uint8Array<ArrayBuffer> = build([
+  ...i32(0), ...i32(0xa1), ...STORE8,
+  ...i32(1), ...i32(0x61), ...STORE8,
+  ...i32(2), ...i32(0x70), ...STORE8,
+  ...i32(3), ...i32(0x44), ...STORE8,
+  // mem[4..7] = input_len() — the row's own size, little-endian i32. Same fixed-width
+  // byte-string encoding as `LAY_PARTITION_MAP`, and for the identical reason: a CBOR
+  // integer under 24 has to live in the type byte, so a guest emitting one would need a
+  // branch and would produce a non-minimal encoding that strict DAG-CBOR rejects.
+  ...i32(4),
+  0x10, 0x00,
+  0x36, 0x00, 0x00, // i32.store align=0 offset=0
+  ...WRITE(0, 8),
+])
+
+/**
  * Writes once, over the cap, and nothing else.
  *
  * 64 bytes: comfortably inside the fixture's one 64 KiB page, so the host's

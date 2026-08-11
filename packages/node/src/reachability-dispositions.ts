@@ -314,8 +314,22 @@ export const DISPOSITIONS: readonly Disposition[] = [
  * barrel exports carry no disposition"*, and again after and it reported *"37"*, naming all
  * thirty-seven with the ten visibly absent — a within-run pair, so the difference is the
  * reclassification. 47 − 10 is also 37, and the agreement was not taken as the proof.
+ *
+ * **Raised 37 → 38, 2026-08-11, for `net/reduceSovereignJob` — one symbol, and it is reported
+ * as an open finding rather than disposed.** MR-02's sovereign aggregation arm has no
+ * production caller, and the blocker was measured rather than assumed: the arm needs a job whose
+ * shards are pinned to **two or more** owners, and no rig in this repository stands up two
+ * owners. `bin/bench.ts` enrols every worker under one `BENCH_USER_SEED`, so its `--sovereign`
+ * leg's one owner-pinned row would be promoted rather than combined and the arm refuses it by
+ * name; `demo/main.ts`'s bring-your-own path submits every owner-pinned shard under the single
+ * `options.sovereign.ownerId` the harness supplies. Giving either a second owner changes what a
+ * published driver measures or what a visitor's page submits, which is an owner decision and not
+ * a wiring fix. **A disposition would be the wrong shape for that**: this file's own rule is that
+ * a disposition is granted on a *mechanism* the graph cannot see, and there is no mechanism here
+ * — the symbol is genuinely uncalled. It is measured, across real `bin/agent.ts` processes, by
+ * `sovereign-aggregation.node.test.ts`; measured is not wired, and this ceiling says so.
  */
-export const OPEN_FINDING_CEILING = 37
+export const OPEN_FINDING_CEILING = 38
 
 /**
  * How large the register may grow before something reddens.

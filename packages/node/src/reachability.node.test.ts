@@ -696,7 +696,19 @@ describe('each edge class is load-bearing — one ablation per class', () => {
       'aot/shardArgv',
       'aot/taskSeed',
     ])
-  })
+    // `ABLATION_TIMEOUT_MS` added 2026-08-11. **This case was the one the block's docblock
+    // above already claimed was covered and was not** — *"the timeout is on every case in the
+    // block, not only the one that failed"* — and it is the heaviest case here, building a
+    // second whole call graph over the wider entry set beside the shared one. It ran on
+    // vitest's 5 000 ms default while its four siblings carried 60 000 ms, and it failed as
+    // `Test timed out in 5000ms` on a full `--project node` run at `(user+sys)/real` 1.19.
+    //
+    // **Attributed by measurement rather than by plausibility.** On a quiet run of the same
+    // tree it took **2 038 ms**, while `measures what member-expression is worth…` — same
+    // block, same kind of work, and carrying the 60 s budget — took **6 082 ms** in that same
+    // run. A sibling already past the default on a quiet host is what makes this a missing
+    // argument rather than the host: no threshold moved, the case simply had none.
+  }, ABLATION_TIMEOUT_MS)
 })
 
 describe('the traversal can fail — driven with planted graphs, no build involved', () => {

@@ -2098,6 +2098,13 @@ function runnerOver(acquire: (nodes: number) => Promise<Fabric>, state: RunnerSt
         // VER-08/09/10 — the rig's own pinned issuers, resolved once at rig construction
         // and carried, never re-derived here. See {@link Fabric.combineIssuers}.
         trustedIssuers: fabric.combineIssuers,
+        // MR-02 — the sweeps' shards are all `label: 'public'`, including on a
+        // `--sovereign` run: that leg submits its one owner-pinned row as a **separate**
+        // job above and this reduce never sees it. So each partial here is attributed to
+        // its own partition index and to nothing else, which is the sentinel stated rather
+        // than a default. A leaf keyed on an owner is `reduceSovereignJob`'s, and this
+        // driver has no rig with two owners in it to call that with.
+        contributors: 'attributes-each-shard-to-its-own-partition-index',
       })
       const reduceMs = performance.now() - reduceStarted
       // **`reduced.ok` alone here, and deliberately not the conjunction below.** The two

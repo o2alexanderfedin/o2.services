@@ -39,6 +39,7 @@ import type {
   CombineDispatch,
   JobResult,
   NodeCertificate,
+  OwnerId,
   PublicKeyHex,
   ReduceContribution,
   ReduceOutcome,
@@ -83,6 +84,36 @@ import type { RpcEndpoint } from './rpc.ts'
  */
 export type CombineTrustAnchors = ReadonlySet<PublicKeyHex> | 'checks-no-combine-signatures'
 
+/**
+ * What each partial is attributed to — the `contributorId` its leaf is keyed on.
+ *
+ * **This is the line `contributorFor`'s docstring said would change**, and MR-02 is what
+ * changed it. `deriveReduceTree` keys a leaf on `(contributorId, cid)`, so this choice
+ * decides what "two contributions" means for a job, and getting it wrong is silent in
+ * both directions: too coarse and two batches of rows that summarised alike become one
+ * leaf and undercount; too fine and one owner's single partial is counted twice.
+ *
+ * **Required with a named sentinel, never optional**, for the reason
+ * {@link CombineTrustAnchors} gives one option up: a caller that omitted it would get
+ * whichever meaning this module happened to prefer, and the meaning is the caller's fact
+ * rather than this module's.
+ *
+ * - `'attributes-each-shard-to-its-own-partition-index'` — a job whose shards all belong
+ *   to the requestor. Each shard is its own contributor (`shard-0`, `shard-1`, …), which
+ *   is right for a public job and **is not an owner id**: a public job's shards say
+ *   nothing about whose data they are, so nothing here could be read as a sovereignty
+ *   claim. This is exactly what this module did before the option existed, spelled out.
+ * - A `Map` from partition index to {@link OwnerId} — a job whose partials were each
+ *   computed by their owner's own node over data pinned there. `reduceSovereignJob`
+ *   (`reduce-sovereign.ts`) is the only thing that builds one, and it builds it from
+ *   certificates it verified rather than from anything the requestor chose. **Every
+ *   agreed shard must appear in it**; a gap is a named refusal rather than a fallback,
+ *   because a partial with no attribution has no honest leaf key.
+ */
+export type ContributorAttribution =
+  | 'attributes-each-shard-to-its-own-partition-index'
+  | ReadonlyMap<number, OwnerId>
+
 export interface ReduceJobOptions {
   readonly rpc: RpcEndpoint
   /** Peer ids of the connected agents. The submitter is NOT among them. */
@@ -112,6 +143,8 @@ export interface ReduceJobOptions {
   readonly redundancy?: number
   /** See {@link CombineTrustAnchors}. Required, and required here rather than on `submitJob`. */
   readonly trustedIssuers: CombineTrustAnchors
+  /** See {@link ContributorAttribution}. Required, with a named sentinel for the public case. */
+  readonly contributors: ContributorAttribution
 }
 
 /**
@@ -203,12 +236,14 @@ export type ReduceJobResult =
   | { readonly ok: false; readonly reason: string }
 
 /**
- * The contributor a shard's partial is attributed to.
+ * The contributor a shard's partial is attributed to, under the caller's stated
+ * {@link ContributorAttribution}, or `null` when the caller's map does not name one.
  *
- * **This is not an owner id, and must not be read as one.** `ShardResult` carries no
- * owner — `ShardSpec.ownerId` exists but `JobResult` does not preserve it — so there is
- * nothing here to attribute a partial to an owner with, and the sovereignty claim
- * `ReduceContribution`'s own docstring makes is **not** established by this line.
+ * **The sentinel arm is not an owner id, and must not be read as one.** `ShardResult`
+ * carries no owner — `ShardSpec.ownerId` exists but `JobResult` does not preserve it —
+ * so on that arm there is nothing here to attribute a partial to an owner with, and the
+ * sovereignty claim `ReduceContribution`'s own docstring makes is **not** established by
+ * it.
  *
  * The partition index is nonetheless the right discriminator for a job's own shards,
  * and keying on anything coarser is a bug rather than a simplification. A public job's
@@ -219,11 +254,22 @@ export type ReduceJobResult =
  * prevent, arriving from the other direction. Two shards are two batches of rows even
  * when their summaries coincide.
  *
- * When a collection path exists that carries a real per-contribution owner — the
- * Noise-authenticated peer a partial arrived from — **this is the line that changes.**
+ * **The map arm is the collection path that docstring said would change this line.**
+ * `reduceSovereignJob` derives it from the certified user key of the node that actually
+ * ran each map — a signature this requestor checked — rather than from anything the
+ * requestor chose. `null` there means the caller's map has a hole, which this module
+ * reports as a refusal rather than papering over with the sentinel's answer: a partial
+ * silently relabelled `shard-3` in a sovereign reduce would drop out of the coverage
+ * report while still counting in the aggregate.
  */
-function contributorFor(partitionIndex: number): string {
-  return `shard-${partitionIndex}`
+function contributorFor(
+  partitionIndex: number,
+  attribution: ContributorAttribution,
+): string | null {
+  if (attribution === 'attributes-each-shard-to-its-own-partition-index') {
+    return `shard-${partitionIndex}`
+  }
+  return attribution.get(partitionIndex) ?? null
 }
 
 /**
@@ -437,9 +483,19 @@ export async function reduceJob(job: JobResult, options: ReduceJobOptions): Prom
       }
     }
 
+    // Read before the store write, so a job with a hole in its attribution refuses
+    // without having put a partial nobody can attribute into the requestor's store.
+    const contributorId = contributorFor(shard.partitionIndex, options.contributors)
+    if (contributorId === null) {
+      return {
+        ok: false,
+        reason: `shard ${shard.partitionIndex} agreed but the caller's attribution names no contributor for it`,
+      }
+    }
+
     await options.blockstore.put(hashed.bytes)
     leaves.push(hashed.cid)
-    contributions.push({ contributorId: contributorFor(shard.partitionIndex), cid: hashed.cid })
+    contributions.push({ contributorId, cid: hashed.cid })
   }
 
   // This exists to keep `deriveReduceTree`'s `RangeError` from escaping as an exception
