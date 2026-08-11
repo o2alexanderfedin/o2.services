@@ -719,12 +719,15 @@ const WITHOUT_A_CHECKABLE_CLAIM: readonly string[] = [
   //   `JobSpec.admit`, which is optional, and only `bin/bench.ts --discover` — off by
   //   default — supplies it in production. Every symbol the row names has a caller. That is
   //   the `SCHED-05` bucket exactly, one requirement over.
-  // - `SCHED-03` — its open leg is a **tier**: the browser factory's refusal has never been
-  //   driven, so the number an over-committed tab would refuse with has never been read.
-  //   Both tiers construct the mechanism and the row says so. That is the `AUTH-02` /
-  //   `SCHED-04` bucket.
+  // - `SCHED-03` stood here on the same reasoning — its open leg was a **tier**, the browser
+  //   factory's refusal never having been driven — and it is **REMOVED on 2026-08-11**,
+  //   because the row is `Done` and has left the *unreached* population. The sentence that
+  //   kept it here was quoted, as the thing it came to refute, in the header of the very
+  //   spec that closed it (`tab-refusals.e2e.test.ts`), and neither this list nor the row
+  //   noticed for five days. Fourth instance in one sweep. **An id here is a promise to
+  //   re-read a row by hand, and nothing in this file counts how long the promise has been
+  //   outstanding** — which is the one thing that would have caught all four.
   'CHURN-04',
-  'SCHED-03',
   // ── The pre-existing entries ───────────────────────────────────────────────────────
   'AUTH-02',
   'AUTH-03',
