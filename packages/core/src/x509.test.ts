@@ -21,6 +21,9 @@ import {
   preParseCheck,
 } from './x509.ts'
 import type { DerNode, X509Failure } from './x509.ts'
+import { encodeX509Certificate, encodeX509Tbs } from './x509-encode.ts'
+import { certificatePayload, verifyCertificate } from './enrollment.ts'
+import type { NodeCertificate } from './enrollment.ts'
 
 /**
  * X509-04 — the DER decoder's foundation: a certificate-size gate checked before any
@@ -788,5 +791,342 @@ describe('certificate-level DER canonicalisation gate (X509-03)', () => {
     expect(result.ok).toBe(false)
     if (result.ok) return
     expect(result.failure.kind).toBe('non-canonical-encoding')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// The profile on the trust path — X509-01…07 wired, fail-closed (2026-08-11)
+// ---------------------------------------------------------------------------
+
+/**
+ * Everything above this line proves `decodeX509Certificate` refuses. That is a statement
+ * about a function. These cases ask the question the ledger's six *Built, not wired* rows
+ * were actually open on: **does a refusal deny anything?**
+ *
+ * The wiring is `verifyCertificate` (`enrollment.ts`), which every trust decision in this
+ * repository about a peer's identity already goes through — `PeerVerifier` at admission,
+ * `FabricNode`'s enrolment path, `discovery.ts`'s `resolveReplicaSets`,
+ * `result-attestation.ts`'s third-party check, `identity-store.ts`'s reload from disk,
+ * and the demo. A certificate carrying an X.509 form that this profile refuses is refused
+ * **as a certificate**, at all six of those points at once.
+ *
+ * ## Every fixture here is signed by a *pinned* provider, and that is the whole design
+ *
+ * `payloadOf` puts the X.509 form inside the issuer's own signature, so a stranger who
+ * edits the form breaks the envelope signature and would be refused a step later anyway.
+ * Building these fixtures that way would prove nothing: the gate would be shadowed by a
+ * check that already existed. So `certificateCarrying` **re-signs the envelope with the
+ * pinned provider's own key** after planting the mutation. Every certificate below is one
+ * a trusted provider genuinely issued, whose envelope signature verifies perfectly, and
+ * which is refused *only* because its two halves disagree. That is the case the gate is
+ * for — a provider is pinned to be believed about who a node is, not to be well-formed.
+ */
+const ENVELOPE_FIELDS = {
+  nodeKey: testHex(NODE.pub),
+  userKey: testHex(NODE.pub),
+  operatorId: 'test-operator',
+  discoverability: 'seed' as const,
+  relayIds: ['relay-a', 'relay-b'],
+  issuedAt: FIXTURE_NOW,
+  expiresAt: FIXTURE_LATER,
+  issuer: testHex(ISSUER.pub),
+}
+
+const PINNED = new Set([testHex(ISSUER.pub)])
+
+/** The X.509 form a conformant issuance of `ENVELOPE_FIELDS` produces, straight from the production encoder. */
+function conformantDer(): Uint8Array {
+  return encodeX509Certificate(ENVELOPE_FIELDS, ed25519.sign(encodeX509Tbs(ENVELOPE_FIELDS), ISSUER.priv))
+}
+
+/** A certificate the pinned provider genuinely signed, carrying whatever X.509 bytes the caller hands it. */
+function certificateCarrying(x509: string): NodeCertificate {
+  const unsigned = { ...ENVELOPE_FIELDS, x509 }
+  return { ...unsigned, signature: testHex(ed25519.sign(certificatePayload(unsigned), ISSUER.priv)) }
+}
+
+/**
+ * Plant one mutation into the conformant certificate's DER tree and re-serialize.
+ *
+ * Tree surgery rather than byte splicing: `decodeDer` and `encodeDer` are the profile's
+ * own engine, so every ancestor SEQUENCE's length is re-derived from the mutated content
+ * and the fixture stays a genuinely well-formed certificate that differs in exactly one
+ * place. `serialize` is a parameter for the one obligation that needs a *non*-canonical
+ * result, which `encodeDer` would otherwise silently repair.
+ */
+function derWith(
+  mutate: (tbs: DerNode, certificate: DerNode) => DerNode,
+  serialize: (node: DerNode) => Uint8Array = encodeDer,
+): string {
+  const decoded = decodeDer(conformantDer())
+  if (!decoded.ok) throw new Error('the conformant fixture did not decode')
+  const certificate = decoded.node
+  return testHex(serialize(mutate(certificate.children[0] as DerNode, certificate)))
+}
+
+/** Replace child `index` of `parent` with `replacement`, returning a new node. */
+function replacingChild(parent: DerNode, index: number, replacement: DerNode): DerNode {
+  const children = [...parent.children]
+  children[index] = replacement
+  return { ...parent, children }
+}
+
+/** Rebuild the whole certificate around a replaced TBSCertificate child. */
+function certificateWithTbsChild(certificate: DerNode, index: number, replacement: DerNode): DerNode {
+  const tbs = replacingChild(certificate.children[0] as DerNode, index, replacement)
+  return replacingChild(certificate, 0, tbs)
+}
+
+/** TBSCertificate child positions, by name, for this profile's fixed-position grammar. */
+const TBS_SERIAL = 1
+const TBS_SIGNATURE_ALGORITHM = 2
+const TBS_SUBJECT = 5
+const TBS_SPKI = 6
+const TBS_EXTENSIONS = 7
+
+describe('the X.509 form is on the trust path, and a conformant one is accepted', () => {
+  it('accepts a certificate whose X.509 form the production encoder minted', () => {
+    // The non-vacuity case. Without it every refusal below would be satisfied by a gate
+    // that refuses everything, which is not a profile.
+    const verdict = verifyCertificate(certificateCarrying(testHex(conformantDer())), PINNED, FIXTURE_NOW + 1000)
+    expect(verdict.ok, verdict.ok ? '' : verdict.reason).toBe(true)
+  })
+
+  it('still accepts a certificate that carries no X.509 form at all', () => {
+    // Additive, not a replacement: absence is not a refusal, and `payloadOf` omits the
+    // key rather than encoding a null, so a certificate issued before this field existed
+    // signs and verifies byte-identically.
+    const unsigned = ENVELOPE_FIELDS
+    const certificate: NodeCertificate = {
+      ...unsigned,
+      signature: testHex(ed25519.sign(certificatePayload(unsigned), ISSUER.priv)),
+    }
+    expect(verifyCertificate(certificate, PINNED, FIXTURE_NOW + 1000).ok).toBe(true)
+  })
+
+  it('refuses an x509 field that is not hex before decoding anything', () => {
+    const verdict = verifyCertificate(certificateCarrying('nothex'), PINNED, FIXTURE_NOW + 1000)
+    expect(verdict.ok).toBe(false)
+    if (verdict.ok) return
+    expect(verdict.failure.kind).toBe('x509-not-hex')
+  })
+})
+
+/** Assert that `verifyCertificate` refused for a profile reason, and hand back the profile's own failure. */
+function profileRefusalOf(x509: string): X509Failure {
+  const verdict = verifyCertificate(certificateCarrying(x509), PINNED, FIXTURE_NOW + 1000)
+  expect(verdict.ok).toBe(false)
+  if (verdict.ok) throw new Error('expected a refusal')
+  expect(verdict.failure.kind).toBe('x509-profile-refused')
+  if (verdict.failure.kind !== 'x509-profile-refused') throw new Error('expected an x509-profile-refused')
+  // The forwarded refusal is the profile's own, not a re-description of it, so the
+  // operator-facing reason names the offending value.
+  expect(verdict.reason).toContain(describeX509Failure(verdict.failure.profile))
+  return verdict.failure.profile
+}
+
+describe('X509-01 — a non-Ed25519 algorithm is refused on the trust path', () => {
+  it('refuses a certificate whose SubjectPublicKeyInfo algorithm is rsaEncryption', () => {
+    const failure = profileRefusalOf(
+      derWith((tbs, certificate) => {
+        const spki = tbs.children[TBS_SPKI] as DerNode
+        return certificateWithTbsChild(certificate, TBS_SPKI, replacingChild(spki, 0, algId(RSA_ENCRYPTION_OID)))
+      }),
+    )
+    expect(failure.kind).toBe('unrecognised-algorithm')
+    if (failure.kind !== 'unrecognised-algorithm') return
+    expect(failure.oid).toBe(RSA_ENCRYPTION_OID)
+  })
+
+  it('refuses a present parameters field on the Ed25519 algorithm, at TBSCertificate.signature', () => {
+    // RFC 8410 §10's legacy-tolerant trap, reached through `verifyCertificate` rather
+    // than through the decoder directly: even a NULL parameters field is a refusal.
+    const failure = profileRefusalOf(
+      derWith((_tbs, certificate) =>
+        certificateWithTbsChild(certificate, TBS_SIGNATURE_ALGORITHM, algId(ID_ED25519, prim(0x05, []))),
+      ),
+    )
+    expect(failure.kind).toBe('algorithm-parameters-present')
+  })
+})
+
+describe('X509-02 — SHA-1, P-192, P-224 and RSA are each refused by name on the trust path', () => {
+  it('refuses SHA-1 (sha1WithRSAEncryption) at TBSCertificate.signature', () => {
+    const failure = profileRefusalOf(
+      derWith((_tbs, certificate) =>
+        certificateWithTbsChild(certificate, TBS_SIGNATURE_ALGORITHM, algId(SHA1_WITH_RSA_OID)),
+      ),
+    )
+    expect(failure.kind).toBe('unrecognised-algorithm')
+    if (failure.kind !== 'unrecognised-algorithm') return
+    expect(failure.oid).toBe(SHA1_WITH_RSA_OID)
+  })
+
+  it('refuses P-192 (id-ecPublicKey carrying secp192r1) by the outer OID', () => {
+    const failure = profileRefusalOf(
+      derWith((tbs, certificate) => {
+        const spki = tbs.children[TBS_SPKI] as DerNode
+        const alg = algId(EC_PUBLIC_KEY_OID, prim(0x06, oidBytes(P192_OID)))
+        return certificateWithTbsChild(certificate, TBS_SPKI, replacingChild(spki, 0, alg))
+      }),
+    )
+    expect(failure.kind).toBe('unrecognised-algorithm')
+    if (failure.kind !== 'unrecognised-algorithm') return
+    expect(failure.oid).toBe(EC_PUBLIC_KEY_OID)
+  })
+
+  it('refuses P-224 (id-ecPublicKey carrying secp224r1) by the outer OID', () => {
+    const failure = profileRefusalOf(
+      derWith((tbs, certificate) => {
+        const spki = tbs.children[TBS_SPKI] as DerNode
+        const alg = algId(EC_PUBLIC_KEY_OID, prim(0x06, oidBytes(P224_OID)))
+        return certificateWithTbsChild(certificate, TBS_SPKI, replacingChild(spki, 0, alg))
+      }),
+    )
+    expect(failure.kind).toBe('unrecognised-algorithm')
+    if (failure.kind !== 'unrecognised-algorithm') return
+    expect(failure.oid).toBe(EC_PUBLIC_KEY_OID)
+  })
+
+  it('refuses RSA (rsaEncryption) at TBSCertificate.signature, without inspecting modulus size', () => {
+    const failure = profileRefusalOf(
+      derWith((_tbs, certificate) =>
+        certificateWithTbsChild(certificate, TBS_SIGNATURE_ALGORITHM, algId(RSA_ENCRYPTION_OID)),
+      ),
+    )
+    expect(failure.kind).toBe('unrecognised-algorithm')
+    if (failure.kind !== 'unrecognised-algorithm') return
+    expect(failure.oid).toBe(RSA_ENCRYPTION_OID)
+  })
+})
+
+describe('X509-03 — a non-canonical certificate is refused on the trust path', () => {
+  it('refuses a certificate whose signatureValue length uses long form where short form would fit', () => {
+    // Serialized through `encodeDerRaw`, because `encodeDer` would repair the mutation
+    // on the way out — the gate has to be shown refusing a certificate that really is
+    // non-canonical on the wire, not one this test only intended to be.
+    const verdict = verifyCertificate(
+      certificateCarrying(
+        derWith(
+          (_tbs, certificate) => certificate,
+          (node) => encodeDerRaw(node, node.children[2] as DerNode),
+        ),
+      ),
+      PINNED,
+      FIXTURE_NOW + 1000,
+    )
+    expect(verdict.ok).toBe(false)
+    if (verdict.ok) return
+    expect(verdict.failure.kind).toBe('x509-profile-refused')
+    if (verdict.failure.kind !== 'x509-profile-refused') return
+    expect(verdict.failure.profile.kind).toBe('non-canonical-encoding')
+  })
+})
+
+describe('X509-04 — a certificate past the byte ceiling is refused on the trust path, before any parsing', () => {
+  it('refuses a certificate longer than MAX_CERTIFICATE_BYTES', () => {
+    const padded = testHex(conformantDer()) + 'ff'.repeat(MAX_CERTIFICATE_BYTES)
+    const failure = profileRefusalOf(padded)
+    expect(failure.kind).toBe('certificate-too-large')
+    if (failure.kind !== 'certificate-too-large') return
+    expect(failure.limit).toBe(MAX_CERTIFICATE_BYTES)
+    expect(failure.bytes).toBeGreaterThan(MAX_CERTIFICATE_BYTES)
+  })
+})
+
+describe('X509-06 — extension count and size ceilings are refused on the trust path', () => {
+  it('refuses more than MAX_EXTENSION_COUNT extensions, naming the count and the limit', () => {
+    const failure = profileRefusalOf(
+      derWith((tbs, certificate) => {
+        const wrapper = tbs.children[TBS_EXTENSIONS] as DerNode
+        const list = wrapper.children[0] as DerNode
+        const grown = { ...list, children: [...list.children, ...fillerExtensions(MAX_EXTENSION_COUNT + 1 - list.children.length)] }
+        return certificateWithTbsChild(certificate, TBS_EXTENSIONS, replacingChild(wrapper, 0, grown))
+      }),
+    )
+    expect(failure.kind).toBe('too-many-extensions')
+    if (failure.kind !== 'too-many-extensions') return
+    expect(failure.count).toBe(MAX_EXTENSION_COUNT + 1)
+    expect(failure.limit).toBe(MAX_EXTENSION_COUNT)
+  })
+
+  it('refuses an extension one byte past MAX_EXTENSION_BYTES, naming the OID and the limit', () => {
+    const oversized = `${X509_EXTENSION_ARC}.99`
+    const failure = profileRefusalOf(
+      derWith((tbs, certificate) => {
+        const wrapper = tbs.children[TBS_EXTENSIONS] as DerNode
+        const list = wrapper.children[0] as DerNode
+        const fat = extensionNode(oversized, new Uint8Array(MAX_EXTENSION_BYTES + 1).fill(0x2a))
+        return certificateWithTbsChild(certificate, TBS_EXTENSIONS, replacingChild(wrapper, 0, { ...list, children: [...list.children, fat] }))
+      }),
+    )
+    // The size gate, not the registry: an unrecognised OID would also refuse, and the
+    // point of this case is that the size is checked *before* the payload is looked at.
+    expect(failure.kind).toBe('extension-too-large')
+    if (failure.kind !== 'extension-too-large') return
+    expect(failure.oid).toBe(oversized)
+    expect(failure.limit).toBe(MAX_EXTENSION_BYTES)
+  })
+})
+
+describe('X509-07 — a duplicate extension is refused outright on the trust path', () => {
+  it('refuses a second userKey extension rather than letting the last one win', () => {
+    const failure = profileRefusalOf(
+      derWith((tbs, certificate) => {
+        const wrapper = tbs.children[TBS_EXTENSIONS] as DerNode
+        const list = wrapper.children[0] as DerNode
+        const duplicated = { ...list, children: [...list.children, list.children[0] as DerNode] }
+        return certificateWithTbsChild(certificate, TBS_EXTENSIONS, replacingChild(wrapper, 0, duplicated))
+      }),
+    )
+    expect(failure.kind).toBe('duplicate-extension')
+    if (failure.kind !== 'duplicate-extension') return
+    expect(failure.oid).toBe(EXT_USER_KEY)
+  })
+})
+
+describe('a conformant X.509 form that describes a different node is refused', () => {
+  it('refuses a subject commonName that is not the envelope\'s nodeKey', () => {
+    const verdict = verifyCertificate(
+      certificateCarrying(
+        derWith((_tbs, certificate) => certificateWithTbsChild(certificate, TBS_SUBJECT, rdnName(testHex(ISSUER.pub)))),
+      ),
+      PINNED,
+      FIXTURE_NOW + 1000,
+    )
+    expect(verdict.ok).toBe(false)
+    if (verdict.ok) return
+    expect(verdict.failure.kind).toBe('x509-mismatch')
+    if (verdict.failure.kind !== 'x509-mismatch') return
+    expect(verdict.failure.field).toBe('subject commonName')
+  })
+
+  it('refuses a serialNumber the envelope would not have produced, which no named field covers', () => {
+    // The whole-TBSCertificate byte comparison, reached: every named field still agrees
+    // and only the re-encoding disagrees. Without that catch-all this certificate would
+    // pass, because `serialNumber` is not one of the fields compared by name.
+    const verdict = verifyCertificate(
+      certificateCarrying(derWith((_tbs, certificate) => certificateWithTbsChild(certificate, TBS_SERIAL, prim(0x02, [0x05])))),
+      PINNED,
+      FIXTURE_NOW + 1000,
+    )
+    expect(verdict.ok).toBe(false)
+    if (verdict.ok) return
+    expect(verdict.failure.kind).toBe('x509-mismatch')
+    if (verdict.failure.kind !== 'x509-mismatch') return
+    expect(verdict.failure.field).toBe('tbsCertificate bytes')
+  })
+
+  it('refuses an X.509 form the issuer did not sign, even when every field agrees', () => {
+    const decoded = decodeDer(conformantDer())
+    if (!decoded.ok) throw new Error('the conformant fixture did not decode')
+    const signature = decoded.node.children[2] as DerNode
+    const flipped = new Uint8Array(signature.content)
+    flipped[10] = (flipped[10] as number) ^ 0xff
+    const bytes = encodeDer(replacingChild(decoded.node, 2, { ...signature, content: flipped }))
+    const verdict = verifyCertificate(certificateCarrying(testHex(bytes)), PINNED, FIXTURE_NOW + 1000)
+    expect(verdict.ok).toBe(false)
+    if (verdict.ok) return
+    expect(verdict.failure.kind).toBe('x509-bad-signature')
   })
 })

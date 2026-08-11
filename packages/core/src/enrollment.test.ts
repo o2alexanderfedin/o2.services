@@ -1,6 +1,7 @@
 import { ed25519 } from '@noble/curves/ed25519.js'
 import { describe, expect, it } from 'vitest'
-import { toHex } from './capability.ts'
+import { fromHex, toHex } from './capability.ts'
+import { decodeX509Certificate } from './x509.ts'
 import {
   EnrollmentAuthority,
   challengeAnswerBytes,
@@ -850,5 +851,76 @@ describe('AUTH-01 — an enrolment challenge is minted once and spent once', () 
     const minted = new Set(Array.from({ length: 20 }, () => auth.mintChallenge(NOW).nonce))
     expect(minted.size).toBe(20)
     for (const nonce of minted) expect(nonce).toMatch(/^[0-9a-f]{64}$/)
+  })
+})
+
+/**
+ * Issuance of the X.509 form — the other half of X509-01…07's wiring.
+ *
+ * `x509.test.ts` proves the gate refuses. These prove a real `EnrollmentAuthority`
+ * produces something it accepts, which is what keeps "fail-closed" from degenerating
+ * into "refuses everything". The option is opt-in and the default is checked here too,
+ * because a default that silently switched on would triple the certificate's cost on the
+ * wire for every node in the fabric.
+ */
+describe('X509-01 — a provider can issue the profile\'s X.509 form alongside the envelope', () => {
+  function x509Authority(): EnrollmentAuthority {
+    return new EnrollmentAuthority({
+      providerPrivateKey: provider.priv,
+      maxIssuedPerWindow: 'issues-without-an-aggregate-budget',
+      issuance: 'remembers-only-within-this-process',
+      x509: 'issues-the-x509-form',
+    })
+  }
+
+  it('issues no X.509 form by default', () => {
+    const { result } = enrol(authority(), 220)
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.certificate.x509).toBeUndefined()
+    // And the certificate still verifies, which is the compatibility claim: `payloadOf`
+    // omits the key rather than encoding a null, so this is byte-for-byte the payload
+    // this repository signed before the field existed.
+    expect(verifyCertificate(result.certificate, new Set([provider.pub]), NOW + 1).ok).toBe(true)
+  })
+
+  it('issues a form its own verifier accepts, carrying the envelope\'s fields', () => {
+    const { node, result } = enrol(x509Authority(), 221, { operatorId: 'alice-op', relayIds: ['relay-2', 'relay-1'] })
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    const { x509 } = result.certificate
+    expect(x509).toBeDefined()
+    if (x509 === undefined) return
+
+    // Accepted through the real trust path, not through the decoder directly.
+    const verdict = verifyCertificate(result.certificate, new Set([provider.pub]), NOW + 1)
+    expect(verdict.ok, verdict.ok ? '' : verdict.reason).toBe(true)
+
+    // And a third party holding only the DER — the interchange case X.509 exists for —
+    // reads the same node out of it.
+    const decoded = decodeX509Certificate(fromHex(x509))
+    expect(decoded.ok).toBe(true)
+    if (!decoded.ok) return
+    expect(decoded.certificate.subjectPublicKey).toBe(node.pub)
+    expect(decoded.certificate.userKey).toBe(alice.pub)
+    expect(decoded.certificate.operatorId).toBe('alice-op')
+    expect(decoded.certificate.discoverability).toBe('via-relay')
+    expect(decoded.certificate.relayIds).toEqual(['relay-1', 'relay-2'])
+    expect(decoded.certificate.version).toBe(2)
+  })
+
+  it('refuses a certificate whose X.509 form was grafted from another node', () => {
+    // The stranger's move rather than the provider's, and it is refused for the profile's
+    // own reason rather than for a signature reason — the gate runs before the envelope
+    // signature, so the operator is told which half of the statement is wrong.
+    const mine = enrol(x509Authority(), 222)
+    const theirs = enrol(x509Authority(), 223)
+    expect(mine.result.ok && theirs.result.ok).toBe(true)
+    if (!mine.result.ok || !theirs.result.ok) return
+    const grafted: NodeCertificate = { ...mine.result.certificate, x509: theirs.result.certificate.x509 as string }
+    const verdict = verifyCertificate(grafted, new Set([provider.pub]), NOW + 1)
+    expect(verdict.ok).toBe(false)
+    if (verdict.ok) return
+    expect(verdict.failure.kind).toBe('x509-mismatch')
   })
 })

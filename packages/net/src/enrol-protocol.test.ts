@@ -343,3 +343,70 @@ describe('a refusal crosses the wire with its numbers intact', () => {
     expect(parsed).toBeNull()
   })
 })
+
+/**
+ * The X.509 form at the wire — X509-01…07's transport half.
+ *
+ * The gate that refuses a malformed form lives in `verifyCertificate`, and it can only
+ * refuse what reaches it. This file's own subject is whether the parser launders
+ * anything on the way, and the X.509 form is the field where laundering would be both
+ * easiest and worst: a certificate silently stripped of a field its issuer signed no
+ * longer verifies, so a reader would be told `bad-signature` about a frame that this
+ * parser had damaged.
+ */
+describe('X509-04 — the X.509 form survives the wire, and a malformed one is not laundered', () => {
+  function x509Authority(): EnrollmentAuthority {
+    return new EnrollmentAuthority({
+      providerPrivateKey: provider.priv,
+      maxIssuedPerWindow: 'issues-without-an-aggregate-budget',
+      issuance: 'remembers-only-within-this-process',
+      x509: 'issues-the-x509-form',
+    })
+  }
+
+  it('carries the form across the wire intact, so the certificate still verifies', () => {
+    const issuer = x509Authority()
+    const result = issuer.enrol(buildRequest(), NOW)
+    if (!result.ok) throw new Error('expected issuance to succeed')
+    expect(result.certificate.x509).toBeDefined()
+
+    const parsed = parseResponse(encodeResponse({ kind: 'enrol', result }))
+    if (parsed?.kind !== 'enrol' || !parsed.result.ok) throw new Error('expected an ok result')
+
+    expect(parsed.result.certificate.x509).toBe(result.certificate.x509)
+    expect(verifyCertificate(parsed.result.certificate, new Set([issuer.issuerKey]), NOW).ok).toBe(true)
+  })
+
+  it('refuses the whole frame when the x509 field is not a string, rather than dropping it', () => {
+    const issuer = x509Authority()
+    const result = issuer.enrol(buildRequest(), NOW)
+    if (!result.ok) throw new Error('expected issuance to succeed')
+
+    const encoded = encodeResponse({ kind: 'enrol', result }) as { readonly [k: string]: CanonicalValue }
+    const certificate = { ...(encoded['certificate'] as { readonly [k: string]: CanonicalValue }) }
+    certificate['x509'] = 12345
+
+    expect(parseResponse({ ...encoded, certificate })).toBeNull()
+  })
+
+  it('lets an altered form reach the gate, which refuses it by the profile\'s own name', () => {
+    // Altered on the **encoded** value, which is the shape a peer actually controls. The
+    // parser accepts it — a well-formed lie is still well-formed — and the refusal comes
+    // from the profile rather than from the signature, because the gate runs first.
+    const issuer = x509Authority()
+    const result = issuer.enrol(buildRequest(), NOW)
+    if (!result.ok) throw new Error('expected issuance to succeed')
+
+    const encoded = encodeResponse({ kind: 'enrol', result }) as { readonly [k: string]: CanonicalValue }
+    const certificate = { ...(encoded['certificate'] as { readonly [k: string]: CanonicalValue }) }
+    certificate['x509'] = `${certificate['x509'] as string}ff`.repeat(1)
+
+    const parsed = parseResponse({ ...encoded, certificate })
+    if (parsed?.kind !== 'enrol' || !parsed.result.ok) throw new Error('tampering was not parsed')
+
+    const verdict = verifyCertificate(parsed.result.certificate, new Set([issuer.issuerKey]), NOW)
+    expect(verdict.ok).toBe(false)
+    if (verdict.ok) return
+    expect(verdict.failure.kind).toBe('x509-profile-refused')
+  })
+})

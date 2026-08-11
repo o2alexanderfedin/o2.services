@@ -3467,6 +3467,76 @@ export const MUTATIONS: readonly Mutation[] = [
     signature: "aggregates two owners\u2019 locally-computed partials into the sum of their row sizes",
     signatureSource: 'test-title',
   },
+  {
+    id: 'XW1',
+    why:
+      "X509-01\u202607's wiring, and the only entry here that reverts a whole family from delivered to " +
+      'decorative in one line. With this branch inert, `verifyCertificate` still calls the profile and ' +
+      'still gets its refusal \u2014 and then returns `ok: true` anyway. That is the fail-open the owner ' +
+      'ruling of 2026-08-11 refused by name: a malformed certificate treated more leniently than an ' +
+      'absent one. Nothing else in the function notices, because every fixture that reaches it was ' +
+      'signed by a pinned provider, so the envelope signature below verifies perfectly.',
+    file: 'packages/core/src/enrollment.ts',
+    find: '  if (x509Failure) {',
+    replace: '  if (false && x509Failure) {',
+    caughtBy: [
+      'packages/core/src/x509.test.ts',
+      'packages/core/src/enrollment.test.ts',
+      'packages/net/src/enrol-protocol.test.ts',
+    ],
+    // Observed 2026-08-11: EXIT=1, `Tests  17 failed | 101 passed (118)` \u2014 every one of the
+    // seven obligations' trust-path cases, plus the graft and the wire case. Restored by the
+    // surgical inverse; `cmp` exit 0.
+    signature: 'refuses a second userKey extension rather than letting the last one win',
+    signatureSource: 'test-title',
+  },
+  {
+    id: 'XW2',
+    why:
+      'The whole-`TBSCertificate` comparison, which is what covers every field the gate does not name ' +
+      'one by one \u2014 `version` and `serialNumber` above all. Without it a certificate whose X.509 form ' +
+      'carries a serial the envelope would never have produced passes every named check, and the ' +
+      'binding between the two envelopes is only as wide as the list somebody remembered to write.',
+    file: 'packages/core/src/enrollment.ts',
+    find: '  if (toHex(expected) !== toHex(decoded.tbsBytes)) {',
+    replace: '  if (false && toHex(expected) !== toHex(decoded.tbsBytes)) {',
+    caughtBy: ['packages/core/src/x509.test.ts'],
+    // Observed 2026-08-11: EXIT=1, one case red, `expected 'x509-bad-signature' to be
+    // 'x509-mismatch'`. Restored by the surgical inverse; `cmp` exit 0.
+    signature: "expected 'x509-bad-signature' to be 'x509-mismatch'",
+    signatureSource: 'rendered-at-runtime',
+  },
+  {
+    id: 'XW3',
+    why:
+      "The X.509 form's own signature. With it inert the form becomes an unsigned assertion stapled to " +
+      'a signed one \u2014 which reads as harmless only while the envelope is present, and is exactly ' +
+      'wrong for the relying party X.509 was adopted for: a third party handed the DER alone has ' +
+      'nothing but this signature and this profile.',
+    file: 'packages/core/src/enrollment.ts',
+    find: "  if (!valid) return { kind: 'x509-bad-signature', nodeKey: certificate.nodeKey }",
+    replace: "  if (false && !valid) return { kind: 'x509-bad-signature', nodeKey: certificate.nodeKey }",
+    caughtBy: ['packages/core/src/x509.test.ts'],
+    // Observed 2026-08-11: EXIT=1, one case red. Restored by the surgical inverse; `cmp` exit 0.
+    signature: 'refuses an X.509 form the issuer did not sign, even when every field agrees',
+    signatureSource: 'test-title',
+  },
+  {
+    id: 'XW4',
+    why:
+      'The wire carry. Dropping the field looks like losing an optional extra and is worse than that: ' +
+      'the issuer signed a payload containing it, so a certificate this encoder strips no longer ' +
+      'verifies at all, and the reader is told `bad-signature` about a frame the parser damaged rather ' +
+      'than about anything the peer did.',
+    file: 'packages/net/src/protocol.ts',
+    find: '    ...(certificate.x509 === undefined ? {} : { x509: certificate.x509 }),',
+    replace: '    ...(certificate.x509 === undefined || true ? {} : { x509: certificate.x509 }),',
+    caughtBy: ['packages/net/src/enrol-protocol.test.ts'],
+    // Observed 2026-08-11: EXIT=1, `Tests  2 failed | 23 passed (25)`. Restored by the
+    // surgical inverse; `cmp` exit 0.
+    signature: 'carries the form across the wire intact, so the certificate still verifies',
+    signatureSource: 'test-title',
+  },
 ]
 
 /**
