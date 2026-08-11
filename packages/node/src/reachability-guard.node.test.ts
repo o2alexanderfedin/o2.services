@@ -44,9 +44,19 @@ import {
  * ## The known-FALSE anchor is load-bearing HERE, not only in the tracer's own spec
  *
  * The dangerous failure is an **over-connected** edge set, because that is precisely what a clean
- * run looks like. It is caught by requiring `demo/estimatePi` — which nothing anywhere calls — to
- * stay unreachable. If that symbol is ever reported reachable, this guard has stopped guarding
- * and every green run below is worthless.
+ * run looks like. It is caught by requiring `demo/estimatePi` to stay unreachable. If that symbol
+ * is ever reported reachable, this guard has stopped guarding and every green run below is
+ * worthless.
+ *
+ * **Corrected 2026-08-10, and the anchor survives the correction on a different ground.** This
+ * sentence read *"`demo/estimatePi` — which nothing anywhere calls"*, and that has been **false
+ * since `0d1fcb5`**: `packages/browser/demo/main.ts:841` calls it inside `runPi`. The anchor is
+ * still an anchor, because what it needs is a symbol the **static tracer** must not reach, and
+ * `estimatePi`'s only caller sits behind the `window.o2` hop no static graph crosses — the same
+ * reason `demo/answerOf` is disposed. So the property is unchanged and its justification is not:
+ * it holds while the hop is untraced, rather than while nothing calls the symbol. If the inline
+ * script is ever extracted, this anchor and the `global-object-hop` register go red together, and
+ * both are meant to.
  *
  * ## What is deliberately absent
  *
@@ -83,6 +93,9 @@ const FILE_FLOOR = 130
 
 /** The symbol whose unreachability defends this guard against its worst failure mode. */
 const KNOWN_FALSE_ANCHOR = 'packages/demo/src/pi.ts#estimatePi'
+
+/** The module holding the `window.o2` literal — the hop this guard cannot follow, by name. */
+const DEMO_MAIN = 'packages/browser/demo/main.ts'
 
 let corpusCache: ClassifiedExport[] | undefined
 function corpus(): ClassifiedExport[] {
@@ -186,9 +199,18 @@ describe('the guard cannot report clean because it looked at nothing', () => {
 
   it('is defended against over-connection by a symbol that must stay unreachable', () => {
     // THE case that matters, and the hardest to catch, because an over-connected graph is what a
-    // green run looks like. `demo/estimatePi` is called by nothing anywhere in the tree — checked
-    // by grep independently of this instrument — so a graph that reaches it is over-connected and
-    // every other verdict here is worthless.
+    // green run looks like. A graph that reaches `demo/estimatePi` is over-connected and every
+    // other verdict here is worthless.
+    //
+    // **This comment said "called by nothing anywhere in the tree — checked by grep independently
+    // of this instrument" until 2026-08-10, and the grep it cites now returns a caller**:
+    // `packages/browser/demo/main.ts:841`, inside `runPi`, landed at `0d1fcb5`. The anchor is
+    // sound and its stated reason was not — see this file's header. What makes `estimatePi`
+    // unreachable to a STATIC tracer is that its one caller is a method of the object literal
+    // assigned to `window.o2`, which is why the same symbol is now disposed under
+    // `global-object-hop` in `reachability-dispositions.ts`. Being disposed does not weaken the
+    // anchor: dispositions are applied by the callers of `unreachableExports`, which still
+    // reports the symbol, and the assertion below reads that report directly.
     const found = unreachableExports(corpus(), graph(), ROOT)
     expect(found.map((one) => `${one.barrel}/${one.symbol}`)).toContain('demo/estimatePi')
 
@@ -263,7 +285,9 @@ describe('the guard cannot report clean because it looked at nothing', () => {
     // means the ceiling comes down, and this is that, taken rather than left as slack.
     // Nothing was added here on purpose — the merged module's `createCryptoBackend`,
     // `nobleCryptoBackend` and `subtleCryptoBackend` are deliberately off the barrel,
-    // because barrel-exporting that surface is an owner non-decision priced at 75 → 87.
+    // because barrel-exporting that surface is an owner non-decision priced at +12 callable
+    // exports — 73 → 85 against this ceiling, re-derived 2026-08-10. (This line read "75 → 87"
+    // until then, against a bound the same commit had already moved to 73.)
     // The ceiling is an equality-ish bound on purpose and it is the crude form of what 22-03
     // replaces it with: a per-symbol register with a reason for each. Until that lands, this is
     // the only thing standing between the guard and a new dead export arriving unnoticed.
@@ -315,6 +339,77 @@ describe('the disposition register describes the tree, or it reddens', () => {
     ).toEqual([])
   }, GRAPH_TIMEOUT_MS)
 
+  /**
+   * **The class is derived, not listed — added 2026-08-10.**
+   *
+   * `global-object-hop` was, until today, sixteen symbols somebody had noticed. That is how the
+   * v1.1 audit's `G14` happened: four π symbols called from `main.ts#runPi` — a method of the very
+   * `window.o2` literal this cause is named for, alongside `runColouring`, whose `answerOf` **was**
+   * disposed — sat in the open findings and inflated the milestone's headline residue. A register
+   * assembled by reading has no way to know which members of its own class it missed, and neither
+   * of the two cases above can tell it: they check that each *listed* entry still describes the
+   * tree, over a population the list itself defines. **A guard that only ever reads the rows it
+   * was given cannot find the rows it was not** — which is the same defect, in a different
+   * medium, that the ledger's `[x]`-iff-`Done` join carried until `acceptance-traceability`'s
+   * coverage case landed the same day.
+   *
+   * So the class is computed. `reachability-dispositions.ts` states the closing condition for this
+   * cause in its own words — *"extract the inline script into a module the tracer can root on, or
+   * **teach the graph the `window.o2` assignment**"* — and that second clause is executable. Root
+   * every declaration in `demo/main.ts` and re-run the walk: the symbols that flip from unreachable
+   * to reachable are *exactly* the ones this cause is about, because flipping is what the cause
+   * predicts. Asserted **in both directions**, since either alone is satisfiable by a broken plant:
+   * a flipped symbol with no entry is a `G14` waiting to be found by hand, and an entry that does
+   * not flip is a disposition granted on something other than this mechanism.
+   *
+   * **What this does not establish.** Rooting all of `main.ts` also rescues anything reached only
+   * from dead code in that file, so flipping is necessary but not sufficient for the disposition
+   * to be honest. The per-symbol walk back to a member of the `api` literal is recorded in
+   * `reachability-dispositions.ts`'s `16 → 26` note and is not re-done here — this case guards
+   * the *membership*, the note carries the *justification*, and neither is the other.
+   */
+  it('disposes every symbol the window.o2 hop hides, in both directions', () => {
+    const before = unreachableExports(corpus(), graph(), ROOT).map(
+      (one) => `${one.barrel}/${one.symbol}`,
+    )
+    const declarationsInMain = [...graph().calls.keys()].filter((id) => id.startsWith(`${DEMO_MAIN}#`))
+    const taught = new Map(graph().calls)
+    const root = graph().roots[0] ?? ''
+    taught.set(root, new Set([...(graph().calls.get(root) ?? []), ...declarationsInMain]))
+    const after = new Set(
+      unreachableExports(corpus(), { ...graph(), calls: taught }, ROOT).map(
+        (one) => `${one.barrel}/${one.symbol}`,
+      ),
+    )
+    const flipped = before.filter((key) => !after.has(key)).sort()
+    const hop = new Set(
+      DISPOSITIONS.filter((one) => one.cause === 'global-object-hop').map(
+        (one) => `${one.barrel}/${one.symbol}`,
+      ),
+    )
+
+    expect(
+      flipped.filter((key) => !hop.has(key)),
+      'these become reachable the moment the window.o2 assignment is traced, so they have a real ' +
+        'production caller and are being counted as unwired — add them to GLOBAL_OBJECT_HOP, or ' +
+        'say why this one is different',
+    ).toEqual([])
+    expect(
+      [...hop].filter((key) => !flipped.includes(key)).sort(),
+      'these carry a global-object-hop disposition but do NOT become reachable when the hop is ' +
+        'traced, so whatever keeps them unreachable is not that mechanism — the entry names the ' +
+        'wrong cause',
+    ).toEqual([])
+
+    // Anti-vacuity, and it is the whole case. A plant that rooted nothing produces an empty
+    // `flipped`, which satisfies the first assertion perfectly and would report a register in
+    // agreement with a measurement that never happened. The second assertion is what catches
+    // that today — it would name all 26 — and these keep it caught if the register ever empties.
+    expect(declarationsInMain.length).toBeGreaterThan(20)
+    expect(flipped.length).toBe(hop.size)
+    expect(flipped.length).toBeGreaterThan(20)
+  }, GRAPH_TIMEOUT_MS)
+
   it('holds no entry for a symbol that is no longer a callable barrel export', () => {
     // The other way an entry rots: the symbol is renamed or stops being exported, and the entry
     // silently stops applying to anything at all.
@@ -362,18 +457,23 @@ describe('the disposition register describes the tree, or it reddens', () => {
 
   it('reports the residue as open findings and holds it still', () => {
     // **Criterion 1 does not pass clean on this tree, and this case is where that is said.**
-    // 47 callable barrel exports have no production caller at all, in a milestone named "Wire
+    // 37 callable barrel exports have no production caller at all, in a milestone named "Wire
     // What Was Built". They are not disposed — the owner ruled on 2026-08-08 that only symbols
     // with a stated cause get an entry — so they sit here, counted, named on demand, and unable
     // to grow while nobody is looking. Lowering this number is the work.
     //
-    // That "47" was **drift** until 2026-08-10: it was written against a residue of 47, went
-    // stale when Plan 25-02 raised `OPEN_FINDING_CEILING` to 49, and said nothing because it is
-    // a comment. It reads true again today by coincidence, not by correction — Phase 28's merge
-    // measured the residue back down to 47. Restated here with its date so the next reader does
-    // not re-find it as a defect, and so nobody reads the agreement as evidence: see
-    // `reachability-dispositions.ts`'s 49 → 47 note for why the coincidence is not the proof.
-    // (`.planning/REQUIREMENTS.md:790`'s matching 67/20/47 triple is Plan 28-04's to correct.)
+    // This figure has now drifted twice and the history is kept because a ceiling nobody can
+    // audit is a ceiling nobody will lower. It said "47" written against a residue of 47, went
+    // stale when Plan 25-02 raised `OPEN_FINDING_CEILING` to 49, said nothing because it is a
+    // comment, and then read true again by coincidence when Phase 28's merge measured the
+    // residue back to 47 — see `reachability-dispositions.ts`'s 49 → 47 note for why that
+    // agreement was refused as evidence.
+    //
+    // **47 → 37, measured 2026-08-10, and this one is a reclassification rather than a
+    // lowering**: the ten symbols the derived `global-object-hop` case above recovered have real
+    // production callers behind the `window.o2` hop, so counting them as "no production caller
+    // at all" over-reported the residue. Nothing was wired. The owner's ruling to hold the
+    // residue is untouched — what the count is *of* changed, not how hard it is held.
     const disposed = disposedKeys()
     const open = unreachableExports(corpus(), graph(), ROOT)
       .map((one) => `${one.barrel}/${one.symbol}`)

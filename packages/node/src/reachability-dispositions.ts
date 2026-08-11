@@ -32,9 +32,11 @@
  *    driver named.
  * 2. **Only symbols with a stated cause are disposed.** Everything else stays an **open
  *    finding**. That is why {@link OPEN_FINDING_CEILING} exists and is large: criterion 1 does
- *    **not** pass clean on this tree, and this file does not pretend otherwise. Forty-seven
- *    callable barrel exports have no production caller at all, in a milestone named *"Wire What
- *    Was Built"*, and that number is the honest reading rather than something to dispose away.
+ *    **not** pass clean on this tree, and this file does not pretend otherwise. **Thirty-seven**
+ *    callable barrel exports have no production caller at all (re-derived 2026-08-10; it read
+ *    *"forty-seven"* until the `global-object-hop` class was measured rather than listed), in a
+ *    milestone named *"Wire What Was Built"*, and that number is the honest reading rather than
+ *    something to dispose away.
  */
 
 /** Why the guard cannot reach a symbol. A mechanism, never a tier. */
@@ -64,28 +66,81 @@ export interface Disposition {
  * none has a traced path, because no static graph crosses an assignment to a global followed by an
  * invocation from HTML.
  *
- * Four of them — `IdbBlockstore`, `VisibilityGovernor`, `browserWorkerExecutor` and `domThread` —
- * sit one hop further, behind `BrowserNode`, which is itself in this list. The chain is named in
- * the guard rather than flattened, so a change in the middle of it is visible.
+ * Ten of them sit one or more hops further, behind another member of this same list — the chain
+ * is named rather than flattened, so a change in the middle of it is visible. `IdbBlockstore`,
+ * `VisibilityGovernor` and `browserWorkerExecutor` sit behind `BrowserNode`; `domThread` sits two
+ * hops out, behind `browserWorkerExecutor`; `GrantedConsent` behind `readConsent`/`grantConsent`;
+ * `browserLabel` and `identifyBrowser` behind `currentBrowserLabel`; `colourOf` behind
+ * `verifyColouring`; `readPiPartial` behind `projectPiPartial`; and `startReportFromCounts` behind
+ * `start-outcome.ts`'s own `report`, whose reachable caller is `main.ts#startReport`.
  *
  * **Closing this class means making the entry real**, not excusing it: extract the inline script
  * into a module the tracer can root on, or teach the graph the `window.o2` assignment. Until then
  * these are a fact about static tracing, and the guard's own header says so.
+ *
+ * ## Grown 16 → 26, measured 2026-08-10 — and the list was never derived until now
+ *
+ * The v1.1 milestone audit's `G14` reported that **four** π symbols (`demo/buildPiInput`,
+ * `demo/estimatePi`, `demo/piErrorBound`, `demo/projectPiPartial`) sit in the open findings while
+ * being called from `main.ts#runPi`, a method of the `window.o2` literal, exactly as `answerOf` is
+ * from `runColouring`. That was true and it was **under-counted, because it was found by reading
+ * rather than by measuring** — and this list had the same provenance, which is why the gap existed
+ * at all: sixteen symbols somebody noticed, in a class nobody had ever enumerated.
+ *
+ * **Derived, this time.** The register's own stated closing condition — *"teach the graph the
+ * `window.o2` assignment"* — is executable, so it was executed: every declaration in
+ * `packages/browser/demo/main.ts` was given an edge from a root, and `unreachableExports` was run
+ * before and after. **Exactly 26 symbols flip from unreachable to reachable**, and the 16 already
+ * here are a strict subset of them. The other 10 — `browser/GrantedConsent`,
+ * `browser/browserLabel`, `browser/identifyBrowser`, `core/startReportFromCounts`,
+ * `demo/buildPiInput`, `demo/colourOf`, `demo/estimatePi`, `demo/piErrorBound`,
+ * `demo/projectPiPartial`, `demo/readPiPartial` — were sitting in the open findings. The other 10
+ * dispositions (4 `benchmark-driver-only`, 6 `deferred-in-source`) do **not** flip, which is the
+ * cross-check that the plant separates this class rather than merely reaching more of the tree.
+ *
+ * **Every terminus was then read individually rather than taken from the plant**, because a plant
+ * that roots all of `main.ts` would also rescue a symbol reached only from dead code in that file.
+ * Each of the ten walks back to a member of the `api` literal at `main.ts:449`, assigned to
+ * `window.o2` at `:1279`: `runPi` (:774), `verifyAnswer` (:983), `startReport` (:680),
+ * `grantConsent` (:465), `consentState` (:461), `revokeConsent` (:473), `start` (:483),
+ * `discoverRelays` (:592), `autoStart` (:644).
+ *
+ * **Two of the ten read `callers=[]` in the guard's own verdict and are called anyway.**
+ * `unreachableExports` filters same-file callers out of the list it reports
+ * (`reachability.ts:898`), so `demo/colourOf` — called by `verifyColouring` in `colouring.ts`
+ * itself — and `demo/readPiPartial` — called by `projectPiPartial` in `pi.ts` itself — render as
+ * *"no production code calls it"*, which is false of both. That is a rendering limit worth knowing
+ * before any finding is closed on the strength of an empty caller list, and it is the reason the
+ * chains above were walked over the raw graph rather than over the verdict.
+ *
+ * **The list is no longer trusted to be complete**: `reachability-guard.node.test.ts` re-derives
+ * it on every run and reddens in both directions — an undisposed symbol that flips, and a
+ * `global-object-hop` entry that does not.
  */
 const GLOBAL_OBJECT_HOP: readonly string[] = [
   'browser/BrowserNode',
+  'browser/GrantedConsent',
   'browser/IdbBlockstore',
   'browser/VisibilityGovernor',
+  'browser/browserLabel',
   'browser/browserWorkerExecutor',
   'browser/classifyStartError',
   'browser/currentBrowserLabel',
   'browser/domThread',
   'browser/firstGap',
   'browser/grantConsent',
+  'browser/identifyBrowser',
   'browser/probeEnvironment',
   'browser/readConsent',
   'browser/revokeConsent',
+  'core/startReportFromCounts',
   'demo/answerOf',
+  'demo/buildPiInput',
+  'demo/colourOf',
+  'demo/estimatePi',
+  'demo/piErrorBound',
+  'demo/projectPiPartial',
+  'demo/readPiPartial',
   'demo/verifyColouring',
   'net/findReservedPeers',
   'net/publishStartOutcome',
@@ -239,17 +294,52 @@ export const DISPOSITIONS: readonly Disposition[] = [
  * both *said* "47" since before this phase, staled against the 47 → 49 raise above and describing
  * a different population. **Agreement with a stale comment is not confirmation and was not taken
  * as any**; the number here is the one the guard printed.
+ *
+ * ## Lowered 47 → 37, measured 2026-08-10 — a RECLASSIFICATION, not wiring
+ *
+ * **Nothing was wired and nothing became reachable.** Ten symbols moved from the open list into
+ * {@link GLOBAL_OBJECT_HOP} because they were always members of that class and the class had
+ * never been derived; see that constant's `16 → 26` note for the method and the per-symbol
+ * chains. The residue this ceiling holds is *"callable barrel exports with no production caller
+ * at all"*, and all ten have one — so counting them here was reporting the gap as **larger than
+ * it is**, which is the direction the 2026-08-08 re-audit named about itself and the direction
+ * `G14` was raised in.
+ *
+ * **This does not touch the owner's 2026-08-08 ruling to hold the residue rather than work it
+ * down.** Holding a count still and correcting what the count is *of* are different acts, and
+ * only the second happened here. The 37 that remain are undisposed on the same terms as before.
+ *
+ * **Measured, not derived, and the trap named in the note above was live again here.** This
+ * ceiling was set to 0 before the ten were added and the guard reported *"47 unreachable callable
+ * barrel exports carry no disposition"*, and again after and it reported *"37"*, naming all
+ * thirty-seven with the ten visibly absent — a within-run pair, so the difference is the
+ * reclassification. 47 − 10 is also 37, and the agreement was not taken as the proof.
  */
-export const OPEN_FINDING_CEILING = 47
+export const OPEN_FINDING_CEILING = 37
 
 /**
  * How large the register may grow before something reddens.
  *
  * The anti-vacuity device, and the floor's failure mode is itself on record: 19-12 found the
- * mutation ledger's floor stale at 23 while the ledger held 42, and nothing said so. Set two
- * above the current 20 so a genuinely-forced addition lands, and a third one has to argue.
+ * mutation ledger's floor stale at 23 while the ledger held 42, and nothing said so.
+ *
+ * **Raised 26 → 36, 2026-08-10, and the sentence that stood here was itself stale.** It read
+ * *"set two above the current 20 so a genuinely-forced addition lands, and a third one has to
+ * argue"* — but the register reached 26 when G7-G11 were disposed at `36c2800`/`97a127d` and this
+ * ceiling was moved to 26 with it, so the slack the sentence describes had been **zero** for two
+ * days while the sentence went on describing it. Recorded rather than quietly rewritten: a
+ * comment that survives the arithmetic it explains is how this repository's guards go decorative,
+ * and this file's whole subject is entries that stop describing the tree.
+ *
+ * **Sited at 36, exactly the register's size, with no slack — deliberately.** The "two spare"
+ * design assumed a register that grows by somebody's judgement one entry at a time. It does not
+ * any more: `reachability-guard.node.test.ts` now *derives* the `global-object-hop` class and
+ * reddens if the register disagrees in either direction, so a forced addition arrives with a red
+ * test naming the symbol rather than needing a slot to land in quietly. Slack would only let a
+ * `benchmark-driver-only` or `deferred-in-source` entry — the two causes that are still
+ * judgement — appear without argument.
  */
-export const DISPOSITION_CEILING = 26
+export const DISPOSITION_CEILING = 36
 
 /** `barrel/symbol` for every disposed entry — the form the guard's verdict list uses. */
 export function disposedKeys(register: readonly Disposition[] = DISPOSITIONS): Set<string> {

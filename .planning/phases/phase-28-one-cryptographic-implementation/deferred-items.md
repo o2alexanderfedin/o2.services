@@ -62,7 +62,22 @@ libsodium. Vulnerability counts were unchanged by the removal
 (`{"info":0,"low":0,"moderate":0,"high":1,"critical":0,"total":1}`). Not addressed —
 out of scope for a crypto de-duplication phase.
 
-## 3. `packages/core/src/index.ts:401-402` still quotes the pre-merge barrel price
+## 3. ~~`packages/core/src/index.ts:401-402` still quotes the pre-merge barrel price~~ — **CLOSED 2026-08-10**
+
+**Closed at the same commit that lowered `OPEN_FINDING_CEILING` 47 → 37**, and the delay is
+itself the point: this entry was written on 2026-08-10 stating the corrected pair as
+`73 → 85` / `47 → 59`, and by the time anything edited the comment the right-hand figure of
+the second pair had already moved again. The line now reads **`73 → 85` and `37 → 49`**, and
+the reason for the second move is recorded beside it — the `global-object-hop` class was
+derived rather than listed, and ten symbols with real production callers left the residue.
+
+**A figure duplicated into three places drifts in three places, and it drifted a fourth
+time while being written down.** The `+12` delta is Plan 28-01's measurement carried
+forward and is explicitly marked as not re-measured; only the bounds it is added to were
+read off the guard. `reachability-guard.node.test.ts`'s copy of `75 → 87` was corrected in
+the same commit — it had been stale against a bound its own commit moved.
+
+*Original entry, kept for the record:*
 
 **Found during:** Plan 28-04, Task 1, while writing `CRYPTO-03`'s verdict.
 

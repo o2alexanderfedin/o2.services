@@ -398,8 +398,24 @@ export type {
 // (`createCryptoBackend`,
 // `nobleCryptoBackend`, `subtleCryptoBackend`) and `cert-lifecycle.ts`'s facades are
 // deliberately off this barrel. Barrel-exporting the facade surface is an owner
-// non-decision (28-CONTEXT.md `<deferred>` §2, counted cost: 75 → 87 and
-// OPEN_FINDING_CEILING 49 → 61), and adding them here would take it by side effect.
+// non-decision (28-CONTEXT.md `<deferred>` §2), and adding them here would take it by
+// side effect.
+//
+// **The price is 12 callable exports, and the pair it moves is re-derived 2026-08-10:
+// 73 → 85 unreachable, and OPEN_FINDING_CEILING 37 → 49.** These two lines quoted
+// `75 → 87` and `49 → 61` until then, and both left-hand figures were already stale when
+// they were written: Plan 28-01's own merge — the merge this comment is attached to —
+// moved them to 73 and 47 in the same commit. The open figure then moved a second time
+// the same day, 47 → 37, when `reachability-guard.node.test.ts` began DERIVING the
+// `global-object-hop` class instead of listing it and ten symbols with real production
+// callers behind `window.o2` left the residue they had never belonged in. Recorded as
+// deferred item 3 in `.planning/phases/phase-28-one-cryptographic-implementation/`, which
+// also notes this was the third copy of the triple; the other two are corrected.
+//
+// The `+12` is Plan 28-01's measurement carried forward and is NOT re-measured here — the
+// facades were not barrel-exported to check it, since doing so is the very decision this
+// comment exists to avoid taking by side effect. The bounds it is added to were read off
+// the guard on 2026-08-10, both sitting exactly at their ceilings.
 export {
   createNobleSyncVerifier,
   Ed25519NotInitializedError,
