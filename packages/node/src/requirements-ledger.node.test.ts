@@ -639,10 +639,16 @@ const UNREACHED = ROWS.filter((row) => UNREACHED_VERDICTS.includes(row.verdict))
  *   expressible as a call-site fact — `describeAttestation` renders the three labels for
  *   a human and nothing calls it.
  * - **A statement about a tier or a configuration.** `AUTH-02`, `AUTH-03`, `AUTH-04`,
- *   `NET-03`, `AOT-04`, `SCHED-04`. Both tiers construct the mechanism; what differs is
- *   a host requirement, a measurement not yet taken, or — for `SCHED-04` — nothing at
- *   all, the row stating in words that its marker is conservative rather than
- *   descriptive. A row that reports no absence has no absence to name.
+ *   `NET-03`, `AOT-04`. Both tiers construct the mechanism; what differs is a host
+ *   requirement or a measurement not yet taken. A row that reports no absence has no
+ *   absence to name.
+ *
+ *   **`SCHED-04` was the degenerate member of this bucket and closed on 2026-08-11.** Its
+ *   entry read *"for `SCHED-04` — nothing at all, the row stating in words that its marker
+ *   is conservative rather than descriptive"*, and that is the one case where membership
+ *   here was a **countdown rather than a category**: a row with no absence to name is a row
+ *   waiting on a re-measurement, and this list has no field for how long one has waited. It
+ *   waited nine days. Re-measured and ticked; the id is gone from the list below.
  *
  *   **`AUTH-03`'s membership here was true by accident until 2026-08-06, and the audit is
  *   worth keeping.** Its row *did* name an absence — *"`delegate`, `CapabilitySupplier`
@@ -716,7 +722,8 @@ const WITHOUT_A_CHECKABLE_CLAIM: readonly string[] = [
   'BROW-02',
   'NET-03',
   'NET-06',
-  'SCHED-04',
+  // `SCHED-04` was here until 2026-08-11 and is REMOVED for the same reason `SCHED-05` is,
+  // one line down: its row is `Done`, so it has left the *unreached* population.
   // `SCHED-05` was here until 2026-08-11 and is REMOVED because the row is now `Done`, so
   // it has left the *unreached* population entirely. It is the second way out of this list
   // that the rule allows — the first being a row acquiring a checkable claim — and the set
