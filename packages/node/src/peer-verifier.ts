@@ -10,10 +10,15 @@
  *
  * ## Why the five extra failure kinds are here and not in the kernel
  *
- * `CertificateFailure` is about a **certificate**. Its four kinds — `untrusted-issuer`,
- * `bad-signature`, `not-yet-valid`, `expired` — are all statements about a signed
- * document, and they pass through this class unchanged so that a caller reads exactly the
- * name `enrollment.ts` produced.
+ * `CertificateFailure` is about a **certificate**. Its kinds — `untrusted-issuer`,
+ * `bad-signature`, `not-yet-valid`, `expired`, and since 2026-08-11 the four the X.509
+ * profile's gate adds (`x509-not-hex`, `x509-profile-refused`, `x509-mismatch`,
+ * `x509-bad-signature`) — are all statements about a signed document, and they pass
+ * through this class unchanged so that a caller reads exactly the name `enrollment.ts`
+ * produced. **No count is written here on purpose**: the sentence one paragraph down
+ * carries a number because it enumerates a union declared in this file, which a reader
+ * can check against the screen; this one describes a union declared in another package,
+ * where a number would be a claim with an expiry date.
  *
  * The five added below are about a **conversation**: the mismatch (`nodeKey-mismatch`),
  * the silence (`no-records`), the peer id that names no Ed25519 key
@@ -171,7 +176,7 @@ import type { Libp2p, PeerId } from '@libp2p/interface'
 /**
  * Why a peer is not a verified peer.
  *
- * The four `CertificateFailure` kinds arrive from `@o2/core` unchanged. The five below
+ * The `CertificateFailure` kinds arrive from `@o2/core` unchanged. The five below
  * are facts about the conversation rather than about the signed statement — see the
  * module comment for why they are not in the kernel, and for why the count in that
  * sentence has to move if this union does.
@@ -209,6 +214,13 @@ export type PeerVerdict =
  *   would have sent it.
  * - `untrusted-issuer` — signed by a provider this node does not pin. The anchor set is
  *   fixed at construction, so this cannot change without a new verifier.
+ * - the four X.509 kinds (`x509-not-hex`, `x509-profile-refused`, `x509-mismatch`,
+ *   `x509-bad-signature`), added 2026-08-11 with the profile's wiring. They are here for
+ *   `bad-signature`'s reason exactly: each is a fact about the document that was
+ *   presented, and a peer that could produce a certificate whose X.509 form held up would
+ *   have sent that one. Leaving them retryable would have spent one RPC per interval,
+ *   for the life of the connection, re-asking a peer that has already answered with a
+ *   certificate whose two halves say different things.
  *
  * **`expired` and `not-yet-valid` are deliberately absent**, though they are
  * `CertificateFailure`s like the last two. Both are statements about a clock rather than
@@ -230,6 +242,10 @@ const FINAL: ReadonlySet<PeerFailure['kind']> = new Set<PeerFailure['kind']>([
   'nodeKey-mismatch',
   'bad-signature',
   'untrusted-issuer',
+  'x509-not-hex',
+  'x509-profile-refused',
+  'x509-mismatch',
+  'x509-bad-signature',
 ])
 
 /**

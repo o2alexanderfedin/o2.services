@@ -331,6 +331,13 @@ function certificateToValue(certificate: NodeCertificate): CanonicalValue {
     expiresAt: certificate.expiresAt,
     issuer: certificate.issuer,
     signature: certificate.signature,
+    // Carried when present, omitted when absent — never `x509: null`. The certificate's
+    // own `payloadOf` (`enrollment.ts`) puts this field inside the issuer's signature by
+    // exactly the same conditional rule, so a wire encoding that added a key here, or
+    // dropped one, would produce a certificate that no longer verifies rather than one
+    // that quietly lost its X.509 form. The two rules have to match, and this comment is
+    // where a reader changing one is told about the other.
+    ...(certificate.x509 === undefined ? {} : { x509: certificate.x509 }),
   }
 }
 
@@ -358,6 +365,16 @@ export function parseCertificate(value: CanonicalValue | undefined): NodeCertifi
   const issuedAt = asFiniteNumber(record['issuedAt'])
   const expiresAt = asFiniteNumber(record['expiresAt'])
   if (relayIds === null || issuedAt === null || expiresAt === null) return null
+  // The X.509 form is optional on the type, so an absent key parses; a key holding
+  // anything other than a string refuses the whole frame rather than being dropped.
+  // Dropping it would be the fail-open this envelope's gate exists to refuse — and it
+  // would additionally be undetectable, because a certificate stripped of a field its
+  // issuer signed no longer verifies and the reader would be told `bad-signature` about
+  // a frame this parser had damaged. Nothing here judges the form's *contents*: that is
+  // `verifyCertificate`'s job, and this file's own rule is that a parser which also
+  // verified would tempt a caller to read "parsed" as "trusted".
+  const x509 = record['x509']
+  if (x509 !== undefined && typeof x509 !== 'string') return null
   return {
     nodeKey,
     userKey,
@@ -368,6 +385,7 @@ export function parseCertificate(value: CanonicalValue | undefined): NodeCertifi
     expiresAt,
     issuer,
     signature,
+    ...(x509 === undefined ? {} : { x509 }),
   }
 }
 

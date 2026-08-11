@@ -853,7 +853,24 @@ export interface X509Certificate {
 }
 
 export type X509Result =
-  | { readonly ok: true; readonly certificate: X509Certificate }
+  | {
+      readonly ok: true
+      readonly certificate: X509Certificate
+      /**
+       * The exact `TBSCertificate` DER a signature over this certificate is taken over —
+       * returned rather than left for a caller to re-slice, because a caller that
+       * computed those bytes itself would be a second, independent reading of the same
+       * grammar, and two readings of one grammar are how a verifier and a signer come to
+       * disagree about what was signed.
+       *
+       * Sound to hand back a *re-encoding* rather than a slice of the input because
+       * `decodeX509Certificate` only ever reaches this line after `checkDerCanonical`
+       * has proved the whole certificate byte-identical to its own canonical
+       * re-encoding (X509-03) — under which the re-encoded `TBSCertificate` is
+       * byte-identical to the region it was decoded from.
+       */
+      readonly tbsBytes: Uint8Array
+    }
   | { readonly ok: false; readonly failure: X509Failure; readonly reason: string }
 
 /** A human-readable account of a refusal, naming the offending value. Copies capability.ts's `describeFailure` shape. */
@@ -961,5 +978,5 @@ export function decodeX509Certificate(bytes: Uint8Array): X509Result {
     })
   }
 
-  return { ok: true, certificate }
+  return { ok: true, certificate, tbsBytes: encodeDer(tbsNode) }
 }

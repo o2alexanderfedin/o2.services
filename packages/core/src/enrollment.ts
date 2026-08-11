@@ -116,6 +116,9 @@ import { NotEncodableError, encodeCanonical } from './canonical/encode.ts'
 import type { CanonicalValue } from './canonical/encode.ts'
 import { fromHex, toHex } from './capability.ts'
 import type { PublicKeyHex } from './capability.ts'
+import { encodeX509Certificate, encodeX509Tbs } from './x509-encode.ts'
+import { decodeX509Certificate, describeX509Failure } from './x509.ts'
+import type { X509Failure } from './x509.ts'
 
 /**
  * **All nodes have equal functionality.** The only thing that varies is how a node can
@@ -174,6 +177,48 @@ export interface NodeCertificate {
   readonly expiresAt: number
   readonly issuer: PublicKeyHex
   readonly signature: string
+  /**
+   * The same statement, additionally carried as a DER-encoded X.509 v3 certificate —
+   * X509-01…07, hex.
+   *
+   * **Optional, and additive rather than a replacement**, which is 25-CONTEXT.md's own
+   * ruling: *"Coexists with the current envelope behind a version tag; X.509 is additive.
+   * … A hard replace would break every issued certificate and enrollment itself, for no
+   * gain this phase needs."* Its presence is the version tag — a certificate without one
+   * is exactly the certificate this repository has always issued, byte-for-byte, because
+   * `payloadOf` omits the key entirely when the field is absent rather than encoding a
+   * null.
+   *
+   * **Whoever hands you a certificate chooses whether this field is here, and that is
+   * precisely why the check on it is fail-closed.** A peer can attach any bytes it likes.
+   * `verifyCertificate` therefore refuses a certificate whose X.509 form does not decode
+   * under this profile, does not agree with the envelope field-for-field, or does not
+   * carry a signature the named issuer made over its own `TBSCertificate` — it never
+   * ignores it, never last-wins it, and never falls back to the envelope alone. Ignoring
+   * an unparseable form would make a *malformed* certificate more welcome than an
+   * *absent* one, which is backwards for a project whose posture everywhere else is
+   * refusal-by-default (`runJob` refuses a module with no pinned record; `serveAgent`
+   * refuses a sovereign `combine` by name; the relay admission gate refuses an unknown
+   * certificate). Owner ruling, 2026-08-11.
+   */
+  readonly x509?: string
+}
+
+/**
+ * The exact bytes a provider signs to make a certificate.
+ *
+ * **Exported since 2026-08-11, and the reason is worth stating rather than shrugging at.**
+ * The X.509 gate below refuses a certificate whose two envelopes disagree, and the case
+ * that makes that gate load-bearing rather than decorative is a *pinned provider* that
+ * signs a wrong X.509 form — a certificate whose envelope signature is perfectly valid.
+ * Nothing can construct one without these bytes. Deriving them a second time in a caller
+ * would be a second reading of the signed shape, and a signer and a verifier holding two
+ * readings of one shape is precisely the drift `encodeCanonical` exists to prevent. It is
+ * **not** exported from `@o2/core`'s barrel: a relying party has `verifyCertificate`, and
+ * this is the signing side's own detail.
+ */
+export function certificatePayload(certificate: Omit<NodeCertificate, 'signature'>): Uint8Array<ArrayBuffer> {
+  return payloadOf(certificate)
 }
 
 function payloadOf(certificate: Omit<NodeCertificate, 'signature'>): Uint8Array<ArrayBuffer> {
@@ -186,6 +231,13 @@ function payloadOf(certificate: Omit<NodeCertificate, 'signature'>): Uint8Array<
     issuedAt: certificate.issuedAt,
     expiresAt: certificate.expiresAt,
     issuer: certificate.issuer,
+    // Conditionally spread, never `x509: undefined`. Two reasons, and both are load-bearing.
+    // **Compatibility:** a certificate with no X.509 form must produce the byte-identical
+    // payload it produced before this field existed, or every certificate ever issued by
+    // this repository stops verifying. **Integrity:** when the form *is* present it is
+    // inside the issuer's own signature, so an attacker cannot graft a different X.509
+    // form onto somebody else's envelope and have the envelope still verify.
+    ...(certificate.x509 === undefined ? {} : { x509: certificate.x509 }),
   }
   const encoded = encodeCanonical(value)
   if (!encoded.ok) throw new NotEncodableError('certificate', encoded.error)
@@ -533,6 +585,25 @@ export interface AuthorityOptions {
    * construction sites against a hazard that does not exist.
    */
   readonly challengeTtlMs?: number
+  /**
+   * Whether this provider additionally mints the X.509 v3 form of every certificate it
+   * signs — {@link NodeCertificate.x509}, X509-01…07.
+   *
+   * **Defaults to omitting it, and the default is about wire cost rather than about
+   * confidence in the profile.** The X.509 form is ~550 bytes of DER carried as ~1100
+   * characters of hex, against a certificate that measures 612 DAG-CBOR bytes on an
+   * attested `exec` reply today (`net/src/protocol.ts`) — so issuing it unconditionally
+   * would roughly triple the per-reply certificate cost on a tier whose WebRTC data
+   * channel caps a message at 16 KiB. That is a price a provider should choose, not
+   * inherit.
+   *
+   * **The asymmetry with verification is deliberate and is the whole shape of the
+   * ruling.** Issuing is opt-in; *checking* is not. `verifyCertificate` refuses a
+   * malformed X.509 form on every certificate that carries one, whoever issued it and
+   * whatever this option says, because the peer presenting a certificate is the one who
+   * decides whether the field is there.
+   */
+  readonly x509?: 'issues-the-x509-form' | 'omits-the-x509-form'
 }
 
 /**
@@ -551,6 +622,7 @@ export class EnrollmentAuthority {
   /** The host's issuance history. **Not this object's** — see {@link IssuanceHistory}. */
   readonly #issuance: IssuanceLedger
   readonly #challengeTtlMs: number
+  readonly #issuesX509: boolean
   /**
    * Challenges minted and not yet spent: nonce → the instant it stops being spendable.
    *
@@ -580,6 +652,7 @@ export class EnrollmentAuthority {
     this.#windowMs = options.windowMs ?? DEFAULT_ISSUANCE_WINDOW_MS
     this.#lifetimeMs = options.certificateLifetimeMs ?? 30 * 24 * 3_600_000
     this.#challengeTtlMs = options.challengeTtlMs ?? ENROLLMENT_CHALLENGE_TTL_MS
+    this.#issuesX509 = options.x509 === 'issues-the-x509-form'
     this.#issuance =
       options.issuance === 'remembers-only-within-this-process'
         ? new InProcessIssuance()
@@ -811,7 +884,7 @@ export class EnrollmentAuthority {
       }
     }
 
-    const unsigned = {
+    const fields = {
       nodeKey: request.nodeKey,
       userKey: request.userKey,
       operatorId: request.operatorId,
@@ -821,6 +894,13 @@ export class EnrollmentAuthority {
       expiresAt: now + this.#lifetimeMs,
       issuer: this.#issuer,
     }
+    // Minted **before** the envelope signature, because the X.509 form is inside the
+    // payload that signature covers (see `payloadOf`). Signing first and attaching after
+    // would produce a certificate whose own issuer had not signed the form it carries —
+    // exactly the graft `verifyCertificate`'s gate exists to refuse.
+    const unsigned: Omit<NodeCertificate, 'signature'> = this.#issuesX509
+      ? { ...fields, x509: toHex(encodeX509Certificate(fields, ed25519.sign(encodeX509Tbs(fields), this.#privateKey))) }
+      : fields
     const certificate: NodeCertificate = {
       ...unsigned,
       signature: toHex(ed25519.sign(payloadOf(unsigned), this.#privateKey)),
@@ -840,10 +920,156 @@ export type CertificateFailure =
   | { readonly kind: 'bad-signature'; readonly nodeKey: PublicKeyHex }
   | { readonly kind: 'expired'; readonly expiresAt: number; readonly now: number }
   | { readonly kind: 'not-yet-valid'; readonly issuedAt: number; readonly now: number }
+  /**
+   * The certificate carries an X.509 form that is not hex at all — refused before a
+   * single byte is decoded, let alone parsed. Separate from `x509-profile-refused`
+   * because the profile never saw it: there were no bytes to hand it.
+   */
+  | { readonly kind: 'x509-not-hex' }
+  /**
+   * The X.509 form decoded far enough to be refused **by name** by the profile. The
+   * `profile` field carries `x509.ts`'s own typed refusal unchanged — this is where
+   * X509-01, 02, 03, 04, 06 and 07 surface on the trust path, and forwarding rather
+   * than re-describing is what keeps one vocabulary for one refusal.
+   */
+  | { readonly kind: 'x509-profile-refused'; readonly profile: X509Failure }
+  /**
+   * The X.509 form is a conformant certificate, but not a certificate about *this*
+   * node: some field disagrees with the envelope the issuer signed. `field` names which.
+   */
+  | { readonly kind: 'x509-mismatch'; readonly field: string; readonly envelope: string; readonly presented: string }
+  /** The X.509 form's own `signatureValue` is not a signature the named issuer made over its `TBSCertificate`. */
+  | { readonly kind: 'x509-bad-signature'; readonly nodeKey: PublicKeyHex }
 
 export type CertificateResult =
   | { readonly ok: true; readonly certificate: NodeCertificate }
   | { readonly ok: false; readonly failure: CertificateFailure; readonly reason: string }
+
+/** A human-readable account of a refusal about the X.509 form, naming the offending value. */
+function describeX509CertificateFailure(failure: CertificateFailure): string {
+  switch (failure.kind) {
+    case 'x509-not-hex':
+      return 'the certificate carries an x509 field that is not lowercase hex of even length'
+    case 'x509-profile-refused':
+      return `the certificate's X.509 form is refused by this profile: ${describeX509Failure(failure.profile)}`
+    case 'x509-mismatch':
+      return `the certificate's X.509 form disagrees with the envelope about ${failure.field}: envelope says ${failure.envelope}, the X.509 form says ${failure.presented}`
+    case 'x509-bad-signature':
+      return `the X.509 form for ${failure.nodeKey} is not signed by the issuer that signed the envelope`
+    default:
+      // Unreachable: this describer is only ever called with the four kinds above. Kept
+      // total rather than cast, so a fifth X.509 kind added later cannot silently return
+      // an empty string.
+      return `certificate refused: ${failure.kind}`
+  }
+}
+
+/**
+ * The X.509 form's gate — **fail-closed**, X509-01…07's production caller.
+ *
+ * ## Why a refusal and never a shrug
+ *
+ * A certificate arrives from a stranger, and the stranger chooses whether to attach an
+ * X.509 form. Three answers were available for one that does not hold up: ignore the
+ * field and verify the envelope alone; prefer whichever half verifies; or refuse the
+ * certificate outright. The first two are fail-open, and taking either would make this
+ * the **only** place in the project where a *malformed* certificate is treated more
+ * leniently than an *absent* one — while `runJob` refuses a module with no pinned
+ * record, `serveAgent` refuses a sovereign `combine` by name, and the relay admission
+ * gate refuses a certificate it does not recognise. Owner ruling, 2026-08-11: refuse.
+ * The decoder is bounded and hand-written precisely so that refusing is cheap and total.
+ *
+ * ## What this catches that the envelope signature does not — the case that makes it
+ * load-bearing rather than decorative
+ *
+ * `payloadOf` puts `x509` inside the issuer's own signature, so a *stranger* who edits
+ * the form breaks the envelope signature too, and would be refused a step later anyway.
+ * That is not the case this gate is for. The case it is for is a **pinned issuer whose
+ * X.509 form is wrong** — malformed, or saying something different from the envelope it
+ * is stapled to. That certificate's envelope signature verifies perfectly, every existing
+ * check passes, and only this gate notices that the two halves of one statement disagree.
+ * A provider is pinned to be believed about *who a node is*; it is not pinned to be
+ * well-formed. And the relying party that matters most cannot check the envelope at all:
+ * a third party handed only the DER has nothing but this profile, which is the whole
+ * reason the profile has to be load-bearing.
+ *
+ * ## Order inside the gate, and why it is this order
+ *
+ * The profile decode runs **first**, so all six refusal obligations surface by their own
+ * name rather than as a generic disagreement, and so `MAX_CERTIFICATE_BYTES` bounds the
+ * parse before any recursive descent happens — the same "cheapest refusal first" ordering
+ * `MAX_CHAIN_DEPTH` established at `capability.ts:186-192`. Field agreement runs second,
+ * because a conformant certificate about the wrong node is a different complaint from a
+ * malformed one. The whole-`TBSCertificate` byte comparison runs third as the catch-all
+ * for everything the named fields do not cover — `version`, `serialNumber`, and any
+ * encoding difference the profile permits. The X.509 signature runs **last**, because it
+ * is the only expensive step and there is no reason to pay for it over bytes already
+ * known not to describe this node.
+ */
+function checkX509Form(certificate: NodeCertificate): CertificateFailure | null {
+  const { x509 } = certificate
+  if (x509 === undefined) return null
+
+  if (x509.length % 2 !== 0 || !/^[0-9a-f]*$/.test(x509)) return { kind: 'x509-not-hex' }
+  const decoded = decodeX509Certificate(fromHex(x509))
+  if (!decoded.ok) return { kind: 'x509-profile-refused', profile: decoded.failure }
+
+  const presented = decoded.certificate
+  // Whole seconds, because UTCTime carries no milliseconds and the encoder truncates.
+  // Comparing at full precision would refuse every certificate whose `issuedAt` is not
+  // exactly on a second — i.e. essentially all of them.
+  const second = (ms: number): number => Math.floor(ms / 1000) * 1000
+  const relayIds = [...certificate.relayIds].sort()
+
+  const disagreements: readonly (readonly [string, string, string])[] = [
+    ['subjectPublicKey', certificate.nodeKey, presented.subjectPublicKey],
+    ['subject commonName', certificate.nodeKey, presented.subjectCommonName],
+    ['issuer commonName', certificate.issuer, presented.issuerCommonName],
+    ['userKey', certificate.userKey, presented.userKey],
+    ['operatorId', certificate.operatorId, presented.operatorId],
+    ['discoverability', certificate.discoverability, presented.discoverability],
+    ['relayIds', relayIds.join(' '), [...presented.relayIds].join(' ')],
+    ['notBefore', String(second(certificate.issuedAt)), String(presented.notBefore)],
+    ['notAfter', String(second(certificate.expiresAt)), String(presented.notAfter)],
+  ]
+  for (const [field, envelope, shown] of disagreements) {
+    if (envelope !== shown) return { kind: 'x509-mismatch', field, envelope, presented: shown }
+  }
+
+  // Rebuilt from the envelope and compared byte-for-byte. This is what covers everything
+  // the named fields above do not — and it is only sound because `encodeX509Tbs` is the
+  // one encoder both sides use, so "what this node would have signed" and "what the
+  // issuer did sign" are one tree serialized by one function rather than two readings of
+  // one grammar that have to be trusted to agree.
+  const expected = encodeX509Tbs({
+    nodeKey: certificate.nodeKey,
+    userKey: certificate.userKey,
+    operatorId: certificate.operatorId,
+    discoverability: certificate.discoverability,
+    relayIds,
+    issuedAt: certificate.issuedAt,
+    expiresAt: certificate.expiresAt,
+    issuer: certificate.issuer,
+  })
+  if (toHex(expected) !== toHex(decoded.tbsBytes)) {
+    return {
+      kind: 'x509-mismatch',
+      field: 'tbsCertificate bytes',
+      envelope: `${expected.length} bytes re-encoded from the envelope`,
+      presented: `${decoded.tbsBytes.length} bytes presented`,
+    }
+  }
+
+  let valid = false
+  try {
+    valid = ed25519.verify(fromHex(presented.signature), decoded.tbsBytes, fromHex(certificate.issuer))
+  } catch {
+    valid = false
+  }
+  if (!valid) return { kind: 'x509-bad-signature', nodeKey: certificate.nodeKey }
+
+  return null
+}
 
 /**
  * Verify a node certificate **offline**, against pinned provider keys.
@@ -862,6 +1088,15 @@ export function verifyCertificate(
       failure: { kind: 'untrusted-issuer', issuer: certificate.issuer },
       reason: `certificate issued by ${certificate.issuer}, which is not a pinned provider`,
     }
+  }
+
+  // The X.509 form, before any signature work — see `checkX509Form` for the ruling this
+  // ordering carries. Above the envelope signature specifically because the profile's
+  // ceilings are the cheapest refusal available here, and because a certificate whose two
+  // halves disagree must not be able to pass on the strength of one of them.
+  const x509Failure = checkX509Form(certificate)
+  if (x509Failure) {
+    return { ok: false, failure: x509Failure, reason: describeX509CertificateFailure(x509Failure) }
   }
 
   // Above the `try`, not inside it — `payloadOf` throws `NotEncodableError` by
