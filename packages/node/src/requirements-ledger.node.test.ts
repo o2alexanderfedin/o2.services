@@ -605,12 +605,21 @@ const UNREACHED = ROWS.filter((row) => UNREACHED_VERDICTS.includes(row.verdict))
  *   measured over public shards, so nothing distinguished a map that moved data from one
  *   that did not. `AOT-03` and `BENCH-06` — a cross-machine half descoped and unmeasured.
  *   No call-site search can hold "this was never tried".
- * - **A statement about which entry point, not which caller.** `NET-06`, `SCHED-05`,
- *   `AOT-05`, `MR-03`…`MR-07`. The symbol has callers and the row says so; what is open
- *   is that the caller is behind a flag, or is a test rather than a page, or is one of
- *   two merge paths. `SCHED-05` is the clearest: `eligibleNodes` is called by both
+ * - **A statement about which entry point, not which caller.** `NET-06`, `AOT-05`,
+ *   `MR-03`…`MR-07`. The symbol has callers and the row says so; what is open is that the
+ *   caller is behind a flag, or is a test rather than a page, or is one of two merge paths.
+ *
+ *   **`SCHED-05` was the clearest example of this bucket and is no longer in it, which is
+ *   worth keeping rather than deleting.** It read: *`eligibleNodes` is called by both
  *   placers, and the open leg is that no entry point ever labels a shard `sovereign` — a
- *   claim about an *argument value*, which this file does not read.
+ *   claim about an argument value, which this file does not read.* Every clause of that is
+ *   still true of the mechanism and the middle one stopped being true of the tree in Phase
+ *   23, when `bin/bench.ts` began submitting `label: 'sovereign'`. So the entry sat here,
+ *   correctly exempt from a call-site check, while the row it exempted went stale in the
+ *   one way a call-site check could never have caught — **which is what this list is for
+ *   and also its whole cost**: an id here is a promise to re-read the row by hand, and that
+ *   promise went unkept for five days. The row is `Done` as of 2026-08-11 and the id is
+ *   gone from the list below.
  *
  *   **`VER-08` and `AUTH-05` were here for one day and are not any more, which is the
  *   whole lifecycle this list is supposed to have.** Both carried a checkable claim —
@@ -708,7 +717,13 @@ const WITHOUT_A_CHECKABLE_CLAIM: readonly string[] = [
   'NET-03',
   'NET-06',
   'SCHED-04',
-  'SCHED-05',
+  // `SCHED-05` was here until 2026-08-11 and is REMOVED because the row is now `Done`, so
+  // it has left the *unreached* population entirely. It is the second way out of this list
+  // that the rule allows — the first being a row acquiring a checkable claim — and the set
+  // equality below is what makes the removal compulsory rather than optional. Its entry was
+  // the clearest example in the "argument value" bucket: `eligibleNodes` was called by both
+  // placers and the open leg was that nothing ever passed `label: 'sovereign'`. Phase 23
+  // passed it.
   // `MR-02` was here until 2026-08-11 and is now REMOVED, which is the direction this
   // list is supposed to move in: its row used to say only that Phase 16 had run the
   // aggregation over public shards, which names no symbol this file can resolve. It now
