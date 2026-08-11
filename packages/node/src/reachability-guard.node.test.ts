@@ -58,12 +58,23 @@ import {
  * script is ever extracted, this anchor and the `global-object-hop` register go red together, and
  * both are meant to.
  *
- * ## What is deliberately absent
+ * ## What is deliberately absent — with one id, and the exception is the rule working
  *
- * No requirement id appears in any title in this file. `acceptance-traceability.node.test.ts`
- * counts a title naming an id as strong traceability, and manufacturing that from a guard which
- * asserts nothing about WIRE-02's *behaviour* would corrupt its measurement.
- * `requirements-ledger.node.test.ts` makes the same choice for the same reason.
+ * No requirement id appears in any title here **except `CRYPTO-03`**.
+ * `acceptance-traceability.node.test.ts` counts a title naming an id as strong traceability, and
+ * manufacturing that from a guard which asserts nothing about WIRE-02's *behaviour* would corrupt
+ * its measurement; `requirements-ledger.node.test.ts` makes the same choice for the same reason.
+ * WIRE-02 asks that built capabilities be **wired**, and nothing in this file measures wiring, so
+ * a WIRE-02 title would be a claim this file cannot support.
+ *
+ * `CRYPTO-03` is different in kind, not in degree. Its wording is *"the certificate-lifecycle
+ * facades are **ledgered** under the entry-point-reachability convention rather than existing as
+ * real-but-uncounted code"* — a requirement **about this convention**, whose subject is counting
+ * rather than behaviour. The block at the bottom of this file is its whole mechanism: it names
+ * the module, bounds the population it belongs to, and holds the barrel decision still. A title
+ * carrying that id reports what actually failed, which is the property the rule above protects.
+ * **The rule is not weakened**: an id may appear here only when the thing this file measures —
+ * reachability — *is* the requirement, and CRYPTO-03 is the first and so far only one that is.
  */
 
 const ROOT = fileURLToPath(new URL('../../..', import.meta.url))
@@ -297,14 +308,24 @@ describe('the guard cannot report clean because it looked at nothing', () => {
     // MR-02's sovereign aggregation arm. It is uncalled because no rig here stands up two
     // owners; `reachability-dispositions.ts`'s `OPEN_FINDING_CEILING` note carries the
     // measurement and why a disposition would be the wrong shape for it.
+    //
+    // **Lowered 74 → 72, measured 2026-08-11, and this one IS wiring** — the first lowering in
+    // this note's history that is. `core/decodeX509Certificate` and `core/describeX509Failure`
+    // arrived undisposed when Plan 25-02 barrel-exported `x509.ts` (the 73 → 75 raise above), and
+    // both now have a production caller: `checkX509Form` in `packages/core/src/enrollment.ts`
+    // decodes the presented form and describes its refusal, fail-closed, on the trust path.
+    // **Measured, not derived**: this ceiling was set to 0 and the guard reported 72, naming all
+    // seventy-two with the two symbols visibly absent. The assertion message below says a LOWER
+    // reading means the ceiling comes down; this is that, taken rather than left as slack, and
+    // 74 − 2 also being 72 was not accepted as the proof.
     const found = unreachableExports(corpus(), graph(), ROOT)
     expect(
       found.length,
       `the guard found ${found.length} unreachable callable barrel exports; the reading recorded ` +
-        'on 2026-08-11 was 74. A HIGHER number means a new exported-but-uncalled symbol arrived — ' +
+        'on 2026-08-11 was 72. A HIGHER number means a new exported-but-uncalled symbol arrived — ' +
         `run the guard and read the list. A LOWER number is wiring work landing and the ceiling ` +
         'should be lowered to match it, which is 22-03\'s register rather than an edit here.',
-    ).toBeLessThanOrEqual(74)
+    ).toBeLessThanOrEqual(72)
   }, GRAPH_TIMEOUT_MS)
 
   it('separates findings that have callers from findings that have none', () => {
@@ -502,5 +523,149 @@ describe('the disposition register describes the tree, or it reddens', () => {
     if (first === undefined || line === undefined) return
     expect(line).toContain(first.symbol)
     expect(line).toContain(`@o2/${first.barrel}`)
+  }, GRAPH_TIMEOUT_MS)
+})
+
+// ---------------------------------------------------------------------------
+// CRYPTO-03 — the blind spot above the barrel, and the price of closing it
+// ---------------------------------------------------------------------------
+
+/**
+ * How many production modules nothing in the production corpus imports.
+ *
+ * Sited at **27**, measured 2026-08-11 at `afe4df6`, by the predicate in
+ * {@link orphanModules} — read off the graph, not counted by hand.
+ *
+ * **A ceiling, on the same terms as `OPEN_FINDING_CEILING`: lowering it is the work, raising
+ * it needs a reason written beside it.** The population is deliberately not disposed
+ * entry-by-entry. `reachability-dispositions.ts`'s rule is that a disposition is granted on a
+ * *mechanism the graph cannot see*, and these 27 have at least four different mechanisms
+ * between them — build configuration (`browser/vite.config.ts`), test-only instruments
+ * (`node/reachability.ts`, `node/strip-comments.ts`, `node/mutation-guard.mutate.ts`,
+ * `aot/src/fixtures/*`), runnable modules deliberately outside {@link ENTRY_POINTS}
+ * (`tools/aot/bench-lifted.ts`, `tools/aot/measure-wasi.ts`, and the three named in that
+ * constant's own docblock), and genuinely-unwired production code. Writing 27 causes from a
+ * reading is the failure mode this file's `global-object-hop` case exists to refuse. The count
+ * is held still instead, which is what stops a 28th arriving unnoticed.
+ */
+const ORPHAN_MODULE_CEILING = 27
+
+/**
+ * The certificate-lifecycle module, by path — CRYPTO-03's whole subject.
+ *
+ * It is here rather than in the open-findings list because it reaches **no barrel at all**, and
+ * the guard above walks barrel exports. That is the blind spot this block closes.
+ */
+const CERT_LIFECYCLE = 'packages/core/src/cert-lifecycle.ts'
+
+/** A module that is in the corpus, is not an entry point, and that nothing else imports. */
+function orphanModules(built: CallGraph): string[] {
+  const imported = new Set<string>()
+  for (const [, targets] of built.imports) for (const target of targets) imported.add(target)
+  return built.files.filter((file) => !imported.has(file) && !ENTRY_POINTS.includes(file)).sort()
+}
+
+/** Every barrel export whose declaration sits in `file`, however it got onto the barrel. */
+function barrelExportsDeclaredIn(file: string): ClassifiedExport[] {
+  const suffix = `/${file}`.toLowerCase()
+  return corpus().filter((one) => one.declaredIn.toLowerCase().endsWith(suffix))
+}
+
+describe('CRYPTO-03 — a module that reaches no barrel is counted, not invisible', () => {
+  /**
+   * **The guard above cannot see this module, and that is the defect — not an omission here.**
+   *
+   * `unreachableExports` walks *barrel exports*. `cert-lifecycle.ts` publishes nothing to
+   * `@o2/core`'s barrel, so its 775 lines, four facades and three factories are outside that
+   * guard's jurisdiction entirely: every case in this file passes with the module present and
+   * passes with it deleted. That is a strictly worse position than an uncalled barrel export,
+   * which at least gets counted — and `.planning/REQUIREMENTS.md`'s CRYPTO-03 names it exactly
+   * so: *"real-but-uncounted code"*.
+   *
+   * The predicate is import-based rather than reachability-based on purpose. Reachability from
+   * {@link ENTRY_POINTS} answers 33 on this tree and cascades — one unimported module drags its
+   * whole subtree in, so the count moves for reasons that are not about the module that moved.
+   * *"Nothing imports it"* is local, and it is the property that makes a module uncounted.
+   *
+   * **The graph's file set is production-only** — measured 2026-08-11 as 157 files, of which
+   * zero match `.test.`, so no spec's import of `cert-lifecycle.ts` can rescue it here. Its one
+   * importer in the repository *is* a spec, which is precisely why it reads orphan.
+   */
+  it('names cert-lifecycle.ts among the modules nothing imports', () => {
+    const orphans = orphanModules(graph())
+    expect(
+      orphans,
+      'CRYPTO-03: the certificate-lifecycle facades are ledgered here because they reach no ' +
+        'barrel. If this module gains a production importer, that is wiring landing — delete ' +
+        'this expectation and re-decide the row rather than editing around it.',
+    ).toContain(CERT_LIFECYCLE)
+    expect(
+      orphans.length,
+      `${orphans.length} production modules have no production importer, against a ceiling of ` +
+        `${ORPHAN_MODULE_CEILING}. A HIGHER number means a new uncounted module arrived: ${orphans.join(', ')}`,
+    ).toBeLessThanOrEqual(ORPHAN_MODULE_CEILING)
+  }, GRAPH_TIMEOUT_MS)
+
+  it('is a predicate that separates, not one that matches everything', () => {
+    // Anti-vacuity, and it is the whole case. A predicate that returned every file would satisfy
+    // the `toContain` above perfectly while measuring nothing at all. `capability.ts` is imported
+    // by `enrollment.ts` and by the barrel; `ed25519-backend.ts` is imported by `cert-lifecycle.ts`
+    // and by the barrel. Both must stay out, and the population must stay well under the corpus.
+    //
+    // **Watched red, 2026-08-11, not reasoned about.** `!imported.has(file)` was planted to
+    // `file !== ''` — the predicate that matches everything — and this case failed with
+    // `expected [ …(152) ] to not include 'packages/core/src/capability.ts'` while the ceiling
+    // case reported `152 production modules have no production importer, against a ceiling of 27`.
+    // The `toContain` above stayed green under that plant, which is exactly why this case is
+    // separate from it. Restored by the surgical inverse; `cmp` exit 0.
+    const orphans = orphanModules(graph())
+    expect(orphans).not.toContain('packages/core/src/capability.ts')
+    expect(orphans).not.toContain('packages/core/src/ed25519-backend.ts')
+    expect(orphans.length).toBeGreaterThan(0)
+    expect(orphans.length).toBeLessThan(graph().files.length / 2)
+  }, GRAPH_TIMEOUT_MS)
+
+  /**
+   * The owner non-decision, held by a check rather than by a comment.
+   *
+   * **The price was measured on 2026-08-11, not projected**, which is the correction this case
+   * carries: the facades were exported into `packages/core/src/index.ts`, both ceilings set to 0,
+   * the guard run, and the exports removed and `cmp`-verified against a pre-plant snapshot. Read
+   * within one run — 72 → **79** unreachable callable barrel exports, and 36 → **43** open
+   * findings. **The price is +7, not the +12 the barrel's own comment has carried since Plan
+   * 28-01**, and the seven are named by the guard: `core/Subject`, `core/Issuer`,
+   * `core/Verifier`, `core/Directory`, `core/createSubject`, `core/createIssuer`,
+   * `core/createVerifier`.
+   *
+   * **+7 is a lower bound on the uncounted surface, and the two symbols that make it one were
+   * measured too.** `signCertificate` and `deriveKeySeeds` are callable exports of the same
+   * module that do **not** become findings, because the graph reports their in-module callers —
+   * `#generate`, `#deriveFromPassphrase` and `#issue`, all methods of the unreached facade
+   * classes — as reached, so the two functions inherit a reachability their callers do not have
+   * in production. That is this guard's known over-connection direction, named in the file
+   * docblock above, showing up on a concrete pair. `ARGON2_PARAMS` is the third absentee and is a
+   * different reason: a `const` is `other-value`, never `callable`, and was never in
+   * jurisdiction — the same arithmetic that made `x509.ts`'s five new exports move the count by
+   * two.
+   */
+  it('holds the certificate-lifecycle facades off the barrel, at a measured price', () => {
+    expect(
+      barrelExportsDeclaredIn(CERT_LIFECYCLE).map((one) => `${one.barrel}/${one.name}`).sort(),
+      'the certificate-lifecycle facades are on a barrel. Measured 2026-08-11, that costs +7 ' +
+        'unreachable callable exports (72 → 79) and +7 open findings (36 → 43), and it takes an ' +
+        'owner non-decision by side effect. Both ceilings must move with it, and the reason goes ' +
+        'in REQUIREMENTS.md CRYPTO-03 rather than here.',
+    ).toEqual([])
+
+    // The other half, and without it the case above is satisfiable by a broken path match. The
+    // sibling module IS barrel-exported, so the same predicate must find its five callables.
+    //
+    // **Watched red, 2026-08-11.** `barrelExportsDeclaredIn`'s suffix was planted to
+    // `` `/${file}.PLANTED` `` — a path nothing on disk matches — and this line alone failed,
+    // `expected 0 to be greater than or equal to 5`, with the `toEqual([])` above passing
+    // vacuously beside it. That is the failure this assertion exists for, observed rather than
+    // argued. Restored by the surgical inverse; `cmp` exit 0.
+    const sibling = barrelExportsDeclaredIn('packages/core/src/ed25519-backend.ts')
+    expect(sibling.filter((one) => one.kind === 'callable').length).toBeGreaterThanOrEqual(5)
   }, GRAPH_TIMEOUT_MS)
 })

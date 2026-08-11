@@ -328,8 +328,32 @@ export const DISPOSITIONS: readonly Disposition[] = [
  * a disposition is granted on a *mechanism* the graph cannot see, and there is no mechanism here
  * — the symbol is genuinely uncalled. It is measured, across real `bin/agent.ts` processes, by
  * `sovereign-aggregation.node.test.ts`; measured is not wired, and this ceiling says so.
+ *
+ * ## Lowered 38 → 36, measured 2026-08-11 — and this one is WIRING, not a reclassification
+ *
+ * Every prior movement in this note was a raise, a removal, or a correction of what the count was
+ * *of*. This is the first that is the work itself. `core/decodeX509Certificate` and
+ * `core/describeX509Failure` were raised into this residue by the 47 → 49 note above, on the
+ * explicit ground that *"this phase does not wire the decoder into enrollment, issuance, or the
+ * demo"*. It is wired now: `checkX509Form` in `packages/core/src/enrollment.ts` calls both — the
+ * decoder to parse a presented certificate and the describer to name its refusal — fail-closed,
+ * on the trust path. Both symbols leave the open list because they have a production caller, not
+ * because anything about them was reclassified.
+ *
+ * **Measured, not derived.** This ceiling was set to 0 and the guard reported *"36 unreachable
+ * callable barrel exports carry no disposition"*, naming all thirty-six with the two visibly
+ * absent. 38 − 2 is also 36 and the agreement was not taken as the proof — the 49 → 47 note above
+ * records why that coincidence is refused here as a matter of habit.
+ *
+ * **This is where the count of the facades is NOT.** `packages/core/src/cert-lifecycle.ts`
+ * publishes nothing to any barrel, so its four facades and three factories were never in this
+ * population and no edit here can put them in one. They are ledgered by
+ * `reachability-guard.node.test.ts`'s *"a module that reaches no barrel is counted, not
+ * invisible"* block, which measures the price of moving them here — **+7, read within one run on
+ * 2026-08-11, not the +12 that had been projected** — and holds them out until an owner decides
+ * otherwise.
  */
-export const OPEN_FINDING_CEILING = 38
+export const OPEN_FINDING_CEILING = 36
 
 /**
  * How large the register may grow before something reddens.
