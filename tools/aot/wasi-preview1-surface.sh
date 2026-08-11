@@ -181,6 +181,15 @@ SMOKE_SHA=$(sha256sum "$OUT/smoke.wasm" | cut -d' ' -f1)
 # one and a report that depends on `jq` being installed is a report that silently stops
 # existing. `sysroots` is built from a space-separated list into a JSON array by hand for the
 # same reason.
+#
+# `image` is the digest the CALLER passed in as `IMAGE_DIGEST`, echoed back so the host-side
+# spec can assert the report it is reading came out of the pinned image rather than out of
+# whatever `docker run` happened to resolve. Matches `elflift-wasi-gate.sh`'s own `image`
+# field, including its `unrecorded` fallback, so the two harnesses cannot disagree about the
+# name of the thing they measured. Without it the surface spec could only assert its own
+# constant against a regex, which is a statement about the constant and not about the run.
+IMAGE_DIGEST_ECHO="${IMAGE_DIGEST:-unrecorded}"
+
 SYSROOTS_JSON=""
 FIRST=1
 for s in $SYSROOTS; do
@@ -191,6 +200,7 @@ done
 
 cat > "$OUT/surface.json" <<JSON
 {
+  "image": "$IMAGE_DIGEST_ECHO",
   "wasiSdkPath": "$WASI_SDK_PATH",
   "clangVersion": "$CLANG_VERSION",
   "targetTriple": "$TARGET_TRIPLE",

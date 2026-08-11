@@ -517,6 +517,13 @@ describe.skipIf(MISSING !== null)(
       // `elfconv-differential.node.test.ts:114-122` uses for the same reason: a report over
       // zero attempted TUs, or over a cmake that failed, would make every reading beneath it
       // an artefact of an instrument that did not run.
+      // EQUALITY, not shape. `toMatch(/@sha256:…/)` alone would pass against any digest at
+      // all, which makes it a check that the caller passed *a* digest rather than a check
+      // that this report came out of THE pinned one — and `.planning/REQUIREMENTS.md`'s
+      // AOTW-01 row says "asserted equal to it at run time". The shape assertion is kept
+      // beneath it because it is the one that names the failure when `IMAGE` itself is
+      // repointed at a mutable tag through `ELFCONV_IMAGE_DIGEST`.
+      expect(gate.image).toBe(IMAGE)
       expect(gate.image).toMatch(/@sha256:[0-9a-f]{64}$/)
       expect(gate.clangVersion).toContain('wasi-sdk')
       expect(gate.cmakeExit).toBe(0)

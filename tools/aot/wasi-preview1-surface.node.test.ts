@@ -139,6 +139,7 @@ interface ProbeEntry {
 }
 
 interface Surface {
+  readonly image: string
   readonly wasiSdkPath: string
   readonly clangVersion: string
   readonly targetTriple: string
@@ -306,6 +307,10 @@ describe.skipIf(MISSING !== null)(
           'run',
           '--rm',
           '-i',
+          // The digest goes IN so it can be read back OUT of the report — see the `image`
+          // assertion below and `elflift-wasi-gate.node.test.ts`, which does the same.
+          '-e',
+          `IMAGE_DIGEST=${IMAGE}`,
           '-v',
           `${out}:/out`,
           '--entrypoint',
@@ -337,6 +342,15 @@ describe.skipIf(MISSING !== null)(
       // First, because everything below is a statement about WHICH compiler was measured. A
       // report naming a host clang would make every symbol reading foreign.
       expect(IMAGE).toMatch(/@sha256:[0-9a-f]{64}$/)
+      // And the report is asserted EQUAL to it, which the line above cannot do: a constant
+      // matched against a regex is a statement about the constant, with no run-time reading
+      // behind it — it would pass identically if the container had never been given the
+      // digest at all. `image` is the digest this spec passed in as `IMAGE_DIGEST` and the
+      // harness echoed back, so this is the report saying which image produced it. Added
+      // 2026-08-10 to make `.planning/REQUIREMENTS.md`'s AOTW-01 wording ("the report's own
+      // `image` field is asserted equal to it at run time") true of BOTH harnesses rather
+      // than of the gate alone.
+      expect(report.image).toBe(IMAGE)
       expect(report.clangVersion).toContain('wasi-sdk')
       expect(report.targetTriple).toContain('wasm32')
       expect(report.wasiSdkPath).toMatch(/^\/root\/wasi-sdk/)
