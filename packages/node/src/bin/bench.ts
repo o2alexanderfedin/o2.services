@@ -1551,6 +1551,27 @@ async function realFabric(
 
         const shard = dispatched.ok ? dispatched.job.shards[0] : undefined
         const agreed = shard?.verification.status === 'agreed' ? 1 : 0
+
+        // **VER-09's display half, taken on the sovereign path — the reading that row was
+        // held open for.** The three surfaces that render a strength today (this driver's
+        // per-rung lines, the demo's receipt panel, and `ShardResult` read in a spec) had
+        // between them only ever shown one for a **public** job at `redundancy: 1`. VER-09
+        // is about an owner with fewer than two live nodes, and `classifyAttestation`
+        // computes the label for both cases from one expression — so the mechanism was
+        // shared and the *reading* was not, which is what "unmeasured is not met" means
+        // here. This shard is owner-pinned, runs on the one node that holds the row, and is
+        // dispatched at `redundancy: 1` for the reason stated below it.
+        //
+        // Printed **before** the leg's own line and **before** the zero-refusal below, so
+        // that a leg which is about to throw still says what the fabric attested. A reader
+        // handed a failure with no receipt has to re-run to learn whether the shard was
+        // never placed or placed and unaccounted for.
+        process.stdout.write(
+          `--sovereign attestation: ${
+            shard === undefined ? 'no shard returned, so there was nothing to attest' : strengthReading(shard.attestation)
+          }\n`,
+        )
+
         process.stdout.write(
           `--sovereign: ${String(agreed)} of 1 sovereign shards agreed,` +
             ` chain rooted at ${BENCH_OWNER_KEY.slice(0, 8)},` +
@@ -1769,21 +1790,37 @@ function attestationReading(held: RungAttestation | NoJobToAttest): {
   const population = held.fromCompletedRun
     ? 'first completed run'
     : 'no run of this rung completed; first job it returned'
-  const { attestation } = held
+  return { population, reading: strengthReading(held.attestation) }
+}
+
+/**
+ * One receipt, rendered — VER-09, VER-10.
+ *
+ * **Factored out of {@link attestationReading} on 2026-08-11, and the reason is VER-09's
+ * own open clause rather than tidiness.** Every reading this driver had ever taken of a
+ * strength was of a **public** rung; VER-09 is about the *sovereign* path — an owner with
+ * fewer than two live nodes, whose task runs once and is recorded owner-attested rather
+ * than verified — and no surface anywhere had ever shown that label for an owner-pinned
+ * shard. The `--sovereign` leg is the one place in this repository where a runnable entry
+ * point dispatches one, so the line is printed there, and it is printed **through this
+ * function** rather than composed beside it: two renderings of one receipt is how the two
+ * surfaces come to describe one result differently, which is the failure `attestationReading`
+ * already records about itself.
+ *
+ * The words are still the kernel's. `attestationReceipt` fills `description` from
+ * `describeAttestation`, and nothing here composes a sentence of its own.
+ */
+function strengthReading(attestation: ShardAttestation): string {
   if ('kind' in attestation) {
-    return {
-      population,
-      reading:
-        `none established (agreeing ${attestation.agreeing}, verified ${attestation.verified}) — ` +
-        attestation.reason,
-    }
+    return (
+      `none established (agreeing ${attestation.agreeing}, verified ${attestation.verified}) — ` +
+      attestation.reason
+    )
   }
-  return {
-    population,
-    reading:
-      `${attestation.strength} (replicas ${attestation.replicas},` +
-      ` operators ${attestation.operators.length}) — ${attestation.description}`,
-  }
+  return (
+    `${attestation.strength} (replicas ${attestation.replicas},` +
+    ` operators ${attestation.operators.length}) — ${attestation.description}`
+  )
 }
 
 /**

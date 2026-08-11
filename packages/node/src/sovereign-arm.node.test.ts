@@ -6,7 +6,7 @@ import { join } from 'node:path'
 import type { Readable, Writable } from 'node:stream'
 import { fileURLToPath } from 'node:url'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { delegate } from '@o2/core'
+import { delegate, describeAttestation } from '@o2/core'
 
 /**
  * `bin/bench.ts --discover --sovereign` is executed, and the leg's own line is read.
@@ -127,6 +127,15 @@ interface LegReading {
   readonly audience: string
   /** Whether the `--discover:` line appeared too — the arm this leg rides. */
   readonly discovered: boolean
+  /**
+   * The attestation line the leg prints for its **owner-pinned** shard — VER-09.
+   *
+   * `null` when no such line arrived, which is a failure and not an absence: the driver
+   * prints it unconditionally once the shard has been read, including on the arm that is
+   * about to throw. Kept nullable so a missing line fails at an assertion naming it rather
+   * than at a regex returning `undefined` two frames away.
+   */
+  readonly attestation: string | null
 }
 
 /** The leg's own sentence, parsed back out of it rather than restated here. */
@@ -135,6 +144,33 @@ const LEG_LINE =
 
 /** The discover arm's sentence, read only for its presence. */
 const DISCOVER_LINE = /^--discover: \d+ of \d+ workers qualified from \d+ providers/
+
+/**
+ * The leg's receipt line — VER-09.
+ *
+ * Captures the whole tail rather than the strength word alone, so the replica and operator
+ * counts and the kernel's own sentence are all asserted from one reading. A pattern that
+ * matched only `owner-attested` would pass over a line reporting that label beside
+ * `replicas 2`, which is a different claim about a different job.
+ */
+const ATTESTATION_LINE = /^--sovereign attestation: (.+)$/
+
+/**
+ * The receipt the leg must print — VER-09.
+ *
+ * Composed here from `describeAttestation`, imported from `@o2/core`, rather than
+ * transcribed from a run. That is the same move `EXPECTED_ROOT` makes one constant up: the
+ * assertion then compares the driver's output against a value **this file derived**, so a
+ * driver that stopped reading `ShardResult.attestation` and started printing a string of
+ * its own would have to reproduce the kernel's sentence exactly in order to pass.
+ *
+ * The two counts are literals and are the honest ones for this leg, not a transcription
+ * either: the leg submits one owner-pinned shard at `redundancy: 1` — stated in
+ * `bin/bench.ts` as the honest figure, because every worker in the rig enrols under one
+ * user key and pinning data to one owner removes the second independent executor — and the
+ * requestor holds a certificate for exactly the one node it placed on.
+ */
+const EXPECTED_RECEIPT = `owner-attested (replicas 1, operators 1) — ${describeAttestation('owner-attested')}`
 
 /** The driver's own report of a rung that threw. Reached when the leg refuses to report a zero. */
 const EXCLUDED_LINE = /^\s*excluded: --sovereign:/
@@ -207,6 +243,7 @@ async function readLegLine(): Promise<LegReading> {
     let stdout = ''
     let stderr = ''
     let discovered = false
+    let attestation: string | null = null
     const timer = setTimeout(
       () =>
         reject(
@@ -226,6 +263,12 @@ async function readLegLine(): Promise<LegReading> {
       for (const line of stdout.split('\n').slice(0, -1)) {
         const trimmed = line.trim()
         if (DISCOVER_LINE.test(trimmed)) discovered = true
+        // Read before the leg line, because the driver prints it before the leg line. If
+        // that order is ever inverted this stays `null` and Case 1 fails naming it, which
+        // is the right failure: a receipt printed after the line this promise resolves on
+        // is a receipt this file never sees.
+        const receipt = ATTESTATION_LINE.exec(trimmed)
+        if (receipt !== null) attestation = receipt[1] ?? null
         // Reached when the leg threw *before* printing — the owner-key cross-check, or a
         // row that would not encode. Rejecting on it turns a two-minute timeout into an
         // immediate failure carrying the driver's own words, which is what a reader acts on.
@@ -243,6 +286,7 @@ async function readLegLine(): Promise<LegReading> {
           root: hit[3] ?? '',
           audience: hit[4] ?? '',
           discovered,
+          attestation,
         })
         return
       }
@@ -305,6 +349,57 @@ describe('the --sovereign leg runs, and says what it dispatched', () => {
       expect((await stat(join(workdir, '.planning', 'bench'))).isDirectory()).toBe(true)
       expect(publishedStatus()).toBe(before)
       expect(await readFile(published)).toStrictEqual(publishedBytes)
+    },
+    TEST_TIMEOUT_MS,
+  )
+
+  it(
+    'VER-09 — prints owner-attested for the owner-pinned shard, over one replica from one operator',
+    async () => {
+      expect(workdir.startsWith(tmpdir())).toBe(true)
+
+      const leg = await readLegLine()
+
+      // The anti-vacuity reading again, and for the same reason: without the discover arm
+      // no descriptor carries an owner, the shard is unplaceable, and any label printed
+      // beside it would be a statement about a job that never ran.
+      expect(leg.discovered).toBe(true)
+      expect(leg.agreed).toBeGreaterThanOrEqual(1)
+
+      // The line arrived at all. Asserted separately from its content so a driver that
+      // stopped printing it fails here, naming the line, rather than at a `toContain`
+      // against `null` that reads like a wrong label.
+      expect(leg.attestation, `no --sovereign attestation line in the run`).not.toBeNull()
+      const receipt = leg.attestation ?? ''
+
+      // **The reading VER-09 was held open for.** Every strength this driver had printed
+      // before today was of a *public* rung; this one is of a shard the requestor pinned to
+      // an owner, placed on the single node holding that owner's row. `classifyAttestation`
+      // computes the label from what the requestor could account for, so the three numbers
+      // have to agree with each other: one replica, one operator, and the weakest of the
+      // three labels.
+      // An equality over the whole line, not a `toContain` on the label. Three reasons, and
+      // the third is the one that decided it:
+      //
+      // 1. `owner-attested` is a **prefix** of nothing and a **substring** of nothing, but
+      //    its own description ends *"not independently verified"* — so a naive
+      //    `not.toContain('independent')` written to refuse the strongest label would fail
+      //    against the correct line. An equality cannot be got wrong that way.
+      // 2. The counts are what make the label mean anything. `owner-attested` beside
+      //    `replicas 2` is a different claim about a different job, and a substring match
+      //    over the label alone reads both as the same pass.
+      // 3. The description is the **kernel's** sentence, filled by `attestationReceipt`
+      //    from `describeAttestation`. Restating it here as a literal is what makes this a
+      //    reading of the fabric's own words rather than of this driver's formatting: if
+      //    the kernel's wording moves and the driver keeps printing its own, this fails.
+      expect(receipt).toBe(EXPECTED_RECEIPT)
+
+      // And it is a receipt rather than an absence, said separately because the equality
+      // above would report a mismatch without saying which kind. `none established` is what
+      // this driver prints for a rung whose replicas it could not account for — every
+      // *memory* rung reads exactly that — so a sovereign leg printing it would mean the
+      // chain, the certificate or the issuer pin had gone, not that the label was weak.
+      expect(receipt).not.toContain('none established')
     },
     TEST_TIMEOUT_MS,
   )
