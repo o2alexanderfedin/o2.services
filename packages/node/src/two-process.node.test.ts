@@ -222,6 +222,97 @@ describe('NET-01 — a job across OS processes', () => {
     expect(result.job.verificationMultiplier).toBeCloseTo(2, 6)
   }, 120_000)
 
+  /**
+   * VER-02 against the real binary — the reachability half of the requirement.
+   *
+   * The case above already runs the two-round ceremony, because `submitJob` selects it
+   * for a public shard at two replicas whose executors speak both rounds, and both of
+   * these are `RemoteExecutor`s aimed at spawned `bin/agent.ts` processes. It does not
+   * *say* so, and an unstated property is one nothing holds still. This case says it, and
+   * says it the only way that counts: by making a replica cheat and requiring the fabric
+   * to name it.
+   *
+   * What is asserted here that `packages/net/src/commit-reveal-wire.test.ts` cannot
+   * assert: the node answering round 1 and round 2 is a **separate operating-system
+   * process running a runnable entry point**, sharing nothing with the submitter but a
+   * socket. `serveAgent`'s pending-commitment store, the nonce it draws, and the digest
+   * it computes are all on the far side of that boundary — so a commitment this submitter
+   * could have influenced is not a thing the arrangement permits.
+   */
+  it('runs the two-round ceremony against spawned agent processes and names a cheat', async () => {
+    const [w1, w2] = await Promise.all([spawnAgent('w1'), spawnAgent('w2')])
+    const submitter = await startSubmitter()
+    await Promise.all([submitter.dial(w1.multiaddrs[0]!), submitter.dial(w2.multiaddrs[0]!)])
+
+    const moduleCid = await submitter.store.put(MODULE_WRITES_PARTITION)
+
+    /** Records which verbs a job asked this node for. */
+    class Watched extends RemoteExecutor {
+      readonly calls: string[] = []
+      override async execute(task: Parameters<RemoteExecutor['execute']>[0]) {
+        this.calls.push('execute')
+        return super.execute(task)
+      }
+      override async commit(task: Parameters<RemoteExecutor['commit']>[0]) {
+        this.calls.push('commit')
+        return super.commit(task)
+      }
+      override async reveal(handle: string) {
+        this.calls.push('reveal')
+        return super.reveal(handle)
+      }
+    }
+
+    /**
+     * Reveals a value it did not commit to.
+     *
+     * Substituting `null` rather than a copy of the peer's answer, deliberately: this
+     * case's subject is that the *commitment* is what refuses, and a substitution that
+     * also diverges would let the ordinary `disagreed` path do the refusing instead — a
+     * green that proves the wrong mechanism. `null` is an encodable output, so it reaches
+     * the digest check and is refused there.
+     */
+    class Cheat extends Watched {
+      override async reveal(handle: string) {
+        const honest = await super.reveal(handle)
+        return honest.ok ? { ...honest, output: null } : honest
+      }
+    }
+
+    const honest = new Watched(w1.peerId, submitter.rpc, 'dispatches-unauthenticated')
+    const cheat = new Cheat(w2.peerId, submitter.rpc, 'dispatches-unauthenticated')
+    const executors = [honest, cheat]
+    const result = await submitJob(
+      {
+        moduleCid,
+        moduleRecord: recordFor(moduleCid),
+        shards: [{ value: { a: 0 } as CanonicalValue, label: 'public' as const }],
+        executors,
+        nodes: publicNodes(executors),
+        redundancy: 2,
+        onQuorumShortfall: 'runs-at-available-redundancy',
+      },
+      submitter.store,
+      { checkpoints: 'checkpoints-nothing' },
+    )
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    // Two rounds, and the one-call route never taken — read off the executors rather
+    // than inferred from the job having succeeded.
+    expect(honest.calls).toEqual(['commit', 'reveal'])
+    expect(cheat.calls).toEqual(['commit', 'reveal'])
+
+    const verification = result.job.shards[0]?.verification
+    expect(verification?.status).toBe('agreed')
+    if (verification?.status !== 'agreed') return
+    expect(verification.replicas).toBe(1)
+    expect(verification.agreeing.map((e) => e.nodeId)).toEqual([w1.peerId])
+    expect(verification.failures.map((f) => f.reason)).toContain(
+      `reveal does not match the commitment ${w2.peerId} published in round 1`,
+    )
+  }, 120_000)
+
   it('leaves fetched blocks on disk in the worker process, surviving its death', async () => {
     const worker = await spawnAgent('w1')
     const submitter = await startSubmitter()

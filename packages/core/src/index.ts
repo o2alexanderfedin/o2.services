@@ -43,9 +43,29 @@ export type { WorkerTaskRequest, WorkerTaskResponse } from './executor/task-run.
 export { DEFAULT_TASK_DEADLINE_MS, WorkerExecutor } from './executor/worker-executor.ts'
 export type { WorkerExecutorOptions } from './executor/worker-executor.ts'
 
-// Redundant execution and verification — VER-01, VER-02, VER-05, VER-06.
+// Redundant execution and verification — VER-01, VER-05, VER-06.
 export { executeVerified } from './job/verify.ts'
 export type { AgreeingReplica, Receipt, VerificationResult } from './job/verify.ts'
+
+// The two-round ceremony — VER-02.
+//
+// **Exactly what the serving side needs to produce a commitment, and nothing more.**
+// `executeCommitReveal`, `isCommitting` and `MIN_CEREMONY_REPLICAS` are deliberately
+// absent: they are what `submitJob` uses to choose a path, and a barrel export of them
+// would be a second way to run a job — WIRE-04's rule, which `job-entry-points.node.test.ts`
+// enforces against this file by name. `submitJob` is the entry point; the ceremony is how
+// it verifies, not an alternative to it.
+//
+// What crosses the package boundary is the executing node's half: `@o2/net`'s
+// `serveAgent` draws a nonce and computes a digest over its own answer, and its
+// `protocol.ts` bounds the nonce on the wire.
+export { CEREMONY_NONCE_BYTES, commitmentDigest, drawCeremonyNonce } from './job/commit-reveal.ts'
+export type {
+  CommitOutcome,
+  Commitment,
+  CommittingExecutor,
+  RevealOutcome,
+} from './job/commit-reveal.ts'
 
 // Job submission — MR-01, DATA-01, DATA-03, DATA-04.
 export { submitJob } from './job/submit.ts'

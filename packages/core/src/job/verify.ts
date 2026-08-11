@@ -1,21 +1,25 @@
 /**
- * Redundant execution and result verification — VER-01, VER-02, VER-05, VER-06.
+ * Redundant execution and result verification — VER-01, VER-05, VER-06.
  *
  * ## What this module does, and what it does not
  *
- * 1. **There is no plagiarism resistance here (VER-02 is not implemented).** The
- *    requestor holds every executor in one process, calls them itself, and mints the
- *    whole record; agreement is therefore compared *post hoc* and nothing in this
- *    function stops a replica copying a peer's answer. Resistance to that is a
- *    two-round protocol *across* nodes — a wire message and a cross-node barrier —
- *    and additionally needs a **hiding** commitment, which is why the ceremony this
- *    module used to carry could never have supplied it: its nonce was derived from
- *    `nodeId:moduleCid:partitionIndex`, all three public, and the requestor computed
- *    both halves and compared them with each other. The comparison was
- *    unconditionally true and both of its failure branches were unreachable —
- *    measured 2026-07-30 by making the mismatch branch throw and running the whole
- *    node project: 1171 tests, no reach. Its shape is not a seam a real ceremony
- *    would plug into, so it is gone rather than kept.
+ * 1. **There is no plagiarism resistance here, and that is still true.** The requestor
+ *    calls every executor itself and mints the whole record; agreement is compared *post
+ *    hoc* and nothing in this function stops a replica copying a peer's answer.
+ *    Resistance to that is VER-02, and it lives one file over in `commit-reveal.ts` — a
+ *    two-round protocol *across* nodes, with a wire message, a cross-node barrier and a
+ *    hiding commitment, none of which this function has or should grow.
+ *
+ *    The two are **siblings, not modes**: `submitJob` selects between them per dispatch
+ *    (public shard, at least two replicas, every executor speaking both rounds), they
+ *    return the identical {@link VerificationResult}, and falling through to this one is
+ *    not a degraded ceremony. What used to stand in this slot was a paragraph explaining
+ *    that the ceremony deleted in `855cdf5` could never have become a real one — its
+ *    nonce derived from `nodeId:moduleCid:partitionIndex`, all public, and the requestor
+ *    computed both halves of a comparison that was therefore unconditionally true, with
+ *    both failure branches unreachable, measured over 1171 tests. That diagnosis is now
+ *    where it is useful: it is the specification `commit-reveal.ts` was written against,
+ *    and it is quoted there.
  *
  * 2. **The compared value covers `(task, output)` only (VER-05).** Timing, fuel,
  *    and node identity sit outside it. Including them would make every honest

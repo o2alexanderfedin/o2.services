@@ -821,7 +821,19 @@ function verdict(cell: string): string {
  * itself on first run.
  */
 const VERDICTS = (() => {
-  const counts = new Map<string, number>()
+  // **Seeded at zero, and that is not a convenience.** A bucket can legitimately empty —
+  // *Not started* did on 2026-08-11, when VER-02 became *Partial* — and an unseeded map
+  // answers `undefined` there, which `toBe(0)` fails on. Reading `?? 0` at each call site
+  // would have been the other repair and is the wrong one: it makes a **typo'd verdict
+  // string** indistinguishable from an empty bucket, so a row whose marker was misspelled
+  // would take its whole bucket to zero and the prose would be "corrected" to match. The
+  // three keys are the three markers the header defines, written once, so an unseeded key
+  // appearing in the table is still a count of its own and still has to be accounted for.
+  const counts = new Map<string, number>([
+    ['Built, not wired', 0],
+    ['Partial', 0],
+    ['Not started', 0],
+  ])
   for (const line of LEDGER_SOURCE.split('\n')) {
     const match = /^\| ([A-Z][A-Z0-9-]*-\d+) \| ([^|]*) \| (.*) \|$/.exec(line)
     if (match === null || match[1] === undefined || match[3] === undefined) continue

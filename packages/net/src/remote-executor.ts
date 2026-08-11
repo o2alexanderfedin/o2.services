@@ -4,8 +4,24 @@
  * This is the whole reason the kernel is unchanged by the arrival of a network.
  * `submitJob` takes `Executor[]` and does not care where one runs; an executor
  * whose `execute` happens to cross a wire satisfies the same contract as one that
- * calls into V8 directly. The redundancy, commit-reveal, and verification logic is
- * untouched.
+ * calls into V8 directly. The redundancy and verification logic is untouched.
+ *
+ * **This class implements two ports, and the second one is why VER-02 exists at all.**
+ * `commit` and `reveal` are the two rounds of the ceremony (`@o2/core`'s
+ * `CommittingExecutor`), and they are here rather than in a class of their own because
+ * they are the same dispatch to the same peer under the same capability chain — a second
+ * class would be a second place for the chain selection to drift, and the drift would be
+ * a commit dispatched unauthenticated where the exec would not have been.
+ *
+ * That the two ports are *declared* separately and *implemented* together is the point.
+ * `isCommitting` asks the object rather than the caller, so a remote executor takes the
+ * ceremony path and a kernel-local one does not, and neither had to be told.
+ *
+ * The sentence above about commit-reveal read *"the redundancy, commit-reveal, and
+ * verification logic is untouched"* from Phase 2 until 2026-08-11, and for most of that
+ * span it named a mechanism that had been deleted (`855cdf5`, 2026-07-30) — a comment
+ * asserting a guarantee the tree did not carry, which is the failure mode this file's
+ * header already has one paragraph about. It now names what is here.
  *
  * `nodeId` is the *remote* peer's id, which matters for more than logging:
  * `executeVerified` groups results by node and names the dissenter on
@@ -48,7 +64,16 @@
  * Pure module.
  */
 
-import type { CanonicalValue, Delegation, ExecutionOutcome, Executor, Task } from '@o2/core'
+import type {
+  CanonicalValue,
+  CommitOutcome,
+  CommittingExecutor,
+  Delegation,
+  ExecutionOutcome,
+  Executor,
+  RevealOutcome,
+  Task,
+} from '@o2/core'
 import { encodeRequest, parseResponse } from './protocol.ts'
 import type { RpcEndpoint } from './rpc.ts'
 
@@ -61,7 +86,7 @@ import type { RpcEndpoint } from './rpc.ts'
  */
 export type CapabilitySupplier = (task: Task) => readonly Delegation[]
 
-export class RemoteExecutor implements Executor {
+export class RemoteExecutor implements Executor, CommittingExecutor {
   readonly nodeId: string
   readonly #rpc: RpcEndpoint
   readonly #capability: CapabilitySupplier | 'dispatches-unauthenticated'
@@ -120,19 +145,19 @@ export class RemoteExecutor implements Executor {
    * shape from an absent key, and `protocol.ts:355-356` only omits the key when the
    * field is `undefined`.
    */
-  #requestFor(task: Task): CanonicalValue {
+  #requestFor(kind: 'exec' | 'commit', task: Task): CanonicalValue {
     if (this.#capability === 'dispatches-unauthenticated') {
-      return encodeRequest({ kind: 'exec', task })
+      return encodeRequest({ kind, task })
     }
     const chain = this.#capability(task)
-    if (chain.length === 0) return encodeRequest({ kind: 'exec', task })
-    return encodeRequest({ kind: 'exec', task, capability: chain })
+    if (chain.length === 0) return encodeRequest({ kind, task })
+    return encodeRequest({ kind, task, capability: chain })
   }
 
   async execute(task: Task): Promise<ExecutionOutcome> {
     let body
     try {
-      body = await this.#rpc.request(this.nodeId, this.#requestFor(task))
+      body = await this.#rpc.request(this.nodeId, this.#requestFor('exec', task))
     } catch (cause) {
       return {
         ok: false,
@@ -149,6 +174,71 @@ export class RemoteExecutor implements Executor {
     }
     if (response.kind !== 'exec') {
       return { ok: false, reason: `unexpected ${response.kind} response to exec request` }
+    }
+    return response.outcome
+  }
+
+  /**
+   * VER-02 round 1 — the same task, over the same chain, with the answer withheld.
+   *
+   * The chain is selected by `#requestFor` exactly as it is for an `exec`, which is the
+   * half of this method that would be easy to get wrong and expensive to have wrong: a
+   * commit dispatched unauthenticated where the matching exec would have carried a chain
+   * is a peer running the owner's work without the owner's say-so, and collecting it in
+   * round 2 having never been entitled to round 1.
+   *
+   * Every transport and protocol fault becomes `{ ok: false, reason }` for
+   * `execute`'s reason, and it matters more here: `executeCommitReveal` counts
+   * commitments against {@link MIN_CEREMONY_REPLICAS} and must be able to tell *this
+   * node did not commit* from *the whole ceremony threw*.
+   */
+  async commit(task: Task): Promise<CommitOutcome> {
+    let body
+    try {
+      body = await this.#rpc.request(this.nodeId, this.#requestFor('commit', task))
+    } catch (cause) {
+      return {
+        ok: false,
+        reason: `commit dispatch to ${this.nodeId} failed: ${cause instanceof Error ? cause.message : String(cause)}`,
+      }
+    }
+    const response = parseResponse(body)
+    if (response === null) return { ok: false, reason: `malformed response from ${this.nodeId}` }
+    if (response.kind === 'error') {
+      return { ok: false, reason: `remote error from ${this.nodeId}: ${response.reason}` }
+    }
+    if (response.kind !== 'commit') {
+      return { ok: false, reason: `unexpected ${response.kind} response to commit request` }
+    }
+    return response.outcome
+  }
+
+  /**
+   * VER-02 round 2 — hand back the handle this node minted, and take the answer.
+   *
+   * The handle goes back **unread**. This class never parses it, never derives anything
+   * from it, and has no opinion about its shape: it is the serving node's name for its
+   * own pending answer, and the moment a requestor started interpreting it the serving
+   * node would have lost the ability to change how it names things without breaking
+   * every peer.
+   */
+  async reveal(handle: string): Promise<RevealOutcome> {
+    let body
+    try {
+      body = await this.#rpc.request(this.nodeId, encodeRequest({ kind: 'reveal', handle }))
+    } catch (cause) {
+      return {
+        ok: false,
+        reason: `reveal request to ${this.nodeId} failed: ${cause instanceof Error ? cause.message : String(cause)}`,
+      }
+    }
+    const response = parseResponse(body)
+    if (response === null) return { ok: false, reason: `malformed response from ${this.nodeId}` }
+    if (response.kind === 'error') {
+      return { ok: false, reason: `remote error from ${this.nodeId}: ${response.reason}` }
+    }
+    if (response.kind !== 'reveal') {
+      return { ok: false, reason: `unexpected ${response.kind} response to reveal request` }
     }
     return response.outcome
   }

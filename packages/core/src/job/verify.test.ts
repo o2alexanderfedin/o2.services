@@ -8,17 +8,21 @@
  * `submit.test.ts`, the test file of its caller, so the primitive's contract and
  * its caller's contract could only be read — and only fail — together.
  *
- * Two things are deliberately NOT tested here.
+ * Two things are deliberately NOT tested here, and the reason has changed for one of
+ * them without changing for the other.
  *
- *   - **No commit-reveal ceremony.** There is none in the source, by ruling
- *     (`855cdf5`), and the module docstring gives the measurement that justified
- *     deleting it. Testing a seam that does not exist would restore the inventory
- *     the deletion removed.
- *   - **No plagiarism resistance (VER-02).** The requestor holds every executor in
- *     one process and calls them itself, so nothing here can stop a replica copying
- *     a peer's answer. That is a two-round cross-node protocol which does not exist
- *     yet; a test asserting it from this side would be asserting a guarantee the
- *     code does not make.
+ *   - **No commit-reveal ceremony in `executeVerified`.** There is none in this source
+ *     and there will not be. The one that shipped here was deleted by ruling
+ *     (`855cdf5`), and VER-02 was rebuilt in 2026-08-11 as a *sibling* function in
+ *     `commit-reveal.ts` rather than as a mode of this one, precisely so that testing
+ *     this file cannot be mistaken for testing that property. `submitJob` chooses
+ *     between the two per dispatch.
+ *   - **No plagiarism resistance (VER-02) — still true of this function.** The requestor
+ *     calls every executor itself, so nothing here stops a replica copying a peer's
+ *     answer, and a test asserting it from this side would be asserting a guarantee this
+ *     code does not make. `commit-reveal.test.ts` is where that claim is carried, and it
+ *     carries the counterfactual too: the same plagiarist that this function would count
+ *     as agreement is named as a refusal there.
  */
 
 import { ed25519 } from '@noble/curves/ed25519.js'
