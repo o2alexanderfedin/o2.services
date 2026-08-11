@@ -76,6 +76,16 @@ import { FsBlockstore } from './fs-blockstore.ts'
  * whose inputs carry an owner label and land on that owner's node, with Phase 13's egress
  * guard refusing the raw input's egress and the coverage report naming what stayed home.
  *
+ * **That job now exists, and it is `packages/node/src/sovereign-aggregation.node.test.ts`
+ * (2026-08-11).** Two owners, one `bin/agent.ts` process each, each seeded with its own
+ * row and never the other's; a guest that emits `input_len()` rather than its partition
+ * index, so the aggregate is the sum of two row sizes each measured on a different
+ * process; `submitJobWithEgress` registering both rows on the requestor's guard; and
+ * `reduceSovereignJob` combining at two replicas with a complete coverage report. The
+ * paragraph above is left standing rather than rewritten, because it is still true of
+ * **this** file — nothing below it changed, and a header that claimed otherwise would be
+ * the second file describing a measurement it does not take.
+ *
  * ---
  *
  * **HISTORY. Nothing below is skipped and all three criteria pass — this section records

@@ -3409,6 +3409,64 @@ export const MUTATIONS: readonly Mutation[] = [
     signature: "no executor at all \u2014 reduceJob\u2019s own refusal, carried through rather than reworded",
     signatureSource: 'test-title',
   },
+  // ── MR-02 across real processes ─────────────────────────────────────────────────
+  //
+  // Four production lines, planted against the two-owner process fixture rather than
+  // against a literal. SB2 is the one worth reading before the others: it is the entry
+  // that records a plant whose OUTCOME-shaped readings stayed green, and what had to be
+  // asserted instead.
+  {
+    id: 'SB1',
+    why:
+      "MR-02, DATA-10, EGR-01. This loop is the only expression in the system that knows a job's sovereign shard set, and it does two things at once: it registers each owner-pinned row on every supplied guard for the job's duration, and it counts what it registered. Inert, the submitter holds both owners' rows unguarded and every manifest reports zero \u2014 and the sovereign aggregation refuses, naming the shortfall, because a guard that was never given the rows cannot report that none of them left.",
+    file: 'packages/net/src/submit-with-egress.ts',
+    find: "    if (shard.label !== 'sovereign') continue",
+    replace: "    if (shard.label !== 'sovereign' || true) continue",
+    caughtBy: ['packages/node/src/sovereign-aggregation.node.test.ts'],
+    // Observed 2026-08-11 across three spawned `bin/agent.ts` processes: exit 1, one case
+    // red. Restored by the surgical inverse; `cmp` exit 0.
+    signature: "aggregates two owners\u2019 locally-computed partials into the sum of their row sizes",
+    signatureSource: 'test-title',
+  },
+  {
+    id: 'SB2',
+    why:
+      "SCHED-05, DATA-03. The sovereign narrowing, made inert. **What this entry costs to state honestly is the reason it is here**: the outcome-shaped readings in the catching file \u2014 the set that ANSWERED, and `job.complete` \u2014 both stay GREEN under this plant, because the foreign node refuses a task it should never have been offered and the generation loop re-dispatches onto the owner's own node. Defence in depth, and a repair that hides the defect from any assertion about outcomes. What sees it is `ShardResult.attempted` and `generations`: the set ASKED names the foreign process whatever the outcome was repaired to.",
+    file: 'packages/core/src/sovereignty.ts',
+    find: "  if (request.label === 'public') return nodes",
+    replace: "  if (request.label === 'public' || true) return nodes",
+    caughtBy: ['packages/node/src/sovereign-aggregation.node.test.ts'],
+    // Observed 2026-08-11 across three spawned `bin/agent.ts` processes: exit 1, one case
+    // red. Restored by the surgical inverse; `cmp` exit 0.
+    signature: "aggregates two owners\u2019 locally-computed partials into the sum of their row sizes",
+    signatureSource: 'test-title',
+  },
+  {
+    id: 'SB3',
+    why:
+      "MR-02's attribution half. The arm would go on reporting owners in its own return value while keying every leaf on the partition index, so the aggregation itself would carry no owner at all \u2014 an aggregate whose coverage report describes owners and whose tree describes shards. Caught by reading the leaf ids off the DERIVED TREE rather than off the contribution list, which is the only place the attribution reaches the reduce.",
+    file: 'packages/net/src/reduce-sovereign.ts',
+    find: "    contributors: attribution,",
+    replace: "    contributors: 'attributes-each-shard-to-its-own-partition-index',",
+    caughtBy: ['packages/node/src/sovereign-aggregation.node.test.ts'],
+    // Observed 2026-08-11 across three spawned `bin/agent.ts` processes: exit 1, one case
+    // red. Restored by the surgical inverse; `cmp` exit 0.
+    signature: "aggregates two owners\u2019 locally-computed partials into the sum of their row sizes",
+    signatureSource: 'test-title',
+  },
+  {
+    id: 'SB4',
+    why:
+      "MR-02's map-side half, as arithmetic. `MODULE_COUNTS_INPUT_BYTES` reverted to emitting the PARTITION INDEX \u2014 the number every other fixture emits, and the number the host supplied. The job still completes, still places on the owners' own nodes and still aggregates; the aggregate simply stops depending on anyone's data. That is the defect this fixture exists to make impossible, and it is invisible to every assertion about placement or coverage.",
+    file: 'packages/core/src/executor/fixtures.ts',
+    find: "  ...i32(4),\n  0x10, 0x00,\n  0x36, 0x00, 0x00, // i32.store align=0 offset=0\n  ...WRITE(0, 8),",
+    replace: "  ...i32(4),\n  0x10, 0x03,\n  ...i32(16), SHR_U,\n  0x36, 0x00, 0x00, // i32.store align=0 offset=0\n  ...WRITE(0, 8),",
+    caughtBy: ['packages/node/src/sovereign-aggregation.node.test.ts'],
+    // Observed 2026-08-11 across three spawned `bin/agent.ts` processes: exit 1, one case
+    // red. Restored by the surgical inverse; `cmp` exit 0.
+    signature: "aggregates two owners\u2019 locally-computed partials into the sum of their row sizes",
+    signatureSource: 'test-title',
+  },
 ]
 
 /**
