@@ -228,10 +228,34 @@ function isProductionPath(relative: string): boolean {
   return relative.startsWith('packages/') || relative.startsWith('tools/')
 }
 
+/**
+ * Every TypeScript file under the two source roots, absolute, sorted.
+ *
+ * Walked once and filtered twice. {@link PRODUCTION} and {@link SPECS} are complements
+ * over this one list rather than two independent walks, for the reason
+ * {@link isProductionPath} already gives about being used from two readers: two walks can
+ * disagree about what the tree contains, and a guard whose two halves disagree about its
+ * own corpus is defect #38 in miniature.
+ */
+const TREE_TS: readonly string[] = [
+  ...walk(join(ROOT, 'packages')),
+  ...walk(join(ROOT, 'tools')),
+].sort()
+
 /** Production TypeScript on disk, absolute, sorted. */
-const PRODUCTION: readonly string[] = [...walk(join(ROOT, 'packages')), ...walk(join(ROOT, 'tools'))]
-  .filter((path) => isProductionPath(path.slice(ROOT.length)))
-  .sort()
+const PRODUCTION: readonly string[] = TREE_TS.filter((path) =>
+  isProductionPath(path.slice(ROOT.length)),
+)
+
+/**
+ * The spec corpus — the population that *measures* requirements, which is exactly the
+ * population {@link PRODUCTION} excludes.
+ *
+ * This file's older half reads production code, because its subject is *"does this symbol
+ * have a caller"*. {@link REREAD_REGISTER} reads specs, because its subject is the other
+ * one: *"has anything in this tree already measured what this row says is unmeasured"*.
+ */
+const SPECS: readonly string[] = TREE_TS.filter((path) => path.endsWith('.test.ts'))
 
 /**
  * The production corpus with comments removed, which is what every call-site search reads.
@@ -570,6 +594,177 @@ const UNREACHED_VERDICTS: readonly string[] = ['Built, not wired', 'Partial']
 /** Every row whose verdict says a mechanism is not fully reached. */
 const UNREACHED = ROWS.filter((row) => UNREACHED_VERDICTS.includes(row.verdict))
 
+// ---------------------------------------------------------------------------
+// What membership costs — the re-read register
+// ---------------------------------------------------------------------------
+
+/**
+ * A test title, in the form `acceptance-traceability.node.test.ts` reads them.
+ *
+ * Copied in shape rather than imported because that file exports nothing; the two must
+ * agree about what "a spec names this requirement in a title" means, and the shared
+ * definition is stated here rather than left to two regexes that look alike.
+ */
+const TITLE = /\b(?:describe|it|test)(?:\.\w+)*\s*(?:\([^()]*\)\s*)?\(\s*(['"`])((?:\\.|(?!\1)[\s\S])*?)\1/g
+
+/**
+ * Every `describe`/`it`/`test` title in each spec, joined — read once, scanned many times.
+ *
+ * **Comment-stripped, and this file's first run is why.** The `NET-03` entry below carries
+ * a comment quoting its witness's own title, ``describe('NET-03 — …')``, as evidence of
+ * what that spec asserts. Unstripped, {@link TITLE} read the quotation as a title *of this
+ * file*, and the drift case reddened naming `requirements-ledger.node.test.ts` as a new
+ * witness to `NET-03`. That is the same defect {@link CODE} documents one screen up — a
+ * comment discussing a thing by name is not the thing — arriving in a new scanner within
+ * an hour of it being written, which is the argument for stripping being the default here
+ * rather than a special case bolted on later.
+ *
+ * The direction of the error is worth naming: unstripped, this scan **invents** witnesses,
+ * so it reddens loudly rather than passing quietly. It was still wrong.
+ */
+const SPEC_TITLES: ReadonlyMap<string, string> = new Map(
+  SPECS.map((path) => {
+    TITLE.lastIndex = 0
+    const source = stripComments(readFileSync(path, 'utf8'))
+    const titles = [...source.matchAll(TITLE)].map((hit) => hit[2] ?? '')
+    return [path, titles.join('\n')]
+  }),
+)
+
+/**
+ * The specs that name a requirement id **in a test title** — its witnesses.
+ *
+ * Titles rather than whole files, and the difference was measured rather than assumed.
+ * `AUTH-03` is mentioned *somewhere* in 27 specs and title-named in 9; `NET-06` in 4 and
+ * 1 respectively. A docblock that mentions an id in passing is not a spec claiming to
+ * measure it, and a register whose witness lists were mention-shaped would move under
+ * every unrelated comment edit — which is how a list gets satisfied mechanically. A title
+ * naming an id is what `acceptance-traceability.node.test.ts` already counts as *strong*
+ * traceability, and it is the same claim read from the other side.
+ *
+ * The boundary is not decoration: a bare `includes` would read `MR-04` out of `MR-041`.
+ */
+function titleWitnesses(id: string): string[] {
+  const named = new RegExp(String.raw`(?<![A-Za-z0-9-])${id}(?![0-9])`)
+  return SPECS.filter((path) => named.test(SPEC_TITLES.get(path) ?? '')).map((path) =>
+    path.slice(ROOT.length),
+  )
+}
+
+/**
+ * Why a row's reason cannot be read — the three buckets the docblock above sets out, as
+ * **data rather than prose**.
+ *
+ * Required per entry, so that *"nothing at all"* cannot be a membership reason. `SCHED-04`
+ * sat here for nine days with exactly that, and its own entry said so: *"for `SCHED-04` —
+ * nothing at all, the row stating in words that its marker is conservative rather than
+ * descriptive"*. A row with no reason is a row waiting on a re-measurement, and it should
+ * have been unable to enter this register in that state.
+ */
+type Because = 'experiment-not-run' | 'entry-point-not-driven' | 'tier-or-configuration'
+
+/** One outstanding promise to re-read a row by hand. */
+interface UnreadRow {
+  readonly id: string
+  /** Which bucket. The type is the constraint: there is no `'none'`. */
+  readonly because: Because
+  /** `YYYY-MM-DD`, the day this row was last read by hand against the tree. */
+  readonly reread: string
+  /**
+   * The specs that title-named this id at that re-read, **measured, not typed**.
+   *
+   * This is the field that makes membership cost something. Writing it requires running
+   * the scan and looking at what comes back, and what comes back is the material a hand
+   * re-read consumes. `BROW-02` is the proof that this is not ceremony: on the day it was
+   * added to this list its witness set was already exactly
+   * `packages/node/src/peer-ledger.e2e.test.ts` — **the spec that refuted it** — and an
+   * author made to write that path down would have had the refutation in hand. Nobody was
+   * made to, and the row stood wrong for six days.
+   */
+  readonly witnesses: readonly string[]
+}
+
+/**
+ * How long a promise to re-read a row by hand may stay outstanding.
+ *
+ * ## Sited against the four lapses this register was built from, not against a feeling
+ *
+ * The residue sweep of 2026-08-11 closed four rows that were stale in the **pessimistic**
+ * direction — `SCHED-03`, `SCHED-04`, `SCHED-05`, `BROW-02` — and every one of them had
+ * been sitting in this list unexamined: 6, 9, 9 and 6 days respectively. Fourteen is
+ * longer than all four, deliberately. **A bound tighter than the observed lapse fires on
+ * entries nobody has yet had a chance to re-read**, and a guard that reddens weekly across
+ * fifteen rows is one that gets satisfied by editing dates, which is the theatre this is
+ * supposed to avoid. Read honestly: at fourteen days this guard is *slower than a diligent
+ * human and faster than nine days of silence*. It would have caught `SCHED-04` and
+ * `SCHED-05` on 2026-08-16 — five days after a hand sweep found them — and the other two
+ * on 2026-08-19. That is what it buys, and it is not more than that.
+ *
+ * ## Why this is a countdown at all, when a drift check would be cheaper to justify
+ *
+ * Because drift does not catch it, and that was **measured before this was written**. The
+ * witness sets of all four were recomputed at the revision each was listed at and again at
+ * the pre-sweep tree: `SCHED-03` 3 → 3, `SCHED-04` 1 → 1, `BROW-02` 1 → 1, and only
+ * `SCHED-05` moved (1 → 2, `sovereignty-placement.node.test.ts` arriving). **One in four.**
+ * Three of them were stale against evidence that was *already in the tree when the entry
+ * was written*. So the defect is not that the evidence changed; it is that membership never
+ * required reconciling against the evidence that already existed, and nothing counted how
+ * long that had gone unreconciled. {@link witnessDrift} is kept as the cheap secondary that
+ * catches the fourth case; the countdown is what covers the other three.
+ *
+ * ## The satisfying action, and why it is not "edit the date"
+ *
+ * When this fires, the finding hands over the row's verdict and its current witness specs
+ * — the whole of what a hand re-read reads. Clearing it means reading those and then
+ * either **ticking the row** (it leaves the population, and the set equality below makes
+ * the removal compulsory) or **re-recording the re-read**, which also means re-recording
+ * {@link UnreadRow.witnesses} from a fresh scan. It remains true, and is stated rather than
+ * hidden, that nothing here can force a reader to actually read. What it can do is refuse
+ * to let the promise be silently indefinite, which is the property that was missing.
+ */
+const REREAD_INTERVAL_DAYS = 14
+
+/** Midnight UTC of a `YYYY-MM-DD` date, or `NaN` for anything this parser does not accept. */
+function utcMidnight(date: string): number {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return Number.NaN
+  const at = Date.parse(`${date}T00:00:00Z`)
+  return at
+}
+
+/** Whole days between a recorded re-read and the day this run happens on. */
+function daysOutstanding(reread: string, now: number): number {
+  const at = utcMidnight(reread)
+  if (Number.isNaN(at)) return Number.NaN
+  const today = Math.floor(now / 86_400_000) * 86_400_000
+  return Math.round((today - at) / 86_400_000)
+}
+
+/** The specs that title-name an id now but did not at its last re-read, and the reverse. */
+function witnessDrift(entry: UnreadRow): { arrived: string[]; departed: string[] } {
+  const now = titleWitnesses(entry.id)
+  return {
+    arrived: now.filter((path) => !entry.witnesses.includes(path)),
+    departed: entry.witnesses.filter((path) => !now.includes(path)),
+  }
+}
+
+/**
+ * How large this register may grow before something reddens.
+ *
+ * Sited at the register's own size with **no slack**, the same way
+ * `reachability-dispositions.ts` sites {@link DISPOSITION_CEILING} and for the same reason:
+ * the set equality below already forces a *required* addition to arrive with a red naming
+ * the id, so slack could only let a discretionary one land quietly. Raising it needs a
+ * reason written next to it; lowering it is the work.
+ *
+ * **Lowered 15 → 14 on 2026-08-11, in the same commit that sited it.** `AOT-05` left the
+ * register on the first run of the countdown that this ceiling was written beside, so the
+ * ceiling follows the measurement down rather than keeping the slack the departure opened.
+ * That is `OPEN_FINDING_CEILING`'s stated rule — *a ceiling with slack in it stops binding*
+ * — applied on day one rather than the next time somebody notices.
+ */
+const REREAD_REGISTER_CEILING = 14
+
 /**
  * ## The rule this list encodes
  *
@@ -689,8 +884,64 @@ const UNREACHED = ROWS.filter((row) => UNREACHED_VERDICTS.includes(row.verdict))
  * about the device rather than about the three rows: this list has no expiry and nothing
  * counts how long an entry has sat. `BROW-02` is `Done` as of 2026-08-11 and is removed
  * below.
+ *
+ * ## What membership costs, from 2026-08-11 — the sentence above is now enforced
+ *
+ * *"An id in this list is a promise to re-read that row by hand"* was, until this date,
+ * **prose with no mechanism under it**, and the paragraph immediately above says what that
+ * cost: four rows stale in the same sweep, all four in the **pessimistic** direction — a
+ * `[ ]` too modest, which no other guard in this repository can see, because nothing fails
+ * when a row under-claims. This is no longer a list of ids. Every entry is an
+ * {@link UnreadRow}: a bucket ({@link Because}, so *"nothing at all"* cannot be a reason),
+ * a dated re-read, and a **measured** witness list. Three cases below hold it —
+ * {@link REREAD_INTERVAL_DAYS} bounds how long a promise may stay outstanding,
+ * {@link witnessDrift} reddens when the evidence under a row moves, and the register is
+ * well-formed and capped at {@link REREAD_REGISTER_CEILING}.
+ *
+ * ## Why this defect landed here and in no sibling register — checked, not assumed
+ *
+ * The four registers that behave alike were read on 2026-08-11 against **what their guards
+ * consume**, not against what their docblocks claim, and none of them has this property:
+ *
+ * | Register | What re-derives its members every run |
+ * |---|---|
+ * | `reachability-dispositions.ts` `DISPOSITIONS` | `reachability-guard.node.test.ts` re-derives the whole `global-object-hop` class and reddens in **both** directions; a disposed symbol that becomes reachable is `stale`, one that stops being a callable barrel export is `orphaned`; ceiling with no slack |
+ * | `ACCEPTED_SIGNATURE_COMPARISONS` | exact set equality against a live scan, each entry anchored on **source text** rather than a line, plus a stale-entry case and a ceiling sited at size + 1 |
+ * | `CHECKBOXES_WITHOUT_A_ROW` | holds **no members at all**, kept as an empty set under an equality so that one appearing fails |
+ * | `EXPECTED_ABSENT` | not hand-maintained — derived from `FINDINGS`, so membership is not a choice |
+ *
+ * `acceptance-traceability.node.test.ts`'s `FINDINGS` is the near miss and is worth naming
+ * rather than quietly passing over. Its entries carry a `found` date that **nothing reads**,
+ * and its docblock states a hand obligation — *"label the test, or clear the box"* — with no
+ * bound on it, which is this defect's shape. But its substantive claim, *"no tracked test
+ * file names this id"*, is re-derived every run by an exact set equality, so the claim
+ * cannot go quietly false; only the remediation is unbounded. **That is a different and
+ * smaller thing, and it was left alone deliberately** — a countdown there would redden on
+ * work rather than on a lapse, which is the theatre this file is trying not to build.
+ *
+ * **The structural reason, which is why no sibling needed fixing.** Every one of those
+ * registers holds entries carrying a claim a machine re-derives, so staleness reddens by
+ * construction. This register is the one whose **membership criterion is literally that the
+ * entry's claim cannot be machine-checked**. It could not inherit the others' defence, and
+ * the defect landed in the only place with no defence available. That is not a coincidence
+ * to guard against everywhere; it is the definition of this set, and the countdown is the
+ * substitute for a re-derivation that cannot exist.
+ *
+ * ## The seed dates are derived, not invented
+ *
+ * No entry here recorded when it was last examined, because until 2026-08-11 there was no
+ * field to record it in. Inventing one would be the worst available option — a fresh date
+ * on every row would reset all fifteen countdowns to zero and make the first sweep vacuous,
+ * which is exactly the shape of guard this file exists to refuse. So each `reread` is
+ * seeded with **the day that row's traceability line was last edited in
+ * `.planning/REQUIREMENTS.md`**, derived by scanning `git log -p` over that file for the
+ * last commit to add a line matching `| <id> |`. That is the last date somebody
+ * demonstrably had the row in front of them, it is a fact about the history rather than a
+ * guess, and it is the conservative choice in the direction that matters: a row edited
+ * without a re-read reads here as *more* recently examined than it was, so this register
+ * understates its own backlog rather than overstating it.
  */
-const WITHOUT_A_CHECKABLE_CLAIM: readonly string[] = [
+const REREAD_REGISTER: readonly UnreadRow[] = [
   // ── Added 2026-08-05 by Plan 20-12 and RESOLVED the same day by Plan 20-13 ──────────
   //
   // Seven ids stood here for a few hours: `CHURN-01`…`CHURN-06` and `SCHED-03`. They did
@@ -727,13 +978,90 @@ const WITHOUT_A_CHECKABLE_CLAIM: readonly string[] = [
   //   noticed for five days. Fourth instance in one sweep. **An id here is a promise to
   //   re-read a row by hand, and nothing in this file counts how long the promise has been
   //   outstanding** — which is the one thing that would have caught all four.
-  'CHURN-04',
+  {
+    id: 'CHURN-04',
+    because: 'entry-point-not-driven',
+    reread: '2026-08-05',
+    witnesses: ['packages/core/src/lease.test.ts'],
+  },
   // ── The pre-existing entries ───────────────────────────────────────────────────────
-  'AUTH-02',
-  'AUTH-03',
-  'AUTH-04',
-  'NET-03',
-  'NET-06',
+  {
+    id: 'AUTH-02',
+    because: 'tier-or-configuration',
+    reread: '2026-08-06',
+    witnesses: [
+      'packages/core/src/enrollment.test.ts',
+      'packages/node/src/bench-admission.node.test.ts',
+      'packages/node/src/browser-enrollment.e2e.test.ts',
+      'packages/node/src/certificate-verification.node.test.ts',
+      'packages/node/src/enrol-through-a-closed-door.node.test.ts',
+      'packages/node/src/gated-admission.e2e.test.ts',
+      'packages/node/src/gated-seed.e2e.test.ts',
+      'packages/node/src/peer-dial.node.test.ts',
+      'packages/node/src/peer-gate.node.test.ts',
+      'packages/node/src/peer-verifier.node.test.ts',
+      'packages/node/src/relay-admission.node.test.ts',
+    ],
+  },
+  {
+    id: 'AUTH-03',
+    because: 'tier-or-configuration',
+    reread: '2026-08-11',
+    witnesses: [
+      'packages/core/src/capability.test.ts',
+      'packages/net/src/capability-dispatch.test.ts',
+      'packages/net/src/combine.test.ts',
+      'packages/net/src/distributed.test.ts',
+      'packages/node/src/browser-capability.e2e.test.ts',
+      'packages/node/src/capability-dispatch.node.test.ts',
+      'packages/node/src/fabric-node.node.test.ts',
+      'packages/node/src/serve-agent-hooks.node.test.ts',
+      'packages/node/src/tree-reduce-agents.node.test.ts',
+    ],
+  },
+  {
+    id: 'AUTH-04',
+    because: 'tier-or-configuration',
+    reread: '2026-08-06',
+    witnesses: [
+      'packages/browser/src/idb-issuance.browser.test.ts',
+      'packages/core/src/enrollment.test.ts',
+      'packages/net/src/enrol-agent.test.ts',
+      'packages/node/src/enrol-through-a-closed-door.node.test.ts',
+      'packages/node/src/enrollment-cost.node.test.ts',
+      'packages/node/src/enrollment-dos.node.test.ts',
+      'packages/node/src/enrollment.node.test.ts',
+      'packages/node/src/enrolment-residual.node.test.ts',
+      'packages/node/src/fs-issuance.node.test.ts',
+    ],
+  },
+  // **Flagged by the first run of this register at 16 days outstanding, re-read
+  // 2026-08-11, and it STANDS.** The row says the relay is browser-dialable and that
+  // AutoTLS needs a public host. Its one witness carries the first half by name —
+  // `describe('NET-03 — a listening node presents a browser-dialable address')` in
+  // `relaying.node.test.ts`, which asserts a WebSockets listen address and no `/certhash/`
+  // literal. The second half was checked in the direction that matters, the pessimistic
+  // one: `git grep -il 'autoTLS|libp2p.direct|letsencrypt|acme'` over `packages` and
+  // `tools` returns three files and **none of them is an implementation** — two generated
+  // base64 fixtures and one protocol spec whose match is incidental. No `@ipshipyard/
+  // libp2p-auto-tls` dependency exists in any `package.json`. The row is not stale; the
+  // open leg is a hosting decision, which is what `tier-or-configuration` means.
+  {
+    id: 'NET-03',
+    because: 'tier-or-configuration',
+    reread: '2026-08-11',
+    witnesses: ['packages/node/src/relaying.node.test.ts'],
+  },
+  {
+    id: 'NET-06',
+    because: 'entry-point-not-driven',
+    reread: '2026-08-05',
+    witnesses: [
+      'packages/core/src/discovery.test.ts',
+      'packages/net/src/discovery.test.ts',
+      'packages/node/src/static-rendezvous.e2e.test.ts',
+    ],
+  },
   // `SCHED-04` was here until 2026-08-11 and is REMOVED for the same reason `SCHED-05` is,
   // one line down: its row is `Done`, so it has left the *unreached* population.
   // `SCHED-05` was here until 2026-08-11 and is REMOVED because the row is now `Done`, so
@@ -748,16 +1076,105 @@ const WITHOUT_A_CHECKABLE_CLAIM: readonly string[] = [
   // aggregation over public shards, which names no symbol this file can resolve. It now
   // names one — `reduceSovereignJob` has no production caller — so the claim is checkable
   // and is checked, and the row can no longer go stale silently.
-  'MR-03',
-  'MR-04',
-  'MR-05',
-  'MR-06',
-  'MR-07',
-  'BENCH-06',
-  'AOT-03',
-  'AOT-04',
-  'AOT-05',
+  {
+    id: 'MR-03',
+    because: 'entry-point-not-driven',
+    reread: '2026-08-10',
+    witnesses: ['packages/core/src/reduce.test.ts', 'packages/net/src/combine.test.ts'],
+  },
+  {
+    id: 'MR-04',
+    because: 'entry-point-not-driven',
+    reread: '2026-08-10',
+    witnesses: [
+      'packages/core/src/reduce.test.ts',
+      'packages/net/src/reduce-job.test.ts',
+      'packages/node/src/late-combine.node.test.ts',
+      'packages/node/src/tree-reduce-agents.node.test.ts',
+    ],
+  },
+  {
+    id: 'MR-05',
+    because: 'entry-point-not-driven',
+    reread: '2026-08-10',
+    witnesses: [
+      'packages/core/src/reduce.test.ts',
+      'packages/net/src/combine.test.ts',
+      'packages/net/src/reduce-job.test.ts',
+      'packages/node/src/tree-reduce-agents.node.test.ts',
+    ],
+  },
+  {
+    id: 'MR-06',
+    because: 'entry-point-not-driven',
+    reread: '2026-08-10',
+    witnesses: [
+      'packages/core/src/reduce.test.ts',
+      'packages/net/src/combine-wire.test.ts',
+      'packages/net/src/combine.test.ts',
+      'packages/node/src/tree-reduce-agents.node.test.ts',
+    ],
+  },
+  {
+    id: 'MR-07',
+    because: 'entry-point-not-driven',
+    reread: '2026-08-10',
+    witnesses: [
+      'packages/core/src/reduce.test.ts',
+      'packages/net/src/reduce-job.test.ts',
+      'packages/node/src/late-combine.node.test.ts',
+      'packages/node/src/tree-reduce-agents.node.test.ts',
+    ],
+  },
+  {
+    id: 'BENCH-06',
+    because: 'experiment-not-run',
+    reread: '2026-07-28',
+    witnesses: ['packages/bench/src/harness.test.ts'],
+  },
+  // **The one entry with no witness at all**, and it is the honest reading rather than a
+  // gap in the scan: no spec in this repository title-names `AOT-03`. Every other entry
+  // here has at least one spec claiming to measure its requirement, so its promise is a
+  // promise to reconcile against something. `AOT-03`'s is a promise to reconcile against
+  // nothing, which is what *"a cross-machine half descoped and unmeasured"* means when it
+  // is read off the tree instead of off the row.
+  {
+    id: 'AOT-03',
+    because: 'experiment-not-run',
+    reread: '2026-07-28',
+    witnesses: [],
+  },
+  {
+    id: 'AOT-04',
+    because: 'tier-or-configuration',
+    reread: '2026-08-11',
+    witnesses: [
+      'packages/aot/src/admission.test.ts',
+      'packages/aot/src/wasi-executor.test.ts',
+      'packages/node/src/aot-dispatch.node.test.ts',
+      'packages/node/src/fabric-node.node.test.ts',
+    ],
+  },
+  // `AOT-05` was here until 2026-08-11 and is **REMOVED**, and it is the first id this
+  // register itself closed rather than a hand sweep. Flagged at 15 days outstanding; the
+  // re-read found its open leg was a call-site fact all along and had merely never been
+  // phrased as one — the demo loads its kernel from `primes-bytes.ts`/`pi-bytes.ts` and
+  // `loadArtifact` has no production caller at all, its only two occurrences outside the
+  // barrel being inside `streaming-load.ts`, which declares it. The row says so now, in
+  // the shape `parseRows` reads, so `AOT-05` leaves by the first of the two exits the rule
+  // allows — a row acquiring a checkable claim. **This is the whole point of the device:
+  // nothing about the tree changed, and the row had been exempt from a check it could
+  // always have passed.**
 ]
+
+/**
+ * The ids alone, which is what the set equality against the ledger reads.
+ *
+ * Derived rather than kept beside {@link REREAD_REGISTER}, so the two cannot disagree —
+ * a second hand-maintained list of the same ids is the defect this whole file is about,
+ * one level up.
+ */
+const WITHOUT_A_CHECKABLE_CLAIM: readonly string[] = REREAD_REGISTER.map((entry) => entry.id)
 
 // ---------------------------------------------------------------------------
 // serveAgent hooks
@@ -1207,6 +1624,148 @@ describe('a row claiming nothing calls a mechanism is right about it', () => {
   })
 })
 
+/**
+ * ## Proved by mutation, and two of the four reds were not planted
+ *
+ * A guard about unexamined promises that could not itself fail would be the joke this
+ * repository keeps writing about itself, so each case below was watched red and the
+ * observed text recorded here rather than described.
+ *
+ * **Unplanted, first run, 2026-08-11** — the countdown, against the real register:
+ *
+ * > `NET-03 (tier-or-configuration) has been an unexamined promise for 16 days, bound 14`
+ * > `AOT-05 (entry-point-not-driven) has been an unexamined promise for 15 days, bound 14`
+ *
+ * Both were then re-read against the tree. `NET-03` stands and is re-recorded; `AOT-05`'s
+ * open leg turned out to be a call-site fact that had never been phrased as one, so it
+ * left this register entirely. **The device's first act was to close a row.**
+ *
+ * **Unplanted, same day** — the drift case, which caught a defect in its own author's
+ * work: the `NET-03` entry's comment quotes its witness's ``describe('NET-03 — …')`` title
+ * as evidence, and an unstripped scan read that quotation as a title of *this* file:
+ *
+ * > `NET-03 was last re-read on 2026-08-11, and packages/node/src/`
+ * > `requirements-ledger.node.test.ts now names it in a test title`
+ *
+ * {@link SPEC_TITLES} strips comments now, and says why.
+ *
+ * **Planted, watched, restored by surgical inverse, `cmp` clean against a snapshot taken
+ * immediately before each plant:**
+ *
+ * 1. `NET-03`'s `reread` → `'2026-07-01'`:
+ *    `NET-03 (tier-or-configuration) has been an unexamined promise for 41 days, bound 14`
+ * 2. `packages/node/src/peer-verifier.node.test.ts` deleted from `AUTH-02`'s witnesses:
+ *    `AUTH-02 was last re-read on 2026-08-06, and packages/node/src/peer-verifier.node.`
+ *    `test.ts now names it in a test title — read the row against it, then re-record`
+ * 3. `BENCH-06`'s `reread` → `'2026-7-28'`, the one-character typo that would otherwise
+ *    make `daysOutstanding` return `NaN` and skip the countdown *silently*, because
+ *    `NaN > bound` and `NaN <= bound` are both false:
+ *    `BENCH-06 reread 2026-7-28: expected true to be false`
+ */
+describe('a promise to re-read a row by hand is visible, witnessed and finite', () => {
+  it('records a witness list that is what the spec corpus says now, not what it said once', () => {
+    // The cheap secondary, and its yield is stated rather than implied: measured against
+    // the four rows this register was built from, drift catches exactly one — `SCHED-05`,
+    // when `sovereignty-placement.node.test.ts` began title-naming it. The other three
+    // were stale against specs that already existed. So this case is not the guard; it is
+    // the half of the guard that fires *without waiting for the countdown*, and it is
+    // worth its 84 ms for that.
+    const findings: { paths: string[]; line: string }[] = []
+    for (const entry of REREAD_REGISTER) {
+      const { arrived, departed } = witnessDrift(entry)
+      // The union rule, exactly as the `translationCid` case applies it one describe up:
+      // a spec that began measuring this requirement is the other half of the
+      // contradiction, and its author is answerable with the two document authors.
+      if (arrived.length > 0) {
+        findings.push({
+          paths: [SPEC, LEDGER, ...arrived],
+          line:
+            `${entry.id} was last re-read on ${entry.reread}, and ${arrived.join(', ')} ` +
+            `now names it in a test title — read the row against it, then re-record`,
+        })
+      }
+      if (departed.length > 0) {
+        findings.push({
+          paths: [SPEC, LEDGER, ...departed],
+          line:
+            `${entry.id} records ${departed.join(', ')} as a witness, and it no longer ` +
+            `names the requirement in a test title`,
+        })
+      }
+    }
+    expect(blocking('requirements-ledger/witness-drift', findings, SCOPE)).toEqual([])
+  })
+
+  it('holds no promise outstanding longer than the bound', () => {
+    const now = Date.now()
+    const byId = new Map(ROWS.map((row) => [row.id, row]))
+    const findings: { paths: string[]; line: string }[] = []
+    for (const entry of REREAD_REGISTER) {
+      const days = daysOutstanding(entry.reread, now)
+      if (Number.isNaN(days) || days <= REREAD_INTERVAL_DAYS) continue
+      // The finding IS the re-read brief. It hands over the row's current verdict and
+      // every spec that claims to measure the requirement, because that is what a hand
+      // re-read reads — and because `BROW-02` proves the material is the whole point: its
+      // one witness was the spec that refuted it, and nothing ever put that path in front
+      // of anybody. Attributed to the two documents rather than to the witnesses: an
+      // outstanding promise is nobody's new defect, it is this register's own backlog, and
+      // the agent editing the ledger or this file is the one who can discharge it.
+      const row = byId.get(entry.id)
+      const witnesses = entry.witnesses.length === 0 ? 'no spec at all' : entry.witnesses.join(', ')
+      findings.push({
+        paths: [SPEC, LEDGER],
+        line:
+          `${entry.id} (${entry.because}) has been an unexamined promise for ${days} days, ` +
+          `bound ${REREAD_INTERVAL_DAYS} — its row is ${row?.verdict ?? 'absent from the ledger'} ` +
+          `and it is measured by ${witnesses}; read those against the row, then tick it or re-record`,
+      })
+    }
+    expect(blocking('requirements-ledger/stale-promise', findings, SCOPE)).toEqual([])
+  })
+
+  it('keeps the register well-formed, unduplicated and under its ceiling', () => {
+    // Not partitioned, and for the reason the header arithmetic is not: every expression
+    // here reads `REREAD_REGISTER` and nothing else, so it is already scoped to its own
+    // author and a partition layer could only fail open.
+    expect(REREAD_REGISTER.length).toBeLessThanOrEqual(REREAD_REGISTER_CEILING)
+    expect(new Set(WITHOUT_A_CHECKABLE_CLAIM).size).toBe(REREAD_REGISTER.length)
+    const today = Date.now()
+    for (const entry of REREAD_REGISTER) {
+      // A malformed date reads `NaN` from `daysOutstanding`, and `NaN <= bound` is false
+      // *and* `NaN > bound` is false — so a typo would skip the countdown silently in the
+      // one direction that matters. Caught here instead.
+      expect(Number.isNaN(utcMidnight(entry.reread)), `${entry.id} reread ${entry.reread}`).toBe(
+        false,
+      )
+      // A date in the future is a promise that can never come due.
+      expect(daysOutstanding(entry.reread, today), `${entry.id} reread ${entry.reread}`,
+      ).toBeGreaterThanOrEqual(0)
+      expect(pathFormProblems([...entry.witnesses])).toEqual([])
+    }
+  })
+
+  it('read titles out of the spec corpus, so an empty witness list means empty', () => {
+    // Every assertion above is of the shape "this list agrees with a scan", which a scan
+    // that stopped matching satisfies for fourteen of fifteen entries — every pinned
+    // witness would read as `departed`, which is loud, but a *new* register written
+    // against a dead scan would pin `[]` everywhere and be permanently, silently green.
+    // Floors and a pinned probe, the same defence the export scan gets above.
+    expect(SPECS.length).toBeGreaterThan(150)
+    expect(SPECS.filter((path) => (SPEC_TITLES.get(path) ?? '').length > 0).length).toBeGreaterThan(
+      150,
+    )
+    // `BROW-02` rather than a current member, on purpose: it is the historical case this
+    // whole register exists for, and it is independent of the register's own data. On the
+    // day `BROW-02` was listed as carrying no checkable claim, this one path was already
+    // its entire witness set — the spec that refuted it. A probe that goes red here means
+    // the scan can no longer see what an author should have been made to write down.
+    expect(titleWitnesses('BROW-02')).toEqual(['packages/node/src/peer-ledger.e2e.test.ts'])
+    // The boundary, checked rather than asserted: `MR-0` is a prefix of five ids in this
+    // register and must resolve to none of them.
+    expect(titleWitnesses('MR-0')).toEqual([])
+  })
+})
+
 describe('a row claiming a serveAgent hook is unsupplied is right about it', () => {
   it('has no row calling a hook unsupplied that a production node supplies', () => {
     const broken: { paths: string[]; line: string }[] = []
@@ -1246,6 +1805,11 @@ describe('the paths this guard attributes findings to are paths a commit can mat
     SPEC,
     ...EXPORT_PROBES.map(([, expected]) => expected),
     ...PRODUCTION.map((path) => path.slice(ROOT.length)),
+    // The witness lists are attributed with too — `witness-drift` names an arriving or
+    // departing spec in its `paths`, so a witness path in the wrong form is the same
+    // residual fail-open as a caller path in the wrong form: well-formed, matching no
+    // commit, and making every drift finding read as somebody else's.
+    ...REREAD_REGISTER.flatMap((entry) => [...entry.witnesses]),
   ]
 
   it('emits repo-relative POSIX paths that git also prints', () => {
