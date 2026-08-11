@@ -102,9 +102,19 @@
  * `certificatePayload` and `csrPopPayload` both go through `encodeCanonical` /
  * `canonicalCid` (`canonical/encode.ts`) — the same codec every other content-addressed
  * or signed record in this package uses (see `capability.ts`'s `payloadOf`). `x509.ts`
- * is not used: Phase 25 shipped it decode-only and deliberately unwired, and this
- * module's certificates are not X.509 — they are this fabric's own signed, canonically
- * encoded records, matching `capability.ts`'s `Delegation` in spirit.
+ * is not used *here*, because this module's certificates are not X.509 — they are this
+ * fabric's own signed, canonically encoded records, matching `capability.ts`'s
+ * `Delegation` in spirit.
+ *
+ * **Corrected 2026-08-11: the reason this sentence used to give has expired.** It read
+ * *"`x509.ts` is not used: Phase 25 shipped it decode-only and deliberately unwired"*, and
+ * that is now false about the tree — `checkX509Form` in `enrollment.ts` calls
+ * `decodeX509Certificate` and `describeX509Failure` on the trust path, fail-closed. The
+ * non-use above survives on its own narrower ground (different record format), not on a
+ * claim about the rest of the repository. **And the correction cuts against this module.**
+ * The X.509 gate is the project's most recent certificate work and it was built on
+ * `enrollment.ts`'s `NodeCertificate`, not on the facades below; that is the measurement
+ * behind CRYPTO-03's ruling that these four have no consumer to wire them to.
  *
  * ## What was added beyond the probe's literal shape, and why
  *

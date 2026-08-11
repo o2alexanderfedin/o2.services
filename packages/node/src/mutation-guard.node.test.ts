@@ -543,7 +543,21 @@ describe('the signature check applies to most of the ledger, not to a corner of 
       // actually separates "the catch-all fired" from "something later fired instead". The
       // other three (`XW1`, `XW3`, `XW4`) key on titles, because each reddens a case that
       // no other refusal in its file can produce.
+      //
+      // ── One arrived 2026-08-11 with CRYPTO-03's ledgering of the facades ───────────
+      //
+      // `CL1` is here because its plant reddens **four** cases at once and only one string
+      // says which claim actually broke. Putting `export { Subject } from
+      // './cert-lifecycle.ts'` on `@o2/core`'s barrel takes both ceilings in
+      // `reachability-guard.node.test.ts` over the edge (73 against 72, 37 against 36) as a
+      // side effect of the module ceasing to be import-orphaned — so a title-keyed signature
+      // would match a red produced by *any* new dead export arriving anywhere in eight
+      // packages, which is the one thing this entry must not be confused with. The observed
+      // `expected [ 'core/Subject' ] to deeply equal []` can only be rendered by a
+      // declaration in that one file reaching a barrel, and it exists in no source file, so
+      // `test-title` would also have been a false declaration.
       [
+        'CL1',
         'E1', 'E2',
         'K7',
         'L1', 'L2', 'L3', 'L4', 'L5',

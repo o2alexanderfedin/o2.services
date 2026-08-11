@@ -3537,6 +3537,29 @@ export const MUTATIONS: readonly Mutation[] = [
     signature: 'carries the form across the wire intact, so the certificate still verifies',
     signatureSource: 'test-title',
   },
+  {
+    id: 'CL1',
+    why:
+      "The owner non-decision about `cert-lifecycle.ts`'s facades, held by a check rather than by a " +
+      'comment. A barrel export is a decision — it makes a surface part of the package — and this ' +
+      'one was priced at +7 findings and has no consumer to pay for them. Until this entry existed, ' +
+      'a single re-export line could have taken that decision silently, because the module reaches no ' +
+      'barrel and every reachability case in the tree passed with it present or absent alike.',
+    file: 'packages/core/src/index.ts',
+    find: "export type { Ed25519AsyncVerifier, Ed25519Backend, Ed25519SyncVerifier } from './ed25519-backend.ts'",
+    replace:
+      "export type { Ed25519AsyncVerifier, Ed25519Backend, Ed25519SyncVerifier } from './ed25519-backend.ts'\n" +
+      "export { Subject } from './cert-lifecycle.ts'",
+    caughtBy: ['packages/node/src/reachability-guard.node.test.ts'],
+    // Observed 2026-08-11: EXIT=1, `Tests  4 failed | 20 passed (24)`. Both new claims went red
+    // together — the module stopped reading orphan (`expected [ …(26) ] to include
+    // 'packages/core/src/cert-lifecycle.ts'`) and the facade appeared on the barrel
+    // (`expected [ 'core/Subject' ] to deeply equal []`) — and both ceilings went with them,
+    // 73 against 72 and 37 against 36, which is the reading that says they now bind with no slack.
+    // Restored by the surgical inverse; `cmp` exit 0.
+    signature: "expected [ 'core/Subject' ] to deeply equal []",
+    signatureSource: 'rendered-at-runtime',
+  },
 ]
 
 /**

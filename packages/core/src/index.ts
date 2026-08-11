@@ -421,21 +421,31 @@ export type {
 // non-decision (28-CONTEXT.md `<deferred>` §2), and adding them here would take it by
 // side effect.
 //
-// **The price is 12 callable exports, and the pair it moves is re-derived 2026-08-10:
-// 73 → 85 unreachable, and OPEN_FINDING_CEILING 37 → 49.** These two lines quoted
-// `75 → 87` and `49 → 61` until then, and both left-hand figures were already stale when
-// they were written: Plan 28-01's own merge — the merge this comment is attached to —
-// moved them to 73 and 47 in the same commit. The open figure then moved a second time
-// the same day, 47 → 37, when `reachability-guard.node.test.ts` began DERIVING the
-// `global-object-hop` class instead of listing it and ten symbols with real production
-// callers behind `window.o2` left the residue they had never belonged in. Recorded as
-// deferred item 3 in `.planning/phases/phase-28-one-cryptographic-implementation/`, which
-// also notes this was the third copy of the triple; the other two are corrected.
+// **The price is +7 callable exports, MEASURED 2026-08-11: 72 → 79 unreachable, and
+// OPEN_FINDING_CEILING 36 → 43.** Every figure in the two sentences that stood here was
+// wrong, and the count itself was the largest error. It read *"12 callable exports … 73 → 85
+// … 37 → 49"*, and said in the same breath that the `+12` had never been re-measured because
+// checking it would take the decision this comment exists to avoid. It has now been checked
+// and put back: the facades were exported here, both ceilings set to 0, the guard run, the
+// exports removed and `cmp`-verified against a pre-plant snapshot. Seven symbols arrive, not
+// twelve — `Subject`, `Issuer`, `Verifier`, `Directory`, `createSubject`, `createIssuer`,
+// `createVerifier`. `ARGON2_PARAMS` is a `const`, so `other-value` and never in jurisdiction,
+// the same arithmetic that made `x509.ts`'s five new exports move the count by two; and
+// `signCertificate`/`deriveKeySeeds` do not become findings because the graph reaches them
+// through their own in-module callers, which is that guard's known over-connection rather than
+// a production path. So **+7 is a lower bound on the uncounted surface, not a full accounting**.
 //
-// The `+12` is Plan 28-01's measurement carried forward and is NOT re-measured here — the
-// facades were not barrel-exported to check it, since doing so is the very decision this
-// comment exists to avoid taking by side effect. The bounds it is added to were read off
-// the guard on 2026-08-10, both sitting exactly at their ceilings.
+// The left-hand figures moved too, and for a reason outside this file: the X.509 wiring gave
+// `decodeX509Certificate` and `describeX509Failure` a production caller in `enrollment.ts`, so
+// the two bounds came down 74 → 72 and 38 → 36 with it.
+//
+// **A price is not the whole reason these stay off the barrel.** The facades have no consumer:
+// `cert-lifecycle.ts` is imported by nothing in the production corpus — measured, and it is one
+// of 27 such modules — and the X.509 wiring that landed on the trust path this week built on
+// `enrollment.ts`'s `NodeCertificate` and `x509.ts`, not on these. Exporting them would pay 7
+// findings to make an unused surface reachable-looking. They are counted where they actually
+// live instead: `reachability-guard.node.test.ts`'s *"a module that reaches no barrel is
+// counted, not invisible"* block names this module and holds both facts still.
 export {
   createNobleSyncVerifier,
   Ed25519NotInitializedError,
