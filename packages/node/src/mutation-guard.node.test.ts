@@ -529,6 +529,20 @@ describe('the signature check applies to most of the ledger, not to a corner of 
       // can only be rendered by two distinct checkpoint failures collapsing into one.
       // Neither string exists in any source file, so `test-title` would also have been a
       // false declaration — see the case above that rejects exactly that mistake.
+      //
+      // ── One arrived 2026-08-11 with the X.509 profile's wiring ────────────────────
+      //
+      // `XW2` is the only one of that group's four in this arm, and the reason is that a
+      // title would have been the WEAKER key rather than a merely different one. It plants
+      // the whole-`TBSCertificate` byte comparison, whose case title —
+      // `refuses a serialNumber the envelope would not have produced, which no named field
+      // covers` — would go red for *any* refusal, including the `x509-bad-signature` the
+      // gate falls through to when the comparison is gone. That fall-through is precisely
+      // the near-miss the entry exists to distinguish, so the observed
+      // `expected 'x509-bad-signature' to be 'x509-mismatch'` is the signature that
+      // actually separates "the catch-all fired" from "something later fired instead". The
+      // other three (`XW1`, `XW3`, `XW4`) key on titles, because each reddens a case that
+      // no other refusal in its file can produce.
       [
         'E1', 'E2',
         'K7',
@@ -536,6 +550,7 @@ describe('the signature check applies to most of the ledger, not to a corner of 
         'M1', 'M11', 'M12', 'M2a', 'M20', 'M22', 'M27', 'M3a', 'M30', 'M32', 'M37',
         'M4', 'M40', 'M42', 'M43', 'M44', 'M5', 'M51', 'M7', 'M9',
         'R1',
+        'XW2',
       ].sort(),
     )
   })
