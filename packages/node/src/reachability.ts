@@ -842,6 +842,12 @@ export interface UnreachableVerdict {
    * Production callers the graph found, if any. Empty means nothing in the tree calls it;
    * non-empty means it is called, but only from somewhere itself unreachable — a materially
    * different fact, and one a reader has to have in order to act.
+   *
+   * **Same-file callers count, and until 2026-08-11 they were dropped here.** The field was
+   * built by filtering out every caller declared in the finding's own file, which made a symbol
+   * called from the line below it render as *"no production code calls it"* — the one sentence
+   * this docblock exists to keep honest. Restored by `reachability-guard.node.test.ts`'s
+   * one-edge case, which was watched red against the filter before it was removed.
    */
   readonly callers: readonly string[]
 }
@@ -906,7 +912,8 @@ export function unreachableExports(
       barrel: one.barrel,
       symbol: one.name,
       declaredIn: file,
-      callers: (callers.get(id) ?? []).filter((caller) => fileOf(caller) !== file).sort(),
+      // Copied before sorting — `callers` holds the index's own arrays, and `sort` is in place.
+      callers: [...(callers.get(id) ?? [])].sort(),
     })
   }
   return found.sort((a, b) => `${a.barrel}/${a.symbol}`.localeCompare(`${b.barrel}/${b.symbol}`))
