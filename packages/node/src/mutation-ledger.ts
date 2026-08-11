@@ -3191,6 +3191,224 @@ export const MUTATIONS: readonly Mutation[] = [
     signature: 'refuses a replica replaying one commitment across two shards',
     signatureSource: 'test-title',
   },
+  // ── MR-02, the sovereign arm of the aggregation ─────────────────────────────────
+  //
+  // Fifteen entries for one function, which is the point rather than the cost. The
+  // predecessor this arm is modelled against — `VER-02`'s first commit-reveal — was
+  // DELETED rather than relabelled, because its check was unconditionally true and both
+  // of its failure branches were unreachable. An admission gate is exactly that shape of
+  // thing, so every refusal it can make is planted here and each one was watched red
+  // against the case that names it.
+  {
+    id: 'SA1',
+    why:
+      "MR-02. The floor is what makes the word *verified* true of the aggregation rather than a preference: one executor performing a merge and signing it produces a statement that a merge happened and no comparison at all, so `executeReduce` has nothing to disagree about. Lowering the bound leaves the option readable and inert, and a caller asking for redundancy 1 gets a sovereign aggregate whose only verified half is not verified.",
+    file: 'packages/net/src/reduce-sovereign.ts',
+    find: "  if (wanted < MIN_SOVEREIGN_COMBINE_REPLICAS) {",
+    replace: "  if (wanted < -1) {",
+    caughtBy: ['packages/net/src/reduce-sovereign.test.ts'],
+    // Observed 2026-08-11 in the plant sweep that added this file: exit 1, with the named
+    // case red and the unvaried control still green. Restored by the surgical inverse;
+    // `cmp` exit 0.
+    signature: "redundancy below the minimum \u2014 the caller asked for an unverified aggregation",
+    signatureSource: 'test-title',
+  },
+  {
+    id: 'SA2',
+    why:
+      "MR-02. This is the exact reading the v1.1 audit says Phase 16 took: the aggregation run over public shards and reported as though it carried a sovereignty claim. With the guard inert the arm accepts an all-public job, derives a coverage report over zero owners and attaches an egress reading to a run that pinned nothing \u2014 a sovereignty sentence about a job that made none.",
+    file: 'packages/net/src/reduce-sovereign.ts',
+    find: "  if (pinned.size === 0) {",
+    replace: "  if (pinned.size === -1) {",
+    caughtBy: ['packages/net/src/reduce-sovereign.test.ts'],
+    // Observed 2026-08-11 in the plant sweep that added this file: exit 1, with the named
+    // case red and the unvaried control still green. Restored by the surgical inverse;
+    // `cmp` exit 0.
+    signature: "a job that pins no shard to an owner \u2014 Phase 16\u2019s reading, refused by name",
+    signatureSource: 'test-title',
+  },
+  {
+    id: 'SA3',
+    why:
+      "MR-02. `PROJECT.md` says the sovereignty claim is carried by the egress manifest and the coverage report rather than by a quorum. A sentinel that no longer matches lets a caller reach a sovereign aggregate having stated that nothing watched the owner-pinned rows, which is the claim made with its own evidence declared absent.",
+    file: 'packages/net/src/reduce-sovereign.ts',
+    find: "  if (options.egress === 'holds-no-egress-manifest') {",
+    replace: "  if (options.egress === 'holds-no-egress-manifest-XX') {",
+    caughtBy: ['packages/net/src/reduce-sovereign.test.ts'],
+    // Observed 2026-08-11 in the plant sweep that added this file: exit 1, with the named
+    // case red and the unvaried control still green. Restored by the surgical inverse;
+    // `cmp` exit 0.
+    signature: "the named absence of an egress manifest",
+    signatureSource: 'test-title',
+  },
+  {
+    id: 'SA4',
+    why:
+      "MR-02. An empty list satisfies the type and watches nothing, so it is the cheapest way to spell the sentinel without writing it. Inert, the arm reduces `registeredSovereign` over no manifests to POSITIVE_INFINITY and every shortfall check below passes vacuously.",
+    file: 'packages/net/src/reduce-sovereign.ts',
+    find: "  if (manifests.length === 0) {",
+    replace: "  if (manifests.length === -1) {",
+    caughtBy: ['packages/net/src/reduce-sovereign.test.ts'],
+    // Observed 2026-08-11 in the plant sweep that added this file: exit 1, with the named
+    // case red and the unvaried control still green. Restored by the surgical inverse;
+    // `cmp` exit 0.
+    signature: "an empty manifest list, which is not a manifest",
+    signatureSource: 'test-title',
+  },
+  {
+    id: 'SA5',
+    why:
+      "MR-02, DATA-05. A violation means a frame carrying a registered sovereign payload was offered to the exit and refused. The bytes stayed home, but a map that tried to move data is not a map this arm may aggregate over and then describe as sovereign. Inert, the aggregate is computed and the attempted leak is nowhere in what it reports.",
+    file: 'packages/net/src/reduce-sovereign.ts',
+    find: "    if (manifest.violations.length > 0) {",
+    replace: "    if (manifest.violations.length > 99) {",
+    caughtBy: ['packages/net/src/reduce-sovereign.test.ts'],
+    // Observed 2026-08-11 in the plant sweep that added this file: exit 1, with the named
+    // case red and the unvaried control still green. Restored by the surgical inverse;
+    // `cmp` exit 0.
+    signature: "a manifest that recorded a refused frame carrying a registered row",
+    signatureSource: 'test-title',
+  },
+  {
+    id: 'SA6',
+    why:
+      "EGR-01's whole subject, one requirement over. `violations: []` answers two different questions with one sentence \u2014 *this run registered no sovereign data* and *this run registered sovereign data and none of it left* \u2014 and only the second is a statement about sovereignty. Inert, a guard that was handed nothing reports a clean manifest and the arm reads it as evidence.",
+    file: 'packages/net/src/reduce-sovereign.ts',
+    find: "  if (registeredSovereign < pinned.size) {",
+    replace: "  if (registeredSovereign < -1) {",
+    caughtBy: ['packages/net/src/reduce-sovereign.test.ts'],
+    // Observed 2026-08-11 in the plant sweep that added this file: exit 1, with the named
+    // case red and the unvaried control still green. Restored by the surgical inverse;
+    // `cmp` exit 0.
+    signature: "a guard that watched fewer rows than the job pinned",
+    signatureSource: 'test-title',
+  },
+  {
+    id: 'SA7',
+    why:
+      "MR-02. A public shard inside a job this arm aggregates would contribute a partial to the number while contributing nothing to the coverage report, so the aggregate and its denominator would describe different sets \u2014 the exact failure `coverage.ts` exists to prevent, arriving through the composition. Inert, the shard is skipped silently and the number is quietly over a different population than the one printed beside it.",
+    file: 'packages/net/src/reduce-sovereign.ts',
+    find: "    if (owner === undefined) {",
+    replace: "    if (owner === undefined && false) {",
+    caughtBy: ['packages/net/src/reduce-sovereign.test.ts'],
+    // Observed 2026-08-11 in the plant sweep that added this file: exit 1, with the named
+    // case red and the unvaried control still green. Restored by the surgical inverse;
+    // `cmp` exit 0.
+    signature: "a public shard smuggled into a job this arm was asked to aggregate",
+    signatureSource: 'test-title',
+  },
+  {
+    id: 'SA8',
+    why:
+      "MR-02. *Map is owner-attested* is one of the two halves of `PROJECT.md`'s split, and the named absence is `submitJob`'s way of saying this requestor cannot say who ran the shard. Inert, the arm reads `userKeys` off the absence \u2014 `undefined` \u2014 and admits a partial nobody attested as though the owner had produced it.",
+    file: 'packages/net/src/reduce-sovereign.ts',
+    find: "  if ('kind' in receipt) {",
+    replace: "  if ('kind' in receipt && false) {",
+    caughtBy: ['packages/net/src/reduce-sovereign.test.ts'],
+    // Observed 2026-08-11 in the plant sweep that added this file: exit 1, with the named
+    // case red and the unvaried control still green. Restored by the surgical inverse;
+    // `cmp` exit 0.
+    signature: "an agreed sovereign shard whose map nobody attested",
+    signatureSource: 'test-title',
+  },
+  {
+    id: 'SA9',
+    why:
+      "MR-02. This is the comparison between two independently derived facts \u2014 the owner the requestor pinned the shard to, and the certified user key of the node that actually ran it. It is the one check a requestor cannot satisfy by writing its own descriptors, because it cannot forge a certificate. Inert, a partial produced under a stranger's key is aggregated as the owner's own.",
+    file: 'packages/net/src/reduce-sovereign.ts',
+    find: "  if (!keys.includes(pinnedTo)) {",
+    replace: "  if (!keys.includes(pinnedTo) && false) {",
+    caughtBy: ['packages/net/src/reduce-sovereign.test.ts'],
+    // Observed 2026-08-11 in the plant sweep that added this file: exit 1, with the named
+    // case red and the unvaried control still green. Restored by the surgical inverse;
+    // `cmp` exit 0.
+    signature: "a partial attested under a user key that is not the owner it was pinned to",
+    signatureSource: 'test-title',
+  },
+  {
+    id: 'SA10',
+    why:
+      "MR-02. The owner-attested half means the owner produced the partial, not that the owner was among those who did. A receipt naming the owner *and* a second user key describes a shard that ran outside the owner's trust domain, which is the placement leak `sovereignty.ts` is structurally built to prevent, arriving after the fact. Inert, such a shard is admitted.",
+    file: 'packages/net/src/reduce-sovereign.ts',
+    find: "  if (keys.length > 1) {",
+    replace: "  if (keys.length > 99) {",
+    caughtBy: ['packages/net/src/reduce-sovereign.test.ts'],
+    // Observed 2026-08-11 in the plant sweep that added this file: exit 1, with the named
+    // case red and the unvaried control still green. Restored by the surgical inverse;
+    // `cmp` exit 0.
+    signature: "a partial attested by the owner AND by somebody else",
+    signatureSource: 'test-title',
+  },
+  {
+    id: 'SA11',
+    why:
+      "MR-02. A job whose every owner failed has no contribution to aggregate, and `deriveReduceTree` throws a `RangeError` on an empty set \u2014 this module reports failures as values, so an escaping exception is a different contract. Inert, the arm reaches `reduceJob` with nothing and the caller gets whichever refusal falls out rather than the one that names the cause.",
+    file: 'packages/net/src/reduce-sovereign.ts',
+    find: "  if (contributions.length === 0) {",
+    replace: "  if (contributions.length === -1) {",
+    caughtBy: ['packages/net/src/reduce-sovereign.test.ts'],
+    // Observed 2026-08-11 in the plant sweep that added this file: exit 1, with the named
+    // case red and the unvaried control still green. Restored by the surgical inverse;
+    // `cmp` exit 0.
+    signature: "no owner-pinned shard agreed",
+    signatureSource: 'test-title',
+  },
+  {
+    id: 'SA12',
+    why:
+      "MR-02. `deriveReduceTree` keys a leaf on `(contributor, cid)`, so one owner contributing two identical partials collapses to a single leaf and the aggregate counts that owner's data once instead of twice. That is a silent undercount \u2014 the number is well-formed and simply wrong \u2014 and it is the mirror of the defect `ReduceContribution` was introduced to close.",
+    file: 'packages/net/src/reduce-sovereign.ts',
+    find: "    if (seen.has(key)) {",
+    replace: "    if (seen.has(key) && false) {",
+    caughtBy: ['packages/net/src/reduce-sovereign.test.ts'],
+    // Observed 2026-08-11 in the plant sweep that added this file: exit 1, with the named
+    // case red and the unvaried control still green. Restored by the surgical inverse;
+    // `cmp` exit 0.
+    signature: "one owner\u2019s two partials that address alike, which would merge into one leaf",
+    signatureSource: 'test-title',
+  },
+  {
+    id: 'SA13',
+    why:
+      "MR-02. A lone contribution is *promoted* rather than combined, so no node performed an aggregation at all. Inert, the arm returns an aggregate whose verification claim is about a step that never ran \u2014 the conflation the aggregate receipt's own named absence exists to prevent one layer up.",
+    file: 'packages/net/src/reduce-sovereign.ts',
+    find: "  if (reduced.tree.nodes.length === 0) {",
+    replace: "  if (reduced.tree.nodes.length === -1) {",
+    caughtBy: ['packages/net/src/reduce-sovereign.test.ts'],
+    // Observed 2026-08-11 in the plant sweep that added this file: exit 1, with the named
+    // case red and the unvaried control still green. Restored by the surgical inverse;
+    // `cmp` exit 0.
+    signature: "a single contribution, which is promoted rather than combined",
+    signatureSource: 'test-title',
+  },
+  {
+    id: 'SA14',
+    why:
+      "MR-02. The floor above is what the caller ASKED for; this is what the fabric ACHIEVED, and the two differ whenever the executor set is too small to satisfy the request. A tree is no better verified than its weakest step, so a run whose weakest combine found one executor is an unverified aggregation reported at the redundancy that was requested.",
+    file: 'packages/net/src/reduce-sovereign.ts',
+    find: "  if (reduced.outcome.minReplicas < MIN_SOVEREIGN_COMBINE_REPLICAS) {",
+    replace: "  if (reduced.outcome.minReplicas < -1) {",
+    caughtBy: ['packages/net/src/reduce-sovereign.test.ts'],
+    // Observed 2026-08-11 in the plant sweep that added this file: exit 1, with the named
+    // case red and the unvaried control still green. Restored by the surgical inverse;
+    // `cmp` exit 0.
+    signature: "a tree whose weakest combine found only one executor",
+    signatureSource: 'test-title',
+  },
+  {
+    id: 'SA15',
+    why:
+      "MR-02. `reduceJob`'s own named refusals \u2014 no executor, a projection that threw, a partial over the size budget \u2014 reach the caller through this line. Replacing the carried reason with a constant keeps every refusal a refusal and deletes the diagnosis, which is the shape this repository names *silent filtering*: a requestor left unable to tell a dead network from a broken projection.",
+    file: 'packages/net/src/reduce-sovereign.ts',
+    find: "  if (!reduced.ok) return refuse(reduced.reason)",
+    replace: "  if (!reduced.ok) return refuse('a reduce could not be attempted')",
+    caughtBy: ['packages/net/src/reduce-sovereign.test.ts'],
+    // Observed 2026-08-11 in the plant sweep that added this file: exit 1, with the named
+    // case red and the unvaried control still green. Restored by the surgical inverse;
+    // `cmp` exit 0.
+    signature: "no executor at all \u2014 reduceJob\u2019s own refusal, carried through rather than reworded",
+    signatureSource: 'test-title',
+  },
 ]
 
 /**
