@@ -53,8 +53,11 @@ deleting the presence-only check and the WASM fallback arm it guarded.
 
 **This is behaviour-neutral in production and the merged module's docblock says so.**
 Production Ed25519 verification calls `@noble/curves` directly at six sites
-(`capability.ts:219`, `enrollment.ts:702`/`:740`/`:759`/`:874`, `discovery.ts:122`) and
-routes through neither selection layer. Nothing in production calls `initEd25519()`,
+(`verifyChain` in `capability.ts`; `redeemChallenge`, `enrol` twice and `verifyCertificate`
+in `enrollment.ts`; `verifyCapabilityRecord` in `discovery.ts`) and
+routes through neither selection layer. **Re-cited by symbol 2026-08-10:** this line said
+`capability.ts:219`, and the call was already at `:249` when it was written — this plan's own
+commit `31b64a6` moved it 30 lines in the same change. Nothing in production calls `initEd25519()`,
 `getSyncVerifier()`, `getAsyncVerifier()` or `createCryptoBackend()`. So this removes a
 duplication from the package, **not** a hazard from the trust path, and no production
 behaviour changed. The plan's own framing, kept.

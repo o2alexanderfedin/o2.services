@@ -174,10 +174,9 @@
  *
  * What a future wiring pass needs to do: call `initEd25519()` once per process at
  * startup, at each of the three entry points named above; decide and test the
- * pre-init behaviour described above; replace `capability.ts:219`'s
- * `ed25519.verify(...)` call and `enrollment.ts`'s four `ed25519.verify(...)` call
- * sites (`enrollment.ts:702`, `enrollment.ts:740`, `enrollment.ts:759`,
- * `enrollment.ts:874`) with `getSyncVerifier().verify(...)`; update
+ * pre-init behaviour described above; replace `verifyChain`'s `ed25519.verify(...)` call
+ * in `capability.ts` and `enrollment.ts`'s four — in `redeemChallenge`, in `enrol`
+ * (twice) and in `verifyCertificate` — with `getSyncVerifier().verify(...)`; update
  * `capability.test.ts` and `enrollment.test.ts` accordingly.
  *
  * This module carries no requirement ID (`requirements: []` in 25-04-PLAN.md's

@@ -36,12 +36,20 @@ routes through neither selection module:
 
 | Call site | What it calls |
 |---|---|
-| `packages/core/src/capability.ts:219` | `ed25519.verify(...)` — inside `verifyChain` |
-| `packages/core/src/enrollment.ts:702` | `ed25519.verify(...)` — challenge answer |
-| `packages/core/src/enrollment.ts:740` | `ed25519.verify(...)` — proof of possession |
-| `packages/core/src/enrollment.ts:759` | `ed25519.verify(...)` — owner proof |
-| `packages/core/src/enrollment.ts:874` | `ed25519.verify(...)` — inside `verifyCertificate` |
-| `packages/core/src/discovery.ts:122` | `ed25519.verify(...)` — capability record |
+| `packages/core/src/capability.ts` — `verifyChain` | `ed25519.verify(...)` on each link's signature |
+| `packages/core/src/enrollment.ts` — `EnrollmentAuthority.redeemChallenge` | `ed25519.verify(...)` — challenge answer |
+| `packages/core/src/enrollment.ts` — `EnrollmentAuthority.enrol` | `ed25519.verify(...)` — proof of possession |
+| `packages/core/src/enrollment.ts` — `EnrollmentAuthority.enrol` | `ed25519.verify(...)` — owner proof |
+| `packages/core/src/enrollment.ts` — `verifyCertificate` | `ed25519.verify(...)` on the certificate signature |
+| `packages/core/src/discovery.ts` — `verifyCapabilityRecord` | `ed25519.verify(...)` — capability record |
+
+**Re-cited by symbol 2026-08-10.** This table gave line numbers — `capability.ts:219`,
+`enrollment.ts:702`/`:740`/`:759`/`:874`, `discovery.ts:122` — and five of the six were still
+right when checked. The sixth was wrong from the hour it was written: `31b64a6`, the commit
+that landed this phase's first plan, moved `toBase64Url`/`fromBase64Url` into `capability.ts`
+and pushed the call to `:249`. The number was copied to eight further places before anybody
+re-read it. Symbols are cited here instead because a symbol is what survives the next move,
+and it is greppable.
 
 So the accurate statement of the defect is **three** Ed25519 arrangements in one package:
 a production path that is unconditional noble with no selection at all, plus two unused
