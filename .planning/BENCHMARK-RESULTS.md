@@ -6,6 +6,31 @@ Run at 2026-08-06T03:06:30.872Z. Methodology pre-registered in
 [`BENCHMARK-METHODOLOGY.md`](./BENCHMARK-METHODOLOGY.md), committed before
 this harness existed.
 
+**Added by hand on 2026-08-11, and the next run of the driver will overwrite it along
+with every figure below — which is correct, because that run will measure the path this
+note is about.** Every redundancy-2 rung in this file was measured on the post-hoc
+comparison path. `bin/bench.ts`'s timing wrapper carried `nodeId` and `execute` and
+nothing else, so a remote executor that could speak VER-02's two rounds arrived at
+`submitJob` unable to and every rung at two or more replicas opted out of the ceremony.
+That wrapper now forwards `commit` and `reveal`, so **the following figures were measured
+on a dispatch path this repository no longer has**: every row at nodes >= 2 of *Makespan —
+memory transport, in-process driver* and of *Makespan — real transport, in-process
+driver* (each runs `redundancy = min(2, nodes)`), the *Connectivity tax* and *COST
+crossover* sections derived from those two curves, and the skewed 4-node reading in
+*Supplementary*. What the change costs was measured comparatively rather than restated
+from these rows: six interleaved `--quick` runs per arm, each R=2 rung read against the
+R=1 rung of its own run so that the machine and the day cancel. On the real transport the
+n=2/n=1 makespan ratio moved 1.815 -> 2.403 and the gross node-seconds ratio 3.870 ->
+5.141, with disjoint sample ranges on both — about **32 percent** on a redundancy-2 rung,
+which is one added round trip per replica per shard. On the memory transport the median
+moved 0.4 to 6 percent and the samples overlap, so at six runs per arm the effect there
+is not separable from run-to-run variation. **Not stale**: the *process-per-node* makespan
+table and both speedup sweeps run at redundancy 1 and take the same route they always
+did, and the reduce tables are timed outside the map bracket through executors the
+wrapper never touches. A future run of this driver prints, per rung, how many commit and
+reveal rounds it dispatched, so the artifact will state which path it took rather than
+leaving a reader to date it.
+
 ## What these numbers do NOT establish
 
 - **No parallel speedup is measurable on the memory-transport curve, by construction — and this entry no longer says that about every in-process rig, because that was measured false.** `memoryFabric` builds its executors directly, so its N node identities share one OS process *and* one JavaScript event loop, and its curve measures **coordination cost** rather than parallelism. The real-transport rig does not: it builds each node with `FabricNode.start`, and a `FabricNode` composes a `WorkerExecutor` over its own worker thread, so N in-process nodes are N threads on this host’s cores. The previous wording — *every node in both curves runs inside one OS process on one JavaScript event loop* — was true of the first rig and false of the second, and is corrected here rather than carried forward.
