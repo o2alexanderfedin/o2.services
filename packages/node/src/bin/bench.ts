@@ -45,11 +45,14 @@ import {
 // now has one home in `../bench-fabric.ts`.
 import type {
   CanonicalValue,
+  CommitOutcome,
+  CommittingExecutor,
   Delegation,
   Executor,
   JobResult,
   NameRecord,
   PublicKeyHex,
+  RevealOutcome,
   ShardAttestation,
   Task,
 } from '@o2/core'
@@ -650,49 +653,109 @@ interface CostAccumulator {
   gross: number
   perNode: Map<string, number>
   calls: number[]
+  /**
+   * How many round-1 `commit` dispatches {@link timed} forwarded — VER-02's instrument.
+   *
+   * **Counted at the wrapper, which is the party that forwards them**, so it is a reading
+   * of dispatches that happened rather than an inference from the rung's configuration. A
+   * rung whose executors did not speak both rounds, or whose shards were not public, or
+   * which ran at redundancy 1, leaves this at `0` — and `submitJob` is the only thing that
+   * decides which, so a non-zero count here is that decision observed from outside it.
+   *
+   * The two counters are kept apart rather than folded into one: they are equal on a
+   * ceremony where every commitment was collected, and a **reveal deficit is the
+   * interesting reading** — a node whose round 1 failed is never asked to reveal, so
+   * `reveals < commits` is a straggler or a refusal that the gross figure alone cannot
+   * show.
+   */
+  commits: number
+  reveals: number
 }
 
 /**
- * Wraps an executor so every call's wall time is recorded.
+ * Wraps an executor so every call's wall time is recorded, **both rounds included**.
  *
- * ## This wrapper opts every rung out of VER-02's ceremony, and that is stated rather
- * than left to be discovered
+ * ## This wrapper used to opt every rung out of VER-02's ceremony. It no longer does
  *
  * `submitJob` selects the two-round commit-reveal ceremony for a public shard at two or
  * more replicas **whose executors speak both rounds** (`isCommitting`,
- * `packages/core/src/job/commit-reveal.ts`). The literal returned below carries `nodeId`
- * and `execute` and nothing else, so a `RemoteExecutor` that arrived here able to
- * `commit` and `reveal` leaves unable to — and every `redundancy: 2` rung this driver
- * runs therefore takes the post-hoc comparison path instead.
+ * `packages/core/src/job/commit-reveal.ts`). Until 2026-08-11 the literal returned below
+ * carried `nodeId` and `execute` and nothing else, so a `RemoteExecutor` that arrived here
+ * able to `commit` and `reveal` left unable to — and every `redundancy: 2` rung this driver
+ * runs took the post-hoc comparison path instead. That was VER-02's last open leg: the
+ * ceremony was wired through `submitJob` and measured across spawned agents, and no
+ * *runnable submitter* handed it an all-committing set.
  *
- * **That is a divergence between what this driver measures and what a job through
- * `submitJob` does**, and it is left standing for one measurement reason rather than
- * because it is right: forwarding the two verbs would put a second round trip into every
- * R≥2 dispatch and change every published figure on the redundancy arm, and a number that
- * moves for a reason nobody re-measured is worse than a named gap. `.planning/REQUIREMENTS.md`'s
- * VER-02 row carries this as the open leg, and closing it means forwarding the verbs
- * **and** retaking the ladder, in that order, in one change that says which figures moved.
+ * **What forwarding costs is a second round trip on every R≥2 dispatch, and it is
+ * measured rather than argued.** The ladder was taken on both sides of this change and the
+ * cost is published beside the curves it moved; the reading that says the ceremony really
+ * ran is {@link CostAccumulator.commits}, printed per rung.
  *
- * The ceremony itself is measured elsewhere and against the real binary — see
+ * ## The forward is structural, and that is what keeps it in step with `submitJob`
+ *
+ * `isCommitting` is deliberately not barrel-exported from `@o2/core` — it is how
+ * `submitJob` chooses a path, and a second exported way to reach the ceremony is the shape
+ * `job-entry-points.node.test.ts` refuses — so this file cannot call it and asks the same
+ * question of the object itself. **The two cannot disagree in the direction that matters**:
+ * when the check below passes, the returned literal carries both functions and `isCommitting`
+ * answers `true` of it; when it fails, `inner` has no rounds to forward and `isCommitting`
+ * would have answered `false` of `inner` too. A nominal test — `inner instanceof
+ * RemoteExecutor` — was rejected for the opposite property: it would silently drop the
+ * rounds of any *other* committing executor a later rig builds, which is precisely the
+ * defect being closed here.
+ *
+ * The ceremony's *refusals* are measured elsewhere and against the real binary — see
  * `packages/node/src/two-process.node.test.ts`, which runs both rounds across spawned
- * `bin/agent.ts` processes.
+ * `bin/agent.ts` processes and names a replica that reveals what it did not commit to.
+ * This site is the submitting half: it establishes that the rounds are dispatched at all.
  */
 function timed(inner: Executor, into: CostAccumulator): Executor {
-  return {
+  /**
+   * One clock for all three verbs.
+   *
+   * `gross` therefore counts commit and reveal as separate intervals, which is what makes
+   * the added round trip visible in the published node-seconds column instead of hiding
+   * inside a single figure. `calls` receives both for the same reason its own docblock
+   * gives about `execute`: it is what the node-seconds are made of.
+   */
+  const clocked = async <T>(call: () => Promise<T>): Promise<T> => {
+    const started = performance.now()
+    try {
+      return await call()
+    } finally {
+      const elapsedMs = performance.now() - started
+      const elapsed = elapsedMs / 1000
+      into.gross += elapsed
+      into.calls.push(elapsedMs)
+      into.perNode.set(inner.nodeId, (into.perNode.get(inner.nodeId) ?? 0) + elapsed)
+    }
+  }
+
+  const base: Executor = {
     nodeId: inner.nodeId,
-    async execute(task: Task) {
-      const started = performance.now()
-      try {
-        return await inner.execute(task)
-      } finally {
-        const elapsedMs = performance.now() - started
-        const elapsed = elapsedMs / 1000
-        into.gross += elapsed
-        into.calls.push(elapsedMs)
-        into.perNode.set(inner.nodeId, (into.perNode.get(inner.nodeId) ?? 0) + elapsed)
-      }
+    execute: (task: Task) => clocked(() => inner.execute(task)),
+  }
+
+  const rounds = inner as Partial<CommittingExecutor>
+  const { commit, reveal } = rounds
+  if (typeof commit !== 'function' || typeof reveal !== 'function') return base
+
+  // Annotated rather than returned inline: `timed`'s return type is `Executor`, which is
+  // deliberately not an extension of `CommittingExecutor` — `commit-reveal.ts` states why
+  // the two ports are separate — so an unannotated literal carrying the extra members is
+  // an excess-property error. The annotation is what says this object satisfies both.
+  const bothRounds: Executor & CommittingExecutor = {
+    ...base,
+    async commit(task: Task): Promise<CommitOutcome> {
+      into.commits += 1
+      return clocked(() => commit.call(inner, task))
+    },
+    async reveal(handle: string): Promise<RevealOutcome> {
+      into.reveals += 1
+      return clocked(() => reveal.call(inner, handle))
     },
   }
+  return bothRounds
 }
 
 /*
@@ -1858,6 +1921,16 @@ interface RungReadings {
    * published beside each rung.
    */
   readonly computeMs: number
+  /**
+   * VER-02 — the two rounds this rung's wrapper forwarded, summed over **every** run of
+   * the rung, `computeMs`'s population rather than `calls`'.
+   *
+   * Every run and not the first measured one, deliberately: this is a count of things that
+   * happened, so a rung's total is the honest figure and a sample of it would understate
+   * the ceremony's reach. See {@link CostAccumulator.commits}.
+   */
+  readonly commits: number
+  readonly reveals: number
 }
 
 /** The accumulating form. {@link RungReadings} is what a caller sees. */
@@ -1868,6 +1941,8 @@ interface MutableRungReadings {
   speculated: readonly boolean[]
   moduleCid: string
   computeMs: number
+  commits: number
+  reveals: number
   captured: boolean
 }
 
@@ -1896,7 +1971,13 @@ function runnerOver(acquire: (nodes: number) => Promise<Fabric>, state: RunnerSt
   return async (config, codeCache) => {
     const fabric = await acquire(config.nodes)
 
-    const cost: CostAccumulator = { gross: 0, perNode: new Map<string, number>(), calls: [] }
+    const cost: CostAccumulator = {
+      gross: 0,
+      perNode: new Map<string, number>(),
+      calls: [],
+      commits: 0,
+      reveals: 0,
+    }
     const executors = fabric.executors.map((executor) => timed(executor, cost))
     const shards = await shardInputs(config.skew, config.fixture)
 
@@ -2093,9 +2174,14 @@ function runnerOver(acquire: (nodes: number) => Promise<Fabric>, state: RunnerSt
       speculated: [],
       moduleCid: fabric.moduleCid.toString(),
       computeMs: 0,
+      commits: 0,
+      reveals: 0,
       captured: false,
     }
     rung.computeMs += cost.gross * 1000
+    // VER-02 — accumulated on every run, for the reason `RungReadings.commits` states.
+    rung.commits += cost.commits
+    rung.reveals += cost.reveals
     if (!rung.captured && codeCache === 'warm' && result.ok) {
       rung.captured = true
       rung.calls = [...cost.calls]
@@ -2168,6 +2254,8 @@ function readingsOf(state: RunnerState, nodes: number): RungReadings | undefined
     speculated: held.speculated,
     moduleCid: held.moduleCid,
     computeMs: held.computeMs,
+    commits: held.commits,
+    reveals: held.reveals,
   }
 }
 
@@ -3248,6 +3336,37 @@ async function main(): Promise<void> {
     })
   }
 
+  /**
+   * VER-02 — which verification path each rung's dispatches actually took, per rung.
+   *
+   * Carried into `raw.json` and into the supplementary section beside the curves, so a
+   * reader of the published figures can tell a redundancy-2 rung that ran the ceremony
+   * from one that ran the post-hoc comparison. Before 2026-08-11 no artifact of this
+   * driver could distinguish them, because `timed` dropped the two rounds and every rung
+   * took the comparison path whatever its redundancy said.
+   */
+  const ceremonies: { config: string; commits: number; reveals: number }[] = []
+  /**
+   * Print, and record, the rounds a rung forwarded.
+   *
+   * **A zero is a reading and is printed as one.** The 1-node rung runs at redundancy 1,
+   * where `submitJob` takes `executeVerified` by design (VER-06's dial at off), so a
+   * ceremony there would be the thing `MIN_CEREMONY_REPLICAS` refuses. Printing the line
+   * on every rung is what makes the contrast between the rungs the information, rather
+   * than leaving a reader to infer it from a line that is sometimes missing.
+   */
+  const sayCeremony = (config: string, readings: RungReadings | undefined): void => {
+    // A rung whose runs produced no readings at all has nothing to say here, and saying
+    // `0 commits` for it would be a claim about dispatches rather than about a rung that
+    // never reported.
+    if (readings === undefined) return
+    ceremonies.push({ config, commits: readings.commits, reveals: readings.reveals })
+    process.stdout.write(
+      `    commit-reveal rounds forwarded: ${String(readings.commits)} commits, ` +
+        `${String(readings.reveals)} reveals\n`,
+    )
+  }
+
   const memory = runnerFor(memoryFabric)
   const memoryResults: SweepResult[] = []
   for (const nodes of LADDER) {
@@ -3278,6 +3397,7 @@ async function main(): Promise<void> {
     // moved between runs has rows that cannot be compared with the ones already
     // published.
     sayAttestation(`memory transport, ${nodes} nodes`, memory.attestationFor(nodes))
+    sayCeremony(`memory transport, ${nodes} nodes`, memory.readingsFor(nodes))
   }
   const memoryEgress = memory.egressTotals()
   process.stdout.write(
@@ -3312,6 +3432,7 @@ async function main(): Promise<void> {
         ),
       )
       sayAttestation(`real transport, ${nodes} nodes`, real.attestationFor(nodes))
+      sayCeremony(`real transport, ${nodes} nodes`, real.readingsFor(nodes))
     } catch (cause) {
       // An integrity failure leaves before the paragraph below can be attached to it.
       // Held here even though no rung of this sweep calls the gate today: propagation is
@@ -3625,6 +3746,11 @@ async function main(): Promise<void> {
      */
     attestation: attested,
     /**
+     * VER-02 — the rounds each rung forwarded, in the order they were printed. Rides into
+     * `raw.json` beside the section rendered below, the same shape `attestation` does.
+     */
+    ceremony: ceremonies,
+    /**
      * Riders: the speedup comparison's inputs, carried into `raw.json` beside the
      * rendered sections below so a reader of the data sees what a reader of the markdown
      * saw. `Report` does not declare them, which is the same shape `attestation` already
@@ -3828,6 +3954,21 @@ async function main(): Promise<void> {
     `- Same work through WASM in-process, no fabric: **${wasmSummary.p50.toFixed(3)}ms** p50`,
     `- Skewed input, 4 nodes, memory transport: **${skewed.makespan.p50.toFixed(1)}ms** p50` +
       ` (uniform at 4 nodes: ${(memoryResults.find((r) => r.config.nodes === 4)?.makespan.p50 ?? Number.NaN).toFixed(1)}ms)`,
+    '',
+    // VER-02. Rendered as a list rather than as a section of its own, because a `## `
+    // section carrying figures is held to naming a driver in its heading
+    // (`bench-results.node.test.ts`) and these counts come from both ladders — so a single
+    // heading would have to name a driver these rows do not share.
+    '**Which verification path each rung dispatched — commit-reveal rounds forwarded by the',
+    'timing wrapper, summed over every run of the rung.** A redundancy-1 rung reports zero by',
+    'design: `submitJob` runs R=1 through the post-hoc comparison, and a ceremony over one',
+    'replica binds an answer no peer could have copied. A non-zero count is `submitJob`',
+    'selecting the two-round ceremony, observed from outside it.',
+    '',
+    ...ceremonies.map(
+      (rung) =>
+        `- ${rung.config}: **${String(rung.commits)}** commits, **${String(rung.reveals)}** reveals`,
+    ),
     '',
     'Reading the decomposition: the native baseline and the same work through WASM',
     'in-process differ by more than two orders of magnitude, and the distributed run',
