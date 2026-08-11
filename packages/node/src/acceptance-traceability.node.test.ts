@@ -232,6 +232,13 @@ const delivered = (status: string): boolean => status.startsWith('Done')
  * found. NET-09 went in as **Partial**, not Done, and its checkbox came *off* — which is the
  * evidence that these were measured rather than fitted to the checker.
  *
+ * **NET-09 is `Done` as of 2026-08-11, and the sentence above is kept because it is a claim
+ * about 2026-08-08 rather than about the tree.** What it says still holds of that day's work:
+ * six rows were written from measurement and one of them came back negative, which is what a
+ * fitted row set never does. What closed it was not new transport work — the per-peer gate had
+ * shipped with Phase 13.1 — but the discovery that the row had been scoring a **disjunction**
+ * as a conjunction, against the arm the fabric does not take.
+ *
  * Kept as an empty set rather than deleted: the assertion below is an equality, so a row
  * disappearing still fails here rather than silently re-opening the hole.
  */

@@ -605,12 +605,21 @@ const UNREACHED = ROWS.filter((row) => UNREACHED_VERDICTS.includes(row.verdict))
  *   measured over public shards, so nothing distinguished a map that moved data from one
  *   that did not. `AOT-03` and `BENCH-06` — a cross-machine half descoped and unmeasured.
  *   No call-site search can hold "this was never tried".
- * - **A statement about which entry point, not which caller.** `NET-06`, `SCHED-05`,
- *   `AOT-05`, `MR-03`…`MR-07`. The symbol has callers and the row says so; what is open
- *   is that the caller is behind a flag, or is a test rather than a page, or is one of
- *   two merge paths. `SCHED-05` is the clearest: `eligibleNodes` is called by both
+ * - **A statement about which entry point, not which caller.** `NET-06`, `AOT-05`,
+ *   `MR-03`…`MR-07`. The symbol has callers and the row says so; what is open is that the
+ *   caller is behind a flag, or is a test rather than a page, or is one of two merge paths.
+ *
+ *   **`SCHED-05` was the clearest example of this bucket and is no longer in it, which is
+ *   worth keeping rather than deleting.** It read: *`eligibleNodes` is called by both
  *   placers, and the open leg is that no entry point ever labels a shard `sovereign` — a
- *   claim about an *argument value*, which this file does not read.
+ *   claim about an argument value, which this file does not read.* Every clause of that is
+ *   still true of the mechanism and the middle one stopped being true of the tree in Phase
+ *   23, when `bin/bench.ts` began submitting `label: 'sovereign'`. So the entry sat here,
+ *   correctly exempt from a call-site check, while the row it exempted went stale in the
+ *   one way a call-site check could never have caught — **which is what this list is for
+ *   and also its whole cost**: an id here is a promise to re-read the row by hand, and that
+ *   promise went unkept for five days. The row is `Done` as of 2026-08-11 and the id is
+ *   gone from the list below.
  *
  *   **`VER-08` and `AUTH-05` were here for one day and are not any more, which is the
  *   whole lifecycle this list is supposed to have.** Both carried a checkable claim —
@@ -630,10 +639,16 @@ const UNREACHED = ROWS.filter((row) => UNREACHED_VERDICTS.includes(row.verdict))
  *   expressible as a call-site fact — `describeAttestation` renders the three labels for
  *   a human and nothing calls it.
  * - **A statement about a tier or a configuration.** `AUTH-02`, `AUTH-03`, `AUTH-04`,
- *   `NET-03`, `AOT-04`, `SCHED-04`. Both tiers construct the mechanism; what differs is
- *   a host requirement, a measurement not yet taken, or — for `SCHED-04` — nothing at
- *   all, the row stating in words that its marker is conservative rather than
- *   descriptive. A row that reports no absence has no absence to name.
+ *   `NET-03`, `AOT-04`. Both tiers construct the mechanism; what differs is a host
+ *   requirement or a measurement not yet taken. A row that reports no absence has no
+ *   absence to name.
+ *
+ *   **`SCHED-04` was the degenerate member of this bucket and closed on 2026-08-11.** Its
+ *   entry read *"for `SCHED-04` — nothing at all, the row stating in words that its marker
+ *   is conservative rather than descriptive"*, and that is the one case where membership
+ *   here was a **countdown rather than a category**: a row with no absence to name is a row
+ *   waiting on a re-measurement, and this list has no field for how long one has waited. It
+ *   waited nine days. Re-measured and ticked; the id is gone from the list below.
  *
  *   **`AUTH-03`'s membership here was true by accident until 2026-08-06, and the audit is
  *   worth keeping.** Its row *did* name an absence — *"`delegate`, `CapabilitySupplier`
@@ -658,12 +673,22 @@ const UNREACHED = ROWS.filter((row) => UNREACHED_VERDICTS.includes(row.verdict))
  * that. Plan 20-02 satisfied it — both node factories now build a real
  * `StartOutcomeLedger` and record their own start row into it — so the row lost its only
  * checkable claim **by being satisfied**, which is the direction this list's own rule
- * says must be recorded in the same commit. Its remaining absence is a measurement not
- * yet taken (a tab showing counts it could only have learned from a peer, Plan 20-06),
- * which puts it in the tier-or-configuration bucket beside `AUTH-02` and `SCHED-04`
- * rather than in any of the three call-site shapes. Left visible rather than rewritten,
- * because a reader who finds only the new sentence cannot tell a row that never had a
- * claim from one that closed the claim it had.
+ * says must be recorded in the same commit. Its remaining absence was then a measurement
+ * not yet taken (a tab showing counts it could only have obtained from a peer, Plan
+ * 20-06), which put it in the tier-or-configuration bucket rather than in any of the
+ * three call-site shapes. Left visible rather than rewritten, because a reader who finds
+ * only the new sentence cannot tell a row that never had a claim from one that closed the
+ * claim it had.
+ *
+ * **And the measurement had been taken.** `packages/node/src/peer-ledger.e2e.test.ts`
+ * quotes Phase 20 criterion 5 in its own header and reads two foreign browser families
+ * off a live page in each of two engines. The row went on citing 20-06's absence, and
+ * this entry went on citing the row — **an id here is a promise to re-read the row by
+ * hand, and the promise was the only thing holding it.** That is the third such lapse
+ * recorded on this list in one sweep (`SCHED-04`, `SCHED-05`, `BROW-02`), which is a fact
+ * about the device rather than about the three rows: this list has no expiry and nothing
+ * counts how long an entry has sat. `BROW-02` is `Done` as of 2026-08-11 and is removed
+ * below.
  */
 const WITHOUT_A_CHECKABLE_CLAIM: readonly string[] = [
   // ── Added 2026-08-05 by Plan 20-12 and RESOLVED the same day by Plan 20-13 ──────────
@@ -694,21 +719,30 @@ const WITHOUT_A_CHECKABLE_CLAIM: readonly string[] = [
   //   `JobSpec.admit`, which is optional, and only `bin/bench.ts --discover` — off by
   //   default — supplies it in production. Every symbol the row names has a caller. That is
   //   the `SCHED-05` bucket exactly, one requirement over.
-  // - `SCHED-03` — its open leg is a **tier**: the browser factory's refusal has never been
-  //   driven, so the number an over-committed tab would refuse with has never been read.
-  //   Both tiers construct the mechanism and the row says so. That is the `AUTH-02` /
-  //   `SCHED-04` bucket.
+  // - `SCHED-03` stood here on the same reasoning — its open leg was a **tier**, the browser
+  //   factory's refusal never having been driven — and it is **REMOVED on 2026-08-11**,
+  //   because the row is `Done` and has left the *unreached* population. The sentence that
+  //   kept it here was quoted, as the thing it came to refute, in the header of the very
+  //   spec that closed it (`tab-refusals.e2e.test.ts`), and neither this list nor the row
+  //   noticed for five days. Fourth instance in one sweep. **An id here is a promise to
+  //   re-read a row by hand, and nothing in this file counts how long the promise has been
+  //   outstanding** — which is the one thing that would have caught all four.
   'CHURN-04',
-  'SCHED-03',
   // ── The pre-existing entries ───────────────────────────────────────────────────────
   'AUTH-02',
   'AUTH-03',
   'AUTH-04',
-  'BROW-02',
   'NET-03',
   'NET-06',
-  'SCHED-04',
-  'SCHED-05',
+  // `SCHED-04` was here until 2026-08-11 and is REMOVED for the same reason `SCHED-05` is,
+  // one line down: its row is `Done`, so it has left the *unreached* population.
+  // `SCHED-05` was here until 2026-08-11 and is REMOVED because the row is now `Done`, so
+  // it has left the *unreached* population entirely. It is the second way out of this list
+  // that the rule allows — the first being a row acquiring a checkable claim — and the set
+  // equality below is what makes the removal compulsory rather than optional. Its entry was
+  // the clearest example in the "argument value" bucket: `eligibleNodes` was called by both
+  // placers and the open leg was that nothing ever passed `label: 'sovereign'`. Phase 23
+  // passed it.
   // `MR-02` was here until 2026-08-11 and is now REMOVED, which is the direction this
   // list is supposed to move in: its row used to say only that Phase 16 had run the
   // aggregation over public shards, which names no symbol this file can resolve. It now
