@@ -898,6 +898,35 @@ const REREAD_REGISTER_CEILING = 14
  * {@link witnessDrift} reddens when the evidence under a row moves, and the register is
  * well-formed and capped at {@link REREAD_REGISTER_CEILING}.
  *
+ * ## Why this defect landed here and in no sibling register — checked, not assumed
+ *
+ * The four registers that behave alike were read on 2026-08-11 against **what their guards
+ * consume**, not against what their docblocks claim, and none of them has this property:
+ *
+ * | Register | What re-derives its members every run |
+ * |---|---|
+ * | `reachability-dispositions.ts` `DISPOSITIONS` | `reachability-guard.node.test.ts` re-derives the whole `global-object-hop` class and reddens in **both** directions; a disposed symbol that becomes reachable is `stale`, one that stops being a callable barrel export is `orphaned`; ceiling with no slack |
+ * | `ACCEPTED_SIGNATURE_COMPARISONS` | exact set equality against a live scan, each entry anchored on **source text** rather than a line, plus a stale-entry case and a ceiling sited at size + 1 |
+ * | `CHECKBOXES_WITHOUT_A_ROW` | holds **no members at all**, kept as an empty set under an equality so that one appearing fails |
+ * | `EXPECTED_ABSENT` | not hand-maintained — derived from `FINDINGS`, so membership is not a choice |
+ *
+ * `acceptance-traceability.node.test.ts`'s `FINDINGS` is the near miss and is worth naming
+ * rather than quietly passing over. Its entries carry a `found` date that **nothing reads**,
+ * and its docblock states a hand obligation — *"label the test, or clear the box"* — with no
+ * bound on it, which is this defect's shape. But its substantive claim, *"no tracked test
+ * file names this id"*, is re-derived every run by an exact set equality, so the claim
+ * cannot go quietly false; only the remediation is unbounded. **That is a different and
+ * smaller thing, and it was left alone deliberately** — a countdown there would redden on
+ * work rather than on a lapse, which is the theatre this file is trying not to build.
+ *
+ * **The structural reason, which is why no sibling needed fixing.** Every one of those
+ * registers holds entries carrying a claim a machine re-derives, so staleness reddens by
+ * construction. This register is the one whose **membership criterion is literally that the
+ * entry's claim cannot be machine-checked**. It could not inherit the others' defence, and
+ * the defect landed in the only place with no defence available. That is not a coincidence
+ * to guard against everywhere; it is the definition of this set, and the countdown is the
+ * substitute for a re-derivation that cannot exist.
+ *
  * ## The seed dates are derived, not invented
  *
  * No entry here recorded when it was last examined, because until 2026-08-11 there was no
