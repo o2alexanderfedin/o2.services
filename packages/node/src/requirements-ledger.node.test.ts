@@ -709,7 +709,11 @@ const WITHOUT_A_CHECKABLE_CLAIM: readonly string[] = [
   'NET-06',
   'SCHED-04',
   'SCHED-05',
-  'MR-02',
+  // `MR-02` was here until 2026-08-11 and is now REMOVED, which is the direction this
+  // list is supposed to move in: its row used to say only that Phase 16 had run the
+  // aggregation over public shards, which names no symbol this file can resolve. It now
+  // names one — `reduceSovereignJob` has no production caller — so the claim is checkable
+  // and is checked, and the row can no longer go stale silently.
   'MR-03',
   'MR-04',
   'MR-05',
