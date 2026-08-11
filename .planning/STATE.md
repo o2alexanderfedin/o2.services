@@ -1133,8 +1133,23 @@ that straggler-dominated distributions have meaningless means.
 
 - **Phase 27 added 2026-08-08** — *The Demo UI, Driven by the Real Fabric.* Filed by owner
   instruction after a UI mockup covering all four workloads was imported to
-  `docs/design/mockups/o2-fabric-demo/`. Closes the demo half of MR-03…MR-07, whose ledger rows
-  already name the gap, and audit finding G4. Not scheduled into v1.1, whose span is phases
+  `docs/design/mockups/o2-fabric-demo/`. **Corrected by hand 2026-08-10; the original clause is
+  kept because it is what a reader greps.** It said the phase *"Closes the demo half of
+  MR-03…MR-07, whose ledger rows already name the gap, and audit finding G4."* **Both halves of
+  that are now false, and it was written as an intention before the phase ran.** What the phase
+  actually did: **MR-03…MR-07 all five stay `[ ]` Partial** — the demo's aggregation workload is
+  π and it does merge through `reduceJob` behind a run control, but colouring's `answerOf` scan
+  stays a scan on purpose (first-found-wins has nothing to aggregate), so the clause was amended
+  per row rather than closed, and whether `MR-03` alone may tick is an open owner decision in
+  `27-OPEN-ITEMS.md`. **G4 closed one of its two halves** — the `runJob` half is closed
+  (`#byo-form`'s submit handler calls `window.o2.runJob`, driven on four arms by
+  `packages/node/src/demo-byo.e2e.test.ts`), the primes half is restated with a measured reason
+  and stays open, which is why the audit now carries G4 as a split row. The per-row truth is in
+  `ROADMAP.md`'s Phase 27 Requirements line; this entry is the roadmap-evolution note and was
+  simply never revisited after the phase reported. **This file is otherwise stale about Phase 27
+  and is corrected by hand for a measured reason**: seven `gsd-sdk query state.*` verbs were
+  measured to corrupt `STATE.md` while reporting success (`27-OPEN-ITEMS.md` section 9), so no
+  state verb is run against it. Not scheduled into v1.1, whose span is phases
   11-22 — the same treatment phases 23-26 have.
   **Numbering was corrected by hand and the reason is worth keeping**: `gsd-sdk query phase.add`
   returned **25**, because it takes the next number from the phase *directories* (highest
