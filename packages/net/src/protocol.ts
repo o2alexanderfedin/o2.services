@@ -61,11 +61,12 @@
  */
 
 import { CID } from 'multiformats/cid'
-import { MAX_COMBINE_INPUTS, START_FAILURES, isStartBrowserLabel } from '@o2/core'
+import { CEREMONY_NONCE_BYTES, MAX_COMBINE_INPUTS, START_FAILURES, isStartBrowserLabel } from '@o2/core'
 import type {
   AttestedResult,
   CanonicalValue,
   CapabilityRecord,
+  CommitOutcome,
   Delegation,
   Discoverability,
   EnrollmentChallenge,
@@ -80,6 +81,7 @@ import type {
   NodeRecords,
   OutcomeCount,
   PublicKeyHex,
+  RevealOutcome,
   StartFailure,
   StartOutcome,
   Task,
@@ -92,6 +94,31 @@ export type AgentRequest =
       /** AUTH-03. Absent means unauthenticated, which an authorizing node refuses. */
       readonly capability?: readonly Delegation[]
     }
+  /**
+   * VER-02 round 1: run this task and tell me only the digest of what you got.
+   *
+   * The **same** payload as `exec` — one task, one optional chain — and deliberately so.
+   * A commit is an exec whose answer is withheld, not a different unit of work, so the
+   * two frames go through one builder and one parser (`taskFrame` / `parseTaskFrame`
+   * below) and neither can drift into being the lenient one. That matters more here than
+   * on most pairs: an authorizer that admitted a `commit` a matching `exec` would have
+   * been refused would let a peer run unauthorised work and simply not collect it.
+   */
+  | {
+      readonly kind: 'commit'
+      readonly task: Task
+      readonly capability?: readonly Delegation[]
+    }
+  /**
+   * VER-02 round 2: now give me what you committed to.
+   *
+   * Carries **only the handle the answering node itself minted**, and there is nowhere
+   * to put a task, a digest, or a node id. Every one of those would be a value the
+   * serving node had to take on the requestor's word about a commitment the serving node
+   * is the one holding — which is the shape of the ceremony that was deleted in
+   * `855cdf5`, where the party doing the checking was also the party doing the minting.
+   */
+  | { readonly kind: 'reveal'; readonly handle: string }
   | { readonly kind: 'block'; readonly cid: CID }
   /** SCHED-01: who advertises a copy of this block. */
   | { readonly kind: 'providers'; readonly cid: CID }
@@ -153,6 +180,24 @@ export type AgentRequest =
 
 export type AgentResponse =
   | { readonly kind: 'exec'; readonly outcome: ExecutionOutcome }
+  /**
+   * VER-02 round 1's answer: a digest and the name this node filed the answer under.
+   *
+   * It carries **no output, no nonce and no result CID**, and there is deliberately
+   * nowhere on the frame to put any of them. That absence is the hiding property: a
+   * requestor holding this frame — and any peer who intercepted it — learns nothing
+   * about the answer beyond that one exists.
+   */
+  | { readonly kind: 'commit'; readonly outcome: CommitOutcome }
+  /**
+   * VER-02 round 2's answer: the nonce, the output, and what the node signed.
+   *
+   * **No `resultCid`, deliberately.** The requestor hashes the revealed output itself
+   * (`executeCommitReveal`), because a CID accepted from the revealing node would let a
+   * plagiarist reveal its own nonce and its own committed CID beside a peer's output —
+   * the digest would check out over a value that is not the value being compared.
+   */
+  | { readonly kind: 'reveal'; readonly outcome: RevealOutcome }
   /** `bytes: null` means "I do not have that block", which is not an error. */
   | { readonly kind: 'block'; readonly bytes: Uint8Array<ArrayBuffer> | null }
   | { readonly kind: 'providers'; readonly nodeKeys: readonly PublicKeyHex[] }
@@ -737,9 +782,32 @@ export function encodeRequest(request: AgentRequest): CanonicalValue {
   if (request.kind === 'enrol-challenge') {
     return { kind: 'enrol-challenge' }
   }
-  const { task } = request
+  if (request.kind === 'reveal') {
+    return { kind: 'reveal', handle: request.handle }
+  }
+  if (request.kind === 'commit') {
+    return taskFrame('commit', request.task, request.capability)
+  }
+  return taskFrame('exec', request.task, request.capability)
+}
+
+/**
+ * The bytes an `exec` and a `commit` share.
+ *
+ * One builder for both frames, paired with one parser (`parseTaskFrame`), for the reason
+ * `parseCertificate` states about the wire and the disk: two encoders for one payload
+ * drift, and the one that drifts is the one nobody is reading. Here the drift would be a
+ * security hole with a name — a `commit` whose capability chain or sovereignty label was
+ * encoded differently from the `exec` carrying the identical task would be admitted or
+ * refused on different terms by the same authorizer.
+ */
+function taskFrame(
+  kind: 'exec' | 'commit',
+  task: Task,
+  capability: readonly Delegation[] | undefined,
+): CanonicalValue {
   const base: { readonly [k: string]: CanonicalValue } = {
-    kind: 'exec',
+    kind,
     moduleCid: task.moduleCid,
     inputCid: task.inputCid,
     partitionIndex: task.partitionIndex,
@@ -771,8 +839,8 @@ export function encodeRequest(request: AgentRequest): CanonicalValue {
     task.moduleRecord === undefined
       ? labelled
       : { ...labelled, moduleRecord: nameRecordToValue(task.moduleRecord) }
-  if (request.capability === undefined) return vouched
-  return { ...vouched, capability: request.capability.map(delegationToValue) }
+  if (capability === undefined) return vouched
+  return { ...vouched, capability: capability.map(delegationToValue) }
 }
 
 /**
@@ -948,7 +1016,65 @@ export function parseRequest(body: CanonicalValue): AgentRequest | null {
     return { kind: 'enrol-challenge' }
   }
 
+  if (record['kind'] === 'reveal') {
+    const handle = record['handle']
+    // Bounded here rather than in the handler, so a frame naming a handle no node could
+    // have minted does not become a request at all — the disposition `combine`'s input
+    // ceiling already takes one screen up. See {@link MAX_COMMITMENT_HANDLE_CHARS}.
+    if (typeof handle !== 'string' || handle.length === 0) return null
+    if (handle.length > MAX_COMMITMENT_HANDLE_CHARS) return null
+    return { kind: 'reveal', handle }
+  }
+
+  if (record['kind'] === 'commit') {
+    const frame = parseTaskFrame(record)
+    if (frame === null) return null
+    return frame.capability === undefined
+      ? { kind: 'commit', task: frame.task }
+      : { kind: 'commit', task: frame.task, capability: frame.capability }
+  }
+
   if (record['kind'] !== 'exec') return null
+  const frame = parseTaskFrame(record)
+  if (frame === null) return null
+  return frame.capability === undefined
+    ? { kind: 'exec', task: frame.task }
+    : { kind: 'exec', task: frame.task, capability: frame.capability }
+}
+
+/**
+ * The longest handle a `reveal` frame may name.
+ *
+ * 128 characters. `serveAgent` mints handles as `commit-<hex counter>` and the only other
+ * producer of one is a test double, so nothing honest comes anywhere near this — the
+ * bound exists for the dishonest case, and the shape of that case decides the number
+ * rather than any measurement of the honest one.
+ *
+ * A handle is a **map key on the serving node**, so an unbounded one is a peer choosing
+ * how many bytes this node allocates and hashes per frame, on a request that is refused
+ * anyway. `MAX_PENDING_COMMITMENTS` bounds how many entries a peer can leave behind;
+ * without this, one refused frame could still be a megabyte of key. Two bounds because
+ * they are two different resources, which is the same reason `combine` carries both an
+ * input ceiling and NET-08's byte ceiling and says the second is not the general form of
+ * the first.
+ *
+ * Refused rather than truncated, for `MAX_REPORTED_COUNT`'s reason: a truncated handle is
+ * a *different* handle, so truncation would turn a malformed frame into a well-formed
+ * request naming somebody else's pending commitment.
+ */
+export const MAX_COMMITMENT_HANDLE_CHARS = 128
+
+/**
+ * The half of a frame an `exec` and a `commit` share, parsed once.
+ *
+ * The twin of `taskFrame`, and the reason for the pairing is stated there: a `commit`
+ * validated more leniently than the `exec` carrying the identical task would be admitted
+ * by an authorizer that would have refused the exec, and the peer would get its answer by
+ * asking the other way round.
+ */
+function parseTaskFrame(record: {
+  readonly [k: string]: CanonicalValue
+}): { task: Task; capability?: readonly Delegation[] } | null {
   const moduleCid = CID.asCID(record['moduleCid'] ?? null)
   const inputCid = CID.asCID(record['inputCid'] ?? null)
   const partitionIndex = asIndex(record['partitionIndex'])
@@ -1008,7 +1134,7 @@ export function parseRequest(body: CanonicalValue): AgentRequest | null {
   }
 
   const capabilityValue = record['capability']
-  if (capabilityValue === undefined) return { kind: 'exec', task }
+  if (capabilityValue === undefined) return { task }
   if (!Array.isArray(capabilityValue)) return null
   const capability: Delegation[] = []
   for (const value of capabilityValue) {
@@ -1018,7 +1144,7 @@ export function parseRequest(body: CanonicalValue): AgentRequest | null {
     if (link === null) return null
     capability.push(link)
   }
-  return { kind: 'exec', task, capability }
+  return { task, capability }
 }
 
 export function encodeResponse(response: AgentResponse): CanonicalValue {
@@ -1089,6 +1215,32 @@ export function encodeResponse(response: AgentResponse): CanonicalValue {
           count: entry.count,
         })),
       }
+    case 'commit':
+      // The success arm carries a digest and a handle and **nothing else**. Adding an
+      // output, a nonce or a result CID here would not be an extra field, it would be
+      // the end of the hiding property — round 1 would disclose the answer it exists to
+      // withhold. There is nowhere on this frame to put one, which is the point.
+      return response.outcome.ok
+        ? {
+            kind: 'commit',
+            ok: true,
+            digest: response.outcome.digest,
+            handle: response.outcome.handle,
+          }
+        : { kind: 'commit', ok: false, reason: response.outcome.reason }
+    case 'reveal':
+      return response.outcome.ok
+        ? {
+            kind: 'reveal',
+            ok: true,
+            // Copied into an owned buffer for `ownBytes`' reason on the `block` arm: what
+            // goes on the wire must not alias a view the caller can still write through.
+            nonce: ownBytes(response.outcome.nonce),
+            output: response.outcome.output,
+            fuelUsed: response.outcome.fuelUsed,
+            attestation: attestationToValue(response.outcome.attestation),
+          }
+        : { kind: 'reveal', ok: false, reason: response.outcome.reason }
     case 'exec':
       return response.outcome.ok
         ? {
@@ -1199,6 +1351,58 @@ export function parseResponse(body: CanonicalValue): AgentResponse | null {
       const attestation = parseAttestation(record['attestation'])
       if (attestation === null) return null
       return { kind: 'combine', resultCid, reason: stated, attestation }
+    }
+    case 'commit': {
+      if (record['ok'] === true) {
+        const digest = record['digest']
+        const handle = record['handle']
+        // Every field required and typed, and **refused rather than degraded to the
+        // failure arm** — `parseAttestation`'s disposition, for its reason. A commit
+        // frame that parsed to `ok: false` would report a peer's protocol error as an
+        // honest refusal to commit, and the requestor would drop that replica from the
+        // ceremony and never learn the frame was broken.
+        if (typeof digest !== 'string' || digest.length === 0) return null
+        if (typeof handle !== 'string' || handle.length === 0) return null
+        if (handle.length > MAX_COMMITMENT_HANDLE_CHARS) return null
+        return { kind: 'commit', outcome: { ok: true, digest, handle } }
+      }
+      if (record['ok'] !== false) return null
+      const reason = record['reason']
+      return {
+        kind: 'commit',
+        outcome: { ok: false, reason: typeof reason === 'string' ? reason : 'unspecified' },
+      }
+    }
+    case 'reveal': {
+      if (record['ok'] === true) {
+        const nonce = record['nonce']
+        const output = record['output']
+        const fuelUsed = record['fuelUsed']
+        if (!(nonce instanceof Uint8Array)) return null
+        // **Exactly** `CEREMONY_NONCE_BYTES`, not a ceiling. The commitment preimage is
+        // `nonce ‖ moduleCid ‖ inputCid ‖ index ‖ resultCid` with no length prefixes, so
+        // a variable-length nonce makes the concatenation ambiguous: a peer could split
+        // the same bytes between the nonce and the CID that follows it and produce one
+        // preimage from two different claims. A fixed length removes that degree of
+        // freedom at the only place it can be removed — before the bytes become a
+        // request.
+        if (nonce.byteLength !== CEREMONY_NONCE_BYTES) return null
+        if (output === undefined || typeof fuelUsed !== 'number' || !Number.isFinite(fuelUsed)) {
+          return null
+        }
+        const attestation = parseAttestation(record['attestation'])
+        if (attestation === null) return null
+        return {
+          kind: 'reveal',
+          outcome: { ok: true, nonce: ownBytes(nonce), output, fuelUsed, attestation },
+        }
+      }
+      if (record['ok'] !== false) return null
+      const reason = record['reason']
+      return {
+        kind: 'reveal',
+        outcome: { ok: false, reason: typeof reason === 'string' ? reason : 'unspecified' },
+      }
     }
     case 'exec': {
       if (record['ok'] === true) {

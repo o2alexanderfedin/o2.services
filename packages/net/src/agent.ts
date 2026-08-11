@@ -13,7 +13,9 @@ import type { CID } from 'multiformats/cid'
 import {
   MAX_PARTIAL_BYTES,
   canonicalCid,
+  commitmentDigest,
   decodeCanonical,
+  drawCeremonyNonce,
   encodeCanonical,
   fabricCombiner,
   signCombine,
@@ -33,6 +35,7 @@ import type {
   Task,
 } from '@o2/core'
 import type { BlockSource } from './block.ts'
+import { PendingCommitments } from './commit-store.ts'
 import type { EgressGuard } from './egress.ts'
 import { encodeRequest, encodeResponse, parseRequest, parseResponse } from './protocol.ts'
 import type { AgentRequest, AgentResponse } from './protocol.ts'
@@ -692,6 +695,21 @@ function certifyFreshly(
 export function serveAgent(options: AgentOptions): void {
   const { rpc, executor, blockstore } = options
 
+  /**
+   * VER-02's holding area, one per served node.
+   *
+   * **Not an `AgentOptions` hook**, and that is a deliberate exception to this
+   * function's own nine-hook discipline rather than an oversight. Every hook above is a
+   * hook because a *deployment* has something to say about it — a signing key it holds
+   * or does not, a ledger it keeps or does not, records it serves or does not. This is
+   * not that: it is the mechanism's own working memory, bounded by two constants sited
+   * in `commit-store.ts`, and a node that could be configured to hold nothing would be a
+   * node that silently cannot take part in a ceremony while answering every frame in it.
+   * The named-absence pattern exists to make a deployment's silences legible; there is
+   * no silence here to make legible.
+   */
+  const pending = new PendingCommitments(options.executor.nodeId)
+
   const answer = async (from: string, body: CanonicalValue): Promise<CanonicalValue | RpcReply> => {
     const request = parseRequest(body)
     if (request === null) {
@@ -923,7 +941,89 @@ export function serveAgent(options: AgentOptions): void {
         issuer === 'issues-no-certificates'
           ? { kind: 'error', reason: 'this node issues no certificates' }
           : { kind: 'enrol-challenge', challenge: issuer.mintChallenge(Date.now()) }
+    } else if (request.kind === 'reveal') {
+      // VER-02 round 2. Three refusals live in `PendingCommitments.take` and each is a
+      // different subject — a name this node never minted, a name that has already been
+      // taken or expired, and a name belonging to **another peer**. The third is the
+      // serving half of the requirement: a replica that could read a co-replica's answer
+      // out of the node holding it would have the peer's answer *before* revealing its
+      // own, which is precisely the plagiarism the commitment exists to fix, arriving by
+      // a different door.
+      //
+      // No admission slot is taken, and no executor runs. This branch is a map lookup —
+      // the work was paid for on the `commit` that produced the entry, and charging for
+      // it twice would let a busy node refuse to hand back an answer it has already
+      // computed, stranding a ceremony it agreed to join.
+      const taken = pending.take(request.handle, from, Date.now())
+      const outcome = taken.ok
+        ? ({
+            ok: true,
+            nonce: taken.pending.nonce,
+            output: taken.pending.output,
+            fuelUsed: taken.pending.fuelUsed,
+            attestation: taken.pending.attestation,
+          } as const)
+        : ({ ok: false, reason: taken.reason } as const)
+      // NET-10, on the branch where the output finally crosses. This is the *only* frame
+      // of the ceremony that carries an output, so it is the only one a sovereign payload
+      // could ride out on — and although the `commit` branch below refuses sovereign
+      // tasks outright, a public task's output can still contain registered bytes, which
+      // is exactly the case NET-10 exists for. The scan is the `exec` branch's, verbatim
+      // in shape.
+      const candidateBody = encodeResponse({ kind: 'reveal', outcome })
+      const violated = refusedReason(options.egress, from, candidateBody, executor.nodeId)
+      return violated === null
+        ? candidateBody
+        : encodeResponse({ kind: 'reveal', outcome: { ok: false, reason: violated } })
     } else {
+      // `exec` and `commit` share this branch, because a commit **is** an exec whose
+      // answer is withheld. Everything the two have in common — the derived slot key,
+      // admission, authorisation, the dispatch report, the executor call, the release in
+      // `finally` — happens once, and the two diverge only at the reply. A second branch
+      // would be a second admission path and a second authorisation call site, and this
+      // repository has already recorded what that costs once: `16-06`'s ruling on the
+      // combine branch is that a second gate beside an existing one is worse than
+      // widening the existing one.
+      //
+      // The consequence that matters most is the authorisation one. `authorize` is
+      // called below with `kind: 'exec'` on both, so **every `Authorizer` ever written
+      // against this codebase already covers the ceremony** without being told it
+      // exists. Had the commit path passed a new discriminant, every authorizer would
+      // have fallen through its `exec` case and admitted a commit it would have refused
+      // as an exec — and the peer would collect the answer in round 2 having never been
+      // entitled to round 1.
+      const ceremony = request.kind === 'commit'
+
+      // VER-02 is a **public-tier** mechanism, and this is where that is enforced rather
+      // than assumed. `.planning/PROJECT.md`'s integrity table splits the claim: public
+      // data gets N-version redundancy with commit-reveal, sovereign data is
+      // owner-attested and the verified thing is the aggregation over contributions. A
+      // ceremony over an owner's own two nodes resists nothing — both replicas are the
+      // owner's — while its *presence* would invite a reader to infer the independence
+      // the receipt explicitly denies (`owner-domain` is a weaker claim than
+      // `independent`, VER-10).
+      //
+      // Refused on the `commit` arm rather than silently degraded to an `exec`, because
+      // a requestor that asked for a ceremony and got an ordinary execution back would
+      // have no way to tell. Named, so the requestor learns which tier it is on.
+      if (ceremony && request.task.label === 'sovereign') {
+        return encodeResponse({
+          kind: 'commit',
+          outcome: {
+            ok: false,
+            reason: `commit refused: the commit-reveal ceremony runs on public shards only, and this task is labelled sovereign on ${executor.nodeId}`,
+          },
+        })
+      }
+
+      // Claimed before the executor runs, for the reason `PendingCommitments.reserve`
+      // states: a node already holding its limit of unrevealed answers declines the work
+      // rather than performing it and then finding nowhere to put the result.
+      const reserved = ceremony ? pending.reserve(Date.now()) : null
+      if (reserved !== null && !reserved.ok) {
+        return encodeResponse({ kind: 'commit', outcome: { ok: false, reason: reserved.reason } })
+      }
+
       // SCHED-06 — admission, on the branch that actually costs a
       // `WebAssembly.compile` plus an `instantiate` plus a linear memory.
       //
@@ -1047,6 +1147,55 @@ export function serveAgent(options: AgentOptions): void {
         // everything forever.
         capacity?.release(slotKey)
       }
+
+      if (ceremony) {
+        // ── VER-02 round 1's reply ────────────────────────────────────────────────
+        //
+        // The two paths diverge here and nowhere earlier. Everything above ran
+        // identically for an `exec`; what a ceremony changes is that the answer stays
+        // on this node and only its digest crosses.
+        //
+        // **This node draws the nonce and computes the digest.** Both halves are here,
+        // on the executing side, and that placement is the entire correction to the
+        // ceremony deleted in `855cdf5` — there the requestor minted the nonce and
+        // compared a digest with itself, so the check could not be false. Here the
+        // requestor receives a value it did not produce and cannot reproduce until
+        // round 2 hands it the nonce.
+        //
+        // There is no egress hold to release and no `afterSent` to schedule: the
+        // sovereign arm was refused at the top of this branch, so `takeSovereignHold`
+        // answered `null` by the same `label !== 'sovereign'` test. The output does not
+        // cross on this frame at all — it crosses on the `reveal`, which does its own
+        // NET-10 scan.
+        if (!outcome.ok) {
+          return encodeResponse({ kind: 'commit', outcome: { ok: false, reason: outcome.reason } })
+        }
+        const hashed = await canonicalCid(outcome.output)
+        if (!hashed.ok) {
+          // Reported as this node's refusal to commit, not as a broken frame — the same
+          // disposition `runOne` takes in `verify.ts` when the codec refuses an output.
+          return encodeResponse({
+            kind: 'commit',
+            outcome: {
+              ok: false,
+              reason: `output not encodable on ${executor.nodeId}: ${JSON.stringify(hashed.error)}`,
+            },
+          })
+        }
+        const nonce = drawCeremonyNonce()
+        const digest = await commitmentDigest(nonce, request.task, hashed.cid)
+        const handle = (reserved as { readonly ok: true; readonly handle: string }).handle
+        pending.file(handle, {
+          committedBy: from,
+          nonce,
+          output: outcome.output,
+          fuelUsed: outcome.fuelUsed,
+          attestation: outcome.attestation,
+          at: Date.now(),
+        })
+        return encodeResponse({ kind: 'commit', outcome: { ok: true, digest, handle } })
+      }
+
       if (egress === 'holds-no-registrations') return encodeResponse({ kind: 'exec', outcome })
       // NET-10. The candidate reply is encoded once and asked about before it is
       // handed to the exit; on a hit it is replaced by a frame that, by

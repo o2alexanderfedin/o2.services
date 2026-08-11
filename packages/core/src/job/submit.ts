@@ -263,6 +263,12 @@ import {
 } from '../speculation.ts'
 import { planPlacement } from '../sovereignty.ts'
 import type { NodeDescriptor, OwnerId, Placement, PlacementRequest } from '../sovereignty.ts'
+import {
+  MIN_CEREMONY_REPLICAS,
+  executeCommitReveal,
+  isCommitting,
+} from './commit-reveal.ts'
+import type { CommittingExecutor } from './commit-reveal.ts'
 import { executeVerified } from './verify.ts'
 import type { AgreeingReplica, VerificationResult } from './verify.ts'
 
@@ -2924,11 +2930,46 @@ export async function submitJob(
       // shard goes through **this same call** with its own executor set, so a speculative
       // copy of a redundancy-2 shard is verified on exactly the terms anything else is and
       // no second verification path appears.
-      const runOn = (on: readonly string[]): Promise<VerificationResult> =>
-        executeVerified(
-          task,
-          on.map((nodeId) => execByNodeId.get(nodeId) as Executor),
-        )
+      const runOn = (on: readonly string[]): Promise<VerificationResult> => {
+        const chosen = on.map((nodeId) => execByNodeId.get(nodeId) as Executor)
+        // ── VER-02: which of the two verification paths this dispatch takes ─────────
+        //
+        // Three conditions, and each one is a separate refusal to over-claim:
+        //
+        // - **`label === 'public'`.** `.planning/PROJECT.md`'s integrity table splits
+        //   the claim by tier: public data gets N-version redundancy with commit-reveal,
+        //   sovereign data is owner-attested and what is verified is the aggregation
+        //   *over* contributions. A ceremony across an owner's own two nodes resists
+        //   nothing — both replicas are the owner's — and its presence would invite a
+        //   reader to infer the independence VER-10's `owner-domain` label explicitly
+        //   denies. `commit-reveal.ts`'s header carries the full argument; the serving
+        //   side refuses a sovereign `commit` by name as well, so this is not the only
+        //   place it is enforced.
+        // - **at least `MIN_CEREMONY_REPLICAS`.** A ceremony over one replica binds an
+        //   answer nobody could have copied. R=1 is VER-06's dial at off and goes
+        //   through `executeVerified` exactly as it always has.
+        // - **every executor speaks both rounds.** Asked of the objects rather than of
+        //   a dial somebody had to remember to set — see `isCommitting` for the two
+        //   alternatives and why each is worse. In practice this is the difference
+        //   between a set of `RemoteExecutor`s, which cross a wire and where the
+        //   ceremony is the whole point, and the kernel's four, which run in this
+        //   process and between which there is nothing to plagiarize.
+        //
+        // Falling through to `executeVerified` is not a degraded ceremony and must not
+        // be read as one: it is the post-hoc comparison this module has always done,
+        // and `verify.ts`'s header says in its own words that it carries no plagiarism
+        // resistance. The two return the identical `VerificationResult`, so nothing
+        // below this line — grouping, receipts, the attestation label, the two display
+        // surfaces — can tell which ran, and nothing below this line should.
+        if (
+          task.label === 'public' &&
+          chosen.length >= MIN_CEREMONY_REPLICAS &&
+          chosen.every((e) => isCommitting(e))
+        ) {
+          return executeCommitReveal(task, chosen as readonly (Executor & CommittingExecutor)[])
+        }
+        return executeVerified(task, chosen)
+      }
       // The straggler machinery this shard's dispatches consult, or the stated absence of
       // it. Absent, `dispatchUnderLease` keeps Plan 20-01's two-wake schedule exactly.
       // `requestFor(…, 1)` because a duplicate is one extra copy — `eligibleNodes`, which
