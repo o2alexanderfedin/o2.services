@@ -98,7 +98,18 @@ interface ByoHook {
   readonly fetched: number
   readonly rejected: number
   readonly failures: readonly { readonly nodeId: string; readonly reason: string }[]
-  readonly egress: { readonly entries: readonly unknown[]; readonly totalBytes: number; readonly violations: readonly string[] }
+  readonly egress: {
+    readonly entries: readonly unknown[]
+    readonly totalBytes: number
+    readonly violations: readonly string[]
+    /**
+     * EGR-01. Declared here because this file's sovereign arms assert the rendered sentence
+     * against it: it is the only field on the manifest that can tell *the run registered no
+     * sovereign data* from *the guard saw no sovereign data leave*, and reading the page
+     * without it is how this file spent two days requiring the false one.
+     */
+    readonly registeredSovereign: number
+  }
   readonly attestation: { readonly kind?: string; readonly description?: string; readonly reason?: string }
 }
 
@@ -561,6 +572,12 @@ describe('bring your own — the record is required, and the refusal is read rat
       expect(egress).toContain('What left this device:')
       expect(egress).toContain('withheld')
       // Y12's arm for a public dispatch. The count alone would read as a sovereignty proof.
+      //
+      // EGR-01: the sentence is asserted together with the manifest fact that makes it TRUE
+      // here, which is what the sovereign arms further down assert the negative of. This
+      // dispatch left `#byo-sovereign` unchecked, so nothing was registered and the guard
+      // really did have nothing to hold back.
+      expect(hook.egress.registeredSovereign).toBe(0)
       expect(egress).toContain('registered no sovereign data')
       expect(report).toContain('withheld')
     })
@@ -699,7 +716,7 @@ describe('bring your own — the record is required, and the refusal is read rat
     /** An owner id no node in this fabric declares. */
     const OWNER_NOBODY_DECLARES = 'o2-demo-byo-owner'
 
-    it('is refused as unplaceable for an owner no node declares, and nothing leaves the device', async () => {
+    it('EGR-01 — is refused as unplaceable for an owner no node declares, and nothing leaves the device', async () => {
       await restoreDefaults(tabA)
       await tabA.check('#byo-sovereign')
       // Checked with no owner id, the control is disabled and names the field. Asserted here
@@ -732,9 +749,25 @@ describe('bring your own — the record is required, and the refusal is read rat
       // Y13 still reports what was submitted.
       expect(textOf(regions, 'byo/sovereign-label')).toContain('sovereign')
       expect(textOf(regions, 'byo/sovereign-label')).toContain(OWNER_NOBODY_DECLARES)
+
+      // **EGR-01, on the arm where the old sentence was most obviously false.** Nothing was
+      // placed and nothing left, so a manifest read alone cannot tell this apart from a run
+      // that had no sovereign data to begin with — and the page used to say the second about
+      // the first, directly beneath Y13 saying the first. The count is what separates them,
+      // and the egress region is asserted against it here rather than only printed.
+      expect(hook.egress.registeredSovereign).toBe(hook.partitions.length)
+      expect(hook.egress.registeredSovereign).toBeGreaterThan(0)
+      const unownedEgress = textOf(regions, 'byo/egress')
+      expect(
+        unownedEgress,
+        'Y13 says every shard was submitted owner-pinned and the egress region says the run registered no sovereign data — one render pass, two contradictory readings, which is the finding EGR-01 names',
+      ).not.toContain('registered no sovereign data')
+      expect(unownedEgress).toContain(
+        `registered ${hook.egress.registeredSovereign} sovereign shard`,
+      )
     }, 900_000)
 
-    it('places a shard for the owner this page’s node descriptors declare, and records the egress branch', async () => {
+    it('EGR-01 — places a shard for the owner this page’s node descriptors declare, and records the egress branch', async () => {
       // The forcing function for the literal above. `attestedNodes` is read from disk rather
       // than trusted, so the day this page hands a tab a real owner identity the arm below
       // stops measuring what it claims to and says so here first.
@@ -753,7 +786,16 @@ describe('bring your own — the record is required, and the refusal is read rat
       const regions = await byoRegions(tabA)
       const hook = await byoHook(tabA)
 
-      const branch = hook.egress.violations.length === 0 ? 'registered-no-sovereign-data' : 'WITHHELD'
+      // The arm actually rendered, named by BOTH facts (EGR-01). This line read
+      // `violations.length === 0 ? 'registered-no-sovereign-data' : 'WITHHELD'` until
+      // 2026-08-10 — a two-way label for a three-way branch, which printed the name of the
+      // false sentence into the record of every clean sovereign run.
+      const branch =
+        hook.egress.violations.length > 0
+          ? 'WITHHELD'
+          : hook.egress.registeredSovereign === 0
+            ? 'registered-no-sovereign-data'
+            : `registered-${hook.egress.registeredSovereign}-none-withheld`
       process.stderr.write(
         `[sovereign·placed] ${elapsed}ms ARM=${branch} complete=${hook.complete} ` +
           `placed=${hook.agreeing.filter((nodes) => nodes.length > 0).length}/${hook.agreeing.length} ` +
@@ -768,10 +810,36 @@ describe('bring your own — the record is required, and the refusal is read rat
       // demanded: this is the first place in this demo where the withheld branch is reachable
       // at all, and which one fired is a finding either way — so the branch is written to
       // stderr above and asserted here against what the manifest says, never against a hope.
+      //
+      // **What this block asserted until 2026-08-10, and why replacing it was the fix.** The
+      // empty-violations arm read `expect(egress).toContain('registered no sovereign data')`.
+      // It passed — and it was a green spec *requiring* the page to say something false about
+      // this very dispatch, which submits owner-pinned shards on every shard. EGR-01. The
+      // replacement below asserts the two facts separately and would go red if either were
+      // conflated with the other again: the count must equal the shards this arm submitted,
+      // and the *no sovereign data* sentence is forbidden on a run that registered some,
+      // whichever of the two clean branches fired.
       const egress = textOf(regions, 'byo/egress')
       expect(egress).toContain('What left this device:')
+
+      // Fact one: what the RUN submitted. Asserted before anything about the text, so a page
+      // that rendered the right words off a manifest that had lost the count cannot pass.
+      expect(
+        hook.egress.registeredSovereign,
+        'this arm submits every shard owner-pinned, so the manifest must report one sovereign registration per shard — a zero here is the count never reaching the page, which is the defect EGR-01 closed and not a property of the run',
+      ).toBe(hook.partitions.length)
+      expect(hook.egress.registeredSovereign).toBeGreaterThan(0)
+
+      // Fact two: what the GUARD saw. The sentence that speaks for the run must never be the
+      // one that only speaks for the guard.
+      expect(
+        egress,
+        'the page told a visitor this run registered no sovereign data, on a dispatch that registered ' +
+          `${hook.egress.registeredSovereign} — the two facts are conflated again`,
+      ).not.toContain('registered no sovereign data')
       if (hook.egress.violations.length === 0) {
-        expect(egress).toContain('registered no sovereign data')
+        expect(egress).toContain(`registered ${hook.egress.registeredSovereign} sovereign shard`)
+        expect(egress).toContain('saw none of them leave')
       } else {
         expect(egress).toContain('WITHHELD')
         expect(egress).toContain('They were not sent anywhere.')

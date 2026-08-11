@@ -55,19 +55,22 @@
  * `TabColouringRun.attestation`'s own docblock names. The same argument the CLI and the
  * page make to each other, one file down.
  *
- * **A limit that is inherited rather than introduced, and it is a sovereignty claim so it
- * is stated here rather than in a commit message.** `egressLines`' sentence *"this run
- * registered no sovereign data"* was measured by Plan 27-07 to be unreliable on a
- * sovereign dispatch: a run that submitted six owner-pinned shards rendered it, because
- * `EgressManifest` carries no field distinguishing *nothing was registered* from *nothing
- * reached the guard*. This surface renders whichever manifest it is handed, so when the
- * last run was a sovereign bring-your-own dispatch it renders that sentence too. It is
- * **not** reworded here: UI-SPEC section 5.2 fixes the copy verbatim, P7 asserts those
- * exact words across four surfaces, and forking it would make this file a second author
- * of the sentence carrying the project's core claim. The card says the limit in its own
- * prose, `demo-fabric.e2e.test.ts` records which branch fired, and the fix — a
- * `registered` count on `EgressManifest`, a third arm in `egressLines`, and amendments to
- * UI-SPEC section 5.2 and to P7, in one change — is carried in `deferred-items.md`.
+ * **A limit that was inherited rather than introduced — closed 2026-08-10 by EGR-01, and
+ * the history is kept because it is a sovereignty claim and not a commit message.**
+ * `egressLines`' sentence *"this run registered no sovereign data"* was measured by Plan
+ * 27-07 to be unreliable on a sovereign dispatch: a run that submitted six owner-pinned
+ * shards rendered it, because `EgressManifest` carried no field distinguishing *nothing
+ * was registered* from *nothing reached the guard*. This surface renders whichever
+ * manifest it is handed, so when the last run was a sovereign bring-your-own dispatch it
+ * rendered that sentence too. It was **not** reworded here, and that decision stands as
+ * the right one: UI-SPEC section 5.2 fixes the copy verbatim, P7 asserts those words
+ * across five surfaces, and forking it would have made this file a second author of the
+ * sentence carrying the project's core claim. The fix landed where the words live —
+ * `EgressManifest.registeredSovereign` counted in `submitJobWithEgress`, a third arm in
+ * `egressLines`, and amendments to UI-SPEC section 5.2 and to P7, in one change. This
+ * file is unchanged by it except for this paragraph, which is the property the
+ * one-region-one-function rule was for: F11 renders the corrected sentence because it
+ * never held a copy of the old one.
  *
  * ## No DOM, no globals, no `innerHTML`
  *

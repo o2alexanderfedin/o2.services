@@ -243,10 +243,28 @@ export const attestationLines = (attestation: ShardAttestation): string[] =>
 // guard is genuinely in the transport, and it counted every byte that left.
 //
 // `runJob` — the path that registers owner rows and can produce a non-empty
-// `violations` — has no caller in this page. That is audit finding G4, and it is
-// deliberately not papered over here: this block reads whichever manifest it is
-// given, so wiring that path in later makes the refusal branch below live with no
-// change to this code.
+// `violations` — had no caller in this page when this block was written. That was audit
+// finding G4; Phase 27 gave it one, and the sentence below had to grow a third arm as a
+// direct consequence (see the next block).
+//
+// ## Three arms, because "0 withheld" answers two different questions — EGR-01
+//
+// Until 2026-08-10 there were two, split on `violations.length`, and the empty arm said
+// *"this run registered no sovereign data"*. That is a statement about **what the run
+// submitted**, and `violations` is a reading of **what the guard saw leave**. On a public
+// dispatch the two coincide, which is why it stood for two days and five surfaces; on a
+// bring-your-own dispatch that submitted six owner-pinned shards it was simply false, and
+// the page printed it beside `byo/sovereign-label` reading *"sovereign — every shard was
+// submitted owner-pinned"* in one render pass. `EgressManifest.registeredSovereign` is
+// the field that tells them apart, and this function is where the reader sees it.
+//
+// The split is by **fact**, not by surface: the run registered nothing; the run registered
+// something and the guard withheld none of it; the guard withheld some. Every surface
+// still calls this one function over whichever manifest it holds, and the count and its
+// sentence stay one region and one template — UI-SPEC §5.2, asserted by P7 — because a
+// bare figure "would read as a sovereignty proof and would be a lie by omission". The
+// second arm is the one that had to be written most carefully: it is a **detector**
+// reporting a clean scan, not a proof, and it says so in the words it uses.
 export const egressLines = (egress: EgressManifest | null | undefined): string[] => {
   if (egress === undefined || egress === null) return []
   const out = [
@@ -254,15 +272,25 @@ export const egressLines = (egress: EgressManifest | null | undefined): string[]
     'What left this device:',
     `  ${plural(egress.entries.length, 'frame')} sent, ${egress.totalBytes} byte(s) total.`,
   ]
-  if (egress.violations.length === 0) {
+  if (egress.violations.length > 0) {
+    out.push(
+      `  ${plural(egress.violations.length, 'frame')} WITHHELD: ${egress.violations.join(', ')}.`,
+      '  Those bytes are still on this device. They were not sent anywhere.',
+    )
+  } else if (egress.registeredSovereign === 0) {
     out.push(
       '  0 withheld — and this run registered no sovereign data, so that is the',
       '  guard reporting it had nothing to hold back, not a proof of sovereignty.',
     )
   } else {
+    // Reached when the count is anything other than zero, so a manifest that somehow
+    // carried no count at all lands HERE rather than on the sentence above. That is
+    // deliberate: this arm reads oddly and goes red, where the arm above reads perfectly
+    // and is the false one. A silent default belongs on the side that fails loudly.
     out.push(
-      `  ${plural(egress.violations.length, 'frame')} WITHHELD: ${egress.violations.join(', ')}.`,
-      '  Those bytes are still on this device. They were not sent anywhere.',
+      `  0 withheld — and this run registered ${plural(egress.registeredSovereign, 'sovereign shard')},`,
+      '  so the guard was watching for those bytes and saw none of them leave. That is',
+      '  a clean scan of what crossed, not a proof about what could not.',
     )
   }
   return out

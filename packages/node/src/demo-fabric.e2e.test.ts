@@ -72,6 +72,13 @@ function manifest(fields: {
   entries: readonly { peerId: string; bytes: number; label: string }[]
   totalBytes: number
   violations: readonly string[]
+  /**
+   * EGR-01, and it has no default on purpose. A fixture that could omit this would render
+   * whichever arm the omission happened to select, and the arm an omission selects is the one
+   * that says the run registered no sovereign data — the sentence that was false on a real
+   * dispatch. Every caller states which run it is describing.
+   */
+  registeredSovereign: number
 }): NonNullable<FabricReadings['egress']> {
   return {
     nodeId: 'self',
@@ -270,6 +277,7 @@ describe('the fabric-state formatter, with no DOM and no node', () => {
           entries: [{ peerId: 'peer-a', bytes: 10, label: 'public' }],
           totalBytes: 10,
           violations: ['owner-row-a'],
+          registeredSovereign: 1,
         }),
       }),
     )
@@ -280,12 +288,70 @@ describe('the fabric-state formatter, with no DOM and no node', () => {
     expect(withheld.regions['fabric/egress-bytes']).toBe('10 byte(s)')
   })
 
+  /**
+   * EGR-01, at the formatter, which is where the three arms actually differ.
+   *
+   * This surface is the *cross-cutting* view: F11 renders whichever manifest the last run
+   * produced, so when that run was a sovereign bring-your-own dispatch this file's subject is
+   * exactly the case the defect was found on. It is asserted here rather than only in the
+   * browser because the distinction is a property of `egressLines` and its manifest, and a
+   * property provable without a browser should not need one.
+   *
+   * The negative is the load-bearing half: two of the three arms print `0 withheld`, and before
+   * 2026-08-10 both printed *registered no sovereign data* with it.
+   */
+  it('EGR-01 — tells a run that registered no sovereign data from one whose sovereign data stayed put', () => {
+    const nothingRegistered = format(
+      readings({
+        egress: manifest({ entries: [], totalBytes: 0, violations: [], registeredSovereign: 0 }),
+      }),
+    )
+    const none = nothingRegistered.regions['fabric/egress-withheld'] ?? ''
+    expect(none).toContain('0 withheld')
+    expect(none).toContain('registered no sovereign data')
+
+    const registeredAndClean = format(
+      readings({
+        egress: manifest({ entries: [], totalBytes: 0, violations: [], registeredSovereign: 6 }),
+      }),
+    )
+    const six = registeredAndClean.regions['fabric/egress-withheld'] ?? ''
+    expect(six).toContain('0 withheld')
+    // **The claim, asserted FIRST and deliberately.** Plant the third arm away and every
+    // positive assertion below also reddens — on the words the new arm uses, which is a
+    // mechanism reading. Ordered after them, this line would never run under the plant and the
+    // claim would be unproved by the very run that was supposed to prove it. That failure is
+    // recorded against CRYPTO-01 in REQUIREMENTS.md and is not repeated here.
+    expect(
+      six,
+      'a run that registered six owner-pinned shards is being told it registered none — the two facts are conflated again',
+    ).not.toContain('registered no sovereign data')
+    // Same figure, same region, same function — and a different fact, which is the point.
+    expect(six).toContain('registered 6 sovereign shards')
+    expect(six).toContain('saw none of them leave')
+
+    // The count is the ONLY difference between the two readings above. Asserted so this case
+    // cannot pass on some incidental divergence in the frames or bytes lines.
+    expect(nothingRegistered.regions['fabric/egress-frames']).toBe(
+      registeredAndClean.regions['fabric/egress-frames'],
+    )
+    expect(nothingRegistered.regions['fabric/egress-bytes']).toBe(
+      registeredAndClean.regions['fabric/egress-bytes'],
+    )
+    expect(none).not.toBe(six)
+  })
+
   it('puts every populated figure into its own text view, which is what P6 checks', () => {
     const full = format(
       readings({
         peers: ['a', 'b'],
         capacity: { dutyCycle: 0.5, slots: 2 },
-        egress: manifest({ entries: [], totalBytes: 4096, violations: [] }),
+        egress: manifest({
+          entries: [],
+          totalBytes: 4096,
+          violations: [],
+          registeredSovereign: 0,
+        }),
       }),
     )
     const view = full.text.join('\n')

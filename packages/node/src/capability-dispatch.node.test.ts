@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url'
 import { ed25519 } from '@noble/curves/ed25519.js'
 import { canonicalCid, signName, toHex } from '@o2/core'
 import type { CanonicalValue, Delegation, NameRecord, Task } from '@o2/core'
-import { RemoteExecutor, encodeRequest, parseRequest, sliceManifest } from '@o2/net'
+import { RemoteExecutor, encodeRequest, parseRequest } from '@o2/net'
 import type { CID } from 'multiformats/cid'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 // Test-only relative import — see the note in packages/net/src/distributed.test.ts.
@@ -292,9 +292,17 @@ async function blockNames(dir: string): Promise<string[]> {
   return entries.filter((name) => !name.startsWith('.tmp-'))
 }
 
-/** Outbound frames the submitter sent to `peerId` since manifest index `from`. */
+/**
+ * Outbound frames the submitter sent to `peerId` since manifest index `from`.
+ *
+ * Slices `entries` directly rather than through `sliceManifest`. That function now requires the
+ * job's `registeredSovereign` count (EGR-01), which this helper does not know and does not
+ * need — every reading below is a count of frames to one peer. Handing it a number invented to
+ * satisfy the signature would put a figure this file cannot vouch for inside a manifest, so it
+ * builds no manifest at all.
+ */
 function framesTo(node: FabricNode, peerId: string, from: number): number {
-  return sliceManifest(node.egress, from).entries.filter((entry) => entry.to === peerId).length
+  return node.egress.manifest.entries.slice(from).filter((entry) => entry.to === peerId).length
 }
 
 /**

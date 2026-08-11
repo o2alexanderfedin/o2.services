@@ -563,4 +563,120 @@ describe('submitJobWithEgress — a submitter does not serve the row it submitte
     for (const held of during) expect(held).toEqual([])
     expect(guard.registrations).toEqual([])
   })
+
+  /**
+   * EGR-01 — the manifest can say what the run registered, not only what the guard saw leave.
+   *
+   * **The defect this closes was a sentence, and it was held in place by a passing test.** Five
+   * demo surfaces render `egressLines`, whose empty-`violations` arm said *"this run registered
+   * no sovereign data"*; a bring-your-own dispatch of six owner-pinned shards rendered it,
+   * because nothing on `EgressManifest` distinguished *nothing was registered* from *nothing
+   * reached the guard*. `registeredSovereign` is that field, and this is where it is proved to
+   * carry the run's own number rather than a reading of the guard.
+   *
+   * **Three shards, two distinct rows, on two guards** — the shape is chosen so every wrong
+   * implementation reads differently from the right one: counting distinct labels gives 2,
+   * counting holds across guards gives 6, reading `guard.registrations` after the job gives 0,
+   * and the run submitted 3.
+   */
+  it('EGR-01 — reports the run’s own sovereign registrations on every manifest, and the guard’s window on the guard', async () => {
+    const first = scratchGuard('counted-a')
+    const second = scratchGuard('counted-b')
+    const store = new MemoryBlockstore()
+    const executor = new WatchingExecutor('watcher', () => {})
+
+    const result = await submitJobWithEgress(
+      {
+        moduleCid: await store.put(MODULE_WRITES_PARTITION),
+        shards: [
+          { value: SUBMITTED_ROW, label: 'sovereign', ownerId: OWNER_ID },
+          { value: OTHER_ROW, label: 'sovereign', ownerId: OWNER_ID },
+          // The repeat of the first row: one label, a second registration. A count taken over
+          // `#guarded` rather than over the shards would read 2 here.
+          { value: SUBMITTED_ROW, label: 'sovereign', ownerId: OWNER_ID },
+          { value: OPEN_ROW, label: 'public' },
+        ],
+        executors: [executor],
+        nodes: soleOwnerNode('watcher'),
+        redundancy: 1,
+        onQuorumShortfall: 'runs-at-available-redundancy',
+      },
+      store,
+      [first, second],
+      // CHURN-03 — this test asserts nothing about checkpointing.
+      { checkpoints: 'checkpoints-nothing' },
+    )
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+
+    // One job, two guards, one answer: the count is a property of the run, so a manifest that
+    // varied by which guard produced it would be describing the guard instead.
+    expect(result.manifests.map((m) => m.registeredSovereign)).toEqual([3, 3])
+
+    // **The falsification for reading the figure off the guard.** After the job the watch list
+    // is empty — every hold was given back in the `finally` — so a live reading would report 0
+    // for a run that registered 3. That is the wrong place, measured rather than asserted in
+    // prose, and it is why the count travels as an argument.
+    expect(first.registrations).toEqual([])
+    expect(second.registrations).toEqual([])
+
+    // The guard's OWN manifest answers a different question over a different window: every
+    // registration taken since the record began. Three here, and it is not the per-job figure
+    // by coincidence — the next job on the same guard would add to it, which is exactly what a
+    // per-job reader must not use.
+    expect(first.manifest.registeredSovereign).toBe(3)
+    const again = await submitJobWithEgress(
+      {
+        moduleCid: await store.put(MODULE_WRITES_PARTITION),
+        shards: [{ value: OTHER_ROW, label: 'sovereign', ownerId: OWNER_ID }],
+        executors: [executor],
+        nodes: soleOwnerNode('watcher'),
+        redundancy: 1,
+        onQuorumShortfall: 'runs-at-available-redundancy',
+      },
+      store,
+      [first],
+      { checkpoints: 'checkpoints-nothing' },
+    )
+    expect(again.ok).toBe(true)
+    if (!again.ok) return
+    expect(again.manifests[0]?.registeredSovereign).toBe(1)
+    expect(first.manifest.registeredSovereign).toBe(4)
+
+    // And `reset()` puts the record's tally back with the record it belongs to.
+    first.reset()
+    expect(first.manifest.registeredSovereign).toBe(0)
+  })
+
+  it('EGR-01 — reports zero registrations for an all-public job, which is the sentence’s other arm', async () => {
+    const guard = scratchGuard('counted-public')
+    const store = new MemoryBlockstore()
+
+    const result = await submitJobWithEgress(
+      {
+        moduleCid: await store.put(MODULE_WRITES_PARTITION),
+        shards: [
+          { value: { n: 1 }, label: 'public' },
+          { value: OPEN_ROW, label: 'public' },
+        ],
+        executors: [new WatchingExecutor('watcher', () => {})],
+        nodes: soleOwnerNode('watcher'),
+        redundancy: 1,
+        onQuorumShortfall: 'runs-at-available-redundancy',
+      },
+      store,
+      [guard],
+      // CHURN-03 — this test asserts nothing about checkpointing.
+      { checkpoints: 'checkpoints-nothing' },
+    )
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    // The arm where *the run registered no sovereign data* is TRUE. Kept as its own case
+    // because the count's whole purpose is that zero and non-zero are different sentences, and
+    // a field that were always positive would satisfy the case above and say nothing.
+    expect(result.manifests[0]?.registeredSovereign).toBe(0)
+    expect(guard.manifest.registeredSovereign).toBe(0)
+  })
 })
