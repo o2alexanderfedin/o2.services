@@ -673,12 +673,22 @@ const UNREACHED = ROWS.filter((row) => UNREACHED_VERDICTS.includes(row.verdict))
  * that. Plan 20-02 satisfied it — both node factories now build a real
  * `StartOutcomeLedger` and record their own start row into it — so the row lost its only
  * checkable claim **by being satisfied**, which is the direction this list's own rule
- * says must be recorded in the same commit. Its remaining absence is a measurement not
- * yet taken (a tab showing counts it could only have learned from a peer, Plan 20-06),
- * which puts it in the tier-or-configuration bucket beside `AUTH-02` and `SCHED-04`
- * rather than in any of the three call-site shapes. Left visible rather than rewritten,
- * because a reader who finds only the new sentence cannot tell a row that never had a
- * claim from one that closed the claim it had.
+ * says must be recorded in the same commit. Its remaining absence was then a measurement
+ * not yet taken (a tab showing counts it could only have obtained from a peer, Plan
+ * 20-06), which put it in the tier-or-configuration bucket rather than in any of the
+ * three call-site shapes. Left visible rather than rewritten, because a reader who finds
+ * only the new sentence cannot tell a row that never had a claim from one that closed the
+ * claim it had.
+ *
+ * **And the measurement had been taken.** `packages/node/src/peer-ledger.e2e.test.ts`
+ * quotes Phase 20 criterion 5 in its own header and reads two foreign browser families
+ * off a live page in each of two engines. The row went on citing 20-06's absence, and
+ * this entry went on citing the row — **an id here is a promise to re-read the row by
+ * hand, and the promise was the only thing holding it.** That is the third such lapse
+ * recorded on this list in one sweep (`SCHED-04`, `SCHED-05`, `BROW-02`), which is a fact
+ * about the device rather than about the three rows: this list has no expiry and nothing
+ * counts how long an entry has sat. `BROW-02` is `Done` as of 2026-08-11 and is removed
+ * below.
  */
 const WITHOUT_A_CHECKABLE_CLAIM: readonly string[] = [
   // ── Added 2026-08-05 by Plan 20-12 and RESOLVED the same day by Plan 20-13 ──────────
@@ -719,7 +729,6 @@ const WITHOUT_A_CHECKABLE_CLAIM: readonly string[] = [
   'AUTH-02',
   'AUTH-03',
   'AUTH-04',
-  'BROW-02',
   'NET-03',
   'NET-06',
   // `SCHED-04` was here until 2026-08-11 and is REMOVED for the same reason `SCHED-05` is,
