@@ -52,6 +52,10 @@ function manifest(violations: readonly string[] = []): EgressManifest {
     ],
     totalBytes: 100,
     violations: [...violations],
+    // EGR-01 — every cube `runColouring` submits is `label: 'public'`, so the run this fixture
+    // stands for registered nothing. Stated rather than omitted: the omission would select a
+    // different arm of `egressLines`, and the arm it selects is the one that used to be false.
+    registeredSovereign: 0,
   } as unknown as EgressManifest
 }
 

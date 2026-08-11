@@ -69,6 +69,16 @@ answer to *"do not ship a control that produces refusals discovered as timeouts"
 
 ## 2. An egress reading cannot tell *registered nothing* from *saw nothing leave* — `EGR-01`
 
+> **CLOSED 2026-08-11.** Everything below is preserved as written, because it is the analysis
+> the fix was built from and one of its own corrections is why the fix landed in the right
+> place. What shipped matches the table below, with one departure named rather than absorbed:
+> the field is `EgressManifest.registeredSovereign` (not `registered`), and on the guard's own
+> getter it is a **whole-record tally** — every registration taken since the record began,
+> cleared by `reset()` — while the per-job figure travels from `submitJobWithEgress` into
+> `sliceManifest` as a **required** argument. A sixth file was touched: `surfaces/fabric.ts`'s
+> inherited-limit paragraph, which stated a claim this change falsified. The reading and its
+> plants are in `REQUIREMENTS.md`'s `EGR-01` row; audit finding `G13` is re-closed with it.
+
 **Decider: owner.** Minted as a requirement id by this plan rather than logged for a fourth
 time — see `EGR-01` in `.planning/REQUIREMENTS.md`, both the checkbox and the traceability row.
 

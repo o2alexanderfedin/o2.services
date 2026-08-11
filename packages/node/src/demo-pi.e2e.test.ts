@@ -501,6 +501,16 @@ describe('two tabs — the reduce has somewhere to run', () => {
     const egress = textOf(regions, 'pi/egress')
     expect(egress).toContain('What left this device:')
     expect(egress).toContain('withheld')
+    // **This workload is all-public, so this is the arm that is TRUE here** — `runPi` submits
+    // every shard `label: 'public'` and registers nothing. EGR-01 gave `egressLines` a second
+    // `0 withheld` arm for runs that did register something, and the pair below is what makes
+    // this case an assertion about which arm fired rather than about which words exist: a
+    // manifest that reached the page without its count selects the *other* arm, so the second
+    // line goes red on exactly the failure the first line cannot see.
     expect(egress).toContain('registered no sovereign data')
+    expect(
+      egress,
+      'a public π run is being described as having registered sovereign shards — the manifest reached this page without its registeredSovereign count',
+    ).not.toContain('saw none of them leave')
   })
 })

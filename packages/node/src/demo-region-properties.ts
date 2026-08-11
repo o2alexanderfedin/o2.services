@@ -92,9 +92,20 @@ interface AttestationHook {
 /** What P6 quantifies over: field names, not surfaces. UI-SPEC section 9's P6 row names these four. */
 export const P6_FIELDS: readonly string[] = ['n', 'verificationMultiplier', 'estimate', 'totalBytes']
 
-/** UI-SPEC section 5.2's two sentences. A withheld count may never appear without one of them. */
+/**
+ * UI-SPEC section 5.2's three sentences. A withheld count may never appear without one of them.
+ *
+ * **Three since 2026-08-10, and the third is EGR-01.** Two of these read `0 withheld` and they
+ * are not interchangeable: the first says the run registered nothing sovereign, the second says
+ * it registered something and the guard saw none of it leave. One sentence used to cover both,
+ * so a dispatch of six owner-pinned shards rendered the first. This list is matched by
+ * `includes`, so the entries have to be phrases no other arm contains — `saw none of them leave`
+ * belongs to the middle arm alone, and adding a shorter fragment like `sovereign` would let any
+ * arm satisfy any other and quietly re-open the defect this entry was added to close.
+ */
 export const EGRESS_SENTENCES: readonly string[] = [
   'registered no sovereign data',
+  'saw none of them leave',
   'They were not sent anywhere.',
 ]
 
@@ -177,6 +188,13 @@ export function p6(regions: readonly DomRegion[]): PropertyResult {
  * Quantified over id suffix. UI-SPEC section 5.2: the count and its sentence are ONE region
  * and ONE template function, because the bare figure reads as a sovereignty proof and would
  * be a lie by omission.
+ *
+ * **What it cannot do, stated so nobody reads more into a green than is there.** This property
+ * sees rendered text and no manifest, so it can check that *a* sentence is present and never
+ * that the *right* one is. Which of the three arms is correct for a given run is a question
+ * about `EgressManifest.registeredSovereign`, and it is asserted where a run's manifest is in
+ * hand — `demo-byo.e2e.test.ts`'s sovereign arms. P7 is the structural half; that is the
+ * factual half; neither substitutes for the other.
  */
 export function p7(regions: readonly DomRegion[]): PropertyResult {
   const problems: string[] = []
@@ -190,7 +208,7 @@ export function p7(regions: readonly DomRegion[]): PropertyResult {
     examined += 1
     if (!EGRESS_SENTENCES.some((sentence) => dom.text.includes(sentence))) {
       problems.push(
-        `${region.id} shows a withheld count with neither "${EGRESS_SENTENCES[0]}" nor "${EGRESS_SENTENCES[1]}" beside it — the figure alone is a lie by omission`,
+        `${region.id} shows a withheld count with none of ${EGRESS_SENTENCES.map((s) => `"${s}"`).join(', ')} beside it — the figure alone is a lie by omission`,
       )
     }
   }

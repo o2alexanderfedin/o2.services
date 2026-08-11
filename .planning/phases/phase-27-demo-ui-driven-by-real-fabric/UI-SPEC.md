@@ -595,8 +595,8 @@ one source of the words, and neither the CLI nor this page holds a copy. P8 in �
 
 ### 5.2 Egress — the withheld figure and its sentence are one region
 
-`0 withheld` may never be rendered without the sentence explaining that the run registered no
-sovereign data. The bare figure reads as a sovereignty proof and would be a lie by omission.
+`0 withheld` may never be rendered without the sentence explaining *why* it is zero. The bare
+figure reads as a sovereignty proof and would be a lie by omission.
 
 The contract that makes it structural rather than remembered: **the count and the sentence are
 one region and one template function.** `F11` / `C17` / `P14` / `Y12` / `N8` render:
@@ -604,12 +604,29 @@ one region and one template function.** `F11` / `C17` / `P14` / `Y12` / `N8` ren
 - No sovereign data registered:
   `0 withheld — and this run registered no sovereign data, so that is the guard reporting it had
   nothing to hold back, not a proof of sovereignty.`
+- Sovereign data registered, none withheld:
+  `0 withheld — and this run registered N sovereign shard(s), so the guard was watching for those
+  bytes and saw none of them leave. That is a clean scan of what crossed, not a proof about what
+  could not.`
 - Frames withheld:
   `N frame(s) WITHHELD: <ids>. Those bytes are still on this device. They were not sent
   anywhere.` — rendered in `--color-refusal`.
 
-Same words as today's `egressLines`, and the same function produces both views. P7 in §9 asserts
-that the count never appears without its sentence.
+The same function produces all three views, on every surface. P7 in §9 asserts that the count
+never appears without its sentence.
+
+**Amended 2026-08-10 — EGR-01. The middle arm did not exist and its absence was a false
+sentence, not a gap.** This section fixed two arms split on `violations.length`, and the empty
+one said *the run registered no sovereign data*. That is a statement about **what the run
+submitted**; `violations` is a reading of **what the guard saw leave**. They coincide on a public
+dispatch, which is why the wording survived Plans 27-04, 27-05, 27-07 and 27-08 — and Phase 27's
+verifier then printed it off a bring-your-own dispatch that had submitted **six** owner-pinned
+shards, beside `byo/sovereign-label` reading *sovereign — every shard was submitted owner-pinned*
+in the same render pass. The prior text of this section is preserved above in its first and third
+bullets, which are unchanged to the character; what was added is the arm that was missing and the
+`registeredSovereign` count on `EgressManifest` that makes it decidable. The one-region-one-
+function rule is **not** relaxed by the addition: `egressLines` still owns all three, no surface
+composes a sentence of its own, and P7 still ranges over all of them.
 
 ### 5.3 A lone tab cannot run the π reduce
 
@@ -844,7 +861,7 @@ by project: `npx vitest run --project e2e`.
 | P4 | Every reading region's `data-source` starts `TabApi.` and names a method present on `window.o2` | Point a region at `TabApi.runPrimes()` while no such method exists |
 | P5 | **Liveness.** After a real two-tab run, the colouring regions no longer equal their absence text | Wire a region to nothing so it stays absent forever |
 | P6 | For each of a named set of fields (`best.n`, `verificationMultiplier`, `estimate`, `egress.totalBytes`), the string in the rendered region also occurs in that surface's text view | Format the same value twice, differently |
-| P7 | Whenever an egress region's text contains the withheld count, it also contains `registered no sovereign data` (empty-violations case) or `They were not sent anywhere.` (non-empty case) | Split the count and its sentence into two elements |
+| P7 | Whenever an egress region's text contains the withheld count, it also contains one of §5.2's three sentences: `registered no sovereign data` (nothing registered), `saw none of them leave` (registered, none withheld), or `They were not sent anywhere.` (withheld) | Split the count and its sentence into two elements |
 | P8 | The attestation region's text equals `attestation.description` (receipt arm) or contains `attestation.reason` verbatim (absence arm), compared against a fresh `window.o2` reading taken in the same page | Compose a sentence in the page from `strength` |
 | P9 | Every figure on the Benchmarks surface occurs verbatim in `docs/perf/prime-and-pi-benchmarks.md` | Round one figure, or add one the document does not contain |
 | P10 | During load and before consent, every request the page makes is same-origin | Restore the mockup's font `@import` |

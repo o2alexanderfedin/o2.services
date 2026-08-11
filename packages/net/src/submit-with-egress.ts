@@ -26,6 +26,14 @@
  * frames would be readable two ways — a per-job manifest reporting bytes the
  * per-node manifest excludes — and neither figure would mean anything.
  *
+ * **`registeredSovereign` is the one field that travels rather than being recomputed
+ * (EGR-01).** It follows `totalBytes`' mechanism — a figure this module takes over the
+ * job's own window while `EgressGuard.manifest` takes its own over the whole record —
+ * but it cannot follow its *implementation*, because a registration leaves no
+ * `EgressEntry` to reduce over. So the count is taken in the registration loop below
+ * and handed to {@link sliceManifest} as an argument. See that function for why it is
+ * required and not defaulted.
+ *
  * **Scoped limitation, not solved here (13-CONTEXT.md Risk 2):** attribution assumes
  * one job in flight per guard at a time. If two `submitJob` calls run concurrently
  * against the same guard, their entries windows can overlap, and a byte counted as
@@ -107,8 +115,24 @@ export type SubmitWithEgressResult =
  * The recomputation follows `EgressGuard.manifest`'s own rule exactly: a refused
  * frame (one carrying a `violation`) contributes zero bytes, because it did not
  * leave.
+ *
+ * **`registeredSovereign` is passed in rather than recomputed, and that asymmetry is
+ * the whole of EGR-01.** Every other field on this manifest is derivable from
+ * `entries`, because every other field describes a frame. A registration is not a
+ * frame: `EgressGuard.guard()` appends no {@link EgressEntry}, so there is nothing in
+ * the slice to count. Nor can the figure be read off the guard, whose own manifest
+ * reports its whole life's registrations and whose watch list is empty by the time
+ * this runs — `submitJobWithEgress` gives every hold back in a `finally`. The only
+ * code that knows a job's sovereign shard set is the code that registered it, so the
+ * count travels from there to here as an argument. It is **required** rather than
+ * defaulted: a caller that omitted it would silently produce the manifest that says a
+ * sovereign run registered nothing, which is the defect this parameter closes.
  */
-export function sliceManifest(guard: EgressGuard, from: number): EgressManifest {
+export function sliceManifest(
+  guard: EgressGuard,
+  from: number,
+  registeredSovereign: number,
+): EgressManifest {
   const full = guard.manifest
   const entries = full.entries.slice(from)
   return {
@@ -122,6 +146,7 @@ export function sliceManifest(guard: EgressGuard, from: number): EgressManifest 
     violations: entries
       .map((entry) => entry.violation)
       .filter((label): label is string => label !== undefined),
+    registeredSovereign,
   }
 }
 
@@ -150,6 +175,18 @@ export async function submitJobWithEgress(
   // rather than the labels makes that structural — there is no count to keep in step
   // and no way to give back a hold this job did not take.
   const held: EgressHold[] = []
+  // EGR-01 — what every returned manifest's `registeredSovereign` carries.
+  //
+  // Counted **here**, beside the registration itself, because this loop is the only
+  // expression in the system that knows this job's sovereign shard set. It counts
+  // shards registered per guard rather than holds taken across all of them: a job that
+  // registers one row on three guards registered one row, and each guard's manifest
+  // describes the same job.
+  //
+  // Two conditions above are deliberately outside the count. A `public` shard is not
+  // sovereign, and a shard that will not canonicalise registered nothing — a count that
+  // included either would make the sentence on screen wider than the guard behind it.
+  let registeredSovereign = 0
   for (const shard of spec.shards) {
     if (shard.label !== 'sovereign') continue
     const encoded = await canonicalCid(shard.value)
@@ -158,6 +195,7 @@ export async function submitJobWithEgress(
     // second failure mode for a condition that already has one.
     if (!encoded.ok) continue
     const label = encoded.cid.toString()
+    registeredSovereign += 1
     for (const guard of guards) held.push(guard.guard(label, encoded.bytes))
   }
   try {
@@ -176,7 +214,9 @@ export async function submitJobWithEgress(
     return {
       ok: true,
       job: result.job,
-      manifests: guards.map((guard, i) => sliceManifest(guard, before[i] as number)),
+      manifests: guards.map((guard, i) =>
+        sliceManifest(guard, before[i] as number, registeredSovereign),
+      ),
     }
   } finally {
     // Every exit gives the holds back — the success path, the `ok:false` return above,

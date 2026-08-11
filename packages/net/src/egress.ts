@@ -63,6 +63,37 @@ export interface EgressManifest {
    * attempted and refused — the bytes are still on this node.
    */
   readonly violations: readonly string[]
+  /**
+   * Sovereign payloads registered while this record's window was open — EGR-01.
+   *
+   * **Why it had to exist.** `violations.length === 0` answers only one of the two
+   * questions a reader takes it for. *This run registered no sovereign data* and
+   * *this run registered sovereign data and none of it left* are different facts,
+   * and until 2026-08-10 one sentence covered both on five demo surfaces: a
+   * bring-your-own dispatch that submitted **six** owner-pinned shards rendered
+   * *"this run registered no sovereign data"*, which was true of what the guard
+   * observed and false of what the run submitted. The manifest carried no field
+   * that could tell them apart, so no renderer could.
+   *
+   * **Read it beside `violations`, never instead of it.** `0` with an empty
+   * `violations` is the guard reporting it was given nothing to hold back — it says
+   * nothing about sovereignty. A positive count with an empty `violations` is the
+   * guard reporting it was watching that many payloads and that no frame it was
+   * offered carried one. Only the second is a statement about sovereign data at
+   * all, and even that one is a detector's statement rather than a proof: see this
+   * module's comment on why the raw-byte scan is deliberately not a predictor.
+   *
+   * **Whose count it is depends on the window, exactly as `totalBytes` does.**
+   * {@link EgressGuard.manifest} reports every registration taken on the guard since
+   * this record began, because the whole record is its window. `sliceManifest` is
+   * handed the figure for the job whose window it slices, by `submitJobWithEgress`,
+   * which is the only code that knows a job's sovereign shard set. **A figure read
+   * off the guard's watch list after a job would be neither**: every hold is given
+   * back in a `finally`, so a live reading reports zero for a run that registered
+   * six — which is the wrong place the deferred note pointed at, recorded here so
+   * nobody re-derives it.
+   */
+  readonly registeredSovereign: number
 }
 
 /**
@@ -211,6 +242,17 @@ export class EgressGuard implements Transport {
    * back decrements exactly the one hold it took.
    */
   readonly #guarded = new Map<string, { readonly payload: Uint8Array; holds: number }>()
+  /**
+   * Registrations taken since this record began — {@link EgressManifest.registeredSovereign}.
+   *
+   * Monotonic, and cleared by {@link EgressGuard.reset} rather than by a release,
+   * because it belongs to the *record* and not to the watch list: `#guarded` answers
+   * "what is guarded now", this answers "what was registered while this record was
+   * open". Decrementing it on release would make it a second spelling of
+   * `#guarded.size` and would report zero for every job that had finished — which is
+   * exactly the reading EGR-01 exists to stop being rendered as a sentence.
+   */
+  #registered = 0
 
   constructor(inner: Transport, ownerId: string) {
     this.#inner = inner
@@ -239,6 +281,10 @@ export class EgressGuard implements Transport {
   guard(label: string, payload: Uint8Array): EgressHold {
     const held = this.#guarded.get(label)
     this.#guarded.set(label, { payload, holds: held === undefined ? 1 : held.holds + 1 })
+    // Counted per hold, not per distinct label, for the reason `#guarded` counts holds:
+    // two dispatches of one row are two registrations, and a manifest saying `1` about
+    // them would be describing the map rather than the run.
+    this.#registered += 1
 
     let given = false
     return {
@@ -360,19 +406,29 @@ export class EgressGuard implements Transport {
       violations: entries
         .map((entry) => entry.violation)
         .filter((label): label is string => label !== undefined),
+      // The whole record's window is this guard's whole life, so the figure is every
+      // registration taken over it — see `EgressManifest.registeredSovereign` for why
+      // that is the same rule `totalBytes` above follows and not a second one. A caller
+      // wanting a *job's* count reads a sliced manifest; this one is not job-scoped and
+      // must not be rendered as though it were.
+      registeredSovereign: this.#registered,
     }
   }
 
   /**
    * Discard the record, e.g. between jobs.
    *
-   * Clears `#entries` only, and leaves the registrations alone. The two are about
-   * different things — reset is about the record, an {@link EgressHold} is about the
-   * watch list — and conflating them would make a between-jobs reset silently stop
-   * the tap.
+   * Clears the record — `#entries` and the registrations tally — and leaves the watch
+   * list alone. The two are about different things: reset is about the record, an
+   * {@link EgressHold} is about the watch list, and conflating them would make a
+   * between-jobs reset silently stop the tap. `#registered` is on the record's side of
+   * that line because it counts what was registered *while this record was open*, so a
+   * reset that left it standing would attribute the previous record's registrations to
+   * the next one.
    */
   reset(): void {
     this.#entries.length = 0
+    this.#registered = 0
   }
 
   /**

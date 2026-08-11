@@ -738,6 +738,13 @@ that a quoted refusal may carry a figure the fabric put in it.
 
 ## `egressLines`' sovereign sentence now has a fifth renderer, and 27-08 deliberately did not fix it
 
+> **CLOSED 2026-08-11 by `EGR-01`.** Kept verbatim, including the part of it that was wrong:
+> the closing note below says to count *where the guard registers a sovereign CID*, and that is
+> the wrong place — `EgressGuard.guard()` appends no `EgressEntry` and every hold is given back
+> in a `finally`, so a figure read there after a job is zero. The count is taken in
+> `submitJobWithEgress` and carried through `sliceManifest`. See `REQUIREMENTS.md`'s `EGR-01`
+> row for what shipped and what was measured.
+
 **Found during:** 27-08 Task 1. This restates the 27-07 entry above with what changed.
 
 The fabric surface's F11 renders `egressLines` over the **last run's** manifest, whichever surface
