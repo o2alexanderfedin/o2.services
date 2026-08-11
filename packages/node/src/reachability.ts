@@ -591,8 +591,19 @@ function walkFile(
     // those contribute reference edges would make a barrel a CALLER, which is the one thing this
     // repository has already settled: every statement in all eight barrels is `export … from`, so
     // counting one as a caller makes every exported symbol look wired and the guard vacuous.
-    // Measured: without this exclusion `estimatePi` — which nothing anywhere calls — reads
-    // REACHED, because `@o2/demo`'s barrel re-exports it by name.
+    // Measured: without this exclusion `estimatePi` reads REACHED, because `@o2/demo`'s barrel
+    // re-exports it by name.
+    //
+    // **This line read "`estimatePi` — which nothing anywhere calls" until 2026-08-10, and that
+    // clause has been false since `0d1fcb5`**: `packages/browser/demo/main.ts:841` calls it
+    // inside `runPi`. The measurement it reports is unaffected — a barrel re-export would make
+    // the symbol read REACHED whether or not anything called it, which is the entire point of
+    // the exclusion — but the parenthetical was doing work it had no right to, since a reader
+    // could take it as evidence about the tree rather than about this branch. `estimatePi` is
+    // unreachable *to this tracer* because its one caller is a method of the object literal
+    // assigned to `window.o2`; it is disposed under `global-object-hop` in
+    // `reachability-dispositions.ts`, and `reachability-guard.node.test.ts` derives that class
+    // rather than listing it.
     // A TYPE POSITION is not a call path, and this is the second thing that had to be excluded
     // for the reference class to mean anything. `bin/agent.ts` writes `let node: FabricNode |
     // undefined`; counting that annotation as a reference kept `FabricNode` reachable even with

@@ -157,6 +157,44 @@ function parseTraceability(markdown: string): TraceabilityRow[] {
 }
 
 /**
+ * `[x]` rows the `[x]`-iff-`Done` join **cannot see**, because they have no row to join to.
+ *
+ * Pure over its two inputs so the mutation block can drive it with a synthetic ledger whose
+ * right answer is known. That is the whole point: the live reading below is an empty list, and
+ * an empty list is what a check that stopped working produces too.
+ */
+function unjoinableCheckboxes(
+  requirements: readonly Requirement[],
+  rows: readonly TraceabilityRow[],
+): string[] {
+  const has = new Set(rows.map((row) => row.id))
+  return requirements
+    .filter((requirement) => requirement.satisfied && !has.has(requirement.id))
+    .map(
+      (requirement) =>
+        `${requirement.id} — [x] at ${LEDGER}:${requirement.line} has no traceability row, so ` +
+        'the [x]-iff-Done rule never sees it: the tick is unguarded rather than wrong. Write the ' +
+        'row with an honest status, or clear the box — do NOT add the id to ' +
+        'CHECKBOXES_WITHOUT_A_ROW, which exempts it from the rule rather than from the row',
+    )
+}
+
+/** Traceability rows no checkbox anchors — a delivery claim nothing can retract. */
+function unanchoredRows(
+  rows: readonly TraceabilityRow[],
+  requirements: readonly Requirement[],
+): string[] {
+  const checkboxes = new Set(requirements.map(({ id }) => id))
+  return rows
+    .filter((row) => !checkboxes.has(row.id))
+    .map(
+      (row) =>
+        `${row.id} at ${LEDGER}:${row.line} reads **${row.status}** with no checkbox row anywhere ` +
+        'in the ledger — a delivery claim nothing can retract',
+    )
+}
+
+/**
  * Every status word the table uses, measured rather than assumed.
  *
  * A status outside this set **fails**, naming the row. That is the half that keeps
@@ -820,6 +858,56 @@ describe('the ledger agrees with itself about what is delivered', () => {
     expect(orphans).toEqual([...CHECKBOXES_WITHOUT_A_ROW])
   })
 
+  /**
+   * **Coverage, with no escape hatch — added 2026-08-10.**
+   *
+   * The two rules above both filter on `row !== undefined`, so a checkbox with no
+   * traceability row is not judged leniently: **it is not judged at all.** That is exactly
+   * how `SCHED-06`, `NET-08`, `NET-09`, `NET-10`, `DATA-10` and `BENCH-07` sat `[x]` and
+   * unguarded from the day they were minted until `3a66549` wrote their rows — six ticks
+   * that no assertion in this file ever read, while every assertion here was green.
+   *
+   * The case immediately above already catches that, and it caught it honestly. **What it
+   * cannot catch is itself being relaxed.** `CHECKBOXES_WITHOUT_A_ROW` is a mutable list
+   * with no required reason, no evidence field and no date — unlike `EXEMPT`, which this
+   * file makes argue for itself in three ways. Anyone meeting that red can go green by
+   * appending an id to it, and the effect of doing so is not "this row is exempt from
+   * having a row" but *"this row is exempt from the headline rule of this file"*, silently,
+   * with the whole suite still passing. The six were never *waived* — nobody decided
+   * anything — and a hatch that reopens the hole by one line is how they would come back.
+   *
+   * So this asserts the population instead of the exception: the number of `[x]` rows the
+   * `[x]`-iff-`Done` join actually **evaluated** must equal the number of `[x]` rows the
+   * ledger holds. It shares no data with the case above, so relaxing that one does not
+   * relax this one, and there is nothing here to append an id to.
+   */
+  it('applies the [x]-iff-Done rule to every [x] row, with none exempt by having no row', () => {
+    const satisfied = REQUIREMENTS.filter((requirement) => requirement.satisfied)
+    expect(unjoinableCheckboxes(REQUIREMENTS, TRACEABILITY)).toEqual([])
+    // The positive form, and it is the half that cannot be satisfied by a parse that died:
+    // an empty `skipped` is also what a ledger with zero `[x]` rows produces.
+    const evaluated = satisfied.filter((requirement) => statusOf.has(requirement.id))
+    expect(evaluated.length).toBe(satisfied.length)
+    expect(evaluated.length).toBeGreaterThan(TRACEABILITY_FLOOR)
+  })
+
+  /**
+   * The same join, read from the other end — **unguarded until 2026-08-10**.
+   *
+   * A traceability row saying `Done` is a delivery claim in its own right, and until now
+   * nothing required one to have a checkbox. A row for an id with no checkbox is inert in
+   * both rules above (they iterate checkboxes), so it would claim delivery that no tick
+   * asserts and no tick could ever retract — the mirror of the defect that motivated the
+   * case above, and reachable by the same one-line edit in the other file.
+   *
+   * Empty today, measured rather than assumed: 102 checkbox rows, 102 traceability rows,
+   * 102 distinct ids, and the two sets are equal.
+   */
+  it('carries no traceability row for an id the checklist does not have', () => {
+    expect(unanchoredRows(TRACEABILITY, REQUIREMENTS)).toEqual([])
+    expect(TRACEABILITY.length).toBeGreaterThan(TRACEABILITY_FLOOR)
+  })
+
   it('states a headline count that matches the v1 section it counts', () => {
     const start = LEDGER_SOURCE.indexOf('\n## v1 Requirements')
     const end = LEDGER_SOURCE.indexOf('\n## v1.1 Requirements')
@@ -1087,6 +1175,64 @@ describe('the checker can fail — proved by mutation, not assumed', () => {
     // The waiver was for the weaker rule, so the stronger one still fires.
     expect(result.absent).toHaveLength(1)
     expect(result.absent[0]).toContain('FAKE-03')
+  })
+
+  /**
+   * The two coverage checks, driven with a ledger whose right answer is known.
+   *
+   * Both read as an empty list on the real ledger, which is indistinguishable from a check
+   * that never ran — the failure mode this whole block exists for. The synthetic ledger below
+   * is deliberately shaped like the defect that motivated them: one `[x]` row with a matching
+   * traceability row, one `[x]` row with none (the six unguarded ticks), one `[ ]` row with
+   * none (which must NOT be reported — an unchecked box claims nothing), and one traceability
+   * row for an id the checklist does not have (the mirror defect).
+   */
+  const COVERAGE_LEDGER = [
+    '# Requirements',
+    '',
+    '- [x] **COV-01**: satisfied, and the table has a row for it',
+    '- [x] **COV-02**: satisfied, and the table has no row for it',
+    '- [ ] **COV-03**: open, and the table has no row for it',
+    '',
+    '| Requirement | Phase | Status |',
+    '|---|---|---|',
+    '| COV-01 | Phase 1 | Done |',
+    '| COV-99 | Phase 1 | Done — a row anchored to no checkbox at all |',
+  ].join('\n')
+
+  const COVERAGE_REQUIREMENTS = parseLedger(COVERAGE_LEDGER)
+  const COVERAGE_ROWS = parseTraceability(COVERAGE_LEDGER)
+
+  it('parses the coverage fixture into both representations, so the diff below is real', () => {
+    expect(COVERAGE_REQUIREMENTS.map(({ id }) => id)).toEqual(['COV-01', 'COV-02', 'COV-03'])
+    // The header separator `|---|---|---|` must not read as a requirement row, or every
+    // table in the ledger would contribute a phantom id.
+    expect(COVERAGE_ROWS.map((row) => row.id)).toEqual(['COV-01', 'COV-99'])
+  })
+
+  it('flags an [x] row the join cannot see, and refuses to flag an open one', () => {
+    const skipped = unjoinableCheckboxes(COVERAGE_REQUIREMENTS, COVERAGE_ROWS)
+    expect(skipped).toHaveLength(1)
+    expect(skipped[0]).toContain('COV-02')
+    expect(skipped[0]).toContain('the [x]-iff-Done rule never sees it')
+    // COV-03 is open and equally rowless. Reporting it would demand a delivery record for
+    // work that has not started — the ledger lying in the other direction.
+    expect(skipped.join(' ')).not.toContain('COV-03')
+  })
+
+  it('flags a traceability row with no checkbox to retract it', () => {
+    const unanchored = unanchoredRows(COVERAGE_ROWS, COVERAGE_REQUIREMENTS)
+    expect(unanchored).toHaveLength(1)
+    expect(unanchored[0]).toContain('COV-99')
+    expect(unanchored[0]).toContain('a delivery claim nothing can retract')
+  })
+
+  it('reports nothing at all when both parses die — which is what the floors catch', () => {
+    // The direction that matters: a broken parse empties both lists at once and every
+    // assertion in the two coverage cases passes. The `toBeGreaterThan(TRACEABILITY_FLOOR)`
+    // half of each is the only thing standing between that and a silent green.
+    expect(unjoinableCheckboxes([], [])).toEqual([])
+    expect(unanchoredRows([], [])).toEqual([])
   })
 
   it('finds titles in the curried forms this repository uses', () => {
