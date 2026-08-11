@@ -652,7 +652,31 @@ interface CostAccumulator {
   calls: number[]
 }
 
-/** Wraps an executor so every call's wall time is recorded. */
+/**
+ * Wraps an executor so every call's wall time is recorded.
+ *
+ * ## This wrapper opts every rung out of VER-02's ceremony, and that is stated rather
+ * than left to be discovered
+ *
+ * `submitJob` selects the two-round commit-reveal ceremony for a public shard at two or
+ * more replicas **whose executors speak both rounds** (`isCommitting`,
+ * `packages/core/src/job/commit-reveal.ts`). The literal returned below carries `nodeId`
+ * and `execute` and nothing else, so a `RemoteExecutor` that arrived here able to
+ * `commit` and `reveal` leaves unable to — and every `redundancy: 2` rung this driver
+ * runs therefore takes the post-hoc comparison path instead.
+ *
+ * **That is a divergence between what this driver measures and what a job through
+ * `submitJob` does**, and it is left standing for one measurement reason rather than
+ * because it is right: forwarding the two verbs would put a second round trip into every
+ * R≥2 dispatch and change every published figure on the redundancy arm, and a number that
+ * moves for a reason nobody re-measured is worse than a named gap. `.planning/REQUIREMENTS.md`'s
+ * VER-02 row carries this as the open leg, and closing it means forwarding the verbs
+ * **and** retaking the ladder, in that order, in one change that says which figures moved.
+ *
+ * The ceremony itself is measured elsewhere and against the real binary — see
+ * `packages/node/src/two-process.node.test.ts`, which runs both rounds across spawned
+ * `bin/agent.ts` processes.
+ */
 function timed(inner: Executor, into: CostAccumulator): Executor {
   return {
     nodeId: inner.nodeId,
