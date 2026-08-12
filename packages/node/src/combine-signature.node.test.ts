@@ -149,6 +149,7 @@ async function startNode(name: string): Promise<FabricNode> {
  */
 function giveIdentity(node: FabricNode, signer: ResultSigner): void {
   serveAgent({
+    paused: 'never-pauses',
     rpc: node.rpc,
     executor: node.executor,
     blockstore: node.blockstore,

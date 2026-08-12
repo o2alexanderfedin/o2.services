@@ -230,6 +230,7 @@ describe('CHURN-01 — an accepted dispatch names its result by its content addr
     const serving = ['n0', 'n1'].map((nodeId) => {
       const rpc = new RpcEndpoint(network.connect(nodeId), { timeoutMs: 2_000 })
       serveAgent({
+        paused: 'never-pauses',
         rpc,
         executor: answering(nodeId),
         blockstore: new MemoryBlockstore(),

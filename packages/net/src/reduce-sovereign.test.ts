@@ -61,7 +61,7 @@ import { RpcEndpoint } from './rpc.ts'
 
 const FIXED_CID = CID.parse('bafyreihdwdcefgh4dqkjv67uzcmw7ojee6xedzdetojuzjevtenxquvyku')
 
-/** The seven sentinels every `AgentOptions` must write down. */
+/** The ten sentinels every `AgentOptions` must write down. */
 const SENTINELS = {
   egress: 'holds-no-registrations',
   authorize: 'serves-unauthenticated',
@@ -72,6 +72,7 @@ const SENTINELS = {
   onDispatch: 'reports-no-dispatch',
   attest: 'signs-nothing',
   enroll: 'issues-no-certificates',
+  paused: 'never-pauses',
 } as const
 
 /** The provider that certifies both owners below. Seed 43 — 41/42 are `reduce-job.test.ts`'s. */

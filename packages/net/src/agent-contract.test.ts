@@ -19,7 +19,7 @@ import { RpcEndpoint } from './rpc.ts'
  * agreeing with whatever the type happens to allow.
  */
 
-/** A fully-specified `AgentOptions` — real rpc/executor/blockstore, all nine sentinels. */
+/** A fully-specified `AgentOptions` — real rpc/executor/blockstore, all ten sentinels. */
 function buildFull(): AgentOptions {
   const network = new MemoryNetwork()
   const rpc = new RpcEndpoint(network.connect('agent-contract'), { timeoutMs: 500 })
@@ -38,16 +38,17 @@ function buildFull(): AgentOptions {
     onDispatch: 'reports-no-dispatch',
     enroll: 'issues-no-certificates',
     attest: 'signs-nothing',
+    paused: 'never-pauses',
   }
 }
 
-describe('AgentOptions requires all nine hooks — the compile-time proof', () => {
+describe('AgentOptions requires all ten hooks — the compile-time proof', () => {
   it('accepts a fully-specified AgentOptions and does not throw', () => {
     const full = buildFull()
     expect(() => serveAgent(full)).not.toThrow()
   })
 
-  // None of the ten `serveAgent` calls below is ever sent a request, so nothing
+  // None of the eleven `serveAgent` calls below is ever sent a request, so nothing
   // throws at runtime regardless of which hook a given case omits — the whole
   // proof lives in whether `tsc` accepts the line without the suppression.
 
@@ -136,6 +137,24 @@ describe('AgentOptions requires all nine hooks — the compile-time proof', () =
     const full = buildFull()
     const { attest: _unused, ...rest } = full
     // @ts-expect-error WIRE-01 — attest is required; omitting it must fail `tsc --noEmit`, naming 'attest'.
+    expect(() => serveAgent(rest)).not.toThrow()
+  })
+
+  it('fails to compile with paused omitted', () => {
+    // SCHED-03. What this omission would cost is a node that can never be stopped. It
+    // answers every frame, states every figure, runs every task it is sent — and an
+    // operator who meant to wire a pause control and forgot has nothing to read,
+    // because the only other ways to stop taking work are killing the process (which
+    // reads as unreachable and drops the relay reservation) and throttling to zero
+    // slots (which `LocalCapacity`'s floor of 1 deliberately forbids).
+    //
+    // It is also the hook where an optional field would make silence and consent
+    // indistinguishable — `relay-admission.ts` writes that argument out in full for
+    // `RelayAdmission`, and it transfers unchanged: a caller must not be able to mean
+    // "this node never pauses" without having said so.
+    const full = buildFull()
+    const { paused: _unused, ...rest } = full
+    // @ts-expect-error WIRE-01 — paused is required; omitting it must fail `tsc --noEmit`, naming 'paused'.
     expect(() => serveAgent(rest)).not.toThrow()
   })
 })

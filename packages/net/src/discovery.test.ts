@@ -93,6 +93,7 @@ async function fabricOf(options: { workers: number; maxConcurrent?: number }): P
   const index = new MemoryRecordIndex()
   const seedRpc = new RpcEndpoint(network.connect(SEED), { timeoutMs: 5_000 })
   serveAgent({
+    paused: 'never-pauses',
     rpc: seedRpc,
     executor: new WasmExecutor({ nodeId: SEED, blockstore: seedStore }),
     blockstore: seedStore,
@@ -147,6 +148,7 @@ async function fabricOf(options: { workers: number; maxConcurrent?: number }): P
       maxConcurrent: options.maxConcurrent ?? 8,
     })
     serveAgent({
+      paused: 'never-pauses',
       rpc,
       executor: new WasmExecutor({ nodeId: nodeKey, blockstore: store }),
       blockstore: store,

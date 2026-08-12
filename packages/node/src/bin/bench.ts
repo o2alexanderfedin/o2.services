@@ -825,6 +825,13 @@ async function memoryFabric(nodes: number): Promise<Fabric> {
     // node id and the executor's cannot drift — the pattern `FabricNode.start`
     // documents beside its own construction.
     capacity: new LocalCapacity({ nodeId: 'requestor', maxConcurrent: DECLARED_ADMISSION_LIMIT }),
+    // SCHED-03 — **permanent, not a burn-down**, on the same rule this file applies to
+    // `keeps-no-ledger`: a site that stands up a *node* wires the real value, a site
+    // that stands up a *measurement fixture* states the opt-out and says why. A rig
+    // that could stop taking work mid-run would publish a scaling curve shaped by a
+    // pause nobody declared — the same defect an undeclared admission limit would be,
+    // which is why this rig declares that one too.
+    paused: 'never-pauses',
     // BROW-02 — **the permanent, correct value at both of this driver's memory-rig
     // endpoints, not a burn-down**, and Plan 20-02 read each site rather than deciding
     // from the file name. The rule it applied: a site that stands up a *node* supplies a
@@ -898,6 +905,13 @@ async function memoryFabric(nodes: number): Promise<Fabric> {
       // across these workers would refuse the second replica of every shard, and this
       // rig would measure a fabric that cannot verify anything.
       capacity: new LocalCapacity({ nodeId: id, maxConcurrent: DECLARED_ADMISSION_LIMIT }),
+      // SCHED-03 — **permanent, not a burn-down**, on the same rule this file applies to
+      // `keeps-no-ledger`: a site that stands up a *node* wires the real value, a site
+      // that stands up a *measurement fixture* states the opt-out and says why. A rig
+      // that could stop taking work mid-run would publish a scaling curve shaped by a
+      // pause nobody declared — the same defect an undeclared admission limit would be,
+      // which is why this rig declares that one too.
+      paused: 'never-pauses',
       // BROW-02 — a fixture worker, on the reasoning stated in full at the requestor
       // endpoint above: this rig's N endpoints are one process start and not N visitors,
       // so a `started` row per worker would be population invented for a metric whose

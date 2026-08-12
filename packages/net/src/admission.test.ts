@@ -82,6 +82,7 @@ async function servingNode(options: {
   const rpc = new RpcEndpoint(network.connect(options.nodeId), { timeoutMs: 5_000 })
   const ranFor: string[] = []
   serveAgent({
+    paused: 'never-pauses',
     rpc,
     executor: counter,
     blockstore: store,

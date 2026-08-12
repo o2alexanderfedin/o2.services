@@ -75,6 +75,7 @@ function servingNode(options: {
     },
   )
   serveAgent({
+    paused: 'never-pauses',
     rpc,
     executor,
     blockstore: options.executionStore,

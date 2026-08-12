@@ -154,6 +154,7 @@ async function fabric(refusal: string | null = null): Promise<Fabric> {
 
   const workerRpc = new RpcEndpoint(network.connect('w0'), { timeoutMs: RPC_TIMEOUT_MS })
   serveAgent({
+    paused: 'never-pauses',
     rpc: workerRpc,
     executor: watched,
     blockstore: store,

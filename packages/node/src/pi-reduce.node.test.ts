@@ -90,6 +90,7 @@ const SENTINELS = {
   onDispatch: 'reports-no-dispatch',
   attest: 'signs-nothing',
   enroll: 'issues-no-certificates',
+  paused: 'never-pauses',
 } as const
 
 /**

@@ -123,6 +123,7 @@ async function fabricOf(options: {
 
     const rpc = new RpcEndpoint(network.connect(peerId), { timeoutMs: 5_000 })
     serveAgent({
+      paused: 'never-pauses',
       rpc,
       executor: new WasmExecutor({ nodeId: peerId, blockstore: store }),
       blockstore: store,

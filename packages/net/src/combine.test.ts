@@ -42,7 +42,7 @@ import { RpcEndpoint } from './rpc.ts'
  * origin, so **no worker can see another worker's store**.
  */
 
-/** The seven sentinels every `AgentOptions` must write down, in one place. */
+/** The ten sentinels every `AgentOptions` must write down, in one place. */
 const SENTINELS = {
   egress: 'holds-no-registrations',
   authorize: 'serves-unauthenticated',
@@ -53,6 +53,7 @@ const SENTINELS = {
   onDispatch: 'reports-no-dispatch',
   attest: 'signs-nothing',
   enroll: 'issues-no-certificates',
+  paused: 'never-pauses',
 } as const
 
 /**

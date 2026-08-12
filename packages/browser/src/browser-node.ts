@@ -100,6 +100,24 @@ export interface BrowserNodeOptions {
   /** Relays to reserve on. At least one is required to be addressable at all. */
   readonly relayAddrs: readonly string[]
   /**
+   * SCHED-03. Read on every request to decide whether this tab is **paused** — alive,
+   * reachable, unchanged in what it can do, and declining all work right now.
+   *
+   * A thunk rather than a flag, because a visitor toggles it while the tab runs: hold
+   * your own boolean and hand over a closure that reads it. A tab is the case the state
+   * was most obviously missing for — closing it loses the relay reservation and every
+   * block in IndexedDB's reach, and throttling cannot reach zero because
+   * `LocalCapacity.slots` floors at 1 on purpose. `AgentOptions.paused` carries the
+   * full argument.
+   *
+   * **Optional here and required there**, exactly as `FabricNodeOptions.paused` states
+   * it: the mechanism must not be reachable by silence, while a factory told nothing
+   * threads the named opt-out and is byte-identical to the tab that existed before this
+   * option did. A per-node setting and not a node kind — the two factories thread the
+   * identical ternary.
+   */
+  readonly paused?: () => boolean
+  /**
    * This tab's clearance to execute sovereign data, and the owner key it judges
    * capability chains against — DATA-09's serving-side gate (`guardSovereignty`,
    * `@o2/core`), applied unconditionally inside the `Executor` this factory composes
@@ -1711,6 +1729,18 @@ export class BrowserNode {
       // What the file above measures is the refusal and its wording, which is what a
       // requestor is actually told.
       capacity: admission,
+      // SCHED-03. The posture the visitor stated, or the named opt-out — never an
+      // omission, because `AgentOptions.paused` has no default to fall through to.
+      //
+      // **This is not the capacity hook one line up and must never be folded into it.**
+      // The slot floor of 1 exists so that throttling cannot express a stop, so a tab
+      // that wants to stop taking work has no way to say so through `capacity` — and
+      // closing the tab is not that statement either, because it takes the relay
+      // reservation and the tab's discoverability with it.
+      //
+      // A per-node setting, not a node kind: `fabric-node.ts` threads the identical
+      // ternary over its own option, and `serve-agent-hooks.node.test.ts` counts both.
+      paused: options.paused ?? 'never-pauses',
       // BROW-02. **The named opt-out is gone from this file**, because there is no longer
       // a tab this factory can build that has been told nothing: every node holds a ledger
       // and every node's own start is the first row in it. See the construction above for

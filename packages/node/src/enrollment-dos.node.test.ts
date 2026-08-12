@@ -366,6 +366,7 @@ async function rigWithOneSlot(): Promise<{
 
   const providerRpc = new RpcEndpoint(network.connect(provider), { timeoutMs: 5_000 })
   serveAgent({
+    paused: 'never-pauses',
     rpc: providerRpc,
     executor,
     blockstore: store,
@@ -466,6 +467,7 @@ describe('AUTH-04 — what a burned window costs the node that did not burn it',
     const store = new MemoryBlockstore()
     const providerRpc = new RpcEndpoint(network.connect('provider'), { timeoutMs: 5_000 })
     serveAgent({
+      paused: 'never-pauses',
       rpc: providerRpc,
       executor: {
         nodeId: 'provider',

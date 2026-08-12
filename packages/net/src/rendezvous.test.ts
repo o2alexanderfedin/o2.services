@@ -27,6 +27,7 @@ function node(
   const rpc = new RpcEndpoint(network.connect(id), { timeoutMs: 500 })
   const blockstore = new MemoryBlockstore()
   serveAgent({
+    paused: 'never-pauses',
     rpc,
     executor: new WasmExecutor({ nodeId: id, blockstore }),
     blockstore,

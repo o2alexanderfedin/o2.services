@@ -415,9 +415,32 @@ export interface CapacityOptions {
 /**
  * A node's own admission control — SCHED-03.
  *
- * Takes no ports and makes no calls: the decision is a comparison of two integers
- * this node owns. That is "local information only" as a property of the type, not a
- * promise in a comment — there is nothing here that *could* consult the network.
+ * Takes no ports: the decision is a comparison of two integers this node owns, and
+ * this class opens nothing.
+ *
+ * **This paragraph claimed more than that until 2026-08-11, and the stronger claim was
+ * already false when it was written.** It read *"makes no calls… there is nothing here
+ * that could consult the network"*, offered as a property of the type rather than a
+ * promise in a comment. But `dutyCycle` is `number | Governor`, so `#dutyCycleNow()`
+ * invokes a **caller-supplied getter** on every read of {@link LocalCapacity.slots} —
+ * and `slots` is read on every `#decide`. A `Governor` may do whatever its author
+ * wrote. The `Governor` arm removed the guarantee; the sentence outlived it.
+ *
+ * What survives is the part that matters and is checkable: **no port is taken here**,
+ * so nothing this class *itself* does reaches the network. A caller handing it a
+ * `Governor` that dials is describing its own object, not this one — which is a real
+ * difference, and smaller than the sentence it replaces.
+ *
+ * **The arithmetic clause was still too strong on 2026-08-11 and is narrowed here.** It
+ * read *"the arithmetic is over integers this node owns"*, and
+ * `slots = Math.max(1, Math.floor(maxConcurrent * dutyCycleNow()))` is neither: on the
+ * `Governor` arm `#dutyCycleNow()` returns a non-integer in `(0, 1]` read out of an
+ * object this node does **not** own. What is true is the first paragraph's version and
+ * nothing wider — the **decision**, `#inFlight.size >= slots`, is a comparison of two
+ * integers. The `Math.floor` is what makes the right-hand side one; the multiplication
+ * that produced it is neither integer nor locally owned. A correction to a correction is
+ * worth the line: the first pass narrowed the network claim and carried the arithmetic
+ * claim across unexamined.
  *
  * Slots are reserved on accept and must be returned with `release`, so the count
  * reflects work in flight rather than work ever offered.
@@ -480,6 +503,16 @@ export class LocalCapacity {
    * disappearing from the fabric — at zero slots `#decide` would refuse everything,
    * which is a node that has left rather than a node that is going slowly. The floor
    * predates this getter and moving the derivation must not lose it.
+   *
+   * **Two production readers now, and the second is on a path that takes no decision.**
+   * `#decide` is the first, and it reads this once per decision for that reason. The
+   * second arrived with SCHED-03: `net/src/agent.ts`' `pausedAnswer` publishes
+   * `{slots, inFlight}` on the offer refusal of a **paused** node, which is a node
+   * stating what it could do rather than deciding anything. It reads this getter and
+   * `inFlight` as two independent reads instead of through `#capacity(slots)`, which is
+   * private — so a `Governor` that moved between them would publish a pair that held at
+   * no instant. Recorded on both sides; that call site says the same and says why it is
+   * harmless today.
    */
   get slots(): number {
     return Math.max(1, Math.floor(this.#maxConcurrent * this.#dutyCycleNow()))

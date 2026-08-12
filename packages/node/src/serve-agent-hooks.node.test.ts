@@ -206,6 +206,23 @@ describe('production serveAgent call sites state every hook explicitly', () => {
     // 13-VERIFICATION-2.md recorded what a composition an inspection can confirm is
     // worth when the behaviour has never run.
     expect(occurrences(FABRIC_NODE, "'accepts-every-offer'")).toBe(0)
+    // SCHED-03 — **a permanent correct value, not a burn-down**, and the distinction
+    // matters more here than anywhere else in this file. `'never-pauses'` is the
+    // *absent* arm of `paused: options.paused ?? …`, so 1 says the factory names the
+    // posture a caller who said nothing gets. Driving it to 0 would not be progress —
+    // it would be a factory that had either hard-wired a pause nobody asked for or
+    // dropped the hook, and `AgentOptions.paused` has no default to fall through to.
+    //
+    // Paired with the hook's presence, because 0 alone is equally what deleting the
+    // `paused:` line produces. That deletion no longer compiles, which is the stronger
+    // guard `agent-contract.test.ts` holds; this pair says *which* value was written.
+    //
+    // It is deliberately **not** the `capacity:` row above. The slot floor of 1 exists
+    // so throttling cannot express a stop, so a node at zero slots is unreachable rather
+    // than paused — two hooks, two questions, and a count that collapsed them would be
+    // this file agreeing with the misattribution the state was added to remove.
+    expect(occurrences(FABRIC_NODE, "'never-pauses'")).toBe(1)
+    expect(occurrences(FABRIC_NODE, 'paused: options.paused')).toBe(1)
     // VER-08 / VER-09 / VER-10 — **1 is now the permanent correct value, and this
     // sentence replaces a prediction that was wrong.** It used to read that Plan 19-15
     // composes a real signer and this count goes to 0, the way `'serves-no-records'` and
@@ -310,6 +327,12 @@ describe('production serveAgent call sites state every hook explicitly', () => {
     // and a relay to dial, so it runs in neither vitest project"*) was false and kept
     // four items deferred across four plans, and this row is where a reader goes looking.
     expect(occurrences(BROWSER_NODE, "'accepts-every-offer'")).toBe(0)
+    // SCHED-03 — the same permanent correct value, threaded by the identical ternary.
+    // The two factories are read side by side on purpose: if this row ever diverges
+    // from the Node factory's without a stated reason, something has started keying on
+    // node kind, and the only difference between nodes in this fabric is discovery.
+    expect(occurrences(BROWSER_NODE, "'never-pauses'")).toBe(1)
+    expect(occurrences(BROWSER_NODE, 'paused: options.paused')).toBe(1)
     // VER-08 / VER-09 / VER-10, and **the same count as `fabric-node.ts` deliberately**.
     // Signing is not a capability a tier confers: an enrolled tab signs on identical
     // terms to any other node. If this row ever diverges from the `FABRIC_NODE` row
@@ -474,6 +497,11 @@ describe('production serveAgent call sites state every hook explicitly', () => {
     // so a signature made here would verify against no trust anchor any reader holds
     // while adding an Ed25519 sign per combine to a published scaling curve.
     expect(occurrences(BENCH, "'signs-nothing'")).toBe(2)
+    // SCHED-03 — 2, one per endpoint, and **permanent**. A rig that could stop taking
+    // work mid-run would publish a scaling curve shaped by a pause nobody declared, in
+    // exactly the way an undeclared admission limit would — which is why this binary
+    // declares that one explicitly rather than inheriting the default.
+    expect(occurrences(BENCH, "'never-pauses'")).toBe(2)
     expect(occurrences(BENCH, 'attest:')).toBe(2)
     // DATA-05, and **the one `AgentOptions` field no row in this file counted at any
     // production call site** until defect #19 was investigated. Two, one per site, and
@@ -520,6 +548,10 @@ describe('production serveAgent call sites state every hook explicitly', () => {
     expect(occurrences(PERF_WORKLOAD, 'new LocalCapacity(')).toBe(2)
     // VER-08 / VER-09 / VER-10 — permanent, on the same ground as `bin/bench.ts` above.
     expect(occurrences(PERF_WORKLOAD, "'signs-nothing'")).toBe(2)
+    // SCHED-03 — 2, one per endpoint, permanent for the reason `BENCH`'s row gives:
+    // this rig is a measurement fixture, and a fixture that could pause would be a
+    // variable in the numbers with nothing recording it.
+    expect(occurrences(PERF_WORKLOAD, "'never-pauses'")).toBe(2)
     expect(occurrences(PERF_WORKLOAD, 'attest:')).toBe(2)
     // DATA-05 — see the `BENCH` row above for why this field was uncounted everywhere
     // and what counting it buys. Two here as well, and for the same reason: this rig
