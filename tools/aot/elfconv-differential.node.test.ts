@@ -7,6 +7,8 @@ import { fileURLToPath } from 'node:url'
 
 import { beforeAll, describe, expect, it, vi } from 'vitest'
 
+import { describeGate, isRunnable, probeDockerReach } from './docker-gate.ts'
+
 /**
  * A/B differential over `third_party/elfconv`'s ELF loader: the same fixtures lifted twice in
  * one container, once by the stock lifter shipped in the image and once by this repository's
@@ -58,15 +60,26 @@ interface Report {
   readonly ported: readonly Lift[]
 }
 
-function dockerAvailable(): boolean {
-  const probe = spawnSync('docker', ['version', '--format', '{{.Server.Os}}'], {
-    timeout: 20_000,
-    encoding: 'utf8',
-  })
-  return probe.status === 0
+/**
+ * Which precondition is missing, or `null`.
+ *
+ * `dockerAvailable()` stood here — `spawnSync('docker', ['version', …])`, 20 s,
+ * `status === 0` — and it was one of five copies of that predicate in `tools/aot/`. Same
+ * probe, same budget, now shared from `docker-gate.ts`, and the boolean has become the
+ * condition's name, so a skipped run says whether there is no client, no daemon, or no
+ * answer. Only `lift.node.test.ts` reddens on the last of those; this file skips on all of
+ * them, as it always has.
+ */
+function missingPrecondition(): string | null {
+  if (arch() !== 'arm64') return `host arch is ${arch()}, the pinned image is arm64`
+  const reach = probeDockerReach()
+  if (!isRunnable(reach)) return describeGate(reach)
+  return null
 }
 
-const RUNNABLE = arch() === 'arm64' && dockerAvailable()
+const MISSING = missingPrecondition()
+const RUNNABLE = MISSING === null
+const SKIP_NOTE = MISSING === null ? 'runnable' : `SKIPPED: ${MISSING}`
 
 /** Paired by fixture name so a reordering in the harness cannot silently compare the wrong two. */
 function pair(report: Report, fixture: string): { readonly a: Lift; readonly b: Lift } {
@@ -78,7 +91,7 @@ function pair(report: Report, fixture: string): { readonly a: Lift; readonly b: 
   return { a, b }
 }
 
-describe.skipIf(!RUNNABLE)('elfconv loader port, baseline against ported in one container', () => {
+describe.skipIf(!RUNNABLE)(`elfconv loader port, baseline against ported in one container (${SKIP_NOTE})`, () => {
   let report: Report
 
   beforeAll(() => {

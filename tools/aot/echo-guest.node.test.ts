@@ -21,11 +21,12 @@ import {
   buildGuest,
   cleanupGuests,
   guestDir,
-  imageIsPresent,
+  imageGate,
   liftThroughCli,
   toolchainFromStdout,
 } from './echo-guest.ts'
 import type { CliLiftRun } from './echo-guest.ts'
+import { describeGate, isRunnable } from './docker-gate.ts'
 
 /**
  * Does an artifact elfconv actually produced complete a task on this fabric — AOT-04.
@@ -65,7 +66,16 @@ import type { CliLiftRun } from './echo-guest.ts'
 // gates
 // ---------------------------------------------------------------------------
 
-const HAVE_IMAGE = imageIsPresent()
+/**
+ * Asked once and kept whole, because the reason is the part that was missing.
+ *
+ * `imageIsPresent()` used to answer a bare `false` for a daemon that had died — measured
+ * 2026-08-12, when a refusing socket made `docker image inspect` exit 1 exactly as an
+ * absent image does. The log line below now prints which of the four conditions it was.
+ */
+const IMAGE_GATE = imageGate()
+
+const HAVE_IMAGE = isRunnable(IMAGE_GATE)
 
 /**
  * Both artifacts are obtainable: either the image is here, or a previous run's pair was
@@ -86,7 +96,7 @@ const MEASURABLE = HAVE_IMAGE || (LIFTED_ECHO !== undefined && LIFTED_HELLO !== 
 const RAN_CLI = HAVE_IMAGE && LIFTED_ECHO === undefined && LIFTED_HELLO === undefined
 
 console.log(
-  `[echo-guest] imageIsPresent()=${HAVE_IMAGE}` +
+  `[echo-guest] image gate: ${describeGate(IMAGE_GATE)}` +
     ` O2_AOT_ARTIFACT=${LIFTED_ECHO ?? '(unset)'}` +
     ` O2_AOT_HELLO=${LIFTED_HELLO ?? '(unset)'}` +
     ` → measurable=${MEASURABLE} cliRun=${RAN_CLI}`,

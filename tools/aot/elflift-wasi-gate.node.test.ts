@@ -6,6 +6,8 @@ import { fileURLToPath } from 'node:url'
 
 import { beforeAll, describe, expect, it, vi } from 'vitest'
 
+import { describeGate, isRunnable, probeDockerReach } from './docker-gate.ts'
+
 /**
  * THE GATE, judged as a measurement rather than as a verdict.
  *
@@ -449,18 +451,24 @@ const RECORDED_ATTRIBUTION: readonly { readonly reading: string; readonly symbol
 const PLANT = 'see docblock — restored and cmp-verified 2026-08-10'
 void PLANT
 
-function dockerAvailable(): boolean {
-  const probe = spawnSync('docker', ['version', '--format', '{{.Server.Os}}'], {
-    timeout: 20_000,
-    encoding: 'utf8',
-  })
-  return probe.status === 0
-}
-
-/** Which precondition is missing, named rather than left as a bare skip. */
+/**
+ * Which precondition is missing, named rather than left as a bare skip.
+ *
+ * The `dockerAvailable()` that stood here — `spawnSync('docker', ['version', …])`, 20 s,
+ * `status === 0` — was one of five copies of the same predicate in `tools/aot/`, and it
+ * flattened its answer into a boolean: "there is no docker on this host" and "the daemon is
+ * not answering" arrived as one sentence. The probe and its budget are unchanged; they live
+ * in `docker-gate.ts` now, and what comes back is which of the conditions it was.
+ *
+ * **This file skips on all of them, including `undetermined`.** Only
+ * `lift.node.test.ts` reddens on that arm, and it does so because a *silent* skip there
+ * would hide the only real coverage of the toolchain. Here the arm is named in the suite
+ * title instead, which is what this file already did with the arch check.
+ */
 function missingPrecondition(): string | null {
   if (arch() !== 'arm64') return `host arch is ${arch()}, the pinned image is arm64`
-  if (!dockerAvailable()) return 'docker is not answering `docker version`'
+  const reach = probeDockerReach()
+  if (!isRunnable(reach)) return describeGate(reach)
   return null
 }
 
