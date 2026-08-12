@@ -13,6 +13,28 @@ forward-compatible extension point**, and that cost is paid on the *next* capabi
 whether or not anything is ever generalized. Section 6 is the load-bearing part of this
 document.
 
+> **AMENDED 2026-08-11, later the same day. Read this before the body.**
+>
+> Two things changed after this document was written, and both are recorded *in place* below
+> rather than by rewriting it.
+>
+> 1. **§6.4's finding was implemented.** `CapabilityRecord` has the extension seam as of
+>    `32cba89`. §6.4 is struck where it asserts the absence, and §6.5 records what shipped —
+>    including the one place the implementation chose **against** this spec's own suggestion.
+> 2. **The owner settled a capability model in conversation.** It is three-dimensional, and the
+>    three dimensions deliberately do **not** live in the same place. **§9 is that ruling.** §1,
+>    §2, §4.2, §7 and §8 carry the corrections it forces.
+>
+> **Citation base, and a staleness warning that is not a defect but reads like one.** Every
+> `file:line` in §0–§8 was read at `c94bc7a` and is **left** at that base, because this is a
+> record of what was read. `32cba89` inserted ~260 lines into `packages/core/src/discovery.ts`
+> and ~90 into `packages/net/src/protocol.ts`, so **the line numbers this document cites into
+> those two files no longer resolve at `HEAD`.** The shift is not a uniform offset — there are
+> two insertion sites in `discovery.ts` — so no mechanical correction is possible and none is
+> attempted. **Text added on 2026-08-11 cites `32cba89` and says so at the point of citation.**
+> Nothing outside those two files moved: `quorum.ts`, `enrollment.ts`, `fabric-node.ts` and
+> `packages/net/src/discovery.ts` citations still resolve.
+
 ---
 
 ## 0. Provenance — what was read, and what was not
@@ -66,6 +88,26 @@ in production is `sovereignFor` (`fabric-node.ts:1182`).
 
 So the proposed generalization would abstract over: one exercised field, one declared-but-empty
 field, and one design that is not in the tree.
+
+> **Corrected 2026-08-11 (owner ruling, §9 decision 5) — `features` is no longer a discovery
+> filter.** The sentence above describes `features` as *"matched by `ExecutorQuery.requiredFeatures`
+> and refused as `missing-features`"*, and that is still what the code does
+> (`discovery.ts:538-544` at `32cba89`). **The ruling is that it stops being a discovery
+> input.** `features` stays on the record — it is a true fact a node states about its own engine —
+> but a query no longer narrows on it, and **a node that cannot run a module refuses at dispatch**
+> instead. The trade is stated plainly: cheaper discovery, an occasional wasted placement.
+>
+> This is affordable **because refusal is already first-class in this fabric and has three
+> production expressions**, all read at `32cba89`: `guardSovereignty`
+> (`packages/core/src/executor/sovereignty-guard.ts:90`), the capability authorizer
+> (`packages/net/src/capability-authorizer.ts:76`), and the relay admission gate
+> (`packages/libp2p/src/relay-admission.ts`, whose docblock at `:7` is the reason it sits where it
+> does). A fourth refusal at dispatch adds a named arm, not a mechanism.
+>
+> **What it does *not* change:** §4.2's finding that WASM features are the one cleanly
+> self-punishing kind. Under this ruling the self-punishment becomes the *whole* enforcement rather
+> than a backstop behind a filter — which makes §4.2's observation load-bearing rather than
+> incidental.
 
 **The question this spec answers** is not "what would a general capability system look like" —
 that is easy and worthless. It is: *does the evidence support building one now, and if not,
@@ -270,10 +312,31 @@ Sorting the six kinds by that property:
 | Available memory | OOM mid-task | **late** — after work is done, and indistinguishable from churn | weakly self-punishing, at real cost |
 | Accelerator | slow path; **correct answer** | no | not self-punishing |
 | Compliance zone | a regulatory violation | **never**, by construction | not self-punishing, and not node-signable at all |
+| **Capability class** (`parallel-compute`) *(added 2026-08-11, §9 decision 8)* | node wins work it is **bad at**; returns a correct answer, slowly | no | **not** self-punishing — sits with H3, not with `features` |
 
 **Only one of the six is cleanly self-punishing, and it is the one field that is empty in
 production.** That is the sharpest single fact in this analysis. The property the self-signing
 design leans on is exhibited by exactly the capability kind that no node currently populates.
+
+> **Added 2026-08-11 — capability classes do NOT inherit the feature list's honesty property, and
+> this is recorded explicitly so nobody later assumes they do.**
+>
+> A class such as `parallel-compute` looks like `features` — an opaque label in a set on the same
+> record — and the resemblance is misleading in the one way that matters. **A false WASM feature
+> claim fails the task and names the liar. A node can claim `parallel-compute` and merely be bad at
+> it**: it executes, it returns a correct answer, and nothing anywhere records that the placement
+> was poor. On the §4.2 axis a class belongs beside H3 cells, not beside `features`.
+>
+> **It is nonetheless safe to self-sign, and for §4.3's reason rather than by exception.** The
+> claim is not free-floating: the record is only meaningful bound to a certificate a pinned
+> provider signed (`discovery.ts:17-23`), and the **operator identity in that certificate** is what
+> carries independence. The one attack a false class claim could otherwise mount — one operator
+> filling a quorum with many self-declared members — is already refused by VER-04's operator
+> anti-affinity, taken by construction rather than as an afterwards check (`quorum.ts:176-179`,
+> refusal at `:182-187`; these citations are unmoved by `32cba89`). So a class is a **placement
+> hint whose abuse costs throughput, never correctness**, and §4.4's firewall applies to it
+> verbatim: **no quorum composition rule may read a capability class**, for exactly the reason no
+> quorum composition rule may read a cell.
 
 ### 4.3 `sovereignFor` is the interesting counter-example, and it shows the pattern that works
 
@@ -477,9 +540,17 @@ second writer needs it.** §6.4 is that specification. It is worth doing now pre
 *because* the answer to generalization is "not yet": deferral is only safe if the next
 capability kind is cheap to add, and today it is not.
 
-### 6.4 The defect this spec most wants fixed — `CapabilityRecord` has no extension seam
+### 6.4 The defect this spec most wants fixed — ~~`CapabilityRecord` has no extension seam~~ **(FIXED in `32cba89`; §6.5)**
 
-**This is a live forward-compatibility hazard, readable today, independent of everything above.**
+> **Superseded 2026-08-11 as to tense, not as to content — do not read this section as a
+> description of the tree.** The hazard below was real when written and was **fixed the same day**,
+> in `32cba89`. The diagnosis, the misattribution argument and the `payloadOf` precedent are all
+> still the reasoning the fix rests on, so the section is kept whole. **What is no longer true is
+> the present tense.** §6.5 records what shipped and where the implementation went a different way
+> from this section's own suggestion.
+
+~~**This is a live forward-compatibility hazard, readable today, independent of everything above.**~~
+**Was live at `c94bc7a`. Closed at `32cba89`.**
 
 The signed payload is built from exactly five named fields:
 
@@ -529,10 +600,66 @@ generically. `CanonicalValue` (`core/src/canonical/encode.ts:31-39`) already adm
 that shape, and DAG-CBOR's canonical map ordering handles the determinism.
 
 I am **not** specifying which of those two to build — that is a design decision with its own
-tradeoffs and it deserves its own analysis. What this spec asserts is the finding: **the seam
-does not exist, the failure mode when it is first needed is a misattributed
-`invalid-capability-record`, and the repository has already ruled that class of
-misattribution out for the sibling record.**
+tradeoffs and it deserves its own analysis. What this spec asserts is the finding: ~~**the seam
+does not exist**~~ *(true at `c94bc7a`; false at `32cba89` — §6.5)*, **the failure mode when it is
+first needed is a misattributed `invalid-capability-record`, and the repository has already ruled
+that class of misattribution out for the sibling record.**
+
+### 6.5 What shipped — `32cba89`, and the one place it chose against §6.4
+
+*Added 2026-08-11. Every citation in this subsection was read at `32cba89` and resolves at `HEAD`.*
+
+`CapabilityRecord` gained `readonly extensions: readonly CapabilityExtension[]`
+(`packages/core/src/discovery.ts:195`), where `CapabilityExtension` is
+`{ id: string, critical: boolean, value: CanonicalValue }` (`discovery.ts:121-130`) — X.509's own
+answer, and the shape this repository already has a profile for. Covered by the node's signature,
+canonically ordered by `id`, duplicate ids refused, and **preserved verbatim by the wire parser
+including ids the reading build has never heard of** (`packages/net/src/protocol.ts:690-735`).
+That preservation is the whole seam: the payload recomputes identically, so **a peer that can do
+nothing with an extension can still verify the record that carries it.**
+
+**§6.4 named two candidate designs and the implementation picked neither — it picked a third, and
+then closed one of the two off deliberately.** §6.4 offered *"the parser to carry unknown fields
+through into the signed payload verbatim, or an explicit `extensions: { [k: string]: CanonicalValue }`
+map."* What shipped is a **list of tagged, flagged extensions**, and `parseCapabilities` now
+**refuses an unknown top-level key rather than dropping it** (`protocol.ts:749-757` for the closed
+key set, applied at `:771`). So §6.4's first option is not merely unchosen, it is now **forbidden by
+the parser**. The source states the reason where it lives (`discovery.ts:96-103`): a pass-through
+map has nowhere to say *"a reader that cannot honour this must refuse"*, so a security-relevant
+field would be ignored by exactly the peers unable to enforce it; and it makes the record's shape
+unbounded, so no reader can say what it is holding.
+
+**The `critical` flag is the mechanism §6.4 did not know it needed.** Unknown and
+`critical: false` is verified, preserved and ignored. Unknown and `critical: true` is refused under
+a **new** `ExclusionReason` arm, `critical-extension-not-understood` (`discovery.ts:383-398`),
+whose text names *this build* rather than the peer — *"this build does not understand …, which
+`<nodeKey>` marked critical — its record verified, and this reader is the one that cannot honour
+it"* (`discovery.ts:463-468`). **The check is asked only after the signature has verified**
+(`discovery.ts:527-536`), and that ordering is what makes the attribution structural rather than
+conventional: at that point the signature is known good, so anything refused below is refused by
+this reader's limits.
+
+**This satisfies G2 exactly.** A new axis arrived with its own named `ExclusionReason` arm and its
+own `describe` case, so the exhaustiveness guarantee §3.4.1 defends is intact and the union is now
+seven arms rather than six. §3.4.1's trade — *"one union arm per kind, compiler-enforced"* — was
+paid once more and is still a good trade.
+
+**Two consequences for the rest of this document:**
+
+1. **G6 is discharged** (§7, struck there).
+2. **The next capability field is cheap, which is what made the §6.1 deferral safe.** §6.3 said the
+   deferral *"is only safe if the next capability kind is cheap to add, and today it is not."*
+   Today it is. That is the precondition §9's model is now spending.
+
+**What it still costs, because the commit states it and this spec should not soften it.** Adding
+the field is itself a breaking change for peers built before it existed, and no design removes
+that. Two things are true beside it: it is the **last** such break, because after this a capability
+field rides inside `extensions`; and the blast radius is narrowed to records that actually carry an
+extension, since `extensions` is spread **conditionally** — exactly as `payloadOf` spreads `x509`
+— so a record with none produces the byte-identical payload it produced before the field existed
+(`discovery.ts:240-259`, and `@o2/net` spreads by the identical rule at `protocol.ts:672-686`).
+A node upgrading does not become unreadable to its older neighbours
+merely by restarting.
 
 ---
 
@@ -572,10 +699,35 @@ standing in for a direct graph property is the retracted-rule shape (`0314208`,
 `quorum.ts:19-35`, `STATE.md:1184`). If a geographic input to VER-03/VER-04 is ever proposed,
 it must first answer why `operatorId` is insufficient.
 
-**G6 — Before adding any third field to `CapabilityRecord`, close the extension seam (§6.4).**
-Whoever adds field three pays a lockstep wire upgrade and gets a misattributed
+**~~G6 — Before adding any third field to `CapabilityRecord`, close the extension seam (§6.4).~~
+DISCHARGED 2026-08-11 in `32cba89` — and it inverted into a prohibition.**
+~~Whoever adds field three pays a lockstep wire upgrade and gets a misattributed
 `invalid-capability-record` for their trouble. Cheapest possible moment to fix it is before
-there is a third field; the cost rises monotonically.
+there is a third field; the cost rises monotonically.~~
+
+> **The rule that replaces it, and it points the opposite way.** The seam is closed (§6.5), so the
+> cost this rule was protecting against is paid. **In its place: a third capability field must be
+> an entry in `extensions`, not a new top-level key** — and this is no longer advice, it is
+> enforced. `parseCapabilities` refuses a frame carrying a top-level key outside
+> `CAPABILITY_KEYS` (`packages/net/src/protocol.ts:749-757`, applied at `:771`, read at
+> `32cba89`), and refuses an extension carrying a fourth key beside `{id, critical, value}`. The
+> envelope is closed **because `value` is open**. G1 is unchanged and now has a second reason: the
+> `Record<string, string[]>` map G1 forbids is also the pass-through design §6.5 records the
+> implementation deliberately rejecting.
+
+**G8 — A capability class is a FILTER and must never be a discovery anchor.** *(Added 2026-08-11,
+§9 decision 3.)* `'parallel-compute'` is the least selective key in the system; anchoring a lookup
+on it and intersecting with a second anchor returns approximately nothing, **silently**. The
+arithmetic is in the DHT spec (`2026-08-11-dht-record-index-design.md` §5.4) and it is a hard
+bound, not a tuning matter. One selective anchor, then local filters. A class may appear inside a
+**composite** anchor (`app:X + cell`), which is selective again.
+
+**G9 — Anything that rides the connection with a record is bounded by the measured transport
+budget.** *(Added 2026-08-11, §9 decision 7.)* WebRTC's maximum message is 16 KiB and a relayed
+connection's total is 128 KiB — both measured constraints recorded in `CLAUDE.md`. A certificate
+plus a small record fits; a record enumerating hundreds of cells does not. This is an **independent**
+argument for a floor resolution in the H3 design, separate from that spec's storage argument, and it
+is an argument against ever letting a set-valued capability field grow unbounded.
 
 **G7 — If a non-self-punishing capability is added to `CapabilityRecord`, tie its value to the
 certificate the way `sovereignFor` is tied (`fabric-node.ts:1182`, reasoning at `:1144-1158`),
@@ -592,6 +744,16 @@ becomes a real hole once a second non-self-punishing field exists.
    needs it and this tree does not have it. **I could not read that spec** (§0). If it already
    scopes itself to the connected set, G4 is satisfied and should be struck.
 
+   > **Answered 2026-08-11 by reading it — G4 was already satisfied, and is struck.** The H3 spec
+   > (`2026-08-11-h3-geographic-discovery-design.md`) scopes itself explicitly: its §8.3 gives a
+   > per-use-case table of what works at relay scope and marks use cases 2 and 5 **"No"**, quoting
+   > the same `net/src/discovery.ts:73-79` limit this section reads; its §8.4 states
+   > index-agnosticism as the load-bearing property and says the design *gains* global reach when a
+   > DHT is installed. So the entry-point claim was scoped, not overstated, and §3.2's correction
+   > was aimed at a claim that spec did not make. **§3.2's underlying finding stands unchanged** —
+   > `providers(cellCid)` is a filter over the connected set until transitive routing exists — and
+   > it is now the DHT spec's problem, where §9 decision 9 reframes what that routing is *for*.
+
 2. **Is `sovereignFor`'s uncheckedness intended?** `discoverExecutors` compares
    `capabilities.sovereignFor` against the query but never against `certificate.userKey`
    (`discovery.ts:290-294`). Honest construction supplies the tie (`fabric-node.ts:1182`).
@@ -603,18 +765,175 @@ becomes a real hole once a second non-self-punishing field exists.
    deliberate decision — even "records stay low-churn and first-non-empty stays" — rather than
    an assumption inherited from a comment written when only low-churn records existed.
 
+   > **Largely answered 2026-08-11 by §9 decision 2, and answered by removing the question rather
+   > than settling it.** If **records arrive with the peer** — the peer presents the record it
+   > signed, on the connection it is already holding open — then there is no third party choosing
+   > which vintage you see, and §5.2's "two vintages both verify and the loop returns whichever
+   > peer answers first" cannot arise: there is exactly one answerer, and it is the signer.
+   > **What remains open** is the case where a record is fetched from an index rather than
+   > presented, which is precisely the DHT's `/o2rec/<nodeKey>` value record — see that spec's §5.2
+   > selector, and this document's §9 decision 2 for why that machinery is now questionable.
+
 4. **Does a location marker block need `withhold` treatment?** `SelfRecordIndex`'s `withhold`
    predicate (`discovery.ts:425`, invariant at `:452-470`) exists so the index never advertises
    a block `serveAgent`'s `block` branch would refuse. A cell marker's *advertisement* is itself
    the disclosure, which is a different shape from a block whose *contents* are sovereign.
    Unanalysed here.
 
-5. **Should the extension seam be pass-through unknown fields or an explicit signed
+5. ~~**Should the extension seam be pass-through unknown fields or an explicit signed
    `extensions` map?** §6.4 establishes the need and declines to pick. Both are expressible in
-   `CanonicalValue` (`canonical/encode.ts:31-39`).
+   `CanonicalValue` (`canonical/encode.ts:31-39`).~~
+   **ANSWERED 2026-08-11 in `32cba89` — and by a third option neither arm named.** An X.509-style
+   list of `{id, critical, value}`, with pass-through of unknown *top-level keys* now explicitly
+   **refused** rather than merely unchosen. §6.5. The deciding consideration was one this question
+   did not contain: a pass-through map has nowhere to carry *"a reader that cannot honour this must
+   refuse"*.
 
 6. **Does G5's "no unflagged path" finding block this work?** `v1.1-MILESTONE-AUDIT.md:655`
    says closing it *"needs an enrolled requestor on a default path."* Until that role exists, a
    third capability kind is unobservable in production for the same reason the first two are.
    That is an argument for sequencing the role before any capability work, and it is the owner's
    call, not this spec's.
+
+---
+
+## 9. Settled 2026-08-11 — the capability model is three-dimensional, and the dimensions live apart
+
+*Owner ruling, taken in conversation on 2026-08-11 and recorded here rather than re-argued. Where a
+decision contradicts something this document already argued, the contradiction is named in the
+decision itself rather than left for a reader to find. Citations added in this section were read at
+`32cba89`.*
+
+### 9.1 Decision 1 — three dimensions, three homes
+
+| Dimension | Where it lives | Why there | Usable as a discovery anchor? |
+|---|---|---|---|
+| `appIds` | the signed `CapabilityRecord` | **stable** — an app a node serves does not change at the rate a record expires | **YES** — `cidOf(appId)` |
+| **Capability class**: `parallel-compute`, a **closed union**, currently one member | the signed `CapabilityRecord` | **stable** | **NO** — §9.3 |
+| **H3 location** | **not the record.** Place blocks plus the `withhold` hook, answered at ask time | **MOBILE** — a signed record carries a validity window; a vehicle invalidates one in minutes | **YES** — `cellCid(cell)` |
+
+**`cidOf` and `cellCid` are proposed derivations, not existing functions.** Neither name exists in
+`packages/` at `32cba89` (`cidOf` appears only as a per-file test helper, e.g.
+`packages/core/src/job/submit.test.ts:2820`). `cellCid` is specified in the H3 spec §5.1, over
+`canonicalCid` (`packages/core/src/canonical/encode.ts:138`); an `appId` anchor would be derived by
+the identical path. Stating this so the table is not read as a citation.
+
+**Location is deliberately not a record field, and that is this document's own §7 G3 ratified
+rather than overturned.** G3 gave three reasons — a record is fetched by node key so it cannot start
+a lookup, its window is the certificate's ~30 days, and `recordsFor` has no freshness ordering — and
+the ruling keeps all three. The positive form: **the record is a hint; the live answer is the peer's
+`has(cid)` plus `withhold` at ask time**, which is owner ruling D1 already
+(`packages/core/src/discovery.ts:689-697` for D1's own statement,
+`:767-776` for `SelfRecordIndex.providers` computing it).
+
+**Note the shape this table actually has, because it is not what §2 predicted.** §2 concluded that
+the candidate kinds *"disagree on the signer, the match semantics, the churn class, the validity
+window, and the role"* and that an abstraction over them is a tagged union wearing a hat. The
+settled model **agrees**, and resolves it by splitting on the axis §2 identified as deepest:
+**churn**. Two stable kinds share the signed record; the high-churn kind is expelled from it
+entirely. That is not a generalization of `CapabilityRecord` — it is §6.1's deferral, held.
+
+### 9.2 Decision 2 — records arrive **with** the peer; there is no per-candidate `recordsFor` round trip
+
+The pipeline is: **`providers(anchor)`, then filter locally on the record the peer already
+presented.**
+
+**The justification is that the signature is what matters and the channel never was.**
+`PeerVerifier`'s docblock says it outright (`packages/node/src/peer-verifier.ts:6-9`):
+
+> *"it does so **offline by construction**: the trust anchors are an argument to
+> `verifyCertificate`, so there is nothing for the verification step to reach out to. **The only
+> network call this class makes is the `records` request that *fetches* the certificate; deciding
+> whether to believe it touches nothing.**"*
+
+And the fabric already takes a peer's certificate from the peer at the earliest possible moment —
+the relay reservation, which `packages/libp2p/src/relay-admission.ts:7` calls the place *"a node's
+lifecycle in this fabric begins"*, arguing that both advertisement surfaces derive from the
+reservation store *structurally, with no filter to add and no `if` to forget*.
+
+**So taking a record from the peer that signed it removes a third party who would otherwise choose
+which peers you are permitted to evaluate.** It cannot weaken anything, because nothing was ever
+trusted about the channel.
+
+> **Where this contradicts existing code, stated rather than glossed.** `discoverExecutors` calls
+> `index.recordsFor(nodeKey)` **once per provider**, inside the loop
+> (`packages/core/src/discovery.ts:501`, provider set built at `:492`). That is exactly the
+> per-candidate round trip this decision removes. **The resolution is not a change to
+> `discoverExecutors`** — nothing about its shape is wrong — **but a `RecordIndex` implementation
+> whose `recordsFor` is a local lookup over records peers have already presented.** The port was
+> designed for precisely this substitution: its module doc says keeping the two methods together is
+> *"what lets a single implementation be swapped for a DHT, a delegated HTTP router, or an
+> in-memory fixture without the discovery logic noticing"* (`discovery.ts:344-350`). Whoever
+> implements this must not conclude that `discoverExecutors` needs editing; the `RecordIndex` does.
+
+### 9.3 Decision 3 — classes are filters, never anchors, and the reason is a hard bound
+
+**Full statement, with the arithmetic, is in the DHT spec §5.4** (added the same day). In summary: a
+Kademlia provider lookup is **truncated** — `ProvidersInit.cacheSize` defaults to 256 and
+`kBucketSize` to 20, both already cited in that spec — and **intersecting two truncated samples of
+large sets returns approximately nothing**. Worked example: 10 000 nodes in a cell, 9 900 of them
+sharing a class, two capped lookups of 256 drawn from a keyspace population of ~1e6 → expected
+intersection **≈ 0.07 nodes**, while 9 900 actually qualify.
+
+**And it fails silently**, which is what makes it a defect rather than a limitation: an empty result
+is indistinguishable from *"nobody matches"*. That is the exact shape `discovery.ts:25-30` was
+written against — *"silent filtering is how a requestor ends up staring at an empty candidate list."*
+
+**Rule: one selective anchor, then local filters.** `'parallel-compute'` is the least selective key
+in the system and must never be an anchor. A class may appear inside a **composite** anchor
+(`app:X + cell`), which is selective again — the composite is one key, not an intersection of two
+lookups, and that is the whole difference.
+
+### 9.4 Decision 4 — query API shape: the caller names the anchor, and truncation is named
+
+**No query planner.** The caller states which anchor to use. Choosing it automatically is a planner,
+the evidence to build one does not exist, and YAGNI applies with force in a repository whose §6.1
+deferral rests on the same argument.
+
+**The query carries `onTruncated: 'refuse' | 'report-partial'`.** If the anchor lookup returns *at*
+the cap, the result is a **SAMPLE, not a SET**. This codebase names every exclusion rather than
+letting an unmeasured thing read as measured (`discovery.ts:25-30`), and a silently-capped provider
+list is an unmeasured thing reading as measured. Neither value is a default here; the caller states
+which failure it wants.
+
+### 9.5 Decision 5 — exact WASM features leave the discovery path
+
+Recorded at §1 above, where the claim it corrects lives.
+
+### 9.6 Decision 6 — the anchor is hashed for free
+
+`cidOf(appId)` means the DHT lookup key is **opaque to anyone who does not already know the app id**.
+That **softens — and does not remove** — the traffic-analysis exposure the DHT spec §9.1 records,
+whose own honest statement is that *"DHT-primary discovery is strictly more exposure than what it
+replaces."* Plaintext ids appear only in a record handed to a peer that is already connected.
+
+**Do not generalize this to cells.** The H3 spec's Q5 already records that cell CIDs are computable
+by anyone, so a cell anchor is enumerable by construction and hashing buys nothing there. The two
+anchor kinds have genuinely different disclosure properties and the difference must not be averaged.
+
+### 9.7 Decision 7 — presented-record size bound
+
+Recorded as **G9** in §7, where the interim rules live.
+
+### 9.8 Decision 8 — classes are not self-punishing
+
+Recorded in **§4.2**, where the self-punishment analysis lives, as a seventh row and a note.
+
+### 9.9 Decision 9 — the DHT is **existence discovery only**
+
+It tells you a peer **exists**; the **facts** come from the peer (decision 2). Stated in full in the
+DHT spec §5.5. Its largest consequence there: the 48 h un-retractable provider record becomes much
+less damaging, because the peer's live answer overrides a stale one — which is D1's own reasoning
+arriving at the DHT rather than being contradicted by it.
+
+### 9.10 Decision 10 — deferred, deliberately, and recorded so it is not re-discovered as new
+
+**A coarse cell (res ~5, ~250 km) could also sit in the signed record as a cheap pre-filter.** It is
+stable even for a moving vehicle — a driver does not leave a metropolitan-region cell in a shift —
+so it does not carry the churn objection that expels fine cells from the record, and it would save a
+lookup on *"roughly near me"*.
+
+**Deferred under YAGNI until something measures the need.** It is recorded here because a later
+reader meeting the idea should know it was considered and parked, not overlooked — and because it
+would be the **first** use of the extension seam §6.5 just built, which makes it the natural test of
+whether that seam works as designed.
