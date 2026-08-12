@@ -434,9 +434,39 @@ option and `ownRecords` have all landed (`browser-node.ts:221`, `:400`, `:439`, 
 **Only the verifier half remains**, and it is blocked solely by the file's location.
 
 **Severity** correctness. **Effort** medium.
-**Closes it:** move the file to `packages/net/src/peer-verifier.ts`, re-export from both
-barrels, wire `trustedIssuers` + `PeerVerifier` into `BrowserNode`. No code inside the
-module changes.
+
+**CORRECTED 2026-08-12 — this entry said *"move the file to
+`packages/net/src/peer-verifier.ts`"*, and that destination is not merely wrong but
+impossible: it would redden `purity.node.test.ts` on the first run.** The old sentence is
+quoted rather than deleted because the *shape* of the fix it names is right and only the
+address is wrong, and a reader needs to see which half was retracted. Both halves of the
+refusal are in one file. `packages/node/src/purity.node.test.ts:45` puts `net` in
+`PORTABLE`; `:94` forbids `/^@libp2p\//` to every `PORTABLE` package on the ground that
+*"libp2p modules belong in an adapter package"*; and `packages/node/src/peer-verifier.ts:174`
+imports `Libp2p` and `PeerId` from `@libp2p/interface`. Being type-only does not save it —
+`specifiersOf` (`:151-159`) matches the specifier in `from '…'` and never looks at whether
+the binding was a type, which is deliberate and is why the guard reaches
+`import type` at all.
+
+**The correct destination is `@o2/libp2p`**, which `purity.node.test.ts:53` classes as
+`DUAL_TARGET`: the only rules that tier carries are `NO_PLATFORM` (`:100-103`) — no `node:`
+builtin and no `@o2/node` — and this module imports neither. `Libp2pTransport`
+(`packages/libp2p/src/libp2p-transport.ts:225`) is the exact precedent, and the package's own
+barrel already states the reasoning for a different symbol in the same words this move needs:
+`packages/libp2p/src/index.ts:41-48` says a `@libp2p/interface` type is *"what
+`purity.node.test.ts` forbids in `@o2/core` and `@o2/net` outright"*, and that both `@o2/node`
+and `@o2/browser` depend on this package so either tier can name it *"without `@o2/browser`
+acquiring `@o2/node`"* — which is precisely this entry's goal. `nodeKeyForPeerId`, imported at
+`peer-verifier.ts:171`, is declared in that same package and becomes a relative import.
+
+**Closes it:** move the file to `packages/libp2p/src/peer-verifier.ts`, re-export from
+`packages/libp2p/src/index.ts`, and wire `trustedIssuers` + `PeerVerifier` into `BrowserNode`.
+No code inside the module changes — **but one manifest does**: `packages/libp2p/package.json`
+does not currently depend on `@o2/net`, and the module imports `RpcFailure`, `encodeRequest`
+and `parseResponse` from it (`:172-173`), so that dependency has to be added. It is the safe
+direction and not a cycle: `packages/net/package.json` depends on `@o2/core` and
+`multiformats` only, so `@o2/net` does not reach back, which is the same layering
+`@o2/libp2p` → `@o2/core` already has.
 **Parallel-safe:** partly — touches `packages/node/src/peer-verifier.ts`,
 `packages/net/src/index.ts`, `packages/browser/src/browser-node.ts`,
 `packages/node/src/fabric-node.ts`, and **`mutation-ledger.ts` entries `M33`/`M34`/`M35`,
