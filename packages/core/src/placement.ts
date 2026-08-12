@@ -415,9 +415,22 @@ export interface CapacityOptions {
 /**
  * A node's own admission control — SCHED-03.
  *
- * Takes no ports and makes no calls: the decision is a comparison of two integers
- * this node owns. That is "local information only" as a property of the type, not a
- * promise in a comment — there is nothing here that *could* consult the network.
+ * Takes no ports: the decision is a comparison of two integers this node owns, and
+ * this class opens nothing.
+ *
+ * **This paragraph claimed more than that until 2026-08-11, and the stronger claim was
+ * already false when it was written.** It read *"makes no calls… there is nothing here
+ * that could consult the network"*, offered as a property of the type rather than a
+ * promise in a comment. But `dutyCycle` is `number | Governor`, so `#dutyCycleNow()`
+ * invokes a **caller-supplied getter** on every read of {@link LocalCapacity.slots} —
+ * and `slots` is read on every `#decide`. A `Governor` may do whatever its author
+ * wrote. The `Governor` arm removed the guarantee; the sentence outlived it.
+ *
+ * What survives is the part that matters and is checkable: **no port is taken here**,
+ * so nothing this class *itself* does reaches the network, and the arithmetic is over
+ * integers this node owns. A caller handing it a `Governor` that dials is describing
+ * its own object, not this one — which is a real difference, and smaller than the
+ * sentence it replaces.
  *
  * Slots are reserved on accept and must be returned with `release`, so the count
  * reflects work in flight rather than work ever offered.
