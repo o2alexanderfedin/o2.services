@@ -635,6 +635,9 @@ function ownRecords(
               sovereignFor: canExecuteSovereign ? [certificate.userKey] : [],
               issuedAt: certificate.issuedAt,
               expiresAt: certificate.expiresAt,
+              // Stated, not omitted — see `fabric-node.ts`'s `ownRecords` doc. A record
+              // with none signs the payload it signed before the seam existed.
+              extensions: [],
             }),
           },
     withhold,

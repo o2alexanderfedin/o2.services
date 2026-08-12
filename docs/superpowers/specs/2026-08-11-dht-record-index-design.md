@@ -7,6 +7,41 @@ at that commit.
 **Requirement:** NET-06, SCHED-01. Closes the gap `packages/core/src/discovery.ts:338` records as
 open.
 
+> **AMENDED 2026-08-11, later the same day. Read this before the body.**
+>
+> The owner settled a capability model in conversation. **Two of its rulings land hard on this
+> spec** — they reframe what the DHT is *for* (§5.5) and impose a hard bound on how a lookup may be
+> keyed (§5.4) — and **one of them puts a whole subsection of §5.2 in question rather than merely
+> correcting it.** §5.2, §5.3, §6.2, §9.1, §12 and §13 carry the corrections in place. Nothing is
+> deleted; superseded text is struck and dated where it stands. **§16 is the ruling as it lands
+> here**; the full statement is in `docs/superpowers/specs/2026-08-11-capability-registration-design.md`
+> §9.
+>
+> **Citation base and two staleness facts.** Every `file:line` in §1–§15 was read at `c94bc7a` and
+> is **left** there.
+>
+> 1. **Stale, not wrong.** Commit `32cba89` inserted ~260 lines into
+>    `packages/core/src/discovery.ts` (at **two** sites) and ~90 into `packages/net/src/protocol.ts`,
+>    so **every `core/discovery.ts` line number in this document is stale at `HEAD`.** Spot
+>    corrections for the ones this spec leans on hardest, all read at `32cba89`: `RecordIndex`
+>    `:141-146`→`:351-355` and its module doc `:134-140`→`:344-350`; `FallbackRecordIndex`
+>    `:340-376`→`:596-632` with the first-non-empty `providers` at `:609-619`; `IndexSource`
+>    `:310-314`→`:566-570`; the deferral docblock `:323-338`→`:572-595`, whose *"NET-06 stays open
+>    and says so"* line — cited as `:338` in this document's own header — is `:594`; D1
+>    `:428-442`→`:686-697`; the withholding invariant `:452-461`→`:710-717`; `SelfRecordIndex`
+>    `:494`→`:750` with `providers` at `:767-776`; `discoverExecutors` `:241-300`→`:485-556` with
+>    `:247`→`:492` and `:256`→`:501`; `ExclusionReason` `:165-187`→`:375-413`. The wire parser this
+>    spec never cites also changed: `parseCapabilities` is `protocol.ts:759-773`.
+> 2. **Wrong, and it was wrong when written.** §5.1 cites `packages/net/src/sovereign-egress.ts:151`
+>    for `withholdingFrom`. **The export is at `:191`**, and that file was untouched by `32cba89`,
+>    so this is not drift — it is a citation that never resolved. The parallel H3 spec cites `:191`
+>    correctly. **Corrected in place at §5.1.** This repository treats a stale citation as a defect,
+>    and finding one here is the reason this note enumerates rather than waves.
+>
+> **`ExclusionReason` gained a seventh arm** at `32cba89` — `critical-extension-not-understood`
+> (`discovery.ts:383-398`) — which §8's poisoned-record row and §9.2's silent-exclusion claim both
+> inherit for free, since both are claims about *every* rejection carrying a name.
+
 ---
 
 ## 0. The owner's direction, and what this spec turns it into
@@ -485,7 +520,10 @@ interface ProvidePolicy {
 ```
 
 `stillProvidable` must consult **the same predicate** `SelfRecordIndex` is given — `@o2/net`'s
-`withholdingFrom` (`packages/net/src/sovereign-egress.ts:151`), which `core/discovery.ts:463-470`
+`withholdingFrom` (~~`packages/net/src/sovereign-egress.ts:151`~~ — **corrected 2026-08-11: the
+export is at `:191`**, verified by reading; that file was untouched by `32cba89`, so `:151` never
+resolved), which `core/discovery.ts:463-470`
+(**`:719-726` at `32cba89`**)
 names as *"that one construction"* and warns that any second spelling of the condition *"diverge[s]
 the first time anything registers a payload under a label that is not its CID."* Do not write a
 second predicate.
@@ -500,6 +538,39 @@ here.
 are not tuned, because nothing has measured the churn they should be tuned against (§12).
 
 ### 5.2 Register — `NodeRecords`
+
+> **PUT IN QUESTION 2026-08-11 by owner decision 2 (§16.2) — read this before implementing any of
+> §5.2. It is not struck, because it is not yet decided; it is flagged, because the decision that
+> lands on it is the largest single change the ruling makes to this spec.**
+>
+> The ruling is that **records arrive WITH the peer**: a peer presents the record it signed, on the
+> connection already open to it, and discovery filters locally on what it was handed. **There is no
+> per-candidate `recordsFor` round trip.** Read against §5.2, that says the `/o2rec/<nodeKey>` value
+> record is answering a question that no longer gets asked over the network.
+>
+> **What specifically becomes questionable, and it is not a detail — it is most of the subsection:**
+>
+> - **The selector.** §5.2 argues, correctly, that *"two records with an identical `issuedAt` are
+>   producible … and a selector that returned 'either' would make the DHT's answer depend on arrival
+>   order."* **That whole problem exists only because the DHT holds a second copy.** A record taken
+>   from the peer that signed it has no second copy and no tie to break. The selector is machinery
+>   for a hazard the ruling removes.
+> - **The republish cadence, the `/3` rule, its floor and its cap.** All of it exists to keep a
+>   *remote* copy fresh. A presented record is as fresh as the connection.
+> - **The validator's continued usefulness is the strongest remaining argument for §5.2**, and it is
+>   a real one: a storing node that will not hold garbage is worth having whatever else is true. But
+>   note what §5.2 itself says the validator is — *"a garbage filter, not a trust decision"* — and a
+>   garbage filter for records nobody fetches is a cost with no reader.
+>
+> **What is NOT in question: `providers`.** §5.1's provider records are exactly the *existence*
+> half, and the ruling keeps them (§5.5). The split the ruling draws runs straight between §5.1 and
+> §5.2, which is why this flag is on the second and not the first.
+>
+> **This is recorded as a question and not as a strike for one reason.** A record presented by a
+> peer requires *being connected to that peer*. §5.5 explains why that is compatible with a DHT that
+> returns existence — you dial what the lookup named — but it does change the cost model, and
+> nothing here has measured it. **It is added to §12.4 as an owner decision (item 5), because
+> deleting §5.2 and keeping §5.2 are both defensible and this spec is not entitled to choose.**
 
 **Key:** `/o2rec/<nodeKey>` where `<nodeKey>` is the lowercase 64-char hex the repo already
 canonicalises (`packages/libp2p/src/identity.ts:147` — `parseKeyHex`, and see `:134-142` on why
@@ -589,6 +660,89 @@ therefore dropped from the answer — correctly, since no certificate could ever
 `peerIdForNodeKey` (`identity.ts:159`) is the inverse and is already the production mapping
 `discoverCandidates` uses (`bin/bench.ts:1443`).
 
+> **Amended 2026-08-11 (§16.2).** The `recordsFor` leg of this diagram — *"`F->>D: get(/o2rec/…)`"*
+> — is the leg §5.2's flag is about. The `providers` leg is untouched and is the whole of what §5.5
+> keeps. Note that the diagram's own closing annotation is what survives all of this intact:
+> **`discoverExecutors` re-verifies everything against pinned issuers**, so where a record came from
+> was never load-bearing, which is precisely the ruling's argument for taking it from the peer.
+
+### 5.4 Anchors and filters — the truncation bound, and why a class may never key a lookup
+
+*Added 2026-08-11. Owner decision 3 (§16.3). This is the hardest constraint in the ruling and it is
+arithmetic, not preference.*
+
+**The rule: one selective anchor, then local filters.** A lookup is keyed on exactly one CID. Every
+other capability dimension is applied as a filter over what that lookup returned, against the record
+the peer presented (§16.2). Two anchors are never intersected.
+
+**Why, stated as the failure it prevents.** A Kademlia provider lookup is **truncated by
+construction**, and this spec has already cited both caps in other contexts:
+
+| Cap | Value | Where this spec already cites it |
+|---|---|---|
+| `ProvidersInit.cacheSize` | **256** | §5.1's D1 table — quoted there as *"exactly such a cap"*, against D1's objection that *"a cap that silently drops entries is the shape this project keeps removing"* |
+| `kBucketSize` | **20** (upstream default) | §8.1 item 3, where raising it is discussed and deliberately not sized |
+
+**Intersecting two truncated samples of large sets returns approximately nothing.** Worked example,
+with the assumptions stated so the number can be argued with rather than inherited: 10 000 nodes in
+a cell; 9 900 of them also advertise a common capability class; both anchors drawn from a keyspace
+population of order 1e6; each lookup capped at 256. Two independent 256-sized samples of a ~1e6
+population have an expected overlap of about `256 × 256 / 1e6` ≈ **0.07 nodes** — while **9 900
+actually qualify**.
+
+**And it fails silently.** The result is empty, and empty is indistinguishable from *"nobody
+matches"*. That is the exact failure `core/discovery.ts:25-30` was written against — *"silent
+filtering is how a requestor ends up staring at an empty candidate list with no idea whether the
+network is down, its clock is wrong, or the module needs a feature nobody has."* A capped
+intersection is worse than silent filtering, because the code performing it looks correct.
+
+**Consequences, in order of how easily each is got wrong:**
+
+1. **`'parallel-compute'` — the least selective key in the system — must never be an anchor.** A
+   class is a filter. This is §16.3 and it is not negotiable on tuning grounds: raising `cacheSize`
+   moves the number without changing the shape.
+2. **A COMPOSITE anchor is fine and is the sanctioned way to get selectivity back.** `app:X + cell`
+   is **one** CID over **one** lookup — not an intersection of two — so no truncation compounds. The
+   H3 spec's §14.3 records the trap that comes with it: a composite must be its own record kind with
+   its own reserved key, never a place record with an extra field, or the geographic index silently
+   repartitions.
+3. **This is the same family of defect as §6.2's, and the two must be read together.** §6.2 is about
+   an answer being **shadowed** — one source's non-empty result discarding another's. §5.4 is about
+   an answer being **truncated** — a single source returning a capped sample that reads as a set.
+   **A truncated union is the failure mode both sections are about**, and neither fix covers the
+   other: unioning two capped sources yields a wider sample that is still a sample. §6.2's
+   `lastProviderSources` addition is the beginning of the answer, because it makes *which* sources
+   contributed legible; §16.4's `onTruncated` is the rest of it, because it makes *whether the cap
+   was reached* legible. **Implement them together or neither reports the truth.**
+
+### 5.5 What the DHT is FOR — existence discovery, and nothing beyond it
+
+*Added 2026-08-11. Owner decision 9 (§16.9).*
+
+**The DHT tells you a peer EXISTS. The facts come from the peer.**
+
+This is a reframing rather than a change of mechanism, and it settles several things this spec left
+uncomfortable:
+
+- **§5.1's central concession stops being a concession.** §5.1 establishes that a DHT provider
+  record *"does not satisfy D1 and cannot be made to"*, because kad-dht has **no retraction message**
+  and records live to expiry — `provideValidity` 86 400 s, `ReProvideInit.validity` 172 800 000 ms
+  (48 h). §5.1's resolution was to call the record *"a hint"* and scope what is provided. **The
+  ruling generalizes that resolution into the DHT's whole job description.** A hint is all it was
+  ever going to be; naming it that everywhere removes the temptation to lean on it.
+- **The 48 h staleness is much less damaging than §5.1 had to allow.** A stale provider record costs
+  **one wasted dial**, because the peer's *live* answer overrides it — `SelfRecordIndex` computes
+  `has(cid)` plus `withhold` at ask time (`core/discovery.ts:767-776` at `32cba89`), which is D1's
+  own construction. §5.1 already says this (*"a stale provider record costs one failed fetch, not a
+  wrong result"*); the ruling promotes it from a mitigation to the design's premise.
+- **It does not weaken §5.1's sovereign exclusion, and must not be read as licence to.** *"A CID
+  that could ever become sovereign must never enter the DHT"* stands unchanged. The reason is
+  disclosure, not correctness (§9.1's provider-record-staleness row), and existence-only framing
+  does nothing about disclosure: **the existence of a provider record is itself the leak.**
+- **It is the reason §5.2 is now in question** rather than merely adjusted — see the flag there. If
+  the DHT's job is existence, a signed `NodeRecords` value record is the DHT doing a second job that
+  the peer does better.
+
 ---
 
 ## 6. Wiring into `FallbackRecordIndex` — and the one correction
@@ -649,6 +803,21 @@ not require re-litigating those tests' intent.
 With a union, `lastSource` is ill-defined for `providers`. Add
 `lastProviderSources: readonly string[]` and leave `lastSource` meaning what it means today for
 `recordsFor`.
+
+> **Cross-reference added 2026-08-11 — §5.4 is the other half of this, and neither is sufficient
+> alone.** This section fixes an answer being **shadowed**: one source's non-empty result discarding
+> another's. §5.4 (owner decision 3) is about an answer being **truncated**: a single Kademlia
+> lookup capped at `ProvidersInit.cacheSize` = 256 returning a *sample* that reads as a *set*.
+> **A truncated union is the failure mode both sections are about.** Unioning two capped sources
+> gives a wider sample and still a sample, so this correction does not close §5.4's hole and §5.4's
+> `onTruncated` field does not close this one. `lastProviderSources` makes *which sources
+> contributed* legible; §16.4's `onTruncated` makes *whether the cap was reached* legible. **They
+> land together or the result reports neither honestly.**
+>
+> This note also has a bearing on `recordsFor` staying first-non-empty. That policy rests on *"a
+> record is a signed document, one copy of it is the whole of it"* — which is exactly the argument
+> owner decision 2 (§16.2) pushes one step further: if one copy is the whole of it, the copy may as
+> well come from the signer. See §5.2's flag.
 
 ### 6.3 What the union costs, stated rather than left to be discovered
 
@@ -807,6 +976,24 @@ Stated plainly, because this repository treats an overclaim as a defect.
 - **Traffic analysis.** A DHT lookup tells every peer on the path which CID this node is looking for.
   The relay path told only directly-connected peers. **DHT-primary discovery is strictly more
   exposure than what it replaces**, and this spec does not claim otherwise.
+
+  > **Softened, not removed, 2026-08-11 by owner decision 6 (§16.6) — and the distinction is the
+  > whole of the note.** An `appIds` anchor is `cidOf(appId)`, so **the lookup key is opaque to
+  > anyone who does not already know the app id.** A peer on the path sees a CID and learns nothing
+  > from it unless it holds the pre-image. Plaintext ids appear only in a record handed to a peer
+  > that is **already connected** (§16.2), which is the population that could observe the traffic
+  > anyway. **The anchor is hashed for free**, since it has to be a CID regardless.
+  >
+  > **Three reasons this does not retire the row.** (a) A **correlation** channel survives
+  > untouched: the same opaque CID looked up repeatedly still identifies a requestor's interest as
+  > *one* interest, and joins across time and peers. (b) The pre-image space may be **small enough
+  > to enumerate** — for a geographic anchor it certainly is, `c(r) = 2 + 120·7^r`, and the H3 spec's
+  > Q5 records exactly this; **the softening applies to app ids and must not be generalized to
+  > cells.** (c) The **path** itself — who asks whom — is unchanged, and §9.1's sentence above is
+  > about the path as much as the key.
+  >
+  > So: **strictly more exposure than the relay path, by a smaller margin than the unhashed case,
+  > for one of the two anchor kinds.** That is the whole claim.
 
 ### 9.2 What it DOES resist — and this is the whole of the claim
 
@@ -1043,6 +1230,23 @@ rate is material at this fabric's scale. Neither is worth measuring until someth
    not implemented — is contradicted by upstream source at `16.4.2`; its conclusion is unaffected.
    Separate from this spec, because it is a claim about upstream rather than about this design, and
    because this repository's own rule is that a note which stops describing the tree is a defect.
+5. **Does `/o2rec/<nodeKey>` survive at all?** *(Added 2026-08-11.)* Owner decision 2 (§16.2) puts
+   §5.2's validator, selector and republish cadence in question by removing the question they answer
+   — see the flag at the head of §5.2. **Keeping §5.2 and deleting §5.2 are both defensible** and
+   this spec is not entitled to choose: keeping it costs machinery for records nobody fetches;
+   deleting it means a requestor must be *connected* to a peer before it can read that peer's
+   record, which is a cost model nothing has measured. **If it is deleted, phases 2 and 5 of §13
+   shrink substantially** and the `o2rec` validator/selector work disappears; if it is kept, §5.2's
+   selector determinism test (§10.4) becomes load-bearing rather than defensive.
+6. **Do `providers` results carry `onTruncated`?** *(Added 2026-08-11, §16.4.)* The field is
+   specified; where it lives is not. It is a property of a *lookup*, not of a `RecordIndex`, and
+   `RecordIndex.providers` returns a bare `readonly PublicKeyHex[]` (`core/discovery.ts:353` at
+   `32cba89`) with nowhere to put it. Widening that return type touches every implementation —
+   `MemoryRecordIndex`, `SelfRecordIndex`, `RpcRecordIndex`, `FallbackRecordIndex` and the new
+   `DhtRecordIndex` — which is precisely the cost the H3 spec's §6.2 rejected a `nodesIn(cell)` verb
+   for. **The cheaper alternative is a side-channel on `FallbackRecordIndex` beside
+   `lastProviderSources`** (§6.2), which keeps the port narrow at the cost of making truncation
+   readable only from the chain rather than from any index. Not chosen here.
 
 ---
 
@@ -1081,6 +1285,25 @@ ceilings against a fresh measurement.
 
 **Not scheduled, and named so it is not assumed:** browsers as DHT *servers* (gated on §12.1);
 anything toward sybil or eclipse resistance (§9.1); H3 place-CIDs (§5.1 leaves the seam and stops).
+
+> **Amended 2026-08-11 — three changes to the phasing, none of which reorders it.**
+>
+> 1. **Phase 1 grows `onTruncated`.** §16.4 makes truncation a named condition, and §5.4/§6.2 argue
+>    it must land with the union rather than after it — *"they land together or the result reports
+>    neither honestly."* Phase 1 is where the union lands, so it is where this lands. Where the
+>    field lives is §12.4 item 6 and is undecided.
+> 2. **Phases 2 and 5 are contingent on §12.4 item 5.** If `/o2rec/<nodeKey>` does not survive owner
+>    decision 2, the validator, the selector and the republish cadence go with it, and phase 2
+>    reduces to the port plus the PeerId↔nodeKey bridge. **Do not start phase 2 before that decision
+>    is taken** — it is the phase whose scope the decision halves.
+> 3. **Phase 5's provider path is unaffected and is now the load-bearing half.** §5.5 makes
+>    `providers` the DHT's whole job description, so `ProvidePolicy` and the sovereign exclusion (P4)
+>    are the part of phase 5 that certainly survives.
+>
+> **Also unchanged and worth saying:** the ruling supplies no runnable surface. The G5 finding this
+> spec's base commit closed as a measured negative — *"the work is not wiring, it is a role"* — is
+> untouched by a capability model, and a DHT reachable only from a test is the same shape the audit
+> refused.
 
 ---
 
@@ -1297,3 +1520,139 @@ values of `K` and `ALPHA` were **not** read and are not asserted here.
 - `isPrivate` was read from `main`, not from the `59ccecc` pin — it lives in a separate package
   (`packages/utils`). Drift is unlikely but not pin-verified.
 - `constants.ts` (for `K` and `ALPHA`) was not read.
+
+---
+
+## 16. Settled 2026-08-11 — the owner's capability ruling, as it lands here
+
+*Recorded, not re-argued. The full statement is in
+`docs/superpowers/specs/2026-08-11-capability-registration-design.md` §9; the geographic half is in
+`docs/superpowers/specs/2026-08-11-h3-geographic-discovery-design.md` §14. Only what bears on the
+DHT is restated. Citations added in this section were read at `32cba89`.*
+
+### 16.1 Decision 1 — three dimensions, and only two of them are anchors
+
+| Dimension | Where it lives | Anchor? |
+|---|---|---|
+| `appIds` | signed `CapabilityRecord` | **YES** — `cidOf(appId)` |
+| Capability class (`parallel-compute`, a closed union, one member today) | signed `CapabilityRecord` | **NO** — §16.3 |
+| H3 location | **not the record** — place blocks + `withhold`, answered at ask time | **YES** — `cellCid(cell)` |
+
+**`cidOf` and `cellCid` do not exist in `packages/` at `32cba89`** as production functions; both are
+proposed derivations over `canonicalCid` (`packages/core/src/canonical/encode.ts:138`). Stated so
+the table is not read as a citation.
+
+**What this means for the `providePolicy` seam §5.1 already left open.** §5.1 says taking `cids()`
+from a supplier *"leaves room for the H3 geographic-addressing spec to publish provider records for
+synthetic place-CIDs through this same path."* **The ruling widens that from one contributor to
+two**: `appIds` anchors flow through the identical seam, and so would a composite `app:X + cell`
+(§16.3). The seam is unchanged and this is the evidence it was the right shape.
+
+### 16.2 Decision 2 — records arrive with the peer
+
+**`providers(anchor)` then a local filter. No per-candidate `recordsFor` round trip.**
+
+The justification, quoted from the source rather than paraphrased —
+`packages/node/src/peer-verifier.ts:6-9`:
+
+> *"it does so **offline by construction**: the trust anchors are an argument to
+> `verifyCertificate`, so there is nothing for the verification step to reach out to. **The only
+> network call this class makes is the `records` request that *fetches* the certificate; deciding
+> whether to believe it touches nothing.**"*
+
+and `packages/libp2p/src/relay-admission.ts:7`, on why the certificate is already in hand at the
+earliest possible moment: *"A node's lifecycle in this fabric begins at the relay reservation"* —
+with both advertisement surfaces derived from the reservation store **structurally**, *"with no
+filter to add and no `if` to forget."*
+
+**The signature is what matters; the channel never was.** Taking a record from the peer that signed
+it therefore removes a third party who would otherwise choose which peers you are permitted to
+evaluate — which is a *security* improvement and not merely a round-trip saving.
+
+**Consequences here, in descending size:** §5.2 is put in question (flagged there, decision at
+§12.4 item 5); §5.3's `recordsFor` leg becomes vestigial while its `providers` leg is untouched;
+§6.2's `recordsFor` first-non-empty policy keeps its reasoning and loses its subject matter. **The
+implementation is a `RecordIndex` whose `recordsFor` reads records peers have already presented** —
+the exact substitution `core/discovery.ts:344-350` describes — **not an edit to
+`discoverExecutors`**, which touches its index in only two places (`:492`, `:501`) and branches on
+nothing.
+
+### 16.3 Decision 3 — classes are filters, never anchors
+
+Stated in full at **§5.4**, with the arithmetic and the cross-reference to §6.2 that both sections
+need.
+
+### 16.4 Decision 4 — the caller names the anchor; truncation is named
+
+**No query planner.** The caller states the anchor. Building a planner is work the evidence does not
+support, and this spec's own §12.3 already keeps six things unmeasured rather than guessing at them.
+
+**`onTruncated: 'refuse' | 'report-partial'`.** If the anchor lookup returns *at* the cap, the result
+is a **SAMPLE, not a SET**, and this codebase names every exclusion rather than letting an unmeasured
+thing read as measured (`core/discovery.ts:25-30`). Neither value is a default; the caller states
+which failure it wants.
+
+**Note what it is not.** `onTruncated` is not a fix for truncation — nothing is, short of a different
+index — it is the difference between a capped answer that says so and one that does not. §5.4 is why
+it matters; §12.4 item 6 is the undecided part, namely where the flag lives given that
+`RecordIndex.providers` returns a bare array with nowhere to put it.
+
+### 16.5 Decision 5 — exact WASM features leave the discovery path
+
+`features` stays on the record and stops being a discovery filter; a node that cannot run a module
+**refuses at dispatch**. Little lands here directly — this spec never keyed a lookup on features —
+but one thing does: **it removes a candidate anchor before anybody proposed it.** A feature label is
+even less selective than a capability class, so §5.4's bound would have applied to it with more
+force.
+
+### 16.6 Decision 6 — the anchor is hashed for free
+
+Recorded at **§9.1**, in the traffic-analysis row it qualifies.
+
+### 16.7 Decision 7 — presented-record size bound
+
+Records riding the connection must fit the measured budget `CLAUDE.md` records: **WebRTC max message
+16 KiB, relayed connection total 128 KiB** — the latter being `constants.ts:25`'s 131 072 B, which
+§7.3 already tabulates as a relay constraint.
+
+**Where this bites in this spec:** §16.2 makes record presentation the normal path, so the budget
+that §7.3 discusses as a *bootstrap* constraint becomes a constraint on the *steady state* as well.
+A certificate plus a small record is fine. **Any capability field that can grow without bound is
+not**, and that is an argument against ever letting a set-valued field into the record — which is a
+second, transport-shaped reason for §16.1's decision to keep cells out of it.
+
+### 16.8 Decision 8 — capability classes are not self-punishing
+
+A false WASM feature claim fails the task and names the liar. **A node can claim `parallel-compute`
+and merely be bad at it** — it executes, returns a correct answer, and nothing records that the
+placement was poor. Classes therefore sit with H3 on the *not* self-punishing side, and the full
+argument is in the capability spec's §4.2.
+
+**Safe to self-sign anyway, for the reason this spec's §9.2 already relies on**: a record is only
+meaningful bound to a certificate a pinned provider signed, and VER-04's operator anti-affinity
+(`core/quorum.ts:176-179`, refusal at `:182-187` — unmoved by `32cba89`) already refuses the
+one-operator-many-VMs case. **§9.1's sybil row is unchanged**: free-to-mint node IDs remain
+free to mint, and a class claim adds nothing an attacker did not already have.
+
+### 16.9 Decision 9 — the DHT is existence discovery only
+
+Stated in full at **§5.5**.
+
+### 16.10 Decision 10 — a coarse cell in the signed record, deferred
+
+Recorded in the H3 spec §6.2, where the field it narrowly reopens was rejected. Nothing in this
+document changes if it is later built: a coarse cell would be a **filter**, not an anchor, and would
+therefore never touch a lookup key.
+
+### 16.11 What the ruling did NOT touch
+
+- **§9.1's non-claims in full.** No sybil resistance, no eclipse resistance, no censorship
+  detection. A capability model changes what is looked up, not who can lie about it.
+- **§12.1**, the gating `runOnLimitedConnection` question, and §4.5's promotion measurement. Both are
+  about the transport, and the ruling is about the keyspace.
+- **§4's configuration**, including the private protocol string and the explicit `clientMode` on
+  both tiers. F2's footgun is unaffected.
+- **§10's three test tiers**, except that T1's fixtures must now include a *capped* provider answer
+  if §16.4's `onTruncated` is to be proved rather than asserted. **That is a new red-first proof and
+  it belongs beside P2**: plant a lookup that returns exactly `cacheSize` results and assert the
+  caller can tell. Without it, §16.4 is a field nobody watched fail.

@@ -5,6 +5,34 @@
 **Every `file:line` below was read out of git objects at `c94bc7a`**, not out of a working tree, because
 two other agent worktrees are live on this repository and a working-tree read can catch a mid-edit file.
 
+> **AMENDED 2026-08-11, later the same day. Read this before the body.**
+>
+> The owner settled a capability model in conversation. **It ratifies this design's central choice
+> — location is not a record field — and corrects two things this document asserts.** §14 is the
+> ruling; §3.4, §3.5, §6.2, §8.3, §8.4 and §11 carry the corrections in place. Nothing is deleted:
+> superseded sentences are struck and dated where they stand.
+>
+> **Citation base.** Every `file:line` in §1–§13 was read at `c94bc7a` and is **left** there.
+> Commit `32cba89` (*"CapabilityRecord gets the extension seam the sibling record already had"*)
+> inserted ~260 lines into `packages/core/src/discovery.ts` and ~90 into
+> `packages/net/src/protocol.ts`, at **two** insertion sites in the former, so **every
+> `core/src/discovery.ts` line number in this document is stale at `HEAD`** — e.g.
+> `SelfRecordIndex.providers`, cited throughout as `:511-519`, is `:767-776` at `32cba89`, and
+> `providers(query.inputCid)`, cited as `:247`, is `:492`. No mechanical correction is possible, so
+> none is attempted; **text added on 2026-08-11 cites `32cba89` and says so.** Citations into
+> `quorum.ts`, `ports.ts`, `blockstore/memory.ts`, `canonical/encode.ts`, `net/src/discovery.ts`,
+> `net/src/agent.ts`, `net/src/rendezvous.ts` and `REQUIREMENTS.md` are unaffected and still
+> resolve.
+>
+> **The two node factories moved a little and it is worth the three lines to say how**, because
+> §8.1's composition rule cites both. `browser-node.ts` gained 3 lines inside `ownRecords`, all
+> *after* the fields this document cites, so **`:474` is unchanged** and everything at or below
+> ~620 is unchanged, while citations above that shift by 3 (`:1102`→`:1105`, `:1229`→`:1232`).
+> `fabric-node.ts` gained 7 lines after old
+> `:1157` and 3 more after old `:1188`, so **`:136` is unchanged** and any citation above 1157
+> shifts (`:1181`→`:1188`, `:1182`→`:1189`, `:1183-1184`→`:1190-1191`, `:1703`→`:1713`). All
+> verified by reading at `32cba89`.
+
 ---
 
 ## 1. Problem
@@ -183,6 +211,24 @@ against those numbers:
 - That is **5 blocks** for a fixed node (res 5,6,7,8,9), ~200 bytes total. The cost is irrelevant; this
   is not a number worth optimizing.
 
+> **Added 2026-08-11 (owner ruling, §14 decision 7) — a second, independent argument for a floor,
+> and it is not about storage at all.** The paragraph above prices the floor in *bytes in a local
+> blockstore*, correctly concludes the cost is irrelevant, and therefore leaves the floor resting
+> on one argument only: *"coarser than this and a vicinity answer spans a country."*
+>
+> **There is a harder bound, and it binds anything cell-shaped that ever rides a connection.** A
+> record presented to a peer travels over the measured transport budget `CLAUDE.md` records:
+> **WebRTC's maximum message is 16 KiB** (hardcoded in js-libp2p), and **a relayed connection's
+> total is 128 KiB** before it is cut. A certificate plus a small record fits comfortably. **A node
+> enumerating hundreds of cells does not.**
+>
+> This design keeps cells *out* of the record (§4, ratified by §14 decision 1), so the bound does
+> not bite today — which is exactly why it must be written down now rather than discovered later.
+> It bites the moment anybody proposes putting a cell list back in, including §14 decision 10's
+> deferred coarse-cell pre-filter, whose whole viability rests on it being **one** cell rather than
+> a set. **The floor resolution is therefore load-bearing for two independent reasons**, and a
+> future argument that retires the vicinity-semantics one does not retire this one.
+
 **How a query expresses a radius.** It does not, exactly — and this is the honest limit of the design:
 
 > **Exact match on a coarse ancestor gives *vicinity*, not a range query.** There is no
@@ -222,6 +268,33 @@ takes an `ExecutorQuery`; the place CID goes in `inputCid`; the returned `Candid
 
 The geographic layer is therefore **purely a CID-derivation library plus a thin query helper**. It adds
 no adapter, no wire type, and no index method.
+
+> **Corrected 2026-08-11 (§14 decision 2) — the pipeline is `providers(anchor)` then a LOCAL
+> filter, and the claim above is true of the API while being wrong about the round trips.**
+>
+> §3.1 calls it "the elegant consequence" that a geographic query is *"an ordinary
+> `discoverExecutors` / `discoverCandidates` call"* and that *"the entire downstream pipeline …
+> applies unchanged."* **That is right about the shape and wrong about the cost, and the wrongness
+> is readable in the loop it points at.** `discoverExecutors` builds its provider set once
+> (`packages/core/src/discovery.ts:492` at `32cba89`) and then calls
+> `index.recordsFor(nodeKey)` **once per provider, inside the loop** (`:501`). Over a vicinity
+> query that returns a hundred nodes in a cell, "unchanged" means a hundred record fetches.
+>
+> **The ruling removes the round trips, not the pipeline: records arrive WITH the peer.** A peer
+> presents the record it signed on the connection already open to it; discovery filters locally on
+> what it was handed. The justification is that the signature was always the thing that mattered
+> and the channel never was — `packages/node/src/peer-verifier.ts:6-9` states it about the sibling
+> document: verification is *"offline by construction … The only network call this class makes is
+> the `records` request that **fetches** the certificate; deciding whether to believe it touches
+> nothing."*
+>
+> **What this costs THIS design: nothing in the API, one substitution underneath it.** §3.5's claim
+> that no new function is required in `@o2/net` survives, because the change is a `RecordIndex`
+> whose `recordsFor` reads records peers have already presented — the exact substitution the port
+> was built for (`discovery.ts:344-350`: *"what lets a single implementation be swapped for a DHT,
+> a delegated HTTP router, or an in-memory fixture without the discovery logic noticing"*).
+> **§8.4's index-agnosticism claim is what makes this free, and this is its first real test.**
+> Whoever implements it must not conclude `discoverExecutors` needs editing; it does not.
 
 ---
 
@@ -488,6 +561,25 @@ that owner ruling D1 rejected, for the three reasons recorded at `discovery.ts:4
 Worth keeping on the shelf for one thing only: a future *"show me this node's coverage"* diagnostic. That
 is not a use case here.
 
+> **Ratified and narrowly reopened, 2026-08-11 (§14 decisions 1 and 10).**
+>
+> **Ratified:** the owner's ruling puts H3 location outside the signed record for this section's
+> own reason, stated in the ruling's own words — *a signed record has a validity window; a vehicle
+> invalidates it in minutes.* The three-dimensional model (§14.1) lists `appIds` and the capability
+> class **in** the record and location **out** of it, splitting on churn. So §6.2's rejection is
+> now an owner decision rather than this spec's recommendation.
+>
+> **Reopened, narrowly, and explicitly parked:** a **single coarse cell** (res ~5, ~250 km) in the
+> signed record as a cheap pre-filter. It escapes the staleness objection this section raises,
+> because a driver does not leave a metropolitan-region cell in a shift, and it would save a lookup
+> on *"roughly near me"*. **It is deferred under YAGNI until something measures the need** — and it
+> is recorded here so a later reader meets it as *parked*, not as new. Two conditions it must
+> satisfy if it is ever built: it is **one cell, not a set** (§3.4's transport-budget note), and it
+> rides inside `extensions` rather than as a new top-level key, which is now enforced by the parser
+> rather than merely advised (`packages/net/src/protocol.ts:749-757` at `32cba89`, applied at
+> `:771`). It would be the **first** use of the extension seam landed in `32cba89`, which makes it
+> the natural test of whether that seam works as designed.
+
 ### 6.3 A dedicated geographic DHT keyspace — DEFERRED, not rejected
 
 Out of scope by instruction; a separate spec covers the DHT. Recorded here only so the boundary is
@@ -636,6 +728,20 @@ and that discovery today runs over the relay's reservation store
 | 2 | **AirBnB (London from SF)** | **No.** The requestor is connected to no peer that holds the London cell block. Needs a global index. |
 | 5 | **K random cells worldwide** | **No**, for the same reason — by definition it reaches cells with no local peer. |
 
+> **Added 2026-08-11 (§14 decision 9) — what "needs a global index" now means, and it is less than
+> this table implies.** The owner ruled that **the DHT is EXISTENCE DISCOVERY only**: it tells you a
+> peer *exists*; the *facts* come from the peer. Applied here, the two "No" rows do not need the DHT
+> to hold a geographic *answer* — they need it to hold *"this peer exists and provides this cell
+> CID"*, after which the peer itself is the authority on whether it still answers for that cell,
+> live, at ask time.
+>
+> **That is §3.3's `withhold`-at-ask-time property surviving the transition to a global index, and
+> it is the strongest thing this design gets from the ruling.** §8.2's warning that mobility is
+> *"emphatically not free under a DHT"* is unchanged and still correct — a provider record still
+> costs a publish and cannot be retracted for up to 48 h. What changes is the **consequence** of
+> that staleness: a stale provider record now costs one wasted dial, because the peer's live answer
+> overrides it. See the DHT spec §5.5.
+
 ### 8.4 Index-agnosticism — the load-bearing property
 
 **This design is expressed entirely in `providers(cid)`.** It calls exactly one method of one port
@@ -656,6 +762,18 @@ Two things worth noting for whoever writes the DHT spec:
 2. `FallbackRecordIndex.providers` returns the **first non-empty** answer, not a union — so a local
    source that answers with one nearby node would **shadow** a DHT holding fifty. For geographic queries
    that is probably the wrong policy, and it is the DHT spec's problem, not this one's. Flagged as Q4.
+
+   > **Answered 2026-08-11 — the DHT spec took it, agreed, and made it that spec's one architectural
+   > correction.** `2026-08-11-dht-record-index-design.md` §6.2 rules that
+   > `FallbackRecordIndex.providers` must **UNION** rather than return first-non-empty, on the
+   > ground that *"the DHT source and the RPC source are two views of the same provider set"* — and
+   > it reaches that conclusion by the argument `RpcRecordIndex` already won for itself at
+   > `packages/net/src/discovery.ts:38-53`. **So Q4 closes, and it closes in the direction this note
+   > guessed.** `recordsFor` stays first-non-empty, and that asymmetry is deliberate. Whoever
+   > implements the geographic query path should read that section before assuming the shadowing
+   > is fixed, because **a truncated union is a distinct failure from a shadowed one** and §14
+   > decision 3 is about the second — see the DHT spec §5.4, which cross-references §6.2 for
+   > exactly this reason.
 
 **Out of scope:** the DHT itself. Not designed here.
 
@@ -887,11 +1005,24 @@ certificates (`quorum.ts:176-179`, `:249`), never from the cells.
   measurement exists.** Default `false` proposed so the cost is opt-in.
 - **Q3 — the res-7 moving-node ceiling (§8.2) is a guess.** It should be set by measuring crossing rate
   against query rate, and is currently asserted by nobody.
-- **Q4 — `FallbackRecordIndex` first-non-empty shadows a DHT** for geographic queries (§8.4 note 2).
-  Belongs to the DHT spec; recorded here because this design surfaced it.
+- ~~**Q4 — `FallbackRecordIndex` first-non-empty shadows a DHT** for geographic queries (§8.4 note 2).
+  Belongs to the DHT spec; recorded here because this design surfaced it.~~
+  **CLOSED 2026-08-11.** The DHT spec §6.2 rules `providers` must union. Detail and the caveat at
+  §8.4 note 2 above.
 - **Q5 — cell CID enumerability.** Cell CIDs are computable by anyone, so anyone can enumerate a region
   and ask who is in it. That is inherent to "a place is content" and probably acceptable, but it has not
   been thought through against an adversary mapping a city.
+
+  > **Still open, and sharpened 2026-08-11 by a decision that does NOT apply here (§14 decision 6).**
+  > The owner ruled that an **app-id** anchor is hashed for free — `cidOf(appId)` makes the lookup key
+  > opaque to anyone who does not already know the app id, which softens the traffic-analysis
+  > exposure the DHT spec §9.1 records. **That argument does not transfer to cells, and the
+  > difference must not be averaged away.** An app id is drawn from an unbounded space an observer
+  > may not know; **a cell is drawn from a small, fully enumerable one** — `c(r) = 2 + 120·7^r`
+  > (§9.6), and a city is a few thousand cells at res 9. Pre-computing every cell CID on Earth at the
+  > advertised resolutions is a fixed, one-time, entirely feasible cost. **So hashing buys the H3
+  > anchor nothing, and Q5 is exactly as open as it was** — with the added knowledge that the
+  > protection available to the other anchor kind is unavailable to this one.
 - **Q6 — no production caller.** `discoverExecutors` had no caller outside tests from Phase 6 until
   `discoverCandidates` (`discover-candidates.ts:6-12`), and `FallbackRecordIndex`/`MemoryRecordIndex`
   still have none (`discovery.ts:325`). This design must name its **entry point** before it can be
@@ -978,3 +1109,105 @@ All at `c94bc7a`.
 | v4 signatures and `types.d.ts` line numbers | `package/dist/types.d.ts`, `package/README.md` |
 | Resolution table; spherical model; res 7–15 edges extrapolated; ~2× cell variance | `h3geo.org/docs/core-library/restable` and `uber/h3@master:website/docs/library/restable.md` (two agreeing sources) |
 | `h3-node` Node-only/stale; no pure-TS H3 port exists | `npm view h3-node`; `npm search "h3 hexagon geospatial"` |
+
+---
+
+## 14. Settled 2026-08-11 — the owner's capability ruling, as it lands on this design
+
+*Recorded, not re-argued. The full ruling is in
+`docs/superpowers/specs/2026-08-11-capability-registration-design.md` §9; the DHT-side consequences
+are in `docs/superpowers/specs/2026-08-11-dht-record-index-design.md` §5.4–§5.5. Only what bears on
+geography is restated here. Citations added in this section were read at `32cba89`.*
+
+### 14.1 Decision 1 — three dimensions, and location is deliberately not one of the record's
+
+| Dimension | Where it lives | Why | Usable as an anchor? |
+|---|---|---|---|
+| `appIds` | signed `CapabilityRecord` | stable | **YES** — `cidOf(appId)` |
+| Capability class (`parallel-compute`, a closed union, one member today) | signed `CapabilityRecord` | stable | **NO** — §14.3 |
+| **H3 location** | **place blocks + the `withhold` hook, answered at ask time** | **MOBILE** | **YES** — `cellCid(cell)` |
+
+**This ratifies §3.3 and §4 rather than changing them**, and the ruling's own words are this
+document's §6.2 argument arriving from the other direction: *a signed record has a validity window;
+a vehicle invalidates it in minutes.* The positive form the owner stated — **record = hint; the live
+answer is the peer's `has(cid)` plus `withhold` at ask time** — is owner ruling D1 verbatim
+(`packages/core/src/discovery.ts:689-697` at `32cba89`, computed at `:767-776`), which §3.3 already
+inherits and names.
+
+**One naming note so the table is not misread as a citation.** `cellCid` is specified in §5.1 of
+this document and does not yet exist; `cidOf` likewise does not exist in `packages/` at `32cba89`
+as a production function. Both are proposed derivations over `canonicalCid`
+(`packages/core/src/canonical/encode.ts:138`).
+
+### 14.2 Decision 2 — records arrive with the peer
+
+Recorded at §3.5, where the claim it corrects lives. The short form: **`providers(anchor)` then a
+local filter, with no per-candidate `recordsFor` round trip.**
+
+### 14.3 Decision 3 — a class is a filter, never an anchor; a composite anchor is fine
+
+`'parallel-compute'` must never start a lookup: intersecting two truncated Kademlia samples returns
+approximately nothing, and does so **silently**. The arithmetic is in the DHT spec §5.4.
+
+**What this section cares about: a class may appear inside a COMPOSITE anchor — `app:X + cell` —
+and a composite is selective again.** That is a direct extension of §3.2's derivation and it comes
+with a warning this design must own. §3.2 rules that a place CID is the canonical DAG-CBOR of
+`{ o2Place: 1, cell }` and that **`o2Place` is a format version, so any change to the encoded shape
+produces a different cell CID and therefore a different index** (§4, `PlaceRecord`). A composite
+anchor is therefore **not** a place record with an extra key — that would silently repartition the
+geographic index. It is a **distinct record kind with its own reserved key and its own version**,
+and it must be specified as one when somebody builds it. Nothing in §5.1 covers it today.
+
+**And a composite anchor is a second block per cell per app**, which multiplies §3.4's block count
+by the number of apps a node serves. §3.4 correctly calls 5 blocks *"not a number worth
+optimizing"*; `5 × |appIds|` may be. Unmeasured, and flagged rather than assumed away.
+
+### 14.4 Decision 4 — the caller names the anchor, and truncation is named
+
+**No query planner.** `resolvePlaceQuery` / `nodesNear` (§5.3) already have this shape — the caller
+supplies the cells — so nothing changes here except that it is now a ruling rather than a
+convenience.
+
+**What DOES change: `nodesNear` and `oneNodePerCell` must carry
+`onTruncated: 'refuse' | 'report-partial'`.** If an anchor lookup returns *at* the cap, the answer
+is a **SAMPLE, not a SET**. This matters more for a vicinity query than for anything else in the
+system, because a dense cell is the normal case, not the pathological one: §3.4's own quantization
+note already accepts that a query returns *"nodes in the same cell at that resolution"* with no
+radius semantics, and a silently-capped answer would make that a lie about coverage rather than
+merely a coarse one. §5.3's `ResolvedPlaceQuery` returns `resolution` and `effectiveRadiusMetres`
+for exactly this reason — *"a caller must not present either as a measured distance"* — and
+truncation is the same category of honesty.
+
+**Consequence for `oneNodePerCell` specifically (§5.3, use case 5).** Its docblock says *"fewer
+than `cells.length` entries is a normal result: a cell may have no live node."* Under this decision
+that sentence is **no longer sufficient**, because "no live node" and "the lookup was capped before
+it reached one" are now different answers and the API must distinguish them. **Test T7 must assert
+the distinction**, or the diversity-by-construction claim degrades quietly into
+diversity-by-whatever-the-cap-returned.
+
+### 14.5 Decision 7 — the transport budget bounds anything cell-shaped on a connection
+
+Recorded at §3.4.
+
+### 14.6 Decision 9 — the DHT is existence discovery only
+
+Recorded at §8.3, where the reach table it qualifies lives.
+
+### 14.7 Decision 10 — a coarse cell in the record, deferred
+
+Recorded at §6.2, where the rejected `places` field it narrowly reopens lives.
+
+### 14.8 What the ruling did NOT touch, said so nobody infers it did
+
+- **§7's trust model and non-claims are untouched.** Geographic spread still may never, on its own,
+  satisfy VER-03 or VER-04, and no attestation, receipt or strength reading may cite it. §14.3's
+  composite anchor does not change this: a class is *also* not admissible to a quorum rule, for the
+  same reason and by the capability spec's own §4.4.
+- **§7.4's sovereignty leak is untouched and remains Q1.** A place block is self-disclosure the
+  egress manifest does not cover. The ruling made location *more* central and did nothing to close
+  that question.
+- **§9's library findings are untouched.** `h3-js@4.5.0`, asm.js, 64 kB gzip, the resolution table
+  and its three caveats all stand.
+- **§12's phasing is untouched except that G3 grows the `onTruncated` field (§14.4) and G5's entry
+  point (Q6) is still the gating question it was.** The ruling names a model; it does not supply a
+  runnable surface that calls it.

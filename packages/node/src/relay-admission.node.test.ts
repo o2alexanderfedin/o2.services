@@ -1416,6 +1416,7 @@ describe('AUTH-02 — the relay consults RelayAdmission at the reservation, and 
         sovereignFor: [],
         issuedAt: certificate.issuedAt,
         expiresAt: certificate.expiresAt,
+        extensions: [],
       }),
     }
 

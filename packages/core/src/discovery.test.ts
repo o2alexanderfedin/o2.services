@@ -77,6 +77,7 @@ function node(
     sovereignFor: options.sovereignFor ?? [],
     issuedAt: NOW - 1000,
     expiresAt: NOW + YEAR,
+    extensions: [],
   })
 
   return {
@@ -150,6 +151,7 @@ describe('SCHED-01 — discovery is the intersection of three facts', () => {
       sovereignFor: [],
       issuedAt: NOW - 1000,
       expiresAt: NOW + YEAR,
+      extensions: [],
     })
 
     const index = new MemoryRecordIndex()
@@ -384,6 +386,7 @@ describe('capability records are worthless alone and that is the design', () => 
       sovereignFor: [],
       issuedAt: NOW - 1,
       expiresAt: NOW + YEAR,
+      extensions: [],
     })
     expect(record.nodeKey).toBe(key.pub)
     expect(verifyCapabilityRecord(record, NOW)).toBe(true)
@@ -396,6 +399,7 @@ describe('capability records are worthless alone and that is the design', () => 
       sovereignFor: [],
       issuedAt: NOW,
       expiresAt: NOW + 1000,
+      extensions: [],
     })
     expect(verifyCapabilityRecord(record, NOW - 1)).toBe(false)
     expect(verifyCapabilityRecord(record, NOW + 1000)).toBe(false)
@@ -412,6 +416,7 @@ describe('capability records are worthless alone and that is the design', () => 
       sovereignFor: [alice.pub],
       issuedAt: NOW - 1,
       expiresAt: NOW + YEAR,
+      extensions: [],
     })
     expect(verifyCapabilityRecord(record, NOW)).toBe(true)
 
@@ -433,6 +438,7 @@ describe('capability records are worthless alone and that is the design', () => 
       sovereignFor: [],
       issuedAt: NOW - 1,
       expiresAt: NOW + YEAR,
+      extensions: [],
     })
 
     const index = new MemoryRecordIndex()

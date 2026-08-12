@@ -61,10 +61,17 @@
  */
 
 import { CID } from 'multiformats/cid'
-import { CEREMONY_NONCE_BYTES, MAX_COMBINE_INPUTS, START_FAILURES, isStartBrowserLabel } from '@o2/core'
+import {
+  CEREMONY_NONCE_BYTES,
+  MAX_COMBINE_INPUTS,
+  START_FAILURES,
+  compareExtensionIds,
+  isStartBrowserLabel,
+} from '@o2/core'
 import type {
   AttestedResult,
   CanonicalValue,
+  CapabilityExtension,
   CapabilityRecord,
   CommitOutcome,
   Delegation,
@@ -668,8 +675,151 @@ function capabilitiesToValue(capabilities: CapabilityRecord): CanonicalValue {
     issuedAt: capabilities.issuedAt,
     expiresAt: capabilities.expiresAt,
     signature: capabilities.signature,
+    // Carried when present, omitted when absent — never `extensions: []`. `@o2/core`'s
+    // `capabilityPayload` spreads this field into the node's own signature by exactly the
+    // same conditional rule, and the two rules have to match: a wire encoding that added
+    // the key here, or dropped one, would produce a record that no longer verifies rather
+    // than one that quietly lost an extension. Same trap, same shape, same comment as
+    // `certificateToValue`'s `x509` a few hundred lines above.
+    ...(capabilities.extensions.length === 0
+      ? {}
+      : {
+          extensions: capabilities.extensions.map((one) => ({
+            id: one.id,
+            critical: one.critical,
+            value: one.value,
+          })),
+        }),
   }
 }
+
+/**
+ * The extension list off the wire — **every entry preserved, ids and all, in canonical
+ * order**.
+ *
+ * This is the whole of the forward-compatibility seam on the reading side, and the
+ * property that matters is the one that looks like doing nothing: an extension whose `id`
+ * means nothing to this build is reconstructed exactly as it arrived, so
+ * `capabilityPayload` recomputes the bytes the signer signed and the record **verifies**.
+ * A parser that kept only the extensions it recognised would keep exactly the ones it did
+ * not need to keep, and every record carrying a newer field would be reported
+ * `invalid-capability-record` — a claim about the signer, caused by the reader. That is
+ * the misattribution `parseCertificate` already refuses for the sibling record: *"a
+ * certificate stripped of a field its issuer signed no longer verifies and the reader
+ * would be told `bad-signature` about a frame this parser had damaged."*
+ *
+ * **Absent means none.** Every peer built before the seam existed sends no key at all, and
+ * a record with no extensions signs the payload it signed before the field existed, so the
+ * two agree byte for byte.
+ *
+ * **"Verbatim" is per entry, and the list order is normalised — that distinction is a
+ * fix, not a subtlety.** The signature does not depend on wire order: `capabilityPayload`
+ * sorts its own copy before it encodes, which is what lets a relay hand on a signed record
+ * it did not damage. The consequence is that `verifyCapabilityRecord() === true` says
+ * nothing whatever about the order of `record.extensions`, and `discovery.ts` published an
+ * exclusion documented *"ordered as the record orders them, which is by id, so the report
+ * is reproducible"* — true for records this process signed, false for every record that
+ * came off a wire, where the order is whoever-sent-it's. A relay that reorders a signed
+ * record's extensions still passes verification (correctly) and used to steer the ids in
+ * that report. So the parser sorts with {@link compareExtensionIds}, **the same function
+ * `capabilityPayload` sorts with**, and downstream code that hashes, CIDs, dedupes or
+ * structurally compares a parsed record gets one answer per record rather than one per
+ * sender. Nothing is discarded and nothing is rewritten: an entry is still exactly the
+ * `{ id, critical, value }` that arrived.
+ *
+ * **What is refused rather than tolerated, and why refusing is not the same mistake.** A
+ * wrong-typed `id` or `critical`, a missing `value`, a repeated `id`, a fourth key beside
+ * the three — each refuses the whole frame. None of them is a *later* build talking: the
+ * envelope is closed **because `value` is open**, so anything a later build needs to say
+ * goes inside `value` and never as a sibling of it. Dropping any of these would recreate,
+ * one level further down and much harder to find, the defect this seam removes.
+ *
+ * **Every one of those refusals is anonymous and costs the peer its certificate**, for the
+ * reason {@link CAPABILITY_KEYS} sets out in full: a `null` from here becomes a `null`
+ * frame, becomes an `undefined` from `recordsFor`, becomes a `no-records` exclusion naming
+ * neither this build nor the field it refused. Read that note before relaxing or adding a
+ * refusal here — the price is paid at a layer this function cannot see.
+ */
+function asExtensions(value: CanonicalValue | undefined): readonly CapabilityExtension[] | null {
+  if (value === undefined) return []
+  if (!Array.isArray(value)) return null
+  const extensions: CapabilityExtension[] = []
+  const seen = new Set<string>()
+  for (const entry of value) {
+    const record = asRecord(entry)
+    if (record === null) return null
+    const { id, critical } = record
+    if (typeof id !== 'string' || typeof critical !== 'boolean') return null
+    const carried = record['value']
+    // `undefined` is absent; `null` is a value a signer may legitimately have signed, and
+    // the two are different bytes under DAG-CBOR. Only the first is refused.
+    if (carried === undefined) return null
+    if (Object.keys(record).length !== 3) return null
+    if (seen.has(id)) return null
+    seen.add(id)
+    extensions.push({ id, critical, value: carried })
+  }
+  // Sorted after the duplicate check rather than before it, so a refusal names the
+  // condition the sender created and not one this function introduced by moving entries.
+  return extensions.sort((a, b) => compareExtensionIds(a.id, b.id))
+}
+
+/**
+ * The keys a capability record may carry on the wire.
+ *
+ * **A key outside this set refuses the frame rather than being dropped**, and the
+ * strictness is what makes the extension seam mean something: after this, the sanctioned
+ * way to add a field is an entry in `extensions`, which every build preserves, and a new
+ * top-level key would reintroduce exactly the silent drop this file was changed to remove.
+ *
+ * `parseCertificate` is deliberately *not* strict in the same way, and the asymmetry has a
+ * reason rather than being an oversight: `NodeCertificate` has no extension seam, so
+ * refusing unknown keys there would forbid extension outright instead of directing it.
+ *
+ * ## What the strictness costs, stated here rather than discovered downstream
+ *
+ * **The refusal is anonymous, and it takes the peer's certificate with it.** Every frame
+ * this set refuses — and every refusal in {@link asExtensions} — makes `parseCapabilities`
+ * return `null`, so `parseResponse` returns `null`, so `RpcRecordIndex.recordsFor` treats
+ * the answer as no answer and eventually returns `undefined`, and `discoverExecutors`
+ * excludes the peer as `no-records`. The reader's own limit arrives at an operator wearing
+ * the shape of an absent index, with nothing naming this build, and the certificate that
+ * would have identified the peer is discarded alongside the claims that were refused.
+ *
+ * That is uncomfortably close to the misattribution this whole change removes, and the
+ * honest reading is that the seam **moves** the class rather than eliminating it: below,
+ * an unknown extension is preserved and refused *by name*; here, an unknown top-level key
+ * is refused *without one*. The commit that introduced this seam claimed *"one condition,
+ * two parties, two honest attributions"* for the duplicate-id case, and that claim does
+ * not extend to this one — the parser's refusal names neither party.
+ *
+ * It is still the right trade, on two grounds that are measured rather than asserted.
+ * First, **detection beats silence**: dropping the key would leave the record unable to
+ * verify with no indication anywhere of why, which is the defect this file was changed to
+ * remove, one layer down and harder to find. Second, **nothing can trip it today**:
+ * {@link capabilitiesToValue} is the only producer in this repository and emits exactly
+ * these seven keys; a peer built before the seam emits six, which is a subset. The cost
+ * lands only on a peer that adds a top-level key instead of using `extensions` — which is
+ * precisely the mistake this set exists to make loud.
+ *
+ * **Naming it properly is a port change, not a parser change, and it was declined here.**
+ * `RecordIndex.recordsFor` returns `NodeRecords | undefined`; carrying a refusal out of it
+ * means widening a shared interface with four production implementations
+ * (`RpcRecordIndex`, `FallbackRecordIndex`, `MemoryRecordIndex`, `SelfRecordIndex`), its
+ * test doubles, and every caller's `=== undefined` check — for a condition no producer in
+ * the tree can currently reach. See
+ * `@o2/core`'s `ExclusionReason['no-records']` docblock, which states the same trade from
+ * the reader's end so that neither side can quietly stop being true on its own.
+ */
+const CAPABILITY_KEYS: ReadonlySet<string> = new Set([
+  'nodeKey',
+  'features',
+  'sovereignFor',
+  'issuedAt',
+  'expiresAt',
+  'extensions',
+  'signature',
+])
 
 function parseCapabilities(value: CanonicalValue | undefined): CapabilityRecord | null {
   const record = value === undefined ? null : asRecord(value)
@@ -680,9 +830,11 @@ function parseCapabilities(value: CanonicalValue | undefined): CapabilityRecord 
   const sovereignFor = asKeyList(record['sovereignFor'])
   const issuedAt = asFiniteNumber(record['issuedAt'])
   const expiresAt = asFiniteNumber(record['expiresAt'])
+  const extensions = asExtensions(record['extensions'])
   if (features === null || sovereignFor === null) return null
-  if (issuedAt === null || expiresAt === null) return null
-  return { nodeKey, features, sovereignFor, issuedAt, expiresAt, signature }
+  if (issuedAt === null || expiresAt === null || extensions === null) return null
+  if (Object.keys(record).some((key) => !CAPABILITY_KEYS.has(key))) return null
+  return { nodeKey, features, sovereignFor, issuedAt, expiresAt, extensions, signature }
 }
 
 /** A start result off the wire, or `null` if it is not one this build knows. */

@@ -132,6 +132,7 @@ async function fabricOf(options: { workers: number; maxConcurrent?: number }): P
       sovereignFor: [],
       issuedAt: NOW - 1000,
       expiresAt: NOW + YEAR,
+      extensions: [],
     })
     const records: NodeRecords = { certificate: enrolled.certificate, capabilities }
 

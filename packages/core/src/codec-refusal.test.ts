@@ -216,6 +216,7 @@ describe('a capability record that will not encode is not a record that failed t
       sovereignFor: [],
       issuedAt: NOW - 1_000,
       expiresAt: NOW + 1_000,
+      extensions: [],
     })
     const record = { ...signed, expiresAt: Number.POSITIVE_INFINITY }
 
@@ -232,6 +233,7 @@ describe('a capability record that will not encode is not a record that failed t
       sovereignFor: [],
       issuedAt: NOW - 1_000,
       expiresAt: NOW + 1_000,
+      extensions: [],
     })
 
     expect(verifyCapabilityRecord(record, NOW)).toBe(true)

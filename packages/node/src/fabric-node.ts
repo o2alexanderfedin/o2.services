@@ -1173,6 +1173,13 @@ async function resolveCertificate(parts: {
  * same result without depending on an operator having typed a hex string into
  * `--owner-id`. Only `canExecuteSovereign` is read from `sovereignty`.
  *
+ * **`extensions: []` is a statement rather than an omission, and the field is required so
+ * that it has to be one.** The seam exists so a later build can add a capability field
+ * without every older peer reporting the record as `invalid-capability-record`; this build
+ * publishes no extension, and says so. Adding one here is a **breaking change for every
+ * peer built before the seam existed** — it is the last such change, which is the whole
+ * argument for paying for the seam now, and it is not softened by leaving the field off.
+ *
  * **The record's validity window is the certificate's own.** That needs no new policy
  * number, and it makes a node whose certificate has expired stop advertising capabilities
  * at exactly the moment it stops being verifiable — the answer somebody would otherwise
@@ -1198,6 +1205,9 @@ function ownRecords(
               sovereignFor: canExecuteSovereign ? [certificate.userKey] : [],
               issuedAt: certificate.issuedAt,
               expiresAt: certificate.expiresAt,
+              // Stated, not omitted — see `fabric-node.ts`'s `ownRecords` doc. A record
+              // with none signs the payload it signed before the seam existed.
+              extensions: [],
             }),
           },
     withhold,

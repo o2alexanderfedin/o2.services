@@ -257,6 +257,8 @@ export type { CoverageReport, CoveredAggregate } from './coverage.ts'
 // stale; see its class doc for owner ruling D1 and for where the only correct
 // withholding predicate comes from.
 export {
+  DuplicateExtensionError,
+  compareExtensionIds,
   discoverExecutors,
   FallbackRecordIndex,
   MemoryRecordIndex,
@@ -265,6 +267,7 @@ export {
   verifyCapabilityRecord,
 } from './discovery.ts'
 export type {
+  CapabilityExtension,
   CapabilityRecord,
   DiscoveredExecutor,
   DiscoveryOptions,

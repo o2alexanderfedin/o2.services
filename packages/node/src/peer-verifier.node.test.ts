@@ -206,6 +206,7 @@ function recordsOf(certificate: NodeCertificate, subjectSeed: Uint8Array): NodeR
       sovereignFor: [],
       issuedAt: certificate.issuedAt,
       expiresAt: certificate.expiresAt,
+      extensions: [],
     }),
   }
 }
