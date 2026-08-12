@@ -32,7 +32,14 @@ export { RemoteExecutor } from './remote-executor.ts'
 // every exported function returning one to write the name out.
 export type { CapabilitySupplier } from './remote-executor.ts'
 
-export { NEVER_PAUSES, RpcBlockSource, declinedWhilePaused, pausedRefusal, serveAgent } from './agent.ts'
+export {
+  NEVER_PAUSES,
+  RpcBlockSource,
+  declinedWhilePaused,
+  pauseMisreported,
+  pausedRefusal,
+  serveAgent,
+} from './agent.ts'
 export type {
   AgentOptions,
   AuthorizedWork,

@@ -55,7 +55,7 @@ import { RpcEndpoint } from './rpc.ts'
 /** A fixed CID for literal `JobResult`s, where the content is irrelevant. */
 const FIXED_CID = CID.parse('bafyreihdwdcefgh4dqkjv67uzcmw7ojee6xedzdetojuzjevtenxquvyku')
 
-/** The seven sentinels every `AgentOptions` must write down. */
+/** The ten sentinels every `AgentOptions` must write down. */
 const SENTINELS = {
   egress: 'holds-no-registrations',
   authorize: 'serves-unauthenticated',

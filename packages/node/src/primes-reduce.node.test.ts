@@ -95,7 +95,7 @@ import { describe, expect, it } from 'vitest'
  * here would buy a boundary this file is not about.
  */
 
-/** The seven sentinels every `AgentOptions` must write down. */
+/** The ten sentinels every `AgentOptions` must write down. */
 const SENTINELS = {
   egress: 'holds-no-registrations',
   authorize: 'serves-unauthenticated',

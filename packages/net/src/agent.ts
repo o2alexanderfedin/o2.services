@@ -134,7 +134,29 @@ export interface Authorizer {
  */
 export type PauseState = (() => boolean) | 'never-pauses'
 
-/** The name of the never-pausing posture, as a value — the `ADMITS_ANY_PEER` idiom. */
+/**
+ * The name of the never-pausing posture, as a value.
+ *
+ * This is `@o2/libp2p`'s `ADMITS_ANY_PEER` idiom, and the idiom includes the half that
+ * reads at first glance like the idiom being ignored — so it is written out here rather
+ * than cited, because citing it invited exactly that reading in review on 2026-08-11.
+ * `relay-admission.ts` states both halves: the constant exists *"so a call site can be
+ * found by symbol rather than by grepping a string literal, and so the one place the text
+ * is written is this file"*, and then **"call sites still write the literal"**, because
+ * *"hoisting a sentinel into a constant takes the count that watches it to 1 and makes
+ * the floor unreadable"*.
+ *
+ * That is the whole reason `fabric-node.ts` and `browser-node.ts` write
+ * `paused: options.paused ?? 'never-pauses'` and not this symbol.
+ * `serve-agent-hooks.node.test.ts` counts the literal in each factory's source and pins
+ * it at 1, with a docblock saying why 1 rather than 0 is the permanent correct value
+ * there. Substituting the constant would take both counts to 0 and delete that floor,
+ * which is a guard traded for a symbol.
+ *
+ * **It has exactly one production caller**, the pause gate in `serveAgent` below —
+ * stated on the same terms `admitsAnyPeer` states its own single caller, so a second one
+ * appearing is something a reader can notice rather than something to rediscover.
+ */
 export const NEVER_PAUSES = 'never-pauses'
 
 /**
@@ -165,7 +187,28 @@ export const NEVER_PAUSES = 'never-pauses'
  */
 export type DeclinedWhilePaused = 'exec' | 'commit' | 'combine' | 'offer'
 
-/** Whether a paused node declines this request kind — see {@link DeclinedWhilePaused}. */
+/**
+ * Whether a paused node declines this request kind — see {@link DeclinedWhilePaused}.
+ *
+ * **A type predicate's body is not checked against its declared type, so nothing here is
+ * carried by `tsc`.** Reviewed 2026-08-11 and it was measured rather than asserted:
+ * deleting `|| kind === 'commit'` compiles and every spec in this repository stayed
+ * green, while a paused node would have run a full `WebAssembly.compile` +
+ * `instantiate` + `execute` for round 1 of a ceremony, filed a `PendingCommitments`
+ * entry and taken a real admission slot, all while answering "declining all work right
+ * now" to the offer beside it. Adding `|| kind === 'reveal'` likewise compiled and
+ * stayed green, and strands a ceremony this node already agreed to join — the exact
+ * failure {@link DeclinedWhilePaused}'s docblock claims the exclusion prevents.
+ *
+ * So every term of this expression is carried by a behavioural assertion in
+ * `paused.test.ts`, and all twelve were planted and watched red on 2026-08-11 —
+ * the four members with their term **removed** (`exec`, `commit`, `combine`, `offer`)
+ * and all eight exclusions with their term **added** (`reveal`, `enrol`,
+ * `enrol-challenge`, `block`, `providers`, `records`, `reservations`, `report`). Each
+ * plant was restored by the inverse of its own edit and the file compared byte-identical
+ * with `cmp` against a snapshot taken immediately before planting. The prose above was a
+ * claim until then; the file is what makes it a proof.
+ */
 export function declinedWhilePaused(kind: AgentRequest['kind']): kind is DeclinedWhilePaused {
   return kind === 'exec' || kind === 'commit' || kind === 'combine' || kind === 'offer'
 }
@@ -175,9 +218,18 @@ export function declinedWhilePaused(kind: AgentRequest['kind']): kind is Decline
  *
  * `paused: ` is wire vocabulary, on the same terms as `over-committed: `,
  * `egress refused: `, `unauthorized: ` and `unreachable: ` — one construction site,
- * asserted by text in `paused.test.ts` so it cannot drift, and deliberately **not**
- * the at-capacity string. A paused node is not full, and a fabric that reported it as
- * full would send a requestor back to hammer a node that said go away.
+ * and deliberately **not** the at-capacity string. A paused node is not full, and a
+ * fabric that reported it as full would send a requestor back to hammer a node that
+ * said go away.
+ *
+ * **How `paused.test.ts` holds that, precisely, because the looser sentence was here
+ * until 2026-08-11 and was not true.** It read *"asserted by text in `paused.test.ts`
+ * so it cannot drift"*, and the file asserted the *literal* string — which catches
+ * drift by duplication and says nothing about whether the wire carries what **this
+ * function** composes. Both halves are now measured, and they are different claims:
+ * one `it` pins the literal text, so the vocabulary cannot be renamed silently, and
+ * every other assertion compares the reply against `pausedRefusal(nodeId)`, so the
+ * string on the wire and the string composed here cannot diverge.
  *
  * It names the node, for the reason `refusedReason` names it: a refusal that travels
  * through `placeWithOffers` into a `Rejection` is the only record of who declined,
@@ -187,13 +239,69 @@ export function declinedWhilePaused(kind: AgentRequest['kind']): kind is Decline
  * already records that a requestor "cannot tell `malformed request` from
  * `over-committed: …` without reading the string", and nothing in this repository
  * branches control flow on a reason. So a requestor learns *which* node stepped out
- * and why, and still re-asks it for the next shard exactly as it would re-ask a busy
- * one. Making "do not retry soon" real needs a **typed** name on the offer frame and
- * a matching arm on `Admission`, which is a wire change and is deliberately not made
- * here — recorded so the gap is not mistaken for an oversight.
+ * and why, and re-asks it for the next shard.
+ *
+ * **And the cross-shard tally treats it *better* than a busy node, not the same.**
+ * This paragraph claimed "exactly as it would re-ask a busy one" until 2026-08-11;
+ * that was traced and it is false, in the direction that costs more. {@link
+ * pausedAnswer}'s `offer` arm publishes `{slots, inFlight}` **unchanged**, which is
+ * correct and is not the thing to change — reporting zero slots would be the
+ * misattribution this whole state exists to remove. `rpcAdmission`
+ * (`net/src/discovery.ts`) passes that figure through as `Admission.capacity`, and
+ * `planWithOffers` (`core/src/placement.ts`) records
+ * `headroom = slots - inFlight` — the **full** figure — then skips the decrement
+ * because `accepted` is false. The next shard's filter keeps every node whose
+ * headroom is above zero, so a paused node is never dropped. A busy node answers
+ * `inFlight === slots`, so its headroom is 0 and it is dropped for the remainder of
+ * the plan after one probe. The paused node's advertised `load` is 0 on top of that,
+ * so power-of-d-choices *prefers* it. On a 64-shard job that is 64 probes at a paused
+ * node, each bounded by `DEFAULT_PROBE_TIMEOUT_MS` (2 s), against one probe at a
+ * saturated one.
+ *
+ * Closing it is a wire change and is deliberately not made here: it needs a **typed**
+ * name on the offer frame, a matching arm on `Admission`, and a cross-shard filter
+ * that is something other than the headroom map — because the headroom map is reading
+ * a capacity figure that is, correctly, unchanged. Recorded at its true size so the
+ * gap is not mistaken for an oversight and not mistaken for parity with busy.
  */
 export function pausedRefusal(nodeId: string): string {
   return `paused: ${nodeId} is declining all work right now`
+}
+
+/**
+ * The reason a node whose pause control is **broken** gives — SCHED-03's third answer.
+ *
+ * {@link AgentOptions.paused} is `(() => boolean) | 'never-pauses'`, and the required
+ * named union at the *field* exists so that a host that forgot to wire a pause control
+ * cannot mean anything by silence. A thunk reintroduces the same hole one level in: a
+ * caller whose control answers with something that is not a boolean gets JavaScript
+ * truthiness, and `undefined` is falsy, so the node **never pauses, silently, with
+ * nothing to read** — which is precisely the *"an optional hook with a silent default
+ * is a hole"* failure the field spends four paragraphs closing.
+ *
+ * So a non-boolean is a named misconfiguration and never a `false`. The node neither
+ * pauses nor takes the work: it refuses *this* request and says which of its own hooks
+ * is broken, on the discipline this repository applies to every other refusal.
+ *
+ * **What can actually deliver one, stated exactly, because the obvious example does
+ * not.** `paused: () => { this.isPaused }` — a forgotten `return` — is `() => void`,
+ * and TypeScript **rejects** that assignment (`Type 'void' is not assignable to type
+ * 'boolean'`, measured 2026-08-11). A TypeScript call site cannot reach this branch by
+ * that route. What can is the deployment `PROJECT.md` names: this agent runs *embedded
+ * in a host application*, and `browser-node.ts` takes `options.paused` straight from
+ * whatever the host hands it. A plain-JS host, a value that came off `JSON.parse`, or
+ * anything that reached the boundary through `any` all arrive here unchecked. That is a
+ * narrower vector than the review that prompted this thought, and it is a real one on a
+ * declared target — recorded at its true size rather than at the size that motivated it.
+ *
+ * A distinct prefix rather than `paused: `, because it is a distinct fact: a paused node
+ * is working correctly and has stepped out, while this node cannot say whether it has.
+ * Collapsing the two would tell an operator their pause is in force when what is in
+ * force is a bug.
+ */
+export function pauseMisreported(nodeId: string, returned: unknown): string {
+  const described = returned === null ? 'null' : typeof returned
+  return `pause control broken: ${nodeId}'s pause control answered ${described} rather than true or false, so this node cannot say whether it is paused`
 }
 
 /**
@@ -212,9 +320,27 @@ export function pausedRefusal(nodeId: string): string {
  *   cannot tell a paused node from one that has shrunk to nothing. The figures are
  *   read straight off the public getters rather than through `would`, which would
  *   answer the capacity *question* this branch is not asking.
+ *
+ * `reason` is a parameter rather than composed here because there are two reasons that
+ * want these four shapes: {@link pausedRefusal} and {@link pauseMisreported}. One
+ * function with the reason handed in is what keeps "a paused node refuses in the shape
+ * the branch would have used" a property of the *shape* and not of one string.
+ *
+ * **The `offer` arm bypasses `LocalCapacity`'s one-reading discipline, knowingly.**
+ * `#capacity(slots)` is private and takes the slot count rather than reading it, so
+ * that — in its own words — *"one decision is built from one reading of a figure that
+ * may move"*: a `Governor` lowered between two reads would otherwise let one answer
+ * carry two numbers. Here `slots` and `inFlight` are two independent public reads, so a
+ * governor that moved between them would publish a pair that never held at any instant.
+ * It is harmless on every path in this repository today — `#dutyCycleNow()` is a
+ * property read with no `await` before it, and nothing between these two reads yields —
+ * and it is written down because this file writes down what it bypasses. The reason it
+ * is not routed through `would` is above: `would` answers the capacity *question*, and
+ * a paused node has already decided the answer on other grounds. Closing it properly
+ * would mean a public reader on `LocalCapacity` that returns the pair from one reading;
+ * that is a `@o2/core` change and is not made from here.
  */
-function pausedAnswer(kind: DeclinedWhilePaused, options: AgentOptions): AgentResponse {
-  const reason = pausedRefusal(options.executor.nodeId)
+function pausedAnswer(kind: DeclinedWhilePaused, options: AgentOptions, reason: string): AgentResponse {
   if (kind === 'combine') {
     // No attestation: this node did not run the combine, so it has nothing to make a
     // statement about — every refusal arm in `runCombine` reads the same way.
@@ -331,6 +457,14 @@ export interface AgentOptions {
    * and nothing to read. Making the omission something a call site has to write down
    * is what turns it into a decision. This is `.planning/PROJECT.md`'s **"An optional
    * hook with a silent default is a hole"** applied to a posture.
+   *
+   * And the thunk has to be held to the same standard the field is, or the hole simply
+   * moves one level in: a control that answers with something other than `true` or
+   * `false` would be read by truthiness, `undefined` is falsy, and the node would go on
+   * never pausing with nothing failing and nothing to read — the field's own failure,
+   * arriving through its own accessor. So a non-boolean answer is a **named refusal**
+   * and never a `false`. See {@link pauseMisreported} for why it is a string distinct
+   * from a pause, and for what can actually deliver one on a declared target.
    *
    * ## Where this must NOT go, and the symmetry that is the argument
    *
@@ -910,8 +1044,26 @@ export function serveAgent(options: AgentOptions): void {
     //
     // What it does **not** gate is as deliberate as what it does — see
     // {@link DeclinedWhilePaused}, where each exclusion carries its own reason.
-    if (options.paused !== NEVER_PAUSES && declinedWhilePaused(request.kind) && options.paused()) {
-      return encodeResponse(pausedAnswer(request.kind, options))
+    //
+    // **Three answers, not two**, and the third is why the thunk's result is bound to
+    // an `unknown` before it is read. A control that answers with something that is
+    // not a boolean would otherwise be a plain falsy value here and the node would
+    // never pause, silently — the hole {@link pauseMisreported} describes, arriving
+    // through the thunk after the required named union closed it at the field. The
+    // annotation is the whole mechanism: `options.paused()` is declared `boolean`, so
+    // without it `typeof stopped !== 'boolean'` narrows to `never` and the branch below
+    // is a check the type checker has already decided cannot fire. Widening to
+    // `unknown` costs nothing and needs no assertion.
+    if (options.paused !== NEVER_PAUSES && declinedWhilePaused(request.kind)) {
+      const stopped: unknown = options.paused()
+      if (typeof stopped !== 'boolean') {
+        return encodeResponse(
+          pausedAnswer(request.kind, options, pauseMisreported(executor.nodeId, stopped)),
+        )
+      }
+      if (stopped) {
+        return encodeResponse(pausedAnswer(request.kind, options, pausedRefusal(executor.nodeId)))
+      }
     }
 
     let response: AgentResponse
