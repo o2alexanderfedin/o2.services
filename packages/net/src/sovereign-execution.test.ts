@@ -155,6 +155,7 @@ async function ownerFabric(options: { module: Uint8Array<ArrayBuffer>; ownerNode
       sovereignFor: [aliceUserKey],
       issuedAt: NOW - 1000,
       expiresAt: NOW + YEAR,
+      extensions: [],
     })
     const records: NodeRecords = { certificate, capabilities }
 
@@ -238,6 +239,7 @@ async function ownerFabric(options: { module: Uint8Array<ArrayBuffer>; ownerNode
       sovereignFor: [],
       issuedAt: NOW - 1000,
       expiresAt: NOW + YEAR,
+      extensions: [],
     }),
   })
   certificates.push(bobCertificate)

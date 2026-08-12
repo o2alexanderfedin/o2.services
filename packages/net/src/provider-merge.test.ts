@@ -129,6 +129,7 @@ async function fabricOf(options: {
         sovereignFor: [],
         issuedAt: NOW - 1000,
         expiresAt: NOW + YEAR,
+        extensions: [],
       }),
     }
 
@@ -287,6 +288,7 @@ describe('SCHED-01 — providers unions across peers, because each answers only 
         sovereignFor: [],
         issuedAt: NOW - 1000,
         expiresAt: NOW + YEAR,
+        extensions: [],
       }),
     }
 
@@ -382,6 +384,7 @@ describe('SCHED-01 — providers unions across peers, because each answers only 
             sovereignFor: [],
             issuedAt: NOW - 1000,
             expiresAt: NOW + YEAR,
+            extensions: [],
           }),
         },
         withhold: 'advertises-everything-it-holds',
@@ -507,6 +510,7 @@ describe('DATA-05 — a provider answer is not a side channel around an egress r
         sovereignFor: [],
         issuedAt: NOW - 1000,
         expiresAt: NOW + YEAR,
+        extensions: [],
       }),
     }
 

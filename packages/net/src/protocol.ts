@@ -65,6 +65,7 @@ import { CEREMONY_NONCE_BYTES, MAX_COMBINE_INPUTS, START_FAILURES, isStartBrowse
 import type {
   AttestedResult,
   CanonicalValue,
+  CapabilityExtension,
   CapabilityRecord,
   CommitOutcome,
   Delegation,
@@ -668,8 +669,92 @@ function capabilitiesToValue(capabilities: CapabilityRecord): CanonicalValue {
     issuedAt: capabilities.issuedAt,
     expiresAt: capabilities.expiresAt,
     signature: capabilities.signature,
+    // Carried when present, omitted when absent — never `extensions: []`. `@o2/core`'s
+    // `capabilityPayload` spreads this field into the node's own signature by exactly the
+    // same conditional rule, and the two rules have to match: a wire encoding that added
+    // the key here, or dropped one, would produce a record that no longer verifies rather
+    // than one that quietly lost an extension. Same trap, same shape, same comment as
+    // `certificateToValue`'s `x509` a few hundred lines above.
+    ...(capabilities.extensions.length === 0
+      ? {}
+      : {
+          extensions: capabilities.extensions.map((one) => ({
+            id: one.id,
+            critical: one.critical,
+            value: one.value,
+          })),
+        }),
   }
 }
+
+/**
+ * The extension list off the wire — **preserved verbatim, ids and all**.
+ *
+ * This is the whole of the forward-compatibility seam on the reading side, and the
+ * property that matters is the one that looks like doing nothing: an extension whose `id`
+ * means nothing to this build is reconstructed exactly as it arrived, so
+ * `capabilityPayload` recomputes the bytes the signer signed and the record **verifies**.
+ * A parser that kept only the extensions it recognised would keep exactly the ones it did
+ * not need to keep, and every record carrying a newer field would be reported
+ * `invalid-capability-record` — a claim about the signer, caused by the reader. That is
+ * the misattribution `parseCertificate` already refuses for the sibling record: *"a
+ * certificate stripped of a field its issuer signed no longer verifies and the reader
+ * would be told `bad-signature` about a frame this parser had damaged."*
+ *
+ * **Absent means none.** Every peer built before the seam existed sends no key at all, and
+ * a record with no extensions signs the payload it signed before the field existed, so the
+ * two agree byte for byte.
+ *
+ * **What is refused rather than tolerated, and why refusing is not the same mistake.** A
+ * wrong-typed `id` or `critical`, a missing `value`, a repeated `id`, a fourth key beside
+ * the three — each refuses the whole frame. None of them is a *later* build talking: the
+ * envelope is closed **because `value` is open**, so anything a later build needs to say
+ * goes inside `value` and never as a sibling of it. Dropping any of these would recreate,
+ * one level further down and much harder to find, the defect this seam removes.
+ */
+function asExtensions(value: CanonicalValue | undefined): readonly CapabilityExtension[] | null {
+  if (value === undefined) return []
+  if (!Array.isArray(value)) return null
+  const extensions: CapabilityExtension[] = []
+  const seen = new Set<string>()
+  for (const entry of value) {
+    const record = asRecord(entry)
+    if (record === null) return null
+    const { id, critical } = record
+    if (typeof id !== 'string' || typeof critical !== 'boolean') return null
+    const carried = record['value']
+    // `undefined` is absent; `null` is a value a signer may legitimately have signed, and
+    // the two are different bytes under DAG-CBOR. Only the first is refused.
+    if (carried === undefined) return null
+    if (Object.keys(record).length !== 3) return null
+    if (seen.has(id)) return null
+    seen.add(id)
+    extensions.push({ id, critical, value: carried })
+  }
+  return extensions
+}
+
+/**
+ * The keys a capability record may carry on the wire.
+ *
+ * **A key outside this set refuses the frame rather than being dropped**, and the
+ * strictness is what makes the extension seam mean something: after this, the sanctioned
+ * way to add a field is an entry in `extensions`, which every build preserves, and a new
+ * top-level key would reintroduce exactly the silent drop this file was changed to remove.
+ *
+ * `parseCertificate` is deliberately *not* strict in the same way, and the asymmetry has a
+ * reason rather than being an oversight: `NodeCertificate` has no extension seam, so
+ * refusing unknown keys there would forbid extension outright instead of directing it.
+ */
+const CAPABILITY_KEYS: ReadonlySet<string> = new Set([
+  'nodeKey',
+  'features',
+  'sovereignFor',
+  'issuedAt',
+  'expiresAt',
+  'extensions',
+  'signature',
+])
 
 function parseCapabilities(value: CanonicalValue | undefined): CapabilityRecord | null {
   const record = value === undefined ? null : asRecord(value)
@@ -680,9 +765,11 @@ function parseCapabilities(value: CanonicalValue | undefined): CapabilityRecord 
   const sovereignFor = asKeyList(record['sovereignFor'])
   const issuedAt = asFiniteNumber(record['issuedAt'])
   const expiresAt = asFiniteNumber(record['expiresAt'])
+  const extensions = asExtensions(record['extensions'])
   if (features === null || sovereignFor === null) return null
-  if (issuedAt === null || expiresAt === null) return null
-  return { nodeKey, features, sovereignFor, issuedAt, expiresAt, signature }
+  if (issuedAt === null || expiresAt === null || extensions === null) return null
+  if (Object.keys(record).some((key) => !CAPABILITY_KEYS.has(key))) return null
+  return { nodeKey, features, sovereignFor, issuedAt, expiresAt, extensions, signature }
 }
 
 /** A start result off the wire, or `null` if it is not one this build knows. */

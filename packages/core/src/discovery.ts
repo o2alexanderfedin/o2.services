@@ -29,6 +29,41 @@
  * candidate list with no idea whether the network is down, its clock is wrong, or the
  * module needs a feature nobody has.
  *
+ * ## The capability record has an extension seam, and why it had to grow one
+ *
+ * `capabilityPayload` signed five named fields and `@o2/net`'s parser rebuilt six,
+ * **dropping every key it had never heard of.** So the first node to sign a record
+ * carrying a new field would have been reported `invalid-capability-record` by every older
+ * peer: the reader's own parser removed a field the signer had signed, the payload no
+ * longer recomputed, and the signature no longer checked. The reader would then blame the
+ * signer for a frame the reader had damaged. `protocol.ts` had already ruled that class of
+ * misattribution out for the **sibling** record, in its own words about the certificate's
+ * optional X.509 field — *"a certificate stripped of a field its issuer signed no longer
+ * verifies and the reader would be told `bad-signature` about a frame this parser had
+ * damaged"* — and `NodeCertificate` got the fix while `CapabilityRecord` did not.
+ *
+ * **The certificate's fix would not have been enough here, and the difference is the whole
+ * design.** A known-optional field buys BACKWARD compatibility: a signer that omits it
+ * produces bytes an older reader still parses. It buys no FORWARD compatibility at all —
+ * an older reader meeting a field it has never heard of still drops it. X.509 was a
+ * lockstep change, and the conditional spread protected already-issued certificates rather
+ * than older readers.
+ *
+ * So the seam is {@link CapabilityExtension}: `{ id, critical, value }`, covered by the
+ * signature, ordered by id, duplicates refused, and **preserved verbatim by the parser
+ * including ids this build has never heard of**. Unknown and non-critical is verified and
+ * ignored; unknown and critical is refused as `critical-extension-not-understood`, an
+ * exclusion whose text names *this build* rather than the peer.
+ *
+ * **What it costs, stated rather than left to be discovered.** Adding the field is itself a
+ * breaking change for peers built before it existed, and no design removes that. Two things
+ * are true alongside it. It is the **last** one — after this, a capability field rides
+ * inside `extensions` and an older reader verifies the record and either ignores the field
+ * or refuses by name. And the blast radius is narrowed to records that actually carry an
+ * extension: `extensions: []` is spread conditionally, so a record with none produces the
+ * byte-identical payload it produced before the field existed, and a node upgrading to this
+ * build does not become unreadable to its older neighbours merely by restarting.
+ *
  * ## Who answers the query — NET-06
  *
  * **All nodes have equal functionality**, so any node can serve records. What varies
@@ -54,6 +89,70 @@ import type { PublicKeyHex } from './capability.ts'
 import { verifyCertificate } from './enrollment.ts'
 import type { CertificateFailure, NodeCertificate } from './enrollment.ts'
 import type { Blockstore } from './ports.ts'
+
+/**
+ * One statement a later build put into a capability record, carried by every build.
+ *
+ * ## Why this shape and not "carry unknown top-level keys through"
+ *
+ * X.509's own answer, which this repository already has a profile for. The alternative —
+ * a parser that preserves whatever keys it does not recognise — buys the same forward
+ * compatibility and gives up two things that are worth more than the saving. It has no
+ * place to say *"a reader that cannot honour this must refuse"*, so a security-relevant
+ * field would be ignored by exactly the peers that could not enforce it; and it makes the
+ * record's own shape unbounded, so no reader can say what it is holding.
+ *
+ * ## `critical` is the whole mechanism, and it is inside the signature
+ *
+ * `false` means *ignore me if you do not know me*: an older reader verifies the record,
+ * preserves the extension, and proceeds. `true` means *refuse rather than proceed without
+ * me* — a node that says "I execute only under this policy" must not be dispatched to by a
+ * peer that cannot read the policy. Both flags are covered by the node's signature, so a
+ * peer cannot downgrade somebody else's `true` to a `false` to get past a refusal.
+ *
+ * ## `value` is open so that this envelope can stay closed
+ *
+ * Anything a later build needs to say goes **inside** `value`, never as a fourth key
+ * beside it. `CanonicalValue` already admits every shape DAG-CBOR can carry, and the
+ * codec's canonical map ordering makes it deterministic without further rules. That is why
+ * `@o2/net`'s parser refuses an extension carrying a fourth key rather than dropping it:
+ * dropping would recreate, one level further down, the exact defect this seam removes.
+ */
+export interface CapabilityExtension {
+  /**
+   * What this extension is, globally. Not interpreted here beyond ordering and
+   * uniqueness — this module never knows what any id means.
+   */
+  readonly id: string
+  /** Whether a reader that does not understand `id` must refuse the node. */
+  readonly critical: boolean
+  readonly value: CanonicalValue
+}
+
+/**
+ * A capability record naming one extension id twice, refused at signing time.
+ *
+ * **Thrown rather than returned, and the distinction is the same one
+ * {@link NotEncodableError} exists to protect.** A verdict from
+ * {@link verifyCapabilityRecord} is a statement about a *peer's* record. Two extensions
+ * under one id in a record this node is about to sign is a statement about *this build* —
+ * nobody sent it, and no peer can fix it. Putting it in the verdict channel would be the
+ * same conflation that once made an encoder defect read on the wire as a peer forging a
+ * signature.
+ *
+ * Off the wire the same condition is not a defect in this build but a malformed record
+ * from a peer, so it is reported as `false` by `verifyCapabilityRecord` and refused
+ * outright by `@o2/net`'s parser. One condition, two honest attributions.
+ */
+export class DuplicateExtensionError extends Error {
+  /** The id that appeared more than once. */
+  readonly id: string
+  constructor(id: string) {
+    super(`capability record names extension ${id} more than once`)
+    this.name = 'DuplicateExtensionError'
+    this.id = id
+  }
+}
 
 /**
  * A node's own signed statement of what it can execute.
@@ -82,20 +181,84 @@ export interface CapabilityRecord {
   readonly sovereignFor: readonly PublicKeyHex[]
   readonly issuedAt: number
   readonly expiresAt: number
+  /**
+   * Everything this record says that this build may not have a name for — the forward
+   * compatibility seam. See {@link CapabilityExtension}.
+   *
+   * **Required, not optional, and the churn that costs is the point.** Every signer in
+   * this repository states its extensions explicitly, including the ones that state none,
+   * so "I forgot" and "I have none" are not the same expression. The absence of the seam
+   * is what made the first record carrying a new field read as
+   * `invalid-capability-record` on every older peer; an optional field would leave the
+   * same silence available at every call site.
+   */
+  readonly extensions: readonly CapabilityExtension[]
   readonly signature: string
 }
 
-function capabilityPayload(record: Omit<CapabilityRecord, 'signature'>): Uint8Array<ArrayBuffer> {
+type OrderedExtensions =
+  | { readonly ok: true; readonly ordered: readonly CapabilityExtension[] }
+  | { readonly ok: false; readonly duplicate: string }
+
+/**
+ * Sort extensions by id and refuse a repeated one.
+ *
+ * Sorting rather than preserving the caller's order is what makes the signature
+ * independent of a list order nothing on the wire promises to keep — `@o2/net` carries
+ * extensions verbatim precisely so an unknown one survives untouched, which means a
+ * verifier can be handed the list in whatever order it was sent.
+ *
+ * Two extensions under one id have no single meaning: a reader asking "what does this
+ * node say about X" would get two answers and no rule for choosing, and a rule invented
+ * later would differ per build. Refused at both ends rather than resolved.
+ */
+function orderExtensions(extensions: readonly CapabilityExtension[]): OrderedExtensions {
+  const ordered = [...extensions].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
+  for (let i = 1; i < ordered.length; i++) {
+    const previous = ordered[i - 1]
+    const current = ordered[i]
+    if (previous !== undefined && current !== undefined && previous.id === current.id) {
+      return { ok: false, duplicate: current.id }
+    }
+  }
+  return { ok: true, ordered }
+}
+
+type CapabilityPayload =
+  | { readonly ok: true; readonly bytes: Uint8Array<ArrayBuffer> }
+  | { readonly ok: false; readonly duplicate: string }
+
+function capabilityPayload(record: Omit<CapabilityRecord, 'signature'>): CapabilityPayload {
+  const extensions = orderExtensions(record.extensions)
+  if (!extensions.ok) return extensions
   const value: CanonicalValue = {
     nodeKey: record.nodeKey,
     features: [...record.features].sort(),
     sovereignFor: [...record.sovereignFor].sort(),
     issuedAt: record.issuedAt,
     expiresAt: record.expiresAt,
+    // Conditionally spread, never `extensions: []`, and the reason is `payloadOf`'s own
+    // for the certificate's X.509 field: **a record with no extensions must produce the
+    // byte-identical payload it produced before this field existed.** That is what keeps
+    // this change free for a node that is not yet using the seam — upgrading does not
+    // make it unreadable to its older neighbours the moment it restarts. Only a record
+    // that actually carries an extension is unreadable to a peer built before the seam,
+    // and that record is the one the seam exists for. `capabilitiesToValue` in `@o2/net`
+    // spreads by the identical rule; the two have to match, and a reader changing one is
+    // told here about the other.
+    ...(extensions.ordered.length === 0
+      ? {}
+      : {
+          extensions: extensions.ordered.map((one) => ({
+            id: one.id,
+            critical: one.critical,
+            value: one.value,
+          })),
+        }),
   }
   const encoded = encodeCanonical(value)
   if (!encoded.ok) throw new NotEncodableError('capability record', encoded.error)
-  return encoded.bytes
+  return { ok: true, bytes: encoded.bytes }
 }
 
 /** Sign a capability record with the node's own key. The private key never leaves. */
@@ -103,13 +266,23 @@ export function publishCapabilities(
   nodePrivateKey: Uint8Array,
   fields: Omit<CapabilityRecord, 'nodeKey' | 'signature'>,
 ): CapabilityRecord {
+  const extensions = orderExtensions(fields.extensions)
+  if (!extensions.ok) throw new DuplicateExtensionError(extensions.duplicate)
   const unsigned = {
     ...fields,
     nodeKey: toHex(ed25519.getPublicKey(nodePrivateKey)),
     features: [...fields.features].sort(),
     sovereignFor: [...fields.sovereignFor].sort(),
+    // Stored in canonical order, so the record a node publishes is byte-identical to the
+    // one it signed rather than merely equivalent to it.
+    extensions: extensions.ordered,
   }
-  return { ...unsigned, signature: toHex(ed25519.sign(capabilityPayload(unsigned), nodePrivateKey)) }
+  const payload = capabilityPayload(unsigned)
+  // Unreachable: `unsigned.extensions` was just ordered and de-duplicated. Handled
+  // rather than asserted away, because the alternative is a non-null assertion on a
+  // union this file is the only writer of, and the cost of the branch is one line.
+  if (!payload.ok) throw new DuplicateExtensionError(payload.duplicate)
+  return { ...unsigned, signature: toHex(ed25519.sign(payload.bytes, nodePrivateKey)) }
 }
 
 /** Verify a capability record against its own node key. Offline, like everything here. */
@@ -118,11 +291,48 @@ export function verifyCapabilityRecord(record: CapabilityRecord, now: number): b
   // Above the `try` — `capabilityPayload` throws `NotEncodableError` by design, and
   // a record this package cannot encode is not a record that failed to verify.
   const payload = capabilityPayload(record)
+  // A repeated extension id off the wire is a malformed record from a peer, so it is a
+  // verdict here — `false` — and not the throw the signing path raises for the same
+  // condition. Same condition, two parties, two honest attributions.
+  if (!payload.ok) return false
   try {
-    return ed25519.verify(fromHex(record.signature), payload, fromHex(record.nodeKey))
+    return ed25519.verify(fromHex(record.signature), payload.bytes, fromHex(record.nodeKey))
   } catch {
     return false
   }
+}
+
+/**
+ * The extension ids **this build** knows how to honour.
+ *
+ * Empty, and that is the honest state rather than a stub: no extension id has a consumer
+ * in this repository yet. It is the registry a build adds to when it grows one, and it is
+ * deliberately a build-level constant rather than a configuration knob — "do I understand
+ * this" is a fact about the code that is running, not a policy somebody sets.
+ *
+ * A caller that handles an extension out of band declares it through
+ * {@link DiscoveryOptions.understands}, which is *added to* this set rather than replacing
+ * it. Not exported: a consumer that could read it would be tempted to branch on it, and
+ * the only correct question is the one `discoverExecutors` already asks.
+ */
+const UNDERSTOOD_EXTENSIONS: ReadonlySet<string> = new Set<string>()
+
+/**
+ * The critical extensions on a record that neither this build nor the caller understands.
+ *
+ * Ordered as the record orders them, which is by id, so the report is reproducible.
+ * Non-critical unknowns are absent by construction — being ignorable is what `false`
+ * means, and that is the forward compatibility this whole seam buys.
+ */
+function unhonouredCritical(
+  record: CapabilityRecord,
+  understands: ReadonlySet<string>,
+): readonly string[] {
+  return record.extensions
+    .filter(
+      (one) => one.critical && !UNDERSTOOD_EXTENSIONS.has(one.id) && !understands.has(one.id),
+    )
+    .map((one) => one.id)
 }
 
 /** What an index holds about one node: who it is, and what it can run. */
@@ -170,6 +380,22 @@ export type ExclusionReason =
       readonly failure: CertificateFailure
     }
   | { readonly kind: 'invalid-capability-record'; readonly nodeKey: PublicKeyHex }
+  /**
+   * The record verified and **this reader is the one that cannot use it** — the arm that
+   * exists so that a forward-compatibility limit is never reported as a signature fault.
+   *
+   * Without it there is no way to say this. The node would fall into
+   * `invalid-capability-record`, which asserts that the peer sent a record it did not
+   * sign — false, unfixable by whoever reads it, and pointing the operator at the wrong
+   * machine. `protocol.ts` already refuses that trade for the sibling record: *"the
+   * reader would be told `bad-signature` about a frame this parser had damaged."*
+   */
+  | {
+      readonly kind: 'critical-extension-not-understood'
+      readonly nodeKey: PublicKeyHex
+      /** Every critical id this build could not honour, in the record's own order. */
+      readonly extensionIds: readonly string[]
+    }
   | {
       readonly kind: 'certificate-mismatch'
       readonly nodeKey: PublicKeyHex
@@ -212,6 +438,18 @@ export interface DiscoveryOptions {
   /** Provider keys pinned in advance. Verification is offline against these. */
   readonly trustedIssuers: ReadonlySet<PublicKeyHex>
   readonly now: number
+  /**
+   * Extension ids this caller handles out of band, added to what the build knows.
+   *
+   * **Optional, and the default is the strict one** — omitting it means "I understand
+   * only what this build understands", under which every unknown critical extension is
+   * refused by name. That is the opposite disposition from the optional-hook-with-a-
+   * silent-default this repository refuses elsewhere (`CandidateOptions.dispatch`), and
+   * it is opposite because the defaults point opposite ways: there, omission would
+   * dispatch unauthenticated and nothing would fail; here, omission refuses, loudly, with
+   * the ids named.
+   */
+  readonly understands?: ReadonlySet<string>
 }
 
 function describe(reason: ExclusionReason): string {
@@ -222,6 +460,12 @@ function describe(reason: ExclusionReason): string {
       return `${reason.nodeKey} has an unusable certificate (${reason.failure.kind})`
     case 'invalid-capability-record':
       return `${reason.nodeKey} has an unusable capability record`
+    case 'critical-extension-not-understood':
+      return (
+        `this build does not understand ${reason.extensionIds.join(', ')}, which ` +
+        `${reason.nodeKey} marked critical — its record verified, and this reader is ` +
+        `the one that cannot honour it`
+      )
     case 'certificate-mismatch':
       return `records for ${reason.nodeKey} carry a capability record for ${reason.recordKey}`
     case 'missing-features':
@@ -244,6 +488,7 @@ export async function discoverExecutors(
   options: DiscoveryOptions,
 ): Promise<DiscoveryResult> {
   const { trustedIssuers, now } = options
+  const understands = options.understands ?? new Set<string>()
   const providers = [...new Set(await index.providers(query.inputCid))].sort()
 
   const executors: DiscoveredExecutor[] = []
@@ -276,6 +521,17 @@ export async function discoverExecutors(
 
     if (!verifyCapabilityRecord(capabilities, now)) {
       exclude({ kind: 'invalid-capability-record', nodeKey })
+      continue
+    }
+
+    // Asked only after the record has verified, and the order is the whole argument for
+    // the arm existing: at this point the signature is known good, so anything refused
+    // below is refused by THIS build's limits and must not be reported as the peer's
+    // fault. A record naming a critical extension nobody here can honour is a truthful
+    // statement this reader cannot act on.
+    const unhonoured = unhonouredCritical(capabilities, understands)
+    if (unhonoured.length > 0) {
+      exclude({ kind: 'critical-extension-not-understood', nodeKey, extensionIds: unhonoured })
       continue
     }
 

@@ -113,6 +113,7 @@ async function fabricOf(options: {
         sovereignFor: (options.sovereignFor?.(i) ?? true) ? [userKey] : [],
         issuedAt: NOW - 1000,
         expiresAt: NOW + YEAR,
+        extensions: [],
       }),
     }
 
