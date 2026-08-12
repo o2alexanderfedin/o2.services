@@ -1126,10 +1126,23 @@ const REREAD_REGISTER: readonly UnreadRow[] = [
       'packages/node/src/tree-reduce-agents.node.test.ts',
     ],
   },
+  // **Re-read 2026-08-11 at 15 days outstanding, and it stays.** The row was read against
+  // its witness. `harness.test.ts:17` does exercise `isSameMachine`, `machineLabel` and
+  // `hostCount`, so the row's *same-machine* claim — the label stays derived from the
+  // inventory rather than declared — is genuinely measured. That is the half that is met.
+  //
+  // **It does not discharge the promise, and the reason is worth stating because it is the
+  // tempting error.** What holds this row open is the *distinct-machine* half, and the row
+  // itself says why that is structural rather than pending: a same-host run has one CPU,
+  // one V8 and one libc, so the variables a cross-machine benchmark exists to expose are
+  // held constant by construction. No spec can acquire that claim by being written. Citing
+  // the same-machine witness to retire this entry would be escaping the register on the
+  // strength of the half that was never in question — the overclaim this file exists to
+  // catch. So: re-recorded, not removed, and not ticked.
   {
     id: 'BENCH-06',
     because: 'experiment-not-run',
-    reread: '2026-07-28',
+    reread: '2026-08-11',
     witnesses: ['packages/bench/src/harness.test.ts'],
   },
   // **The one entry with no witness at all**, and it is the honest reading rather than a
@@ -1138,10 +1151,24 @@ const REREAD_REGISTER: readonly UnreadRow[] = [
   // promise to reconcile against something. `AOT-03`'s is a promise to reconcile against
   // nothing, which is what *"a cross-machine half descoped and unmeasured"* means when it
   // is read off the tree instead of off the row.
+  //
+  // **Re-read 2026-08-11 at 15 days outstanding, and it stays — for BENCH-06's reason.**
+  // The scan above is by *title*, and it is right that no spec title-names `AOT-03`. But
+  // the row's substantive claim is not unmeasured: `CROSS_MACHINE_BLIND_SPOT` stays on
+  // every artifact, and `tools/aot/lift.node.test.ts` asserts exactly that — `:2678`
+  // `expect(artifact.blindSpots).toContainEqual(CROSS_MACHINE_BLIND_SPOT)`, with `:977`
+  // pinning it as the *only* spot and `:907` checking the note's own words.
+  //
+  // **That is the blind spot being declared, not the cross-machine half being measured**,
+  // and the two are opposites: the assertion's whole content is that this artifact has
+  // never been compared against a second machine. A row cannot leave this register by
+  // pointing at a test which certifies that the thing it promises remains unmeasured.
+  // Re-recorded. The witness list stays empty deliberately — writing `lift.node.test.ts`
+  // into it would record a measurement of the open half that does not exist.
   {
     id: 'AOT-03',
     because: 'experiment-not-run',
-    reread: '2026-07-28',
+    reread: '2026-08-11',
     witnesses: [],
   },
   {
