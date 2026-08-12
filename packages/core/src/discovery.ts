@@ -200,6 +200,51 @@ type OrderedExtensions =
   | { readonly ok: true; readonly ordered: readonly CapabilityExtension[] }
   | { readonly ok: false; readonly duplicate: string }
 
+const UTF8 = new TextEncoder()
+
+/**
+ * Order two extension ids by their **UTF-8 bytes**, not by JS's `<`.
+ *
+ * ## Why the obvious comparator is wrong, even though nothing in this repository can see it
+ *
+ * `a.id < b.id` compares UTF-16 **code units**, and the two orders disagree for every id
+ * carrying an astral code point: `'urn:o2:\u{10000}'` is stored as a surrogate pair
+ * beginning `\uD800`, so `<` sorts it before `'urn:o2:＀'` (`＀`), while its UTF-8
+ * bytes `f0 90 80 80` sort it after `＀`'s `ef bc 80`.
+ *
+ * Every peer in this repository is JavaScript, so every peer computes the same wrong
+ * order together and no record ever fails. **That is exactly the shape of defect this
+ * seam exists to remove**: the extension list is a contract for builds that do not exist
+ * yet, and the first non-JS peer to sort by bytes — which is what a language without
+ * UTF-16 strings does by default, and the terms DAG-CBOR's own map-key rule is expressed
+ * in — computes a different signed payload and reports `invalid-capability-record` about a
+ * record that was signed correctly. A claim about the signer, caused by the reader, one
+ * layer below where this file already refuses it.
+ *
+ * **Bytewise, not DAG-CBOR's length-then-bytewise, and the difference is deliberate.**
+ * That rule governs *map keys inside the encoding*, which the encoder applies on its own.
+ * This is the order of a **list**, which is ours to define and which a second
+ * implementation has to be told; plain bytewise lexicographic is the rule that reads the
+ * same in every language and needs no reference to the enclosing codec.
+ *
+ * Exported because `@o2/net`'s `asExtensions` sorts the list it takes off the wire with
+ * this same function. Two comparators that agree today and are maintained apart are the
+ * failure this file has already paid for once in `capabilitiesToValue`'s conditional
+ * spread; one function is the only version of "they agree" that stays true.
+ */
+export function compareExtensionIds(a: string, b: string): number {
+  const left = UTF8.encode(a)
+  const right = UTF8.encode(b)
+  for (const [index, byte] of left.entries()) {
+    const other = right[index]
+    // `right` ran out first, so it is a strict prefix of `left` and sorts before it.
+    if (other === undefined) return 1
+    if (byte !== other) return byte < other ? -1 : 1
+  }
+  // `left` is a prefix of `right`, or the two are equal.
+  return left.length === right.length ? 0 : -1
+}
+
 /**
  * Sort extensions by id and refuse a repeated one.
  *
@@ -213,7 +258,7 @@ type OrderedExtensions =
  * later would differ per build. Refused at both ends rather than resolved.
  */
 function orderExtensions(extensions: readonly CapabilityExtension[]): OrderedExtensions {
-  const ordered = [...extensions].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
+  const ordered = [...extensions].sort((a, b) => compareExtensionIds(a.id, b.id))
   for (let i = 1; i < ordered.length; i++) {
     const previous = ordered[i - 1]
     const current = ordered[i]
@@ -291,9 +336,19 @@ export function verifyCapabilityRecord(record: CapabilityRecord, now: number): b
   // Above the `try` — `capabilityPayload` throws `NotEncodableError` by design, and
   // a record this package cannot encode is not a record that failed to verify.
   const payload = capabilityPayload(record)
-  // A repeated extension id off the wire is a malformed record from a peer, so it is a
-  // verdict here — `false` — and not the throw the signing path raises for the same
-  // condition. Same condition, two parties, two honest attributions.
+  // A repeated extension id is a malformed record, so it is a verdict here — `false` —
+  // and not the throw `publishCapabilities` raises for the same condition. Same
+  // condition, two parties, two honest attributions: a signer that tries to build one is
+  // told by name, a reader handed one gets a verdict about the record.
+  //
+  // **This branch is NOT the wire's path, and the docblock claimed it was until
+  // 2026-08-12.** `@o2/net`'s `asExtensions` refuses a repeated id at the frame, so a
+  // duplicate arriving over RPC never reaches this function — `parseResponse` returns
+  // `null` first. What does reach it is an in-process record: a fixture, a caller that
+  // assembled a `CapabilityRecord` by hand, or a future index that does not go through
+  // `parseResponse`. The behaviour is right for all of those; the transport story was
+  // not, and a comment asserting a fact about every call site is a claim with an expiry
+  // date.
   if (!payload.ok) return false
   try {
     return ed25519.verify(fromHex(record.signature), payload.bytes, fromHex(record.nodeKey))
@@ -314,13 +369,33 @@ export function verifyCapabilityRecord(record: CapabilityRecord, now: number): b
  * {@link DiscoveryOptions.understands}, which is *added to* this set rather than replacing
  * it. Not exported: a consumer that could read it would be tempted to branch on it, and
  * the only correct question is the one `discoverExecutors` already asks.
+ *
+ * **Being empty makes `unhonouredCritical`'s test of this set constant-true, and the
+ * deferral that keeps it that way is checked rather than remembered.** `understands` has no
+ * production caller either — `discoverCandidates` has no field to forward it through — and
+ * the owner ruled on 2026-08-11 not to wire it now, because threading an option nothing can
+ * populate reaches a check that cannot fail. The hazard in that ruling is *sequencing*, not
+ * correctness: the first extension **producer** to land before the reader makes every node
+ * publishing a critical extension undiscoverable fleet-wide with no opt-in path.
+ * `packages/node/src/extension-sequencing.node.test.ts` reddens on exactly that ordering and
+ * names the remedy. Adding an id here is one of the two things that arms it.
  */
 const UNDERSTOOD_EXTENSIONS: ReadonlySet<string> = new Set<string>()
 
 /**
  * The critical extensions on a record that neither this build nor the caller understands.
  *
- * Ordered as the record orders them, which is by id, so the report is reproducible.
+ * **Ordered as the record orders them, and every path that builds a record orders it by
+ * id — which is the part that had to be made true rather than asserted.** This sentence
+ * read the same before 2026-08-12 and was false for exactly the records that matter:
+ * `publishCapabilities` stores the sorted list, so a locally-signed record was ordered,
+ * but a record off the wire was ordered by whoever sent it. `capabilityPayload` sorts only
+ * its own copy, so a relay could reorder a signed record's extensions, have it verify
+ * (correctly — the signature is order-independent by design), and choose the order these
+ * ids appear in. `@o2/net`'s `asExtensions` now sorts with {@link compareExtensionIds},
+ * the same function `orderExtensions` uses, so the two producers of a `CapabilityRecord`
+ * agree and this claim holds for both.
+ *
  * Non-critical unknowns are absent by construction — being ignorable is what `false`
  * means, and that is the forward compatibility this whole seam buys.
  */
@@ -373,6 +448,27 @@ export interface ExecutorQuery {
 
 /** Why a provider of the data is not a candidate executor. */
 export type ExclusionReason =
+  /**
+   * The {@link RecordIndex} handed back nothing for this key — **and that is the whole of
+   * what this arm knows.**
+   *
+   * It is not a statement that no index holds the records, and its `detail` said exactly
+   * that until 2026-08-12. `recordsFor` returns `NodeRecords | undefined`, so every way of
+   * failing to produce records collapses into one `undefined` before it reaches here: the
+   * index genuinely holds none, every peer was unreachable, or **a peer answered and this
+   * build's own parser refused the frame**. `RpcRecordIndex.recordsFor` swallows all three
+   * identically, which it must, because the port gives it no other vocabulary.
+   *
+   * The third case is the uncomfortable one and it is named rather than hidden: a
+   * capability record carrying a top-level key this build does not know refuses the whole
+   * frame in `@o2/net`'s `parseCapabilities`, and the peer arrives here as if no index had
+   * ever heard of it — its certificate discarded along with its claims. See that file's
+   * `CAPABILITY_KEYS` docblock, which states the trade from the other end. Widening the
+   * port so the refusal could be named here is a change to a shared interface with four
+   * production implementations and every caller's `=== undefined` check, and it was
+   * **declined** on this branch rather than overlooked; what was not acceptable was a
+   * `detail` that asserted a fact about the index nobody at this layer can know.
+   */
   | { readonly kind: 'no-records'; readonly nodeKey: PublicKeyHex }
   | {
       readonly kind: 'invalid-certificate'
@@ -448,6 +544,10 @@ export interface DiscoveryOptions {
    * it is opposite because the defaults point opposite ways: there, omission would
    * dispatch unauthenticated and nothing would fail; here, omission refuses, loudly, with
    * the ids named.
+   *
+   * **No production caller supplies it**, and that is a recorded deferral rather than an
+   * oversight — see {@link UNDERSTOOD_EXTENSIONS} for the owner's ruling and for the guard
+   * that reddens if an extension producer arrives before this is wired.
    */
   readonly understands?: ReadonlySet<string>
 }
@@ -455,7 +555,11 @@ export interface DiscoveryOptions {
 function describe(reason: ExclusionReason): string {
   switch (reason.kind) {
     case 'no-records':
-      return `${reason.nodeKey} provides the data but no index holds its records`
+      return (
+        `${reason.nodeKey} provides the data but no records for it reached this ` +
+        `reader — the index holds none, no peer answered, or an answer was refused as ` +
+        `unreadable by this build`
+      )
     case 'invalid-certificate':
       return `${reason.nodeKey} has an unusable certificate (${reason.failure.kind})`
     case 'invalid-capability-record':

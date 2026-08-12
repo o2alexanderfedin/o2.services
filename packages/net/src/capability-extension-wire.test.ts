@@ -97,6 +97,32 @@ function records(extensions: readonly CapabilityExtension[]): NodeRecords {
   }
 }
 
+/**
+ * A well-formed records frame whose capability record carries these extensions.
+ *
+ * Module scope rather than inside one `describe`, because two of them need it: the
+ * refusal block below, and the ordering block that feeds a **deliberately unsorted** list
+ * through the parser. Every fixture built by `records()` goes through
+ * `publishCapabilities`, which sorts before it signs — so a list that reaches the parser
+ * out of order can only be built by writing the frame directly, which is what this does.
+ */
+const frameWith = (extensions: CanonicalValue): CanonicalValue => {
+  const frame = entriesOf(encodeResponse({ kind: 'records', records: records([]) }))
+  const capabilities = entriesOf(frame.get('capabilities'))
+  capabilities.set('extensions', extensions)
+  frame.set('capabilities', frameOf(capabilities))
+  return frameOf(frame)
+}
+
+/** The parsed extension ids of a frame, or a failure this test can name. */
+function parsedIds(frame: CanonicalValue): readonly string[] {
+  const parsed = parseResponse(frame)
+  if (parsed === null) throw new Error('the codec refused the frame')
+  if (parsed.kind !== 'records') throw new Error(`parse changed kind to ${parsed.kind}`)
+  if (parsed.records === null) throw new Error('parse lost the records')
+  return parsed.records.capabilities.extensions.map((one) => one.id)
+}
+
 /** A records response through the codec and back, or a failure this test can name. */
 function roundTrip(source: NodeRecords): NodeRecords {
   const encoded = encodeResponse({ kind: 'records', records: source })
@@ -156,16 +182,84 @@ describe('the wire codec preserves extensions it cannot interpret', () => {
   })
 })
 
-describe('what the extension parser refuses, and why refusing beats dropping', () => {
-  /** A well-formed records frame whose capability record carries these extensions. */
-  const frameWith = (extensions: CanonicalValue): CanonicalValue => {
-    const frame = entriesOf(encodeResponse({ kind: 'records', records: records([]) }))
-    const capabilities = entriesOf(frame.get('capabilities'))
-    capabilities.set('extensions', extensions)
-    frame.set('capabilities', frameOf(capabilities))
-    return frameOf(frame)
-  }
+/**
+ * The order half, and it is a *guarantee about the parsed value*, not a detail.
+ *
+ * `verifyCapabilityRecord` sorts inside the payload, so a reordered list still verifies —
+ * correct, and by design, because a relay must be able to hand on a signed record it did
+ * not damage. The consequence is that `verified === true` says **nothing** about the order
+ * of `record.extensions`, and `discovery.ts` published an exclusion whose ids were
+ * documented *"ordered as the record orders them, which is by id"*. That was true only for
+ * records this process signed; for a record off the wire the order was whatever the sender
+ * — or a relay in between — chose.
+ *
+ * So the parser sorts, and the two sorts are the same function. Anything downstream that
+ * hashes, CIDs, dedupes or structurally compares a parsed `CapabilityRecord` now gets the
+ * same answer on every peer for records that are cryptographically identical.
+ */
+describe('the parsed extension list is canonically ordered, whatever order it arrived in', () => {
+  it('sorts a deliberately unsorted wire list by id', () => {
+    expect(
+      parsedIds(
+        frameWith([
+          { id: 'urn:o2:z', critical: false, value: 1 },
+          { id: 'urn:o2:a', critical: true, value: 2 },
+          { id: 'urn:o2:m', critical: false, value: 3 },
+        ]),
+      ),
+    ).toEqual(['urn:o2:a', 'urn:o2:m', 'urn:o2:z'])
+  })
 
+  it('orders by UTF-8 bytes, not by UTF-16 code units, so a non-JS peer agrees', () => {
+    // `\u{10000}` is one astral code point; JS stores it as the surrogate pair
+    // `𐀀`, and `'\uD800' < '＀'` — so `<` puts the astral id FIRST while
+    // its UTF-8 bytes (`f0 90 80 80`) put it after `＀`'s (`ef bc 80`). Two JS peers
+    // would always have agreed with each other and disagreed with everyone else.
+    expect(
+      parsedIds(
+        frameWith([
+          { id: 'urn:o2:\u{10000}', critical: false, value: 1 },
+          { id: 'urn:o2:＀', critical: false, value: 2 },
+        ]),
+      ),
+    ).toEqual(['urn:o2:＀', 'urn:o2:\u{10000}'])
+  })
+
+  /**
+   * The attack this is actually about, on a **signed** record rather than a synthetic one.
+   *
+   * A relay cannot forge an extension — the signature covers every `{ id, critical, value }`
+   * — but it can hand the list back in an order of its choosing, and the record goes on
+   * verifying, correctly, because the payload sorts. Before the parser sorted, that order
+   * was the order `unhonouredCritical` reported its ids in, and the order any future
+   * hash/CID/dedupe over a parsed record would have seen.
+   */
+  it('undoes a relay reordering of a signed list, and the record still verifies', () => {
+    const source = records([
+      { id: 'urn:o2:z-last', critical: true, value: 'z' },
+      { id: UNKNOWN, critical: false, value: UNKNOWN_VALUE },
+    ])
+    const signedOrder = source.capabilities.extensions.map((one) => one.id)
+
+    const frame = entriesOf(encodeResponse({ kind: 'records', records: source }))
+    const capabilities = entriesOf(frame.get('capabilities'))
+    const onWire = capabilities.get('extensions')
+    if (!Array.isArray(onWire)) throw new Error('fixture lost the extensions')
+    // The relay's only move: same entries, different order.
+    capabilities.set('extensions', [...onWire].reverse())
+    frame.set('capabilities', frameOf(capabilities))
+
+    const parsed = parseResponse(frameOf(frame))
+    if (parsed === null) throw new Error('the codec refused a reordered but valid frame')
+    if (parsed.kind !== 'records') throw new Error(`parse changed kind to ${parsed.kind}`)
+    if (parsed.records === null) throw new Error('parse lost the records')
+
+    expect(parsed.records.capabilities.extensions.map((one) => one.id)).toEqual(signedOrder)
+    expect(verifyCapabilityRecord(parsed.records.capabilities, NOW)).toBe(true)
+  })
+})
+
+describe('what the extension parser refuses, and why refusing beats dropping', () => {
   it('refuses an extension list that is not a list', () => {
     expect(parseResponse(frameWith({ id: 'x', critical: false, value: 1 }))).toBe(null)
   })

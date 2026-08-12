@@ -258,6 +258,7 @@ export type { CoverageReport, CoveredAggregate } from './coverage.ts'
 // withholding predicate comes from.
 export {
   DuplicateExtensionError,
+  compareExtensionIds,
   discoverExecutors,
   FallbackRecordIndex,
   MemoryRecordIndex,

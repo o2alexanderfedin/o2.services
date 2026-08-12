@@ -176,6 +176,40 @@ describe('the extension seam is covered by the signature', () => {
     expect(backwards.signature).toBe(forwards.signature)
   })
 
+  /**
+   * The comparator, pinned against the one input that separates the two candidate rules.
+   *
+   * There is no divergence in this repository today and there cannot be: every peer here
+   * runs the same JS `<`, so every peer computes the same wrong order together. The seam
+   * is explicitly a contract for builds that do not exist yet, and a peer sorting these
+   * ids by their UTF-8 bytes — what a language without UTF-16 strings does by default —
+   * would compute a different signed payload and report `invalid-capability-record`
+   * about a record that was signed correctly. That is the same misattribution the seam
+   * was built to remove, waiting for a second implementation to arrive.
+   */
+  it('orders ids by their UTF-8 bytes, which is not what JS `<` does', () => {
+    const key = keypair(16)
+    // `\u{10000}` is a single astral code point stored as the surrogate pair `𐀀`.
+    // `'\uD800' < '＀'`, so `<` sorts it FIRST; its UTF-8 bytes are `f0 90 80 80`
+    // against `＀`'s `ef bc 80`, so bytewise sorts it SECOND.
+    const astral = 'urn:o2:\u{10000}'
+    const fullwidth = 'urn:o2:＀'
+    expect(astral < fullwidth).toBe(true) // the rule that was in force, stated so it is visible
+
+    const record = publishCapabilities(key.priv, {
+      features: [],
+      sovereignFor: [],
+      issuedAt: NOW,
+      expiresAt: NOW + YEAR,
+      extensions: [
+        { id: astral, critical: false, value: 1 },
+        { id: fullwidth, critical: false, value: 2 },
+      ],
+    })
+    expect(record.extensions.map((one) => one.id)).toEqual([fullwidth, astral])
+    expect(verifyCapabilityRecord(record, NOW)).toBe(true)
+  })
+
   it('verifies a record whose extensions arrive out of order, because the payload sorts them', () => {
     const key = keypair(13)
     const first: CapabilityExtension = { id: 'urn:o2:a', critical: false, value: 1 }
@@ -307,7 +341,10 @@ describe('what a reader does with an extension it has never heard of', () => {
     // which is false and unfixable by whoever reads it.
     expect(verifyCapabilityRecord(later.records.capabilities, NOW)).toBe(true)
     expect(only?.reason.kind).toBe('critical-extension-not-understood')
-    expect(only?.reason.kind).not.toBe('invalid-capability-record')
+    // The `.not.toBe('invalid-capability-record')` that stood here could not fail: the
+    // line above already fixes the kind exactly, so the negative was a restatement of
+    // the docblock wearing an assertion's clothes. What it was reaching for is the line
+    // above it — the record VERIFIES — which can fail and does carry the claim.
     expect(only?.detail).toContain(UNKNOWN)
     expect(only?.detail).toContain('this build')
   })
