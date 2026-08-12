@@ -7,6 +7,8 @@ import { fileURLToPath } from 'node:url'
 import { Fd, WASI } from '@bjorn3/browser_wasi_shim'
 import { beforeAll, describe, expect, it, vi } from 'vitest'
 
+import { describeGate, isRunnable, probeDockerReach } from './docker-gate.ts'
+
 /**
  * What WASI preview1 supplies, measured — and a module that toolchain produced, RUN.
  *
@@ -260,23 +262,23 @@ const SMOKE_STDOUT = 'O2 preview1 smoke ok\n'
 const PLANT = 'see docblock — restored and cmp-verified 2026-08-10'
 void PLANT
 
-function dockerAvailable(): boolean {
-  const probe = spawnSync('docker', ['version', '--format', '{{.Server.Os}}'], {
-    timeout: 20_000,
-    encoding: 'utf8',
-  })
-  return probe.status === 0
-}
-
 /**
  * Which precondition is missing, named rather than left as a bare skip.
  *
  * A skipped suite with no reason is indistinguishable from a suite nobody wrote, and this one
  * skips on two independent grounds.
+ *
+ * The second ground used to be a local `dockerAvailable()` — one of five copies of the same
+ * `spawnSync('docker', ['version', …])` in `tools/aot/`, each collapsing its answer into a
+ * boolean. Same probe, same 20 s budget, now in `docker-gate.ts`, and what comes back says
+ * *which* condition it was: no client at all, a daemon that did not answer, or a question
+ * this host could not put. Only `lift.node.test.ts` reddens on the last of those; here every
+ * arm skips with its name in the title, as the arch check already did.
  */
 function missingPrecondition(): string | null {
   if (arch() !== 'arm64') return `host arch is ${arch()}, the pinned image is arm64`
-  if (!dockerAvailable()) return 'docker is not answering `docker version`'
+  const reach = probeDockerReach()
+  if (!isRunnable(reach)) return describeGate(reach)
   return null
 }
 

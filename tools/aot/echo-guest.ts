@@ -41,6 +41,8 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { ELFCONV_IMAGE_TAG } from './lift.ts'
+import { gateOnImage, isRunnable } from './docker-gate.ts'
+import type { ImageGate } from './docker-gate.ts'
 
 export { ELFCONV_IMAGE_TAG } from './lift.ts'
 
@@ -356,41 +358,39 @@ export function toolchainFromStdout(
 // ---- the host gate -----------------------------------------------------------
 
 /**
- * The errnos {@link imageIsPresent} will ask again after.
- *
- * `lift.node.test.ts`'s set, restated rather than imported: that file keeps it private
- * and it is a gate answering a boolean, not a lift answering a `LiftFailure`.
- */
-const HOST_SPAWN_RETRY_CODES: ReadonlySet<string> = new Set(['EAGAIN', 'EMFILE', 'ENFILE', 'ENOMEM'])
-
-const HOST_SPAWN_ATTEMPTS = 3
-
-/**
- * Is the elfconv toolchain image on this host?
+ * Why the toolchain image can or cannot be used here — the whole answer, not a boolean.
  *
  * Exported so a spec gating on it does not reproduce the probe — and so the answer can be
  * *logged*, which matters more than it looks: a skipped `it.skipIf` reports green inside
  * an aggregate pass and nothing in vitest's output distinguishes it from a measurement.
  *
- * A non-zero exit from a docker that ran is the honest "not present". A spawn the *host*
- * refused is not an answer about the image, and answering `false` to it is how the only
- * real coverage of the toolchain disappears on a loaded machine with nobody told. That
- * distinction is `lift.node.test.ts`'s, and it was paid for there.
+ * ## What was wrong with the boolean
+ *
+ * The function that stood here asked `docker image inspect` and read *every* non-`EAGAIN`
+ * failure as "the image is not present". Measured on this host on 2026-08-12: a daemon
+ * whose socket refuses connections makes that call exit **1** with
+ * `failed to connect to the docker API at unix://…`, which is the same exit code as
+ * `Error response from daemon: No such image`. So a dead container runtime was reported as
+ * a missing image — silently, and as a claim nothing had observed. The same defect reddened
+ * `lift.node.test.ts` on the same day for the same cause, only louder, because there the
+ * daemon happened to hang rather than refuse.
+ *
+ * {@link gateOnImage} asks the daemon first and the image second, and asks the daemon again
+ * when an inspect fails — an exit code is an answer only if something answered it.
+ */
+export function imageGate(): ImageGate {
+  return gateOnImage(ELFCONV_IMAGE_TAG)
+}
+
+/**
+ * Is the elfconv toolchain image on this host?
+ *
+ * Kept as a boolean for the call sites that only choose whether to run. Anything printing a
+ * reason should call {@link imageGate} and {@link describeGate} instead — the reason is the
+ * thing the boolean throws away.
  */
 export function imageIsPresent(): boolean {
-  for (let attempt = 1; attempt <= HOST_SPAWN_ATTEMPTS; attempt++) {
-    try {
-      execFileSync('docker', ['image', 'inspect', ELFCONV_IMAGE_TAG, '--format', '{{.Id}}'], {
-        stdio: ['ignore', 'ignore', 'ignore'],
-        timeout: 60_000,
-      })
-      return true
-    } catch (cause) {
-      const { code } = cause as { readonly code?: unknown }
-      if (typeof code !== 'string' || !HOST_SPAWN_RETRY_CODES.has(code)) return false
-    }
-  }
-  return false
+  return isRunnable(imageGate())
 }
 
 // ---- pointing at a lift somebody already paid for ----------------------------

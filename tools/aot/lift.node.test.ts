@@ -51,6 +51,8 @@ import {
   writeAcceptableElf,
 } from './stubs.ts'
 import type { StubDocker } from './stubs.ts'
+import { describeGate, gateOnImage, isRunnable, isUndetermined } from './docker-gate.ts'
+import type { ImageGate } from './docker-gate.ts'
 
 /**
  * AOT-01 — the toolchain runs, and nothing it says about itself is taken on trust.
@@ -2396,122 +2398,59 @@ describe('retrying a host that would not fork retries nothing else', () => {
 /**
  * What the gate established about the image, and — when it established nothing — why.
  *
- * The second field is the whole point. A boolean cannot distinguish *"docker told me the
- * image is not here"* from *"I never got an answer"*, and collapsing those is what
- * {@link resolveImage} refuses to do one level down.
+ * ## This gate used to answer with whichever way the daemon happened to be down
+ *
+ * The function that stood here asked `docker image inspect` and nothing else, and
+ * `docker image inspect` answers two questions through one exit code. Measured on this
+ * host on 2026-08-12, docker 29.4.0:
+ *
+ * | condition | exit | stderr |
+ * |---|---|---|
+ * | the image really is absent | 1 | `Error response from daemon: No such image: …` |
+ * | the daemon's socket refuses | 1 | `failed to connect to the docker API at unix://…` |
+ * | the daemon's socket accepts and hangs | — | never returns; killed at the budget, `ETIMEDOUT` |
+ *
+ * Row 2 cleared the `typeof code !== 'string'` guard and returned
+ * `{ present: false, undetermined: null }` — **a silent skip claiming the image is absent,
+ * which is a thing nothing observed.** Row 3 landed in the retry set and came back
+ * `undetermined`, which the case below turns into a **red**. So on 2026-08-12, with this
+ * host's OrbStack daemon wedged, this file went red while 47 cases across
+ * `elflift-wasi-gate.node.test.ts`, `echo-guest.node.test.ts` and
+ * `elfconv-differential.node.test.ts` skipped — one host, one cause, and a failure that
+ * named this machine's process table for a container runtime that had died.
+ *
+ * The three siblings were not stricter or looser. They ask `docker version` — the daemon
+ * question — and never reach the image question at all.
+ *
+ * ## What replaced it
+ *
+ * `tools/aot/docker-gate.ts`, which asks the daemon first and the image second, and asks
+ * the daemon **again** when an inspect fails — because an exit code is an answer only if
+ * something answered it. Read that file for the order and for what each arm is worth. The
+ * five call sites that each carried their own copy of this predicate now share it.
+ *
+ * ## What is still red here, and it is narrower than it was
+ *
+ * Only `undetermined`: the question never left this host (`EAGAIN` and its family), or it
+ * left and never came back *from a daemon that is demonstrably still answering*. Both are
+ * "nobody found out", and a skip for a reason nobody measured is a claim that happens to be
+ * false. A daemon that is down, or a host with no docker, is an **observation** — the same
+ * observation the three siblings have always skipped on, and this file now agrees with them.
  */
-interface ImageGate {
-  /** Measured presence. Never a guess: `false` here always has an observation behind it. */
-  readonly present: boolean
-  /**
-   * `null` when the answer above was measured. Otherwise the sentence naming what stopped
-   * this from finding out — reported by the case below, so the skip is never silent.
-   */
-  readonly undetermined: string | null
-}
+const IMAGE_GATE: ImageGate = gateOnImage(ELFCONV_IMAGE_TAG)
+
+const HAVE_IMAGE = isRunnable(IMAGE_GATE)
 
 /**
- * Whether the image is here — and not merely whether this call managed to ask.
+ * The skip note, carried into the `describe` title below.
  *
- * The `catch` used to return `false` for every throw, which made "the host had no room
- * to fork" indistinguishable from "the image is absent". That is the same defect the
- * block above exists for, in its quieter form: instead of a wrong failure it produced
- * a silent skip, and the only real coverage of the toolchain vanished on a loaded
- * machine without anyone being told. `execFileSync` reports the errno on the thrown
- * error, so the two are distinguishable and only one of them is worth retrying.
- *
- * **And the retry set was still one label short, which is this function's own defect.**
- * `execFileSync`'s timeout was measured on this host: `code: 'ETIMEDOUT'`, `errno: -60`,
- * `signal: 'SIGTERM'`, `status: null`. `ETIMEDOUT` is a *string*, so it cleared the
- * `typeof` guard and then missed the set — and a daemon that took longer than
- * {@link IMAGE_RESOLVE_CAP_MS} to answer the cheapest question docker has was recorded as
- * the image being absent, skipping all seven cases below without a word. That is exactly
- * what {@link despiteAFullProcessTable} was corrected for on 2026-08-02, in its own words:
- * *a host too loaded to fork and a host too loaded to answer an inspect are the same
- * condition wearing two labels; only one of them was retried.* The wrapper was fixed and
- * the gate was not. It is also precisely what {@link resolveImage} refuses to do —
- * *"a daemon that never answered is not a missing image"* — so the classification below is
- * the driver's, restated, rather than a third opinion.
- *
- * **What the two measured outcomes are.** A docker that ran and exited non-zero throws with
- * `code: undefined` and `status` set; a docker that is not installed throws `ENOENT`. Both
- * are observations, both mean the image cannot be used here, and both still skip — that is
- * a legitimate skip and it stays green.
- *
- * **What changed, and what it costs.** The unmeasured outcomes — the host could not fork,
- * or the daemon would not answer — no longer claim absence. They return `undetermined`, and
- * the case below turns that into one named red while the seven still skip. The seven are
- * *right* to skip: a machine that cannot answer `image inspect` cannot run a 6 GB container
- * either, so the thing they measure is genuinely unmeasurable there. It was never the skip
- * that was wrong, it was the silence — and the silence was also a false claim.
- *
- * The retries are bounded by *duration* as well as by count, for the reason
- * {@link RETRY_ENVELOPE_SHARE} exists: four attempts of {@link IMAGE_RESOLVE_CAP_MS} is
- * four minutes spent at module scope deciding whether to run. Judged against the worst
- * attempt this run has already produced, exactly as the wrapper judges it, so the arithmetic
- * is comparative rather than a written-down number. A millisecond-cheap `EAGAIN` keeps all
- * four attempts it has today; a wedged daemon costs one and reports. **So the fix adds no
- * wall clock to any host** — 60 s spent and a lie before, 60 s spent and a measurement now.
+ * The sibling specs' idiom — `elflift-wasi-gate.node.test.ts:468`,
+ * `wasi-preview1-surface.node.test.ts:284` — adopted here because a skipped suite whose
+ * title says nothing is indistinguishable from a suite nobody wrote. It is the *loud* half
+ * of "skip loudly": vitest prints the suite name for skipped cases, so the reason travels
+ * with them into any log that keeps the run.
  */
-function askWhetherImageIsPresent(): ImageGate {
-  /** Every attempt's cost, so the report is a measurement rather than an adjective. */
-  const spent: number[] = []
-  const deadline = Date.now() + IMAGE_RESOLVE_CAP_MS
-  let unanswered = ''
-  for (let attempt = 1; attempt <= HOST_SPAWN_ATTEMPTS; attempt++) {
-    const started = Date.now()
-    try {
-      execFileSync('docker', ['image', 'inspect', ELFCONV_IMAGE_TAG, '--format', '{{.Id}}'], {
-        stdio: ['ignore', 'ignore', 'ignore'],
-        timeout: IMAGE_RESOLVE_CAP_MS,
-      })
-      return { present: true, undetermined: null }
-    } catch (cause) {
-      spent.push(Date.now() - started)
-      const { code } = cause as { readonly code?: unknown }
-      // A non-zero exit from a docker that ran (`code` undefined, `status` the exit code)
-      // and a docker that is not installed (`ENOENT`) are both answers. Only a host that
-      // never managed to put the question is worth putting it to again.
-      if (typeof code !== 'string' || !COULD_NOT_ASK_CODES.has(code)) {
-        return { present: false, undetermined: null }
-      }
-      unanswered = code
-    }
-    if (attempt === HOST_SPAWN_ATTEMPTS) break
-    // The worst answer this run has already produced is the estimate for the next one.
-    if (Date.now() + Math.max(...spent) > deadline) break
-  }
-  return {
-    present: false,
-    undetermined:
-      `the gate never found out whether ${ELFCONV_IMAGE_TAG} is present: ` +
-      `\`docker image inspect\` failed with ${unanswered} on each of ${spent.length} ` +
-      `attempt(s) costing ${spent.join(' ms, ')} ms, inside the ${IMAGE_RESOLVE_CAP_MS} ms ` +
-      `this gate may spend. The seven cases below skipped because this host could not be ` +
-      `asked — not because the image is absent, which is a thing nothing here observed.`,
-  }
-}
-
-/**
- * The errnos {@link askWhetherImageIsPresent} will ask again after.
- *
- * The driver's host-exhaustion set plus `ETIMEDOUT`, restated here because `execFileSync`
- * is not routed through `classifySpawnFailure` — it is a gate, not a lift, and it answers
- * a verdict rather than a `LiftFailure`. What unites them is not the errno but what the
- * caller learned, which is nothing: every one of these is the question failing to be put,
- * where a non-zero exit is the question being answered.
- */
-const COULD_NOT_ASK_CODES: ReadonlySet<string> = new Set([
-  'EAGAIN',
-  'EMFILE',
-  'ENFILE',
-  'ENOMEM',
-  'ETIMEDOUT',
-])
-
-const IMAGE_GATE = askWhetherImageIsPresent()
-
-const HAVE_IMAGE = IMAGE_GATE.present
+const SKIP_NOTE = HAVE_IMAGE ? 'runnable' : `SKIPPED: ${describeGate(IMAGE_GATE)}`
 
 /** Two lifts plus a compile, on a host where one lift is ~95 s. */
 const INTEGRATION_TIMEOUT_MS = 15 * 60 * 1000
@@ -2548,27 +2487,51 @@ function liftedArtifact(outcome: LiftOutcome | undefined): LiftedArtifact {
  * costs whatever the gate already spent at module scope and nothing more.
  *
  * The block below is gated on {@link HAVE_IMAGE}, and a gate is only as honest as its
- * `false`. Two of the ways it can be `false` are observations — docker ran and said the
- * image is not here, or docker is not installed — and those skip green, which is right.
- * The other two are the gate failing to ask at all, and until 2026-08-05 they were
- * indistinguishable from the first two: seven skips, no message, and a green file that had
- * measured nothing about the toolchain. See {@link askWhetherImageIsPresent}.
+ * `false`. Three of the ways it can be `false` are observations — a daemon answered and
+ * said the image is not here, a daemon did not answer at all, or there is no docker on this
+ * host — and those skip green, which is right. The fourth is the gate failing to find out,
+ * and until 2026-08-05 it was indistinguishable from the first: seven skips, no message,
+ * and a green file that had measured nothing about the toolchain.
+ *
+ * **2026-08-12: the second of those three observations used to arrive as one of the other
+ * two, and which one it got was decided by whether the daemon's socket refused or hung.**
+ * See {@link IMAGE_GATE} for the measured table, and `docker-gate.ts` for the fix.
  *
  * A red here does not say the toolchain is broken. It says nobody knows on this host, and
  * that the seven skips below are not evidence of anything. That is worth one failure, and
- * it is not worth widening: where the gate got an answer, `undetermined` is `null` and this
- * passes — including on every host that has no docker at all.
+ * it is not worth widening — nor narrowing past the one condition it names.
  */
 describe('the gate that decides whether the toolchain gets measured', () => {
   it('skips for a reason it measured, or says that it could not measure one', () => {
-    expect(
-      IMAGE_GATE.undetermined,
-      IMAGE_GATE.undetermined ?? 'the gate got an answer from docker',
-    ).toBeNull()
+    expect(isUndetermined(IMAGE_GATE) ? describeGate(IMAGE_GATE) : null, 'the gate found out').toBeNull()
+  })
+
+  it('says out loud which of the four conditions it found, in the suite title', () => {
+    // The loud half. A skipped suite carries its reason into the run's output, so a reader
+    // scanning a log can tell a dead daemon from an absent image without opening this file
+    // — which on 2026-08-12 was the difference between a false red and a true skip.
+    expect(SKIP_NOTE).toBe(HAVE_IMAGE ? 'runnable' : `SKIPPED: ${describeGate(IMAGE_GATE)}`)
+    expect(SKIP_NOTE.length).toBeGreaterThan(0)
+    if (HAVE_IMAGE) return
+    // Whatever the reason was, it names the condition rather than merely announcing a skip.
+    expect(SKIP_NOTE).toMatch(
+      /NOT PRESENT|THE DOCKER DAEMON IS NOT ANSWERING|NO DOCKER CLIENT|NOBODY FOUND OUT/,
+    )
+  })
+
+  it('runs the seven cases below on a measured presence and on nothing else', () => {
+    // The wiring, asserted rather than read: the only thing that unlocks the toolchain
+    // cases is a daemon that answered AND an image it said was there. A gate arm quietly
+    // promoted into `HAVE_IMAGE` — which is how "make it skip" becomes "make it pass" —
+    // fails here. Always runs; no arm of this is conditional on today's host.
+    expect(HAVE_IMAGE, describeGate(IMAGE_GATE)).toBe(IMAGE_GATE.kind === 'image-present')
+    // …and the red is one arm, not "everything that is not runnable".
+    expect(isUndetermined(IMAGE_GATE)).toBe(IMAGE_GATE.kind === 'undetermined')
+    expect(HAVE_IMAGE && isUndetermined(IMAGE_GATE)).toBe(false)
   })
 })
 
-describe('a real binary goes through the real toolchain', () => {
+describe(`a real binary goes through the real toolchain (${SKIP_NOTE})`, () => {
   let work = ''
   let first: LiftOutcome | undefined
   let second: LiftOutcome | undefined
