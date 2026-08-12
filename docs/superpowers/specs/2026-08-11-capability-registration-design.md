@@ -937,3 +937,42 @@ lookup on *"roughly near me"*.
 reader meeting the idea should know it was considered and parked, not overlooked — and because it
 would be the **first** use of the extension seam §6.5 just built, which makes it the natural test of
 whether that seam works as designed.
+
+### 9.11 Decision 11 — a lookup is **one capability plus an appId**, and nothing else
+
+**Settled 2026-08-11, after §9.3 and §9.4 were written, and it supersedes the part of them that
+built machinery for the general case.**
+
+A lookup names **exactly one** capability and **exactly one** `appId`:
+
+```
+cidOf(appId + capability)     capability ∈ 'parallel-compute' | cell:<h3>
+```
+
+There is no intersection of several capability lookups. There is no query planner. The caller
+supplies both halves or it does not have a query.
+
+**What this retires.** §9.3's arithmetic — two capped lookups of 256 each drawn from ~1e6 giving an
+expected intersection near zero while thousands qualify — was an argument against *intersecting*.
+Nothing intersects now, so that failure mode cannot arise. §9.3's *conclusion* still stands and is
+now structural rather than advisory: `'parallel-compute'` is never an anchor **on its own**, because
+an anchor is always the pair. §9.4's "the caller names the anchor" likewise stops being a discipline
+a caller could get wrong — the signature admits nothing else.
+
+**What survives, and it is the only piece of §9.4 that does.** A *single* key still truncates:
+`ProvidersInit.cacheSize` defaults to 256, and a widely-deployed app in a dense cell will exceed it.
+An empty or short answer remains indistinguishable from *"nobody matches"* unless the reader is told,
+so `onTruncated: 'refuse' | 'report-partial'` stays. It is now one field rather than the entry point
+to a subsystem, and it carries the whole of this design's obligation not to let a **sample** read as
+a **set**.
+
+**Advertisement stays bounded, and the bound is worth stating.** A node publishes one key per
+(`appId` × capability) pair it satisfies — two apps offering compute is two keys. The combinatorial
+objection that rules out a general capability-conjunction mechanism does not bite at this size. Cells
+are the one multiplying term, which is exactly why §9.1 keeps them on the live `withhold` path with
+the published record as a hint the peer's own ask-time answer overrides.
+
+**What it costs, stated rather than left to be found.** A caller wanting *"nodes for app X that
+compute **and** are near me"* must pick one and filter the other locally from the presented record —
+or publish a purpose-built composite key for that pair. The general answer is deliberately not
+available, and this paragraph is the record that it was declined rather than missed.
