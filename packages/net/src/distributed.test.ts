@@ -47,6 +47,7 @@ async function twoNodeFabric(options: { readonly workers: number } = { workers: 
   // The origin serves blocks. Its executor is never dispatched to in these tests;
   // every task crosses the wire.
   serveAgent({
+    paused: 'never-pauses',
     rpc: originRpc,
     executor: new WasmExecutor({ nodeId: 'origin', blockstore: originStore }),
     blockstore: originStore,
@@ -72,6 +73,7 @@ async function twoNodeFabric(options: { readonly workers: number } = { workers: 
       new RpcBlockSource(rpc, () => ['origin']),
     )
     serveAgent({
+      paused: 'never-pauses',
       rpc,
       executor: new WasmExecutor({ nodeId: id, blockstore: store }),
       blockstore: store,
@@ -484,6 +486,7 @@ describe('protocol validation', () => {
 
     const workerRpc = new RpcEndpoint(network.connect('w0'), { timeoutMs: 5_000 })
     serveAgent({
+      paused: 'never-pauses',
       rpc: workerRpc,
       executor: watched,
       blockstore: store,
@@ -539,6 +542,7 @@ describe('AUTH-03 — a task is refused before the module is instantiated', () =
 
     const workerRpc = new RpcEndpoint(network.connect('w0'), { timeoutMs: 5_000 })
     serveAgent({
+      paused: 'never-pauses',
       rpc: workerRpc,
       executor: watched,
       blockstore: store,
@@ -587,6 +591,7 @@ describe('AUTH-03 — a task is refused before the module is instantiated', () =
 
     const workerRpc = new RpcEndpoint(network.connect('w0'), { timeoutMs: 5_000 })
     serveAgent({
+      paused: 'never-pauses',
       rpc: workerRpc,
       executor: new WasmExecutor({ nodeId: 'w0', blockstore: store }),
       blockstore: store,

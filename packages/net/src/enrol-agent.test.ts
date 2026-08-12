@@ -78,6 +78,7 @@ function buildFabric(options: { readonly issues: boolean }): {
   const store = new MemoryBlockstore()
   const providerRpc = new RpcEndpoint(network.connect(providerId), { timeoutMs: 2_000 })
   serveAgent({
+    paused: 'never-pauses',
     rpc: providerRpc,
     executor: new WasmExecutor({ nodeId: providerId, blockstore: store }),
     blockstore: store,

@@ -117,6 +117,7 @@ async function ownerFabric(options: { module: Uint8Array<ArrayBuffer>; ownerNode
   const index = new MemoryRecordIndex()
   const seedRpc = new RpcEndpoint(network.connect(SEED), { timeoutMs: 5_000 })
   serveAgent({
+    paused: 'never-pauses',
     rpc: seedRpc,
     executor: new WasmExecutor({ nodeId: SEED, blockstore: seedStore }),
     blockstore: seedStore,
@@ -172,6 +173,7 @@ async function ownerFabric(options: { module: Uint8Array<ArrayBuffer>; ownerNode
     // and it is what makes criterion 4's refusal test below meaningful: Bob's
     // node below gets the same wrap with `canExecuteSovereign: false`.
     serveAgent({
+      paused: 'never-pauses',
       rpc,
       executor: guardSovereignty(new WasmExecutor({ nodeId, blockstore: store }), {
         ownerId: aliceUserKey,
@@ -208,6 +210,7 @@ async function ownerFabric(options: { module: Uint8Array<ArrayBuffer>; ownerNode
   const bobStore = new MemoryBlockstore()
   await bobStore.put(sovereignBytes())
   serveAgent({
+    paused: 'never-pauses',
     rpc: bobRpc,
     // DATA-09: Bob genuinely holds the block (see `bobStore.put` above) and is
     // still not cleared to execute it — the guard, not absence of data, is what
@@ -617,6 +620,7 @@ describe('a hold survives an exec that never took one', () => {
     const guard = new EgressGuard(network.connect(nodeId), OWNER)
     const rpc = new RpcEndpoint(guard, { timeoutMs: 5_000 })
     serveAgent({
+      paused: 'never-pauses',
       rpc,
       executor: guardSovereignty(new WasmExecutor({ nodeId, blockstore: served }), {
         ownerId: OWNER,

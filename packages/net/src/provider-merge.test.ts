@@ -150,6 +150,7 @@ async function fabricOf(options: {
     )
     const rpc = new RpcEndpoint(network.connect(nodeKey), { timeoutMs: 5_000 })
     serveAgent({
+      paused: 'never-pauses',
       rpc,
       executor: new WasmExecutor({ nodeId: nodeKey, blockstore: store }),
       blockstore: store,
@@ -299,6 +300,7 @@ describe('SCHED-01 — providers unions across peers, because each answers only 
       const store = new MemoryBlockstore()
       const rpc = new RpcEndpoint(network.connect(id), { timeoutMs: 5_000 })
       serveAgent({
+        paused: 'never-pauses',
         rpc,
         executor: new WasmExecutor({ nodeId: id, blockstore: store }),
         blockstore: store,
@@ -367,6 +369,7 @@ describe('SCHED-01 — providers unions across peers, because each answers only 
     await answeringStore.put(INPUT)
     const servingRpc = new RpcEndpoint(network.connect(answering), { timeoutMs: 5_000 })
     serveAgent({
+      paused: 'never-pauses',
       rpc: servingRpc,
       executor: new WasmExecutor({ nodeId: answering, blockstore: answeringStore }),
       blockstore: answeringStore,
@@ -524,6 +527,7 @@ describe('DATA-05 — a provider answer is not a side channel around an egress r
     const egress = { guard, sovereignInputs: store, sovereignCids: 'forgets-sovereignty-between-jobs' } as const
     const rpc = new RpcEndpoint(guard, { timeoutMs: 5_000 })
     serveAgent({
+      paused: 'never-pauses',
       rpc,
       executor: new WasmExecutor({ nodeId: nodeKey, blockstore: store }),
       blockstore: store,

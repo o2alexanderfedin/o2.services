@@ -183,6 +183,22 @@ export interface FabricNodeOptions {
    */
   readonly blockstoreDir?: string
   /**
+   * SCHED-03. Read on every request to decide whether this node is **paused** —
+   * alive, reachable, unchanged in what it can do, and declining all work right now.
+   *
+   * A thunk rather than a flag, because an operator toggles it while the node runs:
+   * hold your own boolean and hand over a closure that reads it. `AgentOptions.paused`
+   * carries the full argument for the state and for what it does and does not decline.
+   *
+   * **Optional here and required there**, which is the shape `SeedServerOptions.relayAdmission`
+   * already takes for the same reason. The mechanism must not be reachable by silence —
+   * so `serveAgent` refuses to compile without a stated posture — while a factory that
+   * is told nothing threads the named opt-out through a ternary and is byte-identical
+   * to the node that existed before this option did. Omitting it is not a node that
+   * might pause; it is a node that never does, said by the line below.
+   */
+  readonly paused?: () => boolean
+  /**
    * This node's clearance to execute sovereign data, and the owner key it judges
    * capability chains against — DATA-09's serving-side gate (`guardSovereignty`,
    * `@o2/core`), applied unconditionally to the `Executor` this factory hands to
@@ -2428,6 +2444,18 @@ export class FabricNode {
       // timed out waiting (`packages/node/src/admission.node.test.ts`, 2026-07-29).
       // With this line, the same run refuses by name and holds the declared bound.
       capacity: admission,
+      // SCHED-03. The posture the operator stated, or the named opt-out — never an
+      // omission, because `AgentOptions.paused` has no default to fall through to.
+      //
+      // **This is not the capacity hook one line up and must never be folded into it.**
+      // `LocalCapacity.slots` floors at 1 precisely so that throttling cannot express a
+      // stop — *"at zero slots `#decide` would refuse everything, which is a node that
+      // has left rather than a node that is going slowly"* — so the two answer different
+      // questions and a paused node states its capacity unchanged while declining.
+      //
+      // A per-node setting, not a node kind: `browser-node.ts` threads the identical
+      // ternary over its own option, and `serve-agent-hooks.node.test.ts` counts both.
+      paused: options.paused ?? 'never-pauses',
       reservations: () => node.reservedPeerIds,
       // BROW-02. **The named opt-out is gone from this file**, because there is no longer
       // a node this factory can build that has been told nothing: every node holds a

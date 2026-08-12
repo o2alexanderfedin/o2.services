@@ -194,6 +194,13 @@ async function memoryRig(nodes: number): Promise<Rig> {
     // AUTH-01: this process holds no provider signing key.
     enroll: 'issues-no-certificates',
     capacity: new LocalCapacity({ nodeId: 'requestor', maxConcurrent: GATE_ADMISSION_LIMIT }),
+    // SCHED-03 — **permanent, not a burn-down**, on the same rule this file already
+    // applies to `keeps-no-ledger`: a site that stands up a *node* wires the real
+    // value, a site that stands up a *measurement fixture* states the opt-out and
+    // says why. A rig that could stop taking work mid-run would publish a scaling
+    // curve shaped by a pause nobody recorded, which is the class of undeclared
+    // variable this benchmark exists to keep out of its own numbers.
+    paused: 'never-pauses',
     // BROW-02 — **permanent, not a burn-down**, and Plan 20-02 read this site rather than
     // deciding from the file name. The rule: a site that stands up a *node* supplies a
     // real ledger; a site that stands up a *measurement fixture* states the opt-out and
@@ -242,6 +249,13 @@ async function memoryRig(nodes: number): Promise<Rig> {
       // counter shared across workers would refuse the second replica of every shard —
       // the reasoning `bin/bench.ts` records beside its own construction.
       capacity: new LocalCapacity({ nodeId: id, maxConcurrent: GATE_ADMISSION_LIMIT }),
+      // SCHED-03 — **permanent, not a burn-down**, on the same rule this file already
+      // applies to `keeps-no-ledger`: a site that stands up a *node* wires the real
+      // value, a site that stands up a *measurement fixture* states the opt-out and
+      // says why. A rig that could stop taking work mid-run would publish a scaling
+      // curve shaped by a pause nobody recorded, which is the class of undeclared
+      // variable this benchmark exists to keep out of its own numbers.
+      paused: 'never-pauses',
       // BROW-02 — a fixture worker, on the reasoning stated in full at the requestor
       // endpoint above: this rig's endpoints are one process start and not one visitor
       // each, so a `started` row per worker would be population invented for a metric

@@ -77,6 +77,7 @@ function buildFabric(nodeId: string): Fabric {
   const seedStore = new MemoryBlockstore()
   const seedRpc = new RpcEndpoint(network.connect(SEED), { timeoutMs: 5_000 })
   serveAgent({
+    paused: 'never-pauses',
     rpc: seedRpc,
     executor: new WasmExecutor({ nodeId: SEED, blockstore: seedStore }),
     blockstore: seedStore,
@@ -102,6 +103,7 @@ function buildFabric(nodeId: string): Fabric {
     canExecuteSovereign: true,
   })
   serveAgent({
+    paused: 'never-pauses',
     rpc,
     executor,
     blockstore: store,

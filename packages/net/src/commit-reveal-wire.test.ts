@@ -86,6 +86,7 @@ interface Served {
 function serve(net: MemoryNetwork, id: string, sum: number): Served {
   const rpc = new RpcEndpoint(net.connect(id), { timeoutMs: 2_000 })
   serveAgent({
+    paused: 'never-pauses',
     rpc,
     executor: fakeExecutor(id, sum),
     blockstore: new MemoryBlockstore(),

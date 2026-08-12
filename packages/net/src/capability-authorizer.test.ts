@@ -275,6 +275,7 @@ function fabric(options: {
 
   const workerRpc = new RpcEndpoint(network.connect('w0'), { timeoutMs: RPC_BUDGET_MS })
   serveAgent({
+    paused: 'never-pauses',
     rpc: workerRpc,
     executor,
     blockstore: store,

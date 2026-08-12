@@ -131,6 +131,7 @@ function servingNode(nodeId: string, faulty: Faulty = {}): Node {
       ? store
       : new FetchingBlockstore(store, new RpcBlockSource(rpc, faulty.fetchesFrom)))
   serveAgent({
+    paused: 'never-pauses',
     rpc,
     executor: stubExecutor(nodeId),
     blockstore: served,

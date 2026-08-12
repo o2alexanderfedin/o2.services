@@ -125,6 +125,111 @@ export interface Authorizer {
   (request: AuthorizedWork): string | null
 }
 
+/**
+ * Whether this node is declining all work right now — SCHED-03.
+ *
+ * See {@link AgentOptions.paused} for what the state means and why it is a required
+ * named union rather than an optional flag. The type is exported so a host can hold
+ * the value it is going to hand over, by name.
+ */
+export type PauseState = (() => boolean) | 'never-pauses'
+
+/** The name of the never-pausing posture, as a value — the `ADMITS_ANY_PEER` idiom. */
+export const NEVER_PAUSES = 'never-pauses'
+
+/**
+ * The request kinds a paused node declines. Everything else it answers as usual.
+ *
+ * **The membership of this set is the whole scope of the state**, so it is one
+ * declaration rather than an `if` at four branches, and each exclusion is a decision:
+ *
+ * - `block`, `providers`, `records`, `reservations`, `report` — a paused node is
+ *   *alive and reachable*, and these are how a fabric learns that. Declining them
+ *   would make a pause indistinguishable from a departure, which is the collapse this
+ *   state exists to prevent.
+ * - `reveal` — round 2 of a ceremony this node already joined and already computed.
+ *   The `reveal` branch states the rule for the busy case and it holds identically
+ *   here: *"charging for it twice would let a busy node refuse to hand back an answer
+ *   it has already computed, stranding a ceremony it agreed to join."* Pausing stops
+ *   this node taking on **new** work; it does not abandon work already done. That is
+ *   the same rule `LocalCapacity` states for a lowered cap — *lowering a cap changes
+ *   what this node starts, never what it is doing*.
+ * - `enrol`, `enrol-challenge` — issuing a certificate is not work in the sense
+ *   `LocalCapacity` bounds, and both branches say so by name: they take no slot
+ *   because they are synchronous and nothing can interleave around them. A provider
+ *   that stopped certifying because it stopped computing would be two settings
+ *   collapsed into one.
+ *
+ * `commit` is in the set because a commit **is** an exec whose answer is withheld —
+ * the same reason `serveAgent` runs the two through one branch.
+ */
+export type DeclinedWhilePaused = 'exec' | 'commit' | 'combine' | 'offer'
+
+/** Whether a paused node declines this request kind — see {@link DeclinedWhilePaused}. */
+export function declinedWhilePaused(kind: AgentRequest['kind']): kind is DeclinedWhilePaused {
+  return kind === 'exec' || kind === 'commit' || kind === 'combine' || kind === 'offer'
+}
+
+/**
+ * The reason a paused node gives, composed in exactly one place.
+ *
+ * `paused: ` is wire vocabulary, on the same terms as `over-committed: `,
+ * `egress refused: `, `unauthorized: ` and `unreachable: ` — one construction site,
+ * asserted by text in `paused.test.ts` so it cannot drift, and deliberately **not**
+ * the at-capacity string. A paused node is not full, and a fabric that reported it as
+ * full would send a requestor back to hammer a node that said go away.
+ *
+ * It names the node, for the reason `refusedReason` names it: a refusal that travels
+ * through `placeWithOffers` into a `Rejection` is the only record of who declined,
+ * and "why did this land here" has to stay answerable after the fact.
+ *
+ * **What this string is not.** It is an explanation, never a decision. `agent.ts`
+ * already records that a requestor "cannot tell `malformed request` from
+ * `over-committed: …` without reading the string", and nothing in this repository
+ * branches control flow on a reason. So a requestor learns *which* node stepped out
+ * and why, and still re-asks it for the next shard exactly as it would re-ask a busy
+ * one. Making "do not retry soon" real needs a **typed** name on the offer frame and
+ * a matching arm on `Admission`, which is a wire change and is deliberately not made
+ * here — recorded so the gap is not mistaken for an oversight.
+ */
+export function pausedRefusal(nodeId: string): string {
+  return `paused: ${nodeId} is declining all work right now`
+}
+
+/**
+ * The answer a paused node gives, in the shape the asking branch would have used.
+ *
+ * Each arm is the shape that branch already gives its *capacity* refusal, so the
+ * retry policy a requestor applies is unchanged and only the reason differs:
+ *
+ * - `exec` and `commit` → `{kind:'error'}`, a **node** condition. The identical task
+ *   on another node succeeds, which is what `error` means here.
+ * - `combine` → `{resultCid: null}`, because `executeReduce` reads that as "try the
+ *   next executor in the ranking" — the right answer from a node that has stepped
+ *   out, where an `error` would be read as something being wrong with the frame.
+ * - `offer` → a refusal that **still states this node's capacity**, unchanged. "My
+ *   capabilities are unchanged" is a claim the frame has to carry, or a requestor
+ *   cannot tell a paused node from one that has shrunk to nothing. The figures are
+ *   read straight off the public getters rather than through `would`, which would
+ *   answer the capacity *question* this branch is not asking.
+ */
+function pausedAnswer(kind: DeclinedWhilePaused, options: AgentOptions): AgentResponse {
+  const reason = pausedRefusal(options.executor.nodeId)
+  if (kind === 'combine') {
+    // No attestation: this node did not run the combine, so it has nothing to make a
+    // statement about — every refusal arm in `runCombine` reads the same way.
+    return { kind: 'combine', resultCid: null, reason, attestation: 'signed-by-nobody' }
+  }
+  if (kind === 'offer') {
+    const capacity =
+      options.capacity === 'accepts-every-offer'
+        ? null
+        : { slots: options.capacity.slots, inFlight: options.capacity.inFlight }
+    return { kind: 'offer', accepted: false, reason, capacity }
+  }
+  return { kind: 'error', reason }
+}
+
 export interface AgentOptions {
   readonly rpc: RpcEndpoint
   /** Runs dispatched tasks. Typically a `WasmExecutor`. */
@@ -184,6 +289,79 @@ export interface AgentOptions {
    * that never refuses.
    */
   readonly capacity: LocalCapacity | 'accepts-every-offer'
+  /**
+   * SCHED-03. Whether this node is **paused** — alive, reachable, unchanged in what
+   * it can do, and declining all work right now.
+   *
+   * ## Why this is not the capacity mechanism
+   *
+   * `LocalCapacity.slots` floors at 1 and its getter says why: *"at zero slots
+   * `#decide` would refuse everything, which is a node that has left rather than a
+   * node that is going slowly."* So the capacity mechanism **deliberately cannot**
+   * express a deliberate stop, and that floor is load-bearing and is not touched by
+   * this field. Pause is a separate gate, not a route to zero slots.
+   *
+   * Before this field an operator who wanted to stop taking work had two options and
+   * both were wrong. Killing the process loses discoverability and every relay
+   * reservation, and reads to the fabric as an unreachable node. Throttling to nothing
+   * is impossible, because of the floor. Three states, three different facts:
+   *
+   * | state | what it is | what it should mean to a requestor |
+   * |---|---|---|
+   * | busy | at capacity, load drains | a live participant — retry soon |
+   * | **paused** | declining all work, by choice | keep the node known, look elsewhere for this shard |
+   * | off | unreachable | let the transport re-dial later |
+   *
+   * Collapsing paused into busy sends a requestor back to hammer a node that said go
+   * away. Collapsing it into off loses a healthy node that is coming back.
+   *
+   * ## Why a thunk, and why a required named union
+   *
+   * A thunk for `reservations`' reason, in `reservations`' own words: *"so the answer
+   * is the live set rather than a snapshot taken at construction."* An operator
+   * toggles this at runtime and the toggle has to reach the next request with nothing
+   * else to wire — it is read on **every** request, never captured.
+   *
+   * `'never-pauses'` is a **named absence**, on the argument `relay-admission.ts`
+   * writes out in full for `RelayAdmission`: *an optional field would leave a caller
+   * able to mean it without ever having said so, and silence and consent would be
+   * indistinguishable.* Here the silence would be quiet in a specific way — a host
+   * that meant to wire a pause control and forgot would have a node that answers
+   * every frame, states every figure, and can never be stopped, with nothing failing
+   * and nothing to read. Making the omission something a call site has to write down
+   * is what turns it into a decision. This is `.planning/PROJECT.md`'s **"An optional
+   * hook with a silent default is a hole"** applied to a posture.
+   *
+   * ## Where this must NOT go, and the symmetry that is the argument
+   *
+   * Not in `CapabilityRecord`, not signed, and not published to any index. A signed
+   * record carries a validity window and a published one cannot be retracted
+   * promptly, and a pause is per-instant and operator-driven: a node that un-pauses
+   * would go on being advertised as paused for as long as the record lives, and a
+   * node that pauses would keep taking work until the next publication. So it lives
+   * on the live ask-time path and nowhere else.
+   *
+   * That is the same split `SelfRecordIndex` already makes between `has(cid)` and
+   * `withhold(cid)` — *what this node holds* is a durable fact about bytes, while
+   * *what it will hand over right now* is a decision taken when asked. **`withhold`
+   * is to blocks what pause is to work.** `discovery.ts` states the reason there and
+   * it transfers unchanged: the two questions must not be one question that happens
+   * to agree today.
+   *
+   * ## Ordering, and what a paused node still does
+   *
+   * The check runs **before** the capacity check, so the refusal names the right
+   * cause. A paused node is not full and must never report that it is; misattributing
+   * a refusal is the defect these modules exist to remove. It runs before `authorize`
+   * too — a node that has stepped out has no verdict to give about a chain.
+   *
+   * It declines exactly {@link DeclinedWhilePaused} and nothing else. Blocks,
+   * records, providers, reservations and reports are still answered, because being
+   * *alive and reachable* is half the state's content, and a `reveal` is still
+   * answered because the work behind it is already done. See that type for each
+   * exclusion's own reason.
+   */
+  readonly paused: PauseState
   /**
    * NET-03. Peer ids currently holding a reservation on this node.
    *
@@ -714,6 +892,26 @@ export function serveAgent(options: AgentOptions): void {
     const request = parseRequest(body)
     if (request === null) {
       return encodeResponse({ kind: 'error', reason: 'malformed request' })
+    }
+
+    // SCHED-03 — PAUSED, and it is one gate rather than four.
+    //
+    // **Before the capacity check, before authorisation, before every branch.** A
+    // paused node is not full and must not say it is, and it has no verdict to give
+    // about a capability chain it is not going to run anything under. Both of those
+    // are orderings, so both are satisfied here by construction rather than by an
+    // `if` each branch has to remember — which is the same argument the serving
+    // catch at the bottom of this function makes for itself: *the bug is an
+    // omission, so a branch added later inherits the treatment.*
+    //
+    // The thunk is called here, on every request, and its answer is used once. A
+    // value read at construction would be a pause an operator could set and never
+    // clear.
+    //
+    // What it does **not** gate is as deliberate as what it does — see
+    // {@link DeclinedWhilePaused}, where each exclusion carries its own reason.
+    if (options.paused !== NEVER_PAUSES && declinedWhilePaused(request.kind) && options.paused()) {
+      return encodeResponse(pausedAnswer(request.kind, options))
     }
 
     let response: AgentResponse
