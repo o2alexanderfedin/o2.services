@@ -105,13 +105,19 @@ export interface Disposition {
  * `grantConsent` (:465), `consentState` (:461), `revokeConsent` (:473), `start` (:483),
  * `discoverRelays` (:592), `autoStart` (:644).
  *
- * **Two of the ten read `callers=[]` in the guard's own verdict and are called anyway.**
- * `unreachableExports` filters same-file callers out of the list it reports
- * (`reachability.ts:898`), so `demo/colourOf` — called by `verifyColouring` in `colouring.ts`
- * itself — and `demo/readPiPartial` — called by `projectPiPartial` in `pi.ts` itself — render as
- * *"no production code calls it"*, which is false of both. That is a rendering limit worth knowing
- * before any finding is closed on the strength of an empty caller list, and it is the reason the
- * chains above were walked over the raw graph rather than over the verdict.
+ * **This paragraph said "two of the ten" and the measured answer is six — FIXED 2026-08-11.**
+ * `unreachableExports` filtered same-file callers out of the list it reported, so a symbol whose
+ * every caller sits in its own file rendered as *"no production code calls it"*. The count was
+ * never measured when it was written; running the repaired guard over the same ten gives
+ * `browser/browserLabel` (1), `browser/GrantedConsent` (2), `browser/identifyBrowser` (1),
+ * `core/startReportFromCounts` (2), `demo/colourOf` (1) and `demo/readPiPartial` (1) — **all six
+ * of the non-hop dispositions, each with zero cross-file callers**, which is why every one of
+ * them read empty. The filter is gone (`reachability.ts:916`) and the case that proves it is
+ * `reachability-guard.node.test.ts`'s one-edge plant, watched red first.
+ *
+ * **The caveat it raised has been discharged, not inherited**: an empty caller list now means
+ * what it says. The chains above were still walked over the raw graph rather than the verdict,
+ * and that remains the right method — but it is no longer forced by a defect.
  *
  * **The list is no longer trusted to be complete**: `reachability-guard.node.test.ts` re-derives
  * it on every run and reddens in both directions — an undisposed symbol that flips, and a

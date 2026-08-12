@@ -1,3 +1,4 @@
+import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import {
@@ -336,6 +337,51 @@ describe('the guard cannot report clean because it looked at nothing', () => {
     expect(found.filter((one) => one.callers.length === 0).length).toBeGreaterThan(0)
     expect(found.filter((one) => one.callers.length > 0).length).toBeGreaterThan(0)
   }, GRAPH_TIMEOUT_MS)
+
+  /**
+   * The split above is only worth having if `callers` answers the question its own docblock
+   * promises — *"empty means nothing in the tree calls it"*. Until 2026-08-11 it did not: the
+   * field was built by dropping every caller declared in the finding's own file, so a symbol
+   * called once, from the line below it, rendered as **"no production code calls it"**.
+   *
+   * **This never changed which symbols were reported.** `reached` is computed over the whole
+   * graph and tested before the filter runs, and `addEdge` keeps same-file edges — so no wired
+   * symbol was ever called unwired, and the carried-forward note claiming the instrument
+   * "declined to look in the file the symbol lives in" was wrong about the consequence. What it
+   * corrupted is the *reason*, which is what a reader acts on: five of the ten disposed
+   * `global-object-hop` symbols printed a false one, and several open findings that are one
+   * unwired caller wearing four names read as four independent uncalled symbols.
+   *
+   * Hand-built rather than taken from the corpus, because the property is about a single edge
+   * and `reachableFrom` is pure over its arguments precisely so a planted `Map` can drive it.
+   */
+  it('names a same-file caller instead of reporting the symbol as uncalled', () => {
+    const file = 'packages/x/src/thing.ts'
+    const callee = nodeId(file, 'helper')
+    const caller = nodeId(file, 'itsOnlyCaller')
+    const planted: ClassifiedExport[] = [
+      { barrel: 'x', name: 'helper', flags: 0, declaredIn: join(ROOT, file), kind: 'callable' },
+    ]
+    // `roots: []` — nothing is reachable, so `helper` is a finding either way. The case is
+    // about what the finding SAYS, which is the only thing the filter could ever change.
+    const oneEdge: CallGraph = {
+      nodes: new Set([callee, caller]),
+      calls: new Map([[caller, new Set([callee])]]),
+      imports: new Map(),
+      files: [file],
+      roots: [],
+      collisions: [],
+    }
+
+    const found = unreachableExports(planted, oneEdge, ROOT)
+    expect(found).toEqual([{ barrel: 'x', symbol: 'helper', declaredIn: file, callers: [caller] }])
+    expect(describeUnreachable(found)).toEqual([
+      expect.stringContaining('its only callers are themselves unreachable'),
+    ])
+    expect(describeUnreachable(found)).not.toEqual([
+      expect.stringContaining('no production code calls it'),
+    ])
+  })
 })
 
 // ---------------------------------------------------------------------------
