@@ -63,6 +63,18 @@ tools/aot/fixtures/workload-linux
 tools/aot/fixtures/elf/
 tools/aot/fixtures/r1/
 
+# The seed's blockstore. `bin/seed.ts:35` defaults `--dir` to `.o2-seed`, so running the
+# demo the way its own README says to leaves an untracked directory behind. That is not
+# cosmetic here: six specs snapshot `git status --porcelain` around themselves and assert
+# it is unchanged (`discover-arm`, `coverage-agents`, `disclosure-gate`,
+# `bench-attestation`, `aot-dispatch` and e2e `ported-lift`), so a developer who ran the
+# seed once reddens them for a reason that has nothing to do with their code.
+#
+# The glob covers the non-default case too — anyone passing `--dir` picks their own name,
+# and the pattern below only claims the default one. That is deliberate: a wider pattern
+# would ignore directories this file cannot predict.
+.o2-seed/
+
 # Agent worktrees. `isolation="worktree"` checks a second copy of the whole repository
 # out under here, so an untracked `.claude/` shows up in every `git status` and one
 # `git add -A` would commit a duplicate tree. Only `worktrees/` is ignored — if project
