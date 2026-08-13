@@ -94,9 +94,18 @@ stopped_at: >-
   2026-08-05, and the graduated-cost reading of costly. THIS BLOCK PREVIOUSLY SAID 10 OF 15
   while the handoff said 11 and Session Continuity said 8 - three counts in one file, none of
   them right, which is the defect this milestone keeps finding in its own bookkeeping and found
-  here again.
-last_updated: "2026-08-09T21:45:00.000Z"
-last_activity: 2026-08-09
+  here again. AS OF 2026-08-13 THE PHASE COUNTS ABOVE ARE UNCHANGED AND THE WORK HAS MOVED
+  OFF PHASES ENTIRELY - the v1.1 audit's gap list and the requirements ledger are what is
+  open, and the ledger stands at 79 OF 102 with 23 rows unchecked, verified by counting the
+  boxes in REQUIREMENTS.md rather than read off any tool. The 2026-08-12 session closed ZERO
+  rows across 62 commits and that is the accurate headline: it was instrument, correction and
+  design. Its own findings are in .planning/.continue-here.md and the one that governs what
+  happens next is that THREE SCENARIOS AND SIX LEDGER ROWS ARE BLOCKED ON ONE MISSING THING -
+  nothing a person can run issues a browser tab a certificate, so certificate stays null,
+  trustedIssuers stays empty, and discoverExecutors excludes every provider. Two independent
+  analyses reached that from opposite directions, one over rows and one over scenarios.
+last_updated: "2026-08-13T19:40:00.000Z"
+last_activity: 2026-08-13
 progress:
   total_phases: 15
   completed_phases: 12
@@ -293,8 +302,10 @@ exist. A plan is not finished when its commit lands.
 Do not take these from `gsd-sdk query progress.bar` — it counts plan files across the
 nine unarchived v1.0 phase directories and reports "17/9 plans (100%)".
 
-**Three separate writers have now corrupted this frontmatter, so treat the whole family
-as unsafe and maintain it by hand:**
+**Seven separate writers have now corrupted this frontmatter, so treat the whole family
+as unsafe and maintain it by hand.** *This line read "Three" until 2026-08-13 while the list
+below it already had six entries* — the count was never updated as the list grew, which is the
+same stale-claim defect the list exists to record, committed in the list's own header.
 
 - `gsd-sdk query state.begin-phase` — overwrites this block from that same bad count
   (2026-07-28: rewrote 25% to 62%) and mangles the Current focus paragraph.
@@ -331,6 +342,21 @@ as unsafe and maintain it by hand:**
   caught by. Reverted whole-file and verified byte-identical to HEAD — safe here only because
   `git status` was clean immediately before the call, which is the sole condition under which
   `git checkout --` on a shared file is permissible.
+
+- The `pause-work` workflow's own state update, **again** (2026-08-13) — **writer number
+  seven, and it is a repeat of writer number two.** Left uncommitted by the pause because the
+  handoff commit used explicit paths, so it sat in the working tree until `/gsd-resume-work`
+  read `git status` the next morning. Diff: **57 insertions against 106 deletions** — deleted
+  the whole `stopped_at` block a third time, mangled `milestone_name` back to
+  "— Wire What Was Built" (**the identical mangle recorded against this same writer on
+  2026-08-01**), regressed `last_activity` 2026-08-09 → 2026-08-06, flipped `status` to
+  `verifying`, and zeroed every count: `total_phases` 15→29, `completed_phases` 12→**0**,
+  `total_plans` 103→**0**, `percent` 80→**0**. The zeroed frontmatter sat two lines above body
+  text stating twelve phases complete, so the file contradicted itself in adjacent sentences.
+  Reverted whole-file after confirming no agent was running and the rest of the tree was clean.
+  **The lesson this entry adds to the six above it: a corrupting writer that runs during
+  `pause-work` is the most dangerous of the family, because pause is exactly when nobody is
+  left to read the diff.** Check `git status` on resume before trusting anything in this block.
 
 ~~`roadmap.update-plan-progress` and `state.add-decision` are the two measured exceptions and
 are safe — both ran this same session with a clean, correctly-scoped diff each time.~~
