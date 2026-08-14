@@ -6,6 +6,7 @@ import {
   grantConsent,
   localConsentStore,
   memoryConsentStore,
+  pageConsentStore,
   readConsent,
   revokeConsent,
 } from './consent.ts'
@@ -151,6 +152,75 @@ describe('a denied store does not deny the visitor', () => {
     const granted = grantConsent(writeOnly)
     expect(granted).toBeInstanceOf(GrantedConsent)
     expect(granted.disclosureVersion).toBe(DISCLOSURE_VERSION)
+  })
+
+  /**
+   * **The rule above was honoured here and defeated one call up, and this pair is what
+   * separates the two layers.**
+   *
+   * `grantConsent` returning a working consent is not enough on its own, because
+   * `demo/main.ts`'s `requireConsent()` does not use that return value — it **re-reads the
+   * store**. So a page whose storage silently forgets writes had a visitor press *Allow*,
+   * the write go nowhere, and *Start* throw `no consent`. Each layer was correct alone,
+   * which is exactly why nothing caught it.
+   *
+   * The store simulated here is the one that bites: every method is present and every call
+   * succeeds, and nothing is kept. `localConsentStore`'s duck-type check passes it — that
+   * check exists to refuse a global that is absent, throws, or lacks the methods, and this
+   * is none of those. Only a round trip separates a store that persists from one that
+   * merely accepts, which is why {@link pageConsentStore} does one.
+   */
+  it('a page whose storage accepts writes and forgets them can still read back its own consent', () => {
+    const original = Object.getOwnPropertyDescriptor(globalThis, 'localStorage')
+    // Present, complete, and amnesiac. Not a mock of a failure — a mock of a SUCCESS that
+    // keeps nothing, which is what Safari private browsing and a storage-blocked frame
+    // actually present.
+    const amnesiac: Storage = {
+      getItem: () => null,
+      setItem: () => undefined,
+      removeItem: () => undefined,
+      clear: () => undefined,
+      key: () => null,
+      length: 0,
+    }
+    Object.defineProperty(globalThis, 'localStorage', { value: amnesiac, configurable: true })
+    try {
+      // **The defect, stated as a measurement rather than as history.** This is what the
+      // demo did, and the grant is unreadable a line later — which is the refusal a
+      // visitor met.
+      const naive = localConsentStore()
+      grantConsent(naive)
+      expect(readConsent(naive).ok, 'the unguarded store must NOT be able to read its own grant').toBe(
+        false,
+      )
+
+      // And the fix, over the identical hostile global.
+      const guarded = pageConsentStore()
+      grantConsent(guarded)
+      const found = readConsent(guarded)
+      expect(found.ok, 'a visitor who granted must be able to start').toBe(true)
+      if (!found.ok) return
+      expect(found.consent.disclosureVersion).toBe(DISCLOSURE_VERSION)
+    } finally {
+      // Restored whatever was there, including nothing — the browser project runs three
+      // engines and a leaked global would follow this file into every later spec.
+      if (original === undefined) Reflect.deleteProperty(globalThis, 'localStorage')
+      else Object.defineProperty(globalThis, 'localStorage', original)
+    }
+  })
+
+  it('uses the real store, and disturbs no stored consent, when storage works', () => {
+    // The other half: the fallback must not fire on a healthy page, or every visitor
+    // silently stops being remembered — a regression that looks like nothing at all.
+    const store = pageConsentStore()
+    const granted = grantConsent(store)
+    expect(granted).toBeInstanceOf(GrantedConsent)
+    expect(readConsent(store).ok).toBe(true)
+
+    // The probe cleans up after itself. Asserted because it writes to the visitor's real
+    // storage, and a probe key left behind is litter this page put on someone's device.
+    expect(store.read(`${CONSENT_KEY}:probe`)).toBeNull()
+    store.clear(CONSENT_KEY)
   })
 })
 
