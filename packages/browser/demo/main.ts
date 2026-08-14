@@ -86,7 +86,7 @@ import {
   currentBrowserLabel,
   firstGap,
   grantConsent,
-  localConsentStore,
+  pageConsentStore,
   probeEnvironment,
   readConsent,
   revokeConsent,
@@ -110,7 +110,15 @@ let lastAnswer: { readonly n: number; readonly bits: Uint8Array } | null = null
 /** Counted here and never transmitted — see `startReport` below. */
 let declinedLocally = 0
 
-const store = localConsentStore()
+// **`pageConsentStore` and not `localConsentStore`, and the difference is a refusal a
+// visitor could hit.** `requireConsent()` below does not use the value `grantConsent`
+// returned — it re-reads the store — so on a page whose storage is denied the write went
+// nowhere and pressing Start threw `no consent` after the visitor had pressed Allow.
+// `pageConsentStore` round-trips a probe and falls back to memory, which is the outcome
+// `grantConsent`'s own docblock already promised: *"a visitor in a storage-denied context
+// still gets a working consent for this page load, they are simply asked again next
+// time."*
+const store = pageConsentStore()
 
 /**
  * Observers of "something the visible surface depends on has changed".

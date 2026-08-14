@@ -601,8 +601,19 @@ export const DISPOSITIONS: readonly Disposition[] = [
  * that must stay unreachable — **still does**, and the total moved 69 → 67, i.e. the rule connects
  * exactly the two getters and nothing else. A rule that connected broadly would have shown as a
  * large drop and been refused, as the object-literal-method rule was.
+ *
+ * ## Lowered 25 → 24, measured 2026-08-14 — WIRING, and it closed a real refusal
+ *
+ * `browser/memoryConsentStore` has a production caller. Its own docblock had claimed for
+ * months that it was used *"by a page whose storage is denied"*, and that was false —
+ * `demo/main.ts` bound `localConsentStore()` unconditionally, whose writes are a silent
+ * no-op when storage is unusable. **The unwired symbol and a user-visible defect were the
+ * same fact**: `requireConsent()` re-reads the store rather than using what `grantConsent`
+ * returned, so a visitor in private browsing pressed *Allow* and then got `no consent` on
+ * *Start*. `pageConsentStore` round-trips a probe and falls back to memory; the demo binds
+ * it; the symbol is reached because the bug is fixed, not to make a number smaller.
  */
-export const OPEN_FINDING_CEILING = 25
+export const OPEN_FINDING_CEILING = 24
 
 /**
  * How large the register may grow before something reddens.
