@@ -49,9 +49,10 @@ import { FabricNode } from './fabric-node.ts'
  * Measured, not reasoned: that fixture never reached `2 node(s) computing`.
  *
  * The constraint underneath is real and worth stating, because it rules out every cheaper
- * shape: **a node that is directly dialable enrols `seed`, and `sharedRelay` answers `null` the
- * moment one member is a seed.** So a member set that both shares a relay dependency *and* can
- * carry a job cannot contain a Node peer with a bound address at all.
+ * shape: **a node that is directly dialable enrols `seed`, and a seed depends on no relay to be
+ * found.** So a member set that both shares a relay dependency *and* can carry a job cannot
+ * contain a Node peer with a bound address at all — unless that peer *is* the relay, which is
+ * the case this file now reads and the sentence below records.
  *
  * Two browser tabs are the one topology that satisfies both halves, and they satisfy it by
  * construction rather than by contrivance:
@@ -76,24 +77,40 @@ import { FabricNode } from './fabric-node.ts'
  *
  * | | operators | verdict |
  * |---|---|---|
- * | distinct-operators | three distinct | `composed across 2 operators … no two members share an operator` |
+ * | distinct-operators | three distinct | `not composed [shared-relay-dependency] … relay <id> is itself a member` |
  * | one-operator | one | `not composed [insufficient-operators] … 2 distinct operators, found 1` |
  *
  * A page hardcoding either string fails the other case, and the third case asserts the two
  * differ at all. Both arms also assert against `not attempted`, which is the arm that means the
  * gate never ran — and is what two earlier drafts of this file actually read.
  *
- * ## What this file does NOT establish, said here rather than left to be assumed
+ * **Both arms are now refusals, and the discrimination is stronger for it rather than weaker.**
+ * It used to be composed-vs-refused, which a region could satisfy by rendering the presence or
+ * absence of one word. It is now refusal **kind** against refusal **kind** — two strings the
+ * page never composes, both coming from `describeQuorum`, each naming a different rule of
+ * `composeQuorum`. A region that rendered either constant fails the other arm exactly as
+ * before, and a region that rendered "some refusal" now fails both.
  *
- * **It does not close VER-03.** `shared-relay-dependency` is not reachable from this page, and
- * the reason is a property of the topology rather than a limit of this fixture:
- * `startEnrolledRelay` carries the measurement. In short — the relay computes (there is no
- * non-executing node class in this fabric, by deliberate deletion), it binds a socket so it
- * enrols `seed`, `composeQuorum` orders seeds first so it is always a member, and `sharedRelay`
- * answers `null` the moment a member is a seed. That is the rule being *right*, not silent.
- * VER-03's refusal is read by `quorum-agents.node.test.ts`, whose candidates are qualified by
- * who advertises the input CID rather than by who answers an offer, so its relay is not in the
- * pool.
+ * ## VER-03 on this page — read here since 2026-08-14, and the retraction that got it here
+ *
+ * This section said the opposite until then: *"It does not close VER-03.
+ * `shared-relay-dependency` is not reachable from this page … the relay computes, it binds a
+ * socket so it enrols `seed`, `composeQuorum` orders seeds first so it is always a member, and
+ * `sharedRelay` answers `null` the moment a member is a seed. That is the rule being right, not
+ * silent."*
+ *
+ * **Every clause of that is true except the last, and the last was the finding.** The rule was
+ * silent, for a reason nothing in the reasoning could reach: `relayIds` names relays by **peer
+ * id** and a quorum member is identified by **`nodeKey`**, so when the relay every other member
+ * depends on was itself a member, no comparison in `quorum.ts` could see it. A seed's own
+ * reachability really does not depend on a relay — but *being* the relay is not a dependency on
+ * one, it is being the thing everyone else depends on, and losing it loses them anyway. This
+ * fabric is the sharpest instance of VER-03 there is, and the composer read it as independent.
+ *
+ * `composeQuorum` now takes an optional `peerIdOf`, `submitJob` supplies it from the
+ * descriptors it already holds, and this page's own topology — two tabs that can only be found
+ * through the relay, plus the relay — is refused and says why. No fixture was engineered to get
+ * here: the pool is still `computePeers()`, everything that answers, exactly as before.
  */
 
 const ROOT = fileURLToPath(new URL('../../..', import.meta.url))
@@ -227,26 +244,34 @@ async function startProvider(name: string): Promise<{ node: FabricNode; addr: st
  * descriptor for it, and the quorum gate's third condition — *every candidate carries a
  * certificate* — fails on it. The composer never ran. Enrolling it is what lets it run.
  *
- * ## And this is why VER-03's refusal is NOT read on this page
+ * ## And this is why VER-03's refusal IS read on this page — corrected 2026-08-14
  *
- * Enrolling the relay fixes condition 3 and **cannot** produce `shared-relay-dependency`, for a
- * reason that is a property of the topology rather than of this fixture. The relay binds a
- * listening socket, so `canRelay` is true, so it enrols `discoverability: 'seed'` with
- * `relayIds: []`. `composeQuorum` orders candidates by *fewest discovery dependencies first*,
- * so a seed always sorts ahead of both tabs and is always in the member set; and `sharedRelay`
- * returns `null` the moment one member is a seed, because a directly dialable node depends on
- * no relay to be found.
+ * This section argued the opposite, and the argument is kept because its first half is exactly
+ * right and its conclusion was exactly wrong. It said: the relay binds a listening socket, so
+ * `canRelay` is true, so it enrols `discoverability: 'seed'` with `relayIds: []`;
+ * `composeQuorum` orders candidates by *fewest discovery dependencies first*, so a seed always
+ * sorts ahead of both tabs and is always in the member set; and `sharedRelay` returned `null`
+ * the moment one member was a seed. Every step of that is a true statement about the code.
  *
- * **That is correct behaviour, not a gap in the rule**: a quorum containing the relay genuinely
- * does not lose everything if the relay's *discovery* role fails. What it means is that the
- * demo page's candidate pool — which `main.ts` builds from `computePeers()`, i.e. everything
- * that answers, rather than from who advertises the input block — always contains a seed, and
- * rule 2 therefore cannot fire here. `quorum-agents.node.test.ts` reaches it because
- * `discoverCandidates` qualifies on *providers of the input CID*, and its relay holds no block.
+ * The conclusion drawn from it was *"that is correct behaviour, not a gap in the rule: a quorum
+ * containing the relay genuinely does not lose everything if the relay's discovery role
+ * fails."* **It does.** Both tabs are `via-relay` naming this node, so losing it loses both of
+ * them, and the third member IS it — so the quorum loses everything, which is the entire
+ * content of VER-03's sentence. What made the rule blind was not the seed reading but a
+ * namespace mismatch beneath it: `relayIds` holds **peer ids**, a member is identified by
+ * **`nodeKey`**, and the two never compare equal. `quorum.ts`'s header carries the correction
+ * in full.
  *
- * Recorded here rather than worked around, because engineering the page's pool to exclude the
- * relay would be shaping a fixture to reach a verdict — and a rule shaped to produce a reading
- * is not a rule.
+ * So the demo page's candidate pool — `main.ts` builds it from `computePeers()`, everything
+ * that answers, rather than from who advertises the input block — contains the relay, and the
+ * rule now sees it. Nothing about this fixture changed to reach that verdict, which is what
+ * makes it a reading rather than a contrivance: engineering the pool to exclude the relay would
+ * have been shaping a fixture to reach a verdict, and a rule shaped to produce a reading is not
+ * a rule.
+ *
+ * `quorum-agents.node.test.ts` reads the *other* shape of the same refusal — a relay that is
+ * not in the pool at all, because `discoverCandidates` qualifies on providers of the input CID
+ * and its relay holds no block. Two shapes, one kind, and the two files are not substitutes.
  */
 async function startEnrolledRelay(
   name: string,
@@ -445,10 +470,14 @@ async function quorumRegion(page: Page): Promise<string> {
 /** Each arm's rendered verdict, kept for the cross-arm comparison at the end. */
 const verdicts: { arm: string; text: string }[] = []
 
-describe('VER-04 — the quorum composer’s verdict, on the page a visitor reads', () => {
-  it('composes under anti-affinity across distinct operators, and names them on screen', async () => {
-    // Three distinct operators across three candidates, so rule 1 is satisfied.
-    const { page } = await twoTabsOnOneRelay('many-op', OPERATOR_B, OWNER_B, OPERATOR_RELAY)
+describe('VER-03/VER-04 — the quorum composer’s verdict, on the page a visitor reads', () => {
+  it('refuses for the shared relay when the relay is itself a member, and names it on screen', async () => {
+    // Three distinct operators across three candidates, so rule 1 is satisfied and **only**
+    // rule 2 can fire. That is what makes the refusal below a reading of VER-03 rather than
+    // of VER-04: `insufficient-operators` would also refuse this shard, and would mean the
+    // fixture was built wrong. `quorum-agents.node.test.ts` separates its two fabrics the
+    // same way and for the same reason.
+    const { page, relayPeerId } = await twoTabsOnOneRelay('many-op', OPERATOR_B, OWNER_B, OPERATOR_RELAY)
 
     await runTheLadder(page, 600_000)
     const verdict = await quorumRegion(page)
@@ -461,19 +490,24 @@ describe('VER-04 — the quorum composer’s verdict, on the page a visitor read
     // `twoTabsOnOneRelay`. Three, not two: in this fabric the relay computes too.
     expect(await page.textContent('#peers')).toContain('node(s) computing')
 
-    // ---- VER-04's positive arm. ------------------------------------------------------
+    // ---- VER-03's sentence, on the surface a visitor reads. --------------------------
     // The gate ran. Asserted first, and against the arm that would mean it did not, because
     // `not attempted` is what this file's two earlier drafts actually read and it would
     // otherwise pass every negative assertion below.
     expect(verdict).not.toContain(NOT_ATTEMPTED)
-    expect(verdict).toContain(COMPOSED)
-    // **The property, in the composer's own words rather than inferred from a count.** A
-    // count of 2 is the same fact the attestation line already carries; this clause is what
-    // says the two were selected so that no operator supplies more than one member.
-    expect(verdict).toContain('no two members share an operator')
-    // **The identities, which are what make the claim checkable.** They are what could show
-    // one operator supplying both members if it ever happened.
-    expect(verdict).toContain(OPERATOR_RELAY)
+    expect(verdict).toContain(SHARED_RELAY)
+    // **The identity, which is what makes the claim checkable.** The peer id of the node
+    // this test started as the relay, read off `FabricNode` rather than off the page — so
+    // this asserts that the composer named the node that is actually the single point of
+    // failure, not merely that it named something.
+    expect(verdict).toContain(relayPeerId)
+    // **The shape of the refusal, in the composer's own words.** The pre-existing sentence
+    // says every member is discoverable *through* the relay, which is false of a relay that
+    // is itself a member; this clause is what distinguishes the two and is the half that
+    // could not be read at all before 2026-08-14.
+    expect(verdict).toContain('is itself a member of the quorum')
+    // Not the page claiming a quorum it did not get, and not the other rule.
+    expect(verdict).not.toContain(COMPOSED)
     expect(verdict).not.toContain(INSUFFICIENT_OPERATORS)
   }, 1_200_000)
 
@@ -496,18 +530,30 @@ describe('VER-04 — the quorum composer’s verdict, on the page a visitor read
     expect(verdict).toContain('2 distinct operators, found 1')
     // Not the page claiming a quorum it did not get.
     expect(verdict).not.toContain(COMPOSED)
-    // And NOT the shared-relay refusal, which is a fact about this fabric too — both tabs do
-    // hang off one relay — but is not what refused, because rule 1 runs first and because the
-    // relay is itself a `seed` member. See `startEnrolledRelay` for why that is a property of
-    // the topology rather than of this fixture, and why VER-03 is not closed on this page.
+    // And NOT the shared-relay refusal — **which since 2026-08-14 is a fact this fabric would
+    // otherwise produce, and that is what makes this assertion worth its line.** Both tabs
+    // hang off the relay and the relay is a member, so rule 2 fires on this topology too; it
+    // does not get to speak because rule 1 runs first and this fabric has one operator. Until
+    // that date the assertion held for a weaker reason — the rule could not see the relay at
+    // all — so it passed on a fabric where nothing was being ordered.
     expect(verdict).not.toContain(SHARED_RELAY)
   }, 1_200_000)
 
-  it('reads two different verdicts off two fabrics, so neither arm can be a constant', () => {
+  it('reads two different refusal KINDS off two fabrics, so neither arm can be a constant', () => {
     // The property both cases exist to establish and neither can establish alone. A region
     // hardcoded to either string passes one case and fails this comparison; a region that
     // renders nothing fails both; a region wired to `not attempted` fails both. This is the
     // check that the reading DISCRIMINATES.
+    //
+    // **Re-sited on the refusal KIND on 2026-08-14, and it is a stronger reading than what it
+    // replaced.** It used to be composed-against-refused: the first arm composed, the second
+    // did not, and the two texts differed. Once rule 2 could see that the relay was a member,
+    // the first arm became a refusal too — so "one composed, one did not" was no longer
+    // available and something had to carry the discrimination. Kind-against-kind is what it
+    // is now, and the trade runs in this file's favour: the old pair could be satisfied by a
+    // region that rendered the *presence or absence* of one word, and this one cannot. Each
+    // arm names a different rule of `composeQuorum`, both strings come from `describeQuorum`,
+    // and the page composes neither.
     expect(verdicts.map((verdict) => verdict.arm)).toStrictEqual(['distinct-operators', 'one-operator'])
     const [distinct, oneOperator] = verdicts
     if (distinct === undefined || oneOperator === undefined) {
@@ -516,5 +562,13 @@ describe('VER-04 — the quorum composer’s verdict, on the page a visitor read
     expect(distinct.text).not.toBe(oneOperator.text)
     expect(distinct.text).not.toBe('')
     expect(oneOperator.text).not.toBe('')
+
+    // The kinds, crossed. Asserting each arm's own kind and the *absence* of the other's is
+    // what makes this a discrimination rather than two independent readings that happen to
+    // differ — a region rendering both strings at once would pass the inequality above.
+    expect(distinct.text).toContain(SHARED_RELAY)
+    expect(distinct.text).not.toContain(INSUFFICIENT_OPERATORS)
+    expect(oneOperator.text).toContain(INSUFFICIENT_OPERATORS)
+    expect(oneOperator.text).not.toContain(SHARED_RELAY)
   })
 })

@@ -1020,10 +1020,31 @@ export const MUTATIONS: readonly Mutation[] = [
       'fails, so the pool position is strictly the weaker one — measured rather than argued, on ' +
       'the run that moved it back.',
     file: 'packages/core/src/quorum.ts',
-    find: '    const shared = sharedRelay(members)',
-    replace: '    const shared = sharedRelay(distinct)',
+    find: '    const shared = sharedRelay(members, rules.peerIdOf)',
+    replace: '    const shared = sharedRelay(distinct, rules.peerIdOf)',
     caughtBy: ['packages/core/src/quorum.test.ts'],
     signature: 'refuses a one-member quorum that hangs off a single relay',
+    signatureSource: 'test-title',
+  },
+  {
+    id: 'M39b',
+    why:
+      'VER-03 — the second arm of rule 2, added 2026-08-14, and the argument that it is not ' +
+      'decoration. `relayIds` names relays by PEER ID while a quorum member is identified by ' +
+      '`nodeKey`; two spellings of one node that never compare equal. So when the relay every ' +
+      'other member depends on was ITSELF a member, no comparison in `quorum.ts` could see it — ' +
+      'and because a relay binds a socket it enrols `seed`, whose dependency set is empty, so ' +
+      '`sharedRelay` returned `null` and the quorum composed while reporting a redundancy one ' +
+      'node’s failure would erase. That is the browser tier’s own topology, not a contrived ' +
+      'one. Dropping the mapping at the call site restores exactly the old, silent behaviour ' +
+      'while leaving every other line of the rule in place, which is what makes it the right ' +
+      'plant: it cannot be caught by a test that merely reads rule 2, only by one that reads ' +
+      'this case.',
+    file: 'packages/core/src/job/submit.ts',
+    find: '          peerIdOf: (certificate) => peerIdByNodeKey.get(certificate.nodeKey) ?? null,\n',
+    replace: '',
+    caughtBy: ['packages/core/src/job/submit.test.ts'],
+    signature: 'refuses when the relay every other candidate depends on is itself a candidate',
     signatureSource: 'test-title',
   },
   {

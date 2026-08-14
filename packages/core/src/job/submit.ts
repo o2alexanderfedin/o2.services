@@ -2658,9 +2658,31 @@ export async function submitJob(
   const certificated = candidateNodes.flatMap((node) =>
     node.certificate === 'carries-no-certificate' ? [] : [node.certificate],
   )
+  // VER-03 — the one place in the fabric that holds both spellings of a node at once.
+  //
+  // `NodeCertificate` names a node by `nodeKey` (an ed25519 public key) and names relays
+  // by **peer id**; `NodeDescriptor` carries the peer id as `nodeId` beside the very
+  // certificate that key came from. So the mapping `composeQuorum` needs to see that the
+  // relay every other member depends on is *itself* a member exists here and nowhere
+  // else — core cannot derive one from the other without importing libp2p, which
+  // `CLAUDE.md`'s one-codebase constraint forbids in this package.
+  //
+  // Built over `candidateNodes` rather than over `spec.nodes`, so it covers exactly the
+  // certificates handed to the composer and no others. A certificate the map does not
+  // know answers `null`, which `sharedRelay` treats as *no match* — never as a match
+  // against another unknown.
+  const peerIdByNodeKey = new Map<string, string>()
+  for (const node of candidateNodes) {
+    if (node.certificate !== 'carries-no-certificate') {
+      peerIdByNodeKey.set(node.certificate.nodeKey, node.nodeId)
+    }
+  }
   const composition =
     candidateNodes.length > 0 && certificated.length === candidateNodes.length && spec.redundancy >= 2
-      ? composeQuorum(certificated, { size: spec.redundancy })
+      ? composeQuorum(certificated, {
+          size: spec.redundancy,
+          peerIdOf: (certificate) => peerIdByNodeKey.get(certificate.nodeKey) ?? null,
+        })
       : null
   // The members' descriptors, in the pool's own order. One array, shared by every shard
   // that composes, which is what lets the offer arm group by pool identity below.
