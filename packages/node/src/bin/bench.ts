@@ -54,6 +54,7 @@ import type {
   PublicKeyHex,
   RevealOutcome,
   ShardAttestation,
+  ShardQuorum,
   Task,
 } from '@o2/core'
 import type { CID } from 'multiformats/cid'
@@ -1988,6 +1989,24 @@ interface RungAttestation {
    */
   readonly aggregate: AggregateAttestation | NoReduceToAttest
   /**
+   * What the verification quorum came to for this rung's first shard — VER-04.
+   *
+   * **The reading this driver was missing, and the gap was invisible because the line
+   * beside it looked like it covered the ground.** `bench-attestation.node.test.ts` reads
+   * `independent (replicas 2, operators 2)` at the two-node rung — and
+   * `classifyAttestation` computes that label from *who answered and signed*, so it prints
+   * **identically whether or not the quorum gate ever ran**. VER-04's claim is about
+   * composition — that one operator cannot supply a whole quorum — and no output of this
+   * driver distinguished a quorum composed under anti-affinity from a candidate set that
+   * was never gated. A strength is not a composition, and reading one off the other is the
+   * conflation `ShardQuorum`'s own docblock exists to end.
+   *
+   * Recorded on the **same record and in the same statement** as the receipts above, for
+   * that statement's own reason: a reader comparing a composition against the strength it
+   * produced must be comparing two facts about one job.
+   */
+  readonly quorum: ShardQuorum | 'this-rung-returned-no-shard'
+  /**
    * How many of this job's owners contributed — CHURN-05, criterion 4.
    *
    * Recorded on the **same record and in the same statement** as the two receipts above,
@@ -2194,6 +2213,39 @@ function coverageReading(held: RungAttestation | NoJobToAttest): string | null {
   // fail to compile; it changes what five rungs print.
   if (coverage === 'defines-no-owners') return null
   return describeCoverage(coverage)
+}
+
+/**
+ * VER-04 — what the verification quorum came to, in the composer's own words.
+ *
+ * **All three arms are rendered, and the two that are not `composed` carry the reason.**
+ * `ShardQuorum`'s docblock argues that *why no quorum was attempted* is as much a fact
+ * about a result as a refusal is, and that a caller told only "not composed" could not
+ * tell a sovereign shard from an over-concentrated candidate set. A display that collapsed
+ * the arms would be the same loss one layer out.
+ *
+ * The operators are named rather than counted. A count is what
+ * {@link strengthReading} already prints, and printing a second count here would produce
+ * two numbers that look like corroboration while being the same fact twice — whereas the
+ * *identities* are what make "one operator cannot supply a whole quorum" checkable at all.
+ *
+ * **Deliberately says nothing a sibling guard greps for.** `coverage-agents.node.test.ts`
+ * asserts this driver's stdout LACKS `PARTIAL`, `owner coverage (` and
+ * `covered: N/M owners` — those belong to CHURN-05's line, whose absence is its
+ * information. Nothing here may reintroduce them.
+ */
+function quorumReading(held: RungAttestation | NoJobToAttest): string | null {
+  if (held === 'no-run-of-this-rung-returned-a-job') return null
+  const { quorum } = held
+  // Absent rather than a placeholder, on the rule the three readings beside this one
+  // follow: a reader tells *this rung produced no shard* from *this rung's quorum was not
+  // composed* by the presence of the line, never by parsing a sentinel out of it.
+  if (quorum === 'this-rung-returned-no-shard') return null
+  if (quorum.kind === 'composed') {
+    return `composed over ${String(quorum.operators.length)} operator(s): ${quorum.operators.join(', ')}`
+  }
+  if (quorum.kind === 'not-composed') return `not composed (${quorum.refusal}) — ${quorum.reason}`
+  return `not attempted — ${quorum.reason}`
 }
 
 /**
@@ -2472,6 +2524,12 @@ function runnerOver(acquire: (nodes: number) => Promise<Fabric>, state: RunnerSt
         state.attestations.set(config.nodes, {
           attestation: result.job.attestation,
           aggregate,
+          // VER-04, in the same statement as the receipts and for the same reason. Read off
+          // shard 0: a quorum is composed per shard, every shard of a rung is composed
+          // against the same candidate set by the same gate, and a loop would be N copies
+          // of one decision. The named arm covers a rung that returned no shard at all,
+          // which `real/0` cannot but a refusing fixture could.
+          quorum: result.job.shards[0]?.quorum ?? 'this-rung-returned-no-shard',
           // CHURN-05, in the same statement as the two receipts and for the same reason.
           coverage: result.job.coverage,
           fromCompletedRun: complete,
@@ -3622,6 +3680,13 @@ async function main(): Promise<void> {
      * decision rather than the omission.
      */
     coverage?: string
+    /**
+     * VER-04 — what the quorum came to, or absent when this rung returned no shard.
+     *
+     * Carried into `raw.json` on the same rule as the three above: a reader of the report
+     * sees what a reader of the terminal saw, and absence means the same thing in both.
+     */
+    quorum?: string
   }[] = []
   const sayAttestation = (config: string, held: RungAttestation | NoJobToAttest): void => {
     const { population, reading } = attestationReading(held)
@@ -3642,6 +3707,15 @@ async function main(): Promise<void> {
     if (coverage !== null) {
       process.stdout.write(`    owner coverage (${population}): ${coverage}\n`)
     }
+    // VER-04. Printed for every rung that returned a shard, because all three arms are
+    // information — see {@link quorumReading}. Placed after the strength lines so a reader
+    // meets the composition beside the strength it produced rather than instead of it:
+    // the two answer different questions and the whole point of this line is that the
+    // strength above cannot answer this one.
+    const quorum = quorumReading(held)
+    if (quorum !== null) {
+      process.stdout.write(`    quorum (${population}): ${quorum}\n`)
+    }
     // Absent, not `undefined` and not a placeholder string: `exactOptionalPropertyTypes`
     // makes those different, and a reader of `raw.json` must be able to tell *this rung
     // reduced nothing* from *this rung's aggregation was not attested* by the presence of
@@ -3652,6 +3726,7 @@ async function main(): Promise<void> {
       reading,
       ...(aggregate === null ? {} : { aggregate }),
       ...(coverage === null ? {} : { coverage }),
+      ...(quorum === null ? {} : { quorum }),
     })
   }
 
