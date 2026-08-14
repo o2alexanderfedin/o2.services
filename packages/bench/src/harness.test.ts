@@ -663,6 +663,76 @@ describe('BENCH-06 — the same-machine label is derived, not declared', () => {
     expect(markdown).toContain('| gross n·s | useful n·s |')
   })
 
+  /**
+   * **The case that makes the rendered label falsifiable, and nothing before it was.**
+   *
+   * Every `renderMarkdown` reading in this file until now was taken over a *one-host*
+   * inventory, and one-host is the only inventory `bin/bench.ts` could build until
+   * 2026-08-14 — `inventory()` returned a one-element array from the driver's own
+   * `hostname()` with no code path able to add a second. The consequence was that
+   * `machineLabel(report.inventory)` at `report.ts` could be replaced by the *literal
+   * string it always produced* and every published byte would stay identical with no spec
+   * red. The label was called derived and was, in effect, declared.
+   *
+   * So this renders the **other** arm. A literal `SAME-MACHINE: …` in place of the call
+   * fails here twice over: the headings would carry a label the inventory contradicts, and
+   * the phrase would appear in a document where three distinct hosts were observed.
+   * `not.toContain('SAME-MACHINE')` is the half that cannot be satisfied by any constant.
+   */
+  it('renders the distinct-machine label in every heading, and no same-machine claim anywhere', () => {
+    const inventory: Inventory = {
+      machines: [machine('laptop'), machine('phone'), machine('relay', ['relay'])],
+      nodeCount: 3,
+    }
+    const markdown = renderMarkdown({
+      title: 'Test run',
+      at: '2026-07-26T12:00:00.000Z',
+      inventory,
+      baseline: summarise([10]),
+      memoryTransport: [point(1, 100)],
+      realTransport: [point(1, 300)],
+      multiProcess: [point(1, 300)],
+      connectivity: connectivityTax([point(1, 100)], [point(1, 300)]),
+      crossover: costCrossover(summarise([10]), [point(1, 100)]),
+      unmet: [],
+    })
+
+    // The document must not claim one host anywhere, in any heading or in the title block.
+    expect(markdown).not.toContain('SAME-MACHINE')
+
+    // And the derived label must be on every heading that carries one — the same
+    // copy-paste property the one-host case above asserts, read on the other arm. Four:
+    // the title block plus three makespan headings, `multiProcess` being supplied.
+    const occurrences = markdown.split('3 nodes across 3 hosts').length - 1
+    expect(occurrences).toBeGreaterThanOrEqual(4)
+
+    // Anti-vacuity: all three hosts reached the inventory table, so the label's `3` is a
+    // count of rows a reader can check rather than a number appearing beside a noun.
+    for (const host of ['laptop', 'phone', 'relay']) expect(markdown).toContain(`| ${host} |`)
+  })
+
+  /**
+   * An inventory with nothing in it is refused rather than rendered.
+   *
+   * `hostCount` is `0`, so both surviving branches of `machineLabel` would print `0 host`
+   * or `0 hosts` — a label stating that a run happened on no machine at all. It reads as a
+   * measurement, it is designed to travel with the numbers when they are copied, and it is
+   * therefore worse than no label. The driver refuses the same condition at construction
+   * (`bench-inventory.ts`); this is the refusal on the package that has no platform with
+   * which to check who built what it was handed.
+   *
+   * `isSameMachine` is read here too, because it used to answer `true` on exactly this
+   * input: `hostCount([]) <= 1` held, so an inventory that observed nothing was published
+   * as having observed one host.
+   */
+  it('refuses to label an inventory with no machines, rather than reporting `0 host`', () => {
+    const nothing: Inventory = { machines: [], nodeCount: 16 }
+    expect(hostCount(nothing)).toBe(0)
+    expect(isSameMachine(nothing)).toBe(false)
+    expect(() => machineLabel(nothing)).toThrow(RangeError)
+    expect(() => machineLabel({ machines: [], nodeCount: 1 })).toThrow(/no machines/)
+  })
+
   it('states plainly when there is no crossover', () => {
     const inventory: Inventory = { machines: [machine('laptop')], nodeCount: 4 }
     const markdown = renderMarkdown({

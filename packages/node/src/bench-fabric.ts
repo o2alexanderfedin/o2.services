@@ -193,6 +193,18 @@ export interface AgentHandle {
   /** The same, for the pending-handshake count. Derived from the same reservation limit. */
   readonly maxIncomingPendingConnections: number
   /**
+   * The host this agent said it was running on — BENCH-06.
+   *
+   * **Read off the handshake and never off this process**, the same rule as
+   * {@link AgentHandle.announcedPid} directly above and for a stronger reason. The
+   * driver's published inventory is built by merging these, and the SAME-MACHINE label is
+   * derived from how many distinct `hostId`s that merge produced. Filling it from the
+   * parent's own `hostname()` would make every rig look same-machine whatever it was, so
+   * the label would be true by construction — a declaration wearing a derivation's
+   * clothes, which is precisely the defect BENCH-06 names.
+   */
+  readonly announcedMachine: AnnouncedMachine
+  /**
    * The peer ids this agent reached before it announced, `[]` when it was told to reach
    * nobody.
    *
@@ -222,11 +234,32 @@ export interface ProcessFabric extends Fabric {
   readonly submitterPeerId: string
 }
 
+/**
+ * What one agent said about the host it is running on — BENCH-06.
+ *
+ * Six measurements and nothing else. `roles` and `physicalCores`, which `@o2/bench`'s
+ * `Machine` also carries, are absent on purpose: neither is something the announcing
+ * process can read. See the key's own comment in `bin/agent.ts`.
+ *
+ * Exported because the driver's inventory is built from these and that construction has to
+ * live somewhere a test can call it — `bin/bench.ts` runs `main()` on import.
+ */
+export interface AnnouncedMachine {
+  readonly hostId: string
+  readonly cpuModel: string
+  readonly logicalCores: number
+  readonly totalMemoryBytes: number
+  readonly os: string
+  readonly kernel: string
+  readonly runtime: string
+}
+
 /** Every key this module reads off the handshake. The line carries more. */
 interface Handshake {
   readonly peerId: string
   readonly multiaddrs: readonly string[]
   readonly pid: number
+  readonly machine: AnnouncedMachine
   readonly inboundConnectionThreshold: number
   readonly maxIncomingPendingConnections: number
   readonly peers: readonly string[]
@@ -491,6 +524,20 @@ export async function processFabric(
     )
     for (const { child, handshake, dir } of spawned) {
       if (child.pid === undefined) throw new Error(`an agent in ${dir} was spawned without a pid`)
+      // BENCH-06, and it sits beside the pid guard because it defends the same kind of
+      // thing: a handle whose facts are absent rather than wrong. The parse above is a
+      // cast, so an agent binary that announced no `machine` — or announced one with a
+      // blank `hostId` — would put `undefined`, or a phantom host, into the driver's
+      // inventory. Both inflate or corrupt `hostCount`, and `hostCount` is the single
+      // quantity the SAME-MACHINE label is derived from. A named throw here is cheaper
+      // than a published label that is quietly wrong.
+      const announced: AnnouncedMachine | undefined = handshake.machine
+      if (typeof announced?.hostId !== 'string' || announced.hostId.length === 0) {
+        throw new Error(
+          `the agent in ${dir} announced no host identity, so nothing about which machine ` +
+            'it ran on could be published',
+        )
+      }
       agents.push({
         pid: child.pid,
         // Read off the handshake, never from `child.pid`. Filling this from the parent's
@@ -505,6 +552,8 @@ export async function processFabric(
         // agent said about its own started node, never restated from `inboundArgs` above.
         inboundConnectionThreshold: handshake.inboundConnectionThreshold,
         maxIncomingPendingConnections: handshake.maxIncomingPendingConnections,
+        // The same rule again, and the one place it matters most — see the field's docblock.
+        announcedMachine: announced,
         peers: handshake.peers,
       })
     }

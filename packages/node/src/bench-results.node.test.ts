@@ -134,9 +134,32 @@ const EXEMPT_SECTIONS: readonly Exemption[] = [
   },
   {
     heading: 'Machine inventory',
+    /**
+     * **Corrected 2026-08-14, because half of what this reason said became false.**
+     *
+     * It read: *host facts rather than measurements: the CPU model, the core count and the
+     * runtime version are the same whichever driver produced the curves beneath.* The first
+     * clause is still true and is the whole ground for the exemption. The second was true only while
+     * `bin/bench.ts` built the table from a single `hostname()` call, which made its
+     * contents literally independent of what ran — and that construction is the BENCH-06
+     * defect, not a property worth preserving. The table is now folded from what each
+     * spawned agent announced, so **how many rows it has depends on the driver**: the
+     * process-per-node arm contributes an announcement per agent, and the in-process and
+     * `--quick` arms contribute none.
+     *
+     * The exemption stands on the first clause alone. A row states where a machine is and
+     * what it is, not how fast anything ran on it, so naming a driver in the heading would
+     * attach a provenance claim to facts that have none — which is the same error in the
+     * opposite direction. What the driver determines is how many hosts could be *reached*,
+     * and a reader is told that by the derived same-machine label carried in the title
+     * block and in every makespan heading beneath.
+     */
     reason:
-      'host facts rather than measurements: the CPU model, the core count and the runtime version ' +
-      'are the same whichever driver produced the curves beneath',
+      'host facts rather than measurements: a row states what a machine is, not how fast ' +
+      'anything ran on it, so a driver name in this heading would attach a provenance claim to ' +
+      'facts that have none. Which hosts the table can hold *does* now depend on the driver — ' +
+      'agents announce their own — and that is disclosed by the derived same-machine label ' +
+      'rather than by this heading',
   },
 ]
 
