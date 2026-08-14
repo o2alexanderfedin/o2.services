@@ -176,6 +176,46 @@ describe('AUTH-03 — refusals name the link that broke', () => {
     expect(result.failure.index).toBe(1)
   })
 
+  it('makes a child\'s extra ability inert rather than refusing the chain that carries it', () => {
+    // RFC-0003 §5 requires that a child never widen its parent — `effective authority =
+    // intersection(authority of every certificate in the chain)`. `verifyChain` writes no
+    // set-subset test, and `RFC-0003-REVIEW-codebase-2026-08-06.md`'s **G5** concluded from
+    // that absence that the attenuation is unenforced. It is not, and this case is the
+    // difference: the check is missing and the PROPERTY HOLDS, because the ability under
+    // test is required of EVERY link rather than of the leaf.
+    //
+    // Alice grants the coordinator `execute` + `delegate` only. The coordinator then issues
+    // itself a strictly wider grant, adding `read` — a link Alice never authorised and which
+    // no test in this file refuses.
+    //
+    // WATCHED RED 2026-08-13, and the plant names the mechanism rather than merely breaking
+    // something: narrowing the ability test to the leaf — `i === chain.length - 1 &&
+    // !link.abilities.includes(options.ability)` — gave PLANTED_EXIT=1 with *"AssertionError:
+    // expected true to be false"* on this case ALONE, 1 failed / 16 passed. Under the leaf-only
+    // rule the smuggled `read` is granted, which is the escalation. Restored by the surgical
+    // inverse and `cmp`-verified byte-identical against a pre-plant snapshot, sha256 fc322f5b.
+    // That the other sixteen stayed green is the other half of the reading: no existing case
+    // covers this, which is why G5 could be written and believed.
+    const parent = delegate(alice.priv, { ...base, audience: coord.pub, abilities: ['execute', 'delegate'] })
+    const widened = delegate(coord.priv, {
+      ...base,
+      audience: worker.pub,
+      abilities: ['execute', 'delegate', 'read'],
+    })
+
+    // The widened chain VERIFIES for the ability the parent actually held...
+    expect(verifyChain([parent, widened], opts).ok).toBe(true)
+
+    // ...and the smuggled one is unreachable, refused at the PARENT's index rather than the
+    // child's, which is what makes this attenuation and not a coincidence.
+    const reading = verifyChain([parent, widened], { ...opts, ability: 'read' })
+    expect(reading.ok).toBe(false)
+    if (reading.ok) return
+    expect(reading.failure.kind).toBe('missing-ability')
+    if (reading.failure.kind !== 'missing-ability') return
+    expect(reading.failure.index).toBe(0)
+  })
+
   it('refuses a chain that ends at a different node', () => {
     // A capability captured in transit must not work anywhere else.
     const result = verifyChain(directChain(), { ...opts, audience: mallory.pub })

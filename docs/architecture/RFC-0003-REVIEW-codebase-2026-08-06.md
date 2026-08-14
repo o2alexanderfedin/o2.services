@@ -141,6 +141,35 @@ connection the chain must also fit in 128 KiB and complete inside the 5 s ceilin
   `verifyChain` checks signature, expiry, ability membership, owner, and the parent's `delegate`
   grant — but **not** that a child's ability set ⊆ its parent's. Issuance-time enforcement is
   unenforceable (the issuer is the attacker); it must be verification-time, in the imperative.
+
+  > **CORRECTED 2026-08-13 — the check is missing and the property holds.** Every clause above
+  > is true about the code and the conclusion drawn from it is not, which is this repository's
+  > own most-cited defect shape running in reverse: a claim about *intent* (no subset test is
+  > written) read as a claim about *effect* (attenuation is unenforced). It is not.
+  >
+  > `verifyChain` tests `link.abilities.includes(options.ability)` on **every** link, not on the
+  > leaf — so the ability being exercised must be present in all of them, which is exactly
+  > `ability ∈ ⋂ abilities`, the intersection §5 asks for, computed per request at verification
+  > time. That is also precisely where this entry says enforcement belongs.
+  >
+  > So a child holding a *broader* set than its parent is **inert**: the extra ability is
+  > recorded in the link and can never be exercised, because the moment anybody asks for it the
+  > parent link fails `missing-ability` at its own index. The bound already holds and there is
+  > nothing here to fix. Adding a set-subset test would refuse such a chain earlier and with a
+  > better-named failure — a legibility improvement, not a security one, and it should be
+  > argued for on that basis rather than on this entry.
+  >
+  > Two limits on this correction, stated rather than left to be discovered. It holds for a
+  > **single-ability** decision, which is the only kind this codebase makes: `verifyChain`
+  > returns `{ok, audience, expiresAt}` and no ability set, so no caller can ask a broader
+  > question. And there is exactly **one** production caller — `authorizeCapability` — which
+  > hardcodes `ability: 'execute'`, so `'read'` and `'delegate'` are never requested in
+  > production and the intersection is exercised for one ability only.
+  >
+  > **`S5` was right and this entry disagreed with it.** S5 already records that §5's
+  > `effective authority = intersection(...)` is *"literally what `verifyChain` computes,
+  > including `expiresAt = Math.min(...)`"*. Two entries of one document reached opposite
+  > readings of one function; S5's is the correct one.
 - **G6 — no canonical-encoding rule, and this fabric has one DER cannot express.** The signing
   surface is strict DAG-CBOR with deliberately inconsistent per-payload sort decisions:
   `relayIds.sort()`, `abilities.sort()`, but `inputCids` *"in merge order, never sorted"* because

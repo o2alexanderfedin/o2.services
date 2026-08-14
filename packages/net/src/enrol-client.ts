@@ -39,7 +39,13 @@
  */
 
 import { encodeRequest, parseResponse } from './protocol.ts'
-import type { EnrollmentChallenge, EnrollmentRefusal, NodeCertificate, PendingEnrollment } from '@o2/core'
+import type {
+  EnrollmentChallenge,
+  EnrollmentRefusal,
+  EnrollmentRequest,
+  NodeCertificate,
+  PendingEnrollment,
+} from '@o2/core'
 import type { RpcEndpoint } from './rpc.ts'
 
 /** The prefix every unreachable-provider message carries, on both this path and 17-03's. */
@@ -58,6 +64,26 @@ export type EnrolOutcome =
   | { readonly ok: false; readonly kind: 'unanswerable'; readonly reason: string }
   /** Nothing answered. See this module's header for what this arm does *not* cover. */
   | { readonly ok: false; readonly kind: 'unreachable'; readonly reason: string }
+  /**
+   * A certificate arrived, and it is about a different request.
+   *
+   * A **fourth** arm rather than a `refused` with an unusual refusal, because the other
+   * three are all *the provider judging the requester* and this one is the requester
+   * judging the provider. `EnrollmentRefusal`'s four kinds are the authority's vocabulary
+   * for saying no; nothing in it can say *"you answered about somebody else"*, and a
+   * caller that could not tell those apart would have nothing to act on — the same
+   * argument this module's header makes for splitting `refused` from `unanswerable`.
+   *
+   * The operator's next action differs too: a refusal is theirs to fix or wait out, and
+   * this is a provider they should stop using.
+   */
+  | {
+      readonly ok: false
+      readonly kind: 'unratified'
+      /** Which of the five checkable fields disagreed. Named so a log points at it. */
+      readonly field: 'nodeKey' | 'userKey' | 'operatorId' | 'discoverability' | 'relayIds'
+      readonly reason: string
+    }
 
 /**
  * Ask one peer to certify this node.
@@ -129,8 +155,88 @@ export async function enrolOverRpc(
   }
 
   const { result } = response
-  if (result.ok) return { ok: true, certificate: result.certificate }
+  if (result.ok) return ratify(result.certificate, request, provider)
   return { ok: false, kind: 'refused', refusal: result.refusal, reason: result.reason }
+}
+
+/**
+ * Is this certificate about the request we just sent? — AUTH-01.
+ *
+ * The question nobody downstream can ask, because nobody downstream holds the request.
+ * Until this existed the answer came back verbatim and both node factories persisted it
+ * unread, while **both** already re-checked the certificate they *load* from storage
+ * (`browser-node.ts:553-560`, `fabric-node.ts:1053-1062`). One sentence describes the two
+ * cases — a certificate that is intact, unexpired, genuinely signed, and names somebody
+ * else — and only the reload end was guarded.
+ *
+ * ## Five fields, because `enrol` copies exactly five
+ *
+ * `EnrollmentAuthority.enrol` builds what it signs from `nodeKey`, `userKey`,
+ * `operatorId`, `discoverability` and `relayIds`, and derives `issuedAt`, `expiresAt` and
+ * `issuer` itself (`enrollment.ts:887-896`). Only the copied five have a counterpart to
+ * compare against, so only those five are checked, and this list is the authority's own
+ * rather than a guess about it.
+ *
+ * The three it derives are deliberately unchecked. `issuedAt`/`expiresAt` are the
+ * provider's to choose. `issuer` has no expected value **here**: `BrowserNodeOptions` has
+ * no `trustedIssuers` field at all, so a check against `certificate.issuer` would compare
+ * the answer with itself — well-formedness wearing authenticity's clothes.
+ *
+ * ## No clock, and that is a decision
+ *
+ * A first draft ran `verifyCertificate(certificate, new Set([certificate.issuer]),
+ * Date.now())` here. Beyond the vacuous anchor above, `verifyCertificate` refuses
+ * `not-yet-valid` when `issuedAt > now`, a **strict** comparison with no skew allowance
+ * (`enrollment.ts:1121`) — and `issuedAt` is stamped from the *provider's* clock while
+ * `now` would be read from the *requester's*. A machine a second behind would have had an
+ * honest, freshly-signed certificate refused, and on the browser tier that is fatal to
+ * the start. Comparing fields needs no clock, so the skew cannot arise and this module
+ * keeps the *"Pure module"* its header claims. Validity is the relying party's question
+ * and both tiers already ask it at load.
+ *
+ * ## `relayIds` is normalised on both sides, and it has to be
+ *
+ * `enrol` signs `[...request.relayIds].sort()` while `requestEnrollment` passes them
+ * through unsorted, so an element-wise compare would accuse an **honest** provider — and
+ * only for callers whose ids happened to arrive unsorted, which is the worst shape of
+ * intermittent failure. `enrol-ratification.test.ts`'s last case is the negative control.
+ */
+function ratify(
+  certificate: NodeCertificate,
+  request: EnrollmentRequest,
+  provider: string,
+): EnrolOutcome {
+  const mismatch = (
+    field: 'nodeKey' | 'userKey' | 'operatorId' | 'discoverability' | 'relayIds',
+    expected: string,
+    found: string,
+  ): EnrolOutcome => ({
+    ok: false,
+    kind: 'unratified',
+    field,
+    reason: `provider ${provider} answered about a different ${field}: asked for ${expected}, was given ${found}`,
+  })
+
+  if (certificate.nodeKey !== request.nodeKey) {
+    return mismatch('nodeKey', request.nodeKey, certificate.nodeKey)
+  }
+  if (certificate.userKey !== request.userKey) {
+    return mismatch('userKey', request.userKey, certificate.userKey)
+  }
+  if (certificate.operatorId !== request.operatorId) {
+    return mismatch('operatorId', request.operatorId, certificate.operatorId)
+  }
+  if (certificate.discoverability !== request.discoverability) {
+    return mismatch('discoverability', request.discoverability, certificate.discoverability)
+  }
+
+  const asked = [...request.relayIds].sort()
+  const given = [...certificate.relayIds].sort()
+  if (asked.length !== given.length || asked.some((id, i) => id !== given[i])) {
+    return mismatch('relayIds', `[${asked.join(', ')}]`, `[${given.join(', ')}]`)
+  }
+
+  return { ok: true, certificate }
 }
 
 /**
