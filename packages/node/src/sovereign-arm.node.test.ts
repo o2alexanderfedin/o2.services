@@ -119,8 +119,10 @@ type BenchProcess = ChildProcessByStdio<Writable, Readable, Readable>
 interface LegReading {
   /** Sovereign shards that agreed. */
   readonly agreed: number
-  /** Sovereign shards submitted. The leg submits exactly one. */
+  /** Sovereign shards submitted. */
   readonly submitted: number
+  /** How many DISTINCT owners those shards were pinned to — 1 on a one-worker rung, else 2. */
+  readonly owners: number
   /** First eight hex characters of the key the chain is rooted at. */
   readonly root: string
   /** The peer id(s) the chain was minted for, or the driver's word for nobody. */
@@ -138,9 +140,16 @@ interface LegReading {
   readonly attestation: string | null
 }
 
-/** The leg's own sentence, parsed back out of it rather than restated here. */
+/**
+ * The leg's own sentence, parsed back out of it rather than restated here.
+ *
+ * **`across N owner(s)` was added on 2026-08-14 and is the reading MR-02's plural claim turns
+ * on.** Without it the line is satisfied identically by one owner holding two rows and by two
+ * owners holding one each — and those are different claims, only the second of which is what
+ * *"each owner computes a local partial over its own data"* says.
+ */
 const LEG_LINE =
-  /^--sovereign: (\d+) of (\d+) sovereign shards agreed, chain rooted at ([0-9a-f]+), audience (\S+)$/
+  /^--sovereign: (\d+) of (\d+) sovereign shards agreed across (\d+) owner\(s\), chain rooted at ([0-9a-f]+), audience (\S+)$/
 
 /** The discover arm's sentence, read only for its presence. */
 const DISCOVER_LINE = /^--discover: \d+ of \d+ workers qualified from \d+ providers/
@@ -290,8 +299,9 @@ async function readLegLine(): Promise<LegReading> {
         resolve({
           agreed: Number(hit[1]),
           submitted: Number(hit[2]),
-          root: hit[3] ?? '',
-          audience: hit[4] ?? '',
+          owners: Number(hit[3]),
+          root: hit[4] ?? '',
+          audience: hit[5] ?? '',
           discovered,
           attestation,
         })
@@ -326,7 +336,10 @@ const AGGREGATION_LINE = /^--sovereign aggregation: (.+)$/
  * the refusal and could never see the arm run. Reading to exit is what makes the passing
  * rung observable at all.
  */
-async function readAggregationLines(): Promise<readonly string[]> {
+async function readWholeRun(): Promise<{
+  readonly aggregation: readonly string[]
+  readonly owners: readonly number[]
+}> {
   const spawned: BenchProcess = spawn(
     process.execPath,
     [BENCH, '--quick', '--discover', '--sovereign'],
@@ -334,38 +347,47 @@ async function readAggregationLines(): Promise<readonly string[]> {
   )
   child = spawned
 
-  return new Promise<readonly string[]>((resolve, reject) => {
-    let stdout = ''
-    let stderr = ''
-    const timer = setTimeout(
-      () => reject(new Error(`driver did not exit within budget.\nstdout:\n${stdout}`)),
-      ARM_BUDGET_MS,
-    )
-    spawned.stdout.on('data', (chunk: Buffer) => {
-      stdout += chunk.toString()
-    })
-    spawned.stderr.on('data', (chunk: Buffer) => {
-      stderr += chunk.toString()
-    })
-    spawned.on('exit', (code) => {
-      clearTimeout(timer)
-      // A non-zero exit is reported rather than parsed past. The lines this function
-      // returns are only evidence about a run that finished; harvesting them from a driver
-      // that died would report the aggregation of a job that was cut short.
-      if (code !== 0) {
-        reject(
-          new Error(`bench exited with ${String(code)}.\nstdout:\n${stdout}\nstderr:\n${stderr}`),
-        )
-        return
-      }
-      const lines: string[] = []
-      for (const line of stdout.split('\n')) {
-        const hit = AGGREGATION_LINE.exec(line.trim())
-        if (hit !== null && hit[1] !== undefined) lines.push(hit[1])
-      }
-      resolve(lines)
-    })
-  })
+  return new Promise<{ readonly aggregation: readonly string[]; readonly owners: readonly number[] }>(
+    (resolve, reject) => {
+      let stdout = ''
+      let stderr = ''
+      const timer = setTimeout(
+        () => reject(new Error(`driver did not exit within budget.\nstdout:\n${stdout}`)),
+        ARM_BUDGET_MS,
+      )
+      spawned.stdout.on('data', (chunk: Buffer) => {
+        stdout += chunk.toString()
+      })
+      spawned.stderr.on('data', (chunk: Buffer) => {
+        stderr += chunk.toString()
+      })
+      spawned.on('exit', (code) => {
+        clearTimeout(timer)
+        // A non-zero exit is reported rather than parsed past. The lines this function
+        // returns are only evidence about a run that finished; harvesting them from a driver
+        // that died would report the aggregation of a job that was cut short.
+        if (code !== 0) {
+          reject(
+            new Error(`bench exited with ${String(code)}.\nstdout:\n${stdout}\nstderr:\n${stderr}`),
+          )
+          return
+        }
+        const aggregation: string[] = []
+        const owners: number[] = []
+        for (const line of stdout.split('\n')) {
+          const trimmed = line.trim()
+          const agg = AGGREGATION_LINE.exec(trimmed)
+          if (agg !== null && agg[1] !== undefined) aggregation.push(agg[1])
+          // The owner count per rung, read off the leg line the same way — so the two arrays
+          // are index-aligned by rung and a case can assert that the rung which aggregated is
+          // the rung that had two owners.
+          const leg = LEG_LINE.exec(trimmed)
+          if (leg !== null && leg[3] !== undefined) owners.push(Number(leg[3]))
+        }
+        resolve({ aggregation, owners })
+      })
+    },
+  )
 }
 
 describe('the --sovereign leg runs, and says what it dispatched', () => {
@@ -400,6 +422,9 @@ describe('the --sovereign leg runs, and says what it dispatched', () => {
       // **same** owner: the arm needs two contributions, not two owners, so no second
       // identity was enrolled and `BENCH_USER_SEED` is untouched.
       expect(leg.submitted).toBe(2)
+      // Rung 1 has one worker and therefore one owner; the two-owner reading is the
+      // whole-run case below, which reads every rung rather than the first.
+      expect(leg.owners).toBe(1)
       // At least one agreed. Parsed out of the line rather than matched as a fixed string,
       // so a leg reporting `0 of 1` fails here rather than passing on the presence of a
       // line — which is the whole difference between this file and a source-text count.
@@ -487,17 +512,24 @@ describe('the --sovereign leg runs, and says what it dispatched', () => {
    * This case is what makes that observable from outside the process.
    */
   it(
-    'MR-02 — a rung with two combine executors aggregates the owner-pinned partials, and the rung without one says so',
+    'MR-02 — the two-owner rung aggregates each owner’s own partial, and the one-owner rung says why it cannot',
     async () => {
       expect(workdir.startsWith(tmpdir())).toBe(true)
       const before = publishedStatus()
 
-      const lines = await readAggregationLines()
+      const { aggregation: lines, owners } = await readWholeRun()
 
       // One per rung of `REAL_LADDER`, which is `[1, 2]` under `--quick`. Asserted as an
       // equality rather than a lower bound: a driver that printed the line once would pass
       // a `>= 1` while having silently stopped attempting the arm on one of its rungs.
       expect(lines, `aggregation lines: ${JSON.stringify(lines)}`).toHaveLength(2)
+
+      // **MR-02's plural claim, and it is the reading this whole leg exists for.** The rungs
+      // are `[1, 2]` workers and `ownerOfWorker` alternates owners across them, so the
+      // one-worker rung has one owner and the two-worker rung has two. Asserted as the exact
+      // pair rather than "at least one rung had two", because a driver that quietly stopped
+      // varying the owner would still satisfy a lower bound on the larger rung.
+      expect(owners, `owner counts per rung: ${JSON.stringify(owners)}`).toStrictEqual([1, 2])
 
       // **The one-worker rung names its own limit rather than skipping.** A rung that
       // printed nothing is indistinguishable from a leg that was never wired — the same
@@ -519,7 +551,12 @@ describe('the --sovereign leg runs, and says what it dispatched', () => {
         'not attempted',
       )
       expect(second).not.toContain('refused')
-      expect(second).toMatch(/^\d+ combine\(s\) at 2 replicas, coverage 1\/1 owners complete,/)
+      // **`2/2 owners complete`, not `1/1`.** The denominator is the count of DISTINCT owners
+      // the job was defined over, derived by `reduceSovereignJob` from the shards it admitted
+      // rather than declared — so this single assertion carries both halves of MR-02 at once:
+      // two owners each contributed, and the aggregation over their contributions was
+      // verified at two replicas. A one-owner rig reads `1/1` here and would fail.
+      expect(second).toMatch(/^\d+ combine\(s\) at 2 replicas, coverage 2\/2 owners complete,/)
       expect(second).toContain('2 row(s) watched over 2 pinned')
 
       // Written where it was told to, and nowhere else — the same guard every case here

@@ -775,8 +775,14 @@ function witnessDrift(entry: UnreadRow): { arrived: string[]; departed: string[]
  * every entry point runs one owner, and no exported symbol names "two owners". So the
  * exemption is the correct device rather than a way of dodging the check — and the honest
  * cost of using it is this +1, taken visibly instead of by finding some symbol to point at.
+ *
+ * **Lowered 15 → 14 the same day, once MR-02's gap was closed rather than exempted.** The
+ * driver now runs two owners, so the row is `Done` and its entry is gone. The ceiling follows
+ * the measurement straight back down rather than keeping the slack the departure opened —
+ * `OPEN_FINDING_CEILING`'s rule that *a ceiling with slack in it stops binding*, applied within
+ * the hour instead of the next time somebody notices.
  */
-const REREAD_REGISTER_CEILING = 15
+const REREAD_REGISTER_CEILING = 14
 
 /**
  * ## The rule this list encodes
@@ -1108,26 +1114,26 @@ const REREAD_REGISTER: readonly UnreadRow[] = [
   // **Note what did NOT happen: the gap was not widened to fit the wiring.** Wiring the
   // aggregation on one owner is progress and is recorded as such in the row; it does not
   // make "each owner" true, and the row stays unticked on exactly the leg it always had.
-  {
-    id: 'MR-02',
-    because: 'entry-point-not-driven',
-    reread: '2026-08-14',
-    witnesses: [
-      // The aggregate is bit-identical to a single-node reference. Shared with MR-03 and
-      // it is the weakest of the four for this row's purpose — it says nothing about
-      // owners — but the register's rule is that the list is what the corpus says *now*,
-      // not a curated subset, so it is listed.
-      'packages/core/src/reduce.test.ts',
-      // The arm's own refusals, including the case proving one owner's two contributions
-      // aggregate — which is what let the single-owner wiring exist at all.
-      'packages/net/src/reduce-sovereign.test.ts',
-      // The multi-owner reading, across real `bin/agent.ts` processes — the thing no entry
-      // point drives, and therefore the one this exemption is really about.
-      'packages/node/src/sovereign-aggregation.node.test.ts',
-      // The wiring itself, read off a spawned driver's stdout.
-      'packages/node/src/sovereign-arm.node.test.ts',
-    ],
-  },
+  //
+  // ## And then it was REMOVED again the same day — 2026-08-14
+  //
+  // The entry above stood for about an hour. The gap it names is closed: `bin/bench.ts`'s
+  // `--sovereign` leg now enrols its workers under **two** owners, seeds each owner's row onto
+  // that owner's nodes **and no others**, and aggregates — `coverage 2/2 owners complete`, read
+  // off a spawned driver by `sovereign-arm.node.test.ts` and planted red first. So MR-02 is
+  // `Done`, has left the *unreached* population entirely, and takes the same exit `SCHED-05`
+  // took. Its entry read:
+  //
+  //   { id: 'MR-02', because: 'entry-point-not-driven', reread: '2026-08-14', witnesses: [
+  //     core/reduce.test.ts, net/reduce-sovereign.test.ts,
+  //     node/sovereign-aggregation.node.test.ts, node/sovereign-arm.node.test.ts ] }
+  //
+  // **The lesson is about this register, not about MR-02, and it is the reason the round trip
+  // is written down instead of tidied away.** An entry here is a promise to re-read, and
+  // writing that promise down is what turned *"why is this exempt?"* into the next question
+  // rather than one for a future sweep. The exemption was the honest answer at 22:00 and was
+  // obsolete by 23:00 — the device did exactly what it exists to do, on the shortest possible
+  // timescale.
   {
     id: 'MR-03',
     because: 'entry-point-not-driven',

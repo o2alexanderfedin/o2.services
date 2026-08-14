@@ -722,7 +722,14 @@ describe('the ledger this suite parses is the real ledger', () => {
     // only `WIRE-02` and (until today) `BENCH-07` were open. It stays open until Phase 22
     // lands, and Phase 22 runs last.
     expect(locate('DATA-05')?.satisfied).toBe(true) // v1 section, closed
-    expect(locate('MR-02')?.satisfied).toBe(false) // v1 section, open
+    // **`MR-02` moved false → true on 2026-08-14 and is kept here rather than swapped for
+    // another open id.** Its job in this list is to be a v1-section row whose state this
+    // parser reads correctly, and a row that has *changed* state serves that better than one
+    // that never has: a parser silently returning a constant passes a list of unchanging
+    // values and fails this line. It closed when `bin/bench.ts`'s `--sovereign` leg began
+    // enrolling its workers under two owners and aggregating each owner's own partial —
+    // `coverage 2/2 owners complete`, read off a spawned driver by `sovereign-arm.node.test.ts`.
+    expect(locate('MR-02')?.satisfied).toBe(true) // v1 section, closed 2026-08-14
     expect(locate('SCHED-06')?.satisfied).toBe(true) // v1.1 section, closed
     expect(locate('WIRE-02')?.satisfied).toBe(false) // v1.1 section, open
     expect(locate('BENCH-07')?.satisfied).toBe(true) // v1.1 section, closed 2026-08-06

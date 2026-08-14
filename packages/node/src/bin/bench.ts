@@ -1035,6 +1035,71 @@ const BENCH_OWNER_KEY: PublicKeyHex = delegate(BENCH_USER_SEED, {
 }).issuer
 
 /**
+ * The SECOND owner's seed, and it exists only behind `--discover --sovereign`.
+ *
+ * ## Why a second owner is here at all
+ *
+ * `MR-02` reads *"**each owner** computes a local partial over its own data with no map-side
+ * data movement"*, and until 2026-08-14 no entry point in this repository ran more than one
+ * owner. The two-owner reading was real and was measured — across two `bin/agent.ts` processes
+ * by `sovereign-aggregation.node.test.ts` — but it was driven by nothing an operator runs, so
+ * the row's open leg was *entry-point-not-driven* rather than unbuilt.
+ *
+ * ## The reason recorded for NOT doing this was measured and was false
+ *
+ * The register and MR-02's own row both said that giving this driver a second owner *"changes
+ * what a published driver measures"*, and therefore that it was an owner decision. It is not:
+ * `eligibleNodes` returns **every** node for a `label: 'public'` request
+ * (`packages/core/src/sovereignty.ts:185`), and every shard of every published sweep is public.
+ * A second owner among the workers cannot move a public placement, so no published number can
+ * see this.
+ *
+ * ## Confined to the twice-flagged path, deliberately
+ *
+ * The owner a worker enrols under varies **only when `SOVEREIGN` is set**. Under `--discover`
+ * alone every worker still enrols under {@link BENCH_USER_SEED}, byte-identically to before, so
+ * `discover-arm.node.test.ts` is measuring the rig it always measured. This follows the rule
+ * `packages/net/src/remote-executor.ts:60` already states for this leg: it lives behind
+ * `--discover --sovereign`, both off by default.
+ *
+ * Seed 8; 7 is the first owner's. Two owners is the smallest number at which "each owner" is a
+ * plural claim, and this leg is a demonstration rather than a sample — the same sentence the
+ * row count carries.
+ */
+const BENCH_USER_SEED_B = new Uint8Array(32).fill(8)
+
+/**
+ * The public half of {@link BENCH_USER_SEED_B}.
+ *
+ * Derived by the identical route as {@link BENCH_OWNER_KEY} and for the identical reason — see
+ * that constant's docblock, which explains why this derivation goes through `delegate` and why
+ * it must not import `capability-fixture.ts`. Written as a second literal rather than folded
+ * into a shared helper because the argument for the shape lives on the first one and a helper
+ * would put the two constants at different distances from it.
+ */
+const BENCH_OWNER_KEY_B: PublicKeyHex = delegate(BENCH_USER_SEED_B, {
+  ownerId: 'derives-a-public-key-and-is-never-sent',
+  audience: 'derives-a-public-key-and-is-never-sent',
+  abilities: ['execute'],
+  expiresAt: 1,
+}).issuer
+
+/**
+ * Which owner worker `i` belongs to — the whole of the two-owner arrangement.
+ *
+ * **Round-robin, and the alternation matters more than the split.** With workers alternating,
+ * every rung of `REAL_LADDER` with two or more nodes has both owners represented, and the
+ * one-node rung has exactly one. That is what lets the leg below scale its own claim to the rig
+ * it was given rather than refusing on the small rungs.
+ *
+ * Returns the FIRST owner unconditionally unless `SOVEREIGN` — see {@link BENCH_USER_SEED_B}.
+ */
+function ownerOfWorker(index: number): { readonly seed: Uint8Array; readonly key: PublicKeyHex } {
+  if (!SOVEREIGN || index % 2 === 0) return { seed: BENCH_USER_SEED, key: BENCH_OWNER_KEY }
+  return { seed: BENCH_USER_SEED_B, key: BENCH_OWNER_KEY_B }
+}
+
+/**
  * AUTH-03's requestor half: the chain one candidate is dispatched under.
  *
  * ## A copy of a shape, and the import it refuses
@@ -1072,17 +1137,39 @@ const BENCH_OWNER_KEY: PublicKeyHex = delegate(BENCH_USER_SEED, {
  * dispatch takes.
  */
 function sovereignSupplierFor(nodeId: string): CapabilitySupplier {
-  return (task: Task): readonly Delegation[] =>
-    task.label === 'sovereign' && task.ownerId !== undefined
-      ? [
-          delegate(BENCH_USER_SEED, {
-            ownerId: task.ownerId,
-            expiresAt: Date.now() + 3_600_000,
-            audience: audienceKeyOf(nodeId),
-            abilities: ['execute'],
-          }),
-        ]
-      : []
+  return (task: Task): readonly Delegation[] => {
+    if (task.label !== 'sovereign' || task.ownerId === undefined) return []
+    // **Signed with the seed of the task's OWN owner, not with one fixed seed.** This read
+    // `delegate(BENCH_USER_SEED, …)` until 2026-08-14, which was right while the driver had one
+    // owner and silently wrong with two: `delegate` derives the chain's `issuer` from the key
+    // that signs it, `authorizeCapability` refuses a chain whose root is not the serving node's
+    // pinned `ownerKey`, and a worker clearing for the second owner would therefore refuse
+    // every shard — reported as `unplaceable` with nothing anywhere obviously wrong, which is
+    // the exact failure mode `BENCH_OWNER_KEY`'s docblock records.
+    const seed =
+      task.ownerId === BENCH_OWNER_KEY
+        ? BENCH_USER_SEED
+        : task.ownerId === BENCH_OWNER_KEY_B
+          ? BENCH_USER_SEED_B
+          : undefined
+    // A throw and never an empty list, on the rule this leg already follows for a reported
+    // zero: `[]` is the *correct* answer for a public task and would here be indistinguishable
+    // from one, so an owner this driver cannot root a chain at has to stop the run.
+    if (seed === undefined) {
+      throw new Error(
+        `--sovereign: a task is pinned to owner ${task.ownerId}, which is neither of this` +
+          ' driver’s two owners, so no chain can be rooted at it',
+      )
+    }
+    return [
+      delegate(seed, {
+        ownerId: task.ownerId,
+        expiresAt: Date.now() + 3_600_000,
+        audience: audienceKeyOf(nodeId),
+        abilities: ['execute'],
+      }),
+    ]
+  }
 }
 
 /** The TCP multiaddr a peer dials this node at, peer id included. */
@@ -1277,7 +1364,9 @@ async function realFabric(
             ? {}
             : {
                 enrollment: {
-                  userPrivateKey: BENCH_USER_SEED,
+                  // `ownerOfWorker` returns the first owner unconditionally unless SOVEREIGN,
+                  // so the `--discover`-only rig enrols exactly as it always did.
+                  userPrivateKey: ownerOfWorker(i).seed,
                   operatorId: `bench-worker-${i}`,
                   providerAddr,
                 },
@@ -1309,9 +1398,14 @@ async function realFabric(
           ...(SOVEREIGN
             ? {
                 sovereignty: {
-                  ownerId: BENCH_OWNER_KEY,
+                  // **This node's OWN owner, not the driver's one owner.** All three fields are
+                  // still one string — the sentence above is untouched — but the string is now
+                  // per node. A worker clears for the owner it enrolled under and for no other,
+                  // which is what makes `eligibleNodes` place each owner's row on that owner's
+                  // machine and nowhere else.
+                  ownerId: ownerOfWorker(i).key,
                   canExecuteSovereign: true,
-                  ownerKey: BENCH_OWNER_KEY,
+                  ownerKey: ownerOfWorker(i).key,
                 },
               }
             : {}),
@@ -1332,22 +1426,29 @@ async function realFabric(
     // anywhere obviously wrong. So the two are compared here, at the one moment both
     // exist, and a disagreement stops the run naming both keys.
     //
-    // Read off `started[0]` and not off every worker: they all enrol under the same seed
-    // with the same provider, so the first is the reading and a loop would be N copies of
-    // one comparison.
+    // **Read off EVERY worker since 2026-08-14, and the reason the old comment gave for
+    // reading one is exactly the reason that changed.** It said: *"Read off `started[0]` and
+    // not off every worker: they all enrol under the same seed with the same provider, so the
+    // first is the reading and a loop would be N copies of one comparison."* They no longer
+    // all enrol under the same seed — `ownerOfWorker` alternates — so `started[0]` is now a
+    // reading about the FIRST owner only, and a second owner whose derivation was wrong by one
+    // byte would sail past it and produce the quiet `unplaceable` this check exists to stop.
+    // The loop is no longer N copies of one comparison; it is N comparisons.
     if (SOVEREIGN) {
-      const witness = started[0]
-      if (witness?.certificate == null) {
-        throw new Error(
-          '--sovereign: no worker holds a certificate, so no descriptor can carry an owner —' +
-            ' the enrolment the discover arm performs is what this leg rides',
-        )
-      }
-      if (witness.certificate.userKey !== BENCH_OWNER_KEY) {
-        throw new Error(
-          `--sovereign: the derived owner key ${BENCH_OWNER_KEY} is not the key a worker enrolled` +
-            ` under (${witness.certificate.userKey}); every sovereign shard would be unplaceable`,
-        )
+      for (const [index, witness] of started.entries()) {
+        const expected = ownerOfWorker(index).key
+        if (witness?.certificate == null) {
+          throw new Error(
+            `--sovereign: worker ${String(index)} holds no certificate, so no descriptor can carry` +
+              ' an owner — the enrolment the discover arm performs is what this leg rides',
+          )
+        }
+        if (witness.certificate.userKey !== expected) {
+          throw new Error(
+            `--sovereign: the derived owner key ${expected} is not the key worker ${String(index)}` +
+              ` enrolled under (${witness.certificate.userKey}); its sovereign shard would be unplaceable`,
+          )
+        }
       }
     }
 
@@ -1535,44 +1636,69 @@ async function realFabric(
         // outside a spec. Two is therefore the smallest count at which the leg demonstrates
         // the thing MR-02 is about, and it is still not a sample size.
         //
-        // **Both rows belong to the SAME owner, and that is not a compromise.** The register
-        // that recorded this symbol as blocked claimed the arm "needs a job whose shards are
-        // pinned to two or more owners"; it does not — it needs two *contributions*, which
-        // one owner supplies with two rows. `reduce-sovereign.test.ts` measures exactly that
-        // case. So no second identity is enrolled here and `BENCH_USER_SEED` is untouched.
+        // **ONE ROW PER OWNER since 2026-08-14, and on a rig with two owners that makes this
+        // the first entry point in the repository to run MR-02's plural claim.** MR-02 reads
+        // *"**each owner** computes a local partial over its own data"*. Two owners is the
+        // smallest number at which "each" means anything, and `ownerOfWorker` alternates them
+        // across the rig, so every rung with two or more workers has both.
         //
-        // The payload bytes differ so the two partials address apart. They would anyway —
+        // On the one-worker rung there is only one owner, and the leg gives that owner **two**
+        // rows instead. Both arrangements produce two contributions, which is what the arm
+        // actually requires — it needs two *contributions*, not two owners, measured by
+        // `reduce-sovereign.test.ts`. So the leg scales its claim to the rig it was given
+        // rather than refusing on the small rung, and the line it prints says which it did.
+        //
+        // The payload bytes differ so the partials address apart. They would anyway —
         // `MODULE_WRITES_PARTITION` emits the partition index, so the outputs differ by
         // position — but a leg whose distinctness rests on the fixture's choice of output
         // would collapse to one leaf the day that fixture changed, and `deriveReduceTree`
         // dedupes on (contributor, cid). Distinct inputs make it independent of that.
-        const rows: readonly CanonicalValue[] = [
-          { partition: 0, payload: new Uint8Array(16).fill(0x5e) },
-          { partition: 1, payload: new Uint8Array(16).fill(0x5f) },
-        ]
-        const encodedRows: Uint8Array<ArrayBuffer>[] = []
-        for (const row of rows) {
-          const encoded = await canonicalCid(row)
+        const ownersPresent = [...new Set(started.map((_, index) => ownerOfWorker(index).key))]
+        const plan: readonly { readonly value: CanonicalValue; readonly ownerId: PublicKeyHex }[] =
+          ownersPresent.length >= 2
+            ? ownersPresent.map((ownerId, index) => ({
+                value: { partition: index, payload: new Uint8Array(16).fill(0x5e + index) },
+                ownerId,
+              }))
+            : [0, 1].map((index) => ({
+                value: { partition: index, payload: new Uint8Array(16).fill(0x5e + index) },
+                ownerId: ownersPresent[0] ?? BENCH_OWNER_KEY,
+              }))
+
+        const encodedPlan: { readonly bytes: Uint8Array<ArrayBuffer>; readonly ownerId: PublicKeyHex }[] =
+          []
+        for (const entry of plan) {
+          const encoded = await canonicalCid(entry.value)
           if (!encoded.ok) {
             throw new Error(`--sovereign: the owner-labelled row would not encode: ${encoded.error}`)
           }
-          encodedRows.push(encoded.bytes)
+          encodedPlan.push({ bytes: encoded.bytes, ownerId: entry.ownerId })
         }
 
-        // **The rows are resident on the owner's own node before anything is dispatched**,
-        // which is what "sovereign" means in this fabric and what `sovereign-egress.ts`
-        // states as its premise. It is also what makes the dispatch possible at all — see
-        // fact 2 above — and what lets the worker take its own hold on the row while it
-        // executes over it.
-        for (const node of started) {
-          for (const bytes of encodedRows) await node.store.put(bytes)
+        // **Each row is resident on ITS OWN owner's nodes and on no others**, which is what
+        // "sovereign" means in this fabric and what `sovereign-egress.ts` states as its
+        // premise. It is also what makes the dispatch possible at all — see fact 2 above — and
+        // what lets the worker take its own hold on the row while it executes over it.
+        //
+        // **The `and on no others` half is the change, and it is the half that carries the
+        // claim.** This loop put every row on every node until 2026-08-14, which was harmless
+        // while there was one owner and would be a lie with two: a rig where both owners hold
+        // both rows demonstrates nothing about data staying home. `eligibleNodes` guarantees
+        // an owner-labelled shard is only ever placed on a node clearing for that owner, so
+        // seeding narrowly is safe as well as honest — the node that runs the row is
+        // guaranteed to be one that was given it.
+        for (const [index, node] of started.entries()) {
+          const owner = ownerOfWorker(index).key
+          for (const entry of encodedPlan) {
+            if (entry.ownerId === owner) await node.store.put(entry.bytes)
+          }
         }
 
         const legStarted = performance.now()
-        const sovereignShards = rows.map((value) => ({
-          value,
+        const sovereignShards = plan.map((entry) => ({
+          value: entry.value,
           label: 'sovereign' as const,
-          ownerId: BENCH_OWNER_KEY,
+          ownerId: entry.ownerId,
         }))
         const dispatched = await submitJobWithEgress(
           {
@@ -1623,8 +1749,15 @@ async function realFabric(
           }\n`,
         )
 
+        // **The owner count is printed, and it is the reading MR-02's plural claim turns on.**
+        // A leg that said only "2 of 2 shards agreed" is satisfied identically by one owner
+        // holding two rows and by two owners holding one each, and those are different claims
+        // — the second is the one MR-02 makes. So the number of DISTINCT owners is on the line
+        // rather than inferable from it.
+        const distinctOwners = new Set(sovereignShards.map((one) => one.ownerId)).size
         process.stdout.write(
-          `--sovereign: ${String(agreed)} of ${String(sovereignShards.length)} sovereign shards agreed,` +
+          `--sovereign: ${String(agreed)} of ${String(sovereignShards.length)} sovereign shards agreed` +
+            ` across ${String(distinctOwners)} owner(s),` +
             ` chain rooted at ${BENCH_OWNER_KEY.slice(0, 8)},` +
             ` audience ${shard === undefined || shard.attempted.length === 0 ? 'nobody' : shard.attempted.join('/')}\n`,
         )
