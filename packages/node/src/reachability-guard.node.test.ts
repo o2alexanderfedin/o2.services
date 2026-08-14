@@ -358,14 +358,29 @@ describe('the guard cannot report clean because it looked at nothing', () => {
     // --sovereign` prints *"1 combine(s) at 2 replicas, coverage 1/1 owners complete, 2 row(s)
     // watched over 2 pinned"* at the two-worker rung, and names why the one-worker rung cannot
     // carry it. The instrument was then re-read and returned 69.
+    //
+    // ## Lowered 69 → 67, measured 2026-08-14, and this one is an INSTRUMENT REPAIR
+    //
+    // Nothing was wired for this two. `node/lanAddresses` and `node/localHostname` run on every
+    // `o2 seed` invocation and always did — `bin/seed.ts` reads them through **getters**, so the
+    // access is a property read rather than a call, and the tracer kept the `.name` half of a
+    // call while dropping it for a read. Repaired at `reachability.ts`'s property-access branch.
+    //
+    // **Second occurrence in two days of this exact shape** — after `core/executeVerified`, which
+    // is the fabric's N-version comparison and read as dead code behind a `const`-arrow. Both
+    // times the count was over-stating the gap, and both times the symbol was running in
+    // production. Read a finding's call sites before believing it.
+    //
+    // The rule was measured against the over-connection anchor **before** it was taken:
+    // `demo/estimatePi` stays unreachable and the total moves by exactly two.
     const found = unreachableExports(corpus(), graph(), ROOT)
     expect(
       found.length,
       `the guard found ${found.length} unreachable callable barrel exports; the reading recorded ` +
-        'on 2026-08-14 was 69. A HIGHER number means a new exported-but-uncalled symbol arrived — ' +
+        'on 2026-08-14 was 67. A HIGHER number means a new exported-but-uncalled symbol arrived — ' +
         `run the guard and read the list. A LOWER number is wiring work landing and the ceiling ` +
         'should be lowered to match it, which is 22-03\'s register rather than an edit here.',
-    ).toBeLessThanOrEqual(69)
+    ).toBeLessThanOrEqual(67)
   }, GRAPH_TIMEOUT_MS)
 
   it('separates findings that have callers from findings that have none', () => {

@@ -580,8 +580,29 @@ export const DISPOSITIONS: readonly Disposition[] = [
  *
  * **This lowering is only possible because the blocker recorded above was false**; see the
  * retraction in the `37 → 38` note. Neither symbol was ever blocked on anything.
+ *
+ * ## Lowered 27 → 25, measured 2026-08-14 — an INSTRUMENT REPAIR, and nothing was wired
+ *
+ * `node/lanAddresses` and `node/localHostname` were never unwired. Both run on **every `o2 seed`
+ * invocation**: `bin/seed.ts` is an entry point and reads `seed.joinUrl` (`:364`, `:368`) and
+ * `seed.joinUrlsByIp` (`:365`), which are **getters** — so the reads are property accesses, not
+ * calls, and the tracer dropped the `.name` half of a bare read while keeping it for a call.
+ * `reachability.ts`'s property-access branch now pushes the member edge for a read too, and the
+ * branch carries the measurement.
+ *
+ * **This is the second time in two days that this count was over-stating the gap, and the shape
+ * was identical both times**: live production code reported as an unwired capability because the
+ * graph could not see one kind of edge. Yesterday it was `core/executeVerified` — the fabric's
+ * N-version comparison, running on every shard dispatch — hidden behind a `const`-arrow. The
+ * standing lesson is unchanged and is worth restating where the number lives: **do not treat a
+ * reachability finding as a gap without reading the symbol's call sites first.**
+ *
+ * The over-connection risk was measured before the rule was taken. `demo/estimatePi` — the anchor
+ * that must stay unreachable — **still does**, and the total moved 69 → 67, i.e. the rule connects
+ * exactly the two getters and nothing else. A rule that connected broadly would have shown as a
+ * large drop and been refused, as the object-literal-method rule was.
  */
-export const OPEN_FINDING_CEILING = 27
+export const OPEN_FINDING_CEILING = 25
 
 /**
  * How large the register may grow before something reddens.
