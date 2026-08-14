@@ -15,7 +15,7 @@ import { describe, expect, it } from 'vitest'
 import { serveAgent } from './agent.ts'
 import { enrolOverRpc } from './enrol-client.ts'
 import type { EnrolOutcome } from './enrol-client.ts'
-import { encodeRequest, parseResponse } from './protocol.ts'
+import { encodeRequest, encodeResponse, parseResponse } from './protocol.ts'
 import { RpcEndpoint } from './rpc.ts'
 
 /**
@@ -399,5 +399,246 @@ describe('an observed enrolment request is not a replayable byte string', () => 
     // answering node — "this node issues no certificates" and nothing else.
     if (answered?.kind !== 'enrol' || answered.result.ok) throw new Error('expected a refusal')
     expect(answered.result.reason).toContain('ask this provider for another')
+  })
+})
+
+/**
+ * An endpoint that rewrites the certificate in an `enrol` answer — the hostile provider.
+ *
+ * Expressed at the one seam a test can reach without a second `EnrollmentAuthority`: the
+ * answer is produced by the real authority and then the certificate inside it is replaced.
+ * What arrives at `enrolOverRpc` is therefore indistinguishable, frame for frame, from a
+ * provider that simply chose to answer about a different node — which is the threat.
+ */
+class SubstitutingEndpoint extends RpcEndpoint {
+  substitute: CanonicalValue | null = null
+
+  override async request(to: string, body: CanonicalValue): Promise<CanonicalValue> {
+    const answer = await super.request(to, body)
+    if (this.substitute === null) return answer
+    if (typeof answer !== 'object' || answer === null || Array.isArray(answer)) return answer
+    const record = answer as Record<string, CanonicalValue>
+    // Only the enrolment leg is rewritten. The challenge leg must travel untouched, or the
+    // request is refused as stale before ratification is reached and the case passes for
+    // the wrong reason.
+    if (record['kind'] !== 'enrol' || record['ok'] !== true) return answer
+    const swapped = { ...record, certificate: this.substitute }
+    this.substitute = null
+    return swapped
+  }
+}
+
+describe('the requester checks that the answer is about the request', () => {
+  /**
+   * A provider that answers about somebody else — AUTH-01.
+   *
+   * `enrolOverRpc` sends a request naming this node and this user. Until these cases it
+   * returned whatever came back **verbatim**, and both node factories persisted it without
+   * comparing one field against the request built four lines earlier.
+   *
+   * ## Why `verifyCertificate` does not already cover this
+   *
+   * It answers a different question, and that is the whole point. `verifyCertificate` asks
+   * *"is this well-formed, signed by an issuer I pinned, inside its validity window?"* — and
+   * a certificate naming a different node answers **yes** to all of it. Every certificate
+   * substituted below is **genuinely issued by the real authority over the real protocol**,
+   * and the case below the substitutions asserts that `verifyCertificate` accepts one, so
+   * these cannot be passing because the existing verifier would have caught them anyway.
+   *
+   * Ratification asks *"is this about the request I just sent?"* Only the requester can ask
+   * it, because nobody downstream holds the request.
+   *
+   * ## The asymmetry that makes it a defect rather than a decision
+   *
+   * On **reload** both tiers already re-check what they load (`browser-node.ts:553-560`,
+   * `fabric-node.ts:1053-1062`), and the Node tier's comment names the case exactly: *"a
+   * directory cloned from another host, where the certificate is intact, unexpired,
+   * genuinely signed, and names somebody else."* On **issue**, neither did. One sentence
+   * describes both ends and only one was guarded.
+   *
+   * ## Five fields, and no clock
+   *
+   * `enrol` builds what it signs from `nodeKey`, `userKey`, `operatorId`, `discoverability`
+   * and `relayIds`, deriving `issuedAt`/`expiresAt`/`issuer` itself, so only those five have
+   * a counterpart to compare. `issuer` has no expected value here — `BrowserNodeOptions`
+   * carries no `trustedIssuers` at all — so checking it against the answer's own issuer
+   * would be well-formedness wearing authenticity's clothes.
+   *
+   * **The check reads no clock and must not.** Running `verifyCertificate(…, Date.now())`
+   * here would refuse `not-yet-valid` on a **strict** `issuedAt > now`, where `issuedAt` is
+   * the *provider's* clock and `now` the *requester's* — so a machine a second behind would
+   * have an honest, freshly-signed certificate refused, fatally on the browser tier.
+   * Comparing fields needs no clock, so the skew cannot arise and `enrol-client.ts` keeps
+   * the *"Pure module"* its header claims. Validity is the relying party's question and
+   * both tiers already ask it at load.
+   */
+  const victimNode = keypair(120)
+  const victimUser = keypair(121)
+  const decoyNode = keypair(122)
+  const decoyUser = keypair(123)
+
+  const VICTIM_RELAYS = ['12D3KooWRelayOne', '12D3KooWRelayTwo']
+
+  function victimRequest(relayIds: readonly string[] = VICTIM_RELAYS): PendingEnrollment {
+    return requestEnrollment(victimNode.priv, victimUser.priv, {
+      operatorId: 'victim-op',
+      discoverability: 'via-relay',
+      relayIds,
+    })
+  }
+
+  /**
+   * A real certificate for a different request, in the form the wire carries it.
+   *
+   * Genuinely enrolled over a second endpoint on the same fabric, then re-encoded through
+   * `encodeResponse` — the same production function the provider's own handler uses.
+   * Nothing here hand-builds a certificate value: a hand-built one could differ from what a
+   * provider emits, and the substitution would be testing the encoder rather than the check.
+   */
+  async function realCertificateValueFor(
+    network: MemoryNetwork,
+    providerId: string,
+    pending: PendingEnrollment,
+  ): Promise<CanonicalValue> {
+    const side = new RpcEndpoint(network.connect(`decoy-${pending.nodeKey.slice(0, 8)}`), {
+      timeoutMs: 1_000,
+    })
+    const outcome = await enrolOverRpc(side, providerId, pending)
+    if (!outcome.ok) throw new Error(`the decoy enrolment itself failed: ${JSON.stringify(outcome)}`)
+    const encoded = encodeResponse({
+      kind: 'enrol',
+      result: { ok: true, certificate: outcome.certificate },
+    })
+    return (encoded as Record<string, CanonicalValue>)['certificate'] as CanonicalValue
+  }
+
+  function victimEndpoint(network: MemoryNetwork): SubstitutingEndpoint {
+    return new SubstitutingEndpoint(network.connect('victim'), { timeoutMs: 1_000 })
+  }
+
+  it('refuses a genuinely-signed certificate that names a different node', async () => {
+    const { network, providerId } = buildFabric({ issues: true })
+    const rpc = victimEndpoint(network)
+    rpc.substitute = await realCertificateValueFor(
+      network,
+      providerId,
+      requestEnrollment(decoyNode.priv, victimUser.priv, {
+        operatorId: 'victim-op',
+        discoverability: 'via-relay',
+        relayIds: VICTIM_RELAYS,
+      }),
+    )
+
+    expect(await enrolOverRpc(rpc, providerId, victimRequest())).toMatchObject({
+      ok: false,
+      kind: 'unratified',
+      field: 'nodeKey',
+    })
+  })
+
+  it('refuses one that names a different user, and says so by field', async () => {
+    const { network, providerId } = buildFabric({ issues: true })
+    const rpc = victimEndpoint(network)
+    rpc.substitute = await realCertificateValueFor(
+      network,
+      providerId,
+      requestEnrollment(victimNode.priv, decoyUser.priv, {
+        operatorId: 'victim-op',
+        discoverability: 'via-relay',
+        relayIds: VICTIM_RELAYS,
+      }),
+    )
+
+    expect(await enrolOverRpc(rpc, providerId, victimRequest())).toMatchObject({
+      ok: false,
+      kind: 'unratified',
+      field: 'userKey',
+    })
+  })
+
+  it('refuses a rewritten operatorId — the field quorum anti-affinity rests on', async () => {
+    const { network, providerId } = buildFabric({ issues: true })
+    const rpc = victimEndpoint(network)
+    rpc.substitute = await realCertificateValueFor(
+      network,
+      providerId,
+      requestEnrollment(victimNode.priv, victimUser.priv, {
+        operatorId: 'somebody-elses-operator',
+        discoverability: 'via-relay',
+        relayIds: VICTIM_RELAYS,
+      }),
+    )
+
+    expect(await enrolOverRpc(rpc, providerId, victimRequest())).toMatchObject({
+      ok: false,
+      kind: 'unratified',
+      field: 'operatorId',
+    })
+  })
+
+  it('refuses an added relay id', async () => {
+    const { network, providerId } = buildFabric({ issues: true })
+    const rpc = victimEndpoint(network)
+    rpc.substitute = await realCertificateValueFor(
+      network,
+      providerId,
+      requestEnrollment(victimNode.priv, victimUser.priv, {
+        operatorId: 'victim-op',
+        discoverability: 'via-relay',
+        relayIds: [...VICTIM_RELAYS, '12D3KooWRelayThree'],
+      }),
+    )
+
+    expect(await enrolOverRpc(rpc, providerId, victimRequest())).toMatchObject({
+      ok: false,
+      kind: 'unratified',
+      field: 'relayIds',
+    })
+  })
+
+  it('confirms a substituted certificate is one verifyCertificate accepts', async () => {
+    // The floor under every case above: a certificate the existing verifier already refuses
+    // would prove nothing about ratification.
+    const { network, providerId, authority } = buildFabric({ issues: true })
+    const side = new RpcEndpoint(network.connect('decoy-direct'), { timeoutMs: 1_000 })
+    const outcome = await enrolOverRpc(
+      side,
+      providerId,
+      requestEnrollment(decoyNode.priv, decoyUser.priv, {
+        operatorId: 'somebody-elses-operator',
+        discoverability: 'seed',
+        relayIds: [],
+      }),
+    )
+
+    if (!outcome.ok) throw new Error('the decoy enrolment itself should succeed')
+    expect(
+      verifyCertificate(outcome.certificate, new Set([authority.issuerKey]), Date.now()).ok,
+    ).toBe(true)
+  })
+
+  it('accepts an honest answer', async () => {
+    const { network, providerId } = buildFabric({ issues: true })
+    const outcome = await enrolOverRpc(victimEndpoint(network), providerId, victimRequest())
+
+    expect(outcome.ok).toBe(true)
+    if (!outcome.ok) throw new Error('expected a certificate')
+    expect(outcome.certificate.nodeKey).toBe(victimNode.pub)
+    expect(outcome.certificate.userKey).toBe(victimUser.pub)
+  })
+
+  it('accepts relayIds the provider returned in a different order', async () => {
+    // The negative control for the normalisation. `enrol` signs `[...relayIds].sort()` while
+    // `requestEnrollment` passes them through unsorted, so a compare that did not normalise
+    // would refuse an HONEST provider — and only for callers whose relay ids happened to
+    // arrive unsorted, which is the worst shape of intermittent failure.
+    const { network, providerId } = buildFabric({ issues: true })
+    const descending = ['12D3KooWRelayTwo', '12D3KooWRelayOne']
+
+    const outcome = await enrolOverRpc(victimEndpoint(network), providerId, victimRequest(descending))
+
+    expect(outcome.ok).toBe(true)
+    if (!outcome.ok) throw new Error('expected a certificate')
+    expect([...outcome.certificate.relayIds]).toEqual([...descending].sort())
   })
 })
